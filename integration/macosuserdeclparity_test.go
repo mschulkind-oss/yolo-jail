@@ -49,7 +49,7 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 	}
 
 	for _, c := range []struct{ row, want, why string }{
-		{"DP-B19", "# YOLO Environment — jail (native, no container)",
+		{"DP-B19", "# YOLO Environment — setup seatbelt-self",
 			"the header is not the native one, so the agent is told something other than a Seatbelt sandbox on a real account"},
 		{"Environment", "- **Workspace**: `" + ws + "` — the host directory itself",
 			"the Workspace bullet does not name this workspace's real path"},

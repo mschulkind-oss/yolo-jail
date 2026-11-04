@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // jailPack builds an in-memory pack: the manifest contributions given, plus any files.
@@ -76,6 +77,7 @@ func jailBriefingsWith(t *testing.T, cfg *jsonx.OrderedMap, packs []*packload.Pa
 	t.Cleanup(func() { jailcontent.SetPackSkillDirs(nil); jailcontent.SetPackSkillTargets(nil) })
 
 	o := goldenOptions(ws, home)
+	o.Setup = setup.MustBuiltIn("podman-self")
 	o.Stdout = discardBuf()
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, "podman",
 		stagedPacks{packs: packs, briefings: proses}, ioprio.Normal)
@@ -116,7 +118,7 @@ func TestJailBriefingDeliversAddressedProseOnlyToItsAudience(t *testing.T) {
 	}
 	// The base briefing is still every destination's.
 	for dest, body := range got {
-		if !strings.Contains(body, "Jail Environment") {
+		if !strings.Contains(body, "# YOLO Environment — setup podman-self") {
 			t.Errorf("%s lost yolo's own briefing — only the PACK prose is scoped:\n%s", dest, body)
 		}
 	}

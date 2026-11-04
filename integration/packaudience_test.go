@@ -85,7 +85,7 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 		// The base briefing is NOT scoped — only pack prose is — so codex must still have
 		// been briefed. Without this, "the audience filter deleted codex's whole briefing"
 		// would read as a pass.
-		`rg -c 'Jail Environment' /home/agent/.codex/AGENTS.md && echo CODEX_STILL_BRIEFED`,
+		`rg -c 'YOLO Environment — setup ' /home/agent/.codex/AGENTS.md && echo CODEX_STILL_BRIEFED`,
 	}, "; "))
 
 	for _, want := range []string{

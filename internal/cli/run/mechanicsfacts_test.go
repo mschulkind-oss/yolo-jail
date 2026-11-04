@@ -16,7 +16,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
+
+func TestMechanicsProducedSetupReachesRenderedMechanicsMap(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := goldenOptions(t.TempDir(), t.TempDir())
+	o.Setup = setup.MustBuiltIn("podman-self")
+	facts := o.mechanicsFactSheet("yolo-ws-mechanics-setup", mapOf(t, `{}`), "podman",
+		stagedPacks{}, storePackagesPlan{}, nil)
+	files, err := jailcontent.RenderBuiltinSkills(*facts)
+	if err != nil {
+		t.Fatalf("render produced mechanics sheet: %v", err)
+	}
+	got := string(files["jail-mechanics/host-map.md"])
+	for _, want := range []string{"Selected setup: `podman-self`", "Podman, as you; bridged", "Applied network mode: bridge."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered mechanics map lacks produced setup fact %q:\n%s", want, got)
+		}
+	}
+}
 
 func TestMechanicsSwitchFactsUseTheStagedPackSelection(t *testing.T) {
 	t.Cleanup(loopholes.ResetPackModules)

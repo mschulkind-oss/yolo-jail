@@ -42,8 +42,8 @@ func TestHostApplyTellsTheAgentItIsOnTheRealMachine(t *testing.T) {
 	}
 	body := string(got)
 	for _, want := range []string{
-		"# YOLO Environment — host",
-		"this is the human's REAL",
+		"# YOLO Environment — setup host-self",
+		"This is the human's REAL",
 		"Changes are NOT disposable.",
 		"Agent autonomy is **OFF**",
 		"USER EXTRA: prefer small commits.",

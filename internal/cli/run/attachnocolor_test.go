@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -27,6 +28,8 @@ func attachExecArgv(t *testing.T, invocation map[string]string, frozenEnv string
 	home := packHome(t)
 	emptyLoopholeDirs(t)
 	o := goldenOptions(t.TempDir(), home)
+	selectRuntimeSetup(o, "podman")
+	o.Setup = setup.MustBuiltIn("podman-self")
 	o.Stdout, o.Stderr = discardBuf(), discardBuf()
 	o.Getenv = func(k string) string { return invocation[k] }
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
@@ -82,7 +85,7 @@ func TestAttachExecCarriesNoColor(t *testing.T) {
 		noColor string
 		want    []string
 	}{{"1", []string{"NO_COLOR=1"}}, {"", nil}} {
-		argv := attachExecArgv(t, map[string]string{"NO_COLOR": tc.noColor}, "YOLO_VERSION=9.9.9-test\n")
+		argv := attachExecArgv(t, map[string]string{"NO_COLOR": tc.noColor}, podmanSetupNetworkEnv+"YOLO_VERSION=9.9.9-test\n")
 		var got []string
 		for _, e := range execEnvBeforeContainer(t, argv) {
 			if strings.HasPrefix(e, "NO_COLOR=") {
@@ -113,11 +116,10 @@ func TestAttachExecClearsAFrozenNoColor(t *testing.T) {
 		frozenEnv  string
 		want       []string
 	}{
-		{"frozen, unset at attach", "", "YOLO_VERSION=9.9.9-test\nNO_COLOR=1\n", []string{"NO_COLOR="}},
-		{"frozen, set at attach", "1", "NO_COLOR=1\n", []string{"NO_COLOR=1"}},
-		{"frozen empty", "", "NO_COLOR=\n", nil},
-		{"never frozen", "", "YOLO_VERSION=9.9.9-test\n", nil},
-		{"inspect answered nothing", "", "", nil},
+		{"frozen, unset at attach", "", podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\nNO_COLOR=1\n", []string{"NO_COLOR="}},
+		{"frozen, set at attach", "1", podmanSetupNetworkEnv + "NO_COLOR=1\n", []string{"NO_COLOR=1"}},
+		{"frozen empty", "", podmanSetupNetworkEnv + "NO_COLOR=\n", nil},
+		{"never frozen", "", podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argv := attachExecArgv(t, map[string]string{"NO_COLOR": tc.invocation}, tc.frozenEnv)

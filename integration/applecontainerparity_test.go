@@ -444,7 +444,7 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 		`echo "=== END ==="`,
 	}, "\n"))
 	briefing := section(res.stdout, "=== BRIEFING ===", "=== END ===")
-	if !strings.Contains(briefing, "# YOLO Jail Environment") {
+	if !strings.Contains(briefing, "# YOLO Environment — setup apple-container-self") {
 		t.Fatalf("%s %s: no yolo briefing arrived at ~/.claude/CLAUDE.md, so there is nothing to "+
 			"ask about its loophole section — nothing was measured (and a missing briefing is a "+
 			"defect of its own):\n%s", acParityTag, fix, lastLines(briefing, 30))

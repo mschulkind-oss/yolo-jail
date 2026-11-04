@@ -145,7 +145,7 @@ func headline(out, prefix string) string {
 // and continues into the fresh launch.
 func TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition(t *testing.T) {
 	typed := func(o *Options) { o.ProfileName = "zai" }
-	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	current := podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
 	for _, tc := range []struct {
 		name    string
 		env     string
@@ -352,7 +352,7 @@ func TestAnAttachThatCannotFindTheJailsTreeSaysSo(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+			current := podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
 			bin := t.TempDir()
 			argvFile := filepath.Join(t.TempDir(), "argv")
 			r := runPackSkew(t, ws, current, false, "", map[string]string{"ZAI_API_KEY": "sk-test"}, func(o *Options) {
@@ -543,7 +543,7 @@ func TestAnAcknowledgedPackSkewExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin, argvFile := t.TempDir(), filepath.Join(t.TempDir(), "argv")
-	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	current := podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
 	r := runPackSkew(t, ws, current, false, "",
 		map[string]string{AllowAttachSkewEnv: "1", "ZAI_API_KEY": "sk-test"}, func(o *Options) {
 			o.Args = []string{"copilot", "chat"}

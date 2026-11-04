@@ -149,7 +149,7 @@ func TestHostLaunchFooterNamesAOneLaunchProfile(t *testing.T) {
 		t.Fatalf("yolo host -p zai -- claude: rc = %d, reached exec = %v\n%s", rc, env != nil, errs)
 	}
 	line := hostFooterRunIn(t, home, command, env)
-	if want := "Opus · yolo: zai · host"; line != want {
+	if want := "Opus · yolo: zai · host-self"; line != want {
 		t.Errorf("the one-launch footer = %q, want %q (the config selects bedrock; this launch runs zai)", line, want)
 	}
 }

@@ -41,6 +41,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -1039,6 +1040,7 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 
 	const cname = "yolo-attach-skeleton"
 	o := goldenOptions(t.TempDir(), home)
+	o.Setup = setup.MustBuiltIn("podman-self")
 	o.Stdout, o.Stderr = discardBuf(), discardBuf()
 	cfg := newConfig("writable_home_dirs", []any{".pi-lens"})
 
@@ -1070,7 +1072,7 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 	o.Stderr = &stderr
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "inspect" {
-			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n"}
+			return ExecResult{Ran: true, RC: 0, Stdout: podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n"}
 		}
 		return ExecResult{Ran: false}
 	}

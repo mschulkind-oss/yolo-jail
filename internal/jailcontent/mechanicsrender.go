@@ -284,6 +284,13 @@ func networkSharesHost(mode string) bool {
 func renderPathMap(facts FactSheet) string {
 	var b strings.Builder
 	b.WriteString("# Paths in this environment\n\n| Path | Original host source | Backing source | Mode | Lifetime / class | Delivery |\n|---|---|---|---|---|---|\n")
+	if facts.Setup != "" || facts.SetupDescription != "" {
+		fmt.Fprintf(&b, "\nSelected setup: `%s`", facts.Setup)
+		if facts.SetupDescription != "" {
+			fmt.Fprintf(&b, " — %s", facts.SetupDescription)
+		}
+		b.WriteString(".\n")
+	}
 	paths := append([]PathFact(nil), facts.Paths...)
 	sort.SliceStable(paths, func(i, j int) bool { return paths[i].Path < paths[j].Path })
 	for _, p := range paths {

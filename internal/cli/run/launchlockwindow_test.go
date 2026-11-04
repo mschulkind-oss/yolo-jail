@@ -151,7 +151,7 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 					"restarts the jail would continue into a fresh launch without it, and the " +
 					"stopped jail's teardown could remove the host-services dir that launch publishes into")
 			}
-			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n"}
+			return ExecResult{Ran: true, RC: 0, Stdout: podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n"}
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}

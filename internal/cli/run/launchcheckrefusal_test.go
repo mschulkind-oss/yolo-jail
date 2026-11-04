@@ -274,7 +274,7 @@ func attachAgainst(t *testing.T, handler hostservice.Handler, prep ...func(*test
 	for _, p := range prep {
 		p(t)
 	}
-	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	current := podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
 	return runPackSkew(t, ws, current, false, "", nil, nil)
 }
 

@@ -51,9 +51,9 @@ func TestAttachExecCarriesUseInstalled(t *testing.T) {
 		name, invocation, frozen string
 		want                     []string
 	}{
-		{"set at attach", "claude", "YOLO_VERSION=9.9.9-test\n", []string{env + "=claude"}},
-		{"frozen, unset at attach", "", env + "=claude\n", []string{env + "="}},
-		{"never set", "", "YOLO_VERSION=9.9.9-test\n", nil},
+		{"set at attach", "claude", podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n", []string{env + "=claude"}},
+		{"frozen, unset at attach", "", podmanSetupNetworkEnv + env + "=claude\n", []string{env + "="}},
+		{"never set", "", podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argv := attachExecArgv(t, map[string]string{env: tc.invocation}, tc.frozen)

@@ -3037,12 +3037,22 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// ONE inspect serves the banner's baked version and the contract gate's tags — the
 	// container's whole frozen env, read once.
-	envLines, _ := o.inspectContainerEnv(rt, cname)
+	envLines, envKnown := o.inspectContainerEnv(rt, cname)
+	// An attach enters the jail that is already running, not the setup this invocation
+	// would have started. Disclose only its immutable inspected setup/network facts; when
+	// that truth is unavailable or differs from this launch's resolved choice, stop rather
+	// than describe the requested state as if it were applied.
+	actualSetup, actualNetwork, truthErr := attachSetupAndNetwork(o, envLines, envKnown, rt, cfg)
+	if truthErr != nil {
+		o.refuseAttachSetupTruth(rt, cname, truthErr)
+		releaseLock()
+		return 1, false
+	}
 	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
-	o.emitLaunchBanner(rt, cname, cfg, nil, baked)
+	o.emitLaunchBannerFacts(rt, cname, actualSetup, actualNetwork, setup.FromRunningJail, nil, baked)
 	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
 	// it, and asks for no other. A request the running jail does not hold is refused before anything
 	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.
@@ -3566,6 +3576,14 @@ func runtimeWriteTracking(cname, workspace string) error {
 // LaunchBanner's byte-identical return rather than living inside it, and a launch
 // tee strips the escapes from the log copy (launchlog.go's teeLog).
 func (o *Options) emitLaunchBanner(rt, cname string, cfg *jsonx.OrderedMap, resParts []string, jailVersion string) {
+	o.emitLaunchBannerFacts(rt, cname, o.Setup, appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()),
+		o.setupChoice.Source, resParts, jailVersion)
+}
+
+// emitLaunchBannerFacts is also the attach path's disclosure seam: those facts are read from the
+// running jail, rather than reconstructed from this invocation's requested setup/config.
+func (o *Options) emitLaunchBannerFacts(rt, cname string, selected setup.Setup, network string,
+	source setup.Source, resParts []string, jailVersion string) {
 	// Resolve the repo root via the shared method (o.RepoRoot → reporoot.Resolve),
 	// so the version this compares jailVersion against matches run/check and
 	// describes the yolo-jail repo, not whatever repo the cwd happens to sit in.
@@ -3576,14 +3594,67 @@ func (o *Options) emitLaunchBanner(rt, cname string, cfg *jsonx.OrderedMap, resP
 			repoRoot = rr.Root
 		}
 	}
-	line := LaunchBanner(o.Setup, appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer()), o.setupChoice.Source,
-		rt, cname, version.Get(repoRoot), jailVersion, resParts)
+	line := LaunchBanner(selected, network, source, rt, cname, version.Get(repoRoot), jailVersion, resParts)
 	// print, not Fprint as it once was: LaunchBanner returns no trailing newline, and
 	// the old Fprint left the cursor mid-line so whatever printed next was glued onto
 	// the banner ("…pids=32768No packs are configured…", observed in a nested
 	// launch). It was invisible before only because the next writer happened to be
 	// the container's own output, which opens with its own newline.
 	o.pr(o.Stderr).print("[dim]" + line + "[/dim]")
+}
+
+// attachSetupAndNetwork returns only setup facts that can be established from the running
+// container's runtime-inspected immutable environment. Custom setup field values are not frozen
+// there yet, so they cannot safely be reconstructed from workspace briefing/config snapshots.
+func attachSetupAndNetwork(o *Options, envLines []string, envKnown bool, rt string,
+	cfg *jsonx.OrderedMap) (setup.Setup, string, error) {
+	if !envKnown {
+		return setup.Setup{}, "", fmt.Errorf("could not inspect the running jail's frozen launch environment")
+	}
+	name, found := envLineLookup(envLines, setup.EnvVar)
+	if !found || name == "" {
+		return setup.Setup{}, "", fmt.Errorf("the running jail has no frozen %s setup marker", setup.EnvVar)
+	}
+	if !setup.IsBuiltIn(name) {
+		return setup.Setup{}, "", fmt.Errorf("the running jail names custom setup %q, whose frozen fields are unavailable", name)
+	}
+	actual := setup.MustBuiltIn(name)
+	if actual.Name != o.Setup.Name {
+		return setup.Setup{}, "", fmt.Errorf("the running jail uses setup %q, but this launch selected %q", actual.Name, o.Setup.Name)
+	}
+	var network string
+	switch actual.Confinement {
+	case setup.ConfinementAppleContainer:
+		// Apple Container has one network topology; launch validation refuses host mode.
+		network = "bridge"
+	case setup.ConfinementPodman:
+		mode, ok := envLineLookup(envLines, paths.HostLoopbackEnvVar)
+		if !ok {
+			return setup.Setup{}, "", fmt.Errorf("the running podman jail has no frozen %s network marker", paths.HostLoopbackEnvVar)
+		}
+		switch mode {
+		case paths.HostLoopbackShared:
+			network = "host"
+		case paths.HostLoopbackRequested, paths.HostLoopbackUnsupported, paths.HostLoopbackUnknown:
+			network = "bridge"
+		default:
+			return setup.Setup{}, "", fmt.Errorf("the running podman jail has an unrecognized frozen network marker %q", mode)
+		}
+	default:
+		return setup.Setup{}, "", fmt.Errorf("the running jail's setup %q is not a container setup", actual.Name)
+	}
+	requestedNetwork := appliedNetMode(rt, o.resolveNetMode(cfg), o.inContainer())
+	if network != requestedNetwork {
+		return setup.Setup{}, "", fmt.Errorf("the running jail uses %s networking, but this launch selected %s", network, requestedNetwork)
+	}
+	return actual, network, nil
+}
+
+func (o *Options) refuseAttachSetupTruth(rt, cname string, cause error) {
+	out := o.pr(o.Stderr)
+	out.printf("[bold red]Refusing to attach: %s.[/bold red]", richtext.Escape(cause.Error()))
+	out.printf("[dim]Stop the running jail with %s, then repeat this launch so it starts with the selected setup and network.[/dim]",
+		richtext.Escape(stopRemedy(rt, cname)))
 }
 
 // inspectContainerEnv reads a running container's whole frozen environment via

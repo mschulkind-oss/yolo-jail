@@ -168,13 +168,17 @@ func TestSelectRefusesAMalformedName(t *testing.T) {
 
 func TestSourceNamesWhereTheChoiceCameFrom(t *testing.T) {
 	for src, want := range map[setup.Source]string{
-		setup.FromFlag:       "--setup",
-		setup.FromEnv:        "YOLO_SETUP",
-		setup.FromUserConfig: "your user config",
-		setup.FromDefault:    "this OS's default",
+		setup.FromFlag:        "--setup",
+		setup.FromEnv:         "YOLO_SETUP",
+		setup.FromUserConfig:  "your user config",
+		setup.FromDefault:     "this OS's default",
+		setup.FromRunningJail: "the running jail",
 	} {
 		if src.String() != want {
 			t.Errorf("%d: %q, want %q", src, src.String(), want)
+		}
+		if src == setup.FromRunningJail && src.LaunchLabel() != "running jail" {
+			t.Errorf("%d: LaunchLabel = %q, want running jail", src, src.LaunchLabel())
 		}
 	}
 }

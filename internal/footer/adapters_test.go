@@ -114,7 +114,7 @@ func runStatusCommand(t *testing.T, command, home, stdin string, env map[string]
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/sh", "-c", command)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home, asYolo + "=1"}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home, asYolo + "=1", "YOLO_SETUP=podman-self"}
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -174,23 +174,23 @@ func TestClaudeAdapter(t *testing.T) {
 		want string
 	}{
 		{"a bedrock profile in a jail", with(bedrockTables("claude"), "YOLO_VERSION", "0.10.0", "CLAUDE_CODE_USE_BEDROCK", "1"),
-			"Opus · yolo: Bedrock · jail"},
+			"Opus · yolo: Bedrock · podman-self"},
 		{"Bedrock switched on outside yolo's profiles", with(bedrockTables("pi"), "YOLO_VERSION", "0.10.0", "CLAUDE_CODE_USE_BEDROCK", "1"),
-			"Opus · yolo: Bedrock (env) · jail"},
+			"Opus · yolo: Bedrock (env) · podman-self"},
 		{"the codex profile, which claude reaches through the bridge", with(bedrockTables("x"), "YOLO_USE_PROFILES", `{"claude": "codex"}`, "YOLO_VERSION", "0.10.0"),
-			"Opus · yolo: codex (bridge) · jail"},
+			"Opus · yolo: codex (bridge) · podman-self"},
 		{"no profile and no switch, on the host", map[string]string{},
-			"Opus · yolo: Claude subscription · host"},
+			"Opus · yolo: Claude subscription · host-self"},
 		{"a switch Claude counts as off", with(bedrockTables("pi"), "YOLO_VERSION", "1", "CLAUDE_CODE_USE_BEDROCK", "0"),
-			"Opus · yolo: Claude subscription · jail"},
+			"Opus · yolo: Claude subscription · podman-self"},
 		// Claude 2.1.282 tests its provider switches bedrock, foundry, anthropicAws,
 		// anthropicGoogleCloud, mantle, vertex — so with two on, the earlier one is the route.
 		{"Claude's own switch order decides between two", with(bedrockTables("pi"), "YOLO_VERSION", "1",
 			"CLAUDE_CODE_USE_VERTEX", "true", "CLAUDE_CODE_USE_FOUNDRY", "1"),
-			"Opus · yolo: Microsoft Foundry (env) · jail"},
+			"Opus · yolo: Microsoft Foundry (env) · podman-self"},
 		{"a switch yolo has no provider for is still named", with(bedrockTables("pi"), "YOLO_VERSION", "1",
 			"CLAUDE_CODE_USE_VERTEX", "yes"),
-			"Opus · yolo: Vertex AI (env) · jail"},
+			"Opus · yolo: Vertex AI (env) · podman-self"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -210,8 +210,8 @@ func TestClaudeAdapterShowsTheEffortLevel(t *testing.T) {
 	env := with(bedrockTables("claude"), "YOLO_VERSION", "0.10.0")
 	const withEffort = `{"model": {"id": "claude-opus-4", "display_name": "Opus"}, "effort": {"level": "high"}, "thinking": {"enabled": true}}`
 	cases := []struct{ name, stdin, want string }{
-		{"a model with an effort level", withEffort, "Opus · high · yolo: Bedrock · jail"},
-		{"a model without one", claudeStatus, "Opus · yolo: Bedrock · jail"},
+		{"a model with an effort level", withEffort, "Opus · high · yolo: Bedrock · podman-self"},
+		{"a model without one", claudeStatus, "Opus · yolo: Bedrock · podman-self"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -239,7 +239,7 @@ func TestAgyAdapter(t *testing.T) {
 	}
 	command, _ := sl["command"].(string)
 	got := runStatusCommand(t, command, t.TempDir(), claudeStatus, with(bedrockTables("claude"), "YOLO_VERSION", "0.10.0"))
-	if want := "yolo: Google AI subscription · jail"; got != want {
+	if want := "yolo: Google AI subscription · podman-self"; got != want {
 		t.Errorf("agy footer = %q, want %q", got, want)
 	}
 }
@@ -316,7 +316,7 @@ func TestCopilotAdapter(t *testing.T) {
 	}
 	got := runStatusCommand(t, command, homeWithCopilotScript(t, body), `{"cwd": "/workspace"}`,
 		with(bedrockTables("claude"), "YOLO_VERSION", "0.10.0"))
-	if want := "yolo: Copilot subscription · jail"; got != want {
+	if want := "yolo: Copilot subscription · podman-self"; got != want {
 		t.Errorf("copilot footer = %q, want %q", got, want)
 	}
 }
@@ -519,7 +519,7 @@ func runExtensionHarness(t *testing.T, harness string, source []byte, hasUI, wit
 	}
 	cmd := exec.Command(node, "harness.mjs")
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir(), asYolo + "=1", "HAS_UI=0"}
+	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir(), asYolo + "=1", "YOLO_SETUP=podman-self", "HAS_UI=0"}
 	if hasUI {
 		cmd.Env[len(cmd.Env)-1] = "HAS_UI=1"
 	}
@@ -557,12 +557,12 @@ func TestExtensionAdaptersSetOneYoloStatus(t *testing.T) {
 	}{
 		// The design's own example ("What the footer shows"): pi's native route to the ChatGPT subscription, under
 		// the pi pack's profile, which is named unlike its provider.
-		{extensionAdapters[0], codexTables("pi"), "yolo: ChatGPT subscription (profile codex) · jail"},
-		{extensionAdapters[0], map[string]string{}, "yolo: pi's own login · host"},
+		{extensionAdapters[0], codexTables("pi"), "yolo: ChatGPT subscription (profile codex) · podman-self"},
+		{extensionAdapters[0], map[string]string{}, "yolo: pi's own login · host-self"},
 		// omp speaks no Responses wire, so it reaches openai-codex at the bridge's anthropic
 		// address (TestBridgedRoutesAreMarked pins the list this case relies on).
-		{extensionAdapters[1], codexTables("oh-omp"), "yolo: codex (bridge) · jail"},
-		{extensionAdapters[1], map[string]string{"YOLO_VERSION": "0.10.0"}, "yolo: omp's own login · jail"},
+		{extensionAdapters[1], codexTables("oh-omp"), "yolo: codex (bridge) · podman-self"},
+		{extensionAdapters[1], map[string]string{"YOLO_VERSION": "0.10.0"}, "yolo: omp's own login · podman-self"},
 	}
 	for _, c := range cases {
 		t.Run(c.adapter.pack+"/"+c.want, func(t *testing.T) {
@@ -640,13 +640,13 @@ process.once("beforeExit", () => console.log(JSON.stringify(out)));
 // session was superseded by a later session_start, or shut down, is dropped; and a ctx pi
 // invalidated meanwhile (its setStatus throws) costs nothing but the line.
 func TestPiFooterDoesNotHoldSessionStart(t *testing.T) {
-	testFooterDoesNotHoldSessionStart(t, extensionAdapters[0], "yolo: pi's own login · host")
+	testFooterDoesNotHoldSessionStart(t, extensionAdapters[0], "yolo: pi's own login · host-self")
 }
 
 // TestOmpFooterDoesNotHoldSessionStart is TestPiFooterDoesNotHoldSessionStart for omp, whose
 // extension is the same shape on the same API: the four cases are the same.
 func TestOmpFooterDoesNotHoldSessionStart(t *testing.T) {
-	testFooterDoesNotHoldSessionStart(t, extensionAdapters[1], "yolo: omp's own login · host")
+	testFooterDoesNotHoldSessionStart(t, extensionAdapters[1], "yolo: omp's own login · host-self")
 }
 
 func testFooterDoesNotHoldSessionStart(t *testing.T, a extensionAdapter, line string) {
@@ -786,7 +786,7 @@ func runOpencodePlugin(t *testing.T, source []byte, withYolo bool, muted string,
 	}
 	cmd := exec.Command(node, "harness.mjs")
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir(), asYolo + "=1", "MUTED=" + muted}
+	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir(), asYolo + "=1", "YOLO_SETUP=podman-self", "MUTED=" + muted}
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -852,8 +852,8 @@ func TestOpencodeAdapter(t *testing.T) {
 			t.Errorf("the plugin fills slot %q, which opencode renders as %q: only an append slot keeps "+
 				"opencode's own content (DIR-FT2)", name, mode)
 		}
-		if el.Type != "text" || mustJSON(t, el.Props) != `{"children":"yolo: jail","fg":"MUTED"}` {
-			t.Errorf("slot %s renders %s %s, want a text element `yolo: jail` in the theme's muted color",
+		if el.Type != "text" || mustJSON(t, el.Props) != `{"children":"yolo: podman-self","fg":"MUTED"}` {
+			t.Errorf("slot %s renders %s %s, want a text element `yolo: podman-self` in the theme's muted color",
 				name, el.Type, mustJSON(t, el.Props))
 		}
 	}
@@ -861,15 +861,15 @@ func TestOpencodeAdapter(t *testing.T) {
 	t.Run("at the host", func(t *testing.T) {
 		run := runOpencodePlugin(t, source, true, "MUTED", nil)
 		for name, el := range run.Registered[0].Slots {
-			if el.Props["children"] != "yolo: host" {
-				t.Errorf("slot %s at the host renders %v, want yolo: host", name, el.Props["children"])
+			if el.Props["children"] != "yolo: host-self" {
+				t.Errorf("slot %s at the host renders %v, want yolo: host-self", name, el.Props["children"])
 			}
 		}
 	})
 	t.Run("a theme with no muted color leaves the default", func(t *testing.T) {
 		run := runOpencodePlugin(t, source, true, "", map[string]string{"YOLO_VERSION": "0.10.0"})
 		for name, el := range run.Registered[0].Slots {
-			if got := mustJSON(t, el.Props); got != `{"children":"yolo: jail"}` {
+			if got := mustJSON(t, el.Props); got != `{"children":"yolo: podman-self"}` {
 				t.Errorf("slot %s with no theme renders props %s, want the text alone", name, got)
 			}
 		}
@@ -903,8 +903,8 @@ func TestOpencodeFooterDoesNotHoldTUIStart(t *testing.T) {
 		t.Fatalf("the plugin registered %d slot plugins once the renderer answered, want 1", len(run.Registered))
 	}
 	for name, el := range run.Registered[0].Slots {
-		if el.Props["children"] != "yolo: jail" {
-			t.Errorf("slot %s registered after tui() returned renders %v, want yolo: jail", name, el.Props["children"])
+		if el.Props["children"] != "yolo: podman-self" {
+			t.Errorf("slot %s registered after tui() returned renders %v, want yolo: podman-self", name, el.Props["children"])
 		}
 	}
 }

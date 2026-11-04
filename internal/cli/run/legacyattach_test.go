@@ -85,7 +85,7 @@ func TestLegacyAttachRefreshPreservesPriorMechanicsAndDoesNotPromoteDesiredInput
 				t.Fatal(err)
 			}
 
-			env := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+			env := podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
 			if tc.envToken != "" {
 				env += ctxMountsTokenEnv + "=" + tc.envToken + "\n"
 			}

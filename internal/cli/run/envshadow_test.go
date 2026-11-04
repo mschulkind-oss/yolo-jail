@@ -153,7 +153,7 @@ func TestAFreshContainerLaunchNamesWhatItShadowed(t *testing.T) {
 			home := packHome(t)
 			writeShadowFixture(t, home, shadowed)
 			out := containerLaunchOut(t, rt)
-			if !strings.Contains(out, `Profile fxp: declared by local`) || !strings.Contains(out, " | "+rt+"\n") {
+			if !strings.Contains(out, `Profile fxp: declared by local`) || !strings.Contains(out, " | Runtime: "+rt+"\n") {
 				t.Fatalf("%s: the launch never reached its disclosures on that runtime:\n%s", rt, out)
 			}
 			requireShadowLines(t, rt+" fresh launch", out, shadowed)

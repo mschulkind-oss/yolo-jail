@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio/iopriotest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // ioPriorityEnv returns the value of every `-e YOLO_IO_PRIORITY=` pair in argv.
@@ -306,6 +307,14 @@ func ioAttach(t *testing.T, rt string, macOS bool, cfg *jsonx.OrderedMap, frozen
 	emptyLoopholeDirs(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.IsMacOS, o.IsLinux = macOS, !macOS
+	selectRuntimeSetup(o, rt)
+	o.Setup = setup.MustBuiltIn(testSetupForRuntime(rt))
+	if !strings.Contains(frozenEnv, setup.EnvVar+"=") {
+		frozenEnv += setup.EnvVar + "=" + o.Setup.Name + "\n"
+	}
+	if rt == "podman" && !strings.Contains(frozenEnv, paths.HostLoopbackEnvVar+"=") {
+		frozenEnv += paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n"
+	}
 	// The fake mount table names the RESOLVED workspace, because Resolve evaluates
 	// symlinks on the path (a TMPDIR behind a link, as on macOS).
 	ws, err := filepath.EvalSymlinks(o.Workspace)
@@ -316,11 +325,15 @@ func ioAttach(t *testing.T, rt string, macOS bool, cfg *jsonx.OrderedMap, frozen
 	var stderr bytes.Buffer
 	o.Stdout, o.Stderr = discardBuf(), &stderr
 	o.Getenv = func(string) string { return "" }
-	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if len(argv) > 1 && argv[1] == "inspect" {
-			return ExecResult{Ran: true, RC: 0, Stdout: frozenEnv}
+	if rt == "container" {
+		o.Exec = acRuntime(t, frozenEnv)
+	} else {
+		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			if len(argv) > 1 && argv[1] == "inspect" {
+				return ExecResult{Ran: true, RC: 0, Stdout: frozenEnv}
+			}
+			return ExecResult{Ran: false}
 		}
-		return ExecResult{Ran: false}
 	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\nexit 0\n"

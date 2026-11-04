@@ -131,14 +131,14 @@ func TestHostClaudeFooterNamesTheConfigsProfile(t *testing.T) {
 		name, config, want string
 	}{
 		{"a pack-declared profile", `{"packs": ["claude", "bedrock"], "profile": {"claude": "bedrock"}}`,
-			"Opus · yolo: Bedrock · host"},
+			"Opus · yolo: Bedrock · host-self"},
 		// A profile only the user declares resolves through the user's `profiles`, the way
 		// `yolo host env` resolves it, and is named because it differs from its provider.
 		{"a user-declared profile", `{"packs": ["claude", "bedrock"], "profiles": {"work": {"provider": "bedrock"}}, ` +
 			`"profile": {"claude": "work"}}`,
-			"Opus · yolo: Bedrock (profile work) · host"},
+			"Opus · yolo: Bedrock (profile work) · host-self"},
 		{"no selection", `{"packs": ["claude"]}`,
-			"Opus · yolo: Claude subscription · host"},
+			"Opus · yolo: Claude subscription · host-self"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -163,12 +163,12 @@ func TestHostFooterStaysSilentOnABrokenPackSet(t *testing.T) {
 
 	writeFile(t, cfg, `{"packs": ["claude", "bedrock", {"source": "git+https://example.invalid/ghost.git", "name": "ghost"}], `+
 		`"profile": {"claude": "bedrock"}}`)
-	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Bedrock · host" || stderr != "" {
+	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Bedrock · host-self" || stderr != "" {
 		t.Errorf("with an unresolvable pack: line=%q stderr=%q, want the profile and no stderr", line, stderr)
 	}
 
 	writeFile(t, cfg, `{"packs": [`)
-	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Claude subscription · host" || stderr != "" {
+	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Claude subscription · host-self" || stderr != "" {
 		t.Errorf("with a config that does not parse: line=%q stderr=%q, want the login and no stderr", line, stderr)
 	}
 }
@@ -188,7 +188,7 @@ func TestHostFooterChecksNoFetchedPackOut(t *testing.T) {
 	}
 	command := hostClaudeStatusCommand(t, home)
 
-	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Bedrock (profile mybed) · host" || stderr != "" {
+	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Bedrock (profile mybed) · host-self" || stderr != "" {
 		t.Errorf("with the pack's tree in the store: line=%q stderr=%q, want its profile named", line, stderr)
 	}
 
@@ -200,7 +200,7 @@ func TestHostFooterChecksNoFetchedPackOut(t *testing.T) {
 	if entries, _ := os.ReadDir(trees); len(entries) != 0 {
 		t.Errorf("a status-line refresh checked the fetched pack out again: %s holds %v", trees, entries)
 	}
-	if line != "Opus · yolo: mybed · host" || stderr != "" {
+	if line != "Opus · yolo: mybed · host-self" || stderr != "" {
 		t.Errorf("with the pack's tree gone: line=%q stderr=%q, want the bare profile name and no stderr", line, stderr)
 	}
 }
@@ -236,7 +236,7 @@ func TestHostFooterRunKeepsArgvWhole(t *testing.T) {
 func TestHostFooterNamesABridgedSelectionTheHostServes(t *testing.T) {
 	_, command := hostFooterHome(t, `{"packs": ["claude", "codex-auth"], "profile": {"claude": "codex"}}`)
 	line, stderr := hostFooterRun(t, command)
-	if want := "Opus · yolo: codex (bridge) · host"; line != want {
+	if want := "Opus · yolo: codex (bridge) · host-self"; line != want {
 		t.Errorf("host Claude footer = %q, want %q (a host launch runs claude's codex route)", line, want)
 	}
 	if stderr != "" {

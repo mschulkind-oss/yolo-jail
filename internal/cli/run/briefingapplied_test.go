@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // appliedTestConfig is the minimal config every row builds on: one agent, empty security,
@@ -51,6 +52,22 @@ func appliedOptions(t *testing.T, ws, home string, nested bool) *Options {
 
 func appliedStaging(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap) string {
 	t.Helper()
+	if o.Setup.Name == "" {
+		name := o.SetupName
+		if name == "" {
+			switch rt {
+			case "podman":
+				name = "podman-self"
+			case "container":
+				name = "apple-container-self"
+			case "macos-user":
+				name = "seatbelt-self"
+			}
+		}
+		if setup.IsBuiltIn(name) {
+			o.Setup = setup.MustBuiltIn(name)
+		}
+	}
 	staged := stagedPacks{packs: claudePackFixture(t)}
 	facts := o.mechanicsFactSheet("yolo-ws-abcd1234", cfg, rt, staged, storePackagesPlan{}, nil)
 	staging, err := o.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt, staged,

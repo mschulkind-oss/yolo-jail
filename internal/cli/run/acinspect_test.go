@@ -20,6 +20,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // acInspectPayload is AC's inspect answer for a jail frozen with env, in the measured shape
@@ -79,9 +80,15 @@ func TestInspectContainerEnvReadsAppleContainersJSON(t *testing.T) {
 // PATH stands in for the exec.
 func acAttach(t *testing.T, env string) (rc int, execed bool, stderr string, envFile string, before []byte) {
 	t.Helper()
+	if strings.Contains(env, setup.EnvVar+"=") {
+		env = strings.ReplaceAll(env, setup.EnvVar+"=podman-self", setup.EnvVar+"=apple-container-self")
+	} else {
+		env += setup.EnvVar + "=apple-container-self\n"
+	}
 	packs := zaiSelected(t)
 	o, cfg, channel, errBuf := attachFixture(t, env, packs, hydratedKey(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "zai" })
+	o.Setup = setup.MustBuiltIn("apple-container-self")
 	o.Exec = acRuntime(t, env)
 	o.Stdout = &bytes.Buffer{}
 	o.IsTTYStdin = func() bool { return false }
@@ -140,7 +147,8 @@ func TestTheContractGatePassesACurrentAppleContainerJail(t *testing.T) {
 func TestAnAppleContainerAttachDoesNotTakeTheSharedTreeForTheBootedOne(t *testing.T) {
 	packs := zaiSelected(t)
 	o, cfg, channel, errBuf := attachFixture(t, "", packs, hydratedKey(), nil)
-	current := "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"
+	current := "YOLO_VERSION=9.9.9-test\n" + setup.EnvVar + "=apple-container-self\n" + entrypointContractTagsLine() + "\n"
+	o.Setup = setup.MustBuiltIn("apple-container-self")
 	o.Exec = acRuntime(t, current)
 	o.Stdout = &bytes.Buffer{}
 	legacy := paths.LegacyPackStagingDir("yolo-ws-abcd1234")

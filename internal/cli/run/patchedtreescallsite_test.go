@@ -94,7 +94,7 @@ func TestAnAttachNamesTheTreeAFreshLaunchHanded(t *testing.T) {
 			case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
 				return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 			case len(argv) >= 2 && argv[1] == "inspect":
-				return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
+				return ExecResult{Ran: true, RC: 0, Stdout: podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
 			}
 			return ExecResult{Ran: true, RC: 0}
 		}
@@ -195,7 +195,7 @@ func TestAnAttachSaysAnUnreadableDeliveryRecordOnce(t *testing.T) {
 			case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
 				return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 			case len(argv) >= 2 && argv[1] == "inspect":
-				return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
+				return ExecResult{Ran: true, RC: 0, Stdout: podmanSetupNetworkEnv + "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
 			}
 			return ExecResult{Ran: true, RC: 0}
 		}

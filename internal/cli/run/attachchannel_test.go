@@ -28,6 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -37,12 +38,37 @@ import (
 // composes it above the backend dispatch.
 func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
 	userEnv *jsonx.OrderedMap, tune func(*Options, *jsonx.OrderedMap)) (*Options, *jsonx.OrderedMap, *packChannel, *bytes.Buffer) {
+	return attachFixtureWithFrozenFacts(t, frozenEnv, packs, userEnv, tune, true)
+}
+
+// attachFixtureWithoutFrozenSetupFacts models a runtime-inspected jail that predates or lacks
+// the immutable setup/network markers; production must refuse to describe it as a known setup.
+func attachFixtureWithoutFrozenSetupFacts(t *testing.T, frozenEnv string, packs []*packload.Pack,
+	userEnv *jsonx.OrderedMap, tune func(*Options, *jsonx.OrderedMap)) (*Options, *jsonx.OrderedMap, *packChannel, *bytes.Buffer) {
+	return attachFixtureWithFrozenFacts(t, frozenEnv, packs, userEnv, tune, false)
+}
+
+// attachFixtureWithFrozenFacts builds the host-side seams for a faked running jail. For the normal
+// post-slice-4a fixture it mints YOLO_SETUP and the network marker into the runtime-inspected
+// environment, while retaining any older contract-tag shape passed by the test.
+func attachFixtureWithFrozenFacts(t *testing.T, frozenEnv string, packs []*packload.Pack,
+	userEnv *jsonx.OrderedMap, tune func(*Options, *jsonx.OrderedMap), includeSetupFacts bool) (*Options, *jsonx.OrderedMap, *packChannel, *bytes.Buffer) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	ws := t.TempDir()
 	o := goldenOptions(ws, home)
+	selectRuntimeSetup(o, "podman")
+	o.Setup = setup.MustBuiltIn("podman-self")
+	if includeSetupFacts {
+		if !strings.Contains(frozenEnv, setup.EnvVar+"=") {
+			frozenEnv += setup.EnvVar + "=" + o.Setup.Name + "\n"
+		}
+		if o.Setup.Confinement == setup.ConfinementPodman && !strings.Contains(frozenEnv, paths.HostLoopbackEnvVar+"=") {
+			frozenEnv += paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n"
+		}
+	}
 	var stdout, stderr bytes.Buffer
 	o.Stdout = &stdout
 	o.Stderr = &stderr
@@ -58,6 +84,68 @@ func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
 	}
 	channel := channelFor(t, o, cfg, packs, userEnv)
 	return o, cfg, channel, &stderr
+}
+
+func TestAttachRefusesWhenRunningSetupFactsAreUnavailable(t *testing.T) {
+	o, cfg, channel, stderr := attachFixtureWithoutFrozenSetupFacts(t, "YOLO_VERSION=9.9.9-test\n", nil, emptyEnv(), nil)
+	rc, restarted := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{}, channel, false, nil)
+	if rc != 1 || restarted {
+		t.Fatalf("attach without frozen setup facts = (%d, %t), want refusal:\n%s", rc, restarted, stderr.String())
+	}
+	for _, want := range []string{"Refusing to attach", "no frozen YOLO_SETUP setup marker", "yolo stop", "repeat this launch"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("missing-facts refusal lacks %q:\n%s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), " | Runtime:") {
+		t.Errorf("attach disclosed an unverified launch banner:\n%s", stderr.String())
+	}
+}
+
+func TestAttachRefusesWhenTheRunningSetupDiffersFromThisLaunch(t *testing.T) {
+	env := strings.Replace(currentJailEnv, setup.EnvVar+"=podman-self", setup.EnvVar+"=apple-container-self", 1)
+	o, cfg, channel, stderr := attachFixture(t, env, nil, emptyEnv(), nil)
+	rc, restarted := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{}, channel, false, nil)
+	if rc != 1 || restarted {
+		t.Fatalf("setup-mismatched attach = (%d, %t), want refusal:\n%s", rc, restarted, stderr.String())
+	}
+	for _, want := range []string{"Refusing to attach", "running jail uses setup \"apple-container-self\"", "yolo stop"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("setup mismatch refusal lacks %q:\n%s", want, stderr.String())
+		}
+	}
+}
+
+func TestAttachRefusesWhenTheRunningNetworkDiffersFromThisLaunch(t *testing.T) {
+	env := strings.Replace(currentJailEnv, paths.HostLoopbackEnvVar+"="+paths.HostLoopbackRequested,
+		paths.HostLoopbackEnvVar+"="+paths.HostLoopbackShared, 1)
+	o, cfg, channel, stderr := attachFixture(t, env, nil, emptyEnv(), nil)
+	rc, restarted := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+		stagedPacks{}, channel, false, nil)
+	if rc != 1 || restarted {
+		t.Fatalf("network-mismatched attach = (%d, %t), want refusal:\n%s", rc, restarted, stderr.String())
+	}
+	for _, want := range []string{"Refusing to attach", "running jail uses host networking", "yolo stop", "repeat this launch"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("refusal lacks %q:\n%s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "setup podman-self") {
+		t.Errorf("refusal disclosed an attach banner before confirming the running facts:\n%s", stderr.String())
+	}
+}
+
+func TestAttachBannerNamesTheInspectedRunningSetupAndNetwork(t *testing.T) {
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, nil, emptyEnv(), nil)
+	rc, restarted, execed := attachToExec(t, o, cfg, nil, channel)
+	if rc != 0 || restarted || !execed {
+		t.Fatalf("same-facts attach = (%d, %t, %t), want successful exec:\n%s", rc, restarted, execed, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "setup podman-self (Podman, as you; bridged) - from running jail") {
+		t.Errorf("attach banner does not use the running jail's inspected selection:\n%s", got)
+	}
 }
 
 // configSelects puts the CONFIG-side spelling of a selection on the fixture's cfg —
@@ -122,14 +210,16 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 
 func TestAttachDisclosesAnInheritedParentJailPointer(t *testing.T) {
 	packs := awsAuthSelected(t)
-	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), func(o *Options, cfg *jsonx.OrderedMap) {
-		o.runtime = "podman"
-		o.ProfileName = "bedrock"
-		inAJail(o)
-		o.Getenv = launchingJailEnv
-		served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
-		cfg.Set("loopholes", served)
-	})
+	o, cfg, channel, stderr := attachFixture(t,
+		strings.Replace(currentJailEnv, paths.HostLoopbackEnvVar+"="+paths.HostLoopbackRequested,
+			paths.HostLoopbackEnvVar+"="+paths.HostLoopbackShared, 1), packs, emptyEnv(), func(o *Options, cfg *jsonx.OrderedMap) {
+			o.runtime = "podman"
+			o.ProfileName = "bedrock"
+			inAJail(o)
+			o.Getenv = launchingJailEnv
+			served, _ := awsAuthServedConfig(t, packs).Get("loopholes")
+			cfg.Set("loopholes", served)
+		})
 
 	rc, restarted, execed := attachToExec(t, o, cfg, packs, channel)
 	if rc != 0 || restarted || !execed {
@@ -149,7 +239,9 @@ func TestAttachDisclosesAnInheritedParentJailPointer(t *testing.T) {
 // cross in the file), and the contract tags every current launch freezes in
 // (entrypoint.ContractTagsEnv), which tell an attach what the jail can receive — the
 // per-agent env files among them.
-var currentJailEnv = "YOLO_VERSION=9.9.9-test\n" + entrypoint.ContractTagsEnv + "=" + launchContractTagsValue() + "\n"
+const podmanSetupNetworkEnv = setup.EnvVar + "=podman-self\n" + paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n"
+
+var currentJailEnv = "YOLO_VERSION=9.9.9-test\n" + podmanSetupNetworkEnv + entrypoint.ContractTagsEnv + "=" + launchContractTagsValue() + "\n"
 
 // awsAdapterJailEnv is currentJailEnv for a jail whose launch STARTED aws-auth's adapter — its
 // frozen YOLO_JAIL_DAEMONS names it, as a launch that selected `bedrock` froze it (OQ-CN7 (b)).
@@ -159,12 +251,12 @@ var awsAdapterJailEnv = currentJailEnv +
 // gateEraJailEnv is a jail launched by the credential gate's first build, before the contract
 // tags: it froze the legacy per-agent env marker (entrypoint.AgentEnvFilesEnv) instead, and
 // must still count as a jail whose launchers source the per-agent files.
-const gateEraJailEnv = "YOLO_VERSION=0.10.0+500\nYOLO_AGENT_ENV_FILES=1\n"
+const gateEraJailEnv = "YOLO_VERSION=0.10.0+500\nYOLO_AGENT_ENV_FILES=1\n" + setup.EnvVar + "=podman-self\n" + paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n"
 
 // preGateEnv is the frozen environment of a jail launched after per-entry delivery and
 // before the credential gate: no frozen tables, no tags and no per-agent env marker — that
 // yolo bound no agent-env directory and wrote launchers that source none.
-const preGateEnv = "YOLO_VERSION=0.10.0\n"
+const preGateEnv = "YOLO_VERSION=0.10.0\n" + setup.EnvVar + "=podman-self\n" + paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n"
 
 // attachToExec drives the real attachExisting with a fake runtime first on PATH, so an
 // attach that goes ahead runs through to its exec without a container. It reports the
@@ -229,9 +321,8 @@ func TestAttachRefusesAPreGateJailItCannotDeliverTo(t *testing.T) {
 }
 
 // A pre-gate jail still reads the shared file on every entry, so an attach that scopes
-// nothing to any agent needs nothing it lacks and delivers as usual. So does an attach whose
-// inspect proved nothing, which is treated as a current jail; and so does a jail the gate's
-// first build launched, which carries the legacy marker instead of the tags.
+// nothing to any agent needs nothing it lacks and delivers as usual; a jail the gate's
+// first build launched carries the legacy marker instead of the tags.
 func TestAttachDeliversWhenNothingItNeedsIsMissing(t *testing.T) {
 	packs := zaiSelected(t)
 	for _, tc := range []struct {
@@ -239,7 +330,6 @@ func TestAttachDeliversWhenNothingItNeedsIsMissing(t *testing.T) {
 		selects   bool
 	}{
 		{"pre-gate jail, nothing scoped to any agent", preGateEnv, false},
-		{"an inspect that returned nothing", "", true},
 		{"a gate-era jail with the legacy marker", gateEraJailEnv, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

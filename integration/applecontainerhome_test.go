@@ -101,7 +101,7 @@ func TestAppleContainerBriefingCarriesItsStorageClasses(t *testing.T) {
 		`echo "=== END ==="`,
 	}, "\n"))
 	briefing := section(res.stdout, "=== BRIEFING ===", "=== DURABLE ===")
-	if !strings.Contains(briefing, "# YOLO Jail Environment") {
+	if !strings.Contains(briefing, "# YOLO Environment — setup apple-container-self") {
 		t.Fatalf("%s %s: no yolo briefing arrived at ~/.claude/CLAUDE.md, so there is no section "+
 			"to read — NOTHING WAS MEASURED:\n%s", acParityTag, fix, lastLines(briefing, 30))
 	}

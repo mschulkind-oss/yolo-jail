@@ -328,7 +328,7 @@ func TestRenderNeverPrintsASwitchValue(t *testing.T) {
 	if strings.Contains(got, "SECRET") {
 		t.Fatalf("Render printed a credential value: %q", got)
 	}
-	if want := "anthropic-api (env) jail"; got != want {
+	if want := "anthropic-api (env) podman-self"; got != want {
 		t.Errorf("Render = %q, want %q", got, want)
 	}
 }
@@ -401,7 +401,7 @@ func TestMainNeverFailsAndNeverWritesStderr(t *testing.T) {
 	if len(stderr) != 0 {
 		t.Errorf("wrote to stderr: %q", stderr)
 	}
-	if want := "yolo:  · host\nyolo:  · host\n1.50 L host\nyolo:  · host\n"; out.String() != want {
+	if want := "yolo:  · host-self\nyolo:  · host-self\n1.50 L host-self\nyolo:  · host-self\n"; out.String() != want {
 		t.Errorf("stdout = %q, want %q", out.String(), want)
 	}
 }

@@ -18,6 +18,7 @@ const (
 	FromEnv
 	FromUserConfig
 	FromDefault
+	FromRunningJail
 )
 
 // LaunchLabel is the compact source phrase for the launch line. The setup list and describe use
@@ -32,6 +33,8 @@ func (s Source) LaunchLabel() string {
 		return "user config"
 	case FromDefault:
 		return "default"
+	case FromRunningJail:
+		return "running jail"
 	}
 	return s.String()
 }
@@ -46,6 +49,8 @@ func (s Source) String() string {
 		return "your user config"
 	case FromDefault:
 		return "this OS's default"
+	case FromRunningJail:
+		return "the running jail"
 	}
 	return fmt.Sprintf("Source(%d)", int(s))
 }

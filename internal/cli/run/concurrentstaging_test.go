@@ -42,6 +42,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // claudeBrokerModuleDir is the staged module dir A's host-daemon start reads — the path of the
@@ -313,6 +314,7 @@ func attachStagingFixture(t *testing.T) (home, ws, tree, local string) {
 		t.Fatalf("the fixture's config does not validate:\n%s", out.String())
 	}
 	o.stagingCfg = cfg
+	o.Setup = setup.MustBuiltIn("podman-self")
 	staged, ok := o.stageRunPacks(cname)
 	if !ok {
 		t.Fatalf("the fresh launch's staging failed:\n%s", out.String())
@@ -363,6 +365,7 @@ func attachThroughRun(t *testing.T, ws string, mutate func(*Options)) attachRun 
 			return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
 		case len(argv) >= 2 && argv[1] == "inspect":
 			return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" +
+				setup.EnvVar + "=podman-self\n" + paths.HostLoopbackEnvVar + "=" + paths.HostLoopbackRequested + "\n" +
 				entrypointContractTagsLine() + "\n" + durable.EnvVar + "=" + durable.ContainerJailPath + "\n"}
 		}
 		return ExecResult{Ran: true, RC: 0}
