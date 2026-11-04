@@ -1262,3 +1262,45 @@ func TestTheCacheRelocationWireRoundTrips(t *testing.T) {
 		t.Errorf("an empty wire = %v, %v", m, err)
 	}
 }
+
+// AN OCCUPIED WORKSPACE HOME IS CLEARED ONE PATH AT A TIME (the Mac run of 2026-11-03, §3). Since
+// slice 12a HOME is the workspace's own `.yolo/home`, so a real directory where its link OUT to the
+// shared store belongs is in that home, and the refusal called it "the SANDBOX ACCOUNT HOME, which
+// predates this layout" and offered `sudo rm -rf <ws>/.yolo/home`: the workspace's whole home,
+// its transcripts included, to clear one directory. It names this workspace's home, where the
+// link points, and a removal of that path alone.
+func TestAnOccupiedWorkspaceHomeOffersToRemoveOnlyTheOccupiedPath(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(base, "my ws")
+	h := DarwinHomes{
+		Home:    filepath.Join(ws, ".yolo", "home"),
+		Machine: filepath.Join(base, "machine"),
+		Shared:  filepath.Join(base, "shared"),
+	}
+	occupied := filepath.Join(h.Home, ".claude-shared-credentials")
+	if err := os.MkdirAll(occupied, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err = DeriveDarwinWorkspaceHome(h, []string{".claude"}, []string{".claude-shared-credentials"}).Apply()
+	if err == nil {
+		t.Fatal("a real directory where the home's link to the shared store belongs was laid over")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"THIS WORKSPACE'S HOME",
+		occupied + " (links to " + filepath.Join(h.Shared, ".claude-shared-credentials") + ")",
+		"sudo rm -rf " + shquote.Quote(occupied),
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, msg)
+		}
+	}
+	for _, unwanted := range []string{"SANDBOX ACCOUNT HOME", "rm -rf " + shquote.Quote(h.Home) + "\n"} {
+		if strings.Contains(msg+"\n", unwanted) {
+			t.Errorf("the refusal still says %q, the pre-12a account reset:\n%s", unwanted, msg)
+		}
+	}
+}
