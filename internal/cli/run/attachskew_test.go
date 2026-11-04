@@ -5,6 +5,9 @@ import (
 	"go/ast"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // versionSkewOptions builds an Options whose host version is `host`, via the same
@@ -14,6 +17,41 @@ func versionSkewOptions(t *testing.T, host string) (*Options, *bytes.Buffer) {
 	t.Setenv("YOLO_VERSION", host)
 	var stderr bytes.Buffer
 	return &Options{Stderr: &stderr}, &stderr
+}
+
+func TestAttachCustomSetupRefusalOffersBackendBuiltinWithoutChangingConfig(t *testing.T) {
+	for _, tc := range []struct {
+		runtime, builtin, backend, inspect string
+	}{
+		{"podman", "podman-self", "Podman", setup.EnvVar + "=lab\n"},
+		{"container", "apple-container-self", "Apple Container", `[{"configuration":{"initProcess":{"environment":["` + setup.EnvVar + `=lab"]}}}]`},
+	} {
+		t.Run(tc.runtime, func(t *testing.T) {
+			var stderr bytes.Buffer
+			o := &Options{
+				Stderr: &stderr,
+				Now:    time.Now,
+				Setup:  setup.Setup{Name: "lab"},
+				Exec: func([]string, string, []string, time.Duration) ExecResult {
+					return ExecResult{Ran: true, RC: 0, Stdout: tc.inspect}
+				},
+			}
+			rc, restarted := o.attachExisting("yolo-ws-abcd1234", tc.runtime, "claude", nil,
+				stagedPacks{}, nil, false, nil)
+			if rc != 1 || restarted {
+				t.Fatalf("custom setup re-entry result = (%d, %t), want a refusal and no restart", rc, restarted)
+			}
+			got := stderr.String()
+			for _, want := range []string{
+				"Refusing to attach", "custom setup re-entry is unsupported", "yolo stop",
+				"--setup " + tc.builtin, tc.backend, "saved setup", "unchanged",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("custom setup refusal lacks %q:\n%s", want, got)
+				}
+			}
+		})
+	}
 }
 
 func TestRestartActionRemedyMatchesBackend(t *testing.T) {

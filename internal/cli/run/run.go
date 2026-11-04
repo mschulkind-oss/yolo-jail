@@ -3603,6 +3603,28 @@ func (o *Options) emitLaunchBannerFacts(rt, cname string, selected setup.Setup, 
 	o.pr(o.Stderr).print("[dim]" + line + "[/dim]")
 }
 
+type customSetupReentryError struct {
+	name string
+}
+
+func (e customSetupReentryError) Error() string {
+	return fmt.Sprintf("custom setup re-entry is unsupported: the running jail names custom setup %q, whose frozen fields are unavailable", e.name)
+}
+
+// attachBuiltinAlternative is the built-in setup a custom container setup can use as a
+// per-launch alternative. It is deliberately keyed only by the inspected container backend;
+// it does not make a custom setup's unavailable fields trusted or attachable.
+func attachBuiltinAlternative(rt string) (setup.Setup, string, bool) {
+	switch rt {
+	case "podman":
+		return setup.MustBuiltIn("podman-self"), "Podman", true
+	case "container":
+		return setup.MustBuiltIn("apple-container-self"), "Apple Container", true
+	default:
+		return setup.Setup{}, "", false
+	}
+}
+
 // attachSetupAndNetwork returns only setup facts that can be established from the running
 // container's runtime-inspected immutable environment. Custom setup field values are not frozen
 // there yet, so they cannot safely be reconstructed from workspace briefing/config snapshots.
@@ -3616,7 +3638,7 @@ func attachSetupAndNetwork(o *Options, envLines []string, envKnown bool, rt stri
 		return setup.Setup{}, "", fmt.Errorf("the running jail has no frozen %s setup marker", setup.EnvVar)
 	}
 	if !setup.IsBuiltIn(name) {
-		return setup.Setup{}, "", fmt.Errorf("the running jail names custom setup %q, whose frozen fields are unavailable", name)
+		return setup.Setup{}, "", customSetupReentryError{name: name}
 	}
 	actual := setup.MustBuiltIn(name)
 	if actual.Name != o.Setup.Name {
@@ -3653,6 +3675,14 @@ func attachSetupAndNetwork(o *Options, envLines []string, envKnown bool, rt stri
 func (o *Options) refuseAttachSetupTruth(rt, cname string, cause error) {
 	out := o.pr(o.Stderr)
 	out.printf("[bold red]Refusing to attach: %s.[/bold red]", richtext.Escape(cause.Error()))
+	if _, custom := cause.(customSetupReentryError); custom {
+		if alternative, backend, ok := attachBuiltinAlternative(rt); ok {
+			out.printf("[dim]Stop the running jail with %s, then start a fresh launch with `--setup %s`. "+
+				"This built-in alternative uses the actual %s backend; the per-launch selector leaves your saved setup unchanged.[/dim]",
+				richtext.Escape(stopRemedy(rt, cname)), richtext.Escape(alternative.Name), richtext.Escape(backend))
+			return
+		}
+	}
 	out.printf("[dim]Stop the running jail with %s, then repeat this launch so it starts with the selected setup and network.[/dim]",
 		richtext.Escape(stopRemedy(rt, cname)))
 }

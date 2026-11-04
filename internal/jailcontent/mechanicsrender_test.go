@@ -12,6 +12,44 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
 )
 
+func TestRenderedHostMapKeepsSetupDisclosureOutsideThePathTable(t *testing.T) {
+	files, err := RenderBuiltinSkills(FactSheet{
+		Setup:            "lab",
+		SetupDescription: "Podman, as you",
+		Paths: []PathFact{{
+			Path: "/workspace", OriginalSource: "/home/test/project", BackingSource: "/home/test/project",
+			Mode: "read-write", Lifetime: "workspace", Delivery: "live bind",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(files["jail-mechanics/host-map.md"])
+	lines := strings.Split(got, "\n")
+	setupLine, headerLine, separatorLine, rowLine := -1, -1, -1, -1
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "Selected setup:"):
+			setupLine = i
+		case strings.HasPrefix(line, "| Path | Original host source |"):
+			headerLine = i
+		case line == "|---|---|---|---|---|---|":
+			separatorLine = i
+		case strings.HasPrefix(line, "| `/workspace` |"):
+			rowLine = i
+		}
+	}
+	if setupLine < 0 || headerLine < 0 || separatorLine < 0 || rowLine < 0 {
+		t.Fatalf("rendered host map omitted setup or path table facts:\n%s", got)
+	}
+	if setupLine >= headerLine {
+		t.Errorf("setup disclosure belongs before the path table header (setup line %d, header line %d):\n%s", setupLine, headerLine, got)
+	}
+	if rowLine != separatorLine+1 {
+		t.Errorf("first path row must immediately follow the table separator (separator line %d, row line %d):\n%s", separatorLine, rowLine, got)
+	}
+}
+
 func TestWorkspaceConfigRecipeRendersOnlySuppliedCooperativeCPUFacts(t *testing.T) {
 	facts := FactSheet{
 		HostWorkspace:          "/Users/test/project",
