@@ -81,11 +81,17 @@ import (
 // One loopback TLS dial through the front the launch just published, and one framed request,
 // for each daemon asked, all in parallel. A daemon answering from what it knows (aws-auth with
 // a warm cache) replies in milliseconds. One that has to find out is bounded by
-// hostservice.LaunchCheckBudget, and the launch stops reading launchCheckMargin after that.
+// launchCheckBudget, and the launch stops reading launchCheckMargin after that.
 
 // launchCheckMargin is how long past the budget the launch keeps reading: the dial, the TLS
 // handshake and the framing on a loaded host, never the daemon's own work.
 const launchCheckMargin = time.Second
+
+// launchCheckBudget is the budget runLaunchChecks sends each daemon, hostservice.LaunchCheckBudget.
+// It is a var only so a test whose daemon does real local work (a canned mint still takes the
+// state lock and fsyncs the state file) can raise it to the daemon's cap and assert the daemon's
+// answer rather than how fast a loaded test machine reached it.
+var launchCheckBudget = hostservice.LaunchCheckBudget
 
 // launchCheckTextMax caps one printed line from a daemon, in runes.
 const launchCheckTextMax = 600
@@ -129,7 +135,7 @@ func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload [
 	}
 	answers := make([]answer, len(due))
 	if len(due) > 0 {
-		budget := hostservice.LaunchCheckBudget
+		budget := launchCheckBudget
 		o.withStderrProgress("Checking host services", func() bool {
 			var wg sync.WaitGroup
 			for i, h := range due {

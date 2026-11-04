@@ -280,6 +280,18 @@ func launchCheckIsolation(t *testing.T) {
 	emptyLoopholeDirs(t)
 }
 
+// generousLaunchCheckBudget raises the launch check's budget to the daemon's cap
+// (hostservice.LaunchCheckBudgetCap) for the rest of the test. A test asserting what the daemon
+// ANSWERS after a mint uses it, so the answer is the mint's and not the timer's: even a canned
+// mint takes the state lock and fsyncs the state file, which under a loaded `just check-ci` once
+// outlasted the product's two seconds and turned a healthy mint into the "had not finished" note.
+func generousLaunchCheckBudget(t *testing.T) {
+	t.Helper()
+	saved := launchCheckBudget
+	launchCheckBudget = hostservice.LaunchCheckBudgetCap
+	t.Cleanup(func() { launchCheckBudget = saved })
+}
+
 func failedAWS(stderr string) awsauth.Output {
 	return awsauth.Output{Spawned: true, Code: 255, Stderr: stderr}
 }
@@ -316,6 +328,7 @@ func TestTheLaunchWarnsForEachWayTheAWSSessionCannotMint(t *testing.T) {
 		} {
 			t.Run(rt+"/"+tc.name, func(t *testing.T) {
 				launchCheckIsolation(t)
+				generousLaunchCheckBudget(t)
 				serveLaunchCheckDaemon(t, awsHandler(t, tc.out, nil))
 				got := launchWithCheckedService(t, rt, servedPayload())
 				prefix := "loophole " + launchCheckFixtureName +
@@ -348,6 +361,7 @@ func TestAHealthyMintPrintsNoLaunchCheckLine(t *testing.T) {
 	for _, rt := range []string{"podman", "macos-user"} {
 		t.Run(rt, func(t *testing.T) {
 			launchCheckIsolation(t)
+			generousLaunchCheckBudget(t)
 			var calls atomic.Int32
 			ok := awsauth.Output{Spawned: true, Stdout: `{"Version":1,"AccessKeyId":"ASIA1",` +
 				`"SecretAccessKey":"s","SessionToken":"t","Expiration":"` +
