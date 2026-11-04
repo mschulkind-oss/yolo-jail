@@ -155,10 +155,12 @@ func fakeHomeDaemon(t *testing.T, name, home string, life time.Duration) *exec.C
 }
 
 // fakeHostDaemonProcess starts the stand-in process alone: `sleep`, running with HOME=home,
-// killed at the test's end, and returned only once its environment shows that HOME.
+// killed at the test's end, and returned only once its environment shows that HOME. The `sleep`
+// is this test binary (standInSleepDir), never the system's: macOS 26 hides a platform binary's
+// environment, so `/bin/sleep` never shows the HOME there.
 func fakeHostDaemonProcess(t *testing.T, name, home string) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("sleep", "600")
+	cmd := exec.Command(filepath.Join(standInSleepDir(t), standInSleepName), "600")
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
