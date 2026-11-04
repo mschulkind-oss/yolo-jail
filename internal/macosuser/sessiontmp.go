@@ -71,6 +71,48 @@ func withSessionTmpEnv(env *jsonx.OrderedMap, dir string) *jsonx.OrderedMap {
 	return env
 }
 
+// withAccountTmpEnv sets TMPDIR to dir, the account's own DARWIN_USER_TEMP_DIR (MMP-D29, MMP-D30),
+// unless an env layer already set one. Only TMPDIR: tmux's and zsh's defaults are the shared /tmp,
+// which the account mode keeps open. "" sets nothing.
+func withAccountTmpEnv(env *jsonx.OrderedMap, dir string) *jsonx.OrderedMap {
+	dir = strings.TrimRight(dir, "/")
+	if dir == "" {
+		return env
+	}
+	if env != nil {
+		if v, ok := env.Get("TMPDIR"); ok && asStr(v) != "" {
+			return env
+		}
+	}
+	return withEnvVar(env, "TMPDIR", dir)
+}
+
+// withAccountXDGEnv names the four XDG base dirs at their default spellings under home, each one
+// an env layer has not already set (MMP-D31). The account mode's HOME is the workspace's sidecar,
+// owned by the invoking user while the sandbox runs as the account, and nix's getHome refuses a
+// HOME it does not own — a warning on every call, and the user config read from the account's
+// own home — but it asks getHome only for a base dir whose variable is unset. For a tool that
+// follows XDG the values are what it would have used anyway. "" sets nothing.
+func withAccountXDGEnv(env *jsonx.OrderedMap, home string) *jsonx.OrderedMap {
+	if home == "" {
+		return env
+	}
+	for _, kv := range [][2]string{
+		{"XDG_CONFIG_HOME", filepath.Join(home, ".config")},
+		{"XDG_CACHE_HOME", filepath.Join(home, ".cache")},
+		{"XDG_DATA_HOME", filepath.Join(home, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(home, ".local", "state")},
+	} {
+		if env != nil {
+			if v, ok := env.Get(kv[0]); ok && asStr(v) != "" {
+				continue
+			}
+		}
+		env = withEnvVar(env, kv[0], kv[1])
+	}
+	return env
+}
+
 // sandboxTmpdirEnvAt returns temp-variable followers declared for the command in the selected pack
 // tree at root. The tree was selected and staged by the caller; core reads no agent names of its own.
 func sandboxTmpdirEnvAt(root, program string) ([]string, error) {
