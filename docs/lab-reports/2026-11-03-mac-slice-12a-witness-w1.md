@@ -331,10 +331,11 @@ directory not empty`. Something under the test's home was still writing when its
 **Still blocked:** `claude -p` still fails with "OAuth token revoked", and `log show` still prints
 `Operation not permitted` from this session.
 
-## 11. Mac witness: the fixes for §10's two test defects
+## 11. Mac witness: the fixes for the rerun's two test defects
 
-**Not yet run.** This is the check for the owner's Mac agent, for the commit that fixes both
-§10 findings. Run it from a checkout at that commit or later. Nothing here needs a container,
+**Run 2026-11-03 at `064706ada`: every item as expected**
+([§12](#12-results-of-the-section-11-witness-and-witness-w-kc5)). This is the check for the owner's Mac agent, for the commit that fixes both
+[§10](#10-rerun-witness-w1b-and-the-just-done-fixes-witness) findings. Run it from a checkout at that commit or later. Nothing here needs a container,
 a launch, or the `_yolojail` account.
 
 **What changed.**
@@ -356,15 +357,56 @@ a launch, or the `_yolojail` account.
 
 | # | Command (from the checkout root) | Expected |
 | :--- | :--- | :--- |
-| 1 | `command -v sh sleep` with no nix `sh` on `PATH` (this Mac's state in §10 item 6) | `/bin/sh`, `/bin/sleep` |
+| 1 | `command -v sh sleep` with no nix `sh` on `PATH` (this Mac's state in [§10](#10-rerun-witness-w1b-and-the-just-done-fixes-witness) item 6) | `/bin/sh`, `/bin/sleep` |
 | 2 | `go test -short -count=1 -v -run '^(TestStopHomeProcesses(StopsEveryoneUnderTheHome\|WaitsForAScratchRemover\|StopsWhatIsSpawnedDuringTheStop)\|TestProcessEnvironReadsALiveChildsHome\|TestAStandInAndItsSleepBothShowTheirHome)$' ./integration` | All five `SKIP`, each naming `nix profile install nixpkgs#bash`. No `FAIL` |
 | 3 | `nix profile install nixpkgs#bash`, then `command -v sh sleep` | `sh` resolves under `~/.nix-profile/bin` (or a nix store path). **`sleep` must still be `/bin/sleep`**: do not install coreutils, or this check proves nothing |
-| 4 | Item 2's command again | All five **`PASS`**, `TestStopHomeProcessesStopsEveryoneUnderTheHome` and `TestStopHomeProcessesStopsWhatIsSpawnedDuringTheStop` included (the two §10 failures) |
+| 4 | Item 2's command again | All five **`PASS`**, `TestStopHomeProcessesStopsEveryoneUnderTheHome` and `TestStopHomeProcessesStopsWhatIsSpawnedDuringTheStop` included (the two [§10](#10-rerun-witness-w1b-and-the-just-done-fixes-witness) failures) |
 | 5 | `go test -short -race -count=5 -run '^TestSharedDemand' ./internal/cli` | `ok` |
 | 6 | `pgrep -fl TestSharedDemandProcessHelper` right after item 5 | Nothing (rc 1): no helper outlived its test |
 | 7 | The next full `just done` or `just check-ci`, with this session's usual other launches running | `internal/cli` passes, and `TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains` reports no `TempDir RemoveAll cleanup` error. A failure that says `helper processes still running 30s after the test` is a new finding: record which lock names it lists |
 
 To undo item 3 afterwards: `nix profile remove bash` (`nix profile list` shows the entry's name).
+
+## 12. Results of the section 11 witness, and witness W-KC5
+
+**Run 2026-11-03 at `main` `064706ada`**, on the same Mac. Nothing was fixed.
+
+| # | [§11](#11-mac-witness-the-fixes-for-the-reruns-two-test-defects) item | Result |
+| :--- | :--- | :--- |
+| 1 | `command -v sh sleep` | `/bin/sh`, `/bin/sleep` |
+| 2 | The five tests, no nix `sh` | **All five SKIP**, each naming `nix profile install nixpkgs#bash`. No FAIL |
+| 3 | A nix `sh` on `PATH`, `sleep` still the system's | **Departure:** I did not run `nix profile install`. Instead I prepended `/nix/store/a8r42jvrfindh7hcbg535mab0kylnfr6-bash-interactive-5.3p20/bin` to `PATH` for this one command ([§11](#11-mac-witness-the-fixes-for-the-reruns-two-test-defects) allows "or a nix store path"). That leaves the owner's profile untouched and needs no undo. `command -v sh` is that store `sh`; `command -v sleep` is still `/bin/sleep`. No coreutils on `PATH` |
+| 4 | The five tests again | **All five PASS**, including `TestStopHomeProcessesStopsEveryoneUnderTheHome` (0.58 s) and `…StopsWhatIsSpawnedDuringTheStop` (0.29 s), the two [§10](#10-rerun-witness-w1b-and-the-just-done-fixes-witness) failures, and the new `TestAStandInAndItsSleepBothShowTheirHome` (0.13 s) |
+| 5 | `go test -short -race -count=5 -run '^TestSharedDemand' ./internal/cli` | `ok` (259.6 s) |
+| 6 | `pgrep -fl TestSharedDemandProcessHelper` right after | Nothing (rc 1) |
+| 7 | Full `just done` | **Green:** `just done: verified 064706ada8fc (full); working tree clean`, 28 m 4 s wall. `internal/cli` `ok` in 1513 s, `internal/cli/run` 796 s, `internal/entrypoint` 897 s. No `TempDir RemoveAll cleanup` and no `helper processes still running` line anywhere in the log. **Caveat:** no launch ran beside it (W-KC5 stopped at its step 1, below), so this was lighter load than [§11](#11-mac-witness-the-fixes-for-the-reruns-two-test-defects) asks for and lighter than [§9](#9-the-short-suite-on-this-mac)'s |
+
+This is the first green `just done` on this Mac in this report.
+
+### Witness W-KC5: stopped at step 1
+
+[W-KC5](../design/keychain-from-a-jail.md#W-KC5) checks the copilot pack's new `host_keychain_env`
+route (`6707f0c72`). That route passes the host Copilot login into macos-user as
+`COPILOT_GITHUB_TOKEN`.
+
+- `copilot --version`: `GitHub Copilot CLI 1.0.105.` The witness's text assumes 1.0.89.
+- `security find-generic-password -s copilot-cli` (attributes only, no `-w`):
+  `SecKeychainSearchCopyNext: The specified item could not be found in the keychain.`
+
+The witness says that, in this case, the service is not `copilot-cli`, so find the real one with
+`security dump-keychain | grep -i copilot`, record it and stop. **That search was not run.** This
+session's permission policy refused a keychain dump as credential exploration, and I didn't look
+for another way in. There are two possible readings, and this run can't tell them apart: the host
+Copilot is not logged in at all (W-KC5's precondition), or 1.0.105 stores its login under another
+service name. Steps 2 and 3 (one Copilot prompt in a macos-user workspace, and the env-file mode
+check) were not run. One more thing for whoever runs it: the witness's workspace
+`~/kc5-witness` is under `$HOME`. Account mode, this Mac's default (no `macos_user_mode` key),
+refuses a workspace inside a home: `HomeContaining(workspace)` runs only when the mode is not self
+(`internal/macosuser/runplan.go:939`). So step 2 as written should be refused here and needs a
+`/Users/Shared/…` workspace. I read that in the code and did not run the launch.
+
+**Decision needed (the owner, at the Mac):** run `copilot login` on the host if it isn't logged
+in, or run the keychain search yourself, then rerun W-KC5 from step 1.
 
 ## Evidence
 
