@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -245,6 +246,16 @@ func TestWindowHandlerNarrowingTeardownExpiryAndRevocation(t *testing.T) {
 				}
 			case "expiry":
 				b.store.Now = func() time.Time { return g.Expires.Add(time.Second) }
+			}
+			var prediction evaluation
+			code := b.ServeContext(context.Background(), Request{Mode: "evaluate", Argv: writeReq().Argv, Repo: "o/r"},
+				paths.JailShortHash(b.authority.scope.Container), func(p []byte) { _ = json.Unmarshal(p, &prediction) }, func([]byte) {})
+			want := "refused"
+			if change == "revoke" {
+				want = "asks"
+			}
+			if code != 0 || prediction.Verdict != want {
+				t.Fatalf("evaluate after %s: exit=%d prediction=%+v want=%s", change, code, prediction, want)
 			}
 			if got := callWindow(b, context.Background()); got == 0 || n.Load() != 0 {
 				t.Fatal(change, got, n.Load())

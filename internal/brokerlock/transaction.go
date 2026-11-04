@@ -10,6 +10,50 @@ import (
 	"time"
 )
 
+// WithInspectionContext holds the existing transaction lock without creating or changing
+// the store directory or lock file. Inspection fails closed when the lock is unavailable.
+func WithInspectionContext(ctx context.Context, dir string, fn func() error) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		return errors.New("broker directory is not real")
+	}
+	path := filepath.Join(dir, ".lock")
+	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err = f.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return errors.New("store lock is not a regular file")
+	}
+	for {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn()
+}
+
 // WithTransaction holds dir/.lock exclusively. Callbacks must not call another
 // lock-taking API for this directory; reads and current-policy gates do not lock.
 // All cooperating authority writers must use this same source directory.

@@ -55,6 +55,7 @@ const SourceHost = "github.com"
 type Request struct {
 	writeDeadline func(time.Time) // host connection sink bound, never decoded from a jail frame
 	Invalid       string
+	Mode          string
 	Operation     string
 	RequestID     string
 	Argv          []string
@@ -298,6 +299,7 @@ func requestFrom(s *hostservice.Session) Request {
 			}
 		}
 	}
+	str("mode", &r.Mode)
 	str("operation", &r.Operation)
 	str("request", &r.RequestID)
 	str("repo", &r.Repo)
@@ -366,13 +368,33 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		b.audit.AppendContext(auditCtx, ev)
 		return code
 	}
+	answerEvaluation := func(v evaluation) int {
+		ev.Event, ev.Set, ev.Outcome, ev.Reason = "evaluate", "evaluate", v.Verdict, v.Rule
+		stdout(writeEvaluationJSON(v))
+		return finish(0)
+	}
 
+	if req.Mode != "" && req.Mode != "evaluate" {
+		ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "unknown decision mode"
+		say("unknown decision mode; retry with an act or evaluate request")
+		return finish(ExitUsage)
+	}
 	if req.Invalid != "" {
 		ev.Set = "refused"
 		ev.Outcome = "refused"
 		ev.Reason = req.Invalid
 		say(req.Invalid + "; retry with a valid forwarder frame")
 		return finish(ExitUsage)
+	}
+	if req.Mode == "evaluate" && req.Operation != "" {
+		ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "evaluate cannot be combined with a status operation"
+		say(ev.Reason + "; send either a status operation or an evaluate call")
+		return finish(ExitUsage)
+	}
+	holder := b.holder(jail)
+	if req.Mode == "evaluate" && b.authority != nil && holder != paths.JailShortHash(b.authority.scope.Container) {
+		v := evaluation{Verdict: "refused", Rule: "this endpoint does not serve the asserted jail", Canonical: req.Argv}
+		return answerEvaluation(v)
 	}
 	if req.Operation != "" {
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -400,6 +422,9 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		f, err := b.authority.live()
 		if err != nil {
 			ev.Set, ev.Outcome, ev.Reason = "refused", "refused", err.Error()
+			if req.Mode == "evaluate" {
+				return answerEvaluation(evaluation{Verdict: "refused", Rule: err.Error(), Canonical: req.Argv})
+			}
 			say("current host authority refused: " + err.Error() + "; repair the host policy or relaunch the jail")
 			return finish(ExitNoPerm)
 		}
@@ -415,26 +440,53 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		if repo, missing := scope.unread(d.Repos); missing {
 			ev.Repo = strings.Join(d.Repos, ",")
 			ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "no read grant"
+			if req.Mode == "evaluate" {
+				return answerEvaluation(evaluation{Verdict: "refused", Rule: "no read grant", Canonical: d.Argv})
+			}
 			say("refused: " + config.BrokerNoReadRefusal(Source, ReadCapability, repo, scope.live))
 			return finish(ExitUsage)
 		}
 	}
+	var policy brokerstore.Policy
 	if b.authority != nil && (d.Outcome == OutcomeStanding || d.Outcome == OutcomeWindowed) {
-		current, _, err := b.authority.Classify(req.Argv, req.Repo)
+		current, resolved, err := b.authority.Classify(req.Argv, req.Repo)
 		if err != nil {
 			ev.Set = "refused"
 			ev.Outcome = "refused"
 			ev.Reason = err.Error()
+			if req.Mode == "evaluate" {
+				return answerEvaluation(evaluation{Verdict: "refused", Rule: err.Error(), Canonical: d.Argv})
+			}
 			say("current host authority refused: " + err.Error() + "; repair the host policy or relaunch the jail")
 			return finish(ExitNoPerm)
 		}
 		// Authority.Classify rejects a standing read-write policy before reaching this point;
 		// standing reads keep their original path and windowed writes stay request-gated.
 		d = current
+		policy = resolved
 	}
 	ev.Repo = strings.Join(d.Repos, ",")
 	if d.Argv != nil {
 		ev.Argv = d.Argv
+	}
+	if req.Mode == "evaluate" {
+		v := evaluation{Verdict: "runs", Rule: d.Reason, Canonical: d.Argv}
+		switch d.Outcome {
+		case OutcomeRefused, OutcomeOutOfScope:
+			v = decideWrite(d, writeDecisionFacts{})
+		case OutcomeWindowed:
+			v = b.evaluateWrite(ctx, req, holder, d, policy)
+		case OutcomeStanding:
+			if b.runner == nil {
+				v = evaluation{Verdict: "refused", Rule: "host gh is unavailable", Canonical: d.Argv}
+			} else if d.Path == "auth status" && !slices.Contains(d.Argv, "--help") {
+				_, invalid := authStatusJSONField(d.Argv)
+				if invalid != nil {
+					v = evaluation{Verdict: "refused", Rule: "auth status: unknown JSON field " + fmt.Sprintf("%q", *invalid), Canonical: d.Argv}
+				}
+			}
+		}
+		return answerEvaluation(v)
 	}
 	switch d.Outcome {
 	case OutcomeRefused:
@@ -520,23 +572,39 @@ const noHostLogin = "the host's gh has no usable GitHub login; run `gh auth stat
 // <login>`), so a script that greps for them still matches; `--json hosts` keeps gh's shape,
 // with the token source naming the broker and no scopes. Exit 0 when logged in, as gh's; no
 // usable host login is the broker's 69, as for every other call.
-func (b *Broker) answerAuthStatus(argv []string, scope Scope, ev *brokeraudit.Event, stdout, stderr func([]byte),
-	say func(string)) int {
+func authStatusJSONField(argv []string) (string, *string) {
 	jsonFields := ""
-	for _, a := range argv {
+	found := false
+	for i, a := range argv {
 		if v, ok := strings.CutPrefix(a, "--json="); ok {
-			jsonFields = v
-		}
-	}
-	if jsonFields != "" {
-		for _, f := range strings.Split(jsonFields, ",") {
-			if f = strings.TrimSpace(f); f != "hosts" {
-				// gh's own message for a field it does not have, before it does anything.
-				stderr([]byte(fmt.Sprintf("Unknown JSON field: %q\nAvailable fields:\n  hosts\n", f)))
-				ev.Outcome, ev.Reason = "refused", "auth status: unknown JSON field"
-				return 1
+			jsonFields, found = v, true
+		} else if a == "--json" {
+			jsonFields, found = "", true
+			if i+1 < len(argv) {
+				jsonFields = argv[i+1]
 			}
 		}
+	}
+	if !found {
+		return "", nil
+	}
+	for _, field := range strings.Split(jsonFields, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" || field != "hosts" {
+			invalid := field
+			return jsonFields, &invalid
+		}
+	}
+	return jsonFields, nil
+}
+
+func (b *Broker) answerAuthStatus(argv []string, scope Scope, ev *brokeraudit.Event, stdout, stderr func([]byte),
+	say func(string)) int {
+	jsonFields, invalid := authStatusJSONField(argv)
+	if invalid != nil {
+		stderr([]byte(fmt.Sprintf("Unknown JSON field: %q\nAvailable fields:\n  hosts\n", *invalid)))
+		ev.Outcome, ev.Reason = "refused", "auth status: unknown JSON field"
+		return 1
 	}
 	acct, err := b.runner.ActiveAccount()
 	ev.Outcome = "ran"

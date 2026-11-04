@@ -2,9 +2,11 @@ package ghbroker
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +59,70 @@ func lastAudit(t *testing.T) brokeraudit.Event {
 		t.Fatalf("audit log: %d events, %v", len(events), err)
 	}
 	return events[len(events)-1]
+}
+
+func TestServeEvaluateAndActUseSameDecision(t *testing.T) {
+	b, _ := windowFixture(t)
+	jail := paths.JailShortHash(b.authority.scope.Container)
+	entry, _, err := b.store.AddWorking(brokerstore.WorkingEntry{Workspace: b.workspace,
+		Repo: "github.com/o/r", Kind: brokerstore.WorkingPR, Resource: "#17", By: GrantCreatePR})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hostCalls [][]string
+	b.execute = func(_ context.Context, argv []string, _ []byte, out, _ func([]byte)) RunResult {
+		hostCalls = append(hostCalls, append([]string(nil), argv...))
+		if len(argv) == 2 && argv[0] == "api" && argv[1] == "repos/o/r/issues/17" {
+			out([]byte(`{"number":17,"pull_request":{"merged_at":"2026-11-04T00:00:00Z"}}`))
+		}
+		return RunResult{Exit: 0}
+	}
+	before, err := os.ReadFile(filepath.Join(b.store.Dir, "working", entry.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := []string{"pr", "comment", "17", "--body", "gone", "-R", "o/r"}
+	var predicted bytes.Buffer
+	code := b.ServeContext(context.Background(), Request{Mode: "evaluate", Argv: argv, Repo: "o/r"}, jail,
+		func(p []byte) { predicted.Write(p) }, func([]byte) {})
+	if code != 0 {
+		t.Fatalf("evaluate exit %d: %s", code, predicted.String())
+	}
+	var answer struct {
+		Verdict string   `json:"verdict"`
+		Argv    []string `json:"canonical"`
+	}
+	if err := json.Unmarshal(predicted.Bytes(), &answer); err != nil || answer.Verdict != "asks" {
+		t.Fatalf("prediction %q: %v", predicted.String(), err)
+	}
+	after, err := os.ReadFile(filepath.Join(b.store.Dir, "working", entry.ID+".json"))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("evaluate changed working-set record: %v", err)
+	}
+	requests, _, err := b.store.List()
+	if err != nil || len(requests) != 0 {
+		t.Fatalf("evaluate filed/spent a request: %+v, %v", requests, err)
+	}
+	for _, call := range hostCalls {
+		if strings.Join(call, " ") != "api repos/o/r/issues/17" {
+			t.Fatalf("evaluate ran a proposed write: %v", call)
+		}
+	}
+	if !slices.Equal(answer.Argv, []string{"pr", "comment", "--body=gone", "--repo=o/r", "17"}) {
+		t.Fatalf("canonical argv %v", answer.Argv)
+	}
+
+	code = b.ServeContext(context.Background(), Request{Argv: argv, Repo: "o/r"}, jail, func([]byte) {}, func([]byte) {})
+	if code != ExitTempFail {
+		t.Fatalf("act exit %d, want asks/pending", code)
+	}
+	if ev := lastAudit(t); !slices.Equal(ev.Argv, answer.Argv) || ev.Outcome != "pending" {
+		t.Fatalf("act diverged from prediction: audit=%+v prediction=%+v", ev, answer)
+	}
+	requests, _, err = b.store.List()
+	if err != nil || len(requests) != 1 {
+		t.Fatalf("act request %+v, %v", requests, err)
+	}
 }
 
 func TestServeRunsAReadAndAuditsIt(t *testing.T) {

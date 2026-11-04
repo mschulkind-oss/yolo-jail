@@ -85,6 +85,13 @@ func TestExactGrantOutlivesItsBrokerForItsWorkspaceOnly(t *testing.T) {
 
 	// A second jail of the same workspace spends the one-use grant; another launch cannot replay it.
 	next, nextRan := relaunchBroker(t, "second", "second-container", first.workspace)
+	// Evaluation follows act's invocation-aware parent revalidation: the parent belongs to
+	// this workspace, while its original jail/start are deliberately not the spending holder.
+	var prediction evaluation
+	if code := next.ServeContext(context.Background(), Request{Mode: "evaluate", Argv: writeReq().Argv, Repo: writeReq().Repo},
+		paths.JailShortHash(next.authority.scope.Container), func(p []byte) { _ = json.Unmarshal(p, &prediction) }, func([]byte) {}); code != 0 || prediction.Verdict != "runs" {
+		t.Fatalf("second jail evaluate: exit %d prediction %+v; want cross-jail exact grant to run", code, prediction)
+	}
 	if got := callWindow(next, context.Background()); got != 0 || nextRan.Load() != 1 {
 		t.Fatalf("second jail: exit %d, ran %d; want the grant from the stopped broker honored", got, nextRan.Load())
 	}

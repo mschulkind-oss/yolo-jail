@@ -47,6 +47,25 @@ func (d *logRequestDelivery) Request(ctx context.Context, q brokerstore.Request)
 func StoreAudit(log *brokeraudit.Log) func(context.Context, string, brokerstore.Request, brokerstore.Grant) error {
 	return brokercore.StoreAudit(log, Source)
 }
+func (b *Broker) exactGrantGate(ctx context.Context, invocation brokerstore.Request) brokerstore.Revalidate {
+	return func(parent brokerstore.Request) (brokerstore.Policy, error) {
+		if err := ctx.Err(); err != nil {
+			return brokerstore.Policy{}, err
+		}
+		if !brokerstore.SameWorkspace(parent.Workspace, invocation.Workspace) {
+			return brokerstore.Policy{}, errors.New("the grant belongs to another workspace")
+		}
+		// Grants are held by workspace, not by the jail/start that filed their parent. Recheck
+		// that parent under the current invocation's live holder, then check the actual argv.
+		held := parent
+		held.Jail, held.Start, held.LaunchID, held.Workspace = invocation.Jail, invocation.Start, invocation.LaunchID, invocation.Workspace
+		if _, err := b.authority.Revalidate(held); err != nil {
+			return brokerstore.Policy{}, fmt.Errorf("the grant's own request no longer passes this launch's scope and policy: %w; refile the command", err)
+		}
+		return b.authority.Revalidate(invocation)
+	}
+}
+
 func (b *Broker) window(ctx context.Context, req Request, jail string, d Decision, stdout, stderr func([]byte), ev *brokeraudit.Event) (int, string) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -59,6 +78,12 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 	d, p, err := b.authority.Classify(req.Argv, req.Repo)
 	if err != nil {
 		return ExitNoPerm, err.Error()
+	}
+	// Both act and evaluate enter the same pre-effect decision function. The effectful
+	// transaction below still revalidates the live launch and exact request before dispatch.
+	assessment := b.evaluateWrite(ctx, req, jail, d, p)
+	if assessment.Verdict == "refused" && strings.Contains(assessment.Rule, "unavailable") {
+		return ExitUnavailable, assessment.Rule + "; restart the host broker"
 	}
 	if d.Outcome == OutcomeStanding {
 		code := ExitTempFail
@@ -90,37 +115,33 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 		}
 		return code, ""
 	}
-	// A user grant, a working-set entry or a timed grant covering the write runs it before any
-	// Allow once is spent or a request is filed (workingset.go).
+	// The decision facts above determine whether this write reaches the covered-write effects.
+	// A non-covering fact read is not repeated after the decision; merged-item cleanup is the
+	// existing act-only consequence of that fact.
 	t := targetOf(d.Argv, d.Repos)
-	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev); ok {
-		return code, msg
+	if assessment.Verdict == "runs" {
+		if assessment.facts.merged {
+			_, _ = b.store.EndWorkingResource(b.workspace, t.storeRepo(), t.resource(), brokerstore.EndMerged,
+				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge)
+		}
+		if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev, &assessment.facts); ok {
+			return code, msg
+		}
+	} else if assessment.Verdict == "asks" {
+		if assessment.message != "" {
+			stderr([]byte(assessment.message))
+		}
+		if assessment.endMerged {
+			_, _ = b.store.EndWorkingResource(b.workspace, t.storeRepo(), t.resource(), brokerstore.EndMerged,
+				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge)
+		}
 	}
 	sum := sha256.Sum256(req.Stdin)
 	q := brokerstore.Request{Jail: jail, Start: b.startID, Workspace: b.workspace, LaunchID: b.authority.scope.LaunchID, Argv: d.Argv, Repo: strings.Join(d.Repos, ","), Set: d.Set, Policy: p, StdinDigest: hex.EncodeToString(sum[:])}
 	q.Digest = brokerstore.CommandDigest(q)
 	q.About = aboutOf(d.Argv, t)
 	ev.CommandDigest, ev.StdinDigest = q.Digest, q.StdinDigest
-	// A grant is held by its workspace (boundary-broker.md BB-D99), so its parent request may
-	// come from a jail or broker lifetime that is gone. The gate checks that the parent is this
-	// workspace's, then revalidates BOTH the parent's command and the ACTUAL invocation against
-	// this live launch's current scope and policy: the parent under this launch's holder, so a
-	// set grant whose own repository left the scope covers nothing more (narrowing invalidates
-	// a grant), and the invocation itself.
-	gate := func(parent brokerstore.Request) (brokerstore.Policy, error) {
-		if err := ctx.Err(); err != nil {
-			return brokerstore.Policy{}, err
-		}
-		if !brokerstore.SameWorkspace(parent.Workspace, q.Workspace) {
-			return brokerstore.Policy{}, errors.New("the grant belongs to another workspace")
-		}
-		held := parent
-		held.Jail, held.Start, held.LaunchID, held.Workspace = q.Jail, q.Start, q.LaunchID, q.Workspace
-		if _, err := b.authority.Revalidate(held); err != nil {
-			return brokerstore.Policy{}, fmt.Errorf("the grant's own request no longer passes this launch's scope and policy: %w; refile the command", err)
-		}
-		return b.authority.Revalidate(q) // actual argv/repo, not only a set grant's parent
-	}
+	gate := b.exactGrantGate(ctx, q)
 	// run spends a grant through consume and, when one covers the command, dispatches it under
 	// the store's lock and reports its exit.
 	run := func(consume func(dispatch func() error) (brokerstore.Grant, bool, error)) (bool, int, string) {
@@ -197,7 +218,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, d Decisio
 		return code, msg
 	}
 	// Answered with `--add` or `--for`: no command grant, but an entry on the resource now.
-	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev); ok {
+	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev, nil); ok {
 		return code, msg
 	}
 	return ExitNoPerm, "no live grant covers this command; refile and approve it on the host"

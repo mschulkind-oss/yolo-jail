@@ -667,6 +667,98 @@ func (s *Store) SpendExactOrFileContext(ctx context.Context, input Request, reva
 	})
 	return g, spent, filed, err
 }
+
+// InspectContext reads the store's current records under its transaction lock without expiring,
+// pruning, creating or rewriting any record. It is for broker decisions that must predict
+// without spending a grant or changing the store.
+func (s *Store) InspectContext(ctx context.Context) ([]Request, []Grant, []WorkingEntry, time.Time, error) {
+	out, now, err := s.inspectContext(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, time.Time{}, err
+	}
+	return out.requests, out.grants, out.working, now, nil
+}
+
+// ExactInspection is one non-mutating store view and its exact-grant eligibility result.
+type ExactInspection struct {
+	Requests       []Request
+	Grants         []Grant
+	Working        []WorkingEntry
+	Now            time.Time
+	Grant          Grant
+	Eligible       bool
+	EligibilityErr error
+}
+
+// InspectExactGrantContext returns one existing-store snapshot and determines exact-grant
+// eligibility against that same snapshot and clock while its existing lock is held. Revalidate
+// must be read-only and must not acquire this store lock.
+func (s *Store) InspectExactGrantContext(ctx context.Context, input Request, revalidate Revalidate) (ExactInspection, error) {
+	if input.Workspace == "" || input.Jail == "" {
+		return ExactInspection{}, errors.New("checking a grant needs the host workspace and jail identity")
+	}
+	input.Digest = digest(input)
+	var result ExactInspection
+	out, now, err := s.inspectContext(ctx, func(r *records, at time.Time) error {
+		result.Now = at
+		result.Requests, result.Grants, result.Working = r.requests, r.grants, r.working
+		result.Grant, _, _, _, result.Eligible, result.EligibilityErr = eligibleGrantIn(
+			r, at, input.Workspace, input.Set, input.Digest, revalidate, true)
+		return nil
+	})
+	if err != nil {
+		return ExactInspection{}, err
+	}
+	// The callback owns a decoded snapshot, not records held by the store. Use the final
+	// adopted view returned by the inspection helper for all subsequent local decisions.
+	result.Requests, result.Grants, result.Working, result.Now = out.requests, out.grants, out.working, now
+	return result, nil
+}
+
+func (s *Store) inspectContext(ctx context.Context, inspect func(*records, time.Time) error) (records, time.Time, error) {
+	var out records
+	var now time.Time
+	err := brokerlock.WithInspectionContext(ctx, s.Dir, func() error {
+		for _, name := range []string{"requests", "grants", "working"} {
+			dir := filepath.Join(s.Dir, name)
+			fi, err := os.Lstat(dir)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("store directory is not a real directory: %s", dir)
+			}
+			switch name {
+			case "requests":
+				if err := readRecords(dir, &out.requests); err != nil {
+					return err
+				}
+			case "grants":
+				if err := readRecords(dir, &out.grants); err != nil {
+					return err
+				}
+			case "working":
+				if err := readRecords(dir, &out.working); err != nil {
+					return err
+				}
+			}
+		}
+		adoptWorkspaces(&out)
+		now = s.now()
+		if inspect != nil {
+			return inspect(&out, now)
+		}
+		return nil
+	})
+	if err != nil {
+		return records{}, time.Time{}, err
+	}
+	return out, now, nil
+}
+
 func (s *Store) List() ([]Request, []Grant, error) {
 	var out records
 	err := s.transaction(func(r *records, _ time.Time) error { out = *r; return nil })
@@ -915,57 +1007,74 @@ func afterSpend(ctx context.Context, found bool, err error, dispatch func() erro
 // spendIn spends and audits one use of the first live grant covering the invocation, inside
 // the caller's transaction, and reports whether it found one.
 func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspace, jail, set, commandDigest string, revalidate Revalidate, exactOnly bool) (Grant, bool, error) {
-	for i := range r.grants {
-		g := &r.grants[i]
-		if !SameWorkspace(g.Workspace, workspace) || g.Set != set || (!g.Ended.IsZero()) || g.Uses <= 0 || !now.Before(g.Expires) || (g.Digest != "" && g.Digest != commandDigest) || (exactOnly && g.Digest == "") {
-			continue
-		}
-		allowed := false
-		var parent Request
-		parentAt := -1
-		for i, q := range r.requests {
-			if q.ID == g.Request && q.State == "allowed" && SameWorkspace(q.Workspace, workspace) && q.Set == set && (!exactOnly || q.Digest == commandDigest && q.Digest == g.Digest) {
-				current, err := currentPolicy(q, revalidate)
-				if err != nil {
-					return Grant{}, false, err
-				}
-				// Narrowing invalidates a grant rather than silently rewriting
-				// its coverage. Refile under the new policy before approving.
-				if current.MaxWindow < q.Policy.MaxWindow || current.Window < q.Policy.Window || current.Uses < q.Policy.Uses || (q.Policy.Session && !current.Session) {
-					return Grant{}, false, errors.New("current policy narrowed; refile the command under the host's current policy")
-				}
-				allowed = true
-				parent, parentAt = q, i
-				break
-			}
-		}
-		if !allowed {
-			continue
-		}
-		g.Uses--
-		g.UsedBy = jail
-		if g.Uses == 0 {
-			g.Ended = now
-			g.EndReason = EndUsed
-		}
-		if err := s.write("grants", g.ID, g); err != nil {
-			return Grant{}, false, err
-		}
-		// An exact Allow once spent: its request's record says so, so a waiter started after
-		// the command ran does not send the agent to run it again.
-		if g.Uses == 0 && g.Digest != "" && !parent.Spent {
-			q := &r.requests[parentAt]
-			q.Spent, q.SpentAt = true, now
-			if err := s.write("requests", q.ID, q); err != nil {
-				return Grant{}, false, err
-			}
-		}
-		if err := s.audit(ctx, "grant-used", parent, *g); err != nil {
-			return Grant{}, false, err
-		}
-		return *g, true, nil
+	_, parent, grantAt, parentAt, found, err := eligibleGrantIn(r, now, workspace, set, commandDigest, revalidate, exactOnly)
+	if err != nil || !found {
+		return Grant{}, false, err
 	}
-	return Grant{}, false, nil
+	stored := &r.grants[grantAt]
+	stored.Uses--
+	stored.UsedBy = jail
+	if stored.Uses == 0 {
+		stored.Ended = now
+		stored.EndReason = EndUsed
+	}
+	if err := s.write("grants", stored.ID, *stored); err != nil {
+		return Grant{}, false, err
+	}
+	if stored.Uses == 0 && stored.Digest != "" && !parent.Spent {
+		q := &r.requests[parentAt]
+		q.Spent, q.SpentAt = true, now
+		if err := s.write("requests", q.ID, *q); err != nil {
+			return Grant{}, false, err
+		}
+	}
+	if err := s.audit(ctx, "grant-used", parent, *stored); err != nil {
+		return Grant{}, false, err
+	}
+	return *stored, true, nil
+}
+
+// eligibleGrantIn is the shared, non-mutating eligibility check used by prediction and spendIn.
+func eligibleGrantIn(r *records, now time.Time, workspace, set, commandDigest string,
+	revalidate Revalidate, exactOnly bool) (Grant, Request, int, int, bool, error) {
+	for grantAt := range r.grants {
+		g := &r.grants[grantAt]
+		if !SameWorkspace(g.Workspace, workspace) || g.Set != set || !g.Ended.IsZero() || g.Uses <= 0 ||
+			!now.Before(g.Expires) || (g.Digest != "" && g.Digest != commandDigest) || (exactOnly && g.Digest == "") {
+			continue
+		}
+		for parentAt, q := range r.requests {
+			if q.ID != g.Request || q.State != "allowed" || !SameWorkspace(q.Workspace, workspace) || q.Set != set ||
+				(exactOnly && (q.Digest != commandDigest || q.Digest != g.Digest)) {
+				continue
+			}
+			current, err := currentPolicy(q, revalidate)
+			if err != nil {
+				return Grant{}, Request{}, 0, 0, false, err
+			}
+			if current.MaxWindow < q.Policy.MaxWindow || current.Window < q.Policy.Window || current.Uses < q.Policy.Uses ||
+				(q.Policy.Session && !current.Session) {
+				return Grant{}, Request{}, 0, 0, false, errors.New("current policy narrowed; refile the command under the host's current policy")
+			}
+			return *g, q, grantAt, parentAt, true, nil
+		}
+	}
+	return Grant{}, Request{}, 0, 0, false, nil
+}
+
+// ExactGrantEligibleContext reports whether spendIn would consume an exact grant, without effects.
+func (s *Store) ExactGrantEligibleContext(ctx context.Context, input Request, revalidate Revalidate) (Grant, bool, error) {
+	if input.Workspace == "" || input.Jail == "" {
+		return Grant{}, false, errors.New("checking a grant needs the host workspace and jail identity")
+	}
+	input.Digest = digest(input)
+	requests, grants, _, now, err := s.InspectContext(ctx)
+	if err != nil {
+		return Grant{}, false, err
+	}
+	r := records{requests: requests, grants: grants}
+	g, _, _, _, found, err := eligibleGrantIn(&r, now, input.Workspace, input.Set, input.Digest, revalidate, true)
+	return g, found, err
 }
 
 // Revoke ends one grant or working-set entry by its id, or with "all" every live grant

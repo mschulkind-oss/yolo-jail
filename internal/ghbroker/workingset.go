@@ -157,7 +157,7 @@ func (b *Broker) readIssue(ctx context.Context, t writeTarget) (issueState, erro
 // it, and reports its exit code, a message for the agent, and true. False means nothing
 // lasting covers it, and the write goes on to Allow once or a request.
 func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d Decision, t writeTarget,
-	stdout, stderr func([]byte), ev *brokeraudit.Event) (int, string, bool) {
+	stdout, stderr func([]byte), ev *brokeraudit.Event, facts *writeDecisionFacts) (int, string, bool) {
 	if b.store == nil || b.authority == nil || b.audit == nil {
 		return 0, "", false
 	}
@@ -214,33 +214,45 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	// covered run is sent as refs/heads/<default>, so what runs is the branch that was checked.
 	// An approve-run grant covers approving a run only once the broker's own read of the run
 	// shows a granted actor triggered it from the repository itself (approveRunCovered).
-	kind, ok := b.userGrantCovers(t, d.Argv, "")
-	// actor is a covered run approval's triggering actor, as the broker read it; "" otherwise.
+	kind, ok := "", false
 	actor := ""
-	if ok && kind == GrantApproveRun {
+	if facts != nil {
+		kind, ok, actor = facts.userKind, facts.userGrant, facts.actor
+	} else {
+		kind, ok = b.userGrantCovers(t, d.Argv, "")
+	}
+	if ok && kind == GrantApproveRun && facts == nil {
 		actor, ok = b.approveRunCovered(ctx, t, d.Argv, stderr)
 	}
 	if ok && kind == GrantDispatchWorkflow {
-		w, _ := dispatchOf(d.Argv, t)
-		def, onDefault, err := b.onDefaultBranch(ctx, t.Repo, w)
-		switch {
-		case err != nil:
-			stderr([]byte("github-broker: could not read " + t.Repo + "'s default branch (" + err.Error() +
-				"), so this workspace's dispatch-workflow grant does not cover this run, which asks\n"))
-			ok = false
-		case !onDefault:
-			stderr([]byte("github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow +
-				" on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"))
-			ok = false
-		default:
-			pinned, pinOK := pinnedDispatchArgv(d.Argv, t, def)
-			if !pinOK {
-				stderr([]byte("github-broker: could not pin this run of " + w.Workflow + " to refs/heads/" + def +
-					", so this workspace's dispatch-workflow grant does not cover it, which asks\n"))
+		if facts != nil && facts.dispatchTried {
+			if facts.pinned == nil {
 				ok = false
-				break
+			} else {
+				runs.Argv = facts.pinned
 			}
-			runs.Argv = pinned
+		} else {
+			w, _ := dispatchOf(d.Argv, t)
+			def, onDefault, err := b.onDefaultBranch(ctx, t.Repo, w)
+			switch {
+			case err != nil:
+				stderr([]byte("github-broker: could not read " + t.Repo + "'s default branch (" + err.Error() +
+					"), so this workspace's dispatch-workflow grant does not cover this run, which asks\n"))
+				ok = false
+			case !onDefault:
+				stderr([]byte("github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow +
+					" on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"))
+				ok = false
+			default:
+				pinned, pinOK := pinnedDispatchArgv(d.Argv, t, def)
+				if !pinOK {
+					stderr([]byte("github-broker: could not pin this run of " + w.Workflow + " to refs/heads/" + def +
+						", so this workspace's dispatch-workflow grant does not cover it, which asks\n"))
+					ok = false
+				} else {
+					runs.Argv = pinned
+				}
+			}
 		}
 	}
 	if ok {
@@ -264,10 +276,14 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	if len(kinds) == 0 || resource == "" {
 		return 0, "", false
 	}
-	if _, live, err := b.store.LiveWorkingKind(b.workspace, t.storeRepo(), resource, kinds...); err != nil || !live {
+	if facts != nil {
+		if !facts.workingFound || facts.failed != "" || facts.merged {
+			return 0, "", false
+		}
+	} else if _, live, err := b.store.LiveWorkingKind(b.workspace, t.storeRepo(), resource, kinds...); err != nil || !live {
 		return 0, "", false
 	}
-	if t.Kind == targetPR || t.Kind == targetIssue || t.Kind == targetIssueOrPR {
+	if facts == nil && (t.Kind == targetPR || t.Kind == targetIssue || t.Kind == targetIssueOrPR) {
 		state, err := b.readIssue(ctx, t)
 		if err != nil {
 			stderr([]byte("github-broker: could not read whether " + t.describe() + " is still open (" + err.Error() +

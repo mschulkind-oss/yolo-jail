@@ -2,6 +2,7 @@ package ghbroker
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,28 @@ func grantDispatch(t *testing.T, b *Broker, allowed bool, grants ...brokerscope.
 
 func nightlyGrant(workflow string) brokerscope.Grant {
 	return brokerscope.Grant{Kind: GrantDispatchWorkflow, Repo: "github.com/o/r", Workflow: workflow}
+}
+
+func TestEvaluateDispatchUsesCanonicalPinnedDefaultBranchArgv(t *testing.T) {
+	b, gh := dispatchBroker(t)
+	grantDispatch(t, b, true, nightlyGrant("nightly-macos.yml"))
+	argv := []string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}
+	var got evaluation
+	jail := paths.JailShortHash(b.authority.scope.Container)
+	code := b.ServeContext(context.Background(), Request{Mode: "evaluate", Argv: argv, Repo: "o/r"}, jail,
+		func(p []byte) { _ = json.Unmarshal(p, &got) }, func([]byte) {})
+	if code != 0 || got.Verdict != "runs" || !slicesContains(got.Canonical, "--ref=refs/heads/main") {
+		t.Fatalf("evaluate: code=%d result=%+v", code, got)
+	}
+	if len(gh.writes()) != 0 {
+		t.Fatalf("evaluate sent proposed dispatch: %v", gh.writes())
+	}
+	if code := b.ServeContext(context.Background(), Request{Argv: argv, Repo: "o/r"}, jail, func([]byte) {}, func([]byte) {}); code != 0 {
+		t.Fatalf("act exit %d", code)
+	}
+	if len(gh.writes()) != 1 || !slicesContains(gh.writes()[0], "--ref=refs/heads/main") {
+		t.Fatalf("act dispatch argv %v; predicted %v", gh.writes(), got.Canonical)
+	}
 }
 
 // A covered run is sent pinned to the full default branch ref the broker checked, whatever
