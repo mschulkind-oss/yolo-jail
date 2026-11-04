@@ -199,8 +199,8 @@ func TestAnUngrantableCreatedTargetIsSaidAndHandedToTheBackend(t *testing.T) {
 			t.Errorf("the warning does not say %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "macos-fix-permissions") {
-		t.Errorf("a grant that failed named `yolo macos-fix-permissions`, which fails the same way:\n%s", out)
+	if strings.Contains(out, "yolo-account share") {
+		t.Errorf("a grant that failed named `yolo yolo-account share`, which fails the same way:\n%s", out)
 	}
 }
 
