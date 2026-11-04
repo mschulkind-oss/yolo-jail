@@ -475,6 +475,12 @@ type Options struct {
 	// for want of a list: every hand-built Options in a test, which must never reach AWS. The front
 	// door installs DefaultFetchModelList, as it installs MacosUserRun.
 	FetchModelList func(ModelListRequest) awsauthdaemon.ModelListAnswer
+	// HostKeychainRead reads one generic-password item's secret from the HOST user's keychain by
+	// service name, for a macos-user launch's host_keychain_env (hostkeychainenv.go,
+	// docs/design/keychain-from-a-jail.md OQ-KC5). nil reads nothing: every hand-built Options in a
+	// test, which must never reach a real keychain. The front door installs
+	// DefaultHostKeychainRead, as it installs FetchModelList.
+	HostKeychainRead func(service string) (string, error)
 	// fetchedListNotes is the fetched-list lines this launch printed, so a channel composed twice
 	// (an attach's rekey, macos-user's service retry) says each once.
 	fetchedListNotes map[string]bool

@@ -904,6 +904,21 @@ selected adds none. Under `YOLO_SKIP_PATCHES` covering the fork, `yolo host -p` 
 build, so it hands the base's own entries alone and says which flags it dropped. A pack that
 neither declares nor forks `X` is still refused.
 
+<a id="host_keychain_env"></a>`host_keychain_env`, a **top-level** key keyed by program bin, names
+the host keychain items whose secret a **macos-user** launch hands that program through a variable
+it already reads, because a native client in that sandbox has no keychain to reach
+([OQ-KC5](../design/keychain-from-a-jail.md#OQ-KC5)). Each entry is `{"var", "services", "login"}`:
+the launch reads each service in order with `/usr/bin/security find-generic-password -s <service>
+-w`, as you, writes the first one found def-form into the program's own agent env file, and prints
+one line saying it did, or that it found none or was refused and naming `login`, the command that
+logs in on the host. No other backend reads it. `packdecl` refuses a bin this pack does not declare
+as a non-fork program, a bad or repeated variable name, an empty `services`, and a service or
+`login` that is blank, starts with `-` or holds a control character. The copilot pack declares one:
+
+```toml
+host_keychain_env = { copilot = [{ var = "COPILOT_GITHUB_TOKEN", services = ["copilot-cli"], login = "copilot login" }] }
+```
+
 <a id="session-homes"></a>`session_homes`, a **top-level** list, declares the directory a pack's
 program reads its config from, so each session reads its own copy of it
 ([per-session profiles](../design/per-session-profiles.md)). A **session home** (a term that design

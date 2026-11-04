@@ -144,6 +144,14 @@ type Manifest struct {
 	// through ProgramModelListCheck; never projected into install or derive payloads.
 	ModelListChecks map[string]*ModelListCheck `json:"model_list_check,omitempty"`
 
+	// HostKeychainEnvByBin names, per program bin, the HOST KEYCHAIN items whose secret a launch
+	// hands that program through an environment variable it already reads, on a backend where
+	// the program cannot reach a keychain itself (hostkeychainenv.go;
+	// docs/design/keychain-from-a-jail.md OQ-KC5). PACK-WIDE, like provider_keys, so an older
+	// reader ignores the unknown key instead of dropping the program contribution. Read it
+	// through HostKeychainEnv.
+	HostKeychainEnvByBin map[string][]HostKeychainEnv `json:"host_keychain_env,omitempty"`
+
 	// ProviderKeysByBin are the settings in each of this pack's programs' OWN config that the
 	// program's provider SELECTION decides, keyed by the program's bin: at a jail no captured
 	// in-jail edit may set one (providerkeys.go). PACK-WIDE, like model_list_check, so an older
@@ -995,6 +1003,7 @@ func (m *Manifest) Validate() []string {
 	problems = append(problems, m.validateProviderKeys()...)
 	problems = append(problems, m.validateProviderEnv()...)
 	problems = append(problems, m.validateSessionHomes()...)
+	problems = append(problems, m.validateHostKeychainEnv()...)
 	return append(problems, m.validateMCP()...)
 }
 

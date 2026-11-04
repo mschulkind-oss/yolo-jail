@@ -1259,6 +1259,10 @@ func runRun(args []string) int {
 	// pack or config gives a list gets the region's from its platform's credential service. A
 	// seam the front door fills so that no hand-built Options in a test can reach AWS.
 	opts.FetchModelList = run.DefaultFetchModelList
+	// And the host keychain read a macos-user launch hands a program its host login with
+	// (docs/design/keychain-from-a-jail.md OQ-KC5), for the same reason: no hand-built Options
+	// in a test may reach a real keychain.
+	opts.HostKeychainRead = run.DefaultHostKeychainRead
 	opts.WarnUnknownYOLOEnv = warnUnknownYOLOEnvFromProcess
 	// Wire E3's capture-on-terminate. Same injection shape and same reason: the
 	// capture engine lives in THIS package, which imports run, so run cannot call it
