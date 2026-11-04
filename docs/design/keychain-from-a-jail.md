@@ -992,7 +992,7 @@ What I would build, in order:
    refuses its own OAuth token in `COPILOT_GITHUB_TOKEN`: remove `host_keychain_env` from the
    copilot pack, so no launch hands over a token Copilot cannot use, and reopen [OQ-KC5](#OQ-KC5).
 
-   *Attempted 2026-11-03 at `064706ada`* ([lab report §12](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#witness-w-kc5-stopped-at-step-1)):
+   *Attempted 2026-11-03 at `064706ada`* ([lab report, W-KC5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#witness-w-kc5-stopped-at-step-1)):
    stopped at step 1. Host Copilot is 1.0.105, and `find-generic-password -s copilot-cli` found
    no item. The `dump-keychain` search was not run (the agent's permission policy refused it), so
    it is still unknown whether the host isn't logged in or 1.0.105 uses another service name. Also:
