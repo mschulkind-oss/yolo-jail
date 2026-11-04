@@ -304,8 +304,9 @@ reverse it.
   - *Why:* a read-only `mounts` of `~/.local/share/yolo-jail/state` is refused by nothing today
     (the refusal set covers read-write sources only). That leaves the Claude and OpenAI brokers'
     canonical logins exposed as well, and will leave this design's canonical store exposed.
-  - *Reverse by:* narrowing the fence to loopholes that declare `credential_paths`, once the
-    framework has that key.
+  - *Not reversed by `credential_paths`:* the pack-broker framework adopts this rule as its fence
+    and adds declared `credential_paths` on top
+    ([BX-D11](pack-brokers.md#decision-ledger)), so the state-directory fence stays whole.
 - <a id="id-10"></a>**ID-10. Audit events** carry `service = "mcp-auth"`, `event` set to one of
   `adopt`, `refresh`, `sign-out`, `dead`, `seed`, `harvest` (and `header`, in phase D), plus the
   new `server` and `generation` fields, the host-asserted jail and the workspace. They never

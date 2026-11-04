@@ -234,9 +234,12 @@ Per brokered source:
 - **Never brokered:** the refused classes, in one line each, so an agent stops trying them.
 
 Per host daemon that holds a credential but brokers no call, such as the MCP sign-in broker: the
-line it gives the readout request itself, live, over its own endpoint (for the MCP sign-in broker,
-each composed server, shared or kept, its expiry, and any dead record with its next step; never a
-token). [`pack-brokers.md` §13](pack-brokers.md#13-coherence-with-the-mcp-sign-in-broker) lists
+answer it gives the framework's readout request, `{"op":"status"}`, live, over its own endpoint
+(for the MCP sign-in broker, the `yolo.mcp-auth.status/1` object `yolo mcp-auth status` prints:
+each composed server, shared or kept, its generation and expiry, and any dead record with its next
+step; never a token). On Apple Container that line is the unreachable one until the MCP sign-in
+plan's phase C admits the `mcp-auth-broker` daemon there. Its records are sign-in records, not
+requests, so `yolo approve`, `yolo wait` and `yolo history` never list them. [`pack-brokers.md` §13](pack-brokers.md#13-coherence-with-the-mcp-sign-in-broker) lists
 the touch points.
 
 Per loophole that is not a broker: its standing per grant kind, its granted values, and the next
@@ -409,7 +412,7 @@ implementer's beyond the ones shown; the schema name, `verdict`, `rule`, `covere
 
 1. **Split the decision out of the GitHub broker**, behind its existing tests, with both-mode
    tests. No behavior change, no new verb.
-2. **The evaluate request and the readout request on the GitHub broker**, and `yolo access` with
+2. **The evaluate request and the readout request (`{"op":"status"}`, the framework's) on the GitHub broker**, and `yolo access` with
    the readout and `gh` predictions.
 3. **The same for the git broker**, including the ref-update computation for a push.
 4. **The access snapshot** and the loophole section of the readout.
@@ -484,3 +487,4 @@ ruling of the owner's.
 | AX-D4 | `yolo access` exits 0 whenever it produced an answer; the verdict is in the output | 2026-11-04 | [§9](#9-the-verb) | — |
 | AX-D5 | The readout never shows the `on_request` command, another workspace, or a setting's value | 2026-11-04 | [§4](#4-principles) | — |
 | AX-D6 | No per-call prediction for non-broker loopholes | 2026-11-04 | [§10](#10-non-goals) | — |
+| AX-D7 | The readout request every broker and credential daemon answers is the framework's `{"op":"status"}`; the MCP sign-in broker's line is its `yolo.mcp-auth.status/1` object, unreachable on Apple Container until the MCP plan's phase C, and its records never appear in `yolo approve`, `yolo wait` or `yolo history` | 2026-11-04 | [§6.1](#61-what-it-holds) | — |

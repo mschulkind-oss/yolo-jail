@@ -157,9 +157,9 @@ are inside `internal/ghbroker` and `internal/gitbroker`, and `yolo approve` know
 flowchart TB
   subgraph L1[host-broker framework]
     LC[lifecycle: one daemon per jail, HD-R1]
-    DE[declarations: needs, credential fence, scope]
+    DE[declarations: needs, one fence, launch_input, scope]
     AU[audit: one log, service field]
-    RO[readout line for yolo access]
+    RO[readout: op status]
   end
   subgraph L2[call layer]
     FR[front: CLI or HTTP]
@@ -181,13 +181,32 @@ Every host daemon that holds a host credential for a jail gets, from core:
 
 - **Lifecycle.** Spawned per jail by the launch, detached at the jail's end
   ([HD-R1](host-daemon-ownership.md#HD-R1)), its endpoint published through the loophole transport.
-- **Declarations.** The pack `needs` it; its credential paths are fenced from every `mounts` entry;
-  its scope, if it has one, goes through the gate.
+- **Declarations.** The pack `needs` it; its scope, if it has one, goes through the gate.
+- **One fence.** Every selected host-daemon loophole's state directory is fenced from `mounts`,
+  read-only sources included: a source that is, contains or lies inside it is refused from
+  workspace config and disclosed from user config. A loophole's `credential_paths` are added on top
+  of that fence, never instead of it. Today nothing refuses a read-only `mounts` entry under
+  `~/.local/share/yolo-jail/state/` unless a brokered loophole is selected, which leaves the Claude
+  and OpenAI brokers' stored logins exposed too; the MCP sign-in plan's
+  [ID-9](mcp-auth-sharing-plan.md#id-9) builds this fence, and it is the framework's.
+- **One per-launch input.** What a launch computes for a daemon and hands it as a file reaches it
+  through the `launch_input` key of `[host_daemon]` and its `{launch_input}` token, whose producers
+  are a closed, core-owned set ([ID-4](mcp-auth-sharing-plan.md#id-4)). A call broker's approved
+  scope roots are one more producer of that set, `call-broker-scope`; the `brokered` block's
+  `{repository_scope}` stays as it is, and folding it into `launch_input` is one change that renames
+  both, never a third mechanism.
 - **Audit.** It writes the one host audit log with its `service`, read by `yolo audit --service`.
-- **A readout line.** It answers the readout request [`access-introspection.md` §6](access-introspection.md#6-the-access-readout)
-  defines, with whatever it holds for this workspace, never a secret.
+  `server` and `generation` are framework audit fields beside `service`, `event`, the
+  host-asserted jail and the workspace: optional, set by the daemons whose records have them (the
+  MCP sign-in broker), and never a token.
+- **A readout line.** It answers the framework's readout request, `{"op":"status"}`, over its own
+  endpoint, with whatever it holds for this workspace and never a secret; that answer is the
+  daemon's line in [`access-introspection.md` §6](access-introspection.md#6-the-access-readout).
+  A call broker answers the same request, and its answer is its whole readout.
 - **Backend reach.** On a backend whose jail cannot reach host daemons (Apple Container today,
   except the daemons it admits by name), its readout line says unreachable and names the reason.
+  The MCP sign-in broker shows that line on Apple Container until the MCP plan's phase C admits its
+  daemon there.
 
 ### 5.2 The call layer
 
@@ -496,15 +515,17 @@ call broker, whose credential never crosses. Every touch point:
 
 | Touch point | The MCP design | This design |
 | :--- | :--- | :--- |
+| Names | The pack `mcp-auth`, its loophole `mcp-auth-broker`, the verb `yolo mcp-auth` | The same names, everywhere this design and the readout use them |
 | Lifecycle | `yolo internal daemon mcp-auth-broker`, one per jail, [HD-R1](host-daemon-ownership.md#HD-R1) | The framework's lifecycle, unchanged |
 | Declarations | The `mcp-auth` pack, `needs`ed by every agent pack declaring `[[mcp_auth]]` | The framework's `needs`; no `call_broker` block |
-| Fence | A host-only canonical store under yolo's state directory, never mounted | The framework's fence must cover it, whether by the state directory's own fence or a declared credential path |
-| Audit | Not specified | Adopt, refresh, sign-out, a record going dead, and each header issued, in the one log with `service = "mcp-auth"`, never a token |
-| Readout line | `yolo mcp-auth status` and the launch block | The same answer, given to `yolo access` over the broker's endpoint: each composed server, shared or kept, its expiry, dead records and their next step; never a token |
+| Per-launch input | The share file, through `launch_input = "mcp-auth-share"` and `{launch_input}` ([ID-4](mcp-auth-sharing-plan.md#id-4)) | The framework's one per-launch input mechanism; a call broker's scope is another producer of it |
+| Fence | A host-only canonical store under the loophole's state directory ([ID-9](mcp-auth-sharing-plan.md#id-9)) | The framework's fence is every selected host daemon's state directory, with `credential_paths` on top |
+| Audit | `service = "mcp-auth"`, events `adopt`, `refresh`, `sign-out`, `dead`, `seed`, `harvest`, `header`, with `server` and `generation` ([ID-10](mcp-auth-sharing-plan.md#id-10)) | `server` and `generation` are framework audit fields; never a token |
+| Readout line | `{"op":"status"}` over its endpoint, rendering `yolo.mcp-auth.status/1`, the same object `yolo mcp-auth status` prints ([ID-8](mcp-auth-sharing-plan.md#id-8)) | `{"op":"status"}` is the framework's readout request; that object is the daemon's line in `yolo access` |
 | Identity | `yolo mcp-auth header` answers by host-asserted identity and refuses a server the launch did not compose | The framework's identity; the refusal names its next step |
-| Apple Container | The jail cannot reach the broker; store entries are written at launch instead | The framework's readout line says unreachable on this backend, as for every daemon |
+| Apple Container | The jail cannot reach the broker until phase C admits it; store entries are written at launch instead | The readout shows the framework's unreachable line there until phase C |
 | Dry run | — | None: it decides no call ([access-introspection non-goals](access-introspection.md#10-non-goals)); the readout lists what it holds |
-| Approvals, `yolo wait`, `yolo approve` | — | Never listed: it files nothing |
+| Approvals, `yolo approve`, `yolo wait`, `yolo history` | Files no request | Never lists its records: they are sign-in records, not requests |
 
 **A future MCP call broker**, one that keeps a server's token on the host and forwards each tool
 call for approval, would be a pack broker with an HTTP front: a JSON-RPC `tools/call` classified by
@@ -556,8 +577,8 @@ its tool name, as Slack's methods would be. Nothing here builds it.
 
 1. **Source-neutral approvals.** `yolo approve`, `yolo wait` and the config validator read sources
    from the selected packs' declarations instead of naming git and GitHub. No behavior change.
-2. **The framework's readout line** and audit `service` for every host daemon, with the MCP broker
-   adopting both when it is built.
+2. **The framework's `{"op":"status"}` readout request** and its audit fields for every host
+   daemon. The fence and `launch_input` arrive with the MCP sign-in plan; this design reuses them.
 3. **The `call_broker` block, the classifier protocol and the CLI executor**, with the CircleCI
    pack as the first user.
 4. **The HTTP front and executor**, with the Linear pack.
@@ -696,3 +717,9 @@ Designer decisions taken while drafting; none is a ruling of the owner's.
 | BX-D8 | The HTTP executor follows no redirect, and a non-safe method reads only on a declared, gate-shown path | 2026-11-04 | [§8.2](#82-the-http-executor) | — |
 | BX-D9 | The MCP sign-in broker uses the framework and not the call layer | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
 | BX-D10 | CircleCI's `api` passthrough is refused; the CLI's shortfalls are stated and not filled from the HTTP API | 2026-11-04 | [§11.4](#114-where-the-cli-falls-short) | — |
+| BX-D11 | The framework's fence is every selected host-daemon loophole's state directory, read-only `mounts` included; `credential_paths` adds to it. Adopted from the MCP sign-in plan's ID-9 | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
+| BX-D12 | One per-launch input mechanism: `launch_input` and `{launch_input}`, with a closed core-owned producer set; a call broker's scope is a producer of it. Renaming either is one change that renames both | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
+| BX-D13 | `{"op":"status"}` is the framework's readout request, for credential daemons and call brokers alike | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
+| BX-D14 | `server` and `generation` are framework audit fields, optional per daemon | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
+| BX-D15 | On Apple Container the MCP sign-in broker's readout line is the framework's unreachable line until the MCP plan's phase C admits it | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
+| BX-D16 | Names are the MCP design's (`mcp-auth`, `mcp-auth-broker`, `yolo mcp-auth`); its records are never listed by `yolo approve`, `yolo wait` or `yolo history` | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
