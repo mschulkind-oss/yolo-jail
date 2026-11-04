@@ -18,7 +18,8 @@ func TestEveryActivationDifferenceNamesItsNextStep(t *testing.T) {
 		// An off-switch loophole runs whenever its pack is selected (legacy-config-compat.md
 		// LC-D3): the old file keeps it off, and no "enabled": true is needed to run it.
 		"the converted config runs aws-auth because its pack is selected, and the old one keeps it off; write `off = true` under [allow.aws-auth] in the TOML user config to keep it off, or remove the `\"enabled\": false` that keeps it off in the old file to let it run, then run `yolo config migrate` again",
-		"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again",
+		// Grants are built, so the next step is the pack line that runs it, never a wait.
+		"so add the pack (`yolo pack add journal`) to the old file's packs, or keep the old file (this yolo keeps reading it), then run `yolo config migrate` again",
 		`write them under loopholes.aws-auth.settings with "enabled": true in the old file, then run ` + "`yolo config migrate` again",
 		`add "enabled": true under loopholes.audio in the old file to keep it running, or remove "audio" from packs to keep it off, then run ` + "`yolo config migrate` again",
 	} {

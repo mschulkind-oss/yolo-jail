@@ -259,15 +259,23 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 	// with the launch path about what this machine has. It always builds the
 	// include-disabled superset; includeDisabled selects the VIEW below.
 	// A TOML user config's `[allow.<pack>] off = true` keeps that pack's off-switch loophole off
-	// here as at the launch (LaunchBlock, LC-D3).
-	if user := load(deps.LoadUserConfig); user != nil {
-		if allowV, ok := user.Get("allow"); ok {
-			withAllow := jsonx.NewOrderedMap()
-			withAllow.Set("loopholes", merged)
-			withAllow.Set("allow", allowV)
-			if block := LaunchBlock(withAllow); block != nil {
-				merged = block
+	// here as at the launch (LaunchBlock, LC-D3), and a TOML project's `[requests.<pack>] off =
+	// true` the same way (LC-D15).
+	{
+		withOff := jsonx.NewOrderedMap()
+		withOff.Set("loopholes", merged)
+		if user := load(deps.LoadUserConfig); user != nil {
+			if allowV, ok := user.Get("allow"); ok {
+				withOff.Set("allow", allowV)
 			}
+		}
+		if ws := loadWS(deps.LoadWorkspaceConfig); ws != nil {
+			if requestsV, ok := ws.Get("requests"); ok {
+				withOff.Set("requests", requestsV)
+			}
+		}
+		if block := LaunchBlock(withOff); block != nil {
+			merged = block
 		}
 	}
 	set := NewHostSet(merged)
@@ -290,6 +298,17 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 					entry.Set("settings", supplied)
 					mergedSettings.Set(name, entry)
 				}
+			}
+		}
+	}
+	// A TOML project's request-scope setting replaces both (LG-D15, LC-D17), as at the launch.
+	if ws := loadWS(deps.LoadWorkspaceConfig); ws != nil {
+		for _, lp := range set.All() {
+			previous := SettingsFromConfig(mergedSettings, lp.Name)
+			if supplied := WithProjectRequestSettings(ws, lp, previous); supplied != previous {
+				entry := jsonx.NewOrderedMap()
+				entry.Set("settings", supplied)
+				mergedSettings.Set(lp.Name, entry)
 			}
 		}
 	}

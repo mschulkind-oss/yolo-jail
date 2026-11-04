@@ -458,26 +458,52 @@ func TestALegacyProjectFieldsIsTheColumnsRequest(t *testing.T) {
 	}
 }
 
-// TestALegacyWorkspaceBaudIsReadAsTheUsersAndDisclosed is LC-D2's `default_baud` row: a baud rate
-// admits nothing, so a legacy workspace file's value is read as the user's for that launch and
-// said in one line, where v0.16.0 refused the launch. The setting stays the user's in TOML.
-func TestALegacyWorkspaceBaudIsReadAsTheUsersAndDisclosed(t *testing.T) {
+// TestALegacyWorkspaceBaudIsTheProjectsRequest is LC-D17: the shipped serial `default_baud` is a
+// request-scope setting, so a legacy workspace `settings.default_baud` is the project's own rate,
+// launched as v0.15.1 launched it with no refusal, and a TOML project asks for the same value
+// under `[requests.serial]`, which replaces the user's there.
+func TestALegacyWorkspaceBaudIsTheProjectsRequest(t *testing.T) {
 	res := shippedPackResolver(t, "serial")
 	known, _ := res.Known()
 	baud, ok := loopholedecl.SettingByKey(known["serial"].Settings, "default_baud")
-	if !ok || baud.Scope != loopholedecl.SettingScopeUser || !baud.LegacyWorkspace {
-		t.Fatalf("the shipped serial `default_baud` is %+v, want a user setting with legacy_workspace", baud)
+	if !ok || baud.Scope != loopholedecl.SettingScopeRequest {
+		t.Fatalf("the shipped serial `default_baud` is %+v, want scope %q (LC-D17)", baud, loopholedecl.SettingScopeRequest)
 	}
-	ws, errs, warns := validateScoped(t, `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true}}}`,
+	_, errs, warns := validateScoped(t, `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true}}}`,
 		`{"loopholes": {"serial": {"settings": {"default_baud": 9600}}}}`, res)
-	if hits := containing(errs, "default_baud"); len(hits) != 0 {
-		t.Fatalf("a legacy workspace `default_baud` is refused: %v", hits)
+	if hits := append(containing(errs, "default_baud"), containing(warns, "default_baud")...); len(hits) != 0 {
+		t.Fatalf("a legacy workspace `default_baud` is refused or warned: %v", hits)
 	}
-	hits := containing(warns, "settings.default_baud", "read as your value for this launch")
+	decls := []ReadablePackDeclaration{{Pack: "serial", Settings: known["serial"].Settings}}
+	plan, err := ResolveReadableAllowance(ReadableAllowanceInput{
+		User:          decode(t, `{"allow":{"serial":{"default_baud":115200}}}`),
+		Workspace:     decode(t, `{"requests":{"serial":{"default_baud":9600}}}`),
+		SelectedPacks: []string{"serial"}, PackSettings: decls,
+	})
+	if err != nil {
+		t.Fatalf("a project's `requests.serial.default_baud` is refused: %v", err)
+	}
+	if got := plan.PackSettings["serial"]["default_baud"]; got != int64(9600) && got != 9600 && got != float64(9600) {
+		t.Errorf("the baud in force is %v (%T), want the project's 9600 replacing the user's", got, got)
+	}
+}
+
+// TestALegacyWorkspaceUserSettingIsReadAsTheUsersAndDisclosed is LC-D2's `legacy_workspace`
+// mechanism, which a pack's user-scope setting may still declare: a legacy workspace file's value
+// is read as the user's for that launch and said in one line. A user-scope setting without the key
+// is still refused.
+func TestALegacyWorkspaceUserSettingIsReadAsTheUsersAndDisclosed(t *testing.T) {
+	rate := userSetting("rate", loopholedecl.SettingTypeInt)
+	rate.LegacyWorkspace = true
+	res := declaring("acme", rate)
+	ws, errs, warns := validateScoped(t, "", `{"loopholes": {"acme": {"settings": {"rate": 9600}}}}`, res)
+	if hits := containing(errs, "rate"); len(hits) != 0 {
+		t.Fatalf("a legacy workspace legacy_workspace setting is refused: %v", hits)
+	}
+	hits := containing(warns, "settings.rate", "read as your value for this launch")
 	if len(hits) != 1 || !strings.Contains(hits[0], filepath.Join(ws, WorkspaceConfigName)) {
 		t.Fatalf("warnings = %v, want the one disclosure naming the workspace file", warns)
 	}
-	// A user-scope setting without the manifest's legacy_workspace key is still refused.
 	other := declaring("acme", userSetting("visible", loopholedecl.SettingTypeStringList))
 	if _, errs, _ := validateScoped(t, "", `{"loopholes": {"acme": {"settings": {"visible": ["x"]}}}}`, other); len(containing(errs, "user-scope only")) != 1 {
 		t.Errorf("errors = %v, want the scope refusal to stand for every other user setting", errs)

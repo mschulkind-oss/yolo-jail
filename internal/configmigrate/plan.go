@@ -348,11 +348,24 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if g.layer != nil {
 		userTop, layerAfter, workspace = g.Request.baseUserTop(), filepath.Join(mirror, twinPath(g.layer.Logical)), ""
 	}
+	if userTop == "" {
+		// A workspace converted alone reads over the same user config on both sides (LC-D13).
+		userTop = g.baseUser
+	}
 	after, err := readCanonical(g, userTop, layerAfter, workspace, nil, view, mirror, false, planOptions{}, packs)
 	if err != nil {
 		return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
 	}
 	p.canonical = after.set
+	if g.userTop == nil && g.baseUser != "" {
+		// The read-back after Apply reads the files as written, over the base user config read
+		// as it is (LC-D13), so the hash it checks is of that read.
+		raw, err := readCanonical(nil, userTop, layerAfter, workspace, nil, nil, mirror, false, planOptions{}, packs)
+		if err != nil {
+			return nil, fmt.Errorf("the converted files would not read: %w; nothing was written", err)
+		}
+		p.canonical = raw.set
+	}
 	p.CanonicalBytes = len(after.set.composed)
 	p.Differences = append(p.Differences, diffValues("user config", before.user, after.user)...)
 	p.Differences = append(p.Differences, diffValues("project config", before.project, after.project)...)
@@ -361,8 +374,8 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
 	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
 	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation))...)
-	beforeStandings, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, false)
-	afterStandings, standingTexts := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, true)
+	beforeStandings, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, before.grantLegacyUser, false)
+	afterStandings, standingTexts := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, after.grantLegacyUser, true)
 	standingDiffs := standingNextSteps(diffValues(loopholeStandingLayer, beforeStandings, afterStandings))
 	p.Differences = append(p.Differences, standingDiffs...)
 	p.GrantStandings = standingTexts
@@ -387,7 +400,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 
 func oldTop(g *Graph) string {
 	if g.userTop == nil {
-		return ""
+		return g.baseUser
 	}
 	return g.userTop.Logical
 }
@@ -696,7 +709,10 @@ type sideRead struct {
 	// grantUser and grantWorkspace are the user and workspace configs as read, before any
 	// lowering or default: what the loophole grant standings are read from (loopholeStandings).
 	grantUser, grantWorkspace *jsonx.OrderedMap
-	set                       canonicalSet
+	// grantLegacyUser is whether the side's user config is a legacy JSONC one, whose ceiling the
+	// standings read as v0.15.1 held it (config.UserConfigIsLegacy, LC-D14).
+	grantLegacyUser bool
+	set             canonicalSet
 }
 
 // launchEnv is what the launch's env resolver walks over a merged read, as a map diffValues can
@@ -761,7 +777,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	// The side's pack switch is its user config's format. A layer's side names the base by a
 	// legacy-spelled path in its directory (Request.baseUserTop), so the format is the file the
 	// reader selects there, not that path's extension.
-	readable := strings.EqualFold(filepath.Ext(userTop), ".toml") || (layer != "" && config.UserConfigIsTOML(userTop))
+	readable := strings.EqualFold(filepath.Ext(userTop), ".toml") || config.UserConfigIsTOML(userTop)
+	// A workspace converted alone over a legacy user config it leaves as it is (LC-D13): both
+	// sides of the proof read that one file, so the after side reads it in the before side's
+	// spelling. The read-back (g nil) reads it as written, against the raw hash the plan keeps.
+	legacyBase := g != nil && g.baseUser != "" && userTop == g.baseUser && layer == "" && !readable
 	if lowerOld {
 		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
 		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
@@ -784,16 +804,32 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		// read them in the spelling the conversion gives them (RC-D58).
 		normalizeLegacyPacks(s.user, view)
 		normalizeLegacyPacks(s.composed, view)
-		s.env = launchEnv(s.composed)
-		s.providers, s.derived = providerTable(s.composed, packs)
-		s.grants = brokerGrants(s.user, brokers)
-		s.activation = loopholeActivation(s.composed, readable, packs)
+		if legacyBase {
+			// Every layer the before side reads from the old spelling as the launch reads it is
+			// read so here too; the user and composed layers are lowered as the before side's are.
+			raw := s.composed
+			s.user, _ = canonicalOld(s.user, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
+			s.composed, _ = canonicalOld(raw, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, twinOf: opts.twinOf})
+			s.env = launchEnv(raw)
+			s.providers, s.derived = providerTable(withMovedProviderKeys(raw, s.composed), packs)
+			s.grants = brokerGrants(unmirror(read.User, mirror).(*jsonx.OrderedMap), brokers)
+			s.activation = loopholeActivation(raw, readable, packs)
+		} else {
+			s.env = launchEnv(s.composed)
+			s.providers, s.derived = providerTable(s.composed, packs)
+			s.grants = brokerGrants(s.user, brokers)
+			s.activation = loopholeActivation(s.composed, readable, packs)
+		}
 	}
 	if lowerOld {
 		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(read.User), jsonx.DeepCopyMap(read.Workspace)
 	} else {
 		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(s.user), jsonx.DeepCopyMap(s.project)
+		if legacyBase {
+			s.grantUser = jsonx.DeepCopyMap(read.User)
+		}
 	}
+	s.grantLegacyUser = !readable && config.UserConfigIsLegacyAt(userTop)
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)
 	}

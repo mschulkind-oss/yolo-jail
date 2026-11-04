@@ -160,7 +160,8 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 }
 
 // legacyWorkspaceSettingNotes is the one-line disclosure for each user-scope setting a legacy
-// project file writes whose manifest declares `legacy_workspace` (serial's `default_baud`): the
+// project file writes whose manifest declares `legacy_workspace` (no shipped pack since serial's
+// `default_baud` became request scope, LC-D17): the
 // value is read as the user's for this launch, as v0.15.1 read it, rather than refused
 // (docs/design/legacy-config-compat.md LC-D2). A `loopholes` block exists only in a legacy JSONC
 // file, so a TOML project cannot reach this.

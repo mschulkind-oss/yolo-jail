@@ -27,12 +27,18 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
 	selected := newUserView(composed).packs
 	var modules []loopholes.PackModule
+	// unselected is each loophole a pack this side does not select ships. A legacy entry naming
+	// one, with no command of its own, is that pack's config and runs nothing, on either side
+	// (docs/design/legacy-config-compat.md LC-D9's M7 row): discovery reads it as a commandless
+	// inline record, which is not a loophole a launch runs.
+	unselected := map[string]bool{}
 	for _, p := range packs {
-		if !selected[p.Name] {
-			continue
-		}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindLoophole || c.From == "" {
+				continue
+			}
+			if !selected[p.Name] {
+				unselected[filepath.Base(filepath.FromSlash(c.From))] = true
 				continue
 			}
 			modules = append(modules, loopholes.PackModule{Dir: filepath.Join(p.Root, filepath.FromSlash(c.From)), Pack: p.Name, HostExecApproved: true})
@@ -41,6 +47,9 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 	activation := loopholes.PackSwitchActivation(composed, readable, modules)
 	names := make([]string, 0, len(activation))
 	for name := range activation {
+		if unselected[name] && !entryHasCommand(composed, name) {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -72,6 +81,26 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 	return out
 }
 
+// entryHasCommand is whether composed's `loopholes.<name>` entry writes a `command`, which makes it
+// an inline loophole of its own rather than a pack's config.
+func entryHasCommand(composed *jsonx.OrderedMap, name string) bool {
+	if composed == nil {
+		return false
+	}
+	block, _ := composed.Get("loopholes")
+	m, _ := block.(*jsonx.OrderedMap)
+	if m == nil {
+		return false
+	}
+	entry, _ := m.Get(name)
+	em, _ := entry.(*jsonx.OrderedMap)
+	if em == nil {
+		return false
+	}
+	_, ok := em.Get("command")
+	return ok
+}
+
 func withoutLegacyGrantKeys(d config.LoopholeGrantDeclaration, settings *jsonx.OrderedMap) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	if settings == nil {
@@ -97,6 +126,9 @@ func activationNextSteps(diffs []Difference) []Difference {
 			continue
 		}
 		pack, offSwitch := loopholedecl.OffSwitchPack(name)
+		if !offSwitch {
+			pack = name // a shipped pack's other loopholes carry their pack's name
+		}
 		switch {
 		case field == "enabled" && d.After == "true" && offSwitch:
 			// An off-switch loophole runs whenever its pack is selected (LC-D3), so the old file
@@ -107,8 +139,8 @@ func activationNextSteps(diffs []Difference) []Difference {
 			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one does not; add \"enabled\": true under loopholes." + name +
 				" in the old file to keep it running, or remove \"" + name + "\" from packs to keep it off, then run `yolo config migrate` again"
 		case field == "enabled":
-			diffs[i].Next = "a TOML user config has no switch that runs " + name + " yet (per-project grants, docs/reference/loophole-grants.md, are not built); " +
-				"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again"
+			diffs[i].Next = "the converted config does not run " + name + ", and the old one does; a TOML config runs a loophole when its pack is selected, so add the pack " +
+				"(`yolo pack add " + pack + "`) to the old file's packs, or keep the old file (this yolo keeps reading it), then run `yolo config migrate` again"
 		case field == "settings":
 			diffs[i].Next = "the converted [allow." + name + "] table would hand " + name + " different settings; write them under loopholes." + name +
 				".settings with \"enabled\": true in the old file, then run `yolo config migrate` again"

@@ -8,7 +8,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -186,12 +185,20 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			skip(path, entryValue, "a loophole's entry must be an object")
 			continue
 		}
-		selected := view.packs[name]
 		enabled := view.enabled[name] == true || view.selectionSwitch
 		// LC-D3: an off-switch loophole's `enabled: false` is honored, so it converts to its
 		// pack's `off = true`, and the settings written beside it are configured-and-off, never
 		// dormant: they convert too, so turning the loophole back on finds them.
 		offPack, offSwitch := loopholedecl.OffSwitchPack(name)
+		// The pack that ships the loophole: an off-switch loophole names its own (the Claude
+		// broker is claude-auth's, which the claude pack needs); a shipped pack's other loopholes
+		// carry their pack's name.
+		pack := name
+		if offSwitch {
+			pack = offPack
+		}
+		// A pack every launch selects with no `packs` line (cgroup-delegate) is selected too.
+		selected := view.packs[name] || view.packs[pack] || view.needed[pack] || config.IsSelectedByDefault(pack)
 		if offSwitch && view.enabled[name] == false {
 			enabled = true
 		}
@@ -205,18 +212,21 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
-				case v == false && offSwitch && !view.packs[offPack] && !view.needed[offPack]:
+				case v == false && offSwitch && !selected:
 					ctx.drop(oldPath, v, "no selected pack runs "+name+", so it is off without the key")
 				case v == false && offSwitch:
 					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
 						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
 					}
-				case v == true && selected && loopholes.RunsOnSelection(name):
-					// The list already says it; nothing is written.
 				case v == true && selected:
-					skip(oldPath, v, "a TOML user config has no switch for "+name+" yet: selecting its pack does not run it until per-project grants land (docs/reference/loophole-grants.md), so the converted config would turn it off. Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again")
+					// A selected pack's loophole runs whenever its pack is selected
+					// (docs/reference/loophole-grants.md §4.1); one that declares grants was
+					// converted above, so this one is grantless or ungated: the list already says
+					// it, and nothing is written (LC-D9's M5 row).
 				case v == true:
-					skip(oldPath, v, "`packs` is the only switch and does not list "+name+"; add it with `yolo pack add "+name+"` (or put \""+name+"\" in packs), then run `yolo config migrate` again")
+					// LC-D9's M7 row: a switch for a pack not in packs ran nothing in v0.15.1 either
+					// (it warned and launched), so it converts to nothing, with the offer.
+					ctx.drop(oldPath, v, "`packs` does not list "+pack+", so the switch runs nothing; to run it, add the pack with `yolo pack add "+pack+"`")
 				default:
 					skip(oldPath, v, "a user config cannot turn a listed pack's service off; remove \""+name+"\" from packs to stop it, then run `yolo config migrate` again")
 				}
@@ -255,6 +265,8 @@ func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedM
 				switch {
 				case setting:
 					owns = true
+				case values && enabled && len(gv.userRequests[d.Pack]) > 0:
+					// The values are the user-sourced request's, written below (LC-D16).
 				case values:
 					skip(append(append([]string(nil), oldPath...), sk), sv, "this list is a project's request now: run `yolo request "+d.Pack+" <kind> <values>` in each workspace that needs it, then remove it from the old file and run `yolo config migrate` again")
 				default:
@@ -270,6 +282,13 @@ func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedM
 	}
 	if owns {
 		placeLoopholeCeiling(gv, d, place, path)
+		// LC-D16: a user switch on a valued kind asked every project for its values, which
+		// `[allow.<pack>] <kind> = [...]` says beside the `on_request` line that admits it.
+		for _, g := range d.Grants {
+			if values := gv.userRequests[d.Pack][g.Kind]; g.Valued && len(values) > 0 {
+				place([]string{"allow", d.Pack, g.Kind}, anyList(values), path)
+			}
+		}
 	}
 }
 

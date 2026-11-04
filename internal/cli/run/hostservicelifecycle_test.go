@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
@@ -504,5 +505,40 @@ func TestPerJailDaemonizingWrapperWithStartupReasonIsReady(t *testing.T) {
 	case <-handles[0].end.done:
 		t.Fatalf("the wrapper's clean exit ended the service it handed to its child: %s", handles[0].end.how())
 	default:
+	}
+}
+
+// TestAProjectsRequestScopeSettingReachesTheDaemon: a request-scope setting the workspace's
+// `[requests.<pack>]` writes replaces the user's `[allow.<pack>]` value in what the launch freezes
+// for the daemon (docs/reference/loophole-grants.md LG-D15, docs/design/legacy-config-compat.md
+// LC-D17, serial's `default_baud`). The values are what prepareLoopholeSettings resolves, so
+// deleting its WithProjectRequestSettings call leaves the user's value and fails this.
+func TestAProjectsRequestScopeSettingReachesTheDaemon(t *testing.T) {
+	redirectState(t)
+	const name = "request-scoped"
+	set := lifecycleModuleSet(t, name, fmt.Sprintf(`{
+  "name": %q,
+  "settings": {"rate": {"type": "int", "scope": "request", "default": 1}},
+  "host_daemon": {"cmd": ["/bin/false", "{socket}", "{settings}"], "publishes": "socket"}
+}`, name))
+	offSwitchTOMLUser(t)
+	o, output := lifecycleOptions(t, time.Second)
+	userOnly := approvalConfig(t, `{"allow": {"request-scoped": {"rate": 9600}}}`)
+	projectToo := approvalConfig(t, `{"allow": {"request-scoped": {"rate": 9600}}, "requests": {"request-scoped": {"rate": 115200}}}`)
+	for label, tc := range map[string]struct {
+		cfg  *jsonx.OrderedMap
+		want string
+	}{
+		"the user's value alone":        {userOnly, "9600"},
+		"the project's request over it": {projectToo, "115200"},
+	} {
+		plan := o.prepareLoopholeSettings(set.All(), tc.cfg)
+		if plan == nil {
+			t.Fatalf("%s: settings did not resolve:\n%s", label, output.String())
+		}
+		got, _ := plan.values[name].Get("rate")
+		if fmt.Sprint(got) != tc.want {
+			t.Errorf("%s: the daemon is handed rate=%v, want %s (frozen %s)\n%s", label, got, tc.want, plan.bytes[name], output.String())
+		}
 	}
 }

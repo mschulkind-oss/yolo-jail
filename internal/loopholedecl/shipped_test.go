@@ -604,14 +604,14 @@ func TestShippedSerialFields(t *testing.T) {
 	if !reflect.DeepEqual(m.Grants, wantGrants) {
 		t.Errorf("grants = %+v\nwant     %+v", m.Grants, wantGrants)
 	}
-	// `default_baud` is the one setting left, and it is `user` scope, with a legacy project
-	// file's value read as the user's (LC-D2): a baud rate admits nothing.
+	// `default_baud` is the one setting left, and it is `request` scope: the user's value is
+	// every project's default and a project may ask for its own (LC-D17); a baud rate admits nothing.
 	if len(m.Settings) != 1 {
 		t.Fatalf("settings = %+v, want only `default_baud` — `allowed_devices` became the devices grant", m.Settings)
 	}
 	baud, ok := loopholedecl.SettingByKey(m.Settings, "default_baud")
-	if !ok || baud.Type != loopholedecl.SettingTypeInt || baud.Scope != loopholedecl.SettingScopeUser || !baud.LegacyWorkspace {
-		t.Errorf("settings.default_baud = %+v, ok=%v; want an int, user scope, legacy_workspace", baud, ok)
+	if !ok || baud.Type != loopholedecl.SettingTypeInt || baud.Scope != loopholedecl.SettingScopeRequest || baud.LegacyWorkspace {
+		t.Errorf("settings.default_baud = %+v, ok=%v; want an int, request scope", baud, ok)
 	}
 }
 

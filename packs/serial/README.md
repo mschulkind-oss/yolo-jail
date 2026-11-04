@@ -29,7 +29,7 @@ packs = ["serial"]
 
 [allow.serial]
 on_request = ["devices"]
-# default_baud = 115200   # optional, user scope only
+# default_baud = 115200   # optional: every project's default rate
 ```
 
 ```toml
@@ -51,9 +51,11 @@ lives in the loophole's private state dir, outside every mount, and only the lau
 
 ## Settings
 
-**`default_baud`** (integer, default `115200`) is the one setting, and it is **user scope**:
-how the host's hardware is driven is yours to say, not the agent's. Set it under
-`[allow.serial]` in your user config. It is frozen at launch: a change needs a restart.
+**`default_baud`** (integer, default `115200`) is the one setting, and it is **request
+scope**: set it under `[allow.serial]` in your user config as every project's default, and a
+project whose board runs at another rate asks for its own under `[requests.serial]`, which
+replaces yours for that project. A baud rate opens nothing, so a project's value widens nothing.
+It is frozen at launch: a change needs a restart.
 
 ### What changed for an existing setup
 

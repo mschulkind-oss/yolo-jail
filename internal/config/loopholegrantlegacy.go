@@ -355,7 +355,15 @@ func withApprovedLegacyGrants(recorded map[string][]string, input LoopholeGrantI
 // withLegacyLoopholeGrantsFrom is withLegacyLoopholeGrants over the given switches (the switch
 // file at wfPath, "" for none) and carried grants. Its third result is, per pack, the carried
 // grants this project's files do not state: the ones laid over as requests.
+//
+// The user-sourced requests (withUserSourcedRequests) are laid last, so a project's own request,
+// legacy or carried, wins over the user's default for it.
 func withLegacyLoopholeGrantsFrom(input LoopholeGrantInput, userSrc, wsSrc *Sources, switches map[string]bool, wfPath string, carried map[string][]string) (LoopholeGrantInput, map[string][]string, map[string][]string) {
+	out, recorded, open := withLegacyProjection(withLegacyUserAdmission(input), userSrc, wsSrc, switches, wfPath, carried)
+	return withUserSourcedRequests(out), recorded, open
+}
+
+func withLegacyProjection(input LoopholeGrantInput, userSrc, wsSrc *Sources, switches map[string]bool, wfPath string, carried map[string][]string) (LoopholeGrantInput, map[string][]string, map[string][]string) {
 	proj := ProjectLegacyLoopholeGrants(LegacyLoopholeGrantInput{User: input.User, Workspace: input.Workspace,
 		Switches: switches, Declarations: input.Declarations})
 	hasCarried := false
@@ -520,4 +528,68 @@ func copyOrigins(in map[string][]string) map[string][]string {
 // legacyRecordHolds is whether the record-equivalent grants hold grant.
 func legacyRecordHolds(recorded []string, grant string) bool {
 	return slices.Contains(recorded, grant)
+}
+
+// withLegacyUserAdmission is input with a legacy JSONC user config's ceiling as v0.15.1 held it
+// (docs/design/legacy-config-compat.md LC-D14). A legacy user config never limited which loopholes
+// a workspace switched on, so every kind a workspace `enabled: true` turned on (`legacy_enable`)
+// was admitted for any project that asked. A TOML project's request for such a kind, the
+// converted spelling of that switch, is therefore admitted as `on_request` under a legacy user
+// config: the gate shows it and the human's y grants it, as the config-change gate's y switched it
+// on. A user config in TOML is never read this way, since its `[allow.<pack>]` is the user's own
+// answer (LG-D14), and a table the user config already holds for the pack is left as it is.
+func withLegacyUserAdmission(input LoopholeGrantInput) LoopholeGrantInput {
+	if !input.LegacyUser || input.Workspace == nil {
+		return input // no project file, so no project request to admit
+	}
+	requests := mapOrNil(getOr(input.Workspace, "requests", nil))
+	if requests == nil {
+		return input
+	}
+	user := input.User
+	if user == nil {
+		user = jsonx.NewOrderedMap()
+	}
+	if top := getOr(user, "allow", nil); top != nil && mapOrNil(top) == nil {
+		return input // the resolver reports an `allow` that is not a table
+	}
+	allow := shallowCopyMap(mapOrNil(getOr(user, "allow", nil)))
+	changed := false
+	for _, d := range input.Declarations {
+		packReq := mapOrNil(getOr(requests, d.Pack, nil))
+		if packReq == nil {
+			continue
+		}
+		if _, wrote := allow.Get(d.Pack); wrote {
+			continue
+		}
+		var admit []string
+		for _, g := range d.Grants {
+			if _, asked := packReq.Get(g.Kind); asked && g.LegacyEnable && !g.RequestableByDefault {
+				admit = append(admit, g.Kind)
+			}
+		}
+		if len(admit) == 0 {
+			continue
+		}
+		// Writing a list ends "requestable by default"; keep those kinds in it.
+		var seed []string
+		for _, g := range d.Grants {
+			if g.RequestableByDefault && !g.Valued {
+				seed = append(seed, g.Kind)
+			}
+		}
+		table := jsonx.NewOrderedMap()
+		addToList(table, string(LoopholeCeilingOnRequest), seed)
+		addToList(table, string(LoopholeCeilingOnRequest), admit)
+		allow.Set(d.Pack, table)
+		changed = true
+	}
+	if !changed {
+		return input
+	}
+	out := input
+	out.User = shallowCopyMap(input.User)
+	out.User.Set("allow", allow)
+	return out
 }
