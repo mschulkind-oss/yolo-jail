@@ -1,25 +1,24 @@
 ---
-status: in-review
-stage: DESIGN
-date: 2026-11-04
-next: "Obtain the owner ruling on OQ-RG1 (initial backend coverage), then validate Linux placement and delegation before accepting this design."
+status: accepted
+stage: DECIDED
+next: "Complete a tree-grounded implementation plan for the explicitly opted-in, disabled-by-default Linux-first path; keep authority and device proof as limits on claims, not blockers to safe implementation work."
 ---
 
 # Owner-managed resource groups can bound combined workspace work only when placement and enforcement are proven
 
-**Status:** 2026-11-04. Initial design; no implementation approved or built. Existing-source references were checked at `5a361ba5826acbf120280180c9f918dbc1748c89`; the reported incident was not independently measured, and Linux placement and device behavior have **not** been demonstrated.
+**Status:** 2026-11-04. Owner direction and request-authorized v1 choices are recorded; implementation is authorized but not built. Source seams were checked at `c62ca3ce089e7062c4932186e9c59a6c09441ea7`; Linux authority, actual placement, and device behavior remain unproven.
 
-> **In short.** The host owner persists named resource groups and their limits; Yolo selects a group for a workspace and places its work there *before startup*. Where the owner delegates a finite allowance, Yolo may maintain two shared, hard-capped children beneath that group. A configured mapping is never reported as an enforced budget without evidence of actual process placement, available controllers, and host policy.
+> **In short.** Resource-group behavior is off unless the owner opts in and maps work; the unconfigured launch path does not probe or change host groups. For opted-in Linux work, Yolo must verify actual placement before startup and may split a finite delegated allowance between shared agent and batch children using a 5/95 default that the owner can override.
 
 **Why now:** The request reports substantial disk traffic from a Forms import and a nearly continuously busy SSD during desktop stalls. Disk contention is a plausible contributor, not a proven cause of any particular Brave freeze. Per-container limits and process I/O priority do not establish a shared host I/O ceiling across launches.
 
-**Cost:** Owners must establish persistent groups, policy, and the authority needed for placement. Strict placement can prevent a launch when that setup is absent. Fixed child ceilings may leave capacity unused; this design adds neither a monitoring daemon nor adaptive borrowing.
+**Cost:** Owners must establish persistent groups, policy, opt-in mappings, and the authority needed for placement. Strict placement can prevent a mapped launch when that setup is absent. Fixed child ceilings may leave capacity unused; this design adds neither a monitoring daemon nor adaptive borrowing.
 
-**Start:** Research the Linux authority and placement paths in [§7](#7-decisions-research-gates-and-routing); settle [OQ-RG1](#OQ-RG1), [OQ-RG2](#OQ-RG2), [OQ-RG3](#OQ-RG3), and [OQ-RG4](#OQ-RG4). No implementation-plan handoff precedes design acceptance.
+**Start at [§7](#7-decisions-research-gates-and-routing)** — implement only the opt-in Linux path, with authority and device evidence bounding enforcement and performance claims.
 
-**Needs your ruling:** [OQ-RG1](#OQ-RG1) · [OQ-RG2](#OQ-RG2) · [OQ-RG3](#OQ-RG3) · [OQ-RG4](#OQ-RG4).
+**Needs your ruling:** None.
 
-**Read with:** [I/O-priority design](io-priority.md) (existing, in review), [cgroup-delegate reference](../reference/security-shim.md) (existing), [roadmap](../plans/roadmap.md) (routes this design's live questions), [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html), [systemd slices](https://www.freedesktop.org/software/systemd/man/latest/systemd.slice.html), and [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
+**Read with:** [I/O-priority design](io-priority.md) (existing, in review), [cgroup-delegate reference](../reference/security-shim.md) (existing), [roadmap](../plans/roadmap.md) (routes this work), [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html), [systemd slices](https://www.freedesktop.org/software/systemd/man/latest/systemd.slice.html), and [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
 
 ## 1. Boundary and evidence
 
@@ -45,9 +44,11 @@ These are bounded checks, **not** an exhaustive claim that no other component ca
 
 ### Host policy and Yolo selection
 
-The owner persists named groups, hierarchy, and policy for I/O bandwidth, CPU, memory, and other host resource controls through the host's normal resource-control machinery. Yolo stores selection intent—not a duplicate copy of those limits: a default workspace mapping, more-specific workspace/project mappings, and the owner-designated group for machine-wide maintenance. The proposed resolution order is an exact workspace mapping, then a project mapping, then the default; conflicting mappings at the same specificity must be rejected rather than resolved by incidental ordering. The selected identity and source of selection must be displayed before work starts. Configuration spelling and the way the owner authorizes mappings remain open.
+The owner persists named groups, hierarchy, and policy for I/O bandwidth, CPU, memory, and other host resource controls through the host's normal resource-control machinery. Yolo stores only explicit selection intent—not a duplicate copy of those limits—with an optional default workspace mapping, more-specific workspace/project mappings, and the owner-designated group for machine-wide maintenance. An explicitly configured default mapping opts its covered workspaces in; absent owner opt-in and mapping, Yolo does not resolve groups or inspect manager, controller, or device policy at startup, create or move processes, set caps, or add startup work. The exact opt-in/configuration spelling remains an implementation detail.
 
-Yolo must not rewrite an owner-managed parent limit, create an unlimited replacement, move work around a required ancestor, or remove an owner-managed slice during cleanup. Host policy changes ordinarily act on existing members through the kernel without relaunching Yolo. A mapping change is a distinct selection event; whether it affects already-running work is [OQ-RG4](#OQ-RG4).
+For opted-in work, the proposed resolution order is an exact workspace mapping, then a project mapping, then the explicit default; conflicting mappings at the same specificity must be rejected rather than resolved by incidental ordering. The selected identity and source of selection must be displayed before work starts. The implementation may choose configuration spelling and the authorization mechanism within the least-authority constraints below; neither may weaken explicit opt-in or owner-imposed hierarchy.
+
+Yolo must not rewrite an owner-managed parent limit, create an unlimited replacement, move work around a required ancestor, or remove an owner-managed slice during cleanup. A selected mapping requires verified placement; there is no silent unplaced or unlimited fallback. Host policy changes ordinarily act on existing members through the kernel without relaunching Yolo. Mapping changes apply only to future launches; existing work remains attached to its actual group until it exits, and status distinguishes that attachment from the new mapping.
 
 The placement transaction is: resolve selection; validate group identity, hierarchy, permissions, and required controllers; establish or reuse any authorized children; place the execution boundary; verify observable membership and policy; only then permit expensive workspace startup. This applies to image import, extraction, provisioning, and other Yolo-owned startup work, not just the eventual agent. Machine-wide maintenance uses its separately owner-configured group rather than arbitrarily charging one workspace. If a runtime performs work in an external daemon, client placement alone is insufficient and that work is disclosed as excluded or unverified.
 
@@ -59,19 +60,15 @@ The existing jail-scoped cgroup delegate is **not** presumed to provide that aut
 
 ## 3. Shared child ceilings
 
-Where the owner permits subdivision, each assigned group has one shared agent child and one shared batch child, reused by all its launches. They are **not** created once per session. Work classification occurs at the actual agent, tool, managed-background-job, and container execution boundaries; terminal attachment, foreground focus, and guessed PIDs do not classify work. A heavy operation performed *within* the agent process cannot be split into a separate child by classification alone. A heavy job deliberately placed in the agent child still faces that child's aggregate ceiling and its parent's ceiling.
+For opted-in assigned groups that permit child management, Yolo maintains one shared agent child and one shared batch child, reused by all its launches. They are **not** created once per session. Work classification occurs at the actual agent, tool, managed-background-job, and container execution boundaries; terminal attachment, foreground focus, and guessed PIDs do not classify work. A heavy operation performed *within* the agent process cannot be split into a separate child by classification alone. A heavy job deliberately placed in the agent child still faces that child's aggregate ceiling and its parent's ceiling.
 
-For every controlled physical device and each configured dimension—read bandwidth, write bandwidth, read IOPS, and write IOPS considered independently—successful allocation must satisfy:
+Child allocation is off until the owner opts in to resource-group use. For each opted-in assigned group with a finite allowance, the engineering v1 default split is 5% agent-facing and 95% batch for each controlled device and I/O dimension; the owner can override that split. These are proportions of the group's finite allowance, not absolute throughput values or hardware-specific caps. No hardware-tuned rate is invented. Allocation must satisfy `agent-child ceiling + batch-child ceiling ≤ finite assigned allowance`; both child ceilings must be positive and finite. Never encode an unlimited sentinel or substitute relative weights for a cap. If the default or owner override cannot produce representable positive finite ceilings for a controlled dimension, fail with an actionable explanation rather than writing zero or unlimited.
 
-`agent-child ceiling + batch-child ceiling ≤ finite assigned allowance`.
-
-Allocation does not use relative weights in place of hard ceilings. The request's 900 MiB/s parent and 20/880 MiB/s child split illustrates arithmetic, **not** a default. How an owner supplies or authorizes the division without turning Yolo into a duplicate top-level policy store is [OQ-RG2](#OQ-RG2).
-
-A finite ancestor ceiling is an additional upper bound, **not** an entitlement to its full capacity: siblings, including non-Yolo jobs, may consume it. Subdivision requires an explicit finite allowance on the assigned Yolo group; an ancestor-only cap, an unlimited value, or unreadable policy cannot be silently converted into one. When an ancestor imposes a tighter bound, effective traffic remains subject to that bound, but Yolo must not present it as capacity reserved for its children. Device identity and effective bounds must be validated across the relevant hierarchy. An unconstrained dimension does not acquire an invented cap; if the required split cannot be established for a controlled dimension, setup fails with an actionable explanation.
+If the assigned group has no usable finite allowance, report it and do not create a split or start mapped work outside the required group; the owner must supply or authorize a finite allowance. An ancestor ceiling is an upper bound, not an entitlement: siblings may consume it, so an ancestor-only cap cannot be converted into an assigned allowance. Unlimited or unreadable policy is not a finite budget. An unconstrained dimension does not acquire an invented cap. The request's 900 MiB/s parent and 20/880 MiB/s child split illustrates arithmetic, **not** a default.
 
 Concurrent launchers must serialize child creation and refresh through a bounded one-writer operation, using suitable locking or systemd unit operations if validated. On retry, they inspect and reuse the same children rather than multiplying allocations. No resident Yolo policy coordinator is introduced.
 
-A lower owner parent cap is enforced immediately on existing descendants **if that controller and placement are actually effective**, even before Yolo refreshes the old child settings. During that interval, programmed child ceilings might sum above the *new* parent allowance; status must say **stale child allocation, parent still caps**, not assert the subdivision invariant currently holds. A successful subsequent launch or explicit refresh recomputes and reconciles children before starting new work. A parent increase may leave bandwidth unused until then. If the parent becomes unlimited or unreadable, no new finite allowance is inferred; existing work remains under whatever host policy can be observed, and required new starts cannot rely on a fresh split. Refresh failure must not raise the parent, fabricate an allowance, or start new work under an unverified required allocation. Idle agent capacity is not automatically loaned to batch work.
+When the owner lowers a parent cap, the kernel enforces it immediately on existing descendants if that controller and placement are actually effective, even before Yolo refreshes the old child settings. During that interval, programmed child ceilings might sum above the new parent allowance; status must say **stale child allocation, parent still caps**, not assert the subdivision invariant currently holds. A successful subsequent launch or explicit refresh recomputes and reconciles children before starting new work. A parent increase may leave bandwidth unused until then. If the parent becomes unlimited or unreadable, no new finite allowance is inferred; existing work remains under whatever host policy can be observed, and required new starts cannot rely on a fresh split. Refresh failure must not raise the parent, fabricate an allowance, or start new work under an unverified required allocation. Idle agent capacity is not automatically loaned to batch work.
 
 ### Workload coverage and lifecycle
 
@@ -86,7 +83,7 @@ Participation comes from launch/runtime placement; it must not depend on users p
 | Host Nix builders and other shared-service work | Attribute individual Yolo-triggered service work where a supported, authorized mechanism genuinely permits it. | Otherwise report it **outside group**; never throttle the shared Nix daemon globally for all users by implication. |
 | Non-Yolo batch jobs and desktop apps | Owner may place other batch jobs beneath a common parent; unrelated desktop apps remain outside restricted groups. | Yolo observes rather than claims ownership of those processes. |
 
-Initial backend coverage is [OQ-RG1](#OQ-RG1). A backend lacking aggregate control cannot label advisory priority or per-container limits as equivalent. Unsupported and unverified paths need a visible setup or limitation message, not a silent unrestricted fallback.
+Initial enforcement is Linux-first. Only a proved Linux placement path may claim aggregate control; advisory priority or per-container limits are not equivalent. A mapping applied to a backend without verified aggregate placement refuses before expensive startup with the missing support/setup action, rather than silently running unrestricted.
 
 Children are Yolo-managed subordinate state, while parent slices remain owner-managed. On restart or crash, a launcher reconciles existing children and live membership instead of assuming a clean slate. Reconnect does not create another allowance. Cleanup may remove only Yolo-owned children after confirming no active jobs depend on them; uncertain membership favors retention and an explicit report over stranding work. No custom poller retrofits escaped processes after launch.
 
@@ -96,11 +93,11 @@ A launch preview and status/check surface are part of this feature. For each wor
 
 | State | Operator-visible behavior |
 |---|---|
-| Unknown or empty group; invalid, ambiguous, or forbidden mapping | Reject selection with the offending mapping and owner setup action; do not substitute an unlimited group. |
+| Resource groups disabled or no explicit mapping | Report disabled from local selection state without manager/controller/device probes; leave ordinary startup unchanged. |
 | Group exists but permission, ancestor, controller, delegation, or device-policy proof is missing | Report the precise unavailable observation as **unknown/unsupported** rather than zero or enforced. Required placement blocks before expensive startup. |
 | Placement request accepted but membership not demonstrated | Report **placement unverified**, not success. Required work does not proceed on that assertion alone. |
 | Concurrent creation, owner update, or group removal races with startup | Re-read identity, policy, and membership at the commitment boundary; reconcile under the one-writer operation or fail closed for required work. |
-| Mapping changes while jobs run | Show each running job's actual attachment separately from the new mapping; do not equate new intent with migration. Resolution awaits [OQ-RG4](#OQ-RG4). |
+| Mapping changes while jobs run | Show each running job's actual attachment separately from the new mapping; the new mapping applies only to future launches, not live migration. |
 | Parent changes while child allocation is stale | Show the live observed parent policy and programmed child ceilings separately; reconcile on the next permitted launch or explicit refresh. |
 | Reconnect or crash leaves jobs alive | Discover and report actual surviving membership; do not delete their groups or claim they moved. |
 | Coverage passes into a shared daemon | Report that portion as excluded or unverified, with the attribution gap; do not apply a global daemon cap. |
@@ -109,12 +106,12 @@ Host policy is read from the host, not copied into Yolo as another authoritative
 
 ## 6. Acceptance outcomes
 
-The design is acceptable for implementation planning only after the OQs close and the technical gates in [§7](#7-decisions-research-gates-and-routing) identify a feasible authority path. Subsequent operator verification must retain all of these outcomes:
+The design is accepted for implementation, but no implementation or host/device verification is complete. Implementation work may proceed on the disabled-by-default, opt-in path. A mapped workload may claim enforcement only after host authority, controller availability, and actual membership are demonstrated; claims about device-level throughput or desktop responsiveness require representative accounting and latency evidence. The operator outcomes below remain required:
 
-1. Persist a default and workspace-specific mappings across launcher restarts without a Yolo monitoring daemon; show the resolved and actual groups separately.
+1. Verify an unconfigured launch performs no manager/controller/device probes, group creation, process moves, cap writes, or added startup work. Then configure an explicit opt-in default and workspace mapping; verify selection persists across launcher restarts without a monitoring daemon and show requested, resolved, and actual groups separately.
 2. Run two simultaneous workspaces in one owner group and verify their **combined** sustained per-device traffic against its budget within a documented accounting tolerance. Adding sessions must not multiply it.
 3. Exercise distinct project children beneath a limited parent, plus non-Yolo batch work there; observe both project limits and their common aggregate parent bound.
-4. Reuse one pair of agent/batch children across sessions. For each finite controlled device/dimension, verify explicit ceilings and their sum; verify a deliberately heavy agent-child job remains bounded, without substituting weights.
+4. Reuse one pair of agent/batch children across sessions. For each finite controlled device/dimension, verify the unoverridden 5/95 split and any owner override, and confirm the ceilings sum within the allowance. Verify a deliberately heavy agent-child job remains bounded, without substituting weights.
 5. Exercise finite, unlimited, unreadable, and ancestor-with-siblings cases. Decrease and increase a parent cap with work running; distinguish immediate parent enforcement from stale or refreshed children without a watcher.
 6. Change systemd policy while jobs run and verify effective behavior changes without restarting them or editing a second Yolo policy store.
 7. Exercise buffered writes, reads, provisioning, host-mode descendants, and nested containers; list actual external-service coverage gaps.
@@ -128,81 +125,22 @@ These are outcomes, not claims that the current host passes them. `io.max` is a 
 
 ### Decision ledger
 
-| ID | Current position | Authority / remaining step |
-|---|---|---|
-| D-RG1 | Owner-managed persistent hierarchy and policy; Yolo resolves and places work. No custom monitoring daemon or top-level policy takeover. | Requested architecture; validate an authorized Linux placement route. |
-| D-RG2 | Delegated subdivision uses two **shared hard-capped** children and an explicit finite assigned allowance per controlled device/dimension. No weights-as-caps, invented default, or per-launch multiplication. | Requested contract; [OQ-RG2](#OQ-RG2) settles allocation authority. |
-| D-RG3 | Selected mapping is not evidence of placement; unknown controller, membership, or external-service coverage remains visibly unknown. | Design invariant; prove each backend's observability. |
-| D-RG4 | Parent host-policy changes affect existing properly attached work independently of mapping refresh; child refresh is launch-time or explicit. | Kernel hierarchy principle conditional on actual enforcement; validate the chosen host path. |
-| D-RG5 | No automatic global limit on the shared host Nix daemon. | Requested exclusion; investigate per-build attribution separately. |
-| D-RG6 | No implementation or platform promise is approved by this initial design. | [OQ-RG1](#OQ-RG1), [OQ-RG3](#OQ-RG3), and [OQ-RG4](#OQ-RG4) remain open. |
+| ID | Ruling / decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-RG1 | Linux-first enforcement; a mapped backend without proved aggregate placement refuses rather than claiming parity or silently escaping. This is the v1 scope permitted by the request, not a general backend capability claim. | 2026-11-04 | [§2 Ownership and placement](#2-ownership-and-placement-architecture) | — |
+| OQ-RG2 | For opted-in groups with a finite assigned allowance, default to a 5% agent-facing / 95% batch split per controlled device and I/O dimension; the owner may override it. These proportions do not set an absolute hardware rate or cap. | 2026-11-04 | [§3 Shared child ceilings](#3-shared-child-ceilings) | — |
+| OQ-RG3 | Keep resource-group behavior off by default. No opt-in/mapping means no group resolution, manager/device probes, group or process changes, caps, or startup impact. A selected mapping is required placement: no silent unplaced or unlimited fallback. | 2026-11-04 | [§2 Ownership and placement](#2-ownership-and-placement-architecture) | — |
+| OQ-RG4 | Mapping changes apply to future launches only; existing work remains in its observed group. Live host-policy changes continue to govern existing members when the host controller and placement are effective. This v1 behavior is permitted by the request, not a separate owner ruling. | 2026-11-04 | [§2 Ownership and placement](#2-ownership-and-placement-architecture) | — |
 
-### Engineering research before acceptance
+These rows compact the four answered design questions; the request's other requirements remain normative in the body. Linux authority and device evidence are engineering gates on truthful enforcement/performance claims, not unanswered owner questions or a reason to block all implementation work.
+
+### Engineering gates for enforcement and performance claims
 
 | Gate | Evidence needed; do not assume success |
 |---|---|
-| Linux authority | Determine a least-authority route for rootless Yolo to select owner groups and create/reuse delegated children; inspect system versus user manager, `Delegate=`, every ancestor controller and subtree state, and whether privileged setup is necessary. Establish that unrelated sibling authority is not granted. |
-| Actual placement | Demonstrate systemd scope and supported container-runtime cgroup-parent behavior for startup helpers, host `exec`, jails, nested containers, attachment, and reconnect. Determine a race-safe, authenticated one-writer operation without a resident coordinator. |
-| Accounting | On encrypted Btrfs/NVMe, establish how device identities, buffered writeback, shared files/inodes, metadata, and I/O throttling counters correspond to physical traffic; document an empirical accounting tolerance rather than inventing one. Measure responsiveness separately. |
-| External services and other backends | Test whether individual Nix or other service work can be attributed without constraining unrelated users. Determine macOS/backend enforcement and status capability; an advisory priority or `nice` weight is not an aggregate-cap equivalent. |
-| Roadmap routing | This design's live owner questions are routed from the project roadmap; its next action is to obtain the ruling on [OQ-RG1](#OQ-RG1), then investigate Linux placement and delegation. |
+| Linux authority | Establish a least-authority route for rootless Yolo to select owner groups and create/reuse delegated children; inspect system versus user manager, `Delegate=`, every ancestor controller and subtree state, and whether privileged setup is necessary. Establish that unrelated sibling authority is not granted. This investigation can proceed alongside safe implementation; no mapped launch may claim enforcement without the proof. |
+| Actual placement | Demonstrate systemd scope and supported container-runtime cgroup-parent behavior for startup helpers, host `exec`, jails, nested containers, attachment, and reconnect. Determine a race-safe, authenticated one-writer operation without a resident coordinator. Required mapped work must verify membership before expensive startup. |
+| Accounting and responsiveness | On encrypted Btrfs/NVMe, establish how device identities, buffered writeback, shared files/inodes, metadata, and I/O throttling counters correspond to physical traffic; document an empirical accounting tolerance rather than inventing one. Measure responsiveness separately before claiming a user-visible latency benefit or recommending absolute rates. |
+| External services and unsupported backends | Test whether individual Nix or other service work can be attributed without constraining unrelated users. Other backends remain unsupported unless aggregate enforcement and status are demonstrated; advisory priority or `nice` weight is not an equivalent cap. |
 
-This is research, not a second author or an implementation sequence. Failure of a gate requires a revised design or explicit scope ruling, not a claim that the feature already works.
-
-## 8. Open Questions
-
-1. 💬 **OQ-RG1: Which backends must enforce placement in the initial release?**
-
-   Rina maps a workspace to a limited group and later launches it on another backend. Comparable aggregate enforcement has not been proven there. Does the initial release support Linux-first or wait for broader backend parity?
-
-   - **A — Linux-first enforcement.** Use a proved Linux path only; unsupported backends report their limits or refuse before startup, according to whether mappings are optional. This delivers a narrower feature without claiming false parity.
-   - **B — Require backend parity.** Do not accept mappings until selected backends can enforce and report equivalent aggregate controls. This avoids platform divergence but can delay release or require different host integrations.
-
-   <!-- vantage: question id=OQ-RG1 leaning="A: Linux-first with explicit unsupported states avoids presenting advisory controls as equivalent ceilings." -->
-
-   _Leaning:_ A, contingent on a proved Linux authority path; truthful narrower support is preferable to false parity.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-RG2: How does the owner authorize the agent and batch split?**
-
-   When Rina delegates child management for a finite assigned group, two shared children need ceilings for each constrained device and I/O dimension. Without an explicit split, Yolo cannot safely choose numbers; without an agent ceiling, the requested separation is absent. Which owner input should authorize those ceilings?
-
-   - **A — Owner supplies concrete child ceilings.** Yolo validates each sum and reports unused capacity. The owner updates the values when the allowance or device policy changes.
-   - **B — Owner supplies a split rule.** Yolo derives and refreshes concrete ceilings without a default. This reduces repeat configuration but entrusts Yolo with visible, bounded rounding and refresh behavior.
-
-   <!-- vantage: question id=OQ-RG2 leaning="A: explicit ceilings make the delegated exception easiest to audit without silently choosing a throughput policy." -->
-
-   _Leaning:_ A for the first release; owner-approved ceilings are clearer than a hidden ratio. Both alternatives require an explicit finite allowance and never modify its parent cap.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-RG3: Must every selected mapping be a required placement?**
-
-   Kai maps a workspace to an owner group, but the host cannot confirm its I/O controller is delegated. Running outside the group may recreate the contention the mapping should prevent; refusing work blocks startup. Should every mapping require verified placement, or may the owner explicitly allow an unplaced launch?
-
-   - **A — Every mapping requires proof.** Fail before expensive startup unless the group, membership, and controller are verified. This blocks work until host setup is fixed.
-   - **B — Allow an explicit optional mapping.** Start unplaced only when the owner chose it, with visible status. This eases adoption but creates unbounded work.
-
-   <!-- vantage: question id=OQ-RG3 leaning="A: a selected resource budget should not silently disappear; optional escape increases status and safety complexity." -->
-
-   _Leaning:_ A; investigate setup failures rather than normalize an unplaced fallback.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-RG4: Do mapping changes move work already running?**
-
-   Mira changes a workspace mapping while two sessions and their containers remain active. New launches can resolve the new group, but migration across host-mode processes, jails, containers, and external services is unproven. Should the new mapping affect only future launches, or should Yolo provide an explicit migration operation?
-
-   - **A — Future launches only.** Status keeps each running job's actual group visible until it exits; the owner may need to stop and relaunch work to complete a transition.
-   - **B — Provide explicit migration.** Report each workload's verified outcome, including partial migration and exclusions. This is more convenient for long-lived work but adds substantial runtime and failure-state complexity.
-
-   <!-- vantage: question id=OQ-RG4 leaning="A: future-only mappings preserve truthful attachment without committing to an unproven live migration mechanism." -->
-
-   _Leaning:_ A for the initial release. Live host-policy edits already change enforcement for existing members and should not be confused with moving their membership.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+The Linux-first implementation may proceed while these gates are investigated. If a gate fails, that path stays unsupported or the design is revised; no mapping may silently run unplaced and no document may claim enforcement, a throughput ceiling, or responsiveness beyond observed evidence.
