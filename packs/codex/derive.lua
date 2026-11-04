@@ -396,11 +396,23 @@ yolo.derive("codex", "config", function(ctx)
     local out = {}
     for name, s in pairs(ctx.mcp_servers) do
       local e = {}
-      e.command = s.command
-      -- copy args, default to [] when absent (empty_array → JSON/TOML []).
-      e.args = s.args or ctx.empty_array
-      -- copy env, omitEmpty: only when non-empty.
-      if s.env ~= nil and next(s.env) ~= nil then e.env = s.env end
+      if s.url ~= nil then
+        e.url = s.url
+        if s.headers ~= nil then e.http_headers = s.headers end
+        if s.oauth ~= nil then
+          if s.oauth.scopes ~= nil then e.scopes = s.oauth.scopes end
+          local oauth = {}
+          if s.oauth.client_id ~= nil then oauth.client_id = s.oauth.client_id end
+          if s.oauth.callback_port ~= nil then oauth.callback_port = s.oauth.callback_port end
+          if next(oauth) ~= nil then e.oauth = oauth end
+        end
+      else
+        e.command = s.command
+        -- copy args, default to [] when absent (empty_array → JSON/TOML []).
+        e.args = s.args or ctx.empty_array
+        -- copy env, omitEmpty: only when non-empty.
+        if s.env ~= nil and next(s.env) ~= nil then e.env = s.env end
+      end
       out[name] = e
     end
     res.mcp_servers = in_full(ctx, out)

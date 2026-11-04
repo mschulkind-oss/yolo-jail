@@ -603,14 +603,21 @@ yolo.derive("opencode", "config", function(ctx)
   if next(ctx.mcp_servers) ~= nil then
     local out = {}
     for name, s in pairs(ctx.mcp_servers) do
-      -- fold command + args into one array (command first, then each arg).
-      local cmd = {}
-      if s.command ~= nil then cmd[#cmd + 1] = s.command end
-      for _, a in ipairs(s.args or {}) do cmd[#cmd + 1] = a end
-      local e = { type = "local", enabled = true, command = cmd }
-      -- rename env → environment, omitEmpty: only when non-empty.
-      if s.env ~= nil and next(s.env) ~= nil then e.environment = s.env end
-      out[name] = e
+      if s.url ~= nil then
+        local e = { type = "remote", url = s.url }
+        if s.headers ~= nil then e.headers = s.headers end
+        if s.oauth ~= nil and s.oauth.client_id ~= nil then e.oauth = { clientId = s.oauth.client_id } end
+        out[name] = e
+      else
+        -- fold command + args into one array (command first, then each arg).
+        local cmd = {}
+        if s.command ~= nil then cmd[#cmd + 1] = s.command end
+        for _, a in ipairs(s.args or {}) do cmd[#cmd + 1] = a end
+        local e = { type = "local", enabled = true, command = cmd }
+        -- rename env → environment, omitEmpty: only when non-empty.
+        if s.env ~= nil and next(s.env) ~= nil then e.environment = s.env end
+        out[name] = e
+      end
     end
     res.mcp = in_full(ctx, out)
   end

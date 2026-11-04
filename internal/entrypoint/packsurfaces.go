@@ -229,6 +229,8 @@ func loadJailPack(e *Env, dir, name string, disclosed []string) (*packload.Pack,
 // reports every broken surface rather than one per restart (A12).
 func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 	about := surfaceStepsAbout(packs)
+	e.remoteMCPWithheld = nil
+	e.remoteMCPRendered = nil
 	// THE ONE LOOP (surfaceloop.go), with the boot's failure disposition: every step through
 	// genStep, so one boot reports every broken surface rather than one per restart (A12).
 	_ = renderPackSet(e, packs, func(autonomy bool, activeProfiles map[string][]string) *packoverlay.OverlaySet {
@@ -244,6 +246,11 @@ func ConfigurePackSurfaces(e *Env, packs []*packload.Pack) {
 		genStepAbout(e, name, about[name], run)
 		return nil
 	})
+	if e.Stderr != nil {
+		for _, line := range remoteMCPNotices(e.remoteMCPWithheld, e.remoteMCPRendered) {
+			fmt.Fprintln(e.Stderr, line)
+		}
+	}
 	// What the rendered files name a model by, read back once they are written (MM-D45, MM-D46).
 	reportModelReferences(e, packs)
 }
@@ -341,6 +348,8 @@ type surfaceSelection struct {
 	// applies (luahook.sourceCapabilities) — resolving it here would put the rule in the
 	// caller the same way the per-agent Lua branches used to.
 	NativeCapabilities []string
+	// RemoteMCPTransports is the remote MCP dialects the agent's own pack says it renders.
+	RemoteMCPTransports []string
 	// BuiltInProviders is the providers this surface's agent implements itself, keyed by yolo
 	// provider name (packload.BuiltInProvidersFor, from the agent's own pack, by bin ownership)
 	// — ctx.built_in_providers. A derive writes no model entry under one of them
@@ -400,16 +409,17 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		}
 	}
 	return surfaceSelection{
-		Profile:            profile,
-		Provider:           packload.ProviderFor(resolved, profile),
-		ActiveSet:          packload.ActiveSetFor(set, resolved),
-		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
-		BuiltInProviders:   packload.BuiltInProvidersFor(packs, s.Agent),
-		ReadsSharedModels:  packload.ReadsSharedModels(packs, s.Agent),
-		ViaURL:             packload.ViaURLFor(resolved[profile], s.Agent),
-		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
-		ModelsNotEnforced:  !packload.ModelsEnforced(resolved[profile]),
-		Subagents:          resolved[profile].Subagents,
+		Profile:             profile,
+		Provider:            packload.ProviderFor(resolved, profile),
+		RemoteMCPTransports: packload.RemoteMCPTransportsFor(packs, s.Agent),
+		ActiveSet:           packload.ActiveSetFor(set, resolved),
+		NativeCapabilities:  packload.NativeCapabilities(packs, s.Agent),
+		BuiltInProviders:    packload.BuiltInProvidersFor(packs, s.Agent),
+		ReadsSharedModels:   packload.ReadsSharedModels(packs, s.Agent),
+		ViaURL:              packload.ViaURLFor(resolved[profile], s.Agent),
+		ViaAPIKeyEnvName:    packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
+		ModelsNotEnforced:   !packload.ModelsEnforced(resolved[profile]),
+		Subagents:           resolved[profile].Subagents,
 	}
 }
 
@@ -462,23 +472,24 @@ func deriveLayerOver(e *Env, surface manifest.Surface, deriveScript string, ctx 
 // handed rather than a second spelling of it.
 func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables map[string]map[string]any) *luahook.DeriveCtx {
 	return &luahook.DeriveCtx{
-		Agent:              surface.Agent,
-		Surface:            surface.Name,
-		ProfileName:        sel.Profile,
-		SelectedProvider:   sel.Provider,
-		Profile:            activeProfileOptions(e, sel.Profile),
-		Saved:              savedSurfaceStrings(e, surface),
-		SavedTrigger:       savedSelectionTrigger(e, surface),
-		ActiveSet:          sel.ActiveSet,
-		NativeCapabilities: sel.NativeCapabilities,
-		BuiltInProviders:   sel.BuiltInProviders,
-		ReadsSharedModels:  sel.ReadsSharedModels,
-		ViaURL:             sel.ViaURL,
-		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
-		ModelsNotEnforced:  sel.ModelsNotEnforced,
-		Subagents:          sel.Subagents,
-		Tables:             tables,
-		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
+		Agent:               surface.Agent,
+		Surface:             surface.Name,
+		ProfileName:         sel.Profile,
+		SelectedProvider:    sel.Provider,
+		Profile:             activeProfileOptions(e, sel.Profile),
+		Saved:               savedSurfaceStrings(e, surface),
+		SavedTrigger:        savedSelectionTrigger(e, surface),
+		ActiveSet:           sel.ActiveSet,
+		NativeCapabilities:  sel.NativeCapabilities,
+		BuiltInProviders:    sel.BuiltInProviders,
+		ReadsSharedModels:   sel.ReadsSharedModels,
+		ViaURL:              sel.ViaURL,
+		ViaAPIKeyEnvName:    sel.ViaAPIKeyEnvName,
+		ModelsNotEnforced:   sel.ModelsNotEnforced,
+		Subagents:           sel.Subagents,
+		RemoteMCPTransports: sel.RemoteMCPTransports,
+		Tables:              tables,
+		UnknownAPI:          func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by
 		// agent like the skew note above, so one finding prints once per boot.
 		Warn: func(msg string) { e.warnOnce("pack derive for " + surface.Agent + ": " + msg) },
@@ -733,6 +744,7 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 		// the rmw arm's drop notice: a server declared under mcp_servers and withheld there is
 		// not an entry "not in config", and needs another remedy (noteDroppedManagedEntries).
 		e.recordMCPWithheld(surface, ctx)
+		e.recordRemoteMCP(surface.Agent, ctx, computed)
 	}
 	layers := surfaceLayers{computed: computed, inFull: inFull}
 	// THE RESERVED SELECTION NAMESPACE is applied by the stateful writer alone; the two

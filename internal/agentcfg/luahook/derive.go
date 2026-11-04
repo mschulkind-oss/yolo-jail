@@ -160,6 +160,10 @@ type DeriveCtx struct {
 	// composes it only when this is set, and otherwise the delivery that needs no file.
 	AgentFiles bool
 
+	// RemoteMCPTransports is the set of remote MCP transports this agent pack's derive
+	// can render. An absent transport declaration means no remote form is supported.
+	RemoteMCPTransports []string
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -775,7 +779,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 			table = map[string]any{}
 		}
 		if src == sourceMCPServers {
-			table = withoutProvidesKey(eligibleMCPServers(table, have))
+			table = withoutProvidesKey(eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have))
 		}
 		lv, err := goToLua(L, table)
 		if err != nil {
@@ -899,6 +903,63 @@ func sourceCapabilities(ctx *DeriveCtx) map[string]bool {
 		}
 	}
 	return have
+}
+
+// eligibleRemoteMCPServers removes remote entries whose transport is not supported by the
+// receiving pack. Local stdio entries are untouched.
+func eligibleRemoteMCPServers(servers map[string]any, transports []string) map[string]any {
+	withheld := withheldRemoteMCPServers(servers, transports)
+	if len(withheld) == 0 {
+		return servers
+	}
+	out := make(map[string]any, len(servers))
+	for name, server := range servers {
+		if _, drop := withheld[name]; !drop {
+			out[name] = server
+		}
+	}
+	return out
+}
+
+// withheldRemoteMCPServers is the transport-eligibility rule, keyed by server name and
+// carrying the transport the receiving derive cannot render.
+func withheldRemoteMCPServers(servers map[string]any, transports []string) map[string]string {
+	if len(servers) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(transports))
+	for _, transport := range transports {
+		allowed[transport] = true
+	}
+	var out map[string]string
+	for name, raw := range servers {
+		server, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, remote := server["url"].(string); !remote {
+			continue
+		}
+		transport, ok := server["transport"].(string)
+		if !ok || transport == "" {
+			transport = "http"
+		}
+		if !allowed[transport] {
+			if out == nil {
+				out = make(map[string]string)
+			}
+			out[name] = transport
+		}
+	}
+	return out
+}
+
+// WithheldRemoteMCPServers reports what the derive's transport boundary withheld from ctx.
+func WithheldRemoteMCPServers(ctx *DeriveCtx) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	return withheldRemoteMCPServers(ctx.Tables[sourceMCPServers], ctx.RemoteMCPTransports)
 }
 
 // eligibleMCPServers is capability-driven MCP delivery: the configured servers minus the

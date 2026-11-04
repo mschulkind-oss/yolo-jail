@@ -79,10 +79,10 @@ type knownReleaseBreak struct {
 	repair func(manifest any) any
 }
 
-// stopsDecode reports whether a problem the old reader reported is encoding/json refusing a
-// document: the whole manifest (DecodeTolerant returns at a failed json.Unmarshal) or a pack's
-// whole surface list. Nothing after the refusal was read.
-var stopsDecode = regexp.MustCompile(`json: (cannot unmarshal|unknown field)`).MatchString
+// stopsDecode reports whether the old reader's problem prevents it from reading the rest of the
+// manifest: encoding/json refusals, or the v0.16.1 TOML reader misclassifying the new root
+// mcp_remote_transports list as a contribution group. Nothing behind either refusal was read.
+var stopsDecode = regexp.MustCompile(`json: (cannot unmarshal|unknown field)|\(mcp_remote_transports\[\d+\]\): contribution entry must be a table`).MatchString
 
 // firstOfList is a repair: every value of key that is a list becomes the list's first element,
 // the one-value shape a release that declared the field a string reads.
@@ -223,6 +223,18 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.15.1", pack: "cgroup-delegate", problem: `unknown field "selected_by_default"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("selected_by_default")},
+	// Measured against v0.16.1 on 2026-11-04: the older grouped-kind TOML reader treats the
+	// new pack-wide transport list as a contribution array and refuses each string child. A
+	// running older jail keeps its staged pack tree on attach and never reads this manifest.
+	{release: "v0.16.1", pack: "claude", problem: "mcp_remote_transports",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_remote_transports")},
+	{release: "v0.16.1", pack: "codex", problem: "mcp_remote_transports",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_remote_transports")},
+	{release: "v0.16.1", pack: "opencode", problem: "mcp_remote_transports",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_remote_transports")},
 	// Measured against v0.16.0 on 2026-11-03: copilot declares `host_keychain_env`
 	// (docs/design/keychain-from-a-jail.md OQ-KC5), a pack-wide field that reader skips without
 	// failing its boot. It is read on the host, by a macos-user launch, and never by a jail's
@@ -359,6 +371,7 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 	for round := 0; ; round++ {
 		got := runReleaseProbe(t, probe, shipped, release)
 		var repairs []int
+		scheduled := map[int]bool{}
 		for pack, res := range got {
 
 			for _, note := range res["skipped"] {
@@ -404,6 +417,8 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 				}
 				b := knownReleaseBreaks[i]
 				switch {
+				case scheduled[i]:
+					continue // grouped list entries can repeat one root-key decode failure
 				case repaired[i]:
 					t.Errorf("the repair for the known break %s/%q did not take: %s's reader still "+
 						"stops there, so the rest of pack %s is unchecked", b.pack, b.problem, release, pack)
@@ -413,6 +428,7 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 						"field back in the shape %s reads", b.pack, b.problem, release, pack, release)
 				default:
 					repaired[i] = true
+					scheduled[i] = true
 					repairs = append(repairs, i)
 				}
 			}

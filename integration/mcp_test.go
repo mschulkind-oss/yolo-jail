@@ -69,6 +69,65 @@ PY`)
 	}
 }
 
+func TestRemoteMcpServerIsWithheldFromAnAgentWithNoRemoteForm(t *testing.T) {
+	requireJail(t)
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
+		`"mcp_servers": {"linear": {"url": "https://mcp.linear.app/mcp"}}`), "copilot")
+	r := runYolo(t, dir, `grep -c mcp.linear.app /home/agent/.copilot/mcp-config.json || true`)
+	if r.rc != 0 {
+		t.Fatalf("rc %d\n%s", r.rc, r.stderr)
+	}
+	if strings.TrimSpace(r.stdout) != "0" {
+		t.Fatalf("Copilot config holds the remote server: %q", r.stdout)
+	}
+	want := "linear: copilot has no remote MCP form in yolo yet, so no agent in this jail is configured for it"
+	if !strings.Contains(r.stderr+r.stdout, want) {
+		t.Fatalf("missing remote-form notice %q\n%s", want, r.stderr+r.stdout)
+	}
+}
+
+func TestRemoteMcpServerOffDisablesTheRenderedEntry(t *testing.T) {
+	requireJail(t)
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
+		`"mcp_servers": {"linear": "off"}`), "codex")
+	r := runYolo(t, dir, `python - <<'PY'
+import tomllib
+from pathlib import Path
+servers = tomllib.loads(Path('/home/agent/.codex/config.toml').read_text()).get('mcp_servers', {})
+print('LINEAR_PRESENT=' + str('linear' in servers))
+PY`)
+	if r.rc != 0 {
+		t.Fatalf("rc %d\n%s", r.rc, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "LINEAR_PRESENT=False") {
+		t.Fatalf("off entry reached Codex:\n%s", r.stdout)
+	}
+}
+
+func TestRemoteMcpServerReachesCodexClaudeAndOpencode(t *testing.T) {
+	requireJail(t)
+	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
+		`"mcp_servers": {"linear": {"url": "https://mcp.linear.app/mcp", "headers": {"X-Org": "acme"}, "oauth": {"client_id": "client-1", "scopes": ["read"], "callback_port": 3118}}}`), "codex", "claude", "opencode")
+	r := runYolo(t, dir, `python - <<'PY'
+import json, tomllib
+from pathlib import Path
+codex = tomllib.loads(Path('/home/agent/.codex/config.toml').read_text())['mcp_servers']['linear']
+claude = json.loads(Path('/home/agent/.claude.json').read_text())['mcpServers']['linear']
+opencode = json.loads(Path('/home/agent/.config/opencode/opencode.json').read_text())['mcp']['linear']
+print('CODEX=' + str(codex['url'] == 'https://mcp.linear.app/mcp' and codex['http_headers']['X-Org'] == 'acme' and codex['oauth']['client_id'] == 'client-1' and codex['scopes'] == ['read']))
+print('CLAUDE=' + str(claude['type'] == 'http' and claude['url'] == 'https://mcp.linear.app/mcp' and claude['headers']['X-Org'] == 'acme' and claude['oauth']['clientId'] == 'client-1' and 'scopes' not in claude))
+print('OPENCODE=' + str(opencode['type'] == 'remote' and opencode['url'] == 'https://mcp.linear.app/mcp' and opencode['headers']['X-Org'] == 'acme' and opencode['oauth']['clientId'] == 'client-1'))
+PY`)
+	if r.rc != 0 {
+		t.Fatalf("rc %d\n%s", r.rc, r.stderr)
+	}
+	for _, want := range []string{"CODEX=True", "CLAUDE=True", "OPENCODE=True"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("remote MCP render missing %q\n%s", want, r.stdout)
+		}
+	}
+}
+
 // TestRetiredMcpPresetsKeyIsRefused confirms the retired `mcp_presets` key refuses the launch
 // before any container starts, naming both next steps (docs/design/mcp-presets-removal.md §13
 // step 3): the chrome-devtools pack and the user's own sequential-thinking entry.
@@ -92,6 +151,61 @@ func TestRetiredMcpPresetsKeyIsRefused(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestRemoteMcpEffectiveTransportBindsRenderedHeaders(t *testing.T) {
+	requireJail(t)
+	const endpoint = "https://mcp.linear.app/mcp"
+	for _, tc := range []struct {
+		name, userEntry, workspaceEntry, wantHeader, notWantHeader string
+	}{
+		{
+			name:           "transport-only override clears inherited headers",
+			userEntry:      `{"url":"` + endpoint + `","headers":{"Authorization":"Bearer inherited-secret"}}`,
+			workspaceEntry: `{"transport":"sse"}`,
+			notWantHeader:  "Bearer inherited-secret",
+		},
+		{
+			name:           "same URL with omitted transport inherits SSE and headers",
+			userEntry:      `{"url":"` + endpoint + `","transport":"sse","headers":{"Authorization":"Bearer inherited-secret"}}`,
+			workspaceEntry: `{"url":"` + endpoint + `"}`,
+			wantHeader:     "Bearer inherited-secret",
+		},
+		{
+			name:           "explicit replacement headers are rendered",
+			userEntry:      `{"url":"` + endpoint + `","headers":{"Authorization":"Bearer inherited-secret"}}`,
+			workspaceEntry: `{"transport":"sse","headers":{"Authorization":"Bearer replacement-secret"}}`,
+			wantHeader:     "Bearer replacement-secret",
+			notWantHeader:  "Bearer inherited-secret",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packHome(t, `{"packs":["claude"],"mcp_servers":{"linear":`+tc.userEntry+`}}`)
+			dir := writeProject(t, mcpConfigWithAgents(`"mcp_servers":{"linear":`+tc.workspaceEntry+`}`))
+			r := runYolo(t, dir, `python - <<'PY'
+import json
+from pathlib import Path
+server = json.loads(Path('/home/agent/.claude.json').read_text())['mcpServers']['linear']
+print('TRANSPORT=' + str(server.get('type')))
+print('URL=' + str(server.get('url')))
+print('AUTH=' + str(server.get('headers', {}).get('Authorization')))
+PY`)
+			if r.rc != 0 {
+				t.Fatalf("rc %d\n%s", r.rc, r.stderr)
+			}
+			for _, want := range []string{"TRANSPORT=sse", "URL=" + endpoint} {
+				if !strings.Contains(r.stdout, want) {
+					t.Errorf("rendered Claude MCP config lacks %q\n%s", want, r.stdout)
+				}
+			}
+			if tc.wantHeader != "" && !strings.Contains(r.stdout, tc.wantHeader) {
+				t.Errorf("rendered Claude MCP config lost expected header %q\n%s", tc.wantHeader, r.stdout)
+			}
+			if tc.notWantHeader != "" && strings.Contains(r.stdout, tc.notWantHeader) {
+				t.Errorf("rendered Claude MCP config retained unsafe header %q\n%s", tc.notWantHeader, r.stdout)
+			}
+		})
 	}
 }
 

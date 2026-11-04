@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
@@ -194,6 +194,9 @@ func mergeConfigTables(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*
 			if em, ok := asMap(existing); ok {
 				if vm, ok := asMap(value); ok {
 					merged, mn := mergeConfigTables(em, vm, node.key(key), osrc.key(key))
+					if key == "mcp_servers" {
+						secureMCPServerMerge(em, vm, merged)
+					}
 					result.Set(key, merged)
 					if track {
 						node.keys[key] = mn

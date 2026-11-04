@@ -2928,20 +2928,29 @@
             "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]}
     Delete the key, then run [cyan]yolo check[/cyan].
 
-  [bold]mcp_servers[/bold] (object): Custom MCP servers for Copilot, Claude, and Codex.
-    Add custom servers, or set a pack's or an inherited server to [bold]null[/bold] to disable it.
-    A selected pack's `mcp` entry (the `chrome-devtools` pack's, say) is composed
-    under this table: an entry of yours with its name merges over it per field, and
-    [bold]null[/bold] removes it.
-    Each key is a server name; value is an object with:
-      • command (string, required): Binary name (on PATH) or absolute path.
-      • args (array of strings): Args passed to the MCP server. Default: [].
+  [bold]mcp_servers[/bold] (object): Custom local and remote MCP servers.
+    Add custom servers, or set a pack's or inherited server to [bold]null[/bold] (JSONC)
+    or "off" (TOML) to disable it. A selected pack's `mcp` entry composes under this table;
+    your same-name entry merges over it per field, and a removal disables it.
+    Each key is a server name; its object requires exactly one of:
+      • command (string): local stdio server program, on PATH or an absolute path.
+      • url (string): remote endpoint. Must be https://, except http:// for localhost or
+        a loopback address. `args` and `env` apply only to `command` entries.
+    Local stdio fields:
+      • args (array of strings): passed to the server process; default: [].
       • env (object of string→string): Environment variables passed only to
         this MCP server's process. Use for per-server secrets and config so
         they don't leak into the jail-wide env. Default: {}.
         Values are written LITERALLY: yolo expands no [bold]${VAR}[/bold], so a
         reference reaches the agent's config as written, for the agent to resolve
         from its own environment (which [bold]env_sources[/bold] hydrates).
+    Remote fields:
+      • transport (string): "http" (streamable HTTP; default) or "sse".
+      • headers (object of string→string): remote request headers, written verbatim;
+        [bold]${VAR}[/bold] is not interpolated.
+      • oauth (object): optional static settings: `client_id` (string), `scopes` (array of
+        strings), `callback_port` (integer 1–65535). A client secret is never rendered.
+    Shared fields:
       • provides (string): the named JOB this server implements, e.g.
         "web_search".  Two things read it, and they are different questions.
         DELIVERY: the authentication source your launch resolves to — the
@@ -2967,16 +2976,14 @@
             "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
             "requires_env": ["TAVILY_API_KEY"]
           }}
-    The entrypoint translates these for each SELECTED agent:
-      • Copilot: written to a per-workspace overlay mounted at ~/.copilot/mcp-config.json.
-      • Claude: written to a per-workspace overlay mounted at ~/.claude/settings.json.
-      • opencode: written to ~/.config/opencode/opencode.json (mcp key, native schema).
-      • codex: written to ~/.codex/config.toml (\\[mcp_servers.<name>] tables).
-      • pi: no native MCP support (skipped).
+    Every selected agent pack renders the remote transport it declares. Codex renders
+    streamable HTTP; Claude and opencode render streamable HTTP and SSE. A remote server
+    whose transport is unsupported by an agent is omitted from its config and named at boot.
+    Stdio servers continue through each pack's local-server form.
     AT THE HOST NOTCH the same translation is written into your real home by
     `yolo host apply` (and a wrapped launch's automatic apply), from this key in your
     USER config: every selected agent's MCP file gets these servers, as in a jail.
-    A server whose command or arguments name a path only a jail has (/workspace,
+    A local server whose command or arguments name a path only a jail has (/workspace,
     /home/agent, /ctx, …) is left out and named, and `requires_env` is asked of the
     environment `yolo host env --agent <agent>` composes for each agent.  To give one
     host agent a server the others should not get, add a `config-overlay` for that
@@ -2986,6 +2993,9 @@
         "command": "npx", "args": ["-y", "cerebras-code-mcp"],
         "env": {"CEREBRAS_API_KEY": "csk-...", "CEREBRAS_MCP_IDE": "claude"}
       }}
+    Example remote server:
+      {"linear": {"url": "https://mcp.linear.app/mcp", "transport": "http",
+        "headers": {"X-Org": "acme"}, "oauth": {"client_id": "c1", "scopes": ["read"], "callback_port": 3118}}}
 
   [bold]devices[/bold] (array): Host devices to pass through to the jail.
     Three formats supported:

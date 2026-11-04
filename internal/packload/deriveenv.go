@@ -241,7 +241,8 @@ func deriveAgentEnv(script string, owner *Pack, packs []*Pack, providers *jsonx.
 		// provider the agent reaches through its own client.
 		BuiltInProviders: BuiltInProvidersFor(packs, agent),
 		// Whether the agent reads a model file's shared form (ML-D11), the surface path's answer.
-		ReadsSharedModels: ReadsSharedModels(packs, agent),
+		ReadsSharedModels:   ReadsSharedModels(packs, agent),
+		RemoteMCPTransports: RemoteMCPTransportsFor(packs, agent),
 		Tables: map[string]map[string]any{
 			manifest.SourceProviders:   table,
 			manifest.SourceUseProfiles: plainProfiles(useProfiles),

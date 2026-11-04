@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -1251,8 +1253,32 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 			continue
 		}
 		reportUnknownKeys(cfg, knownMCPServerKeys, path, errs)
-		if cmd, _ := cfg.Get("command"); !isStr(cmd) {
-			add(errs, path+".command: expected a string")
+		command, hasCommand := cfg.Get("command")
+		remoteURL, hasURL := cfg.Get("url")
+		switch {
+		case hasCommand && hasURL:
+			add(errs, path+": has both command and url; a server is local (command) or remote (url), so remove one")
+		case !hasCommand && !hasURL:
+			add(errs, path+": needs command (a local server) or url (a remote one)")
+		case hasCommand:
+			if !isStr(command) {
+				add(errs, path+".command: expected a string")
+			}
+			for _, key := range []string{"transport", "headers", "oauth"} {
+				if _, present := cfg.Get(key); present {
+					add(errs, path+"."+key+": applies only to a remote server (url); remove it, or replace command with url")
+				}
+			}
+		case hasURL:
+			validateRemoteMCPServer(cfg, remoteURL, path, errs)
+		}
+		if hasURL {
+			if _, ok := cfg.Get("args"); ok {
+				add(errs, path+".args: applies only to a local server (command); remove it, or replace url with command")
+			}
+			if _, ok := cfg.Get("env"); ok {
+				add(errs, path+".env: applies only to a local server (command); remove it, or replace url with command")
+			}
 		}
 		if argsV, ok := cfg.Get("args"); ok {
 			validateStringList(argsV, path+".args", errs)
@@ -1306,6 +1332,64 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 			add(errs, fmt.Sprintf("config.mcp_servers: multiple servers declare provides %q (%s). Ambiguous capability resolution.", capName, strings.Join(names, ", ")))
 		}
 	}
+}
+
+func validateRemoteMCPServer(cfg *jsonx.OrderedMap, rawURL any, path string, errs *[]string) {
+	urlValue, ok := asStr(rawURL)
+	if !ok {
+		add(errs, path+".url: expected a URL string")
+	} else if parsed, err := url.Parse(urlValue); err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		add(errs, path+".url: expected an absolute https:// URL, got "+pytext.Repr(urlValue))
+	} else if parsed.Scheme != "https" && !(parsed.Scheme == "http" && loopbackMCPHost(parsed.Hostname())) {
+		add(errs, path+".url: must be an https:// URL (http:// only for localhost), got "+pytext.Repr(urlValue))
+	}
+	if transport, present := cfg.Get("transport"); present {
+		if value, ok := asStr(transport); !ok {
+			add(errs, path+".transport: expected a string")
+		} else if value != "http" && value != "sse" {
+			add(errs, fmt.Sprintf("%s.transport: must be \"http\" or \"sse\", got %q", path, value))
+		}
+	}
+	if rawHeaders, present := cfg.Get("headers"); present {
+		headers, ok := asMap(rawHeaders)
+		if !ok {
+			add(errs, path+".headers: expected an object of strings")
+		} else {
+			for _, name := range headers.Keys() {
+				if value, _ := headers.Get(name); !isStr(value) {
+					add(errs, path+".headers."+name+": expected a string")
+				}
+			}
+		}
+	}
+	if rawOAuth, present := cfg.Get("oauth"); present {
+		oauth, ok := asMap(rawOAuth)
+		if !ok {
+			add(errs, path+".oauth: expected an object")
+			return
+		}
+		reportUnknownKeys(oauth, knownMCPOAuthKeys, path+".oauth", errs)
+		if value, present := oauth.Get("client_id"); present && !isStr(value) {
+			add(errs, path+".oauth.client_id: expected a string")
+		}
+		if value, present := oauth.Get("scopes"); present {
+			validateStringList(value, path+".oauth.scopes", errs)
+		}
+		if value, present := oauth.Get("callback_port"); present {
+			port, ok := pyInt(value)
+			if !ok || port < 1 || port > 65535 {
+				add(errs, path+".oauth.callback_port: expected a port from 1 to 65535")
+			}
+		}
+	}
+}
+
+func loopbackMCPHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // validatePackMCPServers refuses an MCP server name two selected packs ship (packdecl.KindMCP is

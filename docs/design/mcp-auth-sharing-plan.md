@@ -3,17 +3,21 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Task 1: withhold remote MCP servers at the derive boundary from every pack that declares no remote form, tests first"
+next: "Phase B: slice 1, Codex on podman and Linux yolo host; validate its hand-off against the tree before beginning broker work"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
-summary: "Build hand-off for mcp-auth-sharing.md. Phase A ships the remote mcp_servers form and scope attribution; phase B ships the mcp-auth pack, its host daemon on the host-broker framework, the canonical store, and Codex end to end on podman and Linux yolo host. Later slices are outlined and are re-planned against the tree when phase B lands."
+summary: "Build hand-off: Phase A adds the remote mcp_servers form, supported-agent renders, safe withholding, and scope attribution. Phase B (the mcp-auth pack and broker) remains separate and unimplemented here; later slices are re-planned against the tree when phase B lands."
 ---
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
 
-**Status:** 2026-11-04. Completed against the tree, written against `22a68f53c`. Phases A and B
-are ready to build. Phases C to E are outlined only: phase B rewrites the files they touch, so
-each is re-planned at the commit phase B lands on, before anyone builds from it.
+**Status:** 2026-11-04. Phase A is source-integrated: remote config and pack declarations,
+Codex/Claude/opencode rendering, safe transport withholding with boot notices, effective-transport
+header binding, scope attribution, and `config why` with header redaction and unavailable provenance.
+The affected package suites and real-jail integration tests cover static rendered files and effective
+transport/header outcomes; no agent, authentication flow, or MCP endpoint was invoked. Phase B (the
+broker and fencing) has not started. Phases C to E remain outlined and must be re-planned against the
+tree when phase B lands.
 
 **Design:** [`mcp-auth-sharing.md`](mcp-auth-sharing.md), every question ruled
 ([decision ledger](mcp-auth-sharing.md#decision-ledger)). The broker sits on the host-broker

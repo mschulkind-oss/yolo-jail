@@ -48,6 +48,7 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "machine.forward", Policy: RemovalEmptyList},
 		{Path: "mcp_servers.*.command", Policy: RemovalEmptyList},
 		{Path: "mcp_servers.*.args", Policy: RemovalEmptyList},
+		{Path: "mcp_servers.*.oauth.scopes", Policy: RemovalEmptyList},
 		{Path: "mcp_servers.*.requires_env", Policy: RemovalEmptyList},
 		{Path: "env.sources", Policy: RemovalEmptyList},
 		{Path: "env.sources.*.unset", Policy: RemovalEmptyList},

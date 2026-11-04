@@ -419,6 +419,9 @@ func mergeReadableConfigWalk(base, override *jsonx.OrderedMap, baseSource, overr
 						continue
 					}
 					merged, mergedSource := mergeReadableConfigMode(baseMap, overrideMap, baseMapNode, overrideMapNode, appendReadablePath(path, key), clearEmptyLists)
+					if len(path) == 0 && key == "mcp_servers" {
+						secureMCPServerMerge(baseMap, overrideMap, merged)
+					}
 					result.Set(key, merged)
 					if track {
 						node.keys[key] = mergedSource

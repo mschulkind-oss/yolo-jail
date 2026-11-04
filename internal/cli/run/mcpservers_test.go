@@ -6,6 +6,7 @@ package run
 // mcp_servers, which is what every agent's derive in the jail renders.
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +40,105 @@ func argvMCPServers(t *testing.T, argv []string) string {
 	}
 	t.Fatalf("no YOLO_MCP_SERVERS on the argv: %v", argv)
 	return ""
+}
+
+func TestTheLaunchArgvDoesNotSendPackHeadersToAnOverriddenDestination(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+	o := goldenOptions("/ws", home)
+	packDir := t.TempDir()
+	secret := "SYNTHETIC_MCP_AUTHORIZATION_SECRET"
+	manifest := `{"name":"remote-pack","contributes":[{"kind":"mcp","name":"linear","config":{"url":"https://old.example/mcp","headers":{"Authorization":"Bearer ` + secret + `"}}}]}`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pack, problems := packload.LoadDir(packDir, "remote-pack")
+	if pack == nil || len(problems) != 0 {
+		t.Fatalf("load fixture pack: pack=%v problems=%v", pack, problems)
+	}
+	in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+	in.packs = append(in.packs, pack)
+	linear := jsonx.NewOrderedMap()
+	linear.Set("url", "https://foreign.example/mcp")
+	servers := jsonx.NewOrderedMap()
+	servers.Set("linear", linear)
+	in.cfg.Set("mcp_servers", servers)
+	got := argvMCPServers(t, o.assembleRunCmd(in))
+	if strings.Contains(got, secret) || strings.Contains(got, "Authorization") {
+		t.Fatalf("launch argv delivered a pack header to the overridden endpoint: %s", got)
+	}
+	if !strings.Contains(got, "https://foreign.example/mcp") {
+		t.Fatalf("launch argv lost the selected destination: %s", got)
+	}
+}
+
+func TestTheLaunchArgvBindsPackHeadersToTheEffectiveTransport(t *testing.T) {
+	for _, tc := range []struct {
+		name, manifestConfig, override, wantHeader, notWantHeader string
+	}{
+		{
+			name:           "transport-only change clears inherited authorization",
+			manifestConfig: `"url":"https://mcp.example/mcp","headers":{"Authorization":"Bearer inherited"}`,
+			override:       `{"transport":"sse"}`,
+			notWantHeader:  "Bearer inherited",
+		},
+		{
+			name:           "same URL with omitted transport inherits SSE headers",
+			manifestConfig: `"url":"https://mcp.example/mcp","transport":"sse","headers":{"Authorization":"Bearer inherited"}`,
+			override:       `{"url":"https://mcp.example/mcp"}`,
+			wantHeader:     "Bearer inherited",
+		},
+		{
+			name:           "explicit higher headers replace inherited credentials",
+			manifestConfig: `"url":"https://mcp.example/mcp","headers":{"Authorization":"Bearer inherited"}`,
+			override:       `{"transport":"sse","headers":{"Authorization":"Bearer replacement"}}`,
+			wantHeader:     "Bearer replacement",
+			notWantHeader:  "Bearer inherited",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/ws", home)
+			packDir := t.TempDir()
+			manifest := `{"name":"remote-pack","contributes":[{"kind":"mcp","name":"linear","config":{` + tc.manifestConfig + `}}]}`
+			if err := os.WriteFile(filepath.Join(packDir, "pack.json"), []byte(manifest), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			pack, problems := packload.LoadDir(packDir, "remote-pack")
+			if pack == nil || len(problems) != 0 {
+				t.Fatalf("load fixture pack: pack=%v problems=%v", pack, problems)
+			}
+			in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+			in.packs = append(in.packs, pack)
+			overrideValue, err := jsonx.Decode([]byte(tc.override))
+			if err != nil {
+				t.Fatal(err)
+			}
+			override := overrideValue.(*jsonx.OrderedMap)
+			servers := jsonx.NewOrderedMap()
+			servers.Set("linear", override)
+			in.cfg.Set("mcp_servers", servers)
+			got := argvMCPServers(t, o.assembleRunCmd(in))
+			for _, want := range []string{`"transport": "sse"`, `"url": "https://mcp.example/mcp"`} {
+				if strings.Contains(tc.override, `"transport"`) || strings.Contains(tc.manifestConfig, `"transport"`) {
+					if !strings.Contains(got, want) {
+						t.Errorf("launch argv lacks %s: %s", want, got)
+					}
+				}
+			}
+			if tc.wantHeader != "" && !strings.Contains(got, tc.wantHeader) {
+				t.Errorf("launch argv lost expected header %q: %s", tc.wantHeader, got)
+			}
+			if tc.notWantHeader != "" && strings.Contains(got, tc.notWantHeader) {
+				t.Errorf("launch argv retained unsafe header %q: %s", tc.notWantHeader, got)
+			}
+		})
+	}
 }
 
 func TestTheLaunchArgvCarriesTheSelectedPacksMCPEntry(t *testing.T) {

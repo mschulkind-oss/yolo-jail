@@ -661,11 +661,12 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 	contribs = append(contribs, map[string]any{"kind": "program", "bin": "fixture-built", "via": "pack", "from": "bin", "run": "fixture-built", "build": "make fixture-built", "prebuilt": map[string]any{"linux/amd64": map[string]any{"url": "https://example.test/fixture.tar.gz", "sha256": strings.Repeat("a", 64)}}})
 	root := map[string]any{
 		"name": "parity-fixture", "description": "Contribution parity fixture.", "skills_tier": "flat",
-		"needs":         []any{map[string]any{"pack": "wire-bridge", "when_bins": []string{"fixture-tool"}}},
-		"supersedes":    []any{map[string]any{"capability": "old-capability", "because": "the capability is retired"}},
-		"session_homes": []any{map[string]any{"dir": ".fixture/config", "env": "FIXTURE_HOME", "shared": []string{"auth.json"}}},
-		"provider_keys": map[string]any{"fixture-tool": []any{map[string]any{"surface": "fixture-tool/settings", "pointer": "/env/PROVIDER"}}},
-		"provider_env":  map[string]any{"fixture-tool": map[string]any{"surface": "fixture-tool/settings", "pointer": "/env"}},
+		"needs":                 []any{map[string]any{"pack": "wire-bridge", "when_bins": []string{"fixture-tool"}}},
+		"mcp_remote_transports": []string{"http", "sse"},
+		"supersedes":            []any{map[string]any{"capability": "old-capability", "because": "the capability is retired"}},
+		"session_homes":         []any{map[string]any{"dir": ".fixture/config", "env": "FIXTURE_HOME", "shared": []string{"auth.json"}}},
+		"provider_keys":         map[string]any{"fixture-tool": []any{map[string]any{"surface": "fixture-tool/settings", "pointer": "/env/PROVIDER"}}},
+		"provider_env":          map[string]any{"fixture-tool": map[string]any{"surface": "fixture-tool/settings", "pointer": "/env"}},
 		"model_list_check": map[string]any{"fixture-tool": map[string]any{
 			"rules": []any{map[string]any{"platform": "fixture-provider", "makers": []string{"fixture"}}},
 			"references": map[string]any{
@@ -685,7 +686,7 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 	// The TOML codec emits root keys before array tables. Build table blocks in the actual
 	// authored contribution order, and keep metadata at the root ahead of the first table.
 	rootValues := jsonx.NewOrderedMap()
-	for _, key := range []string{"name", "description", "skills_tier", "needs", "supersedes", "session_homes", "provider_keys", "provider_env", "model_list_check", "launch_computed"} {
+	for _, key := range []string{"name", "description", "skills_tier", "needs", "mcp_remote_transports", "supersedes", "session_homes", "provider_keys", "provider_env", "model_list_check", "launch_computed"} {
 		rootValues.Set(key, root[key])
 	}
 	metadata, err := configdoc.Encode(rootValues, configdoc.TOML)

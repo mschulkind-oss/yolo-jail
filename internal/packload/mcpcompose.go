@@ -16,6 +16,7 @@ package packload
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -101,8 +102,8 @@ func MCPNameCollisions(packs []*Pack) []string {
 }
 
 // ComposeMCPServers is the `mcp_servers` table a notch renders: every held `mcp` declaration of
-// packs, its `~/` words joined to home, then the user's table over it — a `null` removes the
-// pack's entry and stays in the table as a removal, and an object merges over the pack's entry
+// packs, its `~/` words joined to home, then the user's table over it — `null` and `"off"` remove
+// the pack's entry and stay in the table as removal markers; an object merges over the pack's entry
 // per field, `env` per variable. A user entry no pack ships is copied as written. The result
 // holds nothing the caller owns, so a consumer may edit it. Never nil.
 func ComposeMCPServers(user *jsonx.OrderedMap, packs []*Pack, home string) *jsonx.OrderedMap {
@@ -119,7 +120,7 @@ func ComposeMCPServers(user *jsonx.OrderedMap, packs []*Pack, home string) *json
 	}
 	for _, name := range user.Keys() {
 		v, _ := user.Get(name)
-		if v == nil {
+		if v == nil || v == "off" {
 			out.Set(name, nil)
 			continue
 		}
@@ -148,8 +149,8 @@ func MCPServerSources(user *jsonx.OrderedMap, packs []*Pack) []string {
 		line := held.Server.Name + " (pack " + held.Pack
 		if user != nil {
 			if v, ok := user.Get(held.Server.Name); ok {
-				if v == nil {
-					continue // removed by your null
+				if v == nil || v == "off" {
+					continue // removed by null (JSONC) or off (TOML)
 				}
 				line += ", your mcp_servers merged over it"
 			}
@@ -201,6 +202,23 @@ func joinMCPHome(w, home string) string {
 // mergeMCPEntry merges the user's entry u over the pack's dst, per field: `env` per variable when
 // both are objects, and every other field replaced; a null field removes the pack's.
 func mergeMCPEntry(dst, u *jsonx.OrderedMap) {
+	baseURL, baseHasURL := dst.Get("url")
+	baseRemote := baseHasURL && baseURL != nil
+	overrideURL, overrideHasURL := u.Get("url")
+	overrideRemote := overrideHasURL && overrideURL != nil
+	baseCommand, baseHasCommand := dst.Get("command")
+	overrideCommand, overrideHasCommand := u.Get("command")
+	baseLocal, overrideLocal := baseHasCommand && baseCommand != nil, overrideHasCommand && overrideCommand != nil
+	if baseRemote && overrideLocal && !overrideRemote {
+		for _, key := range []string{"url", "transport", "headers", "oauth"} {
+			dst.Delete(key)
+		}
+	} else if baseLocal && overrideRemote && !overrideLocal {
+		for _, key := range []string{"command", "args", "env"} {
+			dst.Delete(key)
+		}
+	}
+	baseTransport := mcpStringTransport(dst)
 	for _, k := range u.Keys() {
 		v, _ := u.Get(k)
 		if v == nil {
@@ -226,6 +244,27 @@ func mergeMCPEntry(dst, u *jsonx.OrderedMap) {
 		}
 		dst.Set(k, v)
 	}
+	if baseRemote {
+		effectiveURL, effectiveHasURL := dst.Get("url")
+		effectiveRemote := effectiveHasURL && effectiveURL != nil
+		destinationChanged := effectiveRemote && (!reflect.DeepEqual(baseURL, effectiveURL) || baseTransport != mcpStringTransport(dst))
+		if destinationChanged {
+			if headers, explicit := u.Get("headers"); explicit && headers != nil {
+				dst.Set("headers", jsonx.DeepCopy(headers))
+			} else {
+				dst.Delete("headers")
+			}
+		}
+	}
+}
+
+func mcpStringTransport(server *jsonx.OrderedMap) string {
+	if value, ok := server.Get("transport"); ok {
+		if transport, ok := value.(string); ok && transport != "" {
+			return transport
+		}
+	}
+	return "http"
 }
 
 // mcpClaimDetail is an `mcp` claim's Detail in `yolo pack footprint`: the command and arguments

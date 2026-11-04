@@ -157,6 +157,10 @@ type Env struct {
 	// config declares. Written by the render step that runs the derive, read by the rmw write
 	// below it; sequential, like warnedOnce.
 	mcpWithheld map[manifest.SurfaceKey]mcpWithholding
+	// remoteMCPWithheld records transport exclusions by agent; remoteMCPRendered is the
+	// set of declared remote entries present in the resulting per-agent config layers.
+	remoteMCPWithheld map[string]map[string]string
+	remoteMCPRendered map[string][]string
 	// mcpGated records, per agent, the MCP servers the requires_env gate removed from the table
 	// that agent's surfaces are handed, each mapped to the variables it lacked (loadMCPTables,
 	// recordMCPGated), so the drop notice can tell a declared server whose variable is unset

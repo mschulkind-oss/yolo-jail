@@ -51,6 +51,7 @@ provider_keys.claude = [
 # 2026-10-11 (PP-D14, docs/design/providers-and-profiles-redesign.md).
 provider_env = { claude = { surface = "claude/settings", pointer = "/env" } }
 name = "claude"
+mcp_remote_transports = ["http", "sse"]
 # CLAUDE CODE BRINGS ITS OWN PROVIDER (docs/design/provider-enablement.md OQ-PE1, OQ-PE5):
 # packs/claude-auth declares the `anthropic` provider and the `claude` profile and carries the
 # claude-oauth-broker loophole, so selecting claude makes `-p pi=claude` and an active set

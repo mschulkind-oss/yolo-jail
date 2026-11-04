@@ -729,7 +729,19 @@ end
 yolo.derive("claude", "config", function(ctx)
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do
-    servers[name] = cfg
+    if cfg.url ~= nil then
+      local remote = { type = cfg.transport or "http", url = cfg.url }
+      if cfg.headers ~= nil then remote.headers = cfg.headers end
+      if cfg.oauth ~= nil then
+        local oauth = {}
+        if cfg.oauth.client_id ~= nil then oauth.clientId = cfg.oauth.client_id end
+        if cfg.oauth.callback_port ~= nil then oauth.callbackPort = cfg.oauth.callback_port end
+        if next(oauth) ~= nil then remote.oauth = oauth end
+      end
+      servers[name] = remote
+    else
+      servers[name] = cfg
+    end
   end
   return { mcpServers = in_full(ctx, servers) }
 end)

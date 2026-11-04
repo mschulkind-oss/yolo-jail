@@ -74,7 +74,9 @@ func SchemaKeys() []SchemaKey {
 	for _, path := range []string{
 		"mounts.*", "network.ports.*", "network.forward_host_ports.*", "env_sources.*",
 		"env_sources.*.*", "mise_tools.*", "lsp_servers.*.args.*", "mcp_servers.*.args.*",
-		"mcp_servers.*.env.*", "providers.*.options.*", "providers.*.models.*.input.*",
+		"mcp_servers.*.env.*", "mcp_servers.*.headers.*", "mcp_servers.*.oauth.client_id",
+		"mcp_servers.*.oauth.scopes", "mcp_servers.*.oauth.scopes.*", "mcp_servers.*.oauth.callback_port",
+		"providers.*.options.*", "providers.*.models.*.input.*",
 		"providers.*.models.*", "mcp_servers.*", "profiles.*", "profiles.*.*",
 		"profiles.*.model", "profiles.*.subagents.default", "profiles.*.subagents.roles.*",
 		"profile.*", "profile.*.*", "brokered.*.grants.*", "brokered.*.grants.*.*",
@@ -410,6 +412,15 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "mcp_servers.*.requires_env", Scope: both, Type: SchemaTypeList},
 		{Path: "mcp_servers.*.requires_env.*", Scope: both, Type: SchemaTypeString},
 		{Path: "mcp_servers.*.provides", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.url", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.transport", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.headers", Scope: both, Type: SchemaTypeObject},
+		{Path: "mcp_servers.*.headers.*", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.oauth", Scope: both, Type: SchemaTypeObject},
+		{Path: "mcp_servers.*.oauth.client_id", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.oauth.scopes", Scope: both, Type: SchemaTypeList},
+		{Path: "mcp_servers.*.oauth.scopes.*", Scope: both, Type: SchemaTypeString},
+		{Path: "mcp_servers.*.oauth.callback_port", Scope: both, Type: SchemaTypeNumber},
 	}
 	for _, key := range entries {
 		add(key.Path, key.Scope, key.Type)
@@ -471,7 +482,10 @@ func fieldSensitivePath(path string) bool {
 
 func legacySchemaType(path string) SchemaType {
 	switch path {
-	case "setup", "setups.*.confinement", "setups.*.run_as":
+	case "setup", "setups.*.confinement", "setups.*.run_as",
+		"mcp_servers.*.command", "mcp_servers.*.url", "mcp_servers.*.transport",
+		"mcp_servers.*.provides", "mcp_servers.*.headers.*", "mcp_servers.*.oauth.client_id",
+		"mcp_servers.*.oauth.scopes.*":
 		return SchemaTypeString
 	case "setups", "setups.*":
 		return SchemaTypeObject
@@ -493,7 +507,10 @@ func legacySchemaType(path string) SchemaType {
 	case "include_if_found.*", "packages.*.name", "packages.*.nixpkgs", "packages.*.version", "packages.*.url", "packages.*.hash",
 		"packages.*.outputs.*", "packages.*.platforms.*", "providers.*.models.*.input.*", "host_path.*":
 		return SchemaTypeString
+	case "mcp_servers.*.oauth.callback_port":
+		return SchemaTypeNumber
 	case "packages", "env_sources", "include_if_found", "writable_home_dirs", "required_capabilities",
+		"mcp_servers.*.oauth.scopes",
 		"providers.*.capabilities", "providers.*.models.*.input",
 		"brokered.*.repos", "brokered.*.grant_kinds", "brokered.*.grants", "network.ports", "network.forward_host_ports",
 		"devices", "packages.*.outputs", "packages.*.platforms", "host_path", "host_files":
@@ -506,6 +523,8 @@ func legacySchemaType(path string) SchemaType {
 		"providers.*.models.*.cost.cache_read", "providers.*.models.*.cost.cache_write",
 		"brokered.*.sets.*.uses", "resources.pids_limit":
 		return SchemaTypeNumber
+	case "mcp_servers.*.headers", "mcp_servers.*.oauth":
+		return SchemaTypeObject
 	case "network", "security", "providers", "profiles", "loopholes", "brokered", "resources", "gpu", "mcp_servers.*",
 		"providers.*.endpoints", "providers.*.models", "providers.*.options", "providers.*.models.*.cost",
 		"model_facts", "model_facts.*", "profiles.*", "loopholes.*.settings", "programs", "programs.overrides", "programs.overrides.*",

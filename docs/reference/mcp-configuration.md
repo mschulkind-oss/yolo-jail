@@ -15,6 +15,8 @@ covers:
   - internal/agentcfg/luahook/derive.go
   - internal/entrypoint/mcp_wrappers.go
   - internal/entrypoint/packsurfaces.go
+  - internal/packload/mcpscope.go
+  - internal/config/validate.go
   - internal/agentcfg/manifest/
   - packs/claude/derive.lua
   - packs/codex/derive.lua
@@ -81,7 +83,7 @@ Alongside that, two tiny wrapper scripts sit in front of `node` and `npx`.
 | :--- | :--- |
 | Building the canonical table, and the LSP table beside it | `internal/entrypoint` (`Env.LoadMCPServers`, `LoadLSPServers`) |
 | Publishing it as a composition source | `internal/entrypoint` (`packsurfaces.go`), `internal/agentcfg/manifest` (`SourceMCPServers`, `SourceLSPServers`) |
-| Capability-driven MCP filtering at the derive boundary | `internal/agentcfg/luahook` (`eligibleMCPServers`, `withoutProvidesKey`, `sourceCapabilities`) |
+| Capability-driven MCP filtering at the derive boundary | `internal/agentcfg/luahook` (`eligibleMCPServers`, `eligibleRemoteMCPServers`, `withoutProvidesKey`, `sourceCapabilities`) |
 | The per-tool projection | each pack's `derive.lua`, run in `internal/agentcfg/luahook` |
 | Claude's generated LSP plugin | `internal/jailcontent` (`RenderLSPPlugin`, `writeLSPPlugin`, `IsLSPPlugin`, `SetLSPServers`, `LSPPluginDir`), called from `PrepareSkills`; the table is injected by `internal/cli/run` (`refreshJailBriefings`, `prepare.go`). At the host, `internal/cli` (`applyHostLSPPlugin`, called from `applyHostSkills`) |
 | The wrapper scripts | `internal/entrypoint` (`GenerateMCPWrappers`, `nodeWrapper`, `npxWrapper`) |
@@ -124,6 +126,29 @@ yolo-jail.jsonc: mcp_servers, lsp_servers
 projection, and every LSP projection except Claude's, is the pack's, not core's. Claude's LSP
 plugin is the exception, and it names no agent: core writes it into every skills
 destination rather than asking which one is Claude's.
+
+### Remote MCP forms and scope
+
+A custom `mcp_servers` entry is either a local stdio server (`command`) or a remote server
+(`url`), never both. Remote endpoints require HTTPS except for localhost or loopback HTTP;
+`transport` defaults to streamable HTTP and may instead be SSE. `headers` are passed through as declared; yolo does not interpolate `${VAR}`. Optional `oauth` fields include a static `client_id`,
+`scopes`, and `callback_port`; no client secret is rendered into an agent configuration. The
+schema and complete validation behavior are in `yolo config-ref`.
+
+Remote rendering is an agent-pack capability, not a core switch: the pack declares the remote
+transports its derive can represent, and `eligibleRemoteMCPServers` withholds every other
+remote entry before Lua sees the table. Codex renders streamable HTTP; Claude and opencode render
+HTTP and SSE. Packs without a remote-form declaration receive no remote entry, while their local
+stdio entries remain unchanged. The boot notice names the agents that could not render a server
+and, when applicable, the agents that did. No agent is invoked and no endpoint is contacted while
+the configuration is rendered.
+
+`MCPServerScopes` attributes a live server as user-level only when the user's configuration and
+selected packs alone compose the same name with the same sign-in identity (`url`, transport,
+headers, and OAuth client ID for remote entries; command and arguments for stdio). A workspace
+change to identity makes the server workspace-level; a removal has no scope. `yolo config why
+mcp_servers.<name>` reports this attribution and the layer that changed it. This is attribution
+only: it does not share authentication state.
 
 ### At the host notch
 
@@ -438,7 +463,8 @@ names and the schema live in each pack's `pack.json` and `derive.lua`, which are
 authority. What is worth knowing is *how the shapes differ*, because that is what a new
 projection has to get right:
 
-- Most tools take a `{command, args, env}` object map under some spelling of `mcpServers`.
+- Most tools take a `{command, args, env}` object map for local stdio servers, under some
+  spelling of `mcpServers`; remote servers use a URL and tool-specific transport fields.
 - One takes TOML tables instead of JSON objects.
 - One flattens `command` plus `args` into a single argv **array** and renames `env`.
 - One tool's MCP goes in a *different file* from its permissions, so its projection writes two

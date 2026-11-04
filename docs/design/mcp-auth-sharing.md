@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Build from the implementation plan, starting with its task 1 (the remote mcp_servers form)."
+next: "Phase A is implemented; Phase B is a separate broker change whose hand-off must be revalidated against the tree."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -11,7 +11,11 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 # One sign-in per user-level MCP server: a host broker that shares the entries, not the store
 
-**Status:** 2026-11-04. Every ruling is in; nothing built; the implementation plan is written. Evidence read 2026-11-03 ([Appendix A](#appendix-a-evidence)); tree claims checked at `05f445e8d`.
+**Status:** 2026-11-04. Phase A's remote `mcp_servers` form and scope attribution are implemented;
+the broker, shared credential store, and authentication flows remain unbuilt. Phase A was verified
+with targeted unit tests and static-config integration in a real jail; no agent or MCP endpoint was
+invoked. The implementation plan records the boundary and remaining phases. Evidence read
+2026-11-03 ([Appendix A](#appendix-a-evidence)); design-tree claims checked at `05f445e8d`.
 
 > **In short.** Because no agent can split its MCP token store per server, sharing only the
 > user-level sign-ins means yolo owns the split: one host broker writes a canonical copy of each
@@ -809,8 +813,8 @@ The `OQ-MA` rows are the owner's rulings on compacted questions.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | MA-D1 | Share entries through a host broker; no link, mount or env-var mechanism meets the rule | 2026-11-03 | [§3](#3-why-it-cannot-be-a-link) | — |
-| MA-D2 | A remote `mcp_servers` form (`url`, `transport`, `headers`, `oauth`) is the prerequisite and ships first | 2026-11-03 | [§4](#4-prerequisite-a-remote-mcp_servers-form) | — |
-| MA-D3 | User-level = the user-only composition yields the same name and sign-in identity | 2026-11-03 | [§5](#5-which-servers-are-user-level) | — |
+| MA-D2 | A remote `mcp_servers` form (`url`, `transport`, `headers`, `oauth`) is the prerequisite and ships first | 2026-11-03 | [§4](#4-prerequisite-a-remote-mcp_servers-form) | Phase A |
+| MA-D3 | User-level = the user-only composition yields the same name and sign-in identity | 2026-11-03 | [§5](#5-which-servers-are-user-level) | Phase A |
 | MA-D4 | Packs declare `[[mcp_auth]]`; key and match functions live in `derive.lua`; core implements lock protocols by name | 2026-11-03 | [§6](#6-what-an-agent-pack-declares) | — |
 | MA-D5 | Canonical store per agent pack, host-only, keyed by name and identity digest, with generations | 2026-11-03 | [§7](#7-the-canonical-store) | — |
 | MA-D6 | The broker is the single refresher of a canonical record, ahead of expiry | 2026-11-03 | [§8.4](#84-refresh-the-broker-is-the-single-refresher) | — |

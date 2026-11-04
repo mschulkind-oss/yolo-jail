@@ -137,6 +137,39 @@ func TestTheContainerWorkspaceDefaultIsTheLiteralBindDest(t *testing.T) {
 	}
 }
 
+func TestCodexRemoteMCPServerDialect(t *testing.T) {
+	e := codexComputedEnv(t, `{"linear":{"url":"https://mcp.linear.app/mcp","headers":{"X-Org":"acme"},"oauth":{"client_id":"c1","scopes":["read"],"callback_port":3118}},"stdio":{"command":"mcp-fs","args":["--serve"]},"legacy":{"url":"https://sse.example.test/sse","transport":"sse"}}`)
+	if err := ConfigurePackByName(e, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	config := decodeCodexTOML(t, filepath.Join(e.CodexDir(), "config.toml"))
+	servers, _ := config["mcp_servers"].(map[string]any)
+	linear, _ := servers["linear"].(map[string]any)
+	if linear["url"] != "https://mcp.linear.app/mcp" {
+		t.Fatalf("linear = %#v", linear)
+	}
+	if got := linear["http_headers"].(map[string]any)["X-Org"]; got != "acme" {
+		t.Errorf("headers = %#v", linear["http_headers"])
+	}
+	if got := linear["scopes"].([]any); len(got) != 1 || got[0] != "read" {
+		t.Errorf("scopes = %#v", linear["scopes"])
+	}
+	oauth, _ := linear["oauth"].(map[string]any)
+	if oauth["client_id"] != "c1" || oauth["callback_port"] != int64(3118) {
+		t.Errorf("oauth = %#v", oauth)
+	}
+	if _, exists := linear["transport"]; exists {
+		t.Errorf("Codex config leaked transport: %#v", linear)
+	}
+	if _, exists := servers["legacy"]; exists {
+		t.Errorf("Codex must withhold SSE: %#v", servers["legacy"])
+	}
+	stdio, _ := servers["stdio"].(map[string]any)
+	if stdio["command"] != "mcp-fs" {
+		t.Errorf("stdio compatibility lost: %#v", stdio)
+	}
+}
+
 // TestConfigureCodexPrismFirstMigration is the TOML-codec analogue of the gemini
 // reference port: codex's config.toml carries a DYNAMIC mcp_servers table
 // (translated from live config), plus the static force-managed scalars. On first

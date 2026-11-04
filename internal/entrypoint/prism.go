@@ -1541,6 +1541,9 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 		if _, kept := table[name]; kept {
 			continue
 		}
+		if _, isRemoteWithheld := e.remoteMCPWithheld[surface.Agent][name]; isRemoteWithheld {
+			continue // the remote-form notice names this declared server once after all surfaces render
+		}
 		if _, isHeld := withheld.servers[name]; isHeld {
 			held = append(held, name)
 		} else if _, isGated := gatedVars[name]; isGated {

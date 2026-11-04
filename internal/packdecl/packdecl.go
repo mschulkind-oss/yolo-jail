@@ -133,6 +133,9 @@ type Manifest struct {
 	// (WB-D9..D12), and what is validated here versus at resolution.
 	Needs []PackNeed `json:"needs,omitempty"`
 
+	// RemoteMCPTransportsDecl is the set of remote MCP transports this pack's derives render.
+	RemoteMCPTransportsDecl []string `json:"mcp_remote_transports,omitempty"`
+
 	// Formerly records the names this pack and its profiles had before a rename, read only to
 	// word the refusal of an old name (formerly.go; docs/design/provider-enablement.md PE-D7).
 	Formerly *Formerly `json:"formerly,omitempty"`
@@ -844,6 +847,7 @@ func decodeTolerantWithIndexes(data []byte) (m *Manifest, problems, skipped []st
 	fields, skipped := unknownFields(clean)
 	problems = append(man.validateSkillsTier(), man.validateSupersedes()...)
 	problems = append(problems, man.validateNeeds()...)
+	problems = append(problems, man.validateMCPRemoteTransports()...)
 	kept := make([]Contribution, 0, len(man.Contributes))
 	index := make([]int, 0, len(man.Contributes))
 	skippedService := -1
@@ -996,6 +1000,7 @@ func (m *Manifest) Validate() []string {
 	problems := m.validateSkillsTier()
 	problems = append(problems, m.validateSupersedes()...)
 	problems = append(problems, m.validateNeeds()...)
+	problems = append(problems, m.validateMCPRemoteTransports()...)
 	problems = append(problems, m.validateFormerly()...)
 	problems = append(problems, m.validateContributions()...)
 	problems = append(problems, m.validateModelListChecks()...)
@@ -1449,7 +1454,7 @@ const MCPHomePrefix = "~/"
 // import, and TestTheMCPKindCarriesEveryMCPServerKey there pins the two together), so a pack's
 // server is never second-class to a hand-written one, nor able to say what one cannot
 // (mcp-presets-removal.md §6.2, risk R2).
-var mcpEntryKeys = []string{"args", "command", "env", "provides", "requires_env"}
+var mcpEntryKeys = []string{"args", "command", "env", "headers", "oauth", "provides", "requires_env", "transport", "url"}
 
 // MCPEntryKeys returns mcpEntryKeys, sorted, for the test that pins it against the config's set.
 func MCPEntryKeys() []string { return append([]string(nil), mcpEntryKeys...) }
@@ -1538,12 +1543,32 @@ func mcpContributionProblems(label string, c Contribution) []string {
 		problems = appendPathProblems(problems, label+": "+field, rest)
 	}
 	var command string
-	if raw, ok := entry["command"]; !ok {
-		add("\"config\" needs \"command\", the program the agent's MCP client starts")
-	} else if err := json.Unmarshal(raw, &command); err != nil || strings.TrimSpace(command) == "" {
-		add("\"config\".\"command\" must be a non-empty string")
-	} else {
-		homeWord("\"config\".\"command\"", command)
+	commandRaw, hasCommand := entry["command"]
+	_, hasURL := entry["url"]
+	switch {
+	case hasCommand && hasURL:
+		add("\"config\" has both \"command\" and \"url\"; a server is local or remote, so remove one")
+	case !hasCommand && !hasURL:
+		add("\"config\" needs \"command\" or \"url\", the local program or remote endpoint")
+	case hasCommand:
+		if err := json.Unmarshal(commandRaw, &command); err != nil || strings.TrimSpace(command) == "" {
+			add("\"config\".\"command\" must be a non-empty string")
+		} else {
+			homeWord("\"config\".\"command\"", command)
+		}
+		for _, key := range []string{"transport", "headers", "oauth"} {
+			if _, present := entry[key]; present {
+				add("\"config\".%q applies only to a remote server (url)", key)
+			}
+		}
+	case hasURL:
+		problems = append(problems, mcpRemoteEntryProblems(label+".config", entry)...)
+		if _, present := entry["args"]; present {
+			add("\"config\".\"args\" applies only to a local server")
+		}
+		if _, present := entry["env"]; present {
+			add("\"config\".\"env\" applies only to a local server")
+		}
 	}
 	if raw, ok := entry["args"]; ok {
 		var args []string

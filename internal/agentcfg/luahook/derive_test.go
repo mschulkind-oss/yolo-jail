@@ -587,3 +587,41 @@ func TestDerive_AgyStillCarriesItsServersAfterTheStrip(t *testing.T) {
 			"the source declares none — it was dropped")
 	}
 }
+
+func TestDerive_RemoteServersReachOnlyADeclaredTransport(t *testing.T) {
+	script := `yolo.derive("codex", "config", function(ctx)
+  local names = {}
+  for name in pairs(ctx.mcp_servers or {}) do names[name] = true end
+  return { seen = names }
+end)`
+	servers := map[string]any{
+		"fs":     map[string]any{"command": "mcp-fs"},
+		"linear": map[string]any{"url": "https://mcp.linear.app/mcp"},
+		"legacy": map[string]any{"url": "https://sse.example.test/sse", "transport": "sse"},
+	}
+	for _, tc := range []struct {
+		name       string
+		transports []string
+		seen       map[string]any
+		withheld   map[string]string
+	}{
+		{"no remote form", nil, map[string]any{"fs": true}, map[string]string{"linear": "http", "legacy": "sse"}},
+		{"http only", []string{"http"}, map[string]any{"fs": true, "linear": true}, map[string]string{"legacy": "sse"}},
+		{"both", []string{"http", "sse"}, map[string]any{"fs": true, "linear": true, "legacy": true}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &DeriveCtx{Agent: "codex", Surface: "config", RemoteMCPTransports: tc.transports,
+				Tables: map[string]map[string]any{"mcp_servers": servers}}
+			out, err := GopherLuaVM{}.Derive(script, ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := out["seen"]; !reflect.DeepEqual(got, tc.seen) {
+				t.Errorf("derive saw %v, want %v", got, tc.seen)
+			}
+			if got := WithheldRemoteMCPServers(ctx); !reflect.DeepEqual(got, tc.withheld) {
+				t.Errorf("WithheldRemoteMCPServers = %v, want %v", got, tc.withheld)
+			}
+		})
+	}
+}

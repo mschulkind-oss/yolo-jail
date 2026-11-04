@@ -170,18 +170,19 @@ func derivedPointers(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map
 		options = r.Options
 	}
 	base := luahook.DeriveCtx{
-		Agent:              agent,
-		ProfileName:        profile,
-		SelectedProvider:   ProviderFor(resolved, profile),
-		Profile:            options,
-		NativeCapabilities: NativeCapabilities(packs, agent),
-		BuiltInProviders:   BuiltInProvidersFor(packs, agent),
-		ReadsSharedModels:  ReadsSharedModels(packs, agent),
-		ViaURL:             url,
-		ViaAPIKeyEnvName:   ViaAPIKeyEnvNameFor(packs, resolved[profile], agent),
-		ModelsNotEnforced:  !ModelsEnforced(resolved[profile]),
-		Subagents:          resolved[profile].Subagents,
-		UnknownAPI:         func(string) {},
+		Agent:               agent,
+		ProfileName:         profile,
+		SelectedProvider:    ProviderFor(resolved, profile),
+		Profile:             options,
+		NativeCapabilities:  NativeCapabilities(packs, agent),
+		BuiltInProviders:    BuiltInProvidersFor(packs, agent),
+		ReadsSharedModels:   ReadsSharedModels(packs, agent),
+		ViaURL:              url,
+		ViaAPIKeyEnvName:    ViaAPIKeyEnvNameFor(packs, resolved[profile], agent),
+		ModelsNotEnforced:   !ModelsEnforced(resolved[profile]),
+		Subagents:           resolved[profile].Subagents,
+		RemoteMCPTransports: RemoteMCPTransportsFor(packs, agent),
+		UnknownAPI:          func(string) {},
 	}
 	tables := func() map[string]map[string]any {
 		return map[string]map[string]any{

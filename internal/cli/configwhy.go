@@ -7,11 +7,15 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 const configWhyUsage = `usage: yolo config why <key>
@@ -55,7 +59,7 @@ func configWhy(args []string, out, errw io.Writer) int {
 	path := configWhyPath(steps)
 	value, present := configWhyValue(cfg, steps)
 	if present {
-		fmt.Fprintf(out, "%s = %s\n", raw, configWhyRender(value))
+		fmt.Fprintf(out, "%s = %s\n", raw, configWhyRenderForPath(value, steps))
 		locations := sources.Locations("config." + path)
 		switch {
 		case len(locations) == 0:
@@ -70,7 +74,142 @@ func configWhy(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(out, "%s is not set in any config file this workspace reads.\n", raw)
 	}
 	fmt.Fprintf(out, "  %s\n", configWhyDefault(cfg, sources, steps, present))
+	if line := configWhyMCPScope(cfg, sources, steps); line != "" {
+		fmt.Fprintf(out, "  %s\n", line)
+	}
 	return 0
+}
+
+func configWhyMCPScope(effectiveConfig *jsonx.OrderedMap, sources *config.Sources, steps []configdoc.Step) string {
+	if len(steps) != 2 || steps[0].IsIndex || steps[0].Key != "mcp_servers" || steps[1].IsIndex {
+		return ""
+	}
+	if config.InJail() {
+		root := os.Getenv("YOLO_PACK_ROOT")
+		if root == "" {
+			return configWhyMCPJailUnavailable(steps[1].Key, "the running session's immutable pack tree is not named")
+		}
+		actualPacks, recorded, err := configWhyJailPacks(root)
+		if err != nil || !recorded {
+			return configWhyMCPJailUnavailable(steps[1].Key, "the running session's immutable pack tree could not be read")
+		}
+		reason := "this jail reads a generated merged preflight config, not a user-only config, and its mutable launch snapshot does not prove which selection produced the running immutable pack tree"
+		var effectiveServers *jsonx.OrderedMap
+		if effectiveValue, ok := effectiveConfig.Get("mcp_servers"); ok {
+			effectiveServers, _ = effectiveValue.(*jsonx.OrderedMap)
+		}
+		composed := packload.ComposeMCPServers(effectiveServers, actualPacks, paths.Home())
+		if value, present := composed.Get(steps[1].Key); present && value != nil {
+			source := configWhyMCPSource(steps[1].Key, actualPacks)
+			if source != "" {
+				reason += "; pack source is " + source
+			}
+		}
+		return configWhyMCPJailUnavailable(steps[1].Key, reason)
+	}
+	userConfig, err := config.UserScopeConfig(false, func(string) {})
+	if err != nil {
+		return "scope: unavailable — yolo cannot read the user-scope config needed to compare MCP identity; run `yolo check` and fix the config finding"
+	}
+	userPacks, complete := config.UserScopeSelectedPacks()
+	if !complete {
+		return "scope: unavailable — yolo could not resolve the user-selected packs; run `yolo check` and resolve its pack findings"
+	}
+	actualPacks := userPacks
+	userValue, _ := userConfig.Get("mcp_servers")
+	userServers, _ := userValue.(*jsonx.OrderedMap)
+	effectiveValue, _ := effectiveConfig.Get("mcp_servers")
+	effectiveServers, _ := effectiveValue.(*jsonx.OrderedMap)
+	userOnly := packload.ComposeMCPServers(userServers, userPacks, paths.Home())
+	effective := packload.ComposeMCPServers(effectiveServers, actualPacks, paths.Home())
+	scope, ok := packload.MCPServerScopes(effective, userOnly)[steps[1].Key]
+	if !ok {
+		var removed any
+		var present bool
+		if effectiveServers != nil {
+			removed, present = effectiveServers.Get(steps[1].Key)
+		}
+		if present && (removed == nil || removed == "off") {
+			return "scope: absent — this server is removed by the effective config"
+		}
+		if !config.InJail() {
+			return "scope: unavailable — this standalone command cannot know packs added only to a launch; run `yolo config why " + configWhyPath(steps) + "` inside the running jail"
+		}
+		return ""
+	}
+	if scope.Level == "user" {
+		if pack := configWhyMCPSource(steps[1].Key, userPacks); pack != "" {
+			return "scope: user — selected pack " + pack + " supplies this server"
+		}
+		return "scope: user — " + scope.Reason
+	}
+	if pack := configWhyMCPSource(steps[1].Key, actualPacks); pack != "" && !configWhyHasPack(pack, userPacks) {
+		return "scope: workspace — pack " + pack + " is in the running pack tree but not the user-selected pack list"
+	}
+	field := ""
+	switch {
+	case strings.Contains(scope.Reason, "url differs"):
+		field = "url"
+	case strings.Contains(scope.Reason, "headers differ"):
+		field = "headers"
+	case strings.Contains(scope.Reason, "transport differs"):
+		field = "transport"
+	case strings.Contains(scope.Reason, "OAuth client id differs"):
+		field = "oauth.client_id"
+	case strings.Contains(scope.Reason, "command differs"):
+		field = "command"
+	case strings.Contains(scope.Reason, "arguments differ"):
+		field = "args"
+	}
+	if field != "" && sources != nil {
+		locations := sources.Locations("config.mcp_servers." + steps[1].Key + "." + field)
+		if len(locations) > 0 {
+			loc := strings.SplitN(locations[0], ":", 2)[0]
+			return fmt.Sprintf("scope: workspace — %s changes its %s, so it signs in separately from your user-level %s", filepath.Base(loc), field, steps[1].Key)
+		}
+	}
+	return "scope: workspace — " + scope.Reason
+}
+
+func configWhyJailPacks(root string) ([]*packload.Pack, bool, error) {
+	entries, recorded, err := packload.ReadPackTreeRecord(root)
+	if err != nil || !recorded {
+		return nil, false, err
+	}
+	packs := make([]*packload.Pack, 0, len(entries))
+	for _, entry := range entries {
+		dir := filepath.Join(root, filepath.FromSlash(entry.Dir))
+		pack, problems := packload.LoadDirForUse(dir, entry.Name)
+		if pack == nil || len(problems) > 0 {
+			return nil, false, fmt.Errorf("load staged pack %s: %v", entry.Name, problems)
+		}
+		entry.ApplyNaming(pack)
+		packs = append(packs, pack)
+	}
+	return packs, true, nil
+}
+
+func configWhyMCPJailUnavailable(server, reason string) string {
+	return "scope: unavailable — " + reason + "; run `yolo config why mcp_servers." + server +
+		"` on the host to inspect the current user-only config. This readout is diagnostic, not authorization."
+}
+
+func configWhyMCPSource(server string, packs []*packload.Pack) string {
+	for _, held := range packload.HeldMCPServers(packs) {
+		if held.Server.Name == server {
+			return held.Pack
+		}
+	}
+	return ""
+}
+
+func configWhyHasPack(name string, packs []*packload.Pack) bool {
+	for _, pack := range packs {
+		if pack.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // configWhyPath spells steps as Sources.Locations reads them: dotted keys and [index].
@@ -110,6 +249,89 @@ func configWhyValue(cfg *jsonx.OrderedMap, steps []configdoc.Step) (any, bool) {
 		}
 	}
 	return value, true
+}
+
+func configWhyRenderForPath(value any, steps []configdoc.Step) string {
+	inMCP, inHeaders, atHeaderMap := false, false, false
+	for _, step := range steps {
+		if step.IsIndex {
+			continue
+		}
+		if strings.EqualFold(step.Key, "mcp_servers") {
+			inMCP = true
+		}
+		if inMCP && strings.EqualFold(step.Key, "headers") {
+			inHeaders, atHeaderMap = true, true
+		} else if inHeaders {
+			atHeaderMap = false
+		}
+	}
+	if inHeaders && !atHeaderMap {
+		return `"<redacted>"`
+	}
+	if inMCP {
+		value = redactMCPHeaderValues(value, atHeaderMap)
+	}
+	return configWhyRender(value)
+}
+
+func redactMCPHeaderValues(value any, inHeaders bool) any {
+	if inHeaders {
+		switch object := value.(type) {
+		case *jsonx.OrderedMap:
+			out := jsonx.NewOrderedMap()
+			for _, key := range object.Keys() {
+				child, _ := object.Get(key)
+				out.Set(key, redactMCPHeaderValues(child, true))
+			}
+			return out
+		case map[string]any:
+			out := make(map[string]any, len(object))
+			for key, child := range object {
+				out[key] = redactMCPHeaderValues(child, true)
+			}
+			return out
+		case []any:
+			out := make([]any, len(object))
+			for i, child := range object {
+				out[i] = redactMCPHeaderValues(child, true)
+			}
+			return out
+		default:
+			return "<redacted>"
+		}
+	}
+	switch object := value.(type) {
+	case *jsonx.OrderedMap:
+		out := jsonx.NewOrderedMap()
+		for _, key := range object.Keys() {
+			child, _ := object.Get(key)
+			if strings.EqualFold(key, "headers") {
+				out.Set(key, redactMCPHeaderValues(child, true))
+			} else {
+				out.Set(key, redactMCPHeaderValues(child, false))
+			}
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(object))
+		for key, child := range object {
+			if strings.EqualFold(key, "headers") {
+				out[key] = redactMCPHeaderValues(child, true)
+			} else {
+				out[key] = redactMCPHeaderValues(child, false)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(object))
+		for i, child := range object {
+			out[i] = redactMCPHeaderValues(child, false)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func configWhyRender(value any) string {
