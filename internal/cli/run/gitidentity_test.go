@@ -181,7 +181,7 @@ func TestRunRefusesFailedGitIdentityStaging(t *testing.T) {
 				return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint")
 			}
 			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-				switch strings.Join(argv, " ") {
+				switch strings.Join(append([]string{filepath.Base(argv[0])}, argv[1:]...), " ") { // the probe runs the path LookPath found
 				case "git config --get user.name":
 					return ExecResult{Stdout: "Ada Lovelace\n", Ran: true, RC: 0}
 				case "git config --get user.email":

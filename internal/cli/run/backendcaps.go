@@ -122,27 +122,47 @@ func BackgroundBuildsOn(rt string) bool {
 // argv applied is backend-parity.md §6's defect, a jail told something untrue. One probe,
 // one answer, whatever order they run in.
 func (o *Options) appleContainerVersion() (string, bool) {
+	p := o.acVersionRun()
+	return p.v, p.ok
+}
+
+// appleContainerVersionOutput is what the `container` on PATH printed for `--version` and
+// whether it ran, for the setup gate's identity probe (setup.CheckAppleContainer): the same one
+// memoized run appleContainerVersion reads, so the gate and the argv ask the binary once.
+func (o *Options) appleContainerVersionOutput(string) (string, bool) {
+	p := o.acVersionRun()
+	return p.raw, p.ran
+}
+
+// acVersionRun runs `container --version` once per launch and memoizes every answer.
+func (o *Options) acVersionRun() *acVersionProbe {
 	if o.acVersion != nil {
-		return o.acVersion.v, o.acVersion.ok
+		return o.acVersion
 	}
-	v, ok := "", false
+	p := &acVersionProbe{}
 	if bin, found := o.LookPath("container"); found {
 		res := o.Exec([]string{bin, "--version"}, "", nil, 5*time.Second)
+		if res.Ran && !res.Timeout {
+			p.raw, p.ran = res.Stdout+res.Stderr, true
+		}
 		if res.Ran && !res.Timeout && res.RC == 0 {
-			v, ok = parseAppleContainerVersion(res.Stdout), true
-			ok = v != ""
+			p.v = parseAppleContainerVersion(res.Stdout)
+			p.ok = p.v != ""
 		}
 	}
-	o.acVersion = &acVersionProbe{v: v, ok: ok}
-	return v, ok
+	o.acVersion = p
+	return p
 }
 
 // acVersionProbe caches appleContainerVersion's answer, including a FAILED one — a probe
 // that could not answer must not be retried three more times per launch and must not read
-// as a different answer the second time.
+// as a different answer the second time. raw and ran are the whole output, for the identity
+// probe.
 type acVersionProbe struct {
-	v  string
-	ok bool
+	v   string
+	ok  bool
+	raw string
+	ran bool
 }
 
 // acVersionRe pulls the dotted version out of `container CLI version 1.1.0 (build: …)`.

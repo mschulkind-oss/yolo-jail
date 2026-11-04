@@ -67,17 +67,14 @@ func (o *Options) resolveRuntimeForCheck(merged *jsonx.OrderedMap) (rt, msg stri
 	if inStrSlice(paths.NativeRuntimes, rt) {
 		return rt, "", false
 	}
-	path, ok := o.LookPath(rt)
-	if !ok {
+	if _, ok := o.LookPath(rt); !ok {
 		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not on PATH", true
 	}
 	// A `container` on PATH is not always Apple's: the name is generic. Asked, never assumed,
-	// and a binary that is not it is a finding, not a reason to grade another runtime.
-	if rt == "container" && !o.isAppleContainer() {
-		return "", "The 'container' on PATH (" + path + ") is not Apple's container CLI, which setup " +
-			s.Name + " needs: `container --version` names neither Apple nor 'container CLI version'. " +
-			"Install Apple Container (https://github.com/apple/container) ahead of it on PATH, or " +
-			"choose another setup: yolo --setup podman-self -- claude", false
+	// by the probe a launch's setup gate runs too, and a binary that is not it is a finding
+	// with the launch's own next step, not a reason to grade another runtime.
+	if err := setup.CheckAppleContainer(s, o.checkGOOS(), o.LookPath, o.appleContainerVersionOutput); err != nil {
+		return "", err.Error(), false
 	}
 	if !o.runtimeIsConnectable(rt) {
 		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not connected", true
@@ -122,16 +119,15 @@ func (o *Options) explicitRuntimeName(merged *jsonx.OrderedMap) string {
 	return o.configuredRuntimeName(merged)
 }
 
-// isAppleContainer reports whether the `container` on PATH is Apple's container CLI rather than
-// some other binary of that name, by what its `--version` prints. It runs the name, as
-// runtimeIsConnectable does, so both ask the binary a launch would run.
-func (o *Options) isAppleContainer() bool {
+// appleContainerVersionOutput is what `container --version` prints, for setup.CheckAppleContainer,
+// and whether it ran. It runs the name, as runtimeIsConnectable does, so both ask the binary a
+// launch would run.
+func (o *Options) appleContainerVersionOutput(string) (string, bool) {
 	res := o.Exec([]string{"container", "--version"}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
-		return false
+		return "", false
 	}
-	out := res.Stdout + res.Stderr
-	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
+	return res.Stdout + res.Stderr, true
 }
 
 // runtimeIsConnectable reports whether the daemon answers. Podman asks podmanGate, the

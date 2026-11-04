@@ -9,15 +9,17 @@ import (
 )
 
 // TestAContainerThatIsNotApplesIsNotAppleContainer: the name `container` is generic, so check
-// asks the binary on PATH what it is before grading it as Apple Container, and a binary that is
-// not Apple's is a finding naming the install and another setup, never a connected runtime.
+// asks the binary on PATH what it is before grading it as Apple Container (setup.CheckAppleContainer,
+// the probe a launch runs too), and a binary that is not Apple's is a finding naming the install,
+// and podman-self only where Podman is installed to run it, never a connected runtime.
 func TestAContainerThatIsNotApplesIsNotAppleContainer(t *testing.T) {
 	for _, tc := range []struct {
 		name, version string
-		apple         bool
+		podman, apple bool
 	}{
-		{"Apple's CLI", "container CLI version 1.1.0 (build: release)", true},
-		{"another container", "container 2.3 (some other tool)", false},
+		{"Apple's CLI", "container CLI version 1.1.0 (build: release)", false, true},
+		{"another container, Podman installed", "container 2.3 (some other tool)", true, false},
+		{"another container, no Podman", "container 2.3 (some other tool)", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -29,7 +31,9 @@ func TestAContainerThatIsNotApplesIsNotAppleContainer(t *testing.T) {
 				}
 				return ""
 			}
-			opts.LookPath = func(name string) (string, bool) { return "/usr/local/bin/" + name, name == "container" }
+			opts.LookPath = func(name string) (string, bool) {
+				return "/usr/local/bin/" + name, name == "container" || (tc.podman && name == "podman")
+			}
 			opts.Exec = fakeExec(map[string]ExecResult{
 				"container --version":     {Stdout: tc.version, Ran: true, RC: 0},
 				"container system status": {Stdout: "apiserver is running", Ran: true, RC: 0},
@@ -42,9 +46,11 @@ func TestAContainerThatIsNotApplesIsNotAppleContainer(t *testing.T) {
 				return
 			}
 			if rt != "" || !strings.Contains(msg, "is not Apple's container CLI") ||
-				!strings.Contains(msg, "https://github.com/apple/container") ||
-				!strings.Contains(msg, "yolo --setup podman-self -- claude") {
-				t.Errorf("another container: rt=%q msg=%q, want a finding naming the install and another setup", rt, msg)
+				!strings.Contains(msg, "https://github.com/apple/container") {
+				t.Errorf("rt=%q msg=%q, want a finding naming the install", rt, msg)
+			}
+			if got := strings.Contains(msg, "yolo --setup podman-self -- claude"); got != tc.podman {
+				t.Errorf("podman installed=%v, yet the finding names podman-self=%v:\n%s", tc.podman, got, msg)
 			}
 		})
 	}

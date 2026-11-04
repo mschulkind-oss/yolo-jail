@@ -76,6 +76,13 @@ func (o *Options) resolveSetup(cfg *jsonx.OrderedMap) (int, bool) {
 		o.printSetupRefusal(text)
 		return o.setupRefusalCode(choice, isMissing), true
 	}
+	// A `container` on PATH that is not Apple's is refused here, before anything is built for
+	// it, by the probe and with the next step `yolo check` gives (setup.CheckAppleContainer). It
+	// is the machine's state, never what was typed: rc 1.
+	if err := setup.CheckAppleContainer(s, o.setupGOOS(), o.LookPath, o.appleContainerVersionOutput); err != nil {
+		o.printSetupRefusal(err.Error())
+		return 1, true
+	}
 	o.Setup, o.setupChoice = s, choice
 	o.atNotch = config.ConfinementJail
 	if s.Kind() == setup.KindGuest {

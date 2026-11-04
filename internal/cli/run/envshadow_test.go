@@ -122,7 +122,7 @@ func containerLaunchOut(t *testing.T, rt string) string {
 	repo, _ := o.RepoRoot()
 	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
 	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		switch strings.Join(argv, " ") {
+		switch strings.Join(append([]string{filepath.Base(argv[0])}, argv[1:]...), " ") { // the probe runs the path LookPath found
 		case "container --version":
 			return ExecResult{Ran: true, RC: 0, Stdout: "container CLI version 1.1.0 (build: release, commit: 0000000)"}
 		case "container system status":
