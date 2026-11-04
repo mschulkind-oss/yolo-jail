@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -56,6 +57,9 @@ type LoopholeGrantDeclaration struct {
 	Loophole string
 	Access   string
 	Grants   []loopholedecl.Grant
+	// Settings is the loophole's settings declarations, for `yolo config migrate` to place a
+	// project's request-scope setting (LG-D15) under its `[requests.<pack>]` table.
+	Settings []loopholedecl.Setting
 }
 
 // LoopholeKindState is one declared kind's ceiling, request and standing.
@@ -72,6 +76,10 @@ type LoopholeKindState struct {
 	RequestPath  string
 	RequestFiles []string
 	Standing     LoopholeKindStanding
+	// Withheld: the project writes `requests.<pack> = "off"` (or a legacy workspace's
+	// `enabled: false` reads as it), so the kind is not_allowed here whatever the ceiling says
+	// (docs/design/legacy-config-compat.md LC-D18).
+	Withheld bool
 }
 
 // LoopholeSkippedRequest is a project's request the ceiling leaves out, named so `yolo check`
@@ -107,6 +115,9 @@ type LoopholeGrantInput struct {
 	Declarations     []LoopholeGrantDeclaration
 	UserOrigins      map[string][]string
 	WorkspaceOrigins map[string][]string
+	// LegacyUser is whether User is a legacy JSONC user config, whose ceiling admits a TOML
+	// project's request for a kind a legacy workspace switch turned on (LC-D14).
+	LegacyUser bool
 }
 
 // ValuedKindUnderAlwaysError is the refusal of a valued kind in a ceiling's `always`: its value
@@ -140,7 +151,8 @@ func LoopholeGrantDeclarationsForPacks(packs []*packload.Pack) []LoopholeGrantDe
 				continue
 			}
 			out = append(out, LoopholeGrantDeclaration{Pack: pack.Name, Loophole: module.Name,
-				Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...)})
+				Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...),
+				Settings: append([]loopholedecl.Setting(nil), module.Decl.Settings...)})
 		}
 	}
 	return out
@@ -181,6 +193,11 @@ func ResolveLoopholeGrants(input LoopholeGrantInput) (LoopholeGrantPlan, error) 
 		if err != nil {
 			return LoopholeGrantPlan{}, err
 		}
+		// A project that writes `requests.<pack> = "off"` asks for nothing of the pack and takes
+		// nothing from it, an `always` line included (LC-D18): the string narrows this project
+		// only, so it widens nothing.
+		packReq, _ := requests.Get(d.Pack)
+		withheld := isReadableTableOff(packReq)
 		for _, g := range d.Grants {
 			state := LoopholeKindState{Grant: g}
 			if c, ok := ceiling.kinds[g.Kind]; ok {
@@ -195,6 +212,8 @@ func ResolveLoopholeGrants(input LoopholeGrantInput) (LoopholeGrantPlan, error) 
 				state.RequestPath, state.RequestFiles = path, cloneOrigins(input.WorkspaceOrigins[path])
 			}
 			switch {
+			case withheld:
+				state.Standing, state.Withheld = LoopholeKindNotAllowed, true
 			case state.Ceiling == LoopholeCeilingAlways:
 				state.Standing = LoopholeKindCandidate
 			case state.Ceiling == LoopholeCeilingOnRequest && asked:
@@ -262,6 +281,16 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 			read.kinds[kind] = loopholeCeilingEntry{ceiling: list, files: cloneOrigins(origins[path])}
 		}
 	}
+	// A valued kind's own key is the user-sourced request (LC-D16), laid over each project by
+	// withUserSourcedRequests; it is well formed only where the ceiling lets a project ask.
+	onRequest, _ := table.Get(string(LoopholeCeilingOnRequest))
+	for _, g := range d.Grants {
+		if value, wrote := table.Get(g.Kind); wrote && g.Valued {
+			if err := userSourcedRequestError(d.Pack, g, value, onRequest); err != nil {
+				return read, err
+			}
+		}
+	}
 	return read, nil
 }
 
@@ -327,6 +356,103 @@ func loopholeGrantKinds(grants []loopholedecl.Grant) []string {
 	return out
 }
 
+// valuedGrantKind is d's valued grant kind named key, the kind a user config's
+// `[allow.<pack>] <kind> = [...]` names the user-sourced request of (LC-D16).
+func valuedGrantKind(d LoopholeGrantDeclaration, key string) (loopholedecl.Grant, bool) {
+	g, ok := loopholeGrantByKind(d.Grants, key)
+	return g, ok && g.Valued
+}
+
+// userSourcedRequestError is the refusal of a user config's `allow.<pack>.<kind>` that is not a
+// list of values, or that names values for a kind its `on_request` list leaves out, so no project
+// could ask for them. nil when it is well formed.
+func userSourcedRequestError(pack string, g loopholedecl.Grant, value, onRequest any) error {
+	path := "allow." + pack + "." + g.Kind
+	values, err := readableStringList(value, path)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return fmt.Errorf("%s is empty, so it asks for nothing; name the %s every project asks for, or remove it "+
+			"(`yolo config unset %s`)", path, g.ValueNoun, path)
+	}
+	listed := false
+	if onRequest == nil {
+		listed = g.RequestableByDefault
+	} else if kinds, err := readableStringList(onRequest, "allow."+pack+".on_request"); err == nil {
+		listed = slices.Contains(kinds, g.Kind)
+	}
+	if !listed {
+		return fmt.Errorf("%s names the %s every project asks for, but allow.%s.on_request does not list %s, so no "+
+			"project may ask for them; run `yolo allow %s on_request %s`, or remove the values (`yolo config unset %s`)",
+			path, g.ValueNoun, pack, g.Kind, pack, g.Kind, path)
+	}
+	return nil
+}
+
+// withUserSourcedRequests is input with each user-sourced request laid over the project
+// (docs/design/legacy-config-compat.md LC-D16, the TOML spelling of a v0.15.1 user switch on a
+// valued kind): a user config's `[allow.<pack>] <kind> = [...]` is the request every project
+// makes that writes none of its own for that kind, so it is shown at each project's gate and its
+// y grants it there, as LG-D12's `always` line is. A project's own request for the kind, or a
+// `[requests.<pack>]` it writes "off", wins. The laid request's origin is the user's line.
+func withUserSourcedRequests(input LoopholeGrantInput) LoopholeGrantInput {
+	if input.User == nil {
+		return input
+	}
+	allow := mapOrNil(getOr(input.User, "allow", nil))
+	if allow == nil {
+		return input
+	}
+	ws := input.Workspace // nil when no project file is read: the request is still each project's
+	if ws == nil {
+		ws = jsonx.NewOrderedMap()
+	}
+	if top := getOr(ws, "requests", nil); top != nil && mapOrNil(top) == nil {
+		return input // the resolver reports a `requests` that is not a table
+	}
+	var requests *jsonx.OrderedMap
+	for _, d := range input.Declarations {
+		table := mapOrNil(getOr(allow, d.Pack, nil))
+		if table == nil {
+			continue
+		}
+		for _, g := range d.Grants {
+			if !g.Valued {
+				continue
+			}
+			value, wrote := table.Get(g.Kind)
+			if !wrote {
+				continue
+			}
+			if requests == nil {
+				requests = shallowCopyMap(mapOrNil(getOr(ws, "requests", nil)))
+			}
+			existing, has := requests.Get(d.Pack)
+			if has && mapOrNil(existing) == nil {
+				continue // written "off", or wrong, which the resolver reads
+			}
+			packReq := shallowCopyMap(mapOrNil(existing))
+			if _, own := packReq.Get(g.Kind); own {
+				continue
+			}
+			packReq.Set(g.Kind, value)
+			requests.Set(d.Pack, packReq)
+			if input.WorkspaceOrigins != nil {
+				input.WorkspaceOrigins = copyOrigins(input.WorkspaceOrigins)
+				input.WorkspaceOrigins["requests."+d.Pack+"."+g.Kind] = cloneOrigins(input.UserOrigins["allow."+d.Pack+"."+g.Kind])
+			}
+		}
+	}
+	if requests == nil {
+		return input
+	}
+	out := input
+	out.Workspace = shallowCopyMap(ws)
+	out.Workspace.Set("requests", requests)
+	return out
+}
+
 // loopholeGrantDeclarationsOf is the grant-declaring loopholes among the readable pack
 // declarations: every one keyed by pack (selected or not, so an unselected pack's table is still
 // read as a ceiling rather than as settings), and the selected ones in order.
@@ -389,9 +515,7 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			return // the workspace config's own read reports it
 		}
 	}
-	input, _, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations},
-		userSrc, sourcesOf(wsNode), workspace)
-	plan, err := ResolveLoopholeGrants(input)
+	plan, err := ResolveLoopholeGrants(launchLoopholeGrantInput(user, userSrc, ws, sourcesOf(wsNode), workspace, declarations))
 	if err != nil {
 		var valued *ValuedKindUnderAlwaysError
 		msg := err.Error()
@@ -410,6 +534,43 @@ func validateLoopholeGrants(config *jsonx.OrderedMap, workspace string, errs, wa
 			add(warns, lineLocated(wsNode, skippedLoopholeRequestMessage(s), "requests", s.Pack, s.Kind))
 		}
 	}
+}
+
+// launchLoopholeGrantInput is the grant input a launch reads for workspace from the raw user and
+// workspace configs: the legacy projection laid over them, a legacy user config's admission
+// (LC-D14) and the user-sourced requests (LC-D16) included. The validator and `yolo request`
+// (LoopholeRequestAdmitted) read through it, so neither can disagree with the gate.
+func launchLoopholeGrantInput(user *jsonx.OrderedMap, userSrc *Sources, ws *jsonx.OrderedMap, wsSrc *Sources, workspace string, declarations []LoopholeGrantDeclaration) LoopholeGrantInput {
+	input, _, _ := withLegacyLoopholeGrants(LoopholeGrantInput{User: user, Workspace: ws, Declarations: declarations,
+		LegacyUser: UserConfigIsLegacy()}, userSrc, wsSrc, workspace)
+	return input
+}
+
+// LoopholeRequestAdmitted reports whether workspace's gate would hold kind of decl, reading the
+// user and workspace configs on disk as a launch reads them (launchLoopholeGrantInput): the
+// ceiling lets the gate hold the request, `always` or `on_request`, a kind requestable by default
+// included. A config it cannot read or judge counts as admitted; the post-write check reports it.
+func LoopholeRequestAdmitted(workspace string, decl LoopholeGrantDeclaration, kind string) bool {
+	user, userSrc, err := LoadReadableUserScopeConfigWithSources(false, func(string) {})
+	if err != nil {
+		return true
+	}
+	ws, wsNode, err := loadMountsWorkspaceConfig(workspace)
+	if err != nil {
+		return true
+	}
+	plan, err := ResolveLoopholeGrants(launchLoopholeGrantInput(user, userSrc, ws, sourcesOf(wsNode), workspace, []LoopholeGrantDeclaration{decl}))
+	if err != nil {
+		return true
+	}
+	for _, p := range plan.Packs {
+		for _, k := range p.Kinds {
+			if k.Grant.Kind == kind {
+				return k.Standing == LoopholeKindCandidate
+			}
+		}
+	}
+	return true
 }
 
 // skippedLoopholeRequestMessage is §5's `yolo check` text for a request outside the ceiling.

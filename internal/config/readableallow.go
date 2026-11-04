@@ -334,6 +334,18 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				}
 				continue
 			}
+			if g, isKind := valuedGrantKind(grantPacks[name], key); grantPack && isKind {
+				// The user-sourced request (docs/design/legacy-config-compat.md LC-D16): the values
+				// every project asks for that writes no request of its own, read by
+				// withUserSourcedRequests. It asks only where the ceiling lets a project ask.
+				if _, found, _ := readableSettingByKey(declaredSettings, key); found {
+					return plan, fmt.Errorf("allow.%s.%s ambiguously names both a grant kind and a pack setting", name, key)
+				}
+				if err := userSourcedRequestError(name, g, readableValue(table, key), readableValue(table, string(LoopholeCeilingOnRequest))); err != nil {
+					return plan, err
+				}
+				continue
+			}
 			if key == loopholedecl.AllowOffKey && shipsOffSwitch(input.PackSettings, name) {
 				// The pack's off switch (docs/design/legacy-config-compat.md LC-D3), read by
 				// loopholes.LaunchBlock, never a setting its loophole is handed.
@@ -418,6 +430,18 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			}
 			grants, grantPack := grantPacks[name]
 			for _, key := range table.Keys() {
+				if key == loopholedecl.AllowOffKey && shipsOffSwitch(input.PackSettings, name) {
+					// The project's off switch for its pack's off-switch loophole (LC-D3, LC-D15),
+					// read by loopholes.LaunchBlock for this workspace's launches; it only keeps
+					// something off, so it widens nothing a project may not narrow.
+					if _, found, _ := readableSettingByKey(declaredSettings, key); found {
+						return plan, fmt.Errorf("requests.%s.%s ambiguously names both the off switch and a pack setting", name, key)
+					}
+					if _, isBool := readableValue(table, key).(bool); !isBool {
+						return plan, fmt.Errorf("requests.%s.%s: expected true or false; write `off = true` to keep %s's loophole off for this workspace, or delete the line to let it run", name, key, name)
+					}
+					continue
+				}
 				if grantPack {
 					if _, kind := loopholeGrantByKind(grants.Grants, key); kind {
 						// A grant kind, read by ResolveLoopholeGrants below.
@@ -1047,6 +1071,13 @@ func UserBrokerAuthorityOf(user *jsonx.OrderedMap, selected []string, declaratio
 		}
 		if !hasTable {
 			a.Read = containsGrant(userGrantsOf(user, source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo})
+			// A legacy user `loopholes.<broker>.enabled: true` is the read grant on every
+			// repository while the broker's pack is selected (docs/design/legacy-config-compat.md
+			// LC-D2, row L5); with the pack not selected it ran nothing.
+			if on, set := legacyEnabled(legacyLoopholeBlock(user, declaration.Label)); on && set && declaration.ReadCapability != "" &&
+				slices.Contains(selected, declaration.Pack) {
+				a.Read = true
+			}
 			a.GrantKinds = grantKindsOf(user, source)
 		} else {
 			// Only this source's table: another `allow` table answers to its own declaration,

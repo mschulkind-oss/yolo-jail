@@ -60,8 +60,6 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 		{"pack not listed", `{"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sso"}}}}`, "yolo pack add aws-auth"},
 		{"settings without enabled", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "sso"}}}}`, `Set "enabled": true`},
 		{"declared here", `{"loopholes": {"mine": {"command": ["x"]}}}`, "yolo pack init"},
-		// A grant-declaring loophole converts to its grants (configmigrate.TestLegacyLoopholeEnabledMigratesToAllowAndRequests); one that declares none and does not run on selection keeps its old file.
-		{"gated loophole switched on", `{"packs": ["hello-daemon"], "loopholes": {"hello-daemon": {"enabled": true}}}`, "Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, toml, out := migrateUser(t, tc.old)
@@ -69,6 +67,26 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 				t.Fatalf("rc=%d, want a refusal naming %q, wrote %q\n%s", rc, tc.want, toml, out)
 			}
 		})
+	}
+}
+
+// A grantless loophole's `enabled: true` beside its selected pack converts to nothing
+// (legacy-config-compat.md LC-D9's M5 row): the pack selected runs it in TOML too, so the proof
+// finds no difference. A grant-declaring one converts to its grants
+// (configmigrate.TestLegacyLoopholeEnabledMigratesToAllowAndRequests).
+func TestConfigMigrateConvertsASelectedGrantlessSwitchToThePacksLine(t *testing.T) {
+	rc, toml, out := migrateUser(t, `{"packs": ["hello-daemon"], "loopholes": {"hello-daemon": {"enabled": true}}}`)
+	if rc != 0 || !strings.Contains(toml, `packs = ["hello-daemon"]`) || strings.Contains(toml, "hello-daemon]") || strings.Contains(toml, "enabled") {
+		t.Fatalf("rc=%d, want the file converted to its packs line alone, wrote %q\n%s", rc, toml, out)
+	}
+}
+
+// A switch for a pack `packs` does not list ran nothing in v0.15.1 (it warned and launched), so it
+// converts to nothing, and the report names the one command that would run it (LC-D9's M7 row).
+func TestConfigMigrateDropsAnUnselectedSwitchNamingPackAdd(t *testing.T) {
+	rc, toml, out := migrateUser(t, `{"loopholes": {"hello-daemon": {"enabled": true}}}`)
+	if rc != 0 || strings.Contains(toml, "hello-daemon") || !strings.Contains(out, "yolo pack add hello-daemon") {
+		t.Fatalf("rc=%d, want the switch dropped naming `yolo pack add hello-daemon`, wrote %q\n%s", rc, toml, out)
 	}
 }
 

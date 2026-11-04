@@ -147,10 +147,13 @@ func ResolveSettings(lp *Loophole, supplied *jsonx.OrderedMap) (*jsonx.OrderedMa
 }
 
 // retiredIntoAGrant is whether key is a retired setting one of lp's grants reads as its
-// legacy_setting or legacy_values.
+// legacy_setting or legacy_values, or one of lp's grant kinds.
 func retiredIntoAGrant(lp *Loophole, key string) bool {
 	for _, g := range lp.Grants {
-		if g.LegacySetting == key || g.LegacyValues == key {
+		// A grant kind itself is the user-sourced request a TOML user config's
+		// `[allow.<pack>] <kind> = [...]` writes beside the pack's settings
+		// (docs/design/legacy-config-compat.md LC-D16), never a setting.
+		if g.LegacySetting == key || g.LegacyValues == key || g.Kind == key {
 			return true
 		}
 	}

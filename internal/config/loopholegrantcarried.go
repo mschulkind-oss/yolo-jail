@@ -158,6 +158,8 @@ type LoopholeStandingInput struct {
 	Switches        map[string]bool
 	Record          map[string][]string
 	Declarations    []LoopholeGrantDeclaration
+	// LegacyUser is whether User is a legacy JSONC user config (LoopholeGrantInput.LegacyUser).
+	LegacyUser bool
 }
 
 // LoopholeStandings is each declared kind's standing, by pack, as a launch's gate would read it
@@ -168,8 +170,8 @@ func LoopholeStandings(in LoopholeStandingInput) (map[string]map[string]Loophole
 		return map[string]map[string]LoopholeGrantStanding{}, nil
 	}
 	input, legacyRecorded, carried := withLegacyLoopholeGrantsFrom(LoopholeGrantInput{User: in.User, Workspace: in.Workspace,
-		Declarations: in.Declarations, UserOrigins: map[string][]string{}, WorkspaceOrigins: map[string][]string{}},
-		nil, nil, in.Switches, "", carriedLoopholeGrants(in.Record))
+		Declarations: in.Declarations, UserOrigins: map[string][]string{}, WorkspaceOrigins: map[string][]string{},
+		LegacyUser: in.LegacyUser}, nil, nil, in.Switches, "", carriedLoopholeGrants(in.Record))
 	plan, err := ResolveLoopholeGrants(input)
 	if err != nil {
 		return nil, err

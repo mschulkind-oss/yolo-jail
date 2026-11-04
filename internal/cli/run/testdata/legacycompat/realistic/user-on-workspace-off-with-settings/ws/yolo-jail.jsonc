@@ -1,0 +1,2 @@
+// Turned off for now; the rate is left from when this project used the board.
+{"loopholes": {"serial": {"enabled": false, "settings": {"default_baud": 9600}}}}

@@ -53,6 +53,17 @@ func awsAuthOffConfigs(t *testing.T) map[string]func([]*packload.Pack) *jsonx.Or
 			cfg.Set("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit", "off", true)))
 			return cfg
 		},
+		// The project's spelling (docs/design/legacy-config-compat.md LC-D15): a legacy
+		// workspace `enabled: false` converts to its `[requests.<pack>] off = true`, which keeps
+		// the loophole off for that workspace alone, beside the user's configured profile.
+		"TOML requests.aws-auth.off": func(packs []*packload.Pack) *jsonx.OrderedMap {
+			awsAuthServedConfig(t, packs)
+			offSwitchTOMLUser(t)
+			cfg := bareConfig()
+			cfg.Set("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit")))
+			cfg.Set("requests", newConfig("aws-auth", newConfig("off", true)))
+			return cfg
+		},
 	}
 }
 
@@ -129,6 +140,21 @@ func TestOffSwitchStartsNoHostService(t *testing.T) {
 	if !strings.Contains(stderr.String(), "your user config sets `allow.aws-auth.off = true`") ||
 		!strings.Contains(stderr.String(), "`yolo config unset allow.cgroup-delegate.off`") {
 		t.Errorf("the launch does not disclose the TOML off switch by its key:\n%s", stderr.String())
+	}
+
+	// The project's spelling (LC-D15): `[requests.aws-auth] off = true` beside the user's
+	// configured table keeps it out of this launch's plan, and the disclosure names the
+	// workspace config and the command that turns it back on.
+	projectOff := newConfig("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit")),
+		"requests", newConfig("aws-auth", newConfig("off", true)))
+	if got := o.plannedLoopholeNames("podman", projectOff); slices.Contains(got, "aws-auth") {
+		t.Errorf("requests.aws-auth.off = true: planned host services = %v, want no aws-auth", got)
+	}
+	stderr.Reset()
+	o.noteLoopholesOff(projectOff)
+	if !strings.Contains(stderr.String(), "`requests.aws-auth.off = true`") ||
+		!strings.Contains(stderr.String(), "`yolo config unset requests.aws-auth.off --project`") {
+		t.Errorf("the launch does not disclose the project's off switch by its key and its next step:\n%s", stderr.String())
 	}
 }
 

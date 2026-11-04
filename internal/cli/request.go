@@ -234,7 +234,9 @@ func requestLoopholeKind(workspace string, decl config.LoopholeGrantDeclaration,
 	if rc != 0 && !loopholeRequestWritten(workspace, decl.Pack, kind, g.Valued, values) {
 		return rc
 	}
-	if !loopholeRequestWithinCeiling(workspace, decl, kind) {
+	// The gate's own reading (config.LoopholeRequestAdmitted: the legacy projection and a legacy
+	// user config's admission, LC-D14, included), so the verb and the gate cannot disagree.
+	if !config.LoopholeRequestAdmitted(workspace, decl, kind) {
 		description := kind
 		if g.Valued {
 			description += " " + strings.Join(values, ", ")
@@ -322,29 +324,6 @@ func loopholeRequestWritten(workspace, pack, kind string, valued bool, values []
 	for _, v := range values {
 		if !slices.Contains(items, any(v)) {
 			return false
-		}
-	}
-	return true
-}
-
-// loopholeRequestWithinCeiling reports whether the user's ceiling lets the gate hold the requested
-// kind, as config.ResolveLoopholeGrants judges it (a kind requestable by default included). A
-// config it cannot read or judge counts as within: the post-write check reports that.
-func loopholeRequestWithinCeiling(workspace string, decl config.LoopholeGrantDeclaration, kind string) bool {
-	cfg, err := config.LoadReadableConfig(workspace, false, func(string) {})
-	if err != nil {
-		return true
-	}
-	plan, err := config.ResolveLoopholeGrants(config.LoopholeGrantInput{User: cfg, Workspace: cfg,
-		Declarations: []config.LoopholeGrantDeclaration{decl}})
-	if err != nil {
-		return true
-	}
-	for _, p := range plan.Packs {
-		for _, k := range p.Kinds {
-			if k.Grant.Kind == kind {
-				return k.Standing == config.LoopholeKindCandidate
-			}
 		}
 	}
 	return true

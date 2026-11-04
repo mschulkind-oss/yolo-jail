@@ -76,6 +76,9 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "requests.github.approve_runs", Policy: RemovalEmptyList},
 		{Path: "requests.*.repos", Policy: RemovalEmptyList},
 		{Path: "requests.github.repos", Policy: RemovalEmptyList},
+		// A project's `requests.<pack> = "off"` asks for nothing of the pack and takes nothing
+		// from it (OQ-RC7's string in a table's place; docs/design/legacy-config-compat.md LC-D18).
+		{Path: "requests.*", Policy: RemovalOffString},
 		{Path: "mcp_servers.*", Policy: RemovalOffString},
 		// A legacy null under each of these dropped what a lower layer wrote; TOML says it with
 		// the spelling the readable merge already gives that meaning (RC-D52).

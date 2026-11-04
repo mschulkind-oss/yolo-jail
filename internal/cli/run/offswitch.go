@@ -32,24 +32,32 @@ type OffSwitchAt struct {
 // `yolo loopholes disable <name>`, the command that removes an older yolo's switch from it. The
 // per-workspace file is merged last, so when it holds the switch it alone decides.
 func LoopholesOff(cfg *jsonx.OrderedMap, workspace string) []LoopholeOff {
-	allow := cfgMap(cfg, "allow")
+	allow, requests := cfgMap(cfg, "allow"), cfgMap(cfg, "requests")
 	var out []LoopholeOff
 	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).All() {
 		if lp.Source != loopholes.SourcePack || lp.Enabled || !loopholedecl.HasOffSwitch(lp.Name) {
 			continue
 		}
-		out = append(out, LoopholeOff{Loophole: lp.Name, Switches: offSwitchesOf(lp.Name, allow, workspace)})
+		out = append(out, LoopholeOff{Loophole: lp.Name, Switches: offSwitchesOf(lp.Name, allow, requests, workspace)})
 	}
 	return out
 }
 
-func offSwitchesOf(name string, allow *jsonx.OrderedMap, workspace string) []OffSwitchAt {
+func offSwitchesOf(name string, allow, requests *jsonx.OrderedMap, workspace string) []OffSwitchAt {
 	enabledKey := "loopholes." + name + ".enabled"
 	legacySaid := "`" + enabledKey + ": false`"
 	var out []OffSwitchAt
-	if pack, _ := loopholedecl.OffSwitchPack(name); loopholes.AllowOff(allow, pack) {
+	pack, _ := loopholedecl.OffSwitchPack(name)
+	if loopholes.AllowOff(allow, pack) {
 		key := "allow." + pack + "." + loopholedecl.AllowOffKey
 		out = append(out, OffSwitchAt{Said: "`" + key + " = true`", Where: "your user config", Command: "yolo config unset " + key})
+	}
+	if loopholes.AllowOff(requests, pack) {
+		// The project's off (LC-D15), which `yolo config migrate` writes for a workspace
+		// `enabled: false`.
+		key := "requests." + pack + "." + loopholedecl.AllowOffKey
+		out = append(out, OffSwitchAt{Said: "`" + key + " = true`", Where: "the workspace config",
+			Command: "yolo config unset " + key + " --project"})
 	}
 	if workspace != "" {
 		if wf := config.ReadWorkspaceFile(workspace); wf != nil {

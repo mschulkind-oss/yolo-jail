@@ -269,6 +269,31 @@ func TestTheLaunchBindsAGrantedUnmediatedLoopholeAndSaysSo(t *testing.T) {
 	}
 }
 
+// A project's `requests.<pack> = "off"` withholds the user's `always` grant here
+// (docs/design/legacy-config-compat.md LC-D18): the loophole crosses nothing, and the disclosure
+// and the briefing say the project turns it off and name the project's own line, not a
+// `yolo allow` the user already ran.
+func TestTheLaunchDisclosesAGrantTheProjectWithholds(t *testing.T) {
+	g := audioLaunch(t, "[allow.audio]\nalways = [\"use\"]\n", "[requests]\naudio = \"off\"\n")
+	g.gate(t)
+	args := strings.Join(g.o.loopholesRuntimeArgs(jsonx.NewOrderedMap(), "podman", nil), " ")
+	if strings.Contains(args, "/run/pulse/native") {
+		t.Errorf("a withheld loophole crossed: %s", args)
+	}
+	g.out.Reset()
+	g.o.notePackHostAccess(nil, nil, nil)
+	want := "  audio: selected, grants nothing here (this project turns it off).\n" +
+		"    To take it here:  remove this project's `requests.audio = \"off\"`"
+	if !strings.Contains(g.out.String(), want) {
+		t.Fatalf("the pack disclosure does not say the project withholds it:\n%s\nwant:\n%s", g.out.String(), want)
+	}
+	loops := briefingLoopholes(nil, g.o.loopholeGrantStandings("podman", nil))
+	if len(loops) != 1 || !strings.Contains(loops[0].Standing, "which turns it off") ||
+		strings.Contains(loops[0].Standing, "yolo allow") {
+		t.Errorf("briefing standing %+v does not say the project turns it off", loops)
+	}
+}
+
 func TestTheBriefingStatesEachLoopholesStanding(t *testing.T) {
 	g := audioLaunch(t, "", "")
 	g.gate(t)

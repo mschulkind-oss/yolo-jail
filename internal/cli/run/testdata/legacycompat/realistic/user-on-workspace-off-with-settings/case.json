@@ -1,0 +1,3 @@
+{
+  "about": "A legacy user config that switches serial on with its allowed devices, and a workspace that keeps it off with enabled: false while still writing a default_baud (LC-D18): v0.15.1 ran no serial bridge in this project, so the rate reached nothing, and the workspace converts to its withdrawal rather than declining over the setting."
+}

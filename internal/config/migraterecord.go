@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // migraterecord.go holds the seams `yolo config migrate` (internal/configmigrate) needs into this
@@ -90,6 +91,20 @@ func UserConfigIsTOML(userPath string) bool {
 	}
 	_, _, readable, err := resolveUserConfigPath(userPath)
 	return err == nil && readable
+}
+
+// UserConfigIsLegacy reports whether the user config a launch reads is a legacy JSONC (or JSON)
+// file, whose ceiling the legacy projection reads as v0.15.1 held it (withLegacyUserAdmission,
+// docs/design/legacy-config-compat.md LC-D14). No user config, or one in TOML, is not.
+func UserConfigIsLegacy() bool { return UserConfigIsLegacyAt(paths.UserConfigPath()) }
+
+// UserConfigIsLegacyAt is UserConfigIsLegacy for the user config whose directory userPath names.
+func UserConfigIsLegacyAt(userPath string) bool {
+	if userPath == "" {
+		return false
+	}
+	_, _, readable, err := resolveUserConfigPath(userPath)
+	return err == nil && !readable
 }
 
 // ReadMigrationLayer is ReadMigrationGraph for a --user-layer file a migration converts on its

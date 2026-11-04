@@ -214,7 +214,7 @@ func commitSteps(targets []Target) []commitStep {
 
 func newUserTop(g *Graph) string {
 	if g.userTop == nil {
-		return ""
+		return g.baseUser
 	}
 	if g.userTop.Role == RoleConvert {
 		return twinPath(g.userTop.Logical)

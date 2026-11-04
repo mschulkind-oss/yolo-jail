@@ -240,6 +240,9 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "requests.git.push_tags.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.*.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.*.repos.*", Scope: workspace, Type: SchemaTypeString},
+		// A project's off switch for its pack's off-switch loophole, this workspace's
+		// launches only (docs/design/legacy-config-compat.md LC-D3, LC-D15).
+		{Path: "requests.*.off", Scope: workspace, Type: SchemaTypeBoolean},
 		// A pack's request for a grant kind (`<kind> = true`, or `<kind> = [values]` for a valued
 		// one) or a workspace-scope setting: typed by the selected pack's declarations
 		// (ResolveReadableAllowance, ResolveLoopholeGrants), as `allow.*.*` is.

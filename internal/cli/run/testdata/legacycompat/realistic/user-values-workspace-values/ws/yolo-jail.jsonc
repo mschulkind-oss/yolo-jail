@@ -1,0 +1,2 @@
+// This project's own board, beside the one the user always allows.
+{"loopholes": {"serial": {"settings": {"allowed_devices": ["/dev/ttyUSB1"]}}}}

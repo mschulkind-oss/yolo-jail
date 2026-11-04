@@ -564,3 +564,56 @@ func TestALegacyWorkspaceValueListRequestsUnderATOMLCeiling(t *testing.T) {
 		t.Fatalf("values with no switch anywhere were asked about: %+v", got.GrantBlock)
 	}
 }
+
+// LC-D16: a TOML user config's `[allow.serial] devices = [...]`, beside the on_request line that
+// admits it, is the request every project makes that writes none of its own, so the gate shows it
+// for a workspace with no config file and its y grants exactly those values. A project's own
+// request for the kind replaces it: the user's values never join it.
+func TestAUserSourcedRequestIsEachProjectsRequest(t *testing.T) {
+	ws := approvalWorkspace(t)
+	writeGrantUserConfig(t, "[allow.serial]\non_request = [\"devices\"]\ndevices = [\"/dev/ttyACM0\"]\n")
+	lps := shippedSerialGateLoophole(t)
+	requireGrantLinePrefix(t, grantGate(t, ws, lps), "  + serial: open /dev/ttyACM0 (requested by ")
+	read, err := ReadWorkspaceForGate(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := WithLoopholeGrants(nil, ws, read, lps).LoopholeGrantStandings(ws)["serial"]["devices"]
+	if got.Standing != LoopholeGrantGranted || strings.Join(got.Values, ",") != "/dev/ttyACM0" {
+		t.Fatalf("after the y, devices reads %+v; want granted /dev/ttyACM0", got)
+	}
+
+	ws = approvalWorkspace(t)
+	writeGrantUserConfig(t, "[allow.serial]\non_request = [\"devices\"]\ndevices = [\"/dev/ttyACM0\"]\n")
+	write(t, filepath.Join(ws, paths.WorkspaceConfigTOMLName), "[requests.serial]\ndevices = [\"/dev/ttyUSB1\"]\n")
+	report := grantGate(t, ws, lps)
+	requireGrantLinePrefix(t, report, "  + serial: open /dev/ttyUSB1 (requested by ")
+	for _, l := range report.GrantBlock {
+		if strings.Contains(l, "/dev/ttyACM0") {
+			t.Fatalf("the user's values joined the project's own request: %q", l)
+		}
+	}
+}
+
+// LC-D14: under a legacy JSONC user config, a TOML project's request for a kind its old switch
+// admitted (a `legacy_enable` kind not requestable by default) is admitted as the old user
+// switch would have, so the gate shows it rather than a line naming `yolo allow`. Under a TOML
+// user config the same request is outside the ceiling and grants nothing.
+func TestALegacyUserConfigAdmitsATOMLProjectsRequest(t *testing.T) {
+	ws := approvalWorkspace(t)
+	writeLegacyUserConfig(t, `{}`)
+	write(t, filepath.Join(ws, paths.WorkspaceConfigTOMLName), "[requests.procs]\nview = [\"postgres\"]\n")
+	report := grantGate(t, ws, legacyGrantFixture())
+	requireGrantLinePrefix(t, report, "  + procs: see postgres (requested by ")
+	if got := legacyStandings(t, ws)["procs"]["view"]; got.Standing != LoopholeGrantGranted {
+		t.Fatalf("after the y, view reads %+v; want granted", got)
+	}
+
+	ws = approvalWorkspace(t)
+	writeGrantUserConfig(t, "packs = []\n")
+	write(t, filepath.Join(ws, paths.WorkspaceConfigTOMLName), "[requests.procs]\nview = [\"postgres\"]\n")
+	grantGate(t, ws, legacyGrantFixture())
+	if got := legacyStandings(t, ws)["procs"]["view"]; got.Standing == LoopholeGrantGranted {
+		t.Fatalf("under a TOML user config with no ceiling line, view reads %+v; want it not granted", got)
+	}
+}

@@ -251,6 +251,37 @@ on_request = ["devices"]
 	}
 }
 
+// LC-D16: a user config's `[allow.<pack>] <valued kind> = [...]` is read as every project's
+// request, so the validator accepts it beside an on_request line naming the kind, and refuses it,
+// naming the next step, where no project could ask for it or where it asks for nothing.
+func TestAUserSourcedRequestIsValidatedAgainstTheCeiling(t *testing.T) {
+	_, cfgDir := sourcesHome(t)
+	useGrantFixturePacks(t, map[string]string{"serial": grantFixtureSerial})
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ body, want string }{
+		{"[allow.serial]\non_request = [\"devices\"]\ndevices = [\"/dev/ttyACM0\"]\n", ""},
+		{"[allow.serial]\ndevices = [\"/dev/ttyACM0\"]\n", "run `yolo allow serial on_request devices`"},
+		{"[allow.serial]\non_request = [\"devices\"]\ndevices = []\n", "(`yolo config unset allow.serial.devices`)"},
+	} {
+		write(t, filepath.Join(cfgDir, paths.UserConfigTOMLName), "packs = ['serial']\n\n"+tc.body)
+		merged, err := LoadConfig(ws, true, discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs, _ := ValidateConfig(merged, ws, nil)
+		joined := strings.Join(errs, "\n")
+		switch {
+		case tc.want == "" && len(errs) != 0:
+			t.Errorf("%q: want it accepted, got errors %q", tc.body, errs)
+		case tc.want != "" && !strings.Contains(joined, tc.want):
+			t.Errorf("%q: want an error naming %q, got %q", tc.body, tc.want, errs)
+		}
+	}
+}
+
 // A project's request outside the user's ceiling is a warning, not a refusal: the project runs
 // without it, and the warning names the request at its line and the one command that allows it.
 func TestARequestOutsideTheCeilingWarnsThroughTheValidator(t *testing.T) {

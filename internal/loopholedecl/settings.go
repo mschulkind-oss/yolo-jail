@@ -125,8 +125,9 @@ type Setting struct {
 	// LegacyWorkspace, on a user-scope setting, reads a legacy JSONC project file's value
 	// for it as the user's for that launch, with a one-line disclosure, where a project's
 	// value is otherwise refused (docs/design/legacy-config-compat.md LC-D2). It is for a
-	// setting that admits nothing, which v0.15.1 let a project file set: serial's
-	// `default_baud`. A TOML project still cannot set it.
+	// setting that admits nothing, which v0.15.1 let a project file set. A TOML project still
+	// cannot set it; a setting a TOML project should set is request scope instead, as serial's
+	// `default_baud` became (LC-D17).
 	LegacyWorkspace bool
 	// Description is the one-line human summary. Optional.
 	Description string

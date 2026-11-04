@@ -24,15 +24,24 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 // which supplied settings, through the launch's own rule (loopholes.PackSwitchActivation) with the
 // pack switch decided by the side's user config format (readable): a TOML user config's selection
 // switches its ungated loopholes on, a legacy one leaves `default_enabled` standing.
-func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
+//
+// project is the side's workspace config as written and switches the workspace's switch file, so a
+// grant-declaring loophole this workspace withdraws is known (withdrawnHere).
+func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string]bool, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
 	selected := newUserView(composed).packs
 	var modules []loopholes.PackModule
+	// unselected is each loophole a pack this side does not select ships. A legacy entry naming
+	// one, with no command of its own, is that pack's config and runs nothing, on either side
+	// (docs/design/legacy-config-compat.md LC-D9's M7 row): discovery reads it as a commandless
+	// inline record, which is not a loophole a launch runs.
+	unselected := map[string]bool{}
 	for _, p := range packs {
-		if !selected[p.Name] {
-			continue
-		}
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindLoophole || c.From == "" {
+				continue
+			}
+			if !selected[p.Name] {
+				unselected[filepath.Base(filepath.FromSlash(c.From))] = true
 				continue
 			}
 			modules = append(modules, loopholes.PackModule{Dir: filepath.Join(p.Root, filepath.FromSlash(c.From)), Pack: p.Name, HostExecApproved: true})
@@ -41,6 +50,9 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 	activation := loopholes.PackSwitchActivation(composed, readable, modules)
 	names := make([]string, 0, len(activation))
 	for name := range activation {
+		if unselected[name] && !entryHasCommand(composed, name) {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -56,7 +68,13 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 			// A grant-declaring loophole's access is its grants, which the standing layer
 			// compares (loopholeStandingLayer): running is not access (docs/reference/loophole-grants.md
 			// §4.1). Its settings are compared whether or not it runs, less the ones a grant
-			// replaced (journal's `full`, a `visible` list).
+			// replaced (journal's `full`, a `visible` list), except where this workspace withdraws
+			// the pack (LC-D18): withheld, the loophole holds no grant here, so its settings reach
+			// nothing on either side, and `requests.<pack> = "off"` has no table to keep them in.
+			if withdrawnHere(d, project, switches) {
+				out.Set(name, entry)
+				continue
+			}
 			if settings := withoutLegacyGrantKeys(d, a.Settings); settings.Len() > 0 {
 				entry.Set("settings", settings)
 			}
@@ -70,6 +88,58 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 		out.Set(name, entry)
 	}
 	return out
+}
+
+// withdrawnHere is whether the workspace withdraws d's pack, in either spelling: the switch
+// file's false, or, where the switch file does not decide the loophole, a legacy workspace's
+// `loopholes.<name>.enabled: false` or a TOML project's `requests.<pack> = "off"`
+// (docs/design/legacy-config-compat.md LC-D18).
+func withdrawnHere(d config.LoopholeGrantDeclaration, project *jsonx.OrderedMap, switches map[string]bool) bool {
+	if on, decided := switches[d.Loophole]; decided {
+		return !on
+	}
+	if project == nil {
+		return false
+	}
+	if block, _ := project.Get("loopholes"); block != nil {
+		if m, _ := block.(*jsonx.OrderedMap); m != nil {
+			if entry, _ := m.Get(d.Loophole); entry != nil {
+				if em, _ := entry.(*jsonx.OrderedMap); em != nil {
+					if v, set := em.Get("enabled"); set && v == false {
+						return true
+					}
+				}
+			}
+		}
+	}
+	if top, _ := project.Get("requests"); top != nil {
+		if m, _ := top.(*jsonx.OrderedMap); m != nil {
+			if v, _ := m.Get(d.Pack); v == "off" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// entryHasCommand is whether composed's `loopholes.<name>` entry writes a `command`, which makes it
+// an inline loophole of its own rather than a pack's config.
+func entryHasCommand(composed *jsonx.OrderedMap, name string) bool {
+	if composed == nil {
+		return false
+	}
+	block, _ := composed.Get("loopholes")
+	m, _ := block.(*jsonx.OrderedMap)
+	if m == nil {
+		return false
+	}
+	entry, _ := m.Get(name)
+	em, _ := entry.(*jsonx.OrderedMap)
+	if em == nil {
+		return false
+	}
+	_, ok := em.Get("command")
+	return ok
 }
 
 func withoutLegacyGrantKeys(d config.LoopholeGrantDeclaration, settings *jsonx.OrderedMap) *jsonx.OrderedMap {
@@ -90,13 +160,17 @@ func withoutLegacyGrantKeys(d config.LoopholeGrantDeclaration, settings *jsonx.O
 // activationNextSteps names, on each line of the activation layer, the step that makes it agree
 // (AGENTS.md: every stop names the next step). A path is `<loophole>.enabled` or
 // `<loophole>.settings`.
-func activationNextSteps(diffs []Difference) []Difference {
+// loopholePacks is the shipped pack of each loophole (shippedLoopholePacks), so a step names the
+// pack to add, not the loophole.
+func activationNextSteps(diffs []Difference, loopholePacks map[string]string) []Difference {
+	view := &userView{loopholePacks: loopholePacks}
 	for i, d := range diffs {
 		name, field, ok := strings.Cut(d.Path, ".")
 		if !ok {
 			continue
 		}
-		pack, offSwitch := loopholedecl.OffSwitchPack(name)
+		pack := view.loopholePack(name)
+		_, offSwitch := loopholedecl.OffSwitchPack(name)
 		switch {
 		case field == "enabled" && d.After == "true" && offSwitch:
 			// An off-switch loophole runs whenever its pack is selected (LC-D3), so the old file
@@ -107,11 +181,12 @@ func activationNextSteps(diffs []Difference) []Difference {
 			diffs[i].Next = "the converted config runs " + name + " because its pack is selected, and the old one does not; add \"enabled\": true under loopholes." + name +
 				" in the old file to keep it running, or remove \"" + name + "\" from packs to keep it off, then run `yolo config migrate` again"
 		case field == "enabled":
-			diffs[i].Next = "a TOML user config has no switch that runs " + name + " yet (per-project grants, docs/reference/loophole-grants.md, are not built); " +
-				"keep the old file (this yolo keeps reading it) until they land, then run `yolo config migrate` again"
+			diffs[i].Next = "the converted config does not run " + name + ", and the old one does; a TOML config runs a loophole when its pack is selected, so add the pack " +
+				"(`yolo pack add " + pack + "`) to the old file's packs, or keep the old file (this yolo keeps reading it), then run `yolo config migrate` again"
 		case field == "settings":
-			diffs[i].Next = "the converted [allow." + name + "] table would hand " + name + " different settings; write them under loopholes." + name +
-				".settings with \"enabled\": true in the old file, then run `yolo config migrate` again"
+			// Never advise "enabled": true: the line may be the user's off, and true turns it on.
+			diffs[i].Next = "the converted config would hand " + name + " different settings than the old one does; delete the settings under loopholes." + name +
+				" in the old file that the conversion cannot keep (or keep the old file; this yolo keeps reading it), then run `yolo config migrate` again"
 		}
 	}
 	return diffs

@@ -140,3 +140,28 @@ func TestTOMLOffKeepsAnOffSwitchLoopholeOff(t *testing.T) {
 		}
 	}
 }
+
+// TestAProjectsRequestsOffKeepsAnOffSwitchLoopholeOff: the project's spelling of a legacy
+// workspace `enabled: false`, `[requests.<pack>] off = true` (docs/design/legacy-config-compat.md
+// LC-D15), reaches discovery through LaunchBlock too, beside a user table that configures the
+// same pack, and keeps its off-switch loopholes off. The tombstone `requests.<pack> = "off"`
+// withdraws requests and turns nothing off.
+func TestAProjectsRequestsOffKeepsAnOffSwitchLoopholeOff(t *testing.T) {
+	modules := shippedModules(t, offSwitchPacks...)
+	cfg := jsonx.NewOrderedMap()
+	profile := jsonx.NewOrderedMap()
+	profile.Set("profile", "p")
+	allow := jsonx.NewOrderedMap()
+	allow.Set("aws-auth", profile)
+	cfg.Set("allow", allow)
+	off := jsonx.NewOrderedMap()
+	off.Set("off", true)
+	requests := jsonx.NewOrderedMap()
+	requests.Set("aws-auth", off)
+	requests.Set("cgroup-delegate", "off")
+	cfg.Set("requests", requests)
+	if got := enabledNames(NewSelectedSet(LaunchBlock(cfg), modules, nil)); !slices.Equal(got,
+		[]string{"cgroup-delegate", "claude-oauth-broker", "journal", "openai-auth-broker"}) {
+		t.Errorf("requests.aws-auth.off and requests.cgroup-delegate = \"off\": Enabled = %v, want all but aws-auth", got)
+	}
+}

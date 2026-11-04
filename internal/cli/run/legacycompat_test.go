@@ -89,35 +89,7 @@ var ruledLegacyRefusals = []legacyBreak{
 }
 
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.
-var knownLegacyBreaks = []legacyBreak{
-	// The launch's config gate refuses what v0.15.1 accepted.
-
-	// The migration (the launch's offer, and the conversion a TOML cell needs) cannot convert a
-	// legacy file exactly.
-	{"loophole/*/enabled/user", "migrate-*", "user config: loopholes - ",
-		"pending fix: lc-migrate-user-loophole-switch"},
-	{"toplevel/loopholes/user", "migrate-*", "user config: loopholes - ",
-		"pending fix: lc-migrate-user-loophole-switch"},
-	{"loophole/serial/enabled/user", "migrate-offer", "the loophole grants each workspace holds",
-		"pending fix: lc-migrate-user-loophole-switch"},
-	{"loophole/*/workspace", "migrate-*", "project config: loopholes - ",
-		"pending fix: lc-migrate-ws-loophole-switch"},
-	{"realistic/*", "migrate-*", `project config: loopholes - {"host-processes"`,
-		"pending fix: lc-migrate-ws-loophole-switch"},
-	{"realistic/toml-user-legacy-ws-journal", "migrate-workspace", `project config: loopholes - {"journal"`,
-		"pending fix: lc-migrate-ws-loophole-switch"},
-	// A workspace `enabled: false` on an off-switch loophole launches off, but the project's
-	// `off` it would convert to is not built (docs/design/legacy-config-compat.md LC-D3).
-	{"realistic/workspace-off-switches", "migrate-*", `project config: loopholes - {"aws-auth": {"enabled": false}`,
-		"pending fix: lc-migrate-ws-loophole-switch (the project's off is not built, LC-D3)"},
-
-	// The config launches, but means less than it did: a user switch of a valued grant reads as
-	// on_request under a TOML user config, and TOML has no spelling for the user-sourced request.
-	{"loophole/serial/enabled/user", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
-		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
-	{"realistic/personal-desktop", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
-		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
-}
+var knownLegacyBreaks = []legacyBreak{}
 
 const legacyCompatDir = "testdata/legacycompat"
 
@@ -582,8 +554,8 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			case expect && !granted:
 				out = append(out, fmt.Sprintf("%s: grant %q is %q, v0.15.1 allowed it (%s)", name, g.Kind,
 					orNone(st.Standing), legacyGrantWhy(g)))
-			case !expect && st.Standing == config.LoopholeGrantGranted:
-				out = append(out, fmt.Sprintf("%s: grant %q is granted, v0.15.1 did not allow it", name, g.Kind))
+			case !expect && heldOrOffered(st):
+				out = append(out, fmt.Sprintf("%s: grant %q is %s, v0.15.1 did not allow it", name, g.Kind, st.Standing))
 			}
 			// A current_only case recorded no v0.15.1 values to compare against.
 			if expect && granted && g.Valued && c.V0151 != nil {
@@ -598,7 +570,7 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			}
 		}
 		if len(legacySettings) > 0 {
-			values, _ := loopholes.ResolveSettings(lp, suppliedSettings(loopholes.ConfigBlock(cfg), name))
+			values, _ := loopholes.ResolveSettings(lp, loopholes.WithProjectRequestSettings(cfg, lp, suppliedSettings(loopholes.ConfigBlock(cfg), name)))
 			keys := make([]string, 0, len(legacySettings))
 			for k := range legacySettings {
 				keys = append(keys, k)
@@ -630,8 +602,8 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			continue
 		}
 		for kind, st := range standings[name] {
-			if st.Standing == config.LoopholeGrantGranted {
-				out = append(out, fmt.Sprintf("%s: grant %q is granted, v0.15.1 did not start it", name, kind))
+			if heldOrOffered(st) {
+				out = append(out, fmt.Sprintf("%s: grant %q is %s, v0.15.1 did not start it", name, kind, st.Standing))
 			}
 		}
 	}
@@ -642,6 +614,12 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 	}
 	sort.Strings(out)
 	return out
+}
+
+// heldOrOffered is whether a grant is held, or pending: requested and admitted, so the gate's y
+// grants it. Either is access v0.15.1 did not give when it did not allow the grant.
+func heldOrOffered(st config.LoopholeGrantStanding) bool {
+	return st.Standing == config.LoopholeGrantGranted || st.Standing == config.LoopholeGrantPending
 }
 
 func legacyScopeCheck(o *Options, cfg *jsonx.OrderedMap) *config.ScopeCheck {

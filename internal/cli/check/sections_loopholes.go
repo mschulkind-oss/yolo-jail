@@ -118,7 +118,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 	switches := config.WorkspaceLoopholeSwitches(o.Workspace)
 	wsFile := config.ReadWorkspaceFile(o.Workspace)
 	// The merged `loopholes` block, read for each settings validator's snapshot below.
-	settingsBlock := loopholeConfigBlock(o.Workspace)
+	settingsCfg := loadConfigLoose(o.Workspace)
+	settingsBlock := loopholeConfigBlock(settingsCfg)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest",
@@ -186,7 +187,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 				continue
 			}
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name)))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": settings validation failed",
 					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
@@ -224,7 +225,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 		}
 		if len(lp.Settings) > 0 && frozen == nil {
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name)))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": self-check settings could not be resolved",
 					"Could not resolve the current settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
@@ -336,14 +337,15 @@ func inertReason(lp *loopholes.Loophole) (string, bool) {
 	return on.InactiveReason()
 }
 
-// loopholeConfigBlock returns the merged (user + workspace) `loopholes` block, or nil
-// when there is no config or no block: what a launch reads a loophole's settings from.
+// loopholeConfigBlock returns cfg's merged (user + workspace) `loopholes` block, or nil
+// when there is no config or no block: what a launch reads a loophole's settings from, before a
+// project's request-scope settings are laid over it (loopholes.WithProjectRequestSettings).
 //
-// LOOSE: an unreadable or invalid config yields nil rather than an error, because the
+// LOOSE: cfg is loadConfigLoose's, so an unreadable or invalid config yields nil rather than an
+// error, because the
 // config's own validity is a different section's report and `yolo check` must not lose
 // the loophole rows over it.
-func loopholeConfigBlock(workspace string) *jsonx.OrderedMap {
-	cfg := loadConfigLoose(workspace)
+func loopholeConfigBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if cfg == nil {
 		return nil
 	}

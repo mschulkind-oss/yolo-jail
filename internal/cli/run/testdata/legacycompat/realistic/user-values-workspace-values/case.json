@@ -1,0 +1,3 @@
+{
+  "about": "A legacy user config that switches serial on with one device, and a workspace that adds its own device (LC-D16): v0.15.1 unioned the two lists, and converting the user config first, alone, must not narrow the still-legacy workspace to the user's device."
+}

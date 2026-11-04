@@ -96,8 +96,9 @@ func configBlock(cfg *jsonx.OrderedMap, readable bool) *jsonx.OrderedMap {
 
 // LaunchBlock is the `loopholes` block every launch-side set is built from (NewHostSet's
 // argument): cfg's own block, plus `<loophole>.enabled = false` for each off-switch loophole of a
-// pack whose `[allow.<pack>]` table sets `off = true`, the TOML spelling of a legacy
-// `enabled: false` (docs/design/legacy-config-compat.md LC-D3). The TOML `off` wins over a legacy
+// pack whose `[allow.<pack>]` table (the user's) or `[requests.<pack>]` table (the project's,
+// LC-D15) sets `off = true`, the TOML spelling of a legacy `enabled: false`
+// (docs/design/legacy-config-compat.md LC-D3). The TOML `off` wins over a legacy
 // layer's `enabled: true`, which says nothing selecting the pack does not. The result is a copy
 // when it differs; cfg is unchanged.
 func LaunchBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
@@ -110,12 +111,20 @@ func LaunchBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	}
 	allowV, _ := cfg.Get("allow")
 	allow, _ := allowV.(*jsonx.OrderedMap)
-	if allow == nil {
+	requestsV, _ := cfg.Get("requests")
+	requests, _ := requestsV.(*jsonx.OrderedMap)
+	if allow == nil && requests == nil {
 		return block
 	}
+	var packs []string
+	for _, table := range []*jsonx.OrderedMap{allow, requests} {
+		if table != nil {
+			packs = append(packs, table.Keys()...)
+		}
+	}
 	out := block
-	for _, pack := range allow.Keys() {
-		if !AllowOff(allow, pack) {
+	for _, pack := range packs {
+		if !AllowOff(allow, pack) && !AllowOff(requests, pack) {
 			continue
 		}
 		for _, loophole := range loopholedecl.OffSwitchLoopholesOf(pack) {
@@ -132,7 +141,8 @@ func LaunchBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return out
 }
 
-// AllowOff reports whether allow's `[allow.<pack>]` table sets `off = true` (LaunchBlock).
+// AllowOff reports whether the table's `<pack>` entry, an `[allow.<pack>]` or a project's
+// `[requests.<pack>]`, sets `off = true` (LaunchBlock).
 func AllowOff(allow *jsonx.OrderedMap, pack string) bool {
 	if allow == nil {
 		return false
@@ -199,20 +209,16 @@ func PackSwitchActivation(cfg *jsonx.OrderedMap, readable bool, modules []PackMo
 	block := configBlock(cfg, readable)
 	var loopholesBlock *jsonx.OrderedMap
 	if cfg != nil {
-		if v, ok := cfg.Get("loopholes"); ok {
-			loopholesBlock, _ = v.(*jsonx.OrderedMap)
-		}
-		if readable {
-			// The TOML off switch counts exactly where the launch counts it (LaunchBlock), so a
-			// conversion that drops a legacy `enabled: false` without writing `off = true` is a
-			// loophole that starts running, which the proof reports.
-			loopholesBlock = LaunchBlock(cfg)
-		}
+		// The TOML off switches count exactly where the launch counts them (LaunchBlock, which
+		// every launch applies whatever the user config's format), so a conversion that drops a
+		// legacy `enabled: false` without writing `off = true` is a loophole that starts
+		// running, which the proof reports.
+		loopholesBlock = LaunchBlock(cfg)
 	}
 	out := map[string]Activation{}
 	for _, lp := range Discover(DiscoverOptions{IncludeDisabled: true, LoopholesConfig: loopholesBlock,
 		PackModules: modules}) {
-		out[lp.Name] = Activation{Enabled: lp.Enabled, Settings: SettingsFromConfig(block, lp.Name)}
+		out[lp.Name] = Activation{Enabled: lp.Enabled, Settings: withoutGrantKinds(lp, WithProjectRequestSettings(cfg, lp, SettingsFromConfig(block, lp.Name)))}
 	}
 	return out
 }
@@ -221,3 +227,76 @@ func PackSwitchActivation(cfg *jsonx.OrderedMap, readable bool, modules []PackMo
 // which a legacy `loopholes.<name>.enabled: true` means nothing beyond selecting its pack.
 // `yolo config migrate` asks before it drops one; any other loophole's switch becomes a grant.
 func RunsOnSelection(name string) bool { return ungatedLoopholes[name] }
+
+// WithProjectRequestSettings is supplied, a loophole's settings as the block reads them, with each
+// request-scope setting lp declares that cfg's project `[requests.<pack>]` table writes laid over
+// it (docs/reference/loophole-grants.md LG-D15, docs/design/legacy-config-compat.md LC-D17): the
+// project's value replaces the user's `[allow.<pack>]` one for this project, never merged with it.
+// Every reader of a loophole's settings that a launch, `yolo check` or `yolo config migrate`'s proof
+// uses goes through it, so all three hand the daemon the same values. supplied is not changed.
+func WithProjectRequestSettings(cfg *jsonx.OrderedMap, lp *Loophole, supplied *jsonx.OrderedMap) *jsonx.OrderedMap {
+	if cfg == nil || lp == nil {
+		return supplied
+	}
+	requestsV, _ := cfg.Get("requests")
+	requests, _ := requestsV.(*jsonx.OrderedMap)
+	if requests == nil {
+		return supplied
+	}
+	pack := lp.Pack
+	if pack == "" {
+		pack = lp.Name
+	}
+	tableV, _ := requests.Get(pack)
+	table, _ := tableV.(*jsonx.OrderedMap)
+	if table == nil {
+		return supplied
+	}
+	var out *jsonx.OrderedMap
+	for _, decl := range lp.Settings {
+		if decl.Scope != loopholedecl.SettingScopeRequest {
+			continue
+		}
+		v, ok := table.Get(decl.Key)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = jsonx.NewOrderedMap()
+			if supplied != nil {
+				out = jsonx.DeepCopyMap(supplied)
+			}
+		}
+		out.Set(decl.Key, v)
+	}
+	if out == nil {
+		return supplied
+	}
+	return out
+}
+
+// withoutGrantKinds is settings less each key that names one of lp's grant kinds: the
+// user-sourced request an `[allow.<pack>]` table writes beside the pack's settings (LC-D16),
+// which ConfigBlock lays among them and the daemon is never handed (ResolveSettings).
+func withoutGrantKinds(lp *Loophole, settings *jsonx.OrderedMap) *jsonx.OrderedMap {
+	if lp == nil || settings == nil {
+		return settings
+	}
+	var out *jsonx.OrderedMap
+	for _, g := range lp.Grants {
+		if _, has := settings.Get(g.Kind); !has {
+			continue
+		}
+		if out == nil {
+			out = jsonx.DeepCopyMap(settings)
+		}
+		out.Delete(g.Kind)
+	}
+	if out == nil {
+		return settings
+	}
+	if out.Len() == 0 {
+		return nil
+	}
+	return out
+}

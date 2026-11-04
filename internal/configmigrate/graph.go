@@ -100,6 +100,10 @@ type Graph struct {
 	userTop *File
 	project []*File // the project and local top-level files, in that order
 	layer   *File   // the --user-layer file a Request.Layer migration converts
+	// baseUser is the user config a workspace-only request reads and never writes (LC-D13): the
+	// one the workspace's next launch composes over, so the projection and the proof see the
+	// packs it selects and the ceiling it holds. "" when the request covers the user files.
+	baseUser string
 }
 
 // discoverLayer reads the graph of a Request.Layer migration: the named file and every file its
@@ -184,6 +188,50 @@ func Discover(req Request) (*Graph, error) {
 			if top.doc.Format == configdoc.TOML {
 				if err := g.fragments(req.UserConfigDir, seen); err != nil {
 					return nil, err
+				}
+			}
+		}
+	}
+	if req.Workspace != "" && req.UserConfigDir == "" {
+		// A workspace converted alone (in a jail, where the user config is the jail's own) is
+		// still read over the user config its launch composes, read in place and never written
+		// (LC-D13): without it no pack is selected, and every loophole block reads as unknown.
+		for _, name := range []string{paths.UserConfigTOMLName, paths.UserConfigLegacyJSONCName, paths.UserConfigLegacyJSONName} {
+			if config.ConfigNamePresent(filepath.Join(req.baseUserDir(), name)) {
+				g.baseUser = req.baseUserTop()
+			}
+		}
+		if g.baseUser != "" {
+			// A user config that does not read is the launch's to refuse, naming it; the
+			// workspace's conversion is then read as before, over no user config.
+			if read, err := config.ReadMigrationGraph(g.baseUser, ""); err != nil || read == nil {
+				g.baseUser = ""
+			}
+		}
+		if g.baseUser != "" && !config.InJail() && config.UserConfigIsTOML(g.baseUser) {
+			// LC-D16: on the host, a workspace converted alone over a user config already in
+			// TOML reads that config as a request covering it does, so the `on_request` line the
+			// converted requests need to stand where the legacy switches stood (LG-D16,
+			// tomlCeilingNeeded) is written into it. Every user file is read, never converted. In
+			// a jail the host's file cannot be written, and the proof names the host's
+			// `yolo allow` line instead.
+			top, err := g.topLevel(req.baseUserDir(), paths.UserConfigTOMLName,
+				[]string{paths.UserConfigLegacyJSONCName, paths.UserConfigLegacyJSONName}, ScopeUser)
+			if err != nil {
+				return nil, err
+			}
+			if top != nil {
+				g.userTop, g.baseUser = top, ""
+				if err := g.walk(top, seen); err != nil {
+					return nil, err
+				}
+				if err := g.fragments(req.baseUserDir(), seen); err != nil {
+					return nil, err
+				}
+				for _, f := range g.Files {
+					if f.Scope == ScopeUser {
+						f.Role = RoleRead
+					}
 				}
 			}
 		}

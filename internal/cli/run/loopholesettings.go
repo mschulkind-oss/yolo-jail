@@ -40,7 +40,8 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 		if !needsSettingsFile(lp) {
 			continue
 		}
-		supplied := suppliedSettings(loopCfg, lp.Name)
+		// A project's request-scope setting replaces the user's (LG-D15, LC-D17).
+		supplied := loopholes.WithProjectRequestSettings(cfg, lp, suppliedSettings(loopCfg, lp.Name))
 		frozen, problems, err := loopholes.FrozenSettingsBytes(lp, supplied)
 		if err != nil {
 			o.pr(o.Stderr).print("[red]Could not resolve settings for loophole " + richtext.Escape(lp.Name) +

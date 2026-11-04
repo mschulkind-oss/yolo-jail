@@ -2,13 +2,14 @@ package configmigrate
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
-	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -40,6 +41,21 @@ type userView struct {
 	// packsKnown is false when the selected packs did not all resolve.
 	packProfiles map[string]bool
 	packsKnown   bool
+	// loopholePacks is the shipped pack that ships each loophole, by loophole name
+	// (shippedLoopholePacks): `github-broker` is the github pack's, not a pack of its own.
+	loopholePacks map[string]string
+}
+
+// loopholePack is the pack that ships the loophole name: the shipped pack whose manifest
+// contributes it, else, for a loophole no shipped pack ships, the name itself.
+func (v *userView) loopholePack(name string) string {
+	if pack, offSwitch := loopholedecl.OffSwitchPack(name); offSwitch {
+		return pack
+	}
+	if pack := v.loopholePacks[name]; pack != "" {
+		return pack
+	}
+	return name
 }
 
 func newUserView(user *jsonx.OrderedMap) *userView {
@@ -186,12 +202,16 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			skip(path, entryValue, "a loophole's entry must be an object")
 			continue
 		}
-		selected := view.packs[name]
 		enabled := view.enabled[name] == true || view.selectionSwitch
 		// LC-D3: an off-switch loophole's `enabled: false` is honored, so it converts to its
 		// pack's `off = true`, and the settings written beside it are configured-and-off, never
 		// dormant: they convert too, so turning the loophole back on finds them.
 		offPack, offSwitch := loopholedecl.OffSwitchPack(name)
+		// The pack that ships the loophole, through the shipped manifests: the Claude broker is
+		// claude-auth's, which the claude pack needs, and github-broker is the github pack's.
+		pack := view.loopholePack(name)
+		// A pack every launch selects with no `packs` line (cgroup-delegate) is selected too.
+		selected := view.packs[name] || view.packs[pack] || view.needed[pack] || config.IsSelectedByDefault(pack)
 		if offSwitch && view.enabled[name] == false {
 			enabled = true
 		}
@@ -205,18 +225,30 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			switch key {
 			case "enabled":
 				switch {
-				case v == false && offSwitch && !view.packs[offPack] && !view.needed[offPack]:
+				case v == false && offSwitch && !selected:
 					ctx.drop(oldPath, v, "no selected pack runs "+name+", so it is off without the key")
 				case v == false && offSwitch:
 					if !place([]string{"allow", offPack, loopholedecl.AllowOffKey}, true, oldPath) {
 						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
 					}
-				case v == true && selected && loopholes.RunsOnSelection(name):
-					// The list already says it; nothing is written.
+				case v == true && selected && userBrokerRead(name).ReadCapability != "":
+					// L5, LC-D2: a user switch on a selected broker is its read grant on every
+					// repository, `[allow.<source>] always = ["<read capability>"]`.
+					b := userBrokerRead(name)
+					at := []string{"allow", b.Brokered.Source, "always"}
+					if !place(at, []any{b.ReadCapability}, oldPath) {
+						skip(oldPath, v, "allow."+b.Brokered.Source+".always is already written in this file, and this switch is its read grant; "+
+							"remove the `\"enabled\": true` (the list already says what it gives), then run `yolo config migrate` again")
+					}
 				case v == true && selected:
-					skip(oldPath, v, "a TOML user config has no switch for "+name+" yet: selecting its pack does not run it until per-project grants land (docs/reference/loophole-grants.md), so the converted config would turn it off. Keep the old file (this yolo keeps reading it) until those grants land, then run `yolo config migrate` again")
+					// A selected pack's loophole runs whenever its pack is selected
+					// (docs/reference/loophole-grants.md §4.1); one that declares grants was
+					// converted above, so this one is grantless or ungated: the list already says
+					// it, and nothing is written (LC-D9's M5 row).
 				case v == true:
-					skip(oldPath, v, "`packs` is the only switch and does not list "+name+"; add it with `yolo pack add "+name+"` (or put \""+name+"\" in packs), then run `yolo config migrate` again")
+					// LC-D9's M7 row: a switch for a pack not in packs ran nothing in v0.15.1 either
+					// (it warned and launched), so it converts to nothing, with the offer.
+					ctx.drop(oldPath, v, "`packs` does not list "+pack+", so the switch runs nothing; to run it, add the pack with `yolo pack add "+pack+"`")
 				default:
 					skip(oldPath, v, "a user config cannot turn a listed pack's service off; remove \""+name+"\" from packs to stop it, then run `yolo config migrate` again")
 				}
@@ -255,6 +287,8 @@ func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedM
 				switch {
 				case setting:
 					owns = true
+				case values && enabled && len(gv.userRequests[d.Pack]) > 0:
+					// The values are the user-sourced request's, written below (LC-D16).
 				case values:
 					skip(append(append([]string(nil), oldPath...), sk), sv, "this list is a project's request now: run `yolo request "+d.Pack+" <kind> <values>` in each workspace that needs it, then remove it from the old file and run `yolo config migrate` again")
 				default:
@@ -270,6 +304,13 @@ func lowerGrantLoophole(d config.LoopholeGrantDeclaration, entry *jsonx.OrderedM
 	}
 	if owns {
 		placeLoopholeCeiling(gv, d, place, path)
+		// LC-D16: a user switch on a valued kind asked every project for its values, which
+		// `[allow.<pack>] <kind> = [...]` says beside the `on_request` line that admits it.
+		for _, g := range d.Grants {
+			if values := gv.userRequests[d.Pack][g.Kind]; g.Valued && len(values) > 0 {
+				place([]string{"allow", d.Pack, g.Kind}, anyList(values), path)
+			}
+		}
 	}
 }
 
@@ -511,6 +552,40 @@ func selectionValue(view *userView, v any) (any, string) {
 }
 
 // neededPacks is the shipped packs the listed ones' `needs` add (packload.ResolveNeeds), by name.
+// userBrokerRead is the shipped broker declaration of the loophole name, a zero one when no
+// shipped pack declares it a broker.
+func userBrokerRead(name string) config.ReadableBrokerDeclaration {
+	declarations, err := shippedBrokers()
+	if err != nil {
+		return config.ReadableBrokerDeclaration{}
+	}
+	for _, d := range declarations {
+		if d.Label == name {
+			return d
+		}
+	}
+	return config.ReadableBrokerDeclaration{}
+}
+
+// shippedLoopholePacks is, by loophole name, the shipped pack whose manifest contributes it.
+func shippedLoopholePacks(shipped []*packload.Pack) map[string]string {
+	out := map[string]string{}
+	for _, p := range shipped {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.Kind != packdecl.KindLoophole || c.From == "" {
+				continue
+			}
+			if name := filepath.Base(filepath.FromSlash(c.From)); out[name] == "" {
+				out[name] = p.Name
+			}
+		}
+	}
+	return out
+}
+
 func neededPacks(listed map[string]bool, shipped []*packload.Pack) map[string]bool {
 	out := map[string]bool{}
 	byName := map[string]*packload.Pack{}
