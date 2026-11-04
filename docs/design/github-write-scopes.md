@@ -1,13 +1,13 @@
 ---
 title: "Where the GitHub line is drawn: which writes run unasked, per user and per workspace"
 date: 2026-10-30
-status: in-review
+status: accepted
 stage: DESIGN
-next: "Owner confirms the invariant (GW-D58); then the plan is built from it"
+next: "Write the implementation plan from the ruled design; GW-D58's invariant is ruled"
 depends-on:
   - boundary-broker.md
 tags: [design, github, gh, broker, grants, approvals, config, toml]
-summary: "Which of the agent's gh writes run unasked is a 2x2: the user's config is the ceiling (the most a workspace may hold) and the workspace's config is the ask, each with two tables of the same six cells, `working_set` (the PRs and issues the agent created or was handed) and `all` (every other item). A write on a working-set item reads the `working_set` table only; any other write reads `all` only. One invariant: whatever `all` grants, `working_set` grants too, or the config is refused. Repository-level grants (dispatch on more refs, fork-run approval, reruns, cancels, releases, labels, projects) sit beside the cells, opt-in and never default. Every line is for the workspace's own repository, `origin`, unless it sits in a `[repos.<name>]` table, which names one repository for git and GitHub alike, by a git remote's name or a `repo` line, and holds its grants under `requests` (git's lines, with GitHub's under `requests.github`); a named repository with no lines is read only."
+summary: "Which of the agent's gh writes run unasked is a 2x2: the user's config is the ceiling (the most a workspace may hold) and the workspace's config is the ask, each with two tables of the same six cells, `working_set` (the PRs and issues the agent created or was handed) and `all` (every other item). A write on a working-set item reads the `working_set` table only; any other write reads `all` only. One invariant: `working_set` is never below `all` in any cell (false < ask < true), or the config is refused. Repository-level grants (dispatch on more refs, fork-run approval, reruns, cancels, releases, labels, projects) sit beside the cells, opt-in and never default. Every line is for the workspace's own repository, `origin`, unless it sits in a `[repos.<name>]` table, which names one repository for git and GitHub alike, by a git remote's name or a `repo` line, and holds its grants under `requests` (git's lines, with GitHub's under `requests.github`); a named repository with no lines is read only."
 ---
 
 # Where the GitHub line is drawn: which writes run unasked, per user and per workspace
@@ -101,11 +101,13 @@ keys for one other repository ([§8](#8-which-repository-a-line-is-for)).
 | `false` | the cell is refused here, whatever the ceiling or `always` says, with no request filed; the refusal names the line to remove ([OQ-GW8](#decision-ledger)) | nobody's `y`; removing it is a widening and shows at the gate |
 | absent | the user's `always` decides; else it asks | — |
 
-**Where the invariant is checked** ([GW-D58](#GW-D58)): at config load, so `yolo check`, a launch and
-`yolo config apply` all refuse the same file, on the workspace's two tables after the project and local
-files merge, shipped defaults in. The values order `true`, then `"ask"`, then `false`: `working_set.X`
-set to `"ask"` or `false` under `all.X = true` is the error. The ceiling needs no check: an `all.X`
-token covers `working_set.X`.
+**Where the invariant is checked** ([GW-D58](#GW-D58), confirmed 2026-11-03): at config load, so
+`yolo check`, a launch and `yolo config apply` all refuse the same file, on the workspace's two tables
+after the project and local files merge, shipped defaults in. The values order `false`, then `"ask"`,
+then `true`, with an absent line read as `"ask"` (both tables meet the same `always`). For every cell X,
+`working_set.X` below `all.X` in that order is the error, *"in any way"*: `"ask"` or `false` under
+`all.X = true`, and `false` under `all.X = "ask"` or an absent `all.X`. The ceiling needs no check: an
+`all.X` token covers `working_set.X`.
 For a grant, `all` therefore means all. For `"ask"` it means the rest: `all.merge_prs = "ask"` leaves
 working-set merges to `working_set.merge_prs`, and "every merge asks" is both lines ([§6](#6-what-people-write)).
 
@@ -525,7 +527,7 @@ None open. The ruled questions are in the [Decision Ledger](#decision-ledger).
 | <a id="GW-D56"></a>GW-D56 | No cell covers a delete: `pr merge --delete-branch` and `pr close --delete-branch` ask, naming the write without the flag and a git `push` grant for the branch delete | 2026-11-02 | [§1](#1-the-cells) | — |
 | <a id="GW-D57"></a>GW-D57 | **Owner's ruling (confirmed 2026-11-03 through [OQ-GW7](#OQ-GW7)), from the owner's model of 2026-11-02:** pick the table first. A write on a working-set item reads `working_set` only; a write on any other item reads `all` only; neither table is a fallback for the other. Amends [GW-D45](#GW-D45) | 2026-11-02 | [§4](#4-how-one-call-resolves) | — |
 | <a id="OQ-GW7"></a>[OQ-GW7](#OQ-GW7) | **Owner's ruling: B.** Only the working-set table decides for a working-set item; `all` decides for every other item; neither falls back to the other ([GW-D57](#GW-D57)). Owner: *"the more specific governs. … Working set is clearly a subset of all, so working set covers working set. All covers things that aren't working set."* So making every merge ask, the agent's own PRs included, takes both `all.merge_prs = "ask"` and `working_set.merge_prs = "ask"` | 2026-11-03 | [§4](#4-how-one-call-resolves) | — |
-| <a id="GW-D58"></a>GW-D58 | **Recommended (pending the owner's confirmation):** the invariant. For every cell X, `all.X = true` requires `working_set.X = true` (a shipped default counts); `"ask"` is never a grant, so `all.X = "ask"` constrains nothing and `working_set.X = "ask"` under `all.X = true` is the error. Checked at config load on the workspace's merged tables, so `yolo check`, a launch and `yolo config apply` refuse the same file, naming both fixes; the ceiling satisfies it by construction ([GW-D44](#GW-D44)). Owner: *"a check to make sure that at least the minimum of the all permissions are specified in the working set permissions. Otherwise ... that's probably a fatal error because somebody probably made a mistake there."* | 2026-11-02 | [§2](#2-the-ceiling-and-the-ask) | — |
+| <a id="GW-D58"></a>GW-D58 | **Owner's ruling, confirmed and widened:** the invariant. The values order `false` < `"ask"` < `true`, an absent line read as `"ask"`, and for every cell X `working_set.X` below `all.X` is a fatal config error: `"ask"` or `false` under `all.X = true`, and `false` under `all.X = "ask"` or an absent `all.X` (a shipped default counts). Checked at config load on the workspace's merged tables, so `yolo check`, a launch and `yolo config apply` refuse the same file, naming both fixes; the ceiling satisfies it by construction ([GW-D44](#GW-D44)). Owner, 2026-11-02: *"a check to make sure that at least the minimum of the all permissions are specified in the working set permissions. Otherwise ... that's probably a fatal error because somebody probably made a mistake there."* 2026-11-03: *"yes I want it. error if working_set < all in any way."* | 2026-11-03 | [§2](#2-the-ceiling-and-the-ask) | — |
 | <a id="GW-D59"></a>GW-D59 | `working_set.approve_prs` exists (ruled with [OQ-GW11](#decision-ledger)), so the two tables hold the same six cells and the invariant needs no special case; it ships absent. On the agent's own PR GitHub refuses the approval; on a handed-over PR the hand-over line named `approve` before the `y`. Supersedes [GW-D43](#GW-D43) | 2026-11-02 | [§1](#1-the-cells) | — |
 | <a id="OQ-GW11"></a>[OQ-GW11](#OQ-GW11) | **Ruled A:** the working set has its own `approve_prs` line, absent by default, so both tables hold the same six cells and the invariant needs no special case; the hand-over prompt shows `approve` before the human's `y` ([GW-D59](#GW-D59)). Owner, taking the leaning: *"the hand-over prompt shows approve before the y, and same six lines in both tables means no special case."* | 2026-11-02 | [§3](#3-the-working-set) | no |
 | <a id="OQ-GW12"></a>[OQ-GW12](#OQ-GW12) | **Ruled A:** a handed-over PR merges unasked when the project holds `working_set.merge_prs = true`, the same as the agent's own; `--deny` at the hand-over or `working_set.merge_prs = "ask"` are the ways out. Owner, taking the leaning: *"the hand-over prompt already shows merge before the y, so a second kind of item buys nothing."* | 2026-11-02 | [§3](#3-the-working-set) | no |
