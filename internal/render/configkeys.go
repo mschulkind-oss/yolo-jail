@@ -145,6 +145,10 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"machine"},
 	"macos_user_mode": {KeyNotApplicable, "selects the account a macos-user launch runs as; `yolo host` " +
 		"runs no jail, so the key has no meaning at the host notch"},
+	"setup": {KeyNotApplicable, "chooses the setup a jail launch runs; a host setup is never chosen " +
+		"by config (named-setups.md §8), so `yolo host` runs host-self or the one its --setup names"},
+	"setups": {KeyNotApplicable, "defines setups a jail launch may choose; `yolo host` runs a " +
+		"built-in host setup, so a table of yours has no meaning at the host notch"},
 	"share_host_fonts": {KeyNotApplicable, "shares the user's font folder into a jail that does " +
 		"not run as them; at the host notch the agent already is the user and reads its own fonts"},
 	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a run-as-you macos-user " +

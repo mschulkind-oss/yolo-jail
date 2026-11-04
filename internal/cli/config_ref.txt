@@ -115,6 +115,13 @@
     [bold]yolo active-provider <agent|default> <provider|provider/variant|native>[/bold];
     it takes effect at the next launch.
 
+  [bold]setup[/bold], [bold]setups[/bold] — ([bold]USER SCOPE ONLY[/bold]): `setup = "seatbelt-self"` names
+    your default setup (where the agent runs); `[setups.<name>]` defines one of
+    your own with `confinement` and `run_as`.  A project file holding either is
+    an error.  Copy a setup into a new table with [bold]yolo setup new <name> --from <setup>[/bold];
+    set your default with `yolo config set setup <name> --user`.  See `setup`
+    and `setups` under FIELDS.
+
   [bold]mounts[/bold] (list of paths or tables): `"~/data"` lands at /ctx/data, read-only;
     `{ host = "~/x", at = "/ctx/x" }` names the destination; `write = true` asks
     for a writable mount, which needs `[allow.mounts] on_request = ["write"]` in
@@ -234,6 +241,32 @@
     "macos-user"` at the jail notch keeps working. The two launch the same
     sandbox and differ only in the notch `yolo describe`, the agent's
     briefing and its footer name.
+
+  [bold]setup[/bold] (string, [bold]USER SCOPE ONLY[/bold]): Your default setup — the one name that
+    chooses where an agent runs.  A built-in is named <confinement>-<run_as>:
+    podman-self, apple-container-self, seatbelt-self, seatbelt-yolo-account,
+    landlock-self, landlock-yolo-account, host-self, host-yolo-account; or name
+    one of your own [bold]setups[/bold].  The launch takes `--setup`, then YOLO_SETUP,
+    then this key, then this OS's default (Linux podman-self, macOS
+    apple-container-self).  A host setup puts no walls around the agent, so
+    this key never chooses one: only `yolo host` runs one.
+      setup = "seatbelt-yolo-account"
+    Write it with `yolo config set setup seatbelt-yolo-account --user`.  A
+    project file cannot hold it: where the agent runs is yours to choose, and
+    a project's `setup` line is an error naming `--setup`, the `--user` set
+    and `yolo config unset setup --project`.
+
+  [bold]setups[/bold] (table, [bold]USER SCOPE ONLY[/bold]): Your own setups, one table per name.  A
+    setup has two fields, each with its own default: `confinement` ("podman"
+    (default) | "apple-container" | "seatbelt" | "landlock" | "host") and
+    `run_as` ("self" (default) | "yolo-account").  Any other field is refused.
+      [setups.mac-as-me]
+      confinement = "seatbelt"
+      # run_as is not written, so it is its default, self
+    A name is lowercase letters, digits and inner hyphens, at most 32
+    characters, and never a built-in's: a [setups.podman-self] table is
+    refused, naming `yolo setup new my-podman --from podman-self`.  A project
+    file cannot define one; setups are yours.
 
   [bold]agents[/bold]: [bold yellow]REMOVED[/bold yellow] — which agents a jail gets is no longer a
     config key of its own.  An agent arrives as a pack, so name the pack that

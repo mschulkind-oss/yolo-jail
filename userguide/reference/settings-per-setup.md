@@ -485,6 +485,8 @@ The keys the tables above leave out. Most of them do the same thing on every set
 |---|---|---|---|---|
 | `runtime` — which setup a launch uses | works | works — without it, yolo picks Apple Container when it is installed | works — the Mac default | works — only this key or `YOLO_RUNTIME` picks it |
 | `confinement` — how confined the agent is | works — `jail`, the default, launches; `guest` and `host` refuse the launch and say what to use instead | works — the same | works — the same | works — the same |
+| `setup` — your default setup, in your user config only | works — a project file holding it is refused, and so is a setup with no walls, which only `yolo host` runs | works — the same | works — the same | works — the same |
+| `setups` — setups of your own, in your user config only | works — a project file holding one is refused, and so is a table named like a built-in | works — the same | works — the same | works — the same |
 | `required_capabilities` — what the jail must be able to do | works — a capability nothing in your config or its packs provides refuses the launch | works — the same | works — the same | works — the same |
 | `model_facts` — facts a model shares across its providers | works | works | works | works |
 | `adapters` — where an adapted provider is reached | works | works | works | works — except for a helper the launch starts itself, which uses the port that launch picked |

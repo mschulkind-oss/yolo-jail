@@ -34,6 +34,13 @@ var configKeys = map[string]Entry{
 	"confinement": everywhere(honored("refuseUnbuiltNotch (run.go) resolves the notch before "+
 		"resolveRuntime, so `jail` launches and `guest` and `host` refuse naming their own verbs, "+
 		"identically on every setup"), "`confinement`"),
+	// Named setups (docs/design/named-setups.md): user scope only, read before any backend runs.
+	"setup": everywhere(honored("validateSetups (setups.go) checks it at every launch and `yolo check`, "+
+		"refusing it in a project file and refusing a host setup; config.SelectedSetupFromConfig reads "+
+		"it from the user config alone, after --setup and YOLO_SETUP"), "`setup`"),
+	"setups": everywhere(honored("validateSetups (setups.go) decodes each table through setup.Decode "+
+		"at every launch and `yolo check`, refusing it in a project file and refusing a built-in's "+
+		"name; config.UserSetups reads it from the user config alone"), "`setups`"),
 
 	// ---- Workspace, mounts and host files ----------------------------------------------
 	"mounts": {

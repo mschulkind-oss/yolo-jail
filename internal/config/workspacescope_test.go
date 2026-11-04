@@ -104,7 +104,7 @@ func TestWorkspaceScopeFactsDescribeCurrentSchemaAndConditionalDeciders(t *testi
 		"agent_updates": true, "host_apply_on_launch": true, "host_floor": true,
 		"host_management": true, "host_path": true, "host_wrappers": true,
 		"local_clones": true, "macos_user_mode": true, "macos_user_shared_tmp": true,
-		"perf_logging": true, "promotion_target": true, "share_host_fonts": true,
+		"perf_logging": true, "promotion_target": true, "setup": true, "setups": true, "share_host_fonts": true,
 		"shipped_skill_prefix": true, "update_check": true,
 	}
 	for key := range wantWhole {

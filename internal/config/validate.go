@@ -178,6 +178,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateProvisioners(config, workspace, errs, warns, edit)
 	validatePerfLogging(config, workspace, errs, edit)
 	validateMacosUserMode(config, workspace, errs, edit)
+	validateSetups(config, workspace, errs, edit)
 	validateMacosUserSharedTmp(config, workspace, errs, edit)
 	validateOnRequest(config, workspace, errs, edit)
 	validateUpdateCheck(config, workspace, errs, edit)
