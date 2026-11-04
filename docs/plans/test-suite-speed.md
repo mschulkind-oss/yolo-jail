@@ -247,6 +247,11 @@ a launch that builds pays two, the walk's and the build's copy into its source d
   (`programRefresh`, `hostApplyFromPackUpdate`). `t.Setenv` panics under `t.Parallel`, so
   making these tests independent means threading a home directory through the launch path.
   That is not a small change.
+- **Not built: the build reusing the walk's replay.** A launch that builds replays the series
+  twice, and handing the build the walk's finished tree would save the second replay. It would also
+  skip what the second replay checks: that the walk's answer is not stale, the mirror refetch, and
+  the lock that keeps the tree from changing between the two. Keeping those checks costs more than
+  the replay it saves, so both replays stay.
 
 **MEASURED on Linux, 2026-11-03** (this jail, 32 cores, other agents' load on the machine).
 `internal/cli` started **23,852** `git` processes at `b2f9a0811`. Earlier work had already cut
