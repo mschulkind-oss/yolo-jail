@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Rule OQ-MA2, OQ-MA3, OQ-MA4, OQ-MA6, OQ-MA7 and OQ-MA8."
+next: "Rule OQ-MA2."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -28,7 +28,7 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule.
 
-**Needs your ruling:** [OQ-MA2](#OQ-MA2), [OQ-MA3](#OQ-MA3), [OQ-MA4](#OQ-MA4), [OQ-MA6](#OQ-MA6), [OQ-MA7](#OQ-MA7), [OQ-MA8](#OQ-MA8).
+**Needs your ruling:** [OQ-MA2](#OQ-MA2).
 
 **Reads with:** [`mcp-auth-stores.md`](../research/mcp-auth-stores.md) (the per-agent store research),
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
@@ -178,6 +178,16 @@ selects, then the user's config). Every server in the effective table gets one s
   shared from its next launch on: the broker adopts the workspace's existing entry as canonical
   ([§8.2](#82-adopt)) rather than asking for a new sign-in.
 - **`yolo config why mcp_servers.<name>`** names the scope and the layer that decided it.
+- **A Claude plugin can reach the agent through yolo.** A pack can wrap a Claude plugin (its
+  `.claude-plugin/` tree, hooks and `mcpServers`), delivered whole under `skills_tier =
+  "namespaced"` ([`pack-system.md`](../reference/pack-system.md)), and the `packs` entry that
+  selects it says which layer chose it. Its MCP servers do **not** enter yolo's MCP composition
+  today: yolo parses the plugin's `mcpServers` only to disclose it as code that runs in the jail
+  (`internal/pluginpack`, `notePackJailCode` in `internal/cli/run`), and Claude starts the servers
+  itself under keys `plugin:<plugin>:<server>`. Sharing them would need the composer to read each
+  wrapped plugin's servers (its manifest field and `.mcp.json`) into the scope tables with the
+  selecting layer's scope, and the Claude adapter's `mcp_auth_match` to map a `plugin:` key back
+  to that server. Whether to is [OQ-MA2](#OQ-MA2).
 
 ## 6. What an agent pack declares
 
@@ -219,7 +229,7 @@ Declared per shipped agent:
 | codex | `json`, `entries_at = []`; derive pins `mcp_oauth_credentials_store = "file"` | `flock` | slice 1 |
 | pi | `json` | `proper-lockfile`, beside the real file | slice 2 |
 | opencode | `json` | `mkdir-heartbeat` in `~/.local/state/opencode/locks` | slice 2 |
-| claude | `json`, `entries_at = ["mcpOAuth"]`, one companion | `proper-lockfile` `.storage-write.lock`, 15 s stale | slice 2, in view mode ([OQ-MA3](#OQ-MA3)) |
+| claude | `json`, `entries_at = ["mcpOAuth"]`, one companion | `proper-lockfile` `.storage-write.lock`, 15 s stale | slice 2, in view mode ([OQ-MA3](#decision-ledger)) |
 | copilot | `unsupported`: key is an undocumented native hash that varies | — | when the key is reproducible |
 | agy | `unsupported`: path and write mode unmeasured | — | after one measured sign-in |
 | muse-code | `unsupported`: key composition unknown; yolo renders no MCP for it | — | after it gets a remote form |
@@ -286,9 +296,11 @@ broker reads it under the agent's lock and classifies each entry through `mcp_au
 - **A shared server's entry that differs from canonical** — a new sign-in in the jail — is
   adopted: canonical takes it with generation + 1, and the copy left in the store loses its
   refresh token by [§8.4](#84-refresh-the-broker-is-the-single-refresher).
-- **A shared server's entry that disappeared** from a store that parsed cleanly is a sign-out: the
-  record is removed and the removal propagated ([OQ-MA4](#OQ-MA4)). A store that does not parse is
-  never read as "every entry gone"; the broker logs it and waits for the next change.
+- **A shared server's entry that disappeared** from a store that parsed cleanly is a sign-out
+  everywhere: the record is removed and the removal propagated to every replica, so the next use
+  in any jail asks for a sign-in, as Claude's machine sign-out already behaves
+  ([OQ-MA4](#decision-ledger)). A store that does not parse is never read as "every entry gone";
+  the broker logs it and waits for the next change.
 - **Workspace and unknown servers' entries** are never read past their key.
 
 Two adoptions of one record at once are serialized by the canonical lock; the later write wins and
@@ -519,15 +531,18 @@ order, and records which:
    `oauth.client_secret_command` for a confidential client. The command runs on the host only, each
    time the broker needs the secret; the secret is never written to disk by yolo and never crosses
    into a jail.
-2. **yolo's published client metadata document**, when the authorization server advertises
-   `client_id_metadata_document_supported` ([OQ-MA7](#OQ-MA7)).
-3. **Dynamic registration by the broker**, when the server has a `registration_endpoint`. The
+2. **Dynamic registration by the broker**, when the server has a `registration_endpoint`. The
    registration is kept in the record and reused; an `invalid_client` later re-registers once.
-4. **Otherwise it refuses**, naming both steps: `slack: no agent has signed in, and the server
+3. **Otherwise it refuses**, naming both steps: `slack: no agent has signed in, and the server
    takes no automatic registration. Sign in once in Claude Code (/mcp), or register your own app:
    yolo config set mcp_servers.slack.oauth.client_id <id> --user`.
 
 Its redirect URI is `http://127.0.0.1:<callback_port>/callback`, default port 33418, on the host.
+
+**yolo publishes no client metadata document of its own.** A server whose only registration route
+is a Client ID Metadata Document gets the refusal above, and the user registers their own app. No
+server in hand needs one, and a published client is a lasting public commitment; it is revisited
+when a real server accepts only that route ([OQ-MA7](#decision-ledger)).
 
 ### 9.5 Signing in once
 
@@ -557,7 +572,7 @@ Each agent pack states which routes its agent supports; its derive renders the s
 |---|---|---|---|
 | Header command | The derive renders the agent's command-backed header to run `yolo mcp-auth header slack` (JSON or a bare value, as the agent expects). The command asks the broker for the current access token, refreshed first when under 5 minutes remain | Claude, Codex, pi; omp once yolo renders its MCP | every backend that reaches the broker: not Apple Container |
 | Store entry | The broker writes the access token, its expiry and the record's client id into the agent store through the agent's `[[mcp_auth]]` adapter, never a refresh token, and rewrites it after each refresh ([§8.3](#83-propagate)) | opencode; the agent an adopted sign-in came from; Claude and Codex on Apple Container | every backend whose store yolo can write |
-| None | — | Copilot, agy, Muse until their keys or helpers are known | — ([OQ-MA8](#OQ-MA8)) |
+| Own sign-in | No route: the agent signs in itself, per agent, with the user's own `oauth.client_id` rendered in (or by its own dynamic registration where the server offers it), and the launch says `slack: Copilot cannot use yolo's sign-in, so it signs in on its own`. With neither, it is not given the server, and the line names `yolo config set mcp_servers.slack.oauth.client_id <id> --user` ([OQ-MA8](#decision-ledger)) | Copilot, agy, Muse until their keys or helpers are known | every backend |
 
 The header command is preferred where both exist: no agent store is written, the token is
 fetched when the agent connects, and a jail whose launch did not compose the server is refused by
@@ -582,10 +597,10 @@ same line.
 | The server accepts only specific clients, no agent has a sign-in yolo can adopt, and the user can register no app (Slack with no Claude Code sign-in and no permission to create an internal app) | `slack: sign in once in Claude Code (/mcp), or ask a workspace admin to allow internal apps` |
 | An agent's sign-in whose client has a secret the agent's store does not hold | `slack: Claude's sign-in uses a client yolo cannot refresh; each agent signs in itself`, and the server falls back to `per_agent` |
 | The adopted app is revoked, or its client id rotated | the line in [§9.3](#93-adopting-a-sign-in-an-agent-already-has)'s costs, naming a new agent sign-in or the user's own app |
-| No pre-registered client, no metadata-document support, no dynamic registration | the refusal in [§9.4](#94-the-brokers-client-identity) |
+| No pre-registered client and no dynamic registration (a server offering only a client metadata document included) | the refusal in [§9.4](#94-the-brokers-client-identity) |
 | Sender-constrained tokens (DPoP: the token response has `token_type` `DPoP`), which only the key holder can present | `slack issues tokens bound to one process; each agent signs in itself`, and the server falls back to `per_agent` |
 | A server that checks the presenting client beyond the token's audience | measured per server on first use: a 401 right after a fresh token marks the record and falls back to `per_agent`, with the line |
-| An agent with no route | [OQ-MA8](#OQ-MA8) |
+| An agent with no route | it signs in itself, per agent, with the line in [§9.6](#96-delivery-routes)'s own-sign-in row |
 | A Keychain-backed store on macOS with no header command | as the agent with no route |
 
 > [!WARNING]
@@ -625,13 +640,23 @@ changes.
 | Replica path | `<ws>/.yolo/home/<agent>/…`, host-visible | same, over the VM share | the sandbox account's home | the real home |
 | Seed + harvest | yes | yes | yes, if the host can write the account home (Mac witness) | yes |
 | Live sync | yes: one kernel, `flock` and lock dirs both hold | only for directory-lock protocols, unmeasured over the share; `flock` stores are launch-boundary | yes, one kernel | yes |
-| Keychain-backed stores | — | — | Codex: pinned to `file`; Copilot, Claude: Keychain, unsupported | as macos-user; [OQ-MA6](#OQ-MA6) |
+| Keychain-backed stores | — | — | Codex: Keychain where it reaches one, unless `mcp_sign_in_store = "file"`; Copilot, Claude: Keychain, unsupported | as macos-user |
 | Daemon admitted | yes | needs admission (only `openai-auth-broker` is today); it dials nothing from the jail | yes | runs for the agent `yolo host --` launches |
 
 - **A Keychain store is out of reach** ([`keychain-from-a-jail.md`](keychain-from-a-jail.md)). The
   pack declares it with `format = "unsupported"` on that platform, and the line names the next
   step the pack knows, or says none exists yet: `Copilot keeps MCP sign-ins in the macOS Keychain
   here, which yolo cannot share; each workspace signs in once.`
+- **yolo does not relax another program's Keychain use by default.** On a Mac, `yolo host` leaves
+  Codex on its Keychain store, so Codex's MCP sign-ins are not shared there, and the launch says
+  so: `codex keeps MCP sign-ins in the macOS Keychain here, so they are not shared. To share them:
+  yolo config set mcp_sign_in_store file --user`. The user-scope key `mcp_sign_in_store` takes
+  `"agent"` (the default: each agent's own default store) or `"file"`, which makes every agent pack
+  that declares a file-store setting render it (Codex: `mcp_oauth_credentials_store = "file"`), so
+  the broker can share that agent's sign-ins. Like the other sign-in keys it is refused in project
+  config, naming the `--user` command ([OQ-MA6](#decision-ledger)). The same default and key apply
+  under macos-user wherever Codex can reach a Keychain; a container jail has no Keychain, so Codex's
+  file store is already its only store there and the key changes nothing.
 - **Parity is per behavior, not per commit.** Slice 1 ships podman and Linux `yolo host`; the other
   columns wait on their witnesses, not on who uses them.
 
@@ -640,8 +665,10 @@ changes.
 - **Codex, pi, opencode workspace stores** already hold sign-ins. At the first launch with sharing,
   each user-level entry found there is adopted; when several workspaces hold one, the first
   adopted wins and later ones are overwritten at their next launch. Nobody signs in again.
-- **Claude in bridge mode and Muse** keep their whole-store share until [OQ-MA3](#OQ-MA3) is ruled;
-  the launch line says the store is shared whole.
+- **Claude in bridge mode and Muse** keep their whole-store share, and every launch says the store
+  is shared whole, until Claude's per-workspace credential files become the default; from then the
+  broker shares only user-level entries. That login change carries its own measured gate, and this
+  design does not jump it ([OQ-MA3](#decision-ledger)).
 - **pi's session homes** link `mcp-auth.json` into each session, and pi takes its lock beside the
   link, not the file, so the broker's lock and a session's do not exclude each other. pi waits for
   that to be fixed (the lock beside the real path, or the broker locking every registered session
@@ -731,115 +758,20 @@ changes.
 
 1. 💬 **OQ-MA2: Should sign-ins for servers yolo never sees ever be shared?**
 
-   Sam installed a Claude plugin that brings a Slack MCP server, and added Sentry with `codex mcp
-   add`. Neither is in a yolo config, so yolo cannot tell whether he meant them for every project.
-   Today each new workspace asks him to sign in to both again.
+   Sam added Slack's MCP server through a Claude plugin, and Sentry with `codex mcp add`. Neither
+   is in his yolo config, so every new workspace asks him to sign in again. A plugin wrapped in a
+   pack his user config selects is one yolo can prove is his.
 
-   - **A. Never share them.** The launch names the one command that adds each to his user config.
-     Cost: a config line per server.
-   - **B. Share plugin servers only.** Plugins install per user, so Slack is shared at once. Cost: a
-     plugin enabled for one project is shared too.
-   - **C. Share all of them.** Cost: a project's own `.mcp.json` server is shared, which the rule forbids.
+   - **A. Never share them.** The launch names the command that declares each.
+   - **B. Share every plugin's servers.** A plugin enabled for one project is shared too.
+   - **C. Share all of them**, a project's own `.mcp.json` server included.
+   - **D. Share servers from plugins a user-config pack delivers.** The launch names the pack
+     route for the rest.
 
-   <!-- vantage: question id=OQ-MA2 leaning="A: Never share them, and name each with the one command that declares it. yolo cannot prove they are user-level, and the rule is to share only what it can." -->
+   <!-- vantage: question id=OQ-MA2 leaning="D: share servers from plugins yolo delivers through a pack your user config selects, and never ones installed outside yolo. It shares exactly what yolo can prove is user-level." -->
 
-   _Leaning:_ A: Never share them, and name each with the one command that declares it. yolo cannot
-   prove they are user-level, and the rule is to share only what it can.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-MA3: Claude and Muse already share every MCP sign-in machine-wide; should yolo narrow that?**
-
-   Priya uses Claude. Its MCP tokens sit in the same file as her Claude login, which yolo shares
-   whole with every jail so the login works everywhere. So a server she signed in to for one client
-   project is readable in every other jail. Muse is built the same way.
-
-   - **A. Keep it, and say so at launch.** Each launch says Claude's MCP sign-ins are shared
-     machine-wide, until Claude moves to per-workspace credential files (already planned). Cost:
-     workspace tokens stay readable everywhere meanwhile.
-   - **B. Narrow it now** by making those per-workspace files Claude's default sooner. Cost: that
-     change waits on login measurements nobody has run.
-
-   <!-- vantage: question id=OQ-MA3 leaning="A: Keep it and say so at launch; narrow it when Claude's per-workspace credential files become the default. The login change carries its own measured gate, and this should not jump it." -->
-
-   _Leaning:_ A: Keep it and say so at launch; narrow it when Claude's per-workspace credential files
-   become the default. The login change carries its own measured gate, and this should not jump it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-MA4: Should signing out of a shared server in one jail sign out everywhere?**
-
-   Lee runs `/mcp` in one Codex jail and logs out of Linear. The entry disappears from that
-   workspace's store. Lee's other three jails still hold the shared sign-in.
-
-   - **A. Sign out everywhere.** The broker removes it from every jail; the next use asks for a sign-in.
-     Cost: an agent that drops an entry by mistake signs Lee out machine-wide.
-   - **B. Sign out here only.** The other jails keep it, and this jail gets it back at its next launch.
-     Cost: logging out does not stick, which is surprising.
-
-   <!-- vantage: question id=OQ-MA4 leaning="A: Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is one sign-in, and Claude's machine sign-out already works this way." -->
-
-   _Leaning:_ A: Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is
-   one sign-in, and Claude's machine sign-out already works this way.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-MA6: On a Mac, should `yolo host` move Codex's MCP sign-ins out of the Keychain so they can be shared?**
-
-   Omar runs `yolo host -- codex` on his Mac, where Codex keeps MCP sign-ins in the Keychain, out
-   of yolo's reach; his jails keep them in a file. Pointing the host's Codex at its file too lets
-   host and jails share, but it stops reading the Keychain.
-
-   - **A. Use the file at the host too.** Omar signs in once more per server, then host and jails
-     share. Cost: tokens move from the Keychain to a file only he can read.
-   - **B. Leave the host on the Keychain.** The host signs in separately, and its launch says so.
-     Cost: the host never shares.
-
-   <!-- vantage: question id=OQ-MA6 leaning="A: Pin the file store at the host, disclosed at the first launch; the Keychain already leaves the host out of every share, and parity across notches is the standing rule." -->
-
-   _Leaning:_ A: Pin the file store at the host, disclosed at the first launch; the Keychain already
-   leaves the host out of every share, and parity across notches is the standing rule.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-MA7: Should yolo publish an OAuth client of its own that any server can recognize?**
-
-   Jo turns on one sign-in for a server that has no automatic registration but accepts a client
-   described by a public web page, the route the MCP specification recommends. yolo publishes no
-   such page, so Jo registers her own app with the server. How many servers work this way is
-   unsurveyed; none in hand does.
-
-   - **A. Publish one.** yolo hosts the page on its docs site; Jo's consent screen says "yolo-jail"
-     and she registers nothing. Cost: the page stays up for good, and servers may warn that any
-     local program can pose as a loopback-only client.
-   - **B. Not now.** Cost: one app registration per such server.
-
-   <!-- vantage: question id=OQ-MA7 leaning="B: Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route." -->
-
-   _Leaning:_ B: Not for now: no server in hand needs it, and a published client is a lasting public
-   commitment. Revisit when a real server accepts only that route.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-MA8: When an agent cannot take the shared sign-in, should it sign in itself or go without the server?**
-
-   Ana turned on one sign-in for Slack. Claude, Codex and pi use it, but Copilot can neither run a
-   command for the token nor have yolo write it into its store. She opens Copilot.
-
-   - **A. It signs in itself.** Copilot gets Slack with Ana's own Slack app id and asks her to sign in
-     once; the launch says `slack: Copilot cannot use yolo's sign-in, so it signs in on its own`.
-     Cost: one more sign-in, and no Slack without her own app.
-   - **B. It goes without.** Copilot gets no Slack, and the launch says why. Cost: no Slack in Copilot.
-
-   <!-- vantage: question id=OQ-MA8 leaning="A: It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server." -->
-
-   _Leaning:_ A: It signs in itself, with the line: she asked for the server in every agent, and one
-   extra sign-in is a smaller loss than a missing server.
+   _Leaning:_ D: share servers from plugins yolo delivers through a pack your user config selects,
+   and never ones installed outside yolo. It shares exactly what yolo can prove is user-level.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -862,15 +794,21 @@ The `OQ-MA` rows are the owner's rulings on compacted questions.
 | MA-D9 | Codex is the first agent: one file, one `flock`, reproducible key, MCP-only store | 2026-11-03 | [§16](#16-what-i-would-build-in-order) | — |
 | MA-D10 | Cross-agent sharing makes the broker the only refresher of a shared sign-in; no two programs refresh one record (amended 2026-11-03 for adoption) | 2026-11-03 | [§9.1](#91-what-the-protocol-allows) | — |
 | MA-D11 | Opt in with `sign_in = "once"` on the user's `mcp_servers.<name>`, default `"per_agent"`; refused in workspace config | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
-| MA-D12 | The broker's client: the user's own when set; else an adopted agent sign-in; else a published metadata document, then dynamic registration, else a refusal naming an agent sign-in and the user's own app; a secret comes from `client_secret_command` on the host only | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
+| MA-D12 | The broker's client: the user's own when set; else an adopted agent sign-in; else a published metadata document, then dynamic registration, else a refusal naming an agent sign-in and the user's own app; a secret comes from `client_secret_command` on the host only (the metadata-document step withdrawn by [OQ-MA7](#decision-ledger), 2026-11-03) | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
 | MA-D13 | `yolo mcp-auth login` runs on the host's browser and loopback, from the host or a jail | 2026-11-03 | [§9.5](#95-signing-in-once) | — |
 | MA-D14 | Header command first, store entry second; the agent's own OAuth is off for a one-sign-in server | 2026-11-03 | [§9.6](#96-delivery-routes) | — |
 | MA-D15 | DPoP-bound tokens, and a server that rejects a fresh token, fall back to per-agent sign-in with a line | 2026-11-03 | [§9.7](#97-refresh-sign-out-and-where-it-cannot-work) | — |
 | MA-D16 | Adopt an agent's existing sign-in as the first route: match by server URL and issuer, adopt only when the agent's store holds all a refresh needs, latest sign-in wins, automatic under `sign_in = "once"` and disclosed at every launch | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
 | MA-D17 | An adopted record's refresh token moves to the host; the source agent's entry keeps only a fresh access token, written back under its lock after each refresh | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
 | MA-D18 | yolo never starts a sign-in under an adopted client id, nor renders one into an agent's config | 2026-11-03 | [§9.7](#97-refresh-sign-out-and-where-it-cannot-work) | — |
+| MA-D19 | The Codex Keychain opt-in is the agent-neutral user-scope key `mcp_sign_in_store` (`"agent"` default, `"file"`), rendered by each pack that declares a file-store setting, refused in project config | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
 | OQ-MA1 | **Owner's ruling (2026-11-03):** a copy in an agent's store never carries a refresh token where removing it is possible; only the broker refreshes, and with the broker down a copy expires and the agent asks for a sign-in. Owner: *"don't carry a refresh token if that's possible."* The one case it is not: an agent measured to break on an entry with no refresh token | 2026-11-03 | [§8.4](#84-refresh-the-broker-is-the-single-refresher) | — |
 | OQ-MA5 | **Owner's ruling (2026-11-03):** opt in both ways, per server (`sign_in = "once"`) and for ALL user-level servers at once (user-scope `mcp_sign_in = "once"`; a server's `sign_in = "per_agent"` opts out). Owner: *"I also want opt in for ALL servers for MCP signin across agents."* Implementation decisions, not rulings: the key's spelling, and that under the user-wide switch a server that cannot take one sign-in keeps per-agent sign-in with a launch line naming the fix rather than being refused | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
+| OQ-MA3 | **Owner's ruling (2026-11-03):** keep Claude's and Muse's whole-store share and say so at launch; narrow it when Claude's per-workspace credential files become the default. Owner: *"Keep it and say so at launch; narrow it when Claude's per-workspace credential files become the default. The login change carries its own measured gate, and this should not jump it."* | 2026-11-03 | [§11](#11-existing-state-on-the-day-it-ships) | — |
+| OQ-MA4 | **Owner's ruling (2026-11-03):** an entry that disappears from a cleanly parsed store signs that server out everywhere. Owner: *"Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is one sign-in, and Claude's machine sign-out already works this way."* | 2026-11-03 | [§8.2](#82-adopt) | — |
+| OQ-MA6 | **Owner's ruling (2026-11-03), neither drafted option:** on a Mac, `yolo host` keeps Codex on its Keychain store by default, so its MCP sign-ins are not shared there and the launch says so and names the opt-in; a user-scope key switches Codex to its file store so they can be shared. Owner: *"I'm hesitant to relax somebody else's security restrictions, so I'm tempted to say here, by default, Codex will just not get them shared. And if you want them to be shared, we should give you a config to explicitly turn off the keychain usage of Codex ... if you want it to be able to share things."* The key's spelling is [MA-D19](#decision-ledger) | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
+| OQ-MA7 | **Owner's ruling (2026-11-03):** yolo publishes no OAuth client metadata document for now. Owner: *"Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route."* | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
+| OQ-MA8 | **Owner's ruling (2026-11-03):** an agent that cannot take the shared sign-in signs in itself, with a launch line. Owner: *"It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server."* | 2026-11-03 | [§9.6](#96-delivery-routes) | — |
 
 ## Appendix A: Evidence
 
@@ -930,7 +868,7 @@ All 2026-11-03. They are the source of the requirement in [§1](#1-the-requireme
   that would be great. sign into slack once and get it everywhere. probably want this to be opt in."*
 - Adoption: *"slack has an mcp connector that works for me on claude, I just want to share that
   auth with other agents too,"* and then: sign in once, in whichever agent you like, and yolo adopts it.
-- The two rulings, quoted in the Decision Ledger rows [OQ-MA1](#decision-ledger) and [OQ-MA5](#decision-ledger).
+- The rulings, quoted in the Decision Ledger rows [OQ-MA1](#decision-ledger) and [OQ-MA3](#decision-ledger) to [OQ-MA8](#decision-ledger).
 
 ## Appendix C: Slack, measured
 

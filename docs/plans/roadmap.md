@@ -479,7 +479,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     The [implementation plan](../design/macos-user-model-plan.md) builds it in thirteen slices; the default flips only after a human reruns the prototype checks against the generated profile.
     Inside that profile [mise cannot reach HTTPS](../design/macos-native-tls.md): its macOS TLS needs the keychain service the profile denies. The nix-built rustls mise is built ([MT-D5](../design/macos-native-tls.md#decision-ledger)); the yolo boundary baseline is now measured against deployed `d159a57f0` (`0.15.1+705`), but the Safehouse synthetic-policy comparison and Copilot's current native request path remain unmeasured. Keep the deny; the [design](../design/macos-native-tls.md) owns the next step and blocks graduation until both are resolved.
     What every backend and its run-as choice are called is [named setups](../design/named-setups.md): one named, complete set of values chosen per launch, replacing `confinement`, `runtime` and `macos_user_mode`. Its rulings come before the guide is rewritten around slice 11's default flip.
-53. Rulings on [sharing MCP sign-ins](../design/mcp-auth-sharing.md) ([OQ-MA2](../design/mcp-auth-sharing.md#OQ-MA2), [OQ-MA3](../design/mcp-auth-sharing.md#OQ-MA3), [OQ-MA4](../design/mcp-auth-sharing.md#OQ-MA4), [OQ-MA6](../design/mcp-auth-sharing.md#OQ-MA6) to [OQ-MA8](../design/mcp-auth-sharing.md#OQ-MA8)) come before its broker is built; its prerequisite, a remote form of `mcp_servers`, ships first.
+53. Rulings on [sharing MCP sign-ins](../design/mcp-auth-sharing.md) ([OQ-MA2](../design/mcp-auth-sharing.md#OQ-MA2)) come before its broker is built; its prerequisite, a remote form of `mcp_servers`, ships first.
 
 ## Boundaries
 
