@@ -8,7 +8,6 @@ package cli
 import (
 	"context"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
@@ -85,7 +84,7 @@ func TestAMacosUserLaunchPlainForkBuildChildReachesTheForkBuildAct(t *testing.T)
 		t.Errorf("the child is not told the runtime and the build's id: %q", argv)
 	}
 	seen, got := runChildArgvOnMac(t, argv)
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+	if pipelineBackend(seen) != "macos-user" {
 		t.Error("the child's build jail was not booted on macos-user")
 	}
 	if len(got) != 1 || got[0].Build != f.Build || got[0].BuildID != b.id() ||
@@ -136,11 +135,11 @@ func TestAContainerForkBuildChildNamesItsRuntime(t *testing.T) {
 		var seen run.Options
 		withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
 		runForkBuildJail(argv[2:], io.Discard, io.Discard)
-		if rt != "" && (seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != rt) {
+		if rt != "" && (pipelineBackend(seen) != rt) {
 			t.Errorf("runtime %q: the child's jail was not booted on it", rt)
 		}
-		if rt == "" && seen.Getenv != nil && seen.Getenv("YOLO_RUNTIME") != os.Getenv("YOLO_RUNTIME") {
-			t.Errorf("a child told no runtime named one: %q", seen.Getenv("YOLO_RUNTIME"))
+		if rt == "" && pipelineBackend(seen) != "" {
+			t.Errorf("a child told no runtime named one: %q", pipelineBackend(seen))
 		}
 	}
 }

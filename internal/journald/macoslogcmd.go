@@ -134,8 +134,8 @@ func handleMacosLogConn(conn net.Conn, cfg MacosLogConfig) {
 		if cfg.SandboxUIDErr != nil {
 			_ = WriteFrame(conn, FrameStderr, []byte(macosLogPrefix+": the user scope shows the "+
 				macosuser.SandboxUser+" account's processes, and this Mac has no such account ("+
-				cfg.SandboxUIDErr.Error()+"). A macos-user launch creates it: run `yolo` once with "+
-				"runtime = \"macos-user\". Or read every entry instead: the human allows it on "+
+				cfg.SandboxUIDErr.Error()+"). Create it on the host with `yolo yolo-account create`, "+
+				"which a seatbelt-yolo-account launch needs anyway. Or read every entry instead: the human allows it on "+
 				"the host with `yolo allow macos-log on_request read_all`, this project asks with "+
 				"`yolo request macos-log read_all`, and the human runs `yolo config apply` on "+
 				"the host, in this workspace, and answers y.\n"))

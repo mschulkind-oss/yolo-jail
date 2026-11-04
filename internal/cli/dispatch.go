@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // registry is the single source of truth for the `yolo` CLI surface: it maps
@@ -138,13 +139,13 @@ func RewriteArgv(args []string) []string {
 // refuses naming firstPositional; implicit reports a launch no token asked for by name (a bare
 // `yolo`, or `yolo <flags>`), which routeDecision tells apart.
 //
-// THE NOTCH IS DECIDED HERE, ONCE, WHEREVER `--at` SITS (docs/plans/notch-convergence.md item
-// 10, row A3). `--at host` on a launch is the systematic spelling of the host exec verb
-// (host-agent-environment.md OQ-2), so every launch spelling carrying it routes to `yolo host`:
-// `yolo --at host -- c`, `yolo run --at host -- c`, `yolo --at host run -- c`, `yolo run --at
-// host c` and a bare `yolo --at host`. Only the first used to; the rest reached the jail
-// launcher and were refused there as "the host notch … a launch cannot honor it". The config
-// key `confinement: host` is NOT an `--at` spelling and keeps that refusal (OQ-DP3).
+// THE HOST ROUTE IS DECIDED HERE, ONCE, WHEREVER `--setup` SITS (docs/plans/notch-convergence.md
+// item 10, row A3; named-setups.md §8). `--setup host-self` on a launch is the systematic
+// spelling of the host exec verb, so every launch spelling carrying a host setup routes to
+// `yolo host`: `yolo --setup host-self -- c`, `yolo run --setup host-self -- c`, `yolo --setup
+// host-self run -- c`, `yolo run --setup host-self c` and a bare `yolo --setup host-self`. A host
+// setup selected by YOLO_SETUP or the config is NOT a flag spelling and keeps the launch's
+// refusal naming `yolo host` (named-setups.md §8).
 func routeArgv(args []string) (sub string, routed []string, implicit bool) {
 	args = RewriteArgv(args)
 	sub = Subcommand(args)
@@ -162,29 +163,43 @@ func routeArgv(args []string) (sub string, routed []string, implicit bool) {
 	return sub, args, implicit
 }
 
-// hostNotchArgv reports whether a launch argv (it carries the "run" token) asks for the host
-// notch with `--at host`, and if so the `yolo host` argv that launch means: yolo's own tokens
-// with the run token and every `--at` pair consumed, then `--` and the command. The launch
-// is read by parseRunArgs, the parser that runs it, so the notch and the command boundary are
-// the ones a jail launch of the same argv would have seen: `--at` is the last one typed, and
-// `yolo run --at host claude --resume` hands `claude --resume` to the host verb whole.
+// hostNotchArgv reports whether a launch argv (it carries the "run" token) names a setup with
+// no walls through `--setup` (`host-self`, `host-yolo-account`, or a user setup whose
+// confinement is `host`), and if so the `yolo host` argv that launch means: yolo's own tokens
+// with the run token and every `--setup` pair consumed, then `--setup <name>` again unless the
+// name is host-self (the host verb's own default), then `--` and the command. The launch is read
+// by parseRunArgs, the parser that runs it, so the setup and the command boundary are the ones a
+// jail launch of the same argv would have seen: `--setup` is the last one typed, and
+// `yolo run --setup host-self claude --resume` hands `claude --resume` to the host verb whole.
+//
+// A host setup is never selected by config or YOLO_SETUP (named-setups.md §8): only the flag
+// reroutes, and the launch's setup gate refuses the others naming `yolo host`.
 //
 // Every other token is carried over as typed, so the host parser judges it: a run flag with
 // no host meaning is refused there by name (parseHostExecFlags), never dropped here.
 func hostNotchArgv(args []string) ([]string, bool) {
 	var opts run.Options
 	parsed := parseRunArgs(args, &opts)
-	if opts.Notch != string(config.ConfinementHost) {
+	// A misuse elsewhere in the argv does not keep a host setup a launch: the host parser
+	// judges every token again and refuses it there, by name (parseHostExecFlags).
+	if opts.SetupName == "" {
+		return nil, false
+	}
+	_, user, _ := config.SelectedSetupFromConfig()
+	s, err := setup.Lookup(opts.SetupName, user)
+	if err != nil || s.Kind() != setup.KindHost {
 		return nil, false
 	}
 	out := []string{"host"}
+	if s.Name != "host-self" {
+		out = append(out, "--setup", s.Name)
+	}
 	sawRun := false
 	for i := 0; i < parsed.boundary; i++ {
 		if f, ok := readAnyLaunchValueFlag(args, i); ok {
-			// EVERY `--at` is consumed, not only `--at host`: parseRunArgs already read the last
-			// one as the notch, so an earlier `--at jail` is overruled, as `--at host --at jail`
-			// is a jail launch. Carried over, the host verb refused the launch it was chosen for.
-			if f.name != "--at" {
+			// EVERY `--setup` is consumed: parseRunArgs already read the last one, so an earlier
+			// one is overruled, as `--setup host-self --setup podman-self` is a jail launch.
+			if f.name != "--setup" {
 				out = append(out, args[i:f.last+1]...)
 			}
 			i = f.last

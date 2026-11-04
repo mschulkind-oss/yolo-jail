@@ -1,7 +1,7 @@
 package cli
 
 // hostapplyinjail.go refuses a HOST apply run inside a jail: `yolo host apply`, its --assert and
-// --revert, and `yolo apply` whenever its notch is the host (`--at host`, or `confinement: host`).
+// --revert, and `yolo apply` whenever its notch is the host (`--setup host-self`, or `confinement: host`).
 //
 // THE BUG IT CLOSES (measured 2026-10-04). A host apply renders into the home of whoever runs it
 // (os.UserHomeDir), and inside a jail that is the jail's own home, which the jail's launch has

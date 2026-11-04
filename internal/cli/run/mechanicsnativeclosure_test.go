@@ -21,7 +21,7 @@ func TestNativeMechanicsHostFileFactsReachProductionStaging(t *testing.T) {
 	workspace := t.TempDir()
 	cname := "yolo-native-mechanics-host-file"
 	o := goldenOptions(workspace, home)
-	o.MacosUserMode = macosuser.ModeSelf
+	selectMacosUserMode(o, macosuser.ModeSelf)
 	staged := stagedPacks{packs: claudePackFixture(t)}
 	cfg := jsonx.NewOrderedMap()
 	stagingRoot := filepath.Join(paths.AgentsDir(), cname)
@@ -84,7 +84,7 @@ func TestNativeMechanicsRestartAndUpdateUseCurrentSessionRecipe(t *testing.T) {
 	workspace := t.TempDir()
 	cname := "yolo-native-mechanics-restart"
 	o := goldenOptions(workspace, home)
-	o.MacosUserMode = macosuser.ModeSelf
+	selectMacosUserMode(o, macosuser.ModeSelf)
 	staged := stagedPacks{packs: claudePackFixture(t)}
 	cfg := jsonx.NewOrderedMap()
 	facts := o.mechanicsFactSheet(cname, cfg, "macos-user", staged, storePackagesPlan{}, nil)

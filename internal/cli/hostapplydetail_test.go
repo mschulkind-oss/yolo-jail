@@ -236,7 +236,7 @@ func TestReportVerboseHonorsTypedAndInheritedSpellings(t *testing.T) {
 
 	// TYPED — through the real stripper, which is what publishes the variable.
 	t.Setenv(paths.VerboseEnv, "")
-	if rest := applyVerboseFlag([]string{"apply", "--verbose", "--at", "host"}); len(rest) != 3 {
+	if rest := applyVerboseFlag([]string{"apply", "--verbose", "--setup", "host-self"}); len(rest) != 3 {
 		t.Fatalf("the flag was not stripped: %v", rest)
 	}
 	if os.Getenv(paths.VerboseEnv) == "" {

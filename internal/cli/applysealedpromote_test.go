@@ -79,13 +79,13 @@ func TestApplyAtGuestReusesTheSharedNotchSentence(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"jail"}`)
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "guest"}, &out, &errw, false, nil); rc != 1 {
-		t.Fatalf("apply --at guest should fail closed (rc 1), got %d: %s%s",
+	if rc := applyMain([]string{"--setup", "seatbelt-self"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("apply --setup seatbelt-self should fail closed (rc 1), got %d: %s%s",
 			rc, out.String(), errw.String())
 	}
 	want := render.NotchUnbuilt("apply")
 	if !strings.Contains(out.String(), want) {
-		t.Errorf("apply --at guest does not print render.NotchUnbuilt's sentence.\n"+
+		t.Errorf("apply --setup seatbelt-self does not print render.NotchUnbuilt's sentence.\n"+
 			"want substring: %q\ngot:\n%s", want, out.String())
 	}
 }

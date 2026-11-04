@@ -35,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -64,28 +65,29 @@ type Options struct {
 	// reader, and nothing (NewDefaultOptions, fillDefaults) may fill it in, because a
 	// filled-in default is indistinguishable from a typed `--network bridge` (G25).
 	Network string
-	// Notch is `--at <jail|guest|host>` as typed on THIS launch: the confinement
-	// notch this invocation asks for, overriding the config's `confinement` key.
-	// "" means the flag was not given and the config decides. launchNotch (run.go) is
-	// the one reader that folds the two.
-	//
-	// A LAUNCH HONORS `jail` everywhere and `guest` on macOS, where it is the
-	// macos-user backend (env-manager plan EMP-D1). A Linux `guest` and `host` are
-	// REFUSED rather than ignored (refuseUnbuiltNotch, run.go; OQ-DP3 in
-	// docs/design/declaration-parity.md). Before this field existed
-	// cli.parseRunArgs had no `--at` case at all, so the token fell to its
-	// default arm and STARTED THE COMMAND: `yolo --at guest -- claude` launched a
-	// jail and then failed inside it with `--at: command not found` (DP-B22).
-	// `--at host` never reaches here from the CLI: the front door (cli.routeArgv)
-	// routes every launch spelling carrying it to the `host` subcommand
-	// (docs/plans/notch-convergence.md item 10). A caller setting it directly still
-	// gets refuseUnbuiltNotch's host refusal, as `confinement: host` does.
-	Notch string
-	// atNotch is the notch this launch runs at, Notch folded over the config's `confinement`
-	// (launchNotch), recorded by Run once refuseUnbuiltNotch has passed it. Read by the
-	// macos-user arm's printers that hold no config: at a guest, a next step naming a
-	// container runtime names the jail notch too (containerStepClause). The zero value
-	// reads as the jail notch, which is what every Options built outside Run describes.
+	// SetupName is `--setup <name>` as typed on THIS launch, "" when not given: the first input
+	// of the setup selection (docs/design/named-setups.md §2), above YOLO_SETUP and the user
+	// config's `setup`. config.SelectSetup is the one reader; resolveSetup (setupgate.go) runs it.
+	// `yolo --setup host-self -- cmd` never reaches here from the CLI: the front door
+	// (cli.routeArgv) routes a host setup to the `host` verb, as design §8 has it.
+	SetupName string
+	// Setup is the setup this launch runs, resolved by resolveSetup before anything is built,
+	// and setupChoice says where it came from. The launch's backend, macos-user mode and notch
+	// all derive from it: Backend() is the runtime, RunAs the mode, Kind() the notch.
+	Setup       setup.Setup
+	setupChoice config.SetupChoice
+	// SetupRef carries the resolved setup back across the by-value Options seam to the front
+	// door's macos-user handler (cli.runRun), which reads who the sandbox runs as from it. nil
+	// outside the front door.
+	SetupRef *SetupRef
+	// setupOS overrides the OS the setup gate judges the built-ins for ("" = the platform's,
+	// from IsMacOS). A test seam only: a Linux test reaches the macos-user arm through a
+	// Seatbelt setup, judged as on a Mac.
+	setupOS string
+	// atNotch is the notch this launch runs at, derived from Setup by resolveSetup: guest for a
+	// Seatbelt setup, jail otherwise. Read by the briefing's notch words until they name the
+	// setup (named-setups-plan.md slice 9). The zero value reads as the jail notch, which is
+	// what every Options built outside Run describes.
 	atNotch config.Confinement
 	// NeverAttach skips the attach-to-running-container branch entirely. NOT a
 	// CLI flag (the old --new was removed 2026-09-06): it is the capture jail's
@@ -545,10 +547,9 @@ type Options struct {
 	// (macosuser.DarwinContextSiting); a test sets it to state the facts a Linux machine cannot
 	// produce, such as a source outside every writable place.
 	macosCtxSiting *macosuser.ContextSiting
-	// MacosUserMode is who a macos-user launch's sandbox runs as (macosuser.Mode, MMP-D2). The
-	// zero value is the second account, the default; cli sets it from the user-scope
-	// `macos_user_mode` (docs/design/macos-user-model-plan.md slice 6). Read by the
-	// package-cache alias (planMacosUserHostCAS), which only the run-as-you mode passes.
+	// MacosUserMode is who a macos-user launch's sandbox runs as (macosuser.Mode, MMP-D2):
+	// macosuser.ModeFor(Setup.RunAs), set by resolveSetup. The zero value is the yolo account.
+	// Read by the package-cache alias (planMacosUserHostCAS), which only the run-as-you mode passes.
 	// MacosUserHostHome is the invoking user's resolved home, which places a run-as-you
 	// sandbox's machine root (macosuser.LaunchHomes); "" reads this process's home.
 	MacosUserMode     macosuser.Mode

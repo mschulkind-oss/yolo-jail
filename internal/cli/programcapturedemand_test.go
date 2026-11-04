@@ -21,7 +21,7 @@ import (
 func selectedNPMUser(t *testing.T, f *selectedNPMFixture, updates bool) run.ProgramCaptureRequest {
 	t.Helper()
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	oldResolver := resolvePreparationBundle
 	resolvePreparationBundle = func() (reporoot.Resolution, bool) {
 		return reporoot.Resolution{Root: f.root}, true

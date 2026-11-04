@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // Mode is which user a macos-user launch runs the sandbox as (docs/design/macos-user-model.md
@@ -29,6 +30,15 @@ func (m Mode) String() string {
 		return "self"
 	}
 	return fmt.Sprintf("Mode(%d)", int(m))
+}
+
+// ModeFor is the mode a setup's run_as means (named-setups-plan.md SUP-D1): self runs the
+// sandbox as you, and every other value as the yolo account.
+func ModeFor(r setup.RunAs) Mode {
+	if r == setup.RunAsSelf {
+		return ModeSelf
+	}
+	return ModeAccount
 }
 
 // ParseMode reads the `macos_user_mode` spelling. An empty value is account mode, the

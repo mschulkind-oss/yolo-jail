@@ -194,7 +194,7 @@ func TestHostSideResetForceStillWorksUnderNone(t *testing.T) {
 // UNDER `own`, CAPTURE WORKS (OQ-CO3, ruled yes-under-own 2026-09-10): it folds the edit in
 // your real file into the HOST capture store — 0600, never the workspace tree a jail reads —
 // and leaves the file itself byte for byte. It was refused until 2026-10-04, so `config diff
-// --at host` could not show an edit made since the last apply.
+// --setup host-self` could not show an edit made since the last apply.
 func TestHostSideCaptureWorksUnderOwn(t *testing.T) {
 	_, store, surfacePath := hostResetFixture(t, "own")
 	writeFile(t, surfacePath, `{"theme":"yolo's","myEdit":"present"}`)

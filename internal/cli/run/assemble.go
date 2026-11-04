@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // miseStoreVolume is the named volume backing a podman jail's /mise on macOS: the Podman
@@ -659,7 +660,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			out.print("[yellow]Warning: " + asked + " is NOT honored on Apple Container[/yellow] — " +
 				"the backend manages networking itself, so the jail does not share your host's " +
 				"network stack (published ports still apply: this backend runs bridged either " +
-				"way). " + remedy + ", or use YOLO_RUNTIME=podman for host networking.")
+				"way). " + remedy + ", or launch with `--setup podman-self` for host networking.")
 		}
 	} else if rt == "podman" && inContainer {
 		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN, so the
@@ -886,7 +887,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 			out.print("[yellow]Not shadowing " + strings.Join(shadowed, ", ") +
 				": on Apple Container a /dev/null bind arrives with the wrong device node, " +
 				"so reading it fails instead of returning empty. The agent will see the " +
-				"workspace's real path. Use `YOLO_RUNTIME=podman` to shadow it.[/yellow]")
+				"workspace's real path. Launch with `--setup podman-self` to shadow it.[/yellow]")
 		} else {
 			for _, rel := range shadowed {
 				runCmd = append(runCmd, "-v", "/dev/null:/workspace/"+rel+":ro")
@@ -1355,11 +1356,17 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// launch needs still crosses: `required_capabilities` is in BOTH inherit scopes
 		// (config/inherit.go), so an inner jail inherits the declaration in its config
 		// and re-runs the same gate over it.
-		"-e", "YOLO_RUNTIME=podman",
+		//
 		// Graphics exposure follows the user declaration, not whether this launch's
 		// host probe found a device. Always send 0 as well, so a host env cannot enable it.
 		"-e", entrypoint.GraphicsGPUEnabledEnv+"="+graphicsEnabled,
 	)
+	// THE SETUP, told to the session (setup.EnvVar; named-setups-plan.md SUP-D4), in place of
+	// the YOLO_RUNTIME=podman every jail used to export: one variable is both the user's
+	// override and the session's fact, so a launch nested in this jail selects the same setup.
+	if o.Setup.Name != "" {
+		env = append(env, "-e", setup.EnvVar+"="+o.Setup.Name)
+	}
 	// programs.autoprune (OQ-PD4's third clause, program-delivery.md §10 step four) —
 	// EMITTED ONLY WHEN ON, which is the opposite of YOLO_HOST_LOOPBACK's always-emit rule
 	// and for a reason that inverts it. There, an absent variable had to be

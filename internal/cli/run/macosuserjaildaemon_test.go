@@ -343,7 +343,7 @@ func TestMacosUserSaysARefusedServiceHostHalfTheGuestDeclinesRunsNowhere(t *test
 	if specs := payloadOf(t, got.jailDaemons); len(specs) != 0 {
 		t.Fatalf("the guest was handed %+v, want nothing: the service publishes a container endpoint", specs)
 	}
-	const dial = "a container runtime runs it (`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container` for one launch)"
+	const dial = "a container setup runs it (`YOLO_SETUP=podman-self` or `YOLO_SETUP=apple-container-self` for one launch)"
 	var refusal, decline string
 	for _, line := range strings.Split(got.out, "\n") {
 		switch {

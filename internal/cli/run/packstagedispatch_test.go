@@ -86,13 +86,45 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	}
 	// podman answers the readiness gate at once, so resolveRuntime accepts the explicit choice.
 	answeringPodman(o, minimalPodmanInfo)
-	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return ytoRuntime
-		}
-		return ""
-	}
+	selectRuntimeSetup(o, ytoRuntime)
 	return o
+}
+
+// testSetupForRuntime is the built-in setup a test's backend string means, "" for none.
+func testSetupForRuntime(rt string) string {
+	switch rt {
+	case "podman":
+		return "podman-self"
+	case "container":
+		return "apple-container-self"
+	case "macos-user":
+		return "seatbelt-yolo-account"
+	}
+	return ""
+}
+
+// selectRuntimeSetup makes a test's launch select the built-in setup that runs backend rt, as
+// `--setup` does, so a test that replaces Getenv afterwards keeps it (Getenv answers nothing). A
+// Mac-only setup is judged as on a Mac (setupOS), so the macos-user and Apple Container arms stay
+// reachable from a Linux test run, as a YOLO_RUNTIME made them before setups.
+func selectRuntimeSetup(o *Options, rt string) {
+	o.SetupName = testSetupForRuntime(rt)
+	if rt == "macos-user" || rt == "container" {
+		o.setupOS = "darwin"
+	}
+	o.Getenv = func(string) string { return "" }
+}
+
+// selectMacosUserMode makes a macos-user test's launch run as mode, through the Seatbelt setup
+// whose run_as it is: the setup gate sets Options.MacosUserMode from the setup (setupgate.go), so
+// a test assigning the field alone would be overwritten.
+func selectMacosUserMode(o *Options, mode macosuser.Mode) {
+	o.MacosUserMode = mode
+	o.SetupName = "seatbelt-yolo-account"
+	if mode == macosuser.ModeSelf {
+		o.SetupName = "seatbelt-self"
+	}
+	o.setupOS = "darwin"
 }
 
 // TestPacksAreStagedBeforeBackendDispatch is the invariant itself, asserted at the

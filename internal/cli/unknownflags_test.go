@@ -88,7 +88,7 @@ func TestATypoBeforeTheCommandIsStillRefused(t *testing.T) {
 // convention.
 func TestValuesAndBareDashAreNotFlags(t *testing.T) {
 	var errw bytes.Buffer
-	if refuseUnknownFlags("run", []string{"run", "--at", "host", "-"}, runKnownFlags(), &errw) {
+	if refuseUnknownFlags("run", []string{"run", "--setup", "host-self", "-"}, runKnownFlags(), &errw) {
 		t.Fatalf("a flag VALUE must not read as a flag: %s", errw.String())
 	}
 }

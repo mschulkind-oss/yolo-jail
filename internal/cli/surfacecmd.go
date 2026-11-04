@@ -66,7 +66,7 @@ Subcommands:
                            under host_management "own" it records the edits in
                            your real home as 'yolo host apply --assert' would
                            record them, into the host's capture store, so
-                           'diff --at host' shows them before the next apply.
+                           'diff --setup host-self' shows them before the next apply.
 Surface selection:
   Use the canonical identity printed by 'yolo surface ls', such as pi/settings.
   A bare agent name selects all of that agent's surfaces. The removed --surface
@@ -87,13 +87,14 @@ ls flags:
                      selected agents').
 
 ls, render, diff, reset and capture also take:
-  --at <notch>       Ask about a different notch than the cwd selected: jail (the
-                     workspace you are standing in) or host (your real home). The
-                     same flag, the same three names and the same refusals as
-                     'yolo apply --at'. 'guest' is refused by name — it is unbuilt —
-                     and '--at jail' outside a workspace is refused rather than
-                     silently answered about the host. There is no --workspace flag:
-                     cd into the project you meant.
+  --setup <name>     Ask about a different notch than the cwd selected: a setup
+                     with walls (the workspace you are standing in) or host-self
+                     (your real home). The same flag, the same names and the same
+                     refusals as 'yolo apply --setup'. A Seatbelt setup is refused
+                     by name — its notch is unbuilt here — and a setup with walls
+                     outside a workspace is refused rather than silently answered
+                     about the host. There is no --workspace flag: cd into the
+                     project you meant. (--at is removed.)
 
 reset/capture also take:
   --force            reset and capture WRITE files. At the HOST notch they resolve
@@ -154,11 +155,11 @@ func surfaceRunW(args []string, out, errw io.Writer) int {
 		return 0
 	}
 	verb := args[0]
-	rest, at, rc := extractAtFlag(verb, args[1:], errw)
+	rest, setupName, rc := extractSetupFlag("surface", verb, args[1:], errw)
 	if rc != 0 {
 		return rc
 	}
-	t, refusal := resolveConfigTarget(at)
+	t, refusal := resolveConfigTarget(setupName)
 	if refusal != "" {
 		fmt.Fprintf(errw, "yolo surface %s: %s\n", verb, refusal)
 		return 1

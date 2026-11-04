@@ -250,7 +250,7 @@ func (o *Options) noteMacosUserForks(rt string) {
 		}
 		why := d.Reason
 		if !o.DryRun {
-			why = macosUserForkWhy(d.Reason, o.containerStepClause())
+			why = macosUserForkWhy(d.Reason)
 		}
 		d.Reason = p.Fork.Bin + " is not delivered on macos-user: " + why
 		o.forkDelivered[p.Fork.Bin] = d
@@ -263,11 +263,10 @@ func (o *Options) noteMacosUserForks(rt string) {
 
 // macosUserForkWhy is why a macos-user launch delivers no program for a fork, the slot's reason,
 // ending in the next steps on this backend: a container backend, which builds it for linux, or
-// starting without it. step is the launch's containerStepClause, which a guest's container backend
-// needs (EMP-D5).
-func macosUserForkWhy(reason, step string) string {
-	return strings.TrimSuffix(reason, ".") + "; run it on a container backend with `YOLO_RUNTIME=container yolo` or " +
-		"`YOLO_RUNTIME=podman yolo`, or start without it with `YOLO_ALLOW_MISSING_PROGRAMS=1 yolo`" + step
+// starting without it.
+func macosUserForkWhy(reason string) string {
+	return strings.TrimSuffix(reason, ".") + "; run it on a container setup with `YOLO_SETUP=apple-container-self yolo` or " +
+		"`YOLO_SETUP=podman-self yolo`, or start without it with `YOLO_ALLOW_MISSING_PROGRAMS=1 yolo`"
 }
 
 // dryRunForkDeliveries is a macos-user DRY RUN's fork decisions, which build nothing: a fork the
@@ -284,10 +283,10 @@ func (o *Options) dryRunForkDeliveries() {
 		var why string
 		switch {
 		case p.Commit == "" && !p.Fork.Patched():
-			why = macosUserForkWhy(p.Reason, o.containerStepClause())
+			why = macosUserForkWhy(p.Reason)
 		case forkUnpublishedHere(p.Fork, rt) != "":
-			why = macosUserForkWhy("fork "+p.Fork.Pack+" builds for none of this jail's platform: "+
-				forkUnpublishedHere(p.Fork, rt), o.containerStepClause())
+			why = macosUserForkWhy("fork " + p.Fork.Pack + " builds for none of this jail's platform: " +
+				forkUnpublishedHere(p.Fork, rt))
 		default:
 			why = "a dry run builds no fork; a launch without --dry-run builds fork " + p.Fork.Key() + " for macOS"
 		}

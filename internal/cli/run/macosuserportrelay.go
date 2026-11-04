@@ -64,8 +64,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // The two config keys a relay can come from, spelled as the user's config spells them.
@@ -109,12 +111,15 @@ type macosUserPortPlan struct {
 
 // Why a remap is not relayed. The mode reasons are composed in macosUserRelaysWithheld, because
 // they name where the mode came from.
-const (
-	relayWhyUDP = "the relay carries TCP only, so the sandboxed process is reachable on the port " +
-		"it binds; list a TCP port, or use a container runtime (`runtime: \"podman\"`), whose " +
-		"published ports carry UDP"
-	relayWhySealed = "a sealed build gets no published port and no forward"
-)
+const relayWhySealed = "a sealed build gets no published port and no forward"
+
+// relayWhyUDP is why a UDP remap is not relayed, with its next step spelled for where the launch
+// was typed (setup.ContainerStep).
+func relayWhyUDP() string {
+	return "the relay carries TCP only, so the sandboxed process is reachable on the port it " +
+		"binds; list a TCP port, or use a container setup " + setup.ContainerStep(config.InJail()) +
+		", whose published ports carry UDP"
+}
 
 // macosUserPortPlan is the plan for this launch: nothing on any backend but macos-user, whose
 // container siblings deliver both keys through their own argv.
@@ -168,7 +173,7 @@ func planMacosUserPortRelays(cfg *jsonx.OrderedMap, withheld string) macosUserPo
 		case withheld != "":
 			skip(keyNetworkPorts, p.entry, withheld)
 		case p.proto != "tcp":
-			skip(keyNetworkPorts, p.entry, relayWhyUDP)
+			skip(keyNetworkPorts, p.entry, relayWhyUDP())
 		default:
 			ip := p.ip
 			if ip == "" {

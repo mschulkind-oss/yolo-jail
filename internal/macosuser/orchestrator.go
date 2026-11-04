@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/perside"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -351,9 +352,9 @@ type Options struct {
 	Fonts FontSetup
 }
 
-// SelfModeDisclosure is the line a run-as-you launch prints first (macos_user_mode "self"): who
+// SelfModeDisclosure is the line a run-as-you launch prints first (the seatbelt-self setup): who
 // the agent runs as, and what confines it instead of a second account.
-const SelfModeDisclosure = "[bold]macos-user runs the agent as you[/bold] (macos_user_mode \"self\", " +
+const SelfModeDisclosure = "[bold]macos-user runs the agent as you[/bold] (the seatbelt-self setup, " +
 	"experimental), with no second account, under the deny-by-default Seatbelt profile: it opens " +
 	"this workspace, the agent's own home in .yolo/home and the tools, and denies the rest of your " +
 	"files, your keychain and your other processes."
@@ -880,24 +881,18 @@ func printPerSideDisclosure(out printer, workspace string, cfg *jsonx.OrderedMap
 		}
 		msg += "; `python -m venv`, poetry, pipenv and mise's `_.python.venv` still use the shared path."
 	}
-	out.print(msg + " Where the two sides must not share them, use a container runtime " +
-		"(podman, or Apple Container), which shadows each per side" + containerStep(env) + ".")
+	out.print(msg + " Where the two sides must not share them, use a container setup " +
+		containerStep() + ", which shadows each per side.")
 }
 
-// containerStep is config.ContainerStepClause at the notch the run pipeline launched this session
-// at, read off the launch env it hands this backend (config.NotchEnv, set on a guest launch;
-// env-manager plan EMP-D4): "" at the jail notch, and at a guest the jail notch that a container
-// runtime also needs there, since the notch gate refuses a container runtime beside a macOS guest
-// (EMP-D5). Every message here whose next step names a container runtime appends it to that step.
-// launchEnv is Options.PackEnv, or the plan env layered over it; nil reads as the jail notch.
-func containerStep(launchEnv *jsonx.OrderedMap) string {
-	notch := config.ConfinementJail
-	if launchEnv != nil {
-		v, _ := launchEnv.Get(config.NotchEnv)
-		notch = config.SessionNotch(asStr(v))
-	}
-	return config.ContainerStepClause(notch)
-}
+// containerStep is the next step every message here offers when a container would shadow, mount
+// or build what this backend cannot: both container setups, spelled for where the launch was typed
+// (setup.ContainerStep; `YOLO_SETUP=` inside a launched session, `--setup` outside one).
+func containerStep() string { return setup.ContainerStep(config.InJail()) }
+
+// appleContainerStep is the Apple Container setup alone, spelled as containerStep spells it: the
+// step for packages that need a Linux build.
+func appleContainerStep() string { return setup.Choose("apple-container-self", config.InJail()) }
 
 // printResourceDispositions says, at launch and in a dry run, what this backend does with each
 // declared `resources` key: the cooperative cpus defaults with the values that won (env is the
@@ -1038,7 +1033,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// signal's status, not a refusal.
 
 	steps.begin("context_preflight")
-	kept, ok := runContextPreflight(deps, out, opts.runAs(), opts.HostCtx.Links, containerStep(opts.PackEnv))
+	kept, ok := runContextPreflight(deps, out, opts.runAs(), opts.HostCtx.Links, containerStep())
 	if !ok {
 		return deps.endingOr(1)
 	}
@@ -1047,7 +1042,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// (CacheRelocationPreflight), asked here for the same reasons. The write under the session's
 	// own profile needs the profile installed, so it waits for that step (relocation_probe).
 	if !runCacheRelocationProbes(deps, out, CacheRelocationPreflight(opts.runAs(), opts.HostCtx.Relocations),
-		containerStep(opts.PackEnv)) {
+		containerStep()) {
 		return deps.endingOr(1)
 	}
 
@@ -1103,9 +1098,9 @@ func RunMacosUser(deps Deps, opts Options) int {
 	}
 	if !ok {
 		out.printf("[bold red]Could not materialize packages natively:[/bold red] %s\n"+
-			"[dim]Fix the package, or use the Apple Container runtime "+
-			"(runtime: \"container\") which builds them in a Linux VM%s.[/dim]", errStr(err),
-			containerStep(opts.PackEnv))
+			"[dim]Fix the package, or use the Apple Container setup "+
+			"(%s), which builds them in a Linux VM.[/dim]", errStr(err),
+			appleContainerStep())
 		return 1
 	}
 	darwin = d
@@ -1163,8 +1158,8 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"  • mark it Linux-only and it becomes expected-absent here, still " +
 			"installed in a container:\n" +
 			"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
-			"  • or use the Apple Container runtime (runtime: \"container\"), which " +
-			"builds them in a Linux VM" + containerStep(opts.PackEnv) + "."
+			"  • or use the Apple Container setup (" + appleContainerStep() + "), which " +
+			"builds them in a Linux VM."
 		if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {
 			msg += "\n\n[dim]Already marked Linux-only and skipped without complaint: " +
 				strings.Join(excluded, ", ") + ".[/dim]"
@@ -1338,7 +1333,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	// are the ones they always were.
 	if len(plan.CacheRelocationProbes) > 0 {
 		steps.begin("relocation_probe")
-		if !runCacheRelocationProbes(deps, out, plan.CacheRelocationProbes, containerStep(opts.PackEnv)) {
+		if !runCacheRelocationProbes(deps, out, plan.CacheRelocationProbes, containerStep()) {
 			return deps.endingOr(1)
 		}
 	}
@@ -1833,7 +1828,7 @@ func applyDiskIOPolicy(deps Deps, out printer, p ioprio.Priority) {
 // a link's later probes are skipped once one fails, since its line is already written.
 //
 // No links asks nothing and prints nothing, which is every launch that declares no context mount.
-// step is containerStep's clause for the refusal's container-runtime step.
+// step is containerStep, the refusal's container-setup step.
 //
 // AN OPTIONAL LINK THE SANDBOX CANNOT REACH IS SKIPPED, not refused: one line, and it is absent
 // from the links returned, which are the ones the plan stages and the profile opens

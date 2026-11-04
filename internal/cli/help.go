@@ -79,7 +79,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"describe", "Print the resolved environment description (--json, --hash)"},
 	// At the jail notch the verb IS the launch `yolo -- true` performs (JR-D1, apply.go), which
 	// installs every program a selected pack declares before it exits (OQ-JR1).
-	{"apply", "Make the environment match its description (--at jail|guest|host; at jail it runs the launch's readiness act)"},
+	{"apply", "Make the environment match its description (--setup <name>; at a container setup it runs the launch's readiness act)"},
 	{"check-deps", "Probe the host for binaries the packs need; write an install manifest"},
 	// Leads with what a pack delivers rather than the authoring verbs: with the `agents`
 	// config key gone, `pack` is the only channel content reaches a jail through, so this

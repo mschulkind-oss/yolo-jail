@@ -129,8 +129,8 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 	o.Args = []string{"claude"}
 	o.ProfileName = "bedrock"
 	o.Getenv = func(name string) string {
-		if name == "YOLO_RUNTIME" {
-			return "macos-user"
+		if name == "YOLO_SETUP" {
+			return testSetupForRuntime("macos-user")
 		}
 		return env(name)
 	}

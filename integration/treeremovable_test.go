@@ -294,7 +294,7 @@ func TestRemoveWorkspaceTreeEscalatesWhenRemoveAllFails(t *testing.T) {
 	// stub is reached, so the sequence under test would silently become
 	// [remove, remove]. That is exactly how this test went red on check-macos
 	// while passing on every Linux job (run 34274235608).
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 
 	var order []string
 	restoreRemove, restoreUnshare := removeAllFn, unshareRemoveAllFn

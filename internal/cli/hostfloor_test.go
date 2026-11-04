@@ -408,7 +408,7 @@ func TestTheProductionFloorKnowsWhenThisMachineCannotCapture(t *testing.T) {
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	claude := hostfloor.Program{Pack: "claude", Install: packdecl.Install{Kind: "native", Bin: "claude",
 		InstallerURL: "https://example.invalid/install.sh"}}
 	empty := floortest.ResolvedTemp(t)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,9 +23,9 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/ttyproxy"
@@ -235,13 +234,12 @@ func Run(opts Options) (rc int) {
 			richtext.Escape(userFile) + ", or remove it.")
 		return 1
 	}
-	// THE NOTCH GATE, above the backend dispatch and above the repo-root gate, because
-	// which notch this is decides whether there is a launch at all — before which
-	// mechanism would run it, and before anything is built for it.
-	if rc, refused := refuseUnbuiltNotch(o, cfg); refused {
+	// THE SETUP GATE (setupgate.go), above the backend dispatch and above the repo-root gate,
+	// because which setup this is decides whether there is a launch at all — before which
+	// mechanism would run it, and before anything is built for it. The backend is the setup's.
+	if rc, refused := o.resolveSetup(cfg); refused {
 		return rc
 	}
-	o.atNotch = o.launchNotch(cfg)
 	rt, ok := o.resolveRuntime(cfg)
 	if !ok {
 		if o.readinessInterrupted() {
@@ -273,7 +271,7 @@ func Run(opts Options) (rc int) {
 		if o.DryRun {
 			o.pr(o.Stderr).print(
 				"[bold red]--dry-run is only supported for the macos-user runtime.[/bold red]  " +
-					`Set runtime: "macos-user" (or YOLO_RUNTIME=macos-user) to use it.`)
+					"Choose a Seatbelt setup (`--setup seatbelt-yolo-account` or `--setup seatbelt-self`) to use it.")
 			return 1
 		}
 		// Container backends need a flake to build the image from. A missing repo
@@ -754,6 +752,12 @@ func Run(opts Options) (rc int) {
 		// agent footer names the notch the briefing names (docs/reference/agent-footer.md, "The notch"), and
 		// the backend's own messages name a step that fits it. Set after the composition, so no
 		// pack env or env_sources entry can say otherwise. The jail notch sets nothing.
+		//
+		// THE SETUP, told to the session (setup.EnvVar; named-setups-plan.md SUP-D4): YOLO_SETUP
+		// is both the user's override and the session's fact, so a launch nested in this session
+		// selects the same setup. YOLO_CONFINEMENT stays beside it until its readers (the footer,
+		// the macos-user backend's next-step clause) read the setup instead (slice 9).
+		launchEnv.Set(setup.EnvVar, o.Setup.Name)
 		if o.atNotch == config.ConfinementGuest {
 			launchEnv.Set(config.NotchEnv, string(config.ConfinementGuest))
 		}
@@ -1141,7 +1145,7 @@ func Run(opts Options) (rc int) {
 			return 1
 		}
 		ctxDelivery.ctx.HostImportExclusions = staged.hostImportExclusions
-		// notchConfig, not cfg: the briefing states the notch, and `--at guest` names one the
+		// notchConfig, not cfg: the briefing states the notch, and `--setup` names one the
 		// config's `confinement` key does not (EMP-D1). Everything else here reads cfg.
 		sp = o.Perf.Span("launch.refresh_jail_briefings")
 		facts := o.mechanicsFactSheet(cname, o.notchConfig(cfg), rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)
@@ -3648,163 +3652,20 @@ func resPartsFor(cfg *jsonx.OrderedMap, rt string) []string {
 	return parts
 }
 
-// refuseUnbuiltNotch stops a launch at a notch no backend here runs, and reports the exit
-// code and whether it did. A launch runs two notches: `jail` on every platform, and `guest` on
-// macOS, where it is the macos-user backend (env-manager plan Phase 7.1, EMP-D1).
-//
-// TWO INPUTS, ONE JUDGEMENT. The notch is the config's `confinement` key, overridden by
-// `--at <notch>` as typed on this launch (Options.Notch). Both were accepted and neither
-// was acted on: DP-B16 is the config half, DP-B22 the flag half, and they are one gate
-// because a launch that refused the key while ignoring the flag would still let
-// `yolo --at guest -- <cmd>` run in a container.
-//
-// WHAT IT FIXES (docs/design/declaration-parity.md DP-B16, ruled by OQ-DP3): `guest` and
-// `host` were ACCEPTED here, validated by config.validateConfinement, printed by `yolo
-// describe` — and never dispatched on. A container started regardless, and then the
-// briefing told the agent the opposite of what had happened: at `guest`, *"a restricted
-// account on the real machine, NOT a disposable container … your home is real and
-// persists"* (jailcontent.confinementHeader), every sentence of it false of the container
-// it was rendered into. `yolo apply` refused the identical value with rc 1 the whole time,
-// so one config key meant two things depending on which verb read it.
-//
-// THE MACOS GUEST IS HONORED, NOT REFUSED. There the briefing's sentences are true: the
-// macos-user backend is a restricted account on the real machine with a home that persists.
-// So a macOS guest passes this gate, and resolveRuntime then selects that backend with no
-// `runtime` key (config.NotchRuntime). What it refuses there is a CONTRADICTION: a
-// YOLO_RUNTIME or `runtime` key naming a container runtime asks for a container at a notch
-// that has none, and honoring either input would silently drop the other (EMP-D1).
-//
-// A LINUX GUEST IS REFUSED, NOT HONORED, and not warned about either. Honoring it is plan
-// Phase 7.2 (bwrap + Landlock), unwritten. A warning was the weaker option and was not taken:
-// OQ-BP-3 (docs/design/backend-parity.md) is live and says *"a warning people learn to skip is
-// worse than none"*, and a warned launch still hands the agent the contradicting briefing.
-//
-// ⚠ WHY REFUSING A CONFIG KEY IS SAFE HERE, when docs/design/declaration-parity.md §10
-// explicitly declines to refuse keys a mechanism has always tolerated (`gpu` on macOS, and
-// the rest): `confinement` is not a mechanism-varying key. It resolves to the same value on
-// every platform and every backend, so a shared config carried between a Linux box and a Mac
-// loses nothing it ever had to this refusal: the Mac launches the guest notch, and the Linux
-// box says it cannot and what to run instead.
-//
-// The guest sentence is render.NotchUnbuilt's, VERBATIM — `yolo apply --at guest` has
-// printed it since Phase 2 and the two must not drift (see that function).
-func refuseUnbuiltNotch(o *Options, cfg *jsonx.OrderedMap) (int, bool) {
-	if o.Notch != "" && !slices.Contains(config.KnownConfinements, config.Confinement(o.Notch)) {
-		// VALIDATED HERE, not in the parser: config.ResolveConfinement answers `jail`
-		// for a value it does not know (validateConfinement is what reports it), so a
-		// typo'd `--at gest` would silently launch a jail — an override that failed
-		// OPEN, which is the shape `yolo apply --at` already refuses with rc 2. Same
-		// code, same vocabulary, so the two spellings of the flag agree.
-		o.pr(o.Stderr).printf("[bold red]yolo: --at %q is not a confinement level "+
-			"(jail|guest|host)[/bold red]", o.Notch)
-		return 2, true
-	}
-	notch := o.launchNotch(cfg)
-	// WHERE THE VALUE CAME FROM, said in the refusal. A user who typed `--at guest` and
-	// is told to edit `confinement` will go looking for a key they never wrote; a user
-	// whose config carries it and is told to drop a flag will not find the flag. The
-	// remedy has to name the thing the reader can actually change.
-	source := "`confinement` in your config"
-	fix := "Set it to \"jail\" (the default), or leave the key out entirely"
-	if o.Notch != "" {
-		source = "the `--at " + o.Notch + "` you typed"
-		fix = "Drop the flag (or pass `--at jail`) to launch this workspace's jail"
-	}
-	switch notch {
-	case config.ConfinementGuest:
-		if o.IsMacOS {
-			return refuseGuestRuntimeConflict(o, cfg, source)
-		}
-		o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s[/bold red]",
-			render.NotchUnbuilt("launch"))
-		o.pr(o.Stderr).printf("[dim]The notch is %s, and yolo validates it — which is why "+
-			"this reads as a refusal rather than a typo. %s; or run the command on the real "+
-			"machine, with no sandbox at all, through `yolo host -- <cmd>`. `yolo describe` "+
-			"prints what each notch would compose.[/dim]", source, fix)
-		return 1, true
-	case config.ConfinementHost:
-		// The host notch is BUILT — it simply is not something a launch does. `yolo host
-		// -- <cmd>` is its exec verb and `yolo apply --at host` renders into the real
-		// home, so this refusal names them instead of borrowing the guest sentence: a
-		// notch with two working verbs is not "not built yet".
-		o.pr(o.Stderr).printf("[bold red]Refusing to launch: the host notch (%s) means no "+
-			"jail around this process, and a launch is the one verb that cannot honor "+
-			"it — every backend puts the command inside a sandbox.[/bold red]", source)
-		o.pr(o.Stderr).printf("[dim]The host notch has its own verbs: `yolo host -- <cmd>` "+
-			"runs the command on the real machine with the composed environment, and "+
-			"`yolo apply --at host` renders your config into your real home. %s.[/dim]", fix)
-		return 1, true
-	}
-	return 0, false
-}
-
-// refuseGuestRuntimeConflict is the macOS guest's half of the notch gate: the notch runs on
-// macos-user (config.GuestRuntime), so an explicit runtime naming anything else is refused,
-// naming both inputs and how to keep either one. notchSource is the gate's own phrase for
-// where the notch came from.
-//
-// REFUSED RATHER THAN RESOLVED, because each answer drops a declaration silently: the notch
-// winning would ignore a `runtime` the user wrote, and the runtime winning would launch a
-// container at a notch that promises the agent a real account (EMP-D1). Agreement passes:
-// `runtime: "macos-user"` with `confinement: "guest"` is one launch said twice.
-func refuseGuestRuntimeConflict(o *Options, cfg *jsonx.OrderedMap, notchSource string) (int, bool) {
-	rt, src, conflict := config.NotchRuntimeConflict(o.Getenv("YOLO_RUNTIME"), cfg,
-		config.ConfinementGuest, o.IsMacOS)
-	if !conflict {
-		return 0, false
-	}
-	named := "`runtime: \"" + rt + "\"` in your config"
-	keepNotch := "remove that `runtime` key (or set it to \"" + config.GuestRuntime + "\")"
-	if src == config.RuntimeFromEnv {
-		named = "YOLO_RUNTIME=" + rt
-		keepNotch = "unset YOLO_RUNTIME"
-	}
-	// FROM THE FLAG, THE STEP REPLACES IT rather than dropping it: the flag outranks the config,
-	// so `--at jail` keeps the runtime whatever `confinement` says, while a dropped flag falls
-	// back to that key, which may say guest too.
-	keepRuntime := "set `confinement` to \"jail\" or remove it"
-	if o.Notch != "" {
-		keepRuntime = "pass `--at jail` in place of `--at " + o.Notch + "`"
-	}
-	o.pr(o.Stderr).printf("[bold red]Refusing to launch: the guest notch (%s) runs on the "+
-		"%s backend on macOS, and %s asks for %s instead. The two name different launches."+
-		"[/bold red]", notchSource, config.GuestRuntime, named, rt)
-	o.pr(o.Stderr).printf("[dim]Drop one: to launch the guest notch, %s; to launch a %s "+
-		"jail, %s.[/dim]", keepNotch, rt, keepRuntime)
-	return 1, true
-}
-
-// launchNotch is the notch this launch runs at: the config's `confinement`, overridden by a
-// known `--at` (Options.Notch). refuseUnbuiltNotch refuses an unknown `--at` before anything
-// else reads this, which is why an unknown one falls back to the config here rather than
-// failing twice.
-func (o *Options) launchNotch(cfg *jsonx.OrderedMap) config.Confinement {
-	if n := config.Confinement(o.Notch); slices.Contains(config.KnownConfinements, n) {
-		return n
-	}
-	return config.ResolveConfinement(cfg)
-}
-
-// containerStepClause is config.ContainerStepClause at this launch's notch (atNotch): "" at the
-// jail notch, and at a guest the jail notch that a container runtime also needs there, since the
-// notch gate refuses a container runtime beside a macOS guest (EMP-D5). Every macos-user printer
-// whose next step names a container runtime appends it to that step, so the step is one the
-// launch takes.
-func (o *Options) containerStepClause() string { return config.ContainerStepClause(o.atNotch) }
-
 // notchConfig is cfg as this launch's notch reads it, for the one reader that states the
 // notch to the agent: the briefing (refreshJailBriefings → BriefingInput.Confinement), which
-// takes the notch from the config's `confinement` key. With no `--at`, or one that agrees
-// with the key, it is cfg itself. Otherwise it is a shallow copy whose `confinement` is the
-// flag's, so `yolo --at guest -- <cmd>` on macOS tells the agent it is at the guest notch,
-// as `confinement: "guest"` does.
+// takes the notch from the config's `confinement` key. When the key already says the notch
+// the setup derives (atNotch, resolveSetup), or no setup was resolved, it is cfg itself.
+// Otherwise it is a shallow copy whose `confinement` is the setup's, so `yolo --setup
+// seatbelt-self -- <cmd>` tells the agent it is at the guest notch, as `confinement: "guest"`
+// did. Slice 9 of named-setups-plan.md names the setup there instead.
 //
 // A COPY, never an edit of cfg: the merged config is also what the config-change approval
-// compares and what the backend records as this launch's boot baseline, and a flag typed
+// compares and what the backend records as this launch's boot baseline, and a setup chosen
 // on one launch is neither.
 func (o *Options) notchConfig(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
-	notch := o.launchNotch(cfg)
-	if cfg == nil || notch == config.ResolveConfinement(cfg) {
+	notch := o.atNotch
+	if cfg == nil || notch == "" || notch == config.ResolveConfinement(cfg) {
 		return cfg
 	}
 	cp := jsonx.NewOrderedMap()

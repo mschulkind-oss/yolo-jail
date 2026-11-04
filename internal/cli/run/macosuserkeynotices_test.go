@@ -140,7 +140,7 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 		"8000:3000, 8001:3001/tcp are port REMAPs, which this launch relays from outside the sandbox (TCP).",
 		"8080:9090 is a port REMAP, which this launch relays from outside the sandbox (TCP).",
 		"8002:3002/udp is a port REMAP this launch does not relay: the relay carries TCP only",
-		"`runtime: \"podman\"`",
+		"or use a container setup (`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the notice lacks %q:\n%s", want, got)
@@ -157,13 +157,13 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 	// does not keep that port private.
 	if !strings.Contains(got, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
 		"sandbox, on a port no relay named here publishes on a real interface, or use a container "+
-		"runtime (`runtime: \"podman\"`), whose published ports are the only way in.") {
+		"setup (`") || !strings.Contains(got, "), whose published ports are the only way in.") {
 		t.Errorf("the `ports` warning names no next step:\n%s", got)
 	}
 	// With nothing relayed, the step is the plain one.
 	same := macosUserNoticeRun(t, `{"network": {"ports": ["3000:3000"]}}`)
 	if !strings.Contains(same, "To keep a service on this Mac alone, bind it to `127.0.0.1` in the "+
-		"sandbox, or use a container runtime") || strings.Contains(same, "no relay named here") {
+		"sandbox, or use a container setup (`") || strings.Contains(same, "no relay named here") {
 		t.Errorf("a same-port `ports` list's warning has the wrong step:\n%s", same)
 	}
 	// A forward list whose every remap is relayed leaves nothing undone, so it is a disclosure,

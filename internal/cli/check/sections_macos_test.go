@@ -289,8 +289,8 @@ func TestYoloCheckFailsAMacWhoseWorkspaceTheLaunchRefuses(t *testing.T) {
 		return reporoot.Resolution{Root: repo, Source: reporoot.FromEnv}, true
 	}
 	opts.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "macos-user"
+		if k == "YOLO_SETUP" {
+			return "seatbelt-yolo-account"
 		}
 		return "" // on the host
 	}

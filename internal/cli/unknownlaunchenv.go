@@ -30,11 +30,11 @@ func warnUnknownYOLOEnv(known []string, environ []string, out io.Writer) {
 }
 
 // unknownYOLOEnvNextStep is the warning's next step, chosen to fit the name: a name that reads
-// as a runtime choice is pointed at YOLO_RUNTIME, a near-miss of a recognized setting at that
+// as a runtime choice is pointed at YOLO_SETUP, a near-miss of a recognized setting at that
 // setting, and anything else at the reference that documents launch settings.
 func unknownYOLOEnvNextStep(name string, known []string) string {
 	if looksLikeRuntimeChoice(name) {
-		return "unset " + name + ". To choose a container runtime, use YOLO_RUNTIME=podman yolo."
+		return "unset " + name + ". To choose where it runs, use YOLO_SETUP=podman-self yolo (yolo setup list names every setup)."
 	}
 	if near := closestKnownYOLOEnv(name, known); near != "" {
 		return "did you mean " + near + "? Rename it to " + near + ", or unset " + name + "."

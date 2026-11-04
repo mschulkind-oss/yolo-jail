@@ -34,7 +34,7 @@ func packBuildHome(t *testing.T, build, extra string) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	t.Chdir(floortest.ResolvedTemp(t))
 	previousProbe := probeForkBuildContainer
 	probeForkBuildContainer = func(string, string, time.Duration) (bool, bool) { return false, true }
@@ -209,7 +209,7 @@ func TestPackBuildBuildsADevOverridesCheckout(t *testing.T) {
 	}
 }
 
-// `--at host` on a Mac is the darwin act (FP-D24), which builds a pack's tree (the plan's Task 10):
+// `--setup host-self` on a Mac is the darwin act (FP-D24), which builds a pack's tree (the plan's Task 10):
 // the build jail is booted on macos-user and handed the placement script from the act's own
 // checkout, for darwin. A bad --at is a usage refusal.
 func TestPackBuildAtHostOnAMacBuildsInTheDarwinAct(t *testing.T) {
@@ -222,19 +222,22 @@ func TestPackBuildAtHostOnAMacBuildsInTheDarwinAct(t *testing.T) {
 	var seen run.Options
 	fake := fakePackBuildJail(t, &runs, 0)
 	withFakeCaptureJail(t, func(o run.Options) int { seen = o; return fake(o) })
-	rc, out, errw := packBuildRun(t, "--at", "host", "fx")
+	rc, out, errw := packBuildRun(t, "--setup", "host-self", "fx")
 	if rc != 0 || runs != 1 || !strings.Contains(out, "built") || !strings.Contains(out, "darwin/") {
 		t.Fatalf("rc %d, %d runs, want one darwin build\nout:\n%s\nerr:\n%s", rc, runs, out, errw)
 	}
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+	if pipelineBackend(seen) != "macos-user" {
 		t.Errorf("the build jail was not booted on macos-user")
 	}
-	if rc, _, errw := packBuildRun(t, "--at", "moon"); rc != 2 || !strings.Contains(errw, "jail") {
-		t.Errorf("--at moon: rc %d, want a usage refusal\n%s", rc, errw)
+	if rc, _, errw := packBuildRun(t, "--setup", "moon"); rc != 2 || !strings.Contains(errw, "yolo setup list") {
+		t.Errorf("--setup moon: rc %d, want a usage refusal naming the defined setups\n%s", rc, errw)
+	}
+	if rc, _, errw := packBuildRun(t, "--at", "host"); rc != 2 || !strings.Contains(errw, "yolo pack build --setup host-self") {
+		t.Errorf("--at host: rc %d, want a usage refusal naming --setup host-self\n%s", rc, errw)
 	}
 }
 
-// OQ-BG2 AS RULED, ON `yolo pack build --at host` ON A MAC WITH NO SANDBOX ACCOUNT: the build
+// OQ-BG2 AS RULED, ON `yolo pack build --setup host-self` ON A MAC WITH NO SANDBOX ACCOUNT: the build
 // environment was never set up, so the verb refuses — naming `yolo yolo-account create` and, since the pack
 // declares a darwin prebuilt, the explicit opt-in — and fetches nothing: a prebuilt is never
 // substituted for a present source. With the user's opt-in (`programs.overrides.x.prebuilt`, BG-D18)
@@ -257,7 +260,7 @@ func TestPackBuildOnAMacWithNoSandboxAccountRefusesAndTheOptInTakesThePrebuilt(t
 			withMac(t, macSetup{})
 			runs := 0
 			withFakeCaptureJail(t, fakePackBuildJail(t, &runs, 0))
-			rc, out, errw := packBuildRun(t, "--at", "host", "fx")
+			rc, out, errw := packBuildRun(t, "--setup", "host-self", "fx")
 			if tc.extra == "" {
 				if rc != 1 || runs != 0 || hits.Load() != 0 {
 					t.Fatalf("rc %d, %d jail runs, %d fetches; want 1, none, none\nout:\n%s\nerr:\n%s",
@@ -283,7 +286,7 @@ func TestPackBuildOnAMacWithNoSandboxAccountRefusesAndTheOptInTakesThePrebuilt(t
 func TestPackHelpListsBuild(t *testing.T) {
 	var out, errw bytes.Buffer
 	packMain([]string{"--help"}, &out, &errw, false)
-	if !strings.Contains(out.String(), "yolo pack build [<pack>...] [--force] [--at jail|host]") {
+	if !strings.Contains(out.String(), "yolo pack build [<pack>...] [--force] [--setup <name>]") {
 		t.Errorf("yolo pack --help does not list build:\n%s", out.String())
 	}
 }

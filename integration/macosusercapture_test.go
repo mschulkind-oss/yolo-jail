@@ -219,7 +219,7 @@ func TestMacosUserLaunchesMaterializeACapturedFixture(t *testing.T) {
 	f := newCaptureFixture(t, "yolocapstoreprobe")
 	t.Cleanup(func() { removeUserStoreEntries(t, f.bin) })
 
-	c := runCommand(t, t.TempDir(), []string{"capture", f.bin}, withTimeout(macosUserTimeout()), macosUserRunEnv())
+	c := runCommand(t, t.TempDir(), []string{"capture", f.bin}, withTimeout(macosUserTimeout()), macosUserRunEnv("account"))
 	if c.rc != 0 {
 		t.Fatalf("yolo capture %s: rc %d\nstdout:\n%s\nstderr:\n%s", f.bin, c.rc, c.stdout, c.stderr)
 	}

@@ -307,7 +307,7 @@ func TestEveryForkCaptureStopNamesItsNextStep(t *testing.T) {
 // admit and the receipt read.
 func TestASealedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
 	f := forkBuildHome(t)
-	t.Setenv("YOLO_RUNTIME", "macos-user")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	var seen run.Options
 	withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
 	var got macosuser.ForkBuildOptions
@@ -333,7 +333,7 @@ func TestASealedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
 	if seen.MacosUserRun == nil || !seen.Sealed {
 		t.Fatal("the fork's build jail carries no sealed macos-user arm")
 	}
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+	if pipelineBackend(seen) != "macos-user" {
 		t.Fatal("the build was not handed the macos-user runtime it was filed under")
 	}
 	rc := seen.MacosUserRun(jsonx.NewOrderedMap(), seen.Workspace, nil, nil, "/flake", "/packs",

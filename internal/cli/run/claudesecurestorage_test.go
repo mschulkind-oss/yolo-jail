@@ -222,7 +222,7 @@ func TestTheRunAsYouSessionPointsClaudesStoreAtTheSharedStore(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.DryRun = true
-	o.MacosUserMode = macosuser.ModeSelf
+	selectMacosUserMode(o, macosuser.ModeSelf)
 	o.MacosUserHostHome = hostHome
 	var got *jsonx.OrderedMap
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,

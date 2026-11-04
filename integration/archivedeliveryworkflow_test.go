@@ -145,7 +145,7 @@ func TestArchiveDeliveryJobsDeclareTheirBackendAndTakeNoPreload(t *testing.T) {
 	}
 	for _, want := range []string{
 		macArchiveDeclareEnv + ": podman",
-		"YOLO_RUNTIME: podman",
+		"YOLO_SETUP: podman-self",
 		`YOLO_NIX_HOST_DAEMON: "1"`,
 		macArchiveTestPrefix,
 		"go test -list",

@@ -19,8 +19,8 @@ import (
 // THE APPLE CONTAINER PARITY SUITE — the smallest set of facts that, if they hold, means
 // the backend the README recommends for macOS actually works.
 //
-// WHY IT EXISTS. No CI job anywhere runs Apple Container: every job that sets YOLO_RUNTIME
-// sets podman (ci.yml, nightly-macos.yml, packs.yml ×2 — counted 2026-09-14), and
+// WHY IT EXISTS. No CI job anywhere runs Apple Container: every job that sets YOLO_SETUP
+// sets podman-self (ci.yml, nightly-macos.yml, packs.yml ×2 — counted 2026-09-14, as YOLO_RUNTIME), and
 // macos-user.yml sets none because that backend starts no container. So an AC-only divergence is caught by nothing, and both
 // issues in this class — #39 (pack SharedDirs never mounted) and #44 (the staged pack tree
 // never mounted, so no agent reaches the jail at all) — were found by a human on hardware,
@@ -153,7 +153,7 @@ func requireAppleContainer(t *testing.T) {
 // (so there is a staged pack tree and a machine-wide SharedDir to look for) and the runtime
 // forced to Apple Container per launch.
 //
-// YOLO_RUNTIME is set PER LAUNCH rather than job-wide so a developer can run one of these by
+// YOLO_SETUP is set PER LAUNCH rather than job-wide so a developer can run one of these by
 // hand on a Mac without re-flagging their whole environment, and so the harness's own
 // detectRuntime sees the same answer the launch does.
 func appleContainerWorkspace(t *testing.T) string {
@@ -164,7 +164,7 @@ func appleContainerWorkspace(t *testing.T) string {
 }
 
 func appleContainerEnv() runOption {
-	return withEnv("YOLO_RUNTIME=container")
+	return withEnv("YOLO_SETUP=apple-container-self")
 }
 
 // TestAppleContainerJailStarts is the floor, and it is deliberately the dullest possible

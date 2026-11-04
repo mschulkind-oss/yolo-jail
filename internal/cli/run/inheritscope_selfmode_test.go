@@ -69,7 +69,7 @@ func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRe
 		var stdout, stderr bytes.Buffer
 		var installErr error
 		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-		o.MacosUserMode = mode
+		selectMacosUserMode(o, mode)
 		o.MacosUserLaunchProbes = func() macosuser.LaunchProbes {
 			p := setUpMacProbes()
 			p.Geteuid = os.Geteuid

@@ -235,7 +235,7 @@ func TestANestedLaunchDeliversNoTreeAndNamesTheHost(t *testing.T) {
 	var stderr strings.Builder
 	o.Stderr = &stderr
 	o.noteTreeDeliveries("podman")
-	if !strings.Contains(stderr.String(), "is not mounted in this jail") || strings.Contains(stderr.String(), "YOLO_RUNTIME=podman") {
+	if !strings.Contains(stderr.String(), "is not mounted in this jail") || strings.Contains(stderr.String(), "--setup podman-self") {
 		t.Errorf("a nested launch's line = %q, want the host named and no runtime to switch to", stderr.String())
 	}
 	if o.patchedTreesWire("podman")[treeKey].Stop {

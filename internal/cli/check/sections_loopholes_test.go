@@ -805,12 +805,19 @@ func recordPackModule(t *testing.T, mod string, approved bool) {
 // reporter and its rendered output.
 func runCheckLoopholes(t *testing.T, workspace string) (*reporter, string) {
 	t.Helper()
+	return runCheckLoopholesOn(t, workspace, false)
+}
+
+// runCheckLoopholesOn is runCheckLoopholes on macOS (true) or Linux (false): a setup a removed
+// `runtime: "container"` chooses is a Mac's, so a test about Apple Container states the Mac.
+func runCheckLoopholesOn(t *testing.T, workspace string, macOS bool) (*reporter, string) {
+	t.Helper()
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
 	// Getenv empty for every key, so inJail() is false: this suite runs INSIDE a jail,
 	// where the real YOLO_VERSION would send the section down the skip branch and every
 	// assertion below would pass for the wrong reason.
-	o := &Options{Workspace: workspace, Getenv: func(string) string { return "" }}
+	o := &Options{Workspace: workspace, Getenv: func(string) string { return "" }, IsMacOS: macOS}
 	fillDefaults(o)
 	o.checkLoopholes(r)
 	return r, buf.String()

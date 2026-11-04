@@ -38,7 +38,7 @@ func TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge(t *testing.T) {
 	for _, tc := range []struct{ cfg, spelling string }{
 		{claudeCodex, "host -p codex -- claude"},
 		{claudeCodex, "-p codex host -- claude"},
-		{claudeCodex, "--at host -p codex -- claude"},
+		{claudeCodex, "--setup host-self -p codex -- claude"},
 		{`{"host_management":"own","host_apply_on_launch":false,"packs": ["claude", "codex-auth"], "profile": {"claude": "codex"}}`, "host -- claude"},
 	} {
 		t.Run(tc.spelling, func(t *testing.T) {

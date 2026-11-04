@@ -68,7 +68,7 @@ func TestAccountSecurityAdapterCarrierFollowsOnlyTheResolvedMacosUserView(t *tes
 		{"container view", "podman", macosuser.ModeAccount, "1", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o.MacosUserMode = tc.mode
+			selectMacosUserMode(o, tc.mode)
 			o.Getenv = viewEnv(tc.view)
 			if got := o.claudeSecurityCompatMode(tc.rt, jsonx.NewOrderedMap()); got != tc.want {
 				t.Fatalf("carrier mode = %q, want %q", got, tc.want)
@@ -185,7 +185,7 @@ func TestRegistrationUsesTheClaudeHomeForEachMode(t *testing.T) {
 		{name: "Apple Container home", rt: "container", mode: macosuser.ModeSelf, want: ".claude"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o.MacosUserMode = tc.mode
+			selectMacosUserMode(o, tc.mode)
 			o.MacosUserHostHome = "/Users/you"
 			o.registerClaudeCredentialView(tc.rt, "yolo-ws", jsonx.NewOrderedMap())
 			loc := got[len(got)-1]
@@ -265,7 +265,7 @@ func TestMacosUserViewNoticeReflectsTheInstalledCompatibilityPath(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o := goldenOptions(t.TempDir(), t.TempDir())
-			o.MacosUserMode = tc.mode
+			selectMacosUserMode(o, tc.mode)
 			o.Getenv = viewEnv("1")
 			var stderr bytes.Buffer
 			o.Stderr = &stderr
@@ -302,14 +302,14 @@ func TestMacosUserKeeperRegistersModeSpecificLocationIntoTheFinalEnvironment(t *
 			var stdout, stderr bytes.Buffer
 			o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 			o.DryRun = false
-			o.MacosUserMode = tc.mode
+			selectMacosUserMode(o, tc.mode)
 			o.MacosUserHostHome = t.TempDir()
 			o.Getenv = func(k string) string {
 				switch k {
 				case claudeview.SwitchEnv:
 					return "1"
-				case "YOLO_RUNTIME":
-					return "macos-user"
+				case "YOLO_SETUP":
+					return testSetupForRuntime("macos-user")
 				default:
 					return ""
 				}
@@ -360,7 +360,7 @@ func TestMacosUserKeeperRegistersModeSpecificLocationIntoTheFinalEnvironment(t *
 func TestMacosUserKeeperRoundTripsTheResolvedModeInsteadOfReadingConfig(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
-	o.MacosUserMode = macosuser.ModeSelf
+	selectMacosUserMode(o, macosuser.ModeSelf)
 	o.macosUserKey = &macosUserKeying{}
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("macos_user_mode", "account") // stale config must not override the resolved launch mode

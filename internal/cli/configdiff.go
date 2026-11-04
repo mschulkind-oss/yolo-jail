@@ -139,7 +139,7 @@ func parseSurfaceIdentity(cmd, identity string, errw io.Writer) (agent, surface 
 // (ownedHostRender.capture) — not the jail notch's captureSurfaceAt, whose layer-less
 // composition at the autonomous posture erased edits the apply keeps. So it adds no writer the
 // render disagrees with; it folds early what the next apply folds, which is the visibility
-// `yolo config diff --at host` was missing. Under `none` (and the retired `assert`) there is
+// `yolo config diff --setup host-self` was missing. Under `none` (and the retired `assert`) there is
 // NO store, so a capture has nothing to write into — and --force was no
 // answer there: it ran, found no baseline, and reported every surface "never rendered here".
 // That case is refused before --force is read, naming the contract that keeps a store.
@@ -193,7 +193,7 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 		"really mean to write the host's files.\n", cmd)
 	// ⚠ THE `own` REMEDY THAT SAT HERE IS GONE, and what removed it is the arm above rather
 	// than a change of mind. It told a user standing in a workspace that their owned real
-	// home was reachable with `--at host`, because before [OQ-CR4] a jail-notch reset refused
+	// home was reachable with `--setup host-self`, because before [OQ-CR4] a jail-notch reset refused
 	// and that shipped path would otherwise have become unreachable without guessing the
 	// flag. A jail-notch reset no longer refuses, so the branch was unreachable — and the
 	// sentence would have been wrong anyway: the user is now acting on the jail they asked
@@ -924,7 +924,7 @@ func holdOwnedHostLock(t configTarget, cmd, what, identity string, errw io.Write
 	if lock == nil {
 		fmt.Fprintf(errw, "yolo config %s: %s — another yolo process is writing this home right "+
 			"now (a `yolo host -- <agent>` launch's apply, or another `yolo config reset` or "+
-			"`capture`), or its lock under %s cannot be taken. Run `yolo config %s %s --at host` "+
+			"`capture`), or its lock under %s cannot be taken. Run `yolo config %s %s --setup host-self` "+
 			"again once it has finished.\n", cmd, what,
 			prettyHomePath(t.store.Home, filepath.Dir(hostApplyLockPath(t.store.Home))), cmd,
 			identity)

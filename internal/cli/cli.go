@@ -146,7 +146,7 @@ func Main(argv []string) int {
 	// side effects.
 	args = applyVerboseFlag(args)
 
-	// The front door's one decision (routeArgv): the verb, the notch a launch's `--at` names,
+	// The front door's one decision (routeArgv): the verb, the setup a launch's `--setup` names,
 	// and the argv. A bare `yolo` or `yolo <flags>` (no leading positional) opens an
 	// interactive jail shell via `run` (Python's invoke_without_command); a leading positional
 	// that isn't a subcommand (a typo'd `yolo chekc`) is an error, so typos don't silently

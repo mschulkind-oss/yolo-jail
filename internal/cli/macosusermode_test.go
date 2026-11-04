@@ -10,13 +10,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // macosModeLaunch runs `yolo -- true` with userCfg as the user config, captures the run.Options
-// the front door hands the pipeline, then invokes the macos-user handler it found with the
-// backend stubbed, and returns both Options and the handler's exit code. The handler is the
-// REAL closure the run command assembled, so deleting the mode's wiring from it fails a test.
-func macosModeLaunch(t *testing.T, userCfg string) (run.Options, macosuser.Options, bool, int) {
+// the front door hands the pipeline, fills its SetupRef with setupName as the launch's setup gate
+// does (run.Options.resolveSetup; its own tests pin that), then invokes the macos-user handler it
+// found with the backend stubbed, and returns both Options and the handler's exit code. The
+// handler is the REAL closure the run command assembled, so deleting the mode's wiring from it
+// fails a test.
+func macosModeLaunch(t *testing.T, userCfg, setupName string) (run.Options, macosuser.Options, bool, int) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -34,7 +37,14 @@ func macosModeLaunch(t *testing.T, userCfg string) (run.Options, macosuser.Optio
 	}
 	var seen run.Options
 	prevPipeline := launchRunPipeline
-	launchRunPipeline = func(o run.Options) int { seen = o; return 0 }
+	launchRunPipeline = func(o run.Options) int {
+		if o.SetupRef == nil {
+			t.Fatal("the front door handed the pipeline no SetupRef for the gate to fill")
+		}
+		o.SetupRef.Setup = setup.MustBuiltIn(setupName)
+		seen = o
+		return 0
+	}
 	t.Cleanup(func() { launchRunPipeline = prevPipeline })
 	var backend macosuser.Options
 	called := false
@@ -55,17 +65,17 @@ func macosModeLaunch(t *testing.T, userCfg string) (run.Options, macosuser.Optio
 	return seen, backend, called, rc
 }
 
-// TestMacosLaunchPassesSelfModeToTheBackend: `"macos_user_mode": "self"` in the user config now
-// LAUNCHES (slice 6), and both readers get it from one read: the pipeline (run.Options, which its
-// package-cache alias and siting read) and the backend (macosuser.Options), with the invoking
-// user's home and name. Fails if either half of the wiring is deleted.
+// TestMacosLaunchPassesSelfModeToTheBackend: the seatbelt-self setup runs the sandbox as you
+// (named-setups.md; the macos-user mode is the setup's run_as), and the backend reads it off the
+// SetupRef the gate fills, with the invoking user's home and name. Fails if the handler stops
+// reading the setup.
 func TestMacosLaunchPassesSelfModeToTheBackend(t *testing.T) {
-	seen, backend, called, rc := macosModeLaunch(t, `{"macos_user_mode": "self"}`)
+	seen, backend, called, rc := macosModeLaunch(t, "", "seatbelt-self")
 	if !called || rc != 7 {
 		t.Fatalf("the handler did not reach the backend (called %v, rc %d)", called, rc)
 	}
-	if backend.Mode != macosuser.ModeSelf || seen.MacosUserMode != macosuser.ModeSelf {
-		t.Errorf("mode: backend %v, pipeline %v; want self for both", backend.Mode, seen.MacosUserMode)
+	if backend.Mode != macosuser.ModeSelf {
+		t.Errorf("mode: backend %v; want self, the setup's run_as", backend.Mode)
 	}
 	home, _ := filepath.EvalSymlinks(os.Getenv("HOME"))
 	if backend.HostHome != home || seen.MacosUserHostHome != home || backend.HostUser != "you" {
@@ -79,25 +89,24 @@ func TestMacosLaunchPassesSelfModeToTheBackend(t *testing.T) {
 // profile (macosuser.Options). Absent, both read false. Fails if either half of the wiring is
 // deleted.
 func TestMacosLaunchPassesTheSharedTmpHatch(t *testing.T) {
-	seen, backend, called, _ := macosModeLaunch(t, `{"macos_user_mode": "self", "macos_user_shared_tmp": true}`)
+	seen, backend, called, _ := macosModeLaunch(t, `{"macos_user_shared_tmp": true}`, "seatbelt-self")
 	if !called || !backend.SharedTmp || !seen.MacosUserSharedTmp {
 		t.Errorf("hatch set: called %v, backend %v, pipeline %v; want true for both", called,
 			backend.SharedTmp, seen.MacosUserSharedTmp)
 	}
-	seen, backend, _, _ = macosModeLaunch(t, `{"macos_user_mode": "self"}`)
+	seen, backend, _, _ = macosModeLaunch(t, "", "seatbelt-self")
 	if backend.SharedTmp || seen.MacosUserSharedTmp {
 		t.Errorf("hatch unset: backend %v, pipeline %v; want false", backend.SharedTmp, seen.MacosUserSharedTmp)
 	}
 }
 
-// TestMacosLaunchStaysInAccountModeByDefault: no key, or `account`, is the second account, the
-// default until slice 11.
-func TestMacosLaunchStaysInAccountModeByDefault(t *testing.T) {
-	for _, cfg := range []string{"", `{"macos_user_mode": "account"}`} {
-		seen, backend, called, _ := macosModeLaunch(t, cfg)
-		if !called || backend.Mode != macosuser.ModeAccount || seen.MacosUserMode != macosuser.ModeAccount {
-			t.Errorf("config %q: called %v, backend %v, pipeline %v; want account", cfg, called,
-				backend.Mode, seen.MacosUserMode)
+// TestMacosLaunchRunsTheYoloAccountSetupAsTheAccount: seatbelt-yolo-account is the second
+// account, whatever the user config says, since the mode is the setup's run_as.
+func TestMacosLaunchRunsTheYoloAccountSetupAsTheAccount(t *testing.T) {
+	for _, cfg := range []string{"", `{"macos_user_mode": "self"}`} {
+		_, backend, called, _ := macosModeLaunch(t, cfg, "seatbelt-yolo-account")
+		if !called || backend.Mode != macosuser.ModeAccount {
+			t.Errorf("config %q: called %v, backend %v; want account", cfg, called, backend.Mode)
 		}
 	}
 }
@@ -160,12 +169,12 @@ func TestPruneHandsTheGuestPackTreeSweepTheUserMode(t *testing.T) {
 // (OQ-NX9) reaches the backend, which grants the separate account the user's font folder only
 // with it. Fails if the front door stops reading it.
 func TestMacosLaunchPassesShareHostFontsToTheBackend(t *testing.T) {
-	_, backend, called, _ := macosModeLaunch(t, `{"share_host_fonts": true}`)
+	_, backend, called, _ := macosModeLaunch(t, `{"share_host_fonts": true}`, "seatbelt-yolo-account")
 	if !called || !backend.ShareHostFonts {
 		t.Errorf("share_host_fonts true: called %v, backend.ShareHostFonts %v; want true", called,
 			backend.ShareHostFonts)
 	}
-	_, backend, _, _ = macosModeLaunch(t, "")
+	_, backend, _, _ = macosModeLaunch(t, "", "seatbelt-yolo-account")
 	if backend.ShareHostFonts {
 		t.Error("no share_host_fonts in the user config, and the backend was told to share fonts")
 	}

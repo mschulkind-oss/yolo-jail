@@ -128,7 +128,7 @@ func patchedRuns(ver string) string { return patchFixtureMarker + "_" + ver + "_
 func (f *macosUserPatchFixture) moveToConflict(t *testing.T) string {
 	t.Helper()
 	v12 := f.up.release("1.2.0", "upstream-ten", "v1.2.0")
-	r := runCommand(t, f.ws, []string{"pack", "update"}, withHostSemantics(), macosUserRunEnv())
+	r := runCommand(t, f.ws, []string{"pack", "update"}, withHostSemantics(), macosUserRunEnv("account"))
 	if r.rc == 0 || !hasPatchFailureBlock(r.combined(), f.owner, "v1.2.0", v12, "f.txt") {
 		t.Fatalf("yolo pack update: rc %d, want it to fail on the series' conflict at v1.2.0 with the patch "+
 			"failure block (ERROR, Patch, Conflict, Repair, the rebase onto %s, Start anyway)\nstdout:\n%s\nstderr:\n%s",
@@ -215,9 +215,9 @@ func TestMacosUserLaunchRefusesAConflictingSeriesAndNamesTheHatches(t *testing.T
 			t.Errorf("the first launch's refusal lacks %q:\n%s", w, out)
 		}
 	}
-	if !strings.Contains(out, "YOLO_ALLOW_MISSING_PROGRAMS=1") && !strings.Contains(out, "YOLO_RUNTIME=podman yolo") {
+	if !strings.Contains(out, "YOLO_ALLOW_MISSING_PROGRAMS=1") && !strings.Contains(out, "YOLO_SETUP=podman-self yolo") {
 		t.Errorf("the first launch's refusal names neither YOLO_ALLOW_MISSING_PROGRAMS=1 nor "+
-			"`YOLO_RUNTIME=podman yolo`, though nothing of the fork is here to run:\n%s", out)
+			"`YOLO_SETUP=podman-self yolo`, though nothing of the fork is here to run:\n%s", out)
 	}
 	// §8.7: YOLO_ALLOW_PATCH_FAILURES is listed only when a build of the series serves.
 	if strings.Contains(out, "YOLO_ALLOW_PATCH_FAILURES=") {

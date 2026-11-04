@@ -44,7 +44,7 @@ func waitFor(within time.Duration, cond func() bool) bool {
 func plantRoster(t *testing.T, ws, key string, pid int, edit func(*keeperRecord)) {
 	t.Helper()
 	rec := keeperRecord{PID: pid, Started: time.Now(), Workspace: ws, Runtime: "macos-user",
-		Contract: keeperRosterContract, Notch: keeperNotchMacosUser, Build: keeperBuildStamp(), Ready: true}
+		Contract: keeperRosterContract, Notch: keeperNotchGuest, Build: keeperBuildStamp(), Ready: true}
 	if edit != nil {
 		edit(&rec)
 	}
@@ -630,9 +630,9 @@ func TestAMacosUserDryRunSaysTheKeeperItWouldStartHoldsWhat(t *testing.T) {
 	}
 	for _, want := range []string{
 		`Would start the "wire-bridge" service (pack "wire-bridge") on [`,
-		"] for this launch's keeper to hold, outside the sandbox, until this workspace's last macos-user session leaves.",
-		"Would start: keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (",
-		"the wire-bridge service's host half) until its last macos-user session leaves; log: ",
+		"] for this launch's keeper to hold, outside the sandbox, until this workspace's last guest-notch macos-user session leaves.",
+		"Would start: keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (",
+		"the wire-bridge service's host half) until its last guest-notch macos-user session leaves; log: ",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the dry run must say %q:\n%s", want, out.String())
@@ -737,7 +737,7 @@ func TestAMacosUserDryRunAtAKeeperItCannotJoinSaysSo(t *testing.T) {
 		{"unknown-contract", func(r *keeperRecord) { r.Contract, r.Build = keeperRosterContract+98, "99.0.0@future" }, 1,
 			"held by a keeper (pid 4264) of yolo 99.0.0@future, whose roster (contract 99)"},
 		{"ending", func(r *keeperRecord) { r.Ending = true }, 0,
-			"Would wait for its previous keeper (pid 4264) to finish ending this workspace's macos-user host services first."},
+			"Would wait for its previous keeper (pid 4264) to finish ending this workspace's guest-notch macos-user host services first."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)

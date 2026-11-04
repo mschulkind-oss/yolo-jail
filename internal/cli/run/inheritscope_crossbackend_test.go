@@ -42,7 +42,7 @@ func TestMacosUserRefusesAnAppleContainerHomeNamingTheBackendAndTheMove(t *testi
 				f.delivered,
 				"Apple Container",
 				shquote.JoinDisplay([]string{"mv", f.sidecar, f.sidecar + ".apple-container"}),
-				"YOLO_RUNTIME=container",
+				"launch with `--setup apple-container-self`",
 			} {
 				if !strings.Contains(flat, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, stderr)

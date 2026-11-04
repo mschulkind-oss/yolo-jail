@@ -5,7 +5,7 @@ package cli
 //
 // WHY IT NEEDS A TEST AT ALL, given the step changes no output: that is precisely why. A probe
 // hoisted out of the loop and a probe left in it produce byte-identical reports (verified by
-// diffing a real `yolo apply --at host` across the refactor), so nothing in the report can tell
+// diffing a real `yolo apply --setup host-self` across the refactor), so nothing in the report can tell
 // them apart — and the next step hangs a fatal abort on the position. An abort from inside the
 // loop leaves the packs already visited WRITTEN and the rest not, which is the one thing
 // "nothing was written" must never mean.

@@ -8,8 +8,8 @@ import (
 // THE PER-ARRAY ACCOUNT FOLDS THE OWNER'S MANAGED LAYER AT THE NOTCH IT DESCRIBES
 // (declaration-parity.md DP-B25). claude's AUTONOMOUS posture manages `permissions.allow: []`
 // and its GUARDED one does not, so a config-list on /permissions/allow is replaced in a jail
-// and assembled at the host. `config render --at host` (the host apply's own preview) already
-// shows the entry landing; `config ls --at host` said the managed layer replaces it, because
+// and assembled at the host. `config render --setup host-self` (the host apply's own preview) already
+// shows the entry landing; `config ls --setup host-self` said the managed layer replaces it, because
 // packSurfacesForAgent folded every pack at the autonomous posture beside an overlay set the
 // same function collected at the guarded one. Runs the real verb over a file:// pack, so it
 // fails if overlayContributionRows stops handing its notch's posture to the surface fold.
@@ -24,25 +24,25 @@ func TestConfigLsListReplacementFollowsTheNotchPosture(t *testing.T) {
 	for _, c := range []struct {
 		notch        string
 		wantReplaced bool
-	}{{"host", false}, {"jail", true}} {
+	}{{"host-self", false}, {"podman-self", true}} {
 		// Fixture guard: the render this report describes agrees with the expectation.
-		rc, out, errw := runSurfaceVerb(t, "render", "claude/settings", "--at", c.notch)
+		rc, out, errw := runSurfaceVerb(t, "render", "claude/settings", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("render --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("render --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		if lands := strings.Contains(out, "Bash(ls:*)"); lands == c.wantReplaced {
-			t.Fatalf("fixture bug: render --at %s lands the entry=%v\n%s", c.notch, lands, out)
+			t.Fatalf("fixture bug: render --setup %s lands the entry=%v\n%s", c.notch, lands, out)
 		}
-		rc, out, errw = runSurfaceVerb(t, "ls", "--at", c.notch)
+		rc, out, errw = runSurfaceVerb(t, "ls", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("ls --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("ls --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		if !hasLine(out, "/permissions/allow", "matt (1 entry)") {
-			t.Fatalf("config ls --at %s does not list matt's array:\n%s", c.notch, out)
+			t.Fatalf("config ls --setup %s does not list matt's array:\n%s", c.notch, out)
 		}
 		if got := hasLine(out, "/permissions/allow", replaced); got != c.wantReplaced {
-			t.Errorf("config ls --at %s: says the managed layer replaces /permissions/allow=%v, "+
-				"want %v (config render --at %s agrees with the want)\n%s",
+			t.Errorf("config ls --setup %s: says the managed layer replaces /permissions/allow=%v, "+
+				"want %v (config render --setup %s agrees with the want)\n%s",
 				c.notch, got, c.wantReplaced, c.notch, out)
 		}
 	}

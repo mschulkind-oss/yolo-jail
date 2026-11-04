@@ -216,8 +216,8 @@ func AccountCreate(deps Deps) int {
 			"pass.", SandboxUser)
 		out.printf("Next: put your project under [bold]%s/"+
 			"<name>[/bold] (the agent can only share neutral ground, never a "+
-			"path inside your home), set `runtime: \"macos-user\"` in "+
-			"yolo-jail.jsonc (or YOLO_RUNTIME=macos-user), then from that "+
+			"path inside your home), make the yolo account's setup your default "+
+			"([bold]yolo config set setup seatbelt-yolo-account --user[/bold]), then from that "+
 			"directory run [bold]yolo run --dry-run[/bold] to preview, or "+
 			"[bold]yolo[/bold] to launch.\n"+
 			"Launches start and stop with no password from now on.", SharedRootDefault())

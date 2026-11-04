@@ -64,9 +64,9 @@ func TestChecksRuntimeResolutionReadsTheGate(t *testing.T) {
 		getenv func(string) string
 		cfg    *jsonx.OrderedMap
 	}{
-		{"YOLO_RUNTIME", func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return "podman"
+		{"YOLO_SETUP", func(k string) string {
+			if k == "YOLO_SETUP" {
+				return "podman-self"
 			}
 			return ""
 		}, nil},

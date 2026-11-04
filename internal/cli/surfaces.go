@@ -139,7 +139,7 @@ var (
 // surfaceManifest() is built from packload.Pack.Surfaces(), which is SurfacesFor(TRUE) — the
 // AUTONOMOUS posture — and whose own docstring says "The host path calls SurfacesFor(false)".
 // That is the right input only for a report about what a JAIL renders. A report about the
-// HOST folds the host's posture: `config ls --at host`'s per-array account did not, and said the
+// HOST folds the host's posture: `config ls --setup host-self`'s per-array account did not, and said the
 // managed layer replaces an array only the jail's posture manages (declaration-parity.md DP-B25,
 // fixed 2026-10-04 in overlayContributionRows, which now folds at its notch's posture). And it
 // is the wrong input for a host-side WRITE. Composing a pack's autonomous block

@@ -1,5 +1,5 @@
 # Container runtime (podman or container)
-runtime := env("YOLO_RUNTIME", "podman")
+runtime := env("YOLO_LOAD_RUNTIME", "podman")
 
 # Preserve argument boundaries in recipes that forward variadic arguments.
 set positional-arguments

@@ -135,7 +135,7 @@ func TestHostFloorBuildsAPackTreeProgramFromItsTree(t *testing.T) {
 		t.Fatalf("a launch with a broken pack-tree build started:\n%s", r.stderr)
 	}
 	for _, want := range []string{"program " + hostPackTreeBin + " (pack hostpacktreefx)", "its log: ",
-		"yolo pack build hostpacktreefx --at host", paths.AllowMissingProgramsEnv + "=1"} {
+		"yolo pack build hostpacktreefx --setup host-self", paths.AllowMissingProgramsEnv + "=1"} {
 		if !strings.Contains(r.stderr, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, r.stderr)
 		}

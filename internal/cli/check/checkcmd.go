@@ -71,7 +71,7 @@ type Options struct {
 	// "" => version.Get(repoRoot). Injected so goldens don't depend on the
 	// test host's git describe.
 	Version string
-	// Getenv reads environment variables (YOLO_VERSION, YOLO_RUNTIME, …).
+	// Getenv reads environment variables (YOLO_VERSION, YOLO_SETUP, …).
 	// nil => os.Getenv.
 	Getenv func(string) string
 	// UpdateChannel, UpdateStatePath and UpdateCheckEnabled feed the Updates

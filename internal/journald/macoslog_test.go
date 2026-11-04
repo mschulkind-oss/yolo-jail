@@ -260,7 +260,7 @@ func TestMacosLogBridgeRefusesBeforeRunningAnything(t *testing.T) {
 	// No sandbox account: the next steps are a macos-user launch, or the read_all grant. The
 	// retired `full` setting is not one of them.
 	_, errText, rc = driveMacosLog(t, `{"args":[]}`, ModeUser, errors.New("id: _yolojail: no such user"))
-	if rc != 1 || strings.Contains(errText, "ARGS:") || !strings.Contains(errText, "macos-user") ||
+	if rc != 1 || strings.Contains(errText, "ARGS:") || !strings.Contains(errText, "yolo yolo-account create") ||
 		!strings.Contains(errText, "yolo allow macos-log on_request read_all") ||
 		!strings.Contains(errText, "yolo request macos-log read_all") ||
 		strings.Contains(errText, "`full`") {

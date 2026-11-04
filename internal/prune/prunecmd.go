@@ -91,9 +91,9 @@ type Options struct {
 	// Out is where the report is written. nil => os.Stdout.
 	Out io.Writer
 	// DetectRuntime returns the effective runtime ("podman"/"container"). nil =>
-	// a platform-aware runtime.ResolveRuntime (YOLO_RUNTIME > platform probe; no
-	// config here). The CLI front door (runPrune) injects a config-aware variant
-	// that also honors the workspace `runtime` key.
+	// a platform-aware runtime.ResolveRuntime (a platform probe; no config here, and prune
+	// cannot import the setup selection, which lives in internal/config). The CLI front door
+	// (pruneOptions) injects the backend of the setup a launch selects.
 	DetectRuntime func() string
 	// HasBinary reports whether a program is on PATH. On macos-user it says which container
 	// runtimes sit beside the backend (InstalledContainerRuntimes). nil => exec.LookPath.
@@ -264,7 +264,7 @@ func fillDefaults(o *Options) {
 	}
 	if o.DetectRuntime == nil {
 		o.DetectRuntime = func() string {
-			return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), "", paths.IsMacOS, func(bin string) bool {
+			return runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
 				_, err := exec.LookPath(bin)
 				return err == nil
 			})
@@ -1334,7 +1334,7 @@ func Run(opts Options) int {
 	// The launch's slot reaps it automatically, once a day; this is the same rule on demand, with
 	// the same veto: the running jails' start times, asked of the runtime, or a decline. On
 	// macos-user it is that backend's own store, judged by its sessions, as its slot does; the
-	// shared cache's Linux store is a container runtime's to judge (`YOLO_RUNTIME=podman yolo prune`).
+	// shared cache's Linux store is a container runtime's to judge (`YOLO_SETUP=podman-self yolo prune`).
 	{
 		store, label := joinPath(gs, "cache"), "cache/copilot/pkg"
 		jails := func() JailStarts { return RunningJailStarts(rt, opts.Exec) }
@@ -1597,7 +1597,7 @@ const macosUserRuntime = "macos-user"
 // the section has nothing to ask on this runtime, and a container runtime on the same Mac is
 // pruned by naming it.
 const macosUserNotApplicable = "  [dim]not applicable — macos-user runs no containers or images; " +
-	"a container runtime's are pruned by `YOLO_RUNTIME=container yolo prune` (or YOLO_RUNTIME=podman)[/dim]"
+	"a container runtime's are pruned by `YOLO_SETUP=apple-container-self yolo prune` (or YOLO_SETUP=podman-self)[/dim]"
 
 // MacosUserWorkspaces is FindYoloWorkspaces for macos-user: the resolved, deduplicated
 // workspaces of the macos-user sessions under sessionsBase that are live or starting, read from

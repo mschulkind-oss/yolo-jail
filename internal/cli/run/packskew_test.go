@@ -80,8 +80,8 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	o.IsTTYStderr = func() bool { return tty }
 	o.Stdin = strings.NewReader(stdin)
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return testSetupForRuntime("podman")
 		}
 		return getenv[k]
 	}
