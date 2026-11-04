@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -181,7 +182,10 @@ func TestApproveThroughRegistry(t *testing.T) {
 }
 
 func TestApproveRegistryUsesCurrentHostAuthorityAndRequiredAudit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectApprovePacks(t, home, "github")
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	sf := brokerscope.File{Source: "github", LaunchID: "registry", PID: os.Getpid(), Container: "registry-jail", Workspace: "/fixture", Repos: []string{"o/r"}, Grants: []brokerscope.Grant{{Kind: brokerscope.KindRead, Repo: "*"}}}
@@ -289,8 +293,8 @@ func TestApproveListsWorkingSet(t *testing.T) {
 			t.Fatalf("working-set line %q lacks %q in:\n%s", line, want, out.String())
 		}
 	}
-	if !strings.Contains(out.String(), "w-entry") {
-		t.Fatalf("the listing does not say how to revoke an entry:\n%s", out.String())
+	if !strings.Contains(out.String(), "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.") {
+		t.Fatalf("the listing does not distinguish recorded entries from config declarations:\n%s", out.String())
 	}
 	out.Reset()
 	if rc := approveAll(context.Background(), []string{"--json"}, false, stores, &out, &errs); rc != 0 ||
@@ -318,6 +322,14 @@ func TestApproveRevokeWorkingID(t *testing.T) {
 	ws := workingStore(paths.BrokerSourceDir("git"))
 	e := addEntry(t, ws, "/w", "refs/heads/agent/x")
 	keep := addEntry(t, ws, "/w", "refs/heads/agent/y")
+	listing := captureStdout(t, func() {
+		if rc := registry["approve"]([]string{"approve"}); rc != 0 {
+			t.Fatalf("list: %d", rc)
+		}
+	})
+	if !strings.Contains(listing, e.ID+"  ") || !strings.Contains(listing, "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.") {
+		t.Fatalf("the actual listing does not identify the recorded entry and its safe revoke guidance:\n%s", listing)
+	}
 	if rc := registry["approve"]([]string{"approve", "--revoke", e.ID}); rc != 0 {
 		t.Fatalf("revoke %s: %d", e.ID, rc)
 	}
@@ -357,7 +369,9 @@ func TestApproveListsAndRefusesToRevokeAConfigBranch(t *testing.T) {
 			t.Fatalf("list: %d", rc)
 		}
 	})
-	t.Logf("listing:\n%s", listing)
+	if !strings.Contains(listing, "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.") {
+		t.Fatalf("the actual listing does not distinguish recorded entries from config declarations:\n%s", listing)
+	}
 	var line string
 	for _, l := range strings.Split(listing, "\n") {
 		if strings.Contains(l, "refs/heads/main") {

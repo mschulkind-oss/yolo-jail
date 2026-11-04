@@ -190,7 +190,12 @@ type Store struct {
 	Dir string
 	// Source names the broker source this store serves; empty means the directory's name.
 	Source string
-	Now    func() time.Time
+	// ApprovalStatus is CLI discovery metadata (selected, removed, or unknown). It never
+	// grants authority; Revalidate remains the only gate for an approval.
+	ApprovalStatus string
+	// ApprovalDiagnostic explains an incomplete source-discovery result to the CLI listing.
+	ApprovalDiagnostic string
+	Now                func() time.Time
 	// Revalidate is mandatory for approving decisions; it reads current host authority
 	// under the transaction lock. Nil fails closed. Deny/revoke need no authority.
 	Revalidate Revalidate

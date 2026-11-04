@@ -40,7 +40,10 @@ func TestTheOnRequestExampleDecidesThroughTheCLI(t *testing.T) {
 	if r, err := filepath.EvalSymlinks(root); err == nil {
 		root = r
 	}
-	t.Setenv("HOME", filepath.Join(root, "home"))
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectApprovePacks(t, home, "github")
 	t.Setenv("YOLO_VERSION", "") // the hook's `yolo approve` runs on the host
 	t.Setenv("YOLO_USER_LAYER", "")
 

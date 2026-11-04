@@ -95,6 +95,9 @@ var (
 	capabilityRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 )
 
+// ValidBrokerSourceName reports whether s is a source token accepted by the brokered manifest.
+func ValidBrokerSourceName(s string) bool { return sourceRE.MatchString(s) }
+
 // ValidGrantKind reports whether s spells a grant kind, as the manifest, the user's `grant_kinds`
 // and a workspace grant all do: a lowercase letter, then lowercase letters, digits and hyphens.
 func ValidGrantKind(s string) bool { return sourceRE.MatchString(s) }

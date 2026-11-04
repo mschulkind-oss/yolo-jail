@@ -214,6 +214,20 @@ func newProductionGitHubFixture(t *testing.T, userConfig string, withHook bool) 
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	var config map[string]json.RawMessage
+	if userConfig == "" {
+		config = make(map[string]json.RawMessage)
+	} else if err := json.Unmarshal([]byte(userConfig), &config); err != nil {
+		t.Fatal(err)
+	}
+	packs, _ := json.Marshal([]string{"github"})
+	config["packs"] = packs
+	userConfigBytes, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userConfig = string(userConfigBytes)
+
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

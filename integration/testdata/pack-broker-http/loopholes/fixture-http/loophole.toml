@@ -1,0 +1,15 @@
+# Future strict call_broker input for task D; core does not load this yet.
+name = "fixture-http"
+version = 1
+transport = "loopback-tls"
+lifecycle = "spawned"
+
+[call_broker]
+source = "local-tasks-http"
+front = "http"
+program = "broker-fixture"
+classifier = ["fixture-http-classifier"]
+executor = "core"
+
+# POST /graphql is a fixture-specific read exception; task D owns final strict spelling.
+read_over_post = ["/graphql"]

@@ -1,0 +1,12 @@
+# Future strict call_broker input for task D; core does not load this yet.
+name = "fixture-cli"
+version = 1
+transport = "loopback-tls"
+lifecycle = "spawned"
+
+[call_broker]
+source = "local-tasks-cli"
+front = "cli"
+program = "broker-fixture"
+classifier = ["fixture-classifier"]
+executor = "core"

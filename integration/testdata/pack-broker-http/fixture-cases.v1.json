@@ -1,0 +1,19 @@
+{
+  "fixture_contract": "pack-broker-http-cases/1",
+  "note": "Test cases, not the future core classifier wire protocol. Endpoint and credential destination are host-pinned.",
+  "cases": [
+    {
+      "name": "named-operation-and-alias",
+      "request": {"method": "POST", "path": "/graphql", "operationName": "ReadAlpha", "body": "query Other { item(id:\"b1\") { id } } query ReadAlpha { a: project(id:\"alpha\") { items { id state } } }"},
+      "expected": {"selected_operation": "ReadAlpha", "cell": "read", "resource": {"type": "project", "id": "alpha"}}
+    },
+    {
+      "name": "reject-unknown-field-before-write",
+      "request": {"method": "POST", "path": "/graphql", "body": "mutation Update { updateWorkItem(id:\"a1\", state:\"done\") { mystery } }"},
+      "expected": {"refused": "unknown-field", "write_count": 0}
+    },
+    {"name": "reject-subscription", "request": {"method": "POST", "path": "/graphql", "body": "subscription Watch { item(id:\"a1\") { id } }"}, "expected": {"refused": "subscription"}},
+    {"name": "reject-ambiguous-operations", "request": {"method": "POST", "path": "/graphql", "body": "query A { item(id:\"a1\") { id } } query B { item(id:\"b1\") { id } }"}, "expected": {"refused": "operationName-required"}}
+  ],
+  "host_scenarios": ["lookup-failure", "redirect", "credential-echo", "oversize"]
+}

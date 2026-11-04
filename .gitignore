@@ -33,6 +33,7 @@ build/
 /yolo-log
 /yolo-ps
 /yolo-serial
+/broker-fixture
 /build-wheels
 /tap-install-check
 /ghgrammar

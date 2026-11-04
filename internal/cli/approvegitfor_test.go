@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,10 @@ import (
 // command grant, lists them (a timed one with its expiry), and refuses what cannot apply with
 // the answer that does. GitHub's per-resource answers are TestApproveGitHubForAndAddCLI's.
 func TestApproveGitForAndAddCLI(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectApprovePacks(t, home, "git")
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	const remote = "git@fixture.test:o/r.git"

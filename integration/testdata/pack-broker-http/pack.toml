@@ -1,0 +1,8 @@
+name = "fixture-http-broker"
+description = "Synthetic HTTP pack-broker fixture input; not runtime-loaded until call_broker support lands."
+
+[[loophole]]
+from = "loopholes/fixture-http"
+
+[[loophole]]
+from = "loopholes/fixture-signed-call"

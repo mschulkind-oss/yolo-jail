@@ -189,6 +189,7 @@ type RequestView struct {
 	Schema        int        `json:"schema"`
 	ID            string     `json:"id"`
 	Source        string     `json:"source"`
+	SourceStatus  string     `json:"source_status,omitempty"`
 	Jail          string     `json:"jail"`
 	Workspace     string     `json:"workspace"`
 	Set           string     `json:"set"`
@@ -221,50 +222,62 @@ type RequestView struct {
 
 // GrantView is a grant as the surface shows it.
 type GrantView struct {
-	Schema    int        `json:"schema"`
-	ID        string     `json:"id"`
-	Source    string     `json:"source"`
-	Request   string     `json:"request"`
-	Jail      string     `json:"jail"`              // the jail whose request it answered
-	Workspace string     `json:"workspace"`         // the holder: every jail of this workspace may use it
-	UsedBy    string     `json:"used_by,omitempty"` // the jail that spent its latest use
-	Set       string     `json:"set"`
-	Coverage  string     `json:"coverage"` // "command": the request's one command; "set": the whole set
-	UsesLeft  int        `json:"uses_left"`
-	Expires   time.Time  `json:"expires"`
-	Ended     *time.Time `json:"ended,omitempty"`
-	EndReason string     `json:"end_reason,omitempty"` // expired, used, revoked; stopped only in a record an older yolo ended
-	State     string     `json:"state"`                // live or ended
+	Schema       int        `json:"schema"`
+	ID           string     `json:"id"`
+	Source       string     `json:"source"`
+	SourceStatus string     `json:"source_status,omitempty"`
+	Request      string     `json:"request"`
+	Jail         string     `json:"jail"`              // the jail whose request it answered
+	Workspace    string     `json:"workspace"`         // the holder: every jail of this workspace may use it
+	UsedBy       string     `json:"used_by,omitempty"` // the jail that spent its latest use
+	Set          string     `json:"set"`
+	Coverage     string     `json:"coverage"` // "command": the request's one command; "set": the whole set
+	UsesLeft     int        `json:"uses_left"`
+	Expires      time.Time  `json:"expires"`
+	Ended        *time.Time `json:"ended,omitempty"`
+	EndReason    string     `json:"end_reason,omitempty"` // expired, used, revoked; stopped only in a record an older yolo ended
+	State        string     `json:"state"`                // live or ended
 }
 
 // StateView is the current state: pending requests and live grants.
 type StateView struct {
-	Schema   int           `json:"schema"`
-	Event    string        `json:"event,omitempty"` // "state" when it opens a watch
-	Requests []RequestView `json:"requests"`
-	Grants   []GrantView   `json:"grants"`
-	Working  []WorkingView `json:"working"`
+	Schema      int                  `json:"schema"`
+	Event       string               `json:"event,omitempty"` // "state" when it opens a watch
+	Sources     []ApprovalSourceView `json:"sources,omitempty"`
+	Diagnostics []string             `json:"diagnostics,omitempty"`
+	Requests    []RequestView        `json:"requests"`
+	Grants      []GrantView          `json:"grants"`
+	Working     []WorkingView        `json:"working"`
+}
+
+// ApprovalSourceView labels each listed source without conveying authority.
+type ApprovalSourceView struct {
+	Source         string `json:"source"`
+	Status         string `json:"status"`    // selected, removed, or unknown
+	Authority      string `json:"authority"` // core or deny-only
+	SelectionBasis string `json:"selection_basis"`
 }
 
 // WorkingView is a live working-set entry as the surface shows it.
 type WorkingView struct {
-	Schema    int       `json:"schema"`
-	ID        string    `json:"id"`
-	Source    string    `json:"source"`
-	Workspace string    `json:"workspace"`
-	Repo      string    `json:"repo"`
-	Kind      string    `json:"kind"`     // "branch"
-	Resource  string    `json:"resource"` // the ref
-	By        string    `json:"by"`       // "create-branch", a grant id, "human", or "config"
-	Added     time.Time `json:"added,omitzero"`
-	Expires   time.Time `json:"expires,omitzero"` // a timed entry (Allow push for a time): when it stops covering
+	Schema       int       `json:"schema"`
+	ID           string    `json:"id"`
+	Source       string    `json:"source"`
+	SourceStatus string    `json:"source_status,omitempty"`
+	Workspace    string    `json:"workspace"`
+	Repo         string    `json:"repo"`
+	Kind         string    `json:"kind"`     // "branch"
+	Resource     string    `json:"resource"` // the ref
+	By           string    `json:"by"`       // "create-branch", a grant id, "human", or "config"
+	Added        time.Time `json:"added,omitzero"`
+	Expires      time.Time `json:"expires,omitzero"` // a timed entry (Allow push for a time): when it stops covering
 	// File is, for a branch a `branch` grant declares in config (By "config"), the workspace
 	// config that declares it; such an entry is not in the store and has no Added.
 	File string `json:"file,omitempty"`
 }
 
 func (s *Store) WorkingView(e WorkingEntry) WorkingView {
-	return WorkingView{Schema: Schema, ID: e.ID, Source: s.SourceName(), Workspace: e.Workspace, Repo: e.Repo,
+	return WorkingView{Schema: Schema, ID: e.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Workspace: e.Workspace, Repo: e.Repo,
 		Kind: e.Kind, Resource: e.Resource, By: e.By, Added: e.Added, Expires: e.Expires}
 }
 
@@ -280,7 +293,7 @@ type EventView struct {
 }
 
 func (s *Store) RequestView(q Request) RequestView {
-	v := RequestView{Schema: Schema, ID: q.ID, Source: s.SourceName(), Jail: q.Jail, Workspace: q.Workspace,
+	v := RequestView{Schema: Schema, ID: q.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Jail: q.Jail, Workspace: q.Workspace,
 		Set: q.Set, Argv: q.Argv, Command: shquote.JoinDisplay(q.Argv), Repo: q.Repo,
 		CommandDigest: q.Digest, StdinDigest: q.StdinDigest, Filed: q.Filed,
 		Expires: q.Expires(), State: q.State, HookFailure: q.HookFailure, HookOutput: q.HookOutput,
@@ -302,7 +315,7 @@ func (s *Store) RequestView(q Request) RequestView {
 }
 
 func (s *Store) GrantView(g Grant) GrantView {
-	v := GrantView{Schema: Schema, ID: g.ID, Source: s.SourceName(), Request: g.Request, Jail: g.Jail, Workspace: g.Workspace, UsedBy: g.UsedBy, Set: g.Set,
+	v := GrantView{Schema: Schema, ID: g.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Request: g.Request, Jail: g.Jail, Workspace: g.Workspace, UsedBy: g.UsedBy, Set: g.Set,
 		Coverage: "set", UsesLeft: g.Uses, Expires: g.Expires, EndReason: g.EndedBy(), State: "live"}
 	if g.Digest != "" {
 		v.Coverage = "command"

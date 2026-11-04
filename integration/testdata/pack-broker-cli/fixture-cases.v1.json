@@ -1,0 +1,24 @@
+{
+  "fixture_contract": "pack-broker-cli-cases/1",
+  "note": "Test cases, not the future core classifier wire protocol.",
+  "cases": [
+    {
+      "name": "read-alpha-item",
+      "argv": ["fixturectl", "get", "a1"],
+      "expected": {
+        "cell": "read",
+        "resource": {"type": "item", "id": "a1", "parent": {"type": "project", "id": "alpha"}}
+      }
+    },
+    {
+      "name": "change-item-state",
+      "argv": ["fixturectl", "update", "a1", "done"],
+      "expected": {
+        "cell": "update_items",
+        "canonical_argv": ["fixturectl", "update", "a1", "done"],
+        "resource": {"type": "item", "id": "a1", "parent": {"type": "project", "id": "alpha"}}
+      }
+    },
+    {"name": "reject-host-path", "argv": ["fixturectl", "get", "a1", "--output", "/tmp/result"], "expected": {"refused": "host-file-output"}}
+  ]
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,10 @@ import (
 // one, and the answers that cannot apply (--add on a merge, --for session, either on a write
 // naming no PR number) are refused naming the one that does.
 func TestApproveGitHubForAndAddCLI(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectConfig := selectApprovePacks(t, home, "github")
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	sf := brokerscope.File{Source: ghbroker.Source, LaunchID: "registry-gh-for", PID: os.Getpid(), Container: "registry-gh-for-jail",
@@ -111,6 +115,56 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 	}
 	if _, ok, _ := s.LiveWorkingKind("/fixture", "github.com/o/r", "#12", brokerstore.WorkingPR); ok {
 		t.Fatal("a revoked entry stayed live")
+	}
+
+	// A still-live broker lease cannot restore a removed pack's approval authority.
+	writeApprovePackFile(t, selectConfig, `{"packs":[]}`)
+	for _, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}} {
+		q := file("pr", "comment", "13", "--body", "x")
+		args := append([]string{q.ID}, flags...)
+		if rc, _, errs := run(args...); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
+			t.Fatalf("removed GitHub source accepted %v: rc=%d stderr=%s", flags, rc, errs)
+		}
+	}
+	denyPending := func() {
+		t.Helper()
+		requests, _, err := s.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, request := range requests {
+			if request.State == "pending" {
+				if rc, _, errs := run(request.ID, "--deny"); rc != 0 {
+					t.Fatalf("clean pending request %s: rc=%d stderr=%s", request.ID, rc, errs)
+				}
+			}
+		}
+	}
+	denyPending()
+	for _, aliasName := range []string{"custom-pack", ghbroker.Source} {
+		selectApprovalAliasPack(t, home, ghbroker.Source, aliasName)
+		assertSelectedAliasIsVisibleDenyOnly(t, ghbroker.Source)
+		prNumbers := []string{"14", "15", "16"}
+		if aliasName == ghbroker.Source {
+			prNumbers = []string{"24", "25", "26"}
+		}
+		q := file("pr", "merge", prNumbers[0])
+		if rc, _, errs := run(q.ID); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
+			t.Fatalf("custom selected pack %q restored live-lease GitHub authority: rc=%d stderr=%s", aliasName, rc, errs)
+		}
+		if rc, _, errs := run(q.ID, "--deny"); rc != 0 {
+			t.Fatalf("deny alias request %s: rc=%d stderr=%s", q.ID, rc, errs)
+		}
+		for i, flags := range [][]string{{"--for", "15m"}, {"--add"}} {
+			q = file("pr", "merge", prNumbers[i+1])
+			args := append([]string{q.ID}, flags...)
+			if rc, _, errs := run(args...); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
+				t.Fatalf("custom selected pack %q restored GitHub hook authority for %v: rc=%d stderr=%s", aliasName, flags, rc, errs)
+			}
+			if rc, _, errs := run(q.ID, "--deny"); rc != 0 {
+				t.Fatalf("deny alias hook request %s: rc=%d stderr=%s", q.ID, rc, errs)
+			}
+		}
 	}
 }
 

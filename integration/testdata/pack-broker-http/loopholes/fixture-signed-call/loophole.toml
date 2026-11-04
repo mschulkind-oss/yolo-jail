@@ -1,0 +1,12 @@
+# Third-party fixture demonstrating the optional executor input; not runtime-loaded yet.
+name = "fixture-signed-call"
+version = 1
+transport = "loopback-tls"
+lifecycle = "spawned"
+
+[call_broker]
+source = "local-tasks-signed"
+front = "http"
+program = "broker-fixture"
+classifier = ["fixture-http-classifier"]
+executor = "fixture-signer"

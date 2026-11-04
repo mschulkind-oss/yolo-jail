@@ -1,0 +1,5 @@
+name = "fixture-cli-broker"
+description = "Synthetic CLI pack-broker fixture input; not runtime-loaded until call_broker support lands."
+
+[[loophole]]
+from = "loopholes/fixture-cli"

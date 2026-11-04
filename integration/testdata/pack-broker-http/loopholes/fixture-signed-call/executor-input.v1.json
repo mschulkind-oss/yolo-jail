@@ -1,0 +1,7 @@
+{
+  "fixture_contract": "pack-broker-signed-executor-input/1",
+  "note": "Fixture case only; not a core executor protocol. Host creates a private per-run synthetic signing key, which the classifier never receives.",
+  "canonical_request": {"method": "POST", "path": "/signed-update", "body": "{\"item\":\"a1\",\"state\":\"done\"}"},
+  "executor_result": {"status": "pending", "pending": "G/H must define the signer protocol and synthetic service endpoint before this case can claim a response or write count."},
+  "classifier_must_not_receive": ["synthetic-signing-key", "Authorization", "admin-control-token"]
+}

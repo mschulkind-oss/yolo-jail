@@ -857,7 +857,6 @@
 "internal/darwinpkg/*.go",
 "internal/depcheck/depcheck.go",
 "internal/entrypoint/*.go",
-"internal/ghbroker/*.go",
 "internal/gitbroker/*.go",
 "internal/hostfloor/*.go",
 "internal/hostrun/*.go",
@@ -907,7 +906,6 @@
 "internal/darwinpkg",
 "internal/depcheck",
 "internal/entrypoint",
-"internal/ghbroker",
 "internal/gitbroker",
 "internal/hostfloor",
 "internal/hostrun",
@@ -2576,6 +2574,7 @@
 "internal/worktreereap/*.go",
 "packs/embed.go",
 "scripts/testdata/fake-yolo/main.go",
+"tools/broker-fixture/*.go",
 "tools/build-wheels/*.go",
 "tools/ghgrammar/main.go",
 "tools/release-gate/*.go",
@@ -2589,7 +2588,7 @@
 ".pi/**",
 "cmd/**",
 "docs/**",
-"integration",
+"integration/**",
 "internal",
 "internal/agentcfg/**",
 "internal/agentenv",
@@ -4287,6 +4286,9 @@
 "flake.nix",
 "go.mod",
 "integration/*",
+"integration/testdata/pack-broker-cli/fixture-cases.v1.json",
+"integration/testdata/pack-broker-http/fixture-cases.v1.json",
+"integration/testdata/pack-broker-http/loopholes/fixture-signed-call/executor-input.v1.json",
 "internal/agentcfg/*",
 "internal/agentcfg/codec/*",
 "internal/agentcfg/luahook/*",
@@ -4561,7 +4563,7 @@
 "listed": [
 ".github/**",
 "cmd/**",
-"integration",
+"integration/**",
 "internal",
 "internal/agentcfg/**",
 "internal/agentenv",
@@ -6634,6 +6636,7 @@
 "internal/brokerstore/about_test.go",
 "internal/brokerstore/answer_test.go",
 "internal/brokerstore/exact_consume_test.go",
+"internal/brokerstore/inspect_test.go",
 "internal/brokerstore/limits_test.go",
 "internal/brokerstore/policy_test.go",
 "internal/brokerstore/record_test.go",
@@ -6743,6 +6746,7 @@
 "internal/cli/approvegithub_test.go",
 "internal/cli/approvegitnext_test.go",
 "internal/cli/approveoutcome_test.go",
+"internal/cli/approvepack_test.go",
 "internal/cli/approveremember_test.go",
 "internal/cli/approvevia_test.go",
 "internal/cli/approvewatch_test.go",
@@ -7673,9 +7677,15 @@
 ],
 "listed": [
 "cmd/**",
-"integration",
+"integration/**",
 "internal/**"
 ]
+},
+{
+"read": [
+"integration/testdata/pack-broker-http/loopholes/fixture-signed-call/executor-input.v1.json"
+],
+"listed": []
 },
 {
 "read": [
@@ -8791,42 +8801,45 @@
 "TestModelListCheckPackWideMetadataPreservesTheLastReleasesProgram": 34,
 "TestShippedPacksDecodeUnderTheLastRelease": 107
 },
+"tools/broker-fixture": {
+"TestSignedFixtureExpectationIsPendingUntilGH": 108
+},
 "tools/build-wheels": {
-"TestPublishRequiresTrustedPublishing": 108,
-"TestTheRealReadmeKeepsNoRelativeLink": 109
+"TestPublishRequiresTrustedPublishing": 109,
+"TestTheRealReadmeKeepsNoRelativeLink": 110
 },
 "tools/release-wiring": {
-"TestAReleaseBuildPrintsItsVersionAndCommit": 113,
-"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 108,
-"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 108,
-"TestDarwinFloorCacheBuildsTheDispatchedCommitAndTitlesItsRun": 110,
-"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 108,
-"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 115,
-"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 114,
-"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 115,
-"TestImageCacheBuildRefusesAnUnexpectedOutputBeforeAnyCopy": 108,
-"TestImageCacheBuildUploadsExactlyTheImagesAndBothCopierOutputs": 108,
-"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 108,
-"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 115,
-"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 112,
-"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 116,
-"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 111,
-"TestReleaseRequestHandsTheFloorPathsToTheWriteJob": 111,
-"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 112,
+"TestAReleaseBuildPrintsItsVersionAndCommit": 114,
+"TestActualPublisherCallerRefusesDuplicatePartialOldAndFailedOriginalState": 109,
+"TestClaimPublicationDependencyAndPyPIOIDCSourceCaller": 109,
+"TestDarwinFloorCacheBuildsTheDispatchedCommitAndTitlesItsRun": 111,
+"TestFailedJobsOnlyPublisherRerunRefusesAtEachActualMutationJobEntry": 109,
+"TestGoReleaserPackagingScriptAcceptsOnlyItsDeclaredInertOutputSet": 116,
+"TestHomebrewBackfillIsExplicitAndRequiresThePublishedImmutableTag": 115,
+"TestHomebrewFormulaHeredocNeverExecutesLiteralYoloForNormalOrBackfill": 116,
+"TestImageCacheBuildRefusesAnUnexpectedOutputBeforeAnyCopy": 109,
+"TestImageCacheBuildUploadsExactlyTheImagesAndBothCopierOutputs": 109,
+"TestImageCacheImportAcceptsUnsignedRunnerBuiltPaths": 109,
+"TestMainBackfillCallerUsesTrustedToolsWhenOldTagHasNone": 116,
+"TestMainScopedReleaseCallerUsesAnchoredRunNamesAndTrustedMainInputs": 113,
+"TestOtherNormalPublicationJobsGuardBeforeCredentialSteps": 117,
+"TestReleaseRequestEligibilityAllowsAResumeToReachTheWriteJob": 112,
+"TestReleaseRequestHandsTheFloorPathsToTheWriteJob": 112,
+"TestReleaseWorkflowsAreMainDispatchedAndKeepWritesOffTargetSource": 113,
 "TestRequestHostRecipeDoesNotTagLocally": 32,
-"TestRequestJobCanDispatchTheFloorBuild": 111,
-"TestRequestJobTimeoutExceedsItsWaits": 111,
-"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 112,
-"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 111,
-"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 112
+"TestRequestJobCanDispatchTheFloorBuild": 112,
+"TestRequestJobTimeoutExceedsItsWaits": 112,
+"TestShellHelpersFailClosedAndAllWorkflowCommandsParse": 113,
+"TestTrustedEligibilityRejectsUnmergedSourceBeforeHostileTargetCanRun": 112,
+"TestWorkflowHelperCallsAreExecutableAndTargetCheckoutCannotPersistCredentials": 113
 },
 "tools/tap-install-check": {
-"TestReleasePushesTheFormulaTheDocsInstall": 121,
-"TestReleaseRunNameTransportReachesTheProductionTapCaller": 115,
-"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 117,
-"TestTheWorkflowCarriesNoSecrets": 120,
-"TestTheWorkflowInstallsWhatTheDocsSay": 118,
-"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 119
+"TestReleasePushesTheFormulaTheDocsInstall": 122,
+"TestReleaseRunNameTransportReachesTheProductionTapCaller": 116,
+"TestTheJudgeAcceptsWhatTheLastReleaseReportsOnABareMac": 118,
+"TestTheWorkflowCarriesNoSecrets": 121,
+"TestTheWorkflowInstallsWhatTheDocsSay": 119,
+"TestTheWorkflowRunsAfterEachReleaseWeeklyAndByHand": 120
 }
 }
 }

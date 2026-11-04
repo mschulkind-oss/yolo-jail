@@ -142,14 +142,14 @@ func runApprove(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Every registered source's store: the GitHub broker's requests and grants, and the git
-	// broker's push requests, grants and working set, each decided against its live host
-	// authority and audited.
-	stores := []*brokerstore.Store{
-		ghbroker.ApprovalStore(),
-		gitbroker.ApprovalStore(),
+	if config.InJail() {
+		return approveAll(ctx, args[1:], true, nil, os.Stdout, os.Stderr)
 	}
-	return approveAll(ctx, args[1:], config.InJail(), stores, os.Stdout, os.Stderr)
+	stores, diagnostics, err := approvalStores()
+	if err != nil {
+		return approveFailure(err, os.Stderr)
+	}
+	return approveAllWithDiagnostics(ctx, args[1:], false, stores, diagnostics, os.Stdout, os.Stderr)
 }
 
 // approveFailure maps a store error to its stable exit code and the next step its message
@@ -193,6 +193,10 @@ func approveMain(ctx context.Context, args []string, inJail bool, s *brokerstore
 // approveAll is `yolo approve` over every store in stores: it lists them all, and finds a
 // request, grant or working-set entry by its id in whichever store holds it.
 func approveAll(ctx context.Context, args []string, inJail bool, stores []*brokerstore.Store, out, errs io.Writer) int {
+	return approveAllWithDiagnostics(ctx, args, inJail, stores, nil, out, errs)
+}
+
+func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, stores []*brokerstore.Store, diagnostics []string, out, errs io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintf(errs, "yolo approve: %v. See `yolo approve --help`; run `yolo approve` on the host to list requests, grants and working sets.\n", err)
 		return approveExitUsage
@@ -285,6 +289,21 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		return fail(fmt.Errorf("choose one request decision, or --revoke"))
 	}
 	d.Via = approveVia(request, os.Getenv)
+	if request != "" && !d.Deny {
+		source, found, err := pendingRequestSource(stores, request)
+		if err != nil {
+			return approveFailure(err, errs)
+		}
+		if found {
+			if s := storeForSource(stores, source); s != nil && (s.Revalidate == nil || (s.ApprovalStatus != "" && s.ApprovalStatus != "selected")) {
+				if s.ApprovalDiagnostic != "" {
+					fmt.Fprintf(errs, "yolo approve: %s\n", termsafe.Visible(s.ApprovalDiagnostic))
+				}
+				fmt.Fprintf(errs, "yolo approve: source %s is %s and has no active core approval authority; it may be denied or revoked, but not granted. Next: keep it pending until its selected source and core authority can be confirmed, or deny it with `yolo approve %s --deny`.\n", termsafe.Visible(source), sourceStatusLabel(s), termsafe.Visible(request))
+				return approveExitNotConfirmed
+			}
+		}
+	}
 	if workspaceSeen && revoke != "all" {
 		return fail(fmt.Errorf("the --workspace flag narrows only --revoke all; revoke one grant or entry by its id alone"))
 	}
@@ -296,24 +315,28 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		if err != nil {
 			return approveFailure(err, errs)
 		}
-		if what, onceOnly := allowOnceOnly[source]; found && onceOnly && perRefStore(stores, source) == nil {
+		if descriptor, ok := descriptorForSource(stores, source); found && ok && descriptor.allowOnceOnly != "" && !descriptor.perResource {
 			flag := "--for"
 			if addSeen {
 				flag = "--add"
 			} else if rememberSeen {
 				flag = "--remember"
 			}
-			fmt.Fprintf(errs, "yolo approve: %s is not available for %s. Next: run `yolo approve %s` with no flags to Allow once.\n", flag, what, termsafe.Visible(request))
+			fmt.Fprintf(errs, "yolo approve: %s is not available for %s. Next: run `yolo approve %s` with no flags to Allow once.\n", flag, descriptor.allowOnceOnly, termsafe.Visible(request))
 			return approveExitPolicy
 		}
 		if rememberSeen {
 			return approveRemember(stores, request, d.Via, out, errs)
 		}
 		if !found && addSeen {
-			// No request has this id: --add is answered by the store that takes it, which says so.
+			// No request has this id: the selected git store owns the per-ref answer path; without
+			// that source in the registry this is an unknown request, not a usage error.
+			if storeForSource(stores, gitbroker.Source) == nil {
+				return approveFailure(brokerstore.ErrUnknownID, errs)
+			}
 			source, found = gitbroker.Source, true
 		}
-		if found && perRefStore(stores, source) != nil {
+		if descriptor, ok := descriptorForSource(stores, source); found && ok && descriptor.perResource && perRefStore(stores, source) != nil {
 			return approvePerRef(stores, source, request, d, addSeen, out, errs)
 		}
 		if addSeen {
@@ -321,7 +344,7 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		}
 	}
 	if watch {
-		return approveWatch(ctx, stores, asJSON, out, errs)
+		return approveWatchWithDiagnostics(ctx, stores, diagnostics, asJSON, out, errs)
 	}
 	if revoke != "" {
 		return approveRevoke(ctx, stores, revoke, workspace, out, errs)
@@ -352,10 +375,12 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		snaps[i] = snap
 	}
 	if asJSON {
-		return approveJSON(out, withConfigBranches(ctx, stores, mergedState(stores, snaps)), errs)
+		return approveJSON(out, withConfigBranches(ctx, stores, mergedState(stores, snaps, diagnostics)), errs)
 	}
+	printApprovalDiagnostics(out, diagnostics)
 	empty := true
 	for i, s := range stores {
+		printApprovalSource(out, s)
 		printApproveList(out, snaps[i])
 		printWorkingSet(out, s, snaps[i])
 		declared := storeConfigBranches(ctx, s)
@@ -363,19 +388,50 @@ func approveAll(ctx context.Context, args []string, inJail bool, stores []*broke
 		empty = empty && len(snaps[i].Requests) == 0 && len(snaps[i].Grants) == 0 && !anyLive(snaps[i].Working) && len(declared) == 0
 	}
 	if empty {
-		fmt.Fprintln(out, "No requests, grants or working-set entries. A windowed GitHub write, or a git push no grant or working-set entry covers, can file a pending Allow-once request; decide it with `yolo approve <id>`. Run `yolo approve --help` for the host store commands.")
+		if len(diagnostics) != 0 {
+			fmt.Fprintln(out, "INCOMPLETE: no requests were found in readable stores; unresolved source stores may still exist. Next: run `yolo check`, repair or fetch the named packs, then list approvals again.")
+		} else {
+			fmt.Fprintln(out, "No requests, grants or working-set entries. A windowed GitHub write, or a git push no grant or working-set entry covers, can file a pending Allow-once request; decide it with `yolo approve <id>`. Run `yolo approve --help` for the host store commands.")
+		}
+	} else if len(diagnostics) != 0 || hasDenyOnlySources(stores) {
+		fmt.Fprintln(out, "Requests are source-labeled: only sources with active core authority can be granted; pack sources without a core adapter and removed or unknown sources are deny/revoke only. Run `yolo check` to resolve incomplete selection, or use `yolo approve <id> --deny` for a refusal.")
+		fmt.Fprintln(out, "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.")
 	} else {
 		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource or `--add` for its PR or issue; a git push takes `--for <duration>` to allow its refs for that long, `--add` to add its branches to the working set, or `--remember` to allow it and remember its refs in the project's config; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
 	}
 	return 0
 }
 
-// allowOnceOnly is each source whose requests take Allow once and Deny alone unless its store
-// answers per resource (an Entries hook), with how the refusal of --for and --add names its
-// requests (BB-D77). A GitHub write takes Allow for a time and Add on its resource (BB-D79,
-// BB-D92) through ghbroker.ApprovalStore's Entries; a GitHub store without that hook never
-// falls through to a whole-set grant. A git push is not here: it takes per-ref answers (GB-D26).
-var allowOnceOnly = map[string]string{ghbroker.Source: "GitHub writes"}
+// approvalDescriptor carries the source-owned answer capabilities into the common approval
+// path. Pack sources get only the generic Allow-once/Deny surface until core has an authority
+// adapter; the two existing broker packages keep their established answer semantics.
+type approvalDescriptor struct {
+	allowOnceOnly string
+	perResource   bool
+}
+
+func approvalDescriptorForStore(s *brokerstore.Store) approvalDescriptor {
+	if s == nil {
+		return approvalDescriptor{}
+	}
+	switch s.SourceName() {
+	case ghbroker.Source:
+		return approvalDescriptor{allowOnceOnly: "GitHub writes", perResource: s.Entries != nil}
+	case gitbroker.Source:
+		return approvalDescriptor{perResource: s.Entries != nil}
+	default:
+		return approvalDescriptor{}
+	}
+}
+
+func descriptorForSource(stores []*brokerstore.Store, source string) (approvalDescriptor, bool) {
+	for _, s := range stores {
+		if s.SourceName() == source {
+			return approvalDescriptorForStore(s), true
+		}
+	}
+	return approvalDescriptor{}, false
+}
 
 // perRefStore is the store of source whose requests take the per-resource answers, or nil.
 func perRefStore(stores []*brokerstore.Store, source string) *brokerstore.Store {
@@ -431,8 +487,20 @@ func pendingRequestSource(stores []*brokerstore.Store, id string) (string, bool,
 	return "", false, nil
 }
 
+func storeForSource(stores []*brokerstore.Store, source string) *brokerstore.Store {
+	for _, s := range stores {
+		if s.SourceName() == source {
+			return s
+		}
+	}
+	return nil
+}
+
 // ErrUnknownID, or the last unknown-id error when none holds it.
 func eachStore(stores []*brokerstore.Store, fn func(*brokerstore.Store) error) error {
+	if len(stores) == 0 {
+		return brokerstore.ErrUnknownID
+	}
 	var err error
 	for _, s := range stores {
 		if err = fn(s); !errors.Is(err, brokerstore.ErrUnknownID) {
@@ -647,6 +715,45 @@ func anyLive(ws []brokerstore.WorkingEntry) bool {
 	return false
 }
 
+func hasDenyOnlySources(stores []*brokerstore.Store) bool {
+	for _, s := range stores {
+		if s.Revalidate == nil || (s.ApprovalStatus != "" && s.ApprovalStatus != "selected") {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceStatusLabel(s *brokerstore.Store) string {
+	status := s.ApprovalStatus
+	label := "selection not supplied by this caller"
+	switch status {
+	case "selected":
+		label = "selected in current user-scope prediction (launch ownership not verified)"
+	case "removed":
+		label = "removed from current user-scope selection"
+	case "unknown":
+		label = "selection unknown"
+	}
+	if s.Revalidate == nil || (status != "" && status != "selected") {
+		label += "; deny/revoke only, no active core approval authority"
+	}
+	return label
+}
+
+func printApprovalSource(out io.Writer, s *brokerstore.Store) {
+	if s.ApprovalStatus == "" {
+		return
+	}
+	fmt.Fprintf(out, "Source %s — %s.\n", termsafe.Visible(s.SourceName()), sourceStatusLabel(s))
+}
+
+func printApprovalDiagnostics(out io.Writer, diagnostics []string) {
+	for _, diagnostic := range diagnostics {
+		fmt.Fprintf(out, "%s\n", termsafe.Visible(diagnostic))
+	}
+}
+
 func printApproveList(out io.Writer, snap brokerstore.Snapshot) {
 	for _, r := range snap.Requests {
 		fmt.Fprintf(out, "%s  %s  jail %s  set %s  [%s]  repo %s: %s\n", termsafe.Visible(r.ID), termsafe.Visible(r.State), termsafe.Visible(r.Jail), termsafe.Visible(r.Set), termsafe.Visible(r.Workspace), termsafe.Visible(r.Repo), shquote.JoinDisplay(r.Argv))
@@ -731,8 +838,16 @@ func approveJSON(out io.Writer, v any, errs io.Writer) int {
 
 // mergedState is every store's state as one view: what `--json` prints, and what `--watch
 // --json` opens with as its one "state" object (boundary-broker.md BB-D72).
-func mergedState(stores []*brokerstore.Store, snaps []brokerstore.Snapshot) brokerstore.StateView {
-	v := brokerstore.StateView{Schema: brokerstore.Schema, Requests: []brokerstore.RequestView{}, Grants: []brokerstore.GrantView{}, Working: []brokerstore.WorkingView{}}
+func mergedState(stores []*brokerstore.Store, snaps []brokerstore.Snapshot, diagnostics []string) brokerstore.StateView {
+	v := brokerstore.StateView{Schema: brokerstore.Schema, Sources: []brokerstore.ApprovalSourceView{}, Diagnostics: append([]string(nil), diagnostics...), Requests: []brokerstore.RequestView{}, Grants: []brokerstore.GrantView{}, Working: []brokerstore.WorkingView{}}
+	for _, s := range stores {
+		authority := "deny-only"
+		if s.Revalidate != nil && (s.ApprovalStatus == "" || s.ApprovalStatus == "selected") {
+			authority = "core"
+		}
+		v.Sources = append(v.Sources, brokerstore.ApprovalSourceView{Source: s.SourceName(), Status: s.ApprovalStatus,
+			Authority: authority, SelectionBasis: "user-scope prediction; request launch selection is not verified"})
+	}
 	for i, s := range stores {
 		sv := s.StateView(snaps[i])
 		v.Requests = append(v.Requests, sv.Requests...)
@@ -759,11 +874,11 @@ func withConfigBranches(ctx context.Context, stores []*brokerstore.Store, v brok
 // "create-branch", grant id or "human".
 const configBranchBy = "config"
 
-// approveWatch is `--watch`: every store's current state, shown once, then each event, until
-// ctx ends. It reads every store before showing anything, so `--json` opens with exactly one
-// "state" object holding all of them, then follows each store from the snapshot it read
-// (brokerstore.Store.WatchFrom), each polled on its own (brokerstore.Store.Watch says why).
-func approveWatch(ctx context.Context, stores []*brokerstore.Store, asJSON bool, out, errs io.Writer) int {
+// approveWatchWithDiagnostics is `--watch`: every store's current state, shown once, then each
+// event, until ctx ends. It reads every store before showing anything, so `--json` opens with
+// exactly one "state" object holding all of them, then follows each store from the snapshot it
+// read (brokerstore.Store.WatchFrom), each polled on its own (brokerstore.Store.Watch says why).
+func approveWatchWithDiagnostics(ctx context.Context, stores []*brokerstore.Store, diagnostics []string, asJSON bool, out, errs io.Writer) int {
 	snaps := make([]brokerstore.Snapshot, len(stores))
 	for i, s := range stores {
 		snap, err := s.Snapshot()
@@ -773,17 +888,19 @@ func approveWatch(ctx context.Context, stores []*brokerstore.Store, asJSON bool,
 		snaps[i] = snap
 	}
 	if asJSON {
-		v := withConfigBranches(ctx, stores, mergedState(stores, snaps))
+		v := withConfigBranches(ctx, stores, mergedState(stores, snaps, diagnostics))
 		v.Event = "state"
 		if code := approveJSON(out, v, errs); code != 0 {
 			return code
 		}
 	} else {
 		for i, s := range stores {
+			printApprovalSource(out, s)
 			printApproveList(out, snaps[i])
 			printWorkingSet(out, s, snaps[i])
 			printConfigBranches(out, storeConfigBranches(ctx, s))
 		}
+		printApprovalDiagnostics(out, diagnostics)
 		fmt.Fprintln(errs, "Watching the store; one line per event. Press Ctrl-C to stop.")
 	}
 

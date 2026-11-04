@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +40,10 @@ func captureStd(t *testing.T, fn func() int) (int, string, string) {
 // new, marked where it needs approval; --for session is refused; Allow once grants that exact
 // push once, through the store's live host authority and required audit.
 func TestApproveGitRequestAllowOnceAndRefusesFor(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectConfig := selectApprovePacks(t, home, "git")
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	const remote = "git@fixture.test:o/r.git"
@@ -102,5 +107,106 @@ func TestApproveGitRequestAllowOnceAndRefusesFor(t *testing.T) {
 	audit, err := os.ReadFile(paths.BrokerAuditLog())
 	if err != nil || !bytes.Contains(audit, []byte(`"event":"decision"`)) || !bytes.Contains(audit, []byte(`"service":"git"`)) {
 		t.Fatalf("audit %s %v", audit, err)
+	}
+
+	// Removing git revokes CLI approval authority even while this launch lease stays alive.
+	writeApprovePackFile(t, selectConfig, `{"packs":[]}`)
+	removed := s
+	for _, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}, {"--remember"}} {
+		q, err := removed.File(brokerstore.Request{Jail: paths.JailShortHash(sf.Container), Start: start, Workspace: sf.Workspace,
+			LaunchID: sf.LaunchID, Argv: []string{"git-receive-pack", old + " " + updated + " refs/heads/agent/removed"},
+			Repo: "fixture.test/o/r", Set: "push", StdinDigest: hex.EncodeToString(empty[:]),
+			Policy: brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: 24 * time.Hour, Uses: 1}, NeedsApproval: []string{"refs/heads/agent/removed"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"approve", q.ID}, flags...)
+		if rc, _, errs := captureStd(t, func() int { return registry["approve"](args) }); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
+			t.Fatalf("removed live-lease git source accepted %v: rc=%d stderr=%s", flags, rc, errs)
+		}
+	}
+	pending, _, err := removed.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range pending {
+		if request.State == "pending" {
+			if rc, _, errs := captureStd(t, func() int { return registry["approve"]([]string{"approve", request.ID, "--deny"}) }); rc != 0 {
+				t.Fatalf("clean pending request %s: rc=%d stderr=%s", request.ID, rc, errs)
+			}
+		}
+	}
+	for _, aliasName := range []string{"custom-pack", gitbroker.Source} {
+		selectApprovalAliasPack(t, home, gitbroker.Source, aliasName)
+		assertSelectedAliasIsVisibleDenyOnly(t, gitbroker.Source)
+		workspace := filepath.Join(t.TempDir(), "workspace")
+		if err := os.MkdirAll(workspace, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		const policy = "[requests.git]\npush = [\"existing\"]\n"
+		policyPath := filepath.Join(workspace, "yolo-jail.toml")
+		if err := os.WriteFile(policyPath, []byte(policy), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		aliasSF := sf
+		aliasSF.LaunchID = "registry-git-alias-" + aliasName
+		aliasSF.Container = "registry-git-alias-" + aliasName + "-jail"
+		aliasSF.Workspace = workspace
+		aliasStartDigest := sha256.Sum256([]byte("git approval alias " + aliasName))
+		aliasStart := hex.EncodeToString(aliasStartDigest[:16])
+		aliasScopePath, err := brokerscope.Write(aliasSF)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, aliasLease, err := brokercore.BindLease(gitbroker.Source, aliasScopePath, aliasSF, aliasStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { brokercore.CloseLease(gitbroker.Source, aliasLease) })
+		for i, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}, {"--remember"}} {
+			ref := "refs/heads/agent/alias-" + aliasName + "-" + []string{"once", "for", "add", "remember"}[i]
+			q, err := removed.File(brokerstore.Request{Jail: paths.JailShortHash(aliasSF.Container), Start: aliasStart, Workspace: workspace,
+				LaunchID: aliasSF.LaunchID, Argv: []string{"git-receive-pack", old + " " + updated + " " + ref},
+				Repo: "fixture.test/o/r", Set: "push", StdinDigest: hex.EncodeToString(empty[:]),
+				Policy: brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: 24 * time.Hour, Uses: 1}, NeedsApproval: []string{ref}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, grantsBefore, err := removed.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"approve", q.ID}, flags...)
+			if rc, _, errs := captureStd(t, func() int { return runApprove(args) }); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
+				t.Fatalf("custom selected pack %q restored live-lease git authority for %v: rc=%d stderr=%s", aliasName, flags, rc, errs)
+			}
+			requests, grantsAfter, err := removed.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(grantsBefore, grantsAfter) {
+				t.Fatalf("custom selected pack %q changed grants for %v: before=%+v after=%+v", aliasName, flags, grantsBefore, grantsAfter)
+			}
+			for _, grant := range grantsAfter {
+				if grant.Digest == q.Digest {
+					t.Fatalf("custom selected pack %q granted request %s for %v: %+v", aliasName, q.ID, flags, grant)
+				}
+			}
+			foundPending := false
+			for _, request := range requests {
+				if request.ID == q.ID && request.State == "pending" {
+					foundPending = true
+				}
+			}
+			if !foundPending {
+				t.Fatalf("custom selected pack %q did not leave request %s pending for %v: %+v", aliasName, q.ID, flags, requests)
+			}
+			if got, err := os.ReadFile(policyPath); err != nil || string(got) != policy {
+				t.Fatalf("custom selected pack %q changed persistent policy for %v: content=%q err=%v", aliasName, flags, got, err)
+			}
+			if rc, _, errs := captureStd(t, func() int { return runApprove([]string{"approve", q.ID, "--deny"}) }); rc != 0 {
+				t.Fatalf("deny alias request %s: rc=%d stderr=%s", q.ID, rc, errs)
+			}
+		}
 	}
 }
