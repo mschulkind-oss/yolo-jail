@@ -23,10 +23,30 @@ func refuseOffMacOS(out printer, verb string) {
 		"not built on this system yet; agents here run as you, in a container: `yolo -- <cmd>`.", verb)
 }
 
+// CreateOptions are `yolo yolo-account create`'s flags.
+type CreateOptions struct {
+	// Recheck runs every step that needs the admin password even when the machine already
+	// looks set up: the sudo rule is re-checked against this yolo's text and rewritten.
+	Recheck bool
+}
+
+// RecheckCommand is the command that re-checks an existing setup with the admin password.
+const RecheckCommand = "yolo yolo-account create --recheck"
+
 // AccountCreate creates the yolo account (one-time, needs admin).
 // Idempotent. Returns the exit code (0 success; 1 on failure/refusal) so the
 // front door maps it to a process exit.
-func AccountCreate(deps Deps) int {
+func AccountCreate(deps Deps) int { return AccountCreateWith(deps, CreateOptions{}) }
+
+// AccountCreateWith is AccountCreate with its flags.
+//
+// A MACHINE ALREADY SET UP IS NOT ASKED FOR A PASSWORD (W-SU5 of
+// docs/design/named-setups-plan.md). When the account exists and every step that needs root
+// is observably done already (existingSetup), create re-checks the run-as rule with no prompt
+// and finishes with exit 0; only a step known to need root, the rule known missing or wrong
+// among them, starts the sudo path. Before this, every re-run asked sudo to grep the 0440 rule
+// file, and with no password exited 1 on a setup that worked.
+func AccountCreateWith(deps Deps, opts CreateOptions) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
 		refuseOffMacOS(out, "create")
@@ -51,6 +71,14 @@ func AccountCreate(deps Deps) int {
 	}
 	if rc := refuseForeignEnrollment(deps, out); rc != 0 {
 		return rc
+	}
+	if !opts.Recheck && deps.SandboxUserExists() {
+		ex := existingSetup(deps, rule)
+		if ex.ready {
+			return finishExistingSetup(deps, out, hostUser, ex)
+		}
+		out.printf("• The yolo account [bold]%s[/bold] exists, but %s, so setup repairs it.",
+			SandboxUser, ex.why)
 	}
 	announceSudo(deps, out, "set up the yolo account and its rule ("+SudoersFile+")")
 	if rc := refuseAnotherUsersRule(deps, out, hostUser); rc != 0 {
@@ -136,13 +164,7 @@ func AccountCreate(deps Deps) int {
 	// NOT run under sudo: FixPermissionsScript applies the grant as the invoking
 	// user, and running it as root would assign the shared-workspace ACL to root
 	// instead (the reason refuseIfRoot guards this whole command).
-	out.printf("• Sharing existing projects under [bold]%s[/bold] with %s "+
-		"(idempotent; safe to re-run).", SharedRootDefault(), SandboxUser)
-	if failed, rc := shareTree(deps, SharedRootDefault()); rc != 0 {
-		reportACLFailures(out, SharedRootDefault(), hostUser, failed)
-	} else {
-		out.print("  [green]done[/green]")
-	}
+	shareExistingProjects(deps, out, hostUser)
 
 	// 1d. The staging root and the capture root become the host user's own (PL-6), then the rule
 	// is installed, then the files older sessions left are removed (PL-8), and last the rule is
@@ -160,7 +182,24 @@ func AccountCreate(deps Deps) int {
 	if rc := proveRunAsGrant(deps, out); rc != 0 {
 		return rc
 	}
+	return reportReadiness(deps, out)
+}
 
+// shareExistingProjects is setup's retrofit of the shared-group ACL over the shared root (step
+// 1c of AccountCreateWith), as the invoking user: it needs no password.
+func shareExistingProjects(deps Deps, out printer, hostUser string) {
+	out.printf("• Sharing existing projects under [bold]%s[/bold] with %s "+
+		"(idempotent; safe to re-run).", SharedRootDefault(), SandboxUser)
+	if failed, rc := shareTree(deps, SharedRootDefault()); rc != 0 {
+		reportACLFailures(out, SharedRootDefault(), hostUser, failed)
+	} else {
+		out.print("  [green]done[/green]")
+	}
+}
+
+// reportReadiness is setup's last part: the readiness checks that need no privilege, one verdict
+// and the next steps. It returns setup's exit code.
+func reportReadiness(deps Deps, out printer) int {
 	// 2. Readiness checks — report each; neither fatal to setup. No interpreter
 	// readiness check is needed: the sandbox self-execs the staged yolo binary
 	// (J2 §3).
@@ -468,6 +507,107 @@ func announceSudo(deps Deps, out printer, why string) {
 		return
 	}
 	out.printf("• sudo needs your password to %s.", why)
+}
+
+// existingSetupState is what create observed, without a password, about a machine whose yolo
+// account exists.
+type existingSetupState struct {
+	// ready: no step needs root. The run-as rule works with no password, and every root-owned
+	// step setup takes is observably done.
+	ready bool
+	// ruleVerified: the rule file was readable and holds exactly this yolo's rule. False with
+	// ready means the file is root's to read (0440 root:wheel, the normal case), so only the
+	// grant it makes was checked, not its text.
+	ruleVerified bool
+	// why names the first step that needs root, when not ready.
+	why string
+}
+
+// grantProbeArgv is readiness probe G2 with sudo's -k, which with a command ignores the cached
+// credentials without clearing them: a password the admin typed a minute ago would otherwise
+// pass through the admin's own broad rule and hide a missing run-as rule. -n never prompts.
+func grantProbeArgv() []string {
+	g := RunAsGrantProbeArgv()
+	return append([]string{g[0], g[1], "-k"}, g[2:]...)
+}
+
+// existingSetup asks, with no sudo that can prompt, whether a machine whose yolo account exists
+// needs any step only root can take: the account's home, the shared root, the staging and
+// capture roots, an older yolo's session files, and the run-as rule. Each check mirrors the step
+// it stands for; anything it cannot observe counts as needing root, except the rule's TEXT,
+// which only root can read, and whose grant the probe checks instead.
+func existingSetup(deps Deps, rule string) existingSetupState {
+	notReady := func(why string) existingSetupState { return existingSetupState{why: why} }
+	if deps.PathIsDir == nil || !deps.PathIsDir(SandboxHome()) {
+		return notReady("its home " + SandboxHome() + " is missing")
+	}
+	euid := deps.Geteuid()
+	shared := rootFacts(deps, SharedRootDefault())
+	if shared.Err != nil || !shared.Exists || !shared.IsDir || shared.IsSymlink ||
+		shared.UID != uint32(euid) || !shared.HasACL || shared.Mode&0o007 != 0 {
+		return notReady("the shared root " + SharedRootDefault() + " is not provisioned")
+	}
+	for _, root := range []string{StagingRoot(), CaptureRootDefault()} {
+		if JudgeStagingRoot(rootFacts(deps, root), euid) != StagingRootOK {
+			return notReady(root + " is not yet yours, mode " + categoryDirMode + ", with no access list")
+		}
+	}
+	if legacySessionsPending(deps) {
+		return notReady("an older yolo's sessions left root-owned files in " + LegacyStateDir())
+	}
+	if _, rc := runQuietly(deps, grantProbeArgv()); rc != 0 {
+		return notReady("sudo does not run commands as " + SandboxUser + " without a password")
+	}
+	if deps.ReadFile != nil {
+		if text, known := deps.ReadFile(SudoersFile); known {
+			if text != rule {
+				return notReady(SudoersFile + " is missing or is not this yolo's rule")
+			}
+			return existingSetupState{ready: true, ruleVerified: true}
+		}
+	}
+	return existingSetupState{ready: true}
+}
+
+// legacySessionsPending reports whether sweepLegacySessions would have root-owned files to
+// remove: a session record whose legacy profile exists. Whether that session has ended is the
+// sweep's to decide; a live one only sends create down the sudo path, which leaves it alone.
+func legacySessionsPending(deps Deps) bool {
+	if deps.SessionRecordDir == nil || deps.PathExists == nil {
+		return false
+	}
+	dir := deps.SessionRecordDir()
+	if dir == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*"+sessionRecordSuffix))
+	for _, path := range matches {
+		key := strings.TrimSuffix(filepath.Base(path), sessionRecordSuffix)
+		if _, _, ok := parseSessionKey(key); ok && deps.PathExists(SessionProfilePath(key, LegacyStateDir())) {
+			return true
+		}
+	}
+	return false
+}
+
+// finishExistingSetup is create on a machine already set up: no sudo that can prompt, the
+// unprivileged steps setup always takes, and exit 0. A rule whose text could not be read gets
+// the command that re-checks it with the admin password.
+func finishExistingSetup(deps Deps, out printer, hostUser string, ex existingSetupState) int {
+	out.printf("• The yolo account [bold]%s[/bold] already exists.", SandboxUser)
+	if ex.ruleVerified {
+		out.printf("• %s is this yolo's rule, and sudo runs commands as %s with no password.",
+			SudoersFile, SandboxUser)
+	} else {
+		out.printf("• sudo runs commands as %s with no password (`%s`). %s is readable only by "+
+			"root, so its text was not compared with this yolo's rule. To re-check and rewrite it "+
+			"with your admin password, run:", SandboxUser, shquote.JoinDisplay(grantProbeArgv()), SudoersFile)
+		out.blank()
+		out.commands(RecheckCommand)
+		out.blank()
+	}
+	shareExistingProjects(deps, out, hostUser)
+	return reportReadiness(deps, out)
 }
 
 // refuseAnotherUsersRule asks whether the installed rule is this user's, through sudo because the
