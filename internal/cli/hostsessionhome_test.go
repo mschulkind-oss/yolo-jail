@@ -203,12 +203,20 @@ func leaseFDInheritedAcrossExec(t *testing.T, lease string) bool {
 		t.Errorf("the session home has no lease at the exec: %v", err)
 		return false
 	}
-	entries, err := os.ReadDir("/dev/fd")
+	// Names only: os.ReadDir lstats each entry on darwin, and the entry for the descriptor the
+	// listing itself held is gone by then ("lstat /dev/fd/4: bad file descriptor", check-macos,
+	// 2026-11-04). A descriptor that vanished is skipped by the Fstat below.
+	dir, err := os.Open("/dev/fd")
+	if err != nil {
+		t.Fatalf("opening /dev/fd: %v", err)
+	}
+	names, err := dir.Readdirnames(-1)
+	dir.Close()
 	if err != nil {
 		t.Fatalf("listing /dev/fd: %v", err)
 	}
-	for _, e := range entries {
-		fd, err := strconv.Atoi(e.Name())
+	for _, name := range names {
+		fd, err := strconv.Atoi(name)
 		if err != nil {
 			continue
 		}
