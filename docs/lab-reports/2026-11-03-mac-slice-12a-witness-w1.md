@@ -718,9 +718,23 @@ Three things this contradicts, all from before 12a:
 - `copilot-keychain-boundary.md`'s W1/W5, "the account-mode boundary that ships today", described
   `(allow default)`, which no longer ships.
 
-Not checked: the same launch on 12a's parent, to see that it passes there (the log above says
-why it fails now, not that it worked before), and whether `bsd.dirhelper`, `AppSSO` or
-`opendirectoryd.membership` matter to Copilot at all.
+**Confirmed against 12a's parent, 2026-11-04 (over ssh).** The same command in the same fresh
+workspace (`/Users/Shared/yolo/pre12a-cp`), with the same Copilot 1.0.105, inside account mode:
+`copilot update` under a 90 s alarm.
+
+| Build | `$HOME` | `copilot update` |
+| :--- | :--- | :--- |
+| `467d785d9` (12a's parent), dev bundle from a throwaway worktree, `YOLO_RUNTIME=macos-user` | `/Users/_yolojail` | `No update needed, current version is 1.0.105, fetched latest release is v1.0.105`, rc 0 |
+| installed `0.16.1+35.g7f1210e630c9`, `YOLO_SETUP=seatbelt-yolo-account` | `<ws>/.yolo/home` | `Error during update: Failed to fetch latest release: request failed: error sending request for url (https://api.github.com/repos/github/copilot-cli/releases/latest)`, rc 1 |
+
+So 12a introduced it: account mode's move to the deny-by-default profile. Side effect of running
+the pre-12a build: it re-pointed nine layout links in `/Users/_yolojail` (`.claude`, `.codex`,
+`.config`, `.copilot`, …) at `pre12a-cp/.yolo/home`, as every pre-12a launch did. No current build
+reads them ([OQ-MM4](../design/macos-user-model.md#OQ-MM4)), and `pre12a-cp` is left in place so
+they don't dangle.
+
+Still not checked: whether `bsd.dirhelper`, `AppSSO` or `opendirectoryd.membership` matter to
+Copilot at all.
 
 **Decision needed:** grant account mode the trust-evaluation lookups Copilot needs
 (SecurityServer, the system trust settings), or gate account mode too and drop it from the
