@@ -68,7 +68,7 @@ func guestProcessesReal(mode Mode) ([]GuestProc, error) {
 		}
 		if c.self && c.hasUID(r, c.selfUID) && pid != os.Getpid() {
 			if buf, err := unix.SysctlRaw("kern.procargs2", pid); err == nil {
-				_, r.Env, r.EnvKnown = parseProcArgs2(buf)
+				r.Env, r.EnvKnown = procArgs2Env(buf)
 			}
 			if !r.EnvKnown {
 				r.Alive = unix.Kill(pid, 0) != unix.ESRCH

@@ -14,7 +14,8 @@ import (
 //
 // What the Linux gate cannot reach and this does: the host user writing a sidecar in the
 // sandbox-created <ws>/.yolo/prism (through the workspace ACL's grant), and reading the surface the
-// sandbox account wrote through the account home's link into <ws>/.yolo/home/claude. ONE launch:
+// sandbox account wrote at <ws>/.yolo/home/.claude, its HOME since slice 12a (MMP-D25); the fold
+// read the podman spelling <ws>/.yolo/home/claude until the Mac run of 2026-11-03. ONE launch:
 // the next boot would fold the edit anyway, so a second launch would hide the very defect this pins.
 func TestMacosUserCapturesConfigEditsWhenTheSessionEnds(t *testing.T) {
 	requireMacosUser(t)

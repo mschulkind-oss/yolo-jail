@@ -371,6 +371,7 @@ func (l DarwinHomeLayout) Apply() error {
 	}
 	var inHome []string
 	var inSidecar []DarwinHomeLink
+	targets := map[string]string{} // an occupied inHome path's link target, for the refusal
 	for _, ln := range l.Links {
 		occupied, err := ensureLayoutSymlink(ln.Path, ln.Target)
 		if err != nil {
@@ -378,6 +379,7 @@ func (l DarwinHomeLayout) Apply() error {
 		}
 		if occupied {
 			inHome = append(inHome, ln.Path)
+			targets[ln.Path] = ln.Target
 		}
 	}
 	for _, ln := range l.Mirrors {
@@ -404,6 +406,7 @@ func (l DarwinHomeLayout) Apply() error {
 		}
 		if occupied {
 			inHome = append(inHome, r.Path)
+			targets[r.Path] = r.Target
 		}
 	}
 	// Left DANGLING, as podman's skeleton leaves the same link: `once` seeds only a file it
@@ -421,7 +424,56 @@ func (l DarwinHomeLayout) Apply() error {
 	if len(inHome)+len(inSidecar)+len(inHostFiles) == 0 {
 		return nil
 	}
+	if l.Sidecar != "" && l.Home == l.Sidecar && len(inSidecar) == 0 {
+		return occupiedWorkspaceHomeError(inHome, targets, inHostFiles)
+	}
 	return occupiedLayoutError(l.Home, inHome, inSidecar, inHostFiles...)
+}
+
+// occupiedWorkspaceHomeError is the refusal for a layout whose HOME is the workspace's own
+// `.yolo/home` (DeriveDarwinWorkspaceHome; MMP-D25). Every occupied path is in THAT home, where
+// a link OUT to state shared by every workspace belongs, so the account reset occupiedLayoutError
+// offers would be wrong twice: there is no account home here, and `rm -rf` of HOME deletes the
+// workspace's whole home, its agents' transcripts included, to clear one directory (the Mac run
+// of 2026-11-03, §3). Each path is named with where its link points and removed alone.
+func occupiedWorkspaceHomeError(inHome []string, targets map[string]string, hostFiles []string) error {
+	var b strings.Builder
+	n := len(inHome) + len(hostFiles)
+	fmt.Fprintf(&b, "the per-workspace home layout cannot be laid: %d %s real, where a "+
+		"symlink belongs.\n", n, plural(n, "path is", "paths are"))
+	b.WriteString("There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here " +
+		"is copied, renamed or deleted for you.\n")
+	remove := func(p string) {
+		rm := "sudo rm"
+		if fi, err := os.Lstat(p); err == nil && fi.IsDir() {
+			rm = "sudo rm -rf"
+		}
+		fmt.Fprintf(&b, "  %s %s\n", rm, shquote.Quote(p))
+	}
+	if len(inHome) > 0 {
+		b.WriteString("\nIn THIS WORKSPACE'S HOME, where a link to state shared by every " +
+			"workspace on this Mac belongs:\n")
+		for _, p := range inHome {
+			fmt.Fprintf(&b, "  %s (links to %s)\n", p, targets[p])
+		}
+		b.WriteString("Move what you want to keep into the directory the link names, then remove " +
+			"each one (nothing else in this home is touched):\n")
+		for _, p := range inHome {
+			remove(p)
+		}
+	}
+	if len(hostFiles) > 0 {
+		b.WriteString("\nIn THIS WORKSPACE'S HOME, where a `host_files` entry's link belongs; " +
+			"yolo renders that file from your host_files entry:\n")
+		for _, p := range hostFiles {
+			fmt.Fprintf(&b, "  %s\n", p)
+		}
+		b.WriteString("Move what you want to keep, then remove each one:\n")
+		for _, p := range hostFiles {
+			remove(p)
+		}
+	}
+	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
 }
 
 // occupiedLayoutError is the refusal, split out so the two-remedy rule above is one

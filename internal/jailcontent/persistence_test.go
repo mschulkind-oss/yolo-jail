@@ -25,13 +25,21 @@ func TestNoBriefingCallsTheHomePersistent(t *testing.T) {
 	}
 }
 
-// macos-user's Home line says the fact that matters there: ONE account home serves every
-// workspace (docs/reference/jail-home.md#the-storage-classes). Its section is a later slice.
-func TestTheMacosUserHomeLineSaysItIsShared(t *testing.T) {
+// macos-user's Home line says the fact that matters there: the home is THIS workspace's own
+// `.yolo/home` in both modes since slice 12a (macos-user-model-plan.md MMP-D25), and only its links
+// to machine-wide state are shared. It said "one account home, shared by every workspace" until
+// the Mac run of 2026-11-03 found that text in a 12a briefing. Its section is a later slice.
+func TestTheMacosUserHomeLineSaysItIsTheWorkspacesOwn(t *testing.T) {
 	out := BriefingContent(BriefingInput{Workspace: "/Users/Shared/yolo/p", Mechanism: "macos-user",
-		Home: "/Users/_yolojail"})
-	if !strings.Contains(out, "one account home, shared by every workspace on this") {
-		t.Errorf("the macos-user Home line does not say the home is shared:\n%s", environmentBlockOf(t, out))
+		Home: "/Users/Shared/yolo/p/.yolo/home"})
+	env := environmentBlockOf(t, out)
+	if !strings.Contains(env, "`/Users/Shared/yolo/p/.yolo/home` (this workspace's own") ||
+		!strings.Contains(env, "shared by every workspace on this machine") {
+		t.Errorf("the macos-user Home line does not say the home is this workspace's own and "+
+			"its machine-wide links shared:\n%s", env)
+	}
+	if strings.Contains(out, "one account home") || strings.Contains(out, "are links into this workspace") {
+		t.Errorf("the macos-user Home line still describes the pre-12a shared account home:\n%s", env)
 	}
 	if strings.Contains(out, persistenceHeading) {
 		t.Errorf("macos-user got a container-shaped section it has no map for:\n%s", out)

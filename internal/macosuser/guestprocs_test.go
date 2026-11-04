@@ -154,3 +154,22 @@ func TestASelfModeLaunchReadsTheSandboxInItsOwnMode(t *testing.T) {
 		t.Errorf("the reaper was not handed the run-as-you mode: %q\n%s", reaped, out.String())
 	}
 }
+
+// AN EMPTY ENVIRONMENT IS AN UNREAD ONE (the Mac run of 2026-11-03, §6). macOS 26 gives a
+// platform binary's kern.procargs2 with its arguments and NO environment, to its owner too, so a
+// `sh` or `sleep` the sandbox started read as "known, no marker" and was dropped from the holder
+// proof; the tri-state above says an unreadable environment of a live process counts. Every
+// process yours that the sandbox starts carries at least the marker, so empty never proves
+// "not the sandbox's".
+func TestAnEmptyProcArgs2EnvironmentIsUnknown(t *testing.T) {
+	if env, known := procArgs2Env(procArgs2(1, "/bin/sleep", []string{"sleep"}, nil)); known || env != nil {
+		t.Errorf("a hidden environment = %q, known %v; want unknown", env, known)
+	}
+	if _, known := procArgs2Env([]byte{1, 0}); known {
+		t.Error("a short buffer read as a known environment")
+	}
+	marker := SandboxEnvFileEnv + "=/Users/Shared/yolo-staged/env/a.env"
+	if env, known := procArgs2Env(procArgs2(1, "/x/node", []string{"node"}, []string{marker})); !known || !slices.Equal(env, []string{marker}) {
+		t.Errorf("a readable environment = %q, known %v", env, known)
+	}
+}

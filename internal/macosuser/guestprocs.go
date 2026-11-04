@@ -176,3 +176,16 @@ func parseProcArgs2(buf []byte) (argv, env []string, ok bool) {
 		env = append(env, s)
 	}
 }
+
+// procArgs2Env is a KERN_PROCARGS2 buffer's environment, and whether it was READ. An empty one
+// is not read: macOS 26 hides a platform binary's environment from kern.procargs2, its owner's
+// read included (the Mac run of 2026-11-03, §6), and returns the arguments alone, so a sandboxed
+// `sh` would otherwise read as known and unmarked. A process with truly no environment carries
+// no marker either, and counting it while alive costs only disk, as the tri-state above says.
+func procArgs2Env(buf []byte) (env []string, known bool) {
+	_, env, ok := parseProcArgs2(buf)
+	if !ok || len(env) == 0 {
+		return nil, false
+	}
+	return env, true
+}

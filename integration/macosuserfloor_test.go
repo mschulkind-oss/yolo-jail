@@ -55,9 +55,10 @@ func TestMacosUserFloorReachesTheSandboxPath(t *testing.T) {
 
 	resolved := parseFloorProbe(got)
 	home := resolved[floorProbeHomeKey]
-	if home == "" {
-		t.Fatalf("the probe did not print the sandbox's HOME, so no resolution below can be "+
-			"classified:\n%s", got)
+	mise := resolved[floorProbeMiseKey]
+	if home == "" || mise == "" {
+		t.Fatalf("the probe did not print the sandbox's HOME and MISE_DATA_DIR, so no resolution "+
+			"below can be classified:\n%s", got)
 	}
 	for _, b := range macosUserFloorBins {
 		full, seen := resolved[b]
@@ -66,7 +67,7 @@ func TestMacosUserFloorReachesTheSandboxPath(t *testing.T) {
 			t.Errorf("%s: the probe printed no line for it at all", b)
 			continue
 		}
-		problem, note := floorBinProblem(b, full, floor, home, "/nix/store/")
+		problem, note := floorBinProblem(b, full, floor, home, mise, "/nix/store/")
 		if note != "" {
 			t.Log(note)
 		}
@@ -170,19 +171,25 @@ func macosUserFloorProbeBins() []string {
 // nothing (OQ-P2).
 //
 // TWO LINES PER BINARY. `name=` is what the agent gets, on the sandbox's whole PATH. `name@floor=`
-// is the same lookup on that PATH with every directory under the sandbox's $HOME taken out, and
-// the HOME it took out is printed first. Those directories — the mise shims among them — head the
-// PATH by design and outrank the floor (entrypoint.HomePathDirs, OQ-PD27; on mise, OQ-DM3 in
-// docs/design/macos-user-suite-on-a-developer-mac.md, ruled 2026-10-18 for parity with the jail),
-// and the sandbox home is ONE account home shared by every workspace and test on the Mac: a mise
-// tool another workspace installed leaves a shim there that shadows the floor's `node` whatever
-// this workspace configures. So `@floor` is the floor's own reach, which no stale install can
-// hide, and `name=` is checked only for a winner outside the home.
+// is the same lookup on that PATH with every directory under the sandbox's $HOME and under its
+// $MISE_DATA_DIR taken out, and the two roots it took out are printed first. Those directories —
+// the mise shims among them — head the PATH by design and outrank the floor
+// (entrypoint.HomePathDirs, OQ-PD27; on mise, OQ-DM3 in
+// docs/design/macos-user-suite-on-a-developer-mac.md, ruled 2026-10-18 for parity with the jail).
+// The mise store is the MACHINE root's, shared by every workspace and test on the Mac
+// (macos-user-model-plan.md MMP-D6; in the account mode `/Users/_yolojail/.yolo/mise` since slice
+// 12a moved HOME into the workspace, MMP-D25): a mise tool another workspace installed leaves a
+// shim there that shadows the floor's `node` whatever this workspace configures. Before 12a that
+// store sat under HOME, which is why the filter once named HOME alone. So `@floor` is the floor's
+// own reach, which no stale install can hide, and `name=` is checked only for a winner outside
+// both roots.
 func macosUserFloorProbe(bins []string) string {
 	var probe strings.Builder
 	probe.WriteString(`echo "=== FLOOR ==="` + "\n")
 	fmt.Fprintf(&probe, "printf '%s=%%s\\n' \"$HOME\"\n", floorProbeHomeKey)
-	probe.WriteString(`floor_path=$(IFS=:; out=; for d in $PATH; do case "$d" in ("$HOME"|"$HOME"/*) ;; ` +
+	fmt.Fprintf(&probe, "printf '%s=%%s\\n' \"${MISE_DATA_DIR:-$HOME}\"\n", floorProbeMiseKey)
+	probe.WriteString(`_mise="${MISE_DATA_DIR:-$HOME}"` + "\n")
+	probe.WriteString(`floor_path=$(IFS=:; out=; for d in $PATH; do case "$d" in ("$HOME"|"$HOME"/*|"$_mise"|"$_mise"/*) ;; ` +
 		`(*) out="${out:+$out:}$d" ;; esac; done; printf '%s' "$out")` + "\n")
 	for _, b := range bins {
 		fmt.Fprintf(&probe, "printf '%s=%%s\\n' \"$(command -v %s || echo MISSING)\"\n", b, b)
@@ -193,10 +200,12 @@ func macosUserFloorProbe(bins []string) string {
 	return probe.String()
 }
 
-// floorProbeHomeKey and floorProbeFloorSuffix name the probe's extra lines: the sandbox's HOME, and
-// a binary's resolution past the home's directories.
+// floorProbeHomeKey, floorProbeMiseKey and floorProbeFloorSuffix name the probe's extra lines: the
+// sandbox's HOME, its mise store (MISE_DATA_DIR, HOME when unset), and a binary's resolution past
+// both roots' directories.
 const (
 	floorProbeHomeKey     = "@home"
+	floorProbeMiseKey     = "@mise"
 	floorProbeFloorSuffix = "@floor"
 )
 
@@ -212,8 +221,9 @@ func parseFloorProbe(out string) map[string]string {
 }
 
 // floorBinProblem judges one floor binary from its two resolutions: full, on the agent's PATH, and
-// floor, past the sandbox home's directories; store is the nix store's prefix. problem is "" when
-// the floor reached the PATH; note records a home directory that outranks it, which is by design.
+// floor, past the directories under the sandbox's home and its mise store (mise); store is the nix
+// store's prefix. problem is "" when the floor reached the PATH; note records a directory under
+// either root that outranks it, which is by design.
 //
 //   - floor MISSING: the floor did not reach the PATH.
 //   - floor outside the store: something ahead of the floor that is NOT the sandbox home's —
@@ -224,11 +234,12 @@ func parseFloorProbe(out string) map[string]string {
 //   - full anything else: not a PATH lookup at all, since a file outside the home that came first
 //     on the whole PATH comes first on the filtered one too. `command -v` printing an alias or a
 //     function the login rc files define is what reaches here.
-func floorBinProblem(bin, full, floor, home, store string) (problem, note string) {
-	inHome := func(p string) bool { return p == home || strings.HasPrefix(p, home+"/") }
+func floorBinProblem(bin, full, floor, home, mise, store string) (problem, note string) {
+	under := func(p, root string) bool { return root != "" && (p == root || strings.HasPrefix(p, root+"/")) }
+	inHome := func(p string) bool { return under(p, home) || under(p, mise) }
 	switch {
 	case floor == "MISSING":
-		return fmt.Sprintf("%s does not resolve in the sandbox past its home's own directories — the "+
+		return fmt.Sprintf("%s does not resolve in the sandbox past its home's and mise store's directories — the "+
 			"floor did not reach this PATH", bin), ""
 	case !strings.HasPrefix(floor, store):
 		return fmt.Sprintf("%s resolved to %s rather than into the nix profile, with the sandbox home's "+
@@ -245,8 +256,8 @@ func floorBinProblem(bin, full, floor, home, store string) (problem, note string
 		}
 		return "", fmt.Sprintf("%s: the agent gets %s, %s, which outranks the floor's %s by design "+
 			"(mise and the home's directories ahead of the floor, as in the container jail: OQ-PD27, "+
-			"OQ-DM3). The sandbox home is shared by every workspace on this Mac, so it may be another "+
-			"workspace's install.", bin, full, kind, floor)
+			"OQ-DM3). The mise store is the machine root's, shared by every workspace on this Mac, so "+
+			"it may be another workspace's install.", bin, full, kind, floor)
 	default:
 		return fmt.Sprintf("%s: `command -v` in the agent's shell answers %q, which is no file on its "+
 			"PATH (the floor's is %s): an alias or a function the login rc files define shadows the "+
@@ -313,34 +324,42 @@ func TestMacosUserFloorProbeAsksEveryQuestionItem6Claims(t *testing.T) {
 }
 
 // TestMacosUserFloorProbeSeesTheFloorPastAMiseShim runs the REAL probe script here, under bash,
-// over a stand-in sandbox: a home whose mise shims dir holds a stale `jq` shim ahead of a stand-in
-// floor's `jq`, and a floor `git` nothing shadows. The agent's lookup must name the shim and the
-// floor lookup the floor's binary, and floorBinProblem must call the shim a note (mise wins, by
-// OQ-DM3) and the reach a pass. That is the half a Mac cannot check before it fails: whether the
-// probe's PATH filter and its two lines do what the Mac test reads them as.
+// over a stand-in sandbox laid out as slice 12a lays the account mode (MMP-D25): a HOME that is the
+// workspace's sidecar, holding a stale `gh` in its npm prefix, and a mise store OUTSIDE it, in the
+// machine root, whose shims dir holds a stale `jq` shim, both ahead of a stand-in floor's `jq`,
+// `gh` and `git`. The agent's lookup must name the shim and the home's `gh`, the floor lookup the
+// floor's binaries, and floorBinProblem must call both a note (mise and the home win, by OQ-DM3)
+// and the reach a pass. That is the half a Mac cannot check before it fails: whether the probe's
+// PATH filter and its lines do what the Mac test reads them as. The probe that filtered HOME
+// alone failed the Mac run of 2026-11-03 this way: `node`, `npm` and `jq` resolved, past the
+// filter, to `/Users/_yolojail/.yolo/mise/shims`.
 func TestMacosUserFloorProbeSeesTheFloorPastAMiseShim(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("no bash on PATH")
 	}
 	root := resolvedTempDir(t)
-	home := filepath.Join(root, "home")
-	shims := filepath.Join(home, ".yolo", "mise", "shims")
+	home := filepath.Join(root, "ws", ".yolo", "home")
+	homeBin := filepath.Join(home, ".npm-global", "bin")
+	mise := filepath.Join(root, "machine", ".yolo", "mise")
+	shims := filepath.Join(mise, "shims")
 	store := filepath.Join(root, "store") + "/"
 	floorBin := filepath.Join(store, "profile", "bin")
-	for _, d := range []string{shims, floorBin} {
+	for _, d := range []string{homeBin, shims, floorBin} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, p := range []string{filepath.Join(shims, "jq"), filepath.Join(floorBin, "jq"), filepath.Join(floorBin, "git")} {
+	for _, p := range []string{filepath.Join(shims, "jq"), filepath.Join(homeBin, "gh"),
+		filepath.Join(floorBin, "jq"), filepath.Join(floorBin, "gh"), filepath.Join(floorBin, "git")} {
 		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	cmd := exec.Command(bash, "--noprofile", "--norc", "-c",
-		macosUserFloorProbe([]string{"jq", "git", "yolo-no-such-tool"}))
-	cmd.Env = []string{"HOME=" + home, "PATH=" + shims + ":" + floorBin}
+		macosUserFloorProbe([]string{"jq", "gh", "git", "yolo-no-such-tool"}))
+	cmd.Env = []string{"HOME=" + home, "MISE_DATA_DIR=" + mise,
+		"PATH=" + homeBin + ":" + shims + ":" + floorBin}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the probe failed: %v\n%s", err, out)
@@ -348,8 +367,11 @@ func TestMacosUserFloorProbeSeesTheFloorPastAMiseShim(t *testing.T) {
 	got := parseFloorProbe(section(string(out), "=== FLOOR ===", "=== END ==="))
 	want := map[string]string{
 		floorProbeHomeKey:             home,
+		floorProbeMiseKey:             mise,
 		"jq":                          filepath.Join(shims, "jq"),
 		"jq" + floorProbeFloorSuffix:  filepath.Join(floorBin, "jq"),
+		"gh":                          filepath.Join(homeBin, "gh"),
+		"gh" + floorProbeFloorSuffix:  filepath.Join(floorBin, "gh"),
 		"git":                         filepath.Join(floorBin, "git"),
 		"git" + floorProbeFloorSuffix: filepath.Join(floorBin, "git"),
 		"yolo-no-such-tool":           "MISSING",
@@ -360,19 +382,24 @@ func TestMacosUserFloorProbeSeesTheFloorPastAMiseShim(t *testing.T) {
 			t.Errorf("the probe printed %s=%q, want %q:\n%s", k, got[k], v, out)
 		}
 	}
-	if problem, note := floorBinProblem("jq", got["jq"], got["jq@floor"], home, store); problem != "" ||
+	if problem, note := floorBinProblem("jq", got["jq"], got["jq@floor"], home, mise, store); problem != "" ||
 		!strings.Contains(note, "a mise shim") {
-		t.Errorf("a floor jq behind a mise shim: problem %q, note %q; want a pass with a note naming "+
-			"the shim", problem, note)
+		t.Errorf("a floor jq behind a mise shim in the machine root: problem %q, note %q; want a pass "+
+			"with a note naming the shim", problem, note)
 	}
-	if problem, note := floorBinProblem("git", got["git"], got["git@floor"], home, store); problem != "" || note != "" {
+	if problem, note := floorBinProblem("gh", got["gh"], got["gh@floor"], home, mise, store); problem != "" ||
+		!strings.Contains(note, "a directory of the sandbox home") {
+		t.Errorf("a floor gh behind the home's npm prefix: problem %q, note %q; want a pass with a note",
+			problem, note)
+	}
+	if problem, note := floorBinProblem("git", got["git"], got["git@floor"], home, mise, store); problem != "" || note != "" {
 		t.Errorf("an unshadowed floor git: problem %q, note %q; want a silent pass", problem, note)
 	}
-	if problem, _ := floorBinProblem("yolo-no-such-tool", "MISSING", "MISSING", home, store); !strings.Contains(problem, "did not reach") {
+	if problem, _ := floorBinProblem("yolo-no-such-tool", "MISSING", "MISSING", home, mise, store); !strings.Contains(problem, "did not reach") {
 		t.Errorf("a missing floor binary is not reported as the floor missing: %q", problem)
 	}
-	// The one case path_helper and Homebrew are blamed for: past the home, the floor still lost.
-	problem, _ := floorBinProblem("jq", "/opt/homebrew/bin/jq", "/opt/homebrew/bin/jq", home, store)
+	// The one case path_helper and Homebrew are blamed for: past both roots, the floor still lost.
+	problem, _ := floorBinProblem("jq", "/opt/homebrew/bin/jq", "/opt/homebrew/bin/jq", home, mise, store)
 	if !strings.Contains(problem, "path_helper") || !strings.Contains(problem, "mise shims among them") {
 		t.Errorf("a Homebrew jq ahead of the floor is not reported as the re-prepend losing: %q", problem)
 	}

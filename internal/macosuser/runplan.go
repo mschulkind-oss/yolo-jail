@@ -791,6 +791,16 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		}
 		sessionTmp = SessionTmpDir(session.DarwinUserTempDir, sessionID)
 		sandboxEnv = withSessionTmpEnv(sandboxEnv, sessionTmp)
+	} else {
+		// THE ACCOUNT MODE'S TMPDIR IS THE ACCOUNT'S OWN TEMP DIR (MMP-D29, MMP-D30). The `sudo`
+		// crossing and the closed `env -i` list leave the sandbox no TMPDIR at all, and
+		// `getconf DARWIN_USER_TEMP_DIR` inside the profile answers nothing (measured on a Mac,
+		// 2026-11-03), so without this every tool fell back to /tmp. The directory is the one the
+		// profile already grants; a TMPDIR one of the user's env layers composed still wins.
+		sandboxEnv = withAccountTmpEnv(sandboxEnv, session.DarwinUserTempDir)
+		// HOME is the workspace's sidecar, which YOU own, and the sandbox runs as the account, so
+		// nix refused it on every call (MMP-D31); naming the XDG base dirs keeps nix off getHome.
+		sandboxEnv = withAccountXDGEnv(sandboxEnv, homes.Home)
 	}
 	sandboxEnv = withSandboxTmpdirEnv(sandboxEnv, tempEnvNames)
 	darwinUserTempDir := ""

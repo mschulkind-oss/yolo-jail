@@ -385,3 +385,11 @@ func processEnviron(pid int) ([]string, error) {
 	}
 	return strings.Split(string(raw), "\x00"), nil
 }
+
+// envVisibleShellDir is a directory to put first on a stand-in's PATH so that its `sh` is one
+// whose environment the harness can read. Linux's /proc/<pid>/environ shows every process its
+// owner starts, so nothing needs to move: "".
+func envVisibleShellDir(t *testing.T) string {
+	t.Helper()
+	return ""
+}

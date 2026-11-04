@@ -190,6 +190,10 @@ func terminateCaptureSurfaces(sidecarDir *os.Root) []manifest.Surface {
 //     (`<ws_state>/claude:/home/agent/.claude`, and the same for .config, .local,
 //     .npm-global, go, and every pack-declared writable dir). So `~/.X/rest` is
 //     `<ws_state>/X/rest`.
+//   - macos-user ("macos-user") runs with HOME = <ws_state> itself in both of its modes
+//     (macos-user-model-plan.md MMP-D5, MMP-D25), so `~/X` is `<ws_state>/X` verbatim, as on
+//     Apple Container. Before slice 12a the account mode's HOME was the account's own home with
+//     links into the podman spelling, which is why this arm once stripped the dot for it.
 //
 // Existence is required, and that is what keeps the rule honest: a path that is not
 // one of those binds simply has no file at the derived location and is skipped,
@@ -229,7 +233,7 @@ func jailHomeRel(runtime, surfacePath string) (string, bool) {
 		return "", false // an absolute surface path is not in the jail home
 	}
 	rel = filepath.FromSlash(rel)
-	if runtime != "container" {
+	if runtime != "container" && runtime != "macos-user" {
 		// Strip the leading dot of the FIRST segment only: that is the overlay's
 		// name, and the rest of the path is unchanged inside it.
 		seg, tail, hasTail := strings.Cut(rel, string(filepath.Separator))

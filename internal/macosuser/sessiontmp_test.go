@@ -225,10 +225,24 @@ func TestAccountModeKeepsItsTmpAndCarriesTheServicesGrant(t *testing.T) {
 	if plan.SessionTmpDir != "" || len(plan.SessionTmpRemoveCommands) != 0 {
 		t.Errorf("the account mode got a session TMPDIR: %q %v", plan.SessionTmpDir, plan.SessionTmpRemoveCommands)
 	}
-	for _, key := range []string{"TMPDIR", "TMUX_TMPDIR", "TMPPREFIX", "OVERMIND_SOCKET"} {
+	// MMP-D30: TMPDIR names the account's own temp dir, the one the profile grants (the Mac run
+	// of 2026-11-03 found it empty); the session-only followers stay unset.
+	if got, ok := sandboxEnvFileValue(plan.EnvFileContent, "TMPDIR"); !ok || got != testAccountTmp {
+		t.Errorf("the account mode's TMPDIR = %q (set %v), want the account's own %q", got, ok, testAccountTmp)
+	}
+	for _, key := range []string{"TMUX_TMPDIR", "TMPPREFIX", "OVERMIND_SOCKET"} {
 		if _, ok := sandboxEnvFileValue(plan.EnvFileContent, key); ok {
 			t.Errorf("the account mode's env file sets %s", key)
 		}
+	}
+	composed := jsonx.NewOrderedMap()
+	composed.Set("TMPDIR", "/Users/Shared/mytmp")
+	if got, _ := sandboxEnvFileValue(sessionTmpPlan(t, ModeAccount, composed).EnvFileContent, "TMPDIR"); got != "/Users/Shared/mytmp" {
+		t.Errorf("a composed TMPDIR was replaced in the account mode: %q", got)
+	}
+	unknown := sessionTmpPlanWith(t, ModeAccount, nil, func(s *PlanSession) { s.DarwinUserTempDir = "" })
+	if _, ok := sandboxEnvFileValue(unknown.EnvFileContent, "TMPDIR"); ok {
+		t.Error("the account mode set a TMPDIR it could not resolve")
 	}
 	if !strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") {
 		t.Error("the account mode's profile closed the shared /tmp its tools use (MMP-D29)")
