@@ -169,7 +169,12 @@ def changed(root, base):
 
 def go_graph(root, goos):
     """{import path: package} from the Git-visible module under one GOOS. None when the graph
-    has an error other than a package with no files for this GOOS."""
+    has an error other than a package with no files for this GOOS.
+
+    The root is resolved first: go list reports each Dir with symlinks resolved (on macOS a
+    TMPDIR under /var is really /private/var), so an unresolved root would make every rel climb
+    out of the checkout instead of naming the package directory."""
+    root = Path(root).resolve()
     env = dict(os.environ, GOOS=goos)
     try:
         patterns = package_patterns(root, env=env)

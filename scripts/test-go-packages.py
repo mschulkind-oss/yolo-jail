@@ -238,6 +238,16 @@ class GoPackageSelection(unittest.TestCase):
         self.assertEqual({ip for ip, _ in pkgs}, {"example.test/project/pkg"})
         self.assertEqual(dirs, {"pkg"})
 
+    def test_completion_graph_names_package_dirs_through_a_symlinked_root(self):
+        # macOS's TMPDIR is under /var -> /private/var, and go list reports each Dir resolved;
+        # a checkout reached through any symlink must still yield rel paths inside it.
+        link = self.tmp / "link"
+        link.symlink_to(self.root)
+        check = load_module("completion_check_symlink", HERE / "completion-check.py")
+        graph = check.go_graph(link, "linux")
+        self.assertIsNotNone(graph)
+        self.assertEqual({p["rel"] for p in graph.values()}, {"pkg"})
+
     @unittest.skipIf(JUST is None, "just is not on PATH")
     def test_production_just_lint_and_test_recipes_use_selected_packages(self):
         shutil.copy(REPO / "Justfile", self.root / "Justfile")
