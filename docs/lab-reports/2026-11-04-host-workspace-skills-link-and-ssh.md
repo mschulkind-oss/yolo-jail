@@ -34,6 +34,9 @@ summary: "yolo host -- claude links .claude/skills to the repository's .pi/skill
 | 4 | The owner could not tell where the folder came from | Disclosure gap ([§5](#5-the-owner-read-it-as-claude-codes)) |
 | 5 | Over ssh, only a first-time keychain dialog fails; after *Always Allow*, yolo's read works | Measured ([§6](#6-ssh-against-the-macs-own-display)) |
 | 6 | `log show` needs the admin group, not the desktop session | Measured ([§6](#6-ssh-against-the-macs-own-display)) |
+| 7 | Copilot's commented `config.json` fix works; the new keychain message calls a measured result unmeasured | Verified, one stale clause ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
+| 8 | `yolo ps` and `yolo stop` miss a Seatbelt session under the default `apple-container-self` setup | Defect or doc gap ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
+| 9 | `yolo ps` puts Apple Container's whole row in STATUS, and lists the builder | Defect ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
 
 ## 2. What made `.claude/`
 
@@ -145,6 +148,76 @@ The keychain-read message for `rc=36`, "the keychain is locked and macOS could n
 unlock it" (`securityExitError` in `internal/cli/run/hostkeychainenv.go`), was wrong in every case
 here: `security show-keychain-info` reported the login keychain unlocked throughout. Its decision
 is already recorded in the [slice 12a report, W-KC5 after copilot login](2026-11-03-mac-slice-12a-witness-w1.md#w-kc5-after-copilot-login).
+
+## 7. Later the same day: `712b4238c` on the Mac, and the macOS guide's `yolo ps` / `yolo stop`
+
+**Run 2026-11-04 over ssh**, at `main` `bc09f809b`, as a dev bundle
+(`dev-bundles/d191f50b93a4ba34-…`). Nothing was fixed.
+
+### `712b4238c` ("integrate reviewed broker and Copilot fixes")
+
+- **Copilot's commented `config.json`: fixed, measured.** `kc5-witness/.yolo/home/.copilot/config.json`
+  still had Copilot 1.0.105's header (`// User settings belong in settings.json.` / `// This
+  file is managed automatically.`). A `YOLO_SETUP=seatbelt-yolo-account` launch printed **no
+  `copilot/config` warning**, rewrote the file (mtime 16:47:22), and kept both comment lines above
+  the JSON (`splitJSONCommentHeader`, `internal/entrypoint/surfacecodec.go`).
+- **The keychain message: reworded, not reproduced live.** `ErrHostKeychainNoDialog` now says
+  `macOS refused to let security show its keychain access dialog to this process`. The next step
+  names ssh when `SSH_CONNECTION` or `SSH_TTY` is set, and suggests Always Allow from a Terminal on
+  the Mac. *Always Allow* is already set here, so exit 36 no longer happens and the line could not
+  be seen. **One stale clause:** it says "whether Always Allow also enables later reads over SSH
+  has not been measured". [§6](#6-ssh-against-the-macs-own-display) measured it (`rc=0` over ssh,
+  and yolo's own read passed), but the commit came before that report.
+- **Unit tests on darwin:** `go test -short` passes for `./internal/cli/run/ -run HostKeychain`,
+  `./internal/entrypoint/ -run 'Copilot|Prism|Surface|Codec'`, `./internal/config/`,
+  `./internal/loopholes/` and `./internal/paths/`.
+
+**Decision needed:** drop the "has not been measured" clause, or reword it to the measured
+result.
+
+### `yolo ps` and `yolo stop` on Seatbelt: "Not yet tried on a Mac", now tried
+
+`userguide/guides/macos.md` (around line 383) says that on `Seatbelt`, `yolo stop` from the
+project folder "ends every session of the project and the background process that holds their
+host services", and that `yolo ps` "lists each session that is still running and its project
+folder". It also says "Not yet tried on a Mac". This run started `bash -c 'sleep 300'` in
+`/Users/Shared/yolo/guide-check` under `YOLO_SETUP=seatbelt-yolo-account`, then:
+
+| Command | Observed |
+| :--- | :--- |
+| `yolo ps` (this Mac's default setup, `apple-container-self`), from `/tmp` and from the project folder | Only the `yolo-ac-builder` container. **The Seatbelt session is not listed**, and nothing points at where it would be |
+| `YOLO_SETUP=seatbelt-yolo-account yolo ps` | `yolo-guide-check-b1066db5  running (macos-user session)  /Users/Shared/yolo/guide-check` ✓ |
+| `yolo stop` from the project folder, default setup | **`No jail running for this workspace (yolo-guide-check-b1066db5).`**, rc 0, while that workspace's session ran |
+| `YOLO_SETUP=seatbelt-yolo-account yolo stop` from the project folder | `sent SIGTERM to the keeper (pid 56064), a session (pid 55648)` … `Stopped this workspace's macos-user sessions and their keeper.`, rc 0. The session ended (exit 143), and the next `yolo ps` printed `No running macos-user sessions.` ✓ |
+
+So both verbs work as the guide says, **but only under the Seatbelt setup**. On a Mac whose
+default is `apple-container-self`, a plain `yolo stop` reports nothing running for a workspace
+whose Seatbelt session is live. The guide's sentence names no setup. The pointer exists in one
+direction only: the Seatbelt `yolo ps` ends with `Container jails are listed under their own
+runtime: YOLO_SETUP=apple-container-self yolo ps (or YOLO_SETUP=podman-self yolo ps).`, but the
+container side has no line pointing to Seatbelt.
+
+**Decision needed:** whether `yolo ps`/`yolo stop` should cover every setup, say which setup
+they looked at and name the others, or whether the guide should say to pass the setup.
+
+### `yolo ps` crams the whole Apple Container row into STATUS
+
+Default-setup `yolo ps` printed:
+
+```
+CONTAINER        STATUS                                                                                                               WORKSPACE
+yolo-ac-builder  ghcr.io/mschulkind-oss/yolo-jail-builder:latest linux arm64 running 192.168.64.2/24 8 12288 MB 2026-10-09T22:39:57Z  unknown
+```
+
+`ParseContainerLsRows` (`internal/runtime/probe.go:185`) takes the first field as the name and
+joins every later field into the status. `container ls` now prints `ID IMAGE OS ARCH STATE IP
+CPUS MEMORY STARTED`, so STATUS is the image, OS, arch, state, IP, CPUs, memory and start time.
+The row is also not a jail: `yolo-ac-builder` is the long-lived builder (up since 2026-10-09),
+listed because its name starts with `yolo-`. `internal/cli/applebuildcapability.go`'s listing
+parser already reads this table by header, MEMORY's two tokens included.
+
+**Decision needed:** parse by header here too, and decide whether the builder belongs in
+`yolo ps`.
 
 ## Evidence
 
