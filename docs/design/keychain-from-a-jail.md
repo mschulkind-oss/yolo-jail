@@ -977,7 +977,7 @@ What I would build, in order:
 
       ```sh
       mkdir -p /Users/Shared/yolo/kc5-witness && cd /Users/Shared/yolo/kc5-witness
-      YOLO_RUNTIME=macos-user yolo -- copilot -p 'Reply with exactly: KC5-OK'
+      YOLO_SETUP=seatbelt-yolo-account yolo -- copilot -p 'Reply with exactly: KC5-OK'
       ```
 
       Expected: the launch prints `Host login passed in: your host copilot login (keychain service
@@ -988,7 +988,7 @@ What I would build, in order:
 
       ```sh
       stat -f '%Sp' /Users/Shared/yolo/kc5-witness/.yolo/home/.config/yolo-agent-env/copilot.sh
-      YOLO_RUNTIME=macos-user yolo -- sh -c 'if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then echo set; else echo unset; fi'
+      YOLO_SETUP=seatbelt-yolo-account yolo -- sh -c 'if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then echo set; else echo unset; fi'
       ```
 
       Expected: `-rw-------`, then `unset`, since a plain shell does not source Copilot's file.
