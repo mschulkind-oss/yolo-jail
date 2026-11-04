@@ -315,7 +315,7 @@ func runSignalCleanupChild(t *testing.T) {
 	opts.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		switch strings.Join(argv, " ") {
 		case "container --version":
-			return ExecResult{Ran: true, Stdout: "container version fixture", RC: 0}
+			return ExecResult{Ran: true, Stdout: "container CLI version fixture", RC: 0}
 		case "container system status":
 			return ExecResult{Ran: true, Stdout: "running", RC: 0}
 		case "nix --version":

@@ -67,8 +67,17 @@ func (o *Options) resolveRuntimeForCheck(merged *jsonx.OrderedMap) (rt, msg stri
 	if inStrSlice(paths.NativeRuntimes, rt) {
 		return rt, "", false
 	}
-	if _, ok := o.LookPath(rt); !ok {
+	path, ok := o.LookPath(rt)
+	if !ok {
 		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not on PATH", true
+	}
+	// A `container` on PATH is not always Apple's: the name is generic. Asked, never assumed,
+	// and a binary that is not it is a finding, not a reason to grade another runtime.
+	if rt == "container" && !o.isAppleContainer() {
+		return "", "The 'container' on PATH (" + path + ") is not Apple's container CLI, which setup " +
+			s.Name + " needs: `container --version` names neither Apple nor 'container CLI version'. " +
+			"Install Apple Container (https://github.com/apple/container) ahead of it on PATH, or " +
+			"choose another setup: yolo --setup podman-self -- claude", false
 	}
 	if !o.runtimeIsConnectable(rt) {
 		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not connected", true
@@ -111,6 +120,18 @@ func (o *Options) explicitRuntimeName(merged *jsonx.OrderedMap) string {
 		return ""
 	}
 	return o.configuredRuntimeName(merged)
+}
+
+// isAppleContainer reports whether the `container` on PATH is Apple's container CLI rather than
+// some other binary of that name, by what its `--version` prints. It runs the name, as
+// runtimeIsConnectable does, so both ask the binary a launch would run.
+func (o *Options) isAppleContainer() bool {
+	res := o.Exec([]string{"container", "--version"}, "", nil, 5*time.Second)
+	if !res.Ran || res.Timeout {
+		return false
+	}
+	out := res.Stdout + res.Stderr
+	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
 }
 
 // runtimeIsConnectable reports whether the daemon answers. Podman asks podmanGate, the

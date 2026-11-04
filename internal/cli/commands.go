@@ -385,10 +385,6 @@ var pruneKnownFlags = []string{
 func pruneOptions(args []string) prune.Options {
 	opts := prune.NewDefaultOptions()
 	opts.Color = true
-	// The runtime prune asks is the selected setup's (YOLO_SETUP, then the user's `setup`, then
-	// the OS default), the same selection every verb shares, so a prune never asks a runtime the
-	// launch does not use.
-	opts.DetectRuntime = func() string { return selectedSetupBackend(config.UserScopeConfigOrEmpty()) }
 	// The superseded-capture sweep's receipt reader. prune does not import the receipt
 	// schema (it lives in internal/entrypoint, which pulls internal/config), so the front
 	// door hands over the one adapter the materialize path already uses — the same reader,
@@ -475,7 +471,7 @@ func pruneOptions(args []string) prune.Options {
 	if err != nil {
 		ws = "."
 	}
-	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
+	opts.DetectRuntime = listingDetect("prune", ws, os.Stderr)
 	// cache_relocations is user-scope only (config.LoadCacheRelocations owns the
 	// threat model), and internal/prune deliberately does not import
 	// internal/config — so the front door resolves the pairs and hands them over
@@ -532,7 +528,7 @@ func storesOptions(args []string) stores.Options {
 	if err != nil {
 		ws = "."
 	}
-	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
+	opts.DetectRuntime = listingDetect("stores", ws, os.Stderr)
 	return opts
 }
 
@@ -1164,7 +1160,7 @@ func runPs(args []string) int {
 	if err != nil {
 		ws = "."
 	}
-	detect := func() string { return detectListingRuntime(ws) }
+	detect := listingDetect("ps", ws, os.Stderr)
 	return psRun(psRealDeps(psRunCmd, detect, format))
 }
 

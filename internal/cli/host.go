@@ -377,9 +377,7 @@ func resolveHostSetup(flag string, getenv func(string) string, goos string, errw
 		return setup.Setup{}, rc
 	}
 	if s.RunAs == setup.RunAsYoloAccount {
-		fmt.Fprintf(errw, "yolo host: setup %q is not built yet: running as the yolo account with no "+
-			"Seatbelt profile arrives in a later release. Run it as you now:\n    yolo host -- claude\n"+
-			"Or keep the yolo account and its sandbox:\n    yolo --setup seatbelt-yolo-account -- claude\n", s.Name)
+		fmt.Fprintf(errw, "yolo host: %s\n", hostYoloAccountRefusal(s.Name))
 		return setup.Setup{}, rc
 	}
 	return s, 0

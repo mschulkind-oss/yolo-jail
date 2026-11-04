@@ -77,15 +77,17 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 
 	// Human summary. Deliberately compact — the machine-readable answer is --json.
 	pr := richtext.Printer{W: out, Color: color}
-	// THE BOUNDARY CROSSING, and the only one this command makes: the config value is a
-	// NAME, everything below reasons about the Kind it resolves to. ResolveConfinement has
-	// already defaulted an absent or unknown value to jail, so the !ok branch is
-	// unreachable — and it is written out anyway rather than discarded, because a silent
-	// zero Kind here would print the unset notch's (empty) vector as if it were a level.
-	notch, ok := render.KindForNotch(string(config.ResolveConfinement(cfg)))
-	if !ok {
-		fmt.Fprintf(errw, "yolo describe: unknown confinement level\n")
-		return 1
+	// THE SETUP a launch from here would select (config.SelectSetup, the one selection every
+	// verb shares), and the notch and mechanism below are ITS: YOLO_SETUP and the user's `setup`
+	// move describe as they move the launch. A selection the launch would refuse is printed with
+	// its refusal, which names the next step, and describe goes on at the jail notch.
+	choice, serr := selectedSetup(cfg)
+	notch := render.KindJail
+	if serr != nil {
+		pr.Printf("[bold]setup[/bold]        [red]none[/red] — a launch from here refuses: %s", richtext.Escape(serr.Error()))
+	} else {
+		notch = render.KindForSetup(choice.Setup.Kind())
+		pr.Printf("[bold]setup[/bold]        [cyan]%s[/cyan] [dim](from %s)[/dim]", choice.Setup.Name, richtext.Escape(choice.From()))
 	}
 	pr.Printf("[bold]environment[/bold]  confinement [cyan]%s[/cyan]", notch)
 	// jailcontent.ConfinementProfile, which is ALSO what the agent's briefing header

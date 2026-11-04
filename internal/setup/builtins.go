@@ -122,7 +122,14 @@ func (e *MissingTechnologyError) next() string {
 	if e.Alternative == "" {
 		return fmt.Sprintf("Install it (%s):\n    yolo setup list          (shows the setups built here)", e.Install)
 	}
-	return fmt.Sprintf("Install it (%s), or choose an installed setup:\n    %s          (yolo setup list shows the rest)", e.Install, launchLine(e.Alternative))
+	alt := fmt.Sprintf("Install it (%s), or choose an installed setup:\n    %s          (yolo setup list shows the rest)", e.Install, launchLine(e.Alternative))
+	if b := MustBuiltIn(e.Alternative); b.Confinement == ConfinementSeatbelt && b.RunAs == RunAsSelf {
+		// The one installed setup on a bare Mac. It is not the default's equal, and the reader
+		// choosing it should know what it gives up.
+		alt += "\n  " + e.Alternative + " runs the agent as you, under a Seatbelt profile alone: it confines less than " +
+			e.Setup.Name + " would, with no VM and no separate account."
+	}
+	return alt
 }
 
 func (e *MissingTechnologyError) Error() string {

@@ -85,15 +85,15 @@ func describeVector(t *testing.T, out string) string {
 
 // describeAt runs `describe` with a user-scope config naming a notch (`confinement` and
 // `packs` are both user-scope keys) and returns its stdout.
-func describeAt(t *testing.T, cfg string) string {
+func describeAt(t *testing.T, setupName string) string {
 	t.Helper()
 	home, _ := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
-	// Pin the mechanism so the printed vector is a property of the NOTCH here: unset, it
-	// falls to a platform probe, and a darwin runner would resolve `container` and print the
-	// VM where this asserts namespaces. The mechanism's own effect on the vector is the
-	// table test below.
-	t.Setenv("YOLO_SETUP", "podman-self")
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
+	// The setup is the notch and the mechanism both (describe answers for the selected setup),
+	// so naming it pins the printed vector: unset, the OS default would decide, and a darwin
+	// runner would print Apple Container's VM where this asserts namespaces. The mechanism's own
+	// effect on the vector is the table test below.
+	t.Setenv("YOLO_SETUP", setupName)
 
 	var out, errw bytes.Buffer
 	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
@@ -108,7 +108,7 @@ func describeAt(t *testing.T, cfg string) string {
 // composes NOTHING must read as the weakest, not as just another name on the dial.
 func TestDescribePrintsConfinementVector(t *testing.T) {
 	// jail: the strongest preset — namespaces + a baked image, autonomy on.
-	out := describeAt(t, `{"confinement":"jail"}`)
+	out := describeAt(t, "podman-self")
 	enforced := describeVector(t, out)
 	for _, want := range []string{"namespaces", "baked image"} {
 		if !strings.Contains(enforced, want) {
@@ -124,7 +124,7 @@ func TestDescribePrintsConfinementVector(t *testing.T) {
 
 	// host: no primitive at all, and autonomy OFF — the §4.2 bit that keeps a pack's
 	// jail-bypass keys off a real machine.
-	out = describeAt(t, `{"confinement":"host"}`)
+	out = describeAt(t, "host-self")
 	if e := describeVector(t, out); !strings.Contains(e, "nothing") {
 		t.Errorf("host composes no primitive and must say so:\n%s", e)
 	}
@@ -266,8 +266,8 @@ func TestDescribeReportsPackageProfile(t *testing.T) {
 func TestDescribeHostPackagesAreInertWhateverTheRuntime(t *testing.T) {
 	home, _ := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"confinement": "host", "packages": ["ripgrep"]}`)
-	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
+		`{"packages": ["ripgrep"]}`)
+	t.Setenv("YOLO_SETUP", "host-self")
 
 	var out, errw bytes.Buffer
 	if rc := describeMain(nil, &out, &errw, false); rc != 0 {

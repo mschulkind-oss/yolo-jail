@@ -102,17 +102,39 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		fmt.Fprintf(errw, "yolo apply: %v\n", err)
 		return 1
 	}
-	// --setup overrides the configured notch for this invocation (the §4.1 escape valve): the
-	// verb acts at the notch of the setup it names (setup.Setup.Kind). Otherwise the configured
-	// confinement, until slice 5 retires that key.
-	notch := config.ResolveConfinement(cfg)
+	// THE SETUP is the one a launch from here would select (config.SelectSetup): --setup, then
+	// YOLO_SETUP, then the user's `setup`, then the OS default, so each moves apply as it moves
+	// the launch, and the verb acts at that setup's notch (setup.Setup.Kind). Exit 2 for a refused
+	// --setup (misuse), 1 for a selection the machine refuses.
+	refusedRC := 1
 	if setupName != "" {
-		s, err := lookupNamedSetup(setupName)
-		if err != nil {
-			fmt.Fprintf(errw, "yolo apply: %v\n", err)
-			return 2
+		refusedRC = 2
+	}
+	choice, err := config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForLaunch,
+		Flag:      setupName,
+		Getenv:    os.Getenv,
+		Merged:    cfg,
+		GOOS:      platformGOOS(),
+		InSession: os.Getenv("YOLO_VERSION") != "",
+	})
+	for _, w := range choice.Warnings {
+		fmt.Fprintln(errw, w)
+	}
+	if err != nil {
+		fmt.Fprintf(errw, "yolo apply: %v\n", err)
+		return refusedRC
+	}
+	selected := choice.Setup
+	notch := setupNotch(selected)
+	// A guest on Linux is refused below with its own next steps (render.NotchUnbuilt); every
+	// other setup this machine cannot run, or a host one run as the yolo account, is refused
+	// here as `yolo host` refuses it.
+	if !(notch == config.ConfinementGuest && !paths.IsMacOS) {
+		if msg := verbSetupRefusal(selected, platformGOOS()); msg != "" {
+			fmt.Fprintf(errw, "yolo apply: %s\n", msg)
+			return refusedRC
 		}
-		notch = setupNotch(s)
 	}
 
 	pr := richtext.Printer{W: out, Color: color}
@@ -169,7 +191,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return rc
 	case config.ConfinementGuest:
 		if paths.IsMacOS {
-			return applyAtMacosGuest(pr, setupName)
+			return applyAtMacosGuest(pr, setupName, selected)
 		}
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a Linux guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
@@ -242,19 +264,24 @@ var applyJailLaunch = func(setupName string) int {
 //
 // setupName is the `--setup` the verb was given ("" when the notch came from the config), so
 // the launch it points at carries the same flag; a config at `confinement: "guest"` needs none.
-func applyAtMacosGuest(pr richtext.Printer, setupName string) int {
+func applyAtMacosGuest(pr richtext.Printer, setupName string, s setup.Setup) int {
 	launch := "`yolo -- <cmd>`"
 	if setupName != "" {
 		launch = "`yolo --setup " + setupName + " -- <cmd>`"
 	}
+	who := "as the macos-user backend's sandbox account"
+	home := "that account's home"
+	if s.RunAs == setup.RunAsSelf {
+		who, home = "as you", "the sandbox's home"
+	}
 	pr.Printf("[bold]apply[/bold] at confinement [cyan]guest[/cyan].")
 	pr.Printf("[dim]At the guest notch on macOS, `yolo apply` provisions nothing itself: "+
-		"that work happens when the sandbox launches. %s runs <cmd> as the macos-user "+
-		"backend's sandbox account under Seatbelt, after building its nix profile, staging "+
-		"the selected packs and rendering their config in that account's home. The programs "+
+		"that work happens when the sandbox launches. %s runs <cmd> %s under Seatbelt, "+
+		"after building its nix profile, staging the selected packs and rendering their "+
+		"config in %s. The programs "+
 		"those packs declare (agent CLIs included) install from their launchers the first "+
 		"time each is run there, not at launch. `yolo describe` prints what the notch "+
-		"composes.[/dim]", launch)
+		"composes.[/dim]", launch, who, home)
 	return 0
 }
 

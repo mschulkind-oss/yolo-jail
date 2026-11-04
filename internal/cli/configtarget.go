@@ -54,6 +54,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // configTarget is what one `yolo config` invocation resolves, once, before any verb runs:
@@ -193,6 +194,11 @@ func resolveConfigTarget(setupName string) (configTarget, string) {
 	}
 	switch render.KindForSetup(s.Kind()) {
 	case render.KindHost:
+		// A host setup run as the yolo account is not built, and its home is that account's,
+		// not yours: answering for your real home would be answering for another setup.
+		if s.RunAs == setup.RunAsYoloAccount {
+			return configTarget{}, hostYoloAccountRefusal(s.Name)
+		}
 		return hostConfigTarget("--setup " + s.Name), ""
 	case render.KindJail:
 		ws, found := resolveWorkspaceRoot()
