@@ -16,15 +16,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// TestAnAcknowledgedAttachNamesTheSkewInTheBriefing: the stand-in older jail cannot receive
-// claude's zai profile. With the acknowledgment the attach goes ahead, says on stderr that the
-// briefing carries the difference, and the claude briefing staged for that jail names the version
-// it was launched with, the tag it lacks and the withheld names, never the key's value. The
-// stand-in has no entrypoint to exec, so the command itself does not run; the briefing is written
-// before the exec.
+// TestAnAcknowledgedAttachNamesTheSkewInTheBriefing: the stand-in jail has trusted, matching
+// setup/network facts, but predates the contract tag that lets it receive claude's zai profile.
+// With the acknowledgment the attach goes ahead, says on stderr that the briefing carries the
+// difference, and the claude briefing staged for that jail names the version it was launched
+// with, the tag it lacks and the withheld names, never the key's value. The stand-in has no
+// entrypoint to exec, so the command itself does not run; the briefing is written before the exec.
 func TestAnAcknowledgedAttachNamesTheSkewInTheBriefing(t *testing.T) {
 	requireJail(t)
-	dir, cname := startStandInOlderJail(t)
+	dir, cname := startStandInOlderJail(t, true)
 
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "claude=zai", "--", "true"),
 		withEnv("YOLO_ALLOW_ATTACH_SKEW=1"))

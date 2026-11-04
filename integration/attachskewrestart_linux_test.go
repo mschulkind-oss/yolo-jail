@@ -76,13 +76,14 @@ func privateYoloState(t *testing.T) {
 
 func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	requireJail(t)
-	dir, cname := startStandInOlderJail(t)
+	dir, cname := startStandInOlderJail(t, true)
 	privateYoloState(t)
-	// THE CONVERSION OFFER IS SILENCED, not met: the launch asks to convert an old-format config
-	// before it reads one, and skips the question only for an attach it can see coming, a running
-	// jail with a keeper (launchWillAttach in internal/cli/run/migrateoffer.go). The stand-in older
-	// jail has no keeper, so to that question this launch looks like a fresh one, and at a terminal
-	// it would wait on "[y/N]" ahead of the restart question this test is about.
+	// The stand-in jail has matching, frozen setup/network facts and an older version without
+	// the contract tags. The conversion offer is SILENCED, not met: the launch asks to convert
+	// an old-format config before it reads one, and skips the question only for an attach it can
+	// see coming, a running jail with a keeper (launchWillAttach in internal/cli/run/migrateoffer.go).
+	// The stand-in has no keeper, so to that question this launch looks like a fresh one, and at
+	// a terminal it would wait on "[y/N]" ahead of the restart question this test is about.
 	if err := os.WriteFile(os.ExpandEnv("$HOME/.config/yolo-jail/config.jsonc"),
 		[]byte(`{"packs": ["claude", "zai"], "convert_later": true}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -141,7 +142,25 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 		t.Errorf("the question must name the sessions the restart ends:\n%s", out)
 	}
 	if _, err := master.Write([]byte("y\n")); err != nil {
-		t.Fatalf("answering the question: %v", err)
+		t.Fatalf("answering the restart question: %v", err)
+	}
+	// The stand-in's explicit host-network setting is a new workspace config for the fresh
+	// launch. Approve that separate, expected change rather than leaving the terminal test
+	// blocked on the config-safety prompt.
+	approvalDeadline := time.Now().Add(jailTimeout())
+	for !strings.Contains(out.String(), "Accept these workspace config changes? [y/N]") {
+		select {
+		case err := <-done:
+			t.Fatalf("yolo exited (%v) before asking to approve the fixture network config:\n%s", err, out)
+		default:
+		}
+		if time.Now().After(approvalDeadline) {
+			t.Fatalf("no workspace-config approval question within %s:\n%s", jailTimeout(), out)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := master.Write([]byte("y\n")); err != nil {
+		t.Fatalf("approving the fixture network config: %v", err)
 	}
 
 	select {

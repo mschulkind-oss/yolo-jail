@@ -18,13 +18,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // startStandInOlderJail sets up a workspace selecting claude=zai and runs, under its jail's
-// name, a container that looks to an attach like a jail a pre-gate yolo launched. It returns
-// the workspace and the container's name; the container is removed at cleanup.
-func startStandInOlderJail(t *testing.T) (dir, cname string) {
+// name, a container that looks to an attach like an older jail. When frozenSetup is true, the
+// stand-in carries the trusted setup/network facts of a podman-self launch but remains old in
+// version and contract tags; false models a genuinely legacy jail with no setup marker. It
+// returns the workspace and the container's name; the container is removed at cleanup.
+func startStandInOlderJail(t *testing.T, frozenSetup bool) (dir, cname string) {
 	t.Helper()
 	rt := detectRuntime()
 	if rt != "podman" {
@@ -34,7 +38,19 @@ func startStandInOlderJail(t *testing.T) (dir, cname string) {
 	if image == "" {
 		t.Skip("no jail image loaded to run the stand-in older jail from")
 	}
-	dir = writeProject(t, `{}`)
+	projectConfig := `{}`
+	networkArgs := []string{"--network=none"}
+	envArgs := []string{"-e", "YOLO_VERSION=0.10.0"}
+	if frozenSetup {
+		// An explicit host network makes the known runtime fact match on a host and inside
+		// the nested integration jail alike. This stand-in exercises attach behavior only;
+		// it has no service or agent process that needs network access.
+		projectConfig = `{"network":{"mode":"host"}}`
+		networkArgs = []string{"--network=host"}
+		envArgs = append(envArgs, "-e", setup.EnvVar+"=podman-self", "-e",
+			paths.HostLoopbackEnvVar+"="+paths.HostLoopbackShared)
+	}
+	dir = writeProject(t, projectConfig)
 	packHome(t, `{"packs": ["claude", "zai"]}`)
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
 	cname = naming.FromWorkspace(dir)
@@ -47,21 +63,24 @@ func startStandInOlderJail(t *testing.T) (dir, cname string) {
 	// in TestAttachRestartsAnOlderJailAtATerminal and the cleanup's `rm -f` (10s) here —
 	// measured ~15s of the two tests' ~29s. What an attach can see of the container is
 	// unchanged: its name, its frozen environment, its exec sessions.
-	if out, err := exec.CommandContext(ctx, rt, "run", "-d", "--rm", "--name", cname,
-		"--network=none", "-e", "YOLO_VERSION=0.10.0", "--entrypoint", "/bin/sh", image,
-		"-c", `trap "exit 0" TERM; sleep 600 & wait`).CombinedOutput(); err != nil {
+	args := []string{"run", "-d", "--rm", "--name", cname}
+	args = append(args, networkArgs...)
+	args = append(args, envArgs...)
+	args = append(args, "--entrypoint", "/bin/sh", image, "-c", `trap "exit 0" TERM; sleep 600 & wait`)
+	if out, err := exec.CommandContext(ctx, rt, args...).CombinedOutput(); err != nil {
 		t.Fatalf("starting the stand-in older jail: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { forceRemoveContainer(dir) })
 	return dir, cname
 }
 
-func TestAttachRefusesAJailThatCannotReceiveTheSelection(t *testing.T) {
+func TestAttachRefusesAJailWithoutFrozenSetupFacts(t *testing.T) {
 	requireJail(t)
-	dir, cname := startStandInOlderJail(t)
+	dir, cname := startStandInOlderJail(t, false)
 	rt := detectRuntime()
 
-	// One live exec, the way an attached session is: the refusal must count it.
+	// Hold a real attached exec open so the legacy refusal also proves it leaves the jail's
+	// existing session untouched.
 	exec1 := exec.Command(rt, "exec", cname, "/bin/sleep", "300")
 	if err := exec1.Start(); err != nil {
 		t.Fatalf("starting an exec session in the stand-in jail: %v", err)
@@ -85,15 +104,17 @@ func TestAttachRefusesAJailThatCannotReceiveTheSelection(t *testing.T) {
 			"terminal: rc %d\n%s", r.rc, r.combined())
 	}
 	got := r.combined()
-	for _, want := range []string{"Refusing to attach", "This jail runs yolo 0.10.0", "agent-env-files",
-		"claude (profile zai): ", "ANTHROPIC_BASE_URL", "every session in it (2 running now)",
-		"'yolo stop'", "YOLO_ALLOW_ATTACH_SKEW=1"} {
+	for _, want := range []string{"Refusing to attach", "no frozen YOLO_SETUP setup marker",
+		"'yolo stop'", "then repeat this launch so it starts with the selected setup and network"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "Attaching to existing jail") {
-		t.Errorf("a refused attach announced itself as attaching:\n%s", got)
+	if strings.Contains(got, "Attaching to existing jail") || strings.Contains(got, "YOLO_ALLOW_ATTACH_SKEW=1") {
+		t.Errorf("a legacy jail without trusted setup facts must refuse without an override:\n%s", got)
+	}
+	if out, err := exec.Command(rt, "inspect", "--format", "{{len .ExecIDs}}", cname).Output(); err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Errorf("a refusal must leave the existing exec session running: count=%q err=%v", strings.TrimSpace(string(out)), err)
 	}
 	if n := runningContainers(t, cname); n != 1 {
 		t.Errorf("a refusal must leave the running jail alone; %d containers named %s run", n, cname)
