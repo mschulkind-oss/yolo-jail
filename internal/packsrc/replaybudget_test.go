@@ -9,6 +9,7 @@ package packsrc
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,8 +40,14 @@ func (u *patchedUpstream) wideSeries(t *testing.T, n int) {
 // counter that reads it back as the number of runs of each subcommand.
 func countingGit(t *testing.T) (bin string, counts func() map[string]int) {
 	t.Helper()
+	return countingGitWith(t, "")
+}
+
+// countingGitWith is countingGit running body after it counts a run, before the real git.
+func countingGitWith(t *testing.T, body string) (bin string, counts func() map[string]int) {
+	t.Helper()
 	log := filepath.Join(t.TempDir(), "runs")
-	bin = wrappedGit(t, `printf '%s\n' "$*" >> `+shquote.Quote(log))
+	bin = wrappedGit(t, `printf '%s\n' "$*" >> `+shquote.Quote(log)+"\n"+body)
 	return bin, func() map[string]int {
 		data, err := os.ReadFile(log)
 		if err != nil && !os.IsNotExist(err) {
@@ -81,10 +88,14 @@ func TestAReplaysGitStartsDoNotGrowWithItsSeries(t *testing.T) {
 			t.Errorf("n=%d: the replay's tree %s, the hand rebase's %s", n, w.Results[0].Tree, want)
 		}
 		got := counts()
+		commitTrees := n - 1 // a git whose merge-tree takes trees commits no pick (treeMergeGit)
+		if gitAtLeast(w.Git, treeMergeGit) {
+			commitTrees = 0
+		}
 		if got["am"] != 1 || got["rev-parse"] != 0 || got["cat-file"] != 0 ||
-			got["merge-tree"] != n || got["commit-tree"] != n-1 {
+			got["merge-tree"] != n || got["commit-tree"] != commitTrees {
 			t.Errorf("n=%d: git starts by subcommand %v, want one am, no rev-parse or cat-file, %d merge-tree "+
-				"and %d commit-tree", n, got, n, n-1)
+				"and %d commit-tree", n, got, n, commitTrees)
 		}
 		other := 0
 		for sub, c := range got {
@@ -94,18 +105,100 @@ func TestAReplaysGitStartsDoNotGrowWithItsSeries(t *testing.T) {
 		}
 		others = append(others, other)
 	}
-	// At most 11: `git version`, the scratch repository's init and checkout, the one am and the
-	// rev-list naming its commits, and for the base and the entry each a probe of the blobless
-	// mirror, the fetch of what it lacks and the check after it (a probe that finds nothing missing
-	// is its own check, and the entry's listing is the pick's tree).
+	// At most 11: `git version`, the scratch repository's init and checkout, the one am (its commits
+	// read from the files it wrote, amCommits), the base's and the entry's one listing together
+	// (probeComplete), which finds files missing in this blobless mirror, and then for the base and
+	// the entry each a probe of the mirror, the fetch of what it lacks and the check after it (the
+	// entry's listing is the pick's tree).
 	if others[0] != others[1] || others[1] > 11 {
 		t.Errorf("git starts outside the picks: %v for series of 2 and 6, want the same, at most 11", others)
 	}
 }
 
+// A WALK OVER A FILLED MIRROR STARTS SEVEN GITS for a series of two members onto an entry that is
+// not its base, and no more: `git version`, ONE listing of the base's and the entry's trees
+// (probeComplete), the scratch repository's init and checkout, the one `git am`, and one merge-tree
+// per member — no rev-list naming the am's commits (amCommits reads them), no commit-tree between
+// two picks (a git whose merge-tree takes trees, treeMergeGit), no rev-parse. This is the count a
+// launch's replay pays on a macOS host at about 25 ms a start, so a change that starts git again
+// per commit or per tree fails here.
+func TestAFilledWalkStartsSevenGits(t *testing.T) {
+	u := newPatchedUpstream(t)
+	v11 := u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
+	series, list := u.checked(t)
+	addr := mustAddr(t, u.source("main"))
+	if series.Len() != 2 || list[0].Commit != v11 || list[0].Commit == series.Base {
+		t.Fatalf("fixture: %d members, list %+v, base %s", series.Len(), list, series.Base)
+	}
+	if w := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{}); w.Err != nil || w.Fit != 0 {
+		t.Fatalf("filling walk = %+v", w)
+	}
+	bin, counts := countingGit(t)
+	u.store.Git = bin
+	w := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{})
+	if w.Err != nil || w.Fit != 0 || !w.Results[0].Clean {
+		t.Fatalf("walk = %+v", w)
+	}
+	if !gitAtLeast(w.Git, treeMergeGit) {
+		t.Skipf("git %s commits each pick but the last; the count is pinned for git %d.%d and later", w.Git,
+			treeMergeGit[0], treeMergeGit[1])
+	}
+	if want := u.handRebaseTree(t, v11); w.Results[0].Tree != want {
+		t.Errorf("the replay's tree %s, the hand rebase's %s", w.Results[0].Tree, want)
+	}
+	got := counts()
+	want := map[string]int{"version": 1, "rev-list": 1, "init": 1, "checkout": 1, "am": 1, "merge-tree": 2}
+	if !maps.Equal(got, want) {
+		t.Errorf("git starts by subcommand %v, want %v", got, want)
+	}
+}
+
+// A PICK MERGED ONTO THE PREVIOUS PICK'S TREE IS THE PICK MERGED ONTO ITS COMMIT: a git older than
+// treeMergeGit (here one that says it is 2.44.0) commits every pick but the last and merges onto the
+// commit, a newer one merges onto the tree, and the two walks answer the same — the same patched
+// tree, the same members already upstream or empty — for a series of six onto a moved upstream.
+func TestAPickOntoATreeIsThePickOntoItsCommit(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.wideSeries(t, 6)
+	v11 := u.release(t, "v1.1.0", map[int]string{29: "twenty-nine", 4: "member xx"})
+	series, list := u.checked(t)
+	addr := mustAddr(t, u.source("main"))
+	if v, err := u.store.GitVersion(); err != nil || !gitAtLeast(v, treeMergeGit) {
+		t.Skipf("git %q cannot merge trees: %v", v, err)
+	}
+	walk := func(body string) (WalkResult, map[string]int) {
+		t.Helper()
+		bin, counts := countingGitWith(t, body)
+		u.store.Git = bin
+		w := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{})
+		if w.Err != nil || w.Fit != 0 || !w.Results[0].Clean || w.Results[0].Entry.Commit != v11 {
+			t.Fatalf("walk = %+v", w)
+		}
+		return w, counts()
+	}
+	old, oldCounts := walk(`if [ "$1" = version ]; then echo 'git version 2.44.0'; exit 0; fi`)
+	cur, curCounts := walk("")
+	if oldCounts["commit-tree"] != series.Len()-1-len(old.Results[0].Upstream)-len(old.Results[0].Empty) ||
+		curCounts["commit-tree"] != 0 {
+		t.Errorf("commit-tree starts: %d at git 2.44.0, %d at %s; want each pick but the last committed, then none",
+			oldCounts["commit-tree"], curCounts["commit-tree"], cur.Git)
+	}
+	o, c := old.Results[0], cur.Results[0]
+	if len(c.Upstream) != 1 { // the release made member 2's change: a pick between two that changes nothing
+		t.Errorf("members already upstream %v, want the second", c.Upstream)
+	}
+	if o.Tree != c.Tree || !slices.Equal(o.Upstream, c.Upstream) || !slices.Equal(o.Empty, c.Empty) {
+		t.Errorf("onto commits: tree %s upstream %v empty %v; onto trees: tree %s upstream %v empty %v",
+			o.Tree, o.Upstream, o.Empty, c.Tree, c.Upstream, c.Empty)
+	}
+	if want := u.handRebaseTree(t, v11); c.Tree != want {
+		t.Errorf("the replay's tree %s, the hand rebase's %s", c.Tree, want)
+	}
+}
+
 // A PROBE THAT FINDS NOTHING MISSING IS ITS OWN CHECK: once the mirror holds the base's and the
-// entry's files, a walk lists each tree once — the base, the entry — and the am's commits once,
-// fetching nothing.
+// entry's files, a walk lists the base's and the entry's trees in one rev-list, fetching nothing;
+// the am's commits are read without git (amCommits).
 func TestAWalkOverAFilledMirrorListsEachTreeOnce(t *testing.T) {
 	u := newPatchedUpstream(t)
 	v11 := u.release(t, "v1.1.0", map[int]string{14: "fourteen"})
@@ -120,15 +213,15 @@ func TestAWalkOverAFilledMirrorListsEachTreeOnce(t *testing.T) {
 	if w.Err != nil || w.Fit != 0 || w.Results[0].Entry.Commit != v11 {
 		t.Fatalf("walk = %+v", w)
 	}
-	if got := counts(); got["rev-list"] != 3 || got["fetch"] != 0 {
-		t.Errorf("git starts by subcommand %v, want three rev-list (the base's and the entry's listings, the "+
-			"am's commits) and no fetch", got)
+	if got := counts(); got["rev-list"] != 1 || got["fetch"] != 0 {
+		t.Errorf("git starts by subcommand %v, want one rev-list (the base's and the entry's listing) and no "+
+			"fetch", got)
 	}
 }
 
 // AN ENTRY THAT IS THE SERIES' BASE (an upstream that has not moved) IS LISTED ONCE: the base's
-// probe found nothing missing under the walk's lock, so the entry's would only repeat it. Two
-// rev-list starts, the base's listing and the am's commits, where the entry's probe made three.
+// probe found nothing missing under the walk's lock, so the entry's would only repeat it. One
+// rev-list start, the base's listing, where the entry's probe and the am's commits made three.
 func TestAWalkOverItsOwnBaseListsTheBaseOnce(t *testing.T) {
 	u := newPatchedUpstream(t)
 	series, list := u.checked(t)
@@ -151,9 +244,9 @@ func TestAWalkOverItsOwnBaseListsTheBaseOnce(t *testing.T) {
 	if w.Err != nil || w.Fit != 0 || !w.Results[0].Clean || w.Results[0].Tree == "" {
 		t.Fatalf("walk = %+v", w)
 	}
-	if got := counts(); got["rev-list"] != 2 || got["fetch"] != 0 {
-		t.Errorf("git starts by subcommand %v, want two rev-list (the base's listing, the am's commits) "+
-			"and no fetch", got)
+	if got := counts(); got["rev-list"] != 1 || got["fetch"] != 0 {
+		t.Errorf("git starts by subcommand %v, want one rev-list (the base's listing; the am's commits are "+
+			"read without git) and no fetch", got)
 	}
 }
 
@@ -202,6 +295,64 @@ func TestTheWholeSeriesAmMakesTheMemberByMemberCommits(t *testing.T) {
 	whole, each := apply(true), apply(false)
 	if len(whole) != series.Len() || !slices.Equal(whole, each) {
 		t.Errorf("one am made %v, one am per member %v", whole, each)
+	}
+}
+
+// THE AM'S COMMITS READ FROM ITS FILES ARE GIT'S `rev-list --reverse HEAD ^<base>`, or nothing:
+// amCommits answers for the chain one `git am` leaves in a fresh scratch repository and declines
+// every other shape — a count the chain does not have, a HEAD that is a symbolic ref, commits
+// that are not loose — so amWhole asks git then, and still names the same commits.
+func TestAmCommitsIsRevListOrNothing(t *testing.T) {
+	u := newPatchedUpstream(t)
+	u.wideSeries(t, 3)
+	series, list := u.checked(t)
+	addr := mustAddr(t, u.source("main"))
+	if w := u.store.WalkSeries(addr.Repo, addr.Path, series, list[:1], WalkOptions{}); w.Err != nil || w.Fit != 0 {
+		t.Fatalf("walk = %+v", w) // and the base's files are in the mirror now
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	sc, err := newScratchOf(u.store.git(), budget{ctx: ctx, d: time.Minute}, u.store.mirrorPath(addr.Repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sc.remove()
+	if _, _, err := sc.applyAtBase(series); err != nil {
+		t.Fatal(err)
+	}
+	out, err := sc.git("", "rev-list", "--reverse", "HEAD", "^"+series.Base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Fields(out)
+	if got, ok := sc.amCommits(series.Base, series.Len()); !ok || !slices.Equal(got, want) {
+		t.Fatalf("amCommits = %v, %v; rev-list names %v", got, ok, want)
+	}
+	for _, n := range []int{0, series.Len() - 1, series.Len() + 1} {
+		if got, ok := sc.amCommits(series.Base, n); ok {
+			t.Errorf("amCommits(%d) = %v for a chain of %d", n, got, series.Len())
+		}
+	}
+	if _, ok := sc.amCommits(want[0], series.Len()); ok {
+		t.Error("amCommits answered for a base the chain does not end at")
+	}
+
+	// Packed, the commits are not files amCommits reads, and the whole-series am asks git.
+	if _, err := sc.git("", "repack", "-a", "-d", "-l", "-q"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := sc.amCommits(series.Base, series.Len()); ok {
+		t.Errorf("amCommits read packed commits: %v", got)
+	}
+	head, ok := sc.detachedHead()
+	if !ok || head != want[len(want)-1] {
+		t.Errorf("detachedHead = %q, %v; want %s", head, ok, want[len(want)-1])
+	}
+	if _, err := sc.git("", "checkout", "-q", "-b", "named"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := sc.detachedHead(); ok {
+		t.Errorf("detachedHead read a symbolic HEAD as %q", got)
 	}
 }
 
