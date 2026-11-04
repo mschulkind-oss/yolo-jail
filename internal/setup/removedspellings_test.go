@@ -26,11 +26,14 @@ import (
 
 // removedStepRE matches a removed selection spelled as something to type or set: `--at` with a
 // notch (either spelling of the flag), the removed keys in each config spelling or as a
-// `yolo config set`, and YOLO_RUNTIME set to anything, a format verb included.
-var removedStepRE = regexp.MustCompile(`--at[ =](jail|guest|host)\b` +
-	`|\bruntime: "` + `|"runtime": "` + `|\bruntime = "` +
-	"|`confinement` set to" + `|\bconfinement: "` + `|"confinement": "` + `|\bconfinement = "` +
-	`|\bmacos_user_mode: "` + `|"macos_user_mode": "` + `|\bmacos_user_mode = "` +
+// `yolo config set`, and YOLO_RUNTIME set to anything. A format verb in place of the value
+// (`--at %s`, `runtime = %q`) is caught too, except in two spellings that are not the removed
+// key: `<word>: %v` is prose ("capture runtime: %s"), and `confinement = %q` is a setup's own
+// field (`[setups.<name>] confinement = …`).
+var removedStepRE = regexp.MustCompile(`--at[ =]((jail|guest|host)\b|%)` +
+	`|\bruntime: "` + `|"runtime": ["%]` + `|\bruntime = ["%]` +
+	"|`confinement` set to" + `|\bconfinement: "` + `|"confinement": ["%]` + `|\bconfinement = "` +
+	`|\bmacos_user_mode: "` + `|"macos_user_mode": ["%]` + `|\bmacos_user_mode = ["%]` +
 	`|config set (runtime|confinement|macos_user_mode)\b` +
 	`|YOLO_RUNTIME=[^\s,.;)]`)
 
@@ -38,12 +41,40 @@ var removedStepRE = regexp.MustCompile(`--at[ =](jail|guest|host)\b` +
 // the notch is a variable the chain drops, so the raw text ends at the flag.
 var removedFlagTailRE = regexp.MustCompile(`--at[ =]$`)
 
-// removalFuncs are the functions whose messages explain a removal, and so must name what was
-// removed: the `--at` refusal, and the selection's refusal and warning of YOLO_RUNTIME. Only
-// these functions' strings are skipped; the rest of each file is scanned like any other.
+// removalFuncs are the functions whose messages explain a removal by spelling what was removed
+// as it was set: the in-session warning of YOLO_RUNTIME, which echoes `YOLO_RUNTIME=<value>`.
+// Only these functions' strings are skipped; the rest of each file is scanned like any other.
+// The `--at` refusal (atRemovedFor) and the host refusal of YOLO_RUNTIME
+// (RemovedRuntimeEnvRefusal) need no entry: they name the removed spelling only as removed
+// (`--at` alone, `unset YOLO_RUNTIME`), which the scan passes.
 var removalFuncs = map[string]map[string]bool{
-	"internal/cli/atremoved.go":      {"atRemovedFor": true},
-	"internal/config/setupselect.go": {"RemovedRuntimeEnvRefusal": true, "removedRuntimeEnvWarning": true},
+	"internal/config/setupselect.go": {"removedRuntimeEnvWarning": true},
+}
+
+// TestTheGuardReadsEachSpellingOfARemovedStep pins removedStepRE on the strings a message would
+// spell: each removed selection with a literal value or a format verb is caught, and the
+// look-alikes that are not one pass.
+func TestTheGuardReadsEachSpellingOfARemovedStep(t *testing.T) {
+	for _, s := range []string{
+		"yolo --at guest -- claude", "yolo --at=host", "yolo --at %s -- claude",
+		`runtime = "podman"`, "runtime = %q", `"runtime": %q`, `runtime: "podman"`,
+		`confinement = "host"`, `"confinement": %q`, "`confinement` set to guest",
+		"macos_user_mode = %q", `"macos_user_mode": "self"`,
+		"yolo config set runtime podman --user", "YOLO_RUNTIME=podman yolo", "YOLO_RUNTIME=%s yolo",
+	} {
+		if !removedStepRE.MatchString(fold(s)) {
+			t.Errorf("the guard passes %q", s)
+		}
+	}
+	for _, s := range []string{
+		"Cannot record the resolved capture runtime: %s", "building the capture's confinement: %v",
+		"[setups.%s] confinement = %q run_as = %q", "`--at` is removed. Use `--setup <name>`",
+		"unset YOLO_RUNTIME", "yolo config unset runtime --user",
+	} {
+		if m := removedStepRE.FindString(fold(s)); m != "" {
+			t.Errorf("the guard refuses %q, which names no removed step (matched %q)", s, m)
+		}
+	}
 }
 
 func TestNoMessageNamesARemovedSelectionAsItsNextStep(t *testing.T) {
