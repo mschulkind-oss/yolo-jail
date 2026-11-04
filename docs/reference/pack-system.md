@@ -2859,11 +2859,42 @@ declare" covers the prose as well as the keys, so on a `toml` surface a comment 
 beside the key it explains — with one exception, which is a rule rather than a limitation: a
 comment above a key the render CHANGES is dropped, because a stale `# pinned to …` sitting
 above a new value misleads worse than no comment at all. Every such drop is named in `yolo
-host apply`'s output. A `json` surface has nothing to preserve — strict JSON has no comment
-syntax, so a commented file never decodes and `rmw` refuses it untouched. The other two
+host apply`'s output. A `json` surface keeps one kind of comment, a leading header, and refuses
+every other kind: see [A `config.json` with Copilot's comment header](#a-configjson-with-copilots-comment-header). The other two
 composing modes are unchanged for different reasons: `computed` is a file yolo solely
 authors, so there is no user comment in it; `stateful` composes from many layers, which makes
 preserving a comment a PROJECTION out of the `host` layer rather than an in-place edit.
+
+#### A `config.json` with Copilot's comment header
+
+Copilot CLI 1.0.105 writes two lines above the object of its own `~/.copilot/config.json`:
+`// User settings belong in settings.json.` and `// This file is managed automatically.`
+(owner's Mac, [lab report §14](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#14-2026-11-04-the-host-wrapper-line-yolo-prints-is-not-portable-and-w-kc5-again);
+the same header is in the 1.0.89 binary, [copilot-token-storage.md](../research/copilot-token-storage.md)).
+Read as strict JSON, every workspace Copilot had run in printed `copilot/config: refused: … is
+not valid JSON` at each launch, and the pack's `yolo = true` config entry was not rendered.
+That entry is not an effective autonomy setting: Copilot documents `config.json` as managed state
+and ignores user settings there. The pack's autonomous launch uses the separate `copilot --yolo`
+flag.
+
+**The `rmw` JSON arm reads a leading comment header and writes it back verbatim**
+(`splitJSONCommentHeader`, `internal/entrypoint/surfacecodec.go`). The header is the run of
+blank and whole-line `//` lines before the object. A header sits above every key, so keeping it
+as written loses nothing. A comment inside the object is still refused untouched, because its
+place among keys a render may change cannot be kept honestly.
+
+**Why the surface stays at `config.json`, rather than moving to `settings.json`.** GitHub's
+[config directory reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference)
+(read 2026-11-04) calls `config.json` "automatically managed application state (authentication,
+installed plugins, and other internal data)", and says user settings belong in `settings.json`
+(which "supports JSON with comments") and that "any user settings in `config.json` are ignored".
+The pack already sends its one documented user setting, the footer's `statusLine`, to the `copilot/settings`
+surface ([MM-D15](../design/model-lists-and-pickers.md#MM-D15)). `config.json` keeps the
+`copilotTokens` login and trusted folders, which is why `copilot/config` is `rmw`: a render must
+keep every key Copilot wrote there. `yolo` is not in that reference's `settings.json` table, so
+moving the config entry would put a key Copilot does not document into the user's settings file.
+The autonomous posture comes from the pack's separate `copilot --yolo` launch flag. So the fix is
+to the codec, and nothing is migrated: a file left by an older launch is the same file.
 
 ### When two packs want one config file
 

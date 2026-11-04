@@ -57,6 +57,9 @@ agent = "copilot"
 into = ".copilot/skills"
 project_dirs = [".github/skills", ".agents/skills", ".claude/skills"]
 
+# config.json is Copilot's own state (its login, trusted folders) under a `//` comment header
+# Copilot 1.0.105 writes; the rmw JSON arm keeps that header (docs/reference/pack-system.md, "A
+# config.json with Copilot's comment header", which says why the surface stays here).
 [[config]]
 config = [
   { agent = "copilot", defaults = { yolo = true }, mode = "rmw", name = "config", path = "~/.copilot/config.json" },

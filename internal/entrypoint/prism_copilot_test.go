@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
 // B1 end-to-end through the real BOOT WRITER (not just the engine): a live
@@ -195,5 +197,77 @@ func TestCopilotStatusLineDefaultLandsInSettingsJSON(t *testing.T) {
 	}
 	if line, _ := decodeJSONFile(t, settingsPath)["statusLine"].(map[string]any); line["command"] != "mine.sh" {
 		t.Errorf("settings.json statusLine = %v, want the user's own kept", line)
+	}
+}
+
+// copilot105Header is the two lines Copilot CLI 1.0.105 writes at the top of its own
+// ~/.copilot/config.json (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14).
+const copilot105Header = "// User settings belong in settings.json.\n// This file is managed automatically.\n"
+
+// A config.json Copilot itself wrote, comment header and all, must be read, get the pack's
+// config entry, keep every agent-owned key, and keep its header: before this, every launch warned
+// "is not valid JSON … refusing to rewrite it" and the `yolo` entry was never rendered.
+// Through the real boot writer, so deleting the codec's header handling fails it.
+func TestCopilotConfigWithCopilotsOwnCommentHeaderIsRenderedAndKeepsIt(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	dir := filepath.Join(e.Home, ".copilot")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.json")
+	live := copilot105Header + `{
+  "copilotTokens": {"gh": "SECRET"},
+  "trustedFolders": ["/workspace"]
+}
+`
+	if err := os.WriteFile(cfg, []byte(live), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), copilot105Header) {
+		t.Errorf("the render dropped or moved Copilot's comment header:\n%s", got)
+	}
+	for _, want := range []string{`"yolo": true`, "copilotTokens", "SECRET", "trustedFolders"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("the render of a commented config.json lacks %q:\n%s", want, got)
+		}
+	}
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(cfg); string(again) != string(got) {
+		t.Errorf("a second render changed the file:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
+// The header rule reads a LEADING run of whole-line comments only. A comment inside the
+// object is still strict JSON's to refuse: the file is left untouched rather than rewritten
+// without it. A header-only file is an empty object whose header survives the encode.
+func TestJSONSurfaceCommentHeaderIsTheOnlyCommentRead(t *testing.T) {
+	s := manifest.Surface{Agent: "copilot", Name: "config", Codec: "json", Path: "~/.copilot/config.json"}
+	raw := []byte(copilot105Header + "{\n  // mine\n  \"a\": 1\n}\n")
+	if _, err := decodeSurfaceBytes(s, "/x/config.json", raw); err == nil {
+		t.Fatal("a comment inside the object was accepted; it would be lost on write")
+	} else if _, ok := asRMWRefusal(err); !ok {
+		t.Errorf("got %v, want a refusal", err)
+	}
+	obj, err := decodeSurfaceBytes(s, "/x/config.json", []byte(copilot105Header))
+	if err != nil || obj.Len() != 0 {
+		t.Fatalf("header-only file = %v, %v; want an empty object", obj, err)
+	}
+	obj.Set("yolo", true)
+	text, err := encodeSurfaceObject(s, obj, []byte(copilot105Header), nil)
+	if err != nil || !strings.HasPrefix(text, copilot105Header) || !strings.Contains(text, `"yolo": true`) {
+		t.Errorf("encode of a header-only file = %q, %v", text, err)
+	}
+	// A file with no header gains none.
+	if text, _ := encodeSurfaceObject(s, obj, []byte(`{"a":1}`), nil); strings.HasPrefix(text, "//") {
+		t.Errorf("a file without comments gained a header: %q", text)
 	}
 }

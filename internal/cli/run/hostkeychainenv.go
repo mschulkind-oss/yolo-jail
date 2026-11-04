@@ -37,10 +37,22 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // ErrHostKeychainItemNotFound is a read that found no item for the service.
 var ErrHostKeychainItemNotFound = errors.New("no such item")
+
+// ErrHostKeychainNoDialog is `security` exit 36, errSecInteractionNotAllowed (-25308): macOS
+// refused to let the tool show its keychain dialog to this process. It is NOT "the keychain is
+// locked": on the owner's Mac (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14) the
+// login keychain was unlocked and no dialog appeared: a shell reached over ssh (with or without
+// tmux) got rc=36 at once, and a Terminal on the Mac's own display got rc=0 after an Allow
+// dialog. A locked keychain in such a session fails the same way,
+// since unlocking it needs the same dialog, so the one status covers both and the next step is
+// the same: a process that can show the dialog. Its launch line carries its own next steps
+// (noteHostKeychainOutcome).
+var ErrHostKeychainNoDialog = errors.New("macOS refused to let `security` show its keychain access dialog to this process")
 
 // hostKeychainSecurity is macOS's own keychain tool, by absolute path so a PATH entry cannot
 // stand in for it.
@@ -82,7 +94,7 @@ func securityExitError(code int) error {
 	case 44: // errSecItemNotFound, -25300
 		return ErrHostKeychainItemNotFound
 	case 36: // errSecInteractionNotAllowed, -25308
-		return errors.New("the keychain is locked and macOS could not ask you to unlock it")
+		return ErrHostKeychainNoDialog
 	case 51: // errSecAuthFailed, -25293
 		return errors.New("the keychain refused the request")
 	case 128: // userCanceledErr, -128
@@ -98,8 +110,9 @@ type hostKeychainOutcome struct {
 	// service is the item that answered, "" when none did.
 	service string
 	// err is the last failure that was not "no such item", nil when every service was simply
-	// absent or one answered.
-	err error
+	// absent or one answered; errService is the service whose read failed with it.
+	err        error
+	errService string
 }
 
 // readHostKeychainEnv reads every host_keychain_env declaration of the selected packs through
@@ -127,9 +140,9 @@ func (o *Options) readHostKeychainEnv(packs []*packload.Pack) map[string]map[str
 					}
 					switch {
 					case err == nil && v != "":
-						res.err = errors.New("the item is not a single-line token")
+						res.err, res.errService = errors.New("the item is not a single-line token"), service
 					case err != nil && !errors.Is(err, ErrHostKeychainItemNotFound):
-						res.err = err
+						res.err, res.errService = err, service
 					}
 				}
 				o.noteHostKeychainOutcome(res)
@@ -179,6 +192,27 @@ func (o *Options) noteHostKeychainOutcome(res hostKeychainOutcome) {
 	if res.err == nil {
 		out.print("[yellow]No host " + agent + " login in your keychain (service " + services +
 			"), so " + agent + " in this sandbox starts logged out: " + login + ", then relaunch.[/yellow]")
+		return
+	}
+	if errors.Is(res.err, ErrHostKeychainNoDialog) {
+		probe := shquote.Join([]string{"security", "find-generic-password", "-s", res.errService, "-w"}) +
+			" >/dev/null; echo rc=$?"
+		// The cause, measured on the owner's Mac (lab report §14, 2026-11-04): rc=36 over ssh,
+		// with and without tmux, and rc=0 with a dialog from a Terminal on the Mac's own display.
+		// So ssh leads when yolo's own environment shows it; otherwise the general wording.
+		cause := "this shell runs in a session outside your desktop login (a terminal or tmux " +
+			"server started outside it, for instance), so macOS cannot show the access dialog here"
+		if o.Getenv != nil && (o.Getenv("SSH_CONNECTION") != "" || o.Getenv("SSH_TTY") != "") {
+			cause = "this shell is reached over ssh, outside your desktop session, so macOS " +
+				"cannot show the access dialog here"
+		}
+		out.print("[yellow]Could not read your host " + agent + " login from your keychain (service " +
+			services + ": " + richtext.Escape(res.err.Error()) + "), so " + agent +
+			" in this sandbox starts logged out: " + cause + ". Run this launch once from a " +
+			"Terminal on the Mac itself and choose Always Allow (not Allow, which is not " +
+			"remembered) in the dialog. Then test the read from this shell with `" +
+			richtext.Escape(probe) + "`; whether Always Allow also enables later reads over SSH " +
+			"has not been measured.[/yellow]")
 		return
 	}
 	out.print("[yellow]Could not read your host " + agent + " login from your keychain (service " +

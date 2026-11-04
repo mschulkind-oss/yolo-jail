@@ -152,7 +152,11 @@ func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jso
 	}
 	switch surface.Codec {
 	case "json":
-		decoded, derr := jsonx.Decode(raw)
+		_, body := splitJSONCommentHeader(raw)
+		if len(bytes.TrimSpace(body)) == 0 {
+			return jsonx.NewOrderedMap(), nil
+		}
+		decoded, derr := jsonx.Decode(body)
 		if derr != nil {
 			return nil, refuseRMW(surface, "%s is not valid JSON (%v) — refusing to "+
 				"rewrite it, because a read that cannot see your keys cannot preserve "+
@@ -185,6 +189,47 @@ func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jso
 		// JSON so a codec added tomorrow fails closed instead of being silently mis-parsed.
 		return nil, refuseRMW(surface, "no RMW decoder for codec %q", surface.Codec)
 	}
+}
+
+// splitJSONCommentHeader splits a `json` surface's bytes into its LEADING COMMENT HEADER and
+// the rest. The header is the run of lines before the first other content that are blank or
+// whole-line `//` comments; it is nil when that run holds no comment, so a plain JSON file
+// gains nothing on write.
+//
+// Why a header and nothing more: Copilot CLI 1.0.105 writes `// User settings belong in
+// settings.json.` and `// This file is managed automatically.` above the object of its own
+// ~/.copilot/config.json (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14), so
+// strict JSON refused every workspace Copilot had run in and the pack's defaults never landed.
+// A header sits above every key, so writing it back verbatim keeps every comment the file had.
+// A comment INSIDE the object has a position relative to keys this render may change, so it is
+// still refused, as before, rather than silently dropped (docs/reference/pack-system.md,
+// "A config.json with Copilot's comment header").
+func splitJSONCommentHeader(raw []byte) (header, body []byte) {
+	sawComment := false
+	i := 0
+	for i < len(raw) {
+		next := len(raw)
+		line := raw[i:]
+		if nl := bytes.IndexByte(line, '\n'); nl >= 0 {
+			line, next = line[:nl], i+nl+1
+		}
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) != 0 {
+			if !bytes.HasPrefix(trimmed, []byte("//")) {
+				break
+			}
+			sawComment = true
+		}
+		i = next
+	}
+	if !sawComment {
+		return nil, raw
+	}
+	header = raw[:i]
+	if len(header) > 0 && header[len(header)-1] != '\n' {
+		header = append(append([]byte(nil), header...), '\n')
+	}
+	return header, raw[i:]
 }
 
 // readRMWSource reads the file an RMW render is about to modify, returning its raw bytes,
@@ -244,9 +289,10 @@ func readRMWSource(surface manifest.Surface, path string) ([]byte, *jsonx.Ordere
 // value keeps its node and so its comments and layout, and the losses come back the same way.
 //
 // orig and before are the file's bytes and its decoded state BEFORE this render; both are
-// optional (nil for a caller with no prior file, e.g. a first apply) and only the TOML and
-// YAML paths read them. JSON ignores them — strict JSON has no comment syntax, so a `json` surface has
-// no comments to preserve and a commented file was never decodable in the first place.
+// optional (nil for a caller with no prior file, e.g. a first apply). The TOML and YAML paths
+// read both; JSON reads orig only for its leading comment header (splitJSONCommentHeader),
+// which it writes back verbatim above the object. A comment anywhere else in a `json` file was
+// never decodable, so there is nothing else to preserve.
 func encodeSurfaceObject(surface manifest.Surface, obj *jsonx.OrderedMap, orig []byte,
 	before *jsonx.OrderedMap) (string, error) {
 	text, _, err := encodeSurfaceObjectReporting(surface, obj, orig, before)
@@ -265,7 +311,8 @@ func encodeSurfaceObjectReporting(surface manifest.Surface, obj *jsonx.OrderedMa
 			return "", nil, refuseRMW(surface, "the composed value cannot be written as "+
 				"JSON (%v) — the file is left untouched", err)
 		}
-		return text, nil, nil
+		header, _ := splitJSONCommentHeader(orig)
+		return string(header) + text, nil, nil
 	case "toml":
 		c, _ := codec.LookupCodec("toml")
 		encoded, err := c.Encode(tomlValue(obj))

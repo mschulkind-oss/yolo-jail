@@ -68,7 +68,7 @@ var RetiredUserLoopholesDir = func() string {
 // StateDirFor returns the writable per-loophole state directory. Package var
 // so tests can monkeypatch it.
 var StateDirFor = func(name string) string {
-	return filepath.Join(paths.GlobalStorage(), "state", name)
+	return paths.LoopholeStateDir(name)
 }
 
 // Loophole is one RESOLVED loophole: a decoded manifest (loopholedecl.Manifest)

@@ -376,6 +376,54 @@ func TestListPrintsTheSettingsDeclarations(t *testing.T) {
 	}
 }
 
+func TestResolverCarriesHostDaemonStateDirToConfig(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	stateRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalStateDirFor := StateDirFor
+	StateDirFor = func(name string) string { return filepath.Join(stateRoot, name) }
+	t.Cleanup(func() { StateDirFor = originalStateDirFor })
+
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := filepath.Join(root, "fixture-daemon")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, loopholedecl.ManifestName), []byte(`{
+		"name": "fixture-daemon",
+		"transport": "loopback-tls",
+		"lifecycle": "spawned",
+		"host_daemon": {"cmd": ["daemon", "--socket", "{socket}"], "publishes": "socket"}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	SetPackModuleResolver(nil)
+	SetPackModules(moduleDirsUnder(root))
+	t.Cleanup(ResetPackModules)
+
+	known, ok := NewResolver().Known()
+	if !ok {
+		t.Fatal("Known() reported discovery failure")
+	}
+	info, present := known["fixture-daemon"]
+	if !present {
+		t.Fatalf("Known() = %v, missing the selected fixture daemon", known)
+	}
+	if !info.HasHostDaemon || info.StateDir != StateDirFor("fixture-daemon") {
+		t.Fatalf("LoopholeInfo = %+v, want the host-daemon declaration and its StateDirFor path %q",
+			info, StateDirFor("fixture-daemon"))
+	}
+}
+
 // TestResolverCarriesTheDeclarationsToConfig pins the SEAM, which is the only place
 // a declaration crosses from this package into the validator.
 //

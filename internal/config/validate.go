@@ -15,12 +15,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// LoopholeInfo is the subset of a discovered loophole that
-// validateLoopholeOverride consults. HasHostDaemon is true when the loophole
-// declares a host daemon.
+// LoopholeInfo is the selected loophole data config validation needs. HasHostDaemon and StateDir
+// arm the state-directory mount fence; the remaining declarations validate loophole overrides.
 type LoopholeInfo struct {
 	Name          string
 	HasHostDaemon bool
+	// StateDir is the selected loophole's per-name host state directory, from the
+	// discovered loophole. It is present only when the loophole declares a host daemon.
+	StateDir string
 	// Settings are the loophole's manifest-declared config keys, in declaration
 	// order — what makes `loopholes.<name>.settings` checkable rather than an
 	// opaque map (docs/reference/pack-system.md).

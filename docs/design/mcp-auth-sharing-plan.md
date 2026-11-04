@@ -301,12 +301,16 @@ reverse it.
   directory**, not only `brokered` ones. A `mounts` source that is, contains or lies inside
   `loopholes.StateDirFor(name)` is refused from workspace config and disclosed from user config,
   through `brokerMountFences`.
-  - *Why:* a read-only `mounts` of `~/.local/share/yolo-jail/state` is refused by nothing today
-    (the refusal set covers read-write sources only). That leaves the Claude and OpenAI brokers'
-    canonical logins exposed as well, and will leave this design's canonical store exposed.
+  - *Why:* before this fence, a read-only `mounts` of `~/.local/share/yolo-jail/state` was refused
+    by nothing (the refusal set covers read-write sources only). That left the Claude and OpenAI
+    brokers' canonical logins exposed and would also have left this design's canonical store exposed.
   - *Not reversed by `credential_paths`:* the pack-broker framework adopts this rule as its fence
-    and adds declared `credential_paths` on top
-    ([BX-D11](pack-brokers.md#decision-ledger)), so the state-directory fence stays whole.
+    and adds declared `credential_paths` on top ([BX-D11](pack-brokers.md#decision-ledger)), so the
+    state-directory fence stays whole.
+  - *Built:* the resolver carries each selected host daemon's state directory to
+    `brokerMountFences`, which checks read-only and writable mounts. Target config and mount
+    integration tests pass; the root's combined `check-ci`, full integration suite and census
+    remain outstanding.
 - <a id="id-10"></a>**ID-10. Audit events** carry `service = "mcp-auth"`, `event` set to one of
   `adopt`, `refresh`, `sign-out`, `dead`, `seed`, `harvest` (and `header`, in phase D), plus the
   new `server` and `generation` fields, the host-asserted jail and the workspace. They never

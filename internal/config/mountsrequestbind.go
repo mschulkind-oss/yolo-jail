@@ -385,30 +385,39 @@ type mountFence struct{ path, owner, what string }
 // mountFences are the broker mount fence's paths for one resolver.
 type mountFences []mountFence
 
-// brokerMountFences are the fenced paths with a selected pack shipping a brokered loophole: yolo's
-// broker directory and each such loophole's credential paths. None without a resolver, in a jail,
-// or with no brokered loophole.
+// brokerMountFences are the paths fenced by selected brokered or host-daemon loopholes. A
+// brokered loophole also arms yolo's broker directory and its declared credential paths.
 func brokerMountFences(resolver LoopholeResolver) mountFences {
 	if resolver == nil || inJail() {
 		return nil
 	}
 	known, _ := resolver.Known()
-	var names []string
+	var brokerNames, daemonNames []string
 	for name, info := range known {
 		if info.Brokered != nil {
-			names = append(names, name)
+			brokerNames = append(brokerNames, name)
+		}
+		if info.HasHostDaemon && info.StateDir != "" {
+			daemonNames = append(daemonNames, name)
 		}
 	}
-	if len(names) == 0 {
+	if len(brokerNames) == 0 && len(daemonNames) == 0 {
 		return nil
 	}
-	sortStrings(names)
-	home := os.Getenv("HOME")
-	fences := mountFences{{paths.BrokerDir(), strings.Join(names, ", "),
-		"yolo's broker directory: the brokers' store, each launch's repository scope and the " +
-			"audit log of every workspace's brokered calls"}}
-	for _, name := range names {
-		for _, p := range brokerscope.FencedPaths(known[name].Brokered.CredentialPaths, home, os.Getenv)[1:] {
+	sortStrings(brokerNames)
+	sortStrings(daemonNames)
+	var fences mountFences
+	if len(brokerNames) > 0 {
+		fences = append(fences, mountFence{paths.BrokerDir(), strings.Join(brokerNames, ", "),
+			"yolo's broker directory: the brokers' store, each launch's repository scope and the " +
+				"audit log of every workspace's brokered calls"})
+	}
+	for _, name := range daemonNames {
+		fences = append(fences, mountFence{known[name].StateDir, name,
+			"the state of the " + name + " host daemon, which holds credentials the jail must not read"})
+	}
+	for _, name := range brokerNames {
+		for _, p := range brokerscope.FencedPaths(known[name].Brokered.CredentialPaths, os.Getenv("HOME"), os.Getenv)[1:] {
 			fences = append(fences, mountFence{p, name, "the host credential the " + name +
 				" loophole keeps out of the jail"})
 		}

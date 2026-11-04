@@ -4,8 +4,8 @@ import "github.com/mschulkind-oss/yolo-jail/internal/config"
 
 // Resolver implements config.LoopholeResolver, backing _validate_config's
 // _known_loopholes() with real file-backed discovery (the recorded pack modules,
-// include_disabled=True). config.ValidateConfig consults only Name + HasHostDaemon
-// per loophole.
+// include_disabled=True). config.ValidateConfig consults Name + HasHostDaemon and StateDir for the
+// selected loopholes, alongside their declared settings and grants.
 // This is the integration seam config declared as a stage-14 placeholder: the
 // config package owns the interface, this package supplies the implementation.
 //
@@ -47,7 +47,7 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 	})
 	out := make(map[string]config.LoopholeInfo, len(loaded))
 	for _, lp := range loaded {
-		out[lp.Name] = config.LoopholeInfo{
+		info := config.LoopholeInfo{
 			Name:          lp.Name,
 			HasHostDaemon: lp.HostDaemon != nil,
 			// The SETTINGS DECLARATIONS travel with the name, which is what turns
@@ -65,6 +65,10 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 			// legacy projection reads (config/loopholegrantlegacy.go).
 			Grants: lp.Grants,
 		}
+		if lp.HostDaemon != nil {
+			info.StateDir = lp.StateDir()
+		}
+		out[lp.Name] = info
 	}
 	return out, true
 }

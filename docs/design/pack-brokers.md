@@ -187,10 +187,9 @@ Every host daemon that holds a host credential for a jail gets, from core:
 - **One fence.** Every selected host-daemon loophole's state directory is fenced from `mounts`,
   read-only sources included: a source that is, contains or lies inside it is refused from
   workspace config and disclosed from user config. A loophole's `credential_paths` are added on top
-  of that fence, never instead of it. Today nothing refuses a read-only `mounts` entry under
-  `~/.local/share/yolo-jail/state/` unless a brokered loophole is selected, which leaves the Claude
-  and OpenAI brokers' stored logins exposed too; the MCP sign-in plan's
-  [ID-9](mcp-auth-sharing-plan.md#id-9) builds this fence, and it is the framework's.
+  of that fence, never instead of it. The [MCP sign-in plan's ID-9](mcp-auth-sharing-plan.md#id-9)
+  implements it: config validation refuses workspace sources reaching any selected host daemon's
+  state directory, including read-only mounts, and discloses the same access at user scope.
 - **One per-launch input.** What a launch computes for a daemon and hands it as a file reaches it
   through the `launch_input` key of `[host_daemon]` and its `{launch_input}` token, whose producers
   are a closed, core-owned set ([ID-4](mcp-auth-sharing-plan.md#id-4)). A call broker's approved
@@ -694,7 +693,7 @@ that its implementation is built.
 | BX-D8 | The HTTP executor follows no redirect, and a non-safe method reads only on a declared, gate-shown path | 2026-11-04 | [§8.2](#82-the-http-executor) | — |
 | BX-D9 | The MCP sign-in broker uses the framework and not the call layer | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
 | BX-D10 | CircleCI's `api` passthrough is refused; the CLI's shortfalls are stated and not filled from the HTTP API | 2026-11-04 | [§11.4](#114-where-the-cli-falls-short) | — |
-| BX-D11 | The framework's fence is every selected host-daemon loophole's state directory, read-only `mounts` included; `credential_paths` adds to it. Adopted from the MCP sign-in plan's ID-9 | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
+| BX-D11 | The framework's fence is every selected host-daemon loophole's state directory, read-only `mounts` included; `credential_paths` adds to it. Adopted from the MCP sign-in plan's ID-9 | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | Implemented |
 | BX-D12 | One per-launch input mechanism: `launch_input` and `{launch_input}`, with a closed core-owned producer set; a call broker's scope is a producer of it. Renaming either is one change that renames both | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
 | BX-D13 | `{"op":"status"}` is the framework's readout request, for credential daemons and call brokers alike | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
 | BX-D14 | `server` and `generation` are framework audit fields, optional per daemon | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |

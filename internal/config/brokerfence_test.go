@@ -27,7 +27,7 @@ func fenceCase(t *testing.T, resolver LoopholeResolver, wsMounts, userMounts []s
 	home, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("GH_CONFIG_DIR", "")
-	ws := t.TempDir()
+	ws, _ := filepath.EvalSymlinks(t.TempDir())
 	quote := func(l []string) string {
 		q := make([]string, len(l))
 		for i, s := range l {
@@ -71,6 +71,88 @@ func TestTheMountFenceLeavesOtherMountsAlone(t *testing.T) {
 	errs, warns := fenceCase(t, brokeredResolver, []string{"~/code/lib:/ctx/lib"}, []string{"~/.local/share/yolo-jail/logs:/ctx/logs"})
 	if len(errs) != 0 || len(warns) != 0 {
 		t.Fatalf("errs %q warns %q", errs, warns)
+	}
+}
+
+func TestTheMountFenceCoversSelectedHostDaemonStateDirectories(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	name := "fixture-daemon"
+	stateRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	stateDir := filepath.Join(stateRoot, "state", name)
+	resolver := fenceResolver{known: map[string]LoopholeInfo{
+		name: {Name: name, HasHostDaemon: true, StateDir: stateDir},
+	}}
+	for label, source := range map[string]string{
+		"exact directory":            stateDir,
+		"containing state directory": filepath.Dir(stateDir),
+		"descendant":                 filepath.Join(stateDir, "credentials.json"),
+	} {
+		t.Run(label, func(t *testing.T) {
+			mount := source + ":/ctx/credentials"
+			errs, warns := fenceCase(t, resolver, []string{mount}, nil)
+			if len(errs) != 1 || len(warns) != 0 {
+				t.Fatalf("workspace scope: errs %q warns %q", errs, warns)
+			}
+			for _, want := range []string{name, "the state of the fixture-daemon host daemon, which holds credentials the jail must not read", "Remove the entry", paths.UserConfigDisplayPath()} {
+				if !strings.Contains(errs[0], want) {
+					t.Errorf("refusal %q does not contain %q", errs[0], want)
+				}
+			}
+			errs, warns = fenceCase(t, resolver, nil, []string{mount})
+			if len(errs) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "(user config)") || !strings.Contains(warns[0], "jail can read it") || !strings.Contains(warns[0], "Remove the entry if the jail should not have this access") {
+				t.Fatalf("user scope: errs %q warns %q", errs, warns)
+			}
+		})
+	}
+}
+
+func TestTheMountFenceDoesNotCoverUnselectedHostDaemonState(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	name := "fixture-daemon"
+	stateRoot, _ := filepath.EvalSymlinks(t.TempDir())
+	stateDir := filepath.Join(stateRoot, "state", name)
+	for label, resolver := range map[string]LoopholeResolver{
+		"no selected loopholes": fenceResolver{known: map[string]LoopholeInfo{}},
+		"selected loophole without host daemon": fenceResolver{known: map[string]LoopholeInfo{
+			"fixture-device": {Name: "fixture-device", StateDir: stateDir},
+		}},
+		"different selected host daemon": fenceResolver{known: map[string]LoopholeInfo{
+			"another-daemon": {Name: "another-daemon", HasHostDaemon: true, StateDir: paths.LoopholeStateDir("another-daemon")},
+		}},
+	} {
+		t.Run(label, func(t *testing.T) {
+			errs, warns := fenceCase(t, resolver, []string{stateDir + ":/ctx/credentials:ro"}, nil)
+			if len(errs) != 0 || len(warns) != 0 {
+				t.Fatalf("errs %q warns %q", errs, warns)
+			}
+		})
+	}
+}
+
+// ValidateConfig is the production caller: removing its fence invocation leaves this test green
+// only if the new selected-host-daemon rule remains enforced through the launch/check path.
+func TestValidateConfigRunsTheHostDaemonStateFence(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	name := "fixture-daemon"
+	stateDir := paths.LoopholeStateDir(name)
+	ws, _ := filepath.EvalSymlinks(t.TempDir())
+	spec := stateDir + ":/ctx/credentials"
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{"mounts": ["`+spec+`"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolver := fenceResolver{known: map[string]LoopholeInfo{
+		name: {Name: name, HasHostDaemon: true, StateDir: stateDir},
+	}}
+	errs, _ := ValidateConfig(decode(t, `{"mounts": ["`+spec+`"]}`), ws, resolver)
+	if !strings.Contains(strings.Join(errs, "\n"), "A workspace config may not mount it") ||
+		!strings.Contains(strings.Join(errs, "\n"), "fixture-daemon") {
+		t.Fatalf("errs %q", errs)
 	}
 }
 

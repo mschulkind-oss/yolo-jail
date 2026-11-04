@@ -13,13 +13,13 @@ import (
 // and an audit log carrying every workspace's argv — or the host credential a broker exists
 // to keep out of the jail, into the next launch, once a human approved the diff.
 //
-// ARMED BY SELECTION: with a selected pack shipping a loophole that declares `brokered`, a
-// `mounts` entry whose host source is, contains or lies inside yolo's broker directory or
-// one of that block's `credential_paths` is REFUSED from a workspace config, naming the
-// entry, and DISCLOSED from the user config, where it is the user's own authority (§9.6).
-// The approvals directory is not fenced (BB-D34): no mount can write an approval — a read-only
-// one cannot write anything, and a read-write one is refused for any source inside yolo's
-// state directory (context-mounts.md#the-refusal-set clause 1, config.rwMountRefusal).
+// ARMED BY SELECTION: when a selected pack ships a host-daemon loophole, every `mounts` entry
+// whose host source is, contains or lies inside that loophole's state directory is REFUSED from
+// workspace config, naming the entry, and DISCLOSED from the user config, where it is the user's
+// own authority. A brokered loophole additionally fences yolo's broker directory and its declared
+// `credential_paths`. The approvals directory is not fenced (BB-D34): no mount can write an
+// approval — a read-only one cannot write anything, and a read-write one is refused for any source
+// inside yolo's state directory (context-mounts.md#the-refusal-set clause 1, config.rwMountRefusal).
 //
 // The fenced paths are brokerMountFences' (mountsrequestbind.go), which the config-change gate
 // also runs on a writable mount request it read itself (CheckWorkspaceMounts).
@@ -69,8 +69,8 @@ func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolv
 		if mounts[spec].rw {
 			access = "read AND write it"
 		}
-		add(warns, fmt.Sprintf("config.mounts: %q (user config) reaches %s, %s (%s); the jail can "+
-			"%s", spec, f.path, f.what, f.owner, access))
+		add(warns, fmt.Sprintf("config.mounts: %q (user config) reaches %s, %s (%s); the jail can %s. "+
+			"Remove the entry if the jail should not have this access.", spec, f.path, f.what, f.owner, access))
 	}
 }
 
