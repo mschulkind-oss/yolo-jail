@@ -25,12 +25,9 @@ func TestCheckPredictsTheBridgedPairingPerRuntime(t *testing.T) {
 		t.Run("runtime="+tc.runtime, func(t *testing.T) {
 			packsFixture(t, `{"packs": ["claude", "cerebras"]}`)
 			merged := useProfiles("claude", "cerebras")
-			if tc.runtime != "" {
-				merged.Set("runtime", tc.runtime)
-			}
 			var buf bytes.Buffer
 			r := &reporter{w: &buf}
-			(&Options{}).sectionPacks(r, merged)
+			optionsOnRuntime(tc.runtime).sectionPacks(r, merged)
 			out := buf.String()
 			refused := strings.Contains(out, "REFUSED") && strings.Contains(out, "nothing serves it here")
 			if refused != tc.refused {

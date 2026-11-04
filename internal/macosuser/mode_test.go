@@ -35,17 +35,7 @@ func TestRunAsSelfCrossesNoAccount(t *testing.T) {
 	}
 }
 
-func TestParseMode(t *testing.T) {
-	for in, want := range map[string]Mode{"": ModeAccount, "account": ModeAccount, "self": ModeSelf} {
-		if got, err := ParseMode(in); err != nil || got != want {
-			t.Errorf("ParseMode(%q) = %v, %v; want %v", in, got, err, want)
-		}
-	}
-	for _, bad := range []string{"jail", "Self", " self"} {
-		if _, err := ParseMode(bad); err == nil {
-			t.Errorf("ParseMode(%q) accepted", bad)
-		}
-	}
+func TestModeSpellings(t *testing.T) {
 	if ModeAccount.String() != "account" || ModeSelf.String() != "self" {
 		t.Errorf("mode spellings: %q, %q", ModeAccount, ModeSelf)
 	}

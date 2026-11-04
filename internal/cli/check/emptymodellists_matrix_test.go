@@ -218,12 +218,9 @@ func TestSectionPacksViaProfileObservesTheNotchAwarePresenceCallback(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			merged := useProfiles("claude", "bedrock-bridge")
-			if tc.runtime != "" {
-				merged.Set("runtime", tc.runtime)
-			}
 			var buf bytes.Buffer
 			r := &reporter{w: &buf}
-			(&Options{IsMacOS: tc.macOS}).sectionPacks(r, merged)
+			optionsOnRuntime(tc.runtime).sectionPacks(r, merged)
 			out := buf.String()
 			if emptyListCount(out) != 1 || r.failed != 0 {
 				t.Fatalf("the live via profile's explicit empty list must reach the report through ComposeProvidersAt: count=%d failed=%d\n%s",

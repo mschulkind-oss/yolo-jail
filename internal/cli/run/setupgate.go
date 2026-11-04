@@ -41,13 +41,14 @@ func (o *Options) setupGOOS() string {
 // refused: rc 2 when `--setup` names a setup this launch cannot run (misuse, the code a bad
 // `--at` had), rc 1 for every other refusal, a missing install included, since that is the
 // machine's state and not what was typed. On a pass it records the setup and the three values
-// derived from it: the notch, the macos-user mode and the SetupRef.
-func (o *Options) resolveSetup(cfg *jsonx.OrderedMap) (int, bool) {
+// derived from it: the notch, the macos-user mode and the SetupRef. The merged config is not
+// read: the keys that once chose a backend are refused by config validation (named-setups-plan.md
+// slice 5), and the selection's own inputs are the flag, the environment and the user config.
+func (o *Options) resolveSetup(_ *jsonx.OrderedMap) (int, bool) {
 	choice, err := config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
 		Flag:      o.SetupName,
 		Getenv:    o.Getenv,
-		Merged:    cfg,
 		GOOS:      o.setupGOOS(),
 		InSession: o.inJail(),
 	})

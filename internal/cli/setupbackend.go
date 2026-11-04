@@ -5,29 +5,27 @@ package cli
 // from the workspace would select, through the one selection every verb shares
 // (config.SelectSetup; named-setups-plan.md slice 4a). A launch refuses what it cannot run; these
 // verbs never do, so a selection that refuses (a removed YOLO_RUNTIME on the host, a name nothing
-// defines) still answers: the setup the removed value meant, else the platform's probe. So does
-// a removed config key whose setup this OS lacks (a `confinement: "guest"` on Linux means a
-// Seatbelt setup): it names no backend here, so the answer is the platform's probe, never
-// macos-user on Linux. The platform is paths.IsMacOS's, the one these verbs read everywhere else.
+// defines) still answers: the setup the removed value meant, else the platform's probe. The
+// platform is paths.IsMacOS's, the one these verbs read everywhere else.
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
-// selectedSetupBackend is the backend of the setup a launch with merged (nil for none) would
-// select, tolerantly: see the file header.
-func selectedSetupBackend(merged *jsonx.OrderedMap) string {
-	goos := platformGOOS()
-	choice, err := selectedSetup(merged)
+// selectedSetupBackend is the backend of the setup a launch would select, tolerantly: see the
+// file header. The merged config is not read (the selection's inputs are the flag, the
+// environment and the user config); the parameter keeps the callers' shape.
+func selectedSetupBackend(_ *jsonx.OrderedMap) string {
+	choice, err := selectedSetup(nil)
 	s := choice.Setup
 	if err != nil {
 		s = setup.Setup{}
@@ -35,11 +33,7 @@ func selectedSetupBackend(merged *jsonx.OrderedMap) string {
 			s = setup.MustBuiltIn(name)
 		}
 	}
-	// A setup the removed `confinement` key chose (`"guest"`, written on a Mac) answers only where
-	// this OS has its technology, as the guest notch did: nil skips the install check. Every other
-	// choice is answered as made, a removed `runtime` key included, as that key was.
-	bridged := err == nil && choice.Source == setup.FromRemovedKey && strings.HasPrefix(choice.RemovedKey, "confinement")
-	if b := s.Backend(); b != "" && (!bridged || setup.Buildable(s, goos, nil) == nil) {
+	if b := s.Backend(); b != "" {
 		return b
 	}
 	return runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
@@ -48,21 +42,21 @@ func selectedSetupBackend(merged *jsonx.OrderedMap) string {
 	})
 }
 
-// selectedSetup is the selection a launch with merged (nil for none) would make on this
-// platform, through config.SelectSetup: the setup, where it came from, and the lines a launch
-// would warn. An error is the launch's refusal; a read-only verb reports it and goes on.
+// selectedSetup is the selection a launch would make on this platform, through
+// config.SelectSetup: the setup, where it came from, and the lines a launch would warn. An error
+// is the launch's refusal; a read-only verb reports it and goes on. The merged config is not
+// read; the parameter keeps the callers' shape.
 func selectedSetup(merged *jsonx.OrderedMap) (config.SetupChoice, error) {
 	return selectedSetupFlag(merged, "")
 }
 
 // selectedSetupFlag is selectedSetup for a verb given `--setup flag` ("" for none), which wins
 // over everything else, as it does for a launch.
-func selectedSetupFlag(merged *jsonx.OrderedMap, flag string) (config.SetupChoice, error) {
+func selectedSetupFlag(_ *jsonx.OrderedMap, flag string) (config.SetupChoice, error) {
 	return config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
 		Flag:      flag,
 		Getenv:    os.Getenv,
-		Merged:    merged,
 		GOOS:      platformGOOS(),
 		InSession: os.Getenv("YOLO_VERSION") != "",
 	})
@@ -101,15 +95,35 @@ func platformGOOS() string {
 	return "linux"
 }
 
-// workspaceSetupBackend is selectedSetupBackend with the workspace's config, loaded loosely
-// (non-strict, warnings dropped): a config that does not load is read as none, so a malformed
-// file degrades to the selection without it rather than crashing a diagnostic command.
-func workspaceSetupBackend(workspace string) string {
-	var merged *jsonx.OrderedMap
-	if workspace != "" {
-		if cfg, err := config.LoadConfig(workspace, false, func(string) {}); err == nil {
-			merged = cfg
-		}
+// workspaceSetupBackend is selectedSetupBackend for a verb acting on workspace. The selection
+// reads no workspace config (a project cannot choose a setup, named-setups.md §8), so it is the
+// same answer for every workspace.
+func workspaceSetupBackend(_ string) string { return selectedSetupBackend(nil) }
+
+// actSetup is the setup a jail a host act boots on backend rt runs as: a capture jail, a fork's
+// build jail, the host floor's (named-setups-plan.md SUP-D14). It is the setup a launch selects
+// (config.SelectSetup, as the launch's own) when that setup runs on rt, so its run_as and its
+// name carry over: `setup = "seatbelt-self"` captures as you, with no yolo account. Otherwise it
+// is rt's built-in: podman-self, apple-container-self, or for macos-user seatbelt-yolo-account,
+// the account mode, whose readers decline rather than guess where no account is. A selection
+// that refuses (a removed YOLO_RUNTIME on the host) is answered by rt's built-in too; the act's
+// own launch then refuses it naming the next step.
+func actSetup(rt string) setup.Setup {
+	if choice, err := selectedSetup(nil); err == nil && choice.Setup.Backend() == rt {
+		return choice.Setup
 	}
-	return selectedSetupBackend(merged)
+	switch rt {
+	case "podman":
+		return setup.MustBuiltIn("podman-self")
+	case "container":
+		return setup.MustBuiltIn("apple-container-self")
+	case "macos-user":
+		return setup.MustBuiltIn("seatbelt-yolo-account")
+	}
+	return setup.Setup{}
 }
+
+// actMacosUserMode is who a macos-user act runs as (macosuser.ModeFor of actSetup's run_as): the
+// capture, the host floor's probes and prune's guest pack-tree sweep read it, as the launch reads
+// its own setup's.
+func actMacosUserMode() macosuser.Mode { return macosuser.ModeFor(actSetup("macos-user").RunAs) }

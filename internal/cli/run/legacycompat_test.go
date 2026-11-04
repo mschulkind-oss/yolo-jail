@@ -86,6 +86,17 @@ var ruledLegacyRefusals = []legacyBreak{
 	{"loophole/openai-auth-broker/enabled/workspace", "load", `"openai-auth" is now "codex-auth"`, "ruled: OQ-LC1 (OQ-PE3's rename stands)"},
 	{"loophole/openai-auth-broker/*", "migrate-*", "only shipped packs may be named without a source",
 		"ruled: OQ-LC1 (OQ-PE3's rename stands)"},
+	// Named setups replace `runtime` and `confinement` (named-setups.md §10; the owner's MT-R3: "A
+	// removed spelling is refused naming its replacement; no aliases"). A user file converts:
+	// `yolo config migrate` writes the setup (SUP-D15), so its TOML cells launch. A project's
+	// never converts, as a project cannot choose where its agent runs, and its refusal names the
+	// unset that removes it.
+	{"toplevel/runtime/*", "load", "config.runtime: REMOVED", "ruled: MT-R3 (named setups replace the key)"},
+	{"toplevel/confinement/*", "load", "config.confinement: REMOVED", "ruled: MT-R3 (named setups replace the key)"},
+	{"toplevel/runtime/workspace", "migrate-*", "yolo config unset runtime --project",
+		"ruled: MT-R3 (a project cannot choose a setup, named-setups.md §8)"},
+	{"toplevel/confinement/workspace", "migrate-*", "yolo config unset confinement --project",
+		"ruled: MT-R3 (a project cannot choose a setup, named-setups.md §8)"},
 }
 
 // knownLegacyBreaks is every way a config that worked in v0.15.1 fails today. It only shrinks.

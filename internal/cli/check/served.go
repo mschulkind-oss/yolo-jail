@@ -20,11 +20,10 @@ import (
 // predicts refuses or withholds what that launch does. The bound loopholes (loopholes'
 // JailBoundNames) are served by the one rule too: by name wherever the argv would bind them.
 //
-// No runtime named predicts what a launch with none named resolves to: a container runtime, except
-// for a macOS `confinement: "guest"`, whose notch selects macos-user by itself (config.NotchRuntime,
-// env-manager plan EMP-D1), which configuredRuntimeName weighs as the launch does.
+// The runtime is the selected setup's (configuredRuntimeName), as the launch's; with no
+// environment to select from (a test's zero Options) it is none, a container runtime's prediction.
 func (o *Options) predictedServed(merged *jsonx.OrderedMap, packs []*packload.Pack) packload.ServedDaemons {
-	rt := configRuntime(merged)
+	var rt string
 	if o.Getenv != nil {
 		rt = o.configuredRuntimeName(merged)
 	}

@@ -304,8 +304,6 @@ func (o *Options) runtimeFindingNote(merged *jsonx.OrderedMap) string {
 		return "Container Runtime, above, names the command that installs or starts one, " + recheck
 	case choice.Source == setup.FromEnv:
 		unselect = "unset " + setup.EnvVar
-	case choice.Source == setup.FromRemovedKey:
-		unselect = "remove " + choice.RemovedKey + " from the config that sets it"
 	default:
 		unselect = "choose another default (`yolo config set setup <name> --user`; `yolo setup list` names them)"
 	}

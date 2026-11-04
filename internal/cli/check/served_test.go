@@ -37,10 +37,7 @@ func TestCheckPredictsABoundLoopholeServedWhereItsBindsGo(t *testing.T) {
 		{"macos-user", false},
 	} {
 		merged := jsonx.NewOrderedMap()
-		if tc.runtime != "" {
-			merged.Set("runtime", tc.runtime)
-		}
-		if got := (&Options{}).predictedServed(merged, nil).Serves("snd-like"); got != tc.served {
+		if got := optionsOnRuntime(tc.runtime).predictedServed(merged, nil).Serves("snd-like"); got != tc.served {
 			t.Errorf("runtime %q: predicted the bound loophole served = %v, want %v", tc.runtime, got, tc.served)
 		}
 	}
@@ -78,12 +75,11 @@ func TestGitRewriteServedWhereverItsBrokerRuns(t *testing.T) {
 	}{{"podman", false}, {"podman", true}, {"container", true}} {
 		enabled, served := c.enabled, c.runtime == "podman"
 		merged := jsonx.NewOrderedMap()
-		merged.Set("runtime", c.runtime)
 		lh, entry := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
 		entry.Set("enabled", enabled)
 		lh.Set("git-broker", entry)
 		merged.Set("loopholes", lh)
-		predicted := (&Options{}).predictedServed(merged, []*packload.Pack{git})
+		predicted := optionsOnRuntime(c.runtime).predictedServed(merged, []*packload.Pack{git})
 		scope, err := packload.ScopeCredentials(packload.ScopeInput{
 			Packs: []*packload.Pack{git}, NoDerives: true, Served: &predicted})
 		if err != nil {
@@ -123,8 +119,7 @@ func TestCheckPredictsTheMacosUserWordingForABoundLoophole(t *testing.T) {
 		t.Fatal("no embedded audio pack")
 	}
 	merged := jsonx.NewOrderedMap()
-	merged.Set("runtime", "macos-user")
-	served := (&Options{}).predictedServed(merged, []*packload.Pack{audio})
+	served := optionsOnRuntime("macos-user").predictedServed(merged, []*packload.Pack{audio})
 	scope, err := packload.ScopeCredentials(packload.ScopeInput{
 		Packs: []*packload.Pack{audio}, NoDerives: true, Served: &served})
 	if err != nil {

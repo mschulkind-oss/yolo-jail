@@ -39,7 +39,7 @@ func TestSignalExitRemovesSelectedPackTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(`{"name":"signal-fixture","contributes":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	config := fmt.Sprintf(`{"runtime":"container","packs":[%q]}`, "file://"+pack)
+	config := fmt.Sprintf(`{"setup":"apple-container-self","packs":[%q]}`, "file://"+pack)
 	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}

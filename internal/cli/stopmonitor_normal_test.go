@@ -11,7 +11,7 @@ import (
 )
 
 func TestRunStopNormalInternalRmForceNeverSignalsExecMonitor(t *testing.T) {
-	_, _ = stopWorkspace(t, `{"runtime":"podman"}`)
+	_, _ = stopWorkspace(t, "podman-self")
 	shrinkStopGone(t)
 	proc, _ := writeStopMonitorProcFixture(t)
 	savedOps := stopMonitorProcessOps

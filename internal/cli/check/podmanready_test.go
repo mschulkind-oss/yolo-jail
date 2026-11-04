@@ -70,16 +70,12 @@ func TestChecksRuntimeResolutionReadsTheGate(t *testing.T) {
 			}
 			return ""
 		}, nil},
-		{"config runtime", func(string) string { return "" }, jsonx.NewOrderedMap()},
 		{"autodetected", func(string) string { return "" }, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
 			opts := baseOptions(t, &out)
 			opts.Getenv = tc.getenv
-			if tc.cfg != nil {
-				tc.cfg.Set("runtime", "podman")
-			}
 			opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
 			gate := answeringPodman(&opts, `{}`)
 			if rt, msg := opts.runtimeForCheck(tc.cfg); rt != "podman" || msg != "" {

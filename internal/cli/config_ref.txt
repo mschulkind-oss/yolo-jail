@@ -205,44 +205,27 @@
 
 [bold cyan]FIELDS[/bold cyan]
 
-  [bold]confinement[/bold] (string): How confined the environment is — the dial, separate
-    from the MECHANISM (runtime) that enforces it.
-    Values: "jail" (default) | "guest" | "host".
-      • [bold]jail[/bold] — a container (podman / Apple Container): namespaces, a disposable
-        home, a baked image, NONE of your credentials. The default and what
-        `yolo -- <cmd>` gives you.
-      • [bold]guest[/bold] — a real home on the real filesystem, no image, an LSM boundary.
-        On macOS this is the macos-user backend: a dedicated account under Seatbelt,
-        selected with no "runtime" key. Not built on Linux yet (bwrap+Landlock), where
-        a launch refuses it.
-      • [bold]host[/bold] — you, your machine, your dotfiles, your credentials. EXPLICIT
-        opt-in only: never inferred, never a fallback. `yolo host apply`
-        renders your agent config into your real home.
-    The three are presets over composable primitives (separate user / Seatbelt /
-    bwrap / namespace); you pick a notch, not a hand-assembled policy.
-    NOTE: jail is the default, so an absent key is exactly today's behavior. A
-    launch runs jail everywhere and guest on macOS; host is not a launch (use
-    `yolo host -- <cmd>` and `yolo apply --setup host-self`). `--setup <name>` on a launch
-    overrides this key for that launch, as YOLO_SETUP and the `setup` key do. At guest
-    on macOS, a "runtime" naming podman or container contradicts the notch, and the
-    launch refuses until you drop one.
+  [bold]confinement[/bold]: [bold yellow]REMOVED[/bold yellow] — a config carrying it is REFUSED.  A named
+    [bold]setup[/bold] chooses where an agent runs now (`yolo setup list` shows them).
+    `yolo config migrate` drops "jail" from your user file (an unset `setup` is
+    the same default); every other value is refused naming its setup and the
+    unset: "guest" was seatbelt-yolo-account on macOS,
+      yolo config set setup seatbelt-yolo-account --user
+      yolo config unset confinement --user
+    and "host" is `yolo host -- <cmd>`, never a default.  A project file's
+    `confinement` chose nothing a project may choose; remove it with
+    `yolo config unset confinement --project`.
 
-  [bold]runtime[/bold] (string): Isolation MECHANISM inside the jail notch (a hint, not policy).
-    Values: "podman", "container", or "macos-user".
-    Override: a named setup (`--setup`, YOLO_SETUP, the `setup` key) outranks it;
-    YOLO_RUNTIME is removed, and a launch refuses it naming YOLO_SETUP.
-    Absent: the OS's default setup, apple-container-self on macOS and podman-self
-    on Linux, chosen by name and never probed.
-    On Apple Silicon the container is native arm64 (no emulation).
-    "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
-    agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
-    "packages:" materialized as native darwin nix for THIS Mac's arch (Apple
-    Silicon or Intel — the system is derived, not assumed). Fastest startup,
-    but a WEAKER isolation boundary than a container/VM. `confinement: "guest"`
-    selects this same backend on macOS with no "runtime" key; `runtime:
-    "macos-user"` at the jail notch keeps working. The two launch the same
-    sandbox and differ only in the notch `yolo describe`, the agent's
-    briefing and its footer name.
+  [bold]runtime[/bold]: [bold yellow]REMOVED[/bold yellow] — a config carrying it is REFUSED.  A named
+    [bold]setup[/bold] chooses the mechanism now (`yolo setup list` shows them).
+    `yolo config migrate` converts your user file's value: "podman" becomes
+    `setup = "podman-self"` and "container" `setup = "apple-container-self"`.
+    "macos-user" is refused naming both Seatbelt setups:
+      yolo config set setup seatbelt-yolo-account --user
+      yolo config set setup seatbelt-self --user
+    A project file's `runtime` chose nothing a project may choose; remove it
+    with `yolo config unset runtime --project`.  YOLO_RUNTIME is removed too,
+    and a launch refuses it naming YOLO_SETUP.
 
   [bold]setup[/bold] (string, [bold]USER SCOPE ONLY[/bold]): Your default setup — the one name that
     chooses where an agent runs.  A built-in is named <confinement>-<run_as>:
@@ -1632,31 +1615,24 @@
     Example (~/.config/yolo-jail/config.jsonc):
       "perf_logging": true
 
-  [bold]macos_user_mode[/bold] ("self" | "account"): Which account a macos-user jail runs as.  Default "account".
-    "account" is the default: the agent runs as the sandbox account `yolo
-    yolo-account create` provisions for it.  "self" (experimental) runs the agent as you,
-    with no account, admin setup or access grants, under a deny-by-default Seatbelt
-    profile that opens the workspace, the agent's own home in .yolo/home and the
-    tools, and denies the rest of your files, your keychain and your other
-    processes.  The shared /tmp is closed (see macos_user_shared_tmp); each launch
-    gets its own TMPDIR, and your own DARWIN_USER_TEMP_DIR stays readable, so the
-    agent can read files your other programs leave there.  A workspace may
-    then sit anywhere, your home included.  Every such launch says so first.  Only the macos-user setup reads it; podman and Apple
-    Container ignore it.
-
-    USER SCOPE ONLY.  It is read from your user config alone, so a workspace value is
-    a `yolo check` error and is never consulted -- and /workspace is writable by
-    whatever runs in the jail.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "macos_user_mode": "account"
+  [bold]macos_user_mode[/bold]: [bold yellow]REMOVED[/bold yellow] — a config carrying it is REFUSED.  Which
+    account a Seatbelt sandbox runs as is its setup's `run_as` now:
+      yolo config set setup seatbelt-yolo-account --user   # was "account"
+      yolo config set setup seatbelt-self --user           # was "self"
+    then `yolo config unset macos_user_mode --user`.  seatbelt-self runs the
+    agent as you, with no account, admin setup or access grants, under a
+    deny-by-default Seatbelt profile that opens the workspace, the agent's own
+    home in .yolo/home and the tools, and denies the rest of your files, your
+    keychain and your other processes; each launch gets its own TMPDIR (see
+    macos_user_shared_tmp), and every such launch says so first.
 
   [bold]macos_user_shared_tmp[/bold] (boolean): Open the shared /tmp to a run-as-you macos-user jail.  Default FALSE.
-    With macos_user_mode "self", the agent cannot read or write the shared /tmp
+    Under a setup that runs as you (seatbelt-self), the agent cannot read or write the shared /tmp
     (/private/tmp): a tool that writes there fails with "Operation not permitted",
     and the agent is told to use $TMPDIR, its launch's own temporary directory.
     true opens /tmp again, read and write, for tools that need it; the agent can
     then read the files your other programs leave there.  Every such launch says
-    so.  Only the macos-user setup reads it, and only in "self" mode.
+    so.  Only a Seatbelt setup that runs as you reads it.
 
     USER SCOPE ONLY.  It is read from your user config alone, so a workspace value is
     a `yolo check` error and is never consulted -- and /workspace is writable by
@@ -3265,7 +3241,6 @@
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
   {
-    "runtime": "podman",
     "mise_tools": {"neovim": "nightly"},
     "lsp_servers": {
       "rust": {"command": "rust-analyzer", "args": [],

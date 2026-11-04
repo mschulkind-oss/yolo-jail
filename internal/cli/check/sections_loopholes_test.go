@@ -808,16 +808,22 @@ func runCheckLoopholes(t *testing.T, workspace string) (*reporter, string) {
 	return runCheckLoopholesOn(t, workspace, false)
 }
 
-// runCheckLoopholesOn is runCheckLoopholes on macOS (true) or Linux (false): a setup a removed
-// `runtime: "container"` chooses is a Mac's, so a test about Apple Container states the Mac.
+// runCheckLoopholesOn is runCheckLoopholes on macOS (true) or Linux (false).
 func runCheckLoopholesOn(t *testing.T, workspace string, macOS bool) (*reporter, string) {
+	t.Helper()
+	return runCheckLoopholesAt(t, workspace, macOS, "")
+}
+
+// runCheckLoopholesAt is runCheckLoopholesOn with YOLO_SETUP naming setupName ("" for none): a
+// test about a backend selects its setup, as a launch does, on the OS that setup runs on.
+func runCheckLoopholesAt(t *testing.T, workspace string, macOS bool, setupName string) (*reporter, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	r := newReporter(&buf, false)
-	// Getenv empty for every key, so inJail() is false: this suite runs INSIDE a jail,
+	// Getenv empty for every other key, so inJail() is false: this suite runs INSIDE a jail,
 	// where the real YOLO_VERSION would send the section down the skip branch and every
 	// assertion below would pass for the wrong reason.
-	o := &Options{Workspace: workspace, Getenv: func(string) string { return "" }, IsMacOS: macOS}
+	o := &Options{Workspace: workspace, Getenv: setupGetenv(setupName), IsMacOS: macOS}
 	fillDefaults(o)
 	o.checkLoopholes(r)
 	return r, buf.String()

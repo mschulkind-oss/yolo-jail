@@ -92,8 +92,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	}
 	validateConvertLater(config, workspace, errs, edit)
 
-	validateRuntime(config, errs)
-	validateConfinement(config, errs)
+	validateSetupsRetired(config, workspace, errs, warns, edit)
 	validateRepoPath(config, errs, warns)
 	validateAgentsRetired(config, errs, warns)
 	validatePackages(config, errs)
@@ -177,7 +176,6 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateHostPath(config, workspace, errs, edit)
 	validateProvisioners(config, workspace, errs, warns, edit)
 	validatePerfLogging(config, workspace, errs, edit)
-	validateMacosUserMode(config, workspace, errs, edit)
 	validateSetups(config, workspace, errs, edit)
 	validateMacosUserSharedTmp(config, workspace, errs, edit)
 	validateOnRequest(config, workspace, errs, edit)
@@ -216,21 +214,6 @@ func reportUnknownKeys(m *jsonx.OrderedMap, allowed map[string]struct{}, path st
 	}
 }
 
-func validateRuntime(config *jsonx.OrderedMap, errs *[]string) {
-	runtime, present := config.Get("runtime")
-	if !present {
-		return
-	}
-	if strEq(runtime, "docker") {
-		add(errs, "config.runtime: 'docker' is no longer supported — "+
-			"use 'podman' (Linux) or 'container' (macOS Apple Container)")
-		return
-	}
-	if runtime != nil && !inStrList(paths.AllRuntimes, runtime) {
-		add(errs, "config.runtime: expected 'podman', 'container', or 'macos-user'")
-	}
-}
-
 // validateRepoPath handles the RETIRED repo_path key. It is still tolerated (it
 // stays in knownTopLevelConfigKeys) so an existing config does not hard-error on
 // upgrade, but it is no longer read by the resolver (internal/reporoot.Resolve,
@@ -259,7 +242,7 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 //
 // `agents` STAYS in knownTopLevelConfigKeys so this is the only message the key earns:
 // dropping it from the set would add a generic "unknown key" alongside, reporting one
-// mistake twice. This is the same treatment `docker` gets in validateRuntime and `env`
+// mistake twice. This is the same treatment `env`
 // gets in validateEnvSources — a bare "unknown key" reads like a typo and sends people
 // hunting for the correct spelling of a key that no longer exists. Say it was removed,
 // and say what replaced it.

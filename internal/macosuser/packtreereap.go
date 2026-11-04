@@ -213,9 +213,14 @@ func parsePackTreeReapArgs(args []string) (string, time.Time, Mode, error) {
 	if err != nil {
 		return "", time.Time{}, ModeAccount, fmt.Errorf("--anchor %q is not Unix nanoseconds", anchor)
 	}
-	m, err := ParseMode(mode)
-	if err != nil {
-		return "", time.Time{}, ModeAccount, err
+	// --mode is Mode.String(), as the launch that hands the tree writes it; absent is the account.
+	m := ModeAccount
+	switch mode {
+	case "", ModeAccount.String():
+	case ModeSelf.String():
+		m = ModeSelf
+	default:
+		return "", time.Time{}, ModeAccount, fmt.Errorf("--mode %q is neither \"self\" nor \"account\"", mode)
 	}
 	return root, time.Unix(0, ns), m, nil
 }

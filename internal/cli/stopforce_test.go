@@ -77,7 +77,7 @@ func TestAForcedStopDropsTheGraceAndForcesTheKeeper(t *testing.T) {
 // TestAForcedStopReachesTheRuntimeFromTheFrontDoor drives runStop: `yolo stop --force` asks the
 // runtime for a zero-grace stop.
 func TestAForcedStopReachesTheRuntimeFromTheFrontDoor(t *testing.T) {
-	cname, _ := stopWorkspace(t, `{"runtime": "podman"}`)
+	cname, _ := stopWorkspace(t, "podman-self")
 	s := &stopRun{stats: []string{"true\n", "", "!Error: no such container"}}
 	useStopExec(t, s.run)
 	var rc int
@@ -92,7 +92,7 @@ func TestAForcedStopReachesTheRuntimeFromTheFrontDoor(t *testing.T) {
 }
 
 func TestAForcedStopFailsClosedWhenPodmanInspectCannotDistinguishTheContainer(t *testing.T) {
-	cname, _ := stopWorkspace(t, `{"runtime": "podman"}`)
+	cname, _ := stopWorkspace(t, "podman-self")
 	var calls [][]string
 	runner := func(argv []string, _ time.Duration) (string, bool, int) {
 		calls = append(calls, slices.Clone(argv))

@@ -13,7 +13,7 @@ import (
 )
 
 // AN UNCHANGED RELAUNCH ON A MAC KEEPS EVERY DELIVERED FILE, AND A DELIVERED FILE THAT WAS EDITED IS
-// REPLACED (MMP-D35, docs/design/macos-user-model-plan.md), in both macos_user_mode values.
+// REPLACED (MMP-D35, docs/design/macos-user-model-plan.md), under both Seatbelt setups.
 //
 // The home overlay delivers COPIES of the staged files and never tries a hard link from the staging
 // root, so the deny-by-default Seatbelt profile needs no file-link grant. An unchanged relaunch
@@ -36,7 +36,7 @@ func TestMacosUserUnchangedRelaunchKeepsTheDeliveredFiles(t *testing.T) {
 	requireMacosUser(t)
 	for _, mode := range []string{"account", "self"} {
 		t.Run(mode, func(t *testing.T) {
-			packHome(t, `{"macos_user_mode": "`+mode+`", "packs": ["claude"]}`)
+			packHome(t, `{"setup": "`+macosUserSetupFor(mode)+`", "packs": ["claude"]}`)
 			ws := macosUserWorkspace(t, `{}`)
 			probe := `
 skill=$(ls -d "$HOME"/.claude/skills/*/SKILL.md 2>/dev/null | head -n 1)

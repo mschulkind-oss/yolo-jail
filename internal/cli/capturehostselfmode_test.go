@@ -16,11 +16,13 @@ import (
 )
 
 // capturehostselfmode_test.go pins slice 9 of docs/design/macos-user-model-plan.md at its CLI call
-// sites: with `"macos_user_mode": "self"` in the user config, `yolo capture`'s macos-user arm hands
-// the act the run-as-you mode and the invoking user's identity, and the act's plan crosses into no
-// account; and the host floor's Mac predicate asks no sandbox account.
+// sites: with `"setup": "seatbelt-self"` in the user config, `yolo capture`'s macos-user arm boots
+// its jail as that setup and hands the act the run-as-you mode and the invoking user's identity,
+// and the act's plan crosses into no account; and the host floor's Mac predicate asks no sandbox
+// account. The mode is the selected setup's run_as (actMacosUserMode, named-setups-plan.md
+// SUP-D14), the reading the launch makes.
 
-// withSelfModeUserConfig adds `"macos_user_mode": "self"` to the user config captureFixtureHome wrote.
+// withSelfModeUserConfig adds `"setup": "seatbelt-self"` to the user config captureFixtureHome wrote.
 func withSelfModeUserConfig(t *testing.T) {
 	t.Helper()
 	// Out of a jail, as on a Mac: in-jail, the user config is the generated snapshot.
@@ -30,7 +32,7 @@ func withSelfModeUserConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := strings.Replace(string(b), "{", `{"macos_user_mode": "self", `, 1)
+	s := strings.Replace(string(b), "{", `{"setup": "seatbelt-self", `, 1)
 	if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,8 @@ func withSelfModeUserConfig(t *testing.T) {
 
 // THE CAPTURE ARM PASSES THE MODE: it invokes the real closure on its dry-run path, through the
 // real act, and reads both the options the act was handed and the plan it printed. Fails if the
-// closure stops reading macos_user_mode, or drops Mode, HostHome or HostUser on the way to the act.
+// closure stops reading the selected setup, or drops Mode, HostHome or HostUser on the way to the
+// act.
 func TestCaptureHandsTheMacosUserActTheRunAsYouMode(t *testing.T) {
 	captureFixtureHome(t, captureFixtureInstaller)
 	withSelfModeUserConfig(t)
@@ -84,7 +87,7 @@ func TestCaptureHandsTheMacosUserActTheRunAsYouMode(t *testing.T) {
 	}
 }
 
-// With no key the arm hands the act the account mode, and no identity, so the act's own HostUser
+// With no setup the arm hands the act the account mode, and no identity, so the act's own HostUser
 // (Deps.HostUser) places the account's staging tree as before.
 func TestCaptureHandsTheMacosUserActTheAccountModeByDefault(t *testing.T) {
 	captureFixtureHome(t, captureFixtureInstaller)
@@ -112,7 +115,7 @@ func TestCaptureHandsTheMacosUserActTheAccountModeByDefault(t *testing.T) {
 
 // THE FLOOR'S MAC PREDICATE IN THE RUN-AS-YOU MODE asks no sandbox account, and its privilege facts
 // are the staging root's, in words that say the act runs as you. Fails if hostFloorMacProbes stops
-// reading the mode, or macActBlocked asks the account in self mode.
+// reading the selected setup's run_as, or macActBlocked asks the account in self mode.
 func TestAMacFloorInSelfModeAsksNoSandboxAccount(t *testing.T) {
 	captureFixtureHome(t, captureFixtureInstaller)
 	withSelfModeUserConfig(t)
@@ -173,5 +176,37 @@ func TestCaptureHandsTheMacosUserActTheSharedTmpHatch(t *testing.T) {
 		macosuser.HostContext{}, true, jsonx.NewOrderedMap(), nil, macosuser.JailDaemons{})
 	if len(got) != 1 || got[0].Mode != macosuser.ModeSelf || !got[0].SharedTmp {
 		t.Errorf("the capture was handed %+v; want the run-as-you mode with SharedTmp", got)
+	}
+}
+
+// AN ACT ON A RUNTIME BOOTS THE SELECTED SETUP WHEN IT RUNS THERE (actSetup, SUP-D14): a capture
+// or build jail filed under macos-user is handed the setup a launch selects, seatbelt-self from
+// the user config, so it runs as you; with no setup selected it is handed the runtime's built-in,
+// seatbelt-yolo-account; and an act on podman under that user config is handed podman-self, not
+// the Seatbelt setup. Fails if runCaptureJail stops handing the jail actSetup's name.
+func TestACaptureActBootsTheSelectedSetupOnItsRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		self      bool
+		runtime   string
+		wantSetup string
+	}{
+		{true, "macos-user", "seatbelt-self"},
+		{false, "macos-user", "seatbelt-yolo-account"},
+		{true, "podman", "podman-self"},
+	} {
+		captureFixtureHome(t, captureFixtureInstaller)
+		t.Setenv("YOLO_VERSION", "")
+		if tc.self {
+			withSelfModeUserConfig(t)
+		}
+		var seen run.Options
+		withFakeCaptureJail(t, func(o run.Options) int { seen = o; return 1 })
+		var out, errw bytes.Buffer
+		runCaptureJail(t.TempDir(), "probetool", []string{"true"}, nil,
+			captureStreams{out: &out, errw: &errw}, false, captureAct{runtime: tc.runtime})
+		if seen.SetupName != tc.wantSetup {
+			t.Errorf("self=%v, an act on %s: the jail was handed setup %q, want %q",
+				tc.self, tc.runtime, seen.SetupName, tc.wantSetup)
+		}
 	}
 }

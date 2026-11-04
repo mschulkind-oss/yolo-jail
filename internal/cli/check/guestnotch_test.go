@@ -9,18 +9,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// guestnotch_test.go pins `yolo check` predicting the guest notch's launch on macOS (env-manager
-// plan Phase 7.1, EMP-D1): with no `runtime` key, a macOS `confinement: "guest"` resolves the
-// macos-user backend, so check skips the container probes that backend does not need, grades
-// its runtime, and reports the package profile a launch there materializes. And it predicts
-// the launch's one refusal at that notch: an explicit runtime naming a container.
+// guestnotch_test.go pins `yolo check` predicting a Seatbelt setup's launch on macOS (env-manager
+// plan Phase 7.1, EMP-D1; named setups): with YOLO_SETUP naming seatbelt-yolo-account, check skips
+// the container probes the macos-user backend does not need, grades its runtime, and reports the
+// package profile a launch there materializes. And the removed keys that once chose it are a
+// Merged Configuration refusal naming the setup, never a selection (named-setups-plan.md slice 5).
 
-// TestCheckOnMacOSResolvesTheGuestNotchToMacosUser covers each reader of the resolved runtime
-// in turn: the Container Runtime section's early read (configRuntime), Merged Configuration's
-// runtime line (resolveRuntime), and Declared packages' mechanism (the runtime check resolved).
-func TestCheckOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
+// TestCheckOnMacOSResolvesTheSeatbeltSetupToMacosUser covers each reader of the resolved runtime
+// in turn: the Container Runtime section's early read, Merged Configuration's runtime line, and
+// Declared packages' mechanism (the runtime check resolved).
+func TestCheckOnMacOSResolvesTheSeatbeltSetupToMacosUser(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no GC root anywhere under it
-	got := runCheckOverConfig(t, `{"confinement": "guest", "packages": ["ripgrep"]}`, true)
+	got := runCheckOverConfigWith(t, `{"packages": ["ripgrep"]}`, true, nil, withSetup("seatbelt-yolo-account"))
 	for _, want := range []string{
 		"Native runtime 'macos-user' — no container runtime needed",
 		"Runtime available: macos-user",
@@ -28,25 +28,35 @@ func TestCheckOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 		"A run materializes it",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("check over a macOS guest does not say %q — the notch did not select the "+
-				"macos-user backend there:\n%s", want, got)
+			t.Errorf("check under seatbelt-yolo-account on macOS does not say %q — the setup did not "+
+				"select the macos-user backend there:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "nothing materializes") {
-		t.Errorf("check called a macOS guest's packages inert, though its launch builds the "+
+		t.Errorf("check called a Seatbelt setup's packages inert, though its launch builds the "+
 			"profile:\n%s", got)
 	}
 }
 
-// TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser is the control: Linux has no Seatbelt,
-// so the setup the removed `confinement: "guest"` key chooses is refused there, in the words a
-// launch refuses it with (setup.Buildable), naming the setup this machine has. check names no
-// macos-user runtime.
-func TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser(t *testing.T) {
+// TestCheckOnLinuxDoesNotResolveTheSeatbeltSetupToMacosUser is the control: Linux has no Seatbelt,
+// so the setup is refused there, in the words a launch refuses it with (setup.Buildable), naming
+// the setup this machine has. check names no macos-user runtime.
+func TestCheckOnLinuxDoesNotResolveTheSeatbeltSetupToMacosUser(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	got := runCheckOverConfig(t, `{"confinement": "guest", "packages": ["ripgrep"]}`, false)
+	// On the host: inside a session a YOLO_SETUP this OS cannot run is the outer session's, and
+	// is ignored (SUP-D12), so only the host's check refuses it.
+	got := runCheckOverConfigWith(t, `{"packages": ["ripgrep"]}`, false, nil, func(o *Options) {
+		withSetup("seatbelt-yolo-account")(o)
+		prev := o.Getenv
+		o.Getenv = func(k string) string {
+			if k == "YOLO_VERSION" {
+				return ""
+			}
+			return prev(k)
+		}
+	})
 	if strings.Contains(got, "macos-user'") || strings.Contains(got, "Runtime available: macos-user") {
-		t.Errorf("check over a Linux guest named the macos-user runtime, which Linux lacks:\n%s", got)
+		t.Errorf("check under a Seatbelt setup on Linux named the macos-user runtime, which Linux lacks:\n%s", got)
 	}
 	for _, want := range []string{
 		`[FAIL] setup "seatbelt-yolo-account" uses Seatbelt, which only macOS has.`,
@@ -54,74 +64,46 @@ func TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser(t *testing.T) {
 		"The line above names the change that clears it, then: yolo check",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("check over a Linux guest does not say %q, as the launch it predicts does:\n%s", want, got)
+			t.Errorf("check under a Seatbelt setup on Linux does not say %q, as the launch it predicts does:\n%s", want, got)
 		}
 	}
 }
 
-// TestCheckOnMacOSFailsAGuestWithAContradictingRuntime: the removed keys `confinement: "guest"`
-// and `runtime: "podman"` name two different setups, which the launch refuses (config.SelectSetup),
-// so check fails it in Merged Configuration, naming both keys and both setups — not as an
-// unavailable runtime pointing back at the Container Runtime section.
-func TestCheckOnMacOSFailsAGuestWithAContradictingRuntime(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	got := runCheckOverConfig(t, `{"confinement": "guest", "runtime": "podman"}`, true)
-	for _, want := range []string{"[FAIL]",
-		`the removed keys confinement = "guest" and runtime = "podman" in your config name two different setups`,
-		"yolo --setup seatbelt-yolo-account -- claude", "yolo --setup podman-self -- claude"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("check over a contradicting macOS guest does not say %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "Runtime available: podman") {
-		t.Errorf("check reported the contradicting runtime as available, though the launch "+
-			"refuses it:\n%s", got)
-	}
-	// THE NEXT STEP IS THE FAIL LINE'S OWN: installing or starting podman does not clear it,
-	// since the launch refuses the pair whatever podman does, so runtimeFindingNote must not
-	// say so.
-	if strings.Contains(got, "Install or start") {
-		t.Errorf("check tells the user to install or start the contradicting runtime, which "+
-			"leaves the launch refused:\n%s", got)
-	}
-	if !strings.Contains(got, "The line above names the change that clears it, then: yolo check") {
-		t.Errorf("the contradiction FAIL's note does not point back at the line's own two "+
-			"fixes:\n%s", got)
-	}
-}
-
-// TestCheckOnAMacWithNoContainerRuntimeStillFailsTheContradiction: on a Mac with neither podman
-// nor Apple Container installed, the Container Runtime section fails first, and an unavailable
-// runtime defers to it with a dimmed pointer. The contradiction is not that: its fix is in the
-// config whatever is installed (resolveRuntimeForCheck marks it not unavailable), so the FAIL
-// still prints. Deleting that branch turns the FAIL into the pointer and fails this.
-func TestCheckOnAMacWithNoContainerRuntimeStillFailsTheContradiction(t *testing.T) {
+// TestCheckRefusesTheRemovedKeysNamingTheirSetup: `confinement: "guest"` in a workspace config
+// chooses nothing now (a project cannot choose where its agent runs); check fails it in Merged
+// Configuration naming the setup and the unset, and still reports the launch the selection makes,
+// the OS default, not a macos-user one.
+func TestCheckRefusesTheRemovedKeysNamingTheirSetup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	got := runCheckOverConfigWith(t, `{"confinement": "guest", "runtime": "podman"}`, true, nil,
 		func(o *Options) {
-			look := o.LookPath
-			o.LookPath = func(name string) (string, bool) {
-				if name == "podman" || name == "container" {
-					return "", false
+			prev := o.Getenv
+			o.Getenv = func(k string) string {
+				if k == "YOLO_VERSION" {
+					return "" // the host's check, where a removed key is an error
 				}
-				return look(name)
+				return prev(k)
 			}
 		})
-	if !strings.Contains(got, "name two different setups") {
-		t.Errorf("with no container runtime installed, check hid the guest/runtime contradiction:\n%s", got)
+	for _, want := range []string{"[FAIL]", "config.confinement: REMOVED", "config.runtime: REMOVED",
+		"yolo config set setup seatbelt-yolo-account --user", "yolo config unset confinement --project",
+		"yolo config unset runtime --project"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("check over the removed keys does not say %q:\n%s", want, got)
+		}
 	}
-	if strings.Contains(got, "No runtime available — see Container Runtime above") {
-		t.Errorf("check sent the contradiction to the Container Runtime section, whose install "+
-			"step does not clear it:\n%s", got)
+	if strings.Contains(got, "Runtime available: macos-user") {
+		t.Errorf("check took the removed confinement key as choosing the macos-user backend:\n%s", got)
 	}
 }
 
-// TestCheckPredictsAMacosGuestServesAsMacosUser: the served-daemon prediction resolves the runtime
-// the launch would (configuredRuntimeName, through the production Options with Getenv set), and a
-// macOS guest with no `runtime` key is a macos-user launch — so a bound loophole, which that
-// backend cannot bind, is predicted withheld there, and served on Linux, where the guest is no
-// macos-user launch. Dropping the notch from configuredRuntimeName's resolver fails the macOS half.
-func TestCheckPredictsAMacosGuestServesAsMacosUser(t *testing.T) {
+// TestCheckPredictsASeatbeltSetupServesAsMacosUser: the served-daemon prediction resolves the
+// runtime the launch would (configuredRuntimeName, through the production Options with Getenv
+// set), and seatbelt-yolo-account on a Mac is a macos-user launch — so a bound loophole, which
+// that backend cannot bind, is predicted withheld there, and served on Linux, where the setup is
+// refused and the prediction is the default container launch's. Dropping the setup from
+// configuredRuntimeName's resolver fails the macOS half.
+func TestCheckPredictsASeatbeltSetupServesAsMacosUser(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	os.Unsetenv("YOLO_VERSION")
 	moduleRoot := isolatedModuleDir(t)
@@ -133,16 +115,15 @@ func TestCheckPredictsAMacosGuestServesAsMacosUser(t *testing.T) {
 		`"name":"snd-like","description":"d","transport":"none",`+
 			`"host_bind_mounts":[{"host":"`+sock+`","container":"/run/snd-like/native","readonly":true}]`)
 	merged := jsonx.NewOrderedMap()
-	merged.Set("confinement", "guest")
 	for _, tc := range []struct {
 		isMacOS, served bool
 	}{
 		{true, false}, // macos-user binds nothing
-		{false, true}, // a Linux guest predicts a container launch, which binds it
+		{false, true}, // refused on Linux: the prediction is a container launch's, which binds it
 	} {
-		o := &Options{IsMacOS: tc.isMacOS, Getenv: func(string) string { return "" }}
+		o := &Options{IsMacOS: tc.isMacOS, Getenv: setupGetenv("seatbelt-yolo-account")}
 		if got := o.predictedServed(merged, nil).Serves("snd-like"); got != tc.served {
-			t.Errorf("guest, macOS=%v: predicted the bound loophole served = %v, want %v",
+			t.Errorf("seatbelt-yolo-account, macOS=%v: predicted the bound loophole served = %v, want %v",
 				tc.isMacOS, got, tc.served)
 		}
 	}

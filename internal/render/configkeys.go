@@ -130,21 +130,14 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"agents_md_extra": {KeyHonored, "prose `yolo host apply` appends to the briefing it writes " +
 		"(applyhostbriefings.go)"},
 	"briefing_provenance": {KeyHonored, "shapes the text of the briefing `yolo host apply` writes"},
-	"confinement": {KeyHonored, "`yolo apply` reads it to pick its notch, so `confinement: host` is " +
-		"what makes a bare `yolo apply` render at the host"},
-	"runtime": {KeyHonored, "the backend the host floor's `yolo capture` boots its jail on " +
-		"(captureRuntime), and what `yolo host apply` reads to say whether a darwin package " +
-		"profile can be materialized"},
-	"include_if_found": {KeyHonored, "resolved by the loader into the user scope every host verb reads"},
-	"update_check":     {KeyHonored, "gates this machine's own update check (UpdateCheckEnabled)"},
+	"include_if_found":    {KeyHonored, "resolved by the loader into the user scope every host verb reads"},
+	"update_check":        {KeyHonored, "gates this machine's own update check (UpdateCheckEnabled)"},
 	"promotion_target": {KeyHonored, "where `yolo config promote`, a host-side command, writes " +
 		"captured settings"},
 	"shipped_skill_prefix": {KeyHonored, "`yolo host apply` delivers every skill yolo ships, " +
 		"built-in and shipped-pack alike, as `<prefix>-<skill>` (config.ShippedSkillPrefix)"},
 	"prune": {KeyHonored, "the free-disk threshold `yolo check`'s disk section warns at, on this " +
 		"machine"},
-	"macos_user_mode": {KeyNotApplicable, "selects the account a macos-user launch runs as; `yolo host` " +
-		"runs no jail, so the key has no meaning at the host notch"},
 	"setup": {KeyNotApplicable, "chooses the setup a jail launch runs; a host setup is never chosen " +
 		"by config (named-setups.md §8), so `yolo host` runs host-self or the one its --setup names"},
 	"setups": {KeyNotApplicable, "defines setups a jail launch may choose; `yolo host` runs a " +

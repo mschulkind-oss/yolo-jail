@@ -475,7 +475,7 @@ func legacySchemaType(path string) SchemaType {
 		return SchemaTypeString
 	case "setups", "setups.*":
 		return SchemaTypeObject
-	case "runtime", "confinement", "repo_path", "macos_user_mode", "programs.overrides.*.run",
+	case "repo_path", "programs.overrides.*.run",
 		"providers.*.region", "providers.*.base_url", "providers.*.wire_api",
 		"providers.*.endpoints.*.base_url", "providers.*.endpoints.*.wire_api",
 		"providers.*.models.*.id", "providers.*.models.*.name", "providers.*.models.*.description",

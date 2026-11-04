@@ -113,13 +113,14 @@ func TestDirectForkBuildCaptureRecordsRuntimeForEveryBuildKind(t *testing.T) {
 	}
 }
 
-func TestBuildCapturePersistsConfinementSelectedGuestRuntimeBeforeDispatch(t *testing.T) {
-	workspace := forkBuildRuntimeWorkspace(t, `{"confinement":"guest"}`)
+// A BUILD CHILD UNDER A SEATBELT SETUP records macos-user before it dispatches to that backend.
+func TestBuildCapturePersistsSetupSelectedGuestRuntimeBeforeDispatch(t *testing.T) {
+	workspace := forkBuildRuntimeWorkspace(t, "{}")
 	var dispatched bool
 	rc, stderr := runActualBuildChild(t, workspace, "make install", false, func(o *run.Options) {
 		o.IsMacOS, o.IsLinux = true, false
 		o.DryRun = true
-		o.Getenv = func(string) string { return "" }
+		o.Getenv = seatbeltSetupGetenv
 		o.RepoRoot = func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false }
 		o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 			_ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap,
@@ -132,7 +133,7 @@ func TestBuildCapturePersistsConfinementSelectedGuestRuntimeBeforeDispatch(t *te
 		}
 	})
 	if rc != 0 || !dispatched {
-		t.Fatalf("confinement-selected native build child rc=%d dispatched=%v; stderr:\n%s", rc, dispatched, stderr)
+		t.Fatalf("setup-selected native build child rc=%d dispatched=%v; stderr:\n%s", rc, dispatched, stderr)
 	}
 	if got, err := readForkBuildRuntime(workspace); err != nil || got != "macos-user" {
 		t.Fatalf("resolved guest runtime record = %q, %v; want macos-user", got, err)
@@ -178,7 +179,7 @@ func TestBuildCaptureOnAStoppedAppleContainerRefusesWithNoPodmanFallback(t *test
 }
 
 func TestBuildCaptureRuntimeRecordWriteFailureStopsBeforeNativeDispatch(t *testing.T) {
-	workspace := forkBuildRuntimeWorkspace(t, `{"confinement":"guest"}`)
+	workspace := forkBuildRuntimeWorkspace(t, "{}")
 	if err := os.Mkdir(forkBuildRuntimeRecordPath(workspace), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestBuildCaptureRuntimeRecordWriteFailureStopsBeforeNativeDispatch(t *testi
 	rc, stderr := runActualBuildChild(t, workspace, "make install", false, func(o *run.Options) {
 		o.IsMacOS, o.IsLinux = true, false
 		o.DryRun = true
-		o.Getenv = func(string) string { return "" }
+		o.Getenv = seatbeltSetupGetenv
 		o.RepoRoot = func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false }
 		o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string,
 			_ macosuser.HomeOverlay, _ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap,
@@ -230,4 +231,12 @@ func runActualBuildChild(t *testing.T, workspace, build string, isTree bool, twe
 	argv := forkBuildChildArgv(workspace, forkBuild{Fork: fork}, false, "")
 	rc := runForkBuildJail(argv[2:], io.Discard, &stderr)
 	return rc, stderr.String()
+}
+
+// seatbeltSetupGetenv is an environment whose only variable selects seatbelt-yolo-account.
+func seatbeltSetupGetenv(k string) string {
+	if k == "YOLO_SETUP" {
+		return "seatbelt-yolo-account"
+	}
+	return ""
 }

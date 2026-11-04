@@ -25,7 +25,6 @@ var legacyNullAcceptedWholeWorkspaceScopeKeys = map[string]struct{}{
 	"host_path":             {},
 	"host_wrappers":         {},
 	"local_clones":          {},
-	"macos_user_mode":       {},
 	"macos_user_shared_tmp": {},
 	"perf_logging":          {},
 	"promotion_target":      {},

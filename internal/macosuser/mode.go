@@ -41,18 +41,6 @@ func ModeFor(r setup.RunAs) Mode {
 	return ModeAccount
 }
 
-// ParseMode reads the `macos_user_mode` spelling. An empty value is account mode, the
-// production default until the plan's slice 11 flips it.
-func ParseMode(s string) (Mode, error) {
-	switch s {
-	case "", "account":
-		return ModeAccount, nil
-	case "self":
-		return ModeSelf, nil
-	}
-	return ModeAccount, fmt.Errorf("macos-user mode %q is neither \"self\" nor \"account\"", s)
-}
-
 // Homes are the homes one launch's sandbox runs with (MMP-D5 to MMP-D7 in
 // docs/design/macos-user-model-plan.md):
 //

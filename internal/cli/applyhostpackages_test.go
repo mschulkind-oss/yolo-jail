@@ -28,13 +28,15 @@ import (
 // hostPackagesFixture points a throwaway $HOME at `cfg` and returns the home. `packages`
 // entries are the config's; the caller writes the whole config so each test can vary the
 // `packs` half independently — the two keys are independent, which is itself one of the
-// things under test.
+// things under test. The fixture runs at the host notch (YOLO_SETUP=host-self).
 func hostPackagesFixture(t *testing.T, cfg string) string {
 	t.Helper()
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// The host notch: host-self, the setup `yolo host` runs (a user `setup` key never names one).
+	t.Setenv("YOLO_SETUP", "host-self")
 	return home
 }
 
@@ -109,7 +111,7 @@ func applyPackagesBlock(t *testing.T) []string {
 // apply's default view folds that line into its tier-1 summary.
 func TestHostApplyAndDescribeAgreeAboutPackages(t *testing.T) {
 	t.Setenv("YOLO_VERBOSE", "1")
-	home := hostPackagesFixture(t, `{"confinement":"host","packs":["claude"],
+	home := hostPackagesFixture(t, `{"packs":["claude"],
 	  "packages":["ripgrep",{"name":"mesa","platforms":["darwin"]},"fd"]}`)
 	target := resolveProfileRoot(t, home)
 
@@ -149,7 +151,7 @@ func TestHostApplyAndDescribeAgreeAboutPackages(t *testing.T) {
 // left to say anything about.
 func TestHostApplyReportsPackagesWithNoPacksConfigured(t *testing.T) {
 	t.Setenv("YOLO_VERBOSE", "1") // the inert line folds into the tier-1 line otherwise
-	home := hostPackagesFixture(t, `{"confinement":"host","packages":["ripgrep"]}`)
+	home := hostPackagesFixture(t, `{"packages":["ripgrep"]}`)
 	resolveProfileRoot(t, home)
 
 	want := describePackagesBlock(t)
@@ -167,7 +169,7 @@ func TestHostApplyReportsPackagesWithNoPacksConfigured(t *testing.T) {
 // shared too, so the agreement is not bought by making the apply unconditionally noisy. This
 // is the case every existing host-apply test is in, which is why none of them had to change.
 func TestHostApplySaysNothingAboutPackagesWhenNoneAreDeclared(t *testing.T) {
-	hostPackagesFixture(t, `{"confinement":"host","packs":["claude"]}`)
+	hostPackagesFixture(t, `{"packs":["claude"]}`)
 	if block := describePackagesBlock(t); len(block) != 0 {
 		t.Fatalf("describe reported `packages:` for a config that declares none: %q", block)
 	}
@@ -186,7 +188,7 @@ func TestHostApplyReportsPackagesAsInertWhateverTheRuntime(t *testing.T) {
 	t.Setenv("YOLO_VERBOSE", "1")       // the inert line folds into the tier-1 line otherwise
 	t.Setenv("YOLO_SETUP", "host-self") // describe answers for the selected setup, as apply does
 	for _, rooted := range []bool{false, true} {
-		home := hostPackagesFixture(t, `{"confinement":"host","packages":["ripgrep"]}`)
+		home := hostPackagesFixture(t, `{"packages":["ripgrep"]}`)
 		target := ""
 		if rooted {
 			target = resolveProfileRoot(t, home)

@@ -94,7 +94,7 @@ func nativeCompatibilityShell(compatibility *packdecl.VersionCompatibility, cont
 	valid, self := nativeCompatibilityMode(context)
 	if !valid {
 		return "COMPATIBILITY_CONTEXT_VALID=0\nCOMPATIBILITY_ENABLED=0\n" +
-			"COMPATIBILITY_MESSAGE=" + shquote.Quote("yolo: ERROR: invalid macos-user launch context; refusing this program because its native compatibility rule cannot be evaluated. Use a valid macos_user_mode (self or account), or use a container backend (podman or container).") + "\n" + nativeCompatibilityFunctions
+			"COMPATIBILITY_MESSAGE=" + shquote.Quote("yolo: ERROR: invalid macos-user launch context; refusing this program because its native compatibility rule cannot be evaluated. This is yolo's to fix; run it as the yolo account: yolo --setup seatbelt-yolo-account -- <cmd>, or in a container: yolo --setup podman-self -- <cmd> (apple-container-self for Apple Container).") + "\n" + nativeCompatibilityFunctions
 	}
 	if !self {
 		return "COMPATIBILITY_CONTEXT_VALID=1\nCOMPATIBILITY_ENABLED=0\n" + nativeCompatibilityFunctions

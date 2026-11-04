@@ -653,8 +653,8 @@ func removeMacosUserWorkspace(t *testing.T, dir string) {
 	}
 }
 
-// macosUserSetupFor is the Seatbelt setup a fixture's `macos_user_mode` names: seatbelt-self for
-// "self" (run as you), seatbelt-yolo-account for "account" and for no mode, the account default.
+// macosUserSetupFor is the Seatbelt setup a fixture's mode names: seatbelt-self for "self" (run
+// as you), seatbelt-yolo-account for "account" and for no mode, the account default.
 func macosUserSetupFor(mode string) string {
 	if mode == "self" {
 		return "seatbelt-self"
@@ -670,9 +670,9 @@ func macosUserSetupFor(mode string) string {
 // any machine that exports the variable — including a CI step that set it for a different
 // job in the same workflow. Saying it per launch is the spelling that cannot be shadowed.
 //
-// It outranks the `macos_user_mode` key too, which no longer chooses who a launch runs as (the
-// setup's run_as does), so a cell that loops over the modes passes its mode here
-// (runMacosUserAs) or every cell runs as the yolo account.
+// A fixture's user config names the same setup (`setup`, macosUserSetupFor), but YOLO_SETUP
+// outranks it, so a cell that loops over the modes passes its mode here (runMacosUserAs) or every
+// cell runs as the yolo account.
 func macosUserRunEnv(mode string) runOption {
 	return withEnv("YOLO_SETUP=" + macosUserSetupFor(mode))
 }
@@ -689,7 +689,7 @@ func runMacosUser(t *testing.T, dir, script string, opts ...runOption) result {
 }
 
 // runMacosUserAs is runMacosUser in mode's setup (macosUserRunEnv): the launch a cell looping over
-// `macos_user_mode` makes, whose later YOLO_SETUP replaces runMacosUser's account default.
+// the modes makes, whose later YOLO_SETUP replaces runMacosUser's account default.
 func runMacosUserAs(t *testing.T, mode, dir, script string, opts ...runOption) result {
 	t.Helper()
 	return runMacosUser(t, dir, script, append(opts, macosUserRunEnv(mode))...)

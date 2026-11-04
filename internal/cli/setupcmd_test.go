@@ -255,7 +255,8 @@ func TestSetupIsRoutedByTheFrontDoor(t *testing.T) {
 // TestSetupListMakesTheLaunchsSelection: `yolo setup list` selects through config.SelectSetup,
 // the call a launch makes, so it weighs the removed inputs as a launch does — a removed
 // YOLO_RUNTIME on the host is refused naming YOLO_SETUP, and a workspace's removed `runtime` key
-// still chooses its built-in, named as the source. Fails if setupList selects any other way.
+// chooses nothing (named-setups-plan.md slice 5): the selection is this OS's default, named as
+// the source. Fails if setupList selects any other way.
 func TestSetupListMakesTheLaunchsSelection(t *testing.T) {
 	setupsHome(t)
 	t.Setenv(config.RemovedRuntimeEnv, "podman")
@@ -264,10 +265,11 @@ func TestSetupListMakesTheLaunchsSelection(t *testing.T) {
 		t.Fatalf("a removed YOLO_RUNTIME: rc=%d err=%q, want 1 and the refusal naming YOLO_SETUP", rc, errw)
 	}
 	t.Setenv(config.RemovedRuntimeEnv, "")
-	writeFile(t, "yolo-jail.jsonc", `{"runtime": "container"}`)
+	writeFile(t, "yolo-jail.jsonc", `{"runtime": "podman"}`)
 	setupGOOS = "darwin"
 	rc, out, errw := runSetupCapture("list")
-	if rc != 0 || !strings.Contains(out, `Selected: apple-container-self, from runtime = "container" in your config.`) {
+	if rc != 0 || !strings.Contains(out, "Selected: apple-container-self") || !strings.Contains(out, "this OS's default") ||
+		strings.Contains(out, "runtime = ") {
 		t.Fatalf("a workspace `runtime` key: rc=%d err=%q out=\n%s", rc, errw, out)
 	}
 }

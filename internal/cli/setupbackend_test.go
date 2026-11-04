@@ -48,10 +48,12 @@ func TestListingVerbsFollowTheSelectedSetup(t *testing.T) {
 	if got := detectListingRuntime(repo); got != "container" {
 		t.Errorf("a removed YOLO_RUNTIME=container lists %q, want what it meant (container)", got)
 	}
-	// The removed `runtime` key, until slice 5, chooses its built-in when nothing else selects.
+	// The removed `runtime` key chooses nothing (named-setups-plan.md slice 5): a workspace's
+	// `runtime: container` lists what the selection does without it.
 	t.Setenv("YOLO_RUNTIME", "")
+	want := detectListingRuntime(repo)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"runtime": "container"}`)
-	if got := detectListingRuntime(repo); got != "container" {
-		t.Errorf("a workspace `runtime: container` lists %q, want container", got)
+	if got := detectListingRuntime(repo); got != want {
+		t.Errorf("a workspace `runtime: container` lists %q, want the selection's own %q", got, want)
 	}
 }

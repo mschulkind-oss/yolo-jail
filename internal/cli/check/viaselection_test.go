@@ -173,10 +173,9 @@ func TestSectionPacksPredictsTheViaRouteRefusalOnMacosUser(t *testing.T) {
 	packsFixture(t, `{"packs": ["file://`+pack+`"],
 	  "profiles": {"pv": {"provider": "upstream", "via": "wire-bridge"}}}`)
 	merged := useProfiles("someagent", "pv")
-	merged.Set("runtime", "macos-user")
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r, merged)
+	optionsOnRuntime("macos-user").sectionPacks(r, merged)
 	out := buf.String()
 	if r.failed == 0 || !strings.Contains(out, "declares no chat-completions or Responses endpoint") {
 		t.Fatalf("check must predict the via-route refusal on macos-user, which serves the via:\n%s", out)
@@ -197,10 +196,9 @@ func TestSectionPacksPredictsAViaWithNoEffectOnMacosUser(t *testing.T) {
 	packsFixture(t, `{"packs": ["file://`+pack+`"],
 	  "profiles": {"pv": {"provider": "upstream", "via": "wire-bridge"}}}`)
 	merged := useProfiles("someagent", "pv")
-	merged.Set("runtime", "macos-user")
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{}).sectionPacks(r, merged)
+	optionsOnRuntime("macos-user").sectionPacks(r, merged)
 	out := buf.String()
 	if r.failed != 0 || r.warned == 0 || !strings.Contains(out,
 		`profile "pv" (active for someagent): its via — someagent's config does not point it at the "wire-bridge" service`) {

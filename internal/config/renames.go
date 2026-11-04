@@ -89,7 +89,20 @@ var configRenames = []RenameDescriptor{
 	{OldPath: "loopholes.*.enabled", Replacements: []string{"off"}, Scope: SchemaScopeFieldSensitive, Transform: RenameValueRewrite},
 	{OldPath: "loopholes.*.settings.*", Replacements: []string{"allow.*.*"}, Scope: SchemaScopeFieldSensitive, Transform: RenameValueRewrite},
 	{OldPath: "journal", Replacements: []string{"packs"}, Scope: SchemaScopeUserOnly, Transform: RenameUnrepresentable, TOMLRefusal: "Journal access is now supplied by the journal pack. Select that pack in user-scope packs; the old mode is not a TOML alias."},
+	// The keys named setups replace (docs/design/named-setups.md §10). `yolo config migrate`
+	// writes `setup` for a user-file `runtime` naming one setup and drops `confinement = "jail"`,
+	// the default (configmigrate's lowerRemovedSetupKey); every other value is not converted,
+	// and its reason is config.RemovedSetupKeyMessage.
+	{OldPath: "runtime", Replacements: []string{"setup"}, Scope: SchemaScopeBoth, Transform: RenameValueRewrite, TOMLRefusal: removedSetupKeyTOMLRefusal},
+	{OldPath: "confinement", Replacements: []string{"setup"}, Scope: SchemaScopeBoth, Transform: RenameValueRewrite, TOMLRefusal: removedSetupKeyTOMLRefusal},
+	{OldPath: "macos_user_mode", Replacements: []string{"setup"}, Scope: SchemaScopeUserOnly, Transform: RenameUnrepresentable, TOMLRefusal: "The account is now chosen by setup: `seatbelt-self` (as you) or `seatbelt-yolo-account` (as the yolo account), as in `yolo config set setup seatbelt-self --user`. Then remove this line."},
 }
+
+// removedSetupKeyTOMLRefusal is the TOML refusal of `runtime` and `confinement`, which a TOML
+// file never held before setups replaced them.
+const removedSetupKeyTOMLRefusal = "Where an agent runs is now a setup, chosen in your user config: " +
+	"`yolo config set setup podman-self --user` for a container (`apple-container-self` on a Mac; " +
+	"`yolo setup list` names the rest), or leave it unset for this OS's default. Then remove this line."
 
 // RenameDescriptors returns a detached copy of the migration metadata in declaration order.
 func RenameDescriptors() []RenameDescriptor {

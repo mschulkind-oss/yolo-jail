@@ -185,7 +185,7 @@ func runCheckOverConfigWith(t *testing.T, cfgJSON string, isMacOS bool, prep fun
 // and it fails if the call leaves Check() (the host run stops reporting at all), which is
 // what the direct-call tests above cannot do.
 func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
-	run := func(t *testing.T, confinement string, macOS bool) (string, string) {
+	run := func(t *testing.T, setupName string, macOS bool) (string, string) {
 		t.Helper()
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -193,12 +193,11 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 		if err := os.Symlink(store, rootLinkIn(t, home)); err != nil {
 			t.Fatal(err)
 		}
-		cfg := `{"confinement": "` + confinement + `", "packages": ["ripgrep"]}`
-		return runCheckOverConfig(t, cfg, macOS), store
+		return runCheckOverConfigWith(t, `{"packages": ["ripgrep"]}`, macOS, nil, withSetup(setupName)), store
 	}
 
 	t.Run("jail: the image is the closure, so nothing is reported", func(t *testing.T) {
-		got, store := run(t, "jail", false)
+		got, store := run(t, "podman-self", false)
 		if strings.Contains(got, "Declared packages") {
 			t.Errorf("a jail notch composes PrimBakedImage — the profile section must not "+
 				"run, its tools come from the image:\n%s", got)
@@ -210,7 +209,7 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 	})
 
 	t.Run("guest: no image, so the profile is the answer", func(t *testing.T) {
-		got, store := run(t, "guest", true)
+		got, store := run(t, "seatbelt-yolo-account", true)
 		if !strings.Contains(got, "Declared packages") {
 			t.Errorf("a notch with no baked image must get the packages report:\n%s", got)
 		}
@@ -220,7 +219,7 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 	})
 
 	t.Run("host: inert by design, even with a resolved root", func(t *testing.T) {
-		got, store := run(t, "host", false)
+		got, store := run(t, "host-self", false)
 		if !strings.Contains(got, "Declared packages") || !strings.Contains(got, "inert at the `host` notch by design") {
 			t.Errorf("declared packages at the host must be reported inert by design (OQ-NX8):\n%s", got)
 		}
@@ -261,18 +260,17 @@ func assertHostPackagesInertByDesign(t *testing.T, got string) {
 // info line, not the WARN a Linux guest's real gap gets.
 func TestPackageProfileReportsHostPackagesAsInertByDesign(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no GC root anywhere under it
-	got := runCheckOverConfig(t, `{"confinement": "host", "packages": ["ripgrep"]}`, false)
+	got := runCheckOverConfigWith(t, `{"packages": ["ripgrep"]}`, false, nil, withSetup("host-self"))
 	assertHostPackagesInertByDesign(t, got)
 }
 
-// OQ-NX8 Q2: the host report reads the NOTCH, not the runtime. With `runtime: "macos-user"`
-// the mechanism materializes a profile for its own launches, which used to send this config
-// down the root-probing path ([WARN] "A run materializes it"); a host launch is not one of
-// those launches, so the line is the same inert-by-design one.
+// OQ-NX8 Q2: the host report reads the NOTCH, not the runtime. On a Mac the macos-user
+// mechanism materializes a profile for its own launches, which used to send this config down the
+// root-probing path ([WARN] "A run materializes it"); a host launch is not one of those
+// launches, so the line is the same inert-by-design one.
 func TestPackageProfileReportsHostPackagesAsInertWhateverTheRuntime(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no GC root: the old path WARNed here
-	got := runCheckOverConfig(t,
-		`{"confinement": "host", "runtime": "macos-user", "packages": ["ripgrep"]}`, true)
+	got := runCheckOverConfigWith(t, `{"packages": ["ripgrep"]}`, true, nil, withSetup("host-self"))
 	assertHostPackagesInertByDesign(t, got)
 }
 
@@ -311,11 +309,13 @@ func TestPackageProfileWarnsThatNothingMaterializesTheDeclaredPackages(t *testin
 // not a [PASS] for work that did not happen.
 func TestPackageProfileSaysNothingWhenNothingIsDeclaredAndNothingProvisions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	for _, cfg := range []string{`{"confinement": "host"}`, `{"confinement": "guest"}`,
-		`{"confinement": "host", "runtime": "macos-user"}`} {
-		got := runCheckOverConfig(t, cfg, strings.Contains(cfg, "macos-user"))
+	for _, tc := range []struct {
+		setup string
+		mac   bool
+	}{{"host-self", false}, {"seatbelt-yolo-account", false}, {"host-self", true}} {
+		got := runCheckOverConfigWith(t, `{}`, tc.mac, nil, withSetup(tc.setup))
 		if strings.Contains(got, "Declared packages") {
-			t.Errorf("%s: no packages and no provisioner is not a finding:\n%s", cfg, got)
+			t.Errorf("%s (mac %v): no packages and no provisioner is not a finding:\n%s", tc.setup, tc.mac, got)
 		}
 	}
 }
@@ -332,7 +332,7 @@ func TestPackageProfileStillReportsTheMacosUserFloorProfile(t *testing.T) {
 	if err := os.Symlink(store, rootLinkIn(t, home)); err != nil {
 		t.Fatal(err)
 	}
-	got := runCheckOverConfig(t, `{"runtime": "macos-user"}`, true)
+	got := runCheckOverConfigWith(t, `{}`, true, nil, withSetup("seatbelt-yolo-account"))
 	if !strings.Contains(got, "Declared packages") || !strings.Contains(got, store) {
 		t.Errorf("the macos-user notch materializes a floor profile with or without "+
 			"`packages:` — it must still be reported:\n%s", got)

@@ -14,9 +14,9 @@ import (
 
 // hostApplySpellings are every way to ask for a host apply, each as the front door hands it on.
 var hostApplySpellings = []struct {
-	name string
-	cfg  string // extra user-config keys
-	run  func(stdout, stderr *bytes.Buffer) int
+	name     string
+	setupEnv string // YOLO_SETUP for the spelling, "" for none
+	run      func(stdout, stderr *bytes.Buffer) int
 	// revert is whether the spelling asks for the withdrawal (--revert), whose next step on the
 	// host is the withdrawal too, never the render.
 	revert bool
@@ -47,13 +47,13 @@ var hostApplySpellings = []struct {
 	{"apply --setup host-self --revert --assert", "", func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--setup", "host-self", "--revert", "--assert"}, o, e, false, nil)
 	}, true},
-	{"apply under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
+	{"apply under YOLO_SETUP=host-self", "host-self", func(o, e *bytes.Buffer) int {
 		return applyMain(nil, o, e, false, nil)
 	}, false},
-	{"apply --assert under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
+	{"apply --assert under YOLO_SETUP=host-self", "host-self", func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--assert"}, o, e, false, strings.NewReader("y\n"))
 	}, false},
-	{"apply --revert under confinement: host", `, "confinement": "host"`, func(o, e *bytes.Buffer) int {
+	{"apply --revert under YOLO_SETUP=host-self", "host-self", func(o, e *bytes.Buffer) int {
 		return applyMain([]string{"--revert"}, o, e, false, nil)
 	}, true},
 }
@@ -61,7 +61,8 @@ var hostApplySpellings = []struct {
 func TestAHostApplyRefusesInsideAJail(t *testing.T) {
 	for _, sp := range hostApplySpellings {
 		t.Run(sp.name, func(t *testing.T) {
-			home := hostComputedHome(t, `{"packs": ["pi"], "host_management": "own"`+sp.cfg+`}`)
+			home := hostComputedHome(t, `{"packs": ["pi"], "host_management": "own"}`)
+			t.Setenv("YOLO_SETUP", sp.setupEnv)
 			t.Setenv("YOLO_VERSION", "0.0.0-in-a-jail")
 			before := hashTree(t, home)
 			var out, errw bytes.Buffer

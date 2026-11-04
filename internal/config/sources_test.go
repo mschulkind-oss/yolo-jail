@@ -96,7 +96,7 @@ func TestRefusalNamesTheWorkspaceOverTheUserConfig(t *testing.T) {
 	ws := t.TempDir()
 	write(t, filepath.Join(ws, WorkspaceConfigName), `{"runtime": "docker"}`)
 	errs, _ := locatedErrors(t, ws)
-	got := line(t, errs, "config.runtime: 'docker'")
+	got := line(t, errs, "config.runtime: REMOVED")
 	if !strings.HasPrefix(got, filepath.Join(ws, WorkspaceConfigName)+":1:13: ") ||
 		!strings.Contains(got, "also written at ~/.config/yolo-jail/config.jsonc:1:13") {
 		t.Errorf("want the workspace file first and the user config after it:\n%s", got)

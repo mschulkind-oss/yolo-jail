@@ -23,14 +23,13 @@ func (o *Options) checkGOOS() string {
 
 // checkSetup is the setup a launch from this workspace would select, through the launch's own
 // call (config.SelectSetup; named-setups-plan.md slice 4a), so check reports the selection a
-// launch makes: a removed YOLO_RUNTIME on the host is the selection's refusal, a YOLO_SETUP
-// naming a Seatbelt setup on Linux is the setup's (setup.Buildable), and a removed config key
-// still chooses its built-in when nothing names a setup.
-func (o *Options) checkSetup(merged *jsonx.OrderedMap) (config.SetupChoice, error) {
+// launch makes: a removed YOLO_RUNTIME on the host is the selection's refusal, and a YOLO_SETUP
+// naming a Seatbelt setup on Linux is the setup's (setup.Buildable). The merged config is not
+// read: a removed config key that once chose a backend is a Merged Configuration refusal.
+func (o *Options) checkSetup(_ *jsonx.OrderedMap) (config.SetupChoice, error) {
 	return config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
 		Getenv:    o.Getenv,
-		Merged:    merged,
 		GOOS:      o.checkGOOS(),
 		InSession: o.Getenv("YOLO_VERSION") != "",
 	})
@@ -322,25 +321,6 @@ func getFirst(m *jsonx.OrderedMap, key string) any {
 	v, _ := m.Get(key)
 	return v
 }
-
-// configRuntime is the runtime the config NAMES, before any platform question: its `runtime`
-// key, else the guest notch's backend (config.GuestRuntime) when `confinement` is "guest", else
-// "". The guest half is platform-blind on purpose: its one reader that acts on a native answer,
-// sectionContainerRuntime's early read, gates that answer on o.IsMacOS itself, so a macOS guest
-// skips the container probes it does not need (env-manager plan EMP-D1) and a Linux guest is
-// probed as before. Readers that need the platform answered use configuredRuntimeName.
-func configRuntime(merged *jsonx.OrderedMap) string {
-	if rt := runtimeKey(merged); rt != "" {
-		return rt
-	}
-	if config.ResolveConfinement(merged) == config.ConfinementGuest {
-		return config.GuestRuntime
-	}
-	return ""
-}
-
-// runtimeKey is the config's `runtime` value alone (config.RuntimeKey).
-func runtimeKey(merged *jsonx.OrderedMap) string { return config.RuntimeKey(merged) }
 
 func asString(v any) string {
 	s, ok := v.(string)

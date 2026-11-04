@@ -22,16 +22,13 @@ func validatorMarkerPack(t *testing.T, root, name, marker string) string {
 // A BACKEND THAT DOES NOT START THE SERVICE DOES NOT RUN ITS VALIDATOR. Apple Container starts
 // only the OpenAI credential service (run.HostServiceAdmittedOn), so `yolo check` for a workspace
 // configured for it reports any other service as not started there, instead of grading settings
-// no launch reads. The runtime comes from the workspace config, the path check itself resolves.
+// no launch reads. The runtime comes from the selected setup, the path check itself resolves.
 func TestCheckLoopholesSkipsTheValidatorOfAServiceTheBackendDoesNotStart(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	marker := filepath.Join(t.TempDir(), "validator-ran")
 	validatorMarkerPack(t, moduleRoot, "acme-validator", marker)
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{"runtime":"container"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r, out := runCheckLoopholesOn(t, workspace, true)
+	r, out := runCheckLoopholesAt(t, workspace, true, "apple-container-self")
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("check ran the validator of a service Apple Container does not start: %v\n%s", err, out)
 	}
@@ -46,10 +43,7 @@ func TestCheckLoopholesRunsTheValidatorOnABackendThatStartsTheService(t *testing
 	marker := filepath.Join(t.TempDir(), "validator-ran")
 	validatorMarkerPack(t, moduleRoot, "acme-validator", marker)
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{"runtime":"podman"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, out := runCheckLoopholes(t, workspace)
+	_, out := runCheckLoopholesAt(t, workspace, false, "podman-self")
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "x" {
 		t.Fatalf("validator did not run on podman: data=%q err=%v\n%s", data, err, out)
 	}
