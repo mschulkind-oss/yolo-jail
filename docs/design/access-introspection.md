@@ -3,7 +3,7 @@ title: "Ask before you act: the jail reads its own access, and a dry run answers
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Complete the implementation plan against the current tree, including explicit pre-execution request filing"
+next: "Build task 1 (shared GitHub decision and inert evaluate path), then file-before-act and git independently of pack-broker rulings"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
@@ -42,8 +42,8 @@ verb, one new request kind per broker, one host-written snapshot file per launch
 
 **Reads with:** [`pack-brokers.md`](pack-brokers.md) (the extension point that lets a pack's broker
 answer the same two requests; its decision function is this doc's),
-[`access-introspection-plan.md`](access-introspection-plan.md) (the implementation plan's seed;
-not a hand-off), [`jail-history.md`](jail-history.md) (what already happened; this doc is what
+[`access-introspection-plan.md`](access-introspection-plan.md) (the completed build hand-off),
+[`jail-history.md`](jail-history.md) (what already happened; this doc is what
 holds now and what would happen next).
 
 ---
