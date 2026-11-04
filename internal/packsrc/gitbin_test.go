@@ -4,7 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fakeDarwinGit makes storeGit's host darwin, with PATH resolving git to lookPath and xcrun naming
@@ -98,5 +102,38 @@ func TestStoreGitAsksXcrunPerDeveloperDir(t *testing.T) {
 	}
 	if *asked != 2 {
 		t.Errorf("xcrun asked %d times for two developer directories, want 2", *asked)
+	}
+}
+
+// AN XCRUN THAT HANGS DOES NOT HOLD THE STORE: past xcrunBound the question is killed, the store
+// runs plain "git", and nothing is kept, so the next store asks again.
+func TestAHungXcrunLeavesGitAndIsAskedAgain(t *testing.T) {
+	fakeDarwinGit(t, appleGitShim, "", nil)
+	xcrunFindGit = askXcrunForGit // the real question, of the fake xcrun below
+	bound := xcrunBound
+	xcrunBound = 200 * time.Millisecond
+	t.Cleanup(func() { xcrunBound = bound })
+	dir := t.TempDir()
+	asked := filepath.Join(dir, "asked")
+	script := "#!/bin/sh\necho x >> " + shquote.Quote(asked) + "\nexec sleep 30\n"
+	if err := os.WriteFile(filepath.Join(dir, "xcrun"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DEVELOPER_DIR", "")
+	for i := 1; i <= 2; i++ {
+		start := time.Now()
+		if got := (&Store{}).git(); got != "git" {
+			t.Errorf("store %d: Store.git() = %q under a hung xcrun, want git", i, got)
+		}
+		if took := time.Since(start); took > 5*time.Second {
+			t.Errorf("store %d: a hung xcrun held Store.git() for %s, bound %s", i, took, xcrunBound)
+		}
+		if _, kept := shimTargets.Load(""); kept {
+			t.Errorf("store %d: a hung xcrun's non-answer was kept", i)
+		}
+	}
+	if data, _ := os.ReadFile(asked); strings.Count(string(data), "x") != 2 {
+		t.Errorf("xcrun asked %q times, want twice (once a store)", data)
 	}
 }
