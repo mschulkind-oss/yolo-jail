@@ -36,7 +36,7 @@ import (
 //	#3  TestAppleContainerReadsHostGrantArrives            the materialized reads-host copy is composed into the surface
 //	#4  TestAppleContainerHostFilesSourceArrivesUnmasked   a host_files FILE source arrives with its bytes, not an empty 0o444 file
 //	#8  TestAppleContainerBriefingAdvertisesNoLoopholes    the briefing that ARRIVES lists no loophole the backend never started
-//	#10 TestAppleContainerExplicitHostModeKeepsPublishedPorts  an explicit `network.mode: host` still publishes `network.ports`
+//	#10 TestAppleContainerExplicitHostModeIsRefused        an explicit `network.mode: host` is refused, and the default publishes `network.ports`
 //
 // plus OQ-WP5 (docs/reference/workspace-path-mirroring.md), TestAppleContainerBindsADeepDestination.
 //
@@ -462,76 +462,86 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// backend-parity.md §5 #10: an explicit `network.mode: host` still publishes ports.
+// backend-parity.md §5 #10: an explicit `network.mode: host` is refused; ports publish.
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
-// TestAppleContainerExplicitHostModeKeepsPublishedPorts asks fix #10 (`8ab03d2e`) on the
-// hardware, as it stands today.
+// TestAppleContainerExplicitHostModeIsRefused asks fix #10 (`8ab03d2e`) on the hardware, as it
+// stands after named-setups.md SU-R5 (plan slice 4b).
 //
-// Apple Container takes no `--net` selector, so an explicit `network.mode: "host"` does nothing
-// there. It used to make things WORSE than the default — both port keys were gated on bridge
-// mode, so asking for host mode silently dropped every published port. Today the launch warns,
-// and the port gate reads the APPLIED mode (assemble.go), which is bridged on this backend
-// either way. The hardware question is the traffic, not the argv: does a server in the jail,
-// published with `network.ports`, answer the Mac under an explicit host mode just as it does
-// under the default?
-//
-// So it is asked twice, default first as the CONTROL. If the default cannot publish either, the
-// record says `-p` does not work on this backend at all, which is a different and larger finding
-// than #10. When the Mac-side evidence carries macOS Local Network privacy's signature, the
-// evidence says so first, with the fix (acLocalNetworkFinding), and a verdict in which neither
-// mode reached the Mac defers to it (acPortVerdict): that answer is about the runner's
-// permissions, not about yolo.
-func TestAppleContainerExplicitHostModeKeepsPublishedPorts(t *testing.T) {
+// Apple Container takes no `--net` selector, so an explicit `network.mode: "host"` cannot be
+// honored there. It used to make things WORSE than the default — both port keys were gated on
+// bridge mode, so asking for host mode silently dropped every published port — and then it
+// warned and launched bridged. Now the launch REFUSES it before anything starts, naming a setup
+// that can share the host's network and the unset: that half is a hard assertion, since a
+// refusal needs no Mac network to observe. The other half is still the experiment: does a server
+// in the jail, published with `network.ports`, answer the Mac under the default? When the
+// Mac-side evidence carries macOS Local Network privacy's signature, the evidence says so first,
+// with the fix (acLocalNetworkFinding), and a verdict in which the port did not reach the Mac
+// defers to it (acPortVerdict): that answer is about the runner's permissions, not about yolo.
+func TestAppleContainerExplicitHostModeIsRefused(t *testing.T) {
 	const fix = "#10"
 	requireAppleContainer(t)
 	requireJail(t)
+	acExplicitHostModeRefused(t)
 	bridge := acPublishedPortProbe(t, fix, "bridge")
-	host := acPublishedPortProbe(t, fix, "host")
-	evidence := acPortEvidence(bridge, host)
-	holds, finding := acPortVerdict(bridge, host)
+	evidence := acPortEvidence(bridge)
+	holds, finding := acPortVerdict(bridge)
 	acParityRecord(t, fix, holds, finding, evidence)
 }
 
-// acPortVerdict is the #10 verdict: whether the fix holds, and the finding line printed with it.
-//
-// When neither mode reached the Mac and the Mac-side evidence carries Local Network privacy's
-// signature, the finding defers to the DIAGNOSIS the evidence opens with (acLocalNetworkFinding)
-// instead of calling `-p` itself the finding: that run measured the runner's permissions, and a
-// verdict line blaming `-p` above a diagnosis blaming the runner would contradict it. The verdict
-// is DOES NOT HOLD either way, since no port was reached.
-func acPortVerdict(bridge, host acPortResult) (bool, string) {
-	switch {
-	case bridge.reached() && host.reached():
-		return true, "a published port answers the Mac under an explicit " +
-			"`network.mode: host` exactly as under the default"
-	case bridge.reached():
-		return false, "the default publishes the port and an explicit host mode " +
-			"does NOT — the defect #10 fixed is back: asking for host mode drops `network.ports`"
-	case host.reached():
-		return false, "an explicit host mode published the port and the default " +
-			"did NOT — the reverse of the defect, and a different bug"
-	case acLocalNetworkFinding(bridge, host) != "":
-		return false, "NEITHER mode published the port, and the Mac-side evidence carries macOS " +
-			"Local Network privacy's signature, so this run says nothing yet about #10 or about " +
-			"`-p` on this backend — see the DIAGNOSIS the evidence opens with"
-	default:
-		return false, "NEITHER mode published the port: `network.ports` does not " +
-			"reach the Mac on this backend at all, so #10's claim is vacuous here and the larger " +
-			"finding is `-p` itself"
+// acExplicitHostModeRefused launches a workspace whose config writes `network.mode = "host"` under
+// apple-container-self and fails the test unless the launch refused before the command ran, with
+// the refusal's sentence and both of its steps.
+func acExplicitHostModeRefused(t *testing.T) {
+	t.Helper()
+	dir := writeProject(t, `{"network": {"mode": "host"}}`)
+	res := runYolo(t, dir, "echo YOLO-AC-HOST-MODE-RAN", appleContainerEnv())
+	out := res.combined()
+	if res.rc == 0 || strings.Contains(res.stdout, "YOLO-AC-HOST-MODE-RAN") {
+		t.Fatalf("an explicit host mode launched on Apple Container (rc=%d); it must be refused:\n%s",
+			res.rc, lastLines(out, 40))
+	}
+	for _, want := range []string{
+		`network.mode = "host": setup apple-container-self always runs bridged`,
+		"yolo --setup podman-self -- claude",
+		"yolo config unset network.mode --project",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the host-mode refusal lacks %q:\n%s", want, lastLines(out, 40))
+		}
 	}
 }
 
-// acPortEvidence is the #10 verdict's evidence: both launches' dial timelines, the family
-// finding, and each side's diagnostics — headed by the Local Network privacy diagnosis when the
-// Mac-side evidence carries its signature.
-func acPortEvidence(bridge, host acPortResult) string {
-	evidence := fmt.Sprintf("default (bridge): %s\nexplicit host:    %s\nhost-mode warning printed: %v\n"+
-		"address family: %s\n\nin-jail evidence, default (bridge):\n%s\n\nin-jail evidence, explicit host:\n%s"+
-		"\n\nMac-side evidence, default (bridge):\n%s\n\nMac-side evidence, explicit host:\n%s",
-		bridge.describe(), host.describe(), host.warned, acPortFamilyFinding(bridge, host),
-		bridge.jailDiag, host.jailDiag, bridge.mac, host.mac)
-	if lnp := acLocalNetworkFinding(bridge, host); lnp != "" {
+// acPortVerdict is the #10 verdict on the default launch: whether a published port reached the
+// Mac, and the finding line printed with it.
+//
+// When it did not and the Mac-side evidence carries Local Network privacy's signature, the
+// finding defers to the DIAGNOSIS the evidence opens with (acLocalNetworkFinding) instead of
+// calling `-p` itself the finding: that run measured the runner's permissions, and a verdict line
+// blaming `-p` above a diagnosis blaming the runner would contradict it. The verdict is DOES NOT
+// HOLD either way, since no port was reached.
+func acPortVerdict(bridge acPortResult) (bool, string) {
+	switch {
+	case bridge.reached():
+		return true, "a published port answers the Mac under the default network mode"
+	case acLocalNetworkFinding(bridge) != "":
+		return false, "the port was NOT published, and the Mac-side evidence carries macOS " +
+			"Local Network privacy's signature, so this run says nothing yet about `-p` on this " +
+			"backend — see the DIAGNOSIS the evidence opens with"
+	default:
+		return false, "the port was NOT published: `network.ports` does not reach the Mac on " +
+			"this backend under the default, and the finding is `-p` itself"
+	}
+}
+
+// acPortEvidence is the #10 verdict's evidence: the launch's dial timelines, the family finding,
+// and each side's diagnostics — headed by the Local Network privacy diagnosis when the Mac-side
+// evidence carries its signature.
+func acPortEvidence(bridge acPortResult) string {
+	evidence := fmt.Sprintf("default (bridge): %s\naddress family: %s\n\nin-jail evidence:\n%s"+
+		"\n\nMac-side evidence:\n%s",
+		bridge.describe(), acPortFamilyFinding(bridge), bridge.jailDiag, bridge.mac)
+	if lnp := acLocalNetworkFinding(bridge); lnp != "" {
 		evidence = lnp + "\n\n" + evidence
 	}
 	return evidence
@@ -550,7 +560,6 @@ func acPortEvidence(bridge, host acPortResult) string {
 type acPortResult struct {
 	mode     string
 	rc       int
-	warned   bool
 	v4       acListenerResult // socat TCP-LISTEN: IPv4 only
 	dual     acListenerResult // socat TCP6-LISTEN,ipv6only=0: IPv4 and IPv6
 	jailDiag string
@@ -801,7 +810,6 @@ func acPublishedPortProbe(t *testing.T, fix, mode string) acPortResult {
 	res := runYolo(t, dir, acPublishedPortScript(v4Token, dualToken, marker), appleContainerEnv())
 	halt()
 	r.rc = res.rc
-	r.warned = strings.Contains(res.combined(), `network.mode "host" is NOT honored on Apple Container`)
 	r.jailDiag = strings.TrimSpace(section(res.stdout, "=== DIAG ===", "=== END DIAG ==="))
 	if res.rc != 0 || !strings.Contains(res.stdout, "LISTENING") {
 		t.Fatalf("%s %s: the %s-mode launch did not start its servers (rc=%d), so nothing was "+

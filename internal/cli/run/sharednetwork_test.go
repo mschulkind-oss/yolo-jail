@@ -97,7 +97,7 @@ func TestTheLaunchLineStatesASharedNetwork(t *testing.T) {
 	}{
 		{"podman --network host", "podman", "host", false, true},
 		{"nested podman", "podman", "bridge", true, true},
-		{"macos-user", "macos-user", "bridge", false, true},
+		{"macos-user", "macos-user", "", false, true}, // a typed bridge is refused there (networkrefusal.go)
 		{"podman bridge", "podman", "bridge", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,16 +116,17 @@ func TestASealedBuildJailsLaunchDoesNotStateASharedNetwork(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		rt     string
+		net    string // the typed --network; none on macos-user, which refuses a typed bridge
 		nested bool
 	}{
-		{"macos-user", "macos-user", false},
-		{"nested podman", "podman", true},
+		{"macos-user", "macos-user", "", false},
+		{"nested podman", "podman", "bridge", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sharedNetworkLaunchSealed(t, tc.rt, "bridge", tc.nested, true); strings.Contains(got, sharedNetworkMark) {
+			if got := sharedNetworkLaunchSealed(t, tc.rt, tc.net, tc.nested, true); strings.Contains(got, sharedNetworkMark) {
 				t.Errorf("a sealed build jail's launch states the shared network:\n%s", got)
 			}
-			if got := sharedNetworkLaunch(t, tc.rt, "bridge", tc.nested); !strings.Contains(got, sharedNetworkMark) {
+			if got := sharedNetworkLaunch(t, tc.rt, tc.net, tc.nested); !strings.Contains(got, sharedNetworkMark) {
 				t.Errorf("the user's own launch no longer states the shared network:\n%s", got)
 			}
 		})

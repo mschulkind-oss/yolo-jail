@@ -240,6 +240,11 @@ func Run(opts Options) (rc int) {
 	if rc, refused := o.resolveSetup(cfg); refused {
 		return rc
 	}
+	// THE NETWORK REFUSAL (networkrefusal.go): a network mode this setup's technology cannot
+	// hold, from the setup alone, before its runtime is asked anything.
+	if o.refuseNetworkMode(cfg) {
+		return 1
+	}
 	rt, ok := o.resolveRuntime(cfg)
 	if !ok {
 		if o.readinessInterrupted() {

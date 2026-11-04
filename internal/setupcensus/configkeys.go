@@ -359,9 +359,9 @@ var configKeys = map[string]Entry{
 		PodmanMac: honored("the same, a namespace inside the Podman Machine VM"),
 		AppleContainer: honoredBy("Apple Container gives each container its own vmnet network " +
 			"and takes no selector (appliedNetMode answers bridge for it, backendcaps.go)"),
-		MacosUser: dropped("sharesLauncherNetns answers true for paths.NativeRuntimes, so " +
-			"appliedNetMode is host and the sandbox shares the Mac's stack; the briefing says " +
-			"so and no launch line names a written bridge — not a ruled decline"),
+		MacosUser: refused("NetworkRefusal (networkrefusal.go) refuses a written or typed bridge " +
+			"before the launch builds anything, naming --setup podman-self and the unset (SU-R5); " +
+			"an unwritten mode is the Mac's own network, which the briefing states"),
 		Guide: []string{"`network.mode: \"bridge\"`"},
 		Aspects: map[string]Entry{
 			"mode_host": {
@@ -369,8 +369,9 @@ var configKeys = map[string]Entry{
 					"with it as the user's own declaration"),
 				PodmanMac: dropped("--net=host is applied to the VM's namespace, not the Mac's, " +
 					"and nothing says so (guide's hostmac); not a ruled decline"),
-				AppleContainer: warned("assembleRunCmd prints 'network.mode \"host\" is NOT " +
-					"honored on Apple Container' (appliedNetMode answers bridge)"),
+				AppleContainer: refused("NetworkRefusal (networkrefusal.go) refuses a written or " +
+					"typed host before the launch builds anything, naming --setup podman-self and " +
+					"the unset (SU-R5)"),
 				MacosUser: honoredBy("the sandbox already shares the launcher's stack " +
 					"(sharesLauncherNetns), which is what host mode asks for"),
 				Guide: []string{"`network.mode: \"host\"`"},

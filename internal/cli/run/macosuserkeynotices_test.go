@@ -184,7 +184,8 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 // what makes a notice safe here where a `network.mode` refusal would not be, since
 // resolveNetMode gives every launch that names no mode "bridge".
 func TestMacosUserSaysNothingAboutPortKeysNobodyDeclared(t *testing.T) {
-	for _, cfg := range []string{`{}`, `{"network": {"mode": "bridge"}}`, `{"network": {"ports": []}}`} {
+	// A written bridge is refused on a Seatbelt setup (networkrefusal.go), so the mode row is host.
+	for _, cfg := range []string{`{}`, `{"network": {"mode": "host"}}`, `{"network": {"ports": []}}`} {
 		got := macosUserNoticeRun(t, cfg)
 		for _, unwanted := range []string{"`network.ports`", "`network.forward_host_ports`", "relay"} {
 			if strings.Contains(got, unwanted) {

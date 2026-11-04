@@ -12,21 +12,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// EXPLICIT host networking on Apple Container is worse than the default and used to say
-// nothing: no --net is emitted, AND both port keys are bridge-gated, so asking for host
-// mode also drops every published port. Warned now.
-func TestAppleContainerWarnsOnExplicitHostNetworking(t *testing.T) {
-	if got := acNetOutput(t, "host"); !strings.Contains(got, "network.mode") {
-		t.Errorf("no warning for explicit host networking on Apple Container:\n%s", got)
-	}
-}
-
-// bridge is GENUINELY honored on that backend (-p ungated, forward_host_ports via
-// --publish-socket, its own vmnet netns), so warning on it would be noise on every
-// launch. This is the half that keeps the warning worth reading.
-func TestAppleContainerSilentOnBridge(t *testing.T) {
-	if got := acNetOutput(t, "bridge"); strings.Contains(got, "network.mode") {
-		t.Errorf("bridge is honored on Apple Container and must not warn:\n%s", got)
+// EXPLICIT host networking on Apple Container used to warn here, in the assembler, and launch
+// bridged anyway. It is refused before assembly now (networkrefusal.go, named-setups.md SU-R5;
+// TestANetworkModeTheSetupCannotHoldRefusesTheLaunch), so the assembler says nothing about either
+// mode: bridge is GENUINELY honored on that backend (-p ungated, forward_host_ports via
+// --publish-socket, its own vmnet netns), and a host never reaches it.
+func TestAppleContainerAssemblerSaysNothingAboutTheMode(t *testing.T) {
+	for _, mode := range []string{"bridge", "host"} {
+		if got := acNetOutput(t, mode); strings.Contains(got, "network.mode") || strings.Contains(got, "NOT honored") {
+			t.Errorf("the assembler printed a network-mode line for %s on Apple Container:\n%s", mode, got)
+		}
 	}
 }
 

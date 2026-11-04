@@ -117,16 +117,6 @@ func TestAssembleNoticesGoToStderr(t *testing.T) {
 			pathExists: func(p string) bool { return p == "/run/.containerenv" },
 			wantNotice: "Warning: nested launch",
 		},
-		{
-			name: "explicit host mode on Apple Container",
-			rt:   "container",
-			cfg: newConfig(
-				"agents", []any{"claude"},
-				"security", sec,
-				"network", netSec("mode", "host"),
-			),
-			wantNotice: "NOT honored on Apple Container",
-		},
 	}
 
 	for _, tc := range cases {

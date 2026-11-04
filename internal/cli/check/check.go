@@ -732,6 +732,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	// Every message above that names a config key, located (the preset/null ones already are).
 	errors = located.merged.Annotate(errors)
 	warnings = located.merged.Annotate(warnings)
+	// The launch's network refusal (section_network.go), located by its own call.
+	errors = append(errors, o.networkFindings(merged, located.merged)...)
 
 	// Each names the file its key was written in and can echo a key or a value, and the agent
 	// writes a workspace's includes and names them, so every rune a terminal acts on is escaped

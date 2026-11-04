@@ -95,6 +95,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D10"></a>SUP-D10 | **A running container under the legacy name refuses the launch.** Before adoption, `probeJailPresence(runtime.FromWorkspace(ws))` (`stop.go:399`) finds a container from before this change; the launch refuses naming `podman stop <name>` (or `container stop`) and that `yolo stop` from the previous yolo also stops it. | The legacy container holds `.yolo/home` bind-mounted; adopting that home under it, or running a second agent beside it on the same bind, is a mess with no next step. One probe is cheap. |
 | <a id="SUP-D11"></a>SUP-D11 | **Verbs without `--setup` act on every setup directory under `<ws>/.yolo/setups/`:** `yolo stop` stops each, naming each; `yolo ps` lists each; `yolo config drift` and `yolo describe` with none use the *selected* setup (the same resolution as a launch) and say which. | [§6](named-setups.md#6-config-by-example): *"`yolo stop` stops both, naming each; `yolo stop --setup seatbelt-self` stops one."* Drift and describe answer for one jail, and the selection already names one. |
 | <a id="SUP-D12"></a>SUP-D12 | **Inside a launched session, a `YOLO_SETUP` naming a setup this machine cannot run is ignored, with one disclosure line.** When `YOLO_VERSION` is set and no `--setup` is typed, a `YOLO_SETUP` that names no setup this machine defines, or one `setup.Buildable` refuses for this OS, is dropped; the selection goes on to the user config's `setup`, then the OS default, and the line names the value, why it cannot run, and the setup chosen instead. So a nested launch inside an Apple Container jail runs `podman-self`. Outside a session it stays a refusal. | Ruled in the slice 4a review: the inherited value describes the outer session, not a choice made for this machine. The launch exports `YOLO_SETUP` into every session it starts ([SUP-D4](#SUP-D4)), so without this rule every nested launch inside an `apple-container-self` jail would refuse. |
+| <a id="SUP-D13"></a>SUP-D13 | **The network refusal judges what was written or typed, never the resolved default, and names the step for where it came from.** One function, `run.NetworkRefusal(setup, cfg, flag, sources)` (`internal/cli/run/networkrefusal.go`), serves the launch (called in `Run` right after `resolveSetup`, rc 1) and `yolo check` (`internal/cli/check/section_network.go`, one Merged Configuration error). A typed `--network` is judged in place of the key, as it wins over the key, and its refusal (`setup.NetworkFlagProblem`) names the flag and "launch without `--network <mode>`", not an `unset`. A written key's refusal leads with the `file:line:col` the config's source record names and ends in `yolo config unset network.mode` with the scope of that file: `--user` for a user-scope file, `--local` for `yolo-jail.local.*`, else `--project` (`setup.NetworkModeProblemIn`). Under the seal nothing is judged, since a build is always bridged. | The plan's literal `setup.NetworkModeProblem(o.Setup, o.resolveNetMode(cfg))` would refuse every Seatbelt launch: `resolveNetMode` answers `bridge` for an unwritten mode, and [SU-R5](named-setups.md#SU-R5) refuses only a written one. `network.mode` is readable in both scopes, so a fixed `--project` would name a step that does not remove a user-scope key. |
 
 ## Map
 
@@ -652,6 +653,11 @@ are below).
 - **Fences:** nothing under `internal/config`; the briefing's network paragraph (slice 9).
 - **Commit:** `feat(setups): refuse a network.mode the setup's technology cannot hold`
 - **Report:** the red and green runs; the rewritten census cells.
+- **Built as:** [SUP-D13](#SUP-D13). The integration test is renamed
+  `TestAppleContainerExplicitHostModeIsRefused`: its host half is now a hard refusal assertion,
+  and its port experiment runs the default launch only. Left for later: `yolo host` (host-self)
+  reads no `network.mode`, so a written `bridge` there is refused by `yolo check` and not by the
+  host launch; slice 8's host launch path is where that call belongs.
 
 ### Slice 5 — refuse the removed spellings and delete the notch code (after 4a)
 
@@ -1033,6 +1039,16 @@ into the slice's report (see the macos-user plan's
   [§6](named-setups.md#6-config-by-example) sentence ending in `yolo --setup podman-self -- claude`
   and `yolo config unset network.mode --project`; with `mode = "bridge"`, `yolo --setup
   seatbelt-self -- true` refuses with its sentence; `yolo check` in each prints the same line once.
+  Then, on the same Mac: with no `mode` written, `yolo --setup apple-container-self --network host
+  -- true` refuses naming `--network host` and "launch without --network host" (no `unset`);
+  `yolo --setup seatbelt-self -- true` and `yolo --setup apple-container-self -- true` both run;
+  with `mode = "host"` written in `~/.config/yolo-jail/config.toml` instead, the Apple Container
+  refusal ends in `yolo config unset network.mode --user`; and `YOLO_TEST_APPLE_CONTAINER=1 go
+  test -count=1 -timeout 0 -run '^TestAppleContainerExplicitHostModeIsRefused$' ./integration`
+  fails nowhere in its refusal half (the port half is an experiment, so either answer passes).
+  This witness is the only evidence for slice 4b's behavior on a real network stack: a nested
+  jail is blind to network-mode changes (AGENTS.md, Testing), and on Linux every Mac setup is
+  refused by the setup gate before the network refusal runs.
 - **W-SU3 (slice 8, gates its landing):** `yolo host --setup host-yolo-account -- bash` in a
   workspace under `/Users/Shared/yolo/b`. Expected: the first yolo line names
   `host-yolo-account (no walls, as the yolo account; shares the Mac's network)`; `id -un` prints

@@ -334,6 +334,28 @@ func TestNetworkModeExactTexts(t *testing.T) {
 	}
 }
 
+// TestNetworkRefusalsNameTheirScopeAndTheFlag: the unset step names the scope that holds the key,
+// and a typed --network names the flag and dropping it, never a config key (SUP-D13).
+func TestNetworkRefusalsNameTheirScopeAndTheFlag(t *testing.T) {
+	ac := setup.MustBuiltIn("apple-container-self")
+	if got := setup.NetworkModeProblemIn(ac, "host", "--user"); !strings.HasSuffix(got, "yolo config unset network.mode --user") {
+		t.Errorf("user scope: %s", got)
+	}
+	want := "--network host: setup apple-container-self always runs bridged, so the jail cannot share this machine's network." +
+		" For this launch, a setup that can:\n    yolo --setup podman-self -- claude\n" +
+		"Or, if the project does not need it:  launch without --network host"
+	if got := setup.NetworkFlagProblem(ac, "host"); got != want {
+		t.Errorf("flag:\n%s\nwant\n%s", got, want)
+	}
+	for _, c := range []struct{ name, mode string }{
+		{"podman-self", "host"}, {"podman-self", "bridge"}, {"apple-container-self", "bridge"}, {"seatbelt-self", "host"},
+	} {
+		if p := setup.NetworkFlagProblem(setup.MustBuiltIn(c.name), c.mode); p != "" {
+			t.Errorf("%s --network %s: %s", c.name, c.mode, p)
+		}
+	}
+}
+
 func TestNameGrammar(t *testing.T) {
 	for _, bad := range []string{"Fast", "a.b", "-x", "x-", strings.Repeat("a", 33), "", "a_b", "a b"} {
 		if setup.ValidName(bad) {
