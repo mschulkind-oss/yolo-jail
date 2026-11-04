@@ -19,7 +19,7 @@ import (
 // PASSWORDLESS START AND STOP (docs/design/macos-user-privilege-lifecycle-plan.md, task 9;
 // the ruling is OQ-MP10 in docs/design/macos-user-privilege-lifecycle.md). Every root sudo on
 // the launch and exit path became a host-user act in the host-owned staging root, and every
-// crossing into the sandbox account goes through the one rule `yolo macos-setup` installs,
+// crossing into the sandbox account goes through the one rule `yolo yolo-account create` installs,
 // `<host user> ALL=(_yolojail) NOPASSWD: /usr/bin/env`. These tests are the measurement of that
 // on a Mac: the first proves a launch starts, runs and tears down with root sudo out of reach;
 // the second proves the staging root stays the host user's alone even to the sandbox account
@@ -48,7 +48,7 @@ func TestMacosUserPasswordlessStartAndExit(t *testing.T) {
 		t.Fatal("root sudo still needs no password, so this run proves nothing; narrow it first")
 	}
 	if !runQuiet(10*time.Second, macosuser.RunAsGrantProbeArgv()...) {
-		t.Fatal("the G2 probe fails: run `yolo macos-setup` before this test")
+		t.Fatal("the G2 probe fails: run `yolo yolo-account create` before this test")
 	}
 	ws := macosUserWorkspace(t, `{}`)
 	before, _ := os.ReadDir(filepath.Join(macosuser.StateDir(), "env"))

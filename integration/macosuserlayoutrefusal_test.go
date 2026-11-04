@@ -76,8 +76,8 @@ func TestMacosUserLayoutRefusesAnOccupiedSidecarMirror(t *testing.T) {
 	// created after the fixture ran it. Without the grant the sandbox cannot write in the
 	// home at all, and the launch would fail with a permission error several steps before
 	// the refusal under test — a green-looking red for the wrong reason.
-	if r := runCommand(t, ws, []string{"macos-fix-permissions", ws}); r.rc != 0 {
-		t.Fatalf("`yolo macos-fix-permissions %s` failed (rc %d) after the fixture created "+
+	if r := runCommand(t, ws, []string{"yolo-account", "share", ws}); r.rc != 0 {
+		t.Fatalf("`yolo yolo-account share %s` failed (rc %d) after the fixture created "+
 			"the occupied path:\n%s", ws, r.rc, r.combined())
 	}
 

@@ -121,7 +121,7 @@ func TestAMacHostReadsTheTreeBuildItMakes(t *testing.T) {
 }
 
 // A MAC THAT CANNOT RUN THE ACT YET builds no tree, and says why with the step: before
-// `yolo macos-setup`, the render and the launch name that setup rather than a jail. Drop
+// `yolo yolo-account create`, the render and the launch name that setup rather than a jail. Drop
 // hostTreeBuildBlocked from hostTreesBuild and the Mac advances a build that cannot run.
 func TestAMacThatCannotRunTheBuildActNamesTheSetup(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
@@ -135,8 +135,8 @@ func TestAMacThatCannotRunTheBuildActNamesTheSetup(t *testing.T) {
 	if len(fx.builds) != 0 {
 		t.Error("a Mac that cannot run the act built a tree")
 	}
-	step := "the sandbox account " + macosuser.SandboxUser + ", which a patched extension's build on a Mac runs " +
-		"as, does not exist — run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch builds it"
+	step := "the yolo account " + macosuser.SandboxUser + ", which a patched extension's build on a Mac runs " +
+		"as, does not exist — run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch builds it"
 	if out := fx.renderTrees(t, true); !strings.Contains(out, step) || strings.Contains(out, "YOLO_RUNTIME=podman") {
 		t.Errorf("the Mac's render does not name the setup:\n%s", out)
 	}

@@ -179,7 +179,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 //     on a Mac runs. Its blockers are the act's own refusals, asked first (macBuildBlocked).
 //
 // Either way the build is filed under this host's platform (floorForkBuild), which is the one its act
-// makes: a container jail's on Linux, and on a Mac darwin, as the sandbox account runs it there.
+// makes: a container jail's on Linux, and on a Mac darwin, as the yolo account runs it there.
 func wireFloorBuild(f *hostfloor.Floor, store *capture.Store, out io.Writer) {
 	f.ResolveBuild = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
 		b := floorForkBuild(p, commit)
@@ -215,7 +215,7 @@ func wireFloorBuild(f *hostfloor.Floor, store *capture.Store, out io.Writer) {
 //     its report on the launch's stderr too, in a capture jail when a runtime is selected or on PATH,
 //     and on a machine with neither, on this host under Landlock (HP-D18), which chooseCaptureArm
 //     decides inside the act. Its blockers ask the same question the act will, of the AMBIENT PATH.
-//   - A MAC: the macos-user capture act (HP-D2) — Seatbelt, a throwaway HOME, the sandbox account —
+//   - A MAC: the macos-user capture act (HP-D2) — Seatbelt, a throwaway HOME, the yolo account —
 //     with that runtime handed to the act for this one run (hostFloorCaptureActOn), never through the
 //     environment the agent is exec'd with afterwards. A container capture here would record a Linux
 //     entry, which no floor on a Mac can run. Its blockers are the act's own refusals, asked first.
@@ -244,7 +244,7 @@ func wireFloorCapture(f *hostfloor.Floor, out io.Writer) {
 	f.CaptureHow = func() string {
 		switch {
 		case f.GOOS == "darwin":
-			return "the macos-user sandbox account runs its installer once, in a throwaway home under " +
+			return "the yolo account runs its installer once, in a throwaway home under " +
 				"Seatbelt"
 		case chooseCaptureArm(f.GOOS, "").host():
 			return "with no container runtime here, its installer runs once on this host, confined by " +
@@ -277,7 +277,7 @@ type macCaptureProbes struct {
 	Which             func(name string) bool
 	SandboxUserExists func() bool
 	// Privilege is the first of the one-time setup's privilege facts — the staging root and the
-	// run-as rule the act crosses into the sandbox account through — that does not hold, or false
+	// run-as rule the act crosses into the yolo account through — that does not hold, or false
 	// when all do (macosuser.PrivilegeUnmet). The rule asks for no password, so whether this launch
 	// has a terminal is no part of it.
 	Privilege func() (macosuser.Precondition, bool)
@@ -324,7 +324,7 @@ func macBuildBlocked(p macCaptureProbes, does string) string {
 }
 
 // macActWords is how a refusal of macActBlocked names its act: the act ("a capture"), what Seatbelt
-// confines in it, and the clause the sandbox account's sentence runs on.
+// confines in it, and the clause the yolo account's sentence runs on.
 type macActWords struct{ act, confines, runsAs string }
 
 // macActBlocked is the macos-user capture act's refusals, asked before it runs, in w's words.
@@ -337,15 +337,15 @@ func macActBlocked(p macCaptureProbes, w macActWords, does string) string {
 		return "sandbox-exec (Apple Seatbelt), which confines " + w.confines + " on a Mac, is not on PATH " +
 			"— put /usr/bin back on it, and the next `yolo host` launch " + does
 	case p.Mode != macosuser.ModeSelf && !p.SandboxUserExists():
-		return "the sandbox account " + macosuser.SandboxUser + ", which " + w.runsAs + ", does not exist " +
-			"— run the one-time setup, `yolo macos-setup`, and the next `yolo host` launch " + does
+		return "the yolo account " + macosuser.SandboxUser + ", which " + w.runsAs + ", does not exist " +
+			"— run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch " + does
 	}
 	if c, unmet := p.Privilege(); unmet && p.Mode == macosuser.ModeSelf {
 		return w.act + " on a Mac runs as you (macos_user_mode \"self\") and stages its binary in the staging " +
 			"directory, which is not usable (" + c.Unmet("") + ") — " + clauseOf(c.Fix("")) + ", and the next " +
 			"`yolo host` launch " + does
 	} else if unmet {
-		return w.act + " on a Mac runs as the sandbox account through the one-time setup's sudo rule, which " +
+		return w.act + " on a Mac runs as the yolo account through the one-time setup's sudo rule, which " +
 			"this Mac does not have (" + c.Unmet("") + ") — " + clauseOf(c.Fix("")) + ", and the next `yolo host` " +
 			"launch " + does
 	}

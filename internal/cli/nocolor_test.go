@@ -87,14 +87,14 @@ var noColorEntryPoints = []struct {
 		captureFixtureHome(t, captureFixtureInstaller)
 		withFakeCaptureJail(t, fakeCaptureJail(t, new(run.Options), probetoolEntries()))
 	}, run: func() int { return runCapture([]string{"capture", "probetool"}) }},
-	{name: "macos-setup", darwinOnlyEffect: true,
-		run: func() int { return runMacosSetup([]string{"macos-setup"}) }},
-	{name: "macos-teardown", darwinOnlyEffect: true,
-		run: func() int { return runMacosTeardown([]string{"macos-teardown"}) }},
-	{name: "macos-unshare", darwinOnlyEffect: true,
-		run: func() int { return runMacosUnshare([]string{"macos-unshare"}) }},
-	{name: "macos-fix-permissions", darwinOnlyEffect: true,
-		run: func() int { return runMacosFixPermissions([]string{"macos-fix-permissions"}) }},
+	{name: "yolo-account create", darwinOnlyEffect: true,
+		run: func() int { return runYoloAccount([]string{"yolo-account", "create"}) }},
+	{name: "yolo-account remove", darwinOnlyEffect: true,
+		run: func() int { return runYoloAccount([]string{"yolo-account", "remove"}) }},
+	{name: "yolo-account unshare", darwinOnlyEffect: true,
+		run: func() int { return runYoloAccount([]string{"yolo-account", "unshare"}) }},
+	{name: "yolo-account share", darwinOnlyEffect: true,
+		run: func() int { return runYoloAccount([]string{"yolo-account", "share"}) }},
 }
 
 // TestEveryCommandHonorsNoColor drives each entry point's OWN color decision with

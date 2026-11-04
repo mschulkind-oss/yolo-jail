@@ -19,7 +19,7 @@ import (
 )
 
 // sharedUsersDir is where a fixture workspace has to live, and it is NOT
-// macosuser.SharedRootDefault(): that is /Users/Shared/yolo, which `yolo macos-setup`
+// macosuser.SharedRootDefault(): that is /Users/Shared/yolo, which `yolo yolo-account create`
 // creates and this suite deliberately does not require. /Users/Shared is stock macOS,
 // mode 1777, present before anything of ours has run — which is what lets the policy
 // assertions report on a Mac where the account setup has not happened or has failed.
@@ -49,7 +49,7 @@ const sharedUsersDir = "/Users/Shared"
 // _yolojail account, a shared root and the run-as rule, because it launches. This
 // needs `sandbox-exec` and a writable /Users/Shared, because it loads a profile and
 // runs /bin/sh under it. So the policy suite still reports on a Mac where
-// `yolo macos-setup` has not run or has failed — which is the one machine state where
+// `yolo yolo-account create` has not run or has failed — which is the one machine state where
 // knowing whether the profile still denies things is most useful.
 //
 // WHAT THIS SUITE IS NOT. It is not a launch: nothing here runs `yolo`, builds a nix
@@ -1251,7 +1251,7 @@ func seatbeltFixture(t *testing.T) seatbeltFixtures {
 
 // seatbeltStagingFixture makes a directory under the real staging root holding a seed file, and
 // removes it at cleanup. The profile's read allow names macosuser.StagingRoot() itself, so a temp
-// root elsewhere would measure nothing. When the root is absent (`yolo macos-setup` has not run)
+// root elsewhere would measure nothing. When the root is absent (`yolo yolo-account create` has not run)
 // it is made here, owned by this user at mode 0755 as setup makes it, and removed again at
 // cleanup if it is then empty. When it cannot be used, it returns "" and why, and only the two
 // staging_root cases fail, naming that reason as a broken control; the rest of the suite runs.

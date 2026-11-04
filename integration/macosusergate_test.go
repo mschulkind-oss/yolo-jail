@@ -23,7 +23,7 @@ import (
 //
 // THE PROBLEM. The macos-user backend is darwin-only and privilege-bearing: every
 // crossing into the sandbox account is `/usr/bin/sudo -n --user=_yolojail /usr/bin/env …`
-// (macosuser.RunAsSandboxArgv), through the one rule `yolo macos-setup` installs, and
+// (macosuser.RunAsSandboxArgv), through the one rule `yolo yolo-account create` installs, and
 // confines what follows with `sandbox-exec`. No machine that develops this repo can
 // run one — the development jail is Linux and has no `sudo` at all — so every test
 // written against that backend SKIPS everywhere it is normally run. `go test` reports
@@ -183,7 +183,7 @@ func macosUserVacuityVerdict(declared bool, outcomes []macosUserOutcome) (report
 		// PER GATE, AND THIS IS THE HALF THAT ARRIVED WITH THE SECOND ONE. The policy
 		// suite's gate is much cheaper to satisfy than the launch gate — sandbox-exec and
 		// a writable /Users/Shared, against an account plus the run-as rule — so a
-		// machine where `yolo macos-setup` silently did not take would run the policy
+		// machine where `yolo yolo-account create` silently did not take would run the policy
 		// tests, skip every launch test, and report GREEN on the count above. That is
 		// exactly the outcome this file exists to prevent, reintroduced by adding tests to
 		// it. A gate with outcomes and no executions fails the run and says which.
@@ -261,7 +261,7 @@ type macosUserHost struct {
 	goos        string
 	euid        int
 	sandboxExec bool // sandbox-exec resolvable (built into macOS)
-	sandboxUser bool // the _yolojail account exists (`yolo macos-setup` ran)
+	sandboxUser bool // the _yolojail account exists (`yolo yolo-account create` ran)
 	sharedRoot  bool // the shared root exists, so a granted workspace can be made in it
 	runAsQuiet  bool // the G2 probe (macosuser.RunAsGrantProbeArgv) succeeds: sudo runs commands as _yolojail with no password
 }
@@ -282,18 +282,18 @@ func (h macosUserHost) gate() (reason string, ok bool) {
 	case !h.sandboxExec:
 		return "sandbox-exec is not on PATH, so nothing can be confined", false
 	case !h.sandboxUser:
-		return fmt.Sprintf("the %s account does not exist — run `yolo macos-setup` "+
+		return fmt.Sprintf("the %s account does not exist — run `yolo yolo-account create` "+
 			"(one-time, interactive, creates a hidden system account). This suite will "+
 			"not create it for you: a test run must not silently add an account to "+
 			"somebody's Mac", macosuser.SandboxUser), false
 	case !h.sharedRoot:
 		return fmt.Sprintf("%s does not exist, so there is nowhere to put a workspace "+
-			"the sandbox user can write — run `yolo macos-setup`",
+			"the sandbox user can write — run `yolo yolo-account create`",
 			macosuser.SharedRootDefault()), false
 	case !h.runAsQuiet:
 		return fmt.Sprintf("`%s` fails, so sudo cannot run commands as %s without a "+
 			"password, and every macos-user launch crosses into the sandbox that way. Run "+
-			"the one-time setup as your normal admin user, not with sudo: `yolo macos-setup` "+
+			"the one-time setup as your normal admin user, not with sudo: `yolo yolo-account create` "+
 			"installs the one rule (%s) that runs commands as %s, never as root, and asks "+
 			"for your password once", strings.Join(macosuser.RunAsGrantProbeArgv(), " "),
 			macosuser.SandboxUser, macosuser.SudoersFile, macosuser.SandboxUser), false
@@ -335,7 +335,7 @@ func runQuiet(d time.Duration, argv ...string) bool {
 	return cmd.Run() == nil
 }
 
-// THE SUITE TAKES NO PRIVILEGE `yolo macos-setup` DOES NOT INSTALL (OQ-DM1 in
+// THE SUITE TAKES NO PRIVILEGE `yolo yolo-account create` DOES NOT INSTALL (OQ-DM1 in
 // docs/design/macos-user-suite-on-a-developer-mac.md, ruled 2026-10-18). Setup installs one sudo
 // rule, `<host user> ALL=(_yolojail) NOPASSWD: /usr/bin/env`, and a launch needs nothing else, so
 // a test needs nothing else either: every step that acts as another account is a crossing through
@@ -450,7 +450,7 @@ func unifiedLogSkipReason(detail string) string {
 	if strings.Contains(detail, "Operation not permitted") || strings.Contains(detail, "Could not open local log store") {
 		return fmt.Sprintf("this Mac's unified log store is closed to you: `log show` as the invoking "+
 			"user was refused (%s). That is the Mac's own policy (a managed Mac closes the store to a "+
-			"non-admin user), not a privilege `yolo macos-setup` grants, so this test's control cannot "+
+			"non-admin user), not a privilege `yolo yolo-account create` grants, so this test's control cannot "+
 			"run here; the macos-user CI job, whose user is an admin, runs it", detail)
 	}
 	return fmt.Sprintf("`log show` as the invoking user read no entry from the unified log store "+
@@ -562,12 +562,12 @@ func macosUserTestNameOK(name string) bool {
 //
 // IT CANNOT BE t.TempDir(), which is the whole reason this exists. On darwin that is
 // under /var/folders, which carries no grant for the _yolojail group — so the launch
-// refuses before doing anything, naming `yolo macos-fix-permissions`. A workspace has
-// to live under the shared root, where macos-setup left an INHERITABLE ACE that every
+// refuses before doing anything, naming `yolo yolo-account share`. A workspace has
+// to live under the shared root, where yolo-account create left an INHERITABLE ACE that every
 // newly-created directory picks up (internal/macosuser/macosuser.go documents what
 // does and does not inherit: everything that creates an object does; `mv` does not).
 //
-// The explicit `macos-fix-permissions` afterwards is belt and braces, not ceremony: it
+// The explicit `yolo-account share` afterwards is belt and braces, not ceremony: it
 // is idempotent, needs no sudo (it applies the grant as the invoking user), and makes
 // the fixture self-sufficient on a Mac whose shared root predates the current account
 // — where an inherited-looking ACE can name a UUID that resolves to nobody.
@@ -604,8 +604,8 @@ func macosUserWorkspace(t *testing.T, configJSON string) string {
 	if err := os.WriteFile(filepath.Join(resolved, "yolo-jail.jsonc"), []byte(configJSON), 0o644); err != nil {
 		t.Fatalf("writing yolo-jail.jsonc: %v", err)
 	}
-	if r := runCommand(t, resolved, []string{"macos-fix-permissions", resolved}); r.rc != 0 {
-		t.Fatalf("`yolo macos-fix-permissions %s` failed (rc %d) — the sandbox user "+
+	if r := runCommand(t, resolved, []string{"yolo-account", "share", resolved}); r.rc != 0 {
+		t.Fatalf("`yolo yolo-account share %s` failed (rc %d) — the sandbox user "+
 			"cannot write here, so the launch would refuse:\n%s", resolved, r.rc, r.combined())
 	}
 	return resolved
@@ -750,9 +750,9 @@ func TestMacosUserGateRefusesEveryHostThatCannotRunOne(t *testing.T) {
 		{"linux", func() macosUserHost { h := macosUserRunnableHost(); h.goos = "linux"; return h }(), "darwin-only"},
 		{"root", func() macosUserHost { h := macosUserRunnableHost(); h.euid = 0; return h }(), "root"},
 		{"no-sandbox-exec", func() macosUserHost { h := macosUserRunnableHost(); h.sandboxExec = false; return h }(), "sandbox-exec"},
-		{"no-account", func() macosUserHost { h := macosUserRunnableHost(); h.sandboxUser = false; return h }(), "yolo macos-setup"},
-		{"no-shared-root", func() macosUserHost { h := macosUserRunnableHost(); h.sharedRoot = false; return h }(), "yolo macos-setup"},
-		{"run-as-would-prompt", func() macosUserHost { h := macosUserRunnableHost(); h.runAsQuiet = false; return h }(), "yolo macos-setup"},
+		{"no-account", func() macosUserHost { h := macosUserRunnableHost(); h.sandboxUser = false; return h }(), "yolo yolo-account create"},
+		{"no-shared-root", func() macosUserHost { h := macosUserRunnableHost(); h.sharedRoot = false; return h }(), "yolo yolo-account create"},
+		{"run-as-would-prompt", func() macosUserHost { h := macosUserRunnableHost(); h.runAsQuiet = false; return h }(), "yolo yolo-account create"},
 		{"run-as-would-prompt-names-the-probe", func() macosUserHost { h := macosUserRunnableHost(); h.runAsQuiet = false; return h }(), "/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/true"},
 	}
 	for _, tc := range cases {

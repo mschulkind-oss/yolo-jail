@@ -106,7 +106,7 @@ func TestMacosUserCacheRelocationIsWrittenThereAndStaysYours(t *testing.T) {
 }
 
 // A POPULATED TARGET WITHOUT THE SANDBOX'S ACCESS REFUSES, before the nix build, naming
-// `yolo macos-fix-permissions` for it: yolo grants only a target it makes, and a folder of yours
+// `yolo yolo-account share` for it: yolo grants only a target it makes, and a folder of yours
 // that already holds files is never changed behind your back.
 func TestMacosUserCacheRelocationRefusesAPopulatedTargetWithoutAccess(t *testing.T) {
 	requireMacosUser(t)
@@ -128,7 +128,7 @@ func TestMacosUserCacheRelocationRefusesAPopulatedTargetWithoutAccess(t *testing
 			target, r.rc, out)
 	}
 	for _, want := range []string{"cannot use every cache_relocations target",
-		macosuser.SandboxUser + " cannot write it", "yolo macos-fix-permissions " + target} {
+		macosuser.SandboxUser + " cannot write it", "yolo yolo-account share " + target} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}

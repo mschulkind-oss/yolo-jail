@@ -159,7 +159,7 @@ func ProvisionHomeCommands() [][]string {
 	}
 }
 
-// DeleteUserCommands returns the dscl argv to tear the sandbox account down.
+// DeleteUserCommands returns the dscl argv to tear the yolo account down.
 // Home removal is last so a failed earlier step doesn't orphan a live session's
 // files.
 func DeleteUserCommands(hostUser string) [][]string {
@@ -200,7 +200,7 @@ func SharedRootProvisionCommands(root, hostUser string) [][]string {
 
 // THE STAGING ROOT IS THE HOST USER'S, AND WHAT IT HOLDS IS SEALED rather than root-owned
 // (PL-2 in docs/design/macos-user-privilege-lifecycle-plan.md, under OQ-MP10 in
-// docs/design/macos-user-privilege-lifecycle.md). The sandbox account is neither the owner nor
+// docs/design/macos-user-privilege-lifecycle.md). The yolo account is neither the owner nor
 // in the owner's group, so a 0755 category directory and a 0555/0444 per-launch tree give it
 // read and search and nothing else, exactly as root ownership did. A category directory stays
 // 0755 rather than sealed, because sealing it would need a `u+w` flip on every launch, which
@@ -263,7 +263,7 @@ func StagedYoloPath(sd string) string {
 }
 
 // StageBinaryCommands returns the argv, run as the host user, that stage the running yolo binary
-// (selfExe = os.Executable()) into the host-owned staging root for the sandbox user
+// (selfExe = os.Executable()) into the host-owned staging root for the yolo account
 // to self-exec as `yolo internal darwin-bootstrap` (J2 §3). This replaces the
 // old StageEntrypointCommands, which copied the deleted src/entrypoint tree.
 //
@@ -501,7 +501,7 @@ func StagedCtxParent(sd string) string {
 }
 
 // StageCtxCommands returns the argv, run as the host user, that copy the host-side composed
-// context tree into the staging root, readable by the sandbox account and by no other, for the
+// context tree into the staging root, readable by the yolo account and by no other, for the
 // bootstrap to compose from.
 // Empty hostCtxTree → no commands, so a launch with no host bytes to carry pays nothing.
 //
@@ -538,7 +538,7 @@ func StageCtxCommands(hostCtxTree, cname, sd string) [][]string {
 		// THE TREE'S ROOT IS CLOSED TO EVERY OTHER ACCOUNT, and opened to the sandbox's alone:
 		// these are the user's own files — a directory host_files entry is routinely ~/.aws — and
 		// a sealed tree alone leaves every one readable by any local account. The contents stay
-		// readable, which the sandbox account's reads need; nobody else can reach them past a 0500
+		// readable, which the yolo account's reads need; nobody else can reach them past a 0500
 		// root (the owner needs no write on a sealed tree). A `user:` ACE for sandboxFileReadAce's
 		// reason (SandboxGroup holds the host user),
 		// with list as well as search, because the bootstrap and the agent walk this directory
@@ -604,7 +604,7 @@ type CaptureEntry struct {
 // delegation, reversible. It adds no rule to the session Seatbelt profile beyond the staging
 // root's read allow, which every staged tree needs (StagedCtxRoot). It is the pattern
 // StagedPackRoot and StageCtxCommands follow, for their reason: the user's store sits under the
-// invoking user's home, which the sandbox account may not traverse.
+// invoking user's home, which the yolo account may not traverse.
 //
 // A COPY, never a link of the store's inodes. An entry a macos-user capture made holds files the
 // sandbox account owns, under the shared-group ACL its staging tree carries (CaptureStagingCommands),
@@ -926,15 +926,15 @@ func (l homeLayout) isUsersRoot(dir string) bool {
 
 // inHomeWorkspaceRefusal is the launch's refusal for a workspace under `home`, and it names
 // the fix that reaches the path: moving the project to neutral ground. It must NEVER send the
-// reader to `yolo macos-fix-permissions` for the path it refuses — that command declines
+// reader to `yolo yolo-account share` for the path it refuses — that command declines
 // every path under a home — which is the loop this message exists to end. The fix-permissions
 // line it does print names the DESTINATION, because `mv` is the one way into the shared root
 // that inherits no sharing (WorkspaceGrantedScript's measurement).
 func inHomeWorkspaceRefusal(workspace, home string) string {
 	msg := "[bold red]" + workspace + " is inside the home folder " + home + ".[/bold red]\n" +
-		"The sandbox user cannot work inside a user's home, so this backend runs only on " +
+		"The yolo account cannot work inside a user's home, so this backend runs only on " +
 		"neutral ground,\nand no command can share a home folder with it: " +
-		"`yolo macos-fix-permissions` refuses one on purpose.\n\n"
+		"`yolo yolo-account share` refuses one on purpose.\n\n"
 	if workspace == home {
 		// Never suggest moving a whole home.
 		return msg + "Run `yolo` from a project folder under [bold]" + SharedRootDefault() +
@@ -951,14 +951,14 @@ func inHomeWorkspaceRefusal(workspace, home string) string {
 	}
 	return msg + "  [bold]" + plan.share + "[/bold]\n" +
 		"[dim]A copy or a fresh clone made there (cp -R, git clone) is shared as it is " +
-		"created, so\nit needs no `macos-fix-permissions`.[/dim]"
+		"created, so\nit needs no `yolo-account share`.[/dim]"
 }
 
 // inHomeWorkspaceFix is the same remedy in plain text, for `yolo check`'s note.
 func inHomeWorkspaceFix(workspace, home string) string {
 	if workspace == home {
 		return "Run `yolo` from a project folder under " + SharedRootDefault() + " instead; " +
-			"`yolo macos-fix-permissions` refuses every path in a home."
+			"`yolo yolo-account share` refuses every path in a home."
 	}
 	plan := inHomeMovePlan(workspace)
 	msg := "Move it under " + sharedRootForMove() + ", then share it; a move carries no " +
@@ -1008,7 +1008,7 @@ func inHomeMovePlan(workspace string) inHomeMove {
 	plan := func(to, note string, first ...string) inHomeMove {
 		return inHomeMove{
 			steps: append(first, "mv "+shquote.Quote(workspace)+" "+shquote.Quote(to)),
-			share: "yolo macos-fix-permissions " + shquote.Quote(to),
+			share: "yolo yolo-account share " + shquote.Quote(to),
 			note:  note,
 		}
 	}
@@ -1081,7 +1081,7 @@ func WorkspaceACLAces(group string) map[string]string {
 }
 
 // FixPermissionsScript returns the find-based bash script that (re)applies the
-// split ACEs to a tree (the on-demand macos-fix-permissions retrofit, NOT the
+// split ACEs to a tree (the on-demand yolo-account share retrofit, NOT the
 // hot path). Each path chmod could not change is appended to failedList, one per line (a
 // directory can appear twice, once per directory walk), and the script exits non-zero when
 // any walk failed; shareTree reads the list.
@@ -1183,7 +1183,7 @@ func shareTree(deps Deps, root string) ([]string, int) {
 //
 // What that cost: the launch spent a sudo prompt, staged, ran the bootstrap, and
 // died six generators deep with `mkdir <ws>/.yolo/prism: permission denied` — a
-// message naming neither ACLs nor `yolo macos-fix-permissions`, the command that
+// message naming neither ACLs nor `yolo yolo-account share`, the command that
 // already existed to fix it.
 //
 // WHAT DOES AND DOES NOT INHERIT, measured on macOS 26.5 rather than assumed.
@@ -1398,7 +1398,7 @@ func LaunchArgv(agentArgv []string, profilePath, envFile string, workspace, user
 // environment and inside the sandbox, as the account whose processes it reads; before the
 // shell, so everything the agent starts is its descendant. stagedYolo is the sealed copy
 // the sandbox already execs for its bootstrap (StagedYoloPath), never the host's own binary,
-// which the sandbox account cannot read.
+// which the yolo account cannot read.
 //
 // A guard that is not Enabled adds no word, so a launch that declares no resources.memory
 // gets the argv byte for byte as before it existed.
@@ -1446,7 +1446,7 @@ func LaunchArgvWithGuard(runAs RunAs, agentArgv []string, profilePath, envFile s
 	return out
 }
 
-// sandboxEnvPairs renders the `env -i` K=V list for a process run AS the sandbox user, and
+// sandboxEnvPairs renders the `env -i` K=V list for a process run AS the yolo account, and
 // it is now a CLOSED LIST: the HOME/USER/SHELL/PATH quartet this backend owns, the mise
 // store and login PATH that travel with it, and one word naming the session env file.
 //
@@ -1457,7 +1457,7 @@ func LaunchArgvWithGuard(runAs RunAs, agentArgv []string, profilePath, envFile s
 //
 // The quartet stays PROTECTED on both crossings — dropped from the file by
 // SandboxEnvFileContent and absent from this list by construction — because these are what
-// make the process the sandbox user's rather than a copy of whatever the invoking shell had.
+// make the process the yolo account's rather than a copy of whatever the invoking shell had.
 //
 // Shared by the agent launch (LaunchArgv), the provisioning stage (ProvisionArgv) and the
 // install-capture driver (CaptureDriverArgv), which differ in what they exec and in nothing

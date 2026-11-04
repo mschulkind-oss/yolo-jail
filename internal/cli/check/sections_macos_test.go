@@ -46,7 +46,7 @@ func newMacMachine(t *testing.T) macMachine {
 			execs = append(execs, strings.Join(argv, " "))
 			return ExecResult{Ran: true, RC: 0} // `id _yolojail`, the run-as probe and the ACL probe pass
 		},
-		// The staging root as `yolo macos-setup` leaves it: this user's, 0755, no access list.
+		// The staging root as `yolo yolo-account create` leaves it: this user's, 0755, no access list.
 		MacosStagingRoot: func(string) macosuser.StagingRootFacts {
 			return macosuser.StagingRootFacts{Exists: true, IsDir: true, UID: 501, Mode: 0o755}
 		},
@@ -113,7 +113,7 @@ func TestTheMacosUserSectionFailsEachConditionTheLaunchRefuses(t *testing.T) {
 		macosuser.PreconditionMacOS: {
 			breakIt: func(m *macMachine) { m.opts.IsMacOS = false },
 			fix:     []string{"use 'podman' or 'container' on this host"},
-			skipped: []string{"the sandbox user", "the staging directory", "the run-as rule", "the workspace's sharing"},
+			skipped: []string{"the yolo account", "the staging directory", "the run-as rule", "the workspace's sharing"},
 		},
 		macosuser.PreconditionNotRoot: {
 			breakIt: func(m *macMachine) { m.opts.Geteuid = func() int { return 0 } },
@@ -130,20 +130,20 @@ func TestTheMacosUserSectionFailsEachConditionTheLaunchRefuses(t *testing.T) {
 		},
 		macosuser.PreconditionSandboxUser: {
 			breakIt: func(m *macMachine) { m.failExec("id " + macosuser.SandboxUser) },
-			fix:     []string{"yolo macos-setup"},
+			fix:     []string{"yolo yolo-account create"},
 			skipped: []string{"the sandbox home", "the run-as rule", "the workspace's sharing"},
 		},
 		macosuser.PreconditionSandboxHome: {
 			breakIt: func(m *macMachine) {
 				m.opts.PathIsDir = func(p string) bool { return p != macosuser.SandboxHome() }
 			},
-			fix: []string{"yolo macos-setup"},
+			fix: []string{"yolo yolo-account create"},
 		},
 		macosuser.PreconditionStagingRoot: {
 			breakIt: func(m *macMachine) {
 				m.opts.MacosStagingRoot = func(string) macosuser.StagingRootFacts { return macosuser.StagingRootFacts{} }
 			},
-			fix:     []string{"yolo macos-setup"},
+			fix:     []string{"yolo yolo-account create"},
 			skipped: []string{"the staging directory's owner", "the staging directory's safety"},
 		},
 		macosuser.PreconditionStagingRootOwner: {
@@ -152,7 +152,7 @@ func TestTheMacosUserSectionFailsEachConditionTheLaunchRefuses(t *testing.T) {
 					return macosuser.StagingRootFacts{Exists: true, IsDir: true, UID: 602, Mode: 0o755}
 				}
 			},
-			fix:     []string{"yolo macos-teardown", "sudo rm -rf /Users/Shared/yolo-staged"},
+			fix:     []string{"yolo yolo-account remove", "sudo rm -rf /Users/Shared/yolo-staged"},
 			skipped: []string{"the staging directory's safety"},
 		},
 		macosuser.PreconditionStagingRootSafe: {
@@ -161,24 +161,24 @@ func TestTheMacosUserSectionFailsEachConditionTheLaunchRefuses(t *testing.T) {
 					return macosuser.StagingRootFacts{Exists: true, IsDir: true, UID: 501, Mode: 0o755, HasACL: true}
 				}
 			},
-			fix: []string{"yolo macos-setup"},
+			fix: []string{"yolo yolo-account create"},
 		},
 		macosuser.PreconditionRunAsGrant: {
 			// Through the check's Exec seam, the same argv the launch runs: delete that wiring and
 			// this case passes the row.
 			breakIt: func(m *macMachine) { m.failExec("/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/true") },
-			fix:     []string{"yolo macos-setup", "/etc/sudoers.d/yolo-jail"},
+			fix:     []string{"yolo yolo-account create", "/etc/sudoers.d/yolo-jail"},
 		},
 		macosuser.PreconditionNeutralGround: {
 			breakIt:   func(*macMachine) {},
 			workspace: "/Users/matt/code/proj",
 			fix: []string{"mv /Users/matt/code/proj /Users/Shared/yolo/proj",
-				"yolo macos-fix-permissions /Users/Shared/yolo/proj"},
+				"yolo yolo-account share /Users/Shared/yolo/proj"},
 			skipped: []string{"the workspace's sharing"},
 		},
 		macosuser.PreconditionWorkspaceShared: {
 			breakIt: func(m *macMachine) { m.failExec("ls -lde") },
-			fix:     []string{"yolo macos-fix-permissions " + ws},
+			fix:     []string{"yolo yolo-account share " + ws},
 		},
 	}
 	for _, c := range macosuser.LaunchPreconditions() {
@@ -227,8 +227,8 @@ func TestTheMacosUserSectionDoesNotProbeTheSharingOfAWorkspaceInAHome(t *testing
 			t.Errorf("probed the sharing of a workspace under a home (%q):\n%s", argv, got)
 		}
 	}
-	if strings.Contains(got, "macos-fix-permissions /Users/matt") {
-		t.Errorf("the report sends the user to macos-fix-permissions for a path under a home:\n%s", got)
+	if strings.Contains(got, "yolo-account share /Users/matt") {
+		t.Errorf("the report sends the user to yolo-account share for a path under a home:\n%s", got)
 	}
 }
 
@@ -320,7 +320,7 @@ func TestYoloCheckFailsAMacWhoseWorkspaceTheLaunchRefuses(t *testing.T) {
 	for _, want := range []string{
 		"[FAIL] Workspace /Users/matt/code/proj is inside the home folder /Users/matt",
 		"mv /Users/matt/code/proj /Users/Shared/yolo/proj",
-		"[PASS] Sandbox user '" + macosuser.SandboxUser + "' exists",
+		"[PASS] The yolo account '" + macosuser.SandboxUser + "' exists",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in the report:\n%s", want, got)

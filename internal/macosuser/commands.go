@@ -15,13 +15,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
-// MacosSetup creates the dedicated sandbox account (one-time, needs admin).
+// refuseOffMacOS is each `yolo yolo-account` verb's answer on any system but macOS, where
+// the yolo account is not built yet (MT-R2 of docs/design/named-setups.md): agents there run
+// as you, so the next step is the launch itself.
+func refuseOffMacOS(out printer, verb string) {
+	out.printf("[bold red]yolo yolo-account %s requires macOS.[/bold red] The yolo account is "+
+		"not built on this system yet; agents here run as you, in a container: `yolo -- <cmd>`.", verb)
+}
+
+// AccountCreate creates the yolo account (one-time, needs admin).
 // Idempotent. Returns the exit code (0 success; 1 on failure/refusal) so the
 // front door maps it to a process exit.
-func MacosSetup(deps Deps) int {
+func AccountCreate(deps Deps) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
-		out.print("[bold red]yolo macos-setup requires macOS.[/bold red]")
+		refuseOffMacOS(out, "create")
 		return 1
 	}
 	if rc := refuseIfRoot(deps); rc != 0 {
@@ -44,7 +52,7 @@ func MacosSetup(deps Deps) int {
 	if rc := refuseForeignEnrollment(deps, out); rc != 0 {
 		return rc
 	}
-	announceSudo(deps, out, "set up the sandbox account and its rule ("+SudoersFile+")")
+	announceSudo(deps, out, "set up the yolo account and its rule ("+SudoersFile+")")
 	if rc := refuseAnotherUsersRule(deps, out, hostUser); rc != 0 {
 		return rc
 	}
@@ -53,7 +61,7 @@ func MacosSetup(deps Deps) int {
 
 	// 1. Account — create if missing, otherwise reuse (idempotent).
 	if deps.SandboxUserExists() {
-		out.printf("• Sandbox user [bold]%s[/bold] already exists.", SandboxUser)
+		out.printf("• The yolo account [bold]%s[/bold] already exists.", SandboxUser)
 
 		// 1a. THE HOME, CHECKED INDEPENDENTLY OF THE ACCOUNT. Every home step lives in
 		// the creation branch below, so an account whose home had been DELETED got none
@@ -64,7 +72,7 @@ func MacosSetup(deps Deps) int {
 		// permission denied`.
 		//
 		// NOT A HYPOTHETICAL STATE — it is what the runbook's own remedy leaves behind
-		// (`sudo rm -rf /Users/_yolojail && yolo macos-setup`, prescribed for an account
+		// (`sudo rm -rf /Users/_yolojail && yolo yolo-account create`, prescribed for an account
 		// predating the home-tier layout), so the one command told to repair the machine
 		// was the one that could not. Measured on hardware 2026-09-12.
 		//
@@ -84,7 +92,7 @@ func MacosSetup(deps Deps) int {
 		}
 	} else {
 		uid := NextFreeID(deps.TakenIDs(), sandboxMinID)
-		out.printf("• Creating sandbox user [bold]%s[/bold] (uid %d).", SandboxUser, uid)
+		out.printf("• Creating the yolo account [bold]%s[/bold] (uid %d).", SandboxUser, uid)
 		for _, cmd := range CreateUserCommands(uid, uid, hostUser) {
 			if deps.Run(rootArgv(cmd)) != 0 {
 				out.printf("[bold red]✗ setup step failed:[/bold red] %s", strings.Join(cmd, " "))
@@ -116,7 +124,7 @@ func MacosSetup(deps Deps) int {
 	// 1c. SHARE WHAT IS ALREADY THERE. Provisioning the root above covers everything
 	// created FROM NOW ON and nothing that already exists — macOS applies inheritable
 	// ACL entries at create time and never retroactively. So setup finishes the job by
-	// running the same retrofit `yolo macos-fix-permissions` runs, over the same root.
+	// running the same retrofit `yolo yolo-account share` runs, over the same root.
 	//
 	// UNCONDITIONAL AND UNPROMPTED, because it is idempotent and because setup is
 	// already the "make this machine ready" command — a user who ran it and then hit
@@ -204,7 +212,7 @@ func MacosSetup(deps Deps) int {
 			"further setup).")
 	} else {
 		out.printf("[bold green]✓ macos-user backend ready.[/bold green] "+
-			"Sandbox user '%s' is provisioned and preconditions "+
+			"The yolo account '%s' is provisioned and preconditions "+
 			"pass.", SandboxUser)
 		out.printf("Next: put your project under [bold]%s/"+
 			"<name>[/bold] (the agent can only share neutral ground, never a "+
@@ -229,18 +237,18 @@ func MacosSetup(deps Deps) int {
 	// learnable — a command mentioned only in a failure is one the reader meets at
 	// their worst moment.
 	out.printf("\n[dim]If you MOVE an existing project into %s later, share it with "+
-		"[bold]yolo macos-fix-permissions <path>[/bold] (no path = all of them, and no "+
+		"[bold]yolo yolo-account share <path>[/bold] (no path = all of them, and no "+
 		"password needed). Moving a directory does not re-apply the ACL the way "+
 		"creating one does. Idempotent — safe to run any time something under there is "+
 		"unexpectedly unwritable.[/dim]", SharedRootDefault())
 	return 0
 }
 
-// MacosTeardown deletes the sandbox account + home (needs admin). macOS only.
-func MacosTeardown(deps Deps) int {
+// AccountRemove deletes the yolo account + home (needs admin). macOS only.
+func AccountRemove(deps Deps) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
-		out.print("[bold red]yolo macos-teardown requires macOS.[/bold red]")
+		refuseOffMacOS(out, "remove")
 		return 1
 	}
 	if rc := refuseIfRoot(deps); rc != 0 {
@@ -251,37 +259,37 @@ func MacosTeardown(deps Deps) int {
 		// user is whoever owns the staging root), and this command is the remedy setup's
 		// second-user refusal names, so it still removes the rule and the root it owns.
 		if JudgeStagingRoot(rootFacts(deps, StagingRoot()), deps.Geteuid()) == StagingRootOK {
-			out.printf("Sandbox user '%s' does not exist; removing your enrollment.", SandboxUser)
+			out.printf("The yolo account '%s' does not exist; removing your enrollment.", SandboxUser)
 			announceSudo(deps, out, "remove yolo's sudo rule ("+SudoersFile+")")
 			removeEnrollment(deps, out)
 			return 0
 		}
-		out.printf("Sandbox user '%s' does not exist — nothing to do.", SandboxUser)
+		out.printf("The yolo account '%s' does not exist — nothing to do.", SandboxUser)
 		return 0
 	}
-	announceSudo(deps, out, "remove the sandbox account and its rule ("+SudoersFile+")")
+	announceSudo(deps, out, "remove the yolo account and its rule ("+SudoersFile+")")
 	for _, cmd := range DeleteUserCommands(deps.HostUser()) {
 		deps.Run(rootArgv(cmd))
 	}
-	out.printf("[green]✓ Removed sandbox user '%s'.[/green]", SandboxUser)
+	out.printf("[green]✓ Removed the yolo account '%s'.[/green]", SandboxUser)
 	removeEnrollment(deps, out)
 	// One line about what survives the account, because it is not obvious: an ACL
 	// names a UUID, so the grants naming this account outlive it and go inert. Not
 	// stripped here — a teardown is often temporary, and walking every workspace to
 	// remove grants the user may want back in an hour is the wrong default; a later
-	// `macos-setup` re-applies them for the current account anyway.
+	// `yolo-account create` re-applies them for the current account anyway.
 	out.printf("[dim]ACL entries naming it remain under %s and are now inert (an ACL "+
-		"names a UUID, not a name). A later `yolo macos-setup` re-applies them; "+
-		"`yolo macos-unshare <workspace>` removes them now.[/dim]", SharedRootDefault())
+		"names a UUID, not a name). A later `yolo yolo-account create` re-applies them; "+
+		"`yolo yolo-account unshare <workspace>` removes them now.[/dim]", SharedRootDefault())
 	return 0
 }
 
-// MacosUnshare strips the yolo-jail ACLs from a shared workspace (chmod -h -N).
+// AccountUnshare strips the yolo-jail ACLs from a shared workspace (chmod -h -N).
 // macOS only. The workspace path is resolved (abs + symlinks) first.
-func MacosUnshare(deps Deps, workspace string) int {
+func AccountUnshare(deps Deps, workspace string) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
-		out.print("[bold red]yolo macos-unshare requires macOS.[/bold red]")
+		refuseOffMacOS(out, "unshare")
 		return 1
 	}
 	if rc := refuseIfRoot(deps); rc != 0 {
@@ -300,12 +308,12 @@ func MacosUnshare(deps Deps, workspace string) int {
 	return 0
 }
 
-// MacosFixPermissions retrofits the shared-group ACL onto pre-existing files in
+// AccountShare retrofits the shared-group ACL onto pre-existing files in
 // the shared area. macOS only. With no path it defaults to the whole shared root.
-func MacosFixPermissions(deps Deps, path string) int {
+func AccountShare(deps Deps, path string) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !deps.IsMacOS() {
-		out.print("[bold red]yolo macos-fix-permissions requires macOS.[/bold red]")
+		refuseOffMacOS(out, "share")
 		return 1
 	}
 	if rc := refuseIfRoot(deps); rc != 0 {
@@ -397,7 +405,7 @@ func ownerName(uid uint32) string {
 
 // refuseForeignEnrollment refuses, before any sudo, a staging root or capture root setup must not
 // adopt. A staging root another person's account owns is that person's enrollment (one user per
-// Mac); one any other account owns, the sandbox account first among them, is a squat, because
+// Mac); one any other account owns, the yolo account first among them, is a squat, because
 // whoever owns it controls what the sandbox reads. The capture root may be root's, which captures
 // before the one-rule contract left behind: setup gives that one back (ensureHostOwnedRoot).
 func refuseForeignEnrollment(deps Deps, out printer) int {
@@ -412,7 +420,7 @@ func refuseForeignEnrollment(deps Deps, out printer) int {
 			continue
 		case StagingRootUnknown:
 			out.printf("[bold red]Could not inspect %s (%v).[/bold red] Setup does not stage into what "+
-				"it cannot see. Inspect it with `ls -le %s`, then run [bold]yolo macos-setup[/bold] again.",
+				"it cannot see. Inspect it with `ls -le %s`, then run [bold]yolo yolo-account create[/bold] again.",
 				c.path, f.Err, c.path)
 			return 1
 		case StagingRootUnsafe:
@@ -421,7 +429,7 @@ func refuseForeignEnrollment(deps Deps, out printer) int {
 			}
 			out.printf("[bold red]%s is a symbolic link or not a directory.[/bold red] Setup does not "+
 				"stage through it. Inspect it with `ls -le %s`, remove it with `sudo rm -rf %s`, then "+
-				"run [bold]yolo macos-setup[/bold] again.", c.path, c.path, c.path)
+				"run [bold]yolo yolo-account create[/bold] again.", c.path, c.path, c.path)
 			return 1
 		case StagingRootForeign:
 			if c.rootMayOwn && f.UID == 0 && f.IsDir {
@@ -434,7 +442,7 @@ func refuseForeignEnrollment(deps Deps, out printer) int {
 			}
 			out.printf("[bold red]%s already exists and belongs to %s, not to you.[/bold red] Setup "+
 				"does not adopt it: whoever owns it controls what the sandbox reads. Inspect it with "+
-				"`ls -leR %s`, remove it with `sudo rm -rf %s`, then run [bold]yolo macos-setup[/bold] "+
+				"`ls -leR %s`, remove it with `sudo rm -rf %s`, then run [bold]yolo yolo-account create[/bold] "+
 				"again.", c.path, ownerName(f.UID), c.path, c.path)
 			return 1
 		}
@@ -445,9 +453,9 @@ func refuseForeignEnrollment(deps Deps, out printer) int {
 // refuseSecondUser prints the one-user-per-Mac refusal, naming the enrolled user.
 func refuseSecondUser(out printer, name string) {
 	out.printf("[bold red]This Mac's macos-user backend is set up for another macOS user (%s).[/bold red] "+
-		"One user per Mac. That user runs [bold]yolo macos-teardown[/bold], then you run "+
-		"[bold]yolo macos-setup[/bold]. If that account is gone, an administrator runs "+
-		"`sudo rm -f %s && sudo rm -rf %s`, then you run [bold]yolo macos-setup[/bold].",
+		"One user per Mac. That user runs [bold]yolo yolo-account remove[/bold], then you run "+
+		"[bold]yolo yolo-account create[/bold]. If that account is gone, an administrator runs "+
+		"`sudo rm -f %s && sudo rm -rf %s`, then you run [bold]yolo yolo-account create[/bold].",
 		name, SudoersFile, StagingRoot())
 }
 
@@ -475,7 +483,7 @@ func refuseAnotherUsersRule(deps Deps, out printer, user string) int {
 	}
 	if deps.Run([]string{sudoBin, "-n", trueBin}) != 0 {
 		out.printf("[bold red]✗ sudo did not run the check of %s, so nothing was changed.[/bold red] "+
-			"Run [bold]yolo macos-setup[/bold] again and give your admin password when sudo asks.",
+			"Run [bold]yolo yolo-account create[/bold] again and give your admin password when sudo asks.",
 			SudoersFile)
 		return 1
 	}
@@ -524,7 +532,7 @@ func reportACLFailures(out printer, root, user string, failed []string) {
 		out.printf("[bold yellow]⚠ The shared-group ACL walk under %s failed (its error is above).[/bold yellow]",
 			richtext.Escape(root))
 		out.blank()
-		out.commands(shquote.JoinDisplay([]string{"yolo", "macos-fix-permissions", root}))
+		out.commands(shquote.JoinDisplay([]string{"yolo", "yolo-account", "share", root}))
 		out.blank()
 		return
 	}
@@ -545,7 +553,7 @@ func reportACLFailures(out printer, root, user string, failed []string) {
 	}
 	out.commands(
 		"sudo chown "+owner+" "+shquote.JoinDisplay(shown),
-		shquote.JoinDisplay([]string{"yolo", "macos-fix-permissions", root}),
+		shquote.JoinDisplay([]string{"yolo", "yolo-account", "share", root}),
 	)
 	if len(failed) > len(shown) {
 		out.printf("[dim]  (%d more not shown; the re-run lists them)[/dim]", len(failed)-len(shown))
@@ -614,7 +622,7 @@ func installSudoersRule(deps Deps, out printer, rule string) int {
 		deps.Run(dropStaged)
 		stop("yolo's sudo rule is not installed: "+shquote.JoinDisplay(mv)+" failed.",
 			strings.Join(complaints, "\n"))
-		out.commands(append(sudoersRemedies(complaints), "yolo macos-setup")...)
+		out.commands(append(sudoersRemedies(complaints), "yolo yolo-account create")...)
 		out.blank()
 		return 1
 	}
@@ -638,7 +646,7 @@ func installSudoersRule(deps Deps, out printer, rule string) int {
 		out.print("  [dim]# or, if sudo itself fails:[/dim]")
 		out.commands(
 			`osascript -e 'do shell script "/bin/rm -f `+SudoersFile+`" with administrator privileges'`,
-			"yolo macos-setup",
+			"yolo yolo-account create",
 		)
 		out.blank()
 		return 1
@@ -678,7 +686,7 @@ func installSudoersRule(deps Deps, out printer, rule string) int {
 	stop("Your sudo configuration is invalid without yolo's rule too. Nothing was installed.", without)
 	out.print("Fix it, then run setup again:")
 	out.blank()
-	out.commands(append(sudoersRemedies(pre), "sudo visudo -c", "yolo macos-setup")...)
+	out.commands(append(sudoersRemedies(pre), "sudo visudo -c", "yolo yolo-account create")...)
 	out.blank()
 	return 1
 }
@@ -828,7 +836,7 @@ func sweepLegacyRecords(deps Deps, out printer, dir string) {
 		argv := rootArgv(append([]string{rmBin, "-f"}, SessionFilePaths(key, LegacyStateDir())...))
 		if deps.Run(argv) != 0 {
 			out.printf("[yellow]Warning: could not remove the files an older yolo's session left in "+
-				"%s[/yellow] (`%s` failed). Run [bold]yolo macos-setup[/bold] again, or that command.",
+				"%s[/yellow] (`%s` failed). Run [bold]yolo yolo-account create[/bold] again, or that command.",
 				LegacyStateDir(), shquote.JoinDisplay(argv))
 			_ = f.Close()
 			continue
@@ -852,7 +860,7 @@ func proveRunAsGrant(deps Deps, out printer) int {
 		out.printf("[bold red]✗ The rule is installed, but sudo still asks for a password to run as "+
 			"%s.[/bold red] Check that /etc/sudoers reads /private/etc/sudoers.d (`sudo grep -n "+
 			"includedir /etc/sudoers`); a managed Mac may block it, and then your administrator has to "+
-			"allow the rule. Run [bold]yolo macos-setup[/bold] again afterwards.", SandboxUser)
+			"allow the rule. Run [bold]yolo yolo-account create[/bold] again afterwards.", SandboxUser)
 		return 1
 	}
 	out.printf("• `%s` runs with no password and an empty sudo cache.",

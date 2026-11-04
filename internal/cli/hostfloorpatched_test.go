@@ -339,7 +339,7 @@ func TestTheHostFloorsAdvanceRunsAfterTheRenderGatesObservePass(t *testing.T) {
 
 // ON A MAC WHOSE SANDBOX ACCOUNT IS NOT SET UP `yolo host` builds no patched fork (PF-D97): the
 // launch runs no advance, refuses rather than run a copy on PATH (HNR-D2), and names the step the
-// macos-user build act needs — `yolo macos-setup` — as it does for a plain fork, never a container
+// macos-user build act needs — `yolo yolo-account create` — as it does for a plain fork, never a container
 // runtime, which a Mac's build does not use. The floor's platform decides, so this runs on every CI
 // host. Drop the Mac arm from the floor's advance gate (advanceBlocked) and the runtime's step, or
 // an advance, comes back.
@@ -361,9 +361,9 @@ func TestHostLaunchOfAPatchedForkOnAMacWithNoSandboxAccountNamesTheSetup(t *test
 			target, len(fx.builds), stub, out)
 	}
 	for _, w := range []string{"yolo host: yolo has no copy of tool on this Mac (", declaredNoCopyRefusal,
-		"there is no build of tool from fork pack forkpack's patch series on this machine, and the sandbox " +
+		"there is no build of tool from fork pack forkpack's patch series on this machine, and the yolo " +
 			"account _yolojail, which a fork's build on a Mac runs as, does not exist",
-		"`yolo macos-setup`, and the next `yolo host` launch builds it"} {
+		"`yolo yolo-account create`, and the next `yolo host` launch builds it"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("the Mac's line lacks %q:\n%s", w, out)
 		}

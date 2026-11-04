@@ -76,7 +76,7 @@ func mockDeps(rec *[]string) Deps {
 		// Nothing an older yolo left: the only path a launch asks about is a legacy session's
 		// profile (sweepGoneSessions, PL-8), and a Mac set up by this yolo has none.
 		PathExists: func(string) bool { return false },
-		// The staging root as `yolo macos-setup` leaves it (this user's, 0755, no access list),
+		// The staging root as `yolo yolo-account create` leaves it (this user's, 0755, no access list),
 		// and the setup's run-as rule in place.
 		StagingRootFacts: func(string) StagingRootFacts {
 			return StagingRootFacts{Exists: true, IsDir: true, UID: 501, Mode: 0o755}
@@ -483,13 +483,13 @@ func TestRunMaterializeFailureAborts(t *testing.T) {
 	}
 }
 
-func TestMacosSetupRefusesRootAndOffMacOS(t *testing.T) {
+func TestAccountCreateRefusesRootAndOffMacOS(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.IsMacOS = func() bool { return false }
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 1 || len(rec) != 0 {
+	if rc := AccountCreate(d); rc != 1 || len(rec) != 0 {
 		t.Errorf("off-macOS rc=%d rec=%v", rc, rec)
 	}
 
@@ -497,18 +497,18 @@ func TestMacosSetupRefusesRootAndOffMacOS(t *testing.T) {
 	d = mockDeps(&rec)
 	d.Geteuid = func() int { return 0 }
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 1 || len(rec) != 0 {
+	if rc := AccountCreate(d); rc != 1 || len(rec) != 0 {
 		t.Errorf("root rc=%d rec=%v", rc, rec)
 	}
 }
 
-func TestMacosSetupCreatesWhenMissing(t *testing.T) {
+func TestAccountCreateCreatesWhenMissing(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return false }
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Errorf("rc = %d", rc)
 	}
 	joined := strings.Join(rec, "\n")
@@ -520,8 +520,8 @@ func TestMacosSetupCreatesWhenMissing(t *testing.T) {
 	}
 }
 
-// TestMacosSetupReprovisionsAMissingHome pins the repair for a state THE RUNBOOK'S OWN
-// REMEDY CREATES. `sudo rm -rf /Users/_yolojail && yolo macos-setup` — prescribed by
+// TestAccountCreateReprovisionsAMissingHome pins the repair for a state THE RUNBOOK'S OWN
+// REMEDY CREATES. `sudo rm -rf /Users/_yolojail && yolo yolo-account create` — prescribed by
 // docs/plans/runbooks/macos-user-manual-checks.md item 5 for an account predating the
 // home-tier layout — takes the HOME and leaves the ACCOUNT. Every home step lived in the
 // account-creation branch, so that state got none of them, and setup still reported
@@ -531,14 +531,14 @@ func TestMacosSetupCreatesWhenMissing(t *testing.T) {
 // MEASURED ON HARDWARE 2026-09-12 (macOS 26.5, arm64), following item 5 as written: the
 // next launch built the whole native closure and then failed twenty config generators at
 // once with `mkdir /Users/_yolojail: permission denied`.
-func TestMacosSetupReprovisionsAMissingHome(t *testing.T) {
+func TestAccountCreateReprovisionsAMissingHome(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return true }
 	d.PathIsDir = func(p string) bool { return p != SandboxHome() }
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
 	}
 	joined := strings.Join(rec, "\n")
@@ -561,15 +561,15 @@ func TestMacosSetupReprovisionsAMissingHome(t *testing.T) {
 	}
 }
 
-// TestMacosSetupLeavesAnExistingHomeAlone is the other half: `chown -R` over a populated
+// TestAccountCreateLeavesAnExistingHomeAlone is the other half: `chown -R` over a populated
 // account home is O(files) and buys nothing on the common re-run, so the repair above must
 // be gated on the home actually being absent rather than run unconditionally.
-func TestMacosSetupLeavesAnExistingHomeAlone(t *testing.T) {
+func TestAccountCreateLeavesAnExistingHomeAlone(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec) // SandboxUserExists and PathIsDir both true
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 0 {
+	if rc := AccountCreate(d); rc != 0 {
 		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
 	}
 	if joined := strings.Join(rec, "\n"); strings.Contains(joined, "createhomedir") ||
@@ -578,10 +578,10 @@ func TestMacosSetupLeavesAnExistingHomeAlone(t *testing.T) {
 	}
 }
 
-// TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned: a failed repair must not be
+// TestAccountCreateAbortsWhenTheHomeCannotBeReprovisioned: a failed repair must not be
 // followed by the "✓ ready … preconditions pass" verdict, which is exactly what the
 // unrepaired state used to get.
-func TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned(t *testing.T) {
+func TestAccountCreateAbortsWhenTheHomeCannotBeReprovisioned(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return true }
@@ -595,7 +595,7 @@ func TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Errorf("rc = %d, want 1 (a failed home repair aborts setup)", rc)
 	}
 	if strings.Contains(buf.String(), "backend ready") {
@@ -606,7 +606,7 @@ func TestMacosSetupAbortsWhenTheHomeCannotBeReprovisioned(t *testing.T) {
 // TestRunRefusesWhenTheSandboxHomeIsMissing is the launch half of the same defect. The
 // launch checked that the ACCOUNT exists and never that its HOME does, so a deleted home
 // was diagnosed at the far end of the boot — after the full nix build — by a message that
-// blamed the WORKSPACE ACL and prescribed `yolo macos-fix-permissions <workspace>`, which
+// blamed the WORKSPACE ACL and prescribed `yolo yolo-account share <workspace>`, which
 // cannot reach /Users/_yolojail. Same rule item 10's fix applied: the remedy has to reach
 // the path it names.
 func TestRunRefusesWhenTheSandboxHomeIsMissing(t *testing.T) {
@@ -622,25 +622,25 @@ func TestRunRefusesWhenTheSandboxHomeIsMissing(t *testing.T) {
 		t.Errorf("launched anyway:\n%s", joined)
 	}
 	out := buf.String()
-	if !strings.Contains(out, SandboxHome()) || !strings.Contains(out, "yolo macos-setup") {
+	if !strings.Contains(out, SandboxHome()) || !strings.Contains(out, "yolo yolo-account create") {
 		t.Errorf("refusal must name the missing home and the remedy that reaches it:\n%s", out)
 	}
-	if strings.Contains(out, "macos-fix-permissions") {
+	if strings.Contains(out, "yolo-account share") {
 		t.Errorf("refusal prescribes the remedy that cannot reach the home:\n%s", out)
 	}
 }
 
-// TestMacosSetupAbortsOnPasswordFailure is the finding-6 fix: a failed
+// TestAccountCreateAbortsOnPasswordFailure is the finding-6 fix: a failed
 // SetRandomPassword must abort setup loudly (was silently dropped, leaving the
 // account potentially password-less).
-func TestMacosSetupAbortsOnPasswordFailure(t *testing.T) {
+func TestAccountCreateAbortsOnPasswordFailure(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return false }
 	d.SetRandomPassword = func() bool { return false } // password apply fails
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosSetup(d); rc != 1 {
+	if rc := AccountCreate(d); rc != 1 {
 		t.Errorf("password failure should abort setup (rc=1), got %d", rc)
 	}
 	if !strings.Contains(buf.String(), "could not set a random password") {
@@ -648,14 +648,14 @@ func TestMacosSetupAbortsOnPasswordFailure(t *testing.T) {
 	}
 }
 
-func TestMacosTeardownNoUser(t *testing.T) {
+func TestAccountRemoveNoUser(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return false }
 	d.StagingRootFacts = func(string) StagingRootFacts { return StagingRootFacts{} } // never enrolled
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosTeardown(d); rc != 0 {
+	if rc := AccountRemove(d); rc != 0 {
 		t.Errorf("rc = %d", rc)
 	}
 	if len(rec) != 0 {
@@ -665,7 +665,7 @@ func TestMacosTeardownNoUser(t *testing.T) {
 
 // An account removed by hand leaves the enrollment behind, and teardown is the remedy setup's
 // second-user refusal names, so it must still remove the rule and the staging root it owns.
-func TestMacosTeardownWithNoAccountStillRemovesThisUsersEnrollment(t *testing.T) {
+func TestAccountRemoveWithNoAccountStillRemovesThisUsersEnrollment(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	d.SandboxUserExists = func() bool { return false }
@@ -675,7 +675,7 @@ func TestMacosTeardownWithNoAccountStillRemovesThisUsersEnrollment(t *testing.T)
 	}
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosTeardown(d); rc != 0 {
+	if rc := AccountRemove(d); rc != 0 {
 		t.Errorf("rc = %d", rc)
 	}
 	if recAt(rec, "run:/usr/bin/sudo "+rmBin+" -f "+SudoersFile) < 0 {
@@ -686,12 +686,12 @@ func TestMacosTeardownWithNoAccountStillRemovesThisUsersEnrollment(t *testing.T)
 	}
 }
 
-func TestMacosUnshareRunsStrip(t *testing.T) {
+func TestAccountUnshareRunsStrip(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosUnshare(d, "/Users/Shared/yolo/proj"); rc != 0 {
+	if rc := AccountUnshare(d, "/Users/Shared/yolo/proj"); rc != 0 {
 		t.Errorf("rc = %d", rc)
 	}
 	if !strings.Contains(strings.Join(rec, "\n"), "bash:"+WorkspaceACLStripScript("/Users/Shared/yolo/proj")) {
@@ -699,12 +699,12 @@ func TestMacosUnshareRunsStrip(t *testing.T) {
 	}
 }
 
-func TestMacosFixPermissionsRejectsHome(t *testing.T) {
+func TestAccountShareRejectsHome(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosFixPermissions(d, "/Users/matt/proj"); rc != 1 {
+	if rc := AccountShare(d, "/Users/matt/proj"); rc != 1 {
 		t.Errorf("rc = %d, want 1", rc)
 	}
 	if len(rec) != 0 {
@@ -712,12 +712,12 @@ func TestMacosFixPermissionsRejectsHome(t *testing.T) {
 	}
 }
 
-func TestMacosFixPermissionsDefaultRoot(t *testing.T) {
+func TestAccountShareDefaultRoot(t *testing.T) {
 	var rec []string
 	d := mockDeps(&rec)
 	var buf bytes.Buffer
 	d.Out = &buf
-	if rc := MacosFixPermissions(d, ""); rc != 0 {
+	if rc := AccountShare(d, ""); rc != 0 {
 		t.Errorf("rc = %d", rc)
 	}
 	if !strings.Contains(strings.Join(rec, "\n"), "bash:") {

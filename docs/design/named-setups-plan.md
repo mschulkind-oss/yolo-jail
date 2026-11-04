@@ -1049,7 +1049,11 @@ into the slice's report (see the macos-user plan's
   ./integration` passes.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
   create` and exits non-zero; `yolo yolo-account share <dir>` does what `macos-fix-permissions`
-  did (the ACL on `<dir>` lists `_yolojail`).
+  did (the ACL on `<dir>` lists `_yolojail`). Also, on a Mac where the yolo account exists:
+  `yolo yolo-account create` prints `The yolo account _yolojail already exists.` and exits 0;
+  `yolo yolo-account unshare <dir>` exits 0 and `ls -lde <dir>` then lists no `_yolojail` entry;
+  `yolo yolo-account create --help` prints `Usage: yolo yolo-account create` and runs no sudo
+  (no password prompt). `remove` is not run here: it deletes the account the other witnesses use.
 
 ## Blockers
 

@@ -43,8 +43,8 @@ func TestRealDepsPrintsThroughThePublishedLaunchWriter(t *testing.T) {
 }
 
 // TestNoPublishedWriterLeavesTheMacosCommandsOnTheProcess is the trap §7 names, asserted
-// rather than assumed: `yolo macos-setup`, `macos-teardown`, `macos-unshare` and
-// `macos-fix-permissions` build their Deps from this same RealDeps with no pipeline
+// rather than assumed: `yolo yolo-account create`, `yolo-account remove`, `yolo-account unshare` and
+// `yolo-account share` build their Deps from this same RealDeps with no pipeline
 // behind them (internal/cli/commands.go), so the fallback is their entire output.
 //
 // It also pins the UNDO, which is what keeps the publication scoped to one launch: a

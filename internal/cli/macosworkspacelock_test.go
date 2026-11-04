@@ -66,7 +66,7 @@ func TestMacosLaunchDepsWiresTheWorkspaceLock(t *testing.T) {
 	// anything, and a setup command blocking on a running jail's launch is a new way to
 	// look hung.
 	if macosuser.RealDeps(nil, nil, false).LockWorkspace != nil {
-		t.Error("RealDeps itself now carries the workspace lock, so `yolo macos-setup` and " +
+		t.Error("RealDeps itself now carries the workspace lock, so `yolo yolo-account create` and " +
 			"friends would block on a concurrent launch")
 	}
 }

@@ -441,9 +441,9 @@ func TestMacosUserPackInstallsWorkflowMirrorsPackMatrix(t *testing.T) {
 const sudoFact = "sudo -n true"
 
 // TestMacosUserWorkflowRecordsSudoBeforeAccountSetup: every macos-user.yml job that runs
-// `yolo macos-setup` records whether `sudo -n` would prompt, in a step before that one.
+// `yolo yolo-account create` records whether `sudo -n` would prompt, in a step before that one.
 //
-// macos-setup calls sudo itself, so on a runner without passwordless sudo its step HANGS
+// yolo-account create calls sudo itself, so on a runner without passwordless sudo its step HANGS
 // rather than failing, until the job's timeout ends it with no cause given. The recorded fact
 // is the line that names the cause. Both jobs need it, the install job's account step having
 // no `continue-on-error` and a 60-minute cap to burn.
@@ -453,10 +453,10 @@ func TestMacosUserWorkflowRecordsSudoBeforeAccountSetup(t *testing.T) {
 	for name, j := range wf.Jobs {
 		recorded := false
 		for _, s := range j.Steps {
-			if strings.Contains(s.Run, "macos-setup") {
+			if strings.Contains(s.Run, "yolo-account create") {
 				setupJobs = append(setupJobs, name)
 				if !recorded {
-					t.Errorf("%s job %q runs macos-setup in step %q with no earlier step "+
+					t.Errorf("%s job %q runs yolo-account create in step %q with no earlier step "+
 						"running `%s`, so a runner whose sudo would prompt hangs that step "+
 						"until the job's timeout with nothing in the log saying why. Add "+
 						"`%s && echo \"sudo -n: passwordless\" || echo \"sudo -n: WOULD "+
@@ -471,7 +471,7 @@ func TestMacosUserWorkflowRecordsSudoBeforeAccountSetup(t *testing.T) {
 		}
 	}
 	if len(setupJobs) == 0 {
-		t.Fatalf("no %s job runs macos-setup, so this pin checks nothing; it reads the step "+
+		t.Fatalf("no %s job runs yolo-account create, so this pin checks nothing; it reads the step "+
 			"that creates the sandbox account", macosUserWorkflow)
 	}
 }

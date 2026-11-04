@@ -29,7 +29,7 @@ package cli
 //
 // A Linux host builds its trees in a capture jail; a Mac builds them for darwin through the
 // macos-user fork-build act, as its host floor builds a patched fork (hostTreeRuntime,
-// hostTreePlatform). A host that cannot build one now — a Mac before `yolo macos-setup`, whose
+// hostTreePlatform). A host that cannot build one now — a Mac before `yolo yolo-account create`, whose
 // reason names that step (hostTreeBuildBlocked), or a host yolo builds none on — has the render say
 // so once, with its step, and so does `yolo host -- <bin>` of the owning agent, which starts
 // without it (noteHostTreeLines).
@@ -66,7 +66,7 @@ import (
 
 // hostTreesBuild reports whether this host builds patched extensions now, outside a jail: a Linux
 // host, in a capture jail of its container runtime; and a Mac whose macos-user fork-build act can run
-// here (hostTreeBuildBlocked), the build being the sandbox account's, for darwin (PPX-D5, PF-D97). A
+// here (hostTreeBuildBlocked), the build being the yolo account's, for darwin (PPX-D5, PF-D97). A
 // var so a test can stand a host that builds none in.
 var hostTreesBuild = func() bool {
 	if config.InJail() {

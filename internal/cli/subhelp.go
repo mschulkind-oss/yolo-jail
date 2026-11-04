@@ -124,15 +124,13 @@ var subcommandUsage = map[string]subUsage{
 	"openai-auth": {text: openaiAuthUsage, valueFlags: []string{"--from", "--host-socket"}},
 	// `--view-delay` consumes the next token, so `yolo claude-auth refresh --view-delay --help`
 	// names a duration called "--help" (and is refused as one) rather than asking for help.
-	"claude-auth":           {text: claudeAuthUsage, valueFlags: []string{"--view-delay"}},
-	"init":                  {text: initUsage, valueFlags: []string{"--mount", "-m"}},
-	"init-user-config":      {text: initUserConfigUsage},
-	"config-ref":            {text: configRefUsage},
-	"features":              {text: featuresUsage, valueFlags: []string{"--format"}},
-	"macos-setup":           {text: macosSetupUsage},
-	"macos-teardown":        {text: macosTeardownUsage},
-	"macos-unshare":         {text: macosUnshareUsage},
-	"macos-fix-permissions": {text: macosFixPermissionsUsage},
+	"claude-auth":      {text: claudeAuthUsage, valueFlags: []string{"--view-delay"}},
+	"init":             {text: initUsage, valueFlags: []string{"--mount", "-m"}},
+	"init-user-config": {text: initUserConfigUsage},
+	"config-ref":       {text: configRefUsage},
+	"features":         {text: featuresUsage, valueFlags: []string{"--format"}},
+	// Each verb's own help is yoloAccountVerbUsage's, answered inside runYoloAccount.
+	"yolo-account": {text: yoloAccountUsage},
 	// Answered inside their own testable bodies (allow.go, request.go).
 	"allow":           {text: allowUsage},
 	"request":         {text: requestUsage},
@@ -149,7 +147,7 @@ var subcommandUsage = map[string]subUsage{
 //
 // The bare word `help` counts, matching isHelpToken and what `yolo config help`
 // / `yolo pack help` already do. The one ambiguity that buys: a positional
-// literally named `help` (`yolo macos-unshare help`) reads as a help request —
+// literally named `help` (`yolo yolo-account unshare help`) reads as a help request —
 // write `./help` to mean the directory. Uniformity is worth more than that case.
 func helpRequested(args []string, valueFlags ...string) bool {
 	for i := 0; i < len(args); i++ {

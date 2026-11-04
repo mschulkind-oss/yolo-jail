@@ -309,7 +309,7 @@ func parseExportLine(line string) (key, val string, def, ok bool) {
 }
 
 // DarwinSessionEnvFileEnv names the macos-user SESSION ENV FILE on the bootstrap's argv: the
-// root-owned 0600 file, with one read grant for the sandbox account, that carries everything the
+// root-owned 0600 file, with one read grant for the yolo account, that carries everything the
 // launch composed for the agent — the hydrated env_sources, the profile and provider channel,
 // git identity, the terminal (macosuser's envfile.go; macosuser.SandboxEnvFileEnv is this
 // constant). Its value is a PATH, never a value from the file, so the argv stays free of every
@@ -954,7 +954,7 @@ func aclHint(e *Env, fails []string) string {
 		"user needs a shared-group grant on " + ws + ", and macOS applies one\n" +
 		"only when a directory is CREATED — never retroactively, and never to a\n" +
 		"grant left naming an account that was deleted and recreated.\n" +
-		"  yolo macos-fix-permissions " + ws
+		"  yolo yolo-account share " + ws
 }
 
 // genStep runs a config generator. A failure is FATAL (A12 ruling: "a pack

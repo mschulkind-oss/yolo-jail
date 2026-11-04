@@ -62,7 +62,7 @@ func TestSiteContextLinksRefusesEachUndeliverableSource(t *testing.T) {
 		{"the data volume", ContextLink{Dest: "/ctx/x", Source: "/System/Volumes/Data"}, "contains /System/Volumes/Data/Users"},
 		{"a firmlink spelling", ContextLink{Dest: "/ctx/x", Source: "/System/Volumes/Data/Users/Shared/x"}, "spelled through another name for /Users"},
 		{"a case spelling", ContextLink{Dest: "/ctx/x", Source: "/users/Shared/x"}, "spelled through another name for /Users"},
-		{"the sandbox home", ContextLink{Dest: "/ctx/x", Source: "/Users/_yolojail/notes"}, "the sandbox account's own home"},
+		{"the sandbox home", ContextLink{Dest: "/ctx/x", Source: "/Users/_yolojail/notes"}, "the yolo account's own home"},
 		{"a real home", ContextLink{Dest: "/ctx/x", Source: "/Users/matt/code/lib"}, "inside the home folder /Users/matt"},
 		{"a privacy-guarded dir", ContextLink{Dest: "/ctx/x", Source: "/Users/matt/Documents/notes"}, "/Users/matt/Documents, which macOS's privacy controls guard"},
 		{"the state dir", ContextLink{Dest: "/ctx/x", Source: "/private/var/yolo-jail/ctx"}, "yolo's state directory"},
@@ -249,7 +249,7 @@ func TestPlanStagesEachContextLinkInsideTheSwap(t *testing.T) {
 	}
 }
 
-// THE DAC PREFLIGHT asks the kernel as the sandbox account, never computes from mode bits:
+// THE DAC PREFLIGHT asks the kernel as the yolo account, never computes from mode bits:
 // read for every source, search for a directory, write for a read-write one.
 func TestPlanAsksTheDACPreflightOfEverySource(t *testing.T) {
 	file := ContextLink{Dest: "/ctx/notes.txt", Source: "/opt/notes.txt"}
@@ -467,7 +467,7 @@ func TestStageContextDirCommandsMakeTheLinks(t *testing.T) {
 		t.Helper()
 		for _, c := range cmds {
 			// `chmod +a` is skipped on every OS: GNU chmod has no ACL spelling, and on a Mac
-			// without the sandbox account (any CI runner but the macos-user job's) the ACE names
+			// without the yolo account (any CI runner but the macos-user job's) the ACE names
 			// a user that does not exist. Everything else runs as it does on a launch, and the
 			// ACE is asserted by argv in TestTheStagedContextTreeIsOpenedToTheSandboxAlone.
 			if len(c) > 1 && c[0] == chmodBin && c[1] == "+a" {

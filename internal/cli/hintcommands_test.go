@@ -93,18 +93,19 @@ type verbDispatcher struct {
 // verbDispatchers is every command that takes a verb, by registry name, and where it picks it.
 // The verbs themselves are read from that source; this table only says where to look.
 var verbDispatchers = map[string]verbDispatcher{
-	"pack":        {"internal/cli", "packMain", "args[0]", ""},
-	"host":        {"internal/cli", "hostMain", "args[0]", ""},
-	"programs":    {"internal/cli", "programsMain", "args[0]", ""},
-	"config":      {"internal/cli", "configRunW", "verb", "configColorVerbs"},
-	"surface":     {"internal/cli", "surfaceRunW", "verb", "surfaceColorVerbs"},
-	"loopholes":   {"internal/cli", "runLoopholes", "sub", ""},
-	"broker":      {"internal/cli", "hostDaemonDispatch", "sub", ""},
-	"host-daemon": {"internal/cli", "hostDaemonDispatch", "sub", ""},
-	"claude-auth": {"internal/cli", "claudeAuthMain", "args[0]", ""},
-	"openai-auth": {"internal/openaiauthhost", "runOperator", "args[0]", ""},
-	"nix-roots":   {"internal/cli", "nixRootsMain", "sub", ""},
-	"host-run":    {"internal/cli", "hostRunMain", "args[0]", ""},
+	"pack":         {"internal/cli", "packMain", "args[0]", ""},
+	"host":         {"internal/cli", "hostMain", "args[0]", ""},
+	"programs":     {"internal/cli", "programsMain", "args[0]", ""},
+	"config":       {"internal/cli", "configRunW", "verb", "configColorVerbs"},
+	"surface":      {"internal/cli", "surfaceRunW", "verb", "surfaceColorVerbs"},
+	"loopholes":    {"internal/cli", "runLoopholes", "sub", ""},
+	"broker":       {"internal/cli", "hostDaemonDispatch", "sub", ""},
+	"host-daemon":  {"internal/cli", "hostDaemonDispatch", "sub", ""},
+	"claude-auth":  {"internal/cli", "claudeAuthMain", "args[0]", ""},
+	"openai-auth":  {"internal/openaiauthhost", "runOperator", "args[0]", ""},
+	"nix-roots":    {"internal/cli", "nixRootsMain", "sub", ""},
+	"host-run":     {"internal/cli", "hostRunMain", "args[0]", ""},
+	"yolo-account": {"internal/cli", "yoloAccountMain", "verb", ""},
 	// Not in the registry: Main routes `yolo internal` before the front door.
 	"internal": {"internal/cli", "runInternal", "args[0]", ""},
 }
@@ -372,8 +373,8 @@ func TestTheHintScanReadsACommandWrittenWithoutBackticks(t *testing.T) {
 			[]string{"yolo check", "yolo -- claude"}},
 		{"Examples:\n  yolo pack ls\n  yolo pack install\n",
 			[]string{"yolo pack ls", "yolo pack install"}},
-		{"never to a grant left behind.\n  yolo macos-fix-permissions <path>",
-			[]string{"yolo macos-fix-permissions <path>"}},
+		{"never to a grant left behind.\n  yolo yolo-account share <path>",
+			[]string{"yolo yolo-account share <path>"}},
 		{"then: sudo nixos-rebuild switch && yolo check", []string{"yolo check"}},
 		{"  rm <path> && yolo pack install", []string{"yolo pack install"}},
 		// A sentence whose subject is yolo, a heading, an error's prefix, and a command in a

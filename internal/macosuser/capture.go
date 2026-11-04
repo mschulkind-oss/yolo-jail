@@ -122,7 +122,7 @@ const (
 //
 // A SIBLING of SharedRootDefault, not a child. A capture staging tree is not a workspace, and
 // putting it under the workspace root would make it look like one to everything that enumerates
-// them (`yolo macos-fix-permissions`, a human running `ls`).
+// them (`yolo yolo-account share`, a human running `ls`).
 func CaptureRootDefault() string { return "/Users/Shared/yolo-captures" }
 
 // CaptureStagingRoot is the per-program staging tree: <captureRoot>/<bin>. An empty captureRoot
@@ -267,12 +267,12 @@ type CapturePlan struct {
 	StageCommands   [][]string
 	CleanupCommands [][]string
 	// ScratchGuestCommands are PL-7's fallback for the staging tree: when the host cannot remove
-	// it, the sandbox account, which owns what the installer wrote, makes it writable and removes
+	// it, the yolo account, which owns what the installer wrote, makes it writable and removes
 	// it through the one run-as rule, and the host then removes the rest (removeCaptureScratch).
 	ScratchGuestCommands [][]string
 	// BootstrapArgv generates the STAGING HOME's shims, launchers and pack surfaces.
 	BootstrapArgv []string
-	// DriverArgv runs `yolo internal capture-run` under sandbox-exec as the sandbox user.
+	// DriverArgv runs `yolo internal capture-run` under sandbox-exec as the yolo account.
 	DriverArgv []string
 	// EnvFile is this capture's session env file — the same mechanism a launch uses
 	// (envfile.go), for the same reason: the capture's composed env is the launch's
@@ -499,7 +499,7 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 
 // CaptureStagingCommands provision the throwaway staging tree: a clean root owned by the
 // invoking user with the sandbox group's inheriting ACLs, holding an empty home and an empty out
-// dir. The invoking user runs them, never root: the capture root is theirs (`yolo macos-setup`
+// dir. The invoking user runs them, never root: the capture root is theirs (`yolo yolo-account create`
 // gives it to them, and captureGatesPass refuses one that is not), it is made 0755 explicitly
 // rather than left to their umask, and the leaves are put in the sandbox group with
 // /usr/bin/chgrp, which a non-root owner may do because setup made them a member of it.
@@ -572,10 +572,10 @@ func CaptureCleanupCommands(stagingRoot, profilePath string) [][]string {
 }
 
 // CaptureScratchGuestCommands are PL-7's guest pass over a staging tree
-// (docs/design/macos-user-privilege-lifecycle-plan.md): as the sandbox account, through the one
+// (docs/design/macos-user-privilege-lifecycle-plan.md): as the yolo account, through the one
 // run-as rule, give the owner write on everything it owns, then remove what it can. It cannot
 // remove the tree's root, which is the host's; the host's own removal, run again after this,
-// takes the rest. The sandbox account owns what the installer wrote, so this needs no root.
+// takes the rest. The yolo account owns what the installer wrote, so this needs no root.
 func CaptureScratchGuestCommands(runAs RunAs, stagingRoot string) [][]string {
 	return [][]string{
 		runAs.Argv(false, chmodBin, "-R", "--", "u+w", stagingRoot),
@@ -618,7 +618,7 @@ func (p CapturePlan) staleCaptureFileCommands() [][]string {
 	return cmds
 }
 
-// CaptureDriverArgv builds the argv that runs the capture driver as the sandbox user, inside the
+// CaptureDriverArgv builds the argv that runs the capture driver as the yolo account, inside the
 // narrowed Seatbelt profile:
 //
 //	/usr/bin/sudo -n --user=_yolojail /usr/bin/env -i HOME=<staging> … \
@@ -739,7 +739,7 @@ func capturePlanProblems(plan CapturePlan) []string {
 	}
 
 	// THE ONE RUN-AS RULE (docs/design/macos-user-privilege-lifecycle-plan.md, task 6): every
-	// crossing into the sandbox account is the rule's shape, and nothing the host runs (prepare,
+	// crossing into the yolo account is the rule's shape, and nothing the host runs (prepare,
 	// stage, cleanup) is a sudo at all. A crossing off the shape prompts or fails under the
 	// narrowed grant; a host step under sudo is a root act the ruling removed. (The run-as-you
 	// mode's crossings are checked by selfCapturePlanProblems: RunAsArgvProblems passes a non-sudo
@@ -931,7 +931,7 @@ func captureProfileProblems(profile string) []string {
 //   - the bootstrap runs under the capture's profile (MMP-D9: unconfined as you, it could write
 //     anywhere you can);
 //   - nothing the host runs grants an access entry or hands a file to the sandbox group: there is
-//     no second account to open anything to.
+//     no yolo account to open anything to.
 func selfCapturePlanProblems(plan CapturePlan) []string {
 	var problems []string
 	if real := plan.RunAs.Homes.Real; !filepath.IsAbs(real) {
@@ -949,7 +949,7 @@ func selfCapturePlanProblems(plan CapturePlan) []string {
 				" alone: "+shquote.JoinDisplay(argv))
 		}
 		if w, ok := argvWordNamingAccount(argv); ok {
-			problems = append(problems, "a run-as-you capture argv names the second account "+SandboxUser+
+			problems = append(problems, "a run-as-you capture argv names the yolo account "+SandboxUser+
 				": "+shquote.JoinDisplay([]string{w}))
 		}
 	}
@@ -1027,7 +1027,7 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 // EVERY STEP BUT THE CROSSINGS RUNS AS THE INVOKING USER, never under sudo
 // (docs/design/macos-user-privilege-lifecycle-plan.md, task 6): the staging tree and the capture
 // root are theirs, and so is the staging root the binary, packs, profile and env files go in. Only
-// the bootstrap and the driver cross into the sandbox account, through the one run-as rule.
+// the bootstrap and the driver cross into the yolo account, through the one run-as rule.
 func runCaptureSteps(deps Deps, plan CapturePlan, problems []string, asUser [][]string) int {
 	out := printer{w: deps.Out, color: deps.Color}
 	if !captureGatesPass(deps, out, plan.RunAs.Mode, filepath.Dir(plan.StagingRoot)) {
@@ -1149,8 +1149,8 @@ func captureGatesPass(deps Deps, out printer, mode Mode, captureRoot string) boo
 		return false
 	}
 	if deps.Geteuid() == 0 {
-		how := "It runs as you and crosses into the sandbox account through the one-time setup's rule; " +
-			"running as root would own the staging tree as root and the sandbox user could not write it."
+		how := "It runs as you and crosses into the yolo account through the one-time setup's rule; " +
+			"running as root would own the staging tree as root and the yolo account could not write it."
 		if mode == ModeSelf {
 			how = "It runs the installer as you (macos_user_mode \"self\"); running as root would run it " +
 				"as root and own the staging tree as root."
@@ -1183,8 +1183,8 @@ func captureGatesPass(deps Deps, out printer, mode Mode, captureRoot string) boo
 		return captureRootUsable(deps, out, captureRoot)
 	}
 	if !deps.SandboxUserExists() {
-		out.printf("[bold red]Sandbox user '%s' does not exist.[/bold red]\n"+
-			"Run the one-time setup first (`yolo macos-setup`).", SandboxUser)
+		out.printf("[bold red]The yolo account '%s' does not exist.[/bold red]\n"+
+			"Run the one-time setup first (`yolo yolo-account create`).", SandboxUser)
 		return false
 	}
 	if c, unmet := PrivilegeUnmet(deps.launchProbes()); unmet {
@@ -1197,7 +1197,7 @@ func captureGatesPass(deps Deps, out printer, mode Mode, captureRoot string) boo
 // captureRootUsable judges the capture root as the staging root is judged (JudgeStagingRoot): the
 // host makes the staging tree in it, so it must be the host's, writable by no one else, with no
 // access list. Absent is fine: the prepare commands create it, 0755. A root another account owns
-// is what captures before the one-rule contract left (root's), which `yolo macos-setup` hands over.
+// is what captures before the one-rule contract left (root's), which `yolo yolo-account create` hands over.
 func captureRootUsable(deps Deps, out printer, captureRoot string) bool {
 	f := StagingRootFacts{Err: errNoStagingRootProbe}
 	if deps.StagingRootFacts != nil {
@@ -1208,13 +1208,13 @@ func captureRootUsable(deps Deps, out printer, captureRoot string) bool {
 		return true
 	case StagingRootUnknown:
 		out.printf("[bold red]Refusing the capture: %s could not be inspected[/bold red] (%s). "+
-			"Look at it with `ls -lde %s`; if it is not yours, run [bold]yolo macos-setup[/bold] as your "+
+			"Look at it with `ls -lde %s`; if it is not yours, run [bold]yolo yolo-account create[/bold] as your "+
 			"normal admin user; it gives the directory to you.", captureRoot, errStr(f.Err),
 			shquote.QuoteDisplay(captureRoot))
 		return false
 	}
 	out.printf("[bold red]Refusing the capture: %s belongs to another account or is not safe.[/bold red] "+
-		"Run [bold]yolo macos-setup[/bold] as your normal admin user; it gives the directory to you.",
+		"Run [bold]yolo yolo-account create[/bold] as your normal admin user; it gives the directory to you.",
 		captureRoot)
 	return false
 }
@@ -1333,7 +1333,7 @@ func PrintCapturePlan(w io.Writer, plan CapturePlan, problems []string) {
 	// THE CROSSINGS, each the whole argv: the one-time setup's rule (RunAsSandboxArgv), `-n`
 	// included, so none prompts.
 	if plan.RunAs.Mode == ModeSelf {
-		p.print("[bold]── as you, inside the capture profile (macos_user_mode \"self\": no second account, no sudo) ──[/bold]")
+		p.print("[bold]── as you, inside the capture profile (macos_user_mode \"self\": no yolo account, no sudo) ──[/bold]")
 	} else {
 		p.printf("[bold]── as %s (the one-time setup's sudo rule, no password) ──[/bold]", SandboxUser)
 	}
@@ -1668,7 +1668,7 @@ func forkToolchainHead(opts ForkBuildOptions) string {
 
 // ForkBuildStagingCommands are CaptureStagingCommands with the src/ leaf beside home/ and out/, made
 // the same way: owned by the invoking user, in the sandbox group, setgid, the shared group's ACLs
-// inherited from the root — so the user can copy the checkout in and the sandbox account can build
+// inherited from the root — so the user can copy the checkout in and the yolo account can build
 // in it.
 func ForkBuildStagingCommands(stagingRoot, hostUser string) [][]string {
 	cmds := CaptureStagingCommands(stagingRoot, hostUser)
@@ -1691,7 +1691,7 @@ func TreeBuildDriverArgv(runAs RunAs, stagedYolo, stagingHome, outDir, srcDir, t
 		TreeBuildScript(srcDir, toolchainFile, toolchainHead, build, treeDir), profilePath, envFile, pathPrefix)
 }
 
-// buildDriverArgv is the crossing both build drivers share: the sandbox account, its environment,
+// buildDriverArgv is the crossing both build drivers share: the yolo account, its environment,
 // the profile and the capture driver, around `env YOLO_BYPASS_SHIMS=1 /bin/bash -c <script>`. The
 // shell is macOS's own /bin/bash: a build runs on the platform's base system, and a recipe must work
 // there (pi-extensions.md PPX-D46).
@@ -1818,7 +1818,7 @@ func ForkBuildPlanInvariants(plan ForkBuildPlan) []string {
 		if runsSudo(cmd) {
 			problems = append(problems,
 				"the checkout is copied under sudo ("+shquote.JoinDisplay(cmd)+"); a copy made as root "+
-					"leaves files the sandbox account cannot write")
+					"leaves files the yolo account cannot write")
 		}
 	}
 	if !commandsInclude(plan.PrepareCommands, []string{mkdirBin, "-p", plan.SrcDir}) {

@@ -163,17 +163,17 @@ func LaunchPreconditions() []Precondition {
 			},
 		},
 		{
-			ID: PreconditionSandboxUser, Name: "the sandbox user",
+			ID: PreconditionSandboxUser, Name: "the yolo account",
 			Requires: []string{PreconditionMacOS},
 			holds:    func(p LaunchProbes, _ string) bool { return p.SandboxUserExists() },
-			Ready:    func(string) string { return "Sandbox user '" + SandboxUser + "' exists" },
-			Unmet:    func(string) string { return "Sandbox user '" + SandboxUser + "' does not exist" },
+			Ready:    func(string) string { return "The yolo account '" + SandboxUser + "' exists" },
+			Unmet:    func(string) string { return "The yolo account '" + SandboxUser + "' does not exist" },
 			Fix: func(string) string {
-				return "Run the one-time setup, as your normal user: yolo macos-setup"
+				return "Run the one-time setup, as your normal user: yolo yolo-account create"
 			},
 			Refusal: func(string) string {
-				return "[bold red]Sandbox user '" + SandboxUser + "' does not exist.[/bold red]\n" +
-					"Run the one-time setup to create it (`yolo macos-setup`; see " +
+				return "[bold red]The yolo account '" + SandboxUser + "' does not exist.[/bold red]\n" +
+					"Run the one-time setup to create it (`yolo yolo-account create`; see " +
 					"`docs/reference/macos-no-vm-direction.md`)."
 			},
 		},
@@ -185,7 +185,7 @@ func LaunchPreconditions() []Precondition {
 			// create it. The launch therefore ran the entire native nix build and then died in
 			// the bootstrap with twenty `mkdir /Users/_yolojail: permission denied` generator
 			// failures, under a diagnosis that blamed the WORKSPACE ACL and prescribed
-			// `macos-fix-permissions`, a remedy that cannot reach this path. Same rule the
+			// `yolo-account share`, a remedy that cannot reach this path. Same rule the
 			// sidecar-mirror refusal was fixed for: name the remedy that reaches the path it
 			// names. Measured on hardware 2026-09-12, and cheap here — one stat, before the
 			// build.
@@ -195,21 +195,21 @@ func LaunchPreconditions() []Precondition {
 			Ready:    func(string) string { return "Sandbox home " + SandboxHome() + " present" },
 			Unmet:    func(string) string { return "Sandbox home " + SandboxHome() + " is missing" },
 			Fix: func(string) string {
-				return "The sandbox user cannot recreate it (/Users is root-owned). Reprovision it; " +
-					"this is idempotent and leaves the account alone: yolo macos-setup"
+				return "The yolo account cannot recreate it (/Users is root-owned). Reprovision it; " +
+					"this is idempotent and leaves the account alone: yolo yolo-account create"
 			},
 			Refusal: func(string) string {
 				return "[bold red]Sandbox home '" + SandboxHome() + "' is missing.[/bold red]\n" +
 					"The account '" + SandboxUser + "' exists, so this is a home that was DELETED " +
-					"rather than a machine that\nwas never set up — and the sandbox user cannot " +
+					"rather than a machine that\nwas never set up — and the yolo account cannot " +
 					"recreate it itself (/Users is root-owned).\n\n" +
 					"Reprovision it — idempotent, and it leaves the account record alone:\n" +
-					"  [bold]yolo macos-setup[/bold]"
+					"  [bold]yolo yolo-account create[/bold]"
 			},
 		},
 		{
 			// THE STAGING ROOT, the host-owned directory every launch stages what the sandbox
-			// reads into (PL-1): `yolo macos-setup` creates it, so a missing one is a Mac set up by
+			// reads into (PL-1): `yolo yolo-account create` creates it, so a missing one is a Mac set up by
 			// an older yolo or not at all. Unreadable is asked here too, because unknown is a
 			// refusal, never a pass. The three staging-root rows are one probe judged three ways
 			// (JudgeStagingRoot), split so each refusal names the one remedy that reaches it.
@@ -225,13 +225,13 @@ func LaunchPreconditions() []Precondition {
 				return "The staging directory " + StagingRoot() + " does not exist or cannot be read"
 			},
 			Fix: func(string) string {
-				return "Run the one-time setup as your normal admin user (not with sudo): yolo macos-setup"
+				return "Run the one-time setup as your normal admin user (not with sudo): yolo yolo-account create"
 			},
 			Refusal: func(string) string {
 				return "[bold red]The macos-user staging directory " + StagingRoot() + " is missing.[/bold red]\n" +
 					"This Mac was set up by an older yolo, or not at all. Run the one-time setup as your " +
 					"normal admin user, not with sudo; it asks for your password once:\n" +
-					"  [bold]yolo macos-setup[/bold]"
+					"  [bold]yolo yolo-account create[/bold]"
 			},
 		},
 		{
@@ -248,17 +248,17 @@ func LaunchPreconditions() []Precondition {
 			},
 			Fix: func(string) string {
 				return "One macOS user per Mac runs the macos-user backend. If another user set it up, they " +
-					"run yolo macos-teardown; otherwise an administrator inspects it (ls -le " + StagingRoot() +
-					") and removes it (sudo rm -rf " + StagingRoot() + "). Then run yolo macos-setup."
+					"run yolo yolo-account remove; otherwise an administrator inspects it (ls -le " + StagingRoot() +
+					") and removes it (sudo rm -rf " + StagingRoot() + "). Then run yolo yolo-account create."
 			},
 			Refusal: func(string) string {
 				return "[bold red]Refusing the macos-user launch: " + StagingRoot() +
 					" belongs to another account.[/bold red]\n" +
 					"A launch stages what the sandbox reads there, so it must be yours.\n" +
-					"If another macOS user set this Mac up, they run [bold]yolo macos-teardown[/bold] first. " +
+					"If another macOS user set this Mac up, they run [bold]yolo yolo-account remove[/bold] first. " +
 					"Otherwise an administrator inspects it with `ls -le " + StagingRoot() + "` and removes it " +
 					"with `sudo rm -rf " + StagingRoot() + "`.\n" +
-					"Then run [bold]yolo macos-setup[/bold] as your normal admin user."
+					"Then run [bold]yolo yolo-account create[/bold] as your normal admin user."
 			},
 		},
 		{
@@ -275,19 +275,19 @@ func LaunchPreconditions() []Precondition {
 					" is a link, writable by others, or carries an access list"
 			},
 			Fix: func(string) string {
-				return "Run yolo macos-setup as your normal admin user; it resets the directory's mode and access list."
+				return "Run yolo yolo-account create as your normal admin user; it resets the directory's mode and access list."
 			},
 			Refusal: func(string) string {
 				return "[bold red]Refusing the macos-user launch: " + StagingRoot() +
 					" is not safe to stage into[/bold red] (a symbolic link, writable by another account, " +
 					"or carrying an access list).\n" +
 					"Repair it as your normal admin user:\n" +
-					"  [bold]yolo macos-setup[/bold]"
+					"  [bold]yolo yolo-account create[/bold]"
 			},
 		},
 		{
 			// READINESS PROBE G2: the one-time setup's rule, `<you> ALL=(_yolojail) NOPASSWD:
-			// /usr/bin/env`, through which every crossing into the sandbox account goes. Without
+			// /usr/bin/env`, through which every crossing into the yolo account goes. Without
 			// it the launch would stop at a password prompt, or fail with no terminal; asked here,
 			// before the build, it refuses naming the setup. It needs the account to name.
 			ID: PreconditionRunAsGrant, Name: "the run-as rule",
@@ -300,7 +300,7 @@ func LaunchPreconditions() []Precondition {
 				return "sudo cannot run commands as " + SandboxUser + " without a password"
 			},
 			Fix: func(string) string {
-				return "Run the one-time setup as your normal admin user: yolo macos-setup. It installs one rule, " +
+				return "Run the one-time setup as your normal admin user: yolo yolo-account create. It installs one rule, " +
 					SudoersFile + ", which runs commands as " + SandboxUser + ", never as root. On a managed " +
 					"Mac that refuses it, ask your administrator to allow that rule."
 			},
@@ -310,7 +310,7 @@ func LaunchPreconditions() []Precondition {
 					"` failed).\n" +
 					"Run the one-time setup as your normal admin user, not with sudo; it asks for your " +
 					"password once:\n" +
-					"  [bold]yolo macos-setup[/bold]\n" +
+					"  [bold]yolo yolo-account create[/bold]\n" +
 					"On a managed Mac that refuses it, ask your administrator to allow the rule it prints. " +
 					"`yolo check --no-build` asks the same question."
 			},
@@ -319,8 +319,8 @@ func LaunchPreconditions() []Precondition {
 			// THE WORKSPACE MUST NOT BE IN A USER'S HOME — and this is asked BEFORE the ACL
 			// probe below, which is the whole point of where it sits. A workspace under a home
 			// has no sandbox-group ACE either, so the probe fails for it too, and its refusal
-			// names `yolo macos-fix-permissions`: a command that refuses every path under a
-			// home on purpose (MacosFixPermissions). With the probe first, a project under ~
+			// names `yolo yolo-account share`: a command that refuses every path under a
+			// home on purpose (AccountShare). With the probe first, a project under ~
 			// looped — the launch said to run the fix, the fix said no, the launch said it
 			// again. Before this check the rule lived only in PlanInvariants, which a launch
 			// reaches after the nix build, behind the probe. PlanInvariants keeps it for the
@@ -347,7 +347,7 @@ func LaunchPreconditions() []Precondition {
 		},
 		{
 			// THE WORKSPACE MUST BE SHARED WITH THE SANDBOX, and this is the cheapest place
-			// to learn it is not. `macos-setup` shares everything under the shared root, and
+			// to learn it is not. `yolo-account create` shares everything under the shared root, and
 			// anything CREATED there afterwards inherits the grant — so by the time a launch
 			// runs, one route is left: a project MOVED or copied in, because rename() creates
 			// nothing and inherits nothing. That is the case this message assumes, because
@@ -355,7 +355,7 @@ func LaunchPreconditions() []Precondition {
 			//
 			// It REFUSES and names the command rather than offering to fix it inline. An
 			// earlier cut prompted y/N here; the command is the better answer because it is
-			// one thing to learn, it is idempotent, `macos-setup` has already named it, and
+			// one thing to learn, it is idempotent, `yolo-account create` has already named it, and
 			// it is in `yolo --help` and the diagnosing-the-jail skill. A prompt in every
 			// path teaches nothing and still needs the command to exist.
 			//
@@ -363,7 +363,7 @@ func LaunchPreconditions() []Precondition {
 			// so ~16s on a repo with a fat node_modules, which is what 84c55268 removed by
 			// moving to an inheriting entry. The check itself is one `ls`.
 			//
-			// It REQUIRES the sandbox user (no account, no group for an ACE to name, and the
+			// It REQUIRES the yolo account (no account, no group for an ACE to name, and the
 			// remedy is setup) and neutral ground (its remedy refuses a path under a home).
 			ID: PreconditionWorkspaceShared, Name: "the workspace's sharing",
 			Requires: []string{PreconditionSandboxUser, PreconditionNeutralGround},
@@ -371,28 +371,28 @@ func LaunchPreconditions() []Precondition {
 				return p.RunBash(WorkspaceGrantedScript(ws, "")) == 0
 			},
 			Ready: func(ws string) string {
-				return "Workspace " + ws + " is shared with the sandbox user"
+				return "Workspace " + ws + " is shared with the yolo account"
 			},
 			Unmet: func(ws string) string {
-				return "Workspace " + ws + " is not shared with the sandbox user"
+				return "Workspace " + ws + " is not shared with the yolo account"
 			},
 			Fix: func(ws string) string {
 				return "It carries no ACL entry for the " + SandboxGroup + " group, most likely " +
 					"because it was moved in (a move inherits nothing). Share it; this is " +
-					"idempotent: yolo macos-fix-permissions " + shquote.Quote(ws)
+					"idempotent: yolo yolo-account share " + shquote.Quote(ws)
 			},
 			Refusal: func(ws string) string {
-				return "[bold yellow]" + ws + " is not shared with the sandbox user.[/bold yellow]\n" +
+				return "[bold yellow]" + ws + " is not shared with the yolo account.[/bold yellow]\n" +
 					"It carries no usable ACL entry for the [bold]" + SandboxGroup + "[/bold] group, " +
 					"so the sandbox cannot write here\nand the launch would fail partway through " +
 					"provisioning.\n\n" +
 					"Most likely this project was MOVED or copied into " + SharedRootDefault() +
 					": macOS applies the\nshared ACL when a directory is CREATED, and a move " +
 					"inherits nothing. (An ACL also names a\nUUID rather than a name, so entries " +
-					"made before the sandbox account was last recreated are\ninert while still " +
+					"made before the yolo account was last recreated are\ninert while still " +
 					"looking correct in `ls -le`.)\n\n" +
 					"Share it — idempotent, safe to re-run:\n" +
-					"  [bold]yolo macos-fix-permissions " + shquote.Quote(ws) + "[/bold]"
+					"  [bold]yolo yolo-account share " + shquote.Quote(ws) + "[/bold]"
 			},
 		},
 	}
@@ -454,7 +454,7 @@ var privilegePreconditions = []string{
 
 // PrivilegeUnmet is the first of the privilege preconditions (the staging root's three and the
 // run-as rule), or of what they require, that does not hold on p, in the launch's order; false when
-// all hold. For an act that crosses into the sandbox account without a workspace of its own — the
+// all hold. For an act that crosses into the yolo account without a workspace of its own — the
 // capture and fork-build acts and the host floor that asks for them — so it refuses for the same
 // reasons as the launch, in the launch's words.
 func PrivilegeUnmet(p LaunchProbes) (Precondition, bool) {

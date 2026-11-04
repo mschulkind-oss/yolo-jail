@@ -47,13 +47,13 @@ generators failing at once is the signature) or later, whenever something first
 tries to write a path that was never shared.
 
 ```
-yolo macos-fix-permissions <workspace>     # or with no path: every project under the shared root
+yolo yolo-account share <workspace>     # or with no path: every project under the shared root
 ```
 
 Idempotent and safe to re-run at any time.
 
 **Why it happens.** macOS applies an inheriting ACL entry when a directory is
-**created**, and never retroactively. `yolo macos-setup` shares everything under
+**created**, and never retroactively. `yolo yolo-account create` shares everything under
 `/Users/Shared/yolo` and anything created there afterwards inherits the grant — so
 the case left over is a project **moved or copied in** later, because `mv` renames
 rather than creates and inherits nothing. (An ACL also names a UUID rather than a

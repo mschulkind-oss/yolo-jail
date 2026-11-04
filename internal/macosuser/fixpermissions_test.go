@@ -138,13 +138,13 @@ func TestSetupNamesTheFailingPathsWhenTheACLWalkFails(t *testing.T) {
 			"/Users/Shared/yolo/p/a\n"), 0o644)
 		return 1
 	}
-	MacosSetup(d)
+	AccountCreate(d)
 	out := buf.String()
 	for _, want := range []string{
 		"⚠ 2 paths under /Users/Shared/yolo did not get the shared-group ACL.\n\n",
 		"  ls -ledO /Users/Shared/yolo/p/a '/Users/Shared/yolo/p/b c'\n",
 		"  sudo chown matt /Users/Shared/yolo/p/a '/Users/Shared/yolo/p/b c'\n",
-		"  yolo macos-fix-permissions /Users/Shared/yolo\n",
+		"  yolo yolo-account share /Users/Shared/yolo\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ACL warning lacks %q:\n%s", want, out)
@@ -162,10 +162,10 @@ func TestSetupSaysTheACLWalkStoppedWhenNoPathIsListed(t *testing.T) {
 	d := mockDeps(&rec)
 	d.Out = &buf
 	d.RunBash = func(string) int { return 1 }
-	MacosSetup(d)
+	AccountCreate(d)
 	out := buf.String()
 	if !strings.Contains(out, "⚠ The shared-group ACL walk under /Users/Shared/yolo failed "+
-		"(its error is above).\n\n  yolo macos-fix-permissions /Users/Shared/yolo\n") {
+		"(its error is above).\n\n  yolo yolo-account share /Users/Shared/yolo\n") {
 		t.Errorf("ACL warning:\n%s", out)
 	}
 }
@@ -184,7 +184,7 @@ func uniqueLines(s string) []string {
 
 // A `find` blocker first on PATH (the guardrails pack's, in a `yolo host --` session that runs
 // yolo) must not refuse the walk: both scripts run /usr/bin/find, or the system default PATH's find where that is missing. Measured on a Mac
-// on 2026-10-23, where every launch fixture's macos-fix-permissions failed on the blocker.
+// on 2026-10-23, where every launch fixture's yolo-account share failed on the blocker.
 func TestThePermissionScriptsRunUnderAFindBlocker(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {

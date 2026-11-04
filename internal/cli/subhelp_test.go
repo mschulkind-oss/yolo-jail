@@ -111,7 +111,7 @@ var usageKeyRef = regexp.MustCompile("`([a-z][a-z0-9_.]*)` key\\b")
 
 // TestUsageNamesOnlyDocumentedConfigKeys: a `--help` that sends the reader to
 // `yolo config-ref` for "the `X` key" must name a key config-ref documents.
-// `yolo macos-setup --help` said "the `backend` key" when the key is `runtime`,
+// `yolo yolo-account create --help` said "the `backend` key" when the key is `runtime`,
 // so a user following it found nothing. It walks subcommandUsage, the table
 // TestEveryRegisteredCommandAnswersHelp proves `--help` prints, so it reads the
 // text a user actually sees.

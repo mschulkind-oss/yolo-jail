@@ -210,7 +210,7 @@ func TestCheckingThePreconditionsSkipsOnlyWhatAFailureMadeMoot(t *testing.T) {
 // loses its quoting.
 func TestTheSharingRemedyQuotesTheWorkspace(t *testing.T) {
 	const ws = "/Users/Shared/yolo/My Project"
-	want := "yolo macos-fix-permissions '" + ws + "'"
+	want := "yolo yolo-account share '" + ws + "'"
 	var buf bytes.Buffer
 	d := mockDeps(nil)
 	d.Out = &buf

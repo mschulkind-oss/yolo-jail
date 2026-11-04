@@ -29,119 +29,215 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
-const macosSetupUsage = `Usage: yolo macos-setup
+// yoloAccountUsage is what `yolo yolo-account --help` prints. "The yolo account" is
+// `_yolojail`, the macOS account the `seatbelt-yolo-account` setup runs agents as
+// (docs/design/named-setups.md, OQ-MT4); each verb answers its own `--help` too
+// (yoloAccountVerbUsage).
+const yoloAccountUsage = `Usage: yolo yolo-account <create|remove|share|unshare> [path]
 
-Provision the native macOS sandbox user the macos-user backend runs jails as: it
-creates the ` + "`_yolojail`" + ` account (random password, no login shell) if it is
-missing, sets up the shared group, and prepares the shared root. Idempotent —
-re-running it reuses an existing account.
+Manage the yolo account: ` + "`_yolojail`" + `, the macOS account agents run as when they
+should not run as you. It holds none of your files. The four verbs come in two
+inverse pairs:
+
+  create            Create the yolo account and its sudo rule (asks for your admin password once)
+  remove            Remove the yolo account, its group and its rule: the undo of create
+  share [path]      Give the yolo account an existing directory under the shared root
+  unshare <path>    Take a directory back out of the yolo account's reach: the undo of share
+
+Each verb answers ` + "`--help`" + ` on its own (` + "`yolo yolo-account create --help`" + `).
+macOS only for now: on any other system each verb refuses.
+
+  --help, -h  Show this help. Answered before anything is created or changed.
+
+Examples:
+  yolo yolo-account create                 # once per Mac
+  yolo yolo-account share ~/code/myproject # a project moved in after create`
+
+const yoloAccountCreateUsage = `Usage: yolo yolo-account create
+
+Create the yolo account, ` + "`_yolojail`" + `, that agents run as when they should not run as
+you: the account (random password, no login shell) if it is missing, the shared
+group, and the shared root. Idempotent: re-running it reuses an existing account.
 
 It also creates the staging directory /Users/Shared/yolo-staged, owned by you,
 and installs one sudo rule, /etc/sudoers.d/yolo-jail, which lets you run
 commands as ` + "`_yolojail`" + `, never as root, without a password. Launches then start
-and stop with no password prompt. One macOS user per Mac: setup refuses a
+and stop with no password prompt. One macOS user per Mac: create refuses a
 second while another user's rule or staging directory is in place.
 
 Run it as your normal admin user, not with sudo. It asks for your admin password
-once. macOS only: on any other platform it refuses.
+once. macOS only: on any other system it refuses.
 
   --help, -h  Show this help. Answered before anything is created.
 
 Examples:
-  yolo macos-setup                    # create the sandbox account and the rule (idempotent)
+  yolo yolo-account create            # create the yolo account and the rule (idempotent)
 
-See ` + "`yolo config-ref`" + ` for the ` + "`runtime`" + ` key, and ` + "`yolo macos-teardown`" + ` to remove
-the account again.`
+` + "`yolo yolo-account remove`" + ` removes the account again.`
 
-const macosTeardownUsage = `Usage: yolo macos-teardown
+const yoloAccountRemoveUsage = `Usage: yolo yolo-account remove
 
-Remove the ` + "`_yolojail`" + ` sandbox user and its group — the undo of
-` + "`yolo macos-setup`" + `. It also removes the sudo rule /etc/sudoers.d/yolo-jail
+Remove the yolo account, ` + "`_yolojail`" + `, and its group: the undo of
+` + "`yolo yolo-account create`" + `. It also removes the sudo rule /etc/sudoers.d/yolo-jail
 and, when it is yours, the staging directory /Users/Shared/yolo-staged, which
-frees the Mac for another user's ` + "`yolo macos-setup`" + `. /var/yolo-jail, left by
+frees the Mac for another user's ` + "`yolo yolo-account create`" + `. /var/yolo-jail, left by
 an older yolo, stays; ` + "`yolo stores`" + ` lists it. Does nothing (exit 0) when the
 account does not exist.
 
 sudo is invoked for the deletion, so macOS may prompt for your admin password.
-macOS only: on any other platform it refuses.
+macOS only: on any other system it refuses.
 
   --help, -h  Show this help. Answered before anything is deleted.
 
 Examples:
-  yolo macos-teardown                 # remove the account, its group, the rule and the staging dir`
+  yolo yolo-account remove            # remove the account, its group, the rule and the staging dir`
 
-const macosUnshareUsage = `Usage: yolo macos-unshare <workspace>
+const yoloAccountUnshareUsage = `Usage: yolo yolo-account unshare <path>
 
-Strip yolo-jail's ACLs from <workspace>, so the sandbox user can no longer reach
+Strip yolo-jail's ACLs from <path>, so the yolo account can no longer reach
 it. The path is resolved (absolute + symlinks) first and must be a directory.
-This is how you take a workspace back out of the macos-user backend's reach
-without tearing down the account.
+This is how you take a workspace back out of the yolo account's reach without
+removing the account.
 
-macOS only: on any other platform it refuses.
+macOS only: on any other system it refuses.
 
   --help, -h  Show this help. Answered before any ACL is touched.
 
 Examples:
-  yolo macos-unshare ~/code/myproject # take that workspace out of the jail's reach
+  yolo yolo-account unshare ~/code/myproject   # take that workspace out of the yolo account's reach
 
-The inverse — putting the ACLs BACK on files that predate sharing — is
-` + "`yolo macos-fix-permissions`" + `.`
+The inverse, putting the ACLs back on files that predate sharing, is
+` + "`yolo yolo-account share`" + `.`
 
-const macosFixPermissionsUsage = `Usage: yolo macos-fix-permissions [path]
+const yoloAccountShareUsage = `Usage: yolo yolo-account share [path]
 
-Retrofit the shared-group ACL onto files that already existed in the shared area
-before it was shared. With no [path] it walks the whole shared root; with one it
-walks that directory instead.
+Give the yolo account the shared-group ACL on files that already existed in the
+shared area before it was shared. With no [path] it walks the whole shared root;
+with one it walks that directory instead.
 
-It refuses a path inside a user home: the macos-user backend only manages ACLs on
-neutral ground. macOS only: on any other platform it refuses.
+It refuses a path inside a user home: yolo only manages ACLs on neutral ground.
+macOS only: on any other system it refuses.
 
   --help, -h  Show this help. Answered before any ACL is applied.
 
 Examples:
-  yolo macos-fix-permissions          # retrofit the ACL across the whole shared root
-  yolo macos-fix-permissions /Users/Shared/yolo-jail/myproject   # just this one`
+  yolo yolo-account share             # retrofit the ACL across the whole shared root
+  yolo yolo-account share /Users/Shared/yolo-jail/myproject   # just this one`
 
-// runMacosSetup/Teardown/Unshare/FixPermissions dispatch the four macos-*
-// commands (macOS-only; refuse/no-op on Linux). Each answers its own `--help`
-// first: these are sudo-invoking, ACL-rewriting commands, so "what does this do?"
-// must be answerable without running them (see subhelp.go).
-func runMacosSetup(args []string) int {
-	if answerHelp("macos-setup", args, os.Stdout) {
-		return 0
-	}
-	return macosuser.MacosSetup(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)))
-}
-func runMacosTeardown(args []string) int {
-	if answerHelp("macos-teardown", args, os.Stdout) {
-		return 0
-	}
-	return macosuser.MacosTeardown(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)))
+// yoloAccountVerbUsage is each verb's own help, answered by `yolo yolo-account <verb>
+// --help`: these are sudo-invoking, ACL-rewriting acts, so "what does this do?" must be
+// answerable without running them. It lives beside subcommandUsage rather than in it
+// because that table is keyed by registry name (TestSubcommandUsageHasNoStaleEntries).
+var yoloAccountVerbUsage = map[string]string{
+	"create":  yoloAccountCreateUsage,
+	"remove":  yoloAccountRemoveUsage,
+	"share":   yoloAccountShareUsage,
+	"unshare": yoloAccountUnshareUsage,
 }
 
-func runMacosUnshare(args []string) int {
-	if answerHelp("macos-unshare", args, os.Stdout) {
-		return 0
-	}
-	ws := ""
-	if len(args) > 1 {
-		ws = args[1]
-	}
-	return macosuser.MacosUnshare(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)), ws)
+// yoloAccountActs is what each verb does, split out so a test can stand in for the
+// real acts (which ask for sudo and change the Mac). path is the verb's one positional,
+// "" when none was given.
+type yoloAccountActs struct {
+	create, remove func() int
+	share, unshare func(path string) int
 }
 
-func runMacosFixPermissions(args []string) int {
-	if answerHelp("macos-fix-permissions", args, os.Stdout) {
+// runYoloAccount is `yolo yolo-account`, the yolo account's verbs (OQ-MT8 of
+// docs/design/named-setups.md). The verbs' behavior is the macos-* commands' they replace.
+func runYoloAccount(args []string) int {
+	deps := func() macosuser.Deps { return macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)) }
+	return yoloAccountMain(args, yoloAccountActs{
+		create:  func() int { return macosuser.AccountCreate(deps()) },
+		remove:  func() int { return macosuser.AccountRemove(deps()) },
+		share:   func(p string) int { return macosuser.AccountShare(deps(), p) },
+		unshare: func(p string) int { return macosuser.AccountUnshare(deps(), p) },
+	}, os.Stdout, os.Stderr)
+}
+
+func yoloAccountMain(args []string, acts yoloAccountActs, out, errw io.Writer) int {
+	rest := args
+	if len(rest) > 0 && rest[0] == "yolo-account" {
+		rest = rest[1:]
+	}
+	if len(rest) > 0 {
+		if text, ok := yoloAccountVerbUsage[rest[0]]; ok && helpRequested(rest[1:]) {
+			fmt.Fprintln(out, text)
+			return 0
+		}
+	}
+	if helpRequested(rest) {
+		fmt.Fprintln(out, yoloAccountUsage)
 		return 0
 	}
+	if len(rest) == 0 {
+		fmt.Fprintf(errw, "yolo yolo-account: name a verb: create, remove, share or unshare.\n\n%s\n", yoloAccountUsage)
+		return 2
+	}
+	verb, pos := rest[0], rest[1:]
 	path := ""
-	if len(args) > 1 {
-		path = args[1]
+	if len(pos) > 0 {
+		path = pos[0]
 	}
-	return macosuser.MacosFixPermissions(macosuser.RealDeps(nil, nil, colorForWriter(os.Stdout)), path)
+	if len(pos) > 1 {
+		fmt.Fprintf(errw, "yolo yolo-account %s: takes at most one path, got %d (%s); "+
+			"`yolo yolo-account %s --help` says what it takes.\n", verb, len(pos), strings.Join(pos, " "), verb)
+		return 2
+	}
+	switch verb {
+	case "create":
+		if path != "" {
+			fmt.Fprintf(errw, "yolo yolo-account create: takes no path, got %q. Run it bare:\n  yolo yolo-account create\n", path)
+			return 2
+		}
+		return acts.create()
+	case "remove":
+		if path != "" {
+			fmt.Fprintf(errw, "yolo yolo-account remove: takes no path, got %q. Run it bare:\n  yolo yolo-account remove\n", path)
+			return 2
+		}
+		return acts.remove()
+	case "share":
+		return acts.share(path)
+	case "unshare":
+		return acts.unshare(path)
+	default:
+		fmt.Fprintf(errw, "yolo yolo-account: unknown verb %q; the verbs are create, remove, share "+
+			"and unshare (`yolo yolo-account --help` says what each does).\n", verb)
+		return 2
+	}
+}
+
+// renamedVerbs maps each removed top-level verb to the `yolo-account` verb that replaced
+// it. They are refused, never aliased (MT-R3 and §10 of docs/design/named-setups.md), and
+// they are not registry keys, so `yolo --help` does not list them; the front door answers
+// one with refuseRenamedVerb instead of "unknown command".
+var renamedVerbs = map[string]string{
+	"macos-setup":           "create",
+	"macos-teardown":        "remove",
+	"macos-fix-permissions": "share",
+	"macos-unshare":         "unshare",
+}
+
+// refuseRenamedVerb answers a removed verb with the one that replaced it, and reports
+// whether it did. The arguments typed after the old verb are carried into the command it
+// names, so `yolo macos-fix-permissions <path>` is told the exact command to run.
+func refuseRenamedVerb(args []string, errw io.Writer) bool {
+	name := firstPositional(args)
+	verb, ok := renamedVerbs[name]
+	if !ok {
+		return false
+	}
+	next := []string{"yolo", "yolo-account", verb}
+	if i := slices.Index(args, name); i >= 0 {
+		next = append(next, args[i+1:]...)
+	}
+	fmt.Fprintf(errw, "yolo %s is now yolo yolo-account %s. Run:\n  %s\n", name, verb, shquote.JoinDisplay(next))
+	return true
 }
 
 // pruneUsage is what `yolo prune --help` prints. The flag list is exactly the
@@ -1388,7 +1484,7 @@ func macosUserLaunchMode() (macosuser.Mode, string) {
 	mode, err := macosuser.ParseMode(v)
 	if err != nil {
 		return macosuser.ModeAccount, err.Error() + `; set macos_user_mode to "self" or "account" in ` +
-			paths.UserConfigDisplayPath() + `, or remove it to launch as the separate sandbox account`
+			paths.UserConfigDisplayPath() + `, or remove it to launch as the yolo account`
 	}
 	return mode, ""
 }

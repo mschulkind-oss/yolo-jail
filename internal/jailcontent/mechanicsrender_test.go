@@ -202,7 +202,7 @@ func TestNativeAndHostNetworkAndACLTextFollowAppliedFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := joinRendered(got)
-	for _, want := range []string{"yolo macos-fix-permissions", "_yolojail", "yolo-jail.json", "/Users/test/project/.yolo/startup.log"} {
+	for _, want := range []string{"yolo yolo-account share", "_yolojail", "yolo-jail.json", "/Users/test/project/.yolo/startup.log"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("native render lacks applied account/config/log fact %q", want)
 		}
@@ -222,7 +222,7 @@ func TestNativeAndHostNetworkAndACLTextFollowAppliedFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	withoutAccountText := strings.ToLower(joinRendered(withoutAccountGot))
-	if strings.Contains(joinRendered(withoutAccountGot), "yolo macos-fix-permissions") {
+	if strings.Contains(joinRendered(withoutAccountGot), "yolo yolo-account share") {
 		t.Error("ACL troubleshooting rendered without supplied separate-account facts")
 	}
 	if strings.Contains(withoutAccountText, "/home/agent") {

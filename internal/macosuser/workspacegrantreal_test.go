@@ -29,7 +29,7 @@ func TestWorkspaceGrantedScriptAgainstRealDirs(t *testing.T) {
 	root := t.TempDir()
 	group := "staff" // a group every macOS account is in; the ACE shape is what matters
 
-	// A directly-applied inheritable ACE — the shape `macos-setup` puts on the
+	// A directly-applied inheritable ACE — the shape `yolo-account create` puts on the
 	// shared root, rendered by ls WITHOUT the "inherited" keyword.
 	parent := filepath.Join(root, "parent")
 	if err := os.Mkdir(parent, 0o755); err != nil {

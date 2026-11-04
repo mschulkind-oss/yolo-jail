@@ -991,7 +991,7 @@
     link.  The target may be on another volume under /Volumes; it may not be
     inside a home, the workspace or a `mounts` source.  A folder yolo makes
     for it is opened to the sandbox account as it is made; one that already
-    holds files needs `yolo macos-fix-permissions <folder>`, and the launch
+    holds files needs `yolo yolo-account share <folder>`, and the launch
     refuses until the sandbox can write it.  Only ~/.cache moves there: a
     macOS tool caching under ~/Library/Caches (Go's build cache, and likely
     pip and playwright) is not relocated.  [bold yellow]A symlink you make yourself is
@@ -1471,7 +1471,7 @@
     machine's `yolo capture` of it: a jail's, on a Mac the macos-user sandbox
     account's, or on Linux with no container runtime one made on this machine
     with its installer confined by Landlock.  Where the floor cannot hold an
-    agent -- an installer agent on a Mac before `yolo macos-setup`, or on Linux
+    agent -- an installer agent on a Mac before `yolo yolo-account create`, or on Linux
     with neither a container runtime nor Landlock, or a machine without the
     dynamic loader the agent needs (NixOS without nix-ld, a musl system) -- the
     launch stops, saying why and what changes it; it never runs a copy from your
@@ -1599,7 +1599,7 @@
 
   [bold]macos_user_mode[/bold] ("self" | "account"): Which account a macos-user jail runs as.  Default "account".
     "account" is the default: the agent runs as the sandbox account `yolo
-    macos-setup` provisions for it.  "self" (experimental) runs the agent as you,
+    yolo-account create` provisions for it.  "self" (experimental) runs the agent as you,
     with no account, admin setup or access grants, under a deny-by-default Seatbelt
     profile that opens the workspace, the agent's own home in .yolo/home and the
     tools, and denies the rest of your files, your keychain and your other

@@ -424,7 +424,7 @@ func hostFloorCaptureOnAMac(t *testing.T, dir, store string) {
 		t.Errorf("`yolo host -- %s` on a Mac with no sandbox account: rc %d, want 127 (no floor copy and none "+
 			"on PATH)\nstdout:\n%s\nstderr:\n%s", captureFixtureBin, r.rc, r.stdout, r.stderr)
 	}
-	for _, want := range []string{"yolo has no copy of " + captureFixtureBin + " on this Mac", "`yolo macos-setup`"} {
+	for _, want := range []string{"yolo has no copy of " + captureFixtureBin + " on this Mac", "`yolo yolo-account create`"} {
 		if !strings.Contains(r.stderr, want) {
 			t.Errorf("the launch does not say %q:\n%s", want, r.stderr)
 		}

@@ -13,7 +13,7 @@ import (
 // inhomemove_test.go RUNS the in-home remedy. The refusal exists to end "a remedy that cannot
 // reach the path it names", so what is pinned is not its wording but what its commands do: taken
 // out of the message as printed and handed to a shell, in order, they must leave the project at
-// the one path the printed `macos-fix-permissions` line names, and touch nothing else there.
+// the one path the printed `yolo-account share` line names, and touch nothing else there.
 
 // moveFixture builds a project under a home and an empty shared root, points the remedy at that
 // root, and returns the project, its home and the root.
@@ -41,7 +41,7 @@ func moveFixture(t *testing.T) (ws, home, root string) {
 }
 
 // runRemedy runs every `rm`/`mv` command line of msg in a shell, in order, and returns the
-// directory the `macos-fix-permissions` line names, unquoted by the same shell.
+// directory the `yolo-account share` line names, unquoted by the same shell.
 func runRemedy(t *testing.T, msg string) (shared string) {
 	t.Helper()
 	for _, line := range strings.Split(msg, "\n") {
@@ -51,8 +51,8 @@ func runRemedy(t *testing.T, msg string) (shared string) {
 			if out, err := exec.Command("/bin/sh", "-c", cmd).CombinedOutput(); err != nil {
 				t.Fatalf("the printed command %q fails: %v\n%s\nthe remedy was:\n%s", cmd, err, out, msg)
 			}
-		case strings.HasPrefix(cmd, "yolo macos-fix-permissions "):
-			arg := strings.TrimPrefix(cmd, "yolo macos-fix-permissions ")
+		case strings.HasPrefix(cmd, "yolo yolo-account share "):
+			arg := strings.TrimPrefix(cmd, "yolo yolo-account share ")
 			out, err := exec.Command("/bin/sh", "-c", "printf %s "+arg).Output()
 			if err != nil {
 				t.Fatal(err)
@@ -61,7 +61,7 @@ func runRemedy(t *testing.T, msg string) (shared string) {
 		}
 	}
 	if shared == "" {
-		t.Fatalf("the remedy names no macos-fix-permissions:\n%s", msg)
+		t.Fatalf("the remedy names no yolo-account share:\n%s", msg)
 	}
 	return shared
 }

@@ -2360,7 +2360,7 @@ func errStr(err error) string {
 // (OQ-RO3), which is half a bargain when a backend's disclosures never reach it — the
 // pack read/exec banners among them, and those are the whole trust boundary.
 //
-// PUBLISHED RATHER THAN PASSED, which is what leaves `yolo macos-setup` and its three
+// PUBLISHED RATHER THAN PASSED, which is what leaves `yolo yolo-account create` and its three
 // siblings alone. They build their Deps from this same RealDeps with no pipeline to take
 // a writer from (internal/cli/commands.go), so a writer PARAMETER would have had to be
 // threaded through every one of them; nothing publishes on their path, LaunchWriter
