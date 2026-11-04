@@ -451,7 +451,7 @@ and appends the results to that lab report:
    `pgrep -f hostservice.test`: passes, and no leaf process is left.
 4. `go test -short -count=1 -run '^TestAHook' ./internal/brokerhook`: passes.
 5. `python3 scripts/test-completion-check.py`: passes.
-6. `just done` (the full `just check-ci`), under the same load as the report's §9 if practical: the
+6. `just done` (the full `just check-ci`), under the same load as the report's [§9](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac) if practical: the
    only expected failures are none (the four `kern.procargs2` tests were fixed in `f25911eb3`); report
    the `internal/cli` package's time.
 
