@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: draft
 stage: DESIGN
-next: "Rule OQ-MA1 (the refresh model). Then OQ-MA2, OQ-MA3, OQ-MA4, OQ-MA6, OQ-MA7 and OQ-MA8."
+next: "Rule OQ-MA2, OQ-MA3, OQ-MA4, OQ-MA6, OQ-MA7 and OQ-MA8."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Every coding agent keeps one token store for all of its remote MCP servers, and none can redirect one server. So sharing only the user-level servers' sign-ins is not a link or a mount: it is a host broker that copies individual entries between one machine-wide canonical store and each workspace's own store, under each agent's own lock, and that is the single refresher of every shared entry so a rotating refresh token is never redeemed twice. A server is user-level when the user's layer alone produces the same server (same name, same sign-in identity). Agent packs declare their store's shape (path, format, key function, lock protocol); core runs one broker and names no agent. Opted in, one sign-in serves every agent: the broker adopts a sign-in an agent already made (for Slack, Claude Code's plugin, the only yolo agent Slack lets sign in) and becomes its only refresher, or failing that signs in as the user's own client, and hands the access token to each agent through a header command (Claude, Codex, pi) or by writing it into the agent's store, because an MCP access token is bound to the server it was issued for, not to the program presenting it, while a refresh token stays with the client that got it. Prerequisite: mcp_servers grows a remote (url) form, since yolo cannot know a remote server's scope today."
@@ -43,7 +43,7 @@ user registers an internal Slack app.
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule. The rest
 falls out of it.
 
-**Needs your ruling:** [OQ-MA1](#OQ-MA1), [OQ-MA2](#OQ-MA2), [OQ-MA3](#OQ-MA3), [OQ-MA4](#OQ-MA4),
+**Needs your ruling:** [OQ-MA2](#OQ-MA2), [OQ-MA3](#OQ-MA3), [OQ-MA4](#OQ-MA4),
 [OQ-MA6](#OQ-MA6), [OQ-MA7](#OQ-MA7), [OQ-MA8](#OQ-MA8).
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the one MCP table is
@@ -328,16 +328,17 @@ try to refresh at once. Therefore:
   after taking the lock. It discovers the token endpoint from the server URL (RFC 9728 protected
   resource metadata, then RFC 8414), redeems the refresh token with the entry's client id (and
   secret, when there is one), writes canonical, and propagates.
-- **A copy keeps its refresh token only when the agent re-reads its store before refreshing**
-  (`rereads_before_refresh`, measured per agent). Such an agent, finding a fresh token on disk,
-  never redeems the old one. Otherwise the copy is written without a refresh token, the credential
-  view's rule (CL-D1). Which model holds when the broker is down is [OQ-MA1](#OQ-MA1).
+- **A copy never carries a refresh token** ([OQ-MA1](#OQ-MA1)): the broker writes the access
+  token and its expiry only, the credential view's rule (CL-D1). With the broker down, a copy
+  expires and the agent asks for a new sign-in, which the broker adopts when it is back. The one
+  exception is an agent measured to break on an entry with no refresh token, and only for as long
+  as that measurement stands ([§15](#15-risks)).
 - **A refused refresh** (`invalid_grant`) marks the record `dead`, removes the entry from every
   replica, and the next launch line names the next step: `linear: its sign-in was revoked; sign in
   again inside any jail with codex mcp login linear` (the command is the pack's, from a
   `login_hint` declaration field).
 - **A transient failure** (network, 5xx) retries at 30 s, 1, 2, 5 min until expiry; past expiry the
-  agent's own refresh, where it holds a refresh token, is the fallback.
+  record is not refreshed, and the launch line names `yolo mcp-auth status`.
 
 ### 8.5 Launch-boundary only
 
@@ -632,7 +633,7 @@ same line.
 ### 9.7 Refresh, sign-out, and where it cannot work
 
 - **Refresh is the broker's alone**, always, by [§8.4](#84-refresh-the-broker-is-the-single-refresher)'s
-  schedule. No agent holds the refresh token, so [OQ-MA1](#OQ-MA1) does not arise here. With the
+  schedule. No agent holds the refresh token ([OQ-MA1](#OQ-MA1)). With the
   broker down, the header command fails and a store entry expires; the line names `yolo mcp-auth
   status`.
 - **Sign-out** is `yolo mcp-auth logout <server>`, which revokes where it can and clears every
@@ -756,10 +757,10 @@ changes.
 | Risk | Mitigation |
 |---|---|
 | An agent update changes its key or format | `mcp_auth_match` fails closed: an entry it cannot classify is not shared, and `yolo check` names the agent version |
-| An agent caches a refresh token in memory and redeems it after the broker rotated it | `rereads_before_refresh` is measured per version; false means copies carry none |
+| An agent caches a refresh token in memory and redeems it after the broker rotated it | Copies carry no refresh token ([OQ-MA1](#OQ-MA1)), so there is none to redeem |
 | The broker's discovery fails for a server | The record stays agent-refreshed, launch-boundary only, and the line says so |
 | The adopted app's owner rotates its client id, or Slack revokes the app | The next refresh fails; the broker drops the record and the line names a new agent sign-in or the user's own app ([§9.3](#93-adopting-a-sign-in-an-agent-already-has)) |
-| Claude misbehaves on an entry with no `refreshToken` (drops it, or prompts) | A measurement before the adoption ships; if it fails, the broker leaves the refresh token in place, refreshes 3 hours ahead so Claude never reaches expiry, and the Claude pack's `rereads_before_refresh` decides whether that is safe |
+| Claude misbehaves on an entry with no `refreshToken` (drops it, or prompts) | A measurement before the adoption ships; if it fails, the broker leaves the refresh token in place and refreshes 3 hours ahead so Claude never reaches expiry: the one case [OQ-MA1](#OQ-MA1) allows, because removing it is not possible there |
 | Codex deletes its store file when the last entry goes | The broker reads a missing file as an empty store, and creates the file only when it has an entry to write (an empty file fails Codex's parse) |
 
 ## 16. What I would build, in order
@@ -790,28 +791,6 @@ in any jail list Slack's tools with no prompt, Claude's Slack plugin keeps worki
 store holds a Slack refresh token.
 
 ## 17. Open Questions
-
-1. 💬 **OQ-MA1: When the broker is down, should a jail's agent still be able to refresh a shared sign-in itself?**
-
-   Dana has two jails open on the same Linear server. The broker refreshes Linear's token before
-   it expires and writes the new one into both. If the broker is stopped (a crash, a host
-   restart mid-session), the token expires an hour later and the agent wants to refresh.
-
-   - **Copies carry the refresh token where the agent re-reads its store first.** Dana's agent
-     refreshes and keeps working; the broker adopts the result when it is back. Cost: if the agent
-     was measured wrong, two jails redeem one token and Dana signs in again.
-   - **Copies never carry a refresh token.** Dana's agent says the server needs a new sign-in; she
-     signs in, and the broker adopts it. Cost: an outage costs a sign-in; a token never leaks
-     twice.
-
-   <!-- vantage: question id=OQ-MA1 leaning="Carry the refresh token only for agents measured to re-read their store before refreshing; strip it otherwise. An outage should not cost a sign-in where the agent is measured safe." -->
-
-   _Leaning:_ Carry the refresh token only for agents measured to re-read their store before
-   refreshing; strip it otherwise. An outage should not cost a sign-in where the agent is measured
-   safe.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
 
 2. 💬 **OQ-MA2: Should sign-ins for servers yolo never sees ever be shared?**
 
@@ -956,6 +935,7 @@ Implementation decisions taken in this draft, inside the owner's 2026-11-03 ask.
 | MA-D16 | Adopt an agent's existing sign-in as the first route: match by server URL and issuer, adopt only when the agent's store holds all a refresh needs, latest sign-in wins, automatic under `sign_in = "once"` and disclosed at every launch | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
 | MA-D17 | An adopted record's refresh token moves to the host; the source agent's entry keeps only a fresh access token, written back under its lock after each refresh | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
 | MA-D18 | yolo never starts a sign-in under an adopted client id, nor renders one into an agent's config | 2026-11-03 | [§9.7](#97-refresh-sign-out-and-where-it-cannot-work) | — |
+| <a id="OQ-MA1"></a>[OQ-MA1](#OQ-MA1) | **Owner's ruling (2026-11-03):** a copy in an agent's store never carries a refresh token where removing it is possible; only the broker refreshes, and with the broker down a copy expires and the agent asks for a sign-in. Owner: *"don't carry a refresh token if that's possible."* The one case it is not: an agent measured to break on an entry with no refresh token | 2026-11-03 | [§8.4](#84-refresh-the-broker-is-the-single-refresher) | — |
 | <a id="OQ-MA5"></a>[OQ-MA5](#OQ-MA5) | **Owner's ruling (2026-11-03):** opt in both ways, per server (`sign_in = "once"`) and for ALL user-level servers at once (user-scope `mcp_sign_in = "once"`; a server's `sign_in = "per_agent"` opts out). Owner: *"I also want opt in for ALL servers for MCP signin across agents."* Implementation decisions, not rulings: the key's spelling, and that under the user-wide switch a server that cannot take one sign-in keeps per-agent sign-in with a launch line naming the fix rather than being refused | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
 
 ## Appendix A: Evidence
