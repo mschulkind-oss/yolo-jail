@@ -914,8 +914,7 @@ func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
 // own switch for the workspace and is not overruled. The value's record names the user's file.
 func keepUserOffSwitchesOff(merged *jsonx.OrderedMap, node *srcNode, userCfg *jsonx.OrderedMap, userNode *srcNode) {
 	userBlock, _ := asMap(mapGet(userCfg, "loopholes"))
-	mergedBlock, _ := asMap(mapGet(merged, "loopholes"))
-	if userBlock == nil || mergedBlock == nil {
+	if userBlock == nil || merged == nil {
 		return
 	}
 	for _, name := range userBlock.Keys() {
@@ -929,13 +928,46 @@ func keepUserOffSwitchesOff(merged *jsonx.OrderedMap, node *srcNode, userCfg *js
 		if v, ok := mapGet(userEntry, "enabled").(bool); !ok || v {
 			continue
 		}
+		// A workspace null resets the block or the entry to its default, which for these is on;
+		// the off is re-asserted in a block or entry made for it.
+		mergedBlock, _ := asMap(mapGet(merged, "loopholes"))
+		if mergedBlock == nil {
+			mergedBlock = jsonx.NewOrderedMap()
+			merged.Set("loopholes", mergedBlock)
+		}
 		entry, _ := asMap(mapGet(mergedBlock, name))
 		if entry == nil {
-			continue
+			entry = jsonx.NewOrderedMap()
+			mergedBlock.Set(name, entry)
 		}
 		entry.Set("enabled", false)
-		if en := node.key("loopholes").key(name); en != nil && en.keys != nil {
-			en.keys["enabled"] = userNode.key("loopholes").key(name).key("enabled")
+		if node == nil {
+			continue
+		}
+		userEn := userNode.key("loopholes").key(name).key("enabled")
+		bn := childNode(node, "loopholes", userNode.key("loopholes"))
+		en := childNode(bn, name, userNode.key("loopholes").key(name))
+		if userEn != nil {
+			en.keys["enabled"] = userEn
 		}
 	}
+}
+
+// childNode is n's member k, made (written by like's writers) where the merge left none.
+func childNode(n *srcNode, k string, like *srcNode) *srcNode {
+	if n.keys == nil {
+		n.keys = map[string]*srcNode{}
+	}
+	if c := n.keys[k]; c != nil {
+		if c.keys == nil {
+			c.keys = map[string]*srcNode{}
+		}
+		return c
+	}
+	c := &srcNode{keys: map[string]*srcNode{}}
+	if like != nil {
+		c.writers = append(c.writers, like.writers...)
+	}
+	n.keys[k] = c
+	return c
 }

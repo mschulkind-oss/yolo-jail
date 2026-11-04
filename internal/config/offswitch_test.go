@@ -105,6 +105,11 @@ func TestAWorkspaceCannotTurnOnAUserOffSwitch(t *testing.T) {
 			`{}`, `{"workspace": "WS", "loopholes": {"cgroup-delegate": {"enabled": true}}}`, true},
 		{"workspace false over user true", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "p"}}}}`,
 			`{"loopholes": {"aws-auth": {"enabled": false}}}`, "", false},
+		// A null resets the block, or the entry, to its default; the user's off still holds.
+		{"workspace loopholes null", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false, "settings": {"profile": "p"}}}}`,
+			`{"loopholes": null}`, "", false},
+		{"workspace entry null", `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false, "settings": {"profile": "p"}}}}`,
+			`{"loopholes": {"aws-auth": null}}`, "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

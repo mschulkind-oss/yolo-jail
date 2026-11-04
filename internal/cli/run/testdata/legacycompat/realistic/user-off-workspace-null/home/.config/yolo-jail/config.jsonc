@@ -1,0 +1,7 @@
+{
+  "packs": ["aws-auth", "cgroup-delegate"],
+  "loopholes": {
+    "aws-auth": { "enabled": false, "settings": { "profile": "example-profile" } },
+    "cgroup-delegate": { "enabled": false }
+  }
+}
