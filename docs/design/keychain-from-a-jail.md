@@ -954,16 +954,31 @@ What I would build, in order:
      Copilot's login as `COPILOT_GITHUB_TOKEN` in its agent env file. A login made in the sandbox
      comes back through the login copy's harvest. A program with no such input is not covered.
    - **B: Interpose Security.framework** in the sandbox with an injected library that answers the
-     keychain calls from the loophole.
+     keychain calls from the loophole. **Measured not possible for Copilot as shipped**
+     ([E26](#E26)): the darwin binary is GitHub-signed with the hardened runtime and lacks
+     `allow-dyld-environment-variables`, so dyld ignores `DYLD_INSERT_LIBRARIES` for it. Reaching
+     it anyway means re-signing GitHub's binary or loading its `runtime.node` into a Node of
+     yolo's own, both function patching that [MT-D3](macos-native-tls.md#decision-ledger)
+     rejected. Programs that use `/usr/bin/security` (Claude Code, go-keyring and so `gh`) are
+     out of reach too: SIP strips `DYLD_*` from platform binaries.
 
-   <!-- vantage: question id=OQ-KC5 leaning="A, per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN once a measurement shows Copilot accepts its own OAuth token there; B needs a C library outside the cgo-free build, and macOS strips injected libraries from hardened binaries." -->
+   **Security difference (2026-11-03, for the maintainer's question).** Small. Either way the
+   values reach only processes running in that sandbox, scoped by the loophole as
+   [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) scopes them, and any process there
+   could ask the loophole directly under B, as every program does on Linux by
+   [OQ-KC3](#8-decision-ledger). B would keep the value out of the environment, where A leaves it
+   readable by Copilot's children and by `ps -E` as the same user, and B would write a login or
+   logout through to the host item, where A takes a launch-time copy. Those are B's advantages;
+   the measurement above is why it is not available.
+
+   <!-- vantage: question id=OQ-KC5 leaning="A, per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN once a measurement shows Copilot accepts its own OAuth token there; B was the maintainer's preference if possible, and it is not: the shipped Copilot is hardened without the DYLD entitlement (E26), and reaching it otherwise is function patching, rejected by MT-D3." -->
 
    _Leaning:_ A, starting with Copilot's login as `COPILOT_GITHUB_TOKEN`, once a measurement
    shows Copilot accepts its own OAuth token there (unmeasured: the research names it for
    fine-grained tokens, [route B](../research/copilot-token-storage.md#OQ-CT1)). The token is then
-   in the environment of Copilot's children, as `config.json` is readable by them today. B needs a
-   C library outside the `CGO_ENABLED=0` build, and macOS strips injected libraries from hardened
-   binaries.
+   in the environment of Copilot's children, as `config.json` is readable by them today. The
+   maintainer preferred B *"if that's possible"* (2026-11-03); it is not, by [E26](#E26) and
+   [MT-D3](macos-native-tls.md#decision-ledger).
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1033,3 +1048,4 @@ from a published source or specification. INFERRED means reasoned from those.
 | <a id="E23"></a>E23 | MEASURED | Apple Container starts no pack host daemon but OpenAI's, and its TCP hop is dead | [per-backend differences](../reference/agent-credentials.md#per-backend-differences); [G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog) |
 | <a id="E24"></a>E24 | MEASURED | A loophole host daemon's readiness: a fixed 5 s, a group SIGKILL, and a reason-free warning; the readiness line elsewhere | [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L688-L691) (`serviceReadyTimeoutDefault`, overridden only by tests), [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L736) ("did not become reachable within"), [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L1082) (`Setsid`), [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L1147) (the group SIGKILL). The readiness line: [`launchservice.go`](../../internal/launchservice/launchservice.go#L13-L19), [`listener.go`](../../internal/launchservice/listener.go#L36-L38), [wire-bridge.md, current values](../reference/wire-bridge.md#current-values). All at `232e4dcd` |
 | <a id="E25"></a>E25 | MEASURED | What a loophole host daemon's argv can carry | [`tokens.go`](../../internal/loopholedecl/tokens.go#L9-L20) (`{loophole_dir}`, the host-side module directory), [`tokens.go`](../../internal/loopholedecl/tokens.go#L104) (`{state}`), [`tokens.go`](../../internal/loopholedecl/tokens.go#L106-L130) (`{settings}`, a file of the user's validated values), [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go#L801-L810) (`{endpoint}`, `{socket}`), and [`load.go`](../../internal/loopholes/load.go#L197-L207) and [`load.go`](../../internal/loopholes/load.go#L230-L233), where the settings file and the state directory are functions of the loophole's name alone, never of a jail. At `232e4dcd` |
+| <a id="E26"></a>E26 | MEASURED | darwin Copilot is GitHub-signed (team `VEKTX9H2N7`) with the hardened runtime flag (`0x10000`), and its entitlements are `allow-jit`, `allow-unsigned-executable-memory` and `disable-library-validation`, not `allow-dyld-environment-variables`; dyld therefore ignores `DYLD_*` for it ([Apple](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-dyld-environment-variables)) | The code directory and entitlements blob of `@github/copilot-darwin-arm64` 1.0.105 `copilot`, parsed from its `LC_CODE_SIGNATURE` on 2026-11-03; the same finding as [the keychain-boundary research, option (d)](../research/copilot-keychain-boundary.md#d-inject-a-rustls-shim-dyld_insert_libraries). Confirm with `codesign -dv --entitlements -` on a Mac |
