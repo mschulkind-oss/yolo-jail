@@ -435,6 +435,26 @@ The hook's cost, the usage-limit stalls, and the concurrency failure counts were
 from 09-27's session transcripts. They have no recipe here: the hook has been retired, and the other
 two depend on how a particular day's agents were scheduled.
 
+## Mac witness: the darwin `just done` fixes (2026-11-03)
+
+The [W1 lab report's](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md) short-suite failures
+were fixed on Linux (merged as `b208e4f51`): the symlinked-root bug in `scripts/completion-check.py`'s
+`go_graph`, the GC-closed lease in `TestHostPiLaunchGetsItsOwnSessionHome`, the sleep in the bounded
+command test's helper, the brokerhook start-up allowance, and one `SHORT_TEST_TIMEOUT` (45m) for
+`test-fast` and `just done`, which had used Go's default 10m. The owner's Mac agent re-runs, on `main`,
+and appends the results to that lab report:
+
+1. `python3 scripts/test-go-packages.py` with the default `TMPDIR` (under `/var/folders`): all pass.
+2. `go test -short -count=3 -run '^TestHostPiLaunchGetsItsOwnSessionHome$' ./internal/cli`: passes; it
+   exercises the new `/dev/fd` close-on-exec check on darwin.
+3. `go test -short -count=5 -run '^TestBoundedCommand' ./internal/hostservice`, then
+   `pgrep -f hostservice.test`: passes, and no leaf process is left.
+4. `go test -short -count=1 -run '^TestAHook' ./internal/brokerhook`: passes.
+5. `python3 scripts/test-completion-check.py`: passes.
+6. `just done` (the full `just check-ci`), under the same load as the report's §9 if practical: the
+   only expected failures are none (the four `kern.procargs2` tests were fixed in `f25911eb3`); report
+   the `internal/cli` package's time.
+
 ## Open Questions
 
 1. 💬 <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
