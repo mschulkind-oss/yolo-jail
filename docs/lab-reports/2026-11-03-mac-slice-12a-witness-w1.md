@@ -331,6 +331,41 @@ directory not empty`. Something under the test's home was still writing when its
 **Still blocked:** `claude -p` still fails with "OAuth token revoked", and `log show` still prints
 `Operation not permitted` from this session.
 
+## 11. Mac witness: the fixes for §10's two test defects
+
+**Not yet run.** This is the check for the owner's Mac agent, for the commit that fixes both
+§10 findings. Run it from a checkout at that commit or later. Nothing here needs a container,
+a launch, or the `_yolojail` account.
+
+**What changed.**
+
+- **The stand-ins no longer run the system `sleep`.** Each stand-in's `sleep` is now the
+  integration test binary itself, run through a link named `sleep` that is first on the
+  stand-in's `PATH`. The test binary is not a platform binary, so `kern.procargs2` shows its
+  environment. `fakeHostDaemonProcess` runs that `sleep` directly. The skip's guard is
+  unchanged: it still needs only a non-platform `sh`, so its remedy (`nix profile install
+  nixpkgs#bash`) is now the whole fix. The new `TestAStandInAndItsSleepBothShowTheirHome`
+  checks this: the stand-in shell and its `sleep` child must both show their `HOME`.
+- **The flake was the second requester's worker.** Each requester starts its own detached
+  worker, and no test waited for that process. The test waited only until `worker.lock` was
+  free. A second worker that was slow to start (under load) took the lock after that check, then
+  re-created the demand directory under the home while the `TempDir` cleanup was removing it.
+  Now each worker inherits a liveness lock from its spawner, held from the fork on. The
+  fixture's cleanup, and the interrupt test before its "no second child" check, wait until
+  every such lock is free.
+
+| # | Command (from the checkout root) | Expected |
+| :--- | :--- | :--- |
+| 1 | `command -v sh sleep` with no nix `sh` on `PATH` (this Mac's state in §10 item 6) | `/bin/sh`, `/bin/sleep` |
+| 2 | `go test -short -count=1 -v -run '^(TestStopHomeProcesses(StopsEveryoneUnderTheHome\|WaitsForAScratchRemover\|StopsWhatIsSpawnedDuringTheStop)\|TestProcessEnvironReadsALiveChildsHome\|TestAStandInAndItsSleepBothShowTheirHome)$' ./integration` | All five `SKIP`, each naming `nix profile install nixpkgs#bash`. No `FAIL` |
+| 3 | `nix profile install nixpkgs#bash`, then `command -v sh sleep` | `sh` resolves under `~/.nix-profile/bin` (or a nix store path). **`sleep` must still be `/bin/sleep`**: do not install coreutils, or this check proves nothing |
+| 4 | Item 2's command again | All five **`PASS`**, `TestStopHomeProcessesStopsEveryoneUnderTheHome` and `TestStopHomeProcessesStopsWhatIsSpawnedDuringTheStop` included (the two §10 failures) |
+| 5 | `go test -short -race -count=5 -run '^TestSharedDemand' ./internal/cli` | `ok` |
+| 6 | `pgrep -fl TestSharedDemandProcessHelper` right after item 5 | Nothing (rc 1): no helper outlived its test |
+| 7 | The next full `just done` or `just check-ci`, with this session's usual other launches running | `internal/cli` passes, and `TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains` reports no `TempDir RemoveAll cleanup` error. A failure that says `helper processes still running 30s after the test` is a new finding: record which lock names it lists |
+
+To undo item 3 afterwards: `nix profile remove bash` (`nix profile list` shows the entry's name).
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not
