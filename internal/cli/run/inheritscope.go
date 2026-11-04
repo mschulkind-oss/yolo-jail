@@ -740,9 +740,71 @@ func darwinSidecarRel(layout entrypoint.DarwinHomeLayout, rel string) (string, e
 var inheritedScopeStagingRoot = macosuser.StagingRoot
 
 func refuseInheritedOverwrite(wsState string, storage func(string) (string, error), scope config.InheritScope) error {
+	if err := refuseAppleContainerHome(wsState, storage, scope); err != nil {
+		return err
+	}
 	_, err := refuseExistingScopeDestination(wsState, storage, scope, "macos-user", "the home-overlay installer cannot prove it is a file it delivered before, so installing the user config there could overwrite it",
 		"It was not moved aside for you because it shares its data with another hard link or belongs to another user.")
 	return err
+}
+
+// refuseAppleContainerHome is the refusal for a workspace whose home an Apple Container launch
+// laid (macos-user-model-plan.md MMP-D32; the Mac run of 2026-11-03, §5). Since slice 12a both
+// backends use <ws>/.yolo/home as HOME with the same dotted layout, and Apple Container COPIES the
+// generated user config into it (userConfigMountArgsForHome: writable, yolo's generated header
+// first), where macos-user delivers a sealed 0444 file it can prove. Nothing proves that copy
+// unedited, so it is not overwritten; and the rest of an Apple Container home (files with no
+// sandbox-account access, links to container paths) is not this backend's to repair file by file,
+// so the step named is the one that clears it all and keeps it: move the whole home aside. nil
+// when no destination of scope holds a copy of that shape.
+func refuseAppleContainerHome(wsState string, storage func(string) (string, error), scope config.InheritScope) error {
+	uid := os.Geteuid()
+	for _, rel := range inheritScopeDestinations(scope) {
+		storageRel, err := storage(rel)
+		if err != nil {
+			continue
+		}
+		if _, exists, err := lstatHomeFile(wsState, storageRel); err != nil || !exists {
+			continue
+		}
+		path := filepath.Join(wsState, storageRel)
+		if !isAppleContainerInheritedCopy(path, uid) {
+			continue
+		}
+		mv := shquote.JoinDisplay([]string{"mv", wsState, wsState + ".apple-container"})
+		return fmt.Errorf("refusing macos-user inherited %s scope: %s is the user config an Apple "+
+			"Container launch of this workspace copied there (writable, with yolo's generated header), "+
+			"so this workspace's home %s was laid by Apple Container, which uses the same directory as "+
+			"its home; macos-user cannot prove that copy unedited and will not overwrite it. To run this "+
+			"workspace on macos-user, move that home aside, keeping all of it (%s), and relaunch; to "+
+			"keep it on Apple Container, launch with YOLO_RUNTIME=container", scope, path, wsState, mv)
+	}
+	return nil
+}
+
+// isAppleContainerInheritedCopy reports whether path is a generated user-scope file in the shape an
+// Apple Container launch leaves it: a regular file of uid's with one link, writable (macos-user's
+// own deliveries are sealed 0444), whose first line is yolo's generated header in either format.
+// A shape, never a proof: it only chooses which refusal to print.
+func isAppleContainerInheritedCopy(path string, uid int) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 == 0 || !inheritedFileOwnedBy(info, uid) {
+		return false
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return false
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	line, err := bufio.NewReader(io.LimitReader(f, 4096)).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false
+	}
+	line = strings.TrimRight(line, "\r\n")
+	return line == inheritHeaderFirstLine() || line == inheritTOMLHeaderFirstLine()
 }
 
 // inheritedStaging is the host-owned staging root (macosuser.StagingRoot) a launch delivers the
