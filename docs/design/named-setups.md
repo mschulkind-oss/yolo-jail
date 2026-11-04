@@ -63,12 +63,12 @@ Terms of art used throughout:
 - **The yolo account**: a separate OS user yolo creates once with an admin step, `_yolojail` on a
   Mac ([OQ-MT4](#OQ-MT4)). It holds none of your files.
 
-What a user meets today ([Appendix A](#appendix-a-where-todays-words-came-from) has origins):
+The terminology this design replaces ([Appendix A](#appendix-a-where-todays-words-came-from) records its origins):
 
-| Term today | What it means | Where it shows |
+| Term / spelling | What it means | Where it shows |
 | :--- | :--- | :--- |
 | `confinement = "jail" \| "guest" \| "host"`, `--at` | A three-notch dial; `guest` selects macos-user on a Mac and refuses on Linux | Config, flag, footer, [the guide](../../userguide/guides/confinement.md) |
-| "Guest: a separate user account" | The guide's definition of `guest`, false when it runs as you | [Where Agents Run](../../userguide/guides/confinement.md#guest-in-development) |
+| "Guest" | The earlier guide used this for the in-development macOS `macos-user` setup, described as running under a separate account; the current guide distinguishes the two Seatbelt setups | [Seatbelt setups](../../userguide/guides/confinement.md#seatbelt-setups) |
 | `runtime = "podman" \| "container" \| "macos-user"`, `YOLO_RUNTIME` | The backend; `container` is Apple Container | Config, env var, [settings per setup](../../userguide/reference/settings-per-setup.md) |
 | `macos_user_mode = "account" \| "self"` | Which account macos-user runs as; user scope only | Config |
 | "sandbox account", "second account", "hidden macOS user" | `_yolojail` | Setup output, launch lines, guides |
