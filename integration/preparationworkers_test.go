@@ -1286,15 +1286,13 @@ const standInScript = `trap 'kill $!; exit 143' TERM; sleep 600 & wait`
 // DETACHED — the shell that starts it exits at once, so it is no child of this test binary, as a
 // real worker is not once the launch that spawned it has returned — and returns its pid once
 // its environment shows that HOME. The test's end stops it if the code under test did not.
-// Every `sh` it and its script start is envVisibleShellDir's: macOS 26 hides a platform
-// binary's environment, so a `/bin/sh` stand-in never shows its HOME there.
+// Every `sh` it and its script start is envVisibleShellDir's, and every `sleep` is this test
+// binary (standInPath): macOS 26 hides a platform binary's environment, so a `/bin/sh` or
+// `/bin/sleep` stand-in never shows its HOME there.
 func startStandIn(t *testing.T, home string, env []string, argv0, script string, args ...string) int {
 	t.Helper()
 	outer := `a0=$1; s=$2; shift 2; (exec -a "$a0" sh -c "$s" "$@" </dev/null >/dev/null 2>&1) & echo $!`
-	base := []string{"HOME=" + home}
-	if dir := envVisibleShellDir(t); dir != "" {
-		base = append(base, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	}
+	base := []string{"HOME=" + home, "PATH=" + standInPath(t)}
 	out, err := runEnvCommand(append(base, env...),
 		append([]string{"bash", "-c", outer, "_", argv0, script}, args...)...)
 	if err != nil {

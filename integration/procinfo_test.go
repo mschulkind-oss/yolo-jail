@@ -15,9 +15,12 @@ package integration
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -154,4 +157,123 @@ func TestTheProcessProbesSeeALiveChildAndItsEnd(t *testing.T) {
 	if _, found, err := processState(os.Getpid()); !found || err != nil {
 		t.Errorf("this process's own state was not found (found %v, err %v)", found, err)
 	}
+}
+
+// standInSleepName is the name this test binary answers to as a stand-in's `sleep`
+// (standInSleepDir): run under that name, TestMain sleeps instead of running the suite.
+const standInSleepName = "sleep"
+
+// runAsStandInSleepIfCalledSo is TestMain's first step: when this binary was run as
+// standInSleepDir's `sleep <seconds>`, it sleeps that long and exits 0, as sleep(1) does, and
+// SIGTERM ends it as it ends sleep(1). The test binary is never otherwise named `sleep`.
+func runAsStandInSleepIfCalledSo() {
+	if filepath.Base(os.Args[0]) != standInSleepName {
+		return
+	}
+	if len(os.Args) != 2 {
+		os.Stderr.WriteString("usage: sleep <seconds> (the integration test binary as a stand-in's sleep)\n")
+		os.Exit(2)
+	}
+	secs, err := strconv.ParseFloat(os.Args[1], 64)
+	if err != nil || secs < 0 {
+		os.Stderr.WriteString("sleep: invalid time interval " + strconv.Quote(os.Args[1]) + "\n")
+		os.Exit(2)
+	}
+	time.Sleep(time.Duration(secs * float64(time.Second)))
+	os.Exit(0)
+}
+
+// standInSleepDir is a directory holding a `sleep` that is THIS test binary (a link named
+// standInSleepName), to put first on a stand-in's PATH. A stand-in that runs the system's
+// `sleep` depends on that binary's environment being readable, and macOS 26 hides a PLATFORM
+// binary's environment from kern.procargs2, its owner's read included: `/bin/sleep` shows its
+// arguments and no HOME (the Mac rerun of 2026-11-03,
+// docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §10). The test binary is no platform
+// binary on any host, so with this first on PATH a stand-in's only platform-sensitive program is
+// its `sh` (envVisibleShellDir), and the install that skip names is the whole remedy.
+func standInSleepDir(t *testing.T) string {
+	t.Helper()
+	self := mustExecutable(t)
+	dir := t.TempDir()
+	if err := os.Symlink(self, filepath.Join(dir, standInSleepName)); err != nil {
+		t.Fatalf("linking the stand-in's sleep: %v", err)
+	}
+	return dir
+}
+
+// standInPath is the PATH a stand-in runs with: standInSleepDir's `sleep` first, then
+// envVisibleShellDir's `sh` where this host needs one (darwin; it skips naming the install when
+// none resolves), then this process's own PATH.
+func standInPath(t *testing.T) string {
+	t.Helper()
+	dirs := []string{standInSleepDir(t)}
+	if dir := envVisibleShellDir(t); dir != "" {
+		dirs = append(dirs, dir)
+	}
+	return strings.Join(append(dirs, os.Getenv("PATH")), string(os.PathListSeparator))
+}
+
+// THE REMEDY envVisibleShellDir's skip names is the whole remedy: run as startStandIn runs one
+// (standInPath), a stand-in shell AND the `sleep` it waits on both show the HOME they were
+// given, so no stand-in depends on a platform binary's environment being readable (on darwin the
+// system `sleep` is one, and its environment reads empty: the Mac rerun of 2026-11-03, §10). The
+// sleep is this test binary, and the stand-in's SIGTERM ends it as it ends sleep(1).
+func TestAStandInAndItsSleepBothShowTheirHome(t *testing.T) {
+	home := t.TempDir()
+	path := standInPath(t)
+	sh := "sh"
+	if dir := envVisibleShellDir(t); dir != "" {
+		sh = filepath.Join(dir, "sh")
+	}
+	cmd := exec.Command(sh, "-c", standInScript)
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+path)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	shell := cmd.Process.Pid
+	sleeper := 0
+	for deadline := time.Now().Add(10 * time.Second); sleeper == 0; time.Sleep(10 * time.Millisecond) {
+		if processRunsWithHome(shell, home) {
+			for _, kid := range processChildren(shell) {
+				if processRunsWithHome(kid, home) && processHasArgs(kid, standInSleepName, "600") {
+					sleeper = kid
+				}
+			}
+		}
+		if sleeper == 0 && time.Now().After(deadline) {
+			shEnv, shErr := processEnviron(shell)
+			var kids []string
+			for _, kid := range processChildren(shell) {
+				args, _ := processArgs(kid)
+				env, err := processEnviron(kid)
+				kids = append(kids, fmt.Sprintf("pid %d %q: environment %q (%v)", kid, args, env, err))
+			}
+			t.Fatalf("the stand-in (pid %d, environment %q (%v)) and a `sleep 600` child never both "+
+				"showed HOME=%s; children: %v", shell, shEnv, shErr, home, kids)
+		}
+	}
+	self, err := filepath.EvalSymlinks(mustExecutable(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if real, err := filepath.EvalSymlinks(filepath.Join(filepath.SplitList(path)[0], standInSleepName)); err != nil || real != self {
+		t.Errorf("the stand-in's sleep resolves to %q (%v), want this test binary %s", real, err, self)
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	if !awaitProcessGone(sleeper, 5*time.Second) {
+		t.Errorf("the stand-in's sleep (pid %d) outlived the stand-in's SIGTERM", sleeper)
+	}
+}
+
+func mustExecutable(t *testing.T) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return self
 }

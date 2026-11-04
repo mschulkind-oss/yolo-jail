@@ -82,6 +82,7 @@ var (
 // call sites is a guard that can be deleted from the one nothing exercises — here, the
 // container path, which no cheap test can drive.
 func TestMain(m *testing.M) {
+	runAsStandInSleepIfCalledSo()
 	flag.Parse()
 	os.Exit(macosUserExitCode(runSuite(m), os.Stderr))
 }
