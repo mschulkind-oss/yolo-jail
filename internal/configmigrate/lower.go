@@ -239,6 +239,11 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			}
 		}
 	}
+	// A TOML user config read as the old side: the ceiling lines its legacy workspace switches
+	// admitted, which the conversion writes into it (tomlCeilingNeeded, LG-D16).
+	if gv := ctx.view().grants; ctx.scope == ScopeUser && file == "" && gv != nil && len(gv.tomlCeiling) > 0 {
+		addCeilingKinds(out.values, gv.tomlCeiling)
+	}
 	if hasProfiles {
 		lowerProfiles(profiles, ctx, &out, skip)
 	}
@@ -838,4 +843,28 @@ func envResetSpelling(value any) any {
 		}
 	}
 	return out
+}
+
+// addCeilingKinds appends each pack's kinds to values' `allow.<pack>.on_request`, creating the
+// tables and the list where absent.
+func addCeilingKinds(values *jsonx.OrderedMap, ceiling map[string][]string) {
+	allow, ok := mapAt(values, "allow")
+	if !ok {
+		allow = jsonx.NewOrderedMap()
+		values.Set("allow", allow)
+	}
+	for pack, kinds := range ceiling {
+		table, ok := mapAt(allow, pack)
+		if !ok {
+			table = jsonx.NewOrderedMap()
+			allow.Set(pack, table)
+		}
+		list, _ := tableGet(table, "on_request")
+		items, _ := list.([]any)
+		items = append([]any(nil), items...)
+		for _, kind := range kinds {
+			items = append(items, kind)
+		}
+		table.Set("on_request", items)
+	}
 }

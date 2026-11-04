@@ -82,6 +82,8 @@ var ruledLegacyRefusals = []legacyBreak{
 	{"toplevel/mcp_presets/*", "load", "config.mcp_presets: REMOVED", "ruled: OQ-LC1 (OQ-MP6's retirement stands)"},
 	{"toplevel/mcp_presets/*", "migrate-*", "mcp_presets - [", "ruled: OQ-LC1 (OQ-MP6's retirement stands)"},
 	{"loophole/openai-auth-broker/*", "load", "openai-auth-broker", "ruled: OQ-LC1 (OQ-PE3's rename stands)"},
+	// The same rename, met at the user config's pack source once the workspace converts.
+	{"loophole/openai-auth-broker/enabled/workspace", "load", `"openai-auth" is now "codex-auth"`, "ruled: OQ-LC1 (OQ-PE3's rename stands)"},
 	{"loophole/openai-auth-broker/*", "migrate-*", "only shipped packs may be named without a source",
 		"ruled: OQ-LC1 (OQ-PE3's rename stands)"},
 }
@@ -100,15 +102,14 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-migrate-user-loophole-switch"},
 	{"loophole/*/workspace", "migrate-*", "project config: loopholes - ",
 		"pending fix: lc-migrate-ws-loophole-switch"},
-	{"realistic/*", "migrate-*", "project config: loopholes - ",
+	{"realistic/*", "migrate-*", `project config: loopholes - {"host-processes"`,
 		"pending fix: lc-migrate-ws-loophole-switch"},
-	// Under an already-TOML user config, converting a legacy workspace switch needs the user
-	// ceiling's on_request line LG-D16 names, and the migration never edits a TOML file. Converting
-	// the user config alongside writes it; journal and macos-log are requestable by default.
-	{"loophole/audio/enabled/workspace", "migrate-offer", "the loophole grants each workspace holds",
-		"pending fix: lc-migrate-ws-loophole-switch (the converted workspace needs the on_request ceiling line in the TOML user config)"},
-	{"loophole/serial/enabled/workspace", "migrate-offer", "the loophole grants each workspace holds",
-		"pending fix: lc-migrate-ws-loophole-switch (the converted workspace needs the on_request ceiling line in the TOML user config)"},
+	{"realistic/toml-user-legacy-ws-journal", "migrate-workspace", `project config: loopholes - {"journal"`,
+		"pending fix: lc-migrate-ws-loophole-switch"},
+	// A workspace `enabled: false` on an off-switch loophole launches off, but the project's
+	// `off` it would convert to is not built (docs/design/legacy-config-compat.md LC-D3).
+	{"realistic/workspace-off-switches", "migrate-*", `project config: loopholes - {"aws-auth": {"enabled": false}`,
+		"pending fix: lc-migrate-ws-loophole-switch (the project's off is not built, LC-D3)"},
 
 	// The config launches, but means less than it did: a user switch of a valued grant reads as
 	// on_request under a TOML user config, and TOML has no spelling for the user-sourced request.

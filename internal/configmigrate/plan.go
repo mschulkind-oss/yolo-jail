@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -40,6 +41,9 @@ type Target struct {
 	Folded []FoldedFact
 	// Twins are the legacy `wire_id` rows written as `twin_of` their sibling (models.go, MF-D3).
 	Twins []Twin
+	// Ceiling are the `[allow.<pack>] on_request` kinds a TOML user config gains, rewritten in
+	// place, so a converted workspace's requests stand (LG-D16): `allow.<pack>.on_request: <kind>`.
+	Ceiling []string
 	// Unaliased are the providers this file's conversion gave variants and no alias: each is
 	// selected as provider/variant only, and the transcript names the alias command (RC-D62).
 	Unaliased []UnaliasedProvider
@@ -270,6 +274,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	view.needed = neededPacks(view.packs, packs)
 	planLoopholeGrants(g, view, packs)
 	p.Carries = view.grants.carries
+	if len(view.grants.tomlCeiling) > 0 && g.userTop.Role == RoleRead {
+		// The TOML user config gains the ceiling lines the converted workspace needs (LG-D16),
+		// rewritten in place as a respelled file is.
+		g.userTop.Role = RoleRespell
+	}
 	newBytes := map[*File][]byte{}
 	writers := writerCounts{}
 	for _, f := range g.Files {
@@ -294,6 +303,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			t, err := respellFile(f)
 			if err != nil {
 				return nil, err
+			}
+			if f == g.userTop && len(view.grants.tomlCeiling) > 0 {
+				if t.Bytes, t.Ceiling, err = withCeilingLines(t.Bytes, view.grants.tomlCeiling); err != nil {
+					return nil, fmt.Errorf("%s: write the ceiling lines the converted workspace needs: %w", f.Logical, err)
+				}
 			}
 			p.Targets = append(p.Targets, t)
 			newBytes[f] = t.Bytes
@@ -472,6 +486,60 @@ func respellFile(f *File) (Target, error) {
 	}
 	t.Bytes, t.Comments, t.Respelled = data, len(f.doc.Index.Comments()), respelled
 	return t, nil
+}
+
+// withCeilingLines adds ceiling's kinds to each pack's `[allow.<pack>] on_request` list in the
+// TOML document data, through the byte-preserving editor `yolo config` uses: appended to a list
+// the file writes, else written as a new key (and table). It returns the new bytes and the lines
+// added, in pack order.
+func withCeilingLines(data []byte, ceiling map[string][]string) ([]byte, []string, error) {
+	packs := make([]string, 0, len(ceiling))
+	for pack := range ceiling {
+		packs = append(packs, pack)
+	}
+	sort.Strings(packs)
+	// A table the file writes is edited before a new one is appended after it, so each key lands
+	// in its own table's lines.
+	if doc, err := configdoc.Parse(data, configdoc.TOML); err == nil {
+		allow, _ := mapAt(doc.Values, "allow")
+		written := func(pack string) bool { _, has := tableGet(allow, pack); return has }
+		sort.SliceStable(packs, func(i, j int) bool { return written(packs[i]) && !written(packs[j]) })
+	}
+	var lines []string
+	for _, pack := range packs {
+		path := []configdoc.Step{{Key: "allow"}, {Key: pack}, {Key: "on_request"}}
+		doc, err := configdoc.Parse(data, configdoc.TOML)
+		if err != nil {
+			return nil, nil, err
+		}
+		_, has, err := doc.Index.Value(path...)
+		if err != nil {
+			return nil, nil, err
+		}
+		var mutations []configedit.Mutation
+		if has {
+			for _, kind := range ceiling[pack] {
+				mutations = append(mutations, configedit.Mutation{Action: configedit.Append, Path: path, Value: kind})
+			}
+		} else {
+			list := make([]any, 0, len(ceiling[pack]))
+			for _, kind := range ceiling[pack] {
+				list = append(list, kind)
+			}
+			mutations = append(mutations, configedit.Mutation{Action: configedit.Add, Path: path, Value: list})
+		}
+		for _, m := range mutations {
+			edit, err := configedit.PlanEdit(data, configdoc.TOML, m)
+			if err != nil {
+				return nil, nil, err
+			}
+			data = edit.Updated
+		}
+		for _, kind := range ceiling[pack] {
+			lines = append(lines, "allow."+pack+".on_request: "+kind)
+		}
+	}
+	return data, lines, nil
 }
 
 // targetFor is where a file's migration reads, writes and keeps the original. A name that is a
