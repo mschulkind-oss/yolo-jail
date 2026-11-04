@@ -10,6 +10,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-04
+
+Every config that launched on 0.15.1 launches again and means the same, `yolo config migrate` converts all of it, and macos-user runs two workspaces at once.
+
+### Added
+
+**Old configs keep working.** A JSONC config's `loopholes` block grants what it granted on 0.15.1, `enabled: false` keeps a loophole off, and a project can turn one off with `[requests.<pack>] off = true`. `yolo config migrate` now converts every config that launches, and converting one file first never changes what another still-JSONC file means. See [configuration](userguide/reference/configuration.md#change-it-with-a-command).
+
+**Two macos-user workspaces at once.** The yolo account runs a jail per workspace side by side, each with its own temporary and XDG directories. See [macos-user](userguide/guides/macos.md#the-macos-user-backend).
+
+**`yolo history requests`.** The approvals record says how each request was answered, and `yolo wait` names what it leaves out.
+
+### Changed
+
+- `yolo macos-setup`, `macos-teardown`, `macos-fix-permissions` and `macos-unshare` are now `yolo yolo-account create`, `remove`, `share` and `unshare`. The old names are refused with the exact new command to run.
+- A config file that is a broken link, a loop, a directory or unreadable is refused in every scope. An `include_if_found` entry in that state is skipped with a notice.
+
+### Fixed
+
+- The jail no longer refuses a config the host accepted.
+- `yolo config migrate` no longer widens your user ceiling without asking, and never rewrites a list you wrote.
+- A refusal about a loophole's scope names the user config file you actually have, and a project's request names its own file on the approval line.
+- A slow approvals store no longer hides an approval from a waiting `git push` or `gh` call.
+- macos-user refuses an Apple Container home by name, with the move that clears it, and clears an occupied workspace home safely.
+- macos-user keeps unchanged delivered files across relaunches instead of rewriting them.
+- When run-as-you refuses Copilot 1.0.93 or later, macos-user names the setups that do run it.
+
 ## [0.16.0] - 2026-11-02
 
 Config is TOML changed with commands, and agents reach git and GitHub through your host's login, under grants and approvals you control.

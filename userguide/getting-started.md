@@ -250,7 +250,7 @@ Podman.
 ### macOS: the macos-user sandbox (coming)
 
 `macos-user` needs no container runtime at all: only Nix, with your user trusted, and a one-time
-`yolo macos-setup` that creates the hidden user. It is still in development, and several agents have
+`yolo yolo-account create` that creates the hidden user. It is still in development, and several agents have
 not been tried on it yet. [Set up `macos-user` →](guides/macos.md#the-macos-user-backend)
 
 ### Linux: Podman
@@ -613,7 +613,7 @@ or `git pull && just deploy` in your clone, and then `yolo broker restart`.
 1. **Exit every jail**, which stops the host services each one started. `yolo host-daemon status`
    lists any still running, and `yolo host-daemon stop <name>` stops one (on yolo 0.10.0,
    `yolo broker stop`). If you set up
-   `macos-user`, run `yolo macos-teardown`.
+   `macos-user`, run `yolo yolo-account remove`.
 2. **Remove yolo:** `brew uninstall yolo-jail`, or delete the release archive's folder, or remove
    `yolo` from Go's bin directory.
 3. **Remove what yolo stored:** `rm -rf ~/.local/share/yolo-jail ~/.config/yolo-jail`. This deletes
