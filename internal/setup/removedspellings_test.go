@@ -1,15 +1,15 @@
 package setup
 
 // removedspellings_test.go is the guard that no message yolo prints names a removed selection as
-// a next step: the `--at` flag, the `runtime` and `confinement` keys, and YOLO_RUNTIME, each of
-// which a launch now refuses (named-setups-plan.md slice 4a). A step that names one walks the
-// reader into a second refusal. Named setups replaced all four, and a step naming another setup
-// spells it with Choose or LaunchLine.
+// a next step: the `--at` flag, the `runtime`, `confinement` and `macos_user_mode` keys, and
+// YOLO_RUNTIME, each of which a launch now refuses (named-setups-plan.md slices 4a and 5). A step
+// that names one walks the reader into a second refusal. Named setups replaced all five, and a
+// step naming another setup spells it with Choose or LaunchLine.
 //
 // The scan reads every non-test Go file under cmd/ and internal/ and checks the string each
 // literal, or each chain of literals joined with +, spells; comments are not read. The only
 // strings allowed to spell a removed selection are the ones that say it is removed: the
-// refusals themselves (removalFiles).
+// refusal functions themselves (removalFuncs).
 
 import (
 	"go/ast"
@@ -24,18 +24,26 @@ import (
 	"testing"
 )
 
-// removedStepRE matches a removed selection spelled as something to type or set.
-var removedStepRE = regexp.MustCompile(`--at (jail|guest|host)\b` +
+// removedStepRE matches a removed selection spelled as something to type or set: `--at` with a
+// notch (either spelling of the flag), the removed keys in each config spelling or as a
+// `yolo config set`, and YOLO_RUNTIME set to anything, a format verb included.
+var removedStepRE = regexp.MustCompile(`--at[ =](jail|guest|host)\b` +
 	`|\bruntime: "` + `|"runtime": "` + `|\bruntime = "` +
 	"|`confinement` set to" + `|\bconfinement: "` + `|"confinement": "` + `|\bconfinement = "` +
-	`|config set (runtime|confinement)\b` +
-	`|YOLO_RUNTIME=(podman|container|macos-user)`)
+	`|\bmacos_user_mode: "` + `|"macos_user_mode": "` + `|\bmacos_user_mode = "` +
+	`|config set (runtime|confinement|macos_user_mode)\b` +
+	`|YOLO_RUNTIME=[^\s,.;)]`)
 
-// removalFiles are the files whose messages explain a removal, and so must name what was removed:
-// the `--at` refusal, and the selection's refusals of the removed keys and YOLO_RUNTIME.
-var removalFiles = map[string]bool{
-	"internal/cli/atremoved.go":      true,
-	"internal/config/setupselect.go": true,
+// removedFlagTailRE matches a chain that ends in the flag itself, as `"--at " + notch` spells it:
+// the notch is a variable the chain drops, so the raw text ends at the flag.
+var removedFlagTailRE = regexp.MustCompile(`--at[ =]$`)
+
+// removalFuncs are the functions whose messages explain a removal, and so must name what was
+// removed: the `--at` refusal, and the selection's refusal and warning of YOLO_RUNTIME. Only
+// these functions' strings are skipped; the rest of each file is scanned like any other.
+var removalFuncs = map[string]map[string]bool{
+	"internal/cli/atremoved.go":      {"atRemovedFor": true},
+	"internal/config/setupselect.go": {"RemovedRuntimeEnvRefusal": true, "removedRuntimeEnvWarning": true},
 }
 
 func TestNoMessageNamesARemovedSelectionAsItsNextStep(t *testing.T) {
@@ -54,12 +62,13 @@ func TestNoMessageNamesARemovedSelectionAsItsNextStep(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(root, path)
 			rel = filepath.ToSlash(rel)
-			if removalFiles[rel] {
-				return nil
-			}
 			scanned++
-			for _, s := range spelledStrings(t, path) {
-				if m := removedStepRE.FindString(s.text); m != "" {
+			for _, s := range spelledStrings(t, path, removalFuncs[rel]) {
+				m := removedStepRE.FindString(s.text)
+				if m == "" {
+					m = removedFlagTailRE.FindString(s.raw)
+				}
+				if m != "" {
 					t.Errorf("%s:%d names the removed %q as a step; name a setup instead "+
 						"(setup.Choose, setup.ContainerStep or setup.LaunchLine):\n    %s", rel, s.line, m, s.text)
 				}
@@ -77,13 +86,15 @@ func TestNoMessageNamesARemovedSelectionAsItsNextStep(t *testing.T) {
 
 type spelled struct {
 	line int
-	text string
+	// text is the string with whitespace folded; raw is it as spelled.
+	text, raw string
 }
 
 // spelledStrings is every string path's code spells: each chain of string literals joined with +
 // as one string (whatever else the chain joins is dropped), and each other literal alone, with
-// whitespace runs folded to one space so a wrapped message reads as printed.
-func spelledStrings(t *testing.T, path string) []spelled {
+// whitespace runs folded to one space so a wrapped message reads as printed. The bodies of the
+// functions skip names are not read.
+func spelledStrings(t *testing.T, path string, skip map[string]bool) []spelled {
 	t.Helper()
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -98,6 +109,10 @@ func spelledStrings(t *testing.T, path string) []spelled {
 	inChain := map[*ast.BasicLit]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
+		case *ast.FuncDecl:
+			if n.Recv == nil && skip[n.Name.Name] {
+				return false
+			}
 		case *ast.BinaryExpr:
 			if n.Op != token.ADD {
 				return true
@@ -115,10 +130,10 @@ func spelledStrings(t *testing.T, path string) []spelled {
 				inChain[l] = true
 				b.WriteString(unquote(l))
 			}
-			out = append(out, spelled{fset.Position(n.Pos()).Line, fold(b.String())})
+			out = append(out, spelled{fset.Position(n.Pos()).Line, fold(b.String()), b.String()})
 		case *ast.BasicLit:
 			if n.Kind == token.STRING && !inChain[n] {
-				out = append(out, spelled{fset.Position(n.Pos()).Line, fold(unquote(n))})
+				out = append(out, spelled{fset.Position(n.Pos()).Line, fold(unquote(n)), unquote(n)})
 			}
 		}
 		return true
