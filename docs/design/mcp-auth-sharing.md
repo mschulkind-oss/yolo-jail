@@ -762,14 +762,14 @@ changes.
    is in his yolo config, so every new workspace asks him to sign in again. A plugin wrapped in a
    pack his user config selects is one yolo can prove is his.
 
-   - **A. Never share them.** The launch names the command that declares each in his user config;
-     once declared, it is shared. Cost: a config line per server.
+   - **A. Never share them.** The launch names the command that declares each in his user config.
+     Cost: a config line per server.
    - **B. Share every plugin's servers.** Slack is shared at once. Cost: a plugin enabled for one
      project is shared too.
-   - **C. Share all of them.** Sam never sees a second prompt. Cost: a project's own `.mcp.json`
+   - **C. Share all of them.** No second prompt. Cost: a project's own `.mcp.json`
      server is shared, which the rule forbids.
    - **D. Share servers from plugins a user-config pack delivers.** Slack through such a pack is
-     shared at once; Sentry is not, and the launch names the pack or config route. Cost: wrapping
+     shared at once; Sentry is not, and the launch names the pack route. Cost: wrapping
      the plugin in a pack once.
 
    <!-- vantage: question id=OQ-MA2 leaning="D: share servers from plugins yolo delivers through a pack your user config selects, and never ones installed outside yolo. It shares exactly what yolo can prove is user-level." -->
