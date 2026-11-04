@@ -124,6 +124,15 @@ type hostSelectionResult struct {
 func hostSelectionRun(t *testing.T, home string, flags []string, agent string, args ...string) hostSelectionResult {
 	t.Helper()
 	_ = home
+	return hostSelectionRunAtExec(t, flags, agent, nil, args...)
+}
+
+// hostSelectionRunAtExec is hostSelectionRun with atExec called inside the stubbed exec, with the
+// environment it was handed: the one moment the launch's state is what the exec'd program
+// inherits. After the stub returns, hostMain has returned too, and anything it handed across the
+// exec (a lease's *os.File) is garbage whose finalizer may close it at any time.
+func hostSelectionRunAtExec(t *testing.T, flags []string, agent string, atExec func(env map[string]string), args ...string) hostSelectionResult {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
 	writeFile(t, filepath.Join(bin, agent), "#!/bin/sh\nexit 0\n")
 	if err := os.Chmod(filepath.Join(bin, agent), 0o755); err != nil {
@@ -139,6 +148,9 @@ func hostSelectionRun(t *testing.T, home string, flags []string, agent string, a
 			if k, v, ok := strings.Cut(kv, "="); ok {
 				r.env[k] = v
 			}
+		}
+		if atExec != nil {
+			atExec(r.env)
 		}
 		return nil
 	}

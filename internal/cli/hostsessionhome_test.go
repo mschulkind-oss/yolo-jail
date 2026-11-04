@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"golang.org/x/sys/unix"
 )
 
 // copyHostSessionPack makes a private selected-pack fixture so a test can change the manifest
@@ -122,7 +124,18 @@ func TestHostPiLaunchGetsItsOwnSessionHome(t *testing.T) {
 	unchanged := piSettingsFixture(t, home, `{"defaultProvider":"openrouter","theme":"dark"}`)
 	shared := filepath.Join(home, ".pi", "agent")
 	before := treeSnapshot(t, shared)
-	run := hostSelectionRun(t, home, []string{"-p", "pi=codex"}, "pi")
+	// The lease that keeps the home from being reaped while pi runs, asked AT the exec: after the
+	// stub returns, nothing references the lease's *os.File, and its finalizer may close it (and
+	// drop the lock) at the next GC, which a loaded machine reaches first. A real exec replaces
+	// the process, so the inherited descriptor is the program's from that instant.
+	leaseAtExec, inherited := packload.LeaseAbsent, false
+	run := hostSelectionRunAtExec(t, []string{"-p", "pi=codex"}, "pi", func(e map[string]string) {
+		leaseDir := filepath.Dir(filepath.Dir(filepath.Dir(e[env])))
+		var unlock func()
+		leaseAtExec, unlock, _ = packload.ProbeLease(leaseDir)
+		unlock()
+		inherited = leaseFDInheritedAcrossExec(t, filepath.Join(leaseDir, packload.EmbeddedLeaseName))
+	})
 	unchanged()
 	after := treeSnapshot(t, shared)
 	for rel, data := range before {
@@ -171,13 +184,46 @@ func TestHostPiLaunchGetsItsOwnSessionHome(t *testing.T) {
 	if got, err := os.Readlink(filepath.Join(dir, "sessions")); err != nil || got != filepath.Join(shared, "sessions") {
 		t.Errorf("sessions must link to the real directory: %q, %v", got, err)
 	}
-	// The lease that keeps the home from being reaped while pi runs (the exec stub returned, so
-	// this process holds it, as pi would after a real exec).
-	state, unlock, _ := packload.ProbeLease(filepath.Dir(filepath.Dir(filepath.Dir(dir))))
-	unlock()
-	if state != packload.LeaseHeld {
-		t.Errorf("the launch's session home lease is %s, want held across the exec", state)
+	if leaseAtExec != packload.LeaseHeld {
+		t.Errorf("the launch's session home lease is %s at the exec, want held", leaseAtExec)
 	}
+	if !inherited {
+		t.Errorf("no descriptor on the session home's lease is open without close-on-exec at the " +
+			"exec, so pi would not hold the lease across it")
+	}
+}
+
+// leaseFDInheritedAcrossExec reports whether this process has a descriptor open on lease with
+// close-on-exec cleared: one an exec hands to the program it starts. /dev/fd lists them on Linux
+// and darwin alike.
+func leaseFDInheritedAcrossExec(t *testing.T, lease string) bool {
+	t.Helper()
+	fi, err := os.Stat(lease)
+	if err != nil {
+		t.Errorf("the session home has no lease at the exec: %v", err)
+		return false
+	}
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Fatalf("listing /dev/fd: %v", err)
+	}
+	for _, e := range entries {
+		fd, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		var st syscall.Stat_t
+		if syscall.Fstat(fd, &st) != nil {
+			continue
+		}
+		if want := fi.Sys().(*syscall.Stat_t); st.Dev != want.Dev || st.Ino != want.Ino {
+			continue
+		}
+		if flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err == nil && flags&unix.FD_CLOEXEC == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // UNDER `host_management: own` the session's render folds in the real capture store's captured
