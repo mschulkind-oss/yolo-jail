@@ -10,7 +10,7 @@ import (
 // hostpackrefresh.go is the HOST NOTCH's launch-time pack fetch — the same
 // run.RefreshConfiguredPacks a jail launch runs, called at the host's two launch-shaped
 // entries: `yolo host -- <bin>` (before the apply gate and the composition, both of which
-// resolve packs) and `yolo host apply` / `yolo apply --at host` (before the render).
+// resolve packs) and `yolo host apply` / `yolo apply --setup host-self` (before the render).
 //
 // NOT inside applyHost, where it would also run inside the launch gate's observe pass and
 // its one-second budget (hostapplygate.go), and not in `yolo host env`, `yolo check-deps`

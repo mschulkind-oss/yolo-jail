@@ -232,9 +232,9 @@ func TestShippedCopilotCompatibilityRefusalNamesIssueAndRemedy(t *testing.T) {
 			"\nNext steps, in a terminal outside this jail:\n",
 			"\n  yolo config set macos_user_mode account --user ",
 			"yolo yolo-account create",
-			"\n  YOLO_RUNTIME=podman yolo -- copilot ",
-			"YOLO_RUNTIME=container",
-			"\n  yolo config set runtime podman --user ",
+			"\n  yolo --setup podman-self -- copilot ",
+			"apple-container-self for Apple Container",
+			"\n  yolo config set setup podman-self --user ",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("hatch %q: the refusal lacks %q:\n%s", hatch, want, out)

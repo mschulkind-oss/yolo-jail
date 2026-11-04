@@ -656,12 +656,11 @@ func removeMacosUserWorkspace(t *testing.T, dir string) {
 // macosUserRunArgs is jailRunArgs plus the runtime selection, spelled on the ARGV side
 // via the launcher env rather than in the workspace config.
 //
-// Why the env and not `"runtime": "macos-user"` in yolo-jail.jsonc: YOLO_RUNTIME
-// outranks the config (internal/cli/run/preflight.go resolveRuntime), so a fixture
-// that used the config would be silently overridden on any machine that exports the
-// variable — including a CI step that set it for a different job in the same workflow.
-// Saying it per launch is the spelling that cannot be shadowed.
-func macosUserRunEnv() runOption { return withEnv("YOLO_RUNTIME=macos-user") }
+// Why the env and not the user config's `setup`: YOLO_SETUP outranks the config
+// (config.SelectSetup), so a fixture that used the config would be silently overridden on
+// any machine that exports the variable — including a CI step that set it for a different
+// job in the same workflow. Saying it per launch is the spelling that cannot be shadowed.
+func macosUserRunEnv() runOption { return withEnv("YOLO_SETUP=seatbelt-yolo-account") }
 
 // runMacosUser launches the sandbox and runs script in a LOGIN shell, which is the
 // shell macos-user's PATH re-prepend actually targets: the login rc files re-prepend

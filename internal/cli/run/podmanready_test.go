@@ -2,9 +2,9 @@ package run
 
 // podmanready_test.go pins the podman readiness gate (podmanready.go,
 // docs/reference/podman-readiness.md) THROUGH runtime selection, never at an isolated
-// helper: every case runs once down each of the three ways a launch reaches it — YOLO_RUNTIME,
-// the config's `runtime` key, and autodetection — so deleting the gate from either
-// validateExplicitRuntime or resolveRuntime's candidate loop fails every test here. The fake
+// helper: every case runs once down each of three ways a launch selects podman — YOLO_SETUP,
+// `--setup`, and the removed `runtime` key's bridge (setupselect.go) — so deleting the gate from
+// validateExplicitRuntime fails every test here. The fake
 // attempt runner is on a fake clock, so a minute's wait costs nothing.
 
 import (
@@ -26,19 +26,20 @@ import (
 type gatePath struct {
 	name   string
 	getenv func(string) string
+	flag   string
 	cfg    *jsonx.OrderedMap
 }
 
 func gatePaths() []gatePath {
 	return []gatePath{
-		{name: "YOLO_RUNTIME", getenv: func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return "podman"
+		{name: "YOLO_SETUP", getenv: func(k string) string {
+			if k == "YOLO_SETUP" {
+				return "podman-self"
 			}
 			return ""
 		}},
-		{name: "config runtime", getenv: func(string) string { return "" }, cfg: newConfig("runtime", "podman")},
-		{name: "autodetected", getenv: func(string) string { return "" }},
+		{name: "--setup", getenv: func(string) string { return "" }, flag: "podman-self"},
+		{name: "removed runtime key", getenv: func(string) string { return "" }, cfg: newConfig("runtime", "podman")},
 	}
 }
 
@@ -47,6 +48,7 @@ func gateOptions(p gatePath, stdout, stderr *bytes.Buffer) *Options {
 	o := &Options{IsLinux: true}
 	fillDefaults(o)
 	o.Getenv = p.getenv
+	o.SetupName = p.flag
 	o.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
 	o.Stdout, o.Stderr = stdout, stderr
@@ -224,8 +226,8 @@ func TestMacOSKeepsTheOneShotProbe(t *testing.T) {
 			fillDefaults(o)
 			o.Stdout, o.Stderr = &stdout, &stderr
 			o.Getenv = func(k string) string {
-				if explicit && k == "YOLO_RUNTIME" {
-					return "container"
+				if explicit && k == "YOLO_SETUP" {
+					return "apple-container-self"
 				}
 				return ""
 			}
@@ -255,10 +257,16 @@ func TestMacOSKeepsTheOneShotProbe(t *testing.T) {
 			fillDefaults(o)
 			o.Stdout, o.Stderr = &stdout, &stderr
 			o.Getenv = func(k string) string {
-				if explicit && k == "YOLO_RUNTIME" {
-					return "podman"
+				if explicit && k == "YOLO_SETUP" {
+					return "podman-self"
 				}
 				return ""
+			}
+			// A Mac's default is Apple Container, so the other way to podman is the removed
+			// `runtime` key's bridge.
+			var cfg *jsonx.OrderedMap
+			if !explicit {
+				cfg = newConfig("runtime", "podman")
 			}
 			o.LookPath = func(name string) (string, bool) { return "/opt/bin/" + name, name == "podman" }
 			execProbes := 0
@@ -281,7 +289,7 @@ func TestMacOSKeepsTheOneShotProbe(t *testing.T) {
 				Sleep:     func(time.Duration, <-chan struct{}) bool { return true },
 				Interrupt: make(chan struct{}),
 			}
-			if _, ok := o.resolveRuntime(nil); ok {
+			if _, ok := o.resolveRuntime(cfg); ok {
 				t.Fatal("a stopped machine was accepted")
 			}
 			if execProbes != 0 {

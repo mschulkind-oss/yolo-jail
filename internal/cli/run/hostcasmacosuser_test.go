@@ -238,7 +238,7 @@ func TestTheMacosUserArmHandsCacheAliasesOnlyInSelfMode(t *testing.T) {
 	ws := floortest.ResolvedTemp(t)
 	ctx, out = runMacosUserCapturingCtx(t, ws, func(o *Options) {
 		withHome(o)
-		o.MacosUserMode = macosuser.ModeSelf
+		selectMacosUserMode(o, macosuser.ModeSelf)
 	})
 	link := filepath.Join(macosuser.LaunchHomes(macosuser.ModeSelf, ws, seamHome).Machine, "Library", "Caches", "pip")
 	found := false

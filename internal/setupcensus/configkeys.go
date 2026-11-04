@@ -8,8 +8,7 @@ package setupcensus
 //
 // "Above the dispatch" means a part of run.Run that every setup passes through before the
 // macos-user arm returns and the container arm begins: config load and validation
-// (loadAndValidateConfig), refuseUnbuiltNotch, resolveRuntime, stageRunPacks and
-// launchChannel. A key read only there is the same on every setup by construction.
+// (loadAndValidateConfig), resolveSetup (setupgate.go), stageRunPacks and launchChannel. A key read only there is the same on every setup by construction.
 
 // hostSideKey is a key no jail reads: a host command acts on it, so every setup is the same.
 func hostSideKey(reader string) Entry {
@@ -19,25 +18,31 @@ func hostSideKey(reader string) Entry {
 
 var configKeys = map[string]Entry{
 	// ---- Choosing the setup and the notch ------------------------------------------------
+	// The removed keys `runtime` and `confinement` (named-setups.md §10) still choose the built-in
+	// they mean, through config.SelectSetup's removed-keys bridge (removedKeysSetup,
+	// setupselect.go), but only when no --setup, YOLO_SETUP or `setup` names one: a launch's
+	// "- from" line names the key, and resolveSetup (setupgate.go) refuses what this OS lacks.
 	"runtime": {
-		PodmanLinux: honored("resolveRuntime (preflight.go) takes YOLO_RUNTIME, then this key, " +
-			"then auto-detection, which is podman alone on Linux"),
-		PodmanMac: honored("resolveRuntime (preflight.go); on macOS auto-detection tries " +
-			"container before podman, so this key or YOLO_RUNTIME keeps podman"),
-		AppleContainer: honored("resolveRuntime (preflight.go): auto-detection's first choice on " +
-			"macOS when `container` is Apple's CLI (isAppleContainer)"),
-		MacosUser: honored("validateExplicitRuntime (preflight.go) passes a native runtime through " +
-			"and Run's macos-user arm takes it; auto-detection never picks it, so only this key " +
-			"or YOLO_RUNTIME selects it"),
+		PodmanLinux: honored("config.SelectSetup's removed-keys bridge reads `podman` as podman-self " +
+			"when nothing above it names a setup; podman-self is also Linux's default"),
+		PodmanMac: honored("the same bridge: `podman` chooses podman-self, which `--setup podman-self` " +
+			"names directly"),
+		AppleContainer: honored("the same bridge: `container` chooses apple-container-self, which is " +
+			"also the Mac default (setup.Default)"),
+		MacosUser: honored("the same bridge: `macos-user` chooses seatbelt-yolo-account, or " +
+			"seatbelt-self when `macos_user_mode` is \"self\"; a Seatbelt setup on Linux is refused " +
+			"by setup.Buildable, naming podman-self"),
 		Guide: []string{"`runtime`"},
 	},
-	"confinement": everywhere(honored("refuseUnbuiltNotch (run.go) resolves the notch before "+
-		"resolveRuntime, so `jail` launches and `guest` and `host` refuse naming their own verbs, "+
-		"identically on every setup"), "`confinement`"),
+	"confinement": everywhere(honored("config.SelectSetup's removed-keys bridge, when nothing above "+
+		"it names a setup: `jail` chooses nothing (the runtime or the OS default does), `host` chooses "+
+		"host-self, which a launch refuses naming `yolo host` (setup.HostRefusal), and `guest` chooses "+
+		"a Seatbelt setup, refused on Linux and refused beside a `runtime` naming a container, naming "+
+		"both setups"), "`confinement`"),
 	// Named setups (docs/design/named-setups.md): user scope only, read before any backend runs.
 	"setup": everywhere(honored("validateSetups (setups.go) checks it at every launch and `yolo check`, "+
-		"refusing it in a project file and refusing a host setup; config.SelectedSetupFromConfig reads "+
-		"it from the user config alone, after --setup and YOLO_SETUP"), "`setup`"),
+		"refusing it in a project file and refusing a host setup; config.SelectSetup reads it from the "+
+		"user config alone, after --setup and YOLO_SETUP and before the OS default"), "`setup`"),
 	"setups": everywhere(honored("validateSetups (setups.go) decodes each table through setup.Decode "+
 		"at every launch and `yolo check`, refusing it in a project file and refusing a built-in's "+
 		"name; config.UserSetups reads it from the user config alone"), "`setups`"),
@@ -144,7 +149,7 @@ var configKeys = map[string]Entry{
 		AppleContainer: warnedSaying("appleContainerBaseMounts (assemble_parts.go) mounts no "+
 			"relocation and prints the notice once for the set", Notice{
 			Says: "cache_relocations are not implemented on Apple Container",
-			Then: "The cache stays on its original filesystem; use `YOLO_RUNTIME=podman` for " +
+			Then: "The cache stays on its original filesystem; launch with `--setup podman-self` for " +
 				"cache relocation.",
 			By: "run.appleContainerBaseMounts",
 		}),
@@ -392,7 +397,7 @@ var configKeys = map[string]Entry{
 				PodmanMac: honored("the same socat hop, reached through the VM; unverified on " +
 					"hardware, no macOS run dials one"),
 				AppleContainer: refused("appleContainerForwardRefusal (hostports.go) refuses the " +
-					"launch before anything starts, naming the key, each entry and YOLO_RUNTIME=podman: " +
+					"launch before anything starts, naming the key, each entry and `--setup podman-self`: " +
 					"the backend carries no container-to-Mac traffic and its --publish-socket forwards " +
 					"the other way, so there is no forward to deliver. Until 2026-10-05 the argv " +
 					"carried --publish-socket and `container run` 1.1.0 rejected it, naming a socket " +
@@ -593,9 +598,10 @@ var configKeys = map[string]Entry{
 		PodmanLinux:    notApplicable("ignored: not this backend; only the macos-user backend reads it"),
 		PodmanMac:      notApplicable("ignored: not this backend; only the macos-user backend reads it"),
 		AppleContainer: notApplicable("ignored: not this backend; only the macos-user backend reads it"),
-		MacosUser: honored("macosUserRun (cli/commands.go) reads it from the user config (config.MacosUserMode) " +
-			"and hands the mode to the backend (macosuser.Options.Mode), which runs \"self\" as the invoking " +
-			"user under the deny-by-default profile"),
+		MacosUser: honored("removed for launches: the setup's run_as decides (macosUserRun, cli/commands.go, " +
+			"macosuser.ModeFor), and the key only steers the removed `runtime`/`confinement` bridge to " +
+			"seatbelt-self (config.SetupForRemovedRuntime); captures and the host floor still read it " +
+			"(macosUserLaunchMode)"),
 		Guide: []string{"`macos_user_mode`"},
 	},
 	"macos_user_shared_tmp": {

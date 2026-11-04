@@ -40,7 +40,7 @@ func TestConfigRenderPreviewsTheJailsWorkspaceNotTheHosts(t *testing.T) {
 	// marker it resolves the host notch, whose preview is host apply's render and binds no
 	// ${workspace} at all (configrenderhost.go).
 	writeFile(t, filepath.Join(repo, config.WorkspaceConfigName), `{}`)
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 
 	var out, errw bytes.Buffer
 	if rc := surfaceRunW([]string{"render", "codex/config"}, &out, &errw); rc != 0 {

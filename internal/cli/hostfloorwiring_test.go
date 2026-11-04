@@ -90,7 +90,7 @@ func TestTheProductionFloorRunsTheCaptureActForAnInstallerAgentItHasNoCaptureOf(
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	stubBins(t, "podman")
 	var captured []string
 	origAct := hostFloorCaptureAct
@@ -137,7 +137,7 @@ func TestTheProductionFloorsRefreshRecapturesAnInstallerAgentThroughTheCaptureAc
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	stubBins(t, "podman")
 	var captured []string
 	origAct := hostFloorCaptureAct
@@ -183,7 +183,7 @@ func TestTheProductionFloorRunsTheInstalledCopyWhileAnotherCaptureHoldsTheLock(t
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	stubBins(t, "podman")
 	calls := 0
 	origAct := hostFloorCaptureAct

@@ -579,7 +579,7 @@ func TestFzfAcceptanceCaseInJail(t *testing.T) {
 // half of S3 — "the jail reads its own output as the user's tree" — end to end, across the two
 // commands that produce it.
 //
-// The loop: `yolo apply --at host` composes ~/.claude/CLAUDE.md wholesale from every pack's
+// The loop: `yolo apply --setup host-self` composes ~/.claude/CLAUDE.md wholesale from every pack's
 // prose (the 2026-08-04 ruling, entrypoint.RenderHostBriefings), and the claude pack's briefing
 // declares `after: "host:.claude/CLAUDE.md"` — so a launch prepended that composition to a
 // briefing it was about to compose the same packs into. Measured in a real jail on 2026-08-31:
@@ -621,9 +621,9 @@ func TestHostComposedBriefingIsNotDeliveredTwice(t *testing.T) {
 	// than the user's file, and it is the precondition the bug needs. YOLO_VERSION blanked, as in
 	// supersession_test.go: the suite may run inside a jail, where a host apply refuses
 	// (hostapplyinjail.go), and this is the host's verb.
-	if a := runCommand(t, dir, []string{"apply", "--at", "host", "--assert"},
+	if a := runCommand(t, dir, []string{"apply", "--setup", "host-self", "--assert"},
 		withEnv("YOLO_VERSION=")); a.rc != 0 {
-		t.Fatalf("yolo apply --at host --assert failed: rc %d\nstdout: %s\nstderr: %s",
+		t.Fatalf("yolo apply --setup host-self --assert failed: rc %d\nstdout: %s\nstderr: %s",
 			a.rc, a.stdout, a.stderr)
 	}
 

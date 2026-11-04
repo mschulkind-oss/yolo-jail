@@ -529,7 +529,7 @@ func TestApplyHostFlagIsRemovedNotDeprecated(t *testing.T) {
 	}
 	// The help it prints alongside must point at what replaced it.
 	combined := out.String() + errw.String()
-	if !strings.Contains(combined, "--at host") {
+	if !strings.Contains(combined, "--setup host-self") {
 		t.Errorf("the refusal does not show the surviving spelling:\n%s", combined)
 	}
 }

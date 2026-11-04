@@ -414,7 +414,7 @@ func (o *Options) patchedTreesWire(rt string) map[string]entrypoint.TreeDelivery
 
 // noteTreeDeliveries is the fresh launch's line for each built tree it mounts nothing for: at a notch
 // that builds none, said once (§9: "start pi with a line said once, in FP-D3's shape, naming
-// YOLO_RUNTIME=podman"); and, at every notch, each FALLBACK taken, with its reason and what the agent
+// yolo --setup podman-self -- <command>"); and, at every notch, each FALLBACK taken, with its reason and what the agent
 // installs in the tree's place (docs/design/pi-extension-store-builds.md XB-D7). Elsewhere the
 // advance's own lines, and the owner's launcher, say it.
 func (o *Options) noteTreeDeliveries(rt string) {
@@ -428,7 +428,7 @@ func (o *Options) noteTreeDeliveries(rt string) {
 		fallbacks[f.Key()] = f.Fallback
 	}
 	builds := o.treesBuildHere(rt)
-	next := " A podman jail builds it: YOLO_RUNTIME=podman."
+	next := " A podman jail builds it: yolo --setup podman-self -- <command>."
 	if config.InJail() {
 		next = "" // the reason names the host, which is the next step from inside a jail
 	}

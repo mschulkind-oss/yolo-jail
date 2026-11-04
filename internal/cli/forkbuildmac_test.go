@@ -32,7 +32,7 @@ func TestACaptureOfAForkOnAContainerBackendNamesNoRuntime(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			forkBuildHome(t)
-			t.Setenv("YOLO_RUNTIME", "")
+			t.Setenv("YOLO_SETUP", "")
 			machine(t)
 			var seen run.Options
 			withFakeCaptureJail(t, fakeBuildJail(t, &seen, probetoolBuilt))
@@ -40,10 +40,8 @@ func TestACaptureOfAForkOnAContainerBackendNamesNoRuntime(t *testing.T) {
 			if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
 				t.Fatalf("rc=%d\n%s\n%s", rc, out.String(), errw.String())
 			}
-			if seen.Getenv != nil {
-				if rt := seen.Getenv("YOLO_RUNTIME"); rt != "" {
-					t.Errorf("the build jail was handed YOLO_RUNTIME=%q, which nobody set", rt)
-				}
+			if rt := pipelineBackend(seen); rt != "" {
+				t.Errorf("the build jail was handed the %q backend, which nobody set", rt)
 			}
 		})
 	}
@@ -110,7 +108,7 @@ func TestAMacFloorThatCannotRunTheBuildActRefusesNamingTheStep(t *testing.T) {
 // the links against /workspace on this backend and the dangling program is admitted.
 func TestAMacosUserBuildLeavingALinkIntoItsCheckoutStoresNothing(t *testing.T) {
 	forkBuildHome(t)
-	t.Setenv("YOLO_RUNTIME", "macos-user")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	origAct := macForkBuildAct
 	macForkBuildAct = func(_ macosuser.Deps, o macosuser.ForkBuildOptions, dest, toolchain string, _ bool) int {
 		root := macosuser.ForkBuildStagingRoot("", o.BuildID)

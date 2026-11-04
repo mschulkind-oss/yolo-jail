@@ -16,7 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// hostApply is `yolo host apply` — the ergonomic spelling of `yolo apply --at host`.
+// hostApply is `yolo host apply` — the ergonomic spelling of `yolo apply --setup host-self`.
 // Both remain. This one used to also own --shell-init, which is removed and now refuses
 // (refuseShellInit).
 func hostApply(args []string, out, errw io.Writer, color bool, stdin io.Reader) int {

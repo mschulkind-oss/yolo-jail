@@ -351,7 +351,7 @@ var programCaptureChild = func(ctx context.Context, workspace string, argv []str
 }
 
 func programCaptureEnvironment(environ []string) []string {
-	allowed := map[string]bool{"HOME": true, "PATH": true, "TMPDIR": true, "LANG": true, "NO_COLOR": true, "USER": true, "LOGNAME": true, "XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_CACHE_HOME": true, "XDG_RUNTIME_DIR": true, "YOLO_RUNTIME": true,
+	allowed := map[string]bool{"HOME": true, "PATH": true, "TMPDIR": true, "LANG": true, "NO_COLOR": true, "USER": true, "LOGNAME": true, "XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_CACHE_HOME": true, "XDG_RUNTIME_DIR": true, "YOLO_SETUP": true, "YOLO_RUNTIME": true,
 		// Facts about this machine's runtime VM, not npm configuration. Without them the
 		// producer's own launch refuses a store-path install prefix on a Mac whose podman
 		// machine shares /nix (Nightly macOS Integration run 38723632845).

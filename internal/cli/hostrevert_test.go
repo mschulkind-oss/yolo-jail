@@ -78,7 +78,7 @@ func setHostManagement(t *testing.T, home, mode string) {
 func applyOnce(t *testing.T) {
 	t.Helper()
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
+	if rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("setup apply rc=%d: %s%s", rc, out.String(), errw.String())
 	}
 }
@@ -172,11 +172,11 @@ func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
 	setHostManagement(t, home, "none")
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "host", "--revert"}, &out, &errw, false, nil); rc != 0 {
+	if rc := applyMain([]string{"--setup", "host-self", "--revert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("dry run rc=%d: %s%s", rc, out.String(), errw.String())
 	}
 	if !strings.Contains(out.String(), "would remove telemetry") {
-		t.Errorf("`apply --at host --revert` did not report the revert:\n%s", out.String())
+		t.Errorf("`apply --setup host-self --revert` did not report the revert:\n%s", out.String())
 	}
 	if _, err := os.Stat(record); err != nil {
 		t.Errorf("the dry run through this spelling deleted the record: %v", err)
@@ -184,7 +184,7 @@ func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
 
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--at", "host", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
+	if rc := applyMain([]string{"--setup", "host-self", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("assert rc=%d: %s%s", rc, out.String(), errw.String())
 	}
 	data, err := os.ReadFile(surface)
@@ -192,7 +192,7 @@ func TestApplyRevertActsAtTheHostNotch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), "telemetry") {
-		t.Errorf("`apply --at host --revert --assert` rendered instead of reverting:\n%s", data)
+		t.Errorf("`apply --setup host-self --revert --assert` rendered instead of reverting:\n%s", data)
 	}
 	if !strings.Contains(string(data), "myOwnKey") {
 		t.Errorf("the user's key did not survive:\n%s", data)
@@ -245,7 +245,7 @@ func TestHostRevertMakesTheNextApplyAFirstApplyAgain(t *testing.T) {
 			setHostManagement(t, home, "own")
 		}
 		var out, errw bytes.Buffer
-		if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		if rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, nil); rc != 0 {
 			t.Fatalf("re-apply rc=%d: %s%s", rc, out.String(), errw.String())
 		}
 		return strings.Contains(out.String(), "first apply of a surface into this home"),
@@ -303,7 +303,7 @@ func readJSONMap(t *testing.T, path string) map[string]any {
 }
 
 // TestHostRevertIsRefusedUnderOwn pins the refusal and both CALL SITES: `yolo host apply
-// --revert` and `yolo apply --at host --revert` are one operation, so a contract that stopped one
+// --revert` and `yolo apply --setup host-self --revert` are one operation, so a contract that stopped one
 // and not the other would have a way around it.
 //
 // It was TestHostRevertIsRefusedUnderNoneAndOwn. `none` left the loop with the `assert`
@@ -326,7 +326,7 @@ func TestHostRevertIsRefusedUnderOwn(t *testing.T) {
 			return hostMain([]string{"apply", "--revert", "--assert"}, o, e, false, nil)
 		},
 		func(o, e *bytes.Buffer) int {
-			return applyMain([]string{"--at", "host", "--revert", "--assert"}, o, e, false, nil)
+			return applyMain([]string{"--setup", "host-self", "--revert", "--assert"}, o, e, false, nil)
 		},
 	} {
 		var out, errw bytes.Buffer
@@ -456,7 +456,7 @@ func TestHostRevertRefusesTheFlagsItCannotShare(t *testing.T) {
 func TestApplyRevertIsTheHostNotchs(t *testing.T) {
 	revertFixture(t, "")
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--revert", "--at", "jail"}, &out, &errw, false, nil); rc != 2 {
+	if rc := applyMain([]string{"--revert", "--setup", "podman-self"}, &out, &errw, false, nil); rc != 2 {
 		t.Fatalf("rc=%d, want 2\n%s%s", rc, out.String(), errw.String())
 	}
 	if !strings.Contains(errw.String(), "host") {

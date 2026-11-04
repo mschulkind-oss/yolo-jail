@@ -415,7 +415,7 @@ func hd10LaunchEnv() []string {
 	env := append(os.Environ(), "TERM=dumb")
 	env = append(env, autoCaptureEnvForSuite()...)
 	env = append(env, readinessEnvForSuite()...)
-	return append(env, "YOLO_RUNTIME=macos-user")
+	return append(env, "YOLO_SETUP=seatbelt-yolo-account")
 }
 
 // hd10Launch starts one macos-user launch of script in dir and delivers its result. A launch

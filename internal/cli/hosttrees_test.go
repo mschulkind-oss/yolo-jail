@@ -175,7 +175,7 @@ func TestAHostThatBuildsNoTreeRendersNoneAndNamesAJail(t *testing.T) {
 	if len(fx.builds) != 0 {
 		t.Error("a macOS host advanced a patched extension")
 	}
-	if out := fx.renderTrees(t, true); !strings.Contains(out, "YOLO_RUNTIME=podman yolo --") {
+	if out := fx.renderTrees(t, true); !strings.Contains(out, "YOLO_SETUP=podman-self yolo --") {
 		t.Errorf("the macOS render does not name a jail:\n%s", out)
 	}
 }
@@ -413,16 +413,16 @@ func TestAHostLaunchTheCapabilityGateRefusesBuildsNoTree(t *testing.T) {
 	}
 }
 
-// THE OTHER SPELLING, `yolo apply --at host`, advances in its acting posture too: one operation.
+// THE OTHER SPELLING, `yolo apply --setup host-self`, advances in its acting posture too: one operation.
 func TestApplyAtHostAdvancesInItsActingPostureOnly(t *testing.T) {
 	fx := newTreeFixture(t, `"f.txt"`)
 	fx.writeTreePackConfig(t, "own")
 	var errw bytes.Buffer
-	applyMain([]string{"--at", "host"}, io.Discard, &errw, false, nil)
+	applyMain([]string{"--setup", "host-self"}, io.Discard, &errw, false, nil)
 	if len(fx.builds) != 0 {
 		t.Fatalf("the dry run built the tree:\n%s", errw.String())
 	}
-	applyMain([]string{"--at", "host", "--assert"}, io.Discard, &errw, false, strings.NewReader(""))
+	applyMain([]string{"--setup", "host-self", "--assert"}, io.Discard, &errw, false, strings.NewReader(""))
 	if len(fx.builds) != 1 {
 		t.Fatalf("--assert built %d trees:\n%s", len(fx.builds), errw.String())
 	}
@@ -665,7 +665,7 @@ func TestAHostThatBuildsNoTreeLaunchSaysTheOwnerStartsWithoutItsTree(t *testing.
 		t.Fatalf("rc=%d, execed %v\n%s", rc, got.execed, errw.String())
 	}
 	for _, w := range []string{"extension " + treeKeyCLI + " is not delivered on this host", "tool starts without it",
-		"YOLO_RUNTIME=podman yolo -- tool"} {
+		"YOLO_SETUP=podman-self yolo -- tool"} {
 		if n := strings.Count(errw.String(), w); n != 1 {
 			t.Errorf("the macOS launch says %q %d times, want once:\n%s", w, n, errw.String())
 		}

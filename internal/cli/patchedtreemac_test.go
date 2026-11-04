@@ -137,7 +137,7 @@ func TestAMacThatCannotRunTheBuildActNamesTheSetup(t *testing.T) {
 	}
 	step := "the yolo account " + macosuser.SandboxUser + ", which a patched extension's build on a Mac runs " +
 		"as, does not exist — run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch builds it"
-	if out := fx.renderTrees(t, true); !strings.Contains(out, step) || strings.Contains(out, "YOLO_RUNTIME=podman") {
+	if out := fx.renderTrees(t, true); !strings.Contains(out, step) || strings.Contains(out, "YOLO_SETUP=podman-self") {
 		t.Errorf("the Mac's render does not name the setup:\n%s", out)
 	}
 	stubBins(t, "tool")

@@ -18,6 +18,11 @@ const (
 	FromEnv
 	FromUserConfig
 	FromDefault
+	// FromRemovedKey: nothing named a setup, and a config key setups replace (`runtime`,
+	// `confinement`, `macos_user_mode`) still chose the built-in it means. A bridge kept only
+	// until those keys are refused (named-setups-plan.md slice 5), so a config that has not
+	// moved yet launches what it launched before rather than silently changing.
+	FromRemovedKey
 )
 
 func (s Source) String() string {
@@ -30,6 +35,8 @@ func (s Source) String() string {
 		return "your user config"
 	case FromDefault:
 		return "this OS's default"
+	case FromRemovedKey:
+		return "a config key setups replace"
 	}
 	return fmt.Sprintf("Source(%d)", int(s))
 }
@@ -56,15 +63,30 @@ func Select(flag, env, userSetup string, user map[string]Setup, goos string) (Se
 		if !ValidName(c.name) {
 			return Setup{}, c.src, fmt.Errorf("%s: %s. See the defined setups:\n    yolo setup list", c.where, nameRefusal(c.name))
 		}
-		if s, ok := builtIn(c.name); ok {
-			return s, c.src, nil
-		}
-		if s, ok := user[c.name]; ok {
-			return s, c.src, nil
-		}
-		return Setup{}, c.src, fmt.Errorf("setup %q is not defined. Defined here: %s (yolo setup list)", c.name, strings.Join(definedNames(user), ", "))
+		s, err := lookup(c.name, user)
+		return s, c.src, err
 	}
 	return Default(goos), FromDefault, nil
+}
+
+// Lookup finds the setup one name names, a built-in or one of the user's, or the refusal
+// naming what is defined. It is Select's per-name step, for a verb handed one name
+// (`yolo setup show`, `yolo setup new --from`).
+func Lookup(name string, user map[string]Setup) (Setup, error) {
+	if !ValidName(name) {
+		return Setup{}, fmt.Errorf("%s. See the defined setups:\n    yolo setup list", nameRefusal(name))
+	}
+	return lookup(name, user)
+}
+
+func lookup(name string, user map[string]Setup) (Setup, error) {
+	if s, ok := builtIn(name); ok {
+		return s, nil
+	}
+	if s, ok := user[name]; ok {
+		return s, nil
+	}
+	return Setup{}, fmt.Errorf("setup %q is not defined. Defined here: %s (yolo setup list)", name, strings.Join(definedNames(user), ", "))
 }
 
 // definedNames is every name a selection may use: the built-ins in design §5's order, then

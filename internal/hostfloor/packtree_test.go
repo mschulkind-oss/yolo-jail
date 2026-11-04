@@ -195,10 +195,10 @@ func TestAFailedPackTreeRebuildDoesNotKeepTheOlderBuild(t *testing.T) {
 	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	digest, fail = packTreeDigestTwo, errors.New("building board failed: exit 3; its log: /x.log — retry: `yolo pack build fx --at host`")
+	digest, fail = packTreeDigestTwo, errors.New("building board failed: exit 3; its log: /x.log — retry: `yolo pack build fx --setup host-self`")
 	next := w.nextLaunch()
 	_, _, err := next.Ensure(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "its log: /x.log") || !strings.Contains(err.Error(), "yolo pack build fx --at host") {
+	if err == nil || !strings.Contains(err.Error(), "its log: /x.log") || !strings.Contains(err.Error(), "yolo pack build fx --setup host-self") {
 		t.Fatalf("Ensure = %v, want the act's failure with its log and retry", err)
 	}
 	if _, err := os.Stat(next.Launcher("board")); err == nil {

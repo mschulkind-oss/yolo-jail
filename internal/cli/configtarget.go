@@ -21,7 +21,7 @@ package cli
 // The ruling keeps the INFERENCE and deletes the PAIR
 // ([OQ-CR1](docs/reference/config-target-resolution.md#oq-cr1), (a), against its own leaning):
 // the cwd selects the TARGET — notch, workspace, store, home root and provenance all come
-// off it — and `--at` overrides. Choosing what a report is ABOUT is not the write-side hazard
+// off it — and `--setup` overrides. Choosing what a report is ABOUT is not the write-side hazard
 // `host-render-target.md` §6.6's *"the cwd selects nothing"* governs, and the cwd is the one
 // input that already names the jail a reader means by "this one".
 //
@@ -79,7 +79,7 @@ type configTarget struct {
 	// local reports whether THIS process's home is the target's home — the fact
 	// surfacesAreLocal() used to answer from `YOLO_VERSION` and a second workspace walk. It
 	// is what the write guard reads, and it is false at the host notch by construction: a
-	// `--at host` invocation inside a jail is about the jail's disposable home, and letting
+	// `--setup host-self` invocation inside a jail is about the jail's disposable home, and letting
 	// that count as local would let `reset` truncate it.
 	local bool
 	// store is the render.Target every capture sidecar comes off — resolved, never
@@ -164,7 +164,8 @@ func processOwnsWorkspace(workspace string) bool {
 	return workspace == containerWorkspace
 }
 
-// resolveConfigTarget is THE resolution point: `--at` where given, else the cwd.
+// resolveConfigTarget is THE resolution point: the notch of the setup `--setup` names where
+// given, else the cwd.
 //
 // One call, at the top of the verb dispatch, before any verb's first read — which is what
 // [P2](docs/reference/config-target-resolution.md#principles)
@@ -172,29 +173,27 @@ func processOwnsWorkspace(workspace string) bool {
 // error so the caller prints it verbatim: each one names what is missing, and per §4.2 none
 // of them may silently degrade to the other notch, because degrading is F1.
 //
-// THE VOCABULARY IS render's, and it is the one `yolo apply --at` already crosses. A notch
-// name resolves through render.KindForNotch, whose selectable set
-// render.TestNotchNamesMatchTheConfigVocabulary pins against
-// config.KnownConfinements in both directions — so the read verbs and `apply` cannot come to
-// accept different sets, which is what
+// THE VOCABULARY IS the setups', and it is the one `yolo apply --setup` and the launch already
+// cross: a name resolves through lookupNamedSetup (a built-in or the user's `[setups.*]`) and
+// its notch through render.KindForSetup, so the read verbs and `apply` cannot come to accept
+// different sets, which is what
 // [P4](docs/reference/config-target-resolution.md#principles) — the SELECTOR rule,
 // not report-tiers.md's own P4 — forbids ("a second spelling for the read verbs would be a
 // second vocabulary for one fact").
-func resolveConfigTarget(at string) (configTarget, string) {
-	if at == "" {
+func resolveConfigTarget(setupName string) (configTarget, string) {
+	if setupName == "" {
 		if ws, ok := resolveWorkspaceRoot(); ok {
 			return jailConfigTarget(ws, "the cwd"), ""
 		}
 		return hostConfigTarget("the cwd resolving no workspace"), ""
 	}
-	notch, ok := render.KindForNotch(at)
-	if !ok {
-		return configTarget{}, fmt.Sprintf("--at %q is not a confinement level (%s)",
-			at, strings.Join(notchNames(), "|"))
+	s, err := lookupNamedSetup(setupName)
+	if err != nil {
+		return configTarget{}, err.Error()
 	}
-	switch notch {
+	switch render.KindForSetup(s.Kind()) {
 	case render.KindHost:
-		return hostConfigTarget("--at"), ""
+		return hostConfigTarget("--setup " + s.Name), ""
 	case render.KindJail:
 		ws, found := resolveWorkspaceRoot()
 		if !found {
@@ -203,49 +202,38 @@ func resolveConfigTarget(at string) (configTarget, string) {
 			// this refuses where a bare invocation answers about the host. Degrading silently
 			// to the other notch is F1.
 			//
-			// ⚠ EVERY REMEDY IS A `cd` OR AN `--at`, never a flag naming a workspace.
+			// ⚠ EVERY REMEDY IS A `cd` OR A `--setup`, never a flag naming a workspace.
 			// internal/cli/run/run.go refuses a launch with *"there is no --workspace flag: cd
 			// into the project you meant"*, and a second way to name a workspace is exactly
 			// what that refusal rules out.
-			return configTarget{}, "--at jail needs a workspace, and " + describeCwd() +
+			return configTarget{}, "--setup " + s.Name + " needs a workspace, and " + describeCwd() +
 				" resolves none — no .yolo/config-boot.json and no " +
 				config.WorkspaceConfigName + " in it or above it. cd into the project you " +
-				"meant, or pass --at host to ask about your real home."
+				"meant, or pass --setup host-self to ask about your real home."
 		}
-		return jailConfigTarget(ws, "--at"), ""
+		return jailConfigTarget(ws, "--setup "+s.Name), ""
 	default:
-		// render.NotchUnbuilt is the SENTENCE, not a literal: `yolo apply --at guest` and the
-		// launch gate both say it, and three spellings of one notch's status is the drift
+		// render.NotchUnbuilt is the SENTENCE, not a literal: `yolo apply` at the guest notch and
+		// the launch gate both say it, and three spellings of one notch's status is the drift
 		// docs/design/declaration-parity.md exists to name (OQ-DP3). The next step is this
 		// verb's own, on a line of its own so the sentence line stays the shared one.
 		return configTarget{}, render.NotchUnbuilt("config") + "\n" + guestConfigNextStep()
 	}
 }
 
-// guestConfigNextStep is what `yolo config --at guest` names instead of the notch it cannot read:
-// the two it can. On macOS the guest notch renders as the jail notch does, through the macos-user
-// backend's render.Jail target (env-manager plan EMP-D2), and `--at jail` resolves a
-// `confinement: "guest"` workspace's runtime as macos-user (detectListingRuntime), so it reads
-// what that workspace's guest launches wrote.
+// guestConfigNextStep is what `yolo config --setup <seatbelt setup>` names instead of the notch
+// it cannot read: the two it can. On macOS a Seatbelt setup renders as the jail notch does,
+// through the macos-user backend's render.Jail target (env-manager plan EMP-D2), and the cwd's
+// own reading resolves a Seatbelt workspace's backend as macos-user (detectListingRuntime), so
+// a bare verb reads what that workspace's launches wrote.
 func guestConfigNextStep() string {
-	jail := "`yolo config --at jail` reads this workspace's jail"
+	jail := "`yolo config <verb>` with no --setup reads this workspace's environment"
 	if paths.IsMacOS {
-		jail = "`yolo config --at jail` reads this workspace's jail, which for a " +
-			"`confinement: \"guest\"` workspace is its sandbox: on macOS the guest notch renders " +
-			"as the jail notch does"
+		jail = "`yolo config <verb>` with no --setup reads this workspace's environment, which " +
+			"for a workspace whose setup is a Seatbelt one is its sandbox: on macOS that notch " +
+			"renders as the jail notch does"
 	}
-	return jail + ", and `--at host` reads your real home."
-}
-
-// notchNames is the selectable notches' names, for a refusal that lists what it would have
-// accepted. Read off render.SelectableNotches so it cannot drift from what KindForNotch
-// accepts — the vocabulary is render's and this is only its spelling.
-func notchNames() []string {
-	names := make([]string, 0, len(render.SelectableNotches()))
-	for _, k := range render.SelectableNotches() {
-		names = append(names, k.String())
-	}
-	return names
+	return jail + ", and `--setup host-self` reads your real home."
 }
 
 // describeCwd names the working directory for a refusal, or says it could not be read.

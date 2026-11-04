@@ -11,7 +11,7 @@ import (
 
 func TestRunRunWiresUnknownYOLOEnvironmentWarning(t *testing.T) {
 	t.Setenv("YOLO_ITEM96_UNKNOWN_KEY", "secret-test-value")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	var seen run.Options
 	previous := launchRunPipeline
 	launchRunPipeline = func(o run.Options) int { seen = o; return 0 }
@@ -95,7 +95,7 @@ func TestWarnUnknownYOLOEnvSortsDeduplicatesAndOmitsValues(t *testing.T) {
 }
 
 // The warning's next step fits the name (lab report 2026-10-29 runbook §4.3): only a name that
-// looks like a runtime choice is pointed at YOLO_RUNTIME, a near-miss of a recognized setting
+// looks like a runtime choice is pointed at YOLO_SETUP, a near-miss of a recognized setting
 // is pointed at that setting, and anything else at `yolo config-ref`.
 func TestWarnUnknownYOLOEnvNamesARelevantNextStep(t *testing.T) {
 	known := []string{"YOLO_RUNTIME", "YOLO_NO_BANNER", "YOLO_CLAUDE_CREDENTIAL_VIEW"}
@@ -103,11 +103,11 @@ func TestWarnUnknownYOLOEnvNamesARelevantNextStep(t *testing.T) {
 		name, want string
 		not        []string
 	}{
-		{"YOLO_BACKEND", "YOLO_RUNTIME=podman", []string{"config-ref"}},
-		{"YOLO_CONTAINER_RUNTIME", "YOLO_RUNTIME=podman", []string{"config-ref"}},
-		{"YOLO_NO_BANER", "did you mean YOLO_NO_BANNER", []string{"YOLO_RUNTIME"}},
-		{"YOLO_CLAUDE_CREDENTIALS_VIEW", "did you mean YOLO_CLAUDE_CREDENTIAL_VIEW", []string{"YOLO_RUNTIME"}},
-		{"YOLO_ITEM96_UNKNOWN_KEY", "yolo config-ref", []string{"YOLO_RUNTIME", "did you mean"}},
+		{"YOLO_BACKEND", "YOLO_SETUP=podman-self", []string{"config-ref"}},
+		{"YOLO_CONTAINER_RUNTIME", "YOLO_SETUP=podman-self", []string{"config-ref"}},
+		{"YOLO_NO_BANER", "did you mean YOLO_NO_BANNER", []string{"YOLO_SETUP"}},
+		{"YOLO_CLAUDE_CREDENTIALS_VIEW", "did you mean YOLO_CLAUDE_CREDENTIAL_VIEW", []string{"YOLO_SETUP"}},
+		{"YOLO_ITEM96_UNKNOWN_KEY", "yolo config-ref", []string{"YOLO_SETUP", "did you mean"}},
 	} {
 		var out strings.Builder
 		warnUnknownYOLOEnv(known, []string{tc.name + "=secret-value"}, &out)

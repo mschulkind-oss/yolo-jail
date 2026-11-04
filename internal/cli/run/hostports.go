@@ -97,7 +97,7 @@ func (o *Options) appleContainerForwardRefusal(rt string, cfg *jsonx.OrderedMap)
 		"the jail reach a service on this Mac, and Apple Container carries no traffic from a " +
 		"container back to the Mac; its own --publish-socket forwards the other way, so " +
 		"`container run` would reject the launch. Remove `network.forward_host_ports` from your " +
-		"config for this runtime, or launch with YOLO_RUNTIME=podman, which forwards it."
+		"config for this setup, or launch with `--setup podman-self`, which forwards it."
 }
 
 // mergeHostForwards appends implicit localhost-provider forwards to the user's

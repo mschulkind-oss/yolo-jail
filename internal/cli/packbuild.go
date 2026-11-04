@@ -33,12 +33,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // packBuildUsage is the verb's own usage line, printed with a usage refusal.
-const packBuildUsage = "usage: yolo pack build [<pack>...] [--force] [--at jail|host]"
+const packBuildUsage = "usage: yolo pack build [<pack>...] [--force] [--setup <name>]"
 
-// packBuildHostGOOS is the host's GOOS for `--at host`, a variable so a test on Linux can ask
+// packBuildHostGOOS is the host's GOOS for a host setup's build, a variable so a test on Linux can ask
 // what a Mac would do.
 var packBuildHostGOOS = goruntime.GOOS
 
@@ -46,7 +47,9 @@ var packBuildHostGOOS = goruntime.GOOS
 type packBuildOptions struct {
 	packs []string
 	force bool
-	at    string // "jail" or "host"
+	at    string // "jail" or "host": the notch of the setup `--setup` named, else "jail"
+	// setup is the setup `--setup` named, the zero Setup when none was.
+	setup setup.Setup
 	// prebuiltOptIn is the user's `programs.overrides.<bin>: {"prebuilt": true}` (BG-D18), read once
 	// per run (config.ProgramPrebuiltOptIns).
 	prebuiltOptIn map[string]bool
@@ -55,7 +58,9 @@ type packBuildOptions struct {
 	overrides map[string]config.ProgramOverride
 }
 
-// parsePackBuildArgs reads `[<pack>...] [--force] [--at jail|host]`; the error is a usage refusal.
+// parsePackBuildArgs reads `[<pack>...] [--force] [--setup <name>]`; the error is a usage
+// refusal. A host setup builds for the host notch, every other setup for its own backend; the
+// removed `--at` is refused naming `--setup` (atRemovedFor).
 func parsePackBuildArgs(args []string) (packBuildOptions, error) {
 	o := packBuildOptions{at: "jail"}
 	for i := 0; i < len(args); i++ {
@@ -63,19 +68,25 @@ func parsePackBuildArgs(args []string) (packBuildOptions, error) {
 		switch {
 		case a == "--force":
 			o.force = true
-		case a == "--at" || strings.HasPrefix(a, "--at="):
-			v, ok := strings.CutPrefix(a, "--at=")
-			if !ok {
-				if i+1 >= len(args) {
-					return o, errors.New("--at needs a value: jail or host")
-				}
-				i++
-				v = args[i]
+		case a == "--setup" || strings.HasPrefix(a, "--setup="):
+			fl, _ := readValueFlag(args, i, "--setup")
+			if fl.err != nil {
+				return o, fmt.Errorf("%v (a setup's name; `yolo setup list` names them)", fl.err)
 			}
-			if v != "jail" && v != "host" {
-				return o, fmt.Errorf("--at %q: it is jail (the default) or host", v)
+			i = fl.last
+			s, err := lookupNamedSetup(fl.value)
+			if err != nil {
+				return o, err
 			}
-			o.at = v
+			o.setup = s
+			if s.Kind() == setup.KindHost {
+				o.at = "host"
+			} else {
+				o.at = "jail"
+			}
+		case a == atFlag || strings.HasPrefix(a, atFlag+"="):
+			fl, _ := readValueFlag(args, i, atFlag)
+			return o, atRemovedFor("pack build", fl.value)
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown flag %q", a)
 		default:
@@ -87,12 +98,19 @@ func parsePackBuildArgs(args []string) (packBuildOptions, error) {
 
 // packBuildRuntime is the runtime a build for at runs under, handed to the act as captureFork
 // hands it: "macos-user" when the build is the Mac's darwin act, and "" otherwise, so the run
-// pipeline resolves a container backend as any capture does. `--at jail` builds for the
-// workspace runtime's jail (macos-user when that is the runtime), `--at host` for the host notch:
-// the darwin act on a Mac, a container jail's Linux build on Linux (the same build a jail gets).
-func packBuildRuntime(at string) string {
-	if at == "host" {
+// pipeline resolves a container backend as any capture does. With no `--setup` it builds for the
+// selected setup's backend (macos-user when that is the backend); a named setup with walls builds
+// for its own backend; a host setup for the host notch: the darwin act on a Mac, a container
+// jail's Linux build on Linux (the same build a jail gets).
+func packBuildRuntime(opts packBuildOptions) string {
+	if opts.at == "host" {
 		if packBuildHostGOOS == "darwin" {
+			return "macos-user"
+		}
+		return ""
+	}
+	if opts.setup.Name != "" {
+		if opts.setup.Backend() == "macos-user" {
 			return "macos-user"
 		}
 		return ""
@@ -137,7 +155,7 @@ func packBuild(args []string, out, errw io.Writer, color bool) int {
 			failed = true
 		}
 	}
-	rt := packBuildRuntime(opts.at)
+	rt := packBuildRuntime(opts)
 	opts.overrides = config.ProgramOverrides(func(msg string) { fmt.Fprintf(errw, "Warning: %s\n", msg) })
 	opts.prebuiltOptIn = config.ProgramPrebuiltOptIns(nil)
 	programs := packload.PackTreePrograms(packs)
@@ -239,8 +257,8 @@ func packBuildScope(sel hostPackSet, names []string, errw io.Writer) ([]*packloa
 func packBuildOne(pr richtext.Printer, f packload.Fork, rt string, opts packBuildOptions, errw io.Writer, color bool) bool {
 	label := richtext.Escape(f.Label())
 	retry := "yolo pack build " + f.Pack
-	if opts.at == "host" {
-		retry += " --at host"
+	if opts.setup.Name != "" {
+		retry += " --setup " + opts.setup.Name
 	}
 	fail := func(why string) bool {
 		pr.Printf("[red]failed[/red]     %s  [dim]%s — then run `%s`[/dim]", label, richtext.Escape(why), richtext.Escape(retry))

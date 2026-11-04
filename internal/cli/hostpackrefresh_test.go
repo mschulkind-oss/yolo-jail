@@ -15,7 +15,7 @@ import (
 )
 
 // hostpackrefresh_test.go pins the HOST NOTCH's launch-time pack refresh at its CALL SITES:
-// `yolo host apply`, `yolo apply --at host` and `yolo host -- <bin>` each fetch a git pack
+// `yolo host apply`, `yolo apply --setup host-self` and `yolo host -- <bin>` each fetch a git pack
 // nobody installed before they resolve it, and the read-only surfaces (`yolo check`,
 // `yolo host env`) never fetch. Each positive test fails when its call to refreshHostPacks is
 // deleted: the pack is then "never fetched" and the render refuses, or nothing is recorded.
@@ -78,10 +78,10 @@ func TestHostApplyFetchesANeverInstalledGitPack(t *testing.T) {
 func TestApplyAtHostFetchesANeverInstalledGitPack(t *testing.T) {
 	home := neverInstalledGitPackHome(t, `,"host_management":"own"`)
 	var out, errw bytes.Buffer
-	rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
+	rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, strings.NewReader("y\n"))
 	report := out.String() + errw.String()
 	if rc != 0 {
-		t.Fatalf("apply --at host --assert rc=%d\n%s", rc, report)
+		t.Fatalf("apply --setup host-self --assert rc=%d\n%s", rc, report)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "gitskill", "SKILL.md")); err != nil {
 		t.Errorf("the never-installed git pack's skill was not rendered: %v\n%s", err, report)

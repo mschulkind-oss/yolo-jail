@@ -177,7 +177,7 @@ func TestStopReportsTimingOnlyWhenAskedOnThisInvocation(t *testing.T) {
 			ws := t.TempDir()
 			t.Chdir(ws)
 			t.Setenv("HOME", t.TempDir())
-			t.Setenv("YOLO_RUNTIME", "macos-user")
+			t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 			t.Setenv(paths.TimingEnv, "1")
 			t.Setenv(paths.VerboseEnv, "")
 			resetVerboseFlagTyped(t)

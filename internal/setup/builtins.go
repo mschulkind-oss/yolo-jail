@@ -64,16 +64,27 @@ func Default(goos string) Setup {
 	return MustBuiltIn("podman-self")
 }
 
-// launchLine is the one command that runs a setup: `yolo host` for a host setup (only that
-// verb runs one, design §8), `yolo --setup <name>` for every other.
-func launchLine(name string) string {
-	switch name {
-	case "host-self":
+// LaunchLine is the one command that runs s, the single spelling every refusal and listing
+// names: `yolo host -- claude` for host-self, `yolo host --setup <name> -- claude` for any other
+// host setup (only that verb runs one, design §8), and `yolo --setup <name> -- claude` for every
+// setup with walls.
+func LaunchLine(s Setup) string {
+	switch {
+	case s.Name == "host-self":
 		return "yolo host -- claude"
-	case "host-yolo-account":
-		return "yolo host --setup host-yolo-account -- claude"
+	case s.Kind() == KindHost:
+		return "yolo host --setup " + s.Name + " -- claude"
 	}
-	return "yolo --setup " + name + " -- claude"
+	return "yolo --setup " + s.Name + " -- claude"
+}
+
+// launchLine is LaunchLine for a built-in named in code.
+func launchLine(name string) string { return LaunchLine(MustBuiltIn(name)) }
+
+// HostRefusal is design §6's refusal of a host setup reached outside `yolo host`: chosen by
+// config, by YOLO_SETUP for a launch, or named to a launch's --setup (§8 item 3).
+func HostRefusal(s Setup) string {
+	return fmt.Sprintf("setup %q puts no walls around the agent, and only `yolo host` runs one:\n    %s", s.Name, LaunchLine(s))
 }
 
 func osName(goos string) string {

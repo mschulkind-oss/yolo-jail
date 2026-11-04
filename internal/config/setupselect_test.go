@@ -1,0 +1,104 @@
+package config
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
+)
+
+// setupselect_test.go pins SelectSetup, the one selection every verb calls: the design's order,
+// the removed YOLO_RUNTIME (refused on the host, a warning in a session) and the removed keys'
+// bridge (only when nothing above names a setup).
+
+func selectWith(t *testing.T, verb SetupVerb, flag string, env map[string]string, merged string, inSession bool) (SetupChoice, error) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir()) // no user config: no `setup`, no `macos_user_mode`
+	in := SetupInputs{Verb: verb, Flag: flag, GOOS: "linux", InSession: inSession,
+		Getenv: func(k string) string { return env[k] }}
+	if merged != "" {
+		in.Merged = decode(t, merged)
+	}
+	return SelectSetup(in)
+}
+
+func TestSelectSetupOrderAndTheRemovedKeysBridge(t *testing.T) {
+	for _, tc := range []struct {
+		name, flag, merged string
+		env                map[string]string
+		want               string
+		src                setup.Source
+		key                string
+	}{
+		{name: "the OS default", want: "podman-self", src: setup.FromDefault},
+		{name: "--setup wins over YOLO_SETUP", flag: "seatbelt-self",
+			env: map[string]string{"YOLO_SETUP": "apple-container-self"}, want: "seatbelt-self", src: setup.FromFlag},
+		{name: "YOLO_SETUP", env: map[string]string{"YOLO_SETUP": "apple-container-self"},
+			want: "apple-container-self", src: setup.FromEnv},
+		{name: "a removed runtime key bridges", merged: `{"runtime": "container"}`,
+			want: "apple-container-self", src: setup.FromRemovedKey, key: `runtime = "container"`},
+		{name: "a removed confinement key bridges", merged: `{"confinement": "guest"}`,
+			want: "seatbelt-yolo-account", src: setup.FromRemovedKey, key: `confinement = "guest"`},
+		{name: "a host confinement bridges to host-self", merged: `{"confinement": "host"}`,
+			want: "host-self", src: setup.FromRemovedKey, key: `confinement = "host"`},
+		{name: "a jail confinement chooses nothing", merged: `{"confinement": "jail"}`,
+			want: "podman-self", src: setup.FromDefault},
+		{name: "YOLO_SETUP outranks a removed key", merged: `{"runtime": "container"}`,
+			env: map[string]string{"YOLO_SETUP": "podman-self"}, want: "podman-self", src: setup.FromEnv},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectWith(t, SetupForLaunch, tc.flag, tc.env, tc.merged, false)
+			if err != nil {
+				t.Fatalf("SelectSetup: %v", err)
+			}
+			if got.Setup.Name != tc.want || got.Source != tc.src || got.RemovedKey != tc.key {
+				t.Errorf("got %s from %v (key %q), want %s from %v (key %q)",
+					got.Setup.Name, got.Source, got.RemovedKey, tc.want, tc.src, tc.key)
+			}
+		})
+	}
+}
+
+// A guest beside a runtime naming a container names two setups, refused naming both.
+func TestSelectSetupRefusesTwoRemovedKeysNamingDifferentSetups(t *testing.T) {
+	_, err := selectWith(t, SetupForLaunch, "", nil, `{"confinement": "guest", "runtime": "podman"}`, false)
+	if err == nil {
+		t.Fatal("a guest beside runtime podman was selected")
+	}
+	for _, want := range []string{"name two different setups", "yolo --setup seatbelt-yolo-account -- claude",
+		"yolo --setup podman-self -- claude", "yolo config set setup seatbelt-yolo-account --user"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, err)
+		}
+	}
+}
+
+// YOLO_RUNTIME on the host refuses naming the YOLO_SETUP it meant; in a session it warns once and
+// the selection goes on (SUP-D6).
+func TestSelectSetupWeighsTheRemovedYoloRuntime(t *testing.T) {
+	env := map[string]string{"YOLO_RUNTIME": "container"}
+	if _, err := selectWith(t, SetupForLaunch, "", env, "", false); err == nil ||
+		!strings.Contains(err.Error(), "YOLO_SETUP=apple-container-self") || !strings.Contains(err.Error(), "unset YOLO_RUNTIME") {
+		t.Errorf("a host YOLO_RUNTIME=container was not refused naming YOLO_SETUP=apple-container-self: %v", err)
+	}
+	got, err := selectWith(t, SetupForLaunch, "", env, "", true)
+	if err != nil {
+		t.Fatalf("in a session, YOLO_RUNTIME refused: %v", err)
+	}
+	if got.Setup.Name != "podman-self" || len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "removed and ignored") {
+		t.Errorf("in a session: %s, warnings %q; want the default and one warning", got.Setup.Name, got.Warnings)
+	}
+}
+
+// `yolo host` runs host-self unless --setup names another host setup; a setup with walls is
+// refused naming the launch that runs it.
+func TestSelectSetupForHost(t *testing.T) {
+	got, err := selectWith(t, SetupForHost, "", map[string]string{"YOLO_SETUP": "podman-self"}, "", false)
+	if err != nil || got.Setup.Name != "host-self" {
+		t.Errorf("yolo host in a podman-self session selected %q (%v), want host-self", got.Setup.Name, err)
+	}
+	if _, err := selectWith(t, SetupForHost, "seatbelt-self", nil, "", false); err == nil ||
+		!strings.Contains(err.Error(), "yolo --setup seatbelt-self -- claude") {
+		t.Errorf("yolo host --setup seatbelt-self was not refused naming the launch: %v", err)
+	}
+}

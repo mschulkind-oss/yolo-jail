@@ -16,9 +16,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
@@ -285,27 +285,29 @@ var entrypointPreflightNote = "A jail booting this config refuses on the same er
 	"names (`yolo config-ref` documents every key), " + recheck + "\n" +
 	"If it names neither, " + yoloBugNote("it")
 
-// runtimeFindingNote is the next step for Merged Configuration's runtime finding: the runtime the
-// config or YOLO_RUNTIME selects is not usable here. The fix is the selection's own source.
+// runtimeFindingNote is the next step for Merged Configuration's runtime finding: the setup a
+// launch would select cannot run here. The fix is the selection's own source.
 //
-// A runtime that contradicts the guest notch (guestRuntimeConflict) is the exception: its finding
-// already names both fixes, and installing or starting the runtime clears neither, because the
-// launch refuses the pair whatever that runtime does (env-manager plan EMP-D1).
+// A refusal of the selection itself (a removed input, a setup this OS does not have, a host
+// setup) already names its fix in the line above, and installing or starting a runtime clears
+// none of them, because the launch refuses whatever that runtime does.
 func (o *Options) runtimeFindingNote(merged *jsonx.OrderedMap) string {
-	if o.guestRuntimeConflict(merged) != "" {
-		return "Either change in the line above clears it, " + recheck
+	choice, err := o.checkSetup(merged)
+	s := o.containerSetup(choice.Setup)
+	if err != nil || setup.Buildable(s, o.checkGOOS(), nil) != nil {
+		return "The line above names the change that clears it, " + recheck
 	}
-	name := o.configuredRuntimeName(merged)
-	if name == "" {
+	rt := s.Backend()
+	var unselect string
+	switch {
+	case choice.Source == setup.FromDefault || s.Name != choice.Setup.Name:
 		return "Container Runtime, above, names the command that installs or starts one, " + recheck
+	case choice.Source == setup.FromEnv:
+		unselect = "unset " + setup.EnvVar
+	case choice.Source == setup.FromRemovedKey:
+		unselect = "remove " + choice.RemovedKey + " from the config that sets it"
+	default:
+		unselect = "choose another default (`yolo config set setup <name> --user`; `yolo setup list` names them)"
 	}
-	unselect := "change `runtime` in the config that sets it"
-	if o.Getenv("YOLO_RUNTIME") == name {
-		unselect = "unset YOLO_RUNTIME"
-	}
-	if inStrSlice(paths.NativeRuntimes, name) {
-		return name + " runs only on a Mac, and the runtime on this host is podman: " + unselect +
-			", " + recheck
-	}
-	return "Install or start " + name + ", or " + unselect + " to use a runtime that answers, " + recheck
+	return "Install or start " + rt + ", or " + unselect + " to use a setup whose runtime answers, " + recheck
 }

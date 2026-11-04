@@ -185,7 +185,7 @@ func TestHostUnservedRefusalNamesOnlyAContainerJail(t *testing.T) {
 		"The profile works in a container jail (podman or Apple Container), where that service's " +
 			"jail daemon runs: `yolo -p claude=cerebras -- claude`",
 		"A macos-user launch runs a pack service only through its host half",
-		"`YOLO_RUNTIME=podman` or `YOLO_RUNTIME=container`",
+		"`YOLO_SETUP=podman-self` or `YOLO_SETUP=apple-container-self`",
 		`though "wire-bridge" is in ` + "`packs`",
 	} {
 		if !strings.Contains(errs, want) {
@@ -213,7 +213,7 @@ func TestHostUnservedRefusalNamesMacosUserWhenItsGuestRunsTheService(t *testing.
 		"The profile works in a container jail (podman or Apple Container), where that service's " +
 			"jail daemon runs: `yolo -p claude=cerebras -- claude`",
 		"A macos-user launch runs that service's jail daemon in its sandbox, so the profile works " +
-			"there too (`YOLO_RUNTIME=macos-user` for one launch)",
+			"there too (`YOLO_SETUP=seatbelt-yolo-account` for one launch)",
 	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)

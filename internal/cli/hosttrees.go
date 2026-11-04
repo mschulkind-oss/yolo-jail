@@ -845,7 +845,7 @@ func noHostTreeStep(f packload.Fork, bin string) string {
 		return why
 	}
 	if f.DeliveredInJail() {
-		return why + "; YOLO_RUNTIME=podman yolo -- " + bin + " runs it in a jail that has it"
+		return why + "; YOLO_SETUP=podman-self yolo -- " + bin + " runs it in a jail that has it"
 	}
 	return why + ", and its list entry is in a guarded posture list, which reaches the host alone, so no jail " +
 		"has it either — " + packload.GuardedOnlyStep

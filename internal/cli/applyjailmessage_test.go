@@ -16,7 +16,7 @@ func stubApplyJailLaunch(t *testing.T, rc int) *int {
 	t.Helper()
 	calls := 0
 	prev := applyJailLaunch
-	applyJailLaunch = func() int { calls++; return rc }
+	applyJailLaunch = func(string) int { calls++; return rc }
 	t.Cleanup(func() { applyJailLaunch = prev })
 	return &calls
 }
@@ -32,22 +32,22 @@ func TestApplyAtJailRunsTheLaunchsReadinessAct(t *testing.T) {
 	calls := stubApplyJailLaunch(t, 78)
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "jail"}, &out, &errw, false, nil); rc != 78 {
-		t.Errorf("apply --at jail rc = %d, want the launch's own status (78)\nstdout:\n%s\nstderr:\n%s",
+	if rc := applyMain([]string{"--setup", "podman-self"}, &out, &errw, false, nil); rc != 78 {
+		t.Errorf("apply --setup podman-self rc = %d, want the launch's own status (78)\nstdout:\n%s\nstderr:\n%s",
 			rc, out.String(), errw.String())
 	}
 	if *calls != 1 {
-		t.Fatalf("apply --at jail ran the launch %d times, want once", *calls)
+		t.Fatalf("apply --setup podman-self ran the launch %d times, want once", *calls)
 	}
 	got := strings.Join(strings.Fields(out.String()), " ")
 	for _, want := range []string{"readiness act", "`yolo -- true`", "installs every program they declare",
 		"builds the image (on a container runtime; macos-user has none)", "attached to instead, and that installs nothing"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("apply --at jail does not say %q:\n%s", want, got)
+			t.Errorf("apply --setup podman-self does not say %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "NOT installed by the launch") {
-		t.Errorf("apply --at jail still says the launch installs no program:\n%s", got)
+		t.Errorf("apply --setup podman-self still says the launch installs no program:\n%s", got)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestApplyAtJailDryRunLaunchesNothing(t *testing.T) {
 	calls := stubApplyJailLaunch(t, 1)
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "jail", "--dry-run"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --at jail --dry-run rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
+	if rc := applyMain([]string{"--setup", "podman-self", "--dry-run"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --setup podman-self --dry-run rc = %d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errw.String())
 	}
 	if *calls != 0 {
 		t.Errorf("--dry-run launched a jail")
@@ -81,17 +81,20 @@ func TestApplyJailLaunchIsYoloDashDashTrue(t *testing.T) {
 	launchRunPipeline = func(o run.Options) int { seen = o; launched++; return 0 }
 	t.Cleanup(func() { launchRunPipeline = prev })
 
-	if rc := applyJailLaunch(); rc != 0 || launched != 1 {
+	if rc := applyJailLaunch(""); rc != 0 || launched != 1 {
 		t.Fatalf("applyJailLaunch rc=%d, launched %d time(s); want the run pipeline once", rc, launched)
 	}
 	if !slices.Equal(seen.Args, []string{"true"}) {
 		t.Errorf("the launch's command is %q, want exactly [true]", seen.Args)
 	}
+	if seen.SetupName != "" {
+		t.Errorf("a bare apply's launch names setup %q, want none: it selects as `yolo -- true` does", seen.SetupName)
+	}
 }
 
-// `--at jail` IS THE NOTCH THE LAUNCH IS JUDGED AT. The launch re-reads `confinement` unless it
-// is told otherwise (run.refuseUnbuiltNotch), so a verb that dropped the flag refused a
-// `confinement: host` config's `yolo apply --at jail`, naming the config key the user had
+// `--setup podman-self` IS THE SETUP THE LAUNCH RUNS. The launch selects its own setup unless it
+// is told otherwise (run.resolveSetup), so a verb that dropped the flag provisioned whatever the
+// config selected, or refused a `confinement: host` config naming the key the user had
 // overridden. Driven through applyMain with the run pipeline substituted, so the assertion is
 // downstream of the flag's whole path: the verb's parse, applyJailLaunch, runRun's parse.
 func TestApplyAtJailCarriesTheFlagIntoTheLaunch(t *testing.T) {
@@ -104,12 +107,12 @@ func TestApplyAtJailCarriesTheFlagIntoTheLaunch(t *testing.T) {
 	t.Cleanup(func() { launchRunPipeline = prev })
 
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "jail"}, &out, &errw, false, nil); rc != 0 || launched != 1 {
-		t.Fatalf("apply --at jail rc=%d, launched %d time(s)\nstdout:\n%s\nstderr:\n%s",
+	if rc := applyMain([]string{"--setup", "podman-self"}, &out, &errw, false, nil); rc != 0 || launched != 1 {
+		t.Fatalf("apply --setup podman-self rc=%d, launched %d time(s)\nstdout:\n%s\nstderr:\n%s",
 			rc, launched, out.String(), errw.String())
 	}
-	if seen.Notch != "jail" {
-		t.Errorf("the launch's notch override is %q, want \"jail\": it would re-read `confinement: host` and refuse", seen.Notch)
+	if seen.SetupName != "podman-self" {
+		t.Errorf("the launch's setup is %q, want podman-self: it would select its own and refuse", seen.SetupName)
 	}
 }
 
@@ -120,12 +123,12 @@ func TestApplyAtJailDoesNotPromiseTheInstallOnMacosUser(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
 	stubApplyJailLaunch(t, 0)
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "jail"}, &out, &errw, false, nil); rc != 0 {
+	if rc := applyMain([]string{"--setup", "podman-self"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, errw.String())
 	}
 	got := strings.Join(strings.Fields(out.String()), " ")
 	if !strings.Contains(got, "on macos-user each installs the first time it is run") {
-		t.Errorf("apply --at jail promises the install on every backend:\n%s", got)
+		t.Errorf("apply --setup podman-self promises the install on every backend:\n%s", got)
 	}
 	var help, herr bytes.Buffer
 	applyMain([]string{"--help"}, &help, &herr, false, nil)

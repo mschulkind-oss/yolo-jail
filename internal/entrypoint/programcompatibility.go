@@ -142,8 +142,8 @@ _yolo_self_mode_next_steps() {
         echo "Next steps, in a terminal outside this jail:"
         printf '  %-48s  %s\n' \
             "yolo config set macos_user_mode account --user" "run as the yolo account (yolo yolo-account create creates it once)" \
-            "YOLO_RUNTIME=podman yolo -- $BIN" "run this launch in a podman container (YOLO_RUNTIME=container for Apple Container)" \
-            "yolo config set runtime podman --user" "run every launch in a podman container (container for Apple Container)"
+            "yolo --setup podman-self -- $BIN" "run this launch in a podman container (apple-container-self for Apple Container)" \
+            "yolo config set setup podman-self --user" "run every launch in a podman container (apple-container-self for Apple Container)"
     } >&2
 }
 

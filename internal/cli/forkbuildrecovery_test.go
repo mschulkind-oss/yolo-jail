@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
@@ -154,7 +155,7 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 			// here, active only for the changed-parent-selection row on container.
 			fakeAppleListing(t, "ID IMAGE STATE\n", nil)
 			if tc.parentRuntime != "" {
-				t.Setenv("YOLO_RUNTIME", tc.parentRuntime)
+				t.Setenv("YOLO_SETUP", config.SetupForRemovedRuntime(tc.parentRuntime))
 			}
 			f := forkBuildHome(t)
 			b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
@@ -198,12 +199,7 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 			entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: tc.parentRuntime,
 				runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
 					runCalls++
-					return fake(run.Options{Workspace: workspace, Getenv: func(key string) string {
-						if key == "YOLO_RUNTIME" {
-							return newRuntime
-						}
-						return ""
-					}, OnRuntimeResolved: func(rt string) error {
+					return fake(run.Options{Workspace: workspace, SetupName: config.SetupForRemovedRuntime(newRuntime), OnRuntimeResolved: func(rt string) error {
 						return writeForkBuildRuntime(workspace, rt)
 					}})
 				}}, io.Discard, io.Discard, false)
@@ -543,12 +539,7 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 			entry, err := buildFork(b, buildMode{lock: pidlock.NoWait, runtime: "podman",
 				runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
 					runCalls++
-					return fake(run.Options{Workspace: workspace, Getenv: func(key string) string {
-						if key == "YOLO_RUNTIME" {
-							return "podman"
-						}
-						return ""
-					}, OnRuntimeResolved: func(rt string) error {
+					return fake(run.Options{Workspace: workspace, SetupName: config.SetupForRemovedRuntime("podman"), OnRuntimeResolved: func(rt string) error {
 						return writeForkBuildRuntime(workspace, rt)
 					}})
 				}}, io.Discard, io.Discard, false)

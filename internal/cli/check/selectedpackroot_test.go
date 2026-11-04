@@ -43,8 +43,8 @@ func TestCheckKeepsSelectedForkRootThroughTheHostFloor(t *testing.T) {
 		switch key {
 		case "PATH":
 			return "/usr/bin:/bin"
-		case "YOLO_RUNTIME":
-			return "podman"
+		case "YOLO_SETUP":
+			return "podman-self"
 		default:
 			return ""
 		}

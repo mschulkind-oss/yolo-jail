@@ -88,7 +88,7 @@ func (o *Options) roBindsUnsupported(rt string) string {
 		detail = "Apple Container " + v + " ignores read-only (:ro), so it would be " +
 			"writable (honored from " + acROBindsFloor + ")"
 	}
-	return detail + ". Use `YOLO_RUNTIME=podman` for read-only context mounts."
+	return detail + ". Launch with `--setup podman-self` for read-only context mounts."
 }
 
 // BuildJailsSideBySide reports whether a launch on rt may start a second capture jail while one

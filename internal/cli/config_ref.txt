@@ -222,15 +222,17 @@
     bwrap / namespace); you pick a notch, not a hand-assembled policy.
     NOTE: jail is the default, so an absent key is exactly today's behavior. A
     launch runs jail everywhere and guest on macOS; host is not a launch (use
-    `yolo host -- <cmd>` and `yolo apply --at host`). `--at <notch>` on a launch
-    overrides this key for that launch. At guest on macOS, a "runtime" or
-    YOLO_RUNTIME naming podman or container contradicts the notch, and the launch
-    refuses until you drop one.
+    `yolo host -- <cmd>` and `yolo apply --setup host-self`). `--setup <name>` on a launch
+    overrides this key for that launch, as YOLO_SETUP and the `setup` key do. At guest
+    on macOS, a "runtime" naming podman or container contradicts the notch, and the
+    launch refuses until you drop one.
 
   [bold]runtime[/bold] (string): Isolation MECHANISM inside the jail notch (a hint, not policy).
     Values: "podman", "container", or "macos-user".
-    Override: YOLO_RUNTIME env var takes priority.
-    Auto-detect: macOS prefers "container" then "podman"; Linux uses "podman".
+    Override: a named setup (`--setup`, YOLO_SETUP, the `setup` key) outranks it;
+    YOLO_RUNTIME is removed, and a launch refuses it naming YOLO_SETUP.
+    Absent: the OS's default setup, apple-container-self on macOS and podman-self
+    on Linux, chosen by name and never probed.
     On Apple Silicon the container is native arm64 (no emulation).
     "macos-user" (macOS only, EXPLICIT opt-in — never auto-detected) runs the
     agent as a dedicated macOS user under Seatbelt: NO VM, no Linux image,
@@ -3318,7 +3320,8 @@
 
 [bold cyan]ENVIRONMENT VARIABLES[/bold cyan]
 
-  YOLO_RUNTIME          Override container runtime (podman/container)
+  YOLO_SETUP            The named setup a launch runs (yolo setup list); --setup
+                        outranks it. YOLO_RUNTIME is removed and refused.
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
   YOLO_TIMING           Set to 1 to RECORD --timing's spans without the flag, for
                         one shell.  Records only: the table prints when a flag

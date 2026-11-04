@@ -98,7 +98,7 @@ func TestYoloHostApplyFoldsTheProfileKeysDefault(t *testing.T) {
 }
 
 // THE RETIRED KEY REFUSES EVERY HOST RENDER, not only a host launch: `yolo host apply` (both
-// postures), the automatic apply a wrapped launch runs, and `yolo config render --at host` read
+// postures), the automatic apply a wrapped launch runs, and `yolo config render --setup host-self` read
 // the selection off the new key alone, so a `use_profiles` they did not refuse was one they
 // silently ignored, and an --assert then deselected the profile an earlier apply had written
 // into the real home. Each case starts from a home the key applied pi's codex profile into, then
@@ -138,8 +138,8 @@ func TestEveryHostRenderRefusesTheRetiredUseProfilesKey(t *testing.T) {
 			rc := hostMain([]string{"--", "pi"}, &out, &errw, false, nil)
 			return rc, out.String() + errw.String()
 		},
-		"yolo config render --at host": func() (int, string) {
-			rc, out, errs := runSurfaceVerb(t, "render", "pi/settings", "--at", "host")
+		"yolo config render --setup host-self": func() (int, string) {
+			rc, out, errs := runSurfaceVerb(t, "render", "pi/settings", "--setup", "host-self")
 			return rc, out + errs
 		},
 	} {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -138,7 +139,11 @@ func TestBuildCapturePersistsConfinementSelectedGuestRuntimeBeforeDispatch(t *te
 	}
 }
 
-func TestBuildCapturePersistsAutomaticAppleToPodmanFallback(t *testing.T) {
+// A BUILD CHILD ON A MAC WHOSE APPLE CONTAINER IS STOPPED IS REFUSED, NEVER MOVED TO PODMAN
+// (named-setups.md; plan slice 4a): the launch runs the one setup it selected, the OS default
+// apple-container-self here, so a stopped runtime is a refusal naming it, and no runtime record is
+// written for a backend that never ran (the record's absence is the "never dispatched" proof).
+func TestBuildCaptureOnAStoppedAppleContainerRefusesWithNoPodmanFallback(t *testing.T) {
 	workspace := forkBuildRuntimeWorkspace(t, "{}")
 	rc, stderr := runActualBuildChild(t, workspace, "make install", false, func(o *run.Options) {
 		o.IsMacOS, o.IsLinux = true, false
@@ -164,11 +169,11 @@ func TestBuildCapturePersistsAutomaticAppleToPodmanFallback(t *testing.T) {
 			Sleep: func(time.Duration, <-chan struct{}) bool { return true },
 		}
 	})
-	if rc != 1 {
-		t.Fatalf("automatic fallback fixture rc=%d, stderr=%s; want it to stop after runtime resolution", rc, stderr)
+	if rc != 1 || !strings.Contains(stderr, "The runtime 'container' (for setup apple-container-self) is installed but not started") {
+		t.Fatalf("stopped Apple container rc=%d, want 1 and the refusal naming the setup's runtime:\n%s", rc, stderr)
 	}
-	if got, err := readForkBuildRuntime(workspace); err != nil || got != "podman" {
-		t.Fatalf("fallback runtime record = %q, %v; want actual Podman selection", got, err)
+	if got, err := readForkBuildRuntime(workspace); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime record = %q, %v; want none, since no backend ran", got, err)
 	}
 }
 

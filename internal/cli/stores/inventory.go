@@ -616,7 +616,7 @@ func cacheStores(o Options) []Store {
 	}
 	copilotTrigger := "yolo prune --apply" + copilotSlot
 	if rt == macosUserRuntime {
-		copilotTrigger = "`YOLO_RUNTIME=podman yolo prune --apply`" + copilotSlot
+		copilotTrigger = "`YOLO_SETUP=podman-self yolo prune --apply`" + copilotSlot
 	}
 	covered["copilot"] = Reclaimer{
 		Func: "PruneCopilotPkgVersions",
@@ -936,7 +936,7 @@ func storeOutputReclaimer(inJail bool, rt string) (Reclaimer, Verdict, string) {
 				Func:   "SupersededStoreOutputs",
 				Detail: "unrooted only, by name; under a container runtime only",
 				Trigger: "a container launch's post-launch slot (24h) + " +
-					"`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)",
+					"`YOLO_SETUP=apple-container-self yolo prune --apply` (or YOLO_SETUP=podman-self)",
 			}, VerdictYolo,
 			"macos-user's launches and its `yolo prune` never run this pass; a container runtime on " +
 				"this Mac does, and with none, nothing does"
@@ -1150,7 +1150,7 @@ const macosUserRuntime = "macos-user"
 // macosUserContainerTrigger is the trigger a row names on macos-user when its reclaimer is a pass
 // that runtime's own `yolo prune` prints as not applicable: the prune of a container runtime on the
 // same Mac, which does run it.
-const macosUserContainerTrigger = "`YOLO_RUNTIME=container yolo prune --apply` (or YOLO_RUNTIME=podman)"
+const macosUserContainerTrigger = "`YOLO_SETUP=apple-container-self yolo prune --apply` (or YOLO_SETUP=podman-self)"
 
 // onMacosUserContainerPass rewrites, for macos-user, a row whose reclaimer is a container
 // runtime's pass. The reclaimer and the yolo verdict stay, because a container runtime on this Mac
@@ -1187,7 +1187,7 @@ func notApplicableOnMacosUser(key, section, what string) Store {
 		Reason:    "not applicable on macos-user, which runs no containers or images",
 		Reclaimer: none(), Verdict: VerdictYolo,
 		Note: "a container runtime's " + what + " on this Mac are listed by " +
-			"`YOLO_RUNTIME=container yolo stores` (or YOLO_RUNTIME=podman)",
+			"`YOLO_SETUP=apple-container-self yolo stores` (or YOLO_SETUP=podman-self)",
 	}
 }
 

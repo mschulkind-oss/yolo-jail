@@ -588,7 +588,7 @@ func TestMacosUserRefusesADeclaredConfigMountItCannotDeliver(t *testing.T) {
 		"/ctx/ref-repo", // the bare-path entry, at the destination it would have taken
 		"/ctx/logs",     // the host:container entry, at the one it named
 		"macos-user can't mount read-only where the sandbox writes", // the REASON, per entry — not one sentence for all
-		"container runtime",
+		"use a container setup: yolo --setup podman-self -- claude",
 		macosuser.SharedRootDefault(), // where to move it
 	} {
 		if !strings.Contains(out, want) {

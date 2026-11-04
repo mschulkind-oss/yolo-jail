@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -28,7 +27,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func runDescribe(args []string) int {
@@ -268,21 +266,14 @@ func printPackageProfile(pr richtext.Printer, notch render.Kind, prof render.Pro
 		"GC-rooted at %s[/dim]", confinementLabelPad, target, rootLink)
 }
 
-// resolvedMechanism resolves the `runtime` a launch would pick, with run()'s own precedence
-// (YOLO_RUNTIME > config > the notch's own backend > platform probe; config.SelectedRuntime).
-// The notch's backend is what makes a macOS `confinement: "guest"` print the macos-user
-// vector, separate user and Seatbelt, rather than a container's. Loose by design: describe is a
-// read-only report, so an unreachable runtime is not its problem, and neither is an explicit
-// runtime that contradicts the guest notch, which describe reports as the runtime named and a
-// launch refuses (refuseUnbuiltNotch) — `yolo check` is where both are errors, and the
-// tolerant resolver never exits.
+// resolvedMechanism resolves the backend a launch would use: that of the setup the launch
+// selects (selectedSetupBackend, the selection every verb shares), which is what makes a macOS
+// seatbelt setup print the macos-user vector, separate user and Seatbelt, rather than a
+// container's. Loose by design: describe is a read-only report, so an unreachable runtime is
+// not its problem, and neither is a setup a launch refuses — `yolo check` is where both are
+// errors, and the tolerant resolver never exits.
 func resolvedMechanism(cfg *jsonx.OrderedMap) string {
-	cfgRT := config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
-	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS,
-		func(bin string) bool {
-			_, err := exec.LookPath(bin)
-			return err == nil
-		})
+	return selectedSetupBackend(cfg)
 }
 
 func joinComma(ss []string) string {

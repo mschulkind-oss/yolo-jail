@@ -371,7 +371,7 @@ func TestRuntimeStoppedHintIsActionable(t *testing.T) {
 // [WARN] named and leads its note with the fix.
 //
 // The second case is the one the [WARN] still exists for: another runtime works, and the
-// offline one is the runtime YOLO_RUNTIME selected, which is a finding of its own.
+// offline one is the runtime of the setup YOLO_SETUP named, which is a finding of its own.
 func TestRuntimeStoppedIsOneRow(t *testing.T) {
 	stopped := ExecResult{Stdout: "", Stderr: "cannot connect", Ran: true, RC: 1}
 
@@ -405,9 +405,10 @@ func TestRuntimeStoppedIsOneRow(t *testing.T) {
 	t.Run("another runtime answers and the selected one does not", func(t *testing.T) {
 		var out bytes.Buffer
 		opts := baseOptions(t, &out)
+		opts.IsMacOS = true // apple-container-self is a Mac's setup
 		opts.Getenv = func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return "container"
+			if k == "YOLO_SETUP" {
+				return "apple-container-self"
 			}
 			return ""
 		}
@@ -461,14 +462,14 @@ func TestStoppedRuntimeIsOneFailInTheWholeReport(t *testing.T) {
 	stopped := ExecResult{Stdout: "", Stderr: "cannot connect", Ran: true, RC: 125}
 	for _, tc := range []struct{ name, yoloRuntime string }{
 		{"auto-detected", ""},
-		{"selected by YOLO_RUNTIME", "podman"},
+		{"selected by YOLO_SETUP", "podman-self"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			var out bytes.Buffer
 			opts := baseOptions(t, &out)
 			opts.Getenv = func(k string) string {
-				if k == "YOLO_RUNTIME" {
+				if k == "YOLO_SETUP" {
 					return tc.yoloRuntime
 				}
 				return ""
@@ -500,21 +501,22 @@ func TestStoppedRuntimeIsOneFailInTheWholeReport(t *testing.T) {
 }
 
 // TestNativeRuntimeErrorStillFailsMergedConfig: the pointer-back applies only to a container
-// runtime being unavailable. macos-user named on a non-Mac is a config finding the Container
-// Runtime section never makes, so it keeps its own [FAIL] even when that section failed too.
+// runtime being unavailable. A Seatbelt setup named on a non-Mac is a config finding the
+// Container Runtime section never makes, so it keeps its own [FAIL] even when that section
+// failed too, in the words the launch refuses it with (setup.Buildable).
 func TestNativeRuntimeErrorStillFailsMergedConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "macos-user"
+		if k == "YOLO_SETUP" {
+			return "seatbelt-yolo-account"
 		}
 		return ""
 	}
 	Check(opts)
 	merged := sectionOf(t, stripANSI(out.String()), "Merged Configuration")
-	if !strings.Contains(merged, "[FAIL] Runtime 'macos-user' from YOLO_RUNTIME is macOS-only") {
+	if !strings.Contains(merged, `[FAIL] setup "seatbelt-yolo-account" uses Seatbelt, which only macOS has.`) {
 		t.Errorf("a native-runtime error is its own finding and must still FAIL:\n%s", out.String())
 	}
 }
@@ -532,7 +534,7 @@ func TestRuntimeUnavailableMessageIsTrue(t *testing.T) {
 	if !unavailable {
 		t.Errorf("a stopped podman is a runtime-availability error")
 	}
-	if msg != "Container runtime installed but not connected (podman)" {
+	if msg != "Runtime 'podman' for setup podman-self is not connected" {
 		t.Errorf("msg = %q", msg)
 	}
 }

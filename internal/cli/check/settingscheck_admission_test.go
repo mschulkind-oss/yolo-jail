@@ -31,7 +31,7 @@ func TestCheckLoopholesSkipsTheValidatorOfAServiceTheBackendDoesNotStart(t *test
 	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{"runtime":"container"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, out := runCheckLoopholes(t, workspace)
+	r, out := runCheckLoopholesOn(t, workspace, true)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("check ran the validator of a service Apple Container does not start: %v\n%s", err, out)
 	}

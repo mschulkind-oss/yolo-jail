@@ -11,7 +11,7 @@ import (
 // NOTCH (packload.ServedDaemons; docs/plans/notch-convergence.md §4 item 2): the jail daemons
 // that launch's payload would name — every enabled loophole's, through the loophole set's own
 // composer, and every selected pack service's — narrowed to the ones a jail on the runtime
-// YOLO_RUNTIME or the config names actually SERVES, through the same
+// of the setup a launch would select (checkSetup) actually SERVES, through the same
 // loopholes.ServedJailDaemonNames the launch's servedDaemons asks. So on macos-user the
 // prediction serves the daemons its sandbox runs (OQ-DP8/OQ-DP9) and the doorways the launch
 // opens outside it (host-notch-services.md HS-D15), after the same admission of their host argvs

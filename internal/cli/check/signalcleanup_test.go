@@ -302,9 +302,10 @@ func runSignalCleanupChild(t *testing.T) {
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.Build = true
+	opts.IsMacOS = true // apple-container-self is a Mac's setup
 	opts.Getenv = func(key string) string {
-		if key == "YOLO_RUNTIME" {
-			return "container"
+		if key == "YOLO_SETUP" {
+			return "apple-container-self"
 		}
 		return ""
 	}
@@ -326,7 +327,7 @@ func runSignalCleanupChild(t *testing.T) {
 		}
 	}
 	opts.PathExists = func(path string) bool {
-		return path == filepath.Join(os.Getenv("CHECK_SIGNAL_REPO"), "flake.nix")
+		return path == "/nix" || path == filepath.Join(os.Getenv("CHECK_SIGNAL_REPO"), "flake.nix")
 	}
 	opts.RepoRoot = func() (reporoot.Resolution, bool) {
 		return reporoot.Resolution{Root: os.Getenv("CHECK_SIGNAL_REPO")}, true

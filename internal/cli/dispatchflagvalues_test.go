@@ -91,7 +91,7 @@ func TestSubcommandSkipsFlagValues(t *testing.T) {
 	}{
 		{"--network host resolves to no subcommand", []string{"--network", "host", "--", "bash"}, ""},
 		{"-p pack resolves to no subcommand", []string{"-p", "pack", "--", "bash"}, ""},
-		{"--at host on apply", []string{"apply", "--at", "host"}, "apply"},
+		{"--setup host-self on apply", []string{"apply", "--setup", "host-self"}, "apply"},
 		{"a real subcommand resolves", []string{"check", "--", "claude"}, "check"},
 		{"a subcommand after a boolean flag resolves", []string{"--new", "check"}, "check"},
 		{"a subcommand name as --network's value does not", []string{"--network", "check"}, ""},
@@ -112,10 +112,11 @@ func TestSubcommandSkipsFlagValues(t *testing.T) {
 // added there and not here, `yolo --newflag host -- bash` silently relocates again.
 func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 	// The flags runHelpRequested consumes a value for, transcribed from its switch.
-	// `--at` joined them when parseRunArgs grew its own `--at` case (DP-B22): a notch
-	// token is a VALUE, so `yolo run --at -h -- x` must read `-h` as the notch and not
-	// as a help request, exactly as `--network -h` reads it as a mode.
-	runHelpSkips := []string{"--network", "--profile", "-p", "--at"}
+	// `--setup` is among them: a setup name is a VALUE, so `yolo run --setup -h -- x` must read
+	// `-h` as the name and not as a help request, exactly as `--network -h` reads it as a mode.
+	// The removed `--at` stays a value flag, so its value is never a help request or a verb
+	// while the launch refuses it.
+	runHelpSkips := []string{"--network", "--profile", "-p", "--setup", "--at"}
 	for _, f := range runHelpSkips {
 		if !valueTakingFlags[f] {
 			t.Errorf("runHelpRequested skips %q's value but valueTakingFlags does not — "+
@@ -125,10 +126,10 @@ func TestValueTakingFlagsCoverRunHelpSkips(t *testing.T) {
 }
 
 // TestFrontDoorRoutesEveryHostNotchSpelling covers OQ-2's alias, decided once at the front door
-// (routeArgv, docs/plans/notch-convergence.md item 10, row A3): --at names the notch on every
-// other verb, so every launch spelling carrying `--at host` means what `yolo host` means,
-// wherever the flag sits. The notch tokens and the run token are consumed, because what follows
-// is the host exec verb's own flag grammar. Before, only `yolo --at host -- c` routed; the
+// (routeArgv, docs/plans/notch-convergence.md item 10, row A3; named-setups.md §8): --setup names
+// the setup on every verb, so every launch spelling carrying `--setup host-self` means what `yolo
+// host` means, wherever the flag sits. The setup tokens and the run token are consumed, because what follows
+// is the host exec verb's own flag grammar. Before, only `yolo --setup host-self -- c` routed; the
 // explicit-run and bare spellings reached the jail launcher and were refused there.
 func TestFrontDoorRoutesEveryHostNotchSpelling(t *testing.T) {
 	cases := []struct {
@@ -137,33 +138,37 @@ func TestFrontDoorRoutesEveryHostNotchSpelling(t *testing.T) {
 		wantSub string
 		want    string
 	}{
-		{"--at host becomes the host subcommand", "--at host -- claude", "host", "host -- claude"},
-		{"--at=host too", "--at=host -- claude", "host", "host -- claude"},
-		{"the exec half's own flags survive the rewrite", "--at host -p bedrock -- claude",
+		{"--setup host-self becomes the host subcommand", "--setup host-self -- claude", "host", "host -- claude"},
+		{"--setup=host-self too", "--setup=host-self -- claude", "host", "host -- claude"},
+		{"the exec half's own flags survive the rewrite", "--setup host-self -p bedrock -- claude",
 			"host", "host -p bedrock -- claude"},
-		{"after the flags", "-p bedrock --at host -- claude", "host", "host -p bedrock -- claude"},
-		{"the explicit run verb", "run --at host -- claude", "host", "host -- claude"},
-		{"--at before an explicit run", "--at host run -- claude", "host", "host -- claude"},
-		{"an implicit command start", "run --at host claude --resume", "host", "host -- claude --resume"},
-		{"a bare --at host is `yolo host`", "--at host", "host", "host"},
-		{"a launch flag is carried for the host parser to judge", "--at host --timing -- claude",
+		{"after the flags", "-p bedrock --setup host-self -- claude", "host", "host -p bedrock -- claude"},
+		{"the explicit run verb", "run --setup host-self -- claude", "host", "host -- claude"},
+		{"--setup before an explicit run", "--setup host-self run -- claude", "host", "host -- claude"},
+		{"an implicit command start", "run --setup host-self claude --resume", "host", "host -- claude --resume"},
+		{"a bare --setup host-self is `yolo host`", "--setup host-self", "host", "host"},
+		{"a launch flag is carried for the host parser to judge", "--setup host-self --timing -- claude",
 			"host", "host --timing -- claude"},
-		{"a jail-launch flag is carried for the host parser to name", "--at host --dry-run -- claude",
+		{"a jail-launch flag is carried for the host parser to name", "--setup host-self --dry-run -- claude",
 			"host", "host --dry-run -- claude"},
-		{"a profile named host is not the notch", "-p host --at jail -- claude", "run",
-			"run -p host --at jail -- claude"},
-		{"another notch is left alone and still runs a jail", "--at jail -- claude", "run",
-			"run --at jail -- claude"},
-		{"the last --at wins, as the launcher reads it", "--at host --at jail -- claude", "run",
-			"run --at host --at jail -- claude"},
-		{"the last --at wins in the other order too, every --at consumed", "--at jail --at host -- claude",
+		{"a profile named host is not the notch", "-p host --setup podman-self -- claude", "run",
+			"run -p host --setup podman-self -- claude"},
+		{"another notch is left alone and still runs a jail", "--setup podman-self -- claude", "run",
+			"run --setup podman-self -- claude"},
+		{"the last --setup wins, as the launcher reads it", "--setup host-self --setup podman-self -- claude", "run",
+			"run --setup host-self --setup podman-self -- claude"},
+		{"the last --setup wins in the other order too, every --setup consumed", "--setup podman-self --setup host-self -- claude",
 			"host", "host -- claude"},
-		{"a dangling --at is not a host notch", "--at -- claude", "run", "run --at -- claude"},
+		{"a dangling --setup is not a host setup", "--setup -- claude", "run", "run --setup -- claude"},
+		// The removed --at no longer reroutes: the launch refuses it naming `yolo host`.
+		{"a removed --at host is a launch the launcher refuses", "--at host -- claude", "run", "run --at host -- claude"},
+		{"another host setup is the host verb, named", "--setup host-yolo-account -- claude", "host",
+			"host --setup host-yolo-account -- claude"},
 		{"--network host is a network mode, never the notch", "--network host -- bash", "run",
 			"run --network host -- bash"},
-		{"the host verb keeps --at for its own parser", "host --at host -- claude", "host",
-			"host --at host -- claude"},
-		{"another verb's --at is its own", "apply --at host", "apply", "apply --at host"},
+		{"the host verb keeps --setup for its own parser", "host --setup host-self -- claude", "host",
+			"host --setup host-self -- claude"},
+		{"another verb's --setup is its own", "apply --setup host-self", "apply", "apply --setup host-self"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,7 +179,7 @@ func TestFrontDoorRoutesEveryHostNotchSpelling(t *testing.T) {
 		})
 	}
 	// Main dispatches what routeArgv decided (routeDecision reads the same function).
-	if got := routeDecision(strings.Fields("run --at host -- claude")); got != "dispatch:host" {
-		t.Errorf("routeDecision(run --at host -- claude) = %q, want dispatch:host", got)
+	if got := routeDecision(strings.Fields("run --setup host-self -- claude")); got != "dispatch:host" {
+		t.Errorf("routeDecision(run --setup host-self -- claude) = %q, want dispatch:host", got)
 	}
 }

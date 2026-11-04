@@ -251,3 +251,23 @@ func TestSetupIsRoutedByTheFrontDoor(t *testing.T) {
 		t.Fatalf("Subcommand = %q", got)
 	}
 }
+
+// TestSetupListMakesTheLaunchsSelection: `yolo setup list` selects through config.SelectSetup,
+// the call a launch makes, so it weighs the removed inputs as a launch does — a removed
+// YOLO_RUNTIME on the host is refused naming YOLO_SETUP, and a workspace's removed `runtime` key
+// still chooses its built-in, named as the source. Fails if setupList selects any other way.
+func TestSetupListMakesTheLaunchsSelection(t *testing.T) {
+	setupsHome(t)
+	t.Setenv(config.RemovedRuntimeEnv, "podman")
+	rc, _, errw := runSetupCapture("list")
+	if rc != 1 || !strings.Contains(errw, "No setup is selected: ") || !strings.Contains(errw, "YOLO_SETUP") {
+		t.Fatalf("a removed YOLO_RUNTIME: rc=%d err=%q, want 1 and the refusal naming YOLO_SETUP", rc, errw)
+	}
+	t.Setenv(config.RemovedRuntimeEnv, "")
+	writeFile(t, "yolo-jail.jsonc", `{"runtime": "container"}`)
+	setupGOOS = "darwin"
+	rc, out, errw := runSetupCapture("list")
+	if rc != 0 || !strings.Contains(out, `Selected: apple-container-self, from runtime = "container" in your config.`) {
+		t.Fatalf("a workspace `runtime` key: rc=%d err=%q out=\n%s", rc, errw, out)
+	}
+}

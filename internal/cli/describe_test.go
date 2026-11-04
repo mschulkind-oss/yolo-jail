@@ -93,7 +93,7 @@ func describeAt(t *testing.T, cfg string) string {
 	// falls to a platform probe, and a darwin runner would resolve `container` and print the
 	// VM where this asserts namespaces. The mechanism's own effect on the vector is the
 	// table test below.
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 
 	var out, errw bytes.Buffer
 	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
@@ -267,7 +267,7 @@ func TestDescribeHostPackagesAreInertWhateverTheRuntime(t *testing.T) {
 	home, _ := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"confinement": "host", "packages": ["ripgrep"]}`)
-	t.Setenv("YOLO_RUNTIME", "macos-user")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 
 	var out, errw bytes.Buffer
 	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
@@ -333,14 +333,21 @@ func TestApplyVerbRouting(t *testing.T) {
 		t.Errorf("apply (jail) should say so:\n%s", out.String())
 	}
 
-	// `--at host` and --sealed are real now (Phases 4/5) with their own tests; their outcome
+	// `--setup host-self` and --sealed are real now (Phases 4/5) with their own tests; their outcome
 	// depends on packs/workspace, so this routing test does not assert them.
 
 	// A bogus notch is a usage error (rc 2), not a silent default.
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--at", "bogus"}, &out, &errw, false, nil); rc != 2 {
-		t.Errorf("apply --at bogus should be a usage error (rc 2), got %d", rc)
+	if rc := applyMain([]string{"--setup", "bogus"}, &out, &errw, false, nil); rc != 2 {
+		t.Errorf("apply --setup bogus should be a usage error (rc 2), got %d", rc)
+	}
+	// The removed --at is a usage error too, naming --setup.
+	out.Reset()
+	errw.Reset()
+	if rc := applyMain([]string{"--at", "host"}, &out, &errw, false, nil); rc != 2 ||
+		!strings.Contains(errw.String(), "yolo apply --setup host-self") {
+		t.Errorf("apply --at host should be refused naming `yolo apply --setup host-self` (rc 2), got %d:\n%s", rc, errw.String())
 	}
 }
 
@@ -420,7 +427,7 @@ func TestApplySealedClosure(t *testing.T) {
 	}
 }
 
-// apply --at host renders config surfaces into a real home as PURE RMW (OQ-4): observe
+// apply --setup host-self renders config surfaces into a real home as PURE RMW (OQ-4): observe
 // writes nothing, assert regenerates only the pack's managed keys and preserves the
 // user's own, and non-config kinds are refused by name. Uses a scratch HOME.
 func TestApplyHostRMW(t *testing.T) {
@@ -432,7 +439,7 @@ func TestApplyHostRMW(t *testing.T) {
 	  {"kind":"config","config":[{"agent":"hp","name":"settings","codec":"json","path":"~/.hp/settings.json","mode":"rmw","managed":{"telemetry":false}}]},
 	  {"kind":"mount","host":"refs","into":"refs"}]}`)
 	// `host_management: "own"`: the unset key is `none` since the `assert` retirement
-	// (OQ-CO14), and `apply --at host` refuses under it. The surface declares `rmw`, so `own`
+	// (OQ-CO14), and `apply --setup host-self` refuses under it. The surface declares `rmw`, so `own`
 	// runs the read-modify-write this test is about.
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":["file://`+packDir+`"],"confinement":"host","host_management":"own"}`)
@@ -442,8 +449,8 @@ func TestApplyHostRMW(t *testing.T) {
 
 	// Observe: writes nothing (the file keeps the user's telemetry:true).
 	var out, errw bytes.Buffer
-	if rc := applyMain([]string{"--at", "host"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --at host observe rc=%d: %s", rc, errw.String())
+	if rc := applyMain([]string{"--setup", "host-self"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --setup host-self observe rc=%d: %s", rc, errw.String())
 	}
 	// `does not apply`, not `refused` — report-tiers.md's report vocabulary reserves
 	// `refused` for an apply that STOPPED, and a kind with no meaning off-container stopped
@@ -461,8 +468,8 @@ func TestApplyHostRMW(t *testing.T) {
 	// Assert: managed key regenerated, user key preserved.
 	out.Reset()
 	errw.Reset()
-	if rc := applyMain([]string{"--at", "host", "--assert"}, &out, &errw, false, nil); rc != 0 {
-		t.Fatalf("apply --at host --assert rc=%d: %s", rc, errw.String())
+	if rc := applyMain([]string{"--setup", "host-self", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("apply --setup host-self --assert rc=%d: %s", rc, errw.String())
 	}
 	data, _ = os.ReadFile(filepath.Join(home, ".hp", "settings.json"))
 	if !strings.Contains(string(data), "keep") {

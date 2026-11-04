@@ -215,9 +215,9 @@ func TestMacosUserLaunchRefusesAConflictingSeriesAndNamesTheHatches(t *testing.T
 			t.Errorf("the first launch's refusal lacks %q:\n%s", w, out)
 		}
 	}
-	if !strings.Contains(out, "YOLO_ALLOW_MISSING_PROGRAMS=1") && !strings.Contains(out, "YOLO_RUNTIME=podman yolo") {
+	if !strings.Contains(out, "YOLO_ALLOW_MISSING_PROGRAMS=1") && !strings.Contains(out, "YOLO_SETUP=podman-self yolo") {
 		t.Errorf("the first launch's refusal names neither YOLO_ALLOW_MISSING_PROGRAMS=1 nor "+
-			"`YOLO_RUNTIME=podman yolo`, though nothing of the fork is here to run:\n%s", out)
+			"`YOLO_SETUP=podman-self yolo`, though nothing of the fork is here to run:\n%s", out)
 	}
 	// §8.7: YOLO_ALLOW_PATCH_FAILURES is listed only when a build of the series serves.
 	if strings.Contains(out, "YOLO_ALLOW_PATCH_FAILURES=") {

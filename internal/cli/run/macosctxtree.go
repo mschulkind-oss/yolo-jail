@@ -545,7 +545,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 	if len(refused) == 0 {
 		return links, copies, true
 	}
-	o.pr(o.Stderr).print(macosCtxRefusal(refused, o.containerStepClause()))
+	o.pr(o.Stderr).print(macosCtxRefusal(refused))
 	return nil, nil, false
 }
 
@@ -553,8 +553,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 // headline, the offending mounts, then the fixes as lines to copy — "mark it optional" among them
 // with the exact JSON for each `mounts` element that may be, which is every refused config
 // element whose reason is not a safety one (docs/reference/context-mounts.md#optional-mounts).
-// step is the container-runtime step's notch clause (config.ContainerStepClause).
-func macosCtxRefusal(refused []macosuser.ContextRefusal, step string) string {
+func macosCtxRefusal(refused []macosuser.ContextRefusal) string {
 	noun := "context mount"
 	if len(refused) != 1 {
 		noun = fmt.Sprintf("%d context mounts", len(refused))
@@ -581,7 +580,7 @@ func macosCtxRefusal(refused []macosuser.ContextRefusal, step string) string {
 		}
 	}
 	b += "  remove the entry (or the pack) for this workspace\n"
-	b += "  use a container runtime: \"runtime\": \"podman\" (or \"container\")" + step
+	b += "  use a container setup: yolo --setup podman-self -- claude (or apple-container-self)"
 	return b
 }
 

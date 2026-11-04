@@ -172,8 +172,8 @@ func TestPromoteIsOutrankedByAJailPostureOverlay(t *testing.T) {
 }
 
 // INSPECTION FOLLOWS THE NOTCH. `yolo config render` and `yolo config ls` each pass
-// render.ProfileFor(<the notch they describe>).AgentAutonomy, so `--at host` shows the
-// guarded scalar and `--at jail` does not.
+// render.ProfileFor(<the notch they describe>).AgentAutonomy, so `--setup host-self` shows the
+// guarded scalar and `--setup podman-self` does not.
 func TestConfigRenderAndLsFollowAPostureOverlaysNotch(t *testing.T) {
 	listWorldUnder(t, "own", func(home string) string {
 		return `"pi",` + listPack(t, home, "matt", hostOnlyScalarPack)
@@ -181,22 +181,22 @@ func TestConfigRenderAndLsFollowAPostureOverlaysNotch(t *testing.T) {
 	for _, c := range []struct {
 		notch string
 		want  bool
-	}{{"host", true}, {"jail", false}} {
-		rc, out, errw := runSurfaceVerb(t, "render", "pi/settings", "--at", c.notch)
+	}{{"host-self", true}, {"podman-self", false}} {
+		rc, out, errw := runSurfaceVerb(t, "render", "pi/settings", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("render --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("render --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		if _, has := renderedJSON(t, out)["hostOnlyScalar"]; has != c.want {
-			t.Errorf("config render --at %s: hostOnlyScalar present=%v, want %v\n%s", c.notch, has,
+			t.Errorf("config render --setup %s: hostOnlyScalar present=%v, want %v\n%s", c.notch, has,
 				c.want, out)
 		}
 
-		rc, out, errw = runSurfaceVerb(t, "ls", "--at", c.notch)
+		rc, out, errw = runSurfaceVerb(t, "ls", "--setup", c.notch)
 		if rc != 0 {
-			t.Fatalf("ls --at %s rc=%d\n%s%s", c.notch, rc, out, errw)
+			t.Fatalf("ls --setup %s rc=%d\n%s%s", c.notch, rc, out, errw)
 		}
 		if has := hasLine(out, "hostOnlyScalar", "matt"); has != c.want {
-			t.Errorf("config ls --at %s: matt's key listed=%v, want %v\n%s", c.notch, has, c.want, out)
+			t.Errorf("config ls --setup %s: matt's key listed=%v, want %v\n%s", c.notch, has, c.want, out)
 		}
 	}
 }

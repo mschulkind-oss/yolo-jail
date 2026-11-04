@@ -95,7 +95,7 @@ func (l *HostLaunchLog) RecordContext(c HostLaunchContext) {
 		}
 	}
 	for _, line := range capturedEditRecords(root, launchSurfaces(c.Packs), "re-applied by every host apply",
-		func(slug string) string { return "yolo config reset " + slug + " --at host" }) {
+		func(slug string) string { return "yolo config reset " + slug + " --setup host-self" }) {
 		l.record(line)
 	}
 }

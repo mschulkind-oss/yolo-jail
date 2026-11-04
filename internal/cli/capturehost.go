@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -760,9 +761,9 @@ func captureJailArgv(bin string) []string {
 // once its boot is done.
 //
 // on, at most one, is what the act's caller decided (captureAct): its runtime reaches the pipeline
-// through the pipeline's own Getenv seam, as YOLO_RUNTIME would for this one run, and the process
-// environment is left alone, so nothing a host launch execs afterwards inherits it. Its jailStdout
-// is not read here: a caller names the jail's writers in s.
+// as the built-in setup that runtime names (config.SetupForRemovedRuntime), as `--setup` would for
+// this one run, and the process environment is left alone, so nothing a host launch execs
+// afterwards inherits it. Its jailStdout is not read here: a caller names the jail's writers in s.
 func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s captureStreams, color bool,
 	on ...captureAct) int {
 	out, errw := s.out, s.errw
@@ -771,13 +772,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	opts.Args = argv
 	opts.Color = color
 	if len(on) > 0 && on[0].runtime != "" {
-		rt := on[0].runtime
-		opts.Getenv = func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return rt
-			}
-			return os.Getenv(k)
-		}
+		opts.SetupName = config.SetupForRemovedRuntime(on[0].runtime)
 	}
 	if seal != nil {
 		opts.Sealed = true
@@ -896,7 +891,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 			// Only a caller of yolo's makes such a seal, so the line says so.
 			fmt.Fprintf(errw, "yolo capture: the build jail of %s on macos-user was handed no build line or id\n", bin)
 			fmt.Fprintf(errw, "  That is yolo's to wire. A podman jail builds and runs it today: "+
-				"YOLO_RUNTIME=podman yolo -- %s\n", bin)
+				"YOLO_SETUP=podman-self yolo -- %s\n", bin)
 			return 1
 		}
 		// WHO THE CAPTURE RUNS AS (macos_user_mode, slice 9 of docs/design/macos-user-model-plan.md),
@@ -1188,8 +1183,8 @@ var runHostCapture = runLandlockCapture
 // chooseCaptureArm decides the arm for a capture on goos, under the runtime its caller names ("" for
 // none).
 //
-// A RUNTIME SOMEONE CHOSE BOOTS THE JAIL, as a launch would boot it: the caller's, then YOLO_RUNTIME,
-// then the user config's `runtime`. So does the runtime a launch would find, when it is on PATH. Only
+// A RUNTIME SOMEONE CHOSE BOOTS THE JAIL, as a launch would boot it: the caller's, then the backend
+// of the setup YOLO_SETUP or the user config selects (selectedCaptureRuntime). So does the runtime a launch would find, when it is on PATH. Only
 // when nothing chose one and none is on PATH does a Linux host take the host capture, and only when
 // its kernel can confine it; a runtime the user named and did not install is the reason the capture
 // stops, as it is a launch's, never a cue to run the installer some other way.
@@ -1229,27 +1224,21 @@ func runtimeAbsent(rt string) string {
 	return ""
 }
 
-// selectedCaptureRuntime is the runtime someone selected for a capture jail: YOLO_RUNTIME, then the
-// user config's `runtime`, each only when it names a runtime yolo knows; "" when neither does, which
-// leaves the choice to the platform's default (captureRuntime).
+// selectedCaptureRuntime is the backend of the setup someone selected for a capture jail:
+// YOLO_SETUP, then the user config's `setup` (or, until slice 5, its removed `runtime` key), through
+// the selection a launch makes (config.SelectSetup); "" when none did, which leaves the choice to
+// the platform's default (captureRuntime), and when the selection refuses (a removed YOLO_RUNTIME),
+// which the capture jail's own launch then refuses naming the next step.
 func selectedCaptureRuntime() string {
-	if env := os.Getenv("YOLO_RUNTIME"); env != "" && knownRuntime(env) {
-		return env
+	choice, err := config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForLaunch,
+		Getenv:    os.Getenv,
+		Merged:    config.UserScopeConfigOrEmpty(),
+		GOOS:      setupGOOS,
+		InSession: os.Getenv("YOLO_VERSION") != "",
+	})
+	if err != nil || choice.Source == setup.FromDefault {
+		return ""
 	}
-	if v, ok := config.UserScopeConfigOrEmpty().Get("runtime"); ok {
-		if s, ok := v.(string); ok && knownRuntime(s) {
-			return s
-		}
-	}
-	return ""
-}
-
-// knownRuntime reports whether rt is a value the `runtime` key may take.
-func knownRuntime(rt string) bool {
-	for _, known := range paths.AllRuntimes {
-		if rt == known {
-			return true
-		}
-	}
-	return false
+	return choice.Setup.Backend()
 }

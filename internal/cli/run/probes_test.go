@@ -129,15 +129,15 @@ func TestResolveRepoRootIgnoresCwd(t *testing.T) {
 
 func TestResolveRuntimeEnvWins(t *testing.T) {
 	o := Options{
-		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
+		Getenv:   func(k string) string { return map[string]string{"YOLO_SETUP": "podman-self"}[k] },
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
 		Stderr:   discardBuf(),
 	}
 	fillDefaults(&o)
 	answeringPodman(&o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return "podman-self"
 		}
 		return ""
 	}
@@ -153,7 +153,7 @@ func TestResolveRuntimeEnvWins(t *testing.T) {
 func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
 	var buf bytes.Buffer
 	o := Options{
-		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
+		Getenv:   func(k string) string { return map[string]string{"YOLO_SETUP": "podman-self"}[k] },
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
 		Stderr:   &buf,
 		Stdout:   discardBuf(),
@@ -162,8 +162,8 @@ func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
 	fillDefaults(&o)
 	scriptedPodman(&o, yoloruntime.Attempt{Exited: true, RC: 125, Stderr: stoppedMachineStderr})
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return "podman-self"
 		}
 		return ""
 	}
@@ -177,20 +177,20 @@ func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
 	}
 }
 
-// An explicit YOLO_RUNTIME=podman with no podman on PATH must fail early with an
+// An explicit YOLO_SETUP=podman-self with no podman on PATH must fail early with an
 // actionable message, not sail into the image build. Regression for the report
 // where a missing podman surfaced as an opaque nix/builder failure.
 func TestResolveRuntimeExplicitNotInstalled(t *testing.T) {
 	var buf bytes.Buffer
 	o := Options{
-		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
+		Getenv:   func(k string) string { return map[string]string{"YOLO_SETUP": "podman-self"}[k] },
 		LookPath: func(string) (string, bool) { return "", false },
 		Stderr:   &buf,
 	}
 	fillDefaults(&o)
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return "podman-self"
 		}
 		return ""
 	}
@@ -198,8 +198,8 @@ func TestResolveRuntimeExplicitNotInstalled(t *testing.T) {
 	if ok || rt != "" {
 		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
 	}
-	if !strings.Contains(buf.String(), "is not installed") ||
-		!strings.Contains(buf.String(), "YOLO_RUNTIME") {
+	if !strings.Contains(buf.String(), `setup "podman-self" needs Podman, which is not installed.`) ||
+		!strings.Contains(buf.String(), "https://podman.io/docs/installation") {
 		t.Errorf("missing not-installed message: %q", buf.String())
 	}
 }
@@ -208,8 +208,8 @@ func TestResolveRuntimeExplicitLinuxProbeFailure(t *testing.T) {
 	var buf bytes.Buffer
 	o := Options{
 		Getenv: func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return "podman"
+			if k == "YOLO_SETUP" {
+				return "podman-self"
 			}
 			return ""
 		},
@@ -232,17 +232,18 @@ func TestResolveRuntimeExplicitLinuxProbeFailure(t *testing.T) {
 }
 
 // A native runtime (macos-user) is never on PATH — its availability is a
-// downstream concern — so validation must let it pass through.
+// downstream concern — so validation must let a Seatbelt setup on a Mac pass through.
 func TestResolveRuntimeNativePassesThrough(t *testing.T) {
 	o := Options{
-		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "macos-user"}[k] },
+		Getenv:   func(k string) string { return map[string]string{"YOLO_SETUP": "seatbelt-yolo-account"}[k] },
 		LookPath: func(string) (string, bool) { return "", false },
 		Stderr:   discardBuf(),
+		setupOS:  "darwin",
 	}
 	fillDefaults(&o)
 	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "macos-user"
+		if k == "YOLO_SETUP" {
+			return "seatbelt-yolo-account"
 		}
 		return ""
 	}
@@ -266,7 +267,7 @@ func TestResolveRuntimeNoneFound(t *testing.T) {
 	if ok || rt != "" {
 		t.Errorf("resolveRuntime = %q,%v; want '',false", rt, ok)
 	}
-	if !strings.Contains(buf.String(), "No container runtime found") {
+	if !strings.Contains(buf.String(), "The default setup on this machine, podman-self, needs Podman, which is not installed.") {
 		t.Errorf("missing no-runtime message: %q", buf.String())
 	}
 }

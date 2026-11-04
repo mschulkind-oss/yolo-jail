@@ -29,8 +29,8 @@ import (
 
 // runFatalOptions builds an Options whose seams reach the repo-root gate
 // deterministically: RepoRoot fails, storage/config are trivially OK (empty
-// workspace → empty merged config), and the runtime resolves via an explicit
-// YOLO_RUNTIME so no real podman is consulted.
+// workspace → empty merged config), and the runtime resolves via the setup that names it
+// (selectRuntimeSetup) so no real podman is consulted.
 func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr *bytes.Buffer) *Options {
 	t.Helper()
 	o := &Options{
@@ -58,10 +58,9 @@ func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	o.IsTTYStdout = func() bool { return false }
 	o.IsTTYStdin = func() bool { return false }
 	o.RepoRoot = func() (reporoot.Resolution, bool) { return reporoot.Resolution{}, false }
-	// Explicit runtime selection so resolveRuntime never touches a real daemon.
-	// YOLO_RUNTIME wins over config and (for container backends) still requires
-	// LookPath+connectable, so wire those for the podman case; macos-user is a
-	// native runtime that passes validateExplicitRuntime through untouched.
+	// The setup's runtime still requires LookPath+connectable for container backends, so
+	// wire those for the podman case; macos-user is a native runtime that passes
+	// validateExplicitRuntime through untouched.
 	if ytoRuntime == "podman" {
 		o.LookPath = func(name string) (string, bool) {
 			if name == "podman" {
@@ -73,12 +72,7 @@ func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 		// podman answers the readiness gate at once (podmanready.go).
 		answeringPodman(o, minimalPodmanInfo)
 	}
-	o.Getenv = func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return ytoRuntime
-		}
-		return ""
-	}
+	selectRuntimeSetup(o, ytoRuntime)
 	return o
 }
 

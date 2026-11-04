@@ -339,7 +339,7 @@ func TestMacosUserPatchedExtensionConflictRefusesAndSkipStartsWithoutIt(t *testi
 	if !strings.Contains(out, "YOLO_SKIP_PATCHES=") {
 		t.Errorf("the refusal lacks YOLO_SKIP_PATCHES:\n%s", out)
 	}
-	if strings.Contains(out, "YOLO_RUNTIME=") {
+	if strings.Contains(out, "YOLO_RUNTIME=") || strings.Contains(out, "YOLO_SETUP=podman-self") || strings.Contains(out, "YOLO_SETUP=apple-container-self") {
 		t.Errorf("a conflicting series' refusal offers a runtime switch, which cannot help:\n%s", out)
 	}
 	// §8.7: YOLO_ALLOW_PATCH_FAILURES is listed only when a build of the series serves.

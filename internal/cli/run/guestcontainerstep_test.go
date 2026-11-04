@@ -1,16 +1,13 @@
 package run
 
-// guestcontainerstep_test.go pins env-manager plan EMP-D5 on the run pipeline's side: at the guest
-// notch on macOS, every macos-user message whose next step names a container runtime names the
-// jail notch too (config.ContainerStepClause). The guest notch runs only on macos-user, and the
-// notch gate refuses a container runtime beside it as a contradiction (EMP-D1), so "use a container
-// runtime" alone sends the user from one refusal straight into another.
+// guestcontainerstep_test.go pins the macos-user arm's container next steps under named setups
+// (named-setups-plan.md slice 4a): every macos-user message whose next step is a container names
+// a container SETUP (`--setup podman-self`, `YOLO_SETUP=podman-self`), which a launch takes as
+// typed, and never the removed YOLO_RUNTIME or `--at jail`, which a launch refuses.
 //
-// Each case drives Run() with Options.IsMacOS set, `confinement: "guest"` in the workspace config
-// and no runtime named, so the notch alone selects the backend, the way a user's launch does; and
-// each has a control, the same fixture as a jail-notch macos-user launch (`runtime: "macos-user"`
-// by YOLO_RUNTIME), whose wording must stay what it was. The clause is counted on the output with
-// its whitespace folded, so a printer that wraps a line cannot hide it.
+// Each case drives Run() with Options.IsMacOS set and the Seatbelt setup selected through
+// YOLO_SETUP, the way a user's launch does. The step is counted on the output with its
+// whitespace folded, so a printer that wraps a line cannot hide it.
 
 import (
 	"bytes"
@@ -19,7 +16,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -33,22 +29,16 @@ type guestLaunchResult struct {
 	reached bool
 }
 
-// launchMacosUserAt runs one macOS launch with HOME as the caller set it. guest true writes
-// `confinement: "guest"` (and wsExtra, a run of `, "key": value` pairs) into a fresh workspace and
-// names no runtime; false is the jail-notch control, `runtime: "macos-user"` through YOLO_RUNTIME
-// with wsExtra alone. tweak edits the options last.
-func launchMacosUserAt(t *testing.T, guest bool, wsExtra string, tweak func(*Options)) guestLaunchResult {
+// launchSeatbelt runs one macOS launch of seatbelt-yolo-account with HOME as the caller set it and
+// wsExtra (a run of `, "key": value` pairs) in a fresh workspace config. tweak edits the options last.
+func launchSeatbelt(t *testing.T, wsExtra string, tweak func(*Options)) guestLaunchResult {
 	t.Helper()
 	ws := resolvedGuestWorkspace(t)
-	body, ytoRuntime := `{"confinement": "jail"`+wsExtra+`}`, "macos-user"
-	if guest {
-		body, ytoRuntime = `{"confinement": "guest"`+wsExtra+`}`, ""
-	}
-	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{"packages": []`+wsExtra+`}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, ytoRuntime, &stdout, &stderr, nil)
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.IsMacOS, o.IsLinux = true, false
 	o.AcceptConfigChanges = true // the workspace config is new to this machine
 	// A Mac set up for this backend, so the arm's preflight admits the fork slot (macosUserPreflight).
@@ -70,67 +60,54 @@ func launchMacosUserAt(t *testing.T, guest bool, wsExtra string, tweak func(*Opt
 // folded is s with every run of whitespace one space.
 func folded(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// guestClauseCount is how many times the guest's container-step clause appears in out.
-func guestClauseCount(out string) int {
-	return strings.Count(folded(out), folded(config.ContainerStepClause(config.ConfinementGuest)))
+// containerSetupSteps is how many times out names a container setup as the next step.
+func containerSetupSteps(out string) int {
+	return strings.Count(folded(out), "podman-self")
 }
 
-// TestMacosGuestContextMountRefusalNamesTheJailNotch is the reviewer's reproduction: a guest whose
-// context mount this backend cannot deliver is refused with "use a container runtime", and that
-// step must carry the jail notch. Then the step is followed — `--at jail` with YOLO_RUNTIME=podman
-// — and the notch gate must pass it.
-func TestMacosGuestContextMountRefusalNamesTheJailNotch(t *testing.T) {
+// removedSpelling reports a removed selection a step must never name.
+func removedSpelling(out string) string {
+	for _, bad := range []string{"YOLO_RUNTIME", "--at jail", "`runtime: \"podman\"`", "\"runtime\": \"podman\""} {
+		if strings.Contains(out, bad) {
+			return bad
+		}
+	}
+	return ""
+}
+
+// TestTheContextMountRefusalNamesAContainerSetup: a context mount this backend cannot deliver is
+// refused with a container setup as one fix, and that step is one a launch takes.
+func TestTheContextMountRefusalNamesAContainerSetup(t *testing.T) {
 	home := ctxLaunchHome(t, `, "mounts": ["~/code/ref-repo"]`)
 	if err := os.MkdirAll(filepath.Join(home, "code", "ref-repo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	got := launchMacosUserAt(t, true, "", refusingSiting(t))
+	got := launchSeatbelt(t, "", refusingSiting(t))
 	if got.rc == 0 || got.reached {
-		t.Fatalf("the guest launch was not refused for its context mount (rc %d, reached %v):\n%s",
+		t.Fatalf("the launch was not refused for its context mount (rc %d, reached %v):\n%s",
 			got.rc, got.reached, got.out)
 	}
-	if !strings.Contains(got.out, "Refusing the macos-user launch") || !strings.Contains(got.out, "container runtime") {
-		t.Fatalf("the fixture did not reach the context-mount refusal:\n%s", got.out)
+	if !strings.Contains(got.out, "Refusing the macos-user launch") ||
+		!strings.Contains(got.out, "use a container setup: yolo --setup podman-self -- claude") {
+		t.Fatalf("the refusal does not name a container setup:\n%s", got.out)
 	}
-	if n := guestClauseCount(got.out); n != 1 {
-		t.Errorf("the guest's context-mount refusal names a container runtime without the jail "+
-			"notch (clause seen %d times, want 1):\n%s", n, got.out)
-	}
-
-	followed := launchMacosUserAt(t, true, "", func(o *Options) {
-		refusingSiting(t)(o)
-		o.Notch = "jail"
-		o.Getenv = func(k string) string {
-			if k == "YOLO_RUNTIME" {
-				return "podman"
-			}
-			return ""
-		}
-	})
-	if strings.Contains(followed.out, "Refusing to launch: the guest notch") {
-		t.Errorf("the step the refusal names is refused by the notch gate:\n%s", followed.out)
-	}
-
-	if ctl := runMacosUserExpectingRefusal(t, t.TempDir(), refusingSiting(t)); guestClauseCount(ctl) != 0 {
-		t.Errorf("a jail-notch macos-user refusal grew the guest's clause:\n%s", ctl)
+	if bad := removedSpelling(got.out); bad != "" {
+		t.Errorf("the refusal names the removed %q:\n%s", bad, got.out)
 	}
 }
 
-// TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime covers every other run-pipeline printer
-// on the macos-user arm whose next step names a container runtime. Deleting the clause from any
-// one of them fails its case.
-func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
+// TestMacosUserNotesNameAContainerSetup covers every other run-pipeline printer on the macos-user
+// arm whose next step is a container. Deleting the step from any one of them fails its case.
+func TestMacosUserNotesNameAContainerSetup(t *testing.T) {
 	cases := []struct {
 		name    string
 		setup   func(t *testing.T)
 		wsExtra string
-		// marker is a phrase of the message the clause must follow, proving the fixture reached it.
+		// marker is a phrase of the message, proving the fixture reached it.
 		marker string
-		// want is how many of the launch's messages name a container runtime.
+		// want is how many of the launch's messages name a container setup.
 		want int
-		// env checks the launch env handed to the backend, at the guest notch only.
-		env func(t *testing.T, env *jsonx.OrderedMap)
+		env  func(t *testing.T, env *jsonx.OrderedMap)
 	}{
 		{
 			name: "ephemeral_storage tmpfs",
@@ -139,11 +116,8 @@ func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
 			},
 			wsExtra: `, "ephemeral_storage": "tmpfs"`,
 			marker:  "is not read on macos-user",
-			want:    1,
+			want:    0, // its step is Apple Container: `yolo --setup apple-container-self`
 		},
-		// No directory `host_files` case: such an entry is copied into the sandbox now
-		// (buildMacosCtxTree), so its warning, the since-deleted noteMacosUserHostByteGaps, is
-		// printed by no launch at any notch.
 		{
 			name: "a fork",
 			setup: func(t *testing.T) {
@@ -152,20 +126,16 @@ func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
 			},
 			marker: "tool is not delivered on macos-user",
 			want:   1,
-			// The sandbox's own launcher for the program repeats the launch's reason, clause and all.
+			// The sandbox's own launcher for the program repeats the launch's reason, step and all.
 			env: func(t *testing.T, env *jsonx.OrderedMap) {
-				if d := handedOnMacosUser(t, env)["tool"]; guestClauseCount(d.Reason) != 1 {
-					t.Errorf("the sandbox's reason for tool names a container runtime without the "+
-						"jail notch: %q", d.Reason)
+				if d := handedOnMacosUser(t, env)["tool"]; containerSetupSteps(d.Reason) != 1 || removedSpelling(d.Reason) != "" {
+					t.Errorf("the sandbox's reason for tool does not name the container setup alone: %q", d.Reason)
 				}
 			},
 		},
-		// No patched-extension case: the macos-user launch builds one for darwin now, and the
-		// refusal of a missing one names the container runtimes through withContainerBackends,
-		// whose guest clause the fork case's refusal tests already pin.
 		{
-			// A refused host half whose jail daemon the guest declines too: the refusal line and the
-			// Declined: line each name a container runtime (macosuserdoorways.go, jaildaemondecline.go).
+			// A refused host half whose jail daemon the sandbox declines too: the refusal line and
+			// the Declined: line each name a container setup (macosuserdoorways.go, jaildaemondecline.go).
 			name: "a service the sandbox cannot serve",
 			setup: func(t *testing.T) {
 				home := packHome(t)
@@ -183,28 +153,21 @@ func TestMacosGuestNotesNameTheJailNotchBesideAContainerRuntime(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setup(t)
-			got := launchMacosUserAt(t, true, tc.wsExtra, nil)
+			got := launchSeatbelt(t, tc.wsExtra, nil)
 			if got.rc != 0 || !got.reached {
-				t.Fatalf("the guest launch did not reach the backend (rc %d):\n%s", got.rc, got.out)
+				t.Fatalf("the launch did not reach the backend (rc %d):\n%s", got.rc, got.out)
 			}
 			if !strings.Contains(folded(got.out), tc.marker) {
 				t.Fatalf("the fixture did not reach the message %q:\n%s", tc.marker, got.out)
 			}
-			if n := guestClauseCount(got.out); n != tc.want {
-				t.Errorf("at the guest notch the clause naming the jail notch appears %d times, want %d — "+
-					"a step names a container runtime alone, which the notch gate refuses:\n%s",
-					n, tc.want, got.out)
+			if n := containerSetupSteps(got.out); n != tc.want {
+				t.Errorf("the container setup is named %d times, want %d:\n%s", n, tc.want, got.out)
+			}
+			if bad := removedSpelling(got.out); bad != "" {
+				t.Errorf("a step names the removed %q, which a launch refuses:\n%s", bad, got.out)
 			}
 			if tc.env != nil {
 				tc.env(t, got.env)
-			}
-
-			ctl := launchMacosUserAt(t, false, tc.wsExtra, nil)
-			if ctl.rc != 0 || !strings.Contains(folded(ctl.out), tc.marker) {
-				t.Fatalf("the jail-notch control did not reach %q (rc %d):\n%s", tc.marker, ctl.rc, ctl.out)
-			}
-			if n := guestClauseCount(ctl.out); n != 0 {
-				t.Errorf("a jail-notch macos-user launch grew the guest's clause %d times:\n%s", n, ctl.out)
 			}
 		})
 	}

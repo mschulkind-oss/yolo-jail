@@ -1,7 +1,7 @@
 package cli
 
 // valueflags.go is the ONE reader for the launch front doors' value flags — `-p`/`--profile`,
-// `--at`, `--network` and `--with-credentials` — at every notch (docs/plans/notch-convergence.md
+// `--setup`, the removed `--at`, `--network` and `--with-credentials` — at every notch (docs/plans/notch-convergence.md
 // item 9, rows A1 and A2).
 //
 // # Why one reader
@@ -18,7 +18,7 @@ package cli
 //
 // A value flag takes its value from the NEXT token (`-p zai`) or glued on with `=` (`-p=zai`,
 // `--profile=zai`). The next token is the value whatever it looks like (`-p -h` is a profile
-// named "-h", `--at -h` a notch named "-h"), with ONE exception: the `--` separator, which is never
+// named "-h", `--setup -h` a setup named "-h"), with ONE exception: the `--` separator, which is never
 // a value — it is where the wrapped program's argv begins, and reading it as a profile name is the
 // defect row A2 recorded. A flag with no token after it, a flag followed by `--`, and a glued `=`
 // with nothing after it are all MISSING values, and every notch refuses them the same way:
@@ -40,7 +40,8 @@ import (
 // in the package.
 var launchValueFlags = [][]string{
 	{"--profile", "-p"},
-	{"--at"},
+	{"--setup"},
+	{atFlag},
 	{"--network"},
 	{withCredentialsFlag},
 }

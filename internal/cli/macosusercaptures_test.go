@@ -178,10 +178,10 @@ func TestADarwinAutoCaptureRunsTheMacosUserCaptureAct(t *testing.T) {
 	}
 	defer devnull.Close()
 	autoCapture([]string{"probetool"}, darwinPlatform, devnull, devnull, false)
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+	if pipelineBackend(seen) != "macos-user" {
 		got := "<unset>"
 		if seen.Getenv != nil {
-			got = seen.Getenv("YOLO_RUNTIME")
+			got = pipelineBackend(seen)
 		}
 		t.Errorf("a darwin auto-capture ran its capture jail under YOLO_RUNTIME=%s, want macos-user", got)
 	}
@@ -195,7 +195,7 @@ func TestADarwinAutoCaptureRunsTheMacosUserCaptureAct(t *testing.T) {
 	if seen.Workspace == "" {
 		t.Fatal("the container platform's auto-capture ran no capture jail, so the half below is vacuous")
 	}
-	if seen.Getenv != nil && seen.Getenv("YOLO_RUNTIME") == "macos-user" {
+	if pipelineBackend(seen) == "macos-user" {
 		t.Errorf("a container platform's auto-capture was forced onto macos-user")
 	}
 }

@@ -196,7 +196,7 @@ func macArchivePrivateState(t *testing.T) {
 // on a machine with other jail images (the maintainer's Mac) a reap would take them. The hatch
 // exists for "a launch against a store with images worth keeping" (autoreapimages.go).
 func macArchiveEnv(rt string) runOption {
-	return withEnv("YOLO_RUNTIME="+rt, paths.TimingEnv+"=1", "YOLO_NO_AUTO_IMAGE_REAP=1")
+	return withEnv("YOLO_SETUP="+setupForRuntime(rt), paths.TimingEnv+"=1", "YOLO_NO_AUTO_IMAGE_REAP=1")
 }
 
 // macArchiveImages is what the realize phase produced.

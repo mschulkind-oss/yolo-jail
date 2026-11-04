@@ -184,7 +184,7 @@ func TestHostApplySaysNothingAboutPackagesWhenNoneAreDeclared(t *testing.T) {
 // reportHostPackages stops passing the host notch or derives materializes from the runtime alone.
 func TestHostApplyReportsPackagesAsInertWhateverTheRuntime(t *testing.T) {
 	t.Setenv("YOLO_VERBOSE", "1") // the inert line folds into the tier-1 line otherwise
-	t.Setenv("YOLO_RUNTIME", "macos-user")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	for _, rooted := range []bool{false, true} {
 		home := hostPackagesFixture(t, `{"confinement":"host","packages":["ripgrep"]}`)
 		target := ""
