@@ -126,7 +126,7 @@ These are mechanism choices made under the rulings above, not owner rulings. The
 | <a id="MMP-D31"></a>MMP-D31 | **The account mode names the XDG base dirs under the workspace home.** *Implementation decision, from W1's run.* `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` are set to `<ws>/.yolo/home/.config`, `.cache`, `.local/share` and `.local/state` (`withAccountXDGEnv`), each unless composed. | The workspace home is owned by you and the sandbox runs as `_yolojail`, so nix warned *"$HOME … is not owned by you"* on every call and read its user config from `/Users/_yolojail`. Nix consults `getHome()` only for a base dir whose `XDG_*` variable is unset (measured on Linux, nix 2.34.9, with a HOME another uid owns: warning with the variables unset, none with them set). The values are the defaults a tool would derive from HOME anyway. |
 | <a id="MMP-D32"></a>MMP-D32 | **An Apple Container home is refused by name, not adopted.** A macos-user launch whose inherited user-config destination is Apple Container's writable copy (a regular file you own, writable, one link, first line yolo's generated header) refuses before the sandbox (`refuseAppleContainerHome`), naming the file, that Apple Container used this workspace's home, the move that clears it (`mv <ws>/.yolo/home <ws>/.yolo/home.apple-container`), and `YOLO_RUNTIME=container` to keep using Apple Container. Any other occupant keeps the generic refusal. | Since 12a both backends use `<ws>/.yolo/home` with the same dotted layout. Nothing proves Apple Container's writable copy unedited, so adopting it could overwrite the owner's edit, and the rest of that home lacks the account's ACLs and holds container-era links; moving the whole home aside clears every such residue at once and loses nothing. |
 | <a id="MMP-D33"></a>MMP-D33 | **An occupied workspace home is cleared one path at a time.** When the layout's HOME is the workspace home (`DeriveDarwinWorkspaceHome`), its refusal (`occupiedWorkspaceHomeError`) is headed *"In THIS WORKSPACE'S HOME"*, names where each occupied path's link points, and offers `sudo rm -rf` of that path alone. The account layout's refusal is unchanged. | It offered `sudo rm -rf <ws>/.yolo/home` under the pre-12a heading *"the SANDBOX ACCOUNT HOME"*: the workspace's whole home, transcripts included, to clear one directory. |
-| <a id="MMP-D34"></a>MMP-D34 | **An empty `kern.procargs2` environment is an unread one.** Self mode's sandbox-marker reader treats a process whose environment comes back empty as unknown (`procArgs2Env`), so a live one counts as the sandbox's, as the tri-state in `guestprocs.go` already says for an unreadable one. | macOS 26.5 returns a platform binary's arguments and no environment, to its owner too (the W1 run's §6), so a sandboxed `/bin/sh` read as known and unmarked and dropped out of the pack-tree holder proof. Every process the sandbox starts carries a marker, so an empty environment never proves *not the sandbox's*; counting one costs disk until the next prune. |
+| <a id="MMP-D34"></a>MMP-D34 | **An empty `kern.procargs2` environment is an unread one.** Self mode's sandbox-marker reader treats a process whose environment comes back empty as unknown (`procArgs2Env`), so a live one counts as the sandbox's, as the tri-state in `guestprocs.go` already says for an unreadable one. | macOS 26.5 returns a platform binary's arguments and no environment, to its owner too (the W1 run's [§6](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#6-kernprocargs2-hides-a-platform-binarys-environment)), so a sandboxed `/bin/sh` read as known and unmarked and dropped out of the pack-tree holder proof. Every process the sandbox starts carries a marker, so an empty environment never proves *not the sandbox's*; counting one costs disk until the next prune. |
 | <a id="MCWP-D2"></a>MCWP-D2 | **Machine root stays `/Users/_yolojail`** (`macosuser.SandboxHome()`), passed to the bootstrap as the env var `YOLO_DARWIN_MACHINE_HOME` and to every sandbox argv. Absent, or equal to HOME, means today's single-home layout, byte for byte. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | Moves no shared bytes. The directory-service record (`NFSHomeDirectory`) and the bootstrap's identity and scope checks stay on the account. |
 | <a id="MCWP-D10"></a>MCWP-D10 | **Guest yolo judges workspace scope by the account.** `sandboxEnvPairs` emits `YOLO_DARWIN_MACHINE_HOME` (protected) in private mode. `cli.Main` and `cmd/yolo-jaild` call one `paths` helper that, when that variable names a directory owned by the process euid, applies `paths.GuardScopeUnder` to it. The three per-verb copies (bootstrap, log sink, capture materialize) may stay. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | With HOME inside the workspace, every guest verb that creates `.yolo` would otherwise see "workspace CONTAINS your home" and refuse. `yolo-jaild` reaches `nixroots` and `durable`, which create it. Ownership, not the variable, is the identity check, so the host user is unaffected even if it has the variable set. |
 
@@ -1176,37 +1176,37 @@ the colleague who reported the refusal):
   `^TestMacosUser` tests that pass on 12a's parent failed (five not listed above), and `claude -p`
   could not authenticate (a revoked login). W1 is not yet passed. What each finding was, by the
   report's section:
-  - **§2, `$TMPDIR` empty:** a defect, fixed ([MMP-D30](#MMP-D30)). `getconf DARWIN_USER_TEMP_DIR`
+  - **[§2](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#2-tmpdir-is-empty-in-account-mode), `$TMPDIR` empty:** a defect, fixed ([MMP-D30](#MMP-D30)). `getconf DARWIN_USER_TEMP_DIR`
     printing nothing *inside* the sandbox is not fixed: the likely cause is a denied lookup of the
     directory service the call makes, and no grant is widened without the denial in hand (W1b).
-  - **§3, the nix warning:** a defect, fixed ([MMP-D31](#MMP-D31)); the test is unchanged.
-  - **§3, the config capture missing the session's `settings.json` edit:** a defect, fixed. The
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the nix warning:** a defect, fixed ([MMP-D31](#MMP-D31)); the test is unchanged.
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the config capture missing the session's `settings.json` edit:** a defect, fixed. The
     capture mapped `~/.claude` to the undotted `<ws>/.yolo/home/claude` for macos-user, where 12a's
     HOME keeps it dotted (`jailHomeRel`).
-  - **§3, the floor resolving to mise shims:** a stale test, rewritten. The mise store is the
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the floor resolving to mise shims:** a stale test, rewritten. The mise store is the
     machine root's (`MISE_DATA_DIR`), outside HOME by design, so the probe now drops it too.
-  - **§3, the unchanged relaunch replacing delivered files:** a defect, **not fixed**. The
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the unchanged relaunch replacing delivered files:** a defect, **not fixed**. The
     delivered file is the account's own, so `linkat` from the staging root fell back to a copy.
     Pre-12a the bootstrap ran under `(allow default)` and linked; the deny-by-default profile is
     the change. The likely fix is an `(allow file-link …)` for the staging root, but an operation
     name the Mac's Seatbelt does not know fails the profile's compile on every launch, so it waits
     for W1b's errno and probe.
-  - **§3, the overlay agent-state symlink:** a stale test, rewritten. `~/.oh-omp` is now a real
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the overlay agent-state symlink:** a stale test, rewritten. `~/.oh-omp` is now a real
     directory in the workspace home, not a link into it.
-  - **§3, the four predicted stale tests** (`macosuserhometier_test.go`,
+  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the four predicted stale tests** (`macosuserhometier_test.go`,
     `macosuserlayoutrefusal_test.go`, `macosuserhomeroothostfiles_test.go`,
     `macosusertools_test.go`): rewritten to 12a's layout. The layout refusal's remedy was also a
     defect, fixed ([MMP-D33](#MMP-D33)).
-  - **§4, the briefing's shared-home wording:** a defect, fixed. Both notches say the home is this
+  - **[§4](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#4-the-briefing-still-describes-the-shared-account-home), the briefing's shared-home wording:** a defect, fixed. Both notches say the home is this
     workspace's own and only its machine-scope links are shared.
-  - **§5, an Apple Container home refusing a macos-user launch:** a happy-path refusal, not
+  - **[§5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#5-an-apple-container-home-blocks-a-later-account-mode-launch), an Apple Container home refusing a macos-user launch:** a happy-path refusal, not
     support ([MMP-D32](#MMP-D32)).
-  - **§6, `kern.procargs2` hiding a platform binary's environment:** the four short-suite tests
+  - **[§6](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#6-kernprocargs2-hides-a-platform-binarys-environment), `kern.procargs2` hiding a platform binary's environment:** the four short-suite tests
     now start a stand-in `sh` that is not a platform binary, found on `PATH` or in a nix profile,
     and skip naming `nix profile install nixpkgs#bash` when there is none. The one production
     reader, self mode's sandbox marker, is fixed ([MMP-D34](#MMP-D34)); `internal/prune` reads
     only the exec path.
-  - **§7, `run-checks.sh` g4 beside a launch:** ours, fixed. The script now holds each fake
+  - **[§7](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#7-run-checkssh-g4-and-a-concurrent-launch), `run-checks.sh` g4 beside a launch:** ours, fixed. The script now holds each fake
     session's liveness lock while it runs, so a launch's sweep of dead sessions keeps them.
 - **W1b (the W1 fixes, before 12a lands):** on the branch carrying them, the owner's Mac agent
   re-runs exactly:
@@ -1225,7 +1225,7 @@ the colleague who reported the refusal):
     `getconf DARWIN_USER_TEMP_DIR` (paste its output, and `log show --last 2m --predicate 'sender
     == "Sandbox"'` if it prints nothing); `nix --version` prints no `$HOME … is not owned by you`
     line;
-  - the §5 case: a workspace launched with `YOLO_RUNTIME=container`, then `yolo -- true` with
+  - the [§5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#5-an-apple-container-home-blocks-a-later-account-mode-launch) case: a workspace launched with `YOLO_RUNTIME=container`, then `yolo -- true` with
     macos-user; paste the refusal, which names Apple Container and the `mv`;
   - the short suite: `go test -short ./integration -run
     '^(TestStopHomeProcesses|TestProcessEnvironReadsALiveChildsHome)'` passes, or skips naming
