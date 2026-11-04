@@ -223,6 +223,13 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.15.1", pack: "cgroup-delegate", problem: `unknown field "selected_by_default"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("selected_by_default")},
+	// Measured against v0.16.0 on 2026-11-03: copilot declares `host_keychain_env`
+	// (docs/design/keychain-from-a-jail.md OQ-KC5), a pack-wide field that reader skips without
+	// failing its boot. It is read on the host, by a macos-user launch, and never by a jail's
+	// boot, so an old jail handed the tree loses nothing.
+	{release: "v0.16.0", pack: "copilot", problem: `unknown field "host_keychain_env"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("host_keychain_env")},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's

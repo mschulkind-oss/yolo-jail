@@ -89,6 +89,10 @@ type packChannel struct {
 	// included. No writer delivers it whole any more: the shared file carries the shared
 	// composition (scope.SharedEnv), and each agent's file what its own composition adds.
 	userEnv *jsonx.OrderedMap
+	// hostKeychainEnv is, per agent, the variables a macos-user launch read from the host
+	// keychain for it (hostkeychainenv.go, keychain-from-a-jail.md OQ-KC5): written into that
+	// agent's own env file alone, def-form, and nowhere else. nil on every other runtime.
+	hostKeychainEnv map[string]map[string]string
 	// resolvedProfiles is every profile name this launch could activate, resolved to its
 	// provider and option map (packload.ResolveProfiles). Emitted as YOLO_PROFILES and
 	// handed to the env-derive runner, so both consumers of a profile's body — the jail's

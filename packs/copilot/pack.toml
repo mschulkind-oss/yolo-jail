@@ -8,6 +8,14 @@ name = "copilot"
 # nothing and runs nothing; a user may also select it without copilot, beside pi.
 needs = [{ pack = "copilot-auth" }]
 
+# ON macos-user COPILOT GETS THE HOST'S OWN LOGIN THROUGH COPILOT_GITHUB_TOKEN
+# (docs/design/keychain-from-a-jail.md OQ-KC5): darwin Copilot calls Security.framework on the
+# sandbox account's keychain, which does not exist, so the launch's host side reads this item
+# from your keychain and writes it into copilot's own agent env file. `copilot-cli` is 1.0.48's
+# service (§2.3, SOURCED); 1.0.89's is UNVERIFIED until a human login records it (§6 step 4),
+# so a second name is added here, never in Go, once it is known.
+host_keychain_env = { copilot = [{ var = "COPILOT_GITHUB_TOKEN", services = ["copilot-cli"], login = "copilot login" }] }
+
 # Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
 #   brew-cask: https://formulae.brew.sh/api/cask/copilot-cli.json (binary artifact `copilot`)
 # GitHub's own installer (OQ-NI1, ruled 2026-10-05). It installs into $PREFIX/bin and, run as

@@ -3,7 +3,7 @@ title: "Copilot's keychain, from a jail: a Secret Service inside, the real keych
 date: 2026-09-29
 status: accepted
 stage: DESIGN
-next: "Build OQ-KC5's macos-user route for Copilot (COPILOT_GITHUB_TOKEN, gated on a Mac measurement); confirm Copilot's login service name with a real login (§6 step 4); open a plan sketch"
+next: "Run witness W-KC5 on a Mac: does Copilot accept its own login as COPILOT_GITHUB_TOKEN (§6 step 6; the route is built, unmeasured); confirm Copilot's login service name with a real login (§6 step 4); open a plan sketch"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
 summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. Ruled 2026-10-10: one Copilot login serves the host and every jail, and it is the host Copilot's own keychain item; only the login is machine-wide; every program in a jail gets the keychain; and the keychain is always the host's, on every backend. The host side touches only items yolo created and the host Copilot's own login item, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Ruled 2026-11-03: macos-user's native clients, which have no seam, get values per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN."
 vantage:
@@ -18,7 +18,8 @@ broader native credential-store direction, macos-user setup source and first-log
 and SandVault's dedicated-keychain source. The older artifact and transport claims are not a
 whole-design re-verification. Rulings 2026-10-10 on all four of the original questions
 ([§8](#8-decision-ledger)); the body is revised to them, and the narrower
-[OQ-KC5](#OQ-KC5) was ruled 2026-11-03. Nothing in this design is built. No agent CLI or native keychain
+[OQ-KC5](#OQ-KC5) was ruled 2026-11-03, and its macos-user route for Copilot is built and unmeasured
+until [witness W-KC5](#W-KC5) runs on a Mac. Nothing else in this design is built. No agent CLI or native keychain
 operation was run for either update.
 
 > **In short.** Copilot already stores its login the responsible way. It asks the operating
@@ -784,7 +785,7 @@ The generic [host-service startup diagnostics](../reference/host-service-startup
   loophole, scoped as [§3.4](#34-scoping-which-items-a-jail-may-read-or-write) scopes them.
 - **The route is per program** ([OQ-KC5](#OQ-KC5)). Native clients call Security.framework on the account's
   default keychain, which does not exist, and there is no seam yolo can serve. By [OQ-KC5](#OQ-KC5) values reach
-  them per program, through an input each already reads. Until that is built, this backend keeps the fallbacks of
+  them per program, through an input each already reads. Copilot's route is built ([§6](#6-build-order) step 6) and unmeasured; every other program on this backend keeps the fallbacks of
   [§5](#5-the-fallback-copy-only-copilottokens-and-say-so), and the missing-keychain dialog
   remains.
 - **Claude's refresh ownership does not move.** Claude on macOS is keychain-first, and
@@ -833,7 +834,7 @@ keychain route is off** ([KC-D1](#KC-D1)), and it is disclosed on every launch t
 **When it applies:** exactly the launches [§3.7](#37-failure-paths) turns the route off for. That
 means Apple Container, a Linux host with no Secret Service on the launch's bus, a Mac session that
 cannot unlock its keychain, a host half that failed to start, a nested jail by default, and
-macos-user until [OQ-KC5](#OQ-KC5)'s route is built.
+macos-user for every program [OQ-KC5](#OQ-KC5)'s route does not cover, and for a login made in the sandbox.
 
 **What it copies:** only the entries of the `copilotTokens` map. It never copies
 `storeTokenPlaintext` or any other key. Copilot reads `copilotTokens` when the keychain read fails
@@ -939,6 +940,58 @@ What I would build, in order:
    the removal on a launch with the route on, and an attach that merges nothing.
 6. **macos-user,** by [OQ-KC5](#OQ-KC5): the host side reads Copilot's login item at launch and writes it as `COPILOT_GITHUB_TOKEN` into Copilot's agent env file, after a Mac measurement shows Copilot accepts its own OAuth token there.
 
+   **Built 2026-11-03, unmeasured.** The copilot pack declares the item as a pack fact,
+   `host_keychain_env` in [`pack.toml`](../../packs/copilot/pack.toml) (service `copilot-cli`,
+   variable `COPILOT_GITHUB_TOKEN`), so 1.0.89's service name, once a login records it, is one more
+   entry there and no Go change. A macos-user launch that selects copilot reads it as the human with
+   `/usr/bin/security find-generic-password -s <service> -w`, writes it def-form into copilot's own
+   0600 env file under the sandbox's home (`.config/yolo-agent-env/copilot.sh`), and prints one line:
+   that it passed the login in, or that it found none or was refused, naming `copilot login` on the
+   host. No other backend reads it, and nothing is written back to the keychain
+   ([`hostkeychainenv.go`](../../internal/cli/run/hostkeychainenv.go)). The unit tests drive a fake
+   reader; whether Copilot accepts the token there is the witness below.
+
+   <a id="W-KC5"></a>**Witness W-KC5**, for the owner's Mac agent, on a Mac where `copilot login`
+   has been run on the host and the installed `yolo` includes this build. It starts Copilot once
+   with one prompt, which no automated test may do, and changes no keychain item.
+
+   1. Record Copilot's version and its login item's attributes. The second command prints the
+      item's attributes and never its secret, since it has no `-w`:
+
+      ```sh
+      copilot --version
+      security find-generic-password -s copilot-cli | grep -E '"(svce|acct)"'
+      ```
+
+      Expected: a version line, then `"svce"<blob>="copilot-cli"` and an `"acct"` line naming the
+      host and your login. If the second command prints `could not be found`, the 1.0.89 service
+      is not `copilot-cli`: run `security dump-keychain | grep -i copilot` to find it, record it
+      here, add it to `services` in the pack, and stop.
+   2. Launch Copilot in a throwaway macos-user workspace with one prompt:
+
+      ```sh
+      mkdir -p ~/kc5-witness && cd ~/kc5-witness
+      YOLO_RUNTIME=macos-user yolo -- copilot -p 'Reply with exactly: KC5-OK'
+      ```
+
+      Expected: the launch prints `Host login passed in: your host copilot login (keychain service
+      copilot-cli) is COPILOT_GITHUB_TOKEN in copilot's own env file in this sandbox`; macOS may
+      ask once whether `security` may use the item, and the answer is Allow. Copilot then prints
+      `KC5-OK`, with no login prompt and no dialog saying no keychain can be found.
+   3. Check the token reached only Copilot's own file:
+
+      ```sh
+      stat -f '%Sp' ~/kc5-witness/.yolo/home/.config/yolo-agent-env/copilot.sh
+      YOLO_RUNTIME=macos-user yolo -- sh -c 'if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then echo set; else echo unset; fi'
+      ```
+
+      Expected: `-rw-------`, then `unset`, since a plain shell does not source Copilot's file.
+
+   **What each answer does.** `KC5-OK` measures the route: mark this row's Built column measured,
+   with the Copilot version. A login prompt or an authentication error measures that Copilot
+   refuses its own OAuth token in `COPILOT_GITHUB_TOKEN`: remove `host_keychain_env` from the
+   copilot pack, so no launch hands over a token Copilot cannot use, and reopen [OQ-KC5](#OQ-KC5).
+
 ## 7. Open questions
 
 None. [OQ-KC1](#8-decision-ledger) to [OQ-KC4](#8-decision-ledger) were ruled on 2026-10-10 and
@@ -948,7 +1001,7 @@ None. [OQ-KC1](#8-decision-ledger) to [OQ-KC4](#8-decision-ledger) were ruled on
 
 These include the implementation decisions within the maintainer's direction on
 [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1) and the broader native-storage direction
-recorded on 2026-10-07. None is built. Rows revised on 2026-10-10 say so.
+recorded on 2026-10-07. None is built except [OQ-KC5](#OQ-KC5)'s Copilot route. Rows revised on 2026-10-10 say so.
 
 | ID | Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -956,7 +1009,7 @@ recorded on 2026-10-07. None is built. Rows revised on 2026-10-10 say so.
 | OQ-KC2 | **Maintainer ruling, B:** only the login entries on the copilot pack's machine list are machine-wide; every other Copilot secret stays per workspace. The list is confirmed against a real 1.0.89 login ([§6](#6-build-order) step 4). Every GitHub account logged in shares the machine tier, named on the launch line. Rejected: A, everything machine-wide; C, only the first account | 2026-10-10 | [§3.4](#34-scoping-which-items-a-jail-may-read-or-write), [§3.6](#36-disclosure-at-launch) | — |
 | OQ-KC3 | **Maintainer ruling, B:** every program in the jail that can use a keychain gets it, provided it is managed securely. Secure here means every entry is per workspace unless a selected pack declares its `service` machine-wide. Rejected: A, Copilot only with packs opting in one at a time. Built on by [KC-D18](#KC-D18), superseding [KC-D9](#KC-D9) | 2026-10-10 | [§3.5](#35-who-gets-the-bus-address) | — |
 | OQ-KC4 | **Maintainer ruling, neither option:** the keychain is always the host's, on every backend, with values passed through the keychain loophole. No keychain of the macos-user sandbox account's own (B, the leaning, rejected), and the account is not simply left without one either (A). The route to native clients is [OQ-KC5](#OQ-KC5) | 2026-10-10 | [§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning) | — |
-| <a id="OQ-KC5"></a>[`OQ-KC5`](#OQ-KC5) | **Maintainer ruling, A:** on macos-user, native clients get host keychain values per program, through an input each already reads: at launch the host side reads the program's entries and hands each to that input, starting with Copilot's login as `COPILOT_GITHUB_TOKEN` in its agent env file, once a Mac measurement shows Copilot accepts its own OAuth token there. A login made in the sandbox comes back through the login copy's harvest; a program with no such input is not covered. Rejected: B, interposing Security.framework: the maintainer preferred it *"if that's possible"*, and it is not, since the shipped Copilot is hardened without the `DYLD` entitlement ([E26](#E26)) and reaching it otherwise is function patching ([MT-D3](macos-native-tls.md#decision-ledger)). Owner: *"I'm fine with A for this copilot thing then. let's build that now."* | 2026-11-03 | [§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning) | — |
+| <a id="OQ-KC5"></a>[`OQ-KC5`](#OQ-KC5) | **Maintainer ruling, A:** on macos-user, native clients get host keychain values per program, through an input each already reads: at launch the host side reads the program's entries and hands each to that input, starting with Copilot's login as `COPILOT_GITHUB_TOKEN` in its agent env file, once a Mac measurement shows Copilot accepts its own OAuth token there. A login made in the sandbox comes back through the login copy's harvest; a program with no such input is not covered. Rejected: B, interposing Security.framework: the maintainer preferred it *"if that's possible"*, and it is not, since the shipped Copilot is hardened without the `DYLD` entitlement ([E26](#E26)) and reaching it otherwise is function patching ([MT-D3](macos-native-tls.md#decision-ledger)). Owner: *"I'm fine with A for this copilot thing then. let's build that now."* | 2026-11-03 | [§4.1](#41-macos-user-no-seam-and-no-keychain-provisioning) || Built 2026-11-03, unmeasured: [W-KC5](#W-KC5) has not run |
 | <a id="KC-D1"></a>[`KC-D1`](#8-decision-ledger) | *From the maintainer's direction on [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1).* The keychain route first. The login copy (route D) only where the route is off for a launch, disclosed on every launch that copies | 2026-09-29 | [§5](#5-the-fallback-copy-only-copilottokens-and-say-so) | — |
 | <a id="KC-D2"></a>[`KC-D2`](#8-decision-ledger) | *Implementation decision.* The jail side is one `yolo-jaild` daemon that is both a single-tenant bus and the Secret Service, on a unix socket in a 0700 directory. `EXTERNAL` is checked against `SO_PEERCRED`. No TCP, no `dbus-daemon`, no `unixexec` | 2026-09-29 | [§3.2](#32-the-jail-side-a-single-tenant-bus-that-is-also-the-secret-service) | — |
 | <a id="KC-D3"></a>[`KC-D3`](#8-decision-ledger) | *Implementation decision.* `plain` and `dh` sessions, and `NotSupported` for anything else, with the `dh` shared secret left-padded to 128 bytes before HKDF. One `default` collection at both paths. An entry's object path comes from its namespace and a random entry id, never its attributes. Never locked, never a prompt. No signals in v1 | 2026-09-29 | [§3.2](#32-the-jail-side-a-single-tenant-bus-that-is-also-the-secret-service) | — |

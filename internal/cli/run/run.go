@@ -1218,7 +1218,14 @@ func Run(opts Options) (rc int) {
 		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from
 		// a bare `yolo`'s login shell sources its profile's values the way its container twin
 		// does. Not on a dry run, which starts no agent to read them.
+		//
+		// AND EACH SELECTED PROGRAM'S HOST LOGIN that its pack declares (host_keychain_env,
+		// keychain-from-a-jail.md OQ-KC5): the sandbox has no keychain, so the host side reads the
+		// item from yours here and writes it into that program's own file, saying so on one line.
 		if !o.DryRun {
+			if channel != nil {
+				channel.hostKeychainEnv = o.readHostKeychainEnv(staged.packs)
+			}
 			writeMacosUserAgentEnvFiles(paths.WorkspaceHomeState(o.Workspace), channel)
 		}
 		// The launch's fate is known: this backend runs it from here (launchrecord.go). A dry
