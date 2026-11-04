@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Write the implementation plan, then build."
+next: "Build from the implementation plan, named-setups-plan.md: group A (slices 1 and 7) first."
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -16,7 +16,7 @@ vantage:
 
 **Status:** 2026-11-03. Nothing built; this replaces the five-plan terminology draft (`eafad3a1c`)
 with the owner's idea of the same day. Config keys checked against `yolo config-ref` at `14cc75609`. Every question is ruled; the rulings, all of the same day, are in
-[the ledger](#decision-ledger). Nothing is built, and the implementation plan is not written yet.
+[the ledger](#decision-ledger). Nothing is built; the implementation plan is [`named-setups-plan.md`](named-setups-plan.md).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
