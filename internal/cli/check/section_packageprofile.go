@@ -41,12 +41,17 @@ import (
 // not apply prints nothing at all rather than a header over a claim. Nothing is counted and
 // no [PASS] is manufactured for work that did not happen.
 func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, mechanism string) {
-	notch, ok := render.KindForNotch(string(config.ResolveConfinement(merged)))
+	// The notch is the selected setup's (setup.Setup.Kind), as the launch it predicts acts at; a
+	// selection that refuses is a Merged-Configuration [FAIL] already, and reads as the jail.
+	kind := "jail"
+	if choice, err := o.checkSetup(merged); err == nil {
+		kind = choice.Setup.Kind().String()
+	}
+	notch, ok := render.KindForNotch(kind)
 	if !ok {
-		// Unreachable: ResolveConfinement defaults an absent or unknown value to jail, and
-		// an unknown one is a Merged-Configuration [FAIL] that already returned. Written out
-		// rather than discarded so a zero Kind can never reach ConfinementProfile as if it
-		// were a notch — describe's own boundary crossing makes the same choice.
+		// Unreachable: every setup kind is a notch. Written out rather than discarded so a zero
+		// Kind can never reach ConfinementProfile as if it were a notch — describe's own boundary
+		// crossing makes the same choice.
 		return
 	}
 	prof := jailcontent.ConfinementProfile(notch, mechanism, o.IsMacOS)
@@ -62,9 +67,8 @@ func (o *Options) sectionPackageProfile(r *reporter, merged *jsonx.OrderedMap, m
 	// docs/design/provisioner-sets.md#OQ-NX8). `yolo host` never applies the workspace's
 	// jail-only keys (HP-DIR3, docs/reference/host-agent-environment.md#HP-DIR3), so declared
 	// packages there are inert by design — not a gap awaiting a package layer, and not a
-	// finding. An info line, then, not a [WARN], and the same line with `runtime:
-	// "macos-user"` set: that backend materializes a profile for its own launches, and a host
-	// launch is not one of them. Nothing declared is no report at all.
+	// finding. An info line, then, not a [WARN], and the same line on a Mac, whose macos-user
+	// backend materializes a profile for its own launches: a host launch is not one of them. Nothing declared is no report at all.
 	if notch == render.KindHost {
 		if declared == 0 {
 			return

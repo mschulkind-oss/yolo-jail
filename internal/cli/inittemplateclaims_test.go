@@ -2,19 +2,21 @@ package cli
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // `yolo init` writes a comment-only pointer file now (TestInitWritesPointerAndInfoExcludeOnly),
-// so the claims about blocked tools and runtimes it once carried survive only in the user-scope
-// scaffold below, which keeps its own copy of the runtime comment.
+// so the claims about blocked tools and where the agent runs it once carried survive only in the
+// user-scope scaffold below, which keeps its own copy of the setup comment.
 
 // initUserConfigFile runs `yolo init-user-config` against a throwaway HOME and returns the
 // file it wrote — the user-scope sibling of the workspace template, carrying its own copy of
-// the runtime comment. It goes through the command registry rather than calling
+// the setup comment. It goes through the command registry rather than calling
 // InitUserConfig, so unwiring the subcommand fails this as surely as a stale word does.
 func initUserConfigFile(t *testing.T) string {
 	t.Helper()
@@ -61,30 +63,24 @@ func commentBlockBefore(t *testing.T, body, marker string) string {
 	return strings.ToLower(strings.Join(words, " "))
 }
 
-// TestInitTemplateNamesEveryRuntime ties the runtime comment to the list validation accepts,
-// in both configs yolo scaffolds: the workspace one `yolo init` writes and the user-scope one
-// `yolo init-user-config` writes, each with its own copy of the comment. Both offered "podman"
-// or "container" long after macos-user shipped, the second for longer, because fixing the
-// first did not reach it; the workspace one once offered docker, which validation now refuses.
-func TestInitTemplateNamesEveryRuntime(t *testing.T) {
-	for _, c := range []struct {
-		cmd   string
-		write func(*testing.T) string
-	}{
-		{"yolo init-user-config", initUserConfigFile},
-	} {
-		t.Run(c.cmd, func(t *testing.T) {
-			block := commentBlockBefore(t, c.write(t), `// "runtime":`)
-			for _, rt := range paths.AllRuntimes {
-				if !strings.Contains(block, `"`+rt+`"`) {
-					t.Errorf("the runtime comment in the config `%s` writes does not offer %q, "+
-						"a value config validation accepts:\n%s", c.cmd, rt, block)
-				}
-			}
-			if strings.Contains(block, `"docker"`) {
-				t.Errorf("the runtime comment in the config `%s` writes offers \"docker\", "+
-					"which config validation refuses:\n%s", c.cmd, block)
-			}
-		})
+// TestInitTemplateOffersSetupsItCanRun ties the user-scope scaffold's "where the agent runs"
+// comment to the setups yolo resolves: `yolo init-user-config` offers a `setup` line, every name
+// its comment quotes is one setup.Lookup accepts, and it offers no `runtime` line, a key a config
+// carrying is refused (named-setups-plan.md slice 5). It once offered "podman" or "container" long
+// after macos-user shipped, and before that docker, which validation refused.
+func TestInitTemplateOffersSetupsItCanRun(t *testing.T) {
+	body := initUserConfigFile(t)
+	if strings.Contains(body, `"runtime"`) {
+		t.Errorf("the config `yolo init-user-config` writes offers the removed runtime key:\n%s", body)
+	}
+	block := commentBlockBefore(t, body, `// "setup":`)
+	quoted := regexp.MustCompile(`"([a-z0-9-]+)"`).FindAllStringSubmatch(block, -1)
+	if len(quoted) == 0 {
+		t.Fatalf("the setup comment quotes no setup name:\n%s", block)
+	}
+	for _, m := range quoted {
+		if _, err := setup.Lookup(m[1], nil); err != nil {
+			t.Errorf("the setup comment offers %q, which is no setup: %v\n%s", m[1], err, block)
+		}
 	}
 }

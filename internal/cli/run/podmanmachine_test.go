@@ -101,6 +101,7 @@ func TestAPodmanMachineThatAnswersAfterTheOldBoundIsWaitedFor(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			m := &fakeMachine{answersAfter: 15 * time.Second}
+			p.prepare(t)
 			o := m.asMac(p, &stdout, &stderr)
 			rt, ok := o.resolveRuntime(p.cfg)
 			if !ok || rt != "podman" {
@@ -123,6 +124,7 @@ func TestAPodmanMachineThatNeverAnswersIsNotCalledStopped(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			m := &fakeMachine{answersAfter: time.Hour}
+			p.prepare(t)
 			o := m.asMac(p, &stdout, &stderr)
 			if rt, ok := o.resolveRuntime(p.cfg); ok || rt != "" {
 				t.Fatalf("resolveRuntime = %q,%v; want a refusal", rt, ok)
@@ -160,6 +162,7 @@ func TestAStoppedPodmanMachineIsRefusedAtOnceWithTheStartHint(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			m := &fakeMachine{stopped: true}
+			p.prepare(t)
 			o := m.asMac(p, &stdout, &stderr)
 			start := m.now
 			if rt, ok := o.resolveRuntime(p.cfg); ok || rt != "" {
@@ -194,6 +197,7 @@ func TestAPodmanMachineProbeThatNeverRanPodmanNamesYolosScratchFile(t *testing.T
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			m := &fakeMachine{scratch: syscall.ENOSPC}
+			p.prepare(t)
 			o := m.asMac(p, &stdout, &stderr)
 			if rt, ok := o.resolveRuntime(p.cfg); ok || rt != "" {
 				t.Fatalf("resolveRuntime = %q,%v; want a refusal", rt, ok)

@@ -160,18 +160,11 @@ func setupList(out, errw io.Writer, color bool) int {
 	configName, _, _ := config.SelectedSetupFromConfig()
 	env := os.Getenv(setup.EnvVar)
 	osDefault := setup.Default(setupGOOS).Name
-	// THE ONE SELECTION a launch from here makes (config.SelectSetup), the removed inputs
-	// weighed as a launch weighs them: a removed YOLO_RUNTIME refuses on the host, and a
-	// removed config key still chooses its built-in when nothing names a setup. The workspace
-	// config is loaded loosely, as the listing verbs load it: one that does not load is none.
-	var merged *jsonx.OrderedMap
-	if cfg, err := config.LoadConfig("", false, func(string) {}); err == nil {
-		merged = cfg
-	}
+	// THE ONE SELECTION a launch from here makes (config.SelectSetup), the removed input
+	// weighed as a launch weighs it: a removed YOLO_RUNTIME refuses on the host.
 	choice, selErr := config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
 		Getenv:    os.Getenv,
-		Merged:    merged,
 		GOOS:      setupGOOS,
 		InSession: os.Getenv("YOLO_VERSION") != "",
 	})

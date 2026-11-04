@@ -3,7 +3,7 @@ package run
 // podmanready_test.go pins the podman readiness gate (podmanready.go,
 // docs/reference/podman-readiness.md) THROUGH runtime selection, never at an isolated
 // helper: every case runs once down each of three ways a launch selects podman — YOLO_SETUP,
-// `--setup`, and the removed `runtime` key's bridge (setupselect.go) — so deleting the gate from
+// `--setup`, and the user config's `setup` key — so deleting the gate from
 // validateExplicitRuntime fails every test here. The fake
 // attempt runner is on a fake clock, so a minute's wait costs nothing.
 
@@ -24,10 +24,29 @@ import (
 
 // gatePath is one way a launch reaches runtime selection.
 type gatePath struct {
-	name   string
-	getenv func(string) string
-	flag   string
-	cfg    *jsonx.OrderedMap
+	name      string
+	getenv    func(string) string
+	flag      string
+	userSetup string // the user config's `setup` key, written by prepare
+	cfg       *jsonx.OrderedMap
+}
+
+// prepare gives the test a home of its own whose user config names p.userSetup, when p names
+// one; the selection reads the user config from HOME (config.SelectedSetupFromConfig).
+func (p gatePath) prepare(t *testing.T) {
+	t.Helper()
+	if p.userSetup == "" {
+		return
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("setup = \""+p.userSetup+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func gatePaths() []gatePath {
@@ -39,7 +58,7 @@ func gatePaths() []gatePath {
 			return ""
 		}},
 		{name: "--setup", getenv: func(string) string { return "" }, flag: "podman-self"},
-		{name: "removed runtime key", getenv: func(string) string { return "" }, cfg: newConfig("runtime", "podman")},
+		{name: "the user's setup key", getenv: func(string) string { return "" }, userSetup: "podman-self"},
 	}
 }
 
@@ -65,6 +84,7 @@ func TestTheGateRecoversAPodmanThatAnswersLate(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			// 0, 1, 3, 7, …, 55 s busy; the attempt at 59 s answers. It is the last one
 			// whose backoff fits in the 60 s budget, so success there is success at the edge.
@@ -103,6 +123,7 @@ func TestAPodmanStillRunningAtTheBudgetIsNamedAndLeftRunning(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			gate := scriptedPodman(o, yoloruntime.Attempt{Pid: 4242})
 			if rt, ok := o.resolveRuntime(p.cfg); ok || rt != "" {
@@ -129,6 +150,7 @@ func TestEveryEarlyExitIsPrintedAndTheRefusalCarriesTheLast(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			var script []yoloruntime.Attempt
 			for i := 1; i <= 20; i++ {
@@ -161,6 +183,7 @@ func TestAnAnswerThatCannotClearRefusesAtOnceNamingTheFix(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			gate := scriptedPodman(o, busyAttempt("cannot clone: Operation not permitted\nError: cannot re-exec process"))
 			if _, ok := o.resolveRuntime(p.cfg); ok {
@@ -187,6 +210,7 @@ func TestAPodmanThatCannotStartFailsAtOnce(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			gate := scriptedPodman(o, yoloruntime.Attempt{StartErr: &os.PathError{Op: "fork/exec",
 				Path: "/usr/bin/podman", Err: syscall.EACCES}})
@@ -262,11 +286,11 @@ func TestMacOSKeepsTheOneShotProbe(t *testing.T) {
 				}
 				return ""
 			}
-			// A Mac's default is Apple Container, so the other way to podman is the removed
-			// `runtime` key's bridge.
+			// A Mac's default is Apple Container, so the other way to podman is the user's
+			// `setup` key.
 			var cfg *jsonx.OrderedMap
 			if !explicit {
-				cfg = newConfig("runtime", "podman")
+				gatePath{userSetup: "podman-self"}.prepare(t)
 			}
 			o.LookPath = func(name string) (string, bool) { return "/opt/bin/" + name, name == "podman" }
 			execProbes := 0
@@ -588,6 +612,7 @@ func TestARefusalOnYolosScratchFileNamesNoPodmanStep(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
+			p.prepare(t)
 			o := gateOptions(p, &stdout, &stderr)
 			scriptedPodman(o, yoloruntime.Attempt{StartErr: &yoloruntime.ProbeScratchError{
 				Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: syscall.ENOSPC}}})

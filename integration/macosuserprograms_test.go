@@ -77,7 +77,7 @@ func TestMacosUserAutopruneRemovesAnOrphan(t *testing.T) {
 // ---------------------------------------------------------------------------
 // PACK-TREE PROGRAMS AND DEV OVERRIDES ON macos-user (docs/design/pack-buildable-programs.md §11's
 // six done steps; pack-buildable-programs-plan.md Task 10), in BOTH modes: the second account
-// (`macos_user_mode` "account") and run-as-you ("self"). The build is the darwin sealed act
+// (seatbelt-yolo-account, mode "account") and run-as-you (seatbelt-self, "self"). The build is the darwin sealed act
 // (forked-programs-as-packs.md FP-D24) running the placement script against the act's own checkout;
 // a dev override's checkout is built by the same act in place of the pack's tree.
 //
@@ -93,7 +93,7 @@ const (
 	macosUserPackTreeBin  = "mupacktree-x"
 )
 
-// macosUserPackTreeModes are the two values of `macos_user_mode` every test below runs under.
+// macosUserPackTreeModes are the two modes (macosUserSetupFor) every test below runs under.
 var macosUserPackTreeModes = []string{"account", "self"}
 
 // macosUserPackTreeBuild is the fixture's build: a script naming the VERSION it was built from.
@@ -123,7 +123,7 @@ func macosUserPackTreeFixture(t *testing.T, mode, build, extra string) (func(str
 		`"build":"`+buildJSON+`","run":"x"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packHome(t, `{`+extra+`"macos_user_mode": "`+mode+`", "packs": [{"source": "file://`+pack+`", "name": "`+
+	packHome(t, `{`+extra+`"setup": "`+macosUserSetupFor(mode)+`", "packs": [{"source": "file://`+pack+`", "name": "`+
 		macosUserPackTreePack+`"}]}`)
 	store := paths.CapturesDirUnder(os.Getenv("HOME"))
 	before := captureEntryNames(t, store)
@@ -276,7 +276,7 @@ func TestMacosUserPackTreeProgramUsesThePrebuiltWithoutSources(t *testing.T) {
 				0o644); err != nil {
 				t.Fatal(err)
 			}
-			packHome(t, `{"macos_user_mode": "`+mode+`", "packs": [{"source": "file://`+pack+`", "name": "`+
+			packHome(t, `{"setup": "`+macosUserSetupFor(mode)+`", "packs": [{"source": "file://`+pack+`", "name": "`+
 				macosUserPackTreePack+`"}]}`)
 			store := paths.CapturesDirUnder(os.Getenv("HOME"))
 			before := captureEntryNames(t, store)

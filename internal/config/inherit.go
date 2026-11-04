@@ -201,9 +201,6 @@ var inheritCensus = map[string]keyDisposition{
 	// `writable_home_dirs` names paths under /home/agent — in-jail referents, and the
 	// config-ref explicitly calls the key safe at any scope.
 	"writable_home_dirs": {preflight: true, reason: "names /home/agent subpaths, which exist in here"},
-	// `confinement` is the notch this environment IS; an in-jail reader reporting it is
-	// reporting a fact about itself.
-	"confinement": {preflight: true, reason: "names the notch this environment is running at"},
 
 	// ---- Nested only ------------------------------------------------------------
 	// The image-composition keys. Nothing in-jail VALIDATES these against a referent (an
@@ -224,9 +221,6 @@ var inheritCensus = map[string]keyDisposition{
 	// redeploy on different cadences; this file is a generated config an inner
 	// launcher reads as its own user scope, and it re-derives its own gate from it.
 	"perf_logging": {nested: true, reason: "an inner launcher times the launches it makes"},
-	// `macos_user_mode` is the macos-user backend's account choice, read from the user config on
-	// a macOS host only. A nested jail is Linux and has no macos-user backend, so it is not inherited.
-	"macos_user_mode": {reason: "chooses the account a macos-user launch runs as on a macOS host; a nested jail is Linux and has no macos-user backend"},
 	// `macos_user_shared_tmp` is the same backend's shared-/tmp hatch (OQ-MM8), not inherited for
 	// the same reason.
 	"macos_user_shared_tmp": {reason: "opens the shared /tmp to a run-as-you macos-user launch on a macOS host; a nested jail is Linux and has no macos-user backend"},
@@ -340,10 +334,6 @@ var inheritCensus = map[string]keyDisposition{
 	// `kvm`: same class, and the one that was already patched by hand — its check section
 	// prints "Inside jail — kvm checks skipped". The census makes the patch redundant.
 	"kvm": {reason: "a host /dev/kvm passthrough; the in-jail check already skips it"},
-	// `runtime`: judged against the wrong machine. A host `macos-user` value read in a
-	// Linux container names a runtime that cannot exist in here, and an inner launcher
-	// must pick its own (YOLO_RUNTIME and auto-detect already decide it).
-	"runtime": {reason: "an in-jail launcher detects its own runtime; a host value names a machine that is not this one"},
 	// `workspace_readonly`: paths inside the WORKSPACE, which is the one scope that
 	// crosses live through the /workspace bind. A user-scope entry naming another
 	// project's paths is meaningless here, and the workspace's own config carries the
@@ -374,6 +364,11 @@ var inheritCensus = map[string]keyDisposition{
 	// `mcp_presets` joined them on 2026-10-23 (docs/design/mcp-presets-removal.md §13 step 3):
 	// the browser is the chrome-devtools pack, and sequential-thinking is deleted.
 	"mcp_presets": {reason: "RETIRED — the browser is the chrome-devtools pack; emitting it would re-trigger the retirement error"},
+	// The three keys named setups replace joined them (docs/design/named-setups.md §10): the
+	// host refuses each, so none reaches a crossing it accepted.
+	"runtime":         {reason: "RETIRED — where an agent runs is a setup now; emitting it would re-trigger the retirement error"},
+	"confinement":     {reason: "RETIRED — where an agent runs is a setup now; emitting it would re-trigger the retirement error"},
+	"macos_user_mode": {reason: "RETIRED — the account is a setup's run_as now; emitting it would re-trigger the retirement error"},
 	// `agent_profiles` joined them on 2026-09-01, renamed to `pack_profiles` — the
 	// keys were always CLI names and core knows packs, not agents — which was itself
 	// renamed to `use_profiles` on 2026-09-02 (docs/reference/providers.md — Profiles and options:

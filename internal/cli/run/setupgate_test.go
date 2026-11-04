@@ -172,29 +172,45 @@ func TestTheMissingDefaultNamesTheInstall(t *testing.T) {
 	}
 }
 
-// TestTheRemovedKeysStillChooseTheirSetup is the bridge until slice 5 refuses them: a config that
-// has not moved launches what it launched before. `confinement = "guest"` on Linux means a Seatbelt
-// setup, which Linux refuses naming podman-self; `confinement = "host"` refuses naming `yolo host`.
-// A --setup outranks them.
-func TestTheRemovedKeysStillChooseTheirSetup(t *testing.T) {
-	for _, tc := range []struct {
-		body, flag string
-		rc         int
-		want       string
-	}{
-		{body: `{"confinement": "guest"}`, rc: 1, want: `setup "seatbelt-yolo-account" uses Seatbelt, which only macOS has`},
-		{body: `{"confinement": "host"}`, rc: 1, want: "yolo host -- claude"},
-		{body: `{"runtime": "container"}`, rc: 1, want: `setup "apple-container-self" uses Apple Container, which only macOS has`},
-		{body: `{"confinement": "guest"}`, flag: "podman-self", rc: 1, want: pastTheGate},
-		{body: `{"runtime": "podman"}`, rc: 1, want: pastTheGate},
+// TestAProjectsRemovedKeysChooseNothing (named-setups-plan.md slice 5): a project cannot choose
+// where its agent runs, so a workspace `confinement` or `runtime` selects no setup. On the host
+// the launch refuses it naming the project unset; inside a session it is a warning, and the
+// launch runs this OS's default, podman-self, whatever the key said.
+func TestAProjectsRemovedKeysChooseNothing(t *testing.T) {
+	for _, tc := range []struct{ body, key string }{
+		{`{"confinement": "guest"}`, "confinement"},
+		{`{"confinement": "host"}`, "confinement"},
+		{`{"runtime": "container"}`, "runtime"},
 	} {
-		ws := setupGateWorkspace(t, tc.body)
-		var stdout, stderr bytes.Buffer
-		o := setupGateOptions(t, ws, nil, &stdout, &stderr)
-		o.SetupName = tc.flag
-		if rc := Run(*o); rc != tc.rc || !strings.Contains(stderr.String(), tc.want) {
-			t.Errorf("%s --setup %q: rc %d, want %d and %q in\n%s", tc.body, tc.flag, rc, tc.rc, tc.want, stderr.String())
-		}
+		t.Run(tc.body+" on the host", func(t *testing.T) {
+			t.Setenv("YOLO_VERSION", "")
+			ws := setupGateWorkspace(t, tc.body)
+			var stdout, stderr bytes.Buffer
+			o := setupGateOptions(t, ws, nil, &stdout, &stderr)
+			if rc := Run(*o); rc != 1 {
+				t.Fatalf("rc %d, want the refusal", rc)
+			}
+			got := stderr.String()
+			for _, w := range []string{"config." + tc.key + ": REMOVED", "yolo config unset " + tc.key + " --project"} {
+				if !strings.Contains(got, w) {
+					t.Errorf("the refusal does not say %q:\n%s", w, got)
+				}
+			}
+		})
+		t.Run(tc.body+" in a session", func(t *testing.T) {
+			t.Setenv("YOLO_VERSION", "9.9.9-test")
+			ws := setupGateWorkspace(t, tc.body)
+			var stdout, stderr bytes.Buffer
+			o := setupGateOptions(t, ws, nil, &stdout, &stderr)
+			if rc := Run(*o); rc != 1 || !strings.Contains(stderr.String(), pastTheGate) {
+				t.Errorf("rc %d, want the default setup's launch (%q) in\n%s", rc, pastTheGate, stderr.String())
+			}
+			for _, w := range []string{"seatbelt-yolo-account", "apple-container-self", "yolo host -- claude"} {
+				if strings.Contains(stderr.String(), "setup \""+w) {
+					t.Errorf("the project's key chose %s:\n%s", w, stderr.String())
+				}
+			}
+		})
 	}
 }
 
@@ -302,8 +318,6 @@ func TestASeatbeltSetupLaunchesTheMacosUserBackend(t *testing.T) {
 		{name: "--setup seatbelt-self", ws: `{}`, flag: "seatbelt-self", wantSetup: "seatbelt-self", wantMode: macosuser.ModeSelf},
 		{name: "YOLO_SETUP", ws: `{}`, env: map[string]string{"YOLO_SETUP": "seatbelt-yolo-account"},
 			wantSetup: "seatbelt-yolo-account", wantMode: macosuser.ModeAccount},
-		{name: "the removed confinement key", ws: `{"confinement": "guest"}`, wantSetup: "seatbelt-yolo-account", wantMode: macosuser.ModeAccount},
-		{name: "the removed runtime key", ws: `{"runtime": "macos-user"}`, wantSetup: "seatbelt-yolo-account", wantMode: macosuser.ModeAccount},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mode macosuser.Mode = -1
@@ -353,16 +367,19 @@ func TestAMacWithoutAppleContainerRefusesTheDefault(t *testing.T) {
 	}
 }
 
-// TestRemovedKeysThatNameTwoSetupsRefuse: `confinement = "guest"` beside `runtime = "podman"`
-// names two setups, and the refusal names a --setup for each.
-func TestRemovedKeysThatNameTwoSetupsRefuse(t *testing.T) {
-	rc, got, out := runMacosSetup(t, `{"confinement": "guest", "runtime": "podman"}`, "", nil, nil)
-	if rc != 1 || got.reached {
-		t.Fatalf("rc %d, reached %v, want a refusal:\n%s", rc, got.reached, out)
-	}
-	for _, w := range []string{"name two different setups", "yolo --setup seatbelt-yolo-account -- claude", "yolo --setup podman-self -- claude"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("missing %q in\n%s", w, out)
+// TestAMacProjectsRemovedKeysReachNoSeatbelt: on a Mac, a workspace `confinement = "guest"` or
+// `runtime = "macos-user"` once launched the macos-user backend; now it chooses nothing, so the
+// launch is the Mac default's, apple-container-self, which refuses here for want of Apple
+// Container, and never reaches the macos-user handler.
+func TestAMacProjectsRemovedKeysReachNoSeatbelt(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "9.9.9-test") // in a session the key is a warning, not the refusal
+	for _, ws := range []string{`{"confinement": "guest"}`, `{"runtime": "macos-user"}`, `{"confinement": "guest", "runtime": "podman"}`} {
+		rc, got, out := runMacosSetup(t, ws, "", nil, nil)
+		if rc != 1 || got.reached {
+			t.Fatalf("%s: rc %d, reached %v, want the default's refusal:\n%s", ws, rc, got.reached, out)
+		}
+		if !strings.Contains(out, "The default setup on this Mac, apple-container-self, needs Apple Container") {
+			t.Errorf("%s: the launch did not take the Mac default:\n%s", ws, out)
 		}
 	}
 }

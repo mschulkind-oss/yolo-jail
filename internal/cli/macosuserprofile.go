@@ -127,8 +127,13 @@ func macosUserProfileMain(args []string, stdout, stderr io.Writer, env macosUser
 	if fs.NArg() != 0 {
 		return misuse(fmt.Sprintf("unexpected argument %q", fs.Arg(0)))
 	}
-	m, err := macosuser.ParseMode(*mode)
-	if err != nil || *mode == "" {
+	var m macosuser.Mode
+	switch *mode {
+	case macosuser.ModeSelf.String():
+		m = macosuser.ModeSelf
+	case macosuser.ModeAccount.String():
+		m = macosuser.ModeAccount
+	default:
 		return misuse("--mode must be self or account")
 	}
 	if *workspace == "" || *tmp == "" {

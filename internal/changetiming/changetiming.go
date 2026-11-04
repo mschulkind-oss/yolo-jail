@@ -85,8 +85,8 @@ type Row struct {
 // and TestEveryConfigKeyHasAnExplicitTimingRow ties this census to config's
 // accepted live schema. Adding a config key therefore requires a ruling here.
 var schemaRows = map[string]Outcome{
-	"runtime": AtNextRestart, "confinement": AtNextRestart, "packages": AtNextRestart,
-	"mounts": AtNextRestart, "workspace_readonly": AtNextRestart, "per_side_paths": AtNextRestart,
+	"packages": AtNextRestart,
+	"mounts":   AtNextRestart, "workspace_readonly": AtNextRestart, "per_side_paths": AtNextRestart,
 	"network": AtNextRestart, "security": AtNextRestart, "mise_tools": AtNextRestart,
 	"lsp_servers": AtNextRestart, "mcp_servers": AtNextRestart, "devices": AtNextRestart,
 	"gpu": AtNextRestart, "resources": AtNextRestart, "env_sources": AtNextRestart,
@@ -100,8 +100,8 @@ var schemaRows = map[string]Outcome{
 	"host_management": AtNextRestart, "host_import_exclusions": AtNextRestart,
 	"agent_updates": AtNextRestart, "host_floor": AtNextRestart, "host_path": AtNextRestart,
 	"provisioners": AtNextRestart, "packs": AtNextRestart, "perf_logging": AtNextRestart,
-	"macos_user_mode": AtNextRestart, "macos_user_shared_tmp": AtNextRestart,
-	"on_request": AtNextRestart, "update_check": AtNextRestart, "promotion_target": AtNextRestart,
+	"macos_user_shared_tmp": AtNextRestart,
+	"on_request":            AtNextRestart, "update_check": AtNextRestart, "promotion_target": AtNextRestart,
 	"shipped_skill_prefix": AtNextRestart, "providers": AtNextRestart, "model_facts": AtNextRestart,
 	"profiles": AtNextRestart, "profile": AtNextRestart, "required_capabilities": AtNextRestart,
 	"adapters": AtNextRestart,

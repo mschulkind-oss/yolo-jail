@@ -41,8 +41,7 @@ func TestCheckDoesNotPredictAUserOffSwitchServed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			merged := mergeScopes(parse(tc.user), parse(tc.ws), nil, t.TempDir())
-			merged.Set("runtime", "podman")
-			got := (&Options{}).predictedServed(merged, nil).Serves("aws-auth")
+			got := optionsOnRuntime("podman").predictedServed(merged, nil).Serves("aws-auth")
 			if got != tc.want {
 				t.Errorf("predicted served = %v, want %v (merged %v)", got, tc.want,
 					merged)

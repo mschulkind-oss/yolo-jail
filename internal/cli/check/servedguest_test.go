@@ -62,8 +62,7 @@ func TestCheckPredictsADoorwayServedOnMacosUser(t *testing.T) {
 			`"caller_token":true,"host_cmd":["yolo","internal","daemon","acme","--listen","{listen}"]}`)
 	for _, rt := range []string{"podman", "macos-user"} {
 		merged := useProfiles("claude", "cerebras")
-		merged.Set("runtime", rt)
-		served := (&Options{}).predictedServed(merged, []*packload.Pack{p})
+		served := optionsOnRuntime(rt).predictedServed(merged, []*packload.Pack{p})
 		if !served.Serves("acme-door") || served.Listen("acme-door") != "127.0.0.1:1998" {
 			t.Errorf("runtime %s: the doorway is not predicted served at its declared address "+
 				"(serves %v, listen %q)", rt, served.Names(), served.Listen("acme-door"))
@@ -95,8 +94,7 @@ func TestCheckDoesNotPredictARefusedDoorwayServedOnMacosUser(t *testing.T) {
 		{"macos-user", false},
 	} {
 		merged := useProfiles("claude", "cerebras")
-		merged.Set("runtime", tc.runtime)
-		served := (&Options{}).predictedServed(merged, []*packload.Pack{p})
+		served := optionsOnRuntime(tc.runtime).predictedServed(merged, []*packload.Pack{p})
 		if served.Serves("acme-door") != tc.served {
 			t.Errorf("runtime %s: predicted the refused doorway served = %v, want %v (the launch "+
 				"opens no doorway for a pack yolo does not ship, and the guest declines this argv)",
@@ -127,8 +125,7 @@ func TestCheckPredictsTheGuestDaemonsServedOnMacosUser(t *testing.T) {
 		{"macos-user", false},
 	} {
 		merged := useProfiles("claude", "cerebras")
-		merged.Set("runtime", tc.runtime)
-		served := (&Options{}).predictedServed(merged, bridge)
+		served := optionsOnRuntime(tc.runtime).predictedServed(merged, bridge)
 		if !served.Serves("acme-adapter") || served.Listen("acme-adapter") != "127.0.0.1:1999" {
 			t.Errorf("runtime %s: the loophole's jail daemon is not predicted served at its "+
 				"declared address (serves %v, listen %q)", tc.runtime, served.Names(),
@@ -165,8 +162,7 @@ func TestCheckPredictsAServiceWithNoRunnableHostHalfServedOnMacosUser(t *testing
 		}
 		for _, rt := range []string{"podman", "macos-user"} {
 			merged := useProfiles("claude", "cerebras")
-			merged.Set("runtime", rt)
-			if served := (&Options{}).predictedServed(merged, []*packload.Pack{p}); !served.Serves("acme-svc") {
+			if served := optionsOnRuntime(rt).predictedServed(merged, []*packload.Pack{p}); !served.Serves("acme-svc") {
 				t.Errorf("runtime %s: the guest-run service is not predicted served (serves %v)\n%s",
 					rt, served.Names(), body)
 			}

@@ -58,7 +58,7 @@ func TestMacosUserTrustsSystemKeychainCA(t *testing.T) {
 	// run-as-you reads files the user wrote, by the exact paths its profile opens.
 	for _, mode := range []string{"account", "self"} {
 		t.Run(mode, func(t *testing.T) {
-			packHome(t, `{"macos_user_mode": "`+mode+`"}`)
+			packHome(t, `{"setup": "`+macosUserSetupFor(mode)+`"}`)
 			macosUserCATrustLaunch(t, mode, kept, leftOut)
 		})
 	}

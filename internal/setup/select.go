@@ -18,11 +18,6 @@ const (
 	FromEnv
 	FromUserConfig
 	FromDefault
-	// FromRemovedKey: nothing named a setup, and a config key setups replace (`runtime`,
-	// `confinement`, `macos_user_mode`) still chose the built-in it means. A bridge kept only
-	// until those keys are refused (named-setups-plan.md slice 5), so a config that has not
-	// moved yet launches what it launched before rather than silently changing.
-	FromRemovedKey
 )
 
 func (s Source) String() string {
@@ -35,8 +30,6 @@ func (s Source) String() string {
 		return "your user config"
 	case FromDefault:
 		return "this OS's default"
-	case FromRemovedKey:
-		return "a config key setups replace"
 	}
 	return fmt.Sprintf("Source(%d)", int(s))
 }

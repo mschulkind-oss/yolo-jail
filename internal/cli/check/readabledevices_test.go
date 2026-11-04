@@ -51,9 +51,13 @@ func runCheckOverStandardWorkspaceConfig(t *testing.T, workspace, filename, body
 		_, err := os.Stat(path)
 		return err == nil
 	}
+	// Every case runs at the host notch: YOLO_SETUP names host-self, the setup `yolo host` runs.
 	opts.Getenv = func(key string) string {
 		if key == "YOLO_VERSION" && inJail {
 			return "9.9.9-test"
+		}
+		if key == "YOLO_SETUP" {
+			return "host-self"
 		}
 		return ""
 	}
@@ -85,9 +89,7 @@ func TestCheckUsesStandardReaderCanonicalPackageAndGPUDeclarations(t *testing.T)
 		{
 			name:     "TOML boolean GPU",
 			filename: paths.WorkspaceConfigTOMLName,
-			body: `confinement = "host"
-
-[install]
+			body: `[install]
 nix = [{ name = "mesa", outputs = ["lib", "dev"], platforms = ["linux"] }]
 
 [machine]
@@ -99,9 +101,7 @@ gpu = true
 		{
 			name:     "TOML rich GPU object",
 			filename: paths.WorkspaceConfigTOMLName,
-			body: `confinement = "host"
-
-[install]
+			body: `[install]
 nix = [{ name = "mesa", outputs = ["lib", "dev"], platforms = ["linux"] }, { name = "darwin-tool", platforms = ["darwin"] }]
 
 [machine.gpu]
@@ -116,7 +116,7 @@ vaapi = true
 		{
 			name:        "legacy format 1",
 			filename:    paths.WorkspaceConfigLegacyJSONCName,
-			body:        `{"confinement":"host","packages":[{"name":"mesa","outputs":["lib","dev"],"platforms":["linux"]}],"gpu":{"enabled":true}}`,
+			body:        `{"packages":[{"name":"mesa","outputs":["lib","dev"],"platforms":["linux"]}],"gpu":{"enabled":true}}`,
 			packageLine: "`packages:` declares 1 entry, inert at the `host` notch by design",
 			gpuSection:  "GPU (NVIDIA) checks",
 		},
@@ -172,7 +172,7 @@ func TestCheckKeepsAbsentCanonicalGPUSilent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	got := runCheckOverStandardWorkspaceConfig(t, workspace, paths.WorkspaceConfigTOMLName,
-		"confinement = \"host\"\n", true)
+		"", true)
 	for _, section := range []string{"GPU (NVIDIA)", "GPU (AMD/ROCm)"} {
 		if strings.Contains(got, section) {
 			t.Errorf("absent machine.gpu should keep %s silent:\n%s", section, got)

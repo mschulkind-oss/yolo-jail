@@ -36,6 +36,9 @@ type userView struct {
 	// providers is the merged `providers` entries a TOML file wrote (config.TOMLWrittenProviders),
 	// whose variants a legacy `profile` name may select (RC-D57).
 	providers *jsonx.OrderedMap
+	// removedSetupKeys are the merged old user config's values of the keys named setups replace
+	// (lowerRemovedSetupKey): the merged read converts only these, as a project's never convert.
+	removedSetupKeys map[string]any
 	// packProfiles is every profile name a selected pack declares, read on first use (packProfile);
 	// packsKnown is false when the selected packs did not all resolve.
 	packProfiles map[string]bool
@@ -46,6 +49,14 @@ func newUserView(user *jsonx.OrderedMap) *userView {
 	v := &userView{packs: map[string]bool{}, profiles: jsonx.NewOrderedMap(), enabled: map[string]any{}}
 	if user == nil {
 		return v
+	}
+	for _, key := range config.RemovedSetupKeys {
+		if value, ok := user.Get(key); ok {
+			if v.removedSetupKeys == nil {
+				v.removedSetupKeys = map[string]any{}
+			}
+			v.removedSetupKeys[key] = value
+		}
 	}
 	if list, ok := user.Get("packs"); ok {
 		if items, ok := list.([]any); ok {

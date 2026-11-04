@@ -17,28 +17,7 @@ func hostSideKey(reader string) Entry {
 }
 
 var configKeys = map[string]Entry{
-	// ---- Choosing the setup and the notch ------------------------------------------------
-	// The removed keys `runtime` and `confinement` (named-setups.md §10) still choose the built-in
-	// they mean, through config.SelectSetup's removed-keys bridge (removedKeysSetup,
-	// setupselect.go), but only when no --setup, YOLO_SETUP or `setup` names one: a launch's
-	// "- from" line names the key, and resolveSetup (setupgate.go) refuses what this OS lacks.
-	"runtime": {
-		PodmanLinux: honored("config.SelectSetup's removed-keys bridge reads `podman` as podman-self " +
-			"when nothing above it names a setup; podman-self is also Linux's default"),
-		PodmanMac: honored("the same bridge: `podman` chooses podman-self, which `--setup podman-self` " +
-			"names directly"),
-		AppleContainer: honored("the same bridge: `container` chooses apple-container-self, which is " +
-			"also the Mac default (setup.Default)"),
-		MacosUser: honored("the same bridge: `macos-user` chooses seatbelt-yolo-account, or " +
-			"seatbelt-self when `macos_user_mode` is \"self\"; a Seatbelt setup on Linux is refused " +
-			"by setup.Buildable, naming podman-self"),
-		Guide: []string{"`runtime`"},
-	},
-	"confinement": everywhere(honored("config.SelectSetup's removed-keys bridge, when nothing above "+
-		"it names a setup: `jail` chooses nothing (the runtime or the OS default does), `host` chooses "+
-		"host-self, which a launch refuses naming `yolo host` (setup.HostRefusal), and `guest` chooses "+
-		"a Seatbelt setup, refused on Linux and refused beside a `runtime` naming a container, naming "+
-		"both setups"), "`confinement`"),
+	// ---- Choosing the setup ------------------------------------------------------------------
 	// Named setups (docs/design/named-setups.md): user scope only, read before any backend runs.
 	"setup": everywhere(honored("validateSetups (setups.go) checks it at every launch and `yolo check`, "+
 		"refusing it in a project file and refusing a host setup; config.SelectSetup reads it from the "+
@@ -594,16 +573,6 @@ var configKeys = map[string]Entry{
 		"no jail reads it"), "`local_clones`"),
 	"update_check": everywhere(honored("gates this machine's own update check "+
 		"(config.UpdateCheckEnabled); no jail reads it"), "`include_if_found`"),
-	"macos_user_mode": {
-		PodmanLinux:    notApplicable("ignored: not this backend; only the macos-user backend reads it"),
-		PodmanMac:      notApplicable("ignored: not this backend; only the macos-user backend reads it"),
-		AppleContainer: notApplicable("ignored: not this backend; only the macos-user backend reads it"),
-		MacosUser: honored("removed for launches: the setup's run_as decides (macosUserRun, cli/commands.go, " +
-			"macosuser.ModeFor), and the key only steers the removed `runtime`/`confinement` bridge to " +
-			"seatbelt-self (config.SetupForRemovedRuntime); captures and the host floor still read it " +
-			"(macosUserLaunchMode)"),
-		Guide: []string{"`macos_user_mode`"},
-	},
 	"macos_user_shared_tmp": {
 		PodmanLinux:    notApplicable("ignored: not this backend; only the macos-user backend reads it"),
 		PodmanMac:      notApplicable("ignored: not this backend; only the macos-user backend reads it"),

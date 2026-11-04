@@ -115,7 +115,7 @@ var knownTopLevelConfigKeys = set(
 // drifts from this list.
 var retiredTopLevelConfigKeys = set(
 	"repo_path", "agents", "host_processes", "journal", "agent_profiles", "use_profiles",
-	"macos_log", "mcp_presets",
+	"macos_log", "mcp_presets", "runtime", "confinement", "macos_user_mode",
 )
 
 // TopLevelConfigKeys returns the LIVE top-level config keys — everything

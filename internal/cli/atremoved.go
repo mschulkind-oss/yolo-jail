@@ -35,8 +35,8 @@ func atRemovedFor(verb, notch string) error {
 		}
 		name = "host-self"
 	case config.ConfinementGuest:
-		// The Seatbelt setup the guest notch launched: run as you where the user config's
-		// `macos_user_mode` said "self", else as the yolo account.
+		// The Seatbelt setup the guest notch launched by default, as the yolo account; the
+		// refusal names seatbelt-self beside it, for whoever ran it as themselves.
 		name = config.SetupForRemovedRuntime(config.GuestRuntime)
 	case config.ConfinementJail:
 		name = jailName
@@ -51,9 +51,9 @@ func atRemovedFor(verb, notch string) error {
 	case "host-self":
 		return errors.New("`--at` is removed. Use `--setup <name>`; the host notch is the host-self setup:\n" +
 			"    " + spell(name))
-	case "seatbelt-yolo-account", "seatbelt-self":
+	case "seatbelt-yolo-account":
 		return errors.New("`--at` is removed. Use `--setup <name>`; the guest notch is a Seatbelt setup on a Mac:\n" +
-			"    " + spell(name))
+			"    " + spell(name) + "\n  (or " + spell("seatbelt-self") + ", to run as you)")
 	case jailName:
 		return errors.New("`--at` is removed. Use `--setup <name>`; the jail notch is a container setup:\n" +
 			"    " + spell(name))

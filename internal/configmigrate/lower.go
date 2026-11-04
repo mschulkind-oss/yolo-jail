@@ -202,6 +202,9 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		case "brokered":
 			lowerBrokered(value, ctx, place, skip)
 			continue
+		case "runtime", "confinement", "macos_user_mode":
+			lowerRemovedSetupKey(key, value, ctx, place, skip)
+			continue
 		}
 		if d, ok := renameDescriptorFor(path); ok && !(d.Transform == config.RenameKey && len(d.Replacements) == 1 && d.Replacements[0] == d.OldPath) {
 			skip(path, value, unconvertedReason(d))
@@ -264,6 +267,38 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		}
 	}
 	return out
+}
+
+// lowerRemovedSetupKey converts a key named setups replace (named-setups.md §10; SUP-D14). In a
+// user file a value naming exactly one setup becomes `setup` (`runtime` "podman" and "container"),
+// and `confinement = "jail"`, the default an unset `setup` selects, is dropped as inert. Every
+// other value names no one setup (the Seatbelt values, whose account lived in another key; `host`,
+// which is `yolo host` now), and a project file's never converts, since a project cannot choose
+// where its agent runs: each is reported with its refusal, which names the verbs that finish it.
+func lowerRemovedSetupKey(key string, value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+	path := []string{key}
+	// The merged read converts the user config's value alone: a project's value it holds instead
+	// is the project's, which never converts.
+	fromUser := ctx.scope == ScopeUser
+	if ctx.merged {
+		uv, ok := ctx.view().removedSetupKeys[key]
+		fromUser = ok && jsonx.MustDumpsCompact(uv) == jsonx.MustDumpsCompact(value)
+	}
+	if !fromUser {
+		skip(path, value, config.RemovedSetupKeyMessage(key, value, "--project"))
+		return
+	}
+	if name := config.SetupForRemovedKey(key, value); name != "" {
+		if !place([]string{"setup"}, name, path) {
+			skip(path, value, "`setup` is already written in this file, and it decides; remove the old line:\n    yolo config unset "+key+" --user")
+		}
+		return
+	}
+	if config.RemovedConfinementIsDefault(key, value) {
+		ctx.drop(path, value, "it named the default, which an unset `setup` selects")
+		return
+	}
+	skip(path, value, config.RemovedSetupKeyMessage(key, value, "--user"))
 }
 
 func unconvertedReason(d config.RenameDescriptor) string {

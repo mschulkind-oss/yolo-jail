@@ -54,6 +54,9 @@ var legacyLowerings = map[string]legacyLowering{
 	"providers.*.models.*.vendor": loweredByMigrate, "providers.*.models.*.max_tokens": loweredByMigrate,
 	"providers.*.models.*.reasoning": loweredByMigrate,
 	"loopholes.*.enabled":            loweredByMigrate, "loopholes.*.settings.*": loweredByMigrate,
+	// The keys named setups replace: migrate writes `setup` for a value naming one and drops the
+	// default (lowerRemovedSetupKey); macos_user_mode never names one alone.
+	"runtime": loweredByMigrate, "confinement": loweredByMigrate, "macos_user_mode": retired,
 }
 
 // Every legacy key has a lowering rule. Fails when a rename descriptor is added without one, when
