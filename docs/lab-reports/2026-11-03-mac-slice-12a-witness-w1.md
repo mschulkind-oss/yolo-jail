@@ -249,6 +249,26 @@ them. This is a hazard in the harness, not a profile defect.
   1359 s (22.6 min) is over that too, so under this load `just test-fast` on this Mac would fail on
   time, not on a test. Not measured on an idle machine.
 
+**`just done` after this report's commit** (`90862d6ef`; no verified ancestor, so the full
+`just check-ci`, 1216 s) failed. It repeated the four [§6](#6-kernprocargs2-hides-a-platform-binarys-environment)
+failures and the brokerhook flake, and `internal/cli` hit `panic: test timed out after 20m0s` as
+predicted above. Three failures were new:
+
+- `scripts/test-go-packages.py`,
+  `GoPackageSelection.test_completion_graph_and_census_use_the_shared_selector` (line 233): the
+  graph's `rel` is `../../../../../../../private/var/folders/…/repo/pkg`, want `pkg`. **This fails
+  every time on darwin**: rerun alone, it fails with the default `TMPDIR` (`/var/folders/…`, under
+  the `/var` → `/private/var` link) and passes with `TMPDIR=/private/tmp`. This is the darwin
+  path-resolution class AGENTS.md describes, in a Python test.
+- `internal/cli` `TestHostPiLaunchGetsItsOwnSessionHome` (`hostsessionhome_test.go:179`, "the
+  launch's session home lease is free, want held across the exec"): passes `-count=3` alone, so a
+  flake under load.
+- `internal/hostservice`
+  `TestBoundedCommandClosesInheritedOutputWithoutWaitingForEscapedDescendant`
+  (`boundedcommand_test.go:73`): passes `-count=5` alone, so a flake under load.
+
+So `just done` is red on this Mac at `90862d6ef`, for reasons that are not this docs-only commit.
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not
