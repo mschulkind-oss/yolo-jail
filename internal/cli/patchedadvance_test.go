@@ -151,10 +151,8 @@ func (fx *patchedAdvanceFixture) buildJail(t *testing.T) func(run.Options) int {
 	return func(o run.Options) int {
 		if o.OnRuntimeResolved != nil {
 			rt := "podman"
-			if o.Getenv != nil {
-				if selected := o.Getenv("YOLO_RUNTIME"); selected != "" {
-					rt = selected
-				}
+			if selected := pipelineBackend(o); selected != "" {
+				rt = selected
 			}
 			if err := o.OnRuntimeResolved(rt); err != nil {
 				t.Fatalf("record fixture runtime: %v", err)

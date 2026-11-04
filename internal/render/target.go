@@ -193,7 +193,7 @@ const (
 	// is the point of Q1: every switch on Kind now has to name it or fall to a default,
 	// so the notch cannot be added by silently inheriting a branch it happens to land in.
 	KindGuest
-	// KindHost is `yolo apply --at host`: the invoking user's real home, no computed layer
+	// KindHost is `yolo apply --setup host-self`: the invoking user's real home, no computed layer
 	// (its values embed jail-absolute paths), every surface read-modify-written so the
 	// agent's own keys survive (env-manager plan OQ-4, host-render-target.md §6.3).
 	KindHost

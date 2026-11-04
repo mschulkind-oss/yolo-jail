@@ -36,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 func runApply(args []string) int {
@@ -55,7 +56,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	if !ok {
 		return 2
 	}
-	var at string
+	var setupName string
 	var dryRun, sealed, assert, revert, timing bool
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -69,15 +70,17 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		case isHelpToken(a):
 			io.WriteString(out, applyUsage+"\n")
 			return 0
-		case a == "--at":
-			if i+1 >= len(args) {
-				fmt.Fprintf(errw, "yolo apply: --at needs a value (jail|guest|host)\n")
+		case a == "--setup" || hasPrefix(a, "--setup="):
+			fl, _ := readValueFlag(args, i, "--setup")
+			if fl.err != nil {
+				fmt.Fprintf(errw, "yolo apply: %v (a setup's name; `yolo setup list` names them)\n", fl.err)
 				return 2
 			}
-			i++
-			at = args[i]
-		case hasPrefix(a, "--at="):
-			at = a[len("--at="):]
+			setupName, i = fl.value, fl.last
+		case a == atFlag || hasPrefix(a, atFlag+"="):
+			fl, _ := readValueFlag(args, i, atFlag)
+			fmt.Fprintf(errw, "yolo apply: %v\n", atRemovedFor("apply", fl.value))
+			return 2
 		case a == "--dry-run":
 			dryRun = true
 		case a == "--assert":
@@ -99,22 +102,39 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		fmt.Fprintf(errw, "yolo apply: %v\n", err)
 		return 1
 	}
-	// --at overrides the configured notch for this invocation (the §4.1 escape valve);
-	// otherwise use the configured confinement.
-	notch := config.ResolveConfinement(cfg)
-	if at != "" {
-		n := config.Confinement(at)
-		ok := false
-		for _, k := range config.KnownConfinements {
-			if n == k {
-				ok = true
-			}
+	// THE SETUP is the one a launch from here would select (config.SelectSetup): --setup, then
+	// YOLO_SETUP, then the user's `setup`, then the OS default, so each moves apply as it moves
+	// the launch, and the verb acts at that setup's notch (setup.Setup.Kind). Exit 2 for a refused
+	// --setup (misuse), 1 for a selection the machine refuses.
+	refusedRC := 1
+	if setupName != "" {
+		refusedRC = 2
+	}
+	choice, err := config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForLaunch,
+		Flag:      setupName,
+		Getenv:    os.Getenv,
+		Merged:    cfg,
+		GOOS:      platformGOOS(),
+		InSession: os.Getenv("YOLO_VERSION") != "",
+	})
+	for _, w := range choice.Warnings {
+		fmt.Fprintln(errw, w)
+	}
+	if err != nil {
+		fmt.Fprintf(errw, "yolo apply: %v\n", err)
+		return refusedRC
+	}
+	selected := choice.Setup
+	notch := setupNotch(selected)
+	// A guest on Linux is refused below with its own next steps (render.NotchUnbuilt); every
+	// other setup this machine cannot run, or a host one run as the yolo account, is refused
+	// here as `yolo host` refuses it.
+	if !(notch == config.ConfinementGuest && !paths.IsMacOS) {
+		if msg := verbSetupRefusal(selected, platformGOOS()); msg != "" {
+			fmt.Fprintf(errw, "yolo apply: %s\n", msg)
+			return refusedRC
 		}
-		if !ok {
-			fmt.Fprintf(errw, "yolo apply: --at %q is not a confinement level (jail|guest|host)\n", at)
-			return 2
-		}
-		notch = n
 	}
 
 	pr := richtext.Printer{W: out, Color: color}
@@ -126,7 +146,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// otherwise print a human report to something that asked for JSON.
 	if outfmt.IsJSON(format) && (sealed || notch != config.ConfinementHost) {
 		fmt.Fprintln(errw, "yolo apply: --format json is the HOST notch's dry run "+
-			"(`yolo apply --at host`, or `yolo host apply`). No other notch has a document "+
+			"(`yolo apply --setup host-self`, or `yolo host apply`). No other notch has a document "+
 			"to emit: at jail this verb is a launch, at guest on macOS it points at launch, "+
 			"and guest has no backend on Linux.")
 		return 2
@@ -136,8 +156,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 	// one (the launch's own --timing is where that time goes), a Linux guest is unbuilt, and
 	// --sealed refuses rather than applies. Refused by name rather than silently ignored.
 	if timing && (sealed || notch != config.ConfinementHost) {
-		fmt.Fprintln(errw, "yolo apply: --timing times the HOST notch's apply (`yolo apply --at "+
-			"host --timing`, or `yolo host apply --timing`). No other route here has a stage to "+
+		fmt.Fprintln(errw, "yolo apply: --timing times the HOST notch's apply (`yolo apply --setup "+
+			"host-self --timing`, or `yolo host apply --timing`). No other route here has a stage to "+
 			"time: --sealed only checks, guest has no backend on Linux, at jail this verb is a "+
 			"launch and at guest on macOS it points at one, and the launch's own "+
 			"`yolo --timing -- <cmd>` times it.")
@@ -152,14 +172,14 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// one (render.Target.ProvenanceDir: jail sidecars live in the workspace and are
 		// removed by discarding the jail). Naming that beats silently reverting nothing.
 		fmt.Fprintf(errw, "yolo apply: --revert is the host notch's — it withdraws yolo from "+
-			"the config files in your real home. Pass `--at host`, or use the ergonomic "+
+			"the config files in your real home. Pass `--setup host-self`, or use the ergonomic "+
 			"spelling `yolo host apply` with the same flag.\n")
 		return 2
 	}
 
 	switch notch {
 	case config.ConfinementHost:
-		// IN A JAIL, NOTHING, at this spelling too (hostapplyinjail.go): `--at host`, its
+		// IN A JAIL, NOTHING, at this spelling too (hostapplyinjail.go): `--setup host-self`, its
 		// --revert, and a config whose `confinement` is host all render into the home of whoever
 		// runs them, which in a jail is the jail's own.
 		if rc, refused := refuseHostApplyInJail("yolo apply", revert, errw); refused {
@@ -171,25 +191,27 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		return rc
 	case config.ConfinementGuest:
 		if paths.IsMacOS {
-			return applyAtMacosGuest(pr, at != "")
+			return applyAtMacosGuest(pr, setupName, selected)
 		}
 		// render.NotchUnbuilt is the sentence, not a literal: `run.Run` refuses a Linux guest
 		// LAUNCH with the same words (OQ-DP3), and two spellings of one notch's status is
 		// the drift docs/design/declaration-parity.md exists to name. The verb is the
 		// parameter; the next step is this verb's own.
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
-		// THE JAIL STEP DEPENDS ON THE CONFIG, not on whether `--at` was typed: a bare launch
-		// reads the config's `confinement`, so where that says guest `yolo -- <cmd>` refuses
-		// as this verb does, and the step is the config edit (or `--at jail` for one launch).
-		jail := "the jail notch, the default, launches here with `yolo -- <cmd>` (`yolo apply` " +
-			"alone points at that launch)"
+		// THE JAIL STEP DEPENDS ON THE CONFIG, not on whether `--setup` was typed: a bare
+		// launch reads the config's `confinement`, so where that says guest `yolo -- <cmd>`
+		// refuses as this verb does, and the step is the config edit (or `--setup` for one
+		// launch).
+		jailSetup := setup.Default(platformGOOS()).Name
+		jail := "the default setup, " + jailSetup + ", launches here with `yolo -- <cmd>` " +
+			"(`yolo apply` alone points at that launch)"
 		if config.ResolveConfinement(cfg) == config.ConfinementGuest {
-			jail = "set `confinement` to \"jail\" (or remove it) in your config and `yolo -- " +
-				"<cmd>` launches the jail notch here, or `yolo --at jail -- <cmd>` launches it once"
+			jail = "remove `confinement` from your config and `yolo -- <cmd>` launches the " +
+				"default setup here, or `yolo --setup " + jailSetup + " -- <cmd>` launches it once"
 		}
 		pr.Printf("[dim]Instead: %s; `yolo host -- <cmd>` runs a command on the real machine "+
-			"with no sandbox, and `yolo apply --at host` renders your config into your real "+
-			"home.[/dim]", jail)
+			"with no sandbox, and `yolo apply --setup host-self` renders your config into your "+
+			"real home.[/dim]", jail)
 		return 1
 	default: // jail
 		pr.Printf("[bold]apply[/bold] at confinement [cyan]jail[/cyan].")
@@ -213,7 +235,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 			"jail already running for this workspace is attached to instead, and that installs " +
 			"nothing: its readiness act ran when it started (`yolo stop`, then `yolo apply`, " +
 			"runs it again).[/dim]")
-		return applyJailLaunch()
+		return applyJailLaunch(setupName)
 	}
 }
 
@@ -221,10 +243,17 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // pipeline with `true` as its command, exactly `yolo -- true`. A package var so a test can
 // assert the verb reaches it without starting a container.
 //
-// It carries `--at jail` because the verb has already decided the notch: the launch otherwise
-// re-reads `confinement` (run.refuseUnbuiltNotch), so `yolo apply --at jail` under a
-// `confinement: host` config was refused, and told to edit a key the flag had overridden.
-var applyJailLaunch = func() int { return runRun([]string{"run", "--at", "jail", "--", "true"}) }
+// It carries the `--setup` the verb was given, because the verb has already decided the setup:
+// the launch otherwise selects its own (run.resolveSetup), so `yolo apply --setup podman-self`
+// under a config selecting another setup would provision that one instead. With no flag the
+// launch selects exactly as `yolo -- true` does.
+var applyJailLaunch = func(setupName string) int {
+	argv := []string{"run"}
+	if setupName != "" {
+		argv = append(argv, "--setup", setupName)
+	}
+	return runRun(append(argv, "--", "true"))
+}
 
 // applyAtMacosGuest is `yolo apply` at the guest notch on macOS, where that notch is the
 // macos-user backend (env-manager plan Phase 7.1, EMP-D1): a POINTER at the launch, because a
@@ -233,27 +262,32 @@ var applyJailLaunch = func() int { return runRun([]string{"run", "--at", "jail",
 // the command. The jail notch's apply IS that launch (JR-D1, applyJailLaunch); this notch's
 // stays a pointer, so rc 0: nothing failed.
 //
-// fromFlag says the notch came from `--at guest` rather than the config, so the launch it
-// points at carries the same flag; a config at `confinement: "guest"` needs none.
-func applyAtMacosGuest(pr richtext.Printer, fromFlag bool) int {
+// setupName is the `--setup` the verb was given ("" when the notch came from the config), so
+// the launch it points at carries the same flag; a config at `confinement: "guest"` needs none.
+func applyAtMacosGuest(pr richtext.Printer, setupName string, s setup.Setup) int {
 	launch := "`yolo -- <cmd>`"
-	if fromFlag {
-		launch = "`yolo --at guest -- <cmd>`"
+	if setupName != "" {
+		launch = "`yolo --setup " + setupName + " -- <cmd>`"
+	}
+	who := "as the macos-user backend's sandbox account"
+	home := "that account's home"
+	if s.RunAs == setup.RunAsSelf {
+		who, home = "as you", "the sandbox's home"
 	}
 	pr.Printf("[bold]apply[/bold] at confinement [cyan]guest[/cyan].")
 	pr.Printf("[dim]At the guest notch on macOS, `yolo apply` provisions nothing itself: "+
-		"that work happens when the sandbox launches. %s runs <cmd> as the macos-user "+
-		"backend's sandbox account under Seatbelt, after building its nix profile, staging "+
-		"the selected packs and rendering their config in that account's home. The programs "+
+		"that work happens when the sandbox launches. %s runs <cmd> %s under Seatbelt, "+
+		"after building its nix profile, staging the selected packs and rendering their "+
+		"config in %s. The programs "+
 		"those packs declare (agent CLIs included) install from their launchers the first "+
 		"time each is run there, not at launch. `yolo describe` prints what the notch "+
-		"composes.[/dim]", launch)
+		"composes.[/dim]", launch, who, home)
 	return 0
 }
 
 // applyAtHost is `yolo apply`'s host notch: the declared ownership contract decides whether there
 // is a host render at all (hostmanagementgate.go). Both spellings of the verb are one operation
-// (OQ-7), so both ask — a key that stopped `yolo host apply` and not `yolo apply --at host` would
+// (OQ-7), so both ask — a key that stopped `yolo host apply` and not `yolo apply --setup host-self` would
 // be a contract with a way around it — and both run the same stages (hostApplyRevert,
 // hostApplyRefreshAndRender), spanned the same way.
 func applyAtHost(out, errw io.Writer, color, write, revert bool, stdin io.Reader, format string) int {
@@ -306,7 +340,7 @@ func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int
 
 // applyHostFormatted is applyHost plus the output-format family (report-tiers.md's machine
 // consumers, self-documenting-cli.md item 7). Both spellings of the verb route through it,
-// because `yolo host apply` and `yolo apply --at host` are one operation and only differ in how
+// because `yolo host apply` and `yolo apply --setup host-self` are one operation and only differ in how
 // they are typed (OQ-7) — a flag that worked at one of them would be a flag an agent has to
 // guess about.
 //
@@ -1136,7 +1170,7 @@ func reportConfigResult(pr richtext.Printer, survey *hostApplySurvey, owner stri
 		pr.Printf("  [cyan]%-20s[/cyan] %s: your own edit is kept over %s's config-overlay",
 			r.Surface, key, pack)
 		pr.Printf("    [dim]→ to take %s's value, set %s in %s to it and apply again; "+
-			"`yolo config reset %s --at host` drops every edit yolo captured there[/dim]",
+			"`yolo config reset %s --setup host-self` drops every edit yolo captured there[/dim]",
 			pack, key, prettyHomePath(home, r.Path), r.Surface)
 	}
 	// Named-ENTRY casualties: a server whose record comes out merged or gone. Louder
@@ -1693,14 +1727,18 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             image, stages the packs, installs every program they declare
                             (not yet on macos-user) — then exits; a jail already running is
                             attached to, installing nothing)
-  yolo apply --at <level>   … at a different notch (jail|guest|host) for this run
-                            (at guest: macOS only, a pointer to the macos-user launch)
-  yolo apply --at host      render your config into your real home
+  yolo apply --setup <name> … at that setup's notch for this run (` + "`yolo setup list`" + `
+                            names them; a Seatbelt setup: macOS only, a pointer to the
+                            macos-user launch). The removed --at is refused naming it.
+  yolo apply --setup host-self
+                            render your config into your real home
                             (yolo host apply is the same thing, more typeable)
                             (a DRY RUN by default — prints what would change, writes nothing)
-  yolo apply --at host --assert  actually write: regenerate only the keys yolo manages (pure
+  yolo apply --setup host-self --assert
+                            actually write: regenerate only the keys yolo manages (pure
                             rmw), leaving your own keys; non-config kinds refused by name
-  yolo apply --at host --revert   take yolo back OUT: remove the keys it asserted, on the
+  yolo apply --setup host-self --revert
+                            take yolo back OUT: remove the keys it asserted, on the
                             authority of the provenance record it wrote, and forget the home.
                             Your own keys are never touched. A DRY RUN until --assert.
                             Runs at host_management none (the default); refused at own.
@@ -1709,13 +1747,14 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
                             (at jail: the description the launch would provision, and no launch)
-  yolo apply --at host --timing  time the host apply's stages; the table goes to stderr
+  yolo apply --setup host-self --timing
+                            time the host apply's stages; the table goes to stderr
                             (refused at every other notch, and with --sealed)
 
 At the host notch, apply refuses inside a jail and writes nothing: it renders into the
 home of whoever runs it, which in a jail is the jail's own. Run it on the host.
 
-Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --at host --format json`" + `):
+Machine-readable output, at the HOST notch's dry run only (` + "`yolo apply --setup host-self --format json`" + `):
 the asserting posture acts, and an acting verb refuses the flag rather than growing a
 second output mode — so it exits 2 there instead.
 ` + outputFormatUsage + `
@@ -1724,11 +1763,11 @@ apply splits "make it so" from "run something in it": ` + "`yolo -- <cmd>`" + ` 
 "apply, then exec." Every notch has both halves — the host's exec half is
 ` + "`yolo host -- <cmd>`" + `, which composes the environment a config file cannot carry.
 Examples:
-  yolo apply                          # at jail: provision the jail, run nothing
-  yolo apply --at host                # what would change in your real home?
-  yolo apply --at host --assert       # write it
-  yolo apply --at host --revert       # what would withdrawing yolo remove?
-  yolo apply --sealed                 # refuse if an undeclared input shaped this
+  yolo apply                              # at jail: provision the jail, run nothing
+  yolo apply --setup host-self            # what would change in your real home?
+  yolo apply --setup host-self --assert   # write it
+  yolo apply --setup host-self --revert   # what would withdrawing yolo remove?
+  yolo apply --sealed                     # refuse if an undeclared input shaped this
 
 See ` + "`yolo describe`" + ` for what the current description resolves to, and
 ` + "`yolo host`" + ` for the host notch's own verbs.`

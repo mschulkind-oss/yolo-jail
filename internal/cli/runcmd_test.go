@@ -698,3 +698,74 @@ func TestTheLaunchHasNoQuietFlag(t *testing.T) {
 			"narrow, version-line-only one P4 carves out", banner.SuppressEnv)
 	}
 }
+
+// TestSetupFlagAndEnvReachTheLaunch is named-setups-plan.md slice 4a's parse half: `--setup
+// <name>` lands on Options.SetupName and leaves no token in the inner command, and the removed
+// `--at` is refused (exit 2, before anything starts) naming `--setup`, with `yolo host` for the
+// host notch. The refusal is driven through runRun, so it fails if the parser stops reporting
+// the misuse or the front door stops printing it.
+func TestSetupFlagAndEnvReachTheLaunch(t *testing.T) {
+	for _, in := range []string{"--setup seatbelt-self -- claude", "run --setup=seatbelt-self -- claude",
+		"--setup podman-self --setup seatbelt-self -- claude"} {
+		var opts run.Options
+		parsed := parseRunArgs(strings.Fields(in), &opts)
+		if parsed.misuse != nil {
+			t.Fatalf("parseRunArgs(%q) misuse: %v", in, parsed.misuse)
+		}
+		if opts.SetupName != "seatbelt-self" {
+			t.Errorf("parseRunArgs(%q).SetupName = %q, want seatbelt-self (the last one typed)", in, opts.SetupName)
+		}
+		if !reflect.DeepEqual(opts.Args, []string{"claude"}) {
+			t.Errorf("parseRunArgs(%q).Args = %q, want [claude]: the flag must not reach the command", in, opts.Args)
+		}
+	}
+	// `--setup -h` is a setup named "-h", not a help request, as every value flag reads.
+	if runHelpRequested(strings.Fields("run --setup -h -- bash")) {
+		t.Error("`-h` as the --setup VALUE was read as a help request")
+	}
+
+	cases := []struct{ argv, want string }{
+		{"run --at guest -- claude", "`--at` is removed. Use `--setup <name>`"},
+		{"run --at=jail -- claude", "yolo --setup "},
+		{"run --at host -- claude", "yolo host -- <cmd>"},
+		{"run --at -- claude", "`--at` is removed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.argv, func(t *testing.T) {
+			var opts run.Options
+			if parsed := parseRunArgs(strings.Fields(tc.argv), &opts); parsed.misuse == nil {
+				t.Fatalf("parseRunArgs(%q) reported no misuse", tc.argv)
+			}
+			rc, stderr := runRunCapturingStderr(t, strings.Fields(tc.argv))
+			if rc != 2 {
+				t.Errorf("runRun(%q) rc = %d, want 2", tc.argv, rc)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Errorf("runRun(%q) stderr lacks %q:\n%s", tc.argv, tc.want, stderr)
+			}
+			for _, a := range opts.Args {
+				if strings.HasPrefix(a, "--at") {
+					t.Errorf("parseRunArgs(%q) put %q in the inner command", tc.argv, a)
+				}
+			}
+		})
+	}
+}
+
+// runRunCapturingStderr runs runRun with os.Stderr captured. Only for argv runRun refuses
+// before any launch work starts.
+func runRunCapturingStderr(t *testing.T, args []string) (int, string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	rc := runRun(args)
+	w.Close()
+	os.Stderr = old
+	b, _ := io.ReadAll(r)
+	r.Close()
+	return rc, string(b)
+}

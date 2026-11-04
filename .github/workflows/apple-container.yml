@@ -2,7 +2,7 @@ name: Apple Container parity
 
 # THE BACKEND NO CI JOB HAD EVER RUN — UNTIL THIS ONE DID, ON 2026-09-14.
 #
-# Every job in this repo that sets YOLO_RUNTIME sets `podman` — ci.yml, nightly-macos.yml
+# Every job in this repo that sets YOLO_SETUP sets `podman-self` — ci.yml, nightly-macos.yml
 # and packs.yml twice — and macos-user.yml deliberately sets none because that backend
 # starts no container. So Apple Container, which the README recommends for macOS, was
 # exercised by nothing. Both defects in that class were found by a human on hardware, eight
@@ -333,11 +333,11 @@ jobs:
       # `just load` rather than the skopeo argv, deliberately: that recipe is THE deliver
       # verb, it is what the harness's own degraded message tells a human to run, and a
       # second copy of the archive hop written in YAML is the drift this repo spends its
-      # effort avoiding. It dispatches on YOLO_RUNTIME, which this job sets.
+      # effort avoiding. It dispatches on YOLO_LOAD_RUNTIME, which this job sets.
       - name: Load the realized image into Apple Container's store
         run: just load
         env:
-          YOLO_RUNTIME: container
+          YOLO_LOAD_RUNTIME: container
 
       # THE PREFIX MUST NOT LIVE IN /nix/store, AND ON THIS BACKEND THAT IS FATAL RATHER
       # THAN SLOW.
@@ -401,7 +401,7 @@ jobs:
           # here and not in the test binary (integration/applecontainer_test.go, and
           # integration/macosusergate_test.go for the fuller version of the argument).
           YOLO_TEST_APPLE_CONTAINER: "1"
-          # NOT set job-wide, and not set here either: each test passes YOLO_RUNTIME per
+          # NOT set job-wide, and not set here either: each test passes YOLO_SETUP per
           # LAUNCH (appleContainerEnv), which is the spelling a job-level variable cannot
           # shadow and which keeps a hand-run of one test on this Mac behaving identically.
 

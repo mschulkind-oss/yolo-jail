@@ -47,8 +47,8 @@ import (
 // stop names the next step", docs/reference/happy-path-principle.md). The same dial the `yolo
 // host` refusal for an unserved adaptation names. Read by the guest's own declines below and by
 // the macos-user arm's refused-host-argv lines (internal/cli/run's macosuserdoorways.go).
-const ContainerRuntimeRunsIt = "a container runtime runs it (`YOLO_RUNTIME=podman` or " +
-	"`YOLO_RUNTIME=container` for one launch)"
+const ContainerRuntimeRunsIt = "a container setup runs it (`YOLO_SETUP=podman-self` or " +
+	"`YOLO_SETUP=apple-container-self` for one launch)"
 
 // DeclinedJailDaemon is one composed jail daemon a runtime does not run, and why.
 type DeclinedJailDaemon struct {

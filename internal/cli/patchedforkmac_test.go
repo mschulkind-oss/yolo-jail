@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -60,7 +61,7 @@ func TestAPatchedForkBuildOnMacosUserReachesTheForkBuildAct(t *testing.T) {
 	ws := t.TempDir()
 	var out, errw bytes.Buffer
 	forkBuildRunJail(ws, b, captureStreams{out: &out, errw: &errw}, false, captureAct{runtime: "macos-user"})
-	if seen.Getenv == nil || seen.Getenv("YOLO_RUNTIME") != "macos-user" {
+	if pipelineBackend(seen) != "macos-user" {
 		t.Fatal("the patched fork's build jail was not handed the macos-user runtime")
 	}
 	if rc := runSealedMacArm(t, seen, ws); rc != 0 || len(*got) != 1 {
@@ -143,7 +144,7 @@ func TestATreeSealWithNoBuildIDOnMacosUserIsRefused(t *testing.T) {
 	if rc := runSealedMacArm(t, seen, ""); rc == 0 || len(*got) != 0 {
 		t.Fatalf("a tree's seal with no id ran the fork-build act: rc=%d acts=%d", rc, len(*got))
 	}
-	if !strings.Contains(errw.String(), "YOLO_RUNTIME=podman yolo -- tool-ext") {
+	if !strings.Contains(errw.String(), "YOLO_SETUP=podman-self yolo -- tool-ext") {
 		t.Errorf("the refusal names no next step:\n%s", errw.String())
 	}
 }
@@ -162,7 +163,7 @@ func TestAForkSealWithNoBuildLineOnMacosUserIsRefused(t *testing.T) {
 	if rc := runSealedMacArm(t, seen, ""); rc == 0 || len(*got) != 0 {
 		t.Fatalf("a seal with no build line ran the fork-build act: rc=%d acts=%d", rc, len(*got))
 	}
-	if !strings.Contains(errw.String(), "YOLO_RUNTIME=podman yolo -- probetool") {
+	if !strings.Contains(errw.String(), "YOLO_SETUP=podman-self yolo -- probetool") {
 		t.Errorf("the refusal names no next step:\n%s", errw.String())
 	}
 }
@@ -193,7 +194,7 @@ func TestACaptureOfAPatchedForkOnMacosUserAdvancesTheDarwinBuild(t *testing.T) {
 				}
 			}
 			t.Setenv("YOLO_VERSION", "")
-			t.Setenv("YOLO_RUNTIME", tc.runtime)
+			t.Setenv("YOLO_SETUP", config.SetupForRemovedRuntime(tc.runtime))
 			var seen []advanceOptions
 			orig := capturePatchedAdvance
 			capturePatchedAdvance = func(_ packload.Fork, o advanceOptions) advanceResult {

@@ -93,6 +93,7 @@ func runCheckOn(t *testing.T, workspace, runtime, body string, accept bool) stri
 	opts := baseOptions(t, &out)
 	opts.Workspace = workspace
 	opts.AcceptConfigChanges = accept
+	opts.IsMacOS = runtime == "container" // apple-container-self is a Mac's setup
 	if err := os.WriteFile(filepath.Join(workspace, paths.WorkspaceConfigTOMLName), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +114,8 @@ func runCheckOn(t *testing.T, workspace, runtime, body string, accept bool) stri
 		return err == nil
 	}
 	opts.Getenv = func(key string) string {
-		if key == "YOLO_RUNTIME" {
-			return runtime
+		if key == "YOLO_SETUP" {
+			return config.SetupForRemovedRuntime(runtime)
 		}
 		return ""
 	}

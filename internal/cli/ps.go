@@ -220,7 +220,7 @@ func psMacosUser(deps psDeps, pr richtext.Printer, report psReport) int {
 	if len(rows) == 0 {
 		pr.Print("[dim]No running macos-user sessions.[/dim]")
 		pr.Print("[dim]Container jails are listed under their own runtime: " +
-			"YOLO_RUNTIME=container yolo ps (or YOLO_RUNTIME=podman yolo ps).[/dim]")
+			"YOLO_SETUP=apple-container-self yolo ps (or YOLO_SETUP=podman-self yolo ps).[/dim]")
 		return psFinish(deps, report)
 	}
 	// RenderPsTable's header names a CONTAINER column; a macos-user row is a session. Same width,

@@ -89,7 +89,7 @@ func TestClaudeViewOffRetiresResolvedRuntimeLocationNonfatally(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := goldenOptions(filepath.Join(t.TempDir(), "workspace"), t.TempDir())
 			o.Getenv = viewEnv("0")
-			o.MacosUserMode = tc.mode
+			selectMacosUserMode(o, tc.mode)
 			o.MacosUserHostHome = "/Users/synthetic"
 			var stderr strings.Builder
 			o.Stderr = &stderr

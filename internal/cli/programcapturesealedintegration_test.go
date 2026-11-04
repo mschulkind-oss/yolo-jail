@@ -184,7 +184,7 @@ func TestAuditedRegistrySealedPublicColdWarmAndFreshRefusal(t *testing.T) {
 			t.Setenv(key, "")
 		}
 	}
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	t.Setenv("NO_COLOR", "1")
 	// Discard caller trust/proxy/credential knobs, not the shared Go build cache.
 	for _, item := range os.Environ() {

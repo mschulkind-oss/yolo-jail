@@ -3,7 +3,7 @@ package cli
 // hostinputs.go composes the HOST notch's derive inputs (docs/reference/host-agent-environment.md,
 // the computed layer at the host), once per invocation, for every host-target reader of that invocation (HC-D11): `yolo
 // host apply`'s dry run, --assert and --format json, the launch gate a wrapped `yolo host --`
-// runs, and `yolo config render --at host`. The render side is entrypoint.HostInputs.
+// runs, and `yolo config render --setup host-self`. The render side is entrypoint.HostInputs.
 //
 // OQ-HC1 (2026-09-28): "host parity with the same handling". The host runs the jail's derives,
 // so what differs between the notches is composed HERE, from user scope alone:

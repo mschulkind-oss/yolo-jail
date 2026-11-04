@@ -93,7 +93,7 @@ func (o *Options) planMacosUserCacheRelocations(links []macosuser.ContextLink) (
 			"sandbox account can reach and that nothing else it uses overlaps: outside every home " +
 			"and outside the workspace, on this disk or on one volume under /Volumes. Point the " +
 			"entry in ~/.config/yolo-jail/config.jsonc at such a folder, remove it, or use " +
-			"`runtime: \"podman\"`" + o.containerStepClause() + ", which mounts it instead.")
+			"`yolo --setup podman-self`, which mounts it instead.")
 		return nil, false
 	}
 	if o.DryRun {

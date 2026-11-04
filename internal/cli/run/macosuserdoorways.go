@@ -236,12 +236,11 @@ func guestDeclinedNames(declined []loopholes.DeclinedJailDaemon) map[string]bool
 // disclosures above. When the guest declines it too, a daemon a selected pack declared runs
 // nowhere this launch, so the line names the next step: a container backend runs every daemon its
 // payload names (loopholes.ContainerRuntimeRunsIt; docs/reference/happy-path-principle.md), at the
-// jail notch when this launch is a guest (containerStepClause, EMP-D5).
+// container setup (loopholes.ContainerRuntimeRunsIt).
 func (o *Options) guestPlacement(declinedInGuest bool) string {
 	if declinedInGuest {
 		return "Its jail daemon is declined in the sandbox too (its Declined: line says why), " +
-			"so nothing serves it this launch; " + loopholes.ContainerRuntimeRunsIt +
-			o.containerStepClause() + "."
+			"so nothing serves it this launch; " + loopholes.ContainerRuntimeRunsIt + "."
 	}
 	return "Its jail daemon runs in the sandbox instead."
 }

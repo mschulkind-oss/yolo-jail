@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // devBundleReapVerb is `yolo internal dev-bundle-reap [--dir <dev-bundles dir>]`, which
@@ -39,13 +37,8 @@ const devBundleReapOptOutEnv = "YOLO_NO_AUTO_IMAGE_REAP"
 
 func defaultDevBundleReapDeps() devBundleReapDeps {
 	return devBundleReapDeps{
-		storage: paths.GlobalStorage,
-		rt: func() string {
-			return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), "", paths.IsMacOS, func(bin string) bool {
-				_, err := exec.LookPath(bin)
-				return err == nil
-			})
-		},
+		storage:     paths.GlobalStorage,
+		rt:          func() string { return selectedSetupBackend(nil) },
 		run:         prune.ProbeExec,
 		procs:       prune.DevBundleProcStarts,
 		now:         time.Now,

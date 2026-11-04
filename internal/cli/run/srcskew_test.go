@@ -85,8 +85,8 @@ func skewRepo(t *testing.T) string {
 func skewOptions(t *testing.T, repoRoot string, env map[string]string, stdout, stderr *bytes.Buffer) *Options {
 	t.Helper()
 	getenv := func(k string) string {
-		if k == "YOLO_RUNTIME" {
-			return "podman"
+		if k == "YOLO_SETUP" {
+			return testSetupForRuntime("podman")
 		}
 		return env[k]
 	}

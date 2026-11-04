@@ -323,7 +323,7 @@ func TestAssembleCacheRelocationsAppleContainerSkips(t *testing.T) {
 	if strings.Count(warning, setupcensus.Warning(setupcensus.AppleContainer, "cache_relocations").Says) != 1 {
 		t.Errorf("want exactly one skip warning, got:\n%s", warning)
 	}
-	for _, want := range []string{"huggingface, uv", "YOLO_RUNTIME=podman"} {
+	for _, want := range []string{"huggingface, uv", "`--setup podman-self`"} {
 		if !strings.Contains(warning, want) {
 			t.Errorf("warning missing %q; got:\n%s", want, warning)
 		}
@@ -553,7 +553,8 @@ func podmanLinuxGolden(home string) []string {
 		// now (preflight.go's refuseUnmetCapabilities, OQ-CAP2) and nothing in the jail
 		// ever read the variable. This golden is what pins the absence — re-adding the
 		// export fails here, which is the only place that would notice.
-		"-e", "YOLO_RUNTIME=podman",
+		// No YOLO_RUNTIME: it is removed (named-setups-plan.md slice 4a). A launch that resolved a
+		// setup exports YOLO_SETUP instead, after this block; this fixture resolves none.
 		"-e", "YOLO_GPU_ENABLED=0",
 	)
 	// The context dir, on every container launch whether or not a context mount was declared
@@ -586,8 +587,8 @@ func podmanLinuxGolden(home string) []string {
 	// variable can mean one thing only: a launcher older than it. The in-jail witness
 	// never escalates on this value (internal/entrypoint/reachability.go).
 	add("-e", paths.HostLoopbackEnvVar+"="+paths.HostLoopbackUnknown)
-	// The container backend, on EVERY container launch (paths.JailBackendEnv): YOLO_RUNTIME
-	// above is a hard-coded `podman`, so this is the one variable that names it.
+	// The container backend, on EVERY container launch (paths.JailBackendEnv): the one
+	// variable that names it.
 	add("-e", paths.JailBackendEnv+"=podman")
 	// host services sockets dir mount (podman, always).
 	add("-v", hostServiceSocketsDir("yolo-ws-abcd1234", false)+":/run/yolo-services:rw")

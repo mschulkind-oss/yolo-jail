@@ -28,7 +28,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -472,7 +471,7 @@ func pruneOptions(args []string) prune.Options {
 	if err != nil {
 		ws = "."
 	}
-	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
+	opts.DetectRuntime = listingDetect("prune", ws, os.Stderr)
 	// cache_relocations is user-scope only (config.LoadCacheRelocations owns the
 	// threat model), and internal/prune deliberately does not import
 	// internal/config — so the front door resolves the pairs and hands them over
@@ -529,7 +528,7 @@ func storesOptions(args []string) stores.Options {
 	if err != nil {
 		ws = "."
 	}
-	opts.DetectRuntime = func() string { return detectListingRuntime(ws) }
+	opts.DetectRuntime = listingDetect("stores", ws, os.Stderr)
 	return opts
 }
 
@@ -1119,8 +1118,8 @@ List the running yolo-* jails and the workspace each one is attached to, so you
 can tell whether ` + "`yolo`" + ` in this directory would ATTACH to a live jail or start a
 fresh one.
 
-The container runtime is resolved the same way a launch resolves it (YOLO_RUNTIME,
-then the ` + "`runtime`" + ` config key, then a platform probe), so on a Mac running Apple
+The container runtime is the backend of the setup a launch would select (YOLO_SETUP,
+then the ` + "`setup`" + ` config key, then the OS default), so on a Mac running Apple
 Container this lists that runtime's jails rather than an empty podman.
 
 Flags:
@@ -1161,7 +1160,7 @@ func runPs(args []string) int {
 	if err != nil {
 		ws = "."
 	}
-	detect := func() string { return detectListingRuntime(ws) }
+	detect := listingDetect("ps", ws, os.Stderr)
 	return psRun(psRealDeps(psRunCmd, detect, format))
 }
 
@@ -1225,23 +1224,12 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 	return opts, true
 }
 
-// detectListingRuntime resolves the runtime for the tolerant listing commands
-// (ps/prune): env > config `runtime` key > the notch's own backend > platform probe
-// (config.SelectedRuntime's order), so a macOS `confinement: "guest"` lists the
-// macos-user sessions its launches run (env-manager plan EMP-D1). Loading the config
-// is the piece `yolo ps` lacked entirely (audit finding 5). Config is loaded
-// loosely (non-strict, warnings dropped) from the given workspace; any load
-// error yields an empty config, so a malformed jsonc degrades to the platform
-// probe rather than crashing a diagnostic command.
+// detectListingRuntime resolves the backend for the tolerant listing commands (ps/prune):
+// the backend of the setup a launch from workspace would select (workspaceSetupBackend), so
+// a macOS workspace whose setup is seatbelt-self lists the macos-user sessions its launches
+// run. Loading the config is the piece `yolo ps` lacked entirely (audit finding 5).
 func detectListingRuntime(workspace string) string {
-	cfgRT := ""
-	if cfg, err := config.LoadConfig(workspace, false, func(string) {}); err == nil && cfg != nil {
-		cfgRT = config.ConfiguredRuntime(cfg, config.ResolveConfinement(cfg), paths.IsMacOS)
-	}
-	return runtime.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
-		_, err := exec.LookPath(bin)
-		return err == nil
-	})
+	return workspaceSetupBackend(workspace)
 }
 
 // psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on
@@ -1328,13 +1316,15 @@ func runRun(args []string) int {
 	// session-start hook; and the collector, so the backend's steps are spanned on it.
 	arm := run.NewMacosUserArm()
 	opts.MacosUserArm = arm
-	// THE macos-user MODE, read ONCE from the user config (MMP-D3) and handed to both readers: the
-	// pipeline (its package-cache alias and siting, run.Options.MacosUserMode) and the backend (the
-	// whole launch, macosuser.Options.Mode), so the two cannot disagree about who the sandbox runs
-	// as. A value no launch can run refuses inside the macos-user arm only.
-	macosMode, macosModeRefusal := macosUserLaunchMode()
+	// THE macos-user MODE is the setup's run_as (named-setups.md; plan slice 4a), resolved ONCE by
+	// the launch's setup gate and handed to both readers: the pipeline (its package-cache alias and
+	// siting, run.Options.MacosUserMode, which the gate sets) and the backend (the whole launch,
+	// macosuser.Options.Mode, read here off the SetupRef the gate fills), so the two cannot
+	// disagree about who the sandbox runs as.
+	setupRef := &run.SetupRef{}
+	opts.SetupRef = setupRef
 	hostHome, hostUser := macosUserHostIdentity()
-	opts.MacosUserMode, opts.MacosUserHostHome = macosMode, hostHome
+	opts.MacosUserHostHome = hostHome
 	// The shared-/tmp hatch (OQ-MM8, MMP-D18), read once like the mode and handed to both readers:
 	// the briefing (run.Options) and the profile (macosuser.Options).
 	sharedTmp := config.MacosUserSharedTmp()
@@ -1342,13 +1332,9 @@ func runRun(args []string) int {
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []string,
 		repoRoot, packRoot string, homeOverlay macosuser.HomeOverlay, hostCtx macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, jailDaemons macosuser.JailDaemons) int {
-		if macosModeRefusal != "" {
-			fmt.Fprintln(os.Stderr, macosModeRefusal)
-			return 1
-		}
 		return macosUserRun(cfg, workspace, agents, agentArgv, repoRoot, packRoot, homeOverlay,
 			hostCtx, dryRun, packEnv, blocked, jailDaemons, arm, ref.Log,
-			macosUserIdentity{Mode: macosMode, HostHome: hostHome, HostUser: hostUser, SharedTmp: sharedTmp,
+			macosUserIdentity{Mode: macosuser.ModeFor(setupRef.Setup.RunAs), HostHome: hostHome, HostUser: hostUser, SharedTmp: sharedTmp,
 				ShareHostFonts: config.ShareHostFonts()})
 	}
 	// Wire the fetched model list (docs/design/model-lists-and-pickers.md OQ-MM6): a provider no

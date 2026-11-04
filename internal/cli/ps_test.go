@@ -424,8 +424,8 @@ func TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre(t *testing.T) {
 	var buf bytes.Buffer
 	psRun(noExecDeps(t, &buf, ""))
 	want := "No running macos-user sessions.\n" +
-		"Container jails are listed under their own runtime: YOLO_RUNTIME=container yolo ps " +
-		"(or YOLO_RUNTIME=podman yolo ps).\n"
+		"Container jails are listed under their own runtime: YOLO_SETUP=apple-container-self yolo ps " +
+		"(or YOLO_SETUP=podman-self yolo ps).\n"
 	if buf.String() != want {
 		t.Errorf("output = %q, want %q", buf.String(), want)
 	}

@@ -36,7 +36,7 @@ func newVerbLinkWorld(t *testing.T) verbLinkWorld {
 	t.Helper()
 	scratchHostHome(t)
 	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	withJailLiveness(t, "", true)
 	ws, store := withWorkspaceCwd(t)
 	return verbLinkWorld{ws: ws, store: store}

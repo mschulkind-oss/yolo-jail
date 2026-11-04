@@ -27,7 +27,7 @@ func TestAppleContainerRefusesForwardHostPortsNamingTheKey(t *testing.T) {
 
 	got := o.appleContainerForwardRefusal("container", forwardsConfig(""))
 	for _, want := range []string{"Refusing to launch", "`network.forward_host_ports`",
-		"Apple Container", "9090:5432", "YOLO_RUNTIME=podman"} {
+		"Apple Container", "9090:5432", "`--setup podman-self`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, got)
 		}

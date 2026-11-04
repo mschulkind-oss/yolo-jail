@@ -174,7 +174,7 @@ func TestNativeMechanicsFactsUseWorkspaceAndAccountDecisions(t *testing.T) {
 	if !foundNativeHome {
 		t.Fatalf("native fact sheet omitted the actual self-mode HOME %q", wantNativeHome)
 	}
-	o.MacosUserMode = macosuser.ModeAccount
+	selectMacosUserMode(o, macosuser.ModeAccount)
 	account := o.mechanicsFactSheet("native-account", mapOf(t, `{}`), "macos-user", stagedPacks{}, storePackagesPlan{}, nil)
 	if account.NativeAccountUser != macosuser.SandboxUser {
 		t.Fatalf("dedicated-account username = %q, want actual sandbox account %q", account.NativeAccountUser, macosuser.SandboxUser)

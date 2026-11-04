@@ -143,7 +143,7 @@ func TestApplyHostSkipsGatedOverlayWhenProfileNotSelected(t *testing.T) {
 }
 
 // THE KEY'S DEFAULT GATES AT BOTH HOST RENDER CALL SITES: `yolo host apply --assert` and `yolo
-// config render --at host` hand overlayGateProfiles the packs they render, so "*" (or the string
+// config render --setup host-self` hand overlayGateProfiles the packs they render, so "*" (or the string
 // form) reaches acme, the CLI the owner pack installs, and the gated overlay folds. Handed no
 // packs, the default reaches no agent and the overlay is skipped in silence while the named
 // entry still folds it.
@@ -164,12 +164,12 @@ func TestHostRendersFoldAGatedOverlayThroughTheProfileKeysDefault(t *testing.T) 
 				t.Errorf("the key's default did not gate the overlay in at host apply:\n%s", data)
 			}
 		})
-		t.Run(name+"/yolo config render --at host", func(t *testing.T) {
+		t.Run(name+"/yolo config render --setup host-self", func(t *testing.T) {
 			gatedFixture(t, sel, packs)
 			t.Chdir(t.TempDir())
-			rc, out, errs := runSurfaceVerb(t, "render", "acme/settings", "--at", "host")
+			rc, out, errs := runSurfaceVerb(t, "render", "acme/settings", "--setup", "host-self")
 			if rc != 0 {
-				t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
+				t.Fatalf("config render --setup host-self rc=%d\n%s%s", rc, out, errs)
 			}
 			if !strings.Contains(out, "zai-dark") {
 				t.Errorf("the key's default did not gate the overlay into the host preview:\n%s%s", out, errs)

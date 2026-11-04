@@ -60,7 +60,7 @@ func TestValueFlagWithNoValueIsRefused(t *testing.T) {
 		{[]string{"-p"}, "-p"},
 		{[]string{"--profile"}, "--profile"},
 		{[]string{"--network="}, "--network"},
-		{[]string{"--at="}, "--at"},
+		{[]string{"--setup="}, "--setup"},
 	} {
 		want := tc.name + " needs a value"
 		// The jail: `yolo <flags> -- claude`, through the front door's rewrite.
@@ -73,8 +73,8 @@ func TestValueFlagWithNoValueIsRefused(t *testing.T) {
 		if strings.Contains(errs, "Failed to parse") {
 			t.Errorf("jail `yolo %s -- claude` reached the launch pipeline", strings.Join(tc.flags, " "))
 		}
-		if tc.name == "--network" || tc.name == "--at" {
-			continue // host rows for these belong to the notch front door (item 10)
+		if tc.name == "--network" || tc.name == "--setup" {
+			continue // host rows for these belong to the front door (item 10; frontdoornotch_test.go)
 		}
 		// The host exec.
 		var out, errw bytes.Buffer

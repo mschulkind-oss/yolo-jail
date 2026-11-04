@@ -347,8 +347,8 @@ func TestOneCtrlCAtHostApplyEndsTheFloorStagesWaitAfterTheExtensions(t *testing.
 		{"yolo host apply --assert", func(w io.Writer) int {
 			return hostApply([]string{"--assert"}, w, w, false, strings.NewReader(""))
 		}},
-		{"yolo apply --at host --assert", func(w io.Writer) int {
-			return applyMain([]string{"--at", "host", "--assert"}, w, w, false, strings.NewReader(""))
+		{"yolo apply --setup host-self --assert", func(w io.Writer) int {
+			return applyMain([]string{"--setup", "host-self", "--assert"}, w, w, false, strings.NewReader(""))
 		}},
 	} {
 		t.Run(spelling.name, func(t *testing.T) {

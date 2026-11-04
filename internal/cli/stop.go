@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -598,7 +599,7 @@ func noteOtherRuntimes(stdout io.Writer, rt, cname string) {
 	}
 	for _, other := range paths.SupportedRuntimes {
 		if other != rt && stopRuntimeInstalled(other) {
-			fmt.Fprintf(stdout, "If it was launched on %s, `YOLO_RUNTIME=%s yolo stop` stops it.\n", other, other)
+			fmt.Fprintf(stdout, "If it was launched on %s, `YOLO_SETUP=%s yolo stop` stops it.\n", other, config.SetupForRemovedRuntime(other))
 		}
 	}
 }

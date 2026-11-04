@@ -778,7 +778,7 @@ func localPackManifestPathIn(home string) string {
 //
 // Derived from the rendered home rather than returned by paths.UserConfigPath() directly, for
 // the reason localPackSkillsPath states: that helper reads $HOME, so a caller rendering into a
-// home it was handed (every test, and a `--at host` run from inside a jail) would print a path
+// home it was handed (every test, and a `--setup host-self` run from inside a jail) would print a path
 // in a different home than the one the report is about. Falls back to the conventional layout
 // when the two cannot be related.
 //

@@ -59,6 +59,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/setupcensus"
 )
 
@@ -464,7 +465,7 @@ func (o *Options) noteMacosUserPlatformGaps(cfg *jsonx.OrderedMap) {
 			"[/yellow] — RAM-backed scratch is a tmpfs mount inside a CONTAINER, and this " +
 			"backend starts none, so the sandbox writes this machine's own /tmp and " +
 			"/var/folders, on disk. Remove the key, or use Apple Container " +
-			"(runtime: \"container\"), whose scratch is always RAM-backed" + o.containerStepClause() + ".")
+			"(`yolo --setup apple-container-self`), whose scratch is always RAM-backed.")
 	}
 
 	// THE HOST NVIM CONFIG, a disclosure and not a refusal: nothing declares it (the container
@@ -549,8 +550,8 @@ func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap, plan macosUserPor
 		if relaysExpose(plan.relays) {
 			step += ", on a port no relay named here publishes on a real interface"
 		}
-		step += ", or use a container runtime (`runtime: \"podman\"`), whose published ports are " +
-			"the only way in."
+		step += ", or use a container setup " + setup.ContainerStep(o.inJail()) + ", whose published " +
+			"ports are the only way in."
 		out.print("[yellow]Warning: `network.ports` confines nothing on macos-user[/yellow] — " +
 			strings.Join(portLabels(ports), ", ") + ". The sandbox runs on the launcher's own " +
 			"network stack, so a port it binds IS published on this machine's real interfaces — " +

@@ -46,6 +46,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 const (
@@ -243,7 +244,7 @@ func warmJail() {
 	// that run cited; a failure for any other reason is a separate defect to read.
 	//
 	// ⚠ THE APPLE CONTAINER PARITY JOB WARMS TOO, DELIBERATELY, AND ITS LINE IS NOT THAT
-	// EVIDENCE. apple-container.yml's parity step sets no YOLO_RUNTIME, so detectRuntime
+	// EVIDENCE. apple-container.yml's parity step sets no YOLO_SETUP, so detectRuntime
 	// answers "container" on that Mac and this function proceeds. The premise above does not
 	// hold there: tagStockImage returns early for "container", so there is no stock
 	// short-circuit and that backend builds on every launch. What its warmup buys is the
@@ -393,17 +394,40 @@ func inContainer() bool {
 	return false
 }
 
-// detectRuntime resolves the container runtime: $YOLO_RUNTIME wins; otherwise
-// prefer `container` on darwin, then fall back to podman/container by PATH.
-// Returns "" when none is available.
+// detectRuntime resolves the container runtime: the backend of the setup $YOLO_SETUP names
+// wins (a launch from this suite selects the same setup, so the harness asks the runtime the
+// launch runs on); otherwise prefer `container` on darwin, then fall back to podman/container
+// by PATH. Returns "" when none is available. The removed YOLO_RUNTIME is not read: a launch
+// refuses it on the host, so a harness reading it would ask a runtime no launch uses.
 //
 // This merges conftest's two runtime helpers (_detect_runtime, used for the
 // image load, and _force_remove_container's env/platform selection) into one.
-// Inside a jail both resolved to podman, so behavior is unchanged; honoring
-// $YOLO_RUNTIME on the image-load path is a strict improvement.
+// harnessRuntimeOverride, when set, is detectRuntime's answer: a process-only test points the
+// harness's container cleanup at a stand-in runtime binary, which no setup can name.
+var harnessRuntimeOverride string
+
+// setupForRuntime is the built-in setup a launch names to run on container runtime rt, for the
+// fixtures that select a backend per launch (YOLO_SETUP=<name>).
+func setupForRuntime(rt string) string {
+	switch rt {
+	case "podman":
+		return "podman-self"
+	case "container":
+		return "apple-container-self"
+	case "macos-user":
+		return "seatbelt-yolo-account"
+	}
+	return rt
+}
+
 func detectRuntime() string {
-	if rt := os.Getenv("YOLO_RUNTIME"); rt != "" {
-		return rt
+	if harnessRuntimeOverride != "" {
+		return harnessRuntimeOverride
+	}
+	if name := os.Getenv(setup.EnvVar); name != "" {
+		if s, err := setup.Lookup(name, nil); err == nil && s.Backend() != "" {
+			return s.Backend()
+		}
 	}
 	if goruntime.GOOS == "darwin" {
 		if _, err := exec.LookPath("container"); err == nil {
@@ -536,7 +560,7 @@ func ensureJailImage() {
 			// and load nothing the tests could resolve.
 			degraded("no %s image in %s and not inside a container (so the suite will "+
 				"not build one) — container tests will fail; run "+
-				"`YOLO_RUNTIME=%s just load`", jailImage, rt, rt)
+				"`YOLO_LOAD_RUNTIME=%s just load`", jailImage, rt, rt)
 		}
 		return
 	}

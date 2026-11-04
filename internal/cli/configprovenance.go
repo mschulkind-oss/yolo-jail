@@ -154,9 +154,9 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 	//
 	// THE SURFACES ARE FOLDED AT THE SAME POSTURE, which they were not until 2026-10-04
 	// (declaration-parity.md DP-B25): packSurfacesForAgent read every pack at the AUTONOMOUS
-	// posture beside an overlay set collected at the notch's, so `config ls --at host` said the
+	// posture beside an overlay set collected at the notch's, so `config ls --setup host-self` said the
 	// owner's managed layer replaces claude's /permissions/allow — a key only the jail's posture
-	// manages — while `config render --at host` showed the entry landing.
+	// manages — while `config render --setup host-self` showed the entry landing.
 	autonomy := render.ProfileFor(notch).AgentAutonomy
 	set := packoverlay.Collect(packs, autonomy, overlayGateProfiles(notch, packs))
 	var out []overlayContribution

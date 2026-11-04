@@ -319,10 +319,7 @@ func TestALaunchWiresTheAutoCaptureTrigger(t *testing.T) {
 			writeChild(o.SessionStderr, "AUTO-CAPTURE-SESSION-STDERR")
 		}
 		writeChild(o.SessionStdout, "AUTO-CAPTURE-SESSION-STDOUT")
-		runtimeName := ""
-		if o.Getenv != nil {
-			runtimeName = o.Getenv("YOLO_RUNTIME")
-		}
+		runtimeName := pipelineBackend(o)
 		if runtimeName == "macos-user" {
 			if o.MacosUserRun == nil {
 				t.Error("macos-user capture pipeline did not wire its command runner")

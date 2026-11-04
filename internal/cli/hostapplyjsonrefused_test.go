@@ -45,8 +45,8 @@ func TestHostApplyDryRunEmitsARefusedDocumentWhenHostManagementRefuses(t *testin
 		{"host apply", func(out, errw *bytes.Buffer) int {
 			return hostMain([]string{"apply", "--format", "json"}, out, errw, false, nil)
 		}},
-		{"apply --at host", func(out, errw *bytes.Buffer) int {
-			return applyMain([]string{"--at", "host", "--format", "json"}, out, errw, false, nil)
+		{"apply --setup host-self", func(out, errw *bytes.Buffer) int {
+			return applyMain([]string{"--setup", "host-self", "--format", "json"}, out, errw, false, nil)
 		}},
 	}
 	lists := []string{"inapplicable_kinds", "at_launch_kinds", "failed_packs", "failed_stages",
@@ -125,7 +125,7 @@ func TestHostApplyAssertWithJSONStillRefusesTheFlagWhereHostManagementRefuses(t 
 	for _, mode := range []string{"", "none", "assert"} {
 		for _, argv := range [][]string{
 			{"host", "apply", "--assert", "--format", "json"},
-			{"apply", "--at", "host", "--assert", "--format", "json"},
+			{"apply", "--setup", "host-self", "--assert", "--format", "json"},
 		} {
 			hostManagementRefusedFixture(t, mode)
 			var out, errw bytes.Buffer

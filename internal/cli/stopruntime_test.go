@@ -247,9 +247,9 @@ func TestANoOpStopNamesTheOtherRuntimeWhenItCannotKnow(t *testing.T) {
 			if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 0 {
 				t.Fatalf("rc=%d", rc)
 			}
-			got := strings.Contains(out.String(), "YOLO_RUNTIME=container yolo stop")
+			got := strings.Contains(out.String(), "YOLO_SETUP=apple-container-self yolo stop")
 			if got != tc.want {
-				t.Errorf("named `YOLO_RUNTIME=container yolo stop` = %v, want %v:\n%s", got, tc.want, out.String())
+				t.Errorf("named `YOLO_SETUP=apple-container-self yolo stop` = %v, want %v:\n%s", got, tc.want, out.String())
 			}
 		})
 	}

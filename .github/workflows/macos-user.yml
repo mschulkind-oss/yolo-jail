@@ -423,7 +423,7 @@ jobs:
           # integration/macosusergate_test.go for the mechanism and its own tests
           # (which run on Linux, under -short, on every push).
           YOLO_TEST_MACOS_USER: "1"
-          # DELIBERATELY NO `YOLO_RUNTIME` HERE. The backend is selected PER LAUNCH by
+          # DELIBERATELY NO `YOLO_SETUP` HERE. The backend is selected PER LAUNCH by
           # the fixture (`macosUserRunEnv`), which is the spelling a job-level variable
           # cannot shadow. Setting it here would instead be read by the harness's
           # `detectRuntime`, which would then look for a container image under a name
@@ -667,7 +667,7 @@ jobs:
       # the job name. YOLO_TEST_REAL_PACK_INSTALLS un-skips the install
       # (requireRealPackInstalls); YOLO_TEST_MACOS_USER declares this a macos-user job,
       # so a cell whose subtest SKIPPED exits non-zero instead of passing as green
-      # (integration/macosusergate_test.go). No YOLO_RUNTIME, for the reason the job
+      # (integration/macosusergate_test.go). No YOLO_SETUP, for the reason the job
       # above gives. The probe is the Linux cell's own (packInstallProbe): `<bin>
       # --version` and file reads only, never an agent session or an API call.
       - name: Install ${{ matrix.pack }} from its vendor

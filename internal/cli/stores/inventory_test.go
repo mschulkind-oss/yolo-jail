@@ -131,7 +131,7 @@ func TestTheCopilotRowsNameTheirOwnReclaimers(t *testing.T) {
 		if shared.Reclaimer.Func != "PruneCopilotPkgVersions" || own.Reclaimer.Func != "PruneCopilotPkgVersions" {
 			t.Fatalf("%s: shared %+v, own %+v: want both reclaimed by PruneCopilotPkgVersions", rt, shared.Reclaimer, own.Reclaimer)
 		}
-		if podmanTrigger := strings.Contains(shared.Reclaimer.Trigger, "YOLO_RUNTIME=podman"); podmanTrigger != (rt == "macos-user") {
+		if podmanTrigger := strings.Contains(shared.Reclaimer.Trigger, "YOLO_SETUP=podman-self"); podmanTrigger != (rt == "macos-user") {
 			t.Errorf("%s: the shared copilot row's trigger is %q", rt, shared.Reclaimer.Trigger)
 		}
 		if !strings.Contains(own.Reclaimer.Trigger, "macos-user") {

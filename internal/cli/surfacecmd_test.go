@@ -67,7 +67,7 @@ func TestSurfaceNamespaceIsRegisteredAndDispatches(t *testing.T) {
 
 			argv := append([]string{"surface", tc.verb}, tc.args...)
 			if tc.at {
-				argv = append(argv, "--at", "jail")
+				argv = append(argv, "--setup", "podman-self")
 			}
 			var rc int
 			out, stderr := captureBoth(t, func() { rc = dispatchNative("surface", argv) })
@@ -94,7 +94,7 @@ func TestSurfaceMissingAgentAdviceNamesRegisteredCommands(t *testing.T) {
 		t.Run(verb, func(t *testing.T) {
 			var rc int
 			out, stderr := captureBoth(t, func() {
-				rc = dispatchNative("surface", []string{"surface", verb, "--at", "jail"})
+				rc = dispatchNative("surface", []string{"surface", verb, "--setup", "podman-self"})
 			})
 			want := "yolo surface " + verb + " claude"
 			if rc != 2 || out != "" || !strings.Contains(stderr, want) || strings.Contains(stderr, "yolo config "+verb) {
@@ -131,7 +131,7 @@ func TestRetiredConfigCompositionVerbsRefuseWithSurfaceReplacement(t *testing.T)
 
 			var rc int
 			out, stderr := captureBoth(t, func() {
-				rc = dispatchNative("config", []string{"config", verb, "claude/settings", "--at", "guest", "--help"})
+				rc = dispatchNative("config", []string{"config", verb, "claude/settings", "--setup", "seatbelt-self", "--help"})
 			})
 			want := "yolo config " + verb + " has moved to yolo surface " + verb + "; use `yolo surface " + verb + "` instead.\n"
 			// dispatchNative writes its normal startup line first; the refusal itself must be

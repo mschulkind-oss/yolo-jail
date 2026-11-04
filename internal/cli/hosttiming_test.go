@@ -255,7 +255,7 @@ func TestHostTimingSpansTheServicesStart(t *testing.T) {
 
 // `yolo host apply --timing --format json` TIMES EVERY STAGE AND KEEPS STDOUT ONE DOCUMENT: the
 // table goes to stderr. And every spelling of the request times the same stages: the flag before
-// the verb (`yolo --timing host apply`) and `yolo apply --at host --timing`. The config declares
+// the verb (`yolo --timing host apply`) and `yolo apply --setup host-self --timing`. The config declares
 // `host_management: "own"`: under the unset key (`none` since OQ-CO14) the apply refuses before
 // its first stage.
 func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
@@ -271,8 +271,8 @@ func TestHostApplyTimingKeepsTheDocumentAndTimesEveryStage(t *testing.T) {
 		{"--timing host apply --format json", func(out, errw io.Writer) int {
 			return hostMain([]string{"--timing", "apply", "--format", "json"}, out, errw, false, nil)
 		}},
-		{"apply --at host --timing --format json", func(out, errw io.Writer) int {
-			return applyMain([]string{"--at", "host", "--timing", "--format", "json"}, out, errw, false, nil)
+		{"apply --setup host-self --timing --format json", func(out, errw io.Writer) int {
+			return applyMain([]string{"--setup", "host-self", "--timing", "--format", "json"}, out, errw, false, nil)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -320,7 +320,7 @@ func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 	}{
 		{"host apply --revert --timing", `{"host_management":"none","packs": ["pi"]}`, []string{"apply", "--revert", "--timing"}, false,
 			[]string{"host_apply.revert"}},
-		{"apply --at host --revert --timing", `{"host_management":"none","packs": ["pi"]}`, []string{"--at", "host", "--revert", "--timing"}, true,
+		{"apply --setup host-self --revert --timing", `{"host_management":"none","packs": ["pi"]}`, []string{"--setup", "host-self", "--revert", "--timing"}, true,
 			[]string{"host_apply.revert"}},
 		{"host apply --timing with no pack", `{"host_management": "own"}`, []string{"apply", "--timing"}, false,
 			[]string{"host_apply.pack_refresh", "host_apply.render", "host_apply.wrappers", "host_apply.floor"}},
@@ -356,7 +356,7 @@ func TestHostApplyTimingSpansTheRevertAndTheNoPackApply(t *testing.T) {
 // THE HOST APPLY TAKES THE SAME OPT-INS AS THE LAUNCH (perf-logging.md, "The host notch"): a
 // persistent one (YOLO_TIMING, an inherited YOLO_VERBOSE, `perf_logging`) records the apply's stages in silence,
 // naming the file in one line and printing no table, and a typed --verbose prints the table as
-// --timing does. Each spelling of the verb is asked, since `yolo apply --at host` opens the same
+// --timing does. Each spelling of the verb is asked, since `yolo apply --setup host-self` opens the same
 // surface from its own call site. Every config declares `host_management: "own"`, without which
 // (OQ-CO14's unset `none`) the apply refuses before it renders.
 func TestHostApplyTimingTakesTheLaunchOptIns(t *testing.T) {
@@ -365,8 +365,8 @@ func TestHostApplyTimingTakesTheLaunchOptIns(t *testing.T) {
 		run  func(out, errw io.Writer) int
 	}{
 		{"host apply", func(out, errw io.Writer) int { return hostMain([]string{"apply"}, out, errw, false, nil) }},
-		{"apply --at host", func(out, errw io.Writer) int {
-			return applyMain([]string{"--at", "host"}, out, errw, false, nil)
+		{"apply --setup host-self", func(out, errw io.Writer) int {
+			return applyMain([]string{"--setup", "host-self"}, out, errw, false, nil)
 		}},
 	}
 	for _, sp := range spellings {
@@ -458,7 +458,7 @@ func TestTheHostNotchPerfLogOpensUnderTheSiblingLock(t *testing.T) {
 // flag is refused by name (exit 2), never ignored.
 func TestApplyRefusesTimingAwayFromTheHost(t *testing.T) {
 	timingHome(t, `{}`)
-	for _, argv := range [][]string{{"--timing"}, {"--at", "jail", "--timing"}, {"--sealed", "--timing"}} {
+	for _, argv := range [][]string{{"--timing"}, {"--setup", "podman-self", "--timing"}, {"--sealed", "--timing"}} {
 		var out, errw bytes.Buffer
 		rc := applyMain(argv, &out, &errw, false, nil)
 		if rc != 2 || !strings.Contains(errw.String(), "--timing times the HOST notch's apply") {

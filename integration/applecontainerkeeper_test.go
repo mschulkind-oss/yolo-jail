@@ -269,7 +269,7 @@ func (r *keeperRecord) verdict() {
 // echo of the command itself.
 func keeperSession(t *testing.T, rt, name, dir, body string) *bgRun {
 	t.Helper()
-	r := startYoloBackground(t, name, dir, `echo `+name+`-IN-$((40+2)); `+body, "YOLO_RUNTIME="+rt)
+	r := startYoloBackground(t, name, dir, `echo `+name+`-IN-$((40+2)); `+body, "YOLO_SETUP="+setupForRuntime(rt))
 	awaitOutput(t, r, regexp.MustCompile(name+`-IN-42`))
 	return r
 }
@@ -312,7 +312,7 @@ func stillRunning(r *bgRun) bool {
 }
 
 // keeperEnv is a runYolo option naming the runtime.
-func keeperEnv(rt string) runOption { return withEnv("YOLO_RUNTIME=" + rt) }
+func keeperEnv(rt string) runOption { return withEnv("YOLO_SETUP=" + setupForRuntime(rt)) }
 
 // jailCount counts the jail's processes whose command line begins with prefix, read from /proc
 // in the jail by an exec of its own, so the count is no session. prefix is spelled by this file

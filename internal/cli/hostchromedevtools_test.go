@@ -158,12 +158,12 @@ func TestHostApplyNamesTheRetiredMCPPresetsKey(t *testing.T) {
 	}
 }
 
-// `yolo config render --at host` previews the entry the apply writes.
+// `yolo config render --setup host-self` previews the entry the apply writes.
 func TestConfigRenderAtHostShowsThePacksMCPEntry(t *testing.T) {
 	home := hostComputedHome(t, chromeHostConfig(""))
-	rc, out, errs := runSurfaceVerb(t, "render", "claude/config", "--at", "host")
+	rc, out, errs := runSurfaceVerb(t, "render", "claude/config", "--setup", "host-self")
 	if rc != 0 {
-		t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
+		t.Fatalf("config render --setup host-self rc=%d\n%s%s", rc, out, errs)
 	}
 	if body := previewBody(t, out); !strings.Contains(body, `"chrome-devtools"`) ||
 		!strings.Contains(body, filepath.Join(home, hostChromeWrapperRel)) {

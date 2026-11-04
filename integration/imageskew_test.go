@@ -577,7 +577,7 @@ func skewMessage(image, rt, goos, want, got string) string {
 	// ensureJailImage's !inContainer() arm returns before ever consulting it — so on
 	// the host this message is usually read from, the old first option was a no-op.
 	fmt.Fprintf(&b, "    rebuild + deliver into this runtime:\n")
-	fmt.Fprintf(&b, "        cd %s && YOLO_RUNTIME=%s just load\n", repoRoot, rt)
+	fmt.Fprintf(&b, "        cd %s && YOLO_LOAD_RUNTIME=%s just load\n", repoRoot, rt)
 	fmt.Fprintf(&b, "    rebuild + reload, then run the suite (inside a jail only):\n")
 	fmt.Fprintf(&b, "        %s=1 go test -count=1 -timeout 0 ./integration\n", rebuildEnv)
 	fmt.Fprintf(&b, "    rebuild + reload by hand:\n")

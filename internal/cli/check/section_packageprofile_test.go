@@ -175,15 +175,17 @@ func runCheckOverConfigWith(t *testing.T, cfgJSON string, isMacOS bool, prep fun
 }
 
 // THE GATE IS THE BAKED IMAGE, NOT THE PLATFORM (provisioner-sets.md §9 step 2 / OQ-NX9).
-// Two runs of Check() over identical fixtures — same Linux host, same resolvable GC root,
-// same declared packages — differing only in `confinement`, must disagree about the profile
-// report, because the jail notch composes PrimBakedImage and the host notch does not.
+// Runs of Check() over identical fixtures — same resolvable GC root, same declared packages —
+// differing only in `confinement`, must disagree about the profile report, because the jail
+// notch composes PrimBakedImage and the host notch does not. The guest run is a Mac's: a
+// Linux guest names a Seatbelt setup, which the launch and check both refuse before any
+// package report (TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser).
 //
 // It fails if the gate is removed (the jail run starts naming a closure its image supplies)
 // and it fails if the call leaves Check() (the host run stops reporting at all), which is
 // what the direct-call tests above cannot do.
 func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
-	run := func(t *testing.T, confinement string) (string, string) {
+	run := func(t *testing.T, confinement string, macOS bool) (string, string) {
 		t.Helper()
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -192,11 +194,11 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := `{"confinement": "` + confinement + `", "packages": ["ripgrep"]}`
-		return runCheckOverConfig(t, cfg, false), store
+		return runCheckOverConfig(t, cfg, macOS), store
 	}
 
 	t.Run("jail: the image is the closure, so nothing is reported", func(t *testing.T) {
-		got, store := run(t, "jail")
+		got, store := run(t, "jail", false)
 		if strings.Contains(got, "Declared packages") {
 			t.Errorf("a jail notch composes PrimBakedImage — the profile section must not "+
 				"run, its tools come from the image:\n%s", got)
@@ -208,10 +210,9 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 	})
 
 	t.Run("guest: no image, so the profile is the answer", func(t *testing.T) {
-		got, store := run(t, "guest")
+		got, store := run(t, "guest", true)
 		if !strings.Contains(got, "Declared packages") {
-			t.Errorf("a notch with no baked image must get the packages report on ANY "+
-				"platform — this is Linux:\n%s", got)
+			t.Errorf("a notch with no baked image must get the packages report:\n%s", got)
 		}
 		if !strings.Contains(got, "[PASS]") || !strings.Contains(got, store) {
 			t.Errorf("expected the resolved root reported as a PASS naming %s:\n%s", store, got)
@@ -219,7 +220,7 @@ func TestPackageProfileGateIsTheBakedImageNotThePlatform(t *testing.T) {
 	})
 
 	t.Run("host: inert by design, even with a resolved root", func(t *testing.T) {
-		got, store := run(t, "host")
+		got, store := run(t, "host", false)
 		if !strings.Contains(got, "Declared packages") || !strings.Contains(got, "inert at the `host` notch by design") {
 			t.Errorf("declared packages at the host must be reported inert by design (OQ-NX8):\n%s", got)
 		}
@@ -275,13 +276,21 @@ func TestPackageProfileReportsHostPackagesAsInertWhateverTheRuntime(t *testing.T
 	assertHostPackagesInertByDesign(t, got)
 }
 
-// A Linux guest has no image AND no provisioner, a real gap rather than a design, so it keeps
-// the WARN — and must not borrow the macos-user remedy. "A run materializes it" is true of the
+// A notch with no image AND no provisioner is a real gap rather than a design, so it keeps the
+// WARN — and must not borrow the macos-user remedy. "A run materializes it" is true of the
 // macos-user backend and false here, where nothing builds the profile at all — so this cell
-// states the inertness and says there is nothing to run (report-tiers P2).
+// states the inertness and says there is nothing to run (report-tiers P2). No setup reaches
+// this cell through Check() today: a Linux guest names a Seatbelt setup, refused in Merged
+// Configuration first, so the cell is called directly.
 func TestPackageProfileWarnsThatNothingMaterializesTheDeclaredPackages(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no GC root anywhere under it
-	got := runCheckOverConfig(t, `{"confinement": "guest", "packages": ["ripgrep"]}`, false)
+	var out bytes.Buffer
+	o := &Options{Stdout: &out, IsTTYStdout: func() bool { return false }}
+	fillDefaults(o)
+	r := newReporter(&out, false)
+	r.sectionHeader("Declared packages")
+	o.checkPackageProfile(r, render.KindGuest, false, 1)
+	got := stripANSI(out.String())
 	if !strings.Contains(got, "Declared packages") || !strings.Contains(got, "[WARN]") {
 		t.Fatalf("declared packages at a notch with no package layer must be reported:\n%s", got)
 	}

@@ -48,7 +48,7 @@ echo "=== END DELIVERED ==="
 `
 			launch := func(n int) map[string]string {
 				t.Helper()
-				r := runMacosUser(t, ws, probe)
+				r := runMacosUserAs(t, mode, ws, probe)
 				if r.rc != 0 {
 					t.Fatalf("launch %d failed (rc %d)\nstdout:\n%s\nstderr:\n%s", n, r.rc, r.stdout, r.stderr)
 				}

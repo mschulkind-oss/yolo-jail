@@ -141,7 +141,7 @@ func TestMacosUserPackTreeProgramBuildsOnceAndRebuildsOnChange(t *testing.T) {
 			built := "built program " + macosUserPackTreePack + "/" + macosUserPackTreeBin
 			launch := func(what string) string {
 				t.Helper()
-				r := runMacosUser(t, ws, macosUserPackTreeBin, withHostSemantics())
+				r := runMacosUserAs(t, mode, ws, macosUserPackTreeBin, withHostSemantics())
 				t.Logf("%s (%s):\n%s\nnew store entries: %v", what, mode, r.combined(),
 					newCaptureEntries(t, store, before, macosUserPackTreeBin))
 				if r.rc != 0 {
@@ -196,7 +196,7 @@ func TestMacosUserPackTreeProgramOverrideBuildsTheCheckout(t *testing.T) {
 					setDev(step.version)
 				}
 				want := step.want
-				r := runMacosUser(t, ws, macosUserPackTreeBin, withHostSemantics())
+				r := runMacosUserAs(t, mode, ws, macosUserPackTreeBin, withHostSemantics())
 				out := r.combined()
 				t.Logf("%s, %q:\n%s", mode, step.version, out)
 				if r.rc != 0 || !strings.Contains(out, want) {
@@ -222,7 +222,7 @@ func TestMacosUserPackTreeProgramBuildFailureRefusesOnlyIt(t *testing.T) {
 			requireMacosUser(t)
 			_, ws, _, _ := macosUserPackTreeFixture(t, mode, "echo building; exit 3", "")
 			t.Setenv(paths.AllowMissingProgramsEnv, "")
-			r := runMacosUser(t, ws, "echo SESSION-RAN", withHostSemantics(), withReadiness())
+			r := runMacosUserAs(t, mode, ws, "echo SESSION-RAN", withHostSemantics(), withReadiness())
 			out := r.combined()
 			t.Logf("%s, the broken build:\n%s", mode, out)
 			if r.rc == 0 || strings.Contains(out, "SESSION-RAN") {
@@ -241,7 +241,7 @@ func TestMacosUserPackTreeProgramBuildFailureRefusesOnlyIt(t *testing.T) {
 			if strings.Contains(out, "run it on a container backend") {
 				t.Errorf("the refusal sends a pack-tree build's failure to a container backend")
 			}
-			r = runMacosUser(t, ws, "echo SESSION-RAN", withHostSemantics(), withReadiness(),
+			r = runMacosUserAs(t, mode, ws, "echo SESSION-RAN", withHostSemantics(), withReadiness(),
 				withEnv(paths.AllowMissingProgramsEnv+"=1"))
 			if r.rc != 0 || !strings.Contains(r.combined(), "SESSION-RAN") {
 				t.Fatalf("rc %d: the hatch did not start the sandbox\n%s", r.rc, r.combined())
@@ -282,7 +282,7 @@ func TestMacosUserPackTreeProgramUsesThePrebuiltWithoutSources(t *testing.T) {
 			before := captureEntryNames(t, store)
 			t.Cleanup(func() { removeNewCaptureEntries(t, store, before, macosUserPackTreeBin) })
 			ws := macosUserWorkspace(t, `{}`)
-			r := runMacosUser(t, ws, macosUserPackTreeBin, withHostSemantics(), withReadiness())
+			r := runMacosUserAs(t, mode, ws, macosUserPackTreeBin, withHostSemantics(), withReadiness())
 			out := r.combined()
 			t.Logf("%s:\n%s", mode, out)
 			line := macosUserPackTreeBin + ": prebuilt artifact from pack " + macosUserPackTreePack +

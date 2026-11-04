@@ -38,27 +38,37 @@ func TestCheckOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 	}
 }
 
-// TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser is the control: Linux has no guest
-// backend, so check names no macos-user runtime there and its packages stay inert.
+// TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser is the control: Linux has no Seatbelt,
+// so the setup the removed `confinement: "guest"` key chooses is refused there, in the words a
+// launch refuses it with (setup.Buildable), naming the setup this machine has. check names no
+// macos-user runtime.
 func TestCheckOnLinuxDoesNotResolveTheGuestNotchToMacosUser(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	got := runCheckOverConfig(t, `{"confinement": "guest", "packages": ["ripgrep"]}`, false)
 	if strings.Contains(got, "macos-user'") || strings.Contains(got, "Runtime available: macos-user") {
 		t.Errorf("check over a Linux guest named the macos-user runtime, which Linux lacks:\n%s", got)
 	}
-	if !strings.Contains(got, "nothing materializes") {
-		t.Errorf("a Linux guest has no package layer, so its packages are inert:\n%s", got)
+	for _, want := range []string{
+		`[FAIL] setup "seatbelt-yolo-account" uses Seatbelt, which only macOS has.`,
+		"yolo --setup podman-self -- claude",
+		"The line above names the change that clears it, then: yolo check",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("check over a Linux guest does not say %q, as the launch it predicts does:\n%s", want, got)
+		}
 	}
 }
 
-// TestCheckOnMacOSFailsAGuestWithAContradictingRuntime: the launch refuses guest + a container
-// runtime on macOS, so check fails it in Merged Configuration, naming both inputs and the fix —
-// not as an unavailable runtime pointing back at the Container Runtime section.
+// TestCheckOnMacOSFailsAGuestWithAContradictingRuntime: the removed keys `confinement: "guest"`
+// and `runtime: "podman"` name two different setups, which the launch refuses (config.SelectSetup),
+// so check fails it in Merged Configuration, naming both keys and both setups — not as an
+// unavailable runtime pointing back at the Container Runtime section.
 func TestCheckOnMacOSFailsAGuestWithAContradictingRuntime(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	got := runCheckOverConfig(t, `{"confinement": "guest", "runtime": "podman"}`, true)
-	for _, want := range []string{"[FAIL]", "`confinement: \"guest\"` runs on the macos-user backend",
-		"`runtime: \"podman\"` in the config", "Drop one"} {
+	for _, want := range []string{"[FAIL]",
+		`the removed keys confinement = "guest" and runtime = "podman" in your config name two different setups`,
+		"yolo --setup seatbelt-yolo-account -- claude", "yolo --setup podman-self -- claude"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("check over a contradicting macOS guest does not say %q:\n%s", want, got)
 		}
@@ -74,7 +84,7 @@ func TestCheckOnMacOSFailsAGuestWithAContradictingRuntime(t *testing.T) {
 		t.Errorf("check tells the user to install or start the contradicting runtime, which "+
 			"leaves the launch refused:\n%s", got)
 	}
-	if !strings.Contains(got, "Either change in the line above clears it, then: yolo check") {
+	if !strings.Contains(got, "The line above names the change that clears it, then: yolo check") {
 		t.Errorf("the contradiction FAIL's note does not point back at the line's own two "+
 			"fixes:\n%s", got)
 	}
@@ -97,7 +107,7 @@ func TestCheckOnAMacWithNoContainerRuntimeStillFailsTheContradiction(t *testing.
 				return look(name)
 			}
 		})
-	if !strings.Contains(got, "`confinement: \"guest\"` runs on the macos-user backend") {
+	if !strings.Contains(got, "name two different setups") {
 		t.Errorf("with no container runtime installed, check hid the guest/runtime contradiction:\n%s", got)
 	}
 	if strings.Contains(got, "No runtime available — see Container Runtime above") {

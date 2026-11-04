@@ -10,143 +10,124 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
-// runtimeForCheck resolves the effective runtime
-// without exiting. Returns (runtime, errorMessage). A native (macos-user)
-// selection short-circuits before any which/probe. Only returns container
-// runtimes whose daemon is actually reachable.
+// checkGOOS is the OS check judges setups for, from o.IsMacOS (a test states it).
+func (o *Options) checkGOOS() string {
+	if o.IsMacOS {
+		return "darwin"
+	}
+	return "linux"
+}
+
+// checkSetup is the setup a launch from this workspace would select, through the launch's own
+// call (config.SelectSetup; named-setups-plan.md slice 4a), so check reports the selection a
+// launch makes: a removed YOLO_RUNTIME on the host is the selection's refusal, a YOLO_SETUP
+// naming a Seatbelt setup on Linux is the setup's (setup.Buildable), and a removed config key
+// still chooses its built-in when nothing names a setup.
+func (o *Options) checkSetup(merged *jsonx.OrderedMap) (config.SetupChoice, error) {
+	return config.SelectSetup(config.SetupInputs{
+		Verb:      config.SetupForLaunch,
+		Getenv:    o.Getenv,
+		Merged:    merged,
+		GOOS:      o.checkGOOS(),
+		InSession: o.Getenv("YOLO_VERSION") != "",
+	})
+}
+
+// runtimeForCheck resolves the effective runtime without exiting. Returns (runtime,
+// errorMessage). A native (macos-user) setup short-circuits before any which/probe. Only returns
+// container runtimes whose daemon is actually reachable.
 func (o *Options) runtimeForCheck(config *jsonx.OrderedMap) (string, string) {
 	rt, msg, _ := o.resolveRuntimeForCheck(config)
 	return rt, msg
 }
 
-// resolveRuntimeForCheck is runtimeForCheck plus the one fact Merged Configuration needs to
-// avoid counting a cause twice: unavailable is true when the error is that a CONTAINER
-// runtime is not on PATH or not connected, which the Container Runtime section has already
-// probed and graded. A native-runtime error (macos-user named on a non-Mac) is a config
-// finding that section never makes, so it is not "unavailable", and neither is a runtime that
-// contradicts the guest notch (guestRuntimeConflict), whose fix is in the config whatever
-// that section found.
-func (o *Options) resolveRuntimeForCheck(config *jsonx.OrderedMap) (rt, msg string, unavailable bool) {
-	rt, msg = o.resolveRuntime(config)
-	if msg == "" {
+// resolveRuntimeForCheck is the launch's setup gate predicted (internal/cli/run/setupgate.go):
+// the selected setup, refused as a launch refuses it, then its runtime installed and answering.
+// unavailable is the one fact Merged Configuration needs to avoid counting a cause twice: true
+// when the error is that the setup's CONTAINER runtime is not on PATH or not connected, which
+// the Container Runtime section has already probed and graded. A refusal of the selection itself
+// (a removed input, a setup this OS does not have, a host setup) is a config finding that
+// section never makes, so it is not "unavailable".
+func (o *Options) resolveRuntimeForCheck(merged *jsonx.OrderedMap) (rt, msg string, unavailable bool) {
+	choice, err := o.checkSetup(merged)
+	if err != nil {
+		return "", err.Error(), false
+	}
+	if choice.Setup.Kind() == setup.KindHost {
+		return "", "", false // `yolo host` runs it, with no runtime to grade
+	}
+	s := choice.Setup
+	if err := setup.Buildable(s, o.checkGOOS(), nil); err != nil {
+		return "", err.Error(), false
+	}
+	rt = s.Backend()
+	if inStrSlice(paths.NativeRuntimes, rt) {
 		return rt, "", false
 	}
-	if o.guestRuntimeConflict(config) != "" {
-		return rt, msg, false
+	if _, ok := o.LookPath(rt); !ok {
+		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not on PATH", true
 	}
-	return rt, msg, !inStrSlice(paths.NativeRuntimes, o.configuredRuntimeName(config))
+	// A `container` on PATH is not always Apple's: the name is generic. Asked, never assumed,
+	// by the probe a launch's setup gate runs too, and a binary that is not it is a finding
+	// with the launch's own next step, not a reason to grade another runtime.
+	if err := setup.CheckAppleContainer(s, o.checkGOOS(), o.LookPath, o.appleContainerVersionOutput); err != nil {
+		return "", err.Error(), false
+	}
+	if !o.runtimeIsConnectable(rt) {
+		return "", "Runtime '" + rt + "' for setup " + s.Name + " is not connected", true
+	}
+	return rt, "", false
 }
 
-// configuredRuntimeName is the runtime YOLO_RUNTIME, the config, or the notch names, "" when
-// none names a known one — config.SelectedRuntime, the precedence resolveRuntime applies. The
-// notch names one only for a macOS guest (macos-user, env-manager plan EMP-D1).
+// configuredRuntimeName is the runtime of the setup a launch would select (containerSetup's for
+// a host setup), "" when the selection refuses or names one this OS does not have (a Seatbelt
+// setup on Linux): the backend a launch from here would run.
 func (o *Options) configuredRuntimeName(merged *jsonx.OrderedMap) string {
-	rt, _ := config.SelectedRuntime(o.Getenv("YOLO_RUNTIME"), merged,
-		config.ResolveConfinement(merged), o.IsMacOS)
-	return rt
-}
-
-// guestRuntimeConflict is the launch's notch-gate refusal predicted: on macOS the guest notch
-// runs on macos-user, and an explicit YOLO_RUNTIME or `runtime` naming a container runtime is a
-// launch refuseUnbuiltNotch refuses (internal/cli/run/run.go). It returns the finding, "" when
-// there is none. check has no `--at`, so the notch is the config's.
-func (o *Options) guestRuntimeConflict(merged *jsonx.OrderedMap) string {
-	rt, src, conflict := config.NotchRuntimeConflict(o.Getenv("YOLO_RUNTIME"), merged,
-		config.ResolveConfinement(merged), o.IsMacOS)
-	if !conflict {
+	choice, err := o.checkSetup(merged)
+	if err != nil {
 		return ""
 	}
-	named, keep := "`runtime: \""+rt+"\"` in the config", "remove that `runtime` key"
-	if src == config.RuntimeFromEnv {
-		named, keep = "YOLO_RUNTIME="+rt, "unset YOLO_RUNTIME"
+	s := o.containerSetup(choice.Setup)
+	if setup.Buildable(s, o.checkGOOS(), nil) != nil {
+		return ""
 	}
-	return "`confinement: \"guest\"` runs on the " + config.GuestRuntime + " backend on macOS, " +
-		"and " + named + " asks for " + rt + " instead, so a launch refuses. Drop one: " + keep +
-		" to launch the guest notch, or set `confinement` to \"jail\" for a " + rt + " jail"
+	return s.Backend()
 }
 
-func (o *Options) resolveRuntime(merged *jsonx.OrderedMap) (string, string) {
-	if msg := o.guestRuntimeConflict(merged); msg != "" {
-		return "", msg
+// containerSetup is the setup whose runtime check grades: s, except that a host setup (a
+// workspace whose removed `confinement` key says "host", or a user default of host-self) is
+// `yolo host`'s and needs no runtime, so the runtime graded is the OS default's, which a launch
+// from here names with --setup. check reports a host setup's own facts (its packages inert by
+// design) in the sections that read the notch, never as a runtime refusal.
+func (o *Options) containerSetup(s setup.Setup) setup.Setup {
+	if s.Kind() == setup.KindHost {
+		return setup.Default(o.checkGOOS())
 	}
-	env := o.Getenv("YOLO_RUNTIME")
-	if env != "" && inStrSlice(paths.AllRuntimes, env) {
-		if rt, errMsg, native := o.nativeRuntimeCheck(env, "YOLO_RUNTIME"); native {
-			return rt, errMsg
-		}
-		if _, ok := o.LookPath(env); ok {
-			if o.runtimeIsConnectable(env) {
-				return env, ""
-			}
-			return "", "Configured runtime '" + env + "' from YOLO_RUNTIME is not connected"
-		}
-		return "", "Configured runtime '" + env + "' from YOLO_RUNTIME is not on PATH"
-	}
-
-	cfg := runtimeKey(merged)
-	if cfg != "" && inStrSlice(paths.AllRuntimes, cfg) {
-		if rt, errMsg, native := o.nativeRuntimeCheck(cfg, "yolo-jail.jsonc"); native {
-			return rt, errMsg
-		}
-		if _, ok := o.LookPath(cfg); ok {
-			if o.runtimeIsConnectable(cfg) {
-				return cfg, ""
-			}
-			return "", "Configured runtime '" + cfg + "' from yolo-jail.jsonc is not connected"
-		}
-		return "", "Configured runtime '" + cfg + "' from yolo-jail.jsonc is not on PATH"
-	}
-
-	// THE NOTCH'S OWN BACKEND, the launch's next input (run's resolveRuntime): a macOS guest
-	// runs on macos-user with no `runtime` key. Platform-aware, so a Linux guest — which a
-	// launch refuses for its own reason — falls through to the probe as it always has.
-	if rt := config.NotchRuntime(config.ResolveConfinement(merged), o.IsMacOS); rt != "" {
-		return rt, ""
-	}
-
-	var candidates []string
-	if o.IsMacOS {
-		candidates = []string{"container", "podman"}
-	} else {
-		candidates = []string{"podman"}
-	}
-	var stopped []string
-	for _, rt := range candidates {
-		path, ok := o.LookPath(rt)
-		if !ok {
-			continue
-		}
-		if rt == "container" && !o.isAppleContainer(path) {
-			continue
-		}
-		if !o.runtimeIsConnectable(rt) {
-			stopped = append(stopped, rt)
-			continue
-		}
-		return rt, ""
-	}
-	// "Not on PATH" only when it is true: a runtime that is on PATH but does not answer is
-	// a different finding with a different fix (start it, not install it).
-	if len(stopped) > 0 {
-		return "", "Container runtime installed but not connected (" + strings.Join(stopped, ", ") + ")"
-	}
-	return "", "No container runtime found on PATH"
+	return s
 }
 
-// nativeRuntimeCheck reports whether rt is a native runtime. The third return is true when
-// rt is a native runtime (the caller should use the returned rt/errMsg); false
-// means "not native, continue normal resolution".
-func (o *Options) nativeRuntimeCheck(rt, source string) (string, string, bool) {
-	if !inStrSlice(paths.NativeRuntimes, rt) {
-		return "", "", false
+// explicitRuntimeName is configuredRuntimeName when something NAMED the setup (--setup has no
+// check spelling, so YOLO_SETUP, the user config's `setup`, or a removed key), "" for the OS
+// default: the runtime whose being offline is a finding of its own.
+func (o *Options) explicitRuntimeName(merged *jsonx.OrderedMap) string {
+	if choice, err := o.checkSetup(merged); err != nil || choice.Source == setup.FromDefault {
+		return ""
 	}
-	if !o.IsMacOS {
-		return "", "Runtime '" + rt + "' from " + source + " is macOS-only " +
-			"(native user + Seatbelt); this host is not macOS.", true
+	return o.configuredRuntimeName(merged)
+}
+
+// appleContainerVersionOutput is what `container --version` prints, for setup.CheckAppleContainer,
+// and whether it ran. It runs the name, as runtimeIsConnectable does, so both ask the binary a
+// launch would run.
+func (o *Options) appleContainerVersionOutput(string) (string, bool) {
+	res := o.Exec([]string{"container", "--version"}, "", nil, 5*time.Second)
+	if !res.Ran || res.Timeout {
+		return "", false
 	}
-	return rt, "", true
+	return res.Stdout + res.Stderr, true
 }
 
 // runtimeIsConnectable reports whether the daemon answers. Podman asks podmanGate, the
@@ -163,17 +144,6 @@ func (o *Options) runtimeIsConnectable(rt string) bool {
 	return res.RC == 0 && strings.Contains(strings.ToLower(res.Stdout), "running")
 }
 
-// isAppleContainer reports whether the binary is Apple's container
-// CLI (not some other `container`).
-func (o *Options) isAppleContainer(path string) bool {
-	res := o.Exec([]string{path, "--version"}, "", nil, 5*time.Second)
-	if !res.Ran || res.Timeout {
-		return false
-	}
-	out := res.Stdout + res.Stderr
-	return strings.Contains(out, "Apple") || strings.Contains(out, "container CLI version")
-}
-
 // detectRuntimeForListing returns the first SUPPORTED
 // runtime on PATH, or "".
 func (o *Options) detectRuntimeForListing() string {
@@ -185,9 +155,10 @@ func (o *Options) detectRuntimeForListing() string {
 	return ""
 }
 
-// detectRuntime returns YOLO_RUNTIME or "podman".
+// detectRuntime is the runtime of the setup a launch would select with no workspace config,
+// else "podman".
 func (o *Options) detectRuntime() string {
-	if v := o.Getenv("YOLO_RUNTIME"); v != "" {
+	if v := o.configuredRuntimeName(nil); v != "" {
 		return v
 	}
 	return "podman"

@@ -12,8 +12,8 @@ import (
 func cachedGoodEnv(value string) func(string) string {
 	return func(key string) string {
 		switch key {
-		case "YOLO_RUNTIME":
-			return "podman"
+		case "YOLO_SETUP":
+			return testSetupForRuntime("podman")
 		case CachedGoodEnv:
 			return value
 		default:

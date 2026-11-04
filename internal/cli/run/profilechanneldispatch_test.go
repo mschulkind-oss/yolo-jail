@@ -48,8 +48,8 @@ func zaiNativeLaunch(t *testing.T, withKey bool) (*Options, *bytes.Buffer) {
 	o.Args = []string{"claude"}
 	o.ProfileName = "zai"
 	o.Getenv = func(name string) string {
-		if name == "YOLO_RUNTIME" {
-			return "macos-user"
+		if name == "YOLO_SETUP" {
+			return testSetupForRuntime("macos-user")
 		}
 		if name == "ZAI_API_KEY" && withKey {
 			return "tok-shell"
@@ -139,8 +139,8 @@ func TestProfileChannelPreflightRefusesTheMacosUserLaunch(t *testing.T) {
 	// continuation rather than a second refusal.
 	o, stderr = zaiNativeLaunch(t, false)
 	o.Getenv = func(name string) string {
-		if name == "YOLO_RUNTIME" {
-			return "macos-user"
+		if name == "YOLO_SETUP" {
+			return testSetupForRuntime("macos-user")
 		}
 		if name == paths.AllowMissingProvidersEnv {
 			return "1"
@@ -234,8 +234,8 @@ func TestRunRefusesAnUnresolvableProviderAddress(t *testing.T) {
 	o.Args = []string{"claude"}
 	o.ProfileName = "zai"
 	o.Getenv = func(name string) string {
-		if name == "YOLO_RUNTIME" {
-			return "macos-user"
+		if name == "YOLO_SETUP" {
+			return testSetupForRuntime("macos-user")
 		}
 		if name == "ZAI_API_KEY" {
 			return "tok-shell" // the credential is fine; the ADDRESS is what refuses

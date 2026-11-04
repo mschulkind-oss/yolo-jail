@@ -145,7 +145,7 @@ func TestTheMacosUserArmRefusesARelocationIntoAHome(t *testing.T) {
 	})
 	for _, want := range []string{"cannot deliver every cache_relocations entry",
 		"~/.cache/huggingface → " + target, "inside the home folder " + filepath.Join(users, "alice"),
-		"`runtime: \"podman\"`", "~/.config/yolo-jail/config.jsonc"} {
+		"`yolo --setup podman-self`, which mounts it instead", "~/.config/yolo-jail/config.jsonc"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}
@@ -375,7 +375,7 @@ func TestTheRunAsYouArmGrantsACreatedTargetNothing(t *testing.T) {
 	var grants *[][]string
 	ctx, out := runMacosUserCapturingCtx(t, floortest.ResolvedTemp(t), func(o *Options) {
 		grants = grantRecorder(o, 0, "")
-		o.MacosUserMode = macosuser.ModeSelf
+		selectMacosUserMode(o, macosuser.ModeSelf)
 	})
 	if len(ctx.Relocations) != 1 || !ctx.Relocations[0].Created {
 		t.Fatalf("the backend was handed %+v\n%s", ctx.Relocations, out)

@@ -175,9 +175,9 @@ func TestAMacosUserLaunchRefusesAPatchedForkWithNoBuild(t *testing.T) {
 		// PF-D97: the container backends, which build it for linux, before starting without it, in
 		// the hatch list's own one-column format (patchrecovery.Lines).
 		"\nStart anyway:\n" +
-			"  YOLO_RUNTIME=container yolo           launch on Apple Container\n" +
-			"  YOLO_RUNTIME=podman yolo              launch on podman\n" +
-			"  YOLO_ALLOW_MISSING_PROGRAMS=1 yolo    start without it\n"} {
+			"  YOLO_SETUP=apple-container-self yolo    launch on Apple Container\n" +
+			"  YOLO_SETUP=podman-self yolo             launch on podman\n" +
+			"  YOLO_ALLOW_MISSING_PROGRAMS=1 yolo      start without it\n"} {
 		if !strings.Contains(r.out, w) {
 			t.Errorf("the refusal lacks %q:\n%s", w, r.out)
 		}
@@ -186,7 +186,7 @@ func TestAMacosUserLaunchRefusesAPatchedForkWithNoBuild(t *testing.T) {
 	if r.rc != 0 || !r.ran {
 		t.Fatalf("with %s=1: Run() = %d, backend ran %v:\n%s", paths.AllowMissingProgramsEnv, r.rc, r.ran, r.out)
 	}
-	if d := handedOnMacosUser(t, r.env)["tool"]; d.Key != "" || !strings.Contains(d.Reason, "YOLO_RUNTIME=container yolo") ||
+	if d := handedOnMacosUser(t, r.env)["tool"]; d.Key != "" || !strings.Contains(d.Reason, "YOLO_SETUP=apple-container-self yolo") ||
 		!strings.Contains(d.Reason, "YOLO_ALLOW_MISSING_PROGRAMS=1 yolo") {
 		t.Errorf("the sandbox is handed %+v for tool, want the reason and the macOS ways out", d)
 	}
@@ -205,9 +205,9 @@ func TestAMacosUserPatchFailureWithNoBuildNamesTheContainerBackends(t *testing.T
 		t.Fatalf("Run() = %d, backend ran %v: a patch failure with no build did not refuse:\n%s", r.rc, r.ran, r.out)
 	}
 	for _, w := range []string{"ERROR: fork forkpack/tool: patch series does not apply",
-		"  YOLO_RUNTIME=container yolo           launch on Apple Container\n" +
-			"  YOLO_RUNTIME=podman yolo              launch on podman\n" +
-			"  YOLO_ALLOW_MISSING_PROGRAMS=1 yolo    start without it\n"} {
+		"  YOLO_SETUP=apple-container-self yolo    launch on Apple Container\n" +
+			"  YOLO_SETUP=podman-self yolo             launch on podman\n" +
+			"  YOLO_ALLOW_MISSING_PROGRAMS=1 yolo      start without it\n"} {
 		if !strings.Contains(r.out, w) {
 			t.Errorf("the refusal lacks %q:\n%s", w, r.out)
 		}

@@ -22,8 +22,8 @@ func macosUserStorePackagesOutput(t *testing.T, val string) (string, bool) {
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.Getenv = func(k string) string {
 		switch k {
-		case "YOLO_RUNTIME":
-			return "macos-user"
+		case "YOLO_SETUP":
+			return testSetupForRuntime("macos-user")
 		case StorePackagesOptInEnv:
 			return val
 		}

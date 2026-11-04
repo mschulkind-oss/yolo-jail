@@ -222,7 +222,7 @@ func TestMacosUserRefusalOffersTheOptionalSpelling(t *testing.T) {
 		`{"host": "` + notes + `", "mode": "ro", "optional": true}`,
 		`{"host": "` + notes + `", "at": "/ctx/n2", "mode": "ro", "optional": true}`,
 		"copy the folder under " + macosuser.SharedRootDefault(),
-		`"runtime": "podman"`,
+		"use a container setup: yolo --setup podman-self -- claude",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal did not say %q:\n%s", want, out)
