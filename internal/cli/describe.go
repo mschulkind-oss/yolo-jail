@@ -35,7 +35,9 @@ func runDescribe(args []string) int {
 
 func describeMain(args []string, out, errw io.Writer, color bool) int {
 	var asJSON, asHash bool
-	for _, a := range args {
+	var setupName string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case isHelpToken(a):
 			io.WriteString(out, describeUsage+"\n")
@@ -44,6 +46,13 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 			asJSON = true
 		case a == "--hash":
 			asHash = true
+		case a == "--setup" || hasPrefix(a, "--setup="):
+			fl, _ := readValueFlag(args, i, "--setup")
+			if fl.err != nil {
+				fmt.Fprintf(errw, "yolo describe: %v (a setup's name; `yolo setup list` names them)\n", fl.err)
+				return 2
+			}
+			setupName, i = fl.value, fl.last
 		default:
 			fmt.Fprintf(errw, "yolo describe: unexpected argument %q\n\n%s\n", a, describeUsage)
 			return 2
@@ -58,6 +67,19 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 	if err != nil {
 		fmt.Fprintf(errw, "yolo describe: %v\n", err)
 		return 1
+	}
+	// THE SETUP a launch from here would select (config.SelectSetup, the one selection every
+	// verb shares): --setup, then YOLO_SETUP, then the user's `setup`, then the OS default. Its
+	// warnings (an inherited YOLO_SETUP ignored, a removed YOLO_RUNTIME or key) go to stderr in
+	// every output mode, as a launch prints them. A refused --setup is misuse, exit 2, as apply
+	// treats it; a refusal the environment or config makes is reported below, and describe goes on.
+	choice, serr := selectedSetupFlag(cfg, setupName)
+	for _, w := range choice.Warnings {
+		fmt.Fprintln(errw, w)
+	}
+	if serr != nil && setupName != "" {
+		fmt.Fprintf(errw, "yolo describe: %v\n", serr)
+		return 2
 	}
 
 	if asJSON {
@@ -77,11 +99,10 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 
 	// Human summary. Deliberately compact — the machine-readable answer is --json.
 	pr := richtext.Printer{W: out, Color: color}
-	// THE SETUP a launch from here would select (config.SelectSetup, the one selection every
-	// verb shares), and the notch and mechanism below are ITS: YOLO_SETUP and the user's `setup`
-	// move describe as they move the launch. A selection the launch would refuse is printed with
-	// its refusal, which names the next step, and describe goes on at the jail notch.
-	choice, serr := selectedSetup(cfg)
+	// The notch and mechanism below are the selected setup's: --setup, YOLO_SETUP and the
+	// user's `setup` move describe as they move the launch. A selection the launch would refuse
+	// is printed with its refusal, which names the next step, and describe goes on at the jail
+	// notch.
 	notch := render.KindJail
 	if serr != nil {
 		pr.Printf("[bold]setup[/bold]        [red]none[/red] — a launch from here refuses: %s", richtext.Escape(serr.Error()))
@@ -299,6 +320,8 @@ environment resolves to. It is meant to be a thing you can hold and compare.
                          profile below the jail notch, packs, description hash)
   yolo describe --json   the full canonical computed config (supersedes 'config dump')
   yolo describe --hash   a sha256 pin over the canonical config, for CI / cache keys
+  --setup <name>         describe for that setup instead of the one a launch from here
+                         selects (` + "`yolo setup list`" + ` names them)
 
 The hash is printed MARKED as unsealed: until 'yolo apply --sealed' (which refuses any
 undeclared input), the environment can differ from its description in ways the hash

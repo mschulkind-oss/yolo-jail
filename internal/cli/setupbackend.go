@@ -52,8 +52,15 @@ func selectedSetupBackend(merged *jsonx.OrderedMap) string {
 // platform, through config.SelectSetup: the setup, where it came from, and the lines a launch
 // would warn. An error is the launch's refusal; a read-only verb reports it and goes on.
 func selectedSetup(merged *jsonx.OrderedMap) (config.SetupChoice, error) {
+	return selectedSetupFlag(merged, "")
+}
+
+// selectedSetupFlag is selectedSetup for a verb given `--setup flag` ("" for none), which wins
+// over everything else, as it does for a launch.
+func selectedSetupFlag(merged *jsonx.OrderedMap, flag string) (config.SetupChoice, error) {
 	return config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
+		Flag:      flag,
 		Getenv:    os.Getenv,
 		Merged:    merged,
 		GOOS:      platformGOOS(),
