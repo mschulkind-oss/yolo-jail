@@ -163,25 +163,29 @@ func TestPsEnumerationFailureDoesNotPrune(t *testing.T) {
 }
 
 // TestDetectListingRuntimeHonorsConfig covers audit finding 5: `yolo ps` (and
-// prune) never consulted the workspace `runtime` key. detectListingRuntime now
-// loads the config and feeds runtime.ResolveRuntime, so a workspace pinned to
-// Apple Container resolves to "container" even on the Linux test host (config
-// precedence wins before the platform branch). RED before the commands.go wiring
-// (detectListingRuntime did not exist and ps loaded no config).
+// prune) never consulted the config. detectListingRuntime reads the setup a launch
+// selects, so the user config's `setup` naming a Seatbelt setup lists macos-user
+// even on the Linux test host. RED before the commands.go wiring (detectListingRuntime
+// did not exist and ps loaded no config).
 func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("YOLO_RUNTIME", "")
 	os.Unsetenv("YOLO_RUNTIME")
-	// `macos-user` rather than `container` on purpose. The probe can return ONLY podman or
-	// container, so pinning to container made this assertion VACUOUS wherever the platform
-	// default already was container — verified on a macOS host with Apple Container
-	// installed, where deleting the config lookup outright still passed. macos-user is in
-	// AllRuntimes but is never auto-detected on any platform, so the assertion can only be
-	// satisfied by config precedence actually working.
-	ws := t.TempDir()
-	if err := os.WriteFile(ws+"/yolo-jail.jsonc", []byte(`{"runtime":"macos-user"}`), 0o644); err != nil {
+	t.Setenv("YOLO_SETUP", "")
+	// A Seatbelt setup rather than apple-container-self on purpose. The probe can return
+	// ONLY podman or container, so pinning to container made this assertion VACUOUS
+	// wherever the platform default already was container — verified on a macOS host with
+	// Apple Container installed, where deleting the config lookup outright still passed.
+	// macos-user is never auto-detected on any platform, so the assertion can only be
+	// satisfied by the selection actually reading the config.
+	if err := os.MkdirAll(home+"/.config/yolo-jail", 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(home+"/.config/yolo-jail/config.jsonc", []byte(`{"setup":"seatbelt-yolo-account"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := t.TempDir()
 	if got := detectListingRuntime(ws); got != "macos-user" {
 		t.Errorf("detectListingRuntime honoring config = %q, want macos-user", got)
 	}
@@ -196,6 +200,7 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 	// runtime.TestResolveRuntimeConfigAware; what belongs HERE is that a config-less
 	// workspace reaches the probe at all instead of the previous line's "container"
 	// leaking across, which is the wiring audit finding 5 was about.
+	t.Setenv("HOME", t.TempDir()) // no user config, so no `setup`
 	empty := t.TempDir()
 	want := runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
 		_, err := exec.LookPath(bin)

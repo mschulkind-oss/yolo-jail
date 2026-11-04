@@ -97,8 +97,7 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		}
 	}
 
-	cfg, err := config.LoadConfig("", false, func(string) {})
-	if err != nil {
+	if _, err := config.LoadConfig("", false, func(string) {}); err != nil {
 		fmt.Fprintf(errw, "yolo apply: %v\n", err)
 		return 1
 	}
@@ -114,7 +113,6 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		Verb:      config.SetupForLaunch,
 		Flag:      setupName,
 		Getenv:    os.Getenv,
-		Merged:    cfg,
 		GOOS:      platformGOOS(),
 		InSession: os.Getenv("YOLO_VERSION") != "",
 	})
@@ -198,16 +196,27 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 		// the drift docs/design/declaration-parity.md exists to name. The verb is the
 		// parameter; the next step is this verb's own.
 		pr.Printf("[yellow]%s[/yellow]", render.NotchUnbuilt("apply"))
-		// THE JAIL STEP DEPENDS ON THE CONFIG, not on whether `--setup` was typed: a bare
-		// launch reads the config's `confinement`, so where that says guest `yolo -- <cmd>`
-		// refuses as this verb does, and the step is the config edit (or `--setup` for one
-		// launch).
+		// THE JAIL STEP DEPENDS ON WHAT A BARE LAUNCH SELECTS, not on whether `--setup` was
+		// typed: where YOLO_SETUP or the user's `setup` names the Seatbelt setup, `yolo -- <cmd>`
+		// refuses as this verb does, and the step is the change that moves it (or `--setup` for
+		// one launch).
 		jailSetup := setup.Default(platformGOOS()).Name
 		jail := "the default setup, " + jailSetup + ", launches here with `yolo -- <cmd>` " +
 			"(`yolo apply` alone points at that launch)"
-		if config.ResolveConfinement(cfg) == config.ConfinementGuest {
-			jail = "remove `confinement` from your config and `yolo -- <cmd>` launches the " +
-				"default setup here, or `yolo --setup " + jailSetup + " -- <cmd>` launches it once"
+		bare, berr := config.SelectSetup(config.SetupInputs{
+			Verb:      config.SetupForLaunch,
+			Getenv:    os.Getenv,
+			GOOS:      platformGOOS(),
+			InSession: os.Getenv("YOLO_VERSION") != "",
+		})
+		if berr == nil && setupNotch(bare.Setup) == config.ConfinementGuest {
+			move := "`yolo config set setup " + jailSetup + " --user`"
+			if bare.Source == setup.FromEnv {
+				move = "unsetting " + setup.EnvVar
+			}
+			jail = bare.Setup.Name + " is selected by " + bare.From() + ", so `yolo -- <cmd>` refuses too: " +
+				move + " makes it launch the default setup here, or `yolo --setup " + jailSetup +
+				" -- <cmd>` launches it once"
 		}
 		pr.Printf("[dim]Instead: %s; `yolo host -- <cmd>` runs a command on the real machine "+
 			"with no sandbox, and `yolo apply --setup host-self` renders your config into your "+

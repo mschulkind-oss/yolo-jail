@@ -20,7 +20,7 @@ const stopMonitorTestExecID = "exec-session-42"
 // This front-door regression requires the actual force-removal caller to invoke the real helper.
 // Deleting that production call leaves the container present and makes runStop fail.
 func TestRunStopForceRecoversUnresolvedRunningContainerThroughPinnedExecMonitor(t *testing.T) {
-	cname, _ := stopWorkspace(t, `{"runtime":"podman"}`)
+	cname, _ := stopWorkspace(t, "podman-self")
 	shrinkStopGone(t)
 	procRoot, conmonPath := writeStopMonitorProcFixture(t)
 	savedOps := stopMonitorProcessOps
@@ -91,7 +91,7 @@ func TestRunStopForceRecoversUnresolvedRunningContainerThroughPinnedExecMonitor(
 }
 
 func TestRunStopForceRecoversUnresolvedTypedLeftoverThroughPinnedExecMonitor(t *testing.T) {
-	cname, finished := stopWorkspace(t, `{"runtime":"podman"}`)
+	cname, finished := stopWorkspace(t, "podman-self")
 	shrinkStopGone(t)
 	procRoot, conmonPath := writeStopMonitorProcFixture(t)
 	savedOps := stopMonitorProcessOps

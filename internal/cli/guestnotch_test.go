@@ -2,13 +2,13 @@ package cli
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // guestnotch_test.go pins the host-side verbs of a Seatbelt setup (the guest notch; env-manager
@@ -36,7 +36,7 @@ func onPlatform(t *testing.T, macOS bool) {
 // the flag when the setup came from it, and needs none when the config chose it.
 func TestApplyAtASeatbeltSetupOnMacOSPointsAtTheLaunch(t *testing.T) {
 	onPlatform(t, true)
-	_, repo := withHomeAndCwd(t)
+	home, repo := withHomeAndCwd(t)
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
 
 	var out, errw bytes.Buffer
@@ -56,8 +56,8 @@ func TestApplyAtASeatbeltSetupOnMacOSPointsAtTheLaunch(t *testing.T) {
 			"the setup launches there:\n%s", got)
 	}
 
-	// From the config: the launch to run is the bare one.
-	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
+	// From the user config's `setup`: the launch to run is the bare one.
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"setup":"seatbelt-yolo-account"}`)
 	out.Reset()
 	errw.Reset()
 	if rc := applyMain(nil, &out, &errw, false, nil); rc != 0 {
@@ -90,14 +90,16 @@ func TestApplyAtASeatbeltSetupOnLinuxRefusesAndNamesTheNextStep(t *testing.T) {
 }
 
 // TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit: when the Seatbelt setup comes from the
-// removed `confinement` key, the bare launch is not a next step — `yolo -- <cmd>` reads the same
-// config and refuses too — so the step is the config edit (or `--setup podman-self` for one
-// launch), with or without a `--setup` typed over it. The host verbs stay offered.
+// user config's `setup` key, the bare launch is not a next step — `yolo -- <cmd>` reads the same
+// config and refuses too — so the step is the `yolo config set setup` that moves it (or
+// `--setup podman-self` for one launch), with or without a `--setup` typed over it. The host
+// verbs stay offered.
 func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
 	onPlatform(t, false)
 	for _, args := range [][]string{nil, {"--setup", "seatbelt-yolo-account"}} {
-		_, repo := withHomeAndCwd(t)
-		writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
+		home, repo := withHomeAndCwd(t)
+		writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
+		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"setup":"seatbelt-yolo-account"}`)
 
 		var out, errw bytes.Buffer
 		if rc := applyMain(args, &out, &errw, false, nil); rc != 1 {
@@ -106,7 +108,8 @@ func TestApplyAtAConfiguredGuestOnLinuxNamesTheConfigEdit(t *testing.T) {
 		}
 		got := out.String()
 		for _, want := range []string{render.NotchUnbuilt("apply"),
-			"remove `confinement` from your config", "`yolo --setup podman-self -- <cmd>`",
+			"seatbelt-yolo-account is selected by your user config", "`yolo config set setup podman-self --user`",
+			"`yolo --setup podman-self -- <cmd>`",
 			"yolo host -- <cmd>", "yolo apply --setup host-self"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("apply %v: the refusal does not say %q:\n%s", args, want, got)
@@ -154,8 +157,9 @@ func TestConfigAtASeatbeltSetupNamesWhatItCanRead(t *testing.T) {
 // json` stays the host setup's alone at a macOS Seatbelt setup too — rc 2 and nothing on stdout.
 func TestApplyAtGuestStillRefusesJSONOnMacOS(t *testing.T) {
 	onPlatform(t, true)
-	_, repo := withHomeAndCwd(t)
-	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
+	home, repo := withHomeAndCwd(t)
+	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{}`)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"setup":"seatbelt-yolo-account"}`)
 
 	var out, errw bytes.Buffer
 	if rc := applyMain([]string{"--format", "json"}, &out, &errw, false, nil); rc != 2 {
@@ -166,8 +170,8 @@ func TestApplyAtGuestStillRefusesJSONOnMacOS(t *testing.T) {
 	}
 }
 
-// TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser: with no `runtime` key, describe resolves
-// a macOS Seatbelt setup's mechanism to macos-user — the separate user and Seatbelt, and a
+// TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser: describe resolves the user config's
+// Seatbelt setup's mechanism on macOS to macos-user — the separate user and Seatbelt, and a
 // package profile a run materializes. The packages line is the discriminator: the vector alone
 // is the macOS guest preset either way, while "a run materializes it" is true only of the
 // backend that builds the profile, which the mechanism names.
@@ -176,7 +180,7 @@ func TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 	home, _ := withHomeAndCwd(t)
 	t.Setenv("YOLO_SETUP", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"confinement":"guest","packages":["ripgrep"]}`)
+		`{"setup":"seatbelt-yolo-account","packages":["ripgrep"]}`)
 
 	var out, errw bytes.Buffer
 	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
@@ -195,42 +199,51 @@ func TestDescribeOnMacOSResolvesTheGuestNotchToMacosUser(t *testing.T) {
 	}
 }
 
-// TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned is the control: a Seatbelt setup has no
-// backend on Linux, so describe still calls its declared packages inert, and never resolves the
-// mechanism to macos-user (selectedSetupBackend's OS check).
-func TestDescribeOnLinuxLeavesTheGuestNotchUnprovisioned(t *testing.T) {
-	onPlatform(t, false)
-	home, _ := withHomeAndCwd(t)
-	t.Setenv("YOLO_SETUP", "")
-	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"confinement":"guest","packages":["ripgrep"]}`)
+// TestDescribeNeverTakesAProjectsRemovedConfinementAsTheGuestNotch is the control: a workspace's
+// `confinement: "guest"` once chose the Seatbelt setup; now it chooses nothing (a project cannot
+// choose where its agent runs, named-setups-plan.md slice 5), so describe in a session, where the
+// key is a warning, reports this OS's default setup at the jail notch, on either platform.
+func TestDescribeNeverTakesAProjectsRemovedConfinementAsTheGuestNotch(t *testing.T) {
+	for _, macOS := range []bool{false, true} {
+		onPlatform(t, macOS)
+		_, repo := withHomeAndCwd(t)
+		t.Setenv("YOLO_SETUP", "")
+		t.Setenv("YOLO_VERSION", "9.9.9-test")
+		writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"confinement":"guest","packages":["ripgrep"]}`)
 
-	var out, errw bytes.Buffer
-	if rc := describeMain(nil, &out, &errw, false); rc != 0 {
-		t.Fatalf("describe rc=%d: %s", rc, errw.String())
-	}
-	if line := describeLine(t, out.String(), "packages "); !strings.Contains(line, "inert") {
-		t.Errorf("a Linux guest has no package layer, so its packages are inert:\n%s", line)
+		var out, errw bytes.Buffer
+		if rc := describeMain(nil, &out, &errw, false); rc != 0 {
+			t.Fatalf("macOS=%v: describe rc=%d: %s", macOS, rc, errw.String())
+		}
+		want := setup.Default(platformGOOS()).Name
+		if line := describeLine(t, out.String(), "setup "); !strings.Contains(line, want) {
+			t.Errorf("macOS=%v: describe took the project's removed key as a selection, want %s:\n%s",
+				macOS, want, line)
+		}
+		if strings.Contains(describeVector(t, out.String()), "Seatbelt") {
+			t.Errorf("macOS=%v: describe composed Seatbelt from the project's removed key:\n%s", macOS, out.String())
+		}
 	}
 }
 
 // TestListingRuntimeFollowsTheMacosGuestNotch: `yolo ps` and `yolo prune` resolve the backend of
-// the setup a launch would select, so a macOS Seatbelt workspace lists the macos-user sessions
-// its launches run, and a Linux one does not name a backend Linux lacks.
+// the setup a launch would select, so under a Seatbelt setup a Mac lists the macos-user sessions
+// its launches run, while a workspace's removed `confinement: "guest"` lists nothing of the kind.
 func TestListingRuntimeFollowsTheMacosGuestNotch(t *testing.T) {
 	t.Setenv("YOLO_SETUP", "")
+	t.Setenv("YOLO_VERSION", "") // in a session an inherited setup this OS lacks is dropped (SUP-D12)
 	ws := t.TempDir()
-	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{"confinement":"guest"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"setup":"seatbelt-yolo-account"}`)
 
 	onPlatform(t, true)
 	if got := detectListingRuntime(ws); got != "macos-user" {
 		t.Errorf("a macOS guest workspace's listing runtime = %q, want macos-user", got)
 	}
-	onPlatform(t, false)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
+	writeFile(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"confinement":"guest"}`)
 	if got := detectListingRuntime(ws); got == "macos-user" {
-		t.Errorf("a Linux guest workspace's listing runtime is macos-user, which Linux lacks")
+		t.Errorf("a workspace's removed `confinement: guest` lists macos-user; it chooses nothing")
 	}
 }

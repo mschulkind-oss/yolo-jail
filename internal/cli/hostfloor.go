@@ -280,7 +280,7 @@ type macCaptureProbes struct {
 	// when all do (macosuser.PrivilegeUnmet). The rule asks for no password, so whether this launch
 	// has a terminal is no part of it.
 	Privilege func() (macosuser.Precondition, bool)
-	// Mode is who the act runs as (macos_user_mode). The run-as-you mode asks no sandbox account,
+	// Mode is who the act runs as (the selected setup's run_as, actMacosUserMode). Run as you, it asks no sandbox account,
 	// and its Privilege is the staging root's alone (macosuser.PrivilegeUnmetFor).
 	Mode macosuser.Mode
 }
@@ -291,9 +291,8 @@ var hostFloorMacProbes = realHostFloorMacProbes
 // realHostFloorMacProbes is hostFloorMacProbes' production answer.
 func realHostFloorMacProbes() macCaptureProbes {
 	d := macosuser.RealDeps(nil, nil, false)
-	// A value no act can run is the act's to refuse, with its own line; the floor reads it as the
-	// account mode, today's default.
-	mode, _ := macosUserLaunchMode()
+	// Who the act runs as: the selected setup's run_as, as the capture the floor runs reads it.
+	mode := actMacosUserMode()
 	return macCaptureProbes{
 		Geteuid:           d.Geteuid,
 		Which:             d.Which,
@@ -340,7 +339,7 @@ func macActBlocked(p macCaptureProbes, w macActWords, does string) string {
 			"— run the one-time setup, `yolo yolo-account create`, and the next `yolo host` launch " + does
 	}
 	if c, unmet := p.Privilege(); unmet && p.Mode == macosuser.ModeSelf {
-		return w.act + " on a Mac runs as you (macos_user_mode \"self\") and stages its binary in the staging " +
+		return w.act + " on a Mac runs as you (its setup runs as you) and stages its binary in the staging " +
 			"directory, which is not usable (" + c.Unmet("") + ") — " + clauseOf(c.Fix("")) + ", and the next " +
 			"`yolo host` launch " + does
 	} else if unmet {

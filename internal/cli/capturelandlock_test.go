@@ -491,7 +491,7 @@ func TestAJailNeverSelectsAHostCapture(t *testing.T) {
 }
 
 // selectMacosUser makes macos-user this test's selected runtime the way a user selects one: in
-// YOLO_RUNTIME, or as the user config's `runtime`. No container runtime is on PATH either way.
+// YOLO_SETUP, or as the user config's `setup`. No container runtime is on PATH either way.
 func selectMacosUser(t *testing.T, via string) {
 	t.Helper()
 	home := floortest.ResolvedTemp(t)
@@ -499,22 +499,22 @@ func selectMacosUser(t *testing.T, via string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	noRuntimeHere(t)
 	switch via {
-	case "YOLO_RUNTIME":
+	case "YOLO_SETUP":
 		t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	case "config":
-		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"runtime":"macos-user"}`)
+		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"setup":"seatbelt-yolo-account"}`)
 	default:
 		t.Fatalf("no way to select a runtime called %q", via)
 	}
 }
 
 // MACOS-USER IS NO PROGRAM MISSING FROM PATH (the production floor's CaptureUnavailable, a fork's build
-// predicate): with macos-user selected, in YOLO_RUNTIME or the user config's `runtime`, the floor says
+// predicate): with macos-user selected, in YOLO_SETUP or the user config's `setup`, the floor says
 // that runtime boots no container for a build to run in. It used to look "macos-user" up on PATH and
 // answer that no container runtime (macos-user) was on it — a program that does not exist, named as
 // the thing to install.
 func TestAFloorUnderTheMacosUserRuntimeSaysItBootsNoContainer(t *testing.T) {
-	for _, via := range []string{"YOLO_RUNTIME", "config"} {
+	for _, via := range []string{"YOLO_SETUP", "config"} {
 		t.Run(via, func(t *testing.T) {
 			selectMacosUser(t, via)
 			f := productionHostFloor(io.Discard, nil)
@@ -533,7 +533,7 @@ func TestAFloorUnderTheMacosUserRuntimeSaysItBootsNoContainer(t *testing.T) {
 // is what checks that runtime (the yolo account, Seatbelt), so `yolo capture` neither refuses it as
 // a program missing from PATH nor runs the installer on the host instead, on a Mac or on Linux.
 func TestTheCaptureActTakesItsJailArmUnderTheMacosUserRuntime(t *testing.T) {
-	for _, via := range []string{"YOLO_RUNTIME", "config"} {
+	for _, via := range []string{"YOLO_SETUP", "config"} {
 		t.Run(via, func(t *testing.T) {
 			selectMacosUser(t, via)
 			withHostConfinement(t, 6, nil)

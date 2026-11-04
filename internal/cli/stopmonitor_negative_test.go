@@ -95,7 +95,7 @@ func TestRunStopForceRecoveryDeclinesCallerMetadataAndIdentityNegatives(t *testi
 		{name: "force false despite internal remove", force: false, wantInfo: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _ = stopWorkspace(t, `{"runtime":"podman"}`)
+			_, _ = stopWorkspace(t, "podman-self")
 			shrinkStopGone(t)
 			proc, conmon := writeStopMonitorProcFixture(t)
 			if tc.mutateProc != nil {
@@ -205,7 +205,7 @@ func TestRunStopForceRecoveryDeclinesCallerMetadataAndIdentityNegatives(t *testi
 }
 
 func TestRunStopForceUnresolvedAppleContainerDoesNotProbePodmanOrSignal(t *testing.T) {
-	cname, _ := stopWorkspace(t, `{"runtime":"container"}`)
+	cname, _ := stopWorkspace(t, "apple-container-self")
 	shrinkStopGone(t)
 	shrinkStopJailGone(t)
 	procRoot := filepath.Join(t.TempDir(), "unused-proc")

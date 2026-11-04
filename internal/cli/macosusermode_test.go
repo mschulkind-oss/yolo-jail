@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
@@ -103,7 +102,7 @@ func TestMacosLaunchPassesTheSharedTmpHatch(t *testing.T) {
 // TestMacosLaunchRunsTheYoloAccountSetupAsTheAccount: seatbelt-yolo-account is the second
 // account, whatever the user config says, since the mode is the setup's run_as.
 func TestMacosLaunchRunsTheYoloAccountSetupAsTheAccount(t *testing.T) {
-	for _, cfg := range []string{"", `{"macos_user_mode": "self"}`} {
+	for _, cfg := range []string{"", `{"setup": "seatbelt-self"}`} {
 		_, backend, called, _ := macosModeLaunch(t, cfg, "seatbelt-yolo-account")
 		if !called || backend.Mode != macosuser.ModeAccount {
 			t.Errorf("config %q: called %v, backend %v; want account", cfg, called, backend.Mode)
@@ -111,32 +110,17 @@ func TestMacosLaunchRunsTheYoloAccountSetupAsTheAccount(t *testing.T) {
 	}
 }
 
-// TestMacosLaunchRefusesAnUnknownMode: a value that slipped past validation never silently picks
-// a mode; the line names the key and the next step.
-func TestMacosLaunchRefusesAnUnknownMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("YOLO_VERSION", "")
-	p := paths.UserConfigPath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(`{"macos_user_mode": "jail"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mode, refusal := macosUserLaunchMode()
-	if mode != macosuser.ModeAccount || !strings.Contains(refusal, "macos_user_mode") ||
-		!strings.Contains(refusal, `"self" or "account"`) {
-		t.Errorf("macosUserLaunchMode() = %v, %q", mode, refusal)
-	}
-}
-
-// TestPruneHandsTheGuestPackTreeSweepTheUserMode: `yolo prune` in the run-as-you mode looks for
-// the sandbox among your own processes, not the second account's, so on a Mac without the
-// account it can still remove a tree. Fails if guestPackTreeSweep stops reading the mode.
+// TestPruneHandsTheGuestPackTreeSweepTheUserMode: `yolo prune` under a setup run as you
+// (seatbelt-self) looks for the sandbox among your own processes, not the second account's, so on
+// a Mac without the account it can still remove a tree. The mode is the selected setup's run_as
+// (actMacosUserMode, SUP-D13); a setup on another backend leaves the account mode. Fails if
+// guestPackTreeSweep stops reading the selected setup.
 func TestPruneHandsTheGuestPackTreeSweepTheUserMode(t *testing.T) {
 	for cfg, want := range map[string]macosuser.Mode{
-		`{"macos_user_mode": "self"}`: macosuser.ModeSelf,
-		``:                            macosuser.ModeAccount,
+		`{"setup": "seatbelt-self"}`:         macosuser.ModeSelf,
+		`{"setup": "seatbelt-yolo-account"}`: macosuser.ModeAccount,
+		`{"setup": "podman-self"}`:           macosuser.ModeAccount,
+		``:                                   macosuser.ModeAccount,
 	} {
 		home := t.TempDir()
 		t.Setenv("HOME", home)

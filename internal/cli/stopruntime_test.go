@@ -97,14 +97,15 @@ func (f *acStop) stoppedOn() []string {
 	return rts
 }
 
-// stopWorkspace makes a workspace whose config is cfg, enters it, and stubs the keeper's teardown;
+// stopWorkspace makes a workspace whose launch selects setupName (YOLO_SETUP), enters it, and stubs the keeper's teardown;
 // it returns the jail's name and the runtimes the teardown was handed.
-func stopWorkspace(t *testing.T, cfg string) (cname string, finished *[]string) {
+func stopWorkspace(t *testing.T, setupName string) (cname string, finished *[]string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_RUNTIME", "")
+	t.Setenv("YOLO_SETUP", setupName)
 	ws := t.TempDir()
-	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(cfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(ws)
@@ -128,10 +129,10 @@ func useStopExec(t *testing.T, f stopCommandRunner) {
 	stopExec = f
 }
 
-// TestAStopEndsAnAppleContainerJailItsConfigNames is the call-site pin: `yolo stop` in a workspace
-// whose config names Apple Container, YOLO_RUNTIME unset, finds the running jail and stops it there.
-func TestAStopEndsAnAppleContainerJailItsConfigNames(t *testing.T) {
-	cname, finished := stopWorkspace(t, `{"runtime": "container"}`)
+// TestAStopEndsAnAppleContainerJailItsSetupNames is the call-site pin: `yolo stop` under
+// YOLO_SETUP=apple-container-self finds the running jail and stops it on Apple Container.
+func TestAStopEndsAnAppleContainerJailItsSetupNames(t *testing.T) {
+	cname, finished := stopWorkspace(t, "apple-container-self")
 	f := &acStop{t: t, cname: cname}
 	useStopExec(t, f.run)
 	var rc int
@@ -155,7 +156,7 @@ func TestAStopEndsAnAppleContainerJailItsConfigNames(t *testing.T) {
 // launched with YOLO_RUNTIME=container. The keeper's start record names the runtime it launched
 // on, and the stop asks that one, saying so, rather than reporting nothing running on podman.
 func TestAStopAsksTheRuntimeItsJailWasLaunchedOn(t *testing.T) {
-	cname, finished := stopWorkspace(t, `{"runtime": "podman"}`)
+	cname, finished := stopWorkspace(t, "podman-self")
 	record := filepath.Join(paths.GlobalStorage(), "owners", cname+".keeper.json")
 	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
 		t.Fatal(err)

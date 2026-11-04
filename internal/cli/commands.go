@@ -1460,21 +1460,6 @@ func runRun(args []string) int {
 // a refusal closure is non-nil too.
 var launchRunPipeline = run.Run
 
-// macosUserLaunchMode is the launch's reading of the user-scope `macos_user_mode`
-// (MMP-D3): the mode, or a refusal line naming the next step for a value no launch can run.
-// An absent key is the account mode, still the default; "self" runs the agent as you
-// (slice 6 of docs/design/macos-user-model-plan.md). Config validation refuses any other
-// value earlier; this is what keeps a value that slipped past it from silently choosing.
-func macosUserLaunchMode() (macosuser.Mode, string) {
-	v, _ := config.MacosUserMode()
-	mode, err := macosuser.ParseMode(v)
-	if err != nil {
-		return macosuser.ModeAccount, err.Error() + `; set macos_user_mode to "self" or "account" in ` +
-			paths.UserConfigDisplayPath() + `, or remove it to launch as the yolo account`
-	}
-	return mode, ""
-}
-
 // macosUserIdentity is who a macos-user launch's sandbox runs as: the mode, and the invoking
 // user's home and name, which the run-as-you mode runs with.
 type macosUserIdentity struct {
@@ -1554,7 +1539,7 @@ func macosUserRun(cfg *jsonx.OrderedMap, workspace string, agents, agentArgv []s
 	}
 	return runMacosUserBackend(macosUserSessionDeps(arm, log, materialize),
 		macosuser.Options{
-			// Who the sandbox runs as (macos_user_mode), and the invoking user the run-as-you mode
+			// Who the sandbox runs as (the setup's run_as), and the invoking user the run-as-you mode
 			// runs with; the account mode reads neither of the last two.
 			Mode:           who.Mode,
 			HostHome:       who.HostHome,
@@ -1722,11 +1707,11 @@ func runCheck(args []string) int {
 }
 
 // guestPackTreeSweep is prune.Options.GuestPackTrees: macosuser.PrunePackTrees in prune's own
-// reap shape, and whether the staging root has a packs directory at all. The user's
-// `macos_user_mode` decides whose processes are the sandbox's; a value no launch can run reads
-// as the account mode, whose reader declines rather than guesses when the account is absent.
+// reap shape, and whether the staging root has a packs directory at all. The selected setup's
+// run_as decides whose processes are the sandbox's (actMacosUserMode); any setup not run as you
+// reads as the account mode, whose reader declines rather than guesses when the account is absent.
 func guestPackTreeSweep(apply bool) (prune.EmbeddedReap, bool) {
-	mode, _ := macosUserLaunchMode()
+	mode := actMacosUserMode()
 	r := prunePackTrees(mode, apply)
 	return guestPackTreeReap(r), r.Applicable
 }

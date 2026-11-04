@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
@@ -84,13 +83,17 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 		r.skip("Inside jail — macos-user checks skipped", "That backend runs on the host with no container at all; run `yolo check` there.")
 		return
 	}
-	// The rows the configured mode's launch asks (macos_user_mode, user scope): the run-as-you
-	// mode needs no account, setup or shared workspace, so it is not graded on them. A value no
-	// launch can run reads as the default here; config validation reports it.
-	v, _ := config.MacosUserMode()
-	mode, _ := macosuser.ParseMode(v)
+	// The rows a Seatbelt setup's launch asks (its run_as, macosuser.ModeFor, as the launch reads
+	// it): running as you needs no account, setup or shared workspace, so it is not graded on them.
+	// A selection on another backend, or one that refuses, reads as the yolo account, the
+	// macos-user default (seatbelt-yolo-account), whose rows say what it needs.
+	mode := macosuser.ModeAccount
+	choice, err := o.checkSetup(nil)
+	if err == nil && choice.Setup.Backend() == "macos-user" {
+		mode = macosuser.ModeFor(choice.Setup.RunAs)
+	}
 	if mode == macosuser.ModeSelf {
-		r.ok("macos_user_mode is \"self\": the agent runs as you, under the deny-by-default profile")
+		r.ok("setup " + choice.Setup.Name + " runs as you: the agent runs under the deny-by-default profile, with no yolo account")
 	}
 	for _, res := range macosuser.CheckLaunchPreconditionsFor(mode, o.macosLaunchProbes(), o.Workspace) {
 		switch {

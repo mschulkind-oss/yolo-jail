@@ -761,9 +761,9 @@ func captureJailArgv(bin string) []string {
 // once its boot is done.
 //
 // on, at most one, is what the act's caller decided (captureAct): its runtime reaches the pipeline
-// as the built-in setup that runtime names (config.SetupForRemovedRuntime), as `--setup` would for
-// this one run, and the process environment is left alone, so nothing a host launch execs
-// afterwards inherits it. Its jailStdout is not read here: a caller names the jail's writers in s.
+// as the setup a launch selects when that setup runs on it, else the runtime's built-in (actSetup,
+// SUP-D13), as `--setup` would for this one run, and the process environment is left alone, so
+// nothing a host launch execs afterwards inherits it. Its jailStdout is not read here: a caller names the jail's writers in s.
 func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s captureStreams, color bool,
 	on ...captureAct) int {
 	out, errw := s.out, s.errw
@@ -772,7 +772,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	opts.Args = argv
 	opts.Color = color
 	if len(on) > 0 && on[0].runtime != "" {
-		opts.SetupName = config.SetupForRemovedRuntime(on[0].runtime)
+		opts.SetupName = actSetup(on[0].runtime).Name
 	}
 	if seal != nil {
 		opts.Sealed = true
@@ -894,14 +894,10 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 				"YOLO_SETUP=podman-self yolo -- %s\n", bin)
 			return 1
 		}
-		// WHO THE CAPTURE RUNS AS (macos_user_mode, slice 9 of docs/design/macos-user-model-plan.md),
-		// read as a launch reads it: the second account, or in the run-as-you mode you, under the
-		// deny-by-default capture profile. A value no act can run refuses here, as a launch refuses.
-		mode, modeRefusal := macosUserLaunchMode()
-		if modeRefusal != "" {
-			fmt.Fprintln(errw, modeRefusal)
-			return 1
-		}
+		// WHO THE CAPTURE RUNS AS: the run_as of the setup a launch selects (actMacosUserMode,
+		// SUP-D13): the second account, or for a setup run as you (seatbelt-self) you, under the
+		// deny-by-default capture profile.
+		mode := actMacosUserMode()
 		// The identity only in the run-as-you mode, the launch's own reading of it: the account mode's
 		// HostUser stays the act's (Deps.HostUser), so its plan is today's.
 		who := macosuser.CaptureOptions{Mode: mode}
@@ -1225,7 +1221,7 @@ func runtimeAbsent(rt string) string {
 }
 
 // selectedCaptureRuntime is the backend of the setup someone selected for a capture jail:
-// YOLO_SETUP, then the user config's `setup` (or, until slice 5, its removed `runtime` key), through
+// YOLO_SETUP, then the user config's `setup`, through
 // the selection a launch makes (config.SelectSetup); "" when none did, which leaves the choice to
 // the platform's default (captureRuntime), and when the selection refuses (a removed YOLO_RUNTIME),
 // which the capture jail's own launch then refuses naming the next step.
@@ -1233,7 +1229,6 @@ func selectedCaptureRuntime() string {
 	choice, err := config.SelectSetup(config.SetupInputs{
 		Verb:      config.SetupForLaunch,
 		Getenv:    os.Getenv,
-		Merged:    config.UserScopeConfigOrEmpty(),
 		GOOS:      setupGOOS,
 		InSession: os.Getenv("YOLO_VERSION") != "",
 	})
