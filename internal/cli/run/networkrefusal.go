@@ -19,10 +19,11 @@ import (
 // NetworkRefusal is the refusal for setup s with flag (the typed `--network`, "" for none) and
 // the config's written `network.mode`, "" when s can hold what was asked. A typed flag is judged
 // in place of the key, as resolveNetModeSource lets it win. A key's refusal leads with where it
-// was written (src, nil for none) and names the `unset` for that file's scope.
-func NetworkRefusal(s setup.Setup, cfg *jsonx.OrderedMap, flag string, src *config.Sources) string {
+// was written (src, nil for none) and names the `unset` for that file's scope; its first step names
+// a setup that runs where it is taken (here).
+func NetworkRefusal(s setup.Setup, cfg *jsonx.OrderedMap, flag string, src *config.Sources, here setup.Here) string {
 	if flag != "" {
-		return setup.NetworkFlagProblem(s, flag)
+		return setup.NetworkFlagProblem(s, flag, here)
 	}
 	mode := ""
 	if netSec := cfgMap(cfg, "network"); netSec != nil {
@@ -32,7 +33,7 @@ func NetworkRefusal(s setup.Setup, cfg *jsonx.OrderedMap, flag string, src *conf
 		return ""
 	}
 	locs := src.Locations("config.network.mode")
-	text := setup.NetworkModeProblemIn(s, mode, networkUnsetScope(locs))
+	text := setup.NetworkModeProblemIn(s, mode, networkUnsetScope(locs), here)
 	if text != "" && len(locs) > 0 {
 		text = locs[0] + ": " + text
 	}
@@ -64,7 +65,7 @@ func (o *Options) refuseNetworkMode(cfg *jsonx.OrderedMap) bool {
 	if o.Sealed {
 		return false
 	}
-	text := NetworkRefusal(o.Setup, cfg, o.Network, o.configSources)
+	text := NetworkRefusal(o.Setup, cfg, o.Network, o.configSources, setup.Here{GOOS: o.setupGOOS(), InSession: o.inJail()})
 	if text == "" {
 		return false
 	}

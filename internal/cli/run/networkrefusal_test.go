@@ -89,7 +89,8 @@ func TestANetworkModeTheSetupCannotHoldRefusesTheLaunch(t *testing.T) {
 		{name: "bridge under seatbelt-self", ws: `{"network": {"mode": "bridge"}}`, flag: "seatbelt-self",
 			want: []string{
 				`network.mode = "bridge": setup seatbelt-self always shares the Mac's network, so the agent cannot have a loopback of its own.`,
-				"    yolo --setup podman-self -- claude", unsetNetworkStep}},
+				// The Mac's own container setup, which runs where the step is taken.
+				"    yolo --setup apple-container-self -- claude", unsetNetworkStep}},
 		{name: "--network host under apple-container-self", ws: `{}`, flag: "apple-container-self", network: "host",
 			want: []string{
 				"--network host: setup apple-container-self always runs bridged",

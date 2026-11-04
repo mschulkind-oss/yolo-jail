@@ -299,14 +299,14 @@ func TestAMissingTechnologyNamesItsInstall(t *testing.T) {
 }
 
 func TestNetworkModeTheTechnologyCannotHold(t *testing.T) {
-	if p := setup.NetworkModeProblem(setup.MustBuiltIn("apple-container-self"), "host"); !strings.Contains(p, "always runs bridged") {
+	if p := setup.NetworkModeProblem(setup.MustBuiltIn("apple-container-self"), "host", linuxHere); !strings.Contains(p, "always runs bridged") {
 		t.Fatal(p)
 	}
-	if p := setup.NetworkModeProblem(setup.MustBuiltIn("seatbelt-self"), "bridge"); !strings.Contains(p, "always shares the Mac's network") {
+	if p := setup.NetworkModeProblem(setup.MustBuiltIn("seatbelt-self"), "bridge", linuxHere); !strings.Contains(p, "always shares the Mac's network") {
 		t.Fatal(p)
 	}
 	for _, mode := range []string{"", "bridge", "host"} {
-		if p := setup.NetworkModeProblem(setup.MustBuiltIn("podman-self"), mode); p != "" {
+		if p := setup.NetworkModeProblem(setup.MustBuiltIn("podman-self"), mode, linuxHere); p != "" {
 			t.Fatal(p)
 		}
 	}
@@ -315,7 +315,7 @@ func TestNetworkModeTheTechnologyCannotHold(t *testing.T) {
 		{"seatbelt-self", ""}, {"seatbelt-self", "host"}, {"seatbelt-yolo-account", "host"},
 		{"host-self", ""}, {"host-self", "host"}, {"landlock-self", "bridge"}, {"landlock-self", "host"},
 	} {
-		if p := setup.NetworkModeProblem(setup.MustBuiltIn(c.name), c.mode); p != "" {
+		if p := setup.NetworkModeProblem(setup.MustBuiltIn(c.name), c.mode, linuxHere); p != "" {
 			t.Errorf("%s with %q: %s", c.name, c.mode, p)
 		}
 	}
@@ -328,7 +328,7 @@ func TestNetworkModeExactTexts(t *testing.T) {
 		{"seatbelt-yolo-account", "bridge", `network.mode = "bridge": setup seatbelt-yolo-account always shares the Mac's network, so the agent cannot have a loopback of its own.` + tail},
 		{"host-self", "bridge", `network.mode = "bridge": setup host-self always shares this machine's network, so the agent cannot have a loopback of its own.` + tail},
 	} {
-		if got := setup.NetworkModeProblem(setup.MustBuiltIn(c.name), c.mode); got != c.want {
+		if got := setup.NetworkModeProblem(setup.MustBuiltIn(c.name), c.mode, linuxHere); got != c.want {
 			t.Errorf("%s %s:\n%s\nwant\n%s", c.name, c.mode, got, c.want)
 		}
 	}
@@ -338,19 +338,19 @@ func TestNetworkModeExactTexts(t *testing.T) {
 // and a typed --network names the flag and dropping it, never a config key (SUP-D13).
 func TestNetworkRefusalsNameTheirScopeAndTheFlag(t *testing.T) {
 	ac := setup.MustBuiltIn("apple-container-self")
-	if got := setup.NetworkModeProblemIn(ac, "host", "--user"); !strings.HasSuffix(got, "yolo config unset network.mode --user") {
+	if got := setup.NetworkModeProblemIn(ac, "host", "--user", linuxHere); !strings.HasSuffix(got, "yolo config unset network.mode --user") {
 		t.Errorf("user scope: %s", got)
 	}
 	want := "--network host: setup apple-container-self always runs bridged, so the jail cannot share this machine's network." +
 		" For this launch, a setup that can:\n    yolo --setup podman-self -- claude\n" +
 		"Or, if the project does not need it:  launch without --network host"
-	if got := setup.NetworkFlagProblem(ac, "host"); got != want {
+	if got := setup.NetworkFlagProblem(ac, "host", linuxHere); got != want {
 		t.Errorf("flag:\n%s\nwant\n%s", got, want)
 	}
 	for _, c := range []struct{ name, mode string }{
 		{"podman-self", "host"}, {"podman-self", "bridge"}, {"apple-container-self", "bridge"}, {"seatbelt-self", "host"},
 	} {
-		if p := setup.NetworkFlagProblem(setup.MustBuiltIn(c.name), c.mode); p != "" {
+		if p := setup.NetworkFlagProblem(setup.MustBuiltIn(c.name), c.mode, linuxHere); p != "" {
 			t.Errorf("%s --network %s: %s", c.name, c.mode, p)
 		}
 	}
@@ -432,4 +432,33 @@ func TestMustBuiltInPanicsOnAnUnknownName(t *testing.T) {
 		}
 	}()
 	setup.MustBuiltIn("nope")
+}
+
+var linuxHere = setup.Here{GOOS: "linux"}
+
+// TestTheNetworkRefusalNamesASetupThatRunsHere: the first step names a built-in that holds the
+// mode and runs on this OS, spelled for where it is typed (Choose): `bridge` names the OS's
+// default container setup, so a Mac is told apple-container-self, and `host` names podman-self,
+// the one container setup that shares the machine's network; in a session the step is
+// YOLO_SETUP, never a `yolo --setup` line.
+func TestTheNetworkRefusalNamesASetupThatRunsHere(t *testing.T) {
+	for _, c := range []struct {
+		name, mode string
+		here       setup.Here
+		want, not  string
+	}{
+		{"seatbelt-self", "bridge", setup.Here{GOOS: "darwin"}, "\n    yolo --setup apple-container-self -- claude", "podman-self"},
+		{"host-self", "bridge", setup.Here{GOOS: "darwin"}, "\n    yolo --setup apple-container-self -- claude", "podman-self"},
+		{"host-self", "bridge", linuxHere, "\n    yolo --setup podman-self -- claude", "apple-container-self"},
+		{"apple-container-self", "host", setup.Here{GOOS: "darwin"}, "\n    yolo --setup podman-self -- claude", "apple-container-self -- claude"},
+		{"seatbelt-self", "bridge", setup.Here{GOOS: "darwin", InSession: true}, "a setup that can: " + setup.Choose("apple-container-self", true) + ".", "yolo --setup"},
+		{"apple-container-self", "host", setup.Here{GOOS: "darwin", InSession: true}, "a setup that can: " + setup.Choose("podman-self", true) + ".", "yolo --setup"},
+	} {
+		s := setup.MustBuiltIn(c.name)
+		for _, got := range []string{setup.NetworkModeProblem(s, c.mode, c.here), setup.NetworkFlagProblem(s, c.mode, c.here)} {
+			if !strings.Contains(got, c.want) || strings.Contains(got, c.not) {
+				t.Errorf("%s %s %+v: want %q and not %q:\n%s", c.name, c.mode, c.here, c.want, c.not, got)
+			}
+		}
+	}
 }

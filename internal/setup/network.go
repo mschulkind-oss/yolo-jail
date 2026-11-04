@@ -25,38 +25,59 @@ func networkPhrase(c Confinement) string {
 // refused for it yet. A value that is neither "bridge" nor "host" is not this check's to judge.
 //
 // The text has no `file:line:` prefix; the caller, which knows where the value was written,
-// adds it (design §6 shows `yolo-jail.toml:7: ` before it).
-func NetworkModeProblem(s Setup, mode string) string {
-	return NetworkModeProblemIn(s, mode, "--project")
+// adds it (design §6 shows `yolo-jail.toml:7: ` before it). here is where its next step is
+// taken (Here).
+func NetworkModeProblem(s Setup, mode string, here Here) string {
+	return NetworkModeProblemIn(s, mode, "--project", here)
+}
+
+// Here is where a refusal's next step will be taken: the OS (a setup it names must run there)
+// and whether it is typed inside a launched session, where a setup is chosen by YOLO_SETUP
+// (Choose).
+type Here struct {
+	GOOS      string
+	InSession bool
 }
 
 // NetworkModeProblemIn is NetworkModeProblem for a value written in the config scope whose
 // `yolo config unset` flag is scope ("--project", "--local" or "--user"), so the second step
 // removes the key from the file that holds it (SUP-D13).
-func NetworkModeProblemIn(s Setup, mode, scope string) string {
+func NetworkModeProblemIn(s Setup, mode, scope string, here Here) string {
 	why := networkHeadline(s, mode)
 	if why == "" {
 		return ""
 	}
-	return fmt.Sprintf("network.mode = %q: ", mode) + why + networkSetupStep +
+	return fmt.Sprintf("network.mode = %q: ", mode) + why + networkSetupStep(mode, here) +
 		"\nOr, if the project does not need it:  yolo config unset network.mode " + scope
 }
 
 // NetworkFlagProblem is the refusal for a typed `--network <mode>` the setup's technology cannot
 // hold, or "" when it can: the same judgment as NetworkModeProblem, naming the flag, whose
 // second step is to drop it, since no config file holds it (SUP-D13).
-func NetworkFlagProblem(s Setup, mode string) string {
+func NetworkFlagProblem(s Setup, mode string, here Here) string {
 	why := networkHeadline(s, mode)
 	if why == "" {
 		return ""
 	}
-	return "--network " + mode + ": " + why + networkSetupStep +
+	return "--network " + mode + ": " + why + networkSetupStep(mode, here) +
 		"\nOr, if the project does not need it:  launch without --network " + mode
 }
 
-// networkSetupStep is the first step both refusals name: a setup whose technology holds either
-// mode.
-const networkSetupStep = " For this launch, a setup that can:\n    yolo --setup podman-self -- claude"
+// networkSetupStep is the first step both refusals name: a built-in setup that runs here and
+// holds mode. Only Podman shares the machine's network from a container, so `host` names
+// podman-self; `bridge` names this OS's default container setup (apple-container-self on a Mac).
+// Inside a launched session a setup is chosen by YOLO_SETUP, spelled by Choose; outside one the
+// step is the setup's launch line.
+func networkSetupStep(mode string, here Here) string {
+	target := Default(here.GOOS)
+	if mode == "host" {
+		target = MustBuiltIn("podman-self")
+	}
+	if here.InSession {
+		return " For this launch, a setup that can: " + Choose(target.Name, true) + "."
+	}
+	return " For this launch, a setup that can:\n    " + LaunchLine(target)
+}
 
 // networkHeadline is why setup s cannot hold mode, "" when it can.
 func networkHeadline(s Setup, mode string) string {

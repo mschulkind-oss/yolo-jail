@@ -14,12 +14,16 @@ func TestCheckRefusesANetworkModeTheSetupCannotHold(t *testing.T) {
 	for _, tc := range []struct {
 		name, ws, setup string
 		macOS           bool
-		want            string
+		want, step      string
 	}{
+		// The fixture is a session (YOLO_VERSION set), so the step is YOLO_SETUP, naming a setup
+		// that runs on a Mac and holds the mode.
 		{"host under apple-container-self", `{"network": {"mode": "host"}}`, "apple-container-self", true,
-			`network.mode = "host": setup apple-container-self always runs bridged, so the jail cannot share this machine's network.`},
+			`network.mode = "host": setup apple-container-self always runs bridged, so the jail cannot share this machine's network.`,
+			"a setup that can: `YOLO_SETUP=podman-self`."},
 		{"bridge under seatbelt-self", `{"network": {"mode": "bridge"}}`, "seatbelt-self", true,
-			`network.mode = "bridge": setup seatbelt-self always shares the Mac's network, so the agent cannot have a loopback of its own.`},
+			`network.mode = "bridge": setup seatbelt-self always shares the Mac's network, so the agent cannot have a loopback of its own.`,
+			"a setup that can: `YOLO_SETUP=apple-container-self`."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
@@ -27,7 +31,7 @@ func TestCheckRefusesANetworkModeTheSetupCannotHold(t *testing.T) {
 			if n := strings.Count(got, tc.want); n != 1 {
 				t.Errorf("check printed the refusal %d times, want once:\n%s", n, got)
 			}
-			for _, w := range []string{"[FAIL] ", "yolo-jail.jsonc:", "yolo --setup podman-self -- claude",
+			for _, w := range []string{"[FAIL] ", "yolo-jail.jsonc:", tc.step,
 				"yolo config unset network.mode --project"} {
 				if !strings.Contains(got, w) {
 					t.Errorf("missing %q in\n%s", w, got)
@@ -48,6 +52,9 @@ func TestCheckPassesANetworkModeTheSetupCanHold(t *testing.T) {
 		{"podman-self bridge", `{"network": {"mode": "bridge"}}`, "podman-self", false},
 		{"apple-container-self bridge", `{"network": {"mode": "bridge"}}`, "apple-container-self", true},
 		{"seatbelt-self host", `{"network": {"mode": "host"}}`, "seatbelt-self", true},
+		// A host setup only `yolo host` runs, and it never reads network.mode.
+		{"host-self bridge", `{"network": {"mode": "bridge"}}`, "host-self", false},
+		{"host-self bridge on a Mac", `{"network": {"mode": "bridge"}}`, "host-self", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())

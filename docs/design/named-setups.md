@@ -307,7 +307,7 @@ Or, if the project does not need it:  yolo config unset network.mode --project
 
 yolo-jail.toml:7: network.mode = "bridge": setup seatbelt-self always shares the Mac's network,
 so the agent cannot have a loopback of its own. For this launch, a setup that can:
-    yolo --setup podman-self -- claude
+    yolo --setup apple-container-self -- claude
 Or, if the project does not need it:  yolo config unset network.mode --project
 
 setup "seatbelt-yolo-account" runs as the yolo account, which this Mac does not have yet.
