@@ -2145,6 +2145,14 @@ Both forms are dropped with a reason on that backend.
 
 #### `env`
 
+An `env` contribution may set **`jail_only = true`** to deliver its variables only in
+confined launches, not through `yolo host`. This also works beside a `profile` or
+`platform` gate. The host skips the contribution before merging values, so an earlier
+ordinary assignment to the same variable still applies there. For example, `packs/pi`
+sets `PI_CLIPBOARD_OSC52=1` only in jails: Pi copies through the terminal using OSC 52
+without granting native clipboard access. The terminal must support and allow OSC 52
+clipboard writes; this does not enable clipboard reads or image paste.
+
 Static environment variables set in the jail. Values are **literal strings** — no secrets,
 no host references — so `env` never reads the host. The one interpolation is **`{listen}`**,
 legal only in a contribution that declares **`served_by`**: it resolves to the address the

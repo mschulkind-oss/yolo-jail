@@ -48,7 +48,9 @@ import (
 
 // ScopeInput is everything the gate reads, all of it already composed by the caller.
 type ScopeInput struct {
-	Packs []*Pack
+	// AtHost withholds env contributions marked jail_only from unconfined launches.
+	AtHost bool
+	Packs  []*Pack
 	// Providers is the launch's composed provider table (ComposeProviders): the claims are
 	// read off it, so a user's override of a provider's api_key_env_name re-points the gate
 	// exactly as it re-points the pre-flight.
@@ -151,6 +153,7 @@ type CredentialScope struct {
 	packs    []*Pack
 	profiles map[string]string
 	served   *ServedDaemons
+	atHost   bool
 	// sel is the gate's view of the selection (SelectionOf over the gate's own inputs).
 	sel GateSelection
 	// unservedEnv is every pack env variable withheld because its daemon is not served here,
@@ -222,13 +225,14 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		packs:            in.Packs,
 		profiles:         in.Profiles,
 		served:           in.Served,
+		atHost:           in.AtHost,
 		// THE GATE'S VIEW OF THE SELECTION (OQ-BR8): each agent's profile and the platform of
 		// the provider it resolves to, over this launch's own table, so every fold below and
 		// every reader of Selection() answers a `platform` gate from one resolution. Over the
 		// whole active set (AP-P1), so a gate any entry satisfies fires for that agent.
 		sel: SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
 	}
-	s.sharedFold = s.servedFold(EnvFold(in.Packs, s.sel, ""))
+	s.sharedFold = s.servedFold(envFold(in.Packs, s.sel, "", s.atHost))
 	for _, e := range s.sharedFold {
 		if s.sharedPackEnv == nil {
 			s.sharedPackEnv = map[string]string{}
@@ -253,7 +257,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			Granted:    sortedUnique(in.Grants[agent]),
 			EnvSources: jsonx.NewOrderedMap(),
 			PackEnv:    map[string]string{},
-			Fold:       s.servedFold(EnvFold(in.Packs, s.sel, agent)),
+			Fold:       s.servedFold(envFold(in.Packs, s.sel, agent, s.atHost)),
 		}
 		if profile != "" {
 			d.Provider = ProviderFor(in.Resolved, profile)
@@ -406,7 +410,7 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 	if d := s.agents[agent]; d != nil {
 		return d.Fold
 	}
-	return s.servedFold(EnvFold(s.packs, s.sel, agent))
+	return s.servedFold(envFold(s.packs, s.sel, agent, s.atHost))
 }
 
 // UnservedEnvLines names every pack env variable this notch withheld because the jail daemon
