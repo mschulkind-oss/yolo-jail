@@ -714,7 +714,7 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	// A selected pack's broker that the user config grants nothing: a legitimate choice, so a
 	// plain note naming the grant to add, never a warning (docs/design/boundary-broker.md BB-D109,
 	// BB-D110).
-	for _, msg := range config.UngrantedBrokerNotes(resolver) {
+	for _, msg := range config.UngrantedBrokerNotes(resolver, workspace) {
 		r.dim(termsafe.VisibleLines(msg))
 	}
 	// Every message above that names a config key, located (the preset/null ones already are).

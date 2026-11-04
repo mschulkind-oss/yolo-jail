@@ -41,7 +41,9 @@ func TestCheckSaysUpFrontWhatASelectedBrokerGrants(t *testing.T) {
 		}
 	})
 	t.Run("an old per-workspace switch", func(t *testing.T) {
-		brokeredCheckHome(t)
+		home := brokeredCheckHome(t)
+		// No read grant in the user config: the switch's carried grant is the workspace's only one.
+		must(t, os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte(`{}`), 0o644))
 		out := runCheckOverConfigWith(t, `{}`, false, func(w string) {
 			_, err := config.SetWorkspaceLoophole(w, "gb", true)
 			must(t, err)
@@ -55,6 +57,14 @@ func TestCheckSaysUpFrontWhatASelectedBrokerGrants(t *testing.T) {
 		}
 		if strings.Contains(out, "yolo loopholes disable") {
 			t.Errorf("yolo check still hands the user a command for yolo's own file:\n%s", out)
+		}
+		// The up-front note reads this workspace's carried grant: the broker does not grant
+		// nothing here, and the note says what it does run on.
+		if strings.Contains(out, note) {
+			t.Errorf("yolo check says the broker grants nothing in a workspace that keeps a carried read grant:\n%s", out)
+		}
+		if want := "runs on the read grant this workspace's approval record carries"; !strings.Contains(out, want) {
+			t.Errorf("yolo check does not say %q:\n%s", want, out)
 		}
 	})
 }

@@ -102,12 +102,19 @@ var knownLegacyBreaks = []legacyBreak{
 		"pending fix: lc-migrate-ws-loophole-switch"},
 	{"realistic/*", "migrate-*", "project config: loopholes - ",
 		"pending fix: lc-migrate-ws-loophole-switch"},
-	{"loophole/*/workspace", "migrate-offer", "the loophole grants each workspace holds",
-		"pending fix: lc-migrate-ws-loophole-switch (under a TOML user config the converted workspace needs the on_request ceiling line LG-D16 names)"},
+	// Under an already-TOML user config, converting a legacy workspace switch needs the user
+	// ceiling's on_request line LG-D16 names, and the migration never edits a TOML file. Converting
+	// the user config alongside writes it; journal and macos-log are requestable by default.
+	{"loophole/audio/enabled/workspace", "migrate-offer", "the loophole grants each workspace holds",
+		"pending fix: lc-migrate-ws-loophole-switch (the converted workspace needs the on_request ceiling line in the TOML user config)"},
+	{"loophole/serial/enabled/workspace", "migrate-offer", "the loophole grants each workspace holds",
+		"pending fix: lc-migrate-ws-loophole-switch (the converted workspace needs the on_request ceiling line in the TOML user config)"},
 
 	// The config launches, but means less than it did: a user switch of a valued grant reads as
 	// on_request under a TOML user config, and TOML has no spelling for the user-sourced request.
-	{"*", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
+	{"loophole/serial/enabled/user", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
+		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
+	{"realistic/personal-desktop", "meaning", `serial: grant "devices" is "requestable", v0.15.1 allowed it`,
 		"pending fix: lc-migrate-user-loophole-switch (the converted user ceiling lists on_request, which nothing requests)"},
 }
 

@@ -1613,9 +1613,11 @@ func UnbrokeredSourceWarnings(merged *jsonx.OrderedMap, resolver LoopholeResolve
 // BB-D108, BB-D109, BB-D110). Selecting the pack with no grant is a legitimate choice, "basically
 // a no-op option", so each is a plain note, never a warning: it says the broker grants nothing
 // and names the read grant to add for anyone who meant otherwise. A user config listing `read`
-// in `grant_kinds` leaves the grant to each workspace, and gets no note. Nil in a jail, whose
-// user config is the host's snapshot.
-func UngrantedBrokerNotes(resolver LoopholeResolver) []string {
+// in `grant_kinds` leaves the grant to each workspace, and gets no note. In workspace, whose
+// approval record may carry the read grant an older yolo's switch gave it (carryStaleBrokerSwitch,
+// docs/design/legacy-config-compat.md LC-D7), the note says the broker runs on that grant there
+// rather than that it grants nothing. Nil in a jail, whose user config is the host's snapshot.
+func UngrantedBrokerNotes(resolver LoopholeResolver, workspace string) []string {
 	if resolver == nil || inJail() {
 		return nil
 	}
@@ -1640,10 +1642,17 @@ func UngrantedBrokerNotes(resolver LoopholeResolver) []string {
 			readableUserAllowsEither(user, source, info.Brokered.ReadCapability) {
 			continue
 		}
+		if workspace != "" && brokerscope.HoldsRead(CarriedBrokerGrants(workspace, source)) {
+			out = append(out, "loophole "+name+" is selected, and your user config holds no read grant for the "+
+				pyReprValue(source)+" source: here it runs on the read grant this workspace's approval record "+
+				"carries from an older yolo's switch, and it refuses every call from a workspace that holds "+
+				"none. "+BrokerGrantAdviceFor(*info.Brokered))
+			continue
+		}
 		out = append(out, "loophole "+name+" is selected and grants nothing: your user config holds no read "+
-			"grant for the "+pyReprValue(source)+" source, so it refuses every call, and a workspace's "+
-			"config-change prompt asks nothing about it (beyond showing, once, the removal of a read grant "+
-			"that workspace approved earlier). "+BrokerGrantAdviceFor(*info.Brokered))
+			"grant for the "+pyReprValue(source)+" source, so it refuses every call from this workspace, and "+
+			"its config-change prompt asks nothing about it (beyond showing, once, the removal of a read grant "+
+			"it approved earlier). "+BrokerGrantAdviceFor(*info.Brokered))
 	}
 	return out
 }

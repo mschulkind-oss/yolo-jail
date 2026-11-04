@@ -82,6 +82,12 @@ func TestAStaleBrokerSwitchIsRemovedAndKeepsItsReadGrant(t *testing.T) {
 				t.Errorf("the read grant's gate line does not say it is carried for this workspace:\n%s", block)
 			}
 
+			// yolo check's up-front note reads the carried grant for this workspace, and only here.
+			notes := strings.Join(UngrantedBrokerNotes(resolver, ws), "\n")
+			if strings.Contains(notes, "grants nothing") || !strings.Contains(notes, "runs on the read grant this workspace's approval record carries") {
+				t.Errorf("the up-front note for the workspace that keeps the grant: %q", notes)
+			}
+
 			// A second validation says it again (a launch validates more than once) and writes nothing.
 			_, warns = ValidateConfig(cfg, ws, resolver)
 			if len(containing(warns, line)) != 1 {
@@ -98,6 +104,9 @@ func TestAStaleBrokerSwitchIsRemovedAndKeepsItsReadGrant(t *testing.T) {
 			if oc := NewScopeCheck(other, []ScopeBroker{broker}, oread); oc != nil && len(oc.Sources) == 1 &&
 				brokerscope.HoldsRead(oc.Sources[0].Grants) {
 				t.Errorf("another workspace gained the carried read grant: %+v", oc.Sources[0])
+			}
+			if notes := strings.Join(UngrantedBrokerNotes(resolver, other), "\n"); !strings.Contains(notes, "grants nothing") {
+				t.Errorf("another workspace's note does not say the broker grants it nothing: %q", notes)
 			}
 		})
 	}
