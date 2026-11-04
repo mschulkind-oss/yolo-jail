@@ -104,6 +104,11 @@ func TestMain(m *testing.M) {
 	// package's host-notch tests would test the refusal instead of the apply, and stay green on
 	// CI, where it is unset. A test that is about the jail sets it itself (t.Setenv).
 	os.Unsetenv("YOLO_VERSION")
+	// NOR DOES A JAIL'S SETUP CHOOSE A TEST'S. This repo's jail exports YOLO_RUNTIME (removed: it
+	// refuses every host launch) and may export YOLO_SETUP; fixtures that build their environment
+	// from os.Environ would select the outer jail's setup instead of a host's
+	// (TestThisPackageClearsTheSetupSelectionEnv).
+	testsupport.ClearSetupSelectionEnv()
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
@@ -185,4 +190,15 @@ func gateTestBudget() time.Duration {
 		}
 	}
 	return testsupport.BudgetWithin(timeout)
+}
+
+// TestThisPackageClearsTheSetupSelectionEnv fails if TestMain stops clearing the variables a
+// jail exports that select a setup, which would make every launch and listing fixture here
+// select the outer jail's setup, or refuse on its removed YOLO_RUNTIME, inside a jail.
+func TestThisPackageClearsTheSetupSelectionEnv(t *testing.T) {
+	for _, name := range testsupport.SetupSelectionEnv {
+		if v, ok := os.LookupEnv(name); ok {
+			t.Errorf("%s = %q at a test's start, want TestMain to have cleared it", name, v)
+		}
+	}
 }

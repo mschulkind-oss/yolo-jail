@@ -88,6 +88,11 @@ func TestMain(m *testing.M) {
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
+	// A JAIL'S SETUP NEVER CHOOSES A TEST'S. This repo's jail exports YOLO_RUNTIME (removed: it
+	// refuses every host launch) and may export YOLO_SETUP; fixtures that build their environment
+	// from os.Environ would select the outer jail's setup instead of a host's
+	// (TestThisPackageClearsTheSetupSelectionEnv).
+	testsupport.ClearSetupSelectionEnv()
 	// Past every daemon dispatch above, so a re-exec'd child neither redirects nor stops
 	// anything: this package's launches spawn real host singletons, which get a private
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and
@@ -121,6 +126,17 @@ func TestThisPackageStartsInAHomeOfItsOwn(t *testing.T) {
 	home := testsupport.IsolatedHome()
 	if home == "" || os.Getenv("HOME") != home {
 		t.Errorf("HOME = %q at a test's start, want the home TestMain isolated (%q)", os.Getenv("HOME"), home)
+	}
+}
+
+// TestThisPackageClearsTheSetupSelectionEnv fails if TestMain stops clearing the variables a
+// jail exports that select a setup, which would make every launch fixture here select the outer
+// jail's setup, or refuse on its removed YOLO_RUNTIME, wherever the suite runs inside a jail.
+func TestThisPackageClearsTheSetupSelectionEnv(t *testing.T) {
+	for _, name := range testsupport.SetupSelectionEnv {
+		if v, ok := os.LookupEnv(name); ok {
+			t.Errorf("%s = %q at a test's start, want TestMain to have cleared it", name, v)
+		}
 	}
 }
 
