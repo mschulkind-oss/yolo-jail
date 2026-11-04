@@ -1232,6 +1232,12 @@ the colleague who reported the refusal):
     the install;
   - `./run-checks.sh --mode account --account _yolojail --profile-from-yolo <dev yolo>` started
     while a `yolo -- sleep 60` runs in another workspace: no FAIL line, g4 included.
+  *Run 2026-11-03 at `fd702e9fb`* ([lab report §10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)):
+  every item came back as expected. The relaunch's errno is `operation not permitted`.
+  `(deny file-link)` compiles and refuses the link, and `_yolojail` links the staged file outside
+  Seatbelt, so the profile is the only obstacle. Self mode delivers copies too (link count 1, the
+  inode moves). The short-suite guard checks only `sh`, while two of the tests still run
+  `/bin/sleep`.
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside
