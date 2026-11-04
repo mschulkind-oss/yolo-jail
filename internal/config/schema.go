@@ -87,6 +87,11 @@ func SchemaKeys() []SchemaKey {
 	} {
 		add(path)
 	}
+	// Named setups (setups.go): `setups.*.*` takes any field so setup.Decode, not the walk,
+	// refuses an unknown one with its own next step.
+	for _, path := range []string{"setups.*", "setups.*.*", "setups.*.confinement", "setups.*.run_as"} {
+		add(path)
+	}
 	return schemaKeys(paths, legacySchemaScope, legacySchemaType, removalPolicy)
 }
 
@@ -463,6 +468,10 @@ func fieldSensitivePath(path string) bool {
 
 func legacySchemaType(path string) SchemaType {
 	switch path {
+	case "setup", "setups.*.confinement", "setups.*.run_as":
+		return SchemaTypeString
+	case "setups", "setups.*":
+		return SchemaTypeObject
 	case "runtime", "confinement", "repo_path", "macos_user_mode", "programs.overrides.*.run",
 		"providers.*.region", "providers.*.base_url", "providers.*.wire_api",
 		"providers.*.endpoints.*.base_url", "providers.*.endpoints.*.wire_api",

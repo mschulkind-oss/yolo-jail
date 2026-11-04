@@ -77,7 +77,7 @@ func TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas(t *testing.T) {
 	}
 	for _, phrase := range []string{
 		"yolo config why", "yolo config migrate", "yolo config set", "yolo pack add",
-		"yolo pack remove", "yolo pack migrate", "yolo init",
+		"yolo pack remove", "yolo pack migrate", "yolo init", "yolo setup new",
 	} {
 		if !strings.Contains(section, phrase) {
 			t.Errorf("the TOML section does not name `%s`", phrase)

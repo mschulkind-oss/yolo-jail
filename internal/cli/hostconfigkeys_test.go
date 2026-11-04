@@ -36,6 +36,8 @@ var undoneKeySamples = map[string]string{
 	"kvm":                    `true`,
 	"macos_user_mode":        `"account"`,
 	"macos_user_shared_tmp":  `true`,
+	"setup":                  `"seatbelt-self"`,
+	"setups":                 `{"mac-as-me": {"confinement": "seatbelt"}}`,
 	"share_host_fonts":       `true`,
 	"mise_tools":             `{"node": "22"}`,
 	"mounts":                 `["~/data"]`,

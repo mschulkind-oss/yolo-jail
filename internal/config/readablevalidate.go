@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -13,6 +14,9 @@ import (
 
 func validateReadableTOML(values *jsonx.OrderedMap, scope SchemaScope, label string, index *configdoc.Index) error {
 	if v := firstReadableTOMLViolation(values, scope); v != nil {
+		if v.advice != nil {
+			return readableAdviceError(label, index, v)
+		}
 		return readableTOMLError(label, index, v.path, v.locationPath, v.message)
 	}
 	return nil
@@ -24,6 +28,34 @@ type readableTOMLViolation struct {
 	path         []string
 	locationPath []configdoc.Step
 	message      string
+	// advice, when set, is a per-key refusal whose next step names the file's own scope flag
+	// (readableUserOnlyAdvice, setups.go); message holds it as a project file reads.
+	advice func(unsetFlag string) string
+}
+
+// readableAdviceError is readableTOMLError for a per-key refusal: its next step names the
+// file's own scope flag, and a `[table]` it names is located by its header, which TOML gives
+// no value span.
+func readableAdviceError(label string, index *configdoc.Index, v *readableTOMLViolation) error {
+	location := termsafe.Visible(label)
+	span, ok, err := index.Value(v.locationPath...)
+	if err != nil || !ok {
+		span, ok, err = index.Table(v.locationPath...)
+	}
+	if err == nil && ok {
+		line, column := index.Position(span.Start)
+		location = fmt.Sprintf("%s:%d:%d", location, line, column)
+	}
+	return configErr("%s: config.%s: %s", location, readablePathDisplay(v.path, v.locationPath), v.advice(workspaceUnsetFlag(label)))
+}
+
+// workspaceUnsetFlag is the `yolo config unset` scope flag for the workspace file label names.
+func workspaceUnsetFlag(label string) string {
+	switch filepath.Base(label) {
+	case WorkspaceLocalTOMLConfigName, WorkspaceLocalLegacyConfigName:
+		return "--local"
+	}
+	return "--project"
 }
 
 // display is the key as the validators print it after "config.": "env_sources", "packs[0]".
@@ -49,6 +81,15 @@ func firstReadableTOMLViolation(values *jsonx.OrderedMap, scope SchemaScope) *re
 			}
 			userOnly := rule.Scope == SchemaScopeUserOnly || (len(path) == 1 && WorkspaceUserScopeOnlyKey(path[0]))
 			if scope == SchemaScopeWorkspaceOnly && userOnly {
+				if at, advice := readableUserOnlyAdvice(path, value); advice != nil {
+					location := locationPath
+					if len(at) > len(path) {
+						location = appendReadableLocation(locationPath, configdoc.Step{Key: at[len(path)]})
+					}
+					v := refuse(at, location, advice("--project"))
+					v.advice = advice
+					return v
+				}
 				return refuse(path, locationPath, "user-scope only; move this key to the user config")
 			}
 			if scope == SchemaScopeUserOnly && rule.Scope == SchemaScopeWorkspaceOnly {

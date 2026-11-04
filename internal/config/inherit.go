@@ -386,6 +386,12 @@ var inheritCensus = map[string]keyDisposition{
 	// from v0.9.0 through v0.11.0, so a snapshot an older launcher wrote carries it, and the
 	// in-jail validator warns on it.
 	"use_profiles": {reason: "RETIRED — renamed to profile, which mirrors -p/--profile; emitting it would re-trigger the retirement error"},
+
+	// `setup` and `setups` choose and define where an agent runs on the host
+	// (docs/design/named-setups.md); a nested jail is one setup's inside, and its own
+	// launches take the inner OS's default.
+	"setup":  {reason: "chooses where the agent runs on the host; a nested jail is one setup's inside"},
+	"setups": {reason: "defines where an agent may run on the host; a nested jail is one setup's inside"},
 }
 
 // readableInheritDisposition is a readable-root census entry: the keyDisposition, plus
