@@ -735,15 +735,15 @@ changes.
    add`. Neither is in a yolo config, so yolo cannot tell whether he meant them for every project.
    Today each new workspace asks him to sign in to both again.
 
-   - **Never share them.** The launch names the one command that adds each to his user config.
+   - **A. Never share them.** The launch names the one command that adds each to his user config.
      Cost: a config line per server.
-   - **Share plugin servers only.** Plugins install per user, so Slack is shared at once. Cost: a
+   - **B. Share plugin servers only.** Plugins install per user, so Slack is shared at once. Cost: a
      plugin enabled for one project is shared too.
-   - **Share all of them.** Cost: a project's own `.mcp.json` server is shared, which the rule forbids.
+   - **C. Share all of them.** Cost: a project's own `.mcp.json` server is shared, which the rule forbids.
 
-   <!-- vantage: question id=OQ-MA2 leaning="Never share them, and name each with the one command that declares it. yolo cannot prove they are user-level, and the rule is to share only what it can." -->
+   <!-- vantage: question id=OQ-MA2 leaning="A: Never share them, and name each with the one command that declares it. yolo cannot prove they are user-level, and the rule is to share only what it can." -->
 
-   _Leaning:_ Never share them, and name each with the one command that declares it. yolo cannot
+   _Leaning:_ A: Never share them, and name each with the one command that declares it. yolo cannot
    prove they are user-level, and the rule is to share only what it can.
 
    **Answer:**
@@ -755,15 +755,15 @@ changes.
    whole with every jail so the login works everywhere. So a server she signed in to for one client
    project is readable in every other jail. Muse is built the same way.
 
-   - **Keep it, and say so at launch.** Each launch says Claude's MCP sign-ins are shared
+   - **A. Keep it, and say so at launch.** Each launch says Claude's MCP sign-ins are shared
      machine-wide, until Claude moves to per-workspace credential files (already planned). Cost:
      workspace tokens stay readable everywhere meanwhile.
-   - **Narrow it now** by making those per-workspace files Claude's default sooner. Cost: that
+   - **B. Narrow it now** by making those per-workspace files Claude's default sooner. Cost: that
      change waits on login measurements nobody has run.
 
-   <!-- vantage: question id=OQ-MA3 leaning="Keep it and say so at launch; narrow it when Claude's per-workspace credential files become the default. The login change carries its own measured gate, and this should not jump it." -->
+   <!-- vantage: question id=OQ-MA3 leaning="A: Keep it and say so at launch; narrow it when Claude's per-workspace credential files become the default. The login change carries its own measured gate, and this should not jump it." -->
 
-   _Leaning:_ Keep it and say so at launch; narrow it when Claude's per-workspace credential files
+   _Leaning:_ A: Keep it and say so at launch; narrow it when Claude's per-workspace credential files
    become the default. The login change carries its own measured gate, and this should not jump it.
 
    **Answer:**
@@ -774,14 +774,14 @@ changes.
    Lee runs `/mcp` in one Codex jail and logs out of Linear. The entry disappears from that
    workspace's store. Lee's other three jails still hold the shared sign-in.
 
-   - **Sign out everywhere.** The broker removes it from every jail; the next use asks for a sign-in.
+   - **A. Sign out everywhere.** The broker removes it from every jail; the next use asks for a sign-in.
      Cost: an agent that drops an entry by mistake signs Lee out machine-wide.
-   - **Sign out here only.** The other jails keep it, and this jail gets it back at its next launch.
+   - **B. Sign out here only.** The other jails keep it, and this jail gets it back at its next launch.
      Cost: logging out does not stick, which is surprising.
 
-   <!-- vantage: question id=OQ-MA4 leaning="Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is one sign-in, and Claude's machine sign-out already works this way." -->
+   <!-- vantage: question id=OQ-MA4 leaning="A: Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is one sign-in, and Claude's machine sign-out already works this way." -->
 
-   _Leaning:_ Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is
+   _Leaning:_ A: Sign out everywhere, but only from a store that parsed cleanly. A shared sign-in is
    one sign-in, and Claude's machine sign-out already works this way.
 
    **Answer:**
@@ -793,14 +793,14 @@ changes.
    of yolo's reach; his jails keep them in a file. Pointing the host's Codex at its file too lets
    host and jails share, but it stops reading the Keychain.
 
-   - **Use the file at the host too.** Omar signs in once more per server, then host and jails
+   - **A. Use the file at the host too.** Omar signs in once more per server, then host and jails
      share. Cost: tokens move from the Keychain to a file only he can read.
-   - **Leave the host on the Keychain.** The host signs in separately, and its launch says so.
+   - **B. Leave the host on the Keychain.** The host signs in separately, and its launch says so.
      Cost: the host never shares.
 
-   <!-- vantage: question id=OQ-MA6 leaning="Pin the file store at the host, disclosed at the first launch; the Keychain already leaves the host out of every share, and parity across notches is the standing rule." -->
+   <!-- vantage: question id=OQ-MA6 leaning="A: Pin the file store at the host, disclosed at the first launch; the Keychain already leaves the host out of every share, and parity across notches is the standing rule." -->
 
-   _Leaning:_ Pin the file store at the host, disclosed at the first launch; the Keychain already
+   _Leaning:_ A: Pin the file store at the host, disclosed at the first launch; the Keychain already
    leaves the host out of every share, and parity across notches is the standing rule.
 
    **Answer:**
@@ -813,14 +813,14 @@ changes.
    such page, so Jo registers her own app with the server. How many servers work this way is
    unsurveyed; none in hand does.
 
-   - **Publish one.** yolo hosts the page on its docs site; Jo's consent screen says "yolo-jail"
+   - **A. Publish one.** yolo hosts the page on its docs site; Jo's consent screen says "yolo-jail"
      and she registers nothing. Cost: the page stays up for good, and servers may warn that any
      local program can pose as a loopback-only client.
-   - **Not now.** Cost: one app registration per such server.
+   - **B. Not now.** Cost: one app registration per such server.
 
-   <!-- vantage: question id=OQ-MA7 leaning="Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route." -->
+   <!-- vantage: question id=OQ-MA7 leaning="B: Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route." -->
 
-   _Leaning:_ Not for now: no server in hand needs it, and a published client is a lasting public
+   _Leaning:_ B: Not for now: no server in hand needs it, and a published client is a lasting public
    commitment. Revisit when a real server accepts only that route.
 
    **Answer:**
@@ -831,14 +831,14 @@ changes.
    Ana turned on one sign-in for Slack. Claude, Codex and pi use it, but Copilot can neither run a
    command for the token nor have yolo write it into its store. She opens Copilot.
 
-   - **It signs in itself.** Copilot gets Slack with Ana's own Slack app id and asks her to sign in
+   - **A. It signs in itself.** Copilot gets Slack with Ana's own Slack app id and asks her to sign in
      once; the launch says `slack: Copilot cannot use yolo's sign-in, so it signs in on its own`.
      Cost: one more sign-in, and no Slack without her own app.
-   - **It goes without.** Copilot gets no Slack, and the launch says why. Cost: no Slack in Copilot.
+   - **B. It goes without.** Copilot gets no Slack, and the launch says why. Cost: no Slack in Copilot.
 
-   <!-- vantage: question id=OQ-MA8 leaning="It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server." -->
+   <!-- vantage: question id=OQ-MA8 leaning="A: It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server." -->
 
-   _Leaning:_ It signs in itself, with the line: she asked for the server in every agent, and one
+   _Leaning:_ A: It signs in itself, with the line: she asked for the server in every agent, and one
    extra sign-in is a smaller loss than a missing server.
 
    **Answer:**
