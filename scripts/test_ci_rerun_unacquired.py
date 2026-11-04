@@ -125,13 +125,15 @@ class Workflow(unittest.TestCase):
         self.assertEqual(got, {"actions: write", "checks: read"})
 
     def test_ci_and_apple_container_cancel_superseded_runs(self):
-        # The ruling of 2026-11-03: a newer push cancels the older run of the same workflow and ref.
-        for name in ("ci.yml", "apple-container.yml"):
+        # The ruling of 2026-11-03: one run per workflow and ref. ci.yml cancels the older run in
+        # progress; the slow Mac-only apple-container.yml lets the running one finish and replaces
+        # only a queued one, or a burst of pushes cancels every run before it completes.
+        for name, cancel in (("ci.yml", "true"), ("apple-container.yml", "false")):
             body = (WORKFLOW.parent / name).read_text()
             block = re.search(r"^concurrency:\n((?:  .+\n)+)", body, re.M)
             self.assertIsNotNone(block, "%s has no top-level concurrency group" % name)
             self.assertIn("group: ${{ github.workflow }}-${{ github.ref }}", block.group(1), name)
-            self.assertIn("cancel-in-progress: true", block.group(1), name)
+            self.assertIn("cancel-in-progress: " + cancel, block.group(1), name)
 
     def test_it_never_reruns_a_fork(self):
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", self.text)

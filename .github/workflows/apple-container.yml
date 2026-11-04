@@ -107,13 +107,16 @@ on:
 permissions:
   contents: read
 
-# ONE RUN PER REF: a newer dispatch cancels the older run still queued or running, as in
-# ci.yml (the 2026-11-03 burst of about fifteen pushes, each of which
-# scripts/mac-runner-dispatch.sh dispatches here). A superseded commit is not tested on its
-# own; the newest one is, and every push is made only after the local landing gate passed on it.
+# ONE RUN PER REF, AND THE RUNNING ONE FINISHES: a newer dispatch replaces an older one still
+# QUEUED, but never cancels the run in progress (unlike ci.yml). This job takes long enough on the
+# one Mac that during a burst of pushes (2026-11-03: about fifteen, each of which
+# scripts/mac-runner-dispatch.sh dispatches here) cancel-in-progress cancelled every run before
+# it finished, so no commit was tested at all. Now one run completes and the newest pending
+# commit runs next; the commits between are not tested on their own, and every push is made
+# only after the local landing gate passed on it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # See ci.yml for the full rationale (pinned JS actions that still bundle Node 20).
 env:
