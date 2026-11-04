@@ -7,7 +7,7 @@ next: "Rule OQ-SU3 (which Seatbelt pairings ship), then OQ-SU4 (the Mac default)
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
-summary: "Where an agent runs is chosen by naming a setup: a named set of values, one per independent field, for which technology walls the agent in (Podman, Apple Container, Seatbelt, Landlock or none), Seatbelt's rule list (deny-default or allow-default), which account runs it (self or the yolo account), and its network. yolo ships built-in setups named by one rule, the field values joined with hyphens; a user may define more and choose one in user config, the command line picks one with --setup, and a project config that names or defines one is refused as invalid. No name changes meaning by OS; each OS has one named default setup. Each setup keeps its own home under the project's .yolo, so two run side by side. confinement, runtime, macos_user_mode, network.mode, --at and --network are removed, each refused naming its replacement."
+summary: "Where an agent runs is chosen by naming a setup: a named set of values, one per independent field, for which technology walls the agent in (Podman, Apple Container, Seatbelt, Landlock or none), Seatbelt's rule list (deny-default or allow-default), and which account runs it (self or the yolo account). The network is not a field: it follows from the technology, and Podman's one real choice stays the project key network.mode. yolo ships built-in setups named by one rule, the field values joined with hyphens; a user may define more and choose one in user config, the command line picks one with --setup, and a project config that names or defines one is refused as invalid. No name changes meaning by OS; each OS has one named default setup. Each setup keeps its own home under the project's .yolo, so two run side by side. confinement, runtime, macos_user_mode, --at and YOLO_RUNTIME are removed, each refused naming its replacement."
 vantage:
   status-chip: true
 ---
@@ -15,7 +15,7 @@ vantage:
 # Named setups: one name chooses every wall
 
 **Status:** 2026-11-03. Nothing built; this replaces the five-plan terminology draft (`eafad3a1c`)
-with the owner's idea of the same day. Config keys checked against `yolo config-ref` at `14cc75609`. Five questions ruled the same day are in
+with the owner's idea of the same day. Config keys checked against `yolo config-ref` at `14cc75609`. Six rulings of the same day are in
 [the ledger](#decision-ledger).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
@@ -29,8 +29,8 @@ switch.
 **The shape.** Built-in setups and user-defined setups, both `[setups.<name>]` tables; one
 selection, `setup = "<name>"` or `--setup <name>`; one home per setup.
 
-**Cost.** `confinement`, `runtime`, `macos_user_mode`, `network.mode`, `--at`, `--network` and
-`YOLO_RUNTIME` are removed and refused. A bare "container, whichever is
+**Cost.** `confinement`, `runtime`, `macos_user_mode`, `--at` and `YOLO_RUNTIME` are removed and
+refused. A bare "container, whichever is
 installed here" can no longer be written; each OS has one default setup, which refuses when its
 technology is missing.
 
@@ -109,7 +109,7 @@ Mac and a Linux machine selects per machine in a `config.d` fragment linked on t
 Every launch line, the agent's footer and its briefing name the setup and spell its fields:
 
 ```text
-yolo: setup seatbelt-deny-self (Seatbelt, deny-by-default, as you, host network) - from --setup
+yolo: setup seatbelt-deny-self (Seatbelt, deny-by-default, as you; shares the Mac's network) - from --setup
 ```
 
 ## 3. The noun
@@ -130,8 +130,8 @@ product and nothing else; where yolo's text meant the walls, it says "a containe
 
 ## 4. The fields
 
-A setup has the fields its `confinement` has: three for every technology, and a fourth, `policy`,
-for Seatbelt (and reserved for Landlock). Every value names a technology, a rule list or an
+A setup has the fields its `confinement` has: two for every technology (`confinement` and `run_as`), and a third, `policy`,
+for Seatbelt (and reserved for Landlock). The network is not one of them ([SU-R3](#SU-R3)). Every value names a technology, a rule list or an
 account, never a strength.
 
 | Field | Values | On macOS | On Linux | Refused where |
@@ -145,8 +145,6 @@ account, never a strength.
 | | `yolo-account` | As `_yolojail`, crossed to by a sudo rule `yolo yolo-account create` installs | A Linux yolo account: not built ([MT-R2](#decision-ledger)) | With `podman` or `apple-container`: not built, refused naming `podman-self`, future work with no built-in name ([OQ-MT7](#OQ-MT7)); on Linux until built |
 | `policy` | `deny-default` | Seatbelt denies everything, then allows the workspace, the agent's home, the tools and the system's read-only files: the profile the ruled model started from Safehouse's ([§7 of the model](macos-user-model.md#7-the-ruled-model-two-modes-one-profile)), built as `DenyDefaultProfile` ([`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go)); both run-as choices use it since slice 12a (built, not yet run on a Mac) | Reserved for Landlock, which denies by default | Written with any `confinement` but `seatbelt` (and `landlock`, once built) |
 | | `allow-default` | Seatbelt allows everything, then denies reads under `/Users`, on external and raw disks and of keychains, and every write outside the workspace and home: the original macos-user profile, `(allow default)` first ([`seatbelt.go`](../../internal/macosuser/seatbelt.go)), which the model plan's slice 13 deletes and this keeps | Reserved | The same |
-| `network` | `bridge` | Its own network namespace and loopback | The same | With `seatbelt` and `host`, which have no namespace of their own |
-| | `host` | Shares the Mac's network stack | Shares the host's | With `apple-container`, which takes no network selector |
 
 **Every field has one default of its own**, the same whatever the other fields say
 ([OQ-SU1](#OQ-SU1)):
@@ -155,13 +153,11 @@ account, never a strength.
 | :--- | :--- | :--- |
 | `confinement` | `podman` | The one technology on both systems |
 | `run_as` | `self` | Needs no admin step |
-| `network` | `bridge` | The stronger value, where a technology has it |
 | `policy` | `deny-default` | The ruled model's rule list ([§7 of the model](macos-user-model.md#7-the-ruled-model-two-modes-one-profile)) |
 
-- **A default never bends to fit.** A Seatbelt setup that leaves `network` out gets `bridge`, which
-  Seatbelt cannot hold, so it is refused naming the value to write (`network = "host"`), exactly as
-  if `bridge` had been written. A default that followed `confinement` would be the dependency the
-  rule forbids.
+- **A default never bends to fit.** A default that followed `confinement` would be the dependency
+  the rule forbids. No field's legal values depend on another's except `policy`'s existence, so no
+  default can contradict a setup.
 - **`confinement` decides only which fields exist.** `policy` exists for Seatbelt and (reserved)
   Landlock; its default applies there and nowhere else.
 - **A field added in a later release** gets a default chosen so that every existing setup behaves
@@ -177,10 +173,21 @@ How to read it:
   needs a rule for every place the agent may go; allow-by-default needs one for every place a
   secret may live ([§1 of the model](macos-user-model.md#1-the-problem-in-one-example)). It
   exists only where a technology has that choice, so a `podman` setup that writes it is refused.
-- **`network` is a field because only the walls decide what it can be.** Seatbelt shares the Mac's
-  stack whatever is written ([OQ-MM7](macos-user-model.md#OQ-MM7)); Apple Container runs bridged
-  whatever is written. Today both cases warn or say nothing; as a field, a contradiction is refused
-  when the setup is read, not discovered at launch.
+- **The network is not a field** ([SU-R3](#SU-R3)). Three technologies have exactly one network,
+  and only Podman has a choice:
+
+  | `confinement` | The network | `network.mode` (a project key, outside the setup) |
+  | :--- | :--- | :--- |
+  | `podman` | Bridged by default, or the host's | Honored: `bridge` or `host`. Podman inside a container still runs on the host's, as today |
+  | `apple-container` | Always bridged: its own VM and loopback | `bridge` passes; `host` is refused |
+  | `seatbelt` | Always the Mac's own network stack ([OQ-MM7](macos-user-model.md#OQ-MM7)) | `host` passes; `bridge` is refused |
+  | `host` | Always the host's own | The same as `seatbelt` |
+  | `landlock` | Its design's | Its design's |
+
+  **A written value the technology cannot hold is refused, with its next step** ([SU-D8](#SU-D8));
+  an unwritten one is that technology's network. Today Apple Container warns on `host` and
+  Seatbelt says nothing on `bridge`; a project that asked for a network it does not get is told so
+  before the agent starts. `--network` stays as that key's flag.
 - **The same check runs in `yolo check` and at launch**, from the setup alone: a pure function of
   the setup's values and the technology installed here. No other key changes its answer.
 
@@ -188,25 +195,27 @@ How to read it:
 
 **The naming rule.** A built-in setup's name is `<confinement>[-<policy>]-<run_as>`: its
 `confinement` value, then its `policy` as `deny` or `allow` where it has one, then its `run_as`
-value, joined with hyphens. `network` is not in the name; each built-in writes the network its technology supports.
+value, joined with hyphens.
 So a name always decodes into its fields, and there is exactly one built-in per combination of
 `confinement`, `policy` and `run_as`.
 
-| Name | `confinement`, `policy` | `run_as` | `network` | Platform | What it is for |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `podman-self` | `podman` | `self` | `bridge` | Linux, macOS | The Linux default; on a Mac, the most features |
-| `apple-container-self` | `apple-container` | `self` | `bridge` | macOS 26, Apple silicon | The Mac default |
-| `seatbelt-deny-self` | `seatbelt`, `deny-default` | `self` | `host` | macOS | Your real Mac, as you, with no VM; the ruled model's default way to run Seatbelt |
-| `seatbelt-deny-yolo-account` | `seatbelt`, `deny-default` | `yolo-account` | `host` | macOS | The same, as an account holding none of your files; what `macos_user_mode = "account"` runs since slice 12a |
-| `seatbelt-allow-self` | `seatbelt`, `allow-default` | `self` | `host` | macOS | As you, under the older rule list: fewer refusals, more of your Mac readable |
-| `seatbelt-allow-yolo-account` | `seatbelt`, `allow-default` | `yolo-account` | `host` | macOS | The yolo account under the older rule list: macos-user as it ran before slice 12a |
-| `landlock-self` | `landlock` | `self` | its design's | Linux: not built | Reserved for the Linux equivalent of `seatbelt-deny-self` |
-| `landlock-yolo-account` | `landlock` | `yolo-account` | its design's | Linux: not built | Reserved ([MT-R2](#decision-ledger)) |
-| `host-self` | `host` | `self` | `host` | Linux, macOS | `yolo host`'s default |
-| `host-yolo-account` | `host` | `yolo-account` | `host` | macOS: not built; Linux: not built | `yolo host` as the yolo account, with no rule list |
+| Name | `confinement`, `policy` | `run_as` | Platform | What it is for |
+| :--- | :--- | :--- | :--- | :--- |
+| `podman-self` | `podman` | `self` | Linux, macOS | The Linux default; on a Mac, the most features |
+| `apple-container-self` | `apple-container` | `self` | macOS 26, Apple silicon | The Mac default |
+| `seatbelt-deny-self` | `seatbelt`, `deny-default` | `self` | macOS | Your real Mac, as you, with no VM; the ruled model's default way to run Seatbelt |
+| `seatbelt-deny-yolo-account` | `seatbelt`, `deny-default` | `yolo-account` | macOS | The same, as an account holding none of your files; what `macos_user_mode = "account"` runs since slice 12a |
+| `seatbelt-allow-self` | `seatbelt`, `allow-default` | `self` | macOS | As you, under the older rule list: fewer refusals, more of your Mac readable |
+| `seatbelt-allow-yolo-account` | `seatbelt`, `allow-default` | `yolo-account` | macOS | The yolo account under the older rule list: macos-user as it ran before slice 12a |
+| `landlock-self` | `landlock` | `self` | Linux: not built | Reserved for the Linux equivalent of `seatbelt-deny-self` |
+| `landlock-yolo-account` | `landlock` | `yolo-account` | Linux: not built | Reserved ([MT-R2](#decision-ledger)) |
+| `host-self` | `host` | `self` | Linux, macOS | `yolo host`'s default |
+| `host-yolo-account` | `host` | `yolo-account` | macOS: not built; Linux: not built | `yolo host` as the yolo account, with no rule list |
 
 A built-in marked not built is still a name: selecting it refuses, naming the nearest built one.
-The Landlock rows' `policy`, `network` and final spelling are owned by the Linux design when it is
+Each built-in's network is its technology's ([§4](#4-the-fields)): Podman's follows
+`network.mode`, Apple Container's is bridged, and Seatbelt's and host's are the machine's own.
+The Landlock rows' `policy`, network and final spelling are owned by the Linux design when it is
 written. Which policy pairs with which account is [OQ-SU3](#OQ-SU3); the table ships the full cross.
 
 ## 6. Config, by example
@@ -218,22 +227,29 @@ A built-in, as if written out. These tables are what yolo holds; nobody writes t
 [setups.podman-self]
 confinement = "podman"
 run_as = "self"
-network = "bridge"
 
 [setups.seatbelt-deny-yolo-account]
 confinement = "seatbelt"
 policy = "deny-default"
 run_as = "yolo-account"
-network = "host"
 ```
 
 A user setup, in `~/.config/yolo-jail/config.toml`. Any name not a built-in's:
 
 ```toml
-[setups.podman-shared-net]
-confinement = "podman"
-network = "host"   # this project's dev server must see the host's 127.0.0.1
+[setups.seatbelt-older]
+confinement = "seatbelt"
+policy = "allow-default"
 # run_as is not written, so it is its default, self
+```
+
+A project whose dev server must see the host's 127.0.0.1 says so in its own config, not in a setup.
+Podman honors it; Seatbelt already shares the Mac's network; Apple Container refuses it:
+
+```toml
+# yolo-jail.toml
+[network]
+mode = "host"
 ```
 
 Your own default, in your user config (`yolo config set setup seatbelt-deny-yolo-account --user`
@@ -249,10 +265,10 @@ Two side by side in one project, from two terminals:
 $ yolo --setup seatbelt-deny-self -- claude          # terminal 1: as you
 $ yolo --setup seatbelt-deny-yolo-account -- claude  # terminal 2: as the yolo account, beside it
 $ yolo setup list
-seatbelt-deny-self          running  Seatbelt deny-default, as you, host          built-in
+seatbelt-deny-self          running  Seatbelt deny-default, as you                built-in
 seatbelt-deny-yolo-account  running  Seatbelt deny-default, as the yolo account   built-in, your default
-podman-shared-net           -        Podman, as you, host network                 yours
-apple-container-self        -        Apple Container, as you, bridge              built-in, this OS's default
+seatbelt-older              -        Seatbelt allow-default, as you               yours
+apple-container-self        -        Apple Container, as you                      built-in, this OS's default
 $ yolo stop                                           # stops both, naming each
 $ yolo stop --setup seatbelt-deny-self                # stops one
 ```
@@ -293,12 +309,15 @@ setups.lab: Podman cannot run as the yolo account yet. Run it as you:
 setup "host-self" puts no walls around the agent, and only `yolo host` runs one:
     yolo host -- claude
 
-setups.lab: Seatbelt shares the Mac's network, so network = "bridge" (written, or the default)
-cannot hold. Write:
-    yolo config set setups.lab.network host --user
+yolo-jail.toml:7: network.mode = "host": setup apple-container-self always runs bridged, so the
+jail cannot share this machine's network. For this launch, a setup that can:
+    yolo --setup podman-self -- claude
+Or, if the project does not need it:  yolo config unset network.mode --project
 
-setups.lab: Apple Container takes no network selector, so network = "host" cannot hold. Write:
-    yolo config set setups.lab.network bridge --user
+yolo-jail.toml:7: network.mode = "bridge": setup seatbelt-deny-self always shares the Mac's network,
+so the agent cannot have a loopback of its own. For this launch, a setup that can:
+    yolo --setup podman-self -- claude
+Or, if the project does not need it:  yolo config unset network.mode --project
 
 setup "seatbelt-deny-yolo-account" runs as the yolo account, which this Mac does not have yet.
 Create it once (it asks for your admin password):
@@ -328,7 +347,7 @@ belongs to the project, the agent or you.
 | `confinement`, `runtime` | **In**, as `confinement` | The technology is the walls |
 | `macos_user_mode` | **In**, as `run_as` | The account is the other half of who can reach what |
 | Seatbelt's rule list (`seatbeltProfile` or `DenyDefaultProfile`) | **In**, as `policy` | What the walls deny is the walls |
-| `network.mode` | **In**, as `network` | The technology decides its legal values ([§4](#4-the-fields)) |
+| `network.mode`, `--network` | **Out**, stays the project's key ([SU-R3](#SU-R3)) | Three technologies have one network each, so as a field it only added impossible combinations; Podman's choice is the project's need (a dev server on the host's loopback), the same under any account |
 | `macos_user_shared_tmp` | Out for now | A hole in one technology's walls; a candidate field once a second technology has an equivalent |
 | `YOLO_NO_HOST_LOOPBACK` | Out | An escape hatch for a broken host, not a choice of walls |
 | `workspace_readonly`, `per_side_paths` | Out | About the repository's files, the same under any walls |
@@ -398,10 +417,8 @@ A removed spelling is refused, never aliased, and the refusal names its replacem
 | `runtime = "podman"`, `"container"`, `"macos-user"` | *"`runtime` is now a setup: `yolo config set setup podman-self --user`"*, `"apple-container-self"`, or the Seatbelt names |
 | `YOLO_RUNTIME` | *"Use `YOLO_SETUP=<name>`"*, naming the setup the old value meant |
 | `macos_user_mode` | *"Choose the account by setup: `seatbelt-deny-self` or `seatbelt-deny-yolo-account`."* |
-| `network.mode` | *"Networking is part of a setup:"* `yolo setup new <name> --from <current>`, then set `network` |
 | `--at <notch>` | *"Use `--setup <name>`"*; `--at host` names `yolo host` |
 | `yolo macos-setup`, `macos-teardown`, `macos-fix-permissions`, `macos-unshare` | *"Now `yolo yolo-account create`"*, `remove`, `share` (the old fix-permissions) and `unshare` |
-| `--network <mode>` | *"Define a setup with that network:"* `yolo setup new …` |
 | Footer `guest`, "second account", "sandbox account", "jail" for the walls | Not refused (no input); replaced by the setup name, "the yolo account" and "a container" |
 
 A launch, `yolo check` and `yolo config migrate` all refuse the same way; `migrate` writes the
@@ -485,7 +502,8 @@ own designs build them.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="SU-R1"></a>SU-R1 | **Where an agent runs is a named set of values, selectable on the command line.** The owner: *"containment profiles, where you specify all of these things"*; *"we don't want to be shuffling config files. We need configurations that can be named on the command line."* No field's value is derived from another's, so *"there's no complex dependencies"*, and each field has its own default ([OQ-SU1](#OQ-SU1)); yolo ships built-in sets under *"some consistent naming policy"*; users may define their own. Not called "profile"; "sandbox" is avoided; values name the technologies (Seatbelt, Landlock, Podman, Apple Container); the account is a field with `self` for running as you. | 2026-11-03 | [§2](#2-the-idea), [§4](#4-the-fields) | — |
-| <a id="OQ-SU1"></a>[OQ-SU1](#OQ-SU1) | **Every field has its own default, independent of every other field; a user setup may leave any field out and gets that default; a field added later gets a default that keeps every existing setup's behavior.** No `from =` inheritance and no fill command. A default that contradicts a setup's `confinement` is refused naming the value to write, never adjusted. The owner: *"I meant there aren't dependent fields, like filling in one field doesn't fill in the other, but we can have defaults for fields. So if we add a fourth and a fifth, those are going to be some defaults, and you can update your config if you need them differently. And we'll be careful, obviously, to not change behavior with the defaults if we add a new field."* | 2026-11-03 | [§4](#4-the-fields) | — |
+| <a id="OQ-SU1"></a>[OQ-SU1](#OQ-SU1) | **Every field has its own default, independent of every other field; a user setup may leave any field out and gets that default; a field added later gets a default that keeps every existing setup's behavior.** No `from =` inheritance and no fill command. A default that contradicts a setup's `confinement` is refused naming the value to write, never adjusted. The owner: *"I meant there aren't dependent fields, like filling in one field doesn't fill in the other, but we can have defaults for fields. So if we add a fourth and a fifth, those are going to be some defaults, and you can update your config if you need them differently. And we'll be careful, obviously, to not change behavior with the defaults if we add a new field."* *Its network part (a `bridge` default refused under Seatbelt) is superseded by [SU-R3](#SU-R3): no setup has a network field.* | 2026-11-03 | [§4](#4-the-fields) | — |
+| <a id="SU-R3"></a>SU-R3 | **The network is not a setup field.** Seatbelt and host always share the host's network, Apple Container is always bridged, and only Podman has a real choice, which the project key `network.mode` (and its `--network` flag) keeps covering, outside the setup. A setup has three fields, `confinement`, `run_as` and `policy`, and no network combination is impossible. The owner, accepting that proposal: *"yes I like that solution for network."* | 2026-11-03 | [§4](#4-the-fields), [§7](#7-what-else-goes-in-and-what-stays-out) | — |
 | <a id="OQ-MT5"></a>[OQ-MT5](#OQ-MT5) | **A project config may not choose a setup; `setup` and `[setups.*]` are user scope only, and in a project file they are an error, not ignored.** The owner: *"This should be user config only. Not only is that whatever ignored in a workspace and config, it's an error because it's an invalid thing to set."* | 2026-11-03 | [§8](#8-the-security-ceiling) | — |
 | <a id="OQ-SU2"></a>[OQ-SU2](#OQ-SU2) | **Moot under [OQ-MT5](#OQ-MT5):** a project cannot choose a setup, so it cannot choose one per OS. One user config used on a Mac and on Linux selects per machine with a `config.d` fragment, which needs no new form. | 2026-11-03 | [§2](#2-the-idea) | — |
 | <a id="OQ-MT7"></a>[OQ-MT7](#OQ-MT7) | **A container run as the yolo account is refused for now**, naming `podman-self`, and recorded as future work with no built-in name. The owner took the leaning: *"Refuse it for now: it is a real, stronger pairing, but nobody has asked for it."* | 2026-11-03 | [§4](#4-the-fields) | — |
@@ -501,9 +519,10 @@ own designs build them.
 | OQ-MT9 | Superseded by [SU-R1](#SU-R1): no value is `container` or `jail` (the technologies are named), and running as you is `self`, the owner's word: *"self spells better in a hyphenated thing."* | 2026-11-03 | [§4](#4-the-fields) | — |
 | <a id="SU-D1"></a>SU-D1 | **The noun is `setup`.** A design decision: the user guide already calls a backend on a host OS a setup, and the other candidates are a field's name, a near-synonym of it, or refused. | 2026-11-03 | [§3](#3-the-noun) | — |
 | <a id="SU-D2"></a>SU-D2 | **No setup name resolves per OS; each OS has one named default setup, with no probing chain**: Linux `podman-self`, macOS `apple-container-self` until [OQ-SU4](#OQ-SU4). A default whose technology is missing refuses, naming the install and the built-ins available. A design decision answering the owner's *"I'm not clear that that's hugely important"*, narrowed by [SU-R2](#SU-R2): a committed name must mean one thing on every machine. | 2026-11-03 | [§2](#2-the-idea) | — |
-| <a id="SU-D3"></a>SU-D3 | **The fields are `confinement`, `run_as`, `network`, and `policy` where the technology has a rule-list choice** (Seatbelt; reserved for Landlock). `confinement` decides only which fields exist, so a `policy` written for any other technology is refused. A field joins only if it is a property of the walls; the rest stays out ([§7](#7-what-else-goes-in-and-what-stays-out)). | 2026-11-03 | [§4](#4-the-fields) | — |
+| <a id="SU-D3"></a>SU-D3 | **The fields are `confinement`, `run_as`, `network`, and `policy` where the technology has a rule-list choice** (Seatbelt; reserved for Landlock). `confinement` decides only which fields exist, so a `policy` written for any other technology is refused. A field joins only if it is a property of the walls; the rest stays out ([§7](#7-what-else-goes-in-and-what-stays-out)). *Its field list is superseded by [SU-R3](#SU-R3): `network` left, so the fields are `confinement`, `run_as` and `policy`.* | 2026-11-03 | [§4](#4-the-fields) | — |
 | <a id="SU-D4"></a>SU-D4 | **Built-in names are `<confinement>[-<policy>]-<run_as>`**, `policy` shortened to `deny` or `allow`, the other values spelled exactly; one built-in per combination; built-ins cannot be redefined. | 2026-11-03 | [§5](#5-the-built-in-setups) | — |
 | <a id="SU-D7"></a>SU-D7 | **The rule-list field is `policy = "deny-default" \| "allow-default"`.** A design decision: `deny-default` is already the profile's name in the code and its tests, and each value says what the rule list does with whatever it does not mention. `allow-default` keeps the `(allow default)` profile the model plan's slice 13 would delete. | 2026-11-03 | [§4](#4-the-fields) | — |
+| <a id="SU-D8"></a>SU-D8 | **A written `network.mode` the setup's technology cannot hold is refused, naming a setup that can and the `unset` for the key**: `host` under Apple Container, `bridge` under Seatbelt or host. An unwritten one is the technology's network. A design decision: today Apple Container warns and Seatbelt is silent ([`assemble.go`](../../internal/cli/run/assemble.go), [`backendcaps.go`](../../internal/cli/run/backendcaps.go)), so a project could start an agent believing it has a network it does not. | 2026-11-03 | [§4](#4-the-fields), [§6](#6-config-by-example) | — |
 | <a id="SU-D5"></a>SU-D5 | **Definitions are user scope only; `host` setups only through `yolo host`**; the command line needs no approval. Choosing is user scope only too, by [OQ-MT5](#OQ-MT5). | 2026-11-03 | [§8](#8-the-security-ceiling) | — |
 | <a id="SU-D6"></a>SU-D6 | **One home and run state per setup**, under `<project>/.yolo/setups/<name>/`; approvals, grants and durable state stay per project; an existing `.yolo/home` is adopted on a yes or by a printed `mv`, never deleted. | 2026-11-03 | [§9](#9-state-per-setup) | — |
 
