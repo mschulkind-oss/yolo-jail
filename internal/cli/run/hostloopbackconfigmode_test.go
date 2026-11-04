@@ -237,14 +237,14 @@ func TestTheKeeperResolvesTheNetworkModeItsLaunchResolved(t *testing.T) {
 	}
 }
 
-// TestTheModeWarningsNameWhatChoseIt pins the two launch warnings about an explicit mode to
+// TestTheModeWarningsNameWhatChoseIt pins the launch warning about an explicit mode to
 // whichever source chose it. Once a typed `--network` beats `network.mode` (G25), a warning
-// that always said "network.mode" sends the user to the wrong place, and on Apple Container
-// it told someone whose key says bridge that their key says host and to remove it.
+// that always said "network.mode" sends the user to the wrong place.
 //
 // The explicit-mode warning on a pasta host is reachable only through the flag, since the
 // validator refuses a key other than bridge or host and host is silent there, so its row is
-// a flag over a config bridge. The Apple Container warning has a row for each source.
+// a flag over a config bridge. Apple Container's `host` used to warn here too, a row per
+// source; it is refused before assembly now, naming the same source (networkrefusal_test.go).
 func TestTheModeWarningsNameWhatChoseIt(t *testing.T) {
 	cases := []struct {
 		name, rt, flagMode, configMode string
@@ -254,16 +254,6 @@ func TestTheModeWarningsNameWhatChoseIt(t *testing.T) {
 		rt:   "podman", flagMode: "none", configMode: "bridge",
 		want:    []string{"Warning: --network none was given, so yolo is not requesting"},
 		notWant: []string{"network.mode is set to"},
-	}, {
-		name: "a typed host on Apple Container is named as the flag",
-		rt:   "container", flagMode: "host", configMode: "bridge",
-		want:    []string{"Warning: --network host is NOT honored on Apple Container", "Drop the flag"},
-		notWant: []string{"network.mode", "Remove the key"},
-	}, {
-		name: "a configured host on Apple Container is named as the key",
-		rt:   "container", flagMode: "", configMode: "host",
-		want:    []string{`Warning: network.mode "host" is NOT honored on Apple Container`, "Remove the key"},
-		notWant: []string{"--network host", "Drop the flag"},
 	}}
 
 	for _, tc := range cases {

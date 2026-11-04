@@ -635,33 +635,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// its other reader — the same answer, once, for both.
 	var hostLoopback hostLoopbackPlan
 	if rt == "container" {
-		// Apple Container handles networking internally, so an explicit
-		// `network.mode: "host"` does nothing here and used to say nothing either. No
-		// --net is emitted (this branch), so there is no host networking. The agent was
-		// also told "localhost resolves directly to the host" on top of that, by a
-		// briefing composed from the config rather than from what was applied — it now
-		// reads appliedNetMode, which answers "bridge" here for the reason this branch
-		// emits no selector.
-		//
-		// The port keys follow that same answer now (the gate at the top of this
-		// function reads `applied`, not the config), so an explicit host mode no longer
-		// silently drops them on this backend: what AC applies is its own bridged
-		// networking, and -p works there whatever the unhonored key says.
-		//
-		// Only an EXPLICIT host is warned: bridge is genuinely honored on this backend
-		// (-p is emitted ungated, forward_host_ports goes through --publish-socket, and
-		// AC gives each container its own vmnet netns), so warning on the default would
-		// be noise on every launch.
-		if netMode == "host" {
-			asked, remedy := `network.mode "host"`, "Remove the key"
-			if netModeSource == netModeFromFlag {
-				asked, remedy = "--network host", "Drop the flag"
-			}
-			out.print("[yellow]Warning: " + asked + " is NOT honored on Apple Container[/yellow] — " +
-				"the backend manages networking itself, so the jail does not share your host's " +
-				"network stack (published ports still apply: this backend runs bridged either " +
-				"way). " + remedy + ", or launch with `--setup podman-self` for host networking.")
-		}
+		// Apple Container handles networking internally and takes no selector, so no --net
+		// is emitted (this branch): it always runs bridged, which appliedNetMode answers for
+		// it, and the port keys follow that answer (-p works here). A written or typed
+		// `host` never reaches this point: the launch refused it before anything was built
+		// (networkrefusal.go, named-setups.md SU-R5), where it used to warn here and launch.
 	} else if rt == "podman" && inContainer {
 		// Podman-in-podman: netavark cannot create a netns without NET_ADMIN, so the
 		// applied mode is host whatever the config asked for. This is also the one mode

@@ -16,7 +16,7 @@ import (
 )
 
 // These run under -short (no container). They cover the pure halves of the #10 probe in
-// applecontainerparity_test.go (TestAppleContainerExplicitHostModeKeepsPublishedPorts): how a
+// applecontainerparity_test.go (TestAppleContainerExplicitHostModeIsRefused): how a
 // dial is classified and recorded, how the jail's phase is read, how the Mac's route is parsed,
 // and when the evidence names macOS Local Network privacy. A mistake there is then caught by
 // `just check-ci`, not by the next run on the one Mac that can conduct the experiment. The
@@ -615,9 +615,8 @@ func TestACPortEvidenceNamesLocalNetworkPrivacy(t *testing.T) {
 	loopback := acListenerResult{addr: "127.0.0.1:50001",
 		dials: append(acDials(acPhaseRunning, acKindReset, time.Second, 12), acDials(acPhaseEnded, acKindRefused, 8*time.Second, 3)...)}
 	bridge := acPortResult{mode: "bridge", v4: loopback, dual: loopback, mac: acDeniedEvidence()}
-	host := acPortResult{mode: "host", v4: loopback, dual: loopback, mac: acMacEvidence{missing: "the jail exited before writing .yolo-it-addr; no Mac-side evidence"}}
 
-	ev := acPortEvidence(bridge, host)
+	ev := acPortEvidence(bridge)
 	if !strings.HasPrefix(ev, "DIAGNOSIS — macOS LOCAL NETWORK PRIVACY") {
 		t.Errorf("the evidence does not LEAD with the Local Network privacy diagnosis:\n%s", ev)
 	}
@@ -633,15 +632,22 @@ func TestACPortEvidenceNamesLocalNetworkPrivacy(t *testing.T) {
 		"container address, IPv4-only listener 192.168.64.3:18765: not reached in 5 dial(s)",
 		"while the jail ran: 5× no route to host (EHOSTUNREACH)",
 		"route -n get 192.168.64.3",
-		"the jail exited before writing .yolo-it-addr",
 	} {
 		if !strings.Contains(ev, want) {
 			t.Errorf("the evidence lacks %q:\n%s", want, ev)
 		}
 	}
-	if strings.Contains(ev, "host launch:") {
-		t.Errorf("the diagnosis names the host launch, which had no Mac-side evidence:\n%s", ev)
+	if strings.Contains(ev, "explicit host") {
+		t.Errorf("the evidence still describes an explicit host-mode launch, which is refused now:\n%s", ev)
 	}
+	t.Run("no Mac-side evidence", func(t *testing.T) {
+		b := bridge
+		b.mac = acMacEvidence{missing: "the jail exited before writing .yolo-it-addr; no Mac-side evidence"}
+		ev := acPortEvidence(b)
+		if !strings.Contains(ev, "the jail exited before writing .yolo-it-addr") || strings.Contains(ev, "LOCAL NETWORK PRIVACY") {
+			t.Errorf("a launch with no Mac-side evidence is not reported as such:\n%s", ev)
+		}
+	})
 
 	t.Run("a published port answered", func(t *testing.T) {
 		// The run after the helpers are granted and the go test binary is not: the forwarder
@@ -650,7 +656,7 @@ func TestACPortEvidenceNamesLocalNetworkPrivacy(t *testing.T) {
 		b := bridge
 		b.v4 = acListenerResult{addr: "127.0.0.1:50001", reached: true,
 			dials: acDials(acPhaseRunning, acKindReached, time.Second, 1)}
-		ev := acPortEvidence(b, host)
+		ev := acPortEvidence(b)
 		if !strings.HasPrefix(ev, "DIAGNOSIS — macOS LOCAL NETWORK PRIVACY") {
 			t.Errorf("the test process's own denial is no longer diagnosed:\n%s", ev)
 		}
@@ -698,40 +704,36 @@ func TestACPortEvidenceNamesLocalNetworkPrivacy(t *testing.T) {
 			tc.mutate(&mac)
 			b := bridge
 			b.mac = mac
-			if ev := acPortEvidence(b, host); strings.Contains(ev, "LOCAL NETWORK PRIVACY") {
+			if ev := acPortEvidence(b); strings.Contains(ev, "LOCAL NETWORK PRIVACY") {
 				t.Errorf("named Local Network privacy without its signature:\n%s", ev)
 			}
 		})
 	}
 }
 
-// TestACPortVerdict pins the #10 verdict's four arms, and that the no-port arm defers to the
-// Local Network privacy diagnosis when the evidence carries its signature instead of calling
-// `-p` itself the finding right above a diagnosis blaming the runner.
+// TestACPortVerdict pins the #10 verdict's three arms on the default launch, and that the no-port
+// arm defers to the Local Network privacy diagnosis when the evidence carries its signature
+// instead of calling `-p` itself the finding right above a diagnosis blaming the runner.
 func TestACPortVerdict(t *testing.T) {
 	reached := acListenerResult{addr: "127.0.0.1:50001", reached: true}
 	refused := acListenerResult{addr: "127.0.0.1:50002", dials: acDials(acPhaseRunning, acKindReset, time.Second, 3)}
-	up := func(mode string) acPortResult { return acPortResult{mode: mode, v4: reached, dual: refused} }
-	down := func(mode string, mac acMacEvidence) acPortResult {
-		return acPortResult{mode: mode, v4: refused, dual: refused, mac: mac}
+	down := func(mac acMacEvidence) acPortResult {
+		return acPortResult{mode: "bridge", v4: refused, dual: refused, mac: mac}
 	}
 	plain := acMacEvidence{missing: "no Mac-side evidence"}
 	for _, tc := range []struct {
 		name         string
-		bridge, host acPortResult
+		bridge       acPortResult
 		holds        bool
 		want, reject string
 	}{
-		{"both modes reach", up("bridge"), up("host"), true, "exactly as under the default", ""},
-		{"only the default reaches", up("bridge"), down("host", plain), false, "the defect #10 fixed is back", ""},
-		{"only host mode reaches", down("bridge", plain), up("host"), false, "the reverse of the defect", ""},
-		{"neither, no signature", down("bridge", plain), down("host", plain), false,
-			"the larger finding is `-p` itself", "Local Network"},
-		{"neither, with the signature", down("bridge", acDeniedEvidence()), down("host", plain), false,
-			"Local Network privacy's signature", "the larger finding is `-p` itself"},
+		{"the port reaches", acPortResult{mode: "bridge", v4: reached, dual: refused}, true, "answers the Mac under the default", ""},
+		{"no port, no signature", down(plain), false, "the finding is `-p` itself", "Local Network"},
+		{"no port, with the signature", down(acDeniedEvidence()), false,
+			"Local Network privacy's signature", "the finding is `-p` itself"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			holds, finding := acPortVerdict(tc.bridge, tc.host)
+			holds, finding := acPortVerdict(tc.bridge)
 			if holds != tc.holds || !strings.Contains(finding, tc.want) ||
 				(tc.reject != "" && strings.Contains(finding, tc.reject)) {
 				t.Errorf("acPortVerdict = %v, %q; want %v, containing %q and not %q",
@@ -829,9 +831,11 @@ func TestACPortProbeCallSites(t *testing.T) {
 		wants []string
 		why   string
 	}{
-		{"TestAppleContainerExplicitHostModeKeepsPublishedPorts", []string{"evidence := acPortEvidence(bridge, host)",
-			"holds, finding := acPortVerdict(bridge, host)", "acParityRecord(t, fix, holds, finding, evidence)"},
-			"the verdict no longer goes through acPortEvidence and acPortVerdict, so the dial timelines, " +
+		{"TestAppleContainerExplicitHostModeIsRefused", []string{"acExplicitHostModeRefused(t)",
+			"evidence := acPortEvidence(bridge)", "holds, finding := acPortVerdict(bridge)",
+			"acParityRecord(t, fix, holds, finding, evidence)"},
+			"the host-mode refusal is no longer asserted, or the verdict no longer goes through " +
+				"acPortEvidence and acPortVerdict, so the dial timelines, " +
 				"the Local Network privacy diagnosis, or the verdict line that defers to it are lost"},
 		{"acPublishedPortProbe", []string{"acProbeClock{start: time.Now(), dir: dir}",
 			"r.v4 = acPollListener(", "r.dual = acPollListener(", "r.mac = acPortMacDiag(stop, clock,",

@@ -215,8 +215,8 @@ func versionAtLeast(have, floor string) bool {
 // namespace with the launcher IS host networking, and Apple Container is excluded here
 // for the same reason it is excluded there — it does its own per-container networking
 // and takes no selector from the assembler, so its jail is never host-networked however
-// the key is set. "bridge" is what that backend has always rendered and what its warning
-// tells the user to expect; nothing here escalates it (§7).
+// the key is set. "bridge" is what that backend has always rendered; a written or typed `host`
+// there is refused before the launch builds anything (networkrefusal.go, SU-R5).
 //
 // macos-user is NOT absent, and the comment that used to stand here saying it was
 // ("Run() returns before runContainer, so neither caller ever sees that runtime") named
@@ -225,7 +225,7 @@ func versionAtLeast(have, floor string) bool {
 // That backend shares the launcher's stack by construction (sharesLauncherNetns), so this
 // answers "host" for it and both port sections fall away with the bridge paragraph.
 func appliedNetMode(rt, netMode string, inContainer bool) string {
-	if rt == "container" { // parity: Warned — AC takes no --net selector; an explicit `network.mode: host` warns
+	if rt == "container" { // parity: Refused — AC takes no --net selector; a written or typed host is refused at launch (networkrefusal.go)
 		return "bridge"
 	}
 	if sharesLauncherNetns(rt, netMode, inContainer) {
