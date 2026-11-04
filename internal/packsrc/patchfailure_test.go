@@ -463,7 +463,7 @@ func TestPatchFailureLegacyUnavailableAttemptDoesNotRepeatReplay(t *testing.T) {
 	counter := filepath.Join(t.TempDir(), "merge-count")
 	body := `case " $* " in *" merge-tree "*) echo x >> ` + shquote.Quote(counter) + `;; esac
 ` +
-		`case " $* " in *" commit-tree "*) exit 1;; esac`
+		`case " $* " in *" merge-tree "*) exit 1;; esac` // a pick that fails without a conflict
 	u.store.Git = wrappedGit(t, body)
 	first := u.store.ReclassifyLegacyApplyError(snap, series, target, "yolo-v1", LegacyReplayOptions{Now: u.now})
 	if first.State != "unavailable" || !first.Attempted || first.Failure != nil {
@@ -489,7 +489,7 @@ func TestPatchFailureLegacyNewIdentityRetries(t *testing.T) {
 	counter := filepath.Join(t.TempDir(), "merge-count")
 	body := `case " $* " in *" merge-tree "*) echo x >> ` + shquote.Quote(counter) + `;; esac
 ` +
-		`case " $* " in *" commit-tree "*) exit 1;; esac`
+		`case " $* " in *" merge-tree "*) exit 1;; esac` // a pick that fails without a conflict
 	u.store.Git = wrappedGit(t, body)
 	first := u.store.ReclassifyLegacyApplyError(snap, series, target, "yolo-v1", LegacyReplayOptions{Now: u.now})
 	if first.State != "unavailable" || !first.Attempted {
@@ -514,7 +514,7 @@ func TestPatchFailureLegacyGitVersionRetries(t *testing.T) {
 `+
 			`case " $* " in *" merge-tree "*) echo x >> `+shquote.Quote(counter)+`;; esac
 `+
-			`case " $* " in *" commit-tree "*) exit 1;; esac`)
+			`case " $* " in *" merge-tree "*) exit 1;; esac`) // a pick that fails without a conflict
 	}
 	u.store.Git = probe("2.55.0")
 	first := u.store.ReclassifyLegacyApplyError(snap, series, target, "same-yolo", LegacyReplayOptions{Now: u.now})

@@ -70,6 +70,11 @@ const ReplayTimeout = 60 * time.Second
 // replayMinGit is the oldest git whose merge-tree takes --merge-base.
 var replayMinGit = [2]int{2, 40}
 
+// treeMergeGit is the oldest git whose merge-tree merges trees as well as commits ("the three trees
+// involved in the 3-way merge only need to be trees, not necessarily commits", git 2.45.0's release
+// notes): with it, a pick is merged onto the previous pick's tree and needs no commit of it.
+var treeMergeGit = [2]int{2, 45}
+
 // GitTooOldError is the replay's refusal of a git older than replayMinGit, before it runs anything:
 // the walk returns it. It is its own type so a caller names updating git as
 // the next step, where a retry would meet the same git (docs/reference/patched-forks.md PF-D58).
@@ -284,8 +289,20 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 	// is its own tree, which every entry fits.
 	// A probe that found nothing missing is kept, so the check after it asks no second time.
 	var baseProbe, patchBranchProbe string
+	// THE BASE AND THE FIRST ENTRY IN ONE LISTING when both are already complete (probeComplete):
+	// the listing names the first entry's root tree first, as its own would, and every object of
+	// both trees, so it is the base's check and the entry's probe and check at once — one git start
+	// where a walk whose first entry is not its base made two. When it finds anything missing it is
+	// dropped, and the base and the entry are probed and fetched one at a time, as they always were,
+	// so what is fetched, and when, does not change.
+	var firstProbe string
 	if series.Replays() && !opts.LocalOnly {
-		baseProbe = s.prefetchBlobs(b, mirror, series.Base, "")
+		if len(list) > 0 && list[0].Commit != series.Base {
+			firstProbe = s.probeComplete(b, mirror, list[0].Commit, series.Base)
+		}
+		if firstProbe == "" {
+			baseProbe = s.prefetchBlobs(b, mirror, series.Base, "")
+		}
 		if series.PatchBranch != nil {
 			// The patch branch's own files, from the patch branch's repository into its blobless mirror.
 			patchBranchProbe = s.prefetchBlobs(b, patchBranchMirror, series.PatchBranch.Commit, "")
@@ -298,12 +315,17 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 	}
 	defer sc.remove()
 	sc.base = series.Base
+	sc.treeMerge = gitAtLeast(gitVer, treeMergeGit)
 	if !opts.LocalOnly {
 		sc.fetch = func(oids []string) { s.prefetchObjects(b, mirror, oids) }
 	}
 	if series.Replays() {
 		type need struct{ mirror, commit, probe string }
-		needs := []need{{mirror, series.Base, baseProbe}}
+		baseCheck := baseProbe
+		if firstProbe != "" {
+			baseCheck = firstProbe // complete for the base too; its root tree is not read from it
+		}
+		needs := []need{{mirror, series.Base, baseCheck}}
 		if series.PatchBranch != nil {
 			needs = append(needs, need{patchBranchMirror, series.PatchBranch.Commit, patchBranchProbe})
 		}
@@ -333,11 +355,13 @@ func (s *Store) WalkSeries(repo, subdir string, series *Series, list []ListEntry
 		}
 	}
 
-	for _, e := range list {
+	for i, e := range list {
 		r := ReplayResult{Entry: e}
 		probe := ""
 		switch {
 		case opts.LocalOnly:
+		case i == 0 && firstProbe != "":
+			probe = firstProbe // found complete with the base above, under this walk's lock
 		case e.Commit == series.Base && baseProbe != "":
 			// AN ENTRY THAT IS THE BASE (the upstream has not moved) was probed complete above, under
 			// the lock this walk still holds: a fetch since can only have added objects, so a second
@@ -495,6 +519,9 @@ type scratch struct {
 	// fetch fetches objects into the mirror the scratch repository borrows from, nil for a replay
 	// that reads only what is already here.
 	fetch func(oids []string)
+	// treeMerge is a git whose merge-tree takes trees (treeMergeGit): each pick but the first is
+	// merged onto the previous pick's tree, uncommitted.
+	treeMerge bool
 }
 
 // newScratchOf makes a scratch repository borrowing every mirror's objects, run by the git binary
@@ -723,6 +750,11 @@ func (sc *scratch) amWhole(series *Series, files string) ([]string, error) {
 		}
 		return nil, nil
 	}
+	// The commits are read from the files `git am` wrote (amCommits), one git start fewer; any
+	// shape those files do not answer for is asked of git as it always was.
+	if commits, ok := sc.amCommits(series.Base, len(series.Members)); ok {
+		return commits, nil
+	}
 	out, err := sc.git("", "rev-list", "--reverse", "HEAD", "^"+series.Base)
 	if err != nil {
 		return nil, err
@@ -752,11 +784,17 @@ func (sc *scratch) amEach(series *Series, files string) ([]string, *SeriesBaseEr
 			}
 			return nil, nil, err
 		}
-		head, err := sc.git("", "rev-parse", "HEAD")
-		if err != nil {
-			return nil, nil, err
+		// The detached HEAD `git am` left is a file of the scratch repository (detachedHead); git
+		// is asked only when that file is not a bare id.
+		head, ok := sc.detachedHead()
+		if !ok {
+			out, err := sc.git("", "rev-parse", "HEAD")
+			if err != nil {
+				return nil, nil, err
+			}
+			head = strings.TrimSpace(out)
 		}
-		commits = append(commits, strings.TrimSpace(head))
+		commits = append(commits, head)
 	}
 	return commits, nil, nil
 }
@@ -818,12 +856,15 @@ func (sc *scratch) pick(r *ReplayResult, series *Series, commits []string, subdi
 			}
 			continue
 		}
-		if i == len(commits)-1 {
+		if i == len(commits)-1 || sc.treeMerge {
 			// THE LAST PICK IS NOT COMMITTED: nothing is picked onto it, and its tree is all the
 			// replay's result is read for (settle, and export's checkout, which takes a tree as it
-			// takes a commit), so a commit of it would be one git start for nothing.
+			// takes a commit), so a commit of it would be one git start for nothing. NOR IS ANY
+			// PICK where merge-tree merges trees (treeMerge): the next pick is merged onto this
+			// one's tree, and with --merge-base given git merges the three trees whether it is
+			// handed them or the commits holding them, so the result is the same tree.
 			onto, ontoTree = tree, tree
-			break
+			continue
 		}
 		next, err := sc.git("", "commit-tree", "--no-gpg-sign", tree, "-p", onto, "-m", member)
 		if err != nil {

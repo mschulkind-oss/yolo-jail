@@ -55,7 +55,8 @@ import (
 type Store struct {
 	// Dir is the store root (paths.PacksDir()).
 	Dir string
-	// Git is the git binary to run. Empty means "git" from PATH.
+	// Git is the git binary to run. Empty means "git" from PATH (on darwin, past Apple's
+	// /usr/bin/git shim to the git it runs: storeGit).
 	Git string
 	// Timeout bounds git's network work. A standalone git run gets it to itself; a
 	// Refresh of one mirror SHARES it across the clone, the fetch and the checkouts after
@@ -154,7 +155,7 @@ func (s *Store) git() string {
 	if s.Git != "" {
 		return s.Git
 	}
-	return "git"
+	return storeGit() // "git", or on darwin the developer tools' git the /usr/bin/git shim runs
 }
 
 func (s *Store) timeout() time.Duration {
@@ -965,6 +966,19 @@ func (s *Store) prefetchBlobs(b budget, mirror, commit, sub string) (complete st
 	cmd.Stdin = strings.NewReader(missing.String())
 	_ = cmd.Run()
 	return ""
+}
+
+// probeComplete lists first's tree and then other's in one `rev-list --objects --missing=print`
+// and returns that listing when it names nothing missing: then both trees are whole in the mirror,
+// and the listing starts with first's root tree, as prefetchBlobs' listing of first alone does
+// (listedRootTree). "" is any other answer — something missing, or git failing — which fetches
+// nothing and tells the caller nothing, so it probes each tree on its own as before.
+func (s *Store) probeComplete(b budget, mirror, first, other string) string {
+	out, err := s.runIn(b, mirror, "rev-list", "--objects", "--missing=print", first+"^{tree}", other+"^{tree}")
+	if err != nil || countMissing(out) > 0 || listedRootTree(out) == "" {
+		return ""
+	}
+	return out
 }
 
 // prefetchObjects fetches the objects oids names into the blobless mirror, in one request, as

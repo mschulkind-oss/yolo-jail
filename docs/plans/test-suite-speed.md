@@ -221,6 +221,55 @@ can be made independent; the cheaper darwin `git` only if it is a small change.
 The one wait cut made: `TestAppleListingQueryIsBounded` sets the `container ls` bound
 (`appleListingBound`) to 100 ms instead of waiting out 2 s.
 
+**Levers A and B built 2026-11-03; C not built.** A *replay* here is one run of a patched fork's
+series onto a candidate commit (`WalkSeries` in [`replay.go`](../../internal/packsrc/replay.go));
+a launch that builds pays two, the walk's and the build's copy into its source directory.
+
+- **A, fewer starts per replay.** Three starts are gone, each with identical answers. The commits
+  one `git am` made are read from the scratch repository's own `.git/HEAD` and loose commit
+  objects, which replaces a `rev-list --reverse` (and the `rev-parse HEAD` after each member's
+  `git am`). Any shape those files do not answer for falls back to git
+  ([`scratchread.go`](../../internal/packsrc/scratchread.go)). With git 2.45 or later, whose
+  `merge-tree` merges trees as well as commits, no pick is committed (`commit-tree`): the next
+  pick merges onto the previous pick's tree. The base's and the first entry's object listing is
+  one `rev-list` when both are complete (`probeComplete`). When anything is missing, the old
+  one-at-a-time probe and fetch run unchanged. A filled-mirror replay of a two-member series onto
+  a moved upstream now starts 7 gits, where it started 10, and
+  `TestAFilledWalkStartsSevenGits` pins that count by subcommand.
+- **B, the darwin `git`.** When `PATH` resolves `git` to Apple's `/usr/bin/git` shim, a store
+  with no `Git` of its own runs `xcrun --find git`'s answer directly, asked once per process
+  and developer directory ([`gitbin.go`](../../internal/packsrc/gitbin.go)). This reaches the
+  product's patched-fork git only; test fixtures still call `git` from `PATH`. It has not been
+  timed on the Mac.
+- **C, parallel tests, is not built.** The `git`-heavy `internal/cli` tests are whole launches:
+  their fixture (`newPatchedFixture`) calls `t.Setenv` for `HOME` and `XDG_CONFIG_HOME`, which
+  the product reads through `paths`, and it swaps package-level functions
+  (`programRefresh`, `hostApplyFromPackUpdate`). `t.Setenv` panics under `t.Parallel`, so
+  making these tests independent means threading a home directory through the launch path.
+  That is not a small change.
+
+**MEASURED on Linux, 2026-11-03** (this jail, 32 cores, other agents' load on the machine).
+`internal/cli` started **23,852** `git` processes at `b2f9a0811`. Earlier work had already cut
+that from 48,536, and the cut is not part of this change. After A it starts **20,017** (−16%):
+`rev-list` went from 4,892 to 2,375 and `commit-tree` from 1,347 to 36. Wall time, with interleaved
+runs of the two test binaries and no counting wrapper: before 415.5 s and 402.2 s, after 221.9 s and
+354.6 s, every run passing. Load averages at the runs' starts were 12 to 37, from other agents. That
+spread is the machine's load, not this change: on Linux a `git` start costs a few milliseconds, so
+3,835 starts are seconds. These runs show no regression and measure no speedup. On the Mac, at 20–36 ms a start,
+3,835 fewer starts are about 1.3 to 2.3 minutes (INFERRED from the per-start costs above, not
+measured there).
+
+```console
+# A counting git first on PATH (each run's arguments, one line a run), then per-subcommand counts.
+$ D=$YOLO_DURABLE_DIR/scratch/spawnlog; mkdir -p "$D/bin"
+$ printf '#!/bin/bash\nprintf "%%s\\t%%s\\n" "$EPOCHREALTIME" "$*" >> "$GITCOUNT_LOG"\nexec /bin/git "$@"\n' > "$D/bin/git"; chmod +x "$D/bin/git"
+$ GITCOUNT_LOG=$D/after.runs env -u YOLO_ALLOW_MISSING_PROGRAMS PATH="$D/bin:$PATH" \
+    go test -short -count=1 -timeout 0 -json ./internal/cli > "$D/after.json"
+$ wc -l < "$D/after.runs"
+# Wall time: build both trees' test binaries (go test -c ./internal/cli) and run them alternately,
+# each from its own internal/cli directory, with -test.short -test.count=1 -test.timeout=0.
+```
+
 **A flake seen once in four unit runs**, the second:
 `TestEnvOverrideRefusesTheMacosUserLaunch` failed with `Refusing the macos-user launch: the
 "openai-auth-broker" service (pack "openai-auth") did not start: listen tcp 127.0.0.1:44791:
