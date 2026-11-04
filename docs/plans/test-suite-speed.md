@@ -457,6 +457,11 @@ and appends the results to that lab report:
    only expected failures are none (the four `kern.procargs2` tests were fixed in `f25911eb3`); report
    the `internal/cli` package's time.
 
+*Run 2026-11-03 at `fd702e9fb`* ([lab report §10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)):
+items 1–5 pass. `just done` failed on one load flake,
+`TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains` (a TempDir cleanup race; it
+passes `-count=10` alone). `internal/cli` took 1574 s.
+
 ## Open Questions
 
 1. 💬 <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today

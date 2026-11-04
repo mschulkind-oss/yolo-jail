@@ -2,7 +2,7 @@
 title: "Mac run: slice 12a's witness W1, the macos-user suite, and the short suite on darwin"
 date: 2026-11-03
 tags: [lab-report, macos, macos-user, testing]
-summary: "Two account-mode workspaces run at once on the 12a build, but nine macos-user integration tests that pass on 12a's parent fail on it (five not predicted by W1), $TMPDIR is empty in the sandbox, nix warns on every call, and four short-suite tests fail on macOS 26.5 because kern.procargs2 hides a platform binary's environment."
+summary: "Two account-mode workspaces run at once on the 12a build, but nine macos-user integration tests that pass on 12a's parent fail on it (five not predicted by W1), $TMPDIR is empty in the sandbox, nix warns on every call, and four short-suite tests fail on macOS 26.5 because kern.procargs2 hides a platform binary's environment. A later rerun (section 10) confirms the fixes for W1b, with the relaunch copy, a self-mode copy, the procargs2 skip's sleep gap and one load flake left."
 ---
 
 # Mac run: slice 12a's witness W1, the macos-user suite, and the short suite on darwin
@@ -268,6 +268,68 @@ predicted above. Three failures were new:
   (`boundedcommand_test.go:73`): passes `-count=5` alone, so a flake under load.
 
 So `just done` is red on this Mac at `90862d6ef`, for reasons that are not this docs-only commit.
+
+## 10. Rerun: witness W1b and the `just done` fixes witness
+
+**Run 2026-11-03, later the same evening**, at `main` `fd702e9fb`, which carries the fixes for
+[§2](#2-tmpdir-is-empty-in-account-mode) to [§9](#9-the-short-suite-on-this-mac) (`fd7ef428c` to `407f30c2f`). Run as a fresh dev bundle (`dev-bundles/a0ed3a40b9f26f56-…`).
+This covers both witnesses that ask for a Mac run:
+[W1b](../design/macos-user-model-plan.md#mac-checks) and the
+[`just done` fixes witness](../plans/test-suite-speed.md#mac-witness-the-darwin-just-done-fixes-2026-11-03).
+Nothing was fixed.
+
+| # | W1b item | Result |
+| :--- | :--- | :--- |
+| 1 | The nine tests, by name | **As expected:** 8 PASS; only `TestMacosUserUnchangedRelaunchKeepsTheDeliveredFiles` FAILS (same two messages as [§3](#3-the-macos-user-suite-nine-failures-all-from-12a)) |
+| 1a | `readlink ~/Library/Caches` in account mode | `/Users/_yolojail/Library/Caches` (from a session of my own: the home-tier test prints no such line) |
+| 2 | The relaunch's boot-log line | `home overlay: ~/.claude/skills was delivered as a copy of 72 file(s), not a hard link: linking the staged file was refused (operation not permitted)`, and the same for `~/.claude/CLAUDE.md`, `bin`, `mods` and `~/.codex/AGENTS.md` |
+| 2a | `sandbox-exec -p '(version 1)(allow default)(deny file-link)' /bin/ln a b` | **Compiles and refuses:** `ln: b: Operation not permitted`, rc 1, no `b`. The control without the deny links. `file-link*` does **not** compile (`unbound variable: file-link*`) |
+| 2b | (added) the same link as `_yolojail` outside Seatbelt | `sudo -n -u _yolojail /usr/bin/env /bin/ln <staged SKILL.md> <ws>/.yolo/home/…` **succeeds** (link count 2). So the account mode's EPERM comes from the profile, not from file ownership or APFS |
+| 2c | The relaunch test in self mode | **Also a copy:** a throwaway copy of the test with `"macos_user_mode": "self"` saw link count 1 on both launches and the inode move (128849359 → 128849591). The owner is `matt` there, so the test's owner check can't detect it |
+| 3 | `echo $TMPDIR` in an account-mode session | `/private/var/folders/mr/t1nfdfgj1mn79jn_q0r6bpj40000kt/T`, and `touch "$TMPDIR/x"` succeeds. The XDG base dirs name the workspace home's `.config`, `.cache`, `.local/share`, `.local/state` |
+| 3a | `getconf DARWIN_USER_TEMP_DIR` inside | **Now prints** `/private/var/folders/mr/t1nfdfgj1mn79jn_q0r6bpj40000kt/T` (rc 0), where in [§2](#2-tmpdir-is-empty-in-account-mode) it printed nothing. Not traced: plausibly confstr reads the `TMPDIR` MMP-D30 now sets |
+| 3b | `nix --version` | `nix (Nix) 2.34.7`, no `$HOME … is not owned by you` line |
+| 4 | The [§5](#5-an-apple-container-home-blocks-a-later-account-mode-launch) case | Fresh `w1b-c`: `YOLO_RUNTIME=container yolo -- true` (exit 0, 448 s of provisioning), then macos-user `yolo -- true` refuses, naming Apple Container and `mv <ws>/.yolo/home <ws>/.yolo/home.apple-container`, or `YOLO_RUNTIME=container`. In [§5](#5-an-apple-container-home-blocks-a-later-account-mode-launch)'s old `w1-a`, the same refusal; **after that `mv` the macos-user launch runs** with `HOME=<ws>/.yolo/home` |
+| 5 | `go test -short ./integration -run '^(TestStopHomeProcesses\|TestProcessEnvironReadsALiveChildsHome)'` | **Skips, naming the install** (`nix profile install nixpkgs#bash`), as W1b allows. See the finding below |
+| 6 | `run-checks.sh --mode account` while a `yolo -- sleep` runs elsewhere | **41 PASS, 0 FAIL, 4 SKIP**, g4 included. Also passed with a fresh launch started 3 s into the ~12 s run, which is when a launch sweeps dead sessions |
+
+**Finding: the skip's own remedy leads to two failures.** The skip checks only that a
+non-platform `sh` resolves. With a nix `bash-interactive` `sh` on `PATH` (the state
+`nix profile install nixpkgs#bash` produces), two of the four pass and two fail:
+
+- `TestStopHomeProcessesStopsEveryoneUnderTheHome` (`preparationworkers_test.go:1356`): "the
+  stand-in the test's own child (pid …) never showed HOME=…"
+- `TestStopHomeProcessesStopsWhatIsSpawnedDuringTheStop` (`preparationworkers_test.go:3791`):
+  "revalidating pid … (sleep) HOME ownership: … pid … has an empty environment"
+
+Both stand-ins are `sleep`, which still resolves to `/bin/sleep`, a platform binary. One is
+`fakeHostDaemonProcess`'s `exec.Command("sleep", "600")` (`integration/homedaemons_test.go:161`).
+The other is the `sleep 600 &` that `standInScript` (`preparationworkers_test.go:1283`) runs. With nix coreutils on `PATH` as well, all four
+pass. So the guard should require a non-platform `sleep` too, or the stand-ins should not run the
+system `sleep`.
+
+**Decision needed:** the `file-link` grant for the staging root. 2a shows the operation name
+compiles on this Mac, and 2b shows the profile is the only obstacle in account mode. 2c shows
+self mode copies too, which the plan did not expect.
+
+| # | `just done` fixes witness item | Result |
+| :--- | :--- | :--- |
+| 1 | `python3 scripts/test-go-packages.py`, default `TMPDIR` | 15 tests OK |
+| 2 | `go test -short -count=3 -run '^TestHostPiLaunchGetsItsOwnSessionHome$' ./internal/cli` | ok |
+| 3 | `go test -short -count=5 -run '^TestBoundedCommand' ./internal/hostservice`, then `pgrep -f hostservice.test` | ok; `pgrep` finds nothing (rc 1) |
+| 4 | `go test -short -count=1 -run '^TestAHook' ./internal/brokerhook` | ok (49.7 s) |
+| 5 | `python3 scripts/test-completion-check.py` | OK. It prints `census: wrote generated.json`, and the tree stayed clean |
+| 6 | `just done` (full `just check-ci`; no verified ancestor) | **FAILED**, 26 m 36 s wall: one test, below. `internal/cli` took **1574 s** (26.2 min, inside the new 45 m limit), `internal/cli/run` 874 s, `internal/entrypoint` 966 s. The `integration` package passed, and the four `kern.procargs2` tests skip there silently: no nix `sh` is on this Mac's `PATH` |
+
+The one failure: `internal/cli` `TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains`
+(`shareddemand_process_test.go`): `TempDir RemoveAll cleanup: unlinkat …/003/.local/share/yolo-jail:
+directory not empty`. Something under the test's home was still writing when its cleanup ran.
+**Passes `-count=10` alone** (27.8 s), so it's a flake under load, in a test from 2026-10-13
+(`98fb2d3ce`). The load was this session's other launches only, lighter than
+[§9](#9-the-short-suite-on-this-mac)'s.
+
+**Still blocked:** `claude -p` still fails with "OAuth token revoked", and `log show` still prints
+`Operation not permitted` from this session.
 
 ## Evidence
 
