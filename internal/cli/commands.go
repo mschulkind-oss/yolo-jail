@@ -42,7 +42,8 @@ Manage the yolo account: ` + "`_yolojail`" + `, the macOS account agents run as 
 should not run as you. It holds none of your files. The four verbs come in two
 inverse pairs:
 
-  create            Create the yolo account and its sudo rule (asks for your admin password once)
+  create            Create the yolo account and its sudo rule (asks for your admin password once;
+                    --recheck re-checks the rule with it on a Mac already set up)
   remove            Remove the yolo account, its group and its rule: the undo of create
   share [path]      Give the yolo account an existing directory under the shared root
   unshare <path>    Take a directory back out of the yolo account's reach: the undo of share
