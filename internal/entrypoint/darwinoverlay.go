@@ -371,7 +371,7 @@ type overlayRoot struct {
 // (retireOverlayDestinations), and records what it delivered for the next install to do the
 // same (HomeOverlayInstalledName). Neither ever fails the boot: what they could not do is a
 // line through warn. With no sidecar root there is nowhere to keep the record, so neither runs.
-func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, links overlayLinks, warn, note func(string)) error {
+func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, links overlayLinks, warn func(string)) error {
 	dests, err := readHomeOverlayManifest(overlay)
 	if err != nil {
 		return err
@@ -388,7 +388,7 @@ func installHomeOverlayDestinations(overlay, home string, roots []overlayRoot, l
 	installed := map[string]string{}
 	var errs []error
 	for _, d := range dests {
-		if err := installOverlayDestination(overlay, home, roots, links, d, note); err != nil {
+		if err := installOverlayDestination(overlay, home, roots, links, d); err != nil {
 			errs = append(errs, err)
 			// The home still holds the previous delivery, if any: keep what proves it yolo's.
 			if dg, ok := prev.Digests[d]; ok {
@@ -634,7 +634,7 @@ func openOverlayDestination(home string, roots []overlayRoot, links overlayLinks
 // overlayTreeDigest is the content identity of the file or tree at name beneath r: every entry's
 // path relative to name, its kind, a file's content digest and a link's target, walked without
 // following a link. Modes are not part of it, so it is the same for the sealed staged tree and
-// the hard links (or copies) an install made of it.
+// the copies an install made of it.
 func overlayTreeDigest(r *os.Root, name string) (string, error) {
 	h := sha256.New()
 	var walk func(at, rel string) error
@@ -776,7 +776,7 @@ func closeOverlayRoots(roots []overlayRoot) {
 // resolved again by each call and follow the new link; the handle names the directory that
 // was checked, and os.Root refuses a component swapped for a link that leaves it. A swap
 // can make the install fail or land in the directory the agent moved, never outside.
-func installOverlayDestination(overlay, home string, roots []overlayRoot, links overlayLinks, dest string, note func(string)) error {
+func installOverlayDestination(overlay, home string, roots []overlayRoot, links overlayLinks, dest string) error {
 	rel := filepath.FromSlash(dest)
 	src := filepath.Join(overlay, rel)
 	srcInfo, err := os.Lstat(src)
@@ -828,19 +828,13 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 			return fmt.Errorf("refusing to install inherited core config ~/%s: its staged source is not a sealed 0444 regular file; repair the staged overlay and relaunch", dest)
 		}
 		if curErr == nil {
-			stagedInfo, stagedErr := os.Lstat(src)
-			if cur.Mode().IsRegular() && cur.Mode().Perm() == 0o444 && stagedErr == nil &&
-				stagedInfo.Mode().IsRegular() && stagedInfo.Mode().Perm() == 0o444 &&
-				os.SameFile(srcInfo, stagedInfo) && os.SameFile(srcInfo, cur) {
-				return nil
-			}
 			adm, err := admitRecordedInheritedDelivery(overlay, dest, src, srcInfo, dir, base)
 			if err != nil {
-				return fmt.Errorf("refusing to install inherited core config ~/%s: an existing destination is neither the unchanged sealed hardlink nor a delivery yolo recorded; preserve it, inspect the path (move it aside if it is yours to keep), then relaunch", dest)
+				return fmt.Errorf("refusing to install inherited core config ~/%s: an existing destination is neither a delivery yolo recorded nor the staged file an earlier yolo linked there; preserve it, inspect the path (move it aside if it is yours to keep), then relaunch", dest)
 			}
 			if adm.current {
-				// Already this delivery's bytes, sealed: delivered as a copy, or before a re-stage
-				// gave the staged file a fresh inode. Nothing to write.
+				// Already this delivery's bytes, sealed, in a copy of its own: nothing to write, and
+				// the inode stays (MMP-D35).
 				return nil
 			}
 			recorded = &adm
@@ -858,45 +852,31 @@ func installOverlayDestination(overlay, home string, roots []overlayRoot, links 
 		}
 	}
 
-	// ALREADY THIS DELIVERY: every file at the destination is a hard link of the staged file at
-	// the same path, and nothing else is there (overlayInstalledFrom). The staged tree is the
-	// host user's and sealed, so no file the sandbox account wrote can share one of its inodes:
-	// an unchanged relaunch replaces nothing, and a destination edited between sessions fails
-	// the check and is replaced as before.
+	// ALREADY THIS DELIVERY: every file at the destination is a copy with the staged file's mode
+	// and bytes, and nothing else is there (overlayInstalledFrom, MMP-D35). An unchanged relaunch
+	// rewrites nothing and the delivered inodes stay; a destination edited between sessions fails
+	// the comparison and is replaced as before.
 	if curErr == nil && overlayInstalledFrom(src, srcInfo, dir, base) {
 		return nil
 	}
 
 	// Build the whole replacement before touching the destination. Strict: a partial copy
-	// renamed into place would look like a complete delivery. Each file is a hard link of the
-	// sealed staged file where the filesystem allows one and a copy where it does not
-	// (linkTreeStrictBeneath).
-	// A REFUSED LINK IS SAID, once per destination, in the boot log: the copy it falls back to
-	// works, but is replaced on every install and, for an inherited config, is admitted on the
-	// next launch only through the delivery record (issue #70).
-	copied := 0
-	var firstLinkErr error
-	onCopy := func(_ string, linkErr error) {
-		if copied == 0 {
-			firstLinkErr = linkErr
-		}
-		copied++
-	}
+	// renamed into place would look like a complete delivery. Every file is a copy of the staged
+	// one, never a hard link (copyTreeStrictBeneath says why); a copy is the design, so it is not
+	// reported, and only a copy that FAILS is.
 	if srcInfo.IsDir() {
 		err = dir.Mkdir(staged, 0o755)
 		if err == nil {
-			err = linkTreeStrictBeneath(src, dir, staged, onCopy)
+			err = copyTreeStrictBeneath(src, dir, staged)
 		}
 	} else {
-		err = linkFileStrictBeneath(src, dir, staged, srcInfo.Mode().Perm(), onCopy)
-	}
-	if copied > 0 && note != nil {
-		note(fmt.Sprintf("home overlay: ~/%s was delivered as a copy of %d file(s), not a hard link: linking the staged file was refused (%v)",
-			dest, copied, firstLinkErr))
+		err = copyFileStrictBeneath(src, dir, staged, srcInfo.Mode().Perm())
 	}
 	if err != nil {
 		_ = dir.RemoveAll(staged)
-		return fmt.Errorf("staging ~/%s: %w", dest, err)
+		return fmt.Errorf("staging ~/%s: %w; the previous delivery there, if any, is left as it was. "+
+			"Fix what the error names (free space or permissions in %s, or the staged file), then relaunch",
+			dest, err, filepath.Dir(filepath.Join(home, rel)))
 	}
 	if overlayInstallHook != nil {
 		overlayInstallHook(dest, "staged")

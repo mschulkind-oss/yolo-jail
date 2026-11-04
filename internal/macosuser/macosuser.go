@@ -416,7 +416,7 @@ func StageHomeOverlayCommands(hostOverlay, cname, sd string) [][]string {
 // is already the host overlay hostOverlay: both carry the same non-empty content digest in their
 // destination lists (entrypoint.HomeOverlayDigest, written by the host builder after the tree it
 // describes). When it is, a launch stages nothing for the overlay — no copy, no seal, no swap —
-// and the guest's install finds the same staged inodes it hard-linked last time
+// and the guest's install finds its delivered copies still matching the staged files by content
 // (entrypoint.overlayInstalledFrom), so it replaces nothing either.
 //
 // The staged copy is trusted on its digest for the reason it is trusted at all: it is the host

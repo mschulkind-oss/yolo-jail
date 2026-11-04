@@ -256,7 +256,7 @@ func InstallHomeOverlay(e *Env, packs []*packload.Pack) error {
 	defer closeOverlayRoots(roots)
 	links := overlayLinksOf(layout)
 	links.yours = darwinHomeIsSidecar(e)
-	return installHomeOverlayDestinations(src, e.Home, roots, links, e.warn, e.note)
+	return installHomeOverlayDestinations(src, e.Home, roots, links, e.warn)
 }
 
 // RetireYoloLog removes the `yolo-log` wrapper an older bootstrap wrote to ~/.local/bin.

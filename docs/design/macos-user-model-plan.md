@@ -2,7 +2,7 @@
 title: "Plan: rebuild macos-user on one deny-by-default profile, run as you by default"
 status: accepted
 stage: DECIDED
-next: "Run witness W1b on a Mac (W1's fixes, MMP-D30 to D34; the relaunch delivers copies, MMP-D35, being built) to land slice 12a; then close the account mode's shared /tmp (MMP-D29, ruled); slice 11 waits on OQ-MM10"
+next: "Run witness W1b on a Mac (W1's fixes, MMP-D30 to D34; the relaunch delivers copies, MMP-D35, built and awaiting witness W1c) to land slice 12a; then close the account mode's shared /tmp (MMP-D29, ruled); slice 11 waits on OQ-MM10"
 depends-on:
   - macos-user-model.md
 tags: [macos-user, seatbelt, plan, safehouse, home, parity]
@@ -1239,6 +1239,19 @@ the colleague who reported the refusal):
   Seatbelt, so the profile is the only obstacle. Self mode delivers copies too (link count 1, the
   inode moves). The short-suite guard checks only `sh`, while two of the tests still run
   `/bin/sleep`.
+- **W1c ([MMP-D35](#MMP-D35), the home overlay delivers copies):** on the branch carrying it, the
+  owner's Mac agent runs exactly:
+
+  ```
+  YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run '^TestMacosUserUnchangedRelaunchKeepsTheDeliveredFiles$' ./integration
+  ```
+
+  Expected: PASS, with both subtests (`/account` and `/self`) passing: the delivered skill's inode
+  is the same across the unchanged relaunch, its bytes equal the staged file's, and a copy edited
+  between launches holds the staged bytes again after the next launch. The workspace's
+  `.yolo/boot.log` has no `home overlay: ~/… was delivered as a copy … refused` line (the test
+  checks it; paste `rg -n 'delivered as a copy' <ws>/.yolo/boot.log` printing nothing, from a
+  manual `yolo -- true` relaunch, as the record).
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside
