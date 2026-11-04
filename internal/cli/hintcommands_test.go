@@ -150,6 +150,9 @@ func TestEveryHintedYoloCommandExists(t *testing.T) {
 	}
 	for _, h := range hints {
 		problem := tree.check(h.text)
+		if problem != "" && plannedCommand(h.text) {
+			problem = ""
+		}
 		switch {
 		case problem == "":
 		case h.bare:
@@ -158,6 +161,52 @@ func TestEveryHintedYoloCommandExists(t *testing.T) {
 				"bareHints; never exempt the message", h.pos, h.text, problem)
 		default:
 			t.Errorf("%s: `%s` %s", h.pos, h.text, problem)
+		}
+	}
+}
+
+// plannedCommands is the ONE allowance TestEveryHintedYoloCommandExists makes: commands a
+// landed message names that a planned slice builds, so the message can ship in the words its
+// design ruled before the command does. Each entry is a hint prefix (matched whole words), a
+// probe the check must refuse until that slice lands, and the slice. It may not outlive its
+// slice: TestEveryPlannedCommandIsStillUnbuilt fails the moment a probe resolves, and the
+// builder of that slice deletes the entry. Never add an entry for a command no plan builds.
+var plannedCommands = []struct{ prefix, probe, slice string }{
+	// named-setups-plan.md slice 3: `yolo setup list | show | new`.
+	{"yolo setup list", "yolo setup list", "named-setups-plan.md slice 3"},
+	{"yolo setup new", "yolo setup new fast --from podman-self", "named-setups-plan.md slice 3"},
+	// named-setups-plan.md slice 4a: `--setup` replaces `--at` on the launch and on `yolo host`.
+	{"yolo --setup", "yolo --setup podman-self -- claude", "named-setups-plan.md slice 4a"},
+	{"yolo host --setup", "yolo host --setup host-yolo-account -- claude", "named-setups-plan.md slice 4a"},
+}
+
+// plannedCommand reports whether hint begins with a plannedCommands prefix, as whole words.
+func plannedCommand(hint string) bool {
+	for _, p := range plannedCommands {
+		if hint == p.prefix || strings.HasPrefix(hint, p.prefix+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestEveryPlannedCommandIsStillUnbuilt makes plannedCommands self-expiring: an entry whose
+// probe now resolves names a command that exists, and the allowance would only hide a later
+// typo in its spelling.
+func TestEveryPlannedCommandIsStillUnbuilt(t *testing.T) {
+	tree := loadCommandTree(t)
+	for _, p := range plannedCommands {
+		if tree.check(p.probe) == "" {
+			t.Errorf("`%s` is a real command now (%s built it): delete its plannedCommands entry "+
+				"in hintcommands_test.go, so the hint check reads %q like every other hint", p.probe, p.slice, p.prefix)
+		}
+		if !plannedCommand(p.probe) {
+			t.Errorf("plannedCommands probe %q does not match its own prefix %q", p.probe, p.prefix)
+		}
+	}
+	for _, unrelated := range []string{"yolo setupx", "yolo setup bogus", "yolo host --setupx"} {
+		if plannedCommand(unrelated) {
+			t.Errorf("the allowance matches %q, which no planned slice builds", unrelated)
 		}
 	}
 }

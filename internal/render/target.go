@@ -29,6 +29,7 @@ import (
 	"strconv"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // Target is everything the surface renderer cannot infer from the surface declaration
@@ -257,6 +258,21 @@ func KindForNotch(name string) (Kind, bool) {
 		}
 	}
 	return KindUnset, false
+}
+
+// KindForSetup maps a named setup's notch (setup.Setup.Kind, derived from its confinement
+// alone) to the render Kind. It is the setup-side twin of KindForNotch, which goes when the
+// `confinement` key does (named-setups-plan.md SUP-D1, slice 5).
+func KindForSetup(k setup.Kind) Kind {
+	switch k {
+	case setup.KindJail:
+		return KindJail
+	case setup.KindGuest:
+		return KindGuest
+	case setup.KindHost:
+		return KindHost
+	}
+	return KindUnset
 }
 
 // Jail builds the boot-render Target from resolved home + workspace paths and the boot

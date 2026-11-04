@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // knownLaunchYOLOEnvNames is diagnostic recognition only, not a registry of supported
@@ -50,6 +51,8 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		// Host settings a launch obeys, read outside this package's literal Getenv calls.
 		claudeview.SwitchEnv, paths.HoldOnRefusalEnv, selfupdate.DisableEnv,
 		patchrecovery.UseInstalledEnv,
+		// The setup selection (named-setups-plan.md SUP-D4); slice 4a reads it at launch.
+		setup.EnvVar,
 		// Contracts a launch writes into the container's environment, so a launch nested in
 		// that container inherits them.
 		paths.HoldExecEnv, ioprio.EnvVar, config.NotchEnv, config.BootBaselineDigestEnv,
