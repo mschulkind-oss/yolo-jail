@@ -131,6 +131,8 @@ var subcommandUsage = map[string]subUsage{
 	"features":         {text: featuresUsage, valueFlags: []string{"--format"}},
 	// Each verb's own help is yoloAccountVerbUsage's, answered inside runYoloAccount.
 	"yolo-account": {text: yoloAccountUsage},
+	// Answered inside setupMain; `new`'s --from consumes the next token.
+	"setup": {text: setupUsage, valueFlags: []string{"--from"}},
 	// Answered inside their own testable bodies (allow.go, request.go).
 	"allow":           {text: allowUsage},
 	"request":         {text: requestUsage},

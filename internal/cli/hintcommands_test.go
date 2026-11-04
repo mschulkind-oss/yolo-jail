@@ -106,6 +106,7 @@ var verbDispatchers = map[string]verbDispatcher{
 	"nix-roots":    {"internal/cli", "nixRootsMain", "sub", ""},
 	"host-run":     {"internal/cli", "hostRunMain", "args[0]", ""},
 	"yolo-account": {"internal/cli", "yoloAccountMain", "verb", ""},
+	"setup":        {"internal/cli", "setupMain", "verb", ""},
 	// Not in the registry: Main routes `yolo internal` before the front door.
 	"internal": {"internal/cli", "runInternal", "args[0]", ""},
 }
@@ -173,9 +174,6 @@ func TestEveryHintedYoloCommandExists(t *testing.T) {
 // slice: TestEveryPlannedCommandIsStillUnbuilt fails the moment a probe resolves, and the
 // builder of that slice deletes the entry. Never add an entry for a command no plan builds.
 var plannedCommands = []struct{ prefix, probe, slice string }{
-	// named-setups-plan.md slice 3: `yolo setup list | show | new`.
-	{"yolo setup list", "yolo setup list", "named-setups-plan.md slice 3"},
-	{"yolo setup new", "yolo setup new fast --from podman-self", "named-setups-plan.md slice 3"},
 	// named-setups-plan.md slice 4a: `--setup` replaces `--at` on the launch and on `yolo host`.
 	{"yolo --setup", "yolo --setup podman-self -- claude", "named-setups-plan.md slice 4a"},
 	{"yolo host --setup", "yolo host --setup host-yolo-account -- claude", "named-setups-plan.md slice 4a"},

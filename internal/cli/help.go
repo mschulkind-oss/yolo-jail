@@ -28,6 +28,9 @@ var commandHelp = []struct{ name, blurb string }{
 	// found by reading dispatch.go.
 	{"host", "Run agents on the HOST notch instead: 'host -- <cmd>', 'host apply'"},
 	{"stop", "Stop this workspace's running jail (idempotent; the next launch is fresh)"},
+	// Beside the launch verbs: a setup is the answer to "where does this agent run?"
+	// (docs/design/named-setups.md), and these are the verbs that list and define them.
+	{"setup", "Where agents run: 'setup list', 'show <name>', 'new <name> --from <setup>'"},
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
 	{"update", "Check for a newer yolo-jail and safely update self-contained installs"},
 	{"ps", "List running yolo-* jails and their workspaces"},
