@@ -1255,6 +1255,10 @@ the colleague who reported the refusal):
   *Run 2026-11-04 at `3ccc28def`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w1c-passes)):
   PASS, `/account` and `/self`, and the manual relaunch's `rg` printed nothing. W1's `claude -p`
   line also answered `ok` on the Bedrock profile; the subscription login is still revoked.
+  *2026-11-04, with admin for `log show`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#why-copilot-cannot-reach-github-the-account-mode-now-denies-securityserver)):
+  W1's Sandbox-log line passes. **New:** the account-mode profile denies Copilot
+  `com.apple.SecurityServer` and the system trust settings, so Copilot 1.0.105 cannot make HTTPS
+  requests in account mode: #65's failure, until now run-as-you's alone.
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside

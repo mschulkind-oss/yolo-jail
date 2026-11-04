@@ -1010,6 +1010,13 @@ What I would build, in order:
    removed`; use `YOLO_SETUP=seatbelt-yolo-account`). Run from the agent's process, the launch
    could not read the item: macOS refused to show the Allow dialog, and yolo reported the keychain
    as locked. It waits on the owner running step 2 in their own Terminal.
+   *Run 2026-11-04 at the Mac's own display* ([lab report, W-KC5 at the display](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-kc5)):
+   after *Always Allow*, **the route works**: `Host login passed in: … COPILOT_GITHUB_TOKEN in
+   copilot's own env file`, and step 3 passes (`-rw-------`, `unset`). Copilot then found the
+   token but could not validate it (`network fetch failed` to `api.github.com`), because the
+   account-mode profile denies it `com.apple.SecurityServer` and the system trust settings (the
+   Sandbox log). Whether Copilot accepts the token stays unmeasured until account mode can make
+   HTTPS requests.
 
 ## 7. Open questions
 

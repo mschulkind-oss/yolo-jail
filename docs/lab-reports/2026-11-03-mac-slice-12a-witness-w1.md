@@ -650,6 +650,99 @@ not written it yet).
 surfaces, if it can keep the comments on write), or name another next step in the warning. The
 warning's own "fix or move the file" undoes itself the next time Copilot runs.
 
+## 15. 2026-11-04, at the Mac's own display: W-KC5 finished, and Copilot cannot make HTTPS requests in account mode
+
+**Run 2026-11-04** from a Terminal on the Mac's own display. `launchctl managername` prints
+`Aqua`, and `SSH_CONNECTION` and `TMUX` are unset. Installed `yolo` `0.16.1+35.g7f1210e630c9`,
+`main` at `723b75754` (nothing new had landed). The owner granted temporary admin with
+Privileges.app for the system-log checks. Nothing was fixed.
+
+### Two causes behind earlier "could not" results
+
+- **`log show` needs the admin group, not the desktop session.** From the Aqua session it still
+  printed `log: Could not open local log store: Operation not permitted` (rc 77). The owner is not
+  in `admin` (`dseditgroup -o checkmember -m matt admin`: `no matt is NOT a member of admin`).
+  This Mac grants admin temporarily through Privileges.app. With it granted, `log show` worked. So
+  every "Sandbox log unchecked" line in [§1](#1-w1-two-workspaces-at-once-passes-its-core),
+  [§8](#8-blocked-and-not-run) and [§12](#12-results-of-the-section-11-witness-and-witness-w-kc5)
+  was about admin rights, never about ssh.
+- **The keychain needs the desktop session and a remembered answer.** The first launch from the
+  Aqua session waited out yolo's 2-minute bound (`timed out waiting for the keychain`): the
+  dialog presumably appeared and went unanswered. The owner then ran `security
+  find-generic-password -s copilot-cli -w >/dev/null` in their Terminal and chose *Always Allow*.
+  Every read after that worked without a dialog.
+
+### W-KC5
+
+| Step | Result |
+| :--- | :--- |
+| 1 | Passed earlier ([§14](#14-2026-11-04-the-host-wrapper-line-yolo-prints-is-not-portable-and-w-kc5-again)): `copilot-cli` exists, with an account |
+| 2, the route | **Measured working.** `YOLO_SETUP=seatbelt-yolo-account yolo -- copilot -p 'Reply with exactly: KC5-OK'` printed `Host login passed in: your host copilot login (keychain service copilot-cli) is COPILOT_GITHUB_TOKEN in copilot's own env file in this sandbox; logging out on the host ends it at the next launch.` |
+| 2, Copilot | **No `KC5-OK`.** First `yolo: ERROR: copilot: its update (copilot update) timed out after 60s` (exit 75). Then, with the refusal's own `YOLO_USE_INSTALLED=copilot`: `Error: Authentication token found but could not be validated.` / `Failed to fetch PAT user login: network fetch failed: request failed: error sending request for url (https://api.github.com/copilot_internal/user)` (exit 1). Copilot found the token, and its HTTPS request failed |
+| 3 | **Passes.** `stat -f '%Sp %Su' <ws>/.yolo/home/.config/yolo-agent-env/copilot.sh` → `-rw------- matt`; `yolo -- sh -c '…${COPILOT_GITHUB_TOKEN:-}…'` → `unset` |
+
+So W-KC5's own question, whether Copilot accepts its OAuth token in `COPILOT_GITHUB_TOKEN`, is
+**still not answered**. Copilot found the token but could not reach GitHub to validate it. The
+witness's "a login prompt or an authentication error measures refusal" branch does not apply:
+this is a network error, and Copilot itself says `Your token may still be valid`.
+
+### Why Copilot cannot reach GitHub: the account mode now denies SecurityServer
+
+With admin granted, `log show --last 10m --style compact --predicate 'sender == "Sandbox"'`,
+filtered to the `copilot` process, over those two launches:
+
+```
+ 10 Sandbox: copilot deny(1) file-read-metadata /Library/Keychains
+  6 Sandbox: copilot deny(1) file-read-data /System/Library/Keychains/SystemTrustSettings.plist
+  5 Sandbox: copilot deny(1) file-read-metadata /private/var/db
+  4 Sandbox: copilot deny(1) mach-lookup com.apple.bsd.dirhelper
+  3 Sandbox: copilot deny(1) mach-lookup com.apple.SecurityServer
+  3 Sandbox: copilot deny(1) mach-lookup com.apple.AppSSO.service-xpc
+  3 Sandbox: copilot deny(1) file-read-data /private/var/db/mds/messages/602/se_SecurityMessages
+  1 Sandbox: copilot deny(1) mach-lookup com.apple.system.opendirectoryd.membership
+```
+
+`com.apple.SecurityServer` and the system trust settings are what Copilot 1.0.93+'s native TLS
+needs. That's yolo-jail #65's mechanism ([`copilot-keychain-boundary.md`](../research/copilot-keychain-boundary.md)),
+until now recorded as run-as-you mode's alone. **It now happens in account mode**, almost
+certainly because slice 12a moved account mode onto the deny-by-default profile
+([MMP-D25](../design/macos-user-model-plan.md#MMP-D25)). Before 12a it ran under `(allow default)`.
+
+Three things this contradicts, all from before 12a:
+
+- `internal/entrypoint/programcompatibility.go:84–89`: "the dedicated-account mode leaves the
+  service reachable, so neither meets the failure and neither is gated." It no longer does, so
+  account mode launches Copilot 1.0.105 ungated and it fails on its first request.
+- The self-mode refusal from `8a48c2cc7` names `yolo config set macos_user_mode account --user`
+  as a route that runs Copilot. Since 12a, that route meets the same failure.
+- `copilot-keychain-boundary.md`'s W1/W5, "the account-mode boundary that ships today", described
+  `(allow default)`, which no longer ships.
+
+Not checked: the same launch on 12a's parent, to see that it passes there (the log above says
+why it fails now, not that it worked before), and whether `bsd.dirhelper`, `AppSSO` or
+`opendirectoryd.membership` matter to Copilot at all.
+
+**Decision needed:** grant account mode the trust-evaluation lookups Copilot needs
+(SecurityServer, the system trust settings), or gate account mode too and drop it from the
+self-mode refusal's routes. Either way, W-KC5 reruns afterwards: step 2 is now one HTTPS request
+away from its answer.
+
+### W1's Sandbox-log line: passes
+
+With admin granted: a `YOLO_SETUP=seatbelt-yolo-account yolo -- bash -c 'ls ~; touch
+"$TMPDIR/…"; …'` launch in `w1b-a` (exit 0), then `log show --last 4m` filtered to `w1b-a`,
+`yolo-staged` and `_yolojail`. **No sandbox denial on any of them.** The one line that matched was
+`logd_helper deny file-read-data /Users/_yolojail/Library/Caches/copilot/…/msal-node-runtime.node`:
+macOS's own log helper, not a sandboxed process. That closes W1's last line except the
+subscription `claude -p` ([§13](#13-2026-11-04-w1c-w-su5-claude--p-on-bedrock-and-just-done)).
+
+### Housekeeping
+
+`git status` lists an untracked `.claude/` in this checkout. It holds only a `skills ->
+../.pi/skills` link, created at 13:05 when this session resumed. Nothing ignores
+`.claude/worktrees/`, so a Claude Code worktree made here would show up as untracked. The fix is a
+`.gitignore` line, left to the owner.
+
 ## Evidence
 
 All at `90ff72f2c` unless named. The logs were kept under `/tmp/macnotes/` on the Mac and are not
