@@ -775,6 +775,16 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		return nil, fmt.Errorf("read the shipped broker declarations: %w", err)
 	}
 	s := &sideRead{}
+	// The workspace's switch file, read once for both sides: the conversion keeps its false
+	// switches, so both read the same withdrawals (withdrawnHere).
+	switchWS := workspace
+	if g != nil && g.Request.Workspace != "" {
+		switchWS = g.Request.Workspace
+	}
+	var switches map[string]bool
+	if switchWS != "" {
+		switches, _ = switchesOf(switchWS)
+	}
 	// The side's pack switch is its user config's format. A layer's side names the base by a
 	// legacy-spelled path in its directory (Request.baseUserTop), so the format is the file the
 	// reader selects there, not that path's extension.
@@ -795,7 +805,7 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		s.providers, s.derived = providerTable(withMovedProviderKeys(read.Composed, s.composed), packs)
 		// The OLD user config as the brokers read it, not its lowering.
 		s.grants = brokerGrants(read.User, brokers)
-		s.activation = loopholeActivation(read.Composed, readable, packs)
+		s.activation = loopholeActivation(read.Composed, read.Workspace, switches, readable, packs)
 	} else {
 		s.user = unmirror(read.User, mirror).(*jsonx.OrderedMap)
 		s.project = unmirror(read.Workspace, mirror).(*jsonx.OrderedMap)
@@ -814,12 +824,12 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 			s.env = launchEnv(raw)
 			s.providers, s.derived = providerTable(withMovedProviderKeys(raw, s.composed), packs)
 			s.grants = brokerGrants(unmirror(read.User, mirror).(*jsonx.OrderedMap), brokers)
-			s.activation = loopholeActivation(raw, readable, packs)
+			s.activation = loopholeActivation(raw, read.Workspace, switches, readable, packs)
 		} else {
 			s.env = launchEnv(s.composed)
 			s.providers, s.derived = providerTable(s.composed, packs)
 			s.grants = brokerGrants(s.user, brokers)
-			s.activation = loopholeActivation(s.composed, readable, packs)
+			s.activation = loopholeActivation(s.composed, read.Workspace, switches, readable, packs)
 		}
 	}
 	if lowerOld {

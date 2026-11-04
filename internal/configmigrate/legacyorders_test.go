@@ -118,6 +118,63 @@ func TestAProjectsEnabledFalseConvertsToItsWithdrawalInEveryOrder(t *testing.T) 
 	}
 }
 
+// A legacy user switch that wrote no device list ran serial on the default globs, which a
+// workspace's own list replaced in v0.15.1 (the corpus case
+// loophole/serial/settings.allowed_devices/workspace). Converting the user config first must not
+// widen the still-legacy workspace to the defaults beside its own list (LC-D16).
+func TestAUserConversionDoesNotUnionTheDefaultsIntoALegacyWorkspacesList(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	ws := realDir(t)
+	write(t, filepath.Join(dir, "config.jsonc"), `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true}}}`)
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"serial": {"settings": {"allowed_devices": ["/dev/ttyS9"]}}}}`)
+	before := plan(t, Request{UserConfigDir: dir, Workspace: ws}).GrantStandings
+	if _, err := Apply(plan(t, Request{UserConfigDir: dir}), ApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p := plan(t, Request{Workspace: ws})
+	if !p.Equal || p.Refused != nil {
+		t.Fatalf("after the user conversion: equal=%v refused=%v diffs=%+v", p.Equal, p.Refused, p.Differences)
+	}
+	for w, packs := range before {
+		if got := packs["serial"]["devices"]; !strings.Contains(got, "/dev/ttyS9") || strings.Contains(got, "/dev/ttyUSB*") {
+			t.Fatalf("before any conversion, devices reads %q in %s; want the workspace's list alone", got, w)
+		}
+		if got := p.GrantStandings[w]["serial"]["devices"]; got != packs["serial"]["devices"] {
+			t.Fatalf("after the user conversion, devices reads %q in %s; before, %q", got, w, packs["serial"]["devices"])
+		}
+	}
+	if len(before) == 0 {
+		t.Fatal("the plan compared no grant standings")
+	}
+}
+
+// A workspace that keeps a loophole off and still writes one of its settings converts to its
+// withdrawal (LC-D18): off, the setting reached nothing, so the proof does not compare it and the
+// plan does not decline, under a legacy user config or the TOML one its conversion writes.
+func TestAWithdrawnWorkspacesSettingsDoNotDeclineItsConversion(t *testing.T) {
+	for _, userFirst := range []bool{false, true} {
+		home := env(t)
+		dir := filepath.Join(home, ".config", "yolo-jail")
+		ws := realDir(t)
+		write(t, filepath.Join(dir, "config.jsonc"), `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true, "settings": {"allowed_devices": ["/dev/ttyACM0"], "default_baud": 115200}}}}`)
+		write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"serial": {"enabled": false, "settings": {"default_baud": 9600}}}}`)
+		if userFirst {
+			if _, err := Apply(plan(t, Request{UserConfigDir: dir}), ApplyOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+		if !p.Equal || len(p.NotConverted) != 0 || p.Refused != nil {
+			t.Fatalf("userFirst=%v: equal=%v notconverted=%+v refused=%v diffs=%+v", userFirst, p.Equal, p.NotConverted, p.Refused, p.Differences)
+		}
+		got := targetBytes(t, p, filepath.Join(ws, "yolo-jail.jsonc"))
+		if !strings.Contains(got, "[requests]\nserial = \"off\"") || strings.Contains(got, "9600") {
+			t.Fatalf("userFirst=%v: the workspace did not convert to its withdrawal alone:\n%s", userFirst, got)
+		}
+	}
+}
+
 // A user-level broker switch names the pack that ships the broker, found through the manifests
 // (github-broker is the github pack's, git-broker the git pack's), and with that pack selected it
 // converts to the broker's read grant (L5, LC-D2).

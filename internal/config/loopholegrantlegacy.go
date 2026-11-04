@@ -517,10 +517,12 @@ func withLegacyProjection(input LoopholeGrantInput, userSrc, wsSrc *Sources, swi
 	// A legacy workspace's `enabled: false` (or its switch file's) is this project's withdrawal,
 	// `requests.<pack> = "off"` (LC-D18): v0.15.1 ran the loophole nowhere in this workspace,
 	// whatever the user's config said, so a user config converted since gives it nothing here,
-	// neither an `always` line nor a user-sourced request.
-	for _, pack := range withdrawn {
-		if _, has := requests.Get(pack); !has {
-			requests.Set(pack, "off")
+	// neither an `always` line nor a user-sourced request. The switch file is the user's, in the
+	// user's config directory, so its false holds over anything the project's own files request;
+	// a workspace file's false yields to a `requests.<pack>` the same project wrote.
+	for _, w := range withdrawn {
+		if _, has := requests.Get(w.pack); !has || w.bySwitchFile {
+			requests.Set(w.pack, "off")
 		}
 	}
 	out.User.Set("allow", allow)
@@ -532,18 +534,26 @@ func withLegacyProjection(input LoopholeGrantInput, userSrc, wsSrc *Sources, swi
 // switch file's `false`, or, where the switch file does not decide it, the workspace config's
 // `loopholes.<name>.enabled: false`. The switch file outranks the workspace file, as in
 // ProjectLegacyLoopholeGrants.
-func legacyWithdrawals(ws *jsonx.OrderedMap, switches map[string]bool, decls []LoopholeGrantDeclaration) []string {
-	var out []string
+func legacyWithdrawals(ws *jsonx.OrderedMap, switches map[string]bool, decls []LoopholeGrantDeclaration) []legacyWithdrawal {
+	var out []legacyWithdrawal
 	for _, d := range decls {
-		on, set := switches[d.Loophole]
+		on, bySwitchFile := switches[d.Loophole]
+		set := bySwitchFile
 		if !set {
 			on, set = legacyEnabled(legacyLoopholeBlock(ws, d.Loophole))
 		}
 		if set && !on {
-			out = append(out, d.Pack)
+			out = append(out, legacyWithdrawal{pack: d.Pack, bySwitchFile: bySwitchFile})
 		}
 	}
 	return out
+}
+
+// legacyWithdrawal is one pack a workspace's legacy files switch off, and whether the user's
+// switch file (rather than the workspace config) is what switches it off.
+type legacyWithdrawal struct {
+	pack         string
+	bySwitchFile bool
 }
 
 func hasRecordedKind(recorded []string, kind string) bool {

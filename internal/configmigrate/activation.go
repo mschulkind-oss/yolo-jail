@@ -24,7 +24,10 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 // which supplied settings, through the launch's own rule (loopholes.PackSwitchActivation) with the
 // pack switch decided by the side's user config format (readable): a TOML user config's selection
 // switches its ungated loopholes on, a legacy one leaves `default_enabled` standing.
-func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
+//
+// project is the side's workspace config as written and switches the workspace's switch file, so a
+// grant-declaring loophole this workspace withdraws is known (withdrawnHere).
+func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string]bool, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
 	selected := newUserView(composed).packs
 	var modules []loopholes.PackModule
 	// unselected is each loophole a pack this side does not select ships. A legacy entry naming
@@ -65,7 +68,13 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 			// A grant-declaring loophole's access is its grants, which the standing layer
 			// compares (loopholeStandingLayer): running is not access (docs/reference/loophole-grants.md
 			// §4.1). Its settings are compared whether or not it runs, less the ones a grant
-			// replaced (journal's `full`, a `visible` list).
+			// replaced (journal's `full`, a `visible` list), except where this workspace withdraws
+			// the pack (LC-D18): withheld, the loophole holds no grant here, so its settings reach
+			// nothing on either side, and `requests.<pack> = "off"` has no table to keep them in.
+			if withdrawnHere(d, project, switches) {
+				out.Set(name, entry)
+				continue
+			}
 			if settings := withoutLegacyGrantKeys(d, a.Settings); settings.Len() > 0 {
 				entry.Set("settings", settings)
 			}
@@ -79,6 +88,38 @@ func loopholeActivation(composed *jsonx.OrderedMap, readable bool, packs []*pack
 		out.Set(name, entry)
 	}
 	return out
+}
+
+// withdrawnHere is whether the workspace withdraws d's pack, in either spelling: the switch
+// file's false, or, where the switch file does not decide the loophole, a legacy workspace's
+// `loopholes.<name>.enabled: false` or a TOML project's `requests.<pack> = "off"`
+// (docs/design/legacy-config-compat.md LC-D18).
+func withdrawnHere(d config.LoopholeGrantDeclaration, project *jsonx.OrderedMap, switches map[string]bool) bool {
+	if on, decided := switches[d.Loophole]; decided {
+		return !on
+	}
+	if project == nil {
+		return false
+	}
+	if block, _ := project.Get("loopholes"); block != nil {
+		if m, _ := block.(*jsonx.OrderedMap); m != nil {
+			if entry, _ := m.Get(d.Loophole); entry != nil {
+				if em, _ := entry.(*jsonx.OrderedMap); em != nil {
+					if v, set := em.Get("enabled"); set && v == false {
+						return true
+					}
+				}
+			}
+		}
+	}
+	if top, _ := project.Get("requests"); top != nil {
+		if m, _ := top.(*jsonx.OrderedMap); m != nil {
+			if v, _ := m.Get(d.Pack); v == "off" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // entryHasCommand is whether composed's `loopholes.<name>` entry writes a `command`, which makes it
@@ -143,8 +184,9 @@ func activationNextSteps(diffs []Difference, loopholePacks map[string]string) []
 			diffs[i].Next = "the converted config does not run " + name + ", and the old one does; a TOML config runs a loophole when its pack is selected, so add the pack " +
 				"(`yolo pack add " + pack + "`) to the old file's packs, or keep the old file (this yolo keeps reading it), then run `yolo config migrate` again"
 		case field == "settings":
-			diffs[i].Next = "the converted [allow." + name + "] table would hand " + name + " different settings; write them under loopholes." + name +
-				".settings with \"enabled\": true in the old file, then run `yolo config migrate` again"
+			// Never advise "enabled": true: the line may be the user's off, and true turns it on.
+			diffs[i].Next = "the converted config would hand " + name + " different settings than the old one does; delete the settings under loopholes." + name +
+				" in the old file that the conversion cannot keep (or keep the old file; this yolo keeps reading it), then run `yolo config migrate` again"
 		}
 	}
 	return diffs

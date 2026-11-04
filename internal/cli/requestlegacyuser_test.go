@@ -39,3 +39,32 @@ func TestRequestUnderALegacyUserConfigIsNotReportedSkipped(t *testing.T) {
 		t.Fatalf("the verb did not name the host step: %q", out)
 	}
 }
+
+// The negative: under a TOML user config whose ceiling does not list host-processes view, the
+// same request is written and reported skipped, naming the `yolo allow` line that admits it.
+func TestRequestOutsideATOMLUsersCeilingIsReportedSkipped(t *testing.T) {
+	ws := testconfig.Workspace(t, "")
+	user := testconfig.User(t, "packs = [\"host-processes\"]\n")
+	t.Setenv("HOME", user.Root)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_WORKSPACE", "")
+	t.Setenv("YOLO_HOST_DIR", "")
+	loopholes.ResetPackModules()
+	t.Cleanup(loopholes.ResetPackModules)
+	withConfigEditCWD(t, ws.Root)
+
+	rc, out, errs := captureStd(t, func() int {
+		return registry["request"]([]string{"request", "host-processes", "view", "postgres"})
+	})
+	if got := readFile(t, ws.Path); !strings.Contains(got, `view = ["postgres"]`) {
+		t.Fatalf("the request was not written:\n%s\nrc=%d stdout=%q stderr=%q", got, rc, out, errs)
+	}
+	// The verb's own report (reportRequestSkipped), not only the post-write check's.
+	for _, want := range []string{"This project requests host-processes view postgres, but your user config does not allow view on request",
+		"yolo allow host-processes on_request view", "yolo config apply"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the skipped report lacks %q: %q", want, out)
+		}
+	}
+}
