@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -160,5 +161,60 @@ func TestBothFreshLaunchArmsDiscloseLoopholesOff(t *testing.T) {
 		if calls != 1 {
 			t.Errorf("%s calls noteLoopholesOff %d times, want once: a launch discloses each loophole its config keeps off", name, calls)
 		}
+	}
+}
+
+// TestATOMLOffSwitchPromisesNoEndpoint: promisedEndpoints (what the assembler tells the jail it
+// will find) promises aws-auth's endpoint when the TOML user config configures it, and none when
+// that table says `off = true`. Its read of the launch block is what carries the switch.
+func TestATOMLOffSwitchPromisesNoEndpoint(t *testing.T) {
+	strictPackloadReads(t)
+	packHome(t)
+	t.Cleanup(loopholes.SnapshotPackModules())
+	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{officialPack(t, "aws-auth")}))
+	offSwitchTOMLUser(t)
+	on := newConfig("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit")))
+	if got := promisedEndpoints("podman", on); !slices.Contains(got, "aws-auth") {
+		t.Fatalf("control: a configured aws-auth is promised its endpoint, got %v", got)
+	}
+	off := newConfig("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit", "off", true)))
+	if got := promisedEndpoints("podman", off); slices.Contains(got, "aws-auth") {
+		t.Errorf("allow.aws-auth.off = true: promised endpoints = %v, want no aws-auth", got)
+	}
+}
+
+// TestATOMLOffSwitchSpawnsNothing: startLoopholes, the spawn itself, starts an off-switch
+// loophole's daemon (a fixture standing in for aws-auth's, under its name) when the TOML user
+// config does not turn it off, and starts nothing for it under `[allow.aws-auth] off = true`.
+func TestATOMLOffSwitchSpawnsNothing(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	const name = "aws-auth"
+	socketDaemonFixture(t, name)
+	offSwitchTOMLUser(t)
+	spawned := func(cname string, cfg *jsonx.OrderedMap) bool {
+		var buf strings.Builder
+		o := &Options{}
+		fillDefaults(o)
+		o.Stdout, o.Stderr = &buf, &buf
+		handles := o.startLoopholes(cname, "podman", cfg)
+		socketsDir := hostServiceSocketsDir(cname, false)
+		t.Cleanup(func() {
+			o.stopLoopholes(handles, socketsDir, "", "")
+			_ = os.RemoveAll(socketsDir)
+		})
+		for _, h := range handles {
+			if h.name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !spawned("yolo-offswitch-on", newConfig("allow", newConfig(name, newConfig("profile", "yolo-unit")))) {
+		t.Fatal("control: the fixture daemon is not started with no off switch")
+	}
+	if spawned("yolo-offswitch-off", newConfig("allow", newConfig(name, newConfig("profile", "yolo-unit", "off", true)))) {
+		t.Error("allow.aws-auth.off = true: startLoopholes started the daemon")
 	}
 }
