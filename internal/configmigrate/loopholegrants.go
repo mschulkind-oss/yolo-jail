@@ -82,6 +82,9 @@ type loopholeGrantView struct {
 	// currentSwitches is this workspace's switch file's switches (an approved snapshot's enables
 	// included), which outrank its config's `enabled`.
 	currentSwitches map[string]bool
+	// currentWS is this workspace's config as written, so a lowering reads what else the same
+	// file says (its own `requests.<pack>`, which an `enabled: false` yields to).
+	currentWS *jsonx.OrderedMap
 }
 
 type standingWorkspace struct {
@@ -221,6 +224,7 @@ func planLoopholeGrants(g *Graph, view *userView, packs []*packload.Pack) {
 		if ws == current {
 			gv.currentProj = proj
 			gv.currentSwitches = projSwitches
+			gv.currentWS = wsConfig
 			for _, p := range proj {
 				gv.requests[p.Pack] = p.Requests
 			}
@@ -644,9 +648,16 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 		// LC-D18: `enabled: false` is this project's withdrawal, `requests.<pack> = "off"`, which
 		// takes nothing from the user's config here, an `always` line included, as the legacy
 		// projection reads it. A switch file that decides the loophole outranks the line, as it
-		// does at launch, so the line converts to nothing new there.
+		// does at launch, so the line converts to nothing new there; and, as at launch, the line
+		// yields to a `requests.<pack>` table the same file writes, so it is dead and dropped.
 		_, switchDecides := gv.currentSwitches[name]
-		withdrawn := !switchDecides && entry.Len() > 0 && func() bool { v, _ := entry.Get("enabled"); return v == false }()
+		enabledFalse := entry.Len() > 0 && func() bool { v, _ := entry.Get("enabled"); return v == false }()
+		yields := enabledFalse && config.ProjectWritesPackRequests(gv.currentWS, d.Pack)
+		withdrawn := !switchDecides && enabledFalse && !yields
+		if yields && !switchDecides {
+			ctx.drop(append(append([]string(nil), path...), "enabled"), false,
+				"this file's requests."+d.Pack+" says what the project asks of "+name+", which a launch reads over the `\"enabled\": false`, so the key says nothing")
+		}
 		if withdrawn {
 			at := append(append([]string(nil), path...), "enabled")
 			if !place([]string{"requests", d.Pack}, "off", at) {
@@ -719,11 +730,12 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 // loopholeStandings is, per workspace the plan touches, per pack, per kind, the standing text a
 // gate reads; after picks the converted side's switches and record. user and project are the
 // side's own reads; project stands in only for the workspace this plan converts.
-func loopholeStandings(gv *loopholeGrantView, user, project *jsonx.OrderedMap, legacyUser, after bool) (*jsonx.OrderedMap, map[string]map[string]map[string]string) {
+func loopholeStandings(gv *loopholeGrantView, user, project *jsonx.OrderedMap, legacyUser, after bool) (*jsonx.OrderedMap, map[string]map[string]map[string]string, map[string]bool) {
 	out := jsonx.NewOrderedMap()
 	texts := map[string]map[string]map[string]string{}
+	withheld := map[string]bool{}
 	if gv == nil || len(gv.decls) == 0 {
-		return out, texts
+		return out, texts, withheld
 	}
 	var decls []config.LoopholeGrantDeclaration
 	for _, d := range gv.decls {
@@ -763,21 +775,32 @@ func loopholeStandings(gv *loopholeGrantView, user, project *jsonx.OrderedMap, l
 				}
 				kinds.Set(g.Kind, s)
 				text[d.Pack][g.Kind] = s
+				if st.Withheld {
+					withheld[sw.path+"."+d.Pack+"."+g.Kind] = true
+				}
 			}
 			byPack.Set(d.Pack, kinds)
 		}
 		out.Set(sw.path, byPack)
 		texts[sw.path] = text
 	}
-	return out, texts
+	return out, texts, withheld
 }
 
 // standingNextSteps names, on each line of the standing layer, the step that makes it agree.
-func standingNextSteps(diffs []Difference) []Difference {
+// withheld holds the after side's lines a `requests.<pack> = "off"` withholds (LC-D18), whose
+// step is the withdrawal's, not the user's ceiling's.
+func standingNextSteps(diffs []Difference, withheld map[string]bool) []Difference {
 	for i, d := range diffs {
 		weaker := standingRank(d.After) < standingRank(d.Before)
 		pack, kind := standingPackKind(d.Path)
 		switch {
+		case weaker && withheld[d.Path]:
+			// The converted project withdraws the pack (`requests.<pack> = "off"`, from an old
+			// `"enabled": false`), which no ceiling lifts; only the withdrawal's own line does.
+			diffs[i].Next = fmt.Sprintf("the converted files would take away what the old ones hold here (%s), because the converted project withdraws %s "+
+				"(`requests.%s = \"off\"`, from `\"enabled\": false` under its loopholes entry in the old workspace file); to keep the grant, delete that "+
+				"`\"enabled\": false` from the old workspace file, then run `yolo config migrate` again, or keep the old files (this yolo keeps reading them)", d.Before, pack, pack)
 		case weaker && strings.Trim(d.After, `"`) == config.LoopholeGrantNotAllowed && pack != "":
 			// The user's ceiling does not admit the converted request: an `on_request` the user
 			// wrote, which the conversion never rewrites, or a TOML user config this conversion

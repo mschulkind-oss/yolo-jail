@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +173,74 @@ func TestAWithdrawnWorkspacesSettingsDoNotDeclineItsConversion(t *testing.T) {
 		if !strings.Contains(got, "[requests]\nserial = \"off\"") || strings.Contains(got, "9600") {
 			t.Fatalf("userFirst=%v: the workspace did not convert to its withdrawal alone:\n%s", userFirst, got)
 		}
+	}
+}
+
+// A workspace's `enabled: false` yields to a `requests.<pack>` table the same file writes, as the
+// launch reads it (LC-D18), so the conversion keeps that request and the workspace's settings,
+// drops the dead line, and converts equal in either order (round-3 review, minor 1).
+func TestAWorkspacesFalseYieldsToItsOwnRequestsInTheConversion(t *testing.T) {
+	for _, userFirst := range []bool{false, true} {
+		home := env(t)
+		dir := filepath.Join(home, ".config", "yolo-jail")
+		ws := realDir(t)
+		write(t, filepath.Join(dir, "config.jsonc"), `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true, "settings": {"allowed_devices": ["/dev/ttyACM0"], "default_baud": 115200}}}}`)
+		write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"serial": {"enabled": false, "settings": {"default_baud": 9600}}}, "requests": {"serial": {"devices": ["/dev/ttyACM0"]}}}`)
+		if userFirst {
+			if _, err := Apply(plan(t, Request{UserConfigDir: dir}), ApplyOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+		if !p.Equal || len(p.NotConverted) != 0 || p.Refused != nil {
+			t.Fatalf("userFirst=%v: equal=%v notconverted=%+v refused=%v diffs=%+v", userFirst, p.Equal, p.NotConverted, p.Refused, p.Differences)
+		}
+		got := targetBytes(t, p, filepath.Join(ws, "yolo-jail.jsonc"))
+		if strings.Contains(got, `"off"`) || !strings.Contains(got, "/dev/ttyACM0") || !strings.Contains(got, "9600") {
+			t.Fatalf("userFirst=%v: the workspace did not keep its request and its settings:\n%s", userFirst, got)
+		}
+	}
+}
+
+// A switch file's false keeps a workspace's loophole off whatever its config says, so both sides
+// of the proof skip the workspace's settings by that switch; the conversion keeps them (the
+// switch, not the dead `"enabled": false`, decides). Both sides must read the REAL workspace's
+// switch file: the after side's staged copy has none, and reading no switch file at all lets the
+// kept settings read as live on the after side only (round-3 review, minor 2).
+func TestBothSidesOfTheProofReadTheWorkspacesSwitchFile(t *testing.T) {
+	for _, userFirst := range []bool{false, true} {
+		home := env(t)
+		dir := filepath.Join(home, ".config", "yolo-jail")
+		ws := realDir(t)
+		write(t, filepath.Join(dir, "config.jsonc"), `{"packs": ["serial"], "loopholes": {"serial": {"enabled": true, "settings": {"allowed_devices": ["/dev/ttyACM0"], "default_baud": 115200}}}}`)
+		write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"serial": {"enabled": false, "settings": {"default_baud": 9600}}}}`)
+		if _, err := config.SetWorkspaceLoophole(ws, "serial", false); err != nil {
+			t.Fatal(err)
+		}
+		if userFirst {
+			if _, err := Apply(plan(t, Request{UserConfigDir: dir}), ApplyOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+		if !p.Equal || len(p.NotConverted) != 0 || p.Refused != nil {
+			t.Fatalf("userFirst=%v: equal=%v notconverted=%+v refused=%v diffs=%+v", userFirst, p.Equal, p.NotConverted, p.Refused, p.Differences)
+		}
+	}
+}
+
+// A standing the converted project's withdrawal takes away names deleting the old withdrawal,
+// the step that changes it, never the user's ceiling, which no ceiling lifts (round-3 review,
+// minor 1).
+func TestAWithheldStandingNamesTheWithdrawalAsItsNextStep(t *testing.T) {
+	path := "/ws.serial.devices"
+	diffs := []Difference{{Path: path, Before: `"pending: /dev/ttyACM0"`, After: `"not_allowed"`}}
+	got := standingNextSteps(append([]Difference(nil), diffs...), map[string]bool{path: true})[0].Next
+	if !strings.Contains(got, `delete that `+"`"+`"enabled": false`+"`") || strings.Contains(got, "yolo allow") {
+		t.Fatalf("a withheld standing's next step does not name the withdrawal:\n%s", got)
+	}
+	if got := standingNextSteps(append([]Difference(nil), diffs...), nil)[0].Next; !strings.Contains(got, "yolo allow serial on_request devices") {
+		t.Fatalf("a ceiling's not_allowed lost its own next step:\n%s", got)
 	}
 }
 

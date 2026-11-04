@@ -202,6 +202,14 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		case "brokered":
 			lowerBrokered(value, ctx, place, skip)
 			continue
+		case "requests":
+			// A project's own requests table merges leaf by leaf with what its loophole blocks
+			// placed under requests.<pack> (a request-scope setting, LC-D17), so neither hides the
+			// other; a leaf written twice is reported, never dropped in silence.
+			if tbl, ok := value.(*jsonx.OrderedMap); ok && !ctx.userScoped() {
+				lowerProjectRequests(tbl, place, skip)
+				continue
+			}
 		}
 		if d, ok := renameDescriptorFor(path); ok && !(d.Transform == config.RenameKey && len(d.Replacements) == 1 && d.Replacements[0] == d.OldPath) {
 			skip(path, value, unconvertedReason(d))
@@ -866,5 +874,27 @@ func addCeilingKinds(values *jsonx.OrderedMap, ceiling map[string][]string) {
 			items = append(items, kind)
 		}
 		table.Set("on_request", items)
+	}
+}
+
+// lowerProjectRequests places a project's `requests` table one pack's kind at a time.
+func lowerProjectRequests(tbl *jsonx.OrderedMap, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+	for _, pack := range tbl.Keys() {
+		v, _ := tbl.Get(pack)
+		at := []string{"requests", pack}
+		inner, ok := v.(*jsonx.OrderedMap)
+		if !ok || inner.Len() == 0 {
+			if !place(at, v, at) {
+				skip(at, v, "requests."+pack+" is already written in this file; keep one of the two")
+			}
+			continue
+		}
+		for _, kind := range inner.Keys() {
+			kv, _ := inner.Get(kind)
+			kat := []string{"requests", pack, kind}
+			if !place(kat, kv, kat) {
+				skip(kat, kv, "requests."+pack+"."+kind+" is already written in this file; keep one of the two")
+			}
+		}
 	}
 }

@@ -105,7 +105,9 @@ func withdrawnHere(d config.LoopholeGrantDeclaration, project *jsonx.OrderedMap,
 		if m, _ := block.(*jsonx.OrderedMap); m != nil {
 			if entry, _ := m.Get(d.Loophole); entry != nil {
 				if em, _ := entry.(*jsonx.OrderedMap); em != nil {
-					if v, set := em.Get("enabled"); set && v == false {
+					// The line yields to a `requests.<pack>` table the same project writes, as at
+					// launch (config.ProjectWritesPackRequests).
+					if v, set := em.Get("enabled"); set && v == false && !config.ProjectWritesPackRequests(project, d.Pack) {
 						return true
 					}
 				}
