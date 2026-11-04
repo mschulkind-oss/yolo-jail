@@ -271,6 +271,12 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.16.0", pack: "copilot", problem: `unknown field "host_keychain_env"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("host_keychain_env")},
+	// Measured against v0.16.1 in PR #71: Pi's confinement-only clipboard env uses
+	// jail_only, so that reader skips the contribution. An attach never replaces an
+	// older jail's pack tree; a fresh launch pairs the new tree with the new binaries.
+	{release: "v0.16.1", pack: "pi", problem: `unknown field "jail_only"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("jail_only")},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's
@@ -688,7 +694,8 @@ func knownBreakFor(release, pack, problem string) int {
 // skips remain failures in the release-compatibility test.
 func knownSkippedBreakFor(release, pack, skipped string) int {
 	fieldSkip := strings.Contains(skipped, "skipping the program contribution") ||
-		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`)
+		strings.Contains(skipped, "skipping the provider contribution") ||
+		strings.Contains(skipped, "skipping the env contribution") || strings.Contains(skipped, `" is ignored`)
 	kindSkip := strings.Contains(skipped, "skipping unknown kind")
 	if !fieldSkip && !kindSkip {
 		return -1
@@ -714,6 +721,14 @@ func TestKnownSkippedReleaseBreakMatchesOnlyTheListedField(t *testing.T) {
 	if got := knownSkippedBreakFor("v0.15.1", "claude", diagnostic); got != want {
 		t.Fatalf("listed diagnostic matched %d, want %d", got, want)
 	}
+	const envDiagnostic = `pack pi: pack.toml:201:1 (env[1]): skipping the env contribution — unknown field "jail_only", which this yolo does not know`
+	envWant := knownBreakFor("v0.16.1", "pi", `unknown field "jail_only"`)
+	if envWant < 0 || knownReleaseBreaks[envWant].repair == nil {
+		t.Fatal("the v0.16.1 Pi jail-only env break must be listed with a repair")
+	}
+	if got := knownSkippedBreakFor("v0.16.1", "pi", envDiagnostic); got != envWant {
+		t.Fatalf("listed env diagnostic matched %d, want %d", got, envWant)
+	}
 	for _, tc := range []struct {
 		name, release, pack, diagnostic string
 	}{
@@ -723,6 +738,11 @@ func TestKnownSkippedReleaseBreakMatchesOnlyTheListedField(t *testing.T) {
 		{"not a skipped program", "v0.15.1", "claude", `unknown field "sandbox_tmpdir_env"`},
 		{"a skipped provider's other field", "v0.15.1", "claude-auth", `skipping the provider contribution "anthropic" — unknown field "pinned_endpoint_typo"`},
 		{"a skipped kind the list does not name", "v0.15.1", "claude-auth", `skipping the loophole contribution "x" — unknown field "pinned_endpoint"`},
+		{"env wrong release", "v0.16.0", "pi", envDiagnostic},
+		{"env wrong pack", "v0.16.1", "claude", envDiagnostic},
+		{"env different field", "v0.16.1", "pi", `skipping the env contribution — unknown field "jail_only_typo"`},
+		{"env not a skip", "v0.16.1", "pi", `unknown field "jail_only"`},
+		{"env unlisted kind", "v0.16.1", "pi", `skipping the config contribution — unknown field "jail_only"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := knownSkippedBreakFor(tc.release, tc.pack, tc.diagnostic); got != -1 {
