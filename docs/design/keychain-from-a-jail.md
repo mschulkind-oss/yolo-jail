@@ -963,14 +963,20 @@ What I would build, in order:
       security find-generic-password -s copilot-cli | grep -E '"(svce|acct)"'
       ```
 
-      Expected: a version line, then `"svce"<blob>="copilot-cli"` and an `"acct"` line naming the
-      host and your login. If the second command prints `could not be found`, the 1.0.89 service
-      is not `copilot-cli`: run `security dump-keychain | grep -i copilot` to find it, record it
-      here, add it to `services` in the pack, and stop.
-   2. Launch Copilot in a throwaway macos-user workspace with one prompt:
+      Expected: a version line (1.0.105 on the owner's Mac, 2026-11-03), then
+      `"svce"<blob>="copilot-cli"` and an `"acct"` line naming the host and your login. If the
+      second command prints `could not be found`, either the host is not logged in or this
+      version keeps its login under another service. **This branch is the owner's, at the Mac,
+      not an agent's:** an agent records the result and stops here. The owner runs
+      `copilot login` on the host if it is not logged in and reruns this step; if the item is
+      still missing, the owner runs `security dump-keychain | grep -i copilot` (attributes only:
+      without `-d` it prints no secret) and records the service name it shows here, so it can be
+      added to `services` in the pack.
+   2. Launch Copilot in a throwaway macos-user workspace with one prompt. The workspace is under
+      `/Users/Shared`, because account mode (the default) refuses a workspace inside a home:
 
       ```sh
-      mkdir -p ~/kc5-witness && cd ~/kc5-witness
+      mkdir -p /Users/Shared/yolo/kc5-witness && cd /Users/Shared/yolo/kc5-witness
       YOLO_RUNTIME=macos-user yolo -- copilot -p 'Reply with exactly: KC5-OK'
       ```
 
@@ -981,7 +987,7 @@ What I would build, in order:
    3. Check the token reached only Copilot's own file:
 
       ```sh
-      stat -f '%Sp' ~/kc5-witness/.yolo/home/.config/yolo-agent-env/copilot.sh
+      stat -f '%Sp' /Users/Shared/yolo/kc5-witness/.yolo/home/.config/yolo-agent-env/copilot.sh
       YOLO_RUNTIME=macos-user yolo -- sh -c 'if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then echo set; else echo unset; fi'
       ```
 
@@ -996,7 +1002,8 @@ What I would build, in order:
    stopped at step 1. Host Copilot is 1.0.105, and `find-generic-password -s copilot-cli` found
    no item. The `dump-keychain` search was not run (the agent's permission policy refused it), so
    it is still unknown whether the host isn't logged in or 1.0.105 uses another service name. Also:
-   step 2's `~/kc5-witness` is inside a home, which account mode refuses.
+   step 2's `~/kc5-witness` is inside a home, which account mode refuses. Since then, step 2 uses
+   `/Users/Shared/yolo/kc5-witness`, and step 1's missing-item branch is the owner's.
 
 ## 7. Open questions
 
