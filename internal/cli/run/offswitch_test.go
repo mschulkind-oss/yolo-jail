@@ -113,8 +113,10 @@ func TestOffSwitchStartsNoHostService(t *testing.T) {
 	// The TOML spelling, through the same plan: the control first, then `off = true`.
 	offSwitchTOMLUser(t)
 	tomlOn := newConfig("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit")))
-	if got := o.plannedLoopholeNames("podman", tomlOn); !slices.Contains(got, "aws-auth") || !slices.Contains(got, "cgroup-delegate") {
-		t.Fatalf("control: a TOML-configured aws-auth and the delegate are planned host services, got %v", got)
+	// The delegate declares platforms = ["linux"], so off Linux the plan never holds it.
+	wantDelegate := runtime.GOOS == "linux"
+	if got := o.plannedLoopholeNames("podman", tomlOn); !slices.Contains(got, "aws-auth") || slices.Contains(got, "cgroup-delegate") != wantDelegate {
+		t.Fatalf("control: a TOML-configured aws-auth (and, on Linux only, the delegate) are planned host services, got %v", got)
 	}
 	tomlOff := newConfig("allow", newConfig(
 		"aws-auth", newConfig("profile", "yolo-unit", "off", true),
