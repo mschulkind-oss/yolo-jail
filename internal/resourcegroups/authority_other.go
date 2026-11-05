@@ -13,6 +13,9 @@ func CheckDelegatedIO(IOPaths, IOReadFile) error { return errUnsupportedDelegati
 func ReconcileDelegatedIO(context.Context, IOPaths, int, string, func() (IOPaths, error), IOReadFile, func(string) error, func(string, []byte) error) error {
 	return errUnsupportedDelegation
 }
+func ReconcileDelegatedIOAndStart(context.Context, IOPaths, int, string, func() (IOPaths, error), IOReadFile, func(string) error, func(string, []byte) error, string, int, func(int) (string, error), func() error) error {
+	return errUnsupportedDelegation
+}
 func VerifyDelegatedMember(IOPaths, string, int, func(int) (string, error)) error {
 	return errUnsupportedDelegation
 }

@@ -166,6 +166,187 @@ func TestDelegatedIOReusesSharedChildrenAndRejectsParentDrift(t *testing.T) {
 		t.Fatal("wrote after parent drift")
 	}
 }
+func TestDelegatedIOAdmissionRefusesUnobservedMemberBeforeStart(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		wrongPath bool
+		stalePID  bool
+	}{
+		{name: "missing"},
+		{name: "wrong child", wrongPath: true},
+		{name: "stale PID", stalePID: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, p, root := fixture(t)
+			if tc.wrongPath {
+				f.membership[42] = filepath.Join(root, "yolo-agent")
+			}
+			child := filepath.Join(root, "yolo-batch")
+			observeMember := f.member
+			if tc.stalePID {
+				observeMember = func(int) (string, error) { return "", os.ErrNotExist }
+			}
+			starts, observations := 0, 0
+			err := ReconcileDelegatedIOAndStart(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) {
+				observations++
+				return p, nil
+			}, f.read, f.mkdir, f.write, child, 42, observeMember, func() error {
+				starts++
+				return nil
+			})
+			if err == nil || starts != 0 {
+				t.Fatalf("unobserved/wrong member reached start: err=%v starts=%d", err, starts)
+			}
+			if observations != 4 {
+				t.Fatalf("admission did not use a fresh manager observation: %d", observations)
+			}
+			assertOnlyDelegatedChildWrites(t, f.writes, root)
+		})
+	}
+}
+
+func TestDelegatedIOAdmissionRefusesMissingDelegationAndUnknownBudget(t *testing.T) {
+	for _, tc := range []string{"missing delegation", "unknown budget"} {
+		t.Run(tc, func(t *testing.T) {
+			f, p, root := fixture(t)
+			if tc == "missing delegation" {
+				f.files[filepath.Join(root, "cgroup.subtree_control")] = "cpu"
+			} else {
+				f.files[p.Assigned] = "8:0 rbps=max wbps=max\n"
+			}
+			starts := 0
+			err := ReconcileDelegatedIOAndStart(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) {
+				return p, nil
+			}, f.read, f.mkdir, f.write, filepath.Join(root, "yolo-agent"), 47, func(int) (string, error) {
+				return filepath.Join(root, "yolo-agent"), nil
+			}, func() error {
+				starts++
+				return nil
+			})
+			if err == nil || starts != 0 || len(f.writes) != 0 {
+				t.Fatalf("unsupported authority/budget reached start or wrote: err=%v starts=%d writes=%v", err, starts, f.writes)
+			}
+		})
+	}
+}
+
+func TestDelegatedIOAdmissionStartsOnlyAfterFreshMembershipAndPolicy(t *testing.T) {
+	f, p, root := fixture(t)
+	child := filepath.Join(root, "yolo-agent")
+	f.membership[43] = child
+	starts, observations := 0, 0
+	err := ReconcileDelegatedIOAndStart(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) {
+		observations++
+		return p, nil
+	}, f.read, f.mkdir, f.write, child, 43, f.member, func() error {
+		starts++
+		return nil
+	})
+	if err != nil || starts != 1 {
+		t.Fatalf("verified membership did not reach start once: err=%v starts=%d", err, starts)
+	}
+	if observations != 4 {
+		t.Fatalf("expected fresh pre-start manager observation, got %d", observations)
+	}
+	assertOnlyDelegatedChildWrites(t, f.writes, root)
+}
+
+func TestDelegatedIOAdmissionRefusesCurrentManagerOrPolicyDrift(t *testing.T) {
+	for _, tc := range []string{"manager", "policy"} {
+		t.Run(tc, func(t *testing.T) {
+			f, p, root := fixture(t)
+			starts, observations := 0, 0
+			err := ReconcileDelegatedIOAndStart(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) {
+				observations++
+				if observations == 4 {
+					if tc == "manager" {
+						changed := p
+						changed.Assigned = filepath.Join(root, "changed", "io.max")
+						return changed, nil
+					}
+					f.mu.Lock()
+					f.files[p.Assigned] = "8:0 rbps=max wbps=20\n"
+					f.mu.Unlock()
+				}
+				return p, nil
+			}, f.read, f.mkdir, f.write, filepath.Join(root, "yolo-agent"), 44, f.member, func() error {
+				starts++
+				return nil
+			})
+			if err == nil || starts != 0 {
+				t.Fatalf("stale %s state reached start: err=%v starts=%d", tc, err, starts)
+			}
+			assertOnlyDelegatedChildWrites(t, f.writes, root)
+		})
+	}
+}
+
+func TestDelegatedIOAdmissionReusesChildPairAcrossConcurrentStarts(t *testing.T) {
+	f, p, root := fixture(t)
+	child := filepath.Join(root, "yolo-batch")
+	lock := privateLock(t)
+	f.membership[45] = child
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	starts := 0
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- ReconcileDelegatedIOAndStart(context.Background(), p, 5, lock, func() (IOPaths, error) {
+				return p, nil
+			}, f.read, f.mkdir, f.write, child, 45, f.member, func() error {
+				mu.Lock()
+				starts++
+				mu.Unlock()
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if starts != 8 || len(f.dirs) != 2 || !f.dirs[filepath.Join(root, "yolo-agent")] || !f.dirs[filepath.Join(root, "yolo-batch")] {
+		t.Fatalf("starts=%d child dirs=%v; reconciliation multiplied or lost shared children", starts, f.dirs)
+	}
+	assertOnlyDelegatedChildWrites(t, f.writes, root)
+}
+
+func TestDelegatedIOAdmissionCancellationNeverStarts(t *testing.T) {
+	f, p, root := fixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	starts, observations, memberObservations := 0, 0, 0
+	err := ReconcileDelegatedIOAndStart(ctx, p, 5, privateLock(t), func() (IOPaths, error) {
+		observations++
+		return p, nil
+	}, f.read, f.mkdir, f.write, filepath.Join(root, "yolo-agent"), 46, func(int) (string, error) {
+		memberObservations++
+		cancel()
+		return filepath.Join(root, "yolo-agent"), nil
+	}, func() error {
+		starts++
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || starts != 0 || observations != 4 || memberObservations != 1 {
+		t.Fatalf("canceled pre-start admission: err=%v starts=%d manager=%d member=%d", err, starts, observations, memberObservations)
+	}
+	assertOnlyDelegatedChildWrites(t, f.writes, root)
+}
+
+func assertOnlyDelegatedChildWrites(t *testing.T, writes []string, parent string) {
+	t.Helper()
+	for _, write := range writes {
+		if strings.Contains(write, parent+"/io.max") || strings.Contains(write, "cgroup.subtree_control") || (!strings.HasPrefix(write, filepath.Join(parent, "yolo-agent")+"/io.max=") && !strings.HasPrefix(write, filepath.Join(parent, "yolo-batch")+"/io.max=")) {
+			t.Fatalf("write escaped delegated child paths: %s", write)
+		}
+	}
+}
+
 func TestDelegatedIOMembershipIsObservedNotRequested(t *testing.T) {
 	f, p, root := fixture(t)
 	if err := VerifyDelegatedMember(p, filepath.Join(root, "yolo-batch"), 42, f.member); err == nil {

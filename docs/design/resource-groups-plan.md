@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Run the independent HIGH review and combined-tree gates; keep mapped execution refused until stable-name exclusion and actual placement are proven."
+next: "Commit the reviewed fake-only admission increment, then run its matched-source development-bundle and default-off rootful nested smoke; keep mapped execution refused until stable-name exclusion and actual placement are proven."
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages through `384cf77b2c0ca2d6822e1db7177e9cec26db48b3`. This combined primary composition still needs the independent HIGH review and final affected-source gates. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven.
+**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is now integrated and independently HIGH-reviewed; its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. Its matched candidate development-bundle and rootful default-off nested checks also passed, but the primary integration still needs its own matched-source bundle and smoke. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -25,7 +25,8 @@ depends-on: [resource-groups.md]
 | `internal/cli/config_ref.txt`, `userguide/reference/configuration.md` | exact fields, disabled behavior and unsupported status |
 | `internal/resourcegroups/iomax.go`, `resolve.go` | finite `io.max` parser/planner and selected-group read-only path resolution |
 | `internal/cli/check/resourcegroups.go`, `internal/cli/run/resourcegroups.go` | actual Check and Run consumers; Check exposes the read-only plan and mapped Run refuses before prewarm |
-| `internal/resourcegroups/authority_linux.go`, `authority_other.go`, `pinned_linux.go` | guarded direct-writer refusal and unsupported-platform result; injected fake-I/O algorithm tests are not an activated writer |
+| `internal/resourcegroups/authority_linux.go`, `authority_other.go`, `pinned_linux.go` | guarded direct-writer refusal, unsupported-platform result, and fake-only required-start admission boundary; no activated writer |
+| `internal/resourcegroups/authority_linux_test.go` | fake injected admission tests; no production caller or native authority proof |
 | `internal/cli/run/` launch-boundary files, `internal/cli/host.go` | Brief 4: actual placement-witnessed execution boundaries; unbuilt |
 
 ## Reuse
@@ -66,9 +67,11 @@ depends-on: [resource-groups.md]
 - **Fences:** no cgroup writes or `enforced` status; no host-wide arbitrary device scan. `ReconcileUserIO` performs only a read-only cgroup gate and then refuses with the stable-name exclusion; it does not write. The injected `ReconcileDelegatedIO` algorithm and its fake-writer tests do not establish an activated writer or enforcement.
 - **Commit:** `feat(resources): surface finite assigned IO plans without enforcement`.
 
-### Brief 3 — least-authority Linux adapter (unbuilt; stable-name exclusion blocks a writer)
+### Brief 3 — least-authority Linux adapter (fake-only admission boundary integrated; writer remains unbuilt)
 
-**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. The injected `ReconcileDelegatedIO` fake-I/O algorithm is not wired to a production writer and does not prove authority or placement. Do not treat it as implementation of Brief 3.
+**Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates; the matched candidate bundle and rootful default-off nested smoke passed as well. The primary integration still needs its own matched-source bundle and smoke. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
+
+**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. `ReconcileDelegatedIO` and `ReconcileDelegatedIOAndStart` are not wired to a production writer or launch caller and do not prove authority or placement. Do not treat this increment as implementation of the real Brief 3 writer.
 
 **Settled — do not re-open:** only existing verified user-manager delegated rights or an authorized manager-owned child route may place work. Never write owner parents or unrelated siblings, elevate privilege, widen the jail delegate protocol, move jobs between owner groups, or delete active/uncertain Yolo children. Without verified authority/membership, mapped starts refuse as unsupported/unknown.
 

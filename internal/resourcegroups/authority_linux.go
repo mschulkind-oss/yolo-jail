@@ -37,6 +37,25 @@ func ReconcileUserIO(ctx context.Context, paths IOPaths, percent int, lockDir st
 // Callers must not supply a real filesystem writer until stable-name ownership
 // is established independently; current mapped launches always refuse.
 func ReconcileDelegatedIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error) error {
+	return reconcileDelegatedIO(ctx, paths, percent, lockDir, observe, read, mkdir, write, nil, nil)
+}
+
+// ReconcileDelegatedIOAndStart is a fake/injected algorithm boundary for testing
+// required-start admission. It is not a production start API or writer: all I/O
+// callbacks must remain fake until stable-name ownership and placement are proven.
+// The callback runs under the assigned-group lock only after reconciliation and
+// observed PID membership in the requested managed child both succeed.
+func ReconcileDelegatedIOAndStart(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error, child string, pid int, observeMember func(int) (string, error), start func() error) error {
+	if observeMember == nil || start == nil {
+		return errors.New("required-start admission callbacks are unavailable")
+	}
+	admit := func(current IOPaths) error {
+		return VerifyDelegatedMember(current, child, pid, observeMember)
+	}
+	return reconcileDelegatedIO(ctx, paths, percent, lockDir, observe, read, mkdir, write, admit, start)
+}
+
+func reconcileDelegatedIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error, admit func(IOPaths) error, start func() error) error {
 	if ctx == nil {
 		return errors.New("missing reconciliation context")
 	}
@@ -286,6 +305,38 @@ func ReconcileDelegatedIO(ctx context.Context, paths IOPaths, percent int, lockD
 			if len(dims) != 0 {
 				return errors.New("child policy readback missing finite allocation; run yolo check --no-build")
 			}
+		}
+	}
+	if admit != nil {
+		if err := deadline.Err(); err != nil {
+			return err
+		}
+		fresh, err = observe()
+		if err != nil || !sameAssignedGroup(paths, fresh) {
+			return errors.New("selected group identity changed before required start; run yolo check --no-build")
+		}
+		if err := CheckDelegatedIO(paths, read); err != nil {
+			return err
+		}
+		finalAssigned, err := read(paths.Assigned)
+		if err != nil || !bytes.Equal(initial, finalAssigned) {
+			return errors.New("assigned policy changed before required start; run yolo check --no-build")
+		}
+		if err := checkAncestors(paths.Ancestors, ancestorSnapshot, read); err != nil {
+			return err
+		}
+		finalPlan := ReadAndPlanIO(IOPaths{Assigned: paths.Assigned, Devices: paths.Devices, Ancestors: paths.Ancestors}, percent, read)
+		if !equalFinitePlans(plan, finalPlan) {
+			return errors.New("assigned/ancestor policy changed before required start; run yolo check --no-build")
+		}
+		if err := admit(paths); err != nil {
+			return err
+		}
+		if err := deadline.Err(); err != nil {
+			return err
+		}
+		if err := start(); err != nil {
+			return fmt.Errorf("required start callback failed: %w", err)
 		}
 	}
 	return nil
