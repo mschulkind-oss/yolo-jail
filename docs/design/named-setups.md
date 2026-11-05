@@ -1,9 +1,9 @@
 ---
 title: "Named setups: one name chooses every wall, and nothing follows from your OS"
 date: 2026-11-03
-status: accepted
-stage: DECIDED
-next: "Build from the implementation plan, named-setups-plan.md: group A (slices 1 and 7) first."
+status: in-review
+stage: DESIGN
+next: "Rule OQ-SU5 on safe handling of the existing legacy home; independent setup work can continue"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -14,9 +14,12 @@ vantage:
 
 # Named setups: one name chooses every wall
 
-**Status:** 2026-11-03. Nothing built; this replaces the five-plan terminology draft (`eafad3a1c`)
-with the owner's idea of the same day. Config keys checked against `yolo config-ref` at `14cc75609`. Every question is ruled; the rulings, all of the same day, are in
-[the ledger](#decision-ledger). Nothing is built; the implementation plan is [`named-setups-plan.md`](named-setups-plan.md).
+**Status:** 2026-11-05. Setup naming and per-setup state remain the accepted direction, but
+[OQ-SU5](#OQ-SU5) asks whether to change the previously accepted automatic move of an existing
+home. The source-swap regression in an unlanded slice 6a candidate prevents claiming that move
+safe or built. Independent slices can proceed; the implementation hand-off is
+[`named-setups-plan.md`](named-setups-plan.md). Earlier rulings remain in
+[the ledger](#decision-ledger).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
@@ -36,7 +39,7 @@ technology is missing.
 
 **Start at [§4](#4-the-fields)**, the fields; everything else falls out of them.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-SU5](#OQ-SU5) — existing-home automatic movement only.
 
 **Reads with:** [the macos-user model](macos-user-model.md) (the two ways of running Seatbelt this
 names), [its plan](macos-user-model-plan.md#MMP-D25) (slice 12a's per-project home), [the
@@ -389,10 +392,21 @@ belongs to the project, the agent or you.
   another session.
 - **Machine-wide state is unchanged.** Shared login directories and caches are keyed by
   technology and account as today, so one login serves every setup that shares them.
-- **Existing homes.** A project's `.yolo/home` from before this ships is left in place. The first
-  launch of a setup whose layout yolo can identify there (Apple Container's header, as MMP-D32
-  reads it) asks once to move it to that setup's home; otherwise it prints the one `mv` that adopts
-  it. Nothing is deleted.
+- **Existing homes.** [SU-D6](#SU-D6) accepted asking on a first launch to move an identifiable
+  `.yolo/home` to the selected setup's home, and printing a manual move otherwise. The
+  automatic yes branch is **not safe to land as currently implemented**: another writer of
+  the workspace's writable `.yolo` can replace the source name after identification but before
+  the rename. The Linux source-swap regression reaches the real destination-exclusive rename:
+  it moves the replacement home while the identified home stays behind. Destination exclusion
+  does not check the source identity. An open source directory handle or a yolo-only lock does
+  not stop another writer changing the name; checking after the rename does not undo a transient
+  move of the wrong private data or guarantee safe restoration. The analogous Darwin rename is
+  destination-exclusive too, but has **not** been exercised on a Mac for this race. This is a
+  demonstrated failure of the candidate, not proof that no safe kernel mechanism can exist.
+  [OQ-SU5](#OQ-SU5) asks whether to revise only this accepted automatic-move requirement or
+  retain it until an identity-safe mechanism is vetted. Until then, preserve the legacy home;
+  do not silently turn the automatic yes into a manual-only flow. The source candidate is not
+  landed, and the ordinary per-setup home split remains the direction.
 
 **Cost.** Changing setup in a project starts with that setup's own transcripts: `claude --resume`
 under `seatbelt-self` does not see a conversation held under `podman-self`.
@@ -446,7 +460,27 @@ own designs build them.
 
 ## 13. Open Questions
 
-None open; every question is ruled in [the Decision Ledger](#decision-ledger).
+1. 💬 **OQ-SU5: Should an existing home require an owner-managed move instead of automatic adoption?**
+
+   The accepted first-launch prompt would move an identifiable `.yolo/home` after a yes.
+   [§9](#9-state-per-setup) shows why the current rename can move a different home. This
+   affects only existing-home movement, not fresh per-setup homes.
+
+   - **A — Revise the automatic-move requirement.** Decline automatic adoption and give
+     instructions for an owner-quiesced manual move, after all writers of that workspace state
+     are stopped. Do not present a command that assumes an unchecked destination is safe.
+   - **B — Keep the accepted automatic-move requirement.** Hold that portion unlanded until
+     a source-identity-safe mechanism is demonstrated and reviewed on the relevant platforms.
+
+   <!-- vantage: question id=OQ-SU5 leaning="A — revise only optional automatic legacy-home adoption to require an owner-quiesced manual move; keep the home and fresh per-setup behavior unchanged." -->
+
+   _Leaning:_ A — revise only optional automatic legacy-home adoption to require an
+   owner-quiesced manual move. It avoids a demonstrated wrong-home move; this is a proposal,
+   not a new ruling or an implemented fallback.
+
+   **Answer:**
+
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
