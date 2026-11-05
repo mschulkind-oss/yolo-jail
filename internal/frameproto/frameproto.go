@@ -123,6 +123,35 @@ func WriteExit(w io.Writer, rc int) (int, error) {
 	return WriteFrame(w, StreamExit, payload[:])
 }
 
+// ErrFrameTooLarge is returned by ReadFrameBounded when the peer-declared payload
+// exceeds the caller's limit. The check happens after the header and before allocation.
+var ErrFrameTooLarge = errors.New("frameproto: response frame exceeds limit")
+
+// ReadFrameBounded reads one response frame, rejecting a peer-declared oversized payload
+// before allocating it. maxPayload applies to stdout, stderr and other frames; the exit
+// frame is independently capped at its protocol-fixed four-byte payload.
+func ReadFrameBounded(r io.Reader, maxPayload uint32) (Frame, error) {
+	var header [5]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return Frame{}, err
+	}
+	length := binary.BigEndian.Uint32(header[1:])
+	limit := maxPayload
+	if header[0] == StreamExit {
+		limit = 4
+	}
+	if length > limit {
+		return Frame{}, fmt.Errorf("%w: declared %d bytes, limit %d", ErrFrameTooLarge, length, limit)
+	}
+	payload := make([]byte, length)
+	if length > 0 {
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return Frame{}, err
+		}
+	}
+	return Frame{StreamID: header[0], Payload: payload}, nil
+}
+
 // ReadFrame reads one response frame (5-byte header + payload). Returns
 // io.EOF when the stream ends cleanly on a frame boundary.
 func ReadFrame(r io.Reader) (Frame, error) {

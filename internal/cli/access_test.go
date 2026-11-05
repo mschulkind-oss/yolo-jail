@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/gitremote"
 )
 
 func accessFiles(t *testing.T) (*os.File, *os.File) {
@@ -74,6 +75,39 @@ func TestAccessStdinBinding(t *testing.T) {
 		}, accessEndpoint, strings.NewReader(body), out, stderr)
 		if code != 0 || calls != 1 {
 			t.Fatalf("case %d exit=%d calls=%d", i, code, calls)
+		}
+	}
+}
+
+func TestAccessGitCommandDoesNotFallThroughToGitHub(t *testing.T) {
+	for _, args := range [][]string{{"--", "git", "push", "origin", "HEAD"}, {"--ask", "--", "git", "push", "origin", "HEAD"}, {"git"}} {
+		out, stderr := accessFiles(t)
+		calledGH := false
+		code := runAccessWith(args, func(string, []string, io.Reader) ([]byte, int) {
+			calledGH = true
+			return nil, 0
+		}, func(key string) string {
+			if key == "YOLO_HOST_DIR" {
+				return "/synthetic-workspace"
+			}
+			if key == ghbroker.EndpointEnv {
+				return "/github-broker"
+			}
+			if key == gitremote.EndpointEnv {
+				return ""
+			}
+			return ""
+		}, strings.NewReader(""), out, stderr)
+		if code != ghbroker.ExitUnavailable || calledGH {
+			t.Fatalf("git args %v forwarded to GitHub: exit=%d called=%v", args, code, calledGH)
+		}
+		if _, err := stderr.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(stderr)
+		want := "git-broker"
+		if err != nil || !strings.Contains(string(body), want) {
+			t.Fatalf("git args %v: missing next step: %q %v", args, body, err)
 		}
 	}
 }

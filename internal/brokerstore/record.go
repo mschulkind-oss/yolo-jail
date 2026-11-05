@@ -3,6 +3,7 @@ package brokerstore
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -74,11 +75,9 @@ func IsLapsedAllow(err error) (string, bool) {
 
 // lapsedIn marks and returns the request of input's workspace, set and command that the host
 // allowed once and whose every grant expired unspent, if it has not been reported yet.
-func (s *Store) lapsedIn(r *records, input Request) (Request, bool, error) {
-	for i := range r.requests {
-		q := &r.requests[i]
-		if q.State != "allowed" || q.Lapsed || q.Spent || q.Set != input.Set || q.Digest != input.Digest ||
-			!SameWorkspace(q.Workspace, input.Workspace) {
+func lapsedRequestIn(r *records, input Request, now time.Time) string {
+	for _, q := range r.requests {
+		if q.State != "allowed" || q.Lapsed || q.Spent || q.Set != input.Set || q.Digest != input.Digest || !SameWorkspace(q.Workspace, input.Workspace) {
 			continue
 		}
 		grants, lapsed := 0, true
@@ -87,11 +86,24 @@ func (s *Store) lapsedIn(r *records, input Request) (Request, bool, error) {
 				continue
 			}
 			grants++
-			if g.Digest == "" || g.EndedBy() != EndExpired || g.Uses != g.Issued {
+			expired := g.EndedBy() == EndExpired || (g.Ended.IsZero() && !now.Before(g.Expires))
+			if g.Digest == "" || !expired || g.Uses != g.Issued {
 				lapsed = false
 			}
 		}
-		if grants == 0 || !lapsed {
+		if grants > 0 && lapsed {
+			return q.ID
+		}
+	}
+	return ""
+}
+
+// lapsedIn consumes only the first refusal; inspection calls lapsedRequestIn without writing.
+func (s *Store) lapsedIn(r *records, input Request, now time.Time) (Request, bool, error) {
+	id := lapsedRequestIn(r, input, now)
+	for i := range r.requests {
+		q := &r.requests[i]
+		if q.ID != id {
 			continue
 		}
 		q.Lapsed = true

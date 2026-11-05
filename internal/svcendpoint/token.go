@@ -158,9 +158,13 @@ func verifyTokenFrame(conn net.Conn, token string) error {
 // An earlier version wrapped every read error, which moved that misattribution
 // rather than removing it.
 func readAck(conn net.Conn) error {
+	return readAckUntil(conn, time.Time{})
+}
+
+func readAckUntil(conn net.Conn, deadline time.Time) error {
 	// Discarded for the same reason as verifyTokenFrame's: a deadline that cannot be
 	// SET leaves the read below to fail and be reported.
-	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	_ = conn.SetReadDeadline(handshakeDeadline(deadline))
 	var ack [1]byte
 	if _, err := io.ReadFull(conn, ack[:]); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {

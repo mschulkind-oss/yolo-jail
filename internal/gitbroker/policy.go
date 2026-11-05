@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -134,6 +135,23 @@ func declaredBy(grants []brokerscope.Grant, kind, repo, ref string) (brokerscope
 // coverFor is the push policy for one push to repo under the live scope file f. A store it
 // cannot read covers nothing, and says so once.
 func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string), menu *pushMenu) coverer {
+	return b.coverForSnapshot(f, repo, say, menu, nil, time.Time{})
+}
+
+// coverForSnapshot evaluates the act policy over a read-only store view.
+func (b *Broker) coverForSnapshot(f brokerscope.File, repo string, say func(string), menu *pushMenu, working []brokerstore.WorkingEntry, at time.Time) coverer {
+	readWorking := func(ref string) (brokerstore.WorkingEntry, bool, error) {
+		if at.IsZero() {
+			return b.store.LiveWorking(b.bound.Workspace, repo, ref)
+		}
+		for _, e := range working {
+			if e.Workspace == b.bound.Workspace && e.Repo == repo && e.Resource == ref && e.LiveAt(at) {
+				return e, true, nil
+			}
+		}
+		return brokerstore.WorkingEntry{}, false, nil
+	}
+
 	if b.cover != nil {
 		return b.cover
 	}
@@ -196,7 +214,7 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string), men
 				kindMissing(grantTag, "push the tags it names")
 			}
 			// A tag a human allowed for a time (GB-D26): a timed entry, never a lasting one.
-			if e, live, err := b.store.LiveWorking(b.bound.Workspace, repo, c.Ref); err != nil {
+			if e, live, err := readWorking(c.Ref); err != nil {
 				storeFailed(err)
 			} else if live {
 				return setTimed, e.ID, true
@@ -251,7 +269,7 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string), men
 			}
 			return refused()
 		}
-		e, live, err := b.store.LiveWorking(b.bound.Workspace, repo, c.Ref)
+		e, live, err := readWorking(c.Ref)
 		if err != nil {
 			storeFailed(err)
 			// The store is not needed for a branch the config declares.
@@ -266,9 +284,11 @@ func (b *Broker) coverFor(f brokerscope.File, repo string, say func(string), men
 			// The workspace held this branch, and the upstream no longer has it: someone
 			// deleted it outside the broker. Its entry ends, and the push is a creation.
 			if live {
-				if err := b.store.EndWorking(e.ID, brokerstore.EndGone); err != nil {
-					storeFailed(err)
-					return orRefused(inConfig())
+				if at.IsZero() {
+					if err := b.store.EndWorking(e.ID, brokerstore.EndGone); err != nil {
+						storeFailed(err)
+						return orRefused(inConfig())
+					}
 				}
 			}
 			// Declared in config first: such a branch is never recorded in the store.

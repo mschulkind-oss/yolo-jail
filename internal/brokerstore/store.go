@@ -608,7 +608,7 @@ func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Req
 			return q, nil
 		}
 	}
-	if q, lapsed, err := s.lapsedIn(r, input); err != nil {
+	if q, lapsed, err := s.lapsedIn(r, input, now); err != nil {
 		return Request{}, err
 	} else if lapsed {
 		return Request{}, &LapsedAllowError{Request: q.ID}
@@ -725,6 +725,11 @@ func (s *Store) FileIfStillAsksWithCoverageContext(ctx context.Context, input Re
 		if err != nil || covered {
 			return err
 		}
+		// Pre-ask predicts the first lapsed Allow-once refusal without consuming its
+		// marker: only the later real ACT retry may mark it lapsed.
+		if id := lapsedRequestIn(r, input, now); id != "" {
+			return &LapsedAllowError{Request: id}
+		}
 		out, err = s.fileIn(ctx, r, now, input)
 		return err
 	})
@@ -744,6 +749,7 @@ func (s *Store) InspectContext(ctx context.Context) ([]Request, []Grant, []Worki
 
 // ExactInspection is one non-mutating store view and its exact-grant eligibility result.
 type ExactInspection struct {
+	LapsedRequest    string
 	Requests         []Request
 	Grants           []Grant
 	Working          []WorkingEntry
@@ -768,6 +774,7 @@ func (s *Store) InspectExactGrantContext(ctx context.Context, input Request, rev
 	out, now, err := s.inspectContext(ctx, func(r *records, at time.Time) error {
 		result.Now = at
 		result.Requests, result.Grants, result.Working = r.requests, r.grants, r.working
+		result.LapsedRequest = lapsedRequestIn(r, input, at)
 		result.Grant, _, _, _, result.Eligible, result.EligibilityErr = eligibleGrantIn(
 			r, at, input.Workspace, input.Set, input.Digest, revalidate, true)
 		result.CoveringGrant, _, _, _, result.HasCoveringGrant, result.CoveringErr = eligibleGrantIn(

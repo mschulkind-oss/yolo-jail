@@ -95,6 +95,7 @@ type httpsLeg struct {
 	credentialDenial   string
 	lastCredentialSent bool
 	credentialRejected bool
+	readOnly           bool // an access advertisement GET must not approve/reject credentials
 }
 
 // newHTTPSLeg readies the upstream for the requested HTTPS remote. User-info is stripped and
@@ -195,7 +196,7 @@ func (h *httpsLeg) do(method, suffix, contentType, accept string, body []byte) (
 	if resp.StatusCode == http.StatusUnauthorized && !h.lastCredentialSent && h.credentialDenial == "" {
 		h.credentialDenial = denial
 	}
-	if h.lastCredentialSent {
+	if h.lastCredentialSent && !h.readOnly {
 		h.settle(resp)
 	}
 	return resp, nil

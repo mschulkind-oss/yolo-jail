@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitremote"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -25,6 +27,257 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
+
+// TestGitAccessStatusUsesPublishedEndpoint exercises the actual jail producer and the
+// broker's served handler. A legacy handler cannot interpret this envelope as a git call.
+func TestGitAccessStatusUsesPublishedEndpoint(t *testing.T) {
+	f := newFixture(t, "")
+	var stderr bytes.Buffer
+	env := gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return f.endpoint
+		}
+		return ""
+	}, Stderr: &stderr}
+	body, code := gitremote.ForwardAccess("status", nil, env)
+	if code != 0 {
+		t.Fatalf("status failed (%d): %s", code, stderr.String())
+	}
+	var status struct {
+		Schema, Source, State, Read string
+		Repositories                []string
+	}
+	if err := json.Unmarshal(body, &status); err != nil || status.Schema != "yolo.access/1" || status.Source != "git" || status.State != "running" || len(status.Repositories) == 0 {
+		t.Fatalf("bad broker status %s: %v", body, err)
+	}
+	if f.sshRan() {
+		t.Fatal("status contacted a remote")
+	}
+	for _, op := range []string{"evaluate", "ask"} {
+		body, code := gitremote.ForwardAccess(op, []string{"git", "push", "origin", "HEAD"}, env)
+		if code != 64 || body != nil || f.sshRan() {
+			t.Fatalf("ambiguous %s forwarded to remote: code=%d body=%s", op, code, body)
+		}
+	}
+}
+
+func TestGitAccessStatusLateInspectionFailurePreservesReadAndNext(t *testing.T) {
+	f := newFixture(t, "")
+	requestsDir := filepath.Join(f.broker.store.Dir, "requests")
+	if err := os.RemoveAll(requestsDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(f.root, "missing-requests"), requestsDir); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return f.endpoint
+		}
+		return ""
+	}, Stderr: &stderr})
+	var status struct {
+		State string `json:"state"`
+		Read  string `json:"read"`
+		Next  string `json:"next"`
+	}
+	if code != 0 || json.Unmarshal(body, &status) != nil || status.State != "unreachable" ||
+		status.Read != "granted" || !strings.Contains(status.Next, "yolo check") || !strings.Contains(status.Next, "relaunch") {
+		t.Fatalf("late inspection error hid actionable host status: code=%d status=%+v body=%s stderr=%s", code, status, body, stderr.String())
+	}
+}
+
+func TestGitAccessStatusInvalidRemoteSuggestsCorrectionNotAnotherGrant(t *testing.T) {
+	f := newFixture(t, "")
+	f.setScope("https://user:secret@fixture.test/o/r.git", "file:///tmp/repo.git")
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return f.endpoint
+		}
+		return ""
+	}, Stderr: &stderr})
+	var status struct {
+		Read string `json:"read"`
+		Next string `json:"next"`
+	}
+	if code != 0 || json.Unmarshal(body, &status) != nil || status.Read != "partial" ||
+		!strings.Contains(status.Next, "yolo check") || !strings.Contains(status.Next, "git remote set-url") ||
+		strings.Contains(status.Next, "yolo allow git fetch") || strings.Contains(string(body), "secret") {
+		t.Fatalf("invalid remote got unactionable or leaking advice: code=%d status=%+v body=%s stderr=%s", code, status, body, stderr.String())
+	}
+}
+
+func TestGitAccessStatusMissingReadGrantKeepsGrantAdvice(t *testing.T) {
+	f := newFixtureOpts(t, fixtureOpts{noRead: true})
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return f.endpoint
+		}
+		return ""
+	}, Stderr: &stderr})
+	var status struct {
+		Read string `json:"read"`
+		Next string `json:"next"`
+	}
+	if code != 0 || json.Unmarshal(body, &status) != nil || status.Read != "not-granted" ||
+		!strings.Contains(status.Next, "yolo allow git fetch") || strings.Contains(status.Next, "git remote set-url") {
+		t.Fatalf("missing read grant lost its next step: code=%d status=%+v body=%s stderr=%s", code, status, body, stderr.String())
+	}
+}
+
+func TestGitAccessStatusExpiredRequestDoesNotCountAsPending(t *testing.T) {
+	f := newFixture(t, "")
+	store := f.broker.store
+	base := time.Now().UTC()
+	store.Now = func() time.Time { return base }
+	store.Revalidate = nil // This test files a fixture record directly; no approval decision is made.
+	repo, err := gitproto.Identity(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filed, err := store.File(brokerstore.Request{
+		Jail: holderJail(f.broker.bound), Start: f.broker.start, Workspace: f.broker.bound.Workspace,
+		LaunchID: f.broker.bound.LaunchID, Argv: []string{"git", "push"}, Repo: repo,
+		StdinDigest: "fixture-digest", Set: setPush,
+		Policy: brokerstore.Policy{Window: time.Minute, MaxWindow: time.Hour, Uses: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Now = func() time.Time { return base.Add(2 * time.Hour) }
+	status, err := f.broker.accessStatus(context.Background(), paths.HostServicesDirName(holderJail(f.broker.bound)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Limits.Pending != 0 {
+		t.Fatalf("expired request %s still counts against the pending ceiling: %+v", filed.ID, status.Limits)
+	}
+	foundExpired := false
+	for _, request := range status.Requests {
+		if request.ID == filed.ID && request.State == "expired" {
+			foundExpired = true
+		}
+	}
+	if !foundExpired {
+		t.Fatalf("expired request not shown as expired: %+v", status.Requests)
+	}
+}
+
+func TestGitAccessStatusRedactsRemoteUserInfo(t *testing.T) {
+	f := newFixture(t, "")
+	f.setScope("https://user:synthetic-secret@fixture.test/o/r.git")
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return f.endpoint
+		}
+		return ""
+	}, Stderr: &stderr})
+	if code != 0 || strings.Contains(string(body), "synthetic-secret") || !strings.Contains(string(body), "fixture.test/o/r") {
+		t.Fatalf("readout leaked remote user-info or failed: code=%d body=%s stderr=%s", code, body, stderr.String())
+	}
+	if f.sshRan() {
+		t.Fatal("status contacted a remote")
+	}
+}
+
+func TestGitAccessStatusRejectsForeignEndpointIdentity(t *testing.T) {
+	f := newFixture(t, "")
+	foreign := serve(t, f.broker.Handle, "another-jail")
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return foreign
+		}
+		return ""
+	}, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("status returned no answer: %d %s", code, stderr.String())
+	}
+	var status struct {
+		State        string   `json:"state"`
+		Repositories []string `json:"repositories"`
+		Requests     []any    `json:"requests"`
+		Grants       []any    `json:"grants"`
+		Working      []any    `json:"working_set"`
+	}
+	if err := json.Unmarshal(body, &status); err != nil || status.State != "unreachable" || len(status.Repositories)+len(status.Requests)+len(status.Grants)+len(status.Working) != 0 {
+		t.Fatalf("foreign jail read workspace standing: %s %v", body, err)
+	}
+	if f.sshRan() {
+		t.Fatal("status contacted a remote")
+	}
+}
+
+// TestGitAccessPublishedEndpointCannotBecomeLegacyAct uses the real jail producer
+// against a stand-in old handler at the endpoint it actually dials. Rotating the
+// endpoint to a legacy broker cannot turn a status request into a receive-pack call.
+func TestGitAccessPublishedEndpointCannotBecomeLegacyAct(t *testing.T) {
+	got := make(chan []string, 1)
+	endpoint := serve(t, func(s *hostservice.Session) {
+		got <- s.Request.Keys()
+		if _, has := s.Get("service"); has {
+			t.Error("legacy act service reached the old decoder")
+		}
+		// An old, act-shaped answer must not be treated as status.
+		s.StdoutBytes([]byte(`{"verdict":"runs","source":"git"}`))
+		s.Exit(0)
+	}, "rotated")
+	var stderr bytes.Buffer
+	body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+		if key == gitremote.EndpointEnv {
+			return endpoint
+		}
+		return ""
+	}, Stderr: &stderr})
+	keys := <-got
+	if code != 69 || body != nil || !strings.Contains(stderr.String(), "relaunch") || !slices.Equal(keys, []string{"access"}) {
+		t.Fatalf("legacy endpoint response accepted or unsafe frame: code=%d body=%s keys=%v stderr=%s", code, body, keys, stderr.String())
+	}
+}
+
+func TestGitAccessRejectsMalformedEnvelopeBeforeUpstream(t *testing.T) {
+	f := newFixture(t, "")
+	for _, body := range []string{
+		`{"access":{"op":"evaluate","version":1,"service":"git-receive-pack","url":"git@fixture.test:o/r.git"}}`,
+		`{"access":{"op":"ask","version":1}}`,
+		`{"access":{"op":"status","version":2}}`,
+		`{"access":{"op":"status","version":1},"service":"git-receive-pack","url":"git@fixture.test:o/r.git"}`,
+		`{"op":"status","version":1,"service":"git-receive-pack","url":"git@fixture.test:o/r.git"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			conn, err := svcendpoint.Dial(f.endpoint, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := frameproto.WriteRequest(conn, []byte(body)); err != nil {
+				t.Fatal(err)
+			}
+			for {
+				frame, err := frameproto.ReadFrame(conn)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if frame.StreamID == frameproto.StreamStdout && len(frame.Payload) != 0 {
+					t.Fatalf("malformed frame received data: %s", frame.Payload)
+				}
+				if frame.StreamID == frameproto.StreamExit {
+					if rc, err := frameproto.ExitCode(frame.Payload); err != nil || rc != 64 {
+						t.Fatalf("malformed frame accepted: %d %v", rc, err)
+					}
+					break
+				}
+			}
+			if f.sshRan() {
+				t.Fatal("malformed access frame reached remote")
+			}
+		})
+	}
+}
 
 // TestHelperProcess is the jail's remote helper when the fixture's git runs
 // `git-remote-yolo`: the script on git's PATH re-runs this test binary with GO_HELPER=1.
@@ -299,18 +552,21 @@ func (f *fixture) launch(sf brokerscope.File, bound func(*fixture)) {
 	if bound != nil {
 		bound(f)
 	}
-	f.endpoint = serve(t, b.Handle)
+	f.endpoint = serve(t, b.Handle, holderJail(sf))
 }
 
 // serve starts an in-test loopback-TLS endpoint running handler and returns its endpoint file.
-func serve(t *testing.T, handler hostservice.Handler) string {
+func serve(t *testing.T, handler hostservice.Handler, jail string) string {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	dir, err := os.MkdirTemp("/tmp", "yj-gitbroker-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := filepath.Join(dir, "git-broker.endpoint")
+	endpoint := filepath.Join(dir, paths.HostServicesDirName(jail), "git-broker.endpoint")
+	if err := os.MkdirAll(filepath.Dir(endpoint), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {

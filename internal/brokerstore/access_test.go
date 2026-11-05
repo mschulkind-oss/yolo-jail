@@ -52,3 +52,72 @@ func TestFileIfStillAsksJoinsPendingRequest(t *testing.T) {
 		t.Fatalf("bad pending record: %+v", filed)
 	}
 }
+
+func TestFileIfStillAsksLapsedOnceDoesNotConsumeFirstRealRetry(t *testing.T) {
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	s := &Store{Dir: t.TempDir(), Source: "git", Revalidate: unchangedPolicy, Now: func() time.Time { return now }}
+	input := spendOrFileRequest()
+	request, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := s.Decide(request.ID, "pending", Decision{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = grant.Expires.Add(time.Second)
+	for i := 0; i < 2; i++ {
+		filed, _, covered, err := s.FileIfStillAsksContext(context.Background(), input, s.Revalidate)
+		if id, ok := IsLapsedAllow(err); !ok || id != request.ID || covered || filed.ID != "" {
+			t.Fatalf("pre-ask %d: %+v covered %v err %v", i, filed, covered, err)
+		}
+	}
+	reqs, _, err := s.List()
+	if err != nil || len(reqs) != 1 || reqs[0].Lapsed {
+		t.Fatalf("pre-ask consumed lapsed marker: %+v %v", reqs, err)
+	}
+	if _, err := s.File(input); err == nil {
+		t.Fatal("real first retry should refuse once")
+	} else if id, ok := IsLapsedAllow(err); !ok || id != request.ID {
+		t.Fatalf("real first retry: %v", err)
+	}
+	filed, _, covered, err := s.FileIfStillAsksContext(context.Background(), input, s.Revalidate)
+	if err != nil || covered || filed.ID == "" || filed.ID == request.ID {
+		t.Fatalf("post-refusal pre-ask: %+v covered %v err %v", filed, covered, err)
+	}
+}
+
+func TestFileIfStillAsksSpentOnceAndTimedGrantAreNotLapsed(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		decision Decision
+		spend    bool
+	}{
+		{name: "spent once", decision: Decision{}, spend: true},
+		{name: "expired timed", decision: Decision{For: time.Minute}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+			s := &Store{Dir: t.TempDir(), Source: "git", Revalidate: unchangedPolicy, Now: func() time.Time { return now }}
+			input := spendOrFileRequest()
+			request, err := s.File(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant, err := s.Decide(request.ID, "pending", tc.decision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.spend {
+				if _, spent, _, err := s.SpendExactOrFileContext(context.Background(), input, s.Revalidate, nil); err != nil || !spent {
+					t.Fatalf("spend %v %v", spent, err)
+				}
+			}
+			now = grant.Expires.Add(time.Second)
+			filed, _, covered, err := s.FileIfStillAsksContext(context.Background(), input, s.Revalidate)
+			if _, lapsed := IsLapsedAllow(err); lapsed || err != nil || covered || filed.ID == "" {
+				t.Fatalf("not lapsed: %+v covered %v err %v", filed, covered, err)
+			}
+		})
+	}
+}

@@ -2,9 +2,20 @@ package frameproto
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"testing"
 )
 
+func TestReadFrameBoundedRejectsOversizedHeaderWithoutBody(t *testing.T) {
+	var header [5]byte
+	header[0] = StreamStdout
+	binary.BigEndian.PutUint32(header[1:], 1<<20+1)
+	_, err := ReadFrameBounded(bytes.NewReader(header[:]), 1<<20)
+	if !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("ReadFrameBounded error = %v, want ErrFrameTooLarge", err)
+	}
+}
 func TestRequestRoundTrip(t *testing.T) {
 	body := []byte(`{"action":"ping","jail_id":"j"}`)
 	var buf bytes.Buffer

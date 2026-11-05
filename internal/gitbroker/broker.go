@@ -27,10 +27,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -43,6 +45,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -77,11 +80,14 @@ const reasonWithTheRest = "refused with the rest of this push: a push through th
 // request is the helper's frame (ID-5). Agent is carried and never trusted; the helper of
 // this version sends none.
 type request struct {
-	Service  string
-	URL      string
-	Protocol string
-	Agent    string
-	Invalid  string
+	Service      string
+	URL          string
+	Protocol     string
+	Agent        string
+	Invalid      string
+	AccessStatus bool
+	AccessOp     string
+	Proposal     gitproto.PushProposal
 }
 
 // Broker answers one jail's git connections.
@@ -175,6 +181,111 @@ func newBroker(ctx context.Context, scopeFile string, sf brokerscope.File, spawn
 // parseRequest reads the helper's frame.
 func parseRequest(s *hostservice.Session) request {
 	var r request
+	if access, has := s.Get("access"); has {
+		object, ok := access.(*jsonx.OrderedMap)
+		if !ok || len(s.Request.Keys()) != 1 || s.Request.Keys()[0] != "access" {
+			r.Invalid = "malformed access envelope"
+			return r
+		}
+		if len(object.Keys()) < 2 || len(object.Keys()) > 3 {
+			r.Invalid = "unsupported access operation or version"
+			return r
+		}
+		op, opOK := object.Get("op")
+		version, versionOK := object.Get("version")
+		vtype := reflect.TypeOf(version)
+		if !opOK || !versionOK || vtype == nil || vtype.Name() != "jsonInt" || vtype.PkgPath() != "github.com/mschulkind-oss/yolo-jail/internal/jsonx" || fmt.Sprint(version) != "1" {
+			r.Invalid = "unsupported access operation or version"
+			return r
+		}
+		if op == "status" && len(object.Keys()) == 2 {
+			r.AccessStatus = true
+			return r
+		}
+		if (op != "evaluate" && op != "ask") || len(object.Keys()) != 3 {
+			r.Invalid = "unsupported access operation or version"
+			return r
+		}
+		candidate, ok := object.Get("proposal")
+		proposal, ok := candidate.(*jsonx.OrderedMap)
+		if !ok || len(proposal.Keys()) != 4 {
+			r.Invalid = "malformed push proposal"
+			return r
+		}
+		if service, ok := proposal.Get("service"); !ok || service != serviceReceivePack {
+			r.Invalid = "unsupported push proposal service"
+			return r
+		}
+		if url, ok := proposal.Get("url"); ok {
+			r.Proposal.URL, ok = url.(string)
+			if !ok || r.Proposal.URL == "" {
+				r.Invalid = "malformed push proposal URL"
+				return r
+			}
+		} else {
+			r.Invalid = "missing push proposal URL"
+			return r
+		}
+		r.Proposal.Service = serviceReceivePack
+		commands, ok := proposal.Get("commands")
+		list, ok := commands.([]any)
+		if !ok || len(list) == 0 || len(list) > gitproto.MaxCommandBytes/80 {
+			r.Invalid = "malformed push commands"
+			return r
+		}
+		for _, item := range list {
+			m, ok := item.(*jsonx.OrderedMap)
+			if !ok || len(m.Keys()) != 3 {
+				r.Invalid = "malformed push command"
+				return r
+			}
+			old, oldOK := m.Get("Old")
+			newID, newOK := m.Get("New")
+			ref, refOK := m.Get("Ref")
+			if !oldOK || !newOK || !refOK {
+				r.Invalid = "malformed push command"
+				return r
+			}
+			o, oOK := old.(string)
+			n, nOK := newID.(string)
+			name, refString := ref.(string)
+			if !oOK || !nOK || !refString {
+				r.Invalid = "malformed push command"
+				return r
+			}
+			r.Proposal.Commands = append(r.Proposal.Commands, gitproto.Command{Old: o, New: n, Ref: name})
+		}
+		options, ok := proposal.Get("push_options")
+		optionList, ok := options.([]any)
+		if !ok {
+			r.Invalid = "malformed push options"
+			return r
+		}
+		for _, option := range optionList {
+			text, ok := option.(string)
+			if !ok {
+				r.Invalid = "malformed push option"
+				return r
+			}
+			r.Proposal.PushOptions = append(r.Proposal.PushOptions, text)
+		}
+		r.AccessOp = op.(string)
+		return r
+	}
+	if _, has := s.Get("op"); has {
+		r.Invalid = "versioned access requests require a nested envelope"
+		return r
+	}
+	if _, has := s.Get("version"); has {
+		r.Invalid = "versioned access requests require a nested envelope"
+		return r
+	}
+	for _, key := range []string{"proposal", "commands", "push_options"} {
+		if _, has := s.Get(key); has {
+			r.Invalid = "access proposals require a nested envelope"
+			return r
+		}
+	}
 	str := func(key string) string {
 		v, ok := s.Get(key)
 		if !ok {
@@ -196,6 +307,46 @@ func (b *Broker) Handle(s *hostservice.Session) {
 	req := parseRequest(s)
 	ctx, cancel := context.WithCancel(b.ctx)
 	defer cancel()
+	if req.AccessStatus {
+		bounded, stop := context.WithTimeout(ctx, 5*time.Second)
+		defer stop()
+		status, err := b.accessStatus(bounded, s.JailID)
+		if err != nil {
+			status.State = "unreachable"
+			status.Next = "run `yolo check` on the host, then relaunch this jail"
+		}
+		s.StdoutBytes(marshalGitStatus(status))
+		s.Exit(0)
+		return
+	}
+	if req.AccessOp != "" {
+		// Evaluation uses a separate, finite read-leg budget, not the broker's
+		// lifetime. Access has one request frame and no later ACT frames: any
+		// further client input or disconnect cancels this evaluation only.
+		bounded, stop := context.WithTimeout(ctx, 25*time.Second)
+		defer stop()
+		watchDone := make(chan struct{})
+		go func() {
+			defer close(watchDone)
+			var extra [1]byte
+			_, _ = s.Conn().Read(extra[:])
+			stop()
+		}()
+		answer := b.evaluatePush(bounded, s.JailID, req.AccessOp, req.Proposal)
+		var verdict struct {
+			Verdict       string `json:"verdict"`
+			CommandDigest string `json:"command_digest"`
+		}
+		_ = json.Unmarshal(answer, &verdict)
+		b.audit.AppendContext(bounded, brokeraudit.Event{Event: "evaluate", Service: Source, Jail: s.JailID,
+			Workspace: b.bound.Workspace, Remote: req.Proposal.URL, Outcome: verdict.Verdict,
+			CommandDigest: verdict.CommandDigest})
+		s.StdoutBytes(answer)
+		s.Exit(0)
+		_ = s.Conn().SetReadDeadline(time.Now())
+		<-watchDone
+		return
+	}
 	pr, pw := io.Pipe()
 	defer pr.Close()
 	go func() {

@@ -59,6 +59,8 @@ type Env struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	// accessTimeout shortens the client session in caller-level tests only.
+	accessTimeout time.Duration
 }
 
 // request is the one frame the helper sends before git's bytes (ID-5). Agent is left
