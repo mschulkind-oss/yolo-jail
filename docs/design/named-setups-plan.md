@@ -1116,13 +1116,10 @@ into the slice's report (see the macos-user plan's
   --predicate 'sender == "Sandbox"'` shows no denial from this session's processes; `claude -p
   'Reply with the single word: ok'` answers. On a Mac without the account, the launch refuses
   with *"Create it once (it asks for your admin password): `yolo yolo-account create`"*.
-- **W-SU4 (slice 6a):** a workspace last used by Apple Container before this change, with its
-  generated preflight user-config (`config.jsonc` or `config.toml`) under
-  `.yolo/home/.config/yolo-jail/` carrying yolo's inherited-config header. `yolo --setup
-  apple-container-self -- true` asks `Move it to this setup's home? [y/N]`; `n` prints the exact
-  `mv` and leaves the old home and header intact. On a second run, `y` moves the whole home
-  (not a copy-then-delete), and the generated config is present under
-  `.yolo/setups/apple-container-self/home/.config/yolo-jail/`. Then
+- **W-SU4 (slice 6a):** a workspace last used by Apple Container before this change (its
+  `.yolo/home/.claude.json` present). `yolo --setup apple-container-self -- true` asks `Move it to
+  this setup's home? [y/N]`; `n` prints the one `mv` and `ls .yolo/home` is unchanged; `y` on a
+  second run moves it and `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
   `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
   ./integration` passes.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
