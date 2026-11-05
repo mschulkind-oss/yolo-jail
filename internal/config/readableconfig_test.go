@@ -38,6 +38,110 @@ func TestLoadReadableWorkspaceConfigReadsReadableInstall(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsWorkspaceResourceGroupsBeforeMerge(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		name      string
+		files     map[string]string
+		wantFile  string
+		wantScope string
+	}{
+		{name: "project JSONC", files: map[string]string{paths.WorkspaceConfigLegacyJSONCName: `{"resource_groups":{"default":"work.slice"}}`}, wantFile: paths.WorkspaceConfigLegacyJSONCName, wantScope: "this project file"},
+		{name: "local JSONC", files: map[string]string{paths.WorkspaceLocalConfigLegacyJSONCName: `{"resource_groups":{"default":"work.slice"}}`}, wantFile: paths.WorkspaceLocalConfigLegacyJSONCName, wantScope: "this local file"},
+		{name: "included JSONC", files: map[string]string{
+			paths.WorkspaceConfigLegacyJSONCName: `{"include_if_found":["parts/owner.jsonc"]}`,
+			"parts/owner.jsonc":                  `{"resource_groups":{"default":"work.slice"}}`,
+		}, wantScope: "this included file"},
+		{name: "project TOML", files: map[string]string{paths.WorkspaceConfigTOMLName: "[resource_groups]\ndefault = 'work.slice'\n"}, wantFile: paths.WorkspaceConfigTOMLName, wantScope: "this project file"},
+		{name: "local TOML", files: map[string]string{paths.WorkspaceLocalConfigTOMLName: "[resource_groups]\ndefault = 'work.slice'\n"}, wantFile: paths.WorkspaceLocalConfigTOMLName, wantScope: "this local file"},
+		{name: "included TOML", files: map[string]string{
+			paths.WorkspaceConfigTOMLName: "include_if_found = ['parts/owner.toml']\n",
+			"parts/owner.toml":            "[resource_groups]\ndefault = 'work.slice'\n",
+		}, wantFile: filepath.Join("parts", "owner.toml"), wantScope: "this included file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			for name, body := range tc.files {
+				write(t, filepath.Join(workspace, name), body)
+			}
+			_, _, err := LoadConfigWithSources(workspace, true, func(string) {})
+			if err == nil || !strings.Contains(err.Error(), "config.resource_groups") || !strings.Contains(err.Error(), "user-scope only") {
+				t.Fatalf("LoadConfigWithSources error = %v, want file-backed owner-scope refusal", err)
+			}
+			if tc.wantScope != "" {
+				wantFile := tc.wantFile
+				if strings.Contains(tc.name, "included") {
+					name := "owner.jsonc"
+					if strings.Contains(tc.name, "TOML") {
+						name = "owner.toml"
+					}
+					wantFile = filepath.Join(workspace, "parts", name)
+				}
+				for _, want := range []string{wantFile, "first remove the `resource_groups` table from " + tc.wantScope, "then retry the command", "yolo config set resource_groups.default '\"example.slice\"' --user", "example only; replace it with your independently chosen unit; do not copy a project value", "After the workspace config graph is repaired", "on the host", "independently choose an owner-level mapping"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("LoadConfigWithSources error %q does not contain corrective advice %q", err, want)
+					}
+				}
+				if strings.Contains(err.Error(), "yolo config unset resource_groups") {
+					t.Errorf("LoadConfigWithSources error contains an unsupported repair command: %q", err)
+				}
+				removeAt := strings.Index(err.Error(), "first remove the `resource_groups` table")
+				retryAt := strings.Index(err.Error(), "then retry the command")
+				ownerAt := strings.Index(err.Error(), "yolo config set resource_groups.default")
+				if removeAt < 0 || retryAt <= removeAt || ownerAt <= retryAt {
+					t.Errorf("owner suggestion must follow file removal and retry guidance: %q", err)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadConfigKeepsOwnerJSONCSupportAndRejectsIntegralFloatPercent(t *testing.T) {
+	workspace := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	userPath := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigLegacyJSONCName)
+	write(t, userPath, `{"resource_groups":{"default":"owner.slice","agent_percent":5}}`)
+	cfg, _, err := LoadConfigWithSources(workspace, true, func(string) {})
+	if err != nil || len(ValidateResourceGroups(cfg)) != 0 {
+		t.Fatalf("owner JSONC config load/validation errors = %v, %v", err, ValidateResourceGroups(cfg))
+	}
+	selected, selectErr := SelectResourceGroup(cfg, workspace)
+	if selectErr != nil || selected.Unit != "owner.slice" {
+		t.Fatalf("owner JSONC selection = %#v, %v", selected, selectErr)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		file  string
+		body  string
+		valid bool
+	}{
+		{name: "JSONC integer 5", file: paths.UserConfigLegacyJSONCName, body: `{"resource_groups":{"agent_percent":5}}`, valid: true},
+		{name: "TOML integer 5", file: paths.UserConfigTOMLName, body: "[resource_groups]\nagent_percent = 5\n", valid: true},
+		{name: "JSONC 5.0", file: paths.UserConfigLegacyJSONCName, body: `{"resource_groups":{"agent_percent":5.0}}`},
+		{name: "TOML 5.0", file: paths.UserConfigTOMLName, body: "[resource_groups]\nagent_percent = 5.0\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			userPath := filepath.Join(home, ".config", "yolo-jail", tc.file)
+			write(t, userPath, tc.body)
+			cfg, _, err := LoadConfigWithSources(workspace, true, func(string) {})
+			if err != nil {
+				t.Fatal(err)
+			}
+			errs := ValidateResourceGroups(cfg)
+			if tc.valid && len(errs) != 0 {
+				t.Fatalf("integer agent_percent validation errors = %v", errs)
+			}
+			if !tc.valid && (len(errs) == 0 || !strings.Contains(strings.Join(errs, " "), "integer from 1 through 99")) {
+				t.Fatalf("agent_percent validation errors = %v, want integer-only refusal", errs)
+			}
+		})
+	}
+}
+
 func TestLoadReadableWorkspaceConfigFormatAndIncludes(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, paths.WorkspaceConfigTOMLName), "format = 2\ninclude_if_found = ['parts/base.toml']\n\n[machine.resources]\ncpus = 8\n")

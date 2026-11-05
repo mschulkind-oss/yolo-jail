@@ -62,6 +62,7 @@ const (
 	keyLaunchCheck   = "launch_check"
 	keyStartupReason = "startup_reason"
 	keyDetach        = "detach"
+	keyLaunchInput   = "launch_input"
 	keyRestart       = "restart"
 	keyCallerToken   = "caller_token"
 	keyListen        = "listen"
@@ -156,7 +157,7 @@ var (
 	// this block, not an exception to it — `cmd`, `host` and `description` are all
 	// already shared across objects — and the word means the same thing in both
 	// places: what is this value shared across.
-	hostDaemonKeys    = []string{keyCmd, keySettingsCheck, keyEnv, keyPublishes, keyRequestEnd, keyPreamble, keyScope, keyLaunchCheck, keyStartupReason, keyDetach}
+	hostDaemonKeys    = []string{keyCmd, keySettingsCheck, keyEnv, keyPublishes, keyRequestEnd, keyPreamble, keyScope, keyLaunchCheck, keyStartupReason, keyDetach, keyLaunchInput}
 	jailDaemonKeys    = []string{keyCmd, keyRestart, keyCallerToken, keyListen, keyHostCmd}
 	interceptKeys     = []string{keyHost}
 	hostBindMountKeys = []string{keyHost, keyContainer, keyReadonly}

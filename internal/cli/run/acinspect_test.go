@@ -99,6 +99,7 @@ func acAttach(t *testing.T, env string) (rc int, execed bool, stderr string, env
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+	writeCurrentKeeperRecord(t, "yolo-ws-abcd1234", keeperRecord{Started: time.Now(), Workspace: o.Workspace, Runtime: "container", MCPTeardownKnown: true})
 	rc, _ = o.attachExisting("yolo-ws-abcd1234", "container", "true", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
 	_, err := os.Stat(marker)

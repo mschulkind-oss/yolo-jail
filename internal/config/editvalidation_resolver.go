@@ -24,6 +24,7 @@ func (r explicitPackLoopholeResolver) Known() (map[string]LoopholeInfo, bool) {
 					identities, err := callbrokeridentity.Resolve(pack.Root, pack.Name, module.Dir, info.CallBroker)
 					if err != nil {
 						info.CallBroker.ProgramIdentityError = err.Error()
+						info.CallBroker.ProgramIdentityPending = callbrokeridentity.IsStagedPackRootUnavailable(err)
 					} else {
 						info.CallBroker.ProgramIdentities = identities
 					}

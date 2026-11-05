@@ -67,6 +67,22 @@ func TestValidateConfigRefusesCallBrokerRequestForUndeclaredTableCell(t *testing
 	}
 }
 
+func TestCallBrokerConfigDefersOnlyTheMissingPreStageRootIdentity(t *testing.T) {
+	resolver := callBrokerFenceResolver{
+		"tasks": {Name: "tasks", CallBroker: callBrokerCellFixture(t)},
+	}
+	broker := resolver["tasks"].CallBroker
+	broker.ProgramIdentityError = "selected staged pack root is unavailable"
+	broker.ProgramIdentityPending = true
+	if _, problems := callBrokerInfoBySource(resolver); len(problems) != 0 {
+		t.Fatalf("the pre-stage-only missing root should be deferred to staged launch validation: %v", problems)
+	}
+	broker.ProgramIdentityPending = false
+	if _, problems := callBrokerInfoBySource(resolver); len(problems) != 1 || !strings.Contains(problems[0], "program identity") {
+		t.Fatalf("a non-pending program identity error must remain fatal: %v", problems)
+	}
+}
+
 func TestDeclaredCellsRespectCeilingAndInvariant(t *testing.T) {
 	decl := callBrokerCellFixture(t)
 	user := testConfigMap(t, `{"allow":{"local-tasks":{"always":[]}}}`)

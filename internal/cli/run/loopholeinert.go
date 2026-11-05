@@ -52,6 +52,7 @@ package run
 
 import (
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -182,7 +183,15 @@ func (o *Options) notePackLoopholesInert(rt string, packs []*packload.Pack, cfg 
 		o.printInertLines(append(backendInertLines(packs, backend), configInertLines(cfg, backend)...))
 		return
 	}
-	o.printInertLines(platformInertLines(packs, cfg))
+	lines := platformInertLines(packs, cfg)
+	if rt == "macos-user" || (rt == "podman" && runtime.GOOS == "darwin") { // parity: Warned — native MCP sharing is unsupported here, so the launch names per-workspace sign-in
+		backend := rt
+		if rt == "podman" { // parity: Warned — macOS podman gets its own unsupported-backend label, not the macos-user label
+			backend = "podman on macOS"
+		}
+		lines = append(lines, mcpUnavailableLines(packs, backend)...)
+	}
+	o.printInertLines(lines)
 }
 
 // chosenPacks is packs less the ones selected by default (packload.Pack.SelectedByDefault):
@@ -245,7 +254,7 @@ func backendInertLines(packs []*packload.Pack, reason string) []string {
 				loopholes.InertNote{Name: lp.Name, Axis: loopholes.AxisBackend, Reason: reason}))
 		}
 	}
-	return lines
+	return append(lines, mcpUnavailableLines(packs, "Apple Container")...)
 }
 
 // platformInertLines is the PRODUCERS' answer — the platform axis, then the binary axis —

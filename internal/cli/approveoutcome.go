@@ -64,6 +64,16 @@ func approveOnceOutcome(out io.Writer, id string, g brokerstore.Grant) {
 	}, g.ID)
 }
 
+// approveCallBrokerOnceOutcome is a pack grant held by its live, selected
+// broker generation. Unlike git/GitHub's workspace-held grants, it cannot
+// promise another jail or a broker restart after that generation ends.
+func approveCallBrokerOnceOutcome(out io.Writer, id string, g brokerstore.Grant) {
+	writeApproveOutcome(out, "Allowed "+termsafe.Visible(id)+": this exact call, once.", []approveFact{
+		{"For", "this selected broker's authenticated jail in " + termsafe.Visible(g.Workspace)},
+		{"Lasts", "until used, this broker stops, or it expires at " + approveWhen(g.Expires)},
+	}, g.ID)
+}
+
 // githubEntryName is a GitHub working-set entry as the human names it: the repository
 // without its github.com host.
 func githubEntryName(e brokerstore.WorkingEntry) string {

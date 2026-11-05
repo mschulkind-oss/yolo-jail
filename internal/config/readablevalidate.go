@@ -12,8 +12,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
-func validateReadableTOML(values *jsonx.OrderedMap, scope SchemaScope, label string, index *configdoc.Index) error {
+func validateReadableTOML(values *jsonx.OrderedMap, scope SchemaScope, label string, index *configdoc.Index, via ...string) error {
 	if v := firstReadableTOMLViolation(values, scope); v != nil {
+		if scope == SchemaScopeWorkspaceOnly && len(v.path) == 1 && v.path[0] == resourceGroupsKey {
+			copy := *v
+			fileVia := ""
+			if len(via) > 0 {
+				fileVia = via[0]
+			}
+			copy.advice = func(string) string {
+				return resourceGroupsWorkspaceRefusal(resourceGroupsWorkspaceFileScope(label, fileVia))
+			}
+			return readableAdviceError(label, index, &copy)
+		}
 		if v.advice != nil {
 			return readableAdviceError(label, index, v)
 		}

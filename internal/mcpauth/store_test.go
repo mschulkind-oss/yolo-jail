@@ -13,6 +13,62 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
+func TestCanonicalStatusReadDoesNotCreateOrReplaceLock(t *testing.T) {
+	store, err := NewCanonicalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(store.Dir, store.LockName)
+	if _, err := store.ReadStatus(); err == nil {
+		t.Fatal("status returned an unlocked snapshot")
+	}
+	if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+		t.Fatalf("status created lock: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "other.lock")
+	if err := os.WriteFile(target, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReadStatus(); err == nil {
+		t.Fatal("status accepted linked lock")
+	}
+	info, err := os.Lstat(lock)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("status changed linked lock")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "sentinel" {
+		t.Fatal("status changed linked target")
+	}
+}
+
+func TestCanonicalStatusReadDoesNotRepairUnsafeMode(t *testing.T) {
+	store, err := NewCanonicalStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithLock(func(*CanonicalFile) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.Dir, store.Filename)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReadStatus(); err == nil {
+		t.Fatal("status accepted unsafe canonical mode")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("status repaired file mode: %04o", info.Mode().Perm())
+	}
+}
+
 func TestCanonicalStoreModeAndWriterSerialization(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewCanonicalStore(dir)

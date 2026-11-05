@@ -169,6 +169,11 @@ func extractFlatFields(raw json.RawMessage, server SharedServer) flatFields {
 	return fields
 }
 
+// StripRefresh removes only the declared refresh credential from a native entry.
+func StripRefresh(raw json.RawMessage, refreshPath string) (json.RawMessage, error) {
+	return replicaCopy(raw, refreshPath)
+}
+
 func replicaCopy(raw json.RawMessage, refreshPath string) (json.RawMessage, error) {
 	if refreshPath == "" {
 		return append(json.RawMessage(nil), raw...), nil

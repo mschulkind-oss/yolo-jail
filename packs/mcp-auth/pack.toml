@@ -1,0 +1,5 @@
+name = "mcp-auth"
+description = "Shares selected user-level MCP sign-ins between workspace stores through a host-only canonical store; the first slice serves Codex on Linux podman."
+
+[[loophole]]
+from = "loopholes/mcp-auth-broker"

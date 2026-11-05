@@ -186,9 +186,10 @@ func runKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 
 // keeper is one keeper's state.
 type keeper struct {
-	o    *Options
-	plan *keeperPlan
-	sink *keeperSink
+	o             *Options
+	plan          *keeperPlan
+	sink          *keeperSink
+	harvestFailed bool
 
 	progress   *os.File
 	launchLock *os.File
@@ -284,9 +285,17 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	fillDefaults(&o)
 	o.runtime = plan.Runtime
 	o.approvedScopes = plan.ApprovedScopes
+	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
 	o.approvedGrants = plan.ApprovedGrants
 	o.approvedLoopholeGrants = plan.ApprovedLoopholeGrants
 	o.readWithoutScope = plan.ReadWithoutScope
+	// The keeper starts daemons before spawning the jail. The launch already assembled
+	// every bind in RunCmd; endpoint environment pairs are the only later insertion.
+	// Use that actual argv, not a declaration-only projection, for the producer gate.
+	o.launchInputMountArgv = append([]string(nil), plan.RunCmd...)
+	if plan.LaunchInputMCP != nil {
+		o.launchInputMCP = *plan.LaunchInputMCP
+	}
 	o.settingsPrepared = plan.SettingsPrepared
 	o.settingsFrozen = plan.Settings
 	o.packTree, o.packTreeHeld = plan.PackTree, plan.PackTree != ""
@@ -377,20 +386,32 @@ func (k *keeper) run() int {
 		o.writeOwnerPID(p.Cname)
 	}
 	k.recMu.Lock()
-	k.record = keeperRecord{PID: k.pid, Started: time.Now(),
+	k.record = keeperRecord{PID: k.pid, Birth: keeperProcessBirth(k.pid), Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
-		Scope: k.scope, Log: keeperLogPath(k.stateKey()),
+		Scope: k.scope, Log: keeperLogPath(k.stateKey()), MCPTeardownKnown: true,
+		MCPTeardownRequired: p.MCPTeardownID != "", MCPTeardownID: p.MCPTeardownID,
 		// What the jail is launched with, names only, for every attach to read (ES-D33).
 		Grant: p.Grant}
 	if p.Notch != "" {
 		k.record.Contract, k.record.Notch, k.record.Build = keeperRosterContract, p.Notch, p.Build
 	}
-	k.recorded = true
-	err = writeKeeperRecord(k.stateKey(), k.record)
+	err = writeKeeperStartRecord(k.stateKey(), k.record)
+	k.recorded = err == nil
 	k.recMu.Unlock()
 	if err != nil {
 		k.sink.logf("keeper: could not write its start record (%v); if it dies, its jail's last session cannot reap what only it knew the names of", err)
+	}
+	// A selected producer may never run without a durable current start record:
+	// an earlier known-off record would otherwise admit an attach with no outcome ID.
+	if p.MCPTeardownID != "" && (k.record.Birth == "" || err != nil ||
+		p.Notch == "" && !keeperRecordOwnerMatches(p.Cname, k.record)) {
+		reason := "the kernel process birth or owner claim is unavailable"
+		if err != nil {
+			reason = err.Error()
+		}
+		o.pr(o.Stderr).printf("[bold red]Refusing to start selected MCP services: the keeper's current private start record cannot be verified (%s). Repair the private state directory, then relaunch this jail; if it remains, run %s first.[/bold red]", reason, stopRemedy(p.Runtime, p.Cname))
+		return k.unwindUnstarted(1)
 	}
 	k.sink.event(frameStarted, strconv.Itoa(k.pid))
 
@@ -467,6 +488,10 @@ func (k *keeper) run() int {
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
+	if err := o.checkSpawnLaunchInputMounts(runCmd); err != nil {
+		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: %s. Remove the overlapping mount and retry.[/bold red]", err)
+		return k.unwindUnstarted(1)
+	}
 	jm, err := startJailMain(runCmd, keeperStream{k.sink, frameJailStdout},
 		keeperStream{k.sink, frameJailStderr}, func() { o.Perf.Mark("jail_main.exited") })
 	if err != nil {
@@ -893,7 +918,7 @@ func (k *keeper) endJail(reason string, stop bool) {
 		default:
 		}
 	}
-	o.teardownAfterExit(k.socat, p.ForwardDir, k.handles, p.SocketsDir, p.Cname, p.Runtime, p.Skeleton, rc)
+	k.harvestFailed = o.teardownAfterExit(k.socat, p.ForwardDir, k.handles, p.SocketsDir, p.Cname, p.Runtime, p.Skeleton, rc)
 	if k.jailLeft {
 		o.writeOwnerPID(p.Cname)
 	}
@@ -968,6 +993,24 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 	if !k.jailLeft {
 		removeKeeperRecord(k.stateKey(), k.pid)
 	}
+	if k.harvestFailed {
+		k.sink.logf("keeper: FINAL_HOST_SERVICE_HARVEST_FAILED — inspect the preceding host service failure, repair its workspace store or lock, then relaunch")
+		if rc == 0 {
+			rc = 1
+		}
+	}
+	if p.MCPTeardownID != "" {
+		outcome := "ok"
+		if rc != 0 {
+			outcome = "failed"
+		}
+		if err := writeMCPTeardownOutcomeFor(k.stateKey(), p.MCPTeardownID, outcome, p.Workspace, p.Runtime); err != nil {
+			k.sink.logf("keeper: could not confirm selected MCP teardown (%v); inspect host service state and relaunch", err)
+			if rc == 0 {
+				rc = 1
+			}
+		}
+	}
 	k.sink.logf("keeper: done")
 	k.mu.Lock()
 	releaseLock(k.sessions)
@@ -990,11 +1033,15 @@ func (k *keeper) unwindUnstarted(rc int) int {
 	discardUnheldSkeleton(p.Cname, p.Skeleton)
 	forgetLivePackTree(p.Cname, p.PackTree)
 	discardPackTree(p.Cname, p.PackTree)
-	o.stopLoopholes(k.handles, p.SocketsDir, p.Cname, p.Runtime)
+	if o.stopLoopholes(k.handles, p.SocketsDir, p.Cname, p.Runtime) && rc == 0 {
+		rc = 1
+	}
 	o.forgetGoneContainer(p.Cname, p.Runtime, p.Skeleton)
 	if k.liveness != nil {
 		clearOwnerPIDIf(p.Cname, k.pid)
-		removeKeeperRecord(k.stateKey(), k.pid)
+		if k.recorded {
+			removeKeeperRecord(k.stateKey(), k.pid)
+		}
 	}
 	return rc
 }
@@ -1278,7 +1325,7 @@ func (k *keeper) unwindKey(rc int) int {
 	}
 	o.endServicesSession(k.handles)
 	discardPackTree(p.Cname, p.PackTree)
-	if k.liveness != nil {
+	if k.liveness != nil && k.recorded {
 		removeKeeperRecord(k.stateKey(), k.pid)
 	}
 	return rc

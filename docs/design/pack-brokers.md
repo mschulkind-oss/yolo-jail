@@ -1,9 +1,9 @@
 ---
 title: "Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run"
 date: 2026-11-04
-status: accepted
-stage: DECIDED
-next: "Complete the build hand-off for built-in CircleCI and locally operated CLI/HTTP proofs"
+status: in-review
+stage: DESIGN
+next: "Rule OQ-BX7 before enabling permanent Add and mixed-cell timed pack approvals"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
@@ -15,9 +15,15 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
 
-**Status:** 2026-11-04. Nothing built. Evidence read at `3ccc28def` on 2026-11-04; CircleCI's CLI
-and API facts are from its published documentation and changelog of that date, not run. No `yolo`
-or agent CLI was run.
+**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built.
+A detached candidate connects the selected CLI front to a live host scope, current host
+ceilings/standing, the existing request store and exact Allow once (one use/15 minutes),
+with synthetic front→host approval→CLI-effect coverage and a focused selected
+nested-jail fake-CLI smoke (including live read-grant withdrawal). It is not yet
+integrated or accepted for real pack grants: independent HIGH review, combined-tree
+verification and the full nested conformance suite remain. Timed/Add multiwrite approvals remain disabled; [OQ-BX7](#OQ-BX7)
+is still undecided. The original design evidence was read at `3ccc28def` on 2026-11-04;
+CircleCI CLI/API compatibility is based on published documentation, not a local account test.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
@@ -40,8 +46,7 @@ HTTP front, and a conformance kit.
 
 **Start at [§5](#5-two-layers)**, then [§6](#6-the-decision-is-cores).
 
-**Needs your ruling:** None. The design is settled; the build hand-off and implementation remain
-pending.
+**Needs your ruling:** [OQ-BX7](#OQ-BX7) for a pack cell's `max_for` and permanent Add.
 
 **Reads with:** [`access-introspection.md`](access-introspection.md) (the readout and the dry run;
 its decision function is the one every call broker uses),
@@ -671,6 +676,35 @@ its tool name. Nothing here builds it.
   broker is done when the kit passes.
 
 ## Decision Ledger
+
+### Open approval-policy question
+
+The common approval model already settles Allow once (one exact use within 15 minutes),
+a 15-minute timed offer, Add, Deny and user-selected buttons ([BB-D77](boundary-broker.md#BB-D77),
+[BB-D80](boundary-broker.md#BB-D80), [BB-D84](boundary-broker.md#BB-D84)). Timed grants
+are per-resource, with no use cap or session ceiling ([BB-D79](boundary-broker.md#BB-D79),
+[BB-D83](boundary-broker.md#BB-D83), [BB-D89](boundary-broker.md#BB-D89)). The old
+`brokerstore.Policy` window fields do not supersede these rulings.
+
+1. 💬 **OQ-BX7: Does a pack cell's `max_for` constrain a permanent Add answer?**
+
+   <!-- vantage: question id=OQ-BX7 leaning="Keep Add separate from the timed max_for cap, but offer it only when every write can be covered by a gate-approved working-set cell; a multiwrite approval must cover all resources atomically or refuse." -->
+
+   A call may change two resources in different cells, one with `max_for = "1h"`, and the
+   human answers once for the whole call. `max_for` caps *timed* pack approvals, but does
+   it remove permanent Add too? If one write lacks a working-set cell, Add for only the
+   other write cannot allow the whole call. Core must revalidate every resource and
+   commit an allowed multiwrite answer atomically; today's per-entry store loop can leave
+   partial entries if a later write fails.
+
+   _Leaning:_ A: timed `--for` is refused if it exceeds **any** affected cell's `max_for`;
+   Add remains independent of that duration cap but is available only when **every** write
+   has a gate-approved working-set cell and current host coverage. Otherwise Add refuses
+   without changing any resource. B: a cell with `max_for` cannot receive an Add answer at
+   all, so even a working-set-eligible cell must use timed approval. Which boundary should
+   apply? Existing `brokerstore.DecideWorking`'s per-entry writes under one lock do not
+   themselves establish an all-or-none multi-resource commit; that is an implementation
+   repair, not a new default duration or use-count choice.
 
 Owner rulings and designer decisions are recorded below. A settled decision is not evidence
 that its implementation is built.

@@ -15,6 +15,7 @@ import (
 var ungatedShippedLoopholes = map[string]string{
 	"claude-oauth-broker": "the login: nothing is served until a human has logged in on the host",
 	"openai-auth-broker":  "the login, completed in a browser by a human",
+	"mcp-auth-broker":     "a user-selected agent pack needs it; only that agent's proved user-level MCP sign-ins are copied under its native lock",
 	"aws-auth":            "a user-scope setting (allow.aws-auth.profile) and a live `aws sso login`",
 	"cgroup-delegate":     "it can only narrow the jail itself and reads or changes nothing of the host's",
 }

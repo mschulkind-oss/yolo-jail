@@ -34,6 +34,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/resourcegroups"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
@@ -57,6 +58,8 @@ type ExecResult struct {
 // are deterministically unit-testable. nil/zero fields are
 // filled with real implementations by fillDefaults.
 type Options struct {
+	mcpTeardownID    string
+	mcpOutcomeReader *os.File
 	// --- CLI surface (typer options + ctx.args) ---
 	//
 	// Network is `--network <mode>` as typed on THIS launch, and it beats the config's
@@ -367,6 +370,9 @@ type Options struct {
 	// name, as the same gate approved it (config.ScopeCheck.ApprovedLoopholeGrants;
 	// docs/reference/loophole-grants.md §4.6), for the launch's grant file.
 	approvedLoopholeGrants map[string]map[string]config.LoopholeGrantStanding
+	// callBrokerCells is computed from the gate-approved merged config and selected declarations.
+	// The keeper carries it unchanged; neither it nor its producer reloads policy.
+	callBrokerCells map[string]map[string]config.CallBrokerCellPolicy
 	// workspaceMounts are the mounts the workspace config declares that this launch binds, read-
 	// only ones and RC-D24's writable requests (oq-cx-symlink): set by the config-change gate
 	// from its own read, with each source as the gate resolved it (config.ApproveWorkspaceRead),
@@ -380,6 +386,20 @@ type Options struct {
 	// scopeFiles are the scope files this launch wrote, per brokered loophole name, which
 	// {repository_scope} resolves to at the spawn and the loophole's stop removes (BB-D32).
 	scopeFiles map[string]string
+	// launchInputFiles are per-launch generic inputs owned by the daemon that receives them.
+	launchInputFiles map[string]string
+	// The inode this launch published at each destination; old exit must not
+	// remove a later atomic replacement of the same share-file name.
+	launchInputOwners map[string]os.FileInfo
+	// Deferred disclosure runs only after this launch's selected daemon is ready.
+	launchInputReports map[string]func()
+	// launchInputProducers is a closed core registry; non-nil only in synthetic runtime fixtures.
+	launchInputProducers map[string]LaunchInputProducer
+	// The actual assembled container argv is transferred to the keeper before any
+	// host daemon runs; only endpoint environment pairs may change before spawn.
+	launchInputMountArgv []string
+	launchMCPSelection   launchMCPSelection
+	launchInputMCP       frozenLaunchMCP
 	// runtime is the backend Run resolved (resolveRuntime), recorded for the compositions that
 	// run below it and must see the same one — the jail-daemon payload the caller tokens are
 	// minted from (profilechannel.go). "" until Run resolves it, which every hand-built test
@@ -511,6 +531,9 @@ type Options struct {
 	// with extra env entries ("KEY=VALUE", appended to the parent env). nil =>
 	// real. Used for git identity, lsusb, runtime version/liveness probes.
 	Exec func(argv []string, dir string, env []string, timeout time.Duration) ExecResult
+	// ResourceGroupIOPaths observes only the selected unit's read-only io.max policy.
+	// nil uses the bounded systemd/cgroup-v2 resolver; the off path never invokes it.
+	ResourceGroupIOPaths func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error)
 	// StartDetached starts argv in its own session with stdio on /dev/null and returns
 	// without waiting for it — the scratch remover's spawn (scratchremoval.go), which has
 	// to outlive the launcher and must never hold its exit. A non-nil inherit becomes

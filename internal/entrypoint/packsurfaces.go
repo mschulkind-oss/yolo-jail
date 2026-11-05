@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
@@ -472,24 +473,25 @@ func deriveLayerOver(e *Env, surface manifest.Surface, deriveScript string, ctx 
 // handed rather than a second spelling of it.
 func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables map[string]map[string]any) *luahook.DeriveCtx {
 	return &luahook.DeriveCtx{
-		Agent:               surface.Agent,
-		Surface:             surface.Name,
-		ProfileName:         sel.Profile,
-		SelectedProvider:    sel.Provider,
-		Profile:             activeProfileOptions(e, sel.Profile),
-		Saved:               savedSurfaceStrings(e, surface),
-		SavedTrigger:        savedSelectionTrigger(e, surface),
-		ActiveSet:           sel.ActiveSet,
-		NativeCapabilities:  sel.NativeCapabilities,
-		BuiltInProviders:    sel.BuiltInProviders,
-		ReadsSharedModels:   sel.ReadsSharedModels,
-		ViaURL:              sel.ViaURL,
-		ViaAPIKeyEnvName:    sel.ViaAPIKeyEnvName,
-		ModelsNotEnforced:   sel.ModelsNotEnforced,
-		Subagents:           sel.Subagents,
-		RemoteMCPTransports: sel.RemoteMCPTransports,
-		Tables:              tables,
-		UnknownAPI:          func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
+		Agent:                 surface.Agent,
+		Surface:               surface.Name,
+		ContainerMCPFileStore: !e.hostTarget && runtime.GOOS == "linux",
+		ProfileName:           sel.Profile,
+		SelectedProvider:      sel.Provider,
+		Profile:               activeProfileOptions(e, sel.Profile),
+		Saved:                 savedSurfaceStrings(e, surface),
+		SavedTrigger:          savedSelectionTrigger(e, surface),
+		ActiveSet:             sel.ActiveSet,
+		NativeCapabilities:    sel.NativeCapabilities,
+		BuiltInProviders:      sel.BuiltInProviders,
+		ReadsSharedModels:     sel.ReadsSharedModels,
+		ViaURL:                sel.ViaURL,
+		ViaAPIKeyEnvName:      sel.ViaAPIKeyEnvName,
+		ModelsNotEnforced:     sel.ModelsNotEnforced,
+		Subagents:             sel.Subagents,
+		RemoteMCPTransports:   sel.RemoteMCPTransports,
+		Tables:                tables,
+		UnknownAPI:            func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by
 		// agent like the skew note above, so one finding prints once per boot.
 		Warn: func(msg string) { e.warnOnce("pack derive for " + surface.Agent + ": " + msg) },

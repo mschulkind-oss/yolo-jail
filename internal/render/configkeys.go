@@ -152,6 +152,9 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"required_capabilities": {KeyHonored, "`yolo host --` asks OQ-CAP2's gate over the user scope " +
 		"it composes from, after the pack refresh and before its apply gate " +
 		"(refuseHostUnmetCapabilities), refusing as a jail launch does"},
+	"resource_groups": {KeyHonored, "`yolo host --` and jail launch gates read the owner mapping and refuse " +
+		"selected work until placement is supported (run.RefuseHostResourceGroup, " +
+		"run.Options.refuseUnsupportedResourceGroup)"},
 	"security": {KeyHonored, "the user scope's `blocked_tools` are rendered by `yolo host --` into " +
 		"shims first on the PATH of the program it starts, beside the selected packs' " +
 		"(composeHostBlockers, HE-D11); a workspace's are never read at the host"},

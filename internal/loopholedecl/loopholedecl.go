@@ -212,6 +212,14 @@ type HostDaemon struct {
 	// declares it, so a launch says when its SSO session cannot mint
 	// (docs/reference/agent-credentials.md SSO-D1).
 	LaunchCheck bool
+	// LaunchInput selects one core-owned producer for the per-launch file named by
+	// TokenLaunchInput. Empty means this daemon receives no generic input. The token
+	// is path data: pass it in direct daemon argv (for example --share followed by
+	// {launch_input}), or as a positional argument after an exact sh/bash -c script
+	// (for example sh -c 'exec daemon "$1"' -- {launch_input}). Substitution into
+	// shell script source or an unproven interpreter/wrapper is refused before
+	// producing the file; the manifest does not grant script interpolation.
+	LaunchInput string
 	// StartupReason opts this daemon into one bounded, attempt-specific refusal record over fd 3.
 	StartupReason bool
 	// Detach is `detach`: how the jail's end stops this daemon. DEFAULTS TO FALSE, which is
@@ -829,6 +837,9 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if jailDaemon != nil {
 		jailCmd = jailDaemon.Cmd
 	}
+	if err := refuseLaunchInputTokenOutsideDaemon(manifestPath, data); err != nil {
+		return nil, err
+	}
 	if err := refuseRepositoryScopeTokenMismatch(manifestPath, brokered, hostDaemon, doctorCmd, jailCmd); err != nil {
 		return nil, err
 	}
@@ -1221,11 +1232,22 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		return nil, Errorf("%s: 'host_daemon.scope' = %s not in %s",
 			manifestPath, pytext.Repr(scope), sortedListRepr(validScopes))
 	}
+	launchInput := ""
+	if v, present := m.Get(keyLaunchInput); present {
+		var ok bool
+		launchInput, ok = v.(string)
+		if !ok || !validLaunchInputName(launchInput) {
+			return nil, Errorf("%s: 'host_daemon.launch_input' must be a lowercase producer name such as \"mcp-auth-share\"", manifestPath)
+		}
+	}
 	cmd := StringSlice(cmdList)
 	if err := refuseControlCharsIn(manifestPath, "'host_daemon.cmd'", cmd); err != nil {
 		return nil, err
 	}
 	if err := refuseJailTokenInHostField(manifestPath, "'host_daemon.cmd'", cmd); err != nil {
+		return nil, err
+	}
+	if err := refuseLaunchInputTokenMismatch(manifestPath, launchInput, cmd, settingsCheck, env); err != nil {
 		return nil, err
 	}
 	// Under publishes:"socket" the two tokens DIVERGE: {socket} is the upstream
@@ -1246,7 +1268,7 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	return &HostDaemon{
 		Cmd: cmd, SettingsCheck: settingsCheck, Env: env, Publishes: publishes, RequestEnd: requestEnd,
 		Preamble: preamble, Scope: scope, LaunchCheck: launchCheck,
-		StartupReason: startupReason, Detach: detach,
+		StartupReason: startupReason, Detach: detach, LaunchInput: launchInput,
 	}, nil
 }
 

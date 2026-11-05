@@ -78,6 +78,8 @@ type keeperPlan struct {
 	// into each broker's scope file and names on the launch line. It is the gate's own result;
 	// the keeper never derives it from Config, the merged config read before the gate (WW-P2).
 	ApprovedScopes map[string][]config.ScopeRepo `json:"approved_scopes,omitempty"`
+	// CallBrokerCells is the gate-time effective request/default and user ceiling snapshot.
+	CallBrokerCells map[string]map[string]config.CallBrokerCellPolicy `json:"call_broker_cells,omitempty"`
 	// ApprovedGrants are the user grants the same gate approved, per brokered loophole
 	// (Options.approvedGrants), which the keeper writes into the same scope files.
 	ApprovedGrants map[string][]brokerscope.Grant `json:"approved_grants,omitempty"`
@@ -99,8 +101,10 @@ type keeperPlan struct {
 	// RunCmd is the main process's argv as the launch assembled it, without the host services'
 	// endpoint pairs, which the keeper inserts before ImageRef once it has started them
 	// (insertHostServiceEnv).
-	RunCmd   []string `json:"run_cmd"`
-	ImageRef string   `json:"image_ref"`
+	RunCmd         []string         `json:"run_cmd"`
+	ImageRef       string           `json:"image_ref"`
+	LaunchInputMCP *frozenLaunchMCP `json:"launch_input_mcp,omitempty"`
+	MCPTeardownID  string           `json:"mcp_teardown_id,omitempty"`
 	// Skeleton is the jail's home skeleton, "" for none (Apple Container).
 	Skeleton string `json:"skeleton,omitempty"`
 	// ScratchVolumes are the scratch volumes the argv mounts, for the remover at the teardown.

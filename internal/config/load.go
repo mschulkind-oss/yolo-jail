@@ -291,6 +291,22 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 	if err != nil {
 		return nil, nil, err
 	}
+	// TOML applies readable scope rules while parsing; legacy JSONC reaches this
+	// shared reader without them. Reject the owner-only selection at each authored
+	// workspace file before an include or workspace layer can merge it over user config.
+	if readable && file != nil && file.format != configdoc.TOML && scope == SchemaScopeWorkspaceOnly {
+		if _, present := raw.Get(resourceGroupsKey); present {
+			fileScope := "this workspace file"
+			if at.via != "" {
+				fileScope = "this included file"
+			} else if at.role == editRoleProject {
+				fileScope = "this project file"
+			} else if at.role == editRoleLocal {
+				fileScope = "this local file"
+			}
+			return nil, nil, configErr("%s: config.resource_groups: %s", termsafe.Visible(label), resourceGroupsWorkspaceRefusal(fileScope))
+		}
+	}
 	if raw.Len() == 0 {
 		// An empty (falsy) map is returned directly WITHOUT consuming includes.
 		return raw, node, nil

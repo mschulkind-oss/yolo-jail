@@ -5,7 +5,18 @@ mcp_remote_transports = ["http"]
 # declares the `openai-codex` provider and the `codex` profile and runs the openai-auth-broker,
 # so every Codex launch has the broker that keeps its single-use refresh token from being burnt
 # by a second jail, and the env above gated on it is served.
-needs = [{ pack = "codex-auth" }]
+needs = [{ pack = "codex-auth" }, { pack = "mcp-auth" }]
+
+[[mcp_auth]]
+store = ".codex/.credentials.json"
+format = "json"
+entries_at = []
+companions = []
+empty_store = "delete"
+lock = { protocol = "flock", path = ".codex/mcp-oauth-locks/file-store.lock" }
+fields = { access_token = "access_token", refresh_token = "refresh_token", expires_at = { path = "expires_at", unit = "ms" }, client_id = "client_id" }
+rereads_before_refresh = true
+login_hint = "codex mcp login {name}"
 
 [[mcp_auth]]
 store = ".codex/.credentials.json"

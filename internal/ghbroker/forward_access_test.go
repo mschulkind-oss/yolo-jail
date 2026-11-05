@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -231,7 +232,7 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 	historical := exec.Command(binary, "-test.run=^(TestActualLegacyHandler5a361|TestLegacySocketWaitReportsEarlyBindFailure)$", "-test.v")
 	historical.Dir = root
 	historical.Env = append(os.Environ(), "YOLO_LEGACY_FIXTURE_DIR="+fixtureDir, "HOME="+filepath.Join(root, "home"))
-	var output bytes.Buffer
+	var output childOutputCapture
 	historical.Stdout, historical.Stderr = &output, &output
 	if err := historical.Start(); err != nil {
 		t.Fatal(err)
@@ -479,5 +480,73 @@ func TestForwardAccessAskStdinBindingThroughEndpoint(t *testing.T) {
 		if !found {
 			t.Fatalf("request %s did not bind exact stdin digest %s: %+v", ids[i], want, requests)
 		}
+	}
+}
+
+func TestHistoricalChildDiagnosticSnapshotOnTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHistoricalChildDiagnosticWriter$")
+	command.Env = append(os.Environ(), "YOLO_GHBROKER_DIAGNOSTIC_CHILD=1")
+	var output childOutputCapture
+	command.Stdout, command.Stderr = &output, &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	startDeadline := time.Now().Add(time.Second)
+	for output.String() == "" && time.Now().Before(startDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if output.String() == "" {
+		cancel()
+		_ = command.Wait()
+		t.Fatal("child emitted no diagnostic")
+	}
+	deadline := time.Now().Add(50 * time.Millisecond)
+	var diagnostic string
+	for time.Now().Before(deadline) {
+		diagnostic = output.String()
+		time.Sleep(time.Millisecond)
+	}
+	if diagnostic == "" {
+		t.Fatal("child emitted no diagnostic before timeout")
+	}
+	cancel()
+	diagnostic = output.String()
+	if !strings.Contains(diagnostic, "child diagnostic") {
+		t.Fatal("captured child diagnostics were lost on timeout")
+	}
+	if err := command.Wait(); err == nil {
+		t.Fatal("expected child command cancellation")
+	}
+}
+
+type childOutputCapture struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (c *childOutputCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.Write(p)
+}
+
+func (c *childOutputCapture) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.String()
+}
+
+func TestHistoricalChildDiagnosticWriter(t *testing.T) {
+	if os.Getenv("YOLO_GHBROKER_DIAGNOSTIC_CHILD") != "1" {
+		return
+	}
+	chunk := []byte(strings.Repeat("child diagnostic\n", 128))
+	for {
+		if _, err := os.Stdout.Write(chunk); err != nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

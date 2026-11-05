@@ -45,6 +45,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"cgroup-delegate", "cgroup-delegate"},
 	{"serial", "serial"},
 	{"openai-auth-broker", "codex-auth"},
+	{"mcp-auth-broker", "mcp-auth"},
 	{"aws-auth", "aws-auth"},
 	{"github-broker", "github"},
 	{"git-broker", "git"},

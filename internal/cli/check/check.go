@@ -131,6 +131,7 @@ func Check(opts Options) int {
 	// Merge + flake.nix resolution. The provenance merges beside it, so a refusal below names
 	// the file and line its key was written at (config's sources.go).
 	merged := mergeScopes(userConfig, workspaceConfig, src, workspace)
+	sectionResourceGroups(r, userConfig, workspace, o.resourceGroupIOPaths, o.readFile)
 	var repoRoot string
 	var repoResolution reporoot.Resolution
 	repoRootOK := false
@@ -157,7 +158,6 @@ func Check(opts Options) int {
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
-
 	// The pack switch: an `allow.<pack>` table naming a pack `packs` does not list (packnudge.go).
 	o.sectionPackNudge(r, userConfig, src)
 

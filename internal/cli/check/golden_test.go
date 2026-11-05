@@ -37,6 +37,9 @@ Config Files
   [PASS] No user config found: $HOME/.config/yolo-jail/config.toml
   [PASS] No workspace config found (yolo-jail.toml or yolo-jail.jsonc)
 
+Resource Groups
+  Resource groups: disabled (no workspace mapping)
+
   [FAIL] Could not resolve the yolo-jail repo root
        -> The yolo CLI needs a complete matched flake/helper bundle for jail image builds.
           Fix: build one with ` + "`just build-dev-bundle`" + ` and invoke its printed launcher path, or

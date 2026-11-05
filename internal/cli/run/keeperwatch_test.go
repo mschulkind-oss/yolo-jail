@@ -247,9 +247,7 @@ func TestAnArrivalSaysWhichHostServicesItsKeeperRecordedDown(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer releaseLock(live)
-			if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(), Down: tc.down}); err != nil {
-				t.Fatal(err)
-			}
+			writeCurrentKeeperRecord(t, cname, keeperRecord{Started: time.Now(), Workspace: o.Workspace, Runtime: "podman", MCPTeardownKnown: true, Down: tc.down})
 			exitWith(t, "0")
 			if rc, _ := o.attachExisting(cname, "podman", "true", cfg,
 				stagedPacks{root: "/ctx/packs", packs: zaiSelected(t)}, channel, false, nil); rc != 0 {

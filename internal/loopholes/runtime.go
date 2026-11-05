@@ -479,12 +479,12 @@ func (s Set) JailBoundNames(from []*Loophole, runtime string) []string {
 }
 
 // Mediated reports whether a daemon answers each of this loophole's requests, so a grant is
-// checked there, per request, against the grant file: a `host_daemon`, or a `jail_daemon` that
-// fronts a host command. Everything else a loophole declares (binds, devices) is UNMEDIATED:
+// checked there, per request, against the grant file: a declared host daemon,
+// a core-owned call broker, or a jail daemon that fronts a host command. Everything else a loophole declares (binds, devices) is UNMEDIATED:
 // container argv decided at launch (docs/reference/loophole-grants.md §4.4). It is read
 // from the manifest's shape, never from a name.
 func (l *Loophole) Mediated() bool {
-	return l.HostDaemon != nil || (l.JailDaemon != nil && len(l.JailDaemon.HostCmd) > 0)
+	return l.HostDaemon != nil || l.CallBroker != nil || (l.JailDaemon != nil && len(l.JailDaemon.HostCmd) > 0)
 }
 
 // grantWithholdsBinds is whether m's binds and devices stay out of the jail for want of a
@@ -787,6 +787,13 @@ func jailDaemonEnvArgs(specs []JailDaemonSpec) []string {
 //
 // A SourcePack record is NEVER ADMITTED here without an evaluated origin gate — this is
 // the list startLoopholes spawns from, so it is the sharpest of the three gated surfaces.
+// CoreCallBrokerHostDaemon is runtime metadata, never a pack manifest command.
+// Its selected declaration is admitted by Set.ManifestHostDaemonSpecs' origin gate.
+func CoreCallBrokerHostDaemon() *HostDaemon {
+	return &HostDaemon{Cmd: []string{"yolo", "internal", "daemon", "call-broker", "--socket", "{socket}", "--launch-input", "{launch_input}"},
+		Publishes: PublishesSocket, RequestEnd: RequestEndFramed, Preamble: true, LaunchInput: "call-broker-scope"}
+}
+
 // See gateAdmitsCrossing; Set.ManifestHostDaemonSpecs is the gated form.
 func ManifestHostDaemonSpecs(loopholes []*Loophole) *jsonx.OrderedMap {
 	return manifestHostDaemonSpecs(loopholes, nil)
@@ -802,13 +809,22 @@ func (s Set) ManifestHostDaemonSpecs(from []*Loophole) *jsonx.OrderedMap {
 func manifestHostDaemonSpecs(loopholes []*Loophole, gate *Set) *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	for _, m := range loopholes {
-		if m.FromConfig() || m.HostDaemon == nil {
+		if m.FromConfig() || (m.HostDaemon == nil && m.CallBroker == nil) {
 			continue
 		}
 		if !m.Active() {
 			continue
 		}
 		if !gateAdmitsCrossing(m, gate, "ManifestHostDaemonSpecs") {
+			continue
+		}
+		if m.CallBroker != nil {
+			// call_broker excludes a pack-owned host_daemon. Only core chooses the
+			// executable, fronted socket and private launch input for this record.
+			spec := jsonx.NewOrderedMap()
+			spec.Set("command", toAnySlice(CoreCallBrokerHostDaemon().Cmd))
+			spec.Set("description", m.Description)
+			out.Set(m.Name, spec)
 			continue
 		}
 		// A daemon whose argv names a downloaded build this machine lacks is not spawned,

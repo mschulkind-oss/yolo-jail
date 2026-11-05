@@ -406,6 +406,8 @@ yolo.mcp_auth("codex", {
 
 yolo.derive("codex", "config", function(ctx)
   local res = {}
+  -- Container Codex has no host credential service; host keeps its own default.
+  if ctx.container_mcp_file_store then res.mcp_oauth_credentials_store = "file" end
 
   -- 1. MCP servers
   if next(ctx.mcp_servers) ~= nil then

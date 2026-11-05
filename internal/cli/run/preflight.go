@@ -406,6 +406,12 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 		interactive, o.AcceptConfigChanges, pr)
 	o.workspaceMounts = nil
 	if ok && err == nil {
+		cells, policyErr := freezeCallBrokerCells(merged, read.Config, merged)
+		if policyErr != nil {
+			o.pr(o.Stderr).printf("[bold red]%s[/bold red]", richtext.Escape(policyErr.Error()))
+			return false
+		}
+		o.callBrokerCells = cells
 		o.recordApprovedScopes(approved, scope.ApprovedGrants(), scope.ReadWithoutScope())
 		o.recordApprovedLoopholeGrants(scope.ApprovedLoopholeGrants())
 		o.workspaceMounts = approvedMounts

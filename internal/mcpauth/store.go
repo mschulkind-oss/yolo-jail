@@ -38,10 +38,16 @@ func NewCanonicalStore(dir string) (*CanonicalStore, error) {
 
 // WithLock executes fn while holding codex.lock. Wait is injectable for bounded tests.
 func (s *CanonicalStore) WithLock(fn func(*CanonicalFile) error) error {
-	return s.withLock(true, fn)
+	return s.withLock(true, false, fn)
 }
 
-func (s *CanonicalStore) withLock(persist bool, fn func(*CanonicalFile) error) error {
+// WithReadLock holds the canonical lock across a seed's read and replica update,
+// so an older seed cannot overtake another jail's newer canonical sign-in.
+func (s *CanonicalStore) WithReadLock(fn func(*CanonicalFile) error) error {
+	return s.withLock(false, false, fn)
+}
+
+func (s *CanonicalStore) withLock(persist, strictRead bool, fn func(*CanonicalFile) error) error {
 	if s.Wait <= 0 {
 		return errors.New("mcp-auth: lock wait must be positive")
 	}
@@ -53,9 +59,23 @@ func (s *CanonicalStore) withLock(persist bool, fn func(*CanonicalFile) error) e
 		return err
 	}
 	defer root.Close()
-	lockFile, err := paths.OpenLockFileBeneath(root, s.LockName)
+	var lockFile *os.File
+	if strictRead {
+		// Status never creates or repairs a lock; an absent/unsafe lock is
+		// unavailable rather than an unlocked snapshot of concurrent writes.
+		lockFile, err = paths.OpenRegularFileBeneath(root, s.LockName)
+	} else {
+		lockFile, err = paths.OpenLockFileBeneath(root, s.LockName)
+	}
 	if err != nil {
 		return err
+	}
+	if strictRead {
+		info, statErr := lockFile.Stat()
+		if statErr != nil || info.Mode().Perm() != 0o600 {
+			lockFile.Close()
+			return fmt.Errorf("mcp-auth: status lock is unavailable or unsafe; repair its permissions and retry")
+		}
 	}
 	lock, err := lockFileWithWait(lockFile, s.Wait)
 	if err != nil {
@@ -63,7 +83,7 @@ func (s *CanonicalStore) withLock(persist bool, fn func(*CanonicalFile) error) e
 		return err
 	}
 	defer lock.Close()
-	state, err := readCanonical(root, s.Filename)
+	state, err := readCanonical(root, s.Filename, strictRead)
 	if err != nil {
 		return err
 	}
@@ -106,7 +126,7 @@ func (s *CanonicalStore) LockRefresh(server, identity string) (func() error, err
 // Read returns a consistent snapshot under the same pack lock as read-modify-writes.
 func (s *CanonicalStore) Read() (CanonicalFile, error) {
 	var snapshot CanonicalFile
-	err := s.withLock(false, func(file *CanonicalFile) error {
+	err := s.withLock(false, false, func(file *CanonicalFile) error {
 		snapshot = *file
 		snapshot.Records = append([]Record(nil), file.Records...)
 		return nil
@@ -114,7 +134,19 @@ func (s *CanonicalStore) Read() (CanonicalFile, error) {
 	return snapshot, err
 }
 
-func readCanonical(root *os.Root, filename string) (CanonicalFile, error) {
+// ReadStatus takes the canonical lock without changing the data file. Unsafe modes
+// are errors, never silently repaired by a status request.
+func (s *CanonicalStore) ReadStatus() (CanonicalFile, error) {
+	var snapshot CanonicalFile
+	err := s.withLock(false, true, func(file *CanonicalFile) error {
+		snapshot = *file
+		snapshot.Records = append([]Record(nil), file.Records...)
+		return nil
+	})
+	return snapshot, err
+}
+
+func readCanonical(root *os.Root, filename string, strict bool) (CanonicalFile, error) {
 	f, err := paths.OpenRegularFileBeneath(root, filename)
 	if errors.Is(err, fs.ErrNotExist) {
 		return CanonicalFile{Version: storeVersion, Records: []Record{}}, nil
@@ -122,7 +154,17 @@ func readCanonical(root *os.Root, filename string) (CanonicalFile, error) {
 	if err != nil {
 		return CanonicalFile{}, err
 	}
-	if err := f.Chmod(0o600); err != nil {
+	if strict {
+		info, err := f.Stat()
+		if err != nil {
+			f.Close()
+			return CanonicalFile{}, err
+		}
+		if info.Mode().Perm() != 0o600 {
+			f.Close()
+			return CanonicalFile{}, fmt.Errorf("mcp-auth: canonical store has unsafe mode; repair its permissions and retry")
+		}
+	} else if err := f.Chmod(0o600); err != nil {
 		f.Close()
 		return CanonicalFile{}, err
 	}

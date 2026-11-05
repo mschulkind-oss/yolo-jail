@@ -116,8 +116,8 @@ func TestStagePacksShippedSetStillLoads(t *testing.T) {
 		t.Fatalf("all six shipped packs together must still launch (the config-exclusivity "+
 			"pre-flight must not fire on them): %v", err)
 	}
-	if len(chosenPacks(loaded)) != 10 {
-		t.Errorf("loaded %d packs, want 6 agent packs plus Claude's wire bridge and the three "+
-			"provider packs claude, codex and copilot need", len(chosenPacks(loaded)))
+	if len(chosenPacks(loaded)) != 11 {
+		t.Errorf("loaded %d packs, want 6 agent packs plus Claude's wire bridge, the three "+
+			"provider packs and Codex's MCP sign-in pack", len(chosenPacks(loaded)))
 	}
 }

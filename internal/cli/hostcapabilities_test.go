@@ -177,3 +177,15 @@ func TestARefusedCapabilityLaunchRendersNothingFirst(t *testing.T) {
 		})
 	}
 }
+
+func TestHostLaunchRefusesMappedResourceGroupBeforeAgentExecution(t *testing.T) {
+	rc, env, stderr := hostGateRun(t, `{"resource_groups":{"projects":{"/":"work.slice"}}}`, nil, nil, "true")
+	if rc != 1 || env != nil {
+		t.Fatalf("mapped unsupported host launch = rc %d, exec=%v; want refusal before exec\n%s", rc, env != nil, stderr)
+	}
+	for _, want := range []string{"work.slice", "unsupported/unknown", "yolo check --no-build"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("host resource-group refusal lacks %q:\n%s", want, stderr)
+		}
+	}
+}

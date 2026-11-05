@@ -8,6 +8,7 @@ package run
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -65,11 +66,9 @@ func TestADeathAtAnArrivalReachesTheArrivingSession(t *testing.T) {
 	}
 	defer logFile.Close()
 	k := &keeper{plan: &keeperPlan{Cname: cname, Runtime: "podman"}, ending: make(chan struct{}),
-		record: keeperRecord{PID: 4242, Started: time.Now()}, recorded: true,
+		record: keeperRecord{PID: os.Getpid(), Birth: keeperProcessBirth(os.Getpid()), Started: time.Now(), Workspace: o.Workspace, Runtime: "podman", MCPTeardownKnown: true}, recorded: true,
 		sink: &keeperSink{log: logFile}}
-	if err := writeKeeperRecord(cname, k.record); err != nil {
-		t.Fatal(err)
-	}
+	writeCurrentKeeperRecord(t, cname, k.record)
 	dies := func(name string) {
 		ended := make(chan struct{})
 		close(ended)

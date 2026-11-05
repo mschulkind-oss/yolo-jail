@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -40,6 +41,9 @@ const FileVersion = 1
 // a narrower endpoint matcher for its request checks.
 const (
 	FormRemoteURL = "remote-url"
+	// FormCallRoot holds selected call-broker root identifiers exactly, without
+	// treating them as GitHub repositories or remote URLs.
+	FormCallRoot = "call-root"
 	// AnyRemoteHost is loopholedecl.AnyRemoteHost, the `remote_host` that selects the form.
 	AnyRemoteHost = "*"
 )
@@ -57,7 +61,7 @@ func FormFor(remoteHost string) string {
 // entry verbatim in the remote-url form. A broker's explicit request matcher does not change
 // how scope entries are presented or diffed.
 func EntryKey(form, entry string) string {
-	if form == FormRemoteURL {
+	if form == FormRemoteURL || form == FormCallRoot {
 		return entry
 	}
 	return strings.ToLower(entry)
@@ -66,6 +70,9 @@ func EntryKey(form, entry string) string {
 // validEntry is the check a scope entry of form takes, and admits the matcher a request takes
 // against one: the form, never the source name, decides both.
 func validEntry(form, entry string) bool {
+	if form == FormCallRoot {
+		return loopholedecl.ValidCallBrokerRoot(entry)
+	}
 	if form == FormRemoteURL {
 		return ValidRemoteURL(entry)
 	}
@@ -73,6 +80,9 @@ func validEntry(form, entry string) bool {
 }
 
 func admits(form, entry, request string) bool {
+	if form == FormCallRoot {
+		return validEntry(form, request) && entry == request
+	}
 	if form == FormRemoteURL {
 		return ValidRemoteURL(request) && entry == request
 	}
@@ -86,6 +96,11 @@ type File struct {
 	Version     int    `json:"version"`
 	Source      string `json:"source"`
 	LaunchID    string `json:"launch_id"`
+	// CallInput is only a host-side locator for the private selected launch input.
+	// It is not an approval or a grant; every consumer validates live selection.
+	CallInput   string `json:"call_input,omitempty"`
+	CallCLIHash string `json:"call_cli_hash,omitempty"`
+	CallCLIPath string `json:"call_cli_path,omitempty"`
 	// PID is the launching yolo process; the file is collected once that process is known
 	// gone (Sweep), never by age.
 	PID       int    `json:"pid"`
@@ -268,7 +283,7 @@ func ValidateCurrentWithMatcher(path string, expected File, repo string, matcher
 	if err != nil {
 		return err
 	}
-	if f.Form != "" && f.Form != FormRemoteURL {
+	if f.Form != "" && f.Form != FormRemoteURL && f.Form != FormCallRoot {
 		return errors.New("scope file of an unknown form; relaunch the jail")
 	}
 	for _, r := range append(append([]string(nil), f.Repos...), f.Widened...) {
@@ -280,6 +295,8 @@ func ValidateCurrentWithMatcher(path string, expected File, repo string, matcher
 		return errors.New("scope identity changed; relaunch the jail to approve its scope")
 	}
 	switch {
+	case f.Form == FormCallRoot && !validEntry(f.Form, repo):
+		return errors.New("invalid call-broker root; retry with an approved root")
 	case f.Form == FormRemoteURL && !ValidRemoteURL(repo):
 		return errors.New("invalid remote URL; use a remote the workspace's approved scope holds")
 	case f.Form == "" && !ValidRepo(repo):
@@ -332,4 +349,48 @@ func BindBroker(path string, expected File, start string, acquireLease func() er
 		return nil
 	})
 	return out, err
+}
+
+// BindCallInput joins the private input locator to this launch's call-root scope
+// before the daemon binds its lifetime. Neither can be supplied by the jail.
+func BindCallInput(path string, expect File, input string) error {
+	if path != paths.BrokerScopeFile(expect.Source, expect.LaunchID) || input == "" || !filepath.IsAbs(input) {
+		return errors.New("call broker input has no host launch binding")
+	}
+	return brokerlock.WithTransaction(paths.BrokerSourceDir(expect.Source), func() error {
+		f, err := ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if f.Form != FormCallRoot || f.Source != expect.Source || f.LaunchID != expect.LaunchID ||
+			f.Workspace != expect.Workspace || f.Container != expect.Container || f.PID != expect.PID ||
+			f.BrokerStart != "" || f.CallInput != "" {
+			return errors.New("call broker scope changed before input publication")
+		}
+		f.CallInput = input
+		_, err = write(f)
+		return err
+	})
+}
+
+// BindCallCLI pins the host program's hash to the bound launch, so a separate
+// yolo approve process cannot re-pin an executable changed since daemon start.
+func BindCallCLI(path string, expect File, cliPath, sha256 string) error {
+	if path != paths.BrokerScopeFile(expect.Source, expect.LaunchID) || len(sha256) != 64 || !filepath.IsAbs(cliPath) {
+		return errors.New("call broker executable identity is unavailable")
+	}
+	return brokerlock.WithTransaction(paths.BrokerSourceDir(expect.Source), func() error {
+		f, err := ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if f.Form != FormCallRoot || f.CallInput != expect.CallInput || f.Source != expect.Source ||
+			f.LaunchID != expect.LaunchID || f.BrokerStart != expect.BrokerStart || f.BrokerPID != expect.BrokerPID || f.CallCLIHash != "" || f.CallCLIPath != "" {
+			return errors.New("call broker lifetime changed before CLI pin")
+		}
+		f.CallCLIHash = sha256
+		f.CallCLIPath = cliPath
+		_, err = write(f)
+		return err
+	})
 }

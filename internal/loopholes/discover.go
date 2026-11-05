@@ -255,10 +255,19 @@ func loadModuleDirs(modules []PackModule, source string) (map[string]*Loophole, 
 			if loophole.CallBroker != nil {
 				identities, err := callbrokeridentity.Resolve(module.PackRoot, module.Pack, module.Dir, loophole.CallBroker)
 				if err != nil {
-					warnf("loophole %s call-broker declaration is NOT active: %v", loophole.Name, err)
-					continue
+					pending := module.PackRoot == "" && callbrokeridentity.IsStagedPackRootUnavailable(err)
+					if !pending {
+						warnf("loophole %s call-broker declaration is NOT active: %v", loophole.Name, err)
+						continue
+					}
+					// A lazy pre-stage resolver may know the selected declaration before its
+					// staged root exists. Keep it discoverable for config validation, but carry
+					// the failure so the launch-input publisher cannot treat it as executable.
+					loophole.CallBroker.ProgramIdentityError = err.Error()
+					loophole.CallBroker.ProgramIdentityPending = true
+				} else {
+					loophole.CallBroker.ProgramIdentities = identities
 				}
-				loophole.CallBroker.ProgramIdentities = identities
 			}
 		}
 		if ambiguous[loophole.Name] {

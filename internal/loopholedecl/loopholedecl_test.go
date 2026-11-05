@@ -600,6 +600,56 @@ func TestHostDaemonPreambleDefaultsOn(t *testing.T) {
 	}
 }
 
+func TestHostDaemonLaunchInputDeclarationAndTokenAreBoundStrictly(t *testing.T) {
+	base := map[string]any{"name": "probe", "description": "fixture", "transport": "none", "lifecycle": "spawned"}
+	for _, tc := range []struct {
+		name     string
+		producer any
+		cmd      []any
+		wantErr  string
+	}{
+		{"paired", "test-input", []any{"daemon", "--input", "{launch_input}"}, ""},
+		{"token without declaration", nil, []any{"daemon", "{launch_input}"}, "launch_input' is missing"},
+		{"declaration without token", "test-input", []any{"daemon"}, "does not name '{launch_input}'"},
+		{"duplicate token", "test-input", []any{"daemon", "{launch_input}", "{launch_input}"}, "exactly once"},
+		{"bad producer name", "../test", []any{"daemon", "{launch_input}"}, "lowercase producer name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hd := map[string]any{"cmd": tc.cmd}
+			if tc.producer != nil {
+				hd["launch_input"] = tc.producer
+			}
+			manifest := make(map[string]any, len(base)+1)
+			for k, v := range base {
+				manifest[k] = v
+			}
+			manifest["host_daemon"] = hd
+			_, err := decodeMap(t, "probe", manifest)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Decode error = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLaunchInputTokenIsHostDaemonCommandOnly(t *testing.T) {
+	manifest := map[string]any{
+		"name": "input-outside", "description": "fixture", "transport": "none", "lifecycle": "spawned",
+		"host_daemon": map[string]any{"cmd": []any{"daemon", "{launch_input}"}, "launch_input": "fixture"},
+		"doctor_cmd":  []any{"doctor", "{launch_input}"},
+	}
+	_, err := decodeMap(t, "input-outside", manifest)
+	if err == nil || !strings.Contains(err.Error(), "produced only for a selected 'host_daemon.cmd'") {
+		t.Fatalf("Decode error = %v, want refusal of token outside daemon cmd", err)
+	}
+}
+
 // TestHostDaemonPreambleTypoIsUnknown: the key is only worth having if a
 // misspelling is loud. `"preambel": false` is an author who believes the
 // preamble is off and a daemon that will be sent one — the single most

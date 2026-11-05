@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
@@ -19,8 +20,9 @@ import (
 
 // approvalStores joins core-owned authorities, sources declared by the user-scope selected
 // packs, and safe on-disk stores whose source is no longer known to be selected. Discovery is a
-// user-scope prediction, not proof of a request's launch selection; only core's existing git and
-// GitHub adapters can grant, and pack sources stay deny-only until a core adapter exists.
+// host selection prediction, not proof of a request's launch selection; git,
+// GitHub and selected call brokers each need their own live core revalidator.
+// Legacy or removed sources remain deny-only.
 func approvalStores() ([]*brokerstore.Store, []string, error) {
 	selected := map[string]*brokerstore.Store{}
 	owners := map[string]string{}
@@ -41,10 +43,15 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 			diagnostics = append(diagnostics, fmt.Sprintf("INCOMPLETE: selected pack %s has unreadable loophole declarations: %s; run `yolo check`, repair the pack, then retry.", pack.Name, strings.Join(details, "; ")))
 		}
 		for _, module := range modules {
-			if module.Decl == nil || module.Decl.Brokered == nil {
+			if module.Decl == nil || module.Decl.Brokered == nil && module.Decl.CallBroker == nil {
 				continue
 			}
-			source := module.Decl.Brokered.Source
+			source := ""
+			if module.Decl.CallBroker != nil {
+				source = module.Decl.CallBroker.Source
+			} else {
+				source = module.Decl.Brokered.Source
+			}
 			if owner, exists := owners[source]; exists {
 				if len(diagnostics) == 0 || !strings.HasPrefix(diagnostics[len(diagnostics)-1], "INCOMPLETE:") {
 					diagnostics = append(diagnostics, fmt.Sprintf("INCOMPLETE: source %s is declared by both selected packs %s and %s; repair the duplicate ownership, then retry.", source, owner, pack.Name))
@@ -59,6 +66,11 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 				selected[source] = gitbroker.ApprovalStore()
 			} else if pack.Official && pack.Name == source && source == ghbroker.Source {
 				selected[source] = ghbroker.ApprovalStore()
+			} else if module.Decl.CallBroker != nil && source != gitbroker.Source && source != ghbroker.Source {
+				store := genericApprovalStore(source)
+				store.Revalidate = callbroker.ApprovalAuthority
+				store.Audit = callbroker.StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil), source)
+				selected[source] = store
 			} else {
 				selected[source] = genericApprovalStore(source)
 			}
@@ -114,8 +126,8 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 }
 
 // genericApprovalStore publishes request outcomes to yolo wait/history and audits decisions
-// through the existing source-neutral core event path. Its nil Revalidate intentionally denies
-// all grants until core installs an authority adapter.
+// through the existing source-neutral core event path. Without a source-specific revalidator
+// it is deny-only; selected call brokers install their own adapter and redacted audit.
 func genericApprovalStore(source string) *brokerstore.Store {
 	return &brokerstore.Store{Dir: paths.BrokerSourceDir(source), Source: source, PublishRecords: true,
 		Audit: brokercore.StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil), source)}

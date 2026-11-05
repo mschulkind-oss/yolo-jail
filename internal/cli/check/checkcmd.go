@@ -39,6 +39,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/resourcegroups"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -172,6 +173,10 @@ type Options struct {
 	// The resolution carries what SELECTED the root, reported alongside the
 	// flake.nix line so check answers "which flake, and why that one".
 	RepoRoot func() (reporoot.Resolution, bool)
+	// ResourceGroupIOPaths resolves only an already-selected group to known cgroup-v2
+	// io.max files. nil selects the read-only systemd/cgroup-v2 resolver; Check never
+	// invokes it while resource groups are off.
+	ResourceGroupIOPaths func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error)
 	// PathExists tests filesystem presence (device nodes, /nix, CDI specs,
 	// creds file, flake.nix). nil => os.Stat.
 	PathExists func(string) bool

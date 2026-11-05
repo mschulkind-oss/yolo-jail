@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Phase A is implemented; Phase B is a separate broker change whose hand-off must be revalidated against the tree."
+next: "Phase A is integrated; the separate Task 12 launch-boundary Codex broker candidate awaits review and integration before live sync, refresh, status CLI or host parity."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -11,11 +11,31 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 # One sign-in per user-level MCP server: a host broker that shares the entries, not the store
 
-**Status:** 2026-11-04. Phase A's remote `mcp_servers` form and scope attribution are implemented;
-the broker, shared credential store, and authentication flows remain unbuilt. Phase A was verified
-with targeted unit tests and static-config integration in a real jail; no agent or MCP endpoint was
-invoked. The implementation plan records the boundary and remaining phases. Evidence read
-2026-11-03 ([Appendix A](#appendix-a-evidence)); design-tree claims checked at `05f445e8d`.
+**Candidate review status (2026-11-05):** The detached Task 12 implementation remains
+**blocked**, not integrated. Independent review found six launch-boundary defects. This
+repair candidate excludes conditionally withheld entries, checks the configured native client
+ID, seeds only absent or exact broker-managed entries, retires exact stale copies after sign-out,
+awaits bounded final harvest and rejects unsafe status-read permissions. Codex's installed
+`mcp_auth.key` derives from name and URL with empty headers, and `match` returns only name and
+stored URL; a native sign-in with the same name/URL/client ID but different headers has no
+stored header provenance. A changed token after a seed is not proof of unchanged origin. The
+safe interim candidate therefore leaves unknown native entries untouched, **does not harvest
+fresh native sign-ins**, and cannot satisfy the accepted Task 12 adoption requirement. It does
+not claim owner approval of that degradation. An independently reviewed identity-provenance
+mechanism or owner decision is still required before integration. No native B1/B2, rootless,
+macOS or real sign-in behavior was measured. This paragraph records candidate status only;
+the accepted design and decision ledger below remain unchanged.
+
+**Earlier blocked candidate (superseded description):** Phase A's remote `mcp_servers` form and scope attribution are integrated.
+The first detached Task 12 candidate added a selected `mcp-auth` pack, private per-launch producer and
+host daemon that attempted to seed and adopt Codex entries at launch and exit on Linux podman only; a
+synthetic container test exercised the file-store setting, pre-ready seed, exit harvest and private
+input cleanup without starting an agent or contacting an MCP endpoint. The independent review
+showed that the attempted harvest could promote a workspace-only sign-in into user scope. It was
+not integrated into main. Live propagation, refresh, the status CLI, Linux `yolo host` and other
+backends remain unbuilt; native running-client behavior and additional agent dialects remain
+unmeasured. The implementation plan records those boundaries. Evidence read 2026-11-03
+([Appendix A](#appendix-a-evidence)); design-tree claims checked at `05f445e8d`.
 
 > **In short.** Because no agent can split its MCP token store per server, sharing only the
 > user-level sign-ins means yolo owns the split: one host broker writes a canonical copy of each

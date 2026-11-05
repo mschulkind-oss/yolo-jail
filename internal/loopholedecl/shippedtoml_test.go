@@ -38,6 +38,13 @@ func shippedModules(t *testing.T) map[string]string {
 // field, including declaration order of settings and env keys.
 func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 	modules := shippedModules(t)
+	// This pack first shipped after the JSONC→TOML conversion, so it has no
+	// historical JSONC manifest to compare against. shippedManifestHome's total
+	// table still subjects it to strict and tolerant TOML decode tests.
+	if _, exists := modules["mcp-auth__mcp-auth-broker"]; !exists {
+		t.Fatal("post-conversion MCP broker module is missing; remove its exemption")
+	}
+	delete(modules, "mcp-auth__mcp-auth-broker")
 	legacy, err := filepath.Glob(filepath.Join("testdata", "legacy-shipped", "*.json"))
 	if err != nil {
 		t.Fatal(err)

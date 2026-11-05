@@ -490,10 +490,8 @@ func TestAnAttachHoldsTheJailsGrantAndAsksForNoOther(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer other.release()
-			if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(),
-				Grant: tc.running}); err != nil {
-				t.Fatal(err)
-			}
+			writeCurrentKeeperRecord(t, cname, keeperRecord{Started: time.Now(), Workspace: o.Workspace, Runtime: "podman", MCPTeardownKnown: true,
+				Grant: tc.running})
 			envFile, before := seedLiveChannelFile(t, o)
 			rc, restarted, execed := attachToExec(t, o, cfg, packs, channel)
 			out := stderr.String()
@@ -551,9 +549,7 @@ func TestAnAttachTreatsTheGrantFilesValuesAsYolos(t *testing.T) {
 	defer other.release()
 	grant := &jailGrant{Spelled: "zai", Providers: []string{"zai"},
 		Granted: []grantedProvider{{Provider: "zai", Delivered: []string{"ZAI_API_KEY"}, Claims: []string{"ZAI_API_KEY"}}}}
-	if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(), Grant: grant}); err != nil {
-		t.Fatal(err)
-	}
+	writeCurrentKeeperRecord(t, cname, keeperRecord{Started: time.Now(), Workspace: o.Workspace, Runtime: "podman", MCPTeardownKnown: true, Grant: grant})
 	writeExec(t, jailGrantHostFile(cname), "export ZAI_API_KEY='tok-old'\n")
 	if rc, _, execed := attachToExec(t, o, cfg, packs, channel); rc != 0 || !execed {
 		t.Fatalf("attach rc %d execed %v\n%s", rc, execed, stderr.String())
@@ -597,9 +593,7 @@ func TestAnAttachSaysWhenItsProfileDeliversAKeyTheGrantDidNotName(t *testing.T) 
 	defer other.release()
 	grant := &jailGrant{Spelled: "cerebras", Providers: []string{"cerebras"},
 		Granted: []grantedProvider{{Provider: "cerebras", Delivered: []string{"CEREBRAS_API_KEY"}, Claims: []string{"CEREBRAS_API_KEY"}}}}
-	if err := writeKeeperRecord(cname, keeperRecord{PID: 4242, Started: time.Now(), Grant: grant}); err != nil {
-		t.Fatal(err)
-	}
+	writeCurrentKeeperRecord(t, cname, keeperRecord{Started: time.Now(), Workspace: o.Workspace, Runtime: "podman", MCPTeardownKnown: true, Grant: grant})
 	if rc, _, execed := attachToExec(t, o, cfg, packs, channel); rc != 0 || !execed {
 		t.Fatalf("attach rc %d execed %v\n%s", rc, execed, stderr.String())
 	}

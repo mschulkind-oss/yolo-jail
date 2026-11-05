@@ -49,6 +49,9 @@ type WorkingEntry struct {
 	// Expires is when a timed entry (a human's Allow push to <ref> for a time) stops covering
 	// its resource; zero for an entry that stays until it is deleted or revoked.
 	Expires time.Time
+	// Revision orders embedded decision entries above old standalone records, and
+	// later standalone changes above their original decision.
+	Revision int `json:",omitempty"`
 }
 
 // Live reports whether the entry has not been ended. A timed entry past its Expires is still

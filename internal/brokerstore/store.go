@@ -75,11 +75,27 @@ type Policy struct {
 	Session   bool
 	Uses      int
 }
+type CallResource struct {
+	Type string
+	ID   string
+}
+
+// CallWrite records each classified write's complete chain for an exact pack
+// command digest. Legacy git/GitHub requests leave CallWrites empty.
+type CallWrite struct {
+	Cell  string
+	Chain []CallResource
+}
+
 type Request struct {
-	ID                             string
-	LaunchID                       string // host launch scope identity
-	Jail, Start, Workspace         string // host-asserted jail identity and random broker lifetime
-	Argv                           []string
+	ID                     string
+	LaunchID               string // host launch scope identity
+	Jail, Start, Workspace string // host-asserted jail identity and random broker lifetime
+	Argv                   []string
+	// OriginalArgv is the jail's bounded original invocation, for replaying a
+	// pack classifier; it is never an executable path or an approval by itself.
+	OriginalArgv                   []string    `json:",omitempty"`
+	CallWrites                     []CallWrite `json:",omitempty"`
 	Repo, StdinDigest, Digest, Set string
 	Policy                         Policy
 	Filed, Decided                 time.Time
@@ -117,6 +133,8 @@ type Request struct {
 	Reason string `json:",omitempty"`
 	// DenialNote is optional human feedback, present only when denied; it never changes authority.
 	DenialNote string `json:"denial_note,omitempty"`
+	// Store-private authority committed with the answer in one request-record rename.
+	workingEntries []WorkingEntry
 }
 
 // How a request was answered (Request.Answer): the jail-readable record's own spellings
@@ -227,6 +245,9 @@ type Store struct {
 	PublishRecords bool
 	// PublishFailed, when set, hears each record that could not be published.
 	PublishFailed func(Request, error)
+	// syncDir is the real directory-sync operation used by retention; tests inject
+	// failures at that transaction callsite.
+	syncDir func(string) error
 }
 
 // Revalidate must re-read approved scope, current host policy, and live jail/start
@@ -291,6 +312,9 @@ type records struct {
 	requests []Request
 	grants   []Grant
 	working  []WorkingEntry
+	// Revisions on disk outside request commits; needed when retiring an old
+	// request without deleting the record that currently backs its authority.
+	standaloneWorking map[string]int
 }
 
 func (s *Store) now() time.Time {
@@ -313,8 +337,9 @@ func privateDir(path string) error {
 	return os.Chmod(path, 0700)
 }
 
-// transaction is the only mutator. A grant is usable only after its parent request
-// is durably allowed; a crash between the two renames can leave no usable authority.
+// transaction serializes mutations and readers of the store. Legacy command grants
+// remain usable only after their parent request is durably allowed; per-resource
+// decisions commit their entries with their answer in one request-record rename.
 func (s *Store) transaction(fn func(*records, time.Time) error) error {
 	return s.transactionContext(context.Background(), fn)
 }
@@ -333,13 +358,7 @@ func (s *Store) transactionContext(ctx context.Context, fn func(*records, time.T
 			}
 		}
 		var r records
-		if err = readRecords(filepath.Join(s.Dir, "requests"), &r.requests); err != nil {
-			return err
-		}
-		if err = readRecords(filepath.Join(s.Dir, "grants"), &r.grants); err != nil {
-			return err
-		}
-		if err = readRecords(filepath.Join(s.Dir, "working"), &r.working); err != nil {
+		if err = readStoreRecords(s.Dir, &r); err != nil {
 			return err
 		}
 		adoptWorkspaces(&r)
@@ -373,30 +392,63 @@ func (s *Store) transactionContext(ctx context.Context, fn func(*records, time.T
 				r.grants = append(r.grants[:i], r.grants[i+1:]...)
 			}
 		}
+		for i := len(r.requests) - 1; i >= 0; i-- {
+			q := r.requests[i]
+			if q.Decided.IsZero() || now.Before(q.Decided.Add(7*24*time.Hour)) {
+				continue
+			}
+			needed := false
+			for _, g := range r.grants {
+				if g.Request == q.ID {
+					needed = true
+				}
+			}
+			for _, committed := range q.workingEntries {
+				for _, w := range r.working {
+					if w.ID == committed.ID && w.Revision == committed.Revision &&
+						r.standaloneWorking[w.ID] < committed.Revision && w.Live() &&
+						(!w.Timed() || now.Before(w.Expires.Add(7*24*time.Hour))) {
+						needed = true
+					}
+				}
+			}
+			if !needed {
+				if err = os.Remove(filepath.Join(s.Dir, "requests", q.ID+".json")); err != nil {
+					return err
+				}
+				r.requests = append(r.requests[:i], r.requests[i+1:]...)
+			}
+		}
+		// An ended standalone record is still the durable barrier against any
+		// older embedded entry in a retained request. Delete requests first;
+		// then their no-longer-needed barriers can be reaped in this transaction.
+		requestsDirSynced := false
 		for i := len(r.working) - 1; i >= 0; i-- {
 			w := r.working[i]
 			if (!w.Live() && !now.Before(w.Ended.Add(7*24*time.Hour))) || (w.Timed() && w.Live() && !now.Before(w.Expires.Add(7*24*time.Hour))) {
-				if err = os.Remove(filepath.Join(s.Dir, "working", w.ID+".json")); err != nil {
+				if !w.Live() {
+					retained := false
+					for _, q := range r.requests {
+						for _, embedded := range q.workingEntries {
+							if embedded.ID == w.ID {
+								retained = true
+							}
+						}
+					}
+					if retained {
+						continue
+					}
+					if !requestsDirSynced {
+						if err = s.syncDirectory(filepath.Join(s.Dir, "requests")); err != nil {
+							return fmt.Errorf("sync requests directory before pruning ended working entry %s: %w", w.ID, err)
+						}
+						requestsDirSynced = true
+					}
+				}
+				if err = pruneWorkingFile(s.Dir, w.ID); err != nil {
 					return err
 				}
 				r.working = append(r.working[:i], r.working[i+1:]...)
-			}
-		}
-		for i := len(r.requests) - 1; i >= 0; i-- {
-			q := r.requests[i]
-			if !q.Decided.IsZero() && !now.Before(q.Decided.Add(7*24*time.Hour)) {
-				live := false
-				for _, g := range r.grants {
-					if g.Request == q.ID {
-						live = true
-					}
-				}
-				if !live {
-					if err = os.Remove(filepath.Join(s.Dir, "requests", q.ID+".json")); err != nil {
-						return err
-					}
-					r.requests = append(r.requests[:i], r.requests[i+1:]...)
-				}
 			}
 		}
 		return fn(&r, now)
@@ -490,6 +542,22 @@ func readRecords[T any](dir string, out *[]T) error {
 	return nil
 }
 
+func (s *Store) syncDirectory(path string) error {
+	if s.syncDir != nil {
+		return s.syncDir(path)
+	}
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	syncErr := d.Sync()
+	closeErr := d.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
+}
+
 // recordPrefix is the id prefix of a record kind's directory: r- requests, g- grants and
 // w- working-set entries.
 func recordPrefix(kind string) string {
@@ -505,6 +573,15 @@ func recordPrefix(kind string) string {
 func (s *Store) write(kind, id string, v any) error {
 	if !validID(id, recordPrefix(kind)) {
 		return errors.New("invalid record identity")
+	}
+	q, isRequest := requestOf(v)
+	if isRequest && kind == "requests" {
+		v = requestRecord{Request: q, WorkingEntries: q.workingEntries}
+	}
+	if kind == "working" {
+		if w, ok := v.(*WorkingEntry); ok && w.Revision > 0 {
+			w.Revision++
+		}
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -534,13 +611,13 @@ func (s *Store) write(kind, id string, v any) error {
 	}
 	d, err := os.Open(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("record %s was renamed but directory sync could not start (commit status uncertain): %w; next: inspect the request in yolo approve before retrying", id, err)
 	}
 	defer d.Close()
 	if err = d.Sync(); err != nil {
-		return err
+		return fmt.Errorf("record %s was renamed but directory sync failed (commit status uncertain): %w; next: inspect the request in yolo approve before retrying", id, err)
 	}
-	if q, ok := requestOf(v); ok && kind == "requests" {
+	if isRequest && kind == "requests" {
 		s.publish(q)
 	}
 	return nil
@@ -557,7 +634,14 @@ func newID(prefix string) (string, error) {
 	return prefix + hex.EncodeToString(b), nil
 }
 func digest(q Request) string {
-	b, _ := json.Marshal([]any{q.Argv, q.Repo, q.StdinDigest})
+	// Existing git/GitHub digests must remain byte-identical. A classified pack
+	// call additionally binds every write's cell and full parent chain, so an
+	// approval for the same argv on another resource cannot join or spend it.
+	input := []any{q.Argv, q.Repo, q.StdinDigest}
+	if len(q.CallWrites) != 0 {
+		input = append(input, q.CallWrites, q.OriginalArgv)
+	}
+	b, _ := json.Marshal(input)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -806,20 +890,9 @@ func (s *Store) inspectContext(ctx context.Context, inspect func(*records, time.
 			if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("store directory is not a real directory: %s", dir)
 			}
-			switch name {
-			case "requests":
-				if err := readRecords(dir, &out.requests); err != nil {
-					return err
-				}
-			case "grants":
-				if err := readRecords(dir, &out.grants); err != nil {
-					return err
-				}
-			case "working":
-				if err := readRecords(dir, &out.working); err != nil {
-					return err
-				}
-			}
+		}
+		if err := readStoreRecords(s.Dir, &out); err != nil {
+			return err
 		}
 		adoptWorkspaces(&out)
 		now = s.now()
@@ -1015,13 +1088,9 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if !d.Add {
 				expires = now.Add(duration)
 			}
-			for _, e := range entries {
-				e.Expires = expires
-				held, _, err := s.upsertWorkingIn(r, now, e)
-				if err != nil {
-					return err
-				}
-				out = append(out, held)
+			out, q.workingEntries, err = planWorkingDecision(r, now, *q, entries, expires, d.Add)
+			if err != nil {
+				return refusal(ErrRefusedByPolicy, "%v", err)
 			}
 			if err := s.audit(context.Background(), "decision", *q, Grant{ID: out[0].ID, Request: q.ID, Jail: q.Jail, Start: q.Start, Workspace: ResolveWorkspace(q.Workspace), Set: q.Set, Expires: expires}); err != nil {
 				return err

@@ -59,7 +59,7 @@ func SchemaKeys() []SchemaKey {
 		"providers.*": knownProviderKeys, "providers.*.endpoints.*": knownEndpointKeys,
 		"providers.*.models.*": knownModelKeys, "providers.*.models.*.cost": knownModelCostKeys,
 		"model_facts.*": knownSharedModelKeys, "devices.*": knownDeviceKeys,
-		"resources": knownResourcesKeys, "loopholes.*": knownHostServiceKeys,
+		"resources": knownResourcesKeys, "resource_groups": knownResourceGroupsKeys, "loopholes.*": knownHostServiceKeys,
 		"loopholes.*.settings": knownLoopholeOverrideKeys, "profiles.*": knownProfileKeys,
 		"brokered.*": knownBrokeredSourceKeys, "brokered.*.grants.*": knownBrokeredGrantKeys,
 		"brokered.*.sets.*": knownBrokeredSetKeys, "programs": knownProgramsKeys,
@@ -73,6 +73,8 @@ func SchemaKeys() []SchemaKey {
 	}
 	for _, path := range []string{
 		"mounts.*", "network.ports.*", "network.forward_host_ports.*", "env_sources.*",
+		"resource_groups.workspaces", "resource_groups.projects",
+		"resource_groups.workspaces.*", "resource_groups.projects.*",
 		"env_sources.*.*", "mise_tools.*", "lsp_servers.*.args.*", "mcp_servers.*.args.*",
 		"mcp_servers.*.env.*", "mcp_servers.*.headers.*", "mcp_servers.*.oauth.client_id",
 		"mcp_servers.*.oauth.scopes", "mcp_servers.*.oauth.scopes.*", "mcp_servers.*.oauth.callback_port",
@@ -507,7 +509,9 @@ func legacySchemaType(path string) SchemaType {
 	case "include_if_found.*", "packages.*.name", "packages.*.nixpkgs", "packages.*.version", "packages.*.url", "packages.*.hash",
 		"packages.*.outputs.*", "packages.*.platforms.*", "providers.*.models.*.input.*", "host_path.*":
 		return SchemaTypeString
-	case "mcp_servers.*.oauth.callback_port":
+	case "resource_groups.default", "resource_groups.maintenance", "resource_groups.workspaces.*", "resource_groups.projects.*":
+		return SchemaTypeString
+	case "resource_groups.agent_percent":
 		return SchemaTypeNumber
 	case "packages", "env_sources", "include_if_found", "writable_home_dirs", "required_capabilities",
 		"mcp_servers.*.oauth.scopes",
@@ -525,6 +529,10 @@ func legacySchemaType(path string) SchemaType {
 		return SchemaTypeNumber
 	case "mcp_servers.*.headers", "mcp_servers.*.oauth":
 		return SchemaTypeObject
+	case "resource_groups", "resource_groups.workspaces", "resource_groups.projects":
+		return SchemaTypeObject
+	case "mcp_servers.*.oauth.callback_port":
+		return SchemaTypeNumber
 	case "network", "security", "providers", "profiles", "loopholes", "brokered", "resources", "gpu", "mcp_servers.*",
 		"providers.*.endpoints", "providers.*.models", "providers.*.options", "providers.*.models.*.cost",
 		"model_facts", "model_facts.*", "profiles.*", "loopholes.*.settings", "programs", "programs.overrides", "programs.overrides.*",

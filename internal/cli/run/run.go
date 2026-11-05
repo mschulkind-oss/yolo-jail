@@ -224,6 +224,9 @@ func Run(opts Options) (rc int) {
 	if !ok {
 		return 1
 	}
+	if o.refuseUnsupportedResourceGroup(cfg) {
+		return 1
+	}
 	// Load the exclusion policy directly from user scope before either backend stages or
 	// reads host configuration bytes. The merged launch config is not an authority for it.
 	hostImportExclusions, err := config.LoadHostImportExclusions()
@@ -361,6 +364,7 @@ func Run(opts Options) (rc int) {
 	// And the session lock a container arm takes (sessionlock.go), released at every return:
 	// auto-capture runs this pipeline in-process, so a process exit is not the only release.
 	defer o.releaseSessionLock()
+	defer o.closeMCPOutcomeReader()
 	// And every loopback port this launch reserved and did not hand on (servedaddresses.go), for
 	// the same reason: a refused launch, a dry run, an attach.
 	defer o.releaseReservedPorts()
@@ -378,6 +382,7 @@ func Run(opts Options) (rc int) {
 		return 1
 	}
 	staged.hostImportExclusions = selectedHostImportExclusions(hostImportExclusions, staged.packs)
+	o.launchMCPSelection = o.snapshotLaunchMCPSelection(cfg, rt)
 	// THE LAUNCH GUARD (launchguard.go, JL-D75), from the moment there is a pack tree to lose: a
 	// signal before the keeper's spawn ends the launch through it, which discards what no container
 	// holds and gives the terminal back, where the default action ran no cleanup at all. The
@@ -1711,6 +1716,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	// --- Fresh launch: config-change approval ---
+	// Retry only this workspace's previously claimed outcomes while the launch
+	// lock is held, before a new keeper can own this name. Uncertain runtime or
+	// a still-counted ending session leaves the old generation intact.
+	o.retireWorkspaceMCPOutcomes(cname)
 	o.logRecord("decision: fresh launch of %s (no running jail to attach to)", cname)
 	if !o.checkConfigChanges(cfg, rt) {
 		return 1
@@ -1728,6 +1737,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			return 1
 		}
 	}
+
+	o.freezeLaunchMCP(cfg, loadedPacks, o.launchMCPSelection)
 
 	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
 	o.writeLaunchConfigArtifacts(cfg)
@@ -2756,7 +2767,7 @@ func reportSessionRunError(out printer, rt string, err error) {
 }
 
 func (o *Options) teardownAfterExit(socatProcs []*forwardProc, portSocketDir string,
-	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) {
+	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) bool {
 	// FIRST: the scratch volumes' deletion, started detached and never awaited
 	// (scratchremoval.go). The proxy has returned, so the child is reaped and the termios
 	// restored; this spawn is what moved a 32 s delete out of the client that held the
@@ -2766,7 +2777,7 @@ func (o *Options) teardownAfterExit(socatProcs []*forwardProc, portSocketDir str
 	cleanupPortForwarding(socatProcs, portSocketDir)
 	sp.End()
 	sp = o.Perf.Span("shutdown.stop_loopholes")
-	o.stopLoopholes(hostServices, socketsDir, cname, rt)
+	harvestFailed := o.stopLoopholes(hostServices, socketsDir, cname, rt)
 	sp.End()
 	// The tracking file, once the runtime says the `--rm` container is gone. Before this a
 	// normal exit left it, so prune.PruneOrphanAgentStaging kept the jail's AGENTS_DIR entry,
@@ -2792,6 +2803,7 @@ func (o *Options) teardownAfterExit(socatProcs []*forwardProc, portSocketDir str
 	// launch gets Window A's cost in its file — the number is unpredictable
 	// enough that "type --timing next time" was never a real answer.
 	o.recordWindowA(cname, rt)
+	return harvestFailed
 }
 
 // emitTimingReport ends the launch's timing surface — in one of two ways, and
@@ -3239,6 +3251,13 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if acked != nil {
 		o.noteAttachSkewBriefing(rt, view)
 	}
+	// Capture the log offset before reading the keeper's record: a death whose line
+	// preceded this length is in the record; one after it reaches this session's quit.
+	logFrom := keeperLogSize(cname)
+	if !o.captureAttachedMCPTeardown(cname, rt) {
+		releaseLock()
+		return 1, false
+	}
 	releaseLock()
 	if raced {
 		out.printf("[bold cyan]Attaching to jail started by another process [dim](%s)[/dim]...[/bold cyan]", cname)
@@ -3270,15 +3289,6 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// every other jail setting does.
 	//
 	// What the keeper records from here on is this session's to be shown at its quit (JL-D19).
-	//
-	// TAKEN BEFORE THE START RECORD IS READ (noteServicesDown, next), never after: the keeper
-	// writes a death's record before its line (recordServiceDown), so a death whose line is before
-	// this length is in the record that read finds, and one whose line is after it is this
-	// session's quit's. Taken after the read, with the channel delivery, the launch checks and the
-	// herdr registration between the two, a death recorded in that gap reached neither. The other
-	// way round, a death recorded between this stat and that read is named twice, by the notice
-	// and at the quit: two true lines, in a window two file reads wide, which no dedupe is worth.
-	logFrom := keeperLogSize(cname)
 	// And what its keeper recorded DOWN since the jail started (keeperwatch.go, JL-D19): a service
 	// down for good (a host daemon its supervisor gave up on, HD-D25, or one it does not restart),
 	// and this session was not in when it went, so its keeper's line never reached this terminal.

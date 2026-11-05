@@ -282,3 +282,91 @@ func TestTheFreshLaunchHandsItsLaunchLockToItsKeeper(t *testing.T) {
 		t.Errorf("the keeper's release did not free the lock: %v", err)
 	}
 }
+
+// The selected keeper's best-effort log cannot attest its final harvest: this
+// exercises the actual ending session even when its log is missing.
+func TestSelectedMCPFinalHarvestUnknownFailsEndingSessionWithoutKeeperLog(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const cname = "yolo-mcp-unreadable-keeper"
+	live, err := holdLivenessLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := takeSessionLock(cname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		f, _ := openSessionLock(cname)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		_ = f.Close()
+		releaseLock(live)
+	}()
+	o := goldenOptions("/ws", t.TempDir())
+	o.mcpTeardownID = strings.Repeat("a", 32)
+	o.sessionLock = session
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+		return ExecResult{Ran: true, Stdout: "abc123\n"}
+	}
+	if rc := o.endSession(cname, "podman", 0, time.Now(), 0, true); rc == 0 {
+		t.Fatal("missing selected keeper teardown outcome returned success")
+	}
+}
+
+func TestSelectedMCPFinalHarvestOutcomeOverridesBestEffortLogAtEndingSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, outcome string
+		wantFailure   bool
+	}{
+		{"confirmed-clean-with-old-failure-marker", "ok", false},
+		{"confirmed-failure-without-log", "failed", true},
+		{"unconfirmed-with-late-marker", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			cname := "yolo-mcp-" + tc.name
+			id := strings.Repeat("b", 32)
+			live, err := holdLivenessLock(cname)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, _, err := takeSessionLock(cname)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logF, err := openKeeperLog(cname)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.outcome == "ok" {
+				_, _ = logF.WriteString("keeper: FINAL_HOST_SERVICE_HARVEST_FAILED old marker\n")
+			}
+			if tc.outcome == "" {
+				_, _ = logF.WriteString("keeper: FINAL_HOST_SERVICE_HARVEST_FAILED late marker\n")
+			}
+			_ = logF.Close()
+			go func() {
+				f, _ := openSessionLock(cname)
+				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+				if tc.outcome != "" {
+					_ = writeMCPTeardownOutcomeFor(cname, id, tc.outcome, "/ws", "podman")
+				}
+				_ = f.Close()
+				releaseLock(live)
+			}()
+			o := goldenOptions("/ws", t.TempDir())
+			if err := createMCPOutcomeGeneration(cname, id, o.Workspace, "podman"); err != nil {
+				t.Fatal(err)
+			}
+			o.mcpTeardownID = id
+			o.sessionLock = session
+			o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+				return ExecResult{Ran: true, Stdout: "abc123\n"}
+			}
+			rc := o.endSession(cname, "podman", 0, time.Now(), 0, true)
+			if (rc != 0) != tc.wantFailure {
+				t.Fatalf("outcome %q, rc=%d, wantFailure=%v", tc.outcome, rc, tc.wantFailure)
+			}
+		})
+	}
+}

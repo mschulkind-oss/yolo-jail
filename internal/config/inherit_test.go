@@ -97,6 +97,7 @@ func TestPreflightFilterDropsTheFalseErrorKeys(t *testing.T) {
 	effective.Set("host_files", []any{mapOf(t, "path", ".config/acme/creds", "source", "~/.config/acme/creds")})
 	// runtime — a host value naming a machine this container is not.
 	effective.Set("runtime", "macos-user")
+	effective.Set("resource_groups", mapOf(t, "default", "work.slice"))
 	// And one key that MUST survive, so the test proves a filter rather than an empty file.
 	effective.Set("loopholes", mapOf(t, "acme", jsonx.NewOrderedMap()))
 
@@ -106,7 +107,7 @@ func TestPreflightFilterDropsTheFalseErrorKeys(t *testing.T) {
 	}
 	for _, key := range []string{
 		"cache_relocations", "gpu", "mounts", "devices", "kvm", "env_sources",
-		"host_files", "runtime",
+		"host_files", "runtime", "resource_groups",
 	} {
 		if _, present := got.Get(key); present {
 			_, _, reason, _ := InheritDisposition(key)
@@ -131,6 +132,7 @@ func TestNestedFilterCarriesTheLaunchComposition(t *testing.T) {
 	effective.Set("mise_tools", mapOf(t, "node", "22"))
 	effective.Set("packs", []any{"claude"})
 	effective.Set("resources", mapOf(t, "memory", "8g"))
+	effective.Set("resource_groups", mapOf(t, "default", "work.slice"))
 	effective.Set("cache_relocations", mapOf(t, "npm", "/mnt/bigdisk/npm"))
 	// agents_md_extra is genuinely preflight-only: it is prose rendered into THIS jail's
 	// briefing, and an inner launcher composes its child's briefing from its own config.
@@ -145,6 +147,9 @@ func TestNestedFilterCarriesTheLaunchComposition(t *testing.T) {
 			t.Errorf("%q missing from the NESTED file — an inner launcher composes its jail "+
 				"from it, so a nested jail would silently lose it", want)
 		}
+	}
+	if _, present := got.Get("resource_groups"); present {
+		t.Error("resource_groups must not reach the nested file — host group selection has no in-jail authority")
 	}
 	// The rw host grant must not travel to a nested launcher either: a nested jail's cache
 	// is its own per-workspace dir, and inheriting the target would hand podman a bind

@@ -20,6 +20,8 @@ package run
 // One arm for the whole window, retargeted at ready, so no signal falls between two.
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -164,6 +166,14 @@ func (o *Options) startKeeper(plan *keeperPlan) (kp *keeperProcess, err error) {
 		return nil, errLaunchEnded
 	}
 	defer func() { o.launchGuard.unlockSpawn(kp) }()
+	if plan.MCPTeardownID != "" {
+		if err := createMCPOutcomeGeneration(plan.Cname, plan.MCPTeardownID, plan.Workspace, plan.Runtime); err != nil {
+			return nil, fmt.Errorf("cannot create this launch's selected MCP teardown generation: %w; repair private owner state and relaunch", err)
+		}
+		if err := o.registerMCPOutcomeReader(plan.Cname, plan.MCPTeardownID, plan.Runtime); err != nil {
+			return nil, fmt.Errorf("cannot register this launch's selected MCP teardown reader: %w; repair private owner state and relaunch", err)
+		}
+	}
 	planPath, err := writeKeeperPlan(plan)
 	if err != nil {
 		return nil, fmt.Errorf("could not write this jail's plan for its keeper: %w", err)
@@ -207,6 +217,7 @@ func (o *Options) startKeeper(plan *keeperPlan) (kp *keeperProcess, err error) {
 	}
 	kp = &keeperProcess{lifeline: lifeW, progress: progR, exited: make(chan struct{}),
 		ready: make(chan struct{}), uncounted: plan.Uncounted}
+	o.mcpTeardownID = plan.MCPTeardownID
 	go func() {
 		kp.exitCode = wait()
 		close(kp.exited)
@@ -231,15 +242,24 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 	if len(forwards) == 0 {
 		forwardDir = ""
 	}
+	var teardownID string
+	if slices.Contains(services, "mcp-auth-broker") && o.frozenLaunchMCPForKeeper() != nil {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return nil, fmt.Errorf("could not identify this MCP teardown: %w; retry the launch", err)
+		}
+		teardownID = hex.EncodeToString(nonce[:])
+	}
 	return &keeperPlan{
 		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt,
 		Network: o.Network, Color: o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Payload:        payload,
-		ApprovedScopes: o.approvedScopes, ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
+		ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
 		ApprovedLoopholeGrants: o.approvedLoopholeGrants, Forwards: forwards, ForwardDir: forwardDir,
 		SocketsDir: socketsDir, RunCmd: runCmd, ImageRef: in.imageRef, Skeleton: in.homeSkeleton,
+		LaunchInputMCP: o.frozenLaunchMCPForKeeper(), MCPTeardownID: teardownID,
 		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(), Sealed: o.Sealed,
 		// THE JAIL'S GRANT (jailgrant.go): its NAMES, for the start record an attach reads. Its
 		// values never ride the plan: the launch wrote them into the jail's grant file
@@ -418,6 +438,18 @@ func terminalOnly(w io.Writer) io.Writer {
 // first session was the container's main process (JL-D50, JL-D59). The status returned is the
 // launch's.
 func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom int64, first bool) int {
+	if o.mcpTeardownID != "" {
+		if err := o.registerMCPOutcomeReader(cname, o.mcpTeardownID, rt); err != nil {
+			o.pr(o.Stderr).printf("[bold red]Selected MCP teardown reader unavailable (%v); final harvest cannot be confirmed. Repair private owner state and relaunch.[/bold red]", err)
+			if rc == 0 {
+				rc = 1
+			}
+		}
+		defer func() {
+			o.closeMCPOutcomeReader()
+			_ = o.retireMCPOutcome(cname, rt, o.mcpTeardownID)
+		}()
+	}
 	sp := o.Perf.Span("attach.why_the_jail_ended")
 	reason, ended := o.whyTheJailEnded(cname, rt, rc, since)
 	sp.End()
@@ -429,6 +461,9 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 		}
 		if reason == "" {
 			o.maybeWarnAboutOOMKiller(rc, rt)
+			if o.streamKeeperTeardown(cname, logFrom) && rc == 0 {
+				rc = 1
+			}
 		}
 		return rc
 	}
@@ -443,13 +478,17 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 	switch state {
 	case quitOthers:
 		if n, ok := o.jailSessionCount(rt, cname); ok && n == 0 {
-			o.streamKeeperTeardown(cname, logFrom)
+			if o.streamKeeperTeardown(cname, logFrom) && rc == 0 {
+				rc = 1
+			}
 			break
 		}
 		o.printKeeperRecords(cname, logFrom)
 		o.noteJailStaysUp(cname, rt)
 	case quitLast:
-		o.streamKeeperTeardown(cname, logFrom)
+		if o.streamKeeperTeardown(cname, logFrom) && rc == 0 {
+			rc = 1
+		}
 	case quitUnkeptLast:
 		o.reapUnkeptJail(cname, rt)
 		locks.release()
@@ -459,6 +498,10 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 			cname, keyedStopRemedy(rt, cname))
 	case quitUnknown:
 		out.printf("[dim]Could not tell whether other sessions remain in %s; it may be ending.[/dim]", cname)
+	}
+	if rc == 0 && o.mcpTeardownID != "" && probeKeeper(cname) == keeperGone && readMCPTeardownOutcome(cname, o.mcpTeardownID) != "ok" {
+		out.printf("[bold red]This jail's selected MCP final harvest was not confirmed; inspect its host service log, repair the workspace store or lock, then relaunch.[/bold red]")
+		return 1
 	}
 	return rc
 }
@@ -518,7 +561,8 @@ func (o *Options) printKeeperRecords(cname string, logFrom int64) {
 // shows its teardown as it happens, from the keeper's log, until the keeper is gone (JL-D11). A
 // Ctrl-C stops the stream and leaves the keeper running; the bound says what it is waiting on
 // (JL-D34).
-func (o *Options) streamKeeperTeardown(cname string, logFrom int64) {
+func (o *Options) streamKeeperTeardown(cname string, logFrom int64) bool {
+	harvestFailed := false
 	out := o.pr(terminalOnly(o.Stderr))
 	stop := make(chan struct{})
 	var once sync.Once
@@ -537,6 +581,9 @@ func (o *Options) streamKeeperTeardown(cname string, logFrom int64) {
 	}()
 	sp := o.Perf.Span("session.keeper_teardown")
 	gone := waitForKeeper(cname, logFrom, keeperTeardownWait, func(l string) {
+		if strings.Contains(l, "keeper: FINAL_HOST_SERVICE_HARVEST_FAILED ") {
+			harvestFailed = true
+		}
 		out.print("[dim]  " + richtext.Escape(l) + "[/dim]")
 	}, stop)
 	sp.End()
@@ -545,13 +592,21 @@ func (o *Options) streamKeeperTeardown(cname string, logFrom int64) {
 	case <-interrupted:
 		if !gone {
 			out.printf("[dim]Stopped following the teardown; %s's keeper goes on ending it.[/dim]", cname)
-			return
+			return harvestFailed || o.mcpTeardownID != ""
 		}
 	default:
 	}
 	if !gone {
 		o.noteKeeperStillRunning(cname, keeperTeardownWait)
 	}
+	if o.mcpTeardownID != "" {
+		if !gone || readMCPTeardownOutcome(cname, o.mcpTeardownID) != "ok" {
+			out.printf("[bold red]This jail's selected MCP final harvest was not confirmed; inspect its host service log, repair the workspace store or lock, then relaunch.[/bold red]")
+			return true
+		}
+		return false
+	}
+	return harvestFailed
 }
 
 // keeperStillRunningFacts is what a report that a keeper outlasted its wait says: the keeper's pid
@@ -1241,7 +1296,7 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Network: o.Network,
 		MacosUserMode: o.MacosUserMode,
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
-		Payload: payload, ApprovedScopes: o.approvedScopes, ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
+		Payload: payload, ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
 		ApprovedLoopholeGrants: o.approvedLoopholeGrants,
 		PerfRecording:          o.timingRecording(),
 		Settings:               o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,

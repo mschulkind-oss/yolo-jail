@@ -113,9 +113,13 @@ type daemonSupervisor struct {
 	stopping bool
 	stopCh   chan struct{}
 
-	done    chan struct{}
-	endOnce sync.Once
-	how     string
+	done chan struct{}
+	// inputUnknown ends the private-input observer without cleanup if a wrapper
+	// leaves an unobservable child serving after the wrapper itself exits.
+	inputUnknown     chan struct{}
+	inputUnknownOnce sync.Once
+	endOnce          sync.Once
+	how              string
 }
 
 // newDaemonSupervisor is the supervisor of a daemon that has passed its first readiness wait.
@@ -135,6 +139,38 @@ func (s *daemonSupervisor) end() serviceEnd {
 	}}
 }
 
+// inputExitObserved closes only after supervision ends AND the process current at
+// that end has been reaped. In a restart readiness wait, done can close before
+// the detached process exits; the first process's exited channel cannot stand
+// in for the restarted one. Unknown closes instead when a wrapper's child exit
+// cannot be observed, so neither observer waits forever for that wrapper.
+func (s *daemonSupervisor) inputExitObserved() (observed, unknown <-chan struct{}) {
+	closed := make(chan struct{})
+	unobservable := make(chan struct{})
+	s.inputUnknown = unobservable
+	go func() {
+		select {
+		case <-s.done:
+		case <-unobservable:
+			return
+		}
+		s.mu.Lock()
+		exited := s.exited
+		s.mu.Unlock()
+		if exited == nil {
+			return
+		}
+		<-exited
+		select {
+		case <-unobservable:
+			return
+		default:
+		}
+		close(closed)
+	}()
+	return closed, unobservable
+}
+
 // finish ends supervision, once, with how as the end's account.
 func (s *daemonSupervisor) finish(how string) {
 	s.endOnce.Do(func() {
@@ -143,6 +179,12 @@ func (s *daemonSupervisor) finish(how string) {
 		s.mu.Unlock()
 		close(s.done)
 	})
+}
+
+func (s *daemonSupervisor) markInputUnknown() {
+	if s.inputUnknown != nil {
+		s.inputUnknownOnce.Do(func() { close(s.inputUnknown) })
+	}
 }
 
 // stop is the teardown's stop: it marks the supervisor stopping BEFORE any signal, then hands
@@ -208,6 +250,11 @@ func (s *daemonSupervisor) run() {
 		s.mu.Unlock()
 		<-exited
 		if s.isStopping() {
+			// A daemonizing wrapper can exit before teardown marks stopping.
+			// Its child is not this reaped process: do not remove its input.
+			if st := cmd.ProcessState; st != nil && st.Success() && s.wrapperExit != nil && s.wrapperExit(cmd) {
+				s.markInputUnknown()
+			}
 			s.finish(stoppedByTeardown)
 			return
 		}
@@ -215,6 +262,9 @@ func (s *daemonSupervisor) run() {
 			return
 		}
 		if st := cmd.ProcessState; st != nil && st.Success() && s.wrapperExit(cmd) {
+			if s.inputUnknown != nil {
+				s.markInputUnknown()
+			}
 			return // the daemonizing wrapper: its service lives on in a child no one here can see
 		}
 		how := "its process " + exitPhrase(cmd)

@@ -16,10 +16,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // hostCapabilityLaunch is the launch the census counts at `yolo host --`: this launch's own
@@ -51,6 +53,19 @@ func hostCapabilityLaunch(cfg *jsonx.OrderedMap, agent, typed string) *config.Ca
 // is named only when the record cannot place it. The hatch is the jail's
 // (config.AllowUnmetCapabilitiesEnv), read from this process's own environment.
 func refuseHostUnmetCapabilities(errw io.Writer, agent, typed string) bool {
+	resourceCfg, resourceErr := config.UserScopeConfig(false, func(string) {})
+	if resourceErr != nil || resourceCfg == nil {
+		problem := "the owner-scope config could not be read reliably"
+		if resourceErr != nil {
+			problem = termsafe.Visible(resourceErr.Error())
+		}
+		printHostLines(errw, []string{"refusing host launch: cannot resolve required resource-group placement from owner-scope config: " + problem,
+			"  Repair or remove the owner-scope `resource_groups` entry (for example, `yolo config unset --user resource_groups`), then run `yolo check --no-build` before retrying."})
+		return true
+	}
+	if run.RefuseHostResourceGroup(errw, resourceCfg) {
+		return true
+	}
 	cfg := config.UserScopeConfigOrEmpty()
 	if probs := config.RequiredCapabilitiesProblems(cfg); len(probs) > 0 {
 		at := "in " + paths.UserConfigDisplayPath()

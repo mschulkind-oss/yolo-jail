@@ -158,6 +158,10 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateIncludeIfFound(config, errs)
 	validateAgentsMdExtra(config, errs)
 	validateBriefingProvenance(config, errs)
+	validateResourceGroupErrors := ValidateResourceGroups(config)
+	for _, message := range validateResourceGroupErrors {
+		add(errs, message)
+	}
 	validateEnvSources(config, errs)
 	// The unprojected input: the projection above drops a readable `env` table, and its
 	// `files` list is what the scope rule reads in the TOML spelling.

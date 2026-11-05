@@ -193,7 +193,41 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 		localName = config.WorkspaceLocalConfigName
 	}
 	for _, lp := range brokered {
-		brokerscope.Sweep(lp.Brokered.Source)
+		source := ""
+		if lp.Brokered != nil {
+			source = lp.Brokered.Source
+		} else if lp.CallBroker != nil {
+			source = lp.CallBroker.Source
+		} else {
+			continue
+		}
+		brokerscope.Sweep(source)
+		if lp.CallBroker != nil {
+			approved, ok := o.approvedScopes[lp.Name]
+			if !ok || o.callBrokerCells[lp.Name] == nil {
+				out.print("[yellow]" + lp.Name + ": no gate-approved call-broker scope; the host daemon will not start[/yellow]")
+				continue
+			}
+			roots := make([]string, len(approved))
+			for i, r := range approved {
+				roots[i] = r.Repo
+			}
+			id, err := brokerscope.NewLaunchID()
+			if err == nil {
+				var path string
+				path, err = brokerscope.Write(brokerscope.File{Source: source, LaunchID: id, PID: os.Getpid(),
+					Container: cname, Workspace: o.Workspace, Form: brokerscope.FormCallRoot, Repos: roots})
+				if err == nil {
+					if o.scopeFiles == nil {
+						o.scopeFiles = map[string]string{}
+					}
+					o.scopeFiles[lp.Name] = path
+					continue
+				}
+			}
+			out.print("[yellow]" + lp.Name + ": cannot bind its host scope; retry the launch[/yellow]")
+			continue
+		}
 		// The user-scope permission sets this source runs under are disclosed here (BB-D23): a
 		// set decides what a write grant hands over, so it is named on every launch that starts
 		// the broker, whether or not the workspace that reads it could see it. Read from the user

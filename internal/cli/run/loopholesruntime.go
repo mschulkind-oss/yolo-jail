@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -35,6 +37,7 @@ type loopholeDaemon struct {
 	jailPath       string
 	envVarName     string
 	stop           func()
+	finalFailure   func() error
 	startupOutcome hostservice.StartupOutcome
 	// launchCheck is the manifest's `host_daemon.launch_check`, and hasJailDaemon whether the
 	// loophole declares a jail_daemon: together they decide whether the launch asks this
@@ -52,8 +55,10 @@ type loopholeDaemon struct {
 	// end is how the keeper sees this service go, by its own fault or by its stop, and log the file
 	// the service writes, which the keeper's record of an end it did not cause names
 	// (keeperwatch.go, JL-D19). A zero end watches nothing; log is "" for none.
-	end serviceEnd
-	log string
+	end          serviceEnd
+	log          string
+	inputExited  <-chan struct{}
+	inputUnknown <-chan struct{}
 }
 
 type ownedSettingsSnapshot struct {
@@ -522,6 +527,11 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 			brokered = append(brokered, lp)
 		}
 	}
+	for _, lp := range discovered {
+		if lp.CallBroker != nil && lp.Source == loopholes.SourcePack && lp.Enabled && allow(lp.Name) && !placementRefused[lp.Name] {
+			brokered = append(brokered, lp)
+		}
+	}
 	o.writeScopeFiles(cname, brokered)
 	// The TRANSPORT comes from the Loophole record, not from the config-shaped spec
 	// map, because it is the framework's decision and not a user-supplied key. A name
@@ -537,6 +547,8 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		recordOf[lp.Name] = lp
 		if lp.HostDaemon != nil {
 			daemonOf[lp.Name] = lp.HostDaemon
+		} else if lp.CallBroker != nil {
+			daemonOf[lp.Name] = loopholes.CoreCallBrokerHostDaemon()
 		}
 	}
 	order, external := hostDaemonOrder(set, discovered, cfg, allow)
@@ -552,7 +564,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		// none at all so it never enters `order`. Keeping the branch would have inverted
 		// the original defect — refusing to start the very daemon the manifest exists to
 		// declare — which is what "do not recreate that shape in reverse" means.
-		if placementRefused[name] {
+		if placementRefused[name] || recordOf[name].CallBroker != nil && o.scopeFiles[name] == "" {
 			continue
 		}
 		// NO DAEMON IS ENSURED HERE ANY MORE (HD-R1, hostdaemonperjail.go). A record declaring
@@ -565,8 +577,50 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 		if name == openaiauth.LoopholeName && !o.migrateLegacyOpenAIAuthState() {
 			continue
 		}
+		lp := recordOf[name]
+		hasLaunchInput := lp != nil && daemonOf[name] != nil && daemonOf[name].LaunchInput != ""
+		if hasLaunchInput && !o.preflightLaunchInputCommand(name, external[name]) {
+			continue
+		}
+		if hasLaunchInput && !o.writeLaunchInput(lp, cname) {
+			continue
+		}
 		h, ok := o.startExternalService(name, external[name], socketsDir, transportOf[name], advertise, daemonOf[name])
 		o.collectStartupOutcome(h.startupOutcome)
+		if hasLaunchInput {
+			launchInputMu.Lock()
+			report := o.launchInputReports[name]
+			delete(o.launchInputReports, name)
+			launchInputMu.Unlock()
+			if ok && report != nil {
+				report()
+			}
+		}
+		if hasLaunchInput {
+			launchInputMu.Lock()
+			path := o.launchInputFiles[name]
+			published := o.launchInputOwners[name]
+			launchInputMu.Unlock()
+			cleanup := func() { o.removeLaunchInput(name, path, published) }
+			if h.inputExited == nil {
+				if !ok {
+					cleanup() // refusal before exec; no daemon can still read it
+				} else {
+					// A daemonizing wrapper has no observable child-exit signal.
+					o.pr(o.Stderr).print("[yellow]Host service input exit is unknown; retain its private file until the daemon is known stopped.[/yellow]")
+				}
+			} else {
+				exited, unknown := h.inputExited, h.inputUnknown
+				go func() {
+					select {
+					case <-exited:
+						cleanup()
+					case <-unknown:
+						// The wrapper's child is unobservable; leave its input intact.
+					}
+				}()
+			}
+		}
 		if _, brokered := o.scopeFiles[name]; brokered {
 			if !ok {
 				o.removeScopeFile(name)
@@ -719,7 +773,8 @@ func (o *Options) cgroupDelegateHonored(set loopholes.Set) bool {
 // because the front that took the relay's place is a goroutine in THIS process
 // whose stop() ran in the loop above, and the daemon behind it is this jail's own,
 // stopped (or detached) by that same stop() since HD-R1.
-func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt string) {
+func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt string) bool {
+	failed := false
 	out := o.pr(o.Stderr)
 	for _, h := range handles {
 		// One span PER FRONT, not one for the loop: a fronted daemon's stop
@@ -736,6 +791,9 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 			// panic value is the whole diagnostic, so it goes in the line.
 			defer func() {
 				if r := recover(); r != nil {
+					if h.finalFailure != nil {
+						failed = true
+					}
 					out.printf("[yellow]Warning: stopping host service '%s' panicked: %v"+
 						" — its daemon or front may still be running.[/yellow]", h.name, r)
 				}
@@ -743,11 +801,17 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 			if h.stop != nil {
 				h.stop()
 			}
+			if h.finalFailure != nil {
+				if err := h.finalFailure(); err != nil {
+					failed = true
+					out.printf("[bold red]Host service '%s' final harvest was not confirmed (%v). Inspect its private host-service log and repair the workspace store or lock before relaunching.[/bold red]", h.name, err)
+				}
+			}
 		}()
 		sp.End()
 	}
 	if socketsDir == "" {
-		return
+		return failed
 	}
 
 	var lock *workspaceLock
@@ -772,7 +836,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 				_ = f.Close()
 				out.printf("[dim]Another yolo invocation is launching %s; "+
 					"leaving its sockets dir alone.[/dim]", cname)
-				return
+				return failed
 			}
 			lock = &workspaceLock{f: f}
 		}
@@ -806,14 +870,14 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 		if id != "" {
 			out.printf("[dim]Container %s still exists; leaving its "+
 				"sockets dir alone.[/dim]", cname)
-			return
+			return failed
 		}
 		if !known {
 			out.printf("[yellow]Warning: could not ask %s whether container %s still "+
 				"exists; leaving its host-services dir %s in place. The next launch of "+
 				"this workspace reuses it and removes it when that launch ends.[/yellow]",
 				rt, cname, socketsDir)
-			return
+			return failed
 		}
 	}
 	// Fronted daemons' upstream sockets are host-only, so the rmtree below does
@@ -838,6 +902,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 				socketsDir, err)
 		}
 	}
+	return failed
 }
 
 // startCgroupDelegate starts the builtin cgroup delegate as an IN-PROCESS
@@ -966,6 +1031,12 @@ func killServiceGroup(out printer, name string, grace time.Duration, cmd *exec.C
 	}
 }
 
+// A detached launch-input producer may take three bounded store locks during
+// final harvest. Tests shorten this without changing other services' stop grace.
+var serviceFinalExitWait = 35 * time.Second
+
+func (o *Options) serviceFinalExitWait() time.Duration { return serviceFinalExitWait }
+
 // serviceTermGraceDefault is how long a spawned host service's teardown waits
 // after SIGTERM before SIGKILLing its process group. Tests shrink it via
 // Options.ServiceTermGrace so the suite need not sleep for real; production
@@ -1000,6 +1071,18 @@ func (o *Options) serviceReadyTimeout() time.Duration {
 	return serviceReadyTimeoutDefault
 }
 
+// The selected MCP launch-input daemon has a single 40-second startup budget
+// across adoption and seed. Its readiness covers that budget without extending
+// the five-second default for other host services.
+var mcpAuthReadinessBudget = 45 * time.Second
+
+func (o *Options) serviceReadyTimeoutFor(hd *loopholes.HostDaemon) time.Duration {
+	if hd != nil && hd.Detach && hd.LaunchInput == "mcp-auth-share" {
+		return mcpAuthReadinessBudget
+	}
+	return o.serviceReadyTimeout()
+}
+
 // waitServiceReady polls reachable() until it reports true, the readiness
 // deadline passes, or the daemon crashes — whichever comes first. It returns ""
 // on success and a human-readable failure clause otherwise.
@@ -1022,6 +1105,11 @@ func (o *Options) waitServiceReady(reachable func() bool, exited <-chan struct{}
 // found reachable before the record is ready. nil, for a service without the channel, never closes.
 func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() bool,
 	exited <-chan struct{}, refused <-chan struct{}, cmd *exec.Cmd) string {
+	return o.waitServiceReadyUntilWithTimeout(deadline, reachable, exited, refused, cmd, o.serviceReadyTimeout())
+}
+
+func (o *Options) waitServiceReadyUntilWithTimeout(deadline time.Time, reachable func() bool,
+	exited <-chan struct{}, refused <-chan struct{}, cmd *exec.Cmd, timeout time.Duration) string {
 	// REAL WALL CLOCK, deliberately NOT o.Now(), and this is the one place the reason
 	// is written down — the two other readiness deadlines in this file used to point at
 	// relayKill for it, and relayKill went with internal/brokerrelay.
@@ -1039,7 +1127,7 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 			return ""
 		}
 		if !time.Now().Before(deadline) {
-			return "did not become reachable within " + o.serviceReadyTimeout().String()
+			return "did not become reachable within " + timeout.String()
 		}
 		select {
 		case <-refused:
@@ -1073,7 +1161,7 @@ func (o *Options) waitServiceReadyUntil(deadline time.Time, reachable func() boo
 				}
 			}
 			return "exited (status 0) and its service never became reachable within " +
-				o.serviceReadyTimeout().String()
+				timeout.String()
 		case <-time.After(servicePollInterval):
 		}
 	}
@@ -1111,6 +1199,51 @@ const refusalExitGrace = time.Second
 // transport still lands there, which is the live path for a `loopholes:` config
 // entry that declares only a `command`.
 
+// preflightLaunchInputCommand runs before Produce or publication. Only direct
+// daemon argv and a positional argument to an exact sh/bash -c script are data
+// positions. Script interpolation and interpreter wrappers (including env with
+// flags or assignments) cannot prove that the path avoids another parse.
+func (o *Options) preflightLaunchInputCommand(name string, spec *jsonx.OrderedMap) bool {
+	cmd := asAnyList(mapGet(spec, "command"))
+	if len(cmd) == 0 {
+		o.pr(o.Stderr).print("[red]Host service '" + name + "' has no launch-input command; it was not started. Declare a direct daemon command and retry.[/red]")
+		return false
+	}
+	command := filepath.Base(pyStrCoerce(cmd[0]))
+	shell := isShellCommand(command)
+	positionalShell := (command == "sh" || command == "bash") && len(cmd) > 2 && pyStrCoerce(cmd[1]) == "-c"
+	unprovenInterpreter := launchInputUnprovenInterpreter(command)
+	for i, arg := range cmd {
+		if !strings.Contains(pyStrCoerce(arg), loopholedecl.TokenLaunchInput) {
+			continue
+		}
+		if i == 0 || unprovenInterpreter || (shell && (!positionalShell || i < 4)) {
+			o.pr(o.Stderr).print("[red]Host service '" + name + "' uses an unsupported launch-input shell context; it was not started. Pass {launch_input} as direct daemon argv, or as positional data after sh -c 'exec daemon \"$1\"' --, then retry.[/red]")
+			return false
+		}
+	}
+	return true
+}
+
+func commandUsesLaunchInput(cmd []any) bool {
+	for _, arg := range cmd {
+		if strings.Contains(pyStrCoerce(arg), loopholedecl.TokenLaunchInput) {
+			return true
+		}
+	}
+	return false
+}
+
+// Wrappers and non-shell script interpreters do not expose a provable data
+// position without interpreting their own option syntax and nested commands.
+func launchInputUnprovenInterpreter(command string) bool {
+	switch command {
+	case "env", "timeout", "nohup", "nice", "setsid", "stdbuf", "busybox", "script", "xargs", "perl", "ruby", "node", "lua", "php", "awk":
+		return true
+	}
+	return command == "python" || strings.HasPrefix(command, "python2") || strings.HasPrefix(command, "python3")
+}
+
 // resolveDaemonArgv turns a host daemon's declared `command` into the argv that
 // will actually run: ~ expanded, {endpoint}/{socket} substituted with daemonPath,
 // the placement rule applied, and the bare `yolo` launcher token self-exec'd.
@@ -1125,6 +1258,9 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 	cmdTemplate := asAnyList(mapGet(spec, "command"))
 	if len(cmdTemplate) == 0 {
 		o.pr(o.Stderr).print("[red]Host service '" + name + "' has no command; skipping[/red]")
+		return nil, false
+	}
+	if commandUsesLaunchInput(cmdTemplate) && !o.preflightLaunchInputCommand(name, spec) {
 		return nil, false
 	}
 	var cmdArgs []string
@@ -1153,7 +1289,12 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 				"this launch wrote none for it; not starting it[/red]")
 			return nil, false
 		}
-		cmdArgs = append(cmdArgs, scoped)
+		input, ok := o.launchInputTokenArg(name, scoped)
+		if !ok {
+			o.pr(o.Stderr).print("[red]Host service '" + name + "' has no bound launch input; it was not started. Fix the core input producer and retry.[/red]")
+			return nil, false
+		}
+		cmdArgs = append(cmdArgs, input)
 	}
 	// The PLACEMENT rule, applied to what is about to be EXECUTED: a daemon
 	// program living inside the workspace this launch mounts :rw (or inside the
@@ -1180,6 +1321,14 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 	// wasn't on it, which broke the spawn). A config loophole's own command
 	// (argv[0] != "yolo") is left untouched.
 	return o.selfExecArgv(cmdArgs), true
+}
+
+func isShellCommand(command string) bool {
+	switch filepath.Base(command) {
+	case "sh", "bash", "dash", "zsh", "ksh", "ash", "fish", "csh", "tcsh":
+		return true
+	}
+	return false
 }
 
 // reportStaleRemoval unlinks a dead predecessor's artifact before a spawn and
@@ -1429,6 +1578,7 @@ func (o *Options) startExternalService(
 		reachable = func() bool { return socketConnectable(daemonPath, time.Second) }
 		awaited = daemonPath
 	}
+	readyWait := o.serviceReadyTimeoutFor(hd)
 	readyDeadline := time.Time{}
 	type reasonReadResult struct {
 		read hostservice.StartupReasonReadOutcome
@@ -1440,7 +1590,7 @@ func (o *Options) startExternalService(
 	// wait (waitServiceReadyUntil). The result itself still travels on reasonResults.
 	var recordAccepted chan struct{}
 	if reasonConn != nil {
-		readyDeadline = time.Now().Add(o.serviceReadyTimeout())
+		readyDeadline = time.Now().Add(readyWait)
 		readCtx, cancel := context.WithCancel(context.Background())
 		reasonReadCancel = cancel
 		reasonResults = make(chan reasonReadResult, 1)
@@ -1462,9 +1612,9 @@ func (o *Options) startExternalService(
 	if reasonConn == nil {
 		// Keep the legacy readiness path and its caller-owned timeout for services without
 		// the opt-in startup-reason channel.
-		failure = o.waitServiceReady(reachable, exited, cmd)
+		failure = o.waitServiceReadyUntilWithTimeout(time.Now().Add(readyWait), reachable, exited, nil, cmd, readyWait)
 	} else {
-		failure = o.waitServiceReadyUntil(readyDeadline, reachable, exited, recordAccepted, cmd)
+		failure = o.waitServiceReadyUntilWithTimeout(readyDeadline, reachable, exited, recordAccepted, cmd, readyWait)
 	}
 	var readResult reasonReadResult
 	readReceived := false
@@ -1589,7 +1739,7 @@ func (o *Options) startExternalService(
 				" — " + o.unreachableBy() + " cannot reach it. Expected " + awaited +
 				"; see " + logPath + "[/yellow]")
 		}
-		return loopholeDaemon{name: name, startupOutcome: outcome}, false
+		return loopholeDaemon{name: name, startupOutcome: outcome, inputExited: exited}, false
 	}
 	// THE DAEMON IS SUPERVISED from here on (hostdaemonsupervise.go, OQ-HD5, HD-D25): a death this
 	// process did not cause is reported and restarted with the same argv, env, path and log, bounded,
@@ -1598,7 +1748,15 @@ func (o *Options) startExternalService(
 	sup := newDaemonSupervisor(name, serviceLog, cmd, exited)
 	serviceStream := o.launchStderr()
 	sup.say = supervisorSay(serviceLog, launchLogOnly(serviceStream))
-	sup.wrapperExit = func(*exec.Cmd) bool { return reachable() }
+	sup.wrapperExit = func(*exec.Cmd) bool {
+		if !reachable() {
+			return false
+		}
+		if hd != nil && hd.LaunchInput != "" {
+			o.pr(o.Stderr).print("[yellow]Host service launch input exit cannot be observed after its wrapper exits; retaining the private file. Once the daemon is confirmed stopped, inspect its core private host state and remove only the matching input file, then retry.[/yellow]")
+		}
+		return true
+	}
 	if fronted {
 		// The copies `yolo host-daemon stop` acts on are the ones at a front socket, and its marker
 		// sits beside that socket. A restart's removal of the socket's siblings clears it too.
@@ -1659,10 +1817,41 @@ func (o *Options) startExternalService(
 		envVar = hostServiceEnvVar(name)
 	}
 	out := o.pr(o.launchStderr())
+	var finalErr error
+	checkFinalExit := hd != nil && hd.Detach && hd.LaunchInput != ""
+	var finalStatus func() error
+	if checkFinalExit {
+		finalStatus = func() error { return finalErr }
+	}
 	// stopCurrent is the teardown's stop of whichever process the supervisor holds now, marked
 	// stopping first so the stop is never read as a death and restarted.
 	stopCurrent := func() {
-		sup.stop(func(cur *exec.Cmd, curExited <-chan struct{}) { o.stopService(out, name, hd, cur, curExited) })
+		sup.stop(func(cur *exec.Cmd, curExited <-chan struct{}) {
+			alreadyExited := false
+			select {
+			case <-curExited:
+				alreadyExited = true
+			default:
+			}
+			o.stopService(out, name, hd, cur, curExited)
+			if !checkFinalExit {
+				return
+			}
+			if alreadyExited {
+				finalErr = fmt.Errorf("daemon exited before final harvest")
+				return
+			}
+			timer := time.NewTimer(o.serviceFinalExitWait())
+			defer timer.Stop()
+			select {
+			case <-curExited:
+				if cur == nil || cur.ProcessState == nil || !cur.ProcessState.Success() {
+					finalErr = fmt.Errorf("daemon exited unsuccessfully; inspect its private log")
+				}
+			case <-timer.C:
+				finalErr = fmt.Errorf("daemon did not finish within %s; its private input remains until its exit is observed", o.serviceFinalExitWait())
+			}
+		})
 	}
 	stop := stopCurrent
 	if fronted {
@@ -1695,7 +1884,7 @@ func (o *Options) startExternalService(
 				NoPreamble: !hd.Preamble,
 				Label:      o.crossingLabel,
 			})
-		if failure := frontPublishFailure(hostPath, o.serviceReadyTimeout(), frontFailed); failure != "" {
+		if failure := frontPublishFailure(hostPath, readyWait, frontFailed); failure != "" {
 			// The daemon's own socket accepted a connect above; it is the front that failed.
 			outcome.Kind = hostservice.StartupKindTransportFailed
 			outcome.Phase = hostservice.StartupPhaseFront
@@ -1713,7 +1902,7 @@ func (o *Options) startExternalService(
 			o.pr(o.Stderr).print("[yellow]Warning: the front for host service '" + name +
 				"' " + failure + " — " + o.unreachableBy() + " cannot reach it. See " +
 				logPath + "[/yellow]")
-			return loopholeDaemon{name: name, startupOutcome: outcome}, false
+			return loopholeDaemon{name: name, startupOutcome: outcome, inputExited: exited}, false
 		}
 		end = firstEnd(end, frontEnd(frontDone, frontFailed))
 		stop = func() {
@@ -1753,12 +1942,16 @@ func (o *Options) startExternalService(
 		jailPath:       jailPath,
 		envVarName:     envVar,
 		stop:           stop,
+		finalFailure:   finalStatus,
 		startupOutcome: outcome,
 		end:            end,
 		log:            serviceLog,
 	}
 	if fronted {
 		h.upstream = daemonPath
+	}
+	if hd != nil && hd.LaunchInput != "" {
+		h.inputExited, h.inputUnknown = sup.inputExitObserved()
 	}
 	go sup.run()
 	return h, true

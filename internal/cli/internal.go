@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudesecurity"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
@@ -51,6 +52,19 @@ func runInternal(args []string) int {
 		// The selected program launcher's native TMPDIR-confinement check, called immediately
 		// before exec with roots baked from the host-resolved macos-user launch context.
 		return runSandboxTmpdirValidation(args[1:])
+	case "call-broker-forward":
+		if len(args) < 4 || args[2] != "--" {
+			fmt.Fprintln(os.Stderr, "use the selected pack's call broker intercept with its original arguments")
+			return 64
+		}
+		var stdin io.Reader
+		if info, err := os.Stdin.Stat(); err != nil {
+			fmt.Fprintln(os.Stderr, "cannot inspect stdin; retry the selected pack command")
+			return 64
+		} else if info.Mode()&os.ModeCharDevice == 0 {
+			stdin = os.Stdin
+		}
+		return callbroker.ForwardCLI(args[1], "act", args[3:], stdin, os.Stdout, os.Stderr, os.Getenv)
 	case "footer":
 		// The agent footer's one renderer (docs/reference/agent-footer.md, "The renderer"), run by the
 		// status-line command each agent pack writes into its agent's settings. Hidden

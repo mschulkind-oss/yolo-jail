@@ -87,7 +87,7 @@ func loadTOMLConfigFile(path, label string, strict bool, warn Warn, record bool,
 	if err := consumeReadableFormat(doc.Values, label, path); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := validateReadableTOML(doc.Values, scope, label, doc.Index); err != nil {
+	if err := validateReadableTOML(doc.Values, scope, label, doc.Index, at.via); err != nil {
 		return nil, nil, nil, err
 	}
 	file := &srcFile{path: path, data: data, format: configdoc.TOML, document: doc,
@@ -129,7 +129,7 @@ func loadProspectiveTOMLConfigFile(path, label string, strict bool, warn Warn, r
 	if err := consumeReadableFormat(doc.Values, label, path); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := validateReadableTOML(doc.Values, scope, label, doc.Index); err != nil {
+	if err := validateReadableTOML(doc.Values, scope, label, doc.Index, at.via); err != nil {
 		return nil, nil, nil, err
 	}
 	rel := ""

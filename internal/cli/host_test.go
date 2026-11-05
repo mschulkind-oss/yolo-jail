@@ -143,6 +143,69 @@ func TestHostMainAnswersHelpAndRejectsUnknownVerb(t *testing.T) {
 	}
 }
 
+func TestHostExecRefusesTypoedOwnerResourceGroupsBeforeCommand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("PATH", t.TempDir())
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{"host_management":"own","resource_groups":{"defualt":"work.slice"}}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 1 {
+		t.Fatalf("hostMain rc = %d, want resource-group refusal (not PATH miss); stderr:\n%s", rc, errw.String())
+	}
+	got := errw.String()
+	if !strings.Contains(got, "resource_groups.defualt: unknown key") || !strings.Contains(got, "yolo check --no-build") || strings.Contains(got, "not found in PATH") {
+		t.Fatalf("hostMain did not refuse the typo before command lookup:\n%s", got)
+	}
+}
+
+func TestHostResourceGroupGateRefusesMalformedOwnerTOML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	userPath := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName)
+	if err := os.MkdirAll(filepath.Dir(userPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userPath, []byte("host_management = 'own'\n[resource_groups]\ndefault = 'work.slice'\ndefualt = 'typo.slice'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errw bytes.Buffer
+	if !refuseHostUnmetCapabilities(&errw, "no-such-agent-binary", "") {
+		t.Fatalf("host resource-group gate accepted unreadable owner config; stderr: %s", errw.String())
+	}
+	if !strings.Contains(errw.String(), "resource-group") || !strings.Contains(errw.String(), "yolo check --no-build") {
+		t.Fatalf("malformed owner-config refusal lacks repair step: %s", errw.String())
+	}
+}
+
+func TestHostResourceGroupGateKeepsMissingOwnerConfigOff(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var errw bytes.Buffer
+	if refuseHostUnmetCapabilities(&errw, "no-such-agent-binary", "") {
+		t.Fatalf("missing owner config should mean no resource-group mapping: %s", errw.String())
+	}
+	if errw.Len() != 0 {
+		t.Fatalf("missing owner config emitted an unexpected resource-group diagnostic: %s", errw.String())
+	}
+}
+
+func TestHostExecWithResourceGroupsOffStillReachesCommandLookup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("PATH", t.TempDir())
+	t.Chdir(t.TempDir())
+	userCfg(t, home, `{"host_management":"own","resource_groups":{"agent_percent":5}}`)
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"--", "no-such-agent-binary"}, &out, &errw, false, nil); rc != 127 || !strings.Contains(errw.String(), "not on this launch's PATH") {
+		t.Fatalf("valid unselected resource_groups changed ordinary host path: rc=%d stderr:\n%s", rc, errw.String())
+	}
+}
+
 // TestHostExecRefusesEmptyCommand: `yolo host --` names nothing to run.
 func TestHostExecRefusesEmptyCommand(t *testing.T) {
 	var out, errw bytes.Buffer

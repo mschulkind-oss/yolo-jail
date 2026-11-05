@@ -886,7 +886,7 @@ func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
 	// daemon and the decoder refuses the pair. "framed" is non-zero, so a dropped RequestEnd
 	// still arrives as "" and fails below.
 	declared := map[string]any{
-		"Cmd":           []any{"d", "{socket}", "--settings", "{settings}"},
+		"Cmd":           []any{"d", "{socket}", "--settings", "{settings}", "--input", "{launch_input}"},
 		"SettingsCheck": []any{"validator", "{settings}"},
 		"Env":           map[string]any{"K": "V"},
 		"Publishes":     "socket",
@@ -894,6 +894,7 @@ func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
 		"Preamble":      true,
 		"Scope":         "jail",
 		"LaunchCheck":   true,
+		"LaunchInput":   "test-input",
 		"StartupReason": true,
 		"Detach":        true,
 	}
@@ -924,6 +925,7 @@ func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
 			"preamble":       declared["Preamble"],
 			"scope":          declared["Scope"],
 			"launch_check":   declared["LaunchCheck"],
+			"launch_input":   declared["LaunchInput"],
 			"startup_reason": declared["StartupReason"],
 			"detach":         declared["Detach"],
 		},

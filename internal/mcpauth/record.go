@@ -49,6 +49,7 @@ type SharedServer struct {
 	ExpiresAtPath    string
 	ExpiresAtUnit    string
 	ClientIDPath     string
+	ClientID         string
 }
 
 // Store is the adapter's view of an agent JSON file. Root holds the original JSON object;

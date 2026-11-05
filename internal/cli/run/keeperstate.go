@@ -115,6 +115,9 @@ func probeKeeper(cname string) keeperLiveness {
 type keeperRecord struct {
 	// PID is the keeper's, which the owner-PID file names too.
 	PID int `json:"pid"`
+	// Birth is the kernel's process incarnation (including Linux boot ID), not
+	// Started's userspace clock or an authorization token.
+	Birth string `json:"birth,omitempty"`
 	// Started is when it wrote the record.
 	Started   time.Time `json:"started"`
 	Workspace string    `json:"workspace"`
@@ -129,7 +132,10 @@ type keeperRecord struct {
 	// stops it, ending whatever the keeper started that outlived it (JL-D32).
 	Scope string `json:"scope,omitempty"`
 	// Log is the keeper's log, for the lines that name it.
-	Log string `json:"log,omitempty"`
+	Log                 string `json:"log,omitempty"`
+	MCPTeardownKnown    bool   `json:"mcp_teardown_known,omitempty"`
+	MCPTeardownRequired bool   `json:"mcp_teardown_required,omitempty"`
+	MCPTeardownID       string `json:"mcp_teardown_id,omitempty"`
 	// Down is each host service the keeper runs that ended while its jail was up, in the order it
 	// saw them (keeperwatch.go, JL-D19): the keeper rewrites the record as each is seen, and an
 	// arrival prints them (noteServicesDown).
@@ -191,6 +197,11 @@ func writeKeeperRecord(cname string, rec keeperRecord) error {
 	}
 	return os.Rename(tmp.Name(), keeperRecordPath(cname))
 }
+
+// writeKeeperStartRecord is the keeper's initial write; subsequent death and
+// roster updates continue through writeKeeperRecord. Replaceable in the
+// in-process keeper test to simulate an I/O failure with an older file intact.
+var writeKeeperStartRecord = writeKeeperRecord
 
 // readKeeperRecord reads cname's start record; ok is false when there is none or it cannot be read.
 func readKeeperRecord(cname string) (keeperRecord, bool) {

@@ -53,6 +53,9 @@ type DeriveCtx struct {
 	// derivations.
 	Agent   string
 	Surface string
+	// ContainerMCPFileStore is true only at a Linux container boot; host rendering
+	// retains Codex's native credential store until the user-only host opt-in lands.
+	ContainerMCPFileStore bool
 
 	// Env selects the ENV producer instead of a surface derive: when true, Derive
 	// invokes the yolo.env(agent, fn) registration — a THIRD registration with a key
@@ -687,6 +690,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	}))
 	L.SetField(t, "agent", lua.LString(ctx.Agent))
 	L.SetField(t, "surface", lua.LString(ctx.Surface))
+	L.SetField(t, "container_mcp_file_store", lua.LBool(ctx.ContainerMCPFileStore))
 	L.SetField(t, "selected_provider", lua.LString(ctx.SelectedProvider))
 	// ctx.selected_platform: what service the selected provider IS (OQ-BR2, ruled 2026-09-29),
 	// the `platform` its composed row carries — "" when no provider is selected, when the

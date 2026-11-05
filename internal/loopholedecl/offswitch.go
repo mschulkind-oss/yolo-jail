@@ -15,6 +15,7 @@ import "sort"
 var offSwitchLoopholes = map[string]string{
 	"claude-oauth-broker": "claude-auth",
 	"openai-auth-broker":  "codex-auth",
+	"mcp-auth-broker":     "mcp-auth",
 	"aws-auth":            "aws-auth",
 	"cgroup-delegate":     "cgroup-delegate",
 }

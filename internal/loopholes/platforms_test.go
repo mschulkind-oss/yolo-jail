@@ -208,7 +208,8 @@ func TestMalformedPlatformsIsRefusedOnTheTolerantPath(t *testing.T) {
 func TestShippedLoopholePlatformDeclarations(t *testing.T) {
 	wantPlatforms := map[string][]string{
 		"audio": {"linux"}, "journal": {"linux"}, "cgroup-delegate": {"linux"},
-		"host-processes": {"linux", "darwin"},
+		"mcp-auth-broker": {"linux"},
+		"host-processes":  {"linux", "darwin"},
 		// macos-log reads a Mac's unified log, so darwin alone (packs/macos-log/README.md ML-D9).
 		"macos-log": {"darwin"},
 	}

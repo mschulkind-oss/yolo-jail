@@ -1,0 +1,16 @@
+name = "mcp-auth-broker"
+description = "Shares only declared user-level MCP sign-ins between selected workspaces at launch and exit; canonical refresh credentials remain in private host state."
+version = 1
+serves = ["mcp-sign-in-sharing"]
+transport = "loopback-tls"
+lifecycle = "spawned"
+# Slice 1 has a measured shared-kernel flock only on Linux podman. Other
+# backends must not start a daemon with an empty or unprovable mount topology.
+platforms = ["linux"]
+doctor_cmd = ["yolo", "internal", "daemon", "mcp-auth-broker", "--self-check", "--state-dir", "{state}"]
+
+[host_daemon]
+cmd = ["yolo", "internal", "daemon", "mcp-auth-broker", "--socket", "{socket}", "--state-dir", "{state}", "--share", "{launch_input}"]
+publishes = "socket"
+detach = true
+launch_input = "mcp-auth-share"

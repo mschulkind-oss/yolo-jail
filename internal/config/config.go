@@ -86,7 +86,7 @@ var knownTopLevelConfigKeys = set(
 	"host_apply_on_launch", "host_management", "host_import_exclusions", "agent_updates", "host_floor", "host_path", "provisioners", "packs", "perf_logging", "macos_user_mode", "macos_user_shared_tmp", "on_request",
 	// Named setups (docs/design/named-setups.md): your default and your own; user scope only.
 	"setup", "setups",
-	"update_check", "promotion_target", "shipped_skill_prefix",
+	"update_check", "promotion_target", "shipped_skill_prefix", "resource_groups",
 	"providers", "model_facts", "profiles", "profile", "required_capabilities", "adapters",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
@@ -190,7 +190,8 @@ var (
 	knownDeviceKeys      = set("usb", "description", "cgroup_rule")
 	// `io` is the disk I/O priority, read by internal/ioprio's Parse in validation and by
 	// every reader after it (docs/design/io-priority.md §4).
-	knownResourcesKeys = set("memory", "cpus", "pids_limit", "io")
+	knownResourcesKeys      = set("memory", "cpus", "pids_limit", "io")
+	knownResourceGroupsKeys = set("default", "maintenance", "agent_percent", "workspaces", "projects")
 	// knownHostServiceKeys is the INLINE loophole entry's key census. It must
 	// cover every key the loader reads: `description` and `doctor_cmd` are read
 	// by discover.go's synthesizeConfigLoopholes, and `jail_endpoint` is the

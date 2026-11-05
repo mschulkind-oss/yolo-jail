@@ -1104,3 +1104,37 @@ func TestAStaleForwardSocketIsGoneBeforeTheForwardsStart(t *testing.T) {
 		t.Errorf("a dropped forward's socket survived: %v", err)
 	}
 }
+
+// A failed initial write must not let a selected keeper start while an older
+// known-off record still occupies its private name. The old record is not ours
+// to delete merely because a synthetic PID happened to match.
+func TestSelectedKeeperStartRecordFailureStopsBeforeServiceOrJail(t *testing.T) {
+	previous := writeKeeperStartRecord
+	writeKeeperStartRecord = func(string, keeperRecord) error { return errors.New("injected start record write failure") }
+	t.Cleanup(func() { writeKeeperStartRecord = previous })
+	var old keeperRecord
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		p.MCPTeardownID = strings.Repeat("b", 32)
+		old = keeperRecord{PID: os.Getpid(), Birth: "older-incarnation", Started: time.Now().Add(-time.Hour),
+			Workspace: p.Workspace, Runtime: p.Runtime, MCPTeardownKnown: true}
+		if err := writeKeeperRecord(p.Cname, old); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if f.relay() || f.wait() == 0 {
+		t.Fatal("selected keeper reached ready without persisting its current start record")
+	}
+	if f.started != 0 || f.jail.stopCount() != 0 || strings.Contains(strings.Join(f.jail.calls, "\n"), "podman run") {
+		t.Fatalf("selected keeper started a jail or service: events=%d calls=%v", f.started, f.jail.calls)
+	}
+	if !strings.Contains(f.errOut.String(), "Refusing to start selected MCP services") ||
+		!strings.Contains(f.errOut.String(), "Repair the private state directory") {
+		t.Fatalf("missing actionable refusal: %s", f.errOut.String())
+	}
+	if got, ok := readKeeperRecord(f.cname); !ok || got.Birth != old.Birth || !got.MCPTeardownKnown || got.MCPTeardownRequired {
+		t.Fatalf("failed start destroyed or changed the older record: %+v (%v)", got, ok)
+	}
+	if probeKeeper(f.cname) != keeperGone {
+		t.Fatal("refusing keeper still holds the liveness lock")
+	}
+}

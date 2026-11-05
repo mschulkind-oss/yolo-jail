@@ -1599,8 +1599,8 @@ func brokeredWrittenTwiceProblems(n *srcNode) []string {
 	return out
 }
 
-// UnbrokeredSourceWarnings is host `yolo check`'s report of a `brokered` source that no loophole
-// a selected pack ships brokers (WW-D22): such an entry does nothing here, and a misspelled
+// UnbrokeredSourceWarnings is host `yolo check`'s report of a `brokered` source no selected pack's
+// `brokered` or `call_broker` declaration owns: such an entry does nothing here, and a misspelled
 // source is the case worth catching. Never a launch's: a committed entry would print it at every
 // launch of every contributor who selects no such pack, with no step they could take. Each names
 // the next step. Nil in a jail, where the selection is the host's.
@@ -1615,6 +1615,9 @@ func UnbrokeredSourceWarnings(merged *jsonx.OrderedMap, resolver LoopholeResolve
 	for _, info := range known {
 		if info.Brokered != nil {
 			brokers[info.Brokered.Source] = true
+		}
+		if info.CallBroker != nil {
+			brokers[info.CallBroker.Source] = true
 		}
 	}
 	have := make([]string, 0, len(brokers))
@@ -1632,9 +1635,10 @@ func UnbrokeredSourceWarnings(merged *jsonx.OrderedMap, resolver LoopholeResolve
 			continue
 		}
 		out = append(out, "config."+brokeredKey+"."+name+": no loophole a selected pack ships brokers "+
-			"the source "+pyReprValue(name)+", so this entry does nothing here (brokered sources "+
-			"here: "+names+"). Check the spelling against the loophole manifest's `brokered.source`, "+
-			"or select the pack that ships it; if you use no such pack, nothing needs doing.")
+			"the source "+pyReprValue(name)+", so this entry does nothing here (selected sources here: "+
+			names+"). Check the spelling against a selected loophole manifest's `brokered.source` or "+
+			"`call_broker.source`; select its pack with `yolo pack add <name>`, or do nothing if no selected "+
+			"pack should provide it.")
 	}
 	return out
 }

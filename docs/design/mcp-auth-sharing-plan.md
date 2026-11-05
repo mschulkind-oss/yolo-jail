@@ -3,29 +3,37 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Task 12's producer/daemon and canonical-store consumers remain unbuilt; revalidate generic per-launch launch_input delivery before claiming a brokered runtime, and measure native B1/B2 separately"
+next: "Resolve Codex native sign-in identity provenance before Task 12 integration; independently review detached interim security repairs"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
-summary: "Build hand-off: Phase A adds the remote mcp_servers form, supported-agent renders, safe withholding, and scope attribution. Phase B (the mcp-auth pack and broker) remains separate and unimplemented here; later slices are re-planned against the tree when phase B lands."
+summary: "Build hand-off: Phase A and Task 11 are integrated; the detached Task 12 repair candidate safely seeds only proven Codex replicas but cannot adopt fresh native sign-ins without header-origin evidence. Task 12 remains blocked; later tasks remain separate."
 ---
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
 
-**Status:** 2026-11-04. Reconciled against `10a0f990013cd5ee03d1f1d875b0e3e5640392aa`; Phase A is source-integrated from `c62ca3ce0`: remote config and pack declarations,
-Codex/Claude/opencode rendering, safe transport withholding with boot notices, effective-transport
-header binding, scope attribution, and `config why` with header redaction and unavailable provenance.
-The affected package suites and real-jail integration tests cover static rendered files and effective
-transport/header outcomes; no agent, authentication flow, or MCP endpoint was invoked. Reviewed
-Tasks 7, 8 and 10, and Codex's `mcp_auth` declaration metadata, are source-integrated foundations.
-Task 11's canonical store, Codex JSON adapter, and pure seed/adopt planners are now source-integrated;
-`go test ./internal/mcpauth ./internal/paths`, `go test -race ./internal/mcpauth`, their shared-path
-caller package tests, and `just check-ci` pass. The Task 11 filesystem change includes the reviewed
-leaf-symlink no-follow open repair. It does not read native credentials or provide an agent/runtime
-flow. Task 9's selected host-daemon state fence is already in main. Task 12's pack, daemon and
-seed/harvest consumer are unbuilt; the generic per-launch `launch_input` channel and B1/B2 runtime
-measurements remain outstanding. B1 still gates any claim that a running Codex process uses a
-propagated credential; B2 separately gates additional agents' remote dialects. Phases C to E remain
-outlines, not build hand-offs.
+**Task 12 repair candidate (2026-11-05, not integrated):** Independent HIGH review blocks
+the first detached implementation. The current detached repair excludes conditional entries
+without per-agent boot eligibility evidence, refuses to promote unproved native sign-ins, tracks
+host-private exact managed copies for seed and post-sign-out removal, awaits bounded final
+harvest in the ending launch, enforces one startup budget and makes status reads non-mutating.
+Codex's native key hashes empty headers, its native match returns only name and URL, and its
+stored entry has no sign-in header provenance; two sign-ins with different headers can have the
+same native key/name/URL/client ID. Consequently **fresh native sign-in harvest remains unsupported
+in this interim candidate**, not accepted as a replacement for the Task 12 requirement. The
+seed-only synthetic test reports the unsupported boundary; no real sign-in or native B1/B2 is
+claimed. Restore harvest only with independently reviewed proof of native sign-in origin or an
+explicit owner ruling. Do not read this candidate status as a change to settled decisions below.
+
+**Prior candidate status (superseded):** Reconciled against `3bc5dd976ae10a0cd94873b8724dfcbffe702c9c` in a detached candidate. Phase A's remote form,
+supported-agent renders, header binding and scope attribution remain source-integrated.
+Tasks 7–11 and the selected host-daemon state fence remain integrated prerequisites. The generic
+`launch_input` contract and observed-daemon-exit cleanup at this base are now used by a selected
+`mcp-auth` pack, a producer from the immutable effective/user-only launch composition, and a
+Codex JSON-store daemon. Synthetic Linux podman integration crosses the selected pack, pre-ready
+seed, native-lock exit adoption, refresh-token removal, audit and private-input cleanup; no agent
+or MCP endpoint was invoked. This work is **candidate-only**, not integrated into main. Task 13's
+live sync, Task 14's refresh/status CLI, Task 15's `yolo host` branch and native B1/B2 witnesses
+remain outstanding; this candidate claims no running-agent or cross-backend delivery.
 
 **Phase A boundary for the broker.** The effective merged MCP entry, not the raw project override,
 is the identity input: `config.secureMCPServerMerge` and `packload.mergeMCPEntry` drop inherited
@@ -34,9 +42,10 @@ headers on URL/transport changes. `packload.ComposeMCPServers` composes pack ent
 `Reason`, after defaults for transport and headers. `configWhyMCPScope` emits `scope: unavailable` through `configWhyMCPJailUnavailable` in-jail when the immutable running pack selection cannot be proven; that is **not** evidence of user scope. A broker share producer must consume launch-time effective and user-only compositions
 from a provable selection, and omit unproved entries instead of converting unavailable to user.
 `luahook.WithheldRemoteMCPServers` and `entrypoint.remoteMCPNotices` report derives that cannot
-render a transport; a withheld server is not an authenticated replica. No share producer, generic
-`launch_input` declaration/token, or runtime delivery exists yet. These are implementation
-constraints, not new scope-attribution rules.
+render a transport; a withheld server is not an authenticated replica. The frozen generic
+`launch_input` contract is now connected to Task 12's selected MCP producer and daemon in this
+candidate only. The producer reads the staged pack tree and approved effective/user-only MCP
+composition; unproved provenance yields no shared entries. Tasks 13–15 remain separate.
 
 **Design:** [`mcp-auth-sharing.md`](mcp-auth-sharing.md), every question ruled
 ([decision ledger](mcp-auth-sharing.md#decision-ledger)). The broker sits on the accepted host-broker
@@ -111,8 +120,8 @@ report, do not commit,** when:
 | `internal/mcpauth/` | new: records, canonical store, lock protocols, the seed and adopt planners, store adapters |
 | `internal/mcpauthdaemon/` | new: the daemon (`Main`, self-check, watch, propagate, refresh, the status handler) |
 | `internal/internaldaemon/internaldaemon.go` | `case "mcp-auth-broker"`; the usage line |
-| `internal/loopholedecl/` | Phase B must add the generic `launch_input` host-daemon key and `{launch_input}` token; neither exists in the current tree |
-| `internal/cli/run/brokeredscope.go`, `loopholesruntime.go`, `mcpauthshare.go` (new) | future generic launch-input producer/runtime delivery, share-file creation and teardown; current `{repository_scope}` remains brokered-specific |
+| `internal/loopholedecl/` | Candidate tree implements the generic `launch_input` host-daemon key and `{launch_input}` token; integration review and an actual registered producer remain |
+| `internal/cli/run/brokeredscope.go`, `loopholesruntime.go`, `mcpauthshare.go` (new) | Candidate generic keeper delivery is dormant; MCP share producer and daemon still need to be built; existing `{repository_scope}` remains brokered-specific |
 | `internal/cli/run/unknownlaunchenv.go` | `YOLO_SERVICE_MCP_AUTH_BROKER_ENDPOINT` |
 | `internal/brokeraudit/brokeraudit.go`, `internal/cli/audit.go` | `Event.Server`, `Event.Generation`; how `yolo audit` renders an event with no argv |
 | `internal/cli/mcpauth.go` (new), `dispatch.go`, `cli.go`, `help.go`, `subhelp.go` | `yolo mcp-auth status` |
@@ -680,29 +689,31 @@ compatibility rows; task 10 adds server/generation audit events and rendering. C
 `mcp_auth` manifest declaration is integrated as a Task 12 prerequisite; it is metadata, not a store
 consumer. Task 11 is now source-integrated: the canonical store, Codex JSON adapter, pure seed/adopt
 planners, and the no-follow leaf-open repair in `internal/paths`. Their focused tests, race test,
-shared-path caller package tests, and `just check-ci` passed. These foundations still do not provide
-an authentication/runtime flow, and no native credential reads were performed. Task 9's selected
-host-daemon state fence is already built at `c62ca3ce0`. Task 12's pack and daemon remain unbuilt;
-its generic per-launch producer/delivery is absent. Native B1 and B2 runtime measurements remain
-separate gates; nothing here establishes that a running Codex process uses a propagated credential
-or measures another agent's remote dialect.
+shared-path caller package tests, and `just check-ci` passed at their integration. These
+previously integrated foundations alone supplied no runtime consumer and read no native credentials.
+Task 9's selected
+host-daemon state fence is already built at `c62ca3ce0`. In this detached candidate, Task 12
+connects the selected `mcp-auth` pack, private producer and launch-boundary seed/adopt daemon to
+those prerequisites. Its synthetic jail test does not start Codex or contact an MCP endpoint.
+Native B1 and B2 runtime measurements remain separate gates: neither running-process uptake nor
+another agent's dialect has been witnessed.
 
 **Implementation boundary:** the accepted design specifies one core-owned generic per-launch input,
-through `launch_input` and `{launch_input}`. That producer registry, token validation/resolution and
-runtime delivery are still unimplemented; do not describe `c62ca3ce0` as implementing them. The
-existing `{repository_scope}` token and `Options.approvedScopes` result are specifically the legacy
-`brokered` path. Reuse its already-approved in-memory scope result only where the planned call-broker
-scope collection can do so; do not create a second generic token/file mechanism or relabel the legacy
-token as the framework interface. Task 12's producer/daemon work must implement the one generic
-channel before claiming a broker launch input.
+through `launch_input` and `{launch_input}`. This candidate tree has its declaration, token,
+private atomic input publication, keeper delivery and exit-observed cleanup; this candidate
+registers `mcp-auth-share` as its core-owned producer. None of this is integrated into main yet.
+The existing `{repository_scope}` token and `Options.approvedScopes` result remain specific to
+the legacy `brokered` path. Do not create another generic token or file mechanism, or rename the
+brokered token as the framework interface. Live sync, refresh and status CLI remain separate tasks.
 
 **Independent foundation tasks:** task 7 covers sandboxed-Lua registration and Codex key vectors;
 task 8 covers strict manifest declaration decoding; task 10 covers audit record and CLI rendering.
 Their reviewed repairs are integrated, but these foundations do not make an authentication or runtime
 flow ready. Codex's official `mcp_auth` manifest metadata is a Task 12 prerequisite only. Task 11's
 canonical store and planners are now integrated as a separate, pure storage/adapter/planner slice;
-the declaration metadata neither completes nor substitutes for Task 11. Task 12 still must connect
-the store to a producer and daemon before any brokered sign-in or runtime claim.
+the declaration metadata neither completes nor substitutes for Task 11. Task 12's candidate
+producer and daemon now consume it at launch and exit; native runtime proof and later phases
+remain distinct from that synthetic file-flow witness.
 
 <a id="task-7"></a>**Task 7: the Lua helpers and the `mcp_auth` registration.** *Independent.*
 
@@ -960,7 +971,15 @@ the store to a producer and daemon before any brokered sign-in or runtime claim.
   - Apple Container prints `MCP sign-ins for codex are not shared on Apple Container in this
     yolo yet; each workspace signs in once (codex mcp login <name>)`.
   - macos-user prints the same line with `macos-user`.
-  - The producer writes no replica for either, and the daemon there has nothing to do.
+  - The selected loophole declares `platforms = ["linux"]`: on Apple Container and
+    macos-user no broker or doctor starts and no private share file is published. The
+    producer's unsupported-backend result, if invoked, has `"replicas": []`; the selected
+    pack's launch notice explicitly says sign-ins are not shared. This keeps unmeasured
+    backends from failing a readiness check for a service they cannot use. The broker also
+    joins the existing owner off-switch set ([LC-D3](legacy-config-compat.md#decision-ledger)):
+    `[allow.mcp-auth] off = true` prevents its producer, daemon, endpoint and doctor from
+    running, even if the project requests it on. This is the settled ungated-login-service
+    mechanism, not a new grant or an environment switch.
   - This is the parity exception, and the reason is the design's own: those columns wait on
     their witnesses.
 - **The share file, as a contract** (`<state>/replicas/<container name>.json`, `0600`):
@@ -1098,8 +1117,8 @@ the store to a producer and daemon before any brokered sign-in or runtime claim.
     `derive.lua` gets the `yolo.mcp_auth("codex", …)` registration from task 7's test. The
     config derive renders `mcp_oauth_credentials_store = "file"` in a container jail
     ([task 15](#task-15) adds the host branch).
-  - **The per-launch input is future work.** This accepted design's `launch_input`/`{launch_input}` producer registry and runtime resolution do not exist today; the existing `TokenRepositoryScope`/`{repository_scope}` is only for loopholes declaring `brokered`. Implement the single generic channel as part of the broker producer/runtime work, preserving the existing architecture; do not add a parallel token or file mechanism. The launch-time effective and user-only MCP tables, including unavailable provenance, are task 6 inputs, not derivable from `config why` text.
-  - **The producer:** `internal/cli/run/mcpauthshare.go`. It is called at the launch's per-launch-input production seam once that generic seam exists, and:
+  - **The per-launch input:** this candidate implements the dormant generic `launch_input`/`{launch_input}` declaration, token and keeper delivery with no registered production producer. The existing `TokenRepositoryScope`/`{repository_scope}` is only for loopholes declaring `brokered`. Register the MCP producer on the single generic channel; do not add a parallel token or file mechanism. The launch-time effective and user-only MCP tables, including unavailable provenance, come from the frozen launch composition, not `config why` text.
+  - **The producer:** `internal/cli/run/mcpauthshare.go`. It must be registered at the candidate's existing per-launch-input production seam, and:
     - computes the shared set from task 6's scopes;
     - computes keys with `luahook.MCPAuthKeys` over the pack's `derive.lua`;
     - writes the file;
@@ -1404,7 +1423,7 @@ framework and not two:
 1. **The framework fence is ID-9's rule.** Every selected host-daemon loophole's state directory
    is fenced; a `credential_paths` key is the addition for credentials held elsewhere. If the
    framework names that key outside `[brokered]`, the MCP pack adopts it at the migration step.
-2. **A per-launch input.** This plan and the pack-broker design share one generic `launch_input`/`{launch_input}` mechanism, but it is not yet implemented. The MCP share file is one core-owned producer; the call broker's scope is another. The existing `{repository_scope}` token stays specific to `brokered` and is not folded into or renamed as the generic token. Do not add a third mechanism.
+2. **A per-launch input.** This plan and the pack-broker design share one generic `launch_input`/`{launch_input}` mechanism. Its declaration, token and keeper delivery are used by the selected Task 12 `mcp-auth-share` producer in this detached candidate, not yet integrated into main. The call broker's scope is another potential producer. The existing `{repository_scope}` token stays specific to `brokered` and is not folded into or renamed as the generic token. Do not add a third mechanism.
 3. **The readout request.** The framework's readout request should be, or alias, `{"op":"status"}`
    returning a schema-tagged object. Then `yolo access` renders this broker's object as its
    readout line without a second protocol.

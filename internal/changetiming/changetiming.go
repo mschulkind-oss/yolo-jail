@@ -104,7 +104,7 @@ var schemaRows = map[string]Outcome{
 	"on_request":            AtNextRestart, "update_check": AtNextRestart, "promotion_target": AtNextRestart,
 	"shipped_skill_prefix": AtNextRestart, "providers": AtNextRestart, "model_facts": AtNextRestart,
 	"profiles": AtNextRestart, "profile": AtNextRestart, "required_capabilities": AtNextRestart,
-	"adapters": AtNextRestart,
+	"adapters": AtNextRestart, "resource_groups": AtNextRestart,
 	// Named setups: the setup is chosen when a launch starts, so a running jail keeps its own.
 	"setup": AtNextRestart, "setups": AtNextRestart,
 	// `requests` is a project's ask (readable config), not one of TopLevelConfigKeys. A grant it

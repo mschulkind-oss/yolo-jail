@@ -80,24 +80,24 @@ func offEntry() *jsonx.OrderedMap {
 	return m
 }
 
-var offSwitchPacks = []string{"claude-auth", "codex-auth", "aws-auth", "cgroup-delegate", "journal"}
+var offSwitchPacks = []string{"claude-auth", "codex-auth", "mcp-auth", "aws-auth", "cgroup-delegate", "journal"}
 
-// TestEnabledFalseKeepsAnOffSwitchLoopholeOff: a legacy `loopholes.<name>.enabled: false` on one of
-// LC-D3's four loopholes keeps it out of the launch's Enabled set, which every surface that starts
+// TestEnabledFalseKeepsAnOffSwitchLoopholeOff: a legacy `loopholes.<name>.enabled: false` on an
+// off-switch loophole keeps it out of the launch's Enabled set, which every surface that starts
 // a daemon, serves a pointer or grants the delegate reads. A grant-declaring loophole's switch is
 // still a grant, never a record switch (loophole-grants.md §4.1), so journal runs.
 func TestEnabledFalseKeepsAnOffSwitchLoopholeOff(t *testing.T) {
 	modules := shippedModules(t, offSwitchPacks...)
 	if got := enabledNames(NewSelectedSet(nil, modules, nil)); !slices.Equal(got,
-		[]string{"aws-auth", "cgroup-delegate", "claude-oauth-broker", "journal", "openai-auth-broker"}) {
+		[]string{"aws-auth", "cgroup-delegate", "claude-oauth-broker", "journal", "mcp-auth-broker", "openai-auth-broker"}) {
 		t.Fatalf("control: with no config every selected loophole runs, got %v", got)
 	}
 	block := jsonx.NewOrderedMap()
-	for _, name := range []string{"aws-auth", "cgroup-delegate", "claude-oauth-broker", "openai-auth-broker", "journal"} {
+	for _, name := range []string{"aws-auth", "cgroup-delegate", "claude-oauth-broker", "mcp-auth-broker", "openai-auth-broker", "journal"} {
 		block.Set(name, offEntry())
 	}
 	if got := enabledNames(NewSelectedSet(block, modules, nil)); !slices.Equal(got, []string{"journal"}) {
-		t.Errorf("enabled: false on the four off-switch loopholes: Enabled = %v, want only journal", got)
+		t.Errorf("enabled: false on the off-switch loopholes: Enabled = %v, want only journal", got)
 	}
 	on := jsonx.NewOrderedMap()
 	entry := jsonx.NewOrderedMap()
@@ -126,8 +126,8 @@ func TestTOMLOffKeepsAnOffSwitchLoopholeOff(t *testing.T) {
 	allow.Set("codex-auth", notOff)
 	cfg.Set("allow", allow)
 	if got := enabledNames(NewSelectedSet(LaunchBlock(cfg), modules, nil)); !slices.Equal(got,
-		[]string{"cgroup-delegate", "journal", "openai-auth-broker"}) {
-		t.Errorf("allow.aws-auth.off and allow.claude-auth.off: Enabled = %v, want cgroup-delegate, journal, openai-auth-broker", got)
+		[]string{"cgroup-delegate", "journal", "mcp-auth-broker", "openai-auth-broker"}) {
+		t.Errorf("allow.aws-auth.off and allow.claude-auth.off: Enabled = %v, want cgroup-delegate, journal, mcp-auth-broker, openai-auth-broker", got)
 	}
 	if _, has := cfg.Get("loopholes"); has {
 		t.Error("LaunchBlock wrote into the config it was handed")
@@ -161,7 +161,7 @@ func TestAProjectsRequestsOffKeepsAnOffSwitchLoopholeOff(t *testing.T) {
 	requests.Set("cgroup-delegate", "off")
 	cfg.Set("requests", requests)
 	if got := enabledNames(NewSelectedSet(LaunchBlock(cfg), modules, nil)); !slices.Equal(got,
-		[]string{"cgroup-delegate", "claude-oauth-broker", "journal", "openai-auth-broker"}) {
+		[]string{"cgroup-delegate", "claude-oauth-broker", "journal", "mcp-auth-broker", "openai-auth-broker"}) {
 		t.Errorf("requests.aws-auth.off and requests.cgroup-delegate = \"off\": Enabled = %v, want all but aws-auth", got)
 	}
 }

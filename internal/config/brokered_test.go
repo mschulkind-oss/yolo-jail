@@ -363,7 +363,7 @@ func TestAnUnbrokeredSourceIsTheChecksWarningAndNeverTheLaunchs(t *testing.T) {
 	}
 	joined := strings.Join(UnbrokeredSourceWarnings(cfg, brokeredResolver), "\n")
 	if !strings.Contains(joined, "config.brokered.githb: no loophole a selected pack ships brokers the source "+
-		"'githb', so this entry does nothing here (brokered sources here: github)") ||
+		"'githb', so this entry does nothing here (selected sources here: github)") ||
 		!strings.Contains(joined, "Check the spelling") {
 		t.Errorf("no warning, with its next step, for the unbrokered source:\n%s", joined)
 	}
@@ -371,8 +371,34 @@ func TestAnUnbrokeredSourceIsTheChecksWarningAndNeverTheLaunchs(t *testing.T) {
 		t.Errorf("a warning for a brokered source:\n%s", joined)
 	}
 	if joined := strings.Join(UnbrokeredSourceWarnings(cfg, fenceResolver{}), "\n"); !strings.Contains(joined,
-		"config.brokered.github: no loophole") || !strings.Contains(joined, "(brokered sources here: none)") {
+		"config.brokered.github: no loophole") || !strings.Contains(joined, "(selected sources here: none)") {
 		t.Errorf("with no brokered loophole selected, every source is inert:\n%s", joined)
+	}
+}
+
+// WW-D22 recognizes both declarations that own a configured source while retaining warnings
+// for names neither selected declaration owns.
+func TestUnbrokeredSourceWarningsRecognizesSelectedCallBrokerSources(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	merged := decode(t, `{"brokered":{"legacy":{},"local-tasks":{},"unknown":{}}}`)
+	resolver := fenceResolver{known: map[string]LoopholeInfo{
+		"legacy":      {Name: "legacy", Brokered: &loopholedecl.Brokered{Source: "legacy"}},
+		"call-broker": {Name: "call-broker", CallBroker: &loopholedecl.CallBroker{Source: "local-tasks"}},
+	}}
+	joined := strings.Join(UnbrokeredSourceWarnings(merged, resolver), "\n")
+	for _, expected := range []string{
+		"config.brokered.unknown: no loophole a selected pack ships brokers the source 'unknown'",
+		"(selected sources here: legacy, local-tasks)",
+		"a selected loophole manifest's `brokered.source` or `call_broker.source`",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Errorf("warning %q missing from %q", expected, joined)
+		}
+	}
+	for _, source := range []string{"legacy", "local-tasks"} {
+		if strings.Contains(joined, "config.brokered."+source+":") {
+			t.Errorf("selected source %q was reported inert: %s", source, joined)
+		}
 	}
 }
 

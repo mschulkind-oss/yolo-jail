@@ -192,6 +192,12 @@ beside them, any request your ceiling skips with the `yolo allow` command that w
 
 Edits to your user config do not ask, because only you can make them.
 
+## Owner resource-group selection
+
+Resource groups are off unless your user config explicitly maps the workspace or sets a `default`. The owner-only `[resource_groups]` table can select a default unit, exact workspace paths, nearest project roots, a separate `maintenance` unit and an `agent_percent` integer from 1 through 99 (default 5). Path keys are quoted canonical absolute paths; project files cannot choose or override these host-owned groups.
+
+Selection is not placement or enforcement. This build does not yet verify group authority or place a process: a selected launch is refused, and `yolo check --no-build` reports the selection as `unsupported/unknown`. With no matching mapping, the launch path does not inspect resource managers, controllers, devices or group policy. See `yolo config-ref` for the exact fields and current support status.
+
 **Scripts, CI and editor tasks cannot answer.** A launch with no terminal to ask on stops instead,
 printing the difference and the files involved. Pass `--accept-config-changes` to approve it for
 that one launch; it is a flag rather than an environment variable, so an approval never carries

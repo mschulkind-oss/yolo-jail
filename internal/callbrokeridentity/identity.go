@@ -4,6 +4,7 @@ package callbrokeridentity
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,20 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
+
+type stagedPackRootUnavailable struct{ source string }
+
+func (e *stagedPackRootUnavailable) Error() string {
+	return fmt.Sprintf("call broker %s names an external classifier or executor, but its selected staged pack root is unavailable; select and stage the owning pack", e.source)
+}
+
+// IsStagedPackRootUnavailable reports the one identity failure that a pre-stage config pass
+// may defer. The launch-input publisher still refuses the unresolved declaration, and the
+// staged discovery pass must resolve it from the actual selected tree before publishing.
+func IsStagedPackRootUnavailable(err error) bool {
+	var unavailable *stagedPackRootUnavailable
+	return errors.As(err, &unavailable)
+}
 
 // Resolve validates every external classifier/executor program token against the selected staged
 // pack's own program contributions and hashes the host-executable file beneath that tree.
@@ -33,7 +48,7 @@ func Resolve(packRoot, pack, moduleDir string, broker *loopholedecl.CallBroker) 
 		return nil, nil
 	}
 	if packRoot == "" || pack == "" {
-		return nil, fmt.Errorf("call broker %s names an external classifier or executor, but its selected staged pack root is unavailable; select and stage the owning pack", broker.Source)
+		return nil, &stagedPackRootUnavailable{source: broker.Source}
 	}
 	root, err := filepath.EvalSymlinks(packRoot)
 	if err != nil {
@@ -65,13 +80,17 @@ func Resolve(packRoot, pack, moduleDir string, broker *loopholedecl.CallBroker) 
 	if err != nil || !pathWithin(root, moduleRoot) {
 		return nil, fmt.Errorf("call broker %s module is outside selected pack %s staged tree", broker.Source, pack)
 	}
-	moduleManifest, err := filepath.EvalSymlinks(filepath.Join(moduleRoot, "manifest.jsonc"))
+	moduleManifestPath := loopholedecl.ManifestPath(moduleRoot)
+	moduleManifest, err := filepath.EvalSymlinks(moduleManifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("call broker %s selected pack %s module manifest: %w", broker.Source, pack, err)
 	}
 	moduleManifest, err = filepath.Abs(moduleManifest)
 	if err != nil || !pathWithin(root, moduleManifest) {
 		return nil, fmt.Errorf("call broker %s module manifest resolves outside selected pack %s staged tree", broker.Source, pack)
+	}
+	if _, _, err := loopholedecl.LoadDirTolerant(moduleRoot); err != nil {
+		return nil, fmt.Errorf("call broker %s selected pack %s module manifest: %w", broker.Source, pack, err)
 	}
 	moduleRel, err := filepath.Rel(root, moduleRoot)
 	if err != nil {

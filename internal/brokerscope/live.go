@@ -129,6 +129,9 @@ func replaceScope(ctx context.Context, path string, expect File, repos []string,
 			if validEntry(form, r) {
 				continue
 			}
+			if form == FormCallRoot {
+				return errors.New("scope file: invalid call-broker root; check the selected pack")
+			}
 			if form == FormRemoteURL {
 				return errors.New("scope file: an entry is not a remote URL the remote-url scope can hold " +
 					"(empty, with a space or control character, or carrying a credential)")
@@ -158,7 +161,7 @@ func replaceScope(ctx context.Context, path string, expect File, repos []string,
 			f.Workspace != expect.Workspace || f.PID != expect.PID {
 			return errors.New("scope identity changed; the jail this scope was approved for is not the one running")
 		}
-		if f.Form != "" && f.Form != FormRemoteURL {
+		if f.Form != "" && f.Form != FormRemoteURL && f.Form != FormCallRoot {
 			return errors.New("scope file of an unknown form; relaunch the jail")
 		}
 		if err := checkEntries(f.Form); err != nil {

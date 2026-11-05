@@ -30,7 +30,7 @@ func (o *Options) sectionPackNudge(r *reporter, user *jsonx.OrderedMap, src *con
 	}
 	facts := o.AllowFacts
 	if facts == nil {
-		facts = config.EmbeddedAllowPackFacts
+		facts = config.SelectedAllowPackFacts
 	}
 	var userSrc *config.Sources
 	if src != nil {

@@ -28,6 +28,9 @@ type CallBroker struct {
 	// pack tree; parsing a manifest never reads or executes a program.
 	ProgramIdentities    map[string]CallBrokerProgramIdentity `json:"-"`
 	ProgramIdentityError string                               `json:"-"`
+	// ProgramIdentityPending marks only the pre-stage case where no selected staged root
+	// exists yet. It is metadata for config validation, never launch authority.
+	ProgramIdentityPending bool `json:"-"`
 }
 
 type CallBrokerProgramIdentity struct {

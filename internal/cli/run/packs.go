@@ -821,7 +821,7 @@ func resolvePackLoopholeModules() []loopholes.PackModule {
 		for _, d := range packLoopholeDecls([]*packload.Pack{p}) {
 			// HostExecApproved unconditionally — see packLoopholeModules for why the field
 			// survives the deletion of the gate that used to fill it.
-			out = append(out, loopholes.PackModule{Dir: d.Dir, Pack: d.Pack, HostExecApproved: true})
+			out = append(out, loopholes.PackModule{Dir: d.Dir, Pack: d.Pack, PackRoot: p.Root, HostExecApproved: true})
 		}
 	}
 	return out

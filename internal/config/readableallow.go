@@ -1995,6 +1995,38 @@ func EmbeddedAllowPackFacts(listed []string) AllowPackFacts {
 	return facts
 }
 
+// SelectedAllowPackFacts extends the shipped-name nudge with the configured
+// selection's broker sources. A source is a valid user allowance name only
+// when its owning pack is selected; missing declarations never become facts.
+func SelectedAllowPackFacts(listed []string) AllowPackFacts {
+	facts := EmbeddedAllowPackFacts(listed)
+	selected, complete := UserScopeSelectedPacks()
+	if !complete {
+		return facts
+	}
+	declarations, _, err := ReadableDeclarationsForPacks(selected)
+	if err != nil {
+		return facts
+	}
+	for _, pack := range selected {
+		if pack != nil && !slices.Contains(facts.Needed, pack.Name) {
+			facts.Needed = append(facts.Needed, pack.Name)
+		}
+	}
+	for _, declaration := range declarations {
+		source := declaration.Brokered.Source
+		if declaration.CallBroker != nil {
+			source = declaration.CallBroker.Source
+		}
+		if source != "" {
+			if _, taken := facts.Names[source]; !taken {
+				facts.Names[source] = declaration.Pack
+			}
+		}
+	}
+	return facts
+}
+
 // ListedPackNames is the pack names the user scope lists, as LoadPacks reads them.
 func ListedPackNames(warn Warn) ([]string, error) {
 	entries, err := LoadPacks(warn)
@@ -2025,7 +2057,7 @@ func AllowPackSwitchErrors() []string {
 		return nil
 	}
 	var out []string
-	for _, n := range AllowPackNudges(user, src, EmbeddedAllowPackFacts(listed)) {
+	for _, n := range AllowPackNudges(user, src, SelectedAllowPackFacts(listed)) {
 		if n.Kind != AllowNudgeLoginNoProfile {
 			out = append(out, n.Message())
 		}

@@ -64,6 +64,9 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	r := packSkewRun{rt: &skewRuntime{env: env, execIDs: "1"}}
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	writeCurrentKeeperRecord(t, yoloruntime.FromWorkspace(ws), keeperRecord{
+		Started: time.Now(), Workspace: ws, Runtime: "podman", MCPTeardownKnown: true,
+	})
 	if repo, ok := o.RepoRoot(); ok {
 		if err := os.RemoveAll(prebuiltBinDir(repo.Root)); err != nil {
 			t.Fatal(err)

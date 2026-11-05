@@ -1,6 +1,7 @@
 package mcpauth
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,11 +165,44 @@ func (a Adapter) updateFile(root *os.Root, path string, wait time.Duration, laun
 	if !parsed {
 		return errors.New("mcp-auth: replica did not parse; leave it unchanged and retry after correcting the store")
 	}
+	before, beforeErr := a.Encode(store)
 	next, err := plan(store)
 	if err != nil {
 		return err
 	}
+	if next.Deleted && len(store.Root) == 0 {
+		return nil
+	}
+	if !next.Deleted {
+		after, afterErr := a.Encode(next)
+		if beforeErr == nil && afterErr == nil && bytes.Equal(before, after) && len(store.Root) > 0 {
+			return nil
+		}
+	}
 	return a.writeFile(parent, leaf, next)
+}
+
+// InspectFile observes an agent's store under its own lock, without writing it. A missing
+// store is a clean absence; a malformed or linked store is an error, never a sign-out.
+func (a Adapter) InspectFile(root *os.Root, path string, wait time.Duration, inspect func(Store) error) error {
+	unlock, err := a.lockReplica(root, wait)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	parent, leaf, err := openParentWithoutLinks(root, path)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	store, parsed, err := a.ReadFile(parent, leaf)
+	if err != nil {
+		return err
+	}
+	if !parsed {
+		return errors.New("mcp-auth: malformed replica; correct the store and retry")
+	}
+	return inspect(store)
 }
 
 // readSeedFile distinguishes a replaceable linked leaf from an unreadable store.

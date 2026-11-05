@@ -80,8 +80,8 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	o := &Options{Workspace: t.TempDir(), Stderr: discardBuf()}
 	if _, loaded, _, err := o.stagePacks("yolo-test-drop"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
-	} else if len(chosenPacks(loaded)) != 5 {
-		t.Fatalf("first pass: want claude, codex, their auth packs and Claude's wire bridge; got %d packs", len(chosenPacks(loaded)))
+	} else if len(chosenPacks(loaded)) != 6 {
+		t.Fatalf("first pass: want claude, codex, their auth packs, Codex's MCP sign-in pack and Claude's wire bridge; got %d packs", len(chosenPacks(loaded)))
 	}
 
 	writeUserPacks(t, home, `["claude"]`)

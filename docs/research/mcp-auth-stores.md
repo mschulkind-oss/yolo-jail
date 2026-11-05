@@ -161,9 +161,9 @@ derive renders it.
   per-server: `McpServerConfig` has no store field (`R/config/src/mcp_types.rs:234-313`).
   Distinct from `cli_auth_credentials_store` (model login, `auth.json`), config_toml.rs:289-295.
 - `auto`: keyring first; on a keyring save error, falls back to the file
-  (`R/rmcp-client/src/oauth.rs:600-634`); on load, keyring `Ok(None)` falls through to the file
-  (`R/rmcp-client/src/oauth/resolved_store.rs:343-372`). The chosen store is pinned per client
-  lifecycle (resolved_store.rs:36-41).
+  (`oauth.rs`, production save path); on load, keyring `Ok(None)` delegates to file loading in
+  `resolved_store.rs`'s `OAuthCredentialsStoreMode::Auto` branch. The chosen store is pinned per client
+  lifecycle (`resolved_store.rs:36-41`).
 - Keyring backend kind defaults to `Direct` on Linux/macOS (`types.rs:177-184`): service
   `"Codex MCP Credentials"`, account = store key (oauth.rs:100, 530-541).
 - File: `$CODEX_HOME/.credentials.json` (oauth.rs:857, 1101-1103); `CODEX_HOME` moves it (and
@@ -210,18 +210,49 @@ derive renders it.
   NOFOLLOW, so a symlinked dir is fine). Sharing the file without sharing this directory leaves
   cross-jail refreshes unserialized.
 
-### 3. Per-server split?
+### 3. Can the store be split per server?
 
-Not natively: one file per CODEX_HOME, one global store setting, no per-server path. A split
+**Not natively: one file per CODEX_HOME, one global store setting, no per-server path.** A split
 needs yolo to own a merge: compose the jail's file from machine-store entries for user-level
 servers plus the workspace's own, and write back after every change. Refresh rewrites the file
-(oauth.rs:794 `persist_if_needed`), and a server that rotates refresh tokens would have two
-copies burn each other, the same problem openai-auth-broker solves; so the merge would need a
-live sync, not a boot-time copy.
+(`oauth.rs` `persist_if_needed`), and a server that rotates refresh tokens would have two copies
+burn each other, the same problem openai-auth-broker solves; so the merge would need a live
+sync, not a boot-time copy.
 
 Mitigating fact: because entries are keyed by name+URL, a workspace-only server's entry in a
-shared file is only USED by a jail that declares that same name and URL. Sharing the whole
-file isolates function, not confidentiality (every jail can read every token).
+shared file is only USED by a jail that declares that same name and URL. Sharing the whole file
+isolates function, not confidentiality (every jail can read every token).
+
+#### Nov 5 source recheck: key identity is not the full sign-in origin
+
+Re-analyzed the public Rust source at the pinned `rust-v0.166.0` tag on 2026-11-05. This was a
+static source check, not an installed-runtime check or a sign-in/authentication probe.
+`compute_store_key(server_name, server_url)` forms the key from the normalized server name,
+`MCP_SERVER_TYPE`, URL, and an empty headers object before hashing. The ordinary key therefore
+does **not** encode the configured HTTP headers or OAuth client ID. The `ema-idp:` special case
+adds Codex-home/user/workspace context; it is not the ordinary HTTP-server identity rule.
+
+The production save path computes that key from the stored server name and URL before updating
+the fallback store. The load path in the same Rust source also computes the key, then checks
+stored URL/name and ownership conditions; for ordinary entries it can accept a matching name and
+URL even when a freshly computed key differs. This production load/save behavior and the empty-
+headers key input are present in `oauth.rs` itself, independently of yolo's Lua renderer.
+Consequently, a native key alone cannot establish the complete configured sign-in origin: it has
+discarded the header input. An entry's stored `client_id` can be compared as one additional
+dimension, but it does not establish every origin dimension or prove which configuration
+authorized the existing token. A previous seed, current config, or changed token is not evidence
+of a fresh login's origin.
+
+This recheck narrows the claim: the checked tag's native key is not a full header-origin
+binding. It does not establish that a full-origin harvest is impossible in every future design,
+and it does not select an architecture or settle a new owner requirement. The current source
+evidence does not verify a new sign-in API, hook, or transport mechanism. A broker must not infer
+ownership of an unknown native entry from this key; seeding alone does not demonstrate fresh-login
+harvesting.
+
+Sources:
+- [`oauth.rs` at `rust-v0.166.0`](https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/rmcp-client/src/oauth.rs) — `compute_store_key` plus the production save, load, and matching paths; checked 2026-11-05 against this static source tag.
+- [`resolved_store.rs` at `rust-v0.166.0`](https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/rmcp-client/src/oauth/resolved_store.rs) — store authority selection/delegation and pinned-store lifecycle; checked 2026-11-05 against this static source tag.
 
 ### 4. Recommendation
 

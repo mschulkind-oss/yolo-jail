@@ -385,8 +385,9 @@ var inheritCensus = map[string]keyDisposition{
 	// `setup` and `setups` choose and define where an agent runs on the host
 	// (docs/design/named-setups.md); a nested jail is one setup's inside, and its own
 	// launches take the inner OS's default.
-	"setup":  {reason: "chooses where the agent runs on the host; a nested jail is one setup's inside"},
-	"setups": {reason: "defines where an agent may run on the host; a nested jail is one setup's inside"},
+	"setup":           {reason: "chooses where the agent runs on the host; a nested jail is one setup's inside"},
+	"setups":          {reason: "defines where an agent may run on the host; a nested jail is one setup's inside"},
+	"resource_groups": {reason: "host-only resource selection; inheriting it would let nested work select host-owned groups"},
 }
 
 // readableInheritDisposition is a readable-root census entry: the keyDisposition, plus

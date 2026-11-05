@@ -34,7 +34,7 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 			continue
 		}
 		s := ScopeSource{Source: selected.Source, Label: selected.Label, RemoteHost: b.Scope.RemoteHost,
-			Form: brokerscope.FormRemoteURL, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
+			Form: brokerscope.FormCallRoot, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
 			EntryKey: brokeredRootsPath(selected.Source)}
 		if b.Scope.Roots == "declared" {
 			if read != nil {
@@ -159,7 +159,7 @@ func callBrokerInfoBySource(resolver LoopholeResolver) (map[string]LoopholeInfo,
 			continue
 		}
 		bySource[source] = info
-		if info.CallBroker.ProgramIdentityError != "" {
+		if info.CallBroker.ProgramIdentityError != "" && !info.CallBroker.ProgramIdentityPending {
 			problems = append(problems, fmt.Sprintf("selected call broker %s program identity: %s", name, info.CallBroker.ProgramIdentityError))
 		}
 		for _, join := range info.CallBroker.Joins {
@@ -262,57 +262,35 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 		sourceAllow, _ = asMap(sourceValue)
 	}
 	allowed := func(table, cell string) bool {
-		if sourceAllow == nil {
-			return false
-		}
-		for _, field := range []string{"always", "on_request"} {
-			v, _ := sourceAllow.Get(field)
-			list, ok := v.([]any)
-			if !ok {
-				continue
-			}
-			for _, item := range list {
-				if token, ok := item.(string); ok && (token == table+"."+cell || token == table) {
-					return true
-				}
-			}
-		}
-		return false
+		return callBrokerCeiling(sourceAllow, table, cell)
 	}
 	if requestSource == nil {
 		requestSource = jsonx.NewOrderedMap()
 	}
 	for _, cell := range b.Cells {
-		values := map[string]bool{}
-		for table, value := range cell.Default {
+		values := map[string]string{}
+		for _, table := range []string{"working_set", "all"} {
+			value, valid := callBrokerRequested(cell, requestSource, table)
 			values[table] = value
-		}
-		for _, table := range []string{"working_set", "all"} {
-			v, _ := requestSource.Get(table)
-			tm, _ := asMap(v)
-			if tm == nil {
-				continue
-			}
-			if raw, ok := tm.Get(cell.Name); ok {
-				switch x := raw.(type) {
-				case bool:
-					values[table] = x
-				case string:
-					if x == "ask" {
-						values[table] = false
-					} else {
-						add(errs, "config.requests."+source+"."+table+"."+cell.Name+": expected true, false, or \"ask\"")
-					}
-				default:
-					add(errs, "config.requests."+source+"."+table+"."+cell.Name+": expected true, false, or \"ask\"")
-				}
+			if !valid {
+				add(errs, "config.requests."+source+"."+table+"."+cell.Name+": expected true, false, or \"ask\"")
 			}
 		}
-		if inList(cell.Tables, "working_set") && inList(cell.Tables, "all") && values["all"] && !values["working_set"] {
-			add(errs, "config.requests."+source+": all."+cell.Name+" = true but working_set."+cell.Name+" is not true; keep working_set at least as permissive as all, or change all to false/\"ask\"")
+		order := func(value string) int {
+			switch value {
+			case "false":
+				return 0
+			case "true":
+				return 2
+			default: // an absent line is an ask for the invariant
+				return 1
+			}
+		}
+		if inList(cell.Tables, "working_set") && inList(cell.Tables, "all") && order(values["all"]) > order(values["working_set"]) {
+			add(errs, "config.requests."+source+": working_set."+cell.Name+" is less permissive than all."+cell.Name+"; keep working_set at least as permissive as all, or narrow all")
 		}
 		for _, table := range []string{"working_set", "all"} {
-			if values[table] && !allowed(table, cell.Name) && !(table == "working_set" && allowed("all", cell.Name)) {
+			if values[table] == "true" && !allowed(table, cell.Name) && !(table == "working_set" && allowed("all", cell.Name)) {
 				add(warns, "config.requests."+source+"."+table+"."+cell.Name+": call-broker default/request is outside the user ceiling and will not run; allow it on the host with `yolo allow "+source+" on_request "+table+"."+cell.Name+"`, or remove the request")
 			}
 		}

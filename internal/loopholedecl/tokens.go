@@ -4,6 +4,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // Module-dir tokens. {loophole_dir} resolves to the HOST-side absolute module
@@ -129,6 +131,99 @@ const TokenState = "{state}"
 // in this manifest" is a statement about the schema. A manifest declaring [[grants]]
 // has a file to hand over even with no settings: the grant file is this file.
 const TokenSettings = "{settings}"
+
+// TokenLaunchInput names the private per-launch file produced by the core-owned
+// launch-input registry for one selected host daemon.
+const TokenLaunchInput = "{launch_input}"
+
+func validLaunchInputName(s string) bool {
+	if len(s) == 0 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for _, r := range s[1:] {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func tokenOccurrences(args []string, token string) int {
+	total := 0
+	for _, arg := range args {
+		total += strings.Count(arg, token)
+	}
+	return total
+}
+
+func refuseLaunchInputTokenMismatch(manifestPath, producer string, cmd, settingsCheck []string, env *EnvMap) error {
+	count := tokenOccurrences(cmd, TokenLaunchInput)
+	if tokenOccurrences(settingsCheck, TokenLaunchInput) > 0 {
+		return Errorf("%s: 'host_daemon.settings_check' cannot use '%s'; it names the daemon's per-launch input, not the validator snapshot", manifestPath, TokenLaunchInput)
+	}
+	if env != nil {
+		for _, key := range env.Keys() {
+			value, _ := env.Get(key)
+			if strings.Contains(value, TokenLaunchInput) {
+				return Errorf("%s: 'host_daemon.env.%s' cannot use '%s'; pass the private input path through 'host_daemon.cmd'", manifestPath, key, TokenLaunchInput)
+			}
+		}
+	}
+	switch {
+	case count > 0 && producer == "":
+		return Errorf("%s: 'host_daemon.cmd' names '%s' but 'host_daemon.launch_input' is missing — declare a core-owned input producer or remove the token", manifestPath, TokenLaunchInput)
+	case count == 0 && producer != "":
+		return Errorf("%s: 'host_daemon.launch_input' is declared but 'host_daemon.cmd' does not name '%s' — pass the produced file path to the daemon", manifestPath, TokenLaunchInput)
+	case count > 1:
+		return Errorf("%s: 'host_daemon.cmd' must name '%s' exactly once so one private input file is bound to this daemon", manifestPath, TokenLaunchInput)
+	}
+	return nil
+}
+
+func refuseLaunchInputTokenOutsideDaemon(manifestPath string, data *jsonx.OrderedMap) error {
+	for _, key := range data.Keys() {
+		value, _ := data.Get(key)
+		if key == keyHostDaemon {
+			if host, ok := value.(*jsonx.OrderedMap); ok {
+				for _, hostKey := range host.Keys() {
+					if hostKey == keyCmd {
+						continue
+					}
+					other, _ := host.Get(hostKey)
+					if containsLaunchInputToken(other) {
+						return Errorf("%s: 'host_daemon.%s' cannot use '%s'; it is produced only for 'host_daemon.cmd'", manifestPath, hostKey, TokenLaunchInput)
+					}
+				}
+				continue
+			}
+		}
+		if containsLaunchInputToken(value) {
+			return Errorf("%s: %s cannot use '%s'; it is produced only for a selected 'host_daemon.cmd'", manifestPath, key, TokenLaunchInput)
+		}
+	}
+	return nil
+}
+
+func containsLaunchInputToken(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, TokenLaunchInput)
+	case []any:
+		for _, child := range v {
+			if containsLaunchInputToken(child) {
+				return true
+			}
+		}
+	case *jsonx.OrderedMap:
+		for _, key := range v.Keys() {
+			child, _ := v.Get(key)
+			if containsLaunchInputToken(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // refuseSettingsTokenWithoutDeclaration rejects {settings} in a host-side field of a
 // manifest that declares no settings keys and no grant kinds. declared counts both: the file

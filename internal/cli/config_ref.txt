@@ -3165,6 +3165,14 @@
       and "path" in one entry is a validation error naming both.
         "overrides": { "board": { "prebuilt": true } }
 
+  [bold]resource_groups[/bold] (object): Owner-only selection for host resource groups. No mapping is enabled by default. A selected mapping is intent only: this build cannot verify or enforce host placement, so `yolo` refuses mapped launches and `yolo check --no-build` reports placement as unsupported/unknown. No group manager, controller, device or policy probe runs when there is no matching mapping.
+    • [bold]default[/bold] (string): Explicit fallback owner unit for workspaces without a more-specific mapping. Setting this opts those workspaces in.
+    • [bold]maintenance[/bold] (string): Owner unit reserved for explicitly attributed machine-wide maintenance work. It is not inherited from the current directory and is not used by this build.
+    • [bold]agent_percent[/bold] (integer): Planned agent share for future finite group budgets. Default: 5; valid range: 1 through 99. This value does not apply a cap in this build.
+    • [bold]workspaces[/bold] (table): Exact mapping from quoted canonical absolute workspace paths to owner unit names.
+    • [bold]projects[/bold] (table): Mapping from quoted canonical absolute project roots to owner unit names. The nearest component-bounded root is used after exact workspace mappings.
+    Empty or unmatched mappings leave the workspace off. Project configuration cannot set or override this owner-only key. Use `yolo check --no-build` to inspect the selection.
+
   [bold]resources[/bold] (object): Container resource limits.
     Sets hard cgroup constraints on the jail container via podman flags.
     memory, cpus and pids_limit are enforced by the kernel — the jail cannot exceed them.

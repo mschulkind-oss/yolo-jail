@@ -76,6 +76,85 @@ func TestCallBrokerProgramIdentitiesResolveFromSelectedPackTree(t *testing.T) {
 	}
 }
 
+func TestCallBrokerProgramIdentitiesResolveFromSelectedTOMLPackTree(t *testing.T) {
+	root, module := callBrokerProgramFixture(t, "{program:classifier}", "{program:executor}")
+	if err := os.Remove(filepath.Join(module, "manifest.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `name = "tasks"
+transport = "loopback-tls"
+[call_broker]
+source = "tasks"
+front = "cli"
+program = "tasks"
+classifier = ["{program:classifier}"]
+executor = "{program:executor}"
+[call_broker.scope]
+roots = "declared"
+[[call_broker.resource]]
+type = "project"
+[[call_broker.cell]]
+name = "tasks"
+tables = ["working_set"]
+default = { working_set = false }
+`
+	if err := os.WriteFile(filepath.Join(module, "loophole.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := Discover(DiscoverOptions{PackModules: []PackModule{{Dir: module, Pack: "fixture", PackRoot: root, HostExecApproved: true}}})
+	if len(items) != 1 || items[0].CallBroker == nil {
+		t.Fatalf("selected TOML call broker was dropped before use: %+v", items)
+	}
+	for _, name := range []string{"classifier", "executor"} {
+		identity, ok := items[0].CallBroker.ProgramIdentities[name]
+		if !ok || identity.Pack != "fixture" || identity.Bin != name || identity.RelPath != filepath.ToSlash(filepath.Join("tools", name, name)) || identity.Path != filepath.Join(root, "tools", name, name) {
+			t.Fatalf("selected TOML program identity %q = %+v", name, identity)
+		}
+		data, err := os.ReadFile(identity.Path)
+		if err != nil || identity.SHA256 != fmt.Sprintf("%x", sha256.Sum256(data)) {
+			t.Fatalf("selected TOML program checksum %q = %q, read err=%v", name, identity.SHA256, err)
+		}
+	}
+}
+
+func TestCallBrokerProgramIdentityRefusesTOMLModuleManifestSymlinkOutOfSelectedTree(t *testing.T) {
+	root, module := callBrokerProgramFixture(t, "{program:classifier}", "core")
+	if err := os.Remove(filepath.Join(module, "manifest.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	outsideRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(outsideRoot, "loophole.toml")
+	manifest := `name = "tasks"
+transport = "none"
+[call_broker]
+source = "tasks"
+front = "cli"
+program = "tasks"
+classifier = ["{program:classifier}"]
+[call_broker.scope]
+roots = "declared"
+[[call_broker.resource]]
+type = "project"
+[[call_broker.cell]]
+name = "tasks"
+tables = ["working_set"]
+default = { working_set = false }
+`
+	if err := os.WriteFile(outside, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(module, "loophole.toml")); err != nil {
+		t.Fatal(err)
+	}
+	items := Discover(DiscoverOptions{PackModules: []PackModule{{Dir: module, Pack: "fixture", PackRoot: root, HostExecApproved: true}}})
+	if len(items) != 0 {
+		t.Fatalf("TOML manifest symlink escaping the selected staged tree was accepted: %+v", items)
+	}
+}
+
 func TestCallBrokerProgramIdentityRefusesUnselectedOrNonExecutablePrograms(t *testing.T) {
 	for _, tc := range []struct {
 		name, classifier string

@@ -676,6 +676,101 @@ func TestAStaleStopMarkerDoesNotSuppressALaterCrashsRestart(t *testing.T) {
 // A STOP BY THE VERB DURING A RESTART'S READINESS WAIT IS STILL A STOP: the restarted process,
 // stopped by `yolo host-daemon stop` before its wait passed, fails that wait, and the supervisor
 // reads the marker for its pid rather than counting a failed restart and spawning another.
+// TestRestartInputExitWitnessWaitsForCurrentProcess proves done is not an
+// exit witness during restart readiness, even after the original process died.
+func TestDetachedWrapperStoppedAfterExitRetainsPrivateInput(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	<-exited
+	s := newDaemonSupervisor("wrapper-input-fixture", "", cmd, exited)
+	s.wrapperExit = func(*exec.Cmd) bool { return true }
+	observed, unknown := s.inputExitObserved()
+	s.stop(func(*exec.Cmd, <-chan struct{}) {})
+	s.run()
+	select {
+	case <-unknown:
+	case <-time.After(time.Second):
+		t.Fatal("detached wrapper did not retain unobserved private input")
+	}
+	select {
+	case <-observed:
+		t.Fatal("wrapper exit was mistaken for daemon exit")
+	default:
+	}
+}
+
+func TestRestartInputExitWitnessWaitsForCurrentProcess(t *testing.T) {
+	if goruntime.GOOS != "linux" {
+		t.Skip("spawns a host process")
+	}
+	spawn := func() (*exec.Cmd, <-chan struct{}, error) {
+		cmd := exec.Command("sleep", "30")
+		if err := cmd.Start(); err != nil {
+			return nil, nil, err
+		}
+		exited := make(chan struct{})
+		go func() { _ = cmd.Wait(); close(exited) }()
+		return cmd, exited, nil
+	}
+	first, firstExited, err := spawn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newDaemonSupervisor("input-exit-fixture", "", first, firstExited)
+	s.policy = daemonRestartPolicy{initial: 5 * time.Millisecond, ceiling: time.Second, restarts: 1}
+	s.say = func(string) {}
+	s.wrapperExit = func(*exec.Cmd) bool { return false }
+	restarted := make(chan *exec.Cmd, 1)
+	s.start = func() (*exec.Cmd, <-chan struct{}, error) {
+		cmd, exited, err := spawn()
+		if err == nil {
+			restarted <- cmd
+		}
+		return cmd, exited, err
+	}
+	s.ready = func(*exec.Cmd, <-chan struct{}) string {
+		<-s.stopCh // teardown interrupts readiness without waiting for this process
+		return "stopped during readiness"
+	}
+	s.abandon = func(*exec.Cmd) {}
+	observed, _ := s.inputExitObserved()
+	go s.run()
+	t.Cleanup(func() {
+		s.stop(func(c *exec.Cmd, _ <-chan struct{}) { _ = c.Process.Kill() })
+		_ = first.Process.Kill()
+	})
+	_ = first.Process.Kill()
+	var second *exec.Cmd
+	select {
+	case second = <-restarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no restarted process")
+	}
+	s.stop(func(*exec.Cmd, <-chan struct{}) {}) // detached process stays live
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("teardown did not close supervision")
+	}
+	select {
+	case <-observed:
+		t.Fatal("supervisor done was mistaken for current process exit")
+	default:
+	}
+	if err := second.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-observed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("restarted process exit was never observed")
+	}
+}
+
 func TestAStopByTheVerbDuringARestartsReadinessWaitIsNotRestarted(t *testing.T) {
 	if goruntime.GOOS != "linux" {
 		t.Skip("spawns host processes")

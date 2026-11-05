@@ -390,6 +390,8 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 		}
 		if d.Deny {
 			fmt.Fprintf(out, "Denied %s. Run `yolo approve` to list requests and grants.\n", termsafe.Visible(request))
+		} else if descriptor, ok := descriptorForSource(stores, g.Set); ok && descriptor.allowOnceOnly == "selected pack calls" {
+			approveCallBrokerOnceOutcome(out, request, g)
 		} else {
 			approveOnceOutcome(out, request, g)
 		}
@@ -449,6 +451,9 @@ func approvalDescriptorForStore(s *brokerstore.Store) approvalDescriptor {
 	case gitbroker.Source:
 		return approvalDescriptor{perResource: s.Entries != nil}
 	default:
+		if s.Revalidate != nil && s.ApprovalStatus == "selected" {
+			return approvalDescriptor{allowOnceOnly: "selected pack calls"}
+		}
 		return approvalDescriptor{}
 	}
 }
