@@ -226,7 +226,7 @@ func readyFixtureBudget(t *testing.T) time.Duration {
 }
 
 func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, ready bool,
-	delay time.Duration) (*Options, []loopholeDaemon, *hostStartupRefusal, string) {
+	delay time.Duration, beforeStart ...func()) (*Options, []loopholeDaemon, *hostStartupRefusal, string) {
 	t.Helper()
 	// Under -race a child's exit with status 0 sleeps a second in the race runtime first
 	// (atexit_sleep_ms), which would read as a refusing daemon still alive after its record.
@@ -274,6 +274,9 @@ func runPerJailReasonFixture(t *testing.T, mode string, timeout time.Duration, r
 	o.ServiceReadyTimeout = timeout
 	o.Stdout, o.Stderr = &output, &output
 	o.PathExists = func(string) bool { return false }
+	for _, observe := range beforeStart {
+		observe()
+	}
 	started := o.startLoopholesMatching(set, cname, "podman", jsonx.NewOrderedMap(), func(string) bool { return true })
 	if len(started) > 0 {
 		t.Cleanup(func() {
