@@ -412,6 +412,7 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 			return false
 		}
 		o.callBrokerCells = cells
+		o.approvedHTTPBindings = scope.HTTPBindings()
 		o.recordApprovedScopes(approved, scope.ApprovedGrants(), scope.ReadWithoutScope())
 		o.recordApprovedLoopholeGrants(scope.ApprovedLoopholeGrants())
 		o.workspaceMounts = approvedMounts

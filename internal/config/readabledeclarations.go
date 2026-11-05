@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -87,7 +88,12 @@ func cloneReadableCallBroker(broker *loopholedecl.CallBroker) *loopholedecl.Call
 	for i := range cloned.Lookups {
 		cloned.Lookups[i].CLI = append([]string(nil), broker.Lookups[i].CLI...)
 	}
-	cloned.ReadOverPost = append([]string(nil), broker.ReadOverPost...)
+	cloned.ReadOverPost = slices.Clone(broker.ReadOverPost)
+	if broker.HTTP != nil {
+		http := *broker.HTTP
+		http.RequestHeaders = slices.Clone(broker.HTTP.RequestHeaders)
+		cloned.HTTP = &http
+	}
 	cloned.Joins = append([]loopholedecl.CallBrokerJoin(nil), broker.Joins...)
 	if broker.ProgramIdentities != nil {
 		cloned.ProgramIdentities = make(map[string]loopholedecl.CallBrokerProgramIdentity, len(broker.ProgramIdentities))

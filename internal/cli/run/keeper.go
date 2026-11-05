@@ -289,6 +289,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o.runtime = plan.Runtime
 	o.approvedScopes = plan.ApprovedScopes
 	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
+	o.approvedHTTPBindings = cloneHTTPBindings(plan.ApprovedHTTPBindings)
 	o.approvedGrants = plan.ApprovedGrants
 	o.approvedLoopholeGrants = plan.ApprovedLoopholeGrants
 	o.readWithoutScope = plan.ReadWithoutScope

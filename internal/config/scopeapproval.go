@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -61,6 +62,9 @@ type ScopeSource struct {
 	// Disclosure is selected call-broker declaration metadata recorded and shown with this gate.
 	// It carries no runtime authority.
 	Disclosure []string
+	// HTTPBinding is selected nonsecret metadata; only a successful gate caller may copy it
+	// into the private launch snapshot, after the disclosure and scope comparison pass.
+	HTTPBinding *ApprovedCallBrokerHTTP
 	// ScopeKind names non-repository roots (for example, a call-broker root).
 	ScopeKind string
 	// the source defines and the user's own config allows (WorkspaceRead.Grants), and GrantFiles
@@ -130,6 +134,25 @@ type ScopeCheck struct {
 }
 
 func (s *ScopeCheck) inPlay() bool { return s != nil && len(s.Sources) > 0 }
+
+// HTTPBindings copies the metadata presented by this check. Call only after the gate succeeds;
+// the check itself is not an approval or an independent credential channel.
+func (s *ScopeCheck) HTTPBindings() map[string]ApprovedCallBrokerHTTP {
+	if s == nil {
+		return nil
+	}
+	out := map[string]ApprovedCallBrokerHTTP{}
+	for _, source := range s.Sources {
+		if source.HTTPBinding == nil {
+			continue
+		}
+		binding := *source.HTTPBinding
+		binding.HTTP.RequestHeaders = slices.Clone(binding.HTTP.RequestHeaders)
+		binding.ReadOverPost = slices.Clone(binding.ReadOverPost)
+		out[source.Label] = binding
+	}
+	return out
+}
 
 // ScopeRepo is one approved repository and where it came from, as a launch hands it to the
 // spawn: Sources are display labels (`remote "origin"`, `yolo-jail.jsonc`), every one already

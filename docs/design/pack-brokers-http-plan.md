@@ -3,22 +3,22 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-05
 status: accepted
 stage: DECIDED
-next: "Start G1 consumer manifest/gate tests on the integrated F and call-input-cleanup source; stop if named source paths drift noncosmetically"
+next: "Obtain the required independent combined-source review of the integrated G1; then begin G2 on this source if no blocking finding remains"
 tags: [plan, broker, http]
 summary: "Tree-grounded G1–G4/H tasks for the independently accepted HTTP contract."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-05. This plan is grounded in the earlier source snapshot `3ffce6f32` (code at `15d008576`); HTTP G1–G4/H remain unbuilt. **Design:** [accepted HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md) remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong. Stop without committing if a named symbol disappears, the test is not red for its predicted reason, a file is dirty with another writer's work, a change escapes the fence or an unrelated gate fails.
+**Status:** 2026-11-06. G1's HTTP declaration, existing config-gate binding and selected private launch-input path are integrated on the current MCP source. The six focused G1 review findings are closed on the accepted candidate, including empty-array preservation, selected-pack/declaration-hash gate identity, DNS-only origins, required JSON arrays, Unicode control rejection, and real keeper/private-input publication coverage. The G1 HTTP front and execution remain unbuilt; G2–G4/H are not activated. Combined-source review and final matched-source/native gates remain. **Design:** [accepted HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md) remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong. Stop without committing if a named symbol disappears, the test is not red for its predicted reason, a file is dirty with another writer's work, a change escapes the fence or an unrelated gate fails.
 
-**Source prerequisite:** Reviewed F read/list and host-environment/XDG source is now integrated; the scope-bind-failure cleanup repair is included too. Begin G1 on this current source only after confirming named callers. Combined-source HIGH review and final matched-source/native gates remain. Independent MCP final-outcome/daemon-start and forced-stop findings are separate pending work, not unanswered HTTP design questions; this plan makes no MCP outcome-acceptance claim. F's read/list behavior does not prove cloud login. `ForAddRemember` and mixed-cell timed/Add stay disabled pending [OQ-BX7](pack-brokers.md#OQ-BX7) and safe persistence. No external credentials or account probes.
+**Source prerequisite:** Reviewed F read/list and host-environment/XDG source and its scope-bind-failure cleanup repair are integrated. G1 preserves the independent MCP final-stop, confirmed-absence and harvest-failure checks; it does not weaken or replace them. F's read/list behavior does not prove cloud login. `ForAddRemember` and mixed-cell timed/Add stay disabled pending [OQ-BX7](pack-brokers.md#OQ-BX7) and safe persistence. No external credentials or account probes.
 
 ## Map
 
 | Path | Change |
 | :--- | :--- |
-| `internal/loopholedecl/callbroker.go`, `callbroker_test.go`, `tomlform_test.go`; `internal/config/brokered.go`, config/gate tests; `internal/cli/run/launchinput.go`, `brokeredscope.go`, tests; `internal/callbrokerinput/launch.go` | G1: strict source-bound HTTP declaration, gate display/approved binding and selected private input; preserve CLI behavior |
+| `internal/loopholedecl/callbroker.go`, `callbroker_test.go`, `tomlform_test.go`; `internal/config/callbroker.go`, `scopeapproval.go`, `readabledeclarations.go`, config/gate tests; `internal/cli/run/launchinput.go`, `keeperplan.go`, `keeperspawn.go`, tests; `internal/callbrokerinput/launch.go` | G1: strict source-bound HTTP declaration, gate display/approved binding and selected private input; preserve CLI behavior (**integrated; focused findings closed; combined review remains**) |
 | `internal/frameproto/frameproto.go`, `frameproto_test.go`; `internal/hostservice/hostservice.go`, tests; `internal/callbroker/classifier.go`, `http.go` (new), HTTP tests | G2: HTTP-only authenticated host-ingress preallocation bound and HTTP classifier/canonical bytes; leave generic CLI/Git/GH frame caps alone |
 | `internal/callbroker/daemon.go`, `authority.go`, `handler.go`, `decision.go`, HTTP tests; `internal/brokerstore/store.go`, tests; `internal/brokeraudit/`, tests | G3: host HTTP decision, non-body pending metadata/act resubmission, exact spend/audit and pinned core/custom executor |
 | `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`; `internal/cli/run/launchinput.go`, runtime tests; `internal/callbroker/httpfront.go` (new), tests | G4: selected in-jail HTTP front and real launch wiring, authenticated host identity and response envelope |

@@ -13,7 +13,7 @@ func TestCallBrokerRootsDefaultsAndReadFloorReachGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"tasks","transport":"loopback-tls","call_broker":{"source":"local-tasks","front":"http","classifier":["yolo","internal","call-broker-classify","circleci"],"scope":{"roots":"declared"},"resource":[{"type":"project"}],"cell":[{"name":"rerun_workflows","tables":["working_set","all"],"default":{"working_set":true}}],"read_over_post":["/graphql"]}}`
+	manifest := `{"name":"tasks","transport":"loopback-tls","call_broker":{"source":"local-tasks","front":"http","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]},"env_from_host":["TASKS_TOKEN"],"classifier":["yolo","internal","call-broker-classify","circleci"],"scope":{"roots":"declared"},"resource":[{"type":"project"}],"cell":[{"name":"rerun_workflows","tables":["working_set","all"],"default":{"working_set":true}}],"read_over_post":["/graphql"]}}`
 	m, err := loopholedecl.Decode([]byte(manifest), "/staged/packs/tasks/loopholes/tasks")
 	if err != nil {
 		t.Fatal(err)

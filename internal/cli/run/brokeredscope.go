@@ -82,7 +82,7 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 		selected = append(selected, config.ReadablePackDeclaration{Pack: lp.Pack, Settings: lp.Settings,
 			Loophole: lp.Name, Grants: lp.Grants})
 		if lp.CallBroker != nil && lp.Enabled {
-			selectedCallBrokers = append(selectedCallBrokers, config.SelectedCallBrokerScope{Source: lp.CallBroker.Source, Label: lp.Name, Declaration: lp.CallBroker})
+			selectedCallBrokers = append(selectedCallBrokers, config.SelectedCallBrokerScope{Source: lp.CallBroker.Source, Label: lp.Name, Pack: lp.Pack, Declaration: lp.CallBroker})
 		}
 		if lp.Brokered != nil && lp.Brokered.ReadCapability != "" {
 			selectedBrokers = append(selectedBrokers, config.ReadableSelectedBroker{Pack: lp.Pack, Label: lp.Name, Brokered: *lp.Brokered})

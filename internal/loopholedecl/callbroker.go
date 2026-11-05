@@ -1,9 +1,16 @@
 package loopholedecl
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
@@ -23,6 +30,7 @@ type CallBroker struct {
 	Cells           []CallBrokerCell
 	Lookups         []CallBrokerLookup
 	ReadOverPost    []string
+	HTTP            *CallBrokerHTTP
 	Joins           []CallBrokerJoin
 	// ProgramIdentities are resolved by the host from this call broker's selected staged
 	// pack tree; parsing a manifest never reads or executes a program.
@@ -31,6 +39,16 @@ type CallBroker struct {
 	// ProgramIdentityPending marks only the pre-stage case where no selected staged root
 	// exists yet. It is metadata for config validation, never launch authority.
 	ProgramIdentityPending bool `json:"-"`
+}
+
+type CallBrokerHTTP struct {
+	Origin         string
+	Credential     CallBrokerHTTPCredential
+	RequestHeaders []string
+}
+
+type CallBrokerHTTPCredential struct {
+	Source, Key, Header, Prefix string
 }
 
 type CallBrokerProgramIdentity struct {
@@ -77,7 +95,7 @@ func ValidCallBrokerRoot(s string) bool {
 var envNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 var callNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
-var callBrokerKeys = []string{"source", "front", "program", "classifier", "executor", "credential_paths", "env_from_host", "scope", "resource", "cell", "lookup", "read_over_post", "joins_working_set"}
+var callBrokerKeys = []string{"source", "front", "program", "classifier", "executor", "credential_paths", "env_from_host", "scope", "http", "resource", "cell", "lookup", "read_over_post", "joins_working_set"}
 var callScopeKeys = []string{"roots", "remote_host", "root_template"}
 var callResourceKeys = []string{"type", "parent"}
 var callCellKeys = []string{"name", "tables", "default", "max_for"}
@@ -169,6 +187,19 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 			return nil, Errorf("%s: 'call_broker.env_from_host' entry %q is not an environment variable name", manifestPath, name)
 		}
 	}
+	if b.Front == "http" {
+		if b.HTTP, err = parseCallBrokerHTTP(manifestPath, getOrNil(m, "http")); err != nil {
+			return nil, err
+		}
+		if b.HTTP.Credential.Source == "host_env" && !inList(b.HTTP.Credential.Key, b.EnvFromHost) {
+			return nil, Errorf("%s: call_broker.http.credential.key must be declared in env_from_host; add the exact name and approve the selected binding", manifestPath)
+		}
+		if b.HTTP.Credential.Source == "fenced_file" && !inList(b.HTTP.Credential.Key, b.CredentialPaths) {
+			return nil, Errorf("%s: call_broker.http.credential.key must be an approved credential_paths entry; declare the exact absolute path", manifestPath)
+		}
+	} else if _, has := m.Get("http"); has {
+		return nil, Errorf("%s: call_broker.http requires an HTTP front; remove the block or select front http", manifestPath)
+	}
 	if b.Scope, err = parseCallBrokerScope(manifestPath, getOrNil(m, "scope")); err != nil {
 		return nil, err
 	}
@@ -196,12 +227,124 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 	if len(b.ReadOverPost) > 0 && b.Front != "http" {
 		return nil, Errorf("%s: 'call_broker.read_over_post' applies only to an HTTP front", manifestPath)
 	}
+	seenPostPaths := map[string]bool{}
 	for i, route := range b.ReadOverPost {
-		if !strings.HasPrefix(route, "/") || strings.ContainsAny(route, "?#\\\\") || strings.Contains(route, "..") {
+		if !strings.HasPrefix(route, "/") || strings.ContainsAny(route, "?#\\\\") || strings.Contains(route, "..") || hasHTTPControls(route) || seenPostPaths[route] {
 			return nil, Errorf("%s: 'call_broker.read_over_post[%d]' must be a literal absolute path", manifestPath, i)
 		}
+		seenPostPaths[route] = true
 	}
 	return b, nil
+}
+
+// CallBrokerDeclarationHash binds the complete selected non-runtime declaration.
+func CallBrokerDeclarationHash(b *CallBroker) string {
+	data, _ := json.Marshal(b)
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+var httpDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+var httpHeaderToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+func parseCallBrokerHTTP(path string, raw any) (*CallBrokerHTTP, error) {
+	m, err := callObject(path, "http", raw, []string{"origin", "credential", "request_headers"})
+	if err != nil {
+		return nil, err
+	}
+	str := func(m *jsonx.OrderedMap, key string) (string, bool) {
+		v, found := m.Get(key)
+		s, ok := v.(string)
+		return s, found && ok && s != ""
+	}
+	origin, ok := str(m, "origin")
+	if !ok {
+		return nil, Errorf("%s: call_broker.http.origin must be an HTTPS DNS origin", path)
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "https" || strings.ContainsAny(origin, "?#") || u.User != nil || u.Opaque != "" || u.Path != "" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || u.Host == "" || u.Hostname() == "" || strings.ContainsAny(u.Host, "*%\\") {
+		return nil, Errorf("%s: call_broker.http.origin must be an HTTPS DNS origin without path, userinfo, query or fragment", path)
+	}
+	name := u.Hostname()
+	if len(name) > 253 || !strings.Contains(name, ".") || strings.HasSuffix(name, ".") || strings.HasPrefix(u.Host, "[") || net.ParseIP(name) != nil {
+		return nil, Errorf("%s: call_broker.http.origin must name a DNS host", path)
+	}
+	for _, label := range strings.Split(name, ".") {
+		if !httpDNSLabel.MatchString(label) {
+			return nil, Errorf("%s: call_broker.http.origin must name a DNS host", path)
+		}
+	}
+	if strings.Contains(u.Host, ":") {
+		port := u.Port()
+		n, e := strconv.Atoi(port)
+		if e != nil || n < 1 || n > 65535 || !strings.HasSuffix(u.Host, ":"+port) {
+			return nil, Errorf("%s: call_broker.http.origin has an invalid port", path)
+		}
+	}
+	cm, err := callObject(path, "http.credential", getOrNil(m, "credential"), []string{"source", "key", "header", "prefix"})
+	if err != nil {
+		return nil, err
+	}
+	credential := CallBrokerHTTPCredential{}
+	if credential.Source, ok = str(cm, "source"); !ok || (credential.Source != "host_env" && credential.Source != "fenced_file") {
+		return nil, Errorf("%s: call_broker.http.credential.source must be host_env or fenced_file", path)
+	}
+	if credential.Key, ok = str(cm, "key"); !ok {
+		return nil, Errorf("%s: call_broker.http.credential.key must be a non-empty string", path)
+	}
+	if credential.Source == "host_env" && !envNameRE.MatchString(credential.Key) || credential.Source == "fenced_file" && (!filepath.IsAbs(credential.Key) || filepath.Clean(credential.Key) != credential.Key || hasHTTPControls(credential.Key)) {
+		return nil, Errorf("%s: call_broker.http.credential.key must name an exact host variable or absolute credential path", path)
+	}
+	if credential.Header, ok = str(cm, "header"); !ok || !validCallHTTPHeader(credential.Header) {
+		return nil, Errorf("%s: call_broker.http.credential.header is invalid", path)
+	}
+	if v, found := cm.Get("prefix"); found {
+		credential.Prefix, ok = v.(string)
+		if !ok || len(credential.Prefix) > 128 || hasHTTPControls(credential.Prefix) {
+			return nil, Errorf("%s: call_broker.http.credential.prefix must be at most 128 bytes without controls", path)
+		}
+	}
+	value, present := m.Get("request_headers")
+	if !present {
+		return nil, Errorf("%s: call_broker.http.request_headers must be a list of header names", path)
+	}
+	list, ok := value.([]any)
+	if !ok || !AllStrings(list) {
+		return nil, Errorf("%s: call_broker.http.request_headers must be a list of header names", path)
+	}
+	headers := StringSlice(list)
+	seen := map[string]bool{}
+	for _, header := range headers {
+		folded := strings.ToLower(header)
+		if !validCallHTTPHeader(header) || folded == "authorization" || folded == strings.ToLower(credential.Header) || seen[folded] {
+			return nil, Errorf("%s: call_broker.http.request_headers contains invalid, duplicate or credential header %q", path, header)
+		}
+		seen[folded] = true
+	}
+	return &CallBrokerHTTP{Origin: origin, Credential: credential, RequestHeaders: headers}, nil
+}
+
+func hasHTTPControls(s string) bool {
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func validCallHTTPHeader(s string) bool {
+	if !httpHeaderToken.MatchString(s) {
+		return false
+	}
+	folded := strings.ToLower(s)
+	if strings.HasPrefix(folded, "proxy-") || strings.HasPrefix(folded, "yolo-") {
+		return false
+	}
+	switch folded {
+	case "host", "connection", "cookie", "set-cookie", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade":
+		return false
+	}
+	return true
 }
 
 var programTokenRE = regexp.MustCompile(`^\{program:[a-z][a-z0-9-]*\}$`)

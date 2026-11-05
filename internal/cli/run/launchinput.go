@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -44,7 +45,7 @@ type CallBrokerLaunchInput = callbrokerinput.Launch
 
 // selectedCallBrokerLaunchInput refuses missing gate evidence and unresolved staged
 // programs. Never carry the raw declaration: it also contains credential locations.
-func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][]config.ScopeRepo, cells map[string]map[string]config.CallBrokerCellPolicy, grants map[string]map[string]config.LoopholeGrantStanding) (*CallBrokerLaunchInput, error) {
+func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][]config.ScopeRepo, cells map[string]map[string]config.CallBrokerCellPolicy, grants map[string]map[string]config.LoopholeGrantStanding, httpBindings ...map[string]config.ApprovedCallBrokerHTTP) (*CallBrokerLaunchInput, error) {
 	if lp == nil || lp.Source != loopholes.SourcePack || !lp.Enabled || lp.CallBroker == nil || lp.CallBroker.ProgramIdentityError != "" {
 		return nil, errors.New("selected staged call broker is unavailable")
 	}
@@ -71,6 +72,19 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 		}
 	}
 	b := lp.CallBroker
+	var httpBinding *config.ApprovedCallBrokerHTTP
+	if b.Front == "http" {
+		if b.HTTP == nil || len(httpBindings) != 1 {
+			return nil, errors.New("approved HTTP binding unavailable; approve the selected declaration at the config gate and retry")
+		}
+		bound, ok := httpBindings[0][lp.Name]
+		if !ok || bound.Pack != lp.Pack || bound.Source != b.Source || bound.DeclarationHash != callbrokerinput.DeclarationHash(b) || !reflect.DeepEqual(bound.HTTP, *b.HTTP) || !reflect.DeepEqual(bound.ReadOverPost, b.ReadOverPost) {
+			return nil, errors.New("approved HTTP binding changed or unavailable; approve the selected declaration at the config gate and retry")
+		}
+		bound.HTTP.RequestHeaders = slices.Clone(bound.HTTP.RequestHeaders)
+		bound.ReadOverPost = slices.Clone(bound.ReadOverPost)
+		httpBinding = &bound
+	}
 	for _, token := range append(append([]string{}, b.Classifier...), b.Executor) {
 		if strings.HasPrefix(token, "{program:") {
 			name := strings.TrimSuffix(strings.TrimPrefix(token, "{program:"), "}")
@@ -110,7 +124,7 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 	}
 	input := &CallBrokerLaunchInput{Version: "yolo.call-broker-launch/2", Loophole: lp.Name, Pack: lp.Pack, DeclarationHash: callbrokerinput.DeclarationHash(lp.CallBroker),
 		Source: b.Source, Front: b.Front, Program: b.Program, Classifier: append([]string(nil), b.Classifier...),
-		Executor: b.Executor, HostEnvNames: append([]string(nil), b.EnvFromHost...), ProgramIdentities: identities,
+		Executor: b.Executor, HostEnvNames: append([]string(nil), b.EnvFromHost...), HTTPBinding: httpBinding, ProgramIdentities: identities,
 		Resources: append([]loopholedecl.CallBrokerResource(nil), b.Resources...),
 		Cells:     declaredCells, EffectiveCells: cloneCellPolicy(policy),
 		ReadStanding:      readDeclared && readGrant.Standing == config.LoopholeGrantGranted,
@@ -120,6 +134,19 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 		input.Roots = append(input.Roots, root.Repo)
 	}
 	return input, nil
+}
+
+func cloneHTTPBindings(in map[string]config.ApprovedCallBrokerHTTP) map[string]config.ApprovedCallBrokerHTTP {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]config.ApprovedCallBrokerHTTP, len(in))
+	for name, binding := range in {
+		binding.HTTP.RequestHeaders = slices.Clone(binding.HTTP.RequestHeaders)
+		binding.ReadOverPost = slices.Clone(binding.ReadOverPost)
+		out[name] = binding
+	}
+	return out
 }
 
 // LaunchInputProducer is a core-owned producer for one named host-daemon input contract.
@@ -199,7 +226,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	}
 	frozen := LaunchInputContext{Container: cname, Workspace: o.Workspace, Runtime: o.runtime, PackTree: o.packTree, ApprovedScopes: cloneApprovedScopes(o.approvedScopes)}
 	if launchInput == "call-broker-scope" {
-		input, err := selectedCallBrokerLaunchInput(lp, o.approvedScopes, o.callBrokerCells, o.approvedLoopholeGrants)
+		input, err := selectedCallBrokerLaunchInput(lp, o.approvedScopes, o.callBrokerCells, o.approvedLoopholeGrants, o.approvedHTTPBindings)
 		if err != nil {
 			o.pr(o.Stderr).print("[red]Call broker '" + lp.Name + "' has no selected gate-approved scope or program identity; it was not started. Retry with its pack selected and approve its scope at the gate.[/red]")
 			return false

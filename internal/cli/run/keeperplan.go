@@ -79,7 +79,8 @@ type keeperPlan struct {
 	// the keeper never derives it from Config, the merged config read before the gate (WW-P2).
 	ApprovedScopes map[string][]config.ScopeRepo `json:"approved_scopes,omitempty"`
 	// CallBrokerCells is the gate-time effective request/default and user ceiling snapshot.
-	CallBrokerCells map[string]map[string]config.CallBrokerCellPolicy `json:"call_broker_cells,omitempty"`
+	CallBrokerCells      map[string]map[string]config.CallBrokerCellPolicy `json:"call_broker_cells,omitempty"`
+	ApprovedHTTPBindings map[string]config.ApprovedCallBrokerHTTP          `json:"approved_http_bindings,omitempty"`
 	// ApprovedGrants are the user grants the same gate approved, per brokered loophole
 	// (Options.approvedGrants), which the keeper writes into the same scope files.
 	ApprovedGrants map[string][]brokerscope.Grant `json:"approved_grants,omitempty"`

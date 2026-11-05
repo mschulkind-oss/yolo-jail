@@ -116,3 +116,52 @@ func TestRetiredEnabledKeyIsRefusedInTOMLToo(t *testing.T) {
 		t.Fatalf("retired key in TOML: %v", err)
 	}
 }
+
+func TestCallBrokerHTTPApprovedBindingTOMLDecoder(t *testing.T) {
+	const manifest = `name = "tasks"
+transport = "loopback-tls"
+[call_broker]
+source = "local-tasks"
+front = "http"
+classifier = ["yolo", "internal", "call-broker-classify", "tasks"]
+env_from_host = ["TASKS_TOKEN"]
+read_over_post = ["/graphql"]
+[call_broker.scope]
+roots = "declared"
+[[call_broker.resource]]
+type = "project"
+[[call_broker.cell]]
+name = "update"
+tables = ["all"]
+[call_broker.http]
+origin = "https://fixture.example:443"
+request_headers = ["Content-Type"]
+[call_broker.http.credential]
+source = "host_env"
+key = "TASKS_TOKEN"
+header = "Authorization"
+prefix = "Bearer "
+`
+	load := func(body string) error {
+		dir := writeModule(t, "tasks", map[string]string{"loophole.toml": body})
+		m, err := loopholedecl.LoadDir(dir)
+		if err == nil && (m.CallBroker == nil || m.CallBroker.HTTP == nil || m.CallBroker.HTTP.Credential.Key != "TASKS_TOKEN" || m.CallBroker.ReadOverPost[0] != "/graphql") {
+			t.Fatalf("selected TOML lost HTTP binding: %+v", m.CallBroker)
+		}
+		return err
+	}
+	if err := load(manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, body string }{
+		{"unknown", strings.Replace(manifest, "request_headers = [\"Content-Type\"]", "request_headers = [\"Content-Type\"]\nunapproved_header = \"X-Token\"", 1)},
+		{"duplicate", strings.Replace(manifest, "origin = \"https://fixture.example:443\"", "origin = \"https://fixture.example:443\"\norigin = \"https://other.example\"", 1)},
+		{"wrong type", strings.Replace(manifest, "key = \"TASKS_TOKEN\"", "key = 5", 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := load(tc.body); err == nil {
+				t.Fatal("invalid TOML HTTP binding loaded")
+			}
+		})
+	}
+}

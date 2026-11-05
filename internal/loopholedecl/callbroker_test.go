@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestCallBrokerHTTPDeclaration(t *testing.T) {
+	valid := strings.Replace(callBrokerFixture,
+		`"source":"local-tasks"`,
+		`"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`,
+		1)
+	if _, err := callBrokerManifest(valid); err != nil {
+		t.Fatalf("selected HTTP declaration must load: %v", err)
+	}
+	if _, err := callBrokerManifest(callBrokerFixture); err == nil {
+		t.Fatal("HTTP front missing its binding loaded")
+	}
+	unknown := strings.Replace(valid, `"request_headers":["Content-Type"]`,
+		`"request_headers":["Content-Type"],"unapproved_header":"X-Token"`, 1)
+	if _, err := callBrokerManifest(unknown); err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Fatalf("unknown nested HTTP key: %v; want refusal", err)
+	}
+}
+
 const callBrokerFixture = `"call_broker": {
   "source":"local-tasks", "front":"http", "program":"tasks",
   "classifier":["{program:tasks-classifier}"], "executor":"{program:tasks-executor}",
@@ -22,7 +40,7 @@ func callBrokerManifest(body string) (*Manifest, error) {
 }
 
 func TestCallBrokerManifestGateAndScope(t *testing.T) {
-	m, err := callBrokerManifest(callBrokerFixture)
+	m, err := callBrokerManifest(strings.Replace(callBrokerFixture, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1))
 	if err != nil {
 		t.Fatalf("decode selected third-party call broker: %v", err)
 	}
@@ -40,10 +58,61 @@ func TestCallBrokerManifestGateAndScope(t *testing.T) {
 		{"legacy host daemon cannot coexist", `"host_daemon":{"cmd":["yolo","internal","daemon","x"]},` + callBrokerFixture, "replaces 'host_daemon'"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := callBrokerManifest(tc.body)
+			_, err := callBrokerManifest(strings.Replace(tc.body, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1))
+			if tc.name == "duplicate declaration key" {
+				_, err = callBrokerManifest(tc.body)
+			}
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestCallBrokerHTTPBindingRefusesMalformedDeclaration(t *testing.T) {
+	valid := strings.Replace(callBrokerFixture, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1)
+	for _, tc := range []struct{ name, from, to string }{
+		{"duplicate JSON", `"origin":"https://fixture.example"`, `"origin":"https://fixture.example","origin":"https://other.example"`},
+		{"wrong credential type", `"key":"TASKS_TOKEN"`, `"key":55`},
+		{"credential source", `"source":"host_env"`, `"source":"runtime"`},
+		{"unapproved variable", `"key":"TASKS_TOKEN"`, `"key":"OTHER_TOKEN"`},
+		{"missing approval", `"env_from_host":["TASKS_TOKEN"]`, `"env_from_host":[]`},
+		{"userinfo", `https://fixture.example`, `https://user@fixture.example`},
+		{"path", `https://fixture.example`, `https://fixture.example/path`},
+		{"query", `https://fixture.example`, `https://fixture.example?token=unsafe`},
+		{"fragment", `https://fixture.example`, `https://fixture.example#unsafe`},
+		{"wildcard", `https://fixture.example`, `https://*.example`},
+		{"non HTTPS", `https://fixture.example`, `http://fixture.example`},
+		{"IPv4 literal", `https://fixture.example`, `https://127.0.0.1`},
+		{"IPv6 literal", `https://fixture.example`, `https://[::1]`},
+		{"null allowlist", `"request_headers":["Content-Type"]`, `"request_headers":null`},
+		{"Unicode C1 prefix", `"prefix":"Bearer "`, `"prefix":"\u0085"`},
+		{"invalid port", `https://fixture.example`, `https://fixture.example:65536`},
+		{"header host", `"header":"Authorization"`, `"header":"Host"`},
+		{"header cookie", `"header":"Authorization"`, `"header":"Cookie"`},
+		{"header proxy", `"header":"Authorization"`, `"header":"Proxy-Authorization"`},
+		{"header hop", `"header":"Authorization"`, `"header":"Connection"`},
+		{"header yolo", `"header":"Authorization"`, `"header":"Yolo-Verdict"`},
+		{"allowlist authorization", `"Content-Type"`, `"Authorization"`},
+		{"allowlist duplicate", `"Content-Type"`, `"Content-Type","content-type"`},
+		{"allowlist hop", `"Content-Type"`, `"Transfer-Encoding"`},
+		{"prefix long", `"prefix":"Bearer "`, `"prefix":"` + strings.Repeat("a", 129) + `"`},
+		{"prefix control", `"prefix":"Bearer "`, `"prefix":"Bearer \n"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := callBrokerManifest(strings.Replace(valid, tc.from, tc.to, 1)); err == nil {
+				t.Fatal("malformed binding loaded")
+			}
+		})
+	}
+	fenced := strings.Replace(valid, `"source":"host_env","key":"TASKS_TOKEN"`, `"source":"fenced_file","key":"/home/agent/credential"`, 1)
+	fenced = strings.Replace(fenced, `"credential_paths":["~/.config/tasks"]`, `"credential_paths":["/home/agent/credential"]`, 1)
+	if _, err := callBrokerManifest(fenced); err != nil {
+		t.Fatalf("absolute declared file metadata must load: %v", err)
+	}
+	for _, path := range []string{`relative/credential`, `/home/agent/../credential`, `/home/agent/other`} {
+		if _, err := callBrokerManifest(strings.Replace(fenced, `"key":"/home/agent/credential"`, `"key":"`+path+`"`, 1)); err == nil {
+			t.Fatalf("unapproved/nonabsolute credential %q loaded", path)
+		}
 	}
 }

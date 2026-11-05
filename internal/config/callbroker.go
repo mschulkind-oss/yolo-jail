@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,15 +13,23 @@ import (
 
 const callBrokerScopeRecordSuffix = ".call-broker-declaration"
 
+// ApprovedCallBrokerHTTP is nonsecret binding metadata captured with the selected gate.
+// It is not a credential or a grant.
+type ApprovedCallBrokerHTTP struct {
+	Pack, Source, DeclarationHash string
+	HTTP                          loopholedecl.CallBrokerHTTP
+	ReadOverPost                  []string
+}
+
 // SelectedCallBrokerScope is one call-broker declaration from a selected staged pack tree.
 type SelectedCallBrokerScope struct {
-	Source, Label string
-	Declaration   *loopholedecl.CallBroker
+	Source, Label, Pack string
+	Declaration         *loopholedecl.CallBroker
 }
 
 // WithCallBrokerDeclarations adds selected declaration disclosures and the corresponding declared
-// roots to the same persisted config-change gate as broker scopes. This is metadata-only; it does
-// not publish roots to a daemon or create runtime authority.
+// roots to the same persisted config-change gate as broker scopes. The caller copies HTTP
+// binding metadata only after the gate succeeds; this method grants no runtime authority.
 func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []SelectedCallBrokerScope, read *WorkspaceRead) *ScopeCheck {
 	if len(selected) == 0 {
 		return check
@@ -36,6 +45,13 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 		s := ScopeSource{Source: selected.Source, Label: selected.Label, RemoteHost: b.Scope.RemoteHost,
 			Form: brokerscope.FormCallRoot, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
 			EntryKey: brokeredRootsPath(selected.Source)}
+		if b.HTTP != nil {
+			s.Disclosure = append(s.Disclosure, "http selected pack="+selected.Pack, "http declaration_sha256="+loopholedecl.CallBrokerDeclarationHash(b))
+			http := *b.HTTP
+			http.RequestHeaders = slices.Clone(b.HTTP.RequestHeaders)
+			s.HTTPBinding = &ApprovedCallBrokerHTTP{Pack: selected.Pack, Source: b.Source,
+				DeclarationHash: loopholedecl.CallBrokerDeclarationHash(b), HTTP: http, ReadOverPost: slices.Clone(b.ReadOverPost)}
+		}
 		if b.Scope.Roots == "declared" {
 			if read != nil {
 				s.Entry = read.CallRoots(selected.Source)
@@ -59,7 +75,7 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 }
 
 // CallBrokerDisclosure is the exact selected call-broker policy shown at the config-change gate.
-// It describes metadata only; it is not runtime enforcement or a delivered scope file.
+// The same HTTP fields are frozen by the passing gate; no credential value is displayed.
 func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 	if b == nil {
 		return nil
@@ -99,6 +115,14 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 			}
 		}
 		out = append(out, "cell "+c.Name+" tables="+strings.Join(c.Tables, ",")+" default="+strings.Join(parts, ",")+" max_for="+c.MaxFor)
+	}
+	if b.HTTP != nil {
+		out = append(out, "http origin="+b.HTTP.Origin+" credential_source="+b.HTTP.Credential.Source+
+			" credential_key="+b.HTTP.Credential.Key+" credential_header="+b.HTTP.Credential.Header+
+			" credential_prefix="+b.HTTP.Credential.Prefix)
+		for _, h := range b.HTTP.RequestHeaders {
+			out = append(out, "http request_header="+h)
+		}
 	}
 	for _, p := range b.ReadOverPost {
 		out = append(out, "read_over_post="+p+" (method-floor exception)")
