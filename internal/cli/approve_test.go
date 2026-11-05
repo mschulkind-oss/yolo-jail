@@ -10,9 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -160,6 +163,117 @@ func TestApproveDenyAndJailRefusal(t *testing.T) {
 		t.Fatal(rc, out.String(), errs.String())
 	}
 }
+func TestApproveRejectsFlagLookingSeparateDenialNoteBeforeDeciding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	selectApprovePacks(t, home, "github")
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_USER_LAYER", "")
+
+	sf := brokerscope.File{Source: "github", LaunchID: "note-value", PID: os.Getpid(), Container: "note-value-jail", Workspace: filepath.Join(t.TempDir(), "workspace"), Repos: []string{"o/r"}, Grants: []brokerscope.Grant{{Kind: brokerscope.KindRead, Repo: "*"}}}
+	if err := os.MkdirAll(filepath.Join(sf.Workspace, ".yolo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path, err := brokerscope.Write(sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := ghbroker.BindAuthority(path, sf, "note-value-start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	d, policy, err := authority.Classify([]string{"pr", "comment", "1", "--body", "hi"}, "o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(ghbroker.Source), Source: ghbroker.Source, PublishRecords: true}
+	request, err := store.File(brokerstore.Request{Jail: paths.JailShortHash(sf.Container), Start: "note-value-start", Workspace: sf.Workspace,
+		LaunchID: sf.LaunchID, Argv: d.Argv, Repo: "o/r", Set: d.Set, Policy: policy, StdinDigest: "stdin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Revalidate(request); err != nil {
+		t.Fatalf("fixture does not have current selected-source authority: %v", err)
+	}
+	requestPath := filepath.Join(paths.BrokerSourceDir(ghbroker.Source), "requests", request.ID+".json")
+	publishedPath := filepath.Join(sf.Workspace, ".yolo", approvalwait.DirName, request.ID+".json")
+	requestBefore, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishedBefore, err := os.ReadFile(publishedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditPath := paths.BrokerAuditLog()
+	_, auditErr := os.Stat(auditPath)
+	if !os.IsNotExist(auditErr) {
+		t.Fatalf("fixture audit log should be absent, got stat error %v", auditErr)
+	}
+
+	rc, out, stderr := captureStd(t, func() int {
+		return runApprove([]string{"approve", request.ID, "--deny", "--note", "--json"})
+	})
+	if rc != approveExitUsage || out != "" || !strings.Contains(stderr, "--note") || !strings.Contains(stderr, "--note=<text>") {
+		t.Fatalf("flag-looking separate note value: rc=%d stdout=%q stderr=%q", rc, out, stderr)
+	}
+	rc, out, stderr = captureStd(t, func() int {
+		return runApprove([]string{"approve", request.ID, "--deny", "--note", "--help"})
+	})
+	if rc != approveExitUsage || out != "" || !strings.Contains(stderr, "--note=<text>") {
+		t.Fatalf("help token was consumed as a note instead of rejected: rc=%d stdout=%q stderr=%q", rc, out, stderr)
+	}
+	requests, grants, err := store.List()
+	if err != nil || len(requests) != 1 || requests[0].State != "pending" || len(grants) != 0 {
+		t.Fatalf("rejected note changed the pending decision: requests=%+v grants=%+v err=%v", requests, grants, err)
+	}
+	if _, err := authority.Revalidate(request); err != nil {
+		t.Fatalf("rejected note changed selected-source authority: %v", err)
+	}
+	requestAfter, err := os.ReadFile(requestPath)
+	if err != nil || !bytes.Equal(requestBefore, requestAfter) {
+		t.Fatalf("host request record changed: err=%v before=%q after=%q", err, requestBefore, requestAfter)
+	}
+	publishedAfter, err := os.ReadFile(publishedPath)
+	if err != nil || !bytes.Equal(publishedBefore, publishedAfter) {
+		t.Fatalf("published request record changed: err=%v before=%q after=%q", err, publishedBefore, publishedAfter)
+	}
+	if _, err := os.Stat(auditPath); !os.IsNotExist(err) {
+		t.Fatalf("rejected note wrote an audit record: stat error %v", err)
+	}
+	rc, help, stderr := captureStd(t, func() int { return runApprove([]string{"approve", "--help"}) })
+	if rc != 0 || stderr != "" || !strings.Contains(help, "--note=<text>") || !strings.Contains(help, "--note=--json") {
+		t.Fatalf("approve help does not document dash-prefixed note syntax: rc=%d stdout=%q stderr=%q", rc, help, stderr)
+	}
+
+	second, err := store.File(brokerstore.Request{Jail: paths.JailShortHash(sf.Container), Start: "note-value-start", Workspace: sf.Workspace,
+		LaunchID: sf.LaunchID, Argv: d.Argv, Repo: "o/r", Set: d.Set, Policy: policy, StdinDigest: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, out, stderr = captureStd(t, func() int {
+		return runApprove([]string{"approve", second.ID, "--deny", "--note=--json"})
+	})
+	if rc != 0 || !strings.Contains(out, "Denied "+second.ID) || stderr != "" {
+		t.Fatalf("explicit equals note: rc=%d stdout=%q stderr=%q", rc, out, stderr)
+	}
+	requests, _, err = store.List()
+	var firstState, secondState *brokerstore.Request
+	for i := range requests {
+		switch requests[i].ID {
+		case request.ID:
+			firstState = &requests[i]
+		case second.ID:
+			secondState = &requests[i]
+		}
+	}
+	if err != nil || firstState == nil || firstState.State != "pending" || secondState == nil || secondState.State != "denied" || secondState.DenialNote != "--json" {
+		t.Fatalf("explicit equals note was not retained: requests=%+v err=%v", requests, err)
+	}
+}
+
 func TestApproveThroughRegistry(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "")
@@ -554,6 +668,120 @@ func TestApproveRevokeAllWorkspace(t *testing.T) {
 	}
 	if _, ok, _ := ws.LiveWorking(b, eB.Repo, eB.Resource); !ok {
 		t.Fatal("a refused revoke ended an entry")
+	}
+}
+
+func TestDenyNoteAppearsInWaitAndHistoryForEverySource(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_USER_LAYER", "")
+	pack := filepath.Join(t.TempDir(), "pack")
+	writeApprovePackFile(t, filepath.Join(pack, "pack.toml"), `name = "fixture"
+[[loophole]]
+from = "loopholes/tasks"
+`)
+	writeApprovePackFile(t, filepath.Join(pack, "loopholes", "tasks", "loophole.toml"), `name = "tasks"
+description = "A local broker fixture"
+version = 1
+transport = "loopback-tls"
+lifecycle = "spawned"
+[brokered]
+source = "local-tasks"
+remote_host = "fixture.test"
+[host_daemon]
+cmd = ["fixture-broker", "{repository_scope}"]
+`)
+	writeApprovePackFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":[{"source":"file://`+filepath.ToSlash(pack)+`","name":"fixture"}]}`)
+	defer packload.ReleaseEmbedded()
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(filepath.Join(workspace, ".yolo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const note = "use the release branch"
+	for _, source := range []string{gitbroker.Source, ghbroker.Source, "local-tasks"} {
+		t.Run(source, func(t *testing.T) {
+			store := &brokerstore.Store{Dir: paths.BrokerSourceDir(source), Source: source, PublishRecords: true}
+			request, err := store.File(brokerstore.Request{Jail: "fixture-jail", Start: "fixture-start", Workspace: workspace,
+				Argv: []string{"update", "task-1"}, Repo: "fixture.test/team/project", StdinDigest: "empty", Set: "write",
+				Policy: brokerstore.Policy{Window: time.Minute, MaxWindow: time.Hour, Uses: 1}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rc, _, errs := captureStd(t, func() int {
+				return runApprove([]string{"approve", request.ID, "--deny", "--note", note})
+			}); rc != 0 {
+				t.Fatalf("deny with note: rc=%d stderr=%s", rc, errs)
+			}
+			for _, path := range []string{
+				filepath.Join(paths.BrokerSourceDir(source), "requests", request.ID+".json"),
+				filepath.Join(workspace, ".yolo", approvalwait.DirName, request.ID+".json"),
+			} {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var record map[string]any
+				if err := json.Unmarshal(data, &record); err != nil || record["denial_note"] != note {
+					t.Fatalf("%s did not retain the denial note: record=%v err=%v", path, record, err)
+				}
+			}
+			var waitOut, waitErr bytes.Buffer
+			if rc := approvalwait.Wait(approvalwait.Opts{Workspace: workspace, ID: request.ID,
+				Out: &waitOut, Err: &waitErr, Poll: time.Millisecond}); rc != approvalwait.ExitDenied || !strings.Contains(waitOut.String(), note) {
+				t.Fatalf("wait: rc=%d stdout=%q stderr=%q", rc, waitOut.String(), waitErr.String())
+			}
+			for _, id := range []string{"", request.ID} {
+				var historyOut, historyErr bytes.Buffer
+				if rc := approvalwait.History(approvalwait.HistoryOpts{Workspace: workspace, ID: id, InJail: true,
+					Out: &historyOut, Err: &historyErr}); rc != 0 || !strings.Contains(historyOut.String(), note) {
+					t.Fatalf("history %q: rc=%d stdout=%q stderr=%q", id, rc, historyOut.String(), historyErr.String())
+				}
+			}
+			var jsonOut, jsonErr bytes.Buffer
+			if rc := approvalwait.History(approvalwait.HistoryOpts{Workspace: workspace, ID: request.ID, JSON: true,
+				Out: &jsonOut, Err: &jsonErr}); rc != 0 || !strings.Contains(jsonOut.String(), `"denial_note":"`+note+`"`) {
+				t.Fatalf("history JSON: rc=%d stdout=%q stderr=%q", rc, jsonOut.String(), jsonErr.String())
+			}
+		})
+	}
+
+	// A denial without feedback stays the old shape and remains source-neutral.
+	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(gitbroker.Source), Source: gitbroker.Source, PublishRecords: true}
+	request, err := store.File(brokerstore.Request{Jail: "fixture-jail", Start: "fixture-start", Workspace: workspace,
+		Argv: []string{"push", "main"}, Repo: "fixture.test/team/project", StdinDigest: "empty", Set: "write",
+		Policy: brokerstore.Policy{Window: time.Minute, MaxWindow: time.Hour, Uses: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, errs := captureStd(t, func() int { return runApprove([]string{"approve", request.ID, "--deny"}) }); rc != 0 {
+		t.Fatalf("deny without note: rc=%d stderr=%s", rc, errs)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, ".yolo", approvalwait.DirName, request.ID+".json"))
+	if err != nil || strings.Contains(string(data), "denial_note") {
+		t.Fatalf("no-note record changed shape: %s err=%v", data, err)
+	}
+}
+
+// Oversized, non-denial, and malformed note options are rejected before any decision.
+func TestApproveDenialNoteIsBoundedAndDenyOnly(t *testing.T) {
+	store, request := approvalFixture(t)
+	for _, args := range [][]string{
+		{request.ID, "--note", "feedback"},
+		{request.ID, "--deny", "--note", strings.Repeat("x", 501)},
+		{request.ID, "--deny", "--note"},
+	} {
+		var out, errs bytes.Buffer
+		if rc := approveMain(context.Background(), args, false, store, &out, &errs); rc == 0 {
+			t.Fatalf("accepted %v: stdout=%q stderr=%q", args, out.String(), errs.String())
+		}
+	}
+	requests, _, err := store.List()
+	if err != nil || len(requests) != 1 || requests[0].State != "pending" {
+		t.Fatalf("invalid note options changed request: %+v err=%v", requests, err)
 	}
 }
 

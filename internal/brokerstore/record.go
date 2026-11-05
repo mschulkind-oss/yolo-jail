@@ -25,7 +25,7 @@ func (s *Store) publish(q Request) {
 		Command: termsafe.Visible(shquote.JoinDisplay(summaryArgv(q.Argv))), Filed: q.Filed,
 		Expires: q.Expires(), Decided: q.Decided, Used: q.Spent, Lapsed: q.Lapsed,
 		Answer: q.Answer, Via: q.Via, Until: q.Until, Jail: termsafe.Visible(q.Jail), Hook: hookOf(q),
-		SpentAt: q.SpentAt, Reason: q.Reason}
+		SpentAt: q.SpentAt, Reason: q.Reason, DenialNote: q.DenialNote}
 	if err := approvalwait.Publish(q.Workspace, rec); err != nil && s.PublishFailed != nil {
 		s.PublishFailed(q, err)
 	}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -55,6 +57,8 @@ const SourceHost = "github.com"
 type Request struct {
 	writeDeadline func(time.Time) // host connection sink bound, never decoded from a jail frame
 	Invalid       string
+	Op            string
+	Version       int
 	Mode          string
 	Operation     string
 	RequestID     string
@@ -290,6 +294,24 @@ func (b *Broker) endLifetimes() {
 // requestFrom refuses malformed fields instead of dropping bytes or arguments.
 func requestFrom(s *hostservice.Session) Request {
 	var r Request
+	if access, has := s.Get("access"); has {
+		object, ok := access.(*jsonx.OrderedMap)
+		if !ok || len(s.Request.Keys()) != 1 || s.Request.Keys()[0] != "access" {
+			r.Invalid = "malformed access envelope"
+			return r
+		}
+		for _, key := range object.Keys() {
+			if key == "access" {
+				r.Invalid = "nested access envelope"
+				return r
+			}
+		}
+		inner := requestFrom(&hostservice.Session{Request: object, JailID: s.JailID})
+		if inner.Invalid == "" && (inner.Op == "" || inner.Version != AccessProtocolVersion) {
+			inner.Invalid = "access envelope requires a versioned operation"
+		}
+		return inner
+	}
 	str := func(key string, dst *string) {
 		if v, has := s.Get(key); has {
 			var ok bool
@@ -297,6 +319,15 @@ func requestFrom(s *hostservice.Session) Request {
 			if !ok {
 				r.Invalid = "malformed " + key
 			}
+		}
+	}
+	str("op", &r.Op)
+	if v, has := s.Get("version"); has {
+		typ := reflect.TypeOf(v)
+		if typ == nil || typ.Name() != "jsonInt" || typ.PkgPath() != "github.com/mschulkind-oss/yolo-jail/internal/jsonx" || fmt.Sprint(v) != "1" {
+			r.Invalid = "unsupported access protocol version"
+		} else {
+			r.Version = 1
 		}
 	}
 	str("mode", &r.Mode)
@@ -331,6 +362,35 @@ func requestFrom(s *hostservice.Session) Request {
 				r.Stdin, r.StdinSent = data, true
 			}
 		}
+	}
+	if r.Op != "" || r.Version != 0 {
+		if r.Op == "" || r.Version != AccessProtocolVersion || (r.Op != "status" && r.Op != "evaluate" && r.Op != "ask") {
+			r.Invalid = "unsupported access operation or version"
+		}
+		allowed := map[string]bool{"op": true, "version": true}
+		if r.Op == "evaluate" || r.Op == "ask" {
+			allowed["argv"], allowed["repo"], allowed["stdin"], allowed["agent"] = true, true, true, true
+			if _, ok := s.Get("argv"); !ok || len(r.Argv) == 0 {
+				r.Invalid = "access evaluate/ask requires argv"
+			}
+		}
+		for _, key := range s.Request.Keys() {
+			if !allowed[key] {
+				r.Invalid = "unsupported field in versioned access request: " + key
+				break
+			}
+		}
+		if r.Mode != "" || r.Operation != "" || r.RequestID != "" {
+			r.Invalid = "access operation cannot be combined with a legacy operation"
+		}
+		if r.Op == "evaluate" {
+			r.Mode = "evaluate"
+		}
+		if r.Op == "ask" {
+			r.Mode = "ask"
+		}
+	} else if r.Mode != "" {
+		r.Invalid = "unversioned decision mode"
 	}
 	return r
 }
@@ -368,13 +428,35 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		b.audit.AppendContext(auditCtx, ev)
 		return code
 	}
+	var responseDecision Decision
 	answerEvaluation := func(v evaluation) int {
+		if req.Mode == "evaluate" || req.Mode == "ask" {
+			if v.Canonical == nil {
+				v.Canonical = req.Argv
+			}
+			v = newPrediction(req, responseDecision, v)
+		}
 		ev.Event, ev.Set, ev.Outcome, ev.Reason = "evaluate", "evaluate", v.Verdict, v.Rule
 		stdout(writeEvaluationJSON(v))
 		return finish(0)
 	}
-
-	if req.Mode != "" && req.Mode != "evaluate" {
+	if req.Op != "" {
+		if req.Version != AccessProtocolVersion || (req.Op != "status" && req.Op != "evaluate" && req.Op != "ask") {
+			req.Invalid = "unsupported access operation or version"
+		}
+		if req.Op == "evaluate" {
+			req.Mode = "evaluate"
+		}
+		if req.Op == "ask" {
+			req.Mode = "ask"
+		}
+		if req.Op == "status" && (req.Mode != "" || req.Operation != "" || req.RequestID != "") {
+			req.Invalid = "access status cannot be combined with a legacy operation"
+		}
+	} else if req.Version != 0 {
+		req.Invalid = "access protocol version requires an operation"
+	}
+	if req.Mode != "" && req.Mode != "evaluate" && req.Mode != "ask" {
 		ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "unknown decision mode"
 		say("unknown decision mode; retry with an act or evaluate request")
 		return finish(ExitUsage)
@@ -386,15 +468,31 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		say(req.Invalid + "; retry with a valid forwarder frame")
 		return finish(ExitUsage)
 	}
-	if req.Mode == "evaluate" && req.Operation != "" {
+	if (req.Mode == "evaluate" || req.Mode == "ask") && req.Operation != "" {
 		ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "evaluate cannot be combined with a status operation"
 		say(ev.Reason + "; send either a status operation or an evaluate call")
 		return finish(ExitUsage)
 	}
 	holder := b.holder(jail)
-	if req.Mode == "evaluate" && b.authority != nil && holder != paths.JailShortHash(b.authority.scope.Container) {
+	if (req.Mode == "evaluate" || req.Mode == "ask") && b.authority != nil && holder != paths.JailShortHash(b.authority.scope.Container) {
 		v := evaluation{Verdict: "refused", Rule: "this endpoint does not serve the asserted jail", Canonical: req.Argv}
 		return answerEvaluation(v)
+	}
+	if req.Op == "status" {
+		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		status, err := b.accessStatus(bounded, jail)
+		if err != nil {
+			status.State = "unreachable"
+			status.Next = "run `yolo check` on the host, then relaunch this jail"
+		}
+		stdout(marshalAccess(status))
+		if err != nil {
+			ev.Set, ev.Outcome, ev.Reason = "status", "unreachable", safe(err.Error())
+		} else {
+			ev.Set, ev.Outcome = "status", "status"
+		}
+		return finish(0)
 	}
 	if req.Operation != "" {
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -422,7 +520,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		f, err := b.authority.live()
 		if err != nil {
 			ev.Set, ev.Outcome, ev.Reason = "refused", "refused", err.Error()
-			if req.Mode == "evaluate" {
+			if req.Mode == "evaluate" || req.Mode == "ask" {
 				return answerEvaluation(evaluation{Verdict: "refused", Rule: err.Error(), Canonical: req.Argv})
 			}
 			say("current host authority refused: " + err.Error() + "; repair the host policy or relaunch the jail")
@@ -431,6 +529,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		scope = scopeOfFile(f)
 	}
 	d := Classify(req.Argv, req.Repo, scope)
+	responseDecision = d
 	// READ IS THE FLOOR (docs/design/boundary-broker.md BB-D108): a selected pack's broker
 	// grants nothing until a read grant covers the repository, so a command that would run, a
 	// read or a write, is refused here, naming the grant. With no read grant at all, every
@@ -440,7 +539,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		if repo, missing := scope.unread(d.Repos); missing {
 			ev.Repo = strings.Join(d.Repos, ",")
 			ev.Set, ev.Outcome, ev.Reason = "refused", "refused", "no read grant"
-			if req.Mode == "evaluate" {
+			if req.Mode == "evaluate" || req.Mode == "ask" {
 				return answerEvaluation(evaluation{Verdict: "refused", Rule: "no read grant", Canonical: d.Argv})
 			}
 			say("refused: " + config.BrokerNoReadRefusal(Source, ReadCapability, repo, scope.live))
@@ -454,7 +553,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 			ev.Set = "refused"
 			ev.Outcome = "refused"
 			ev.Reason = err.Error()
-			if req.Mode == "evaluate" {
+			if req.Mode == "evaluate" || req.Mode == "ask" {
 				return answerEvaluation(evaluation{Verdict: "refused", Rule: err.Error(), Canonical: d.Argv})
 			}
 			say("current host authority refused: " + err.Error() + "; repair the host policy or relaunch the jail")
@@ -469,7 +568,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 	if d.Argv != nil {
 		ev.Argv = d.Argv
 	}
-	if req.Mode == "evaluate" {
+	if req.Mode == "evaluate" || req.Mode == "ask" {
 		v := evaluation{Verdict: "runs", Rule: d.Reason, Canonical: d.Argv}
 		switch d.Outcome {
 		case OutcomeRefused, OutcomeOutOfScope:
@@ -484,6 +583,29 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 				if invalid != nil {
 					v = evaluation{Verdict: "refused", Rule: "auth status: unknown JSON field " + fmt.Sprintf("%q", *invalid), Canonical: d.Argv}
 				}
+			}
+		}
+		if req.Mode == "ask" && v.Verdict == "asks" {
+			requestID, coverage, askErr := b.fileAsk(ctx, req, holder, d, policy)
+			if askErr != nil {
+				v.Verdict = "refused"
+				v.Rule = safe(askErr.Error())
+				v.Next = []accessNext{{Who: "human", Where: "host", Run: "repair the broker policy or limits, then retry `yolo access --ask`"}}
+			} else if coverage.By != "" {
+				v.Verdict = "runs"
+				v.CoveredBy = coverage.By
+				if strings.HasPrefix(coverage.By, "timed grant ") || strings.HasPrefix(coverage.By, "Allow once ") {
+					v.Rule = coverage.By + " arrived before filing; it was not spent"
+				} else {
+					v.Rule = coverage.By + " arrived before filing; no request was filed"
+				}
+				if !coverage.Expires.IsZero() {
+					expires := coverage.Expires
+					v.ReliesOnUntil = &expires
+				}
+			} else {
+				v.RequestID = requestID
+				v.Next = []accessNext{{Who: "agent", Where: "jail", Run: "yolo wait " + requestID}, {Who: "human", Where: "host", Run: "yolo approve " + requestID}}
 			}
 		}
 		return answerEvaluation(v)

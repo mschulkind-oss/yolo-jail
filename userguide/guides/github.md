@@ -188,6 +188,33 @@ the entry to put in each project's local config instead.
 The repository is the one `-R OWNER/REPO` names, or else the project's `origin` remote. To send
 text on standard input, pass `-`, as in `--body-file -`.
 
+### Inspecting before a write
+
+In the jail, `yolo access` reads the GitHub broker's approved repository scope, live workspace
+grants, working set and requests. Give it a proposed `gh` command to see whether yolo would run it,
+ask for approval, or refuse it:
+
+```bash
+yolo access --json
+yolo access -- gh pr merge 40 --squash
+yolo access --json -- gh pr merge 40 --squash
+```
+
+A prediction does not file a request or run the command. To file the approval request first, without
+merging, use `--ask`:
+
+```bash
+yolo access --ask -- gh pr merge 40 --squash
+```
+
+When the result is `asks`, it returns the request id; the agent can wait with `yolo wait <id>` and
+you answer on the host with `yolo approve <id>`. The agent then runs the original `gh` command
+again. `--ask` files nothing when the prediction is `runs` or `refused`, and never spends a grant.
+For a command that reads standard input, the exact bytes are included in the prediction and approval
+binding, so changing the input means a different command. This readout and prediction currently
+cover the GitHub broker only. Outside a jail, `yolo access` names `yolo approve --json` for the
+host-side request and grant view.
+
 ### Answering a write that asked
 
 A refused write names its request, and `yolo approve` on your machine lists it. Allow once,

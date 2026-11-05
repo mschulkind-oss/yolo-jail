@@ -93,7 +93,7 @@ func TestEvaluateThroughFrontedEndpointRejectsForeignHolderBeforeFacts(t *testin
 		}
 		return RunResult{Exit: 0}
 	}
-	body := `{"mode":"evaluate","argv":["pr","comment","1","--body","hello"],"repo":"o/r"}`
+	body := `{"op":"evaluate","version":1,"argv":["pr","comment","1","--body","hello"],"repo":"o/r"}`
 	foreignOut, foreignCode := evaluationThroughEndpoint(t, foreign, body)
 	if foreignCode != 0 || !strings.Contains(string(foreignOut), `"verdict":"refused"`) || strings.Contains(string(foreignOut), entry.ID) || factReads != 0 {
 		t.Fatalf("foreign endpoint leaked/inspected standing: exit=%d output=%s fact reads=%d", foreignCode, foreignOut, factReads)
@@ -118,7 +118,7 @@ func TestEvaluateThroughFrontedEndpointUsesNormalizedHolderQuota(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := `{"mode":"evaluate","argv":["pr","comment","2","--body","hello"],"repo":"o/r"}`
+	body := `{"op":"evaluate","version":1,"argv":["pr","comment","2","--body","hello"],"repo":"o/r"}`
 	out, code := evaluationThroughEndpoint(t, own, body)
 	if code != 0 || !strings.Contains(string(out), `"verdict":"refused"`) || !strings.Contains(string(out), "pending request limit") {
 		t.Fatalf("own normalized holder missed its pending quota: exit=%d output=%s", code, out)
@@ -128,7 +128,7 @@ func TestEvaluateThroughFrontedEndpointUsesNormalizedHolderQuota(t *testing.T) {
 func TestEvaluateFrameRejectsMixedStatusOperation(t *testing.T) {
 	b, _ := windowFixture(t)
 	own, _ := frontedEndpoint(t, b, filepath.Base(paths.HostServicesDir(authorityContainer, false)))
-	out, code := evaluationThroughEndpoint(t, own, `{"mode":"evaluate","operation":"status","request":"r-invalid"}`)
+	out, code := evaluationThroughEndpoint(t, own, `{"op":"evaluate","version":1,"operation":"status","request":"r-invalid"}`)
 	if code != ExitUsage || len(out) != 0 {
 		t.Fatalf("evaluate+status entered the legacy status path: exit=%d output=%s", code, out)
 	}

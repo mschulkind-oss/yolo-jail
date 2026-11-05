@@ -17,12 +17,16 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
 )
 
 const sessionLimit = 12 * time.Hour
+
+// MaxDenialNoteRunes bounds human feedback stored with a denied request.
+const MaxDenialNoteRunes = 500
 
 // PendingLife is how long a filed request waits for an answer before it expires.
 const PendingLife = time.Hour
@@ -111,6 +115,8 @@ type Request struct {
 	HookRan bool `json:",omitempty"`
 	// Reason is why a request left pending unanswered: ReasonBrokerStopped for one End closed.
 	Reason string `json:",omitempty"`
+	// DenialNote is optional human feedback, present only when denied; it never changes authority.
+	DenialNote string `json:"denial_note,omitempty"`
 }
 
 // How a request was answered (Request.Answer): the jail-readable record's own spellings
@@ -183,6 +189,9 @@ type Decision struct {
 	// Remember (Decide only) records the Allow once as AnswerRemember: the caller has written
 	// the request's refs into the project's config. It grants nothing more than Allow once.
 	Remember bool
+	// DenialNote is human feedback attached only to a denial; it never grants authority or
+	// changes the command. Empty means the request was denied without feedback.
+	DenialNote string
 	// Via is who answered (ViaOnRequest, ViaHost), recorded on the request; it grants nothing.
 	Via string
 }
@@ -616,7 +625,7 @@ func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Req
 	input.Decided = time.Time{}
 	input.State = "pending"
 	// The decision's facts are the store's to record, never the filer's to supply.
-	input.Answer, input.Via, input.Until, input.Reason = "", "", time.Time{}, ""
+	input.Answer, input.Via, input.Until, input.Reason, input.DenialNote = "", "", time.Time{}, "", ""
 	input.SpentAt, input.HookRan = time.Time{}, false
 	if err := s.audit(ctx, "request", input, Grant{}); err != nil {
 		return Request{}, err
@@ -673,6 +682,55 @@ func (s *Store) SpendExactOrFileContext(ctx context.Context, input Request, reva
 	return g, spent, filed, err
 }
 
+// FileIfStillAsksContext files an approval without spending any grant. Under one store
+// transaction it revalidates the command's current host policy, checks whether a live grant
+// arrived since evaluation, and otherwise joins/files through the ordinary limits and
+// deduplication path. A covered result is advisory only: the later real invocation decides
+// again and may spend the grant then.
+func (s *Store) FileIfStillAsksContext(ctx context.Context, input Request, revalidate Revalidate) (Request, Grant, bool, error) {
+	return s.FileIfStillAsksWithCoverageContext(ctx, input, revalidate, nil)
+}
+
+// FileIfStillAsksWithCoverageContext adds source-specific standing coverage to the same
+// transaction that revalidates policy and checks brokerstore grants. The callback receives
+// the transaction's live working-set snapshot and clock; it must not acquire this store lock.
+func (s *Store) FileIfStillAsksWithCoverageContext(ctx context.Context, input Request, revalidate Revalidate,
+	coverage func([]WorkingEntry, time.Time) (bool, error)) (Request, Grant, bool, error) {
+	var out Request
+	var coveredGrant Grant
+	if err := checkFiling(input); err != nil {
+		return out, Grant{}, false, err
+	}
+	input.Digest = digest(input)
+	covered := false
+	err := s.transactionContext(ctx, func(r *records, now time.Time) error {
+		if revalidate == nil {
+			return errors.New("request filing needs current host authority")
+		}
+		if _, err := currentPolicy(input, revalidate); err != nil {
+			return err
+		}
+		if coverage != nil {
+			var coverageErr error
+			covered, coverageErr = coverage(r.working, now)
+			if coverageErr != nil || covered {
+				return coverageErr
+			}
+		}
+		grant, _, _, _, found, err := eligibleGrantIn(r, now, input.Workspace, input.Set, input.Digest, revalidate, false)
+		covered = found
+		if found {
+			coveredGrant = grant
+		}
+		if err != nil || covered {
+			return err
+		}
+		out, err = s.fileIn(ctx, r, now, input)
+		return err
+	})
+	return out, coveredGrant, covered, err
+}
+
 // InspectContext reads the store's current records under its transaction lock without expiring,
 // pruning, creating or rewriting any record. It is for broker decisions that must predict
 // without spending a grant or changing the store.
@@ -686,13 +744,16 @@ func (s *Store) InspectContext(ctx context.Context) ([]Request, []Grant, []Worki
 
 // ExactInspection is one non-mutating store view and its exact-grant eligibility result.
 type ExactInspection struct {
-	Requests       []Request
-	Grants         []Grant
-	Working        []WorkingEntry
-	Now            time.Time
-	Grant          Grant
-	Eligible       bool
-	EligibilityErr error
+	Requests         []Request
+	Grants           []Grant
+	Working          []WorkingEntry
+	Now              time.Time
+	Grant            Grant
+	Eligible         bool
+	EligibilityErr   error
+	CoveringGrant    Grant
+	HasCoveringGrant bool
+	CoveringErr      error
 }
 
 // InspectExactGrantContext returns one existing-store snapshot and determines exact-grant
@@ -709,6 +770,8 @@ func (s *Store) InspectExactGrantContext(ctx context.Context, input Request, rev
 		result.Requests, result.Grants, result.Working = r.requests, r.grants, r.working
 		result.Grant, _, _, _, result.Eligible, result.EligibilityErr = eligibleGrantIn(
 			r, at, input.Workspace, input.Set, input.Digest, revalidate, true)
+		result.CoveringGrant, _, _, _, result.HasCoveringGrant, result.CoveringErr = eligibleGrantIn(
+			r, at, input.Workspace, input.Set, input.Digest, revalidate, false)
 		return nil
 	})
 	if err != nil {
@@ -758,6 +821,9 @@ func (s *Store) inspectContext(ctx context.Context, inspect func(*records, time.
 		}
 		return nil
 	})
+	if s.AfterTransaction != nil {
+		s.AfterTransaction(err)
+	}
 	if err != nil {
 		return records{}, time.Time{}, err
 	}
@@ -770,8 +836,27 @@ func (s *Store) List() ([]Request, []Grant, error) {
 	return out.requests, out.grants, err
 }
 
+func validateDenialNote(d Decision) error {
+	if d.DenialNote == "" {
+		return nil
+	}
+	if !d.Deny {
+		return errors.New("a denial note is only valid with --deny; remove it or deny the request")
+	}
+	if !utf8.ValidString(d.DenialNote) || strings.TrimSpace(d.DenialNote) == "" {
+		return errors.New("a denial note must be non-empty valid text; provide human feedback or omit the note")
+	}
+	if utf8.RuneCountInString(d.DenialNote) > MaxDenialNoteRunes {
+		return fmt.Errorf("a denial note must be at most %d characters; shorten the feedback and try again", MaxDenialNoteRunes)
+	}
+	return nil
+}
+
 // Decide compares the state seen by the frontend; only pending can transition.
 func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
+	if err := validateDenialNote(d); err != nil {
+		return Grant{}, err
+	}
 	var out Grant
 	err := s.transaction(func(r *records, now time.Time) error {
 		for i := range r.requests {
@@ -796,6 +881,7 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 				q.State = "denied"
 				q.Decided = now
 				q.Answer, q.Via = AnswerDeny, d.Via
+				q.DenialNote = d.DenialNote
 				return s.write("requests", q.ID, q)
 			}
 			current, err := currentPolicy(*q, s.Revalidate)
@@ -878,6 +964,9 @@ const TimedGrantDefault = 15 * time.Minute
 // recorded; every jail of the workspace is covered through the entries. It returns the entries
 // now holding those resources.
 func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
+	if err := validateDenialNote(d); err != nil {
+		return nil, err
+	}
 	if s.Entries == nil {
 		return nil, refusal(ErrRefusedByPolicy, "this source's requests take Allow once and Deny only")
 	}

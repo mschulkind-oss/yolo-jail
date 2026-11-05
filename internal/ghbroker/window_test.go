@@ -32,6 +32,10 @@ func windowFixture(t *testing.T) (*Broker, *atomic.Int32) {
 	log := brokeraudit.Open(paths.BrokerAuditLog(), nil)
 	b := &Broker{authority: a, scope: NewScope([]string{"o/r"}).WithGrants(readAll...), workspace: a.scope.Workspace, startID: a.start, store: &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Revalidate: a.Revalidate, Audit: StoreAudit(log)}, audit: log, log: io.Discard, now: time.Now, waitLimit: 20 * time.Millisecond}
 	b.execute = func(ctx context.Context, argv []string, stdin []byte, out, err func([]byte)) RunResult {
+		if len(argv) == 2 && argv[0] == "api" && strings.HasPrefix(argv[1], "repos/") && strings.Contains(argv[1], "/issues/") {
+			out([]byte(`{"number":1,"pull_request":{}}`))
+			return RunResult{Exit: 0}
+		}
 		count.Add(1)
 		return RunResult{Exit: 0}
 	}

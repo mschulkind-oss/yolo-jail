@@ -2,6 +2,7 @@ package brokerstore
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,41 @@ func answerFixture(t *testing.T) (*Store, Request, *time.Time) {
 	in := spendOrFileRequest()
 	in.Workspace = ws
 	return s, in, &now
+}
+
+func TestDenyNoteIsStoredWithDenialAndCannotAccompanyGrant(t *testing.T) {
+	s, in, _ := answerFixture(t)
+	q, err := s.File(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const note = "use the release branch"
+	if _, err := s.Decide(q.ID, "pending", Decision{Deny: true, DenialNote: note, Via: ViaHost}); err != nil {
+		t.Fatal(err)
+	}
+	requests, _, err := s.List()
+	if err != nil || len(requests) != 1 || requests[0].DenialNote != note || requests[0].Answer != AnswerDeny {
+		t.Fatalf("stored request: %+v err=%v", requests, err)
+	}
+	if rec := readPublished(t, in.Workspace, q.ID); rec.DenialNote != note || rec.Answer != approvalwait.AnswerDeny {
+		t.Fatalf("published request: %+v", rec)
+	}
+
+	s, in, _ = answerFixture(t)
+	q, err = s.File(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(q.ID, "pending", Decision{DenialNote: note}); err == nil {
+		t.Fatal("a denial note accompanied a grant decision")
+	}
+	if _, err := s.Decide(q.ID, "pending", Decision{Deny: true, DenialNote: strings.Repeat("x", MaxDenialNoteRunes+1)}); err == nil {
+		t.Fatal("an oversized denial note was stored")
+	}
+	requests, _, err = s.List()
+	if err != nil || len(requests) != 1 || requests[0].State != "pending" {
+		t.Fatalf("invalid note decisions changed request: %+v err=%v", requests, err)
+	}
 }
 
 func TestEachAnswerIsRecordedWithWhoGaveIt(t *testing.T) {

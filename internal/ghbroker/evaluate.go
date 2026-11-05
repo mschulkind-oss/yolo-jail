@@ -13,12 +13,22 @@ import (
 )
 
 type evaluation struct {
-	Verdict   string   `json:"verdict"`
-	Rule      string   `json:"rule"`
-	Canonical []string `json:"canonical"`
-	facts     writeDecisionFacts
-	message   string
-	endMerged bool
+	Schema        string       `json:"schema"`
+	Source        string       `json:"source"`
+	Call          accessCall   `json:"call"`
+	CommandDigest string       `json:"command_digest"`
+	InputsDigest  string       `json:"inputs_digest,omitempty"`
+	Facts         []accessFact `json:"facts"`
+	CoveredBy     string       `json:"covered_by"`
+	Next          []accessNext `json:"next"`
+	RequestID     string       `json:"request_id,omitempty"`
+	ReliesOnUntil *time.Time   `json:"relies_on_until"`
+	Verdict       string       `json:"verdict"`
+	Rule          string       `json:"rule"`
+	Canonical     []string     `json:"canonical"`
+	facts         writeDecisionFacts
+	message       string
+	endMerged     bool
 }
 
 type writeDecisionFacts struct {
@@ -35,6 +45,7 @@ type writeDecisionFacts struct {
 	dispatchTried bool
 	workingFound  bool
 	workingEntry  brokerstore.WorkingEntry
+	reliesOnUntil time.Time
 	issueRead     bool
 	issueState    issueState
 	message       string
@@ -58,6 +69,9 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 	var exactGrant brokerstore.Grant
 	var exactEligible bool
 	var exactEligibilityErr error
+	var coveringGrant brokerstore.Grant
+	var hasCoveringGrant bool
+	var coveringGrantErr error
 	var q brokerstore.Request
 	if b.store != nil {
 		sum := sha256.Sum256(req.Stdin)
@@ -75,6 +89,7 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 		} else {
 			requests, grants, working, now = view.Requests, view.Grants, view.Working, view.Now
 			exactGrant, exactEligible, exactEligibilityErr = view.Grant, view.Eligible, view.EligibilityErr
+			coveringGrant, hasCoveringGrant, coveringGrantErr = view.CoveringGrant, view.HasCoveringGrant, view.CoveringErr
 			kind, grant := b.userGrantCovers(t, d.Argv, "")
 			facts.userKind, facts.userGrant = kind, grant
 			if grant && kind == GrantApproveRun {
@@ -134,6 +149,7 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 					}
 					if e.Timed() {
 						facts.coveredBy = e.ID
+						facts.reliesOnUntil = e.Expires
 					} else {
 						facts.coveredBy = "working-set " + e.ID
 					}
@@ -143,8 +159,12 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 			if facts.coveredBy == "" && facts.failed == "" {
 				if exactEligible {
 					facts.coveredBy = "Allow once " + exactGrant.ID
-				} else if exactEligibilityErr != nil {
-					facts.failed, facts.unavailable = exactEligibilityErr.Error(), true
+					facts.reliesOnUntil = exactGrant.Expires
+				} else if hasCoveringGrant {
+					facts.coveredBy = "grant " + coveringGrant.ID
+					facts.reliesOnUntil = coveringGrant.Expires
+				} else if exactEligibilityErr != nil || coveringGrantErr != nil {
+					facts.failed, facts.unavailable = "could not validate a live approval grant", true
 				}
 			}
 			if facts.coveredBy == "" && facts.failed == "" {

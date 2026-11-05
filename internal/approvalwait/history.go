@@ -251,6 +251,9 @@ func History(o HistoryOpts) int {
 			facts = append([]string{h}, facts...)
 		}
 		fmt.Fprintf(o.Out, "    %s. Next: %s.\n", strings.Join(facts, "; "), next)
+		if r.State == StateDenied && r.DenialNote != "" {
+			fmt.Fprintf(o.Out, "    Human feedback: %s\n", termsafe.Visible(r.DenialNote))
+		}
 		switch waits {
 		case waitsForHost:
 			pending = append(pending, r.ID)
@@ -311,6 +314,9 @@ func (o HistoryOpts) showOne(r Record, now time.Time) {
 		case r.Lapsed:
 			fmt.Fprintln(o.Out, "  lapsed    its window closed before the command ran")
 		}
+	}
+	if r.State == StateDenied && r.DenialNote != "" {
+		fmt.Fprintf(o.Out, "  feedback  %s\n", termsafe.Visible(r.DenialNote))
 	}
 	fmt.Fprintf(o.Out, "Next: %s.\n", next)
 }

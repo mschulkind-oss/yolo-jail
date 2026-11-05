@@ -74,6 +74,8 @@ type Record struct {
 	SpentAt time.Time `json:"spent_at,omitzero"`
 	// Reason is why it was closed unanswered: ReasonBrokerStopped.
 	Reason string `json:"reason,omitempty"`
+	// DenialNote is optional human feedback recorded with a denial, never an instruction to run.
+	DenialNote string `json:"denial_note,omitempty"`
 }
 
 // The answers a record names (Record.Answer), the host store's own.

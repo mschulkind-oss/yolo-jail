@@ -3,7 +3,7 @@ title: "Access introspection: build hand-off"
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Build task 1 (shared GitHub decision and inert evaluate path), then file-before-act and git independently of pack-broker rulings"
+next: "Build task 3 (Git ref-update prediction and pre-ask); tasks 1–2 are integrated for GitHub"
 depends-on:
   - access-introspection.md
 tags: [plan, broker, dry-run, introspection]
@@ -12,12 +12,22 @@ summary: "Tree-grounded hand-off for yolo access, broker-owned decisions, pre-ex
 
 # Access introspection: build hand-off
 
-**Written against:** `4eefd88756efe30ba50e03f8bf38193fa6028f8e`, 2026-11-04. Planning only;
-no runtime changed. **Design:** [access-introspection.md](access-introspection.md).
+**Written against:** `1c6f83c1ed4723268e8e789baeace8e7cc154bf2`, 2026-11-04. Planning only;
+no runtime changed by this document. **Design:** [access-introspection.md](access-introspection.md).
 Precedence: the design wins on behavior; the tree wins on cosmetic facts; this plan is advice and
 is first to be wrong. Never twist code to match an overtaken plan. Stop and report without
 committing if a named seam disappears, a proposed red test is not red for the stated reason,
 someone else's file is dirty, a fix crosses a task's fence, or an out-of-scope gate fails.
+
+**Integrated implementation receipt:** GitHub tasks 1–2 now provide shared act/evaluate decisions,
+versioned status/evaluate/ask forwarding, workspace-scoped status, and atomic pre-ask. The actual
+`ForwardAccess` production handler path is pinned through the published endpoint for all three
+operations; its frames have only the versioned `access` envelope, and evaluate/ask carry nested
+argv. The historical act-handler rotation regression and flattened-envelope negative controls are
+included. Tasks 3–5 and task 4's launch snapshot/aggregate work remain unbuilt; do not infer Git
+prediction, MCP status, aggregate snapshots, or prediction-divergence audit from the GitHub path.
+The outstanding `go test -short ./internal/cli` broad-suite failures are recorded in the integration
+handoff report, and focused repetitions do not establish their cause or erase those failures.
 
 ## Map
 

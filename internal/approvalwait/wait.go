@@ -141,6 +141,9 @@ func (o Opts) report(rec *Record, now time.Time) (int, bool) {
 		return ExitAllowed, true
 	case state == StateDenied:
 		fmt.Fprintf(o.Out, "%s was denied on the host. Do not run the command again; report it, and ask the human before trying anything else.\n", o.ID)
+		if rec.DenialNote != "" {
+			fmt.Fprintf(o.Out, "Human feedback: %s\n", termsafe.Visible(rec.DenialNote))
+		}
 		return ExitDenied, true
 	case state == StateExpired:
 		fmt.Fprintf(o.Out, "%s expired with no answer. Report it; do not retry unless the human asks.\n", o.ID)

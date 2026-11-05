@@ -3,6 +3,8 @@ package approvalwait
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +42,59 @@ func incident(t *testing.T, c *clock) string {
 		publish(t, ws, rec)
 	}
 	return ws
+}
+
+func TestHistoryReadsPreNoteRecord(t *testing.T) {
+	ws := workspace(t)
+	dir := filepath.Join(ws, ".yolo", DirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldRecord := `{"id":"` + idPending + `","source":"local-tasks","state":"denied","command":"update task-1","filed":"2026-11-04T12:00:00Z","expires":"2026-11-04T13:00:00Z","decided":"2026-11-04T12:01:00Z","answer":"deny"}`
+	if err := os.WriteFile(filepath.Join(dir, idPending+".json"), []byte(oldRecord), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var waitOut, waitErr bytes.Buffer
+	if rc := Wait(Opts{Workspace: ws, ID: idPending, Out: &waitOut, Err: &waitErr, Poll: time.Millisecond}); rc != ExitDenied || !strings.Contains(waitOut.String(), "denied") {
+		t.Fatalf("pre-note wait record: rc=%d stdout=%q stderr=%q", rc, waitOut.String(), waitErr.String())
+	}
+	var historyOut, historyErr bytes.Buffer
+	if rc := History(HistoryOpts{Workspace: ws, ID: idPending, JSON: true, Out: &historyOut, Err: &historyErr}); rc != 0 || !strings.Contains(historyOut.String(), `"answer":"deny"`) || strings.Contains(historyOut.String(), "denial_note") {
+		t.Fatalf("pre-note history JSON: rc=%d stdout=%q stderr=%q", rc, historyOut.String(), historyErr.String())
+	}
+}
+
+func TestDenialFeedbackIsVisibleText(t *testing.T) {
+	ws := workspace(t)
+	publish(t, ws, Record{ID: idPending, Source: "local-tasks", State: StateDenied,
+		Filed:   time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC),
+		Decided: time.Date(2026, 11, 4, 12, 1, 0, 0, time.UTC), Answer: AnswerDeny,
+		DenialNote: "use branch\n\x1b[2J"})
+	for _, run := range []struct {
+		name string
+		call func(*bytes.Buffer, *bytes.Buffer) int
+	}{
+		{"wait", func(out, errs *bytes.Buffer) int {
+			return Wait(Opts{Workspace: ws, ID: idPending, Out: out, Err: errs, Poll: time.Millisecond})
+		}},
+		{"history", func(out, errs *bytes.Buffer) int {
+			return History(HistoryOpts{Workspace: ws, ID: idPending, InJail: true, Out: out, Err: errs})
+		}},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			var out, errs bytes.Buffer
+			want := 0
+			if run.name == "wait" {
+				want = ExitDenied
+			}
+			if rc := run.call(&out, &errs); rc != want {
+				t.Fatalf("rc=%d want=%d stdout=%q stderr=%q", rc, want, out.String(), errs.String())
+			}
+			if !strings.Contains(out.String(), `use branch\n\x1b[2J`) || strings.Contains(out.String(), "\x1b") {
+				t.Fatalf("denial feedback was not rendered as visible text: %q", out.String())
+			}
+		})
+	}
 }
 
 func TestBareWaitNamesWhatItOmittedAndTheVerbThatShowsIt(t *testing.T) {

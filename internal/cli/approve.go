@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
@@ -28,16 +29,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
-const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --add | --remember | --deny]
+const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --add | --remember | --deny [--note <text>]]
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
        yolo approve --json
        yolo approve --watch [--json]
 
 Host-only: list requests, grants and each workspace's working set, allow a
-request once, grant its requested set for a bounded duration, deny it, or
-revoke a grant or a working-set entry. Without --for, Allow once covers that
-exact command for one use, for at most 15 minutes and never beyond its set's
-ceiling. --for hands over the whole requested set, within its policy ceiling
+request once, grant its requested set for a bounded duration, deny it with optional human feedback,
+revoke a grant or a working-set entry. --note is valid only with --deny, is limited to 500
+characters, and is shown as human feedback, never executed or treated as a grant. Use
+--note=<text> when feedback starts with a dash (for example, yolo approve r-<id> --deny
+--note=--json). Without --for, Allow once covers that exact command for one use, for at most 15
+minutes and never beyond its set's ceiling. --for hands over the whole requested set, within its policy ceiling
 and use cap; session is 12 hours. For a GitHub write, --for <duration> (at
 most 12h) allows that kind of write on its resource (the PR, the issue, PR or
 issue creation, or the repository's other writes) for that long, and --add adds
@@ -116,6 +119,8 @@ Examples:
   yolo approve r-<id> --for 15m
   yolo approve r-<id> --remember     # a git push: allow it and remember it in the project's config
   yolo approve r-<id> --deny
+  yolo approve r-<id> --deny --note "use the release branch"
+  yolo approve r-<id> --deny --note=--json
   yolo approve --revoke w-<id>
   yolo approve --revoke c-<id>       # names the config file to edit instead
   yolo approve --revoke all
@@ -207,7 +212,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	}
 	var request, revoke, workspace string
 	var d brokerstore.Decision
-	forSeen, addSeen, rememberSeen, asJSON, watch, workspaceSeen := false, false, false, false, false, false
+	forSeen, addSeen, rememberSeen, noteSeen, asJSON, watch, workspaceSeen := false, false, false, false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, value, eq := strings.Cut(a, "=")
@@ -257,6 +262,27 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 				return fail(fmt.Errorf("specify --remember once, without a value"))
 			}
 			rememberSeen = true
+		case "--note":
+			if noteSeen {
+				return fail(fmt.Errorf("specify --note only once"))
+			}
+			if !eq {
+				i++
+				if i >= len(args) {
+					return fail(fmt.Errorf("the note needs a value"))
+				}
+				value = args[i]
+				if strings.HasPrefix(value, "-") {
+					return fail(fmt.Errorf("%s value %q looks like a flag; use --note=<text> for feedback beginning with a dash", name, value))
+				}
+			}
+			if strings.TrimSpace(value) == "" {
+				return fail(fmt.Errorf("give --note non-empty human feedback"))
+			}
+			if !utf8.ValidString(value) || utf8.RuneCountInString(value) > brokerstore.MaxDenialNoteRunes {
+				return fail(fmt.Errorf("the note must be at most %d characters; shorten the feedback and try again", brokerstore.MaxDenialNoteRunes))
+			}
+			noteSeen, d.DenialNote = true, value
 		case "--deny":
 			if eq || d.Deny {
 				return fail(fmt.Errorf("specify --deny once, without a value"))
@@ -277,6 +303,9 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 			}
 			request = a
 		}
+	}
+	if noteSeen && !d.Deny {
+		return fail(fmt.Errorf("a note is only for --deny; remove it or pair it with --deny"))
 	}
 	// The answers to one request exclude each other: Deny, Allow for a time, Add, Remember.
 	answers := 0

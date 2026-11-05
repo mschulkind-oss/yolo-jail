@@ -48,29 +48,22 @@ type ForwardEnv struct {
 	OriginRepo func() string
 }
 
-// Forward runs one forwarded call and returns the exit code.
 func Forward(args []string, env ForwardEnv) int {
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
-	}
-	say := func(format string, a ...any) { fmt.Fprintf(env.Stderr, "gh (github-broker): "+format+"\n", a...) }
+	args = normalizedArgs(args)
 	endpoint := env.Getenv(EndpointEnv)
+	say := func(format string, a ...any) { fmt.Fprintf(env.Stderr, "gh (github-broker): "+format+"\n", a...) }
 	if endpoint == "" {
-		// The broker runs whenever the `github` pack is selected (docs/design/boundary-broker.md
-		// BB-D104), so a missing endpoint is a launch that did not start it: the step is `yolo
-		// check` on the host, in this jail's workspace as the host names it (YOLO_HOST_DIR).
 		where := "in this project"
 		if hostDir := env.Getenv("YOLO_HOST_DIR"); hostDir != "" {
 			where = "in " + shquote.QuoteDisplay(hostDir)
 		}
-		say("this jail has no github-broker endpoint, so `gh` cannot reach the host's GitHub login: the broker\n" +
-			"  did not start for this launch. It runs whenever the `github` pack is selected; run `yolo check` on\n" +
-			"  the host, " + where + ", to see why, then start a fresh jail. Apple Container runs no host\n" +
-			"  services, so there it never starts. The image's own gh is still reachable by path, or with\n" +
-			"  YOLO_BYPASS_SHIMS=1, and holds no GitHub credential in the jail.")
+		say("this jail has no github-broker endpoint, so `gh` cannot reach the host's GitHub login: the broker\n"+
+			"  did not start for this launch. It runs whenever the `github` pack is selected; run `yolo check` on\n"+
+			"  the host, %s, to see why, then start a fresh jail. Apple Container runs no host\n"+
+			"  services, so there it never starts. The image's own gh is still reachable by path, or with\n"+
+			"  YOLO_BYPASS_SHIMS=1, and holds no GitHub credential in the jail.", where)
 		return ExitUnavailable
 	}
-
 	req := map[string]any{"argv": args}
 	if len(args) > 0 && (args[0] == "status" || args[0] == "wait") {
 		if len(args) != 2 || !strings.HasPrefix(args[1], "r-") {
@@ -79,30 +72,11 @@ func Forward(args []string, env ForwardEnv) int {
 		}
 		req = map[string]any{"operation": args[0], "request": args[1]}
 	}
-	if args == nil {
-		req["argv"] = []string{}
-	}
-	origin := env.OriginRepo
-	if origin == nil {
-		origin = gitOriginRepo
-	}
-	if repo := origin(); repo != "" {
-		req["repo"] = repo
-	}
-	if readsDash(args) {
-		data, err := io.ReadAll(io.LimitReader(env.Stdin, StdinCap+1))
-		if err != nil {
-			say("cannot read standard input: %v", err)
-			return ExitUsage
-		}
-		if len(data) > StdinCap {
-			say("standard input is over the %d-byte cap the broker takes", StdinCap)
-			return ExitUsage
-		}
-		req["stdin"] = base64.StdEncoding.EncodeToString(data)
+	if err := addCallContext(req, args, env); err != nil {
+		fmt.Fprintf(env.Stderr, "gh (github-broker): %s\n", err)
+		return ExitUsage
 	}
 	body, _ := json.Marshal(req)
-
 	conn, err := svcendpoint.Dial(endpoint, dialTimeout)
 	if err != nil {
 		switch {
@@ -139,6 +113,158 @@ func Forward(args []string, env ForwardEnv) int {
 				return ExitUnavailable
 			}
 			return rc
+		}
+	}
+}
+
+// ForwardAccess asks the broker for a versioned status, evaluate or ask answer. Each access message is
+// nested under `access`, so an older decoder that ignores unknown keys cannot mistake proposed
+// argv for a legacy act call even if endpoint publication changes between connections.
+func ForwardAccess(op string, args []string, env ForwardEnv) ([]byte, int) {
+	args = normalizedArgs(args)
+	if len(args) > 0 && args[0] == "gh" {
+		args = args[1:]
+	}
+	if op != "status" && op != "evaluate" && op != "ask" {
+		fmt.Fprintf(env.Stderr, "yolo access: unsupported operation\n")
+		return nil, ExitUsage
+	}
+	if op != "status" {
+		if len(args) == 0 {
+			fmt.Fprintf(env.Stderr, "yolo access: provide a GitHub command after --\n")
+			return nil, ExitUsage
+		}
+		// Safe compatibility probe. A legacy daemon ignores the nested envelope, receives no
+		// top-level argv and cannot run the proposed command; its non-schema response is rejected
+		// before the proposed argv is sent to a supported broker.
+		probe, code := forwardFrame(map[string]any{"access": map[string]any{"op": "status", "version": 1}}, env, true)
+		if code != 0 || !hasAccessSchema(probe, "yolo.access/1") {
+			fmt.Fprintf(env.Stderr, "yolo access: the github-broker does not support versioned access requests; relaunch the jail\n")
+			return nil, ExitUnavailable
+		}
+	}
+	req := map[string]any{"op": op, "version": 1}
+	if op != "status" {
+		req["argv"] = args
+		if err := addCallContext(req, args, env); err != nil {
+			fmt.Fprintf(env.Stderr, "yolo access: %s\n", err)
+			return nil, ExitUsage
+		}
+	}
+	body, code := forwardFrame(map[string]any{"access": req}, env, true)
+	if code != 0 {
+		return nil, code
+	}
+	schema := "yolo.access/1"
+	if op != "status" {
+		schema = "yolo.access.prediction/1"
+	}
+	if !hasAccessSchema(body, schema) {
+		fmt.Fprintf(env.Stderr, "yolo access: the github-broker returned an unsupported response; relaunch the jail\n")
+		return nil, ExitUnavailable
+	}
+	return body, 0
+}
+
+func normalizedArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	if args == nil {
+		return []string{}
+	}
+	return args
+}
+
+func addCallContext(req map[string]any, args []string, env ForwardEnv) error {
+	origin := env.OriginRepo
+	if origin == nil {
+		origin = gitOriginRepo
+	}
+	if repo := origin(); repo != "" {
+		req["repo"] = repo
+	}
+	if readsDash(args) {
+		data, err := io.ReadAll(io.LimitReader(env.Stdin, StdinCap+1))
+		if err != nil {
+			return fmt.Errorf("cannot read standard input: %w", err)
+		}
+		if len(data) > StdinCap {
+			return fmt.Errorf("standard input is over the %d-byte cap the broker takes", StdinCap)
+		}
+		req["stdin"] = base64.StdEncoding.EncodeToString(data)
+	}
+	return nil
+}
+
+func hasAccessSchema(body []byte, want string) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(body, &object) != nil {
+		return false
+	}
+	var got string
+	if json.Unmarshal(object["schema"], &got) != nil || got != want {
+		return false
+	}
+	if want == "yolo.access/1" {
+		for _, key := range []string{"source", "state", "repositories", "read", "grants", "working_set", "requests", "limits"} {
+			if _, ok := object[key]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	var verdict string
+	if json.Unmarshal(object["verdict"], &verdict) != nil || (verdict != "runs" && verdict != "asks" && verdict != "refused") {
+		return false
+	}
+	for _, key := range []string{"source", "call", "command_digest", "covered_by", "next", "relies_on_until", "rule"} {
+		if _, ok := object[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func forwardFrame(req map[string]any, env ForwardEnv, capture bool) ([]byte, int) {
+	body, _ := json.Marshal(req)
+	endpoint := env.Getenv(EndpointEnv)
+	if endpoint == "" {
+		fmt.Fprintf(env.Stderr, "github-broker: no endpoint is published; run `yolo check` on the host, then relaunch the jail\n")
+		return nil, ExitUnavailable
+	}
+	conn, err := svcendpoint.Dial(endpoint, dialTimeout)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "github-broker: cannot reach the broker named by %s: %v\n", endpoint, err)
+		return nil, ExitUnavailable
+	}
+	defer conn.Close()
+	if err := frameproto.WriteRequest(conn, body); err != nil {
+		fmt.Fprintf(env.Stderr, "github-broker: the broker stopped answering: %v\n", err)
+		return nil, ExitUnavailable
+	}
+	var output []byte
+	for {
+		f, err := frameproto.ReadFrame(conn)
+		if err != nil {
+			fmt.Fprintln(env.Stderr, "github-broker: the broker stopped answering; see its host log")
+			return nil, ExitUnavailable
+		}
+		switch f.StreamID {
+		case frameproto.StreamStdout:
+			if capture {
+				output = append(output, f.Payload...)
+			} else {
+				_, _ = env.Stdout.Write(f.Payload)
+			}
+		case frameproto.StreamStderr:
+			_, _ = env.Stderr.Write(f.Payload)
+		case frameproto.StreamExit:
+			rc, err := frameproto.ExitCode(f.Payload)
+			if err != nil {
+				return nil, ExitUnavailable
+			}
+			return output, rc
 		}
 	}
 }
