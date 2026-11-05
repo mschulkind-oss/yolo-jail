@@ -69,9 +69,10 @@ type CallBrokerCell struct {
 	MaxFor  string
 }
 type CallBrokerLookup struct {
-	Name                 string
-	CLI                  []string
-	HTTPMethod, HTTPPath string
+	Name                                           string
+	CLI                                            []string
+	HTTPMethod, HTTPPath                           string
+	HTTPResource, HTTPIDPointer, HTTPParentPointer string
 }
 type CallBrokerJoin struct {
 	Cell                     string
@@ -99,7 +100,7 @@ var callBrokerKeys = []string{"source", "front", "program", "classifier", "execu
 var callScopeKeys = []string{"roots", "remote_host", "root_template"}
 var callResourceKeys = []string{"type", "parent"}
 var callCellKeys = []string{"name", "tables", "default", "max_for"}
-var callLookupKeys = []string{"name", "cli", "http_method", "http_path"}
+var callLookupKeys = []string{"name", "cli", "http_method", "http_path", "http_resource", "http_id_pointer", "http_parent_pointer"}
 var callJoinKeys = []string{"cell", "follows"}
 var callFollowKeys = []string{"source", "fact"}
 var callCellTables = []string{"working_set", "all"}
@@ -213,7 +214,7 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 	for _, cell := range b.Cells {
 		cellNames[cell.Name] = true
 	}
-	if b.Lookups, err = parseCallBrokerLookups(manifestPath, getOrNil(m, "lookup")); err != nil {
+	if b.Lookups, err = parseCallBrokerLookups(manifestPath, getOrNil(m, "lookup"), b.Resources); err != nil {
 		return nil, err
 	}
 	if b.Joins, err = parseCallBrokerJoins(manifestPath, getOrNil(m, "joins_working_set")); err != nil {
@@ -504,7 +505,7 @@ func parseCallBrokerCells(path string, raw any) ([]CallBrokerCell, error) {
 	}
 	return out, nil
 }
-func parseCallBrokerLookups(path string, raw any) ([]CallBrokerLookup, error) {
+func parseCallBrokerLookups(path string, raw any, resources []CallBrokerResource) ([]CallBrokerLookup, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -514,6 +515,7 @@ func parseCallBrokerLookups(path string, raw any) ([]CallBrokerLookup, error) {
 	}
 	var out []CallBrokerLookup
 	seen := map[string]bool{}
+	seenResource := map[string]bool{}
 	for i, v := range list {
 		m, e := callObject(path, fmt.Sprintf("lookup[%d]", i), v, callLookupKeys)
 		if e != nil {
@@ -530,10 +532,46 @@ func parseCallBrokerLookups(path string, raw any) ([]CallBrokerLookup, error) {
 		if len(cli) == 0 && (method == "" || route == "") {
 			return nil, Errorf("%s: 'call_broker.lookup[%d]' needs cli argv or an HTTP method and path template", path, i)
 		}
-		out = append(out, CallBrokerLookup{Name: name, CLI: cli, HTTPMethod: method, HTTPPath: route})
+		resourceRaw, hasResource := m.Get("http_resource")
+		idRaw, hasID := m.Get("http_id_pointer")
+		parentRaw, hasParent := m.Get("http_parent_pointer")
+		resource, resourceOK := resourceRaw.(string)
+		idPointer, idOK := idRaw.(string)
+		parentPointer, parentOK := parentRaw.(string)
+		if hasResource || hasID || hasParent {
+			parent, found := "", false
+			for _, declared := range resources {
+				if declared.Type == resource {
+					parent, found = declared.Parent, true
+				}
+			}
+			if !hasResource || !resourceOK || !hasID || !idOK || !found || seenResource[resource] || method != "GET" || !strings.HasPrefix(route, "/") || strings.Count(route, "{id}") != 1 || strings.ContainsAny(route, "?#\\") || strings.Contains(route, "..") || !validCallJSONPointer(idPointer) || parent != "" && (!hasParent || !parentOK || !validCallJSONPointer(parentPointer)) || parent == "" && hasParent {
+				return nil, Errorf("%s: 'call_broker.lookup[%d]' needs a unique GET native-ID template with typed resource and valid ID/parent JSON Pointers", path, i)
+			}
+			seenResource[resource] = true
+		}
+		out = append(out, CallBrokerLookup{Name: name, CLI: cli, HTTPMethod: method, HTTPPath: route, HTTPResource: resource, HTTPIDPointer: idPointer, HTTPParentPointer: parentPointer})
 	}
 	return out, nil
 }
+func validCallJSONPointer(pointer string) bool {
+	if pointer == "" {
+		return true
+	}
+	if !strings.HasPrefix(pointer, "/") {
+		return false
+	}
+	for i := 0; i < len(pointer); i++ {
+		if pointer[i] == '~' {
+			i++
+			if i >= len(pointer) || pointer[i] != '0' && pointer[i] != '1' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func parseCallBrokerJoins(path string, raw any) ([]CallBrokerJoin, error) {
 	if raw == nil {
 		return nil, nil

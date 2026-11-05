@@ -16,6 +16,92 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
+func TestHTTPClassifierAcceptsThreeLookupRoundsButNotFour(t *testing.T) {
+	body := []byte(`{"query":"query { item { id } }"}`)
+	answer := fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original")
+	for _, limit := range []int{3, 4} {
+		t.Run(fmt.Sprintf("rounds-%d", limit), func(t *testing.T) {
+			script := fmt.Sprintf("input=$(cat)\ncount=$(printf '%%s' \"$input\" | grep -o '\"arguments\"' | wc -l)\nif [ \"$count\" -ge %d ]; then cat <<'CLASS'\n%s\nCLASS\nelse next=$((count+1)); printf '{\"version\":\"yolo.call-broker-classifier/1\",\"lookups\":[{\"name\":\"task-project\",\"arguments\":[\"a%%s\"]}]}' \"$next\"; fi", limit, answer)
+			classifier := fixtureHTTPClassifier(t, script)
+			classifier.Lookups = []loopholedecl.CallBrokerLookup{{Name: "task-project", HTTPMethod: "GET", HTTPPath: "/items/{id}", HTTPResource: "task"}}
+			calls := 0
+			read := func(_ context.Context, _ loopholedecl.CallBrokerLookup, args []string) (json.RawMessage, error) {
+				calls++
+				if len(args) != 1 || args[0] != fmt.Sprintf("a%d", calls) {
+					t.Fatalf("lookup sequence: calls=%d args=%v", calls, args)
+				}
+				return json.RawMessage(`{"id":"a1"}`), nil
+			}
+			_, err := classifier.ClassifyHTTPWithLookups(context.Background(), fixtureHTTPCall(body, true), []string{"Content-Type"}, read)
+			if calls != 3 || (err == nil) != (limit == 3) {
+				t.Fatalf("round cap: limit=%d calls=%d err=%v", limit, calls, err)
+			}
+		})
+	}
+}
+
+func TestHTTPClassifierLookupRoundsRejectCyclesAndUnknownMappings(t *testing.T) {
+	body := []byte(`{"query":"query { item { id } }"}`)
+	call := fixtureHTTPCall(body, true)
+	lookup := `{"version":"yolo.call-broker-classifier/1","lookups":[{"name":"task-project","arguments":["a1"]}]}`
+	classifier := fixtureHTTPClassifier(t, "cat >/dev/null\ncat <<'ANSWER'\n"+lookup+"\nANSWER")
+	classifier.Lookups = []loopholedecl.CallBrokerLookup{{Name: "task-project", HTTPMethod: "GET", HTTPPath: "/items/{id}", HTTPResource: "task", HTTPIDPointer: "/id", HTTPParentPointer: "/project/id"}}
+	calls := 0
+	read := func(_ context.Context, _ loopholedecl.CallBrokerLookup, arguments []string) (json.RawMessage, error) {
+		calls++
+		if len(arguments) != 1 || arguments[0] != "a1" {
+			t.Fatalf("lookup arguments changed: %v", arguments)
+		}
+		return json.RawMessage(`{"id":"a1","project":{"id":"team:alpha"}}`), nil
+	}
+	if _, err := classifier.ClassifyHTTPWithLookups(context.Background(), call, []string{"Content-Type"}, read); err == nil || !strings.Contains(err.Error(), "cycle") || calls != 1 {
+		t.Fatalf("repeated lookup was not bounded: err=%v calls=%d", err, calls)
+	}
+	calls = 0
+	if _, err := classifier.ClassifyHTTPWithLookups(context.Background(), call, []string{"Content-Type"}, nil); err == nil || calls != 0 {
+		t.Fatalf("lookup without core reader was allowed: err=%v calls=%d", err, calls)
+	}
+	unknown := strings.Replace(lookup, `"task-project"`, `"undeclared"`, 1)
+	classifier = fixtureHTTPClassifier(t, "cat >/dev/null\ncat <<'ANSWER'\n"+unknown+"\nANSWER")
+	classifier.Lookups = []loopholedecl.CallBrokerLookup{{Name: "task-project", HTTPMethod: "GET", HTTPPath: "/items/{id}", HTTPResource: "task"}}
+	if _, err := classifier.ClassifyHTTPWithLookups(context.Background(), call, []string{"Content-Type"}, read); err == nil || calls != 0 {
+		t.Fatalf("undeclared lookup reached callback: err=%v calls=%d", err, calls)
+	}
+}
+
+func TestHTTPReadMethodRequiresBothDeclaredOriginalAndCanonicalPOST(t *testing.T) {
+	body := []byte(`{"query":"query { item { id } }"}`)
+	answer := fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original")
+	cases := []struct {
+		name, originalMethod, originalPath, canonicalMethod, canonicalPath string
+		declared                                                           bool
+		allowed                                                            bool
+	}{
+		{"get", "GET", "/items/a1", "GET", "/items/a1", false, true},
+		{"declared post", "POST", "/graphql", "POST", "/graphql", true, true},
+		{"undeclared post", "POST", "/graphql", "POST", "/graphql", false, false},
+		{"original outside", "POST", "/other", "POST", "/graphql", true, false},
+		{"canonical outside", "POST", "/graphql", "POST", "/other", true, false},
+		{"put", "PUT", "/graphql", "POST", "/graphql", true, false},
+		{"delete", "DELETE", "/graphql", "POST", "/graphql", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			canonical := strings.Replace(answer, `"method":"POST","path":"/graphql"`, fmt.Sprintf(`"method":%q,"path":%q`, tc.canonicalMethod, tc.canonicalPath), 1)
+			classifier := fixtureHTTPClassifier(t, "cat >/dev/null\ncat <<'ANSWER'\n"+canonical+"\nANSWER")
+			if !tc.declared {
+				classifier.ReadOverPost = nil
+			}
+			original := fixtureHTTPCall(body, true)
+			original.Method, original.Path = tc.originalMethod, tc.originalPath
+			_, err := classifier.ClassifyHTTP(context.Background(), original, []string{"Content-Type"})
+			if (err == nil) != tc.allowed {
+				t.Fatalf("original %s %s, canonical %s %s, declared %v: err=%v, want allowed=%v", tc.originalMethod, tc.originalPath, tc.canonicalMethod, tc.canonicalPath, tc.declared, err, tc.allowed)
+			}
+		})
+	}
+}
+
 func fixtureHTTPCall(body []byte, present bool) HTTPCall {
 	return HTTPCall{Method: "POST", Path: "/graphql", Query: "op=rename",
 		Headers:     []HTTPHeader{{Name: "content-type", Values: []string{"application/json"}}},
@@ -46,7 +132,7 @@ func fixtureHTTPClassifier(t *testing.T, script string) Classifier {
 	return Classifier{Source: "local-tasks", Argv: []string{"{program:classifier}"},
 		Identities: map[string]loopholedecl.CallBrokerProgramIdentity{"classifier": {Bin: "classifier", Path: path, SHA256: fmt.Sprintf("%x", sha256.Sum256(raw))}},
 		Roots:      []string{"team:alpha"}, Resources: []loopholedecl.CallBrokerResource{{Type: "project"}, {Type: "task", Parent: "project"}},
-		Cells: []loopholedecl.CallBrokerCell{{Name: "update", Tables: []string{"all"}}}}
+		Cells: []loopholedecl.CallBrokerCell{{Name: "update", Tables: []string{"all"}}}, ReadOverPost: []string{"/graphql"}}
 }
 
 func scriptAnswer(t *testing.T, answer string, inputPath string) string {

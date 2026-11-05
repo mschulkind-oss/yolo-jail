@@ -38,6 +38,7 @@ type CLIHandler struct {
 	shutdown   context.Context
 	classifier Classifier
 	program    pinnedCLI
+	httpClient httpExecutor
 	store      *brokerstore.Store
 	audit      *brokeraudit.Log
 }

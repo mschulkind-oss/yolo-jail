@@ -43,10 +43,24 @@ func ApprovalAuthority(q brokerstore.Request) (brokerstore.Policy, error) {
 		return brokerstore.Policy{}, err
 	}
 	var in callbrokerinput.Launch
-	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || in.Front != "cli" || !slices.Equal(in.Roots, sf.Repos) {
+	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || (in.Front != "cli" && in.Front != "http") || !slices.Equal(in.Roots, sf.Repos) {
 		return brokerstore.Policy{}, errors.New("selected call broker input changed; relaunch and retry")
 	}
 	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(q.Set), Source: q.Set}
+	if in.Front == "http" {
+		if q.HTTPOriginalDigest == "" {
+			return brokerstore.Policy{}, errors.New("HTTP request has no retained intent digest; resubmit the original call")
+		}
+		h, err := newHTTPHandler(sf.CallInput, sf.Workspace, store, brokeraudit.Open(paths.BrokerAuditLog(), nil))
+		if err != nil {
+			return brokerstore.Policy{}, err
+		}
+		h.scopePath, h.bound, h.start = path, sf, q.Start
+		return h.revalidateHTTP(q)
+	}
+	if q.HTTPOriginalDigest != "" {
+		return brokerstore.Policy{}, errors.New("CLI request cannot carry HTTP approval; retry the original command")
+	}
 	h, err := newCLIHandler(sf.CallInput, sf.Workspace, store, brokeraudit.Open(paths.BrokerAuditLog(), nil))
 	if err != nil {
 		return brokerstore.Policy{}, err
@@ -67,8 +81,11 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 		return brokerscope.File{}, nil, err
 	}
 	sf, err := brokercore.Live(h.input.Source, h.scopePath, h.bound, h.start)
-	if err != nil || sf.Form != brokerscope.FormCallRoot || sf.CallInput != h.inputFile || sf.CallCLIHash != h.program.sha256 || sf.CallCLIPath != h.program.path || sf.Source != h.input.Source {
+	if err != nil || sf.Form != brokerscope.FormCallRoot || sf.CallInput != h.inputFile || sf.Source != h.input.Source {
 		return brokerscope.File{}, nil, errors.New("call broker live scope changed; relaunch and retry")
+	}
+	if h.input.Front == "cli" && (sf.CallCLIHash != h.program.sha256 || sf.CallCLIPath != h.program.path) {
+		return brokerscope.File{}, nil, errors.New("call broker host CLI changed; relaunch and retry")
 	}
 	for _, root := range sf.Repos {
 		if !loopholedecl.ValidCallBrokerRoot(root) {
@@ -123,6 +140,9 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 				!slices.Equal(b.Classifier, h.input.Classifier) || !slices.Equal(b.EnvFromHost, h.input.HostEnvNames) || b.Executor != h.input.Executor || !reflect.DeepEqual(b.Resources, h.input.Resources) || !reflect.DeepEqual(b.Cells, h.input.Cells) || !reflect.DeepEqual(b.Lookups, h.input.Lookups) {
 				return brokerscope.File{}, nil, errors.New("selected pack declaration changed; relaunch and retry")
 			}
+			if h.input.Front == "http" && (h.input.HTTPBinding == nil || b.HTTP == nil || h.input.HTTPBinding.Pack != pack.Name || h.input.HTTPBinding.Source != b.Source || h.input.HTTPBinding.DeclarationHash != h.input.DeclarationHash || !reflect.DeepEqual(h.input.HTTPBinding.HTTP, *b.HTTP) || !slices.Equal(h.input.HTTPBinding.ReadOverPost, b.ReadOverPost)) {
+				return brokerscope.File{}, nil, errors.New("approved HTTP origin or credential binding changed; run yolo config apply and relaunch")
+			}
 			matched++
 		}
 	}
@@ -137,8 +157,10 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 		grant.Kinds["read"].Standing != loopholegrant.Granted {
 		return brokerscope.File{}, nil, errors.New("read grant withdrawn or unavailable; run yolo request and yolo config apply before retrying")
 	}
-	if err := h.program.unchanged(); err != nil {
-		return brokerscope.File{}, nil, err
+	if h.input.Front == "cli" {
+		if err := h.program.unchanged(); err != nil {
+			return brokerscope.File{}, nil, err
+		}
 	}
 	return sf, user, nil
 }

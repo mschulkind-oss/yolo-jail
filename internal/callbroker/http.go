@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -36,12 +38,12 @@ type HTTPHeader struct {
 // HTTPCall is an in-memory request. BodyPresent distinguishes no body from a
 // present, zero-length body; it is never serialized directly to the classifier.
 type HTTPCall struct {
-	Method      string
-	Path        string
-	Query       string
-	Headers     []HTTPHeader
-	BodyPresent bool
-	Body        []byte
+	Method      string       `json:"method"`
+	Path        string       `json:"path"`
+	Query       string       `json:"query"`
+	Headers     []HTTPHeader `json:"headers"`
+	BodyPresent bool         `json:"body_present"`
+	Body        []byte       `json:"body_base64"`
 }
 
 type httpClassifierRequest struct {
@@ -104,6 +106,12 @@ type HTTPResult struct {
 // ClassifyHTTP runs the selected staged classifier with a bounded one-value JSON
 // input. allowedHeaders comes only from the gate-approved selected declaration.
 func (c Classifier) ClassifyHTTP(ctx context.Context, original HTTPCall, allowedHeaders []string) (HTTPResult, error) {
+	return c.ClassifyHTTPWithLookups(ctx, original, allowedHeaders, nil)
+}
+
+// ClassifyHTTPWithLookups lets core satisfy only selected, exact standing-read
+// lookup templates. Each classifier round shares one two-second deadline.
+func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCall, allowedHeaders []string, read LookupReader) (HTTPResult, error) {
 	if c.Source == "" || len(c.Argv) == 0 {
 		return HTTPResult{}, errors.New("call broker classifier has no selected declaration; retry with its pack selected")
 	}
@@ -118,74 +126,117 @@ func (c Classifier) ClassifyHTTP(ctx context.Context, original HTTPCall, allowed
 	input := httpClassifierInput{Version: "yolo.call-broker-classifier/1", Front: "http", Roots: append([]string(nil), c.Roots...),
 		Request: httpClassifierRequest{Method: prepared.Method, Path: prepared.Path, Query: prepared.Query,
 			Headers: prepared.Headers, BodyPresent: prepared.BodyPresent, BodyBase64: base64.StdEncoding.EncodeToString(prepared.Body)}}
-	payload, err := json.Marshal(input)
-	if err != nil {
-		return HTTPResult{}, err
-	}
-	if len(payload) > httpClassifierInputLimit {
-		return HTTPResult{}, errors.New("HTTP classifier input exceeds 4,456,448 bytes; reduce the request metadata and retry")
-	}
 	ctx, cancel := context.WithTimeout(ctx, classifierDeadline)
 	defer cancel()
-	raw, err := c.invokePayload(ctx, payload)
-	if err != nil {
-		return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
-	}
-	if err := rejectDuplicateJSONFields(raw); err != nil {
-		return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
-	}
-	if err := validateHTTPAnswerShape(raw); err != nil {
-		return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is malformed: %w; check the selected pack and retry", c.Source, err)
-	}
-	var answer httpClassifierAnswer
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&answer); err != nil {
-		return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return HTTPResult{}, errors.New("HTTP classifier answer has trailing data; check the selected pack and retry")
-	}
-	if answer.Version != input.Version {
-		return HTTPResult{}, errors.New("HTTP classifier used an unknown protocol version; check the selected pack and retry")
-	}
-	kinds := 0
-	if answer.Classification != nil {
-		kinds++
-	}
-	if len(answer.Lookups) != 0 {
-		kinds++
-	}
-	if answer.Refused != nil {
-		kinds++
-	}
-	if answer.Local {
-		kinds++
-	}
-	if kinds != 1 {
-		return HTTPResult{}, errors.New("HTTP classifier must return exactly one answer kind; check the selected pack and retry")
-	}
-	if len(answer.Lookups) != 0 {
-		return HTTPResult{}, errors.New("HTTP native lookups are not enabled in this bounded classification stage; retry after the selected HTTP lookup path is available")
-	}
-	if answer.Refused != nil {
-		if answer.Refused.Class == "" || answer.Refused.Reason == "" || answer.Refused.NextStep == "" ||
-			len(answer.Refused.Reason) > 512 || len(answer.Refused.NextStep) > 512 ||
-			termsafe.HasUnsafe(answer.Refused.Reason) || termsafe.HasUnsafe(answer.Refused.NextStep) {
-			return HTTPResult{}, errors.New("HTTP classifier refusal is missing, unsafe or oversized; check the selected pack and retry")
+	seenLookups := make(map[string]bool)
+	failedLookup := false
+	for round := 0; round <= maxLookupRounds; round++ {
+		payload, err := json.Marshal(input)
+		if err != nil {
+			return HTTPResult{}, err
 		}
-		return HTTPResult{OriginalIntentSHA256: originalDigest, Refused: answer.Refused}, nil
+		if len(payload) > httpClassifierInputLimit {
+			return HTTPResult{}, errors.New("HTTP classifier input exceeds 4,456,448 bytes; reduce the request metadata and retry")
+		}
+		raw, err := c.invokePayload(ctx, payload)
+		if err != nil {
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
+		}
+		if err := rejectDuplicateJSONFields(raw); err != nil {
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
+		}
+		if err := validateHTTPAnswerShape(raw); err != nil {
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is malformed: %w; check the selected pack and retry", c.Source, err)
+		}
+		var answer httpClassifierAnswer
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&answer); err != nil {
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
+		}
+		if decoder.Decode(new(any)) != io.EOF {
+			return HTTPResult{}, errors.New("HTTP classifier answer has trailing data; check the selected pack and retry")
+		}
+		if answer.Version != input.Version {
+			return HTTPResult{}, errors.New("HTTP classifier used an unknown protocol version; check the selected pack and retry")
+		}
+		kinds := 0
+		if answer.Classification != nil {
+			kinds++
+		}
+		if len(answer.Lookups) != 0 {
+			kinds++
+		}
+		if answer.Refused != nil {
+			kinds++
+		}
+		if answer.Local {
+			kinds++
+		}
+		if kinds != 1 {
+			return HTTPResult{}, errors.New("HTTP classifier must return exactly one answer kind; check the selected pack and retry")
+		}
+		if len(answer.Lookups) != 0 {
+			if round == maxLookupRounds {
+				return HTTPResult{}, errors.New("HTTP classifier exceeded three lookup rounds; check the selected pack and retry")
+			}
+			if read == nil {
+				return HTTPResult{}, errors.New("HTTP lookup needs current core read standing; request read access and retry")
+			}
+			for _, lookup := range answer.Lookups {
+				var declared *loopholedecl.CallBrokerLookup
+				for i := range c.Lookups {
+					if c.Lookups[i].Name == lookup.Name {
+						declared = &c.Lookups[i]
+						break
+					}
+				}
+				if declared == nil || declared.HTTPResource == "" || declared.HTTPMethod != "GET" || len(lookup.Arguments) != 1 || lookup.Arguments[0] == "" {
+					return HTTPResult{}, errors.New("HTTP classifier requested an unknown or untyped read lookup; fix the selected pack")
+				}
+				key, _ := json.Marshal(lookup)
+				if seenLookups[string(key)] {
+					return HTTPResult{}, errors.New("HTTP classifier repeated a native lookup cycle; fix the selected pack")
+				}
+				seenLookups[string(key)] = true
+				fact, lookupErr := read(ctx, *declared, lookup.Arguments)
+				if lookupErr != nil {
+					failedLookup = true
+					fact = json.RawMessage("null")
+				}
+				if !json.Valid(fact) || len(fact) > classifierLimit {
+					return HTTPResult{}, errors.New("HTTP native lookup returned malformed or oversized facts; fix the selected pack")
+				}
+				input.Facts = append(input.Facts, LookupFact{Name: lookup.Name, Arguments: slices.Clone(lookup.Arguments), Value: fact})
+			}
+			continue
+		}
+		if answer.Refused != nil {
+			if answer.Refused.Class == "" || answer.Refused.Reason == "" || answer.Refused.NextStep == "" ||
+				len(answer.Refused.Reason) > 512 || len(answer.Refused.NextStep) > 512 ||
+				termsafe.HasUnsafe(answer.Refused.Reason) || termsafe.HasUnsafe(answer.Refused.NextStep) {
+				return HTTPResult{}, errors.New("HTTP classifier refusal is missing, unsafe or oversized; check the selected pack and retry")
+			}
+			return HTTPResult{OriginalIntentSHA256: originalDigest, Refused: answer.Refused}, nil
+		}
+		if answer.Local || answer.Classification == nil {
+			return HTTPResult{}, errors.New("HTTP classifier returned an unsupported local result; check the selected pack and retry")
+		}
+		if failedLookup {
+			return HTTPResult{}, errors.New("a native lookup failed; classifier facts cannot authorize a guessed resource; inspect host read access")
+		}
+		canonical, reads, writes, err := c.validateHTTPClassification(original, allowedHeaders, *answer.Classification)
+		if err != nil {
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
+		}
+		if len(writes) == 0 && !httpStandingReadMethod(original, canonical, c.ReadOverPost) {
+			return HTTPResult{}, errors.New("HTTP standing read needs safe methods or both original and canonical POST on a gate-approved read path; check the selected pack and retry")
+		}
+		canonicalDigest := digestHTTPCall(canonical, reads, writes)
+		return HTTPResult{Canonical: canonical, Reads: reads, Writes: writes,
+			OriginalIntentSHA256: originalDigest, CanonicalSHA256: canonicalDigest}, nil
 	}
-	if answer.Local || answer.Classification == nil {
-		return HTTPResult{}, errors.New("HTTP classifier returned an unsupported local result; check the selected pack and retry")
-	}
-	canonical, reads, writes, err := c.validateHTTPClassification(original, allowedHeaders, *answer.Classification)
-	if err != nil {
-		return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
-	}
-	canonicalDigest := digestHTTPCall(canonical, reads, writes)
-	return HTTPResult{Canonical: canonical, Reads: reads, Writes: writes,
-		OriginalIntentSHA256: originalDigest, CanonicalSHA256: canonicalDigest}, nil
+	return HTTPResult{}, errors.New("HTTP classifier exceeded lookup rounds; fix the selected pack")
 }
 
 func (c Classifier) validateHTTPClassification(original HTTPCall, allowed []string, classification httpClassification) (HTTPCall, [][]Resource, []Write, error) {
@@ -250,6 +301,20 @@ func (c Classifier) validateHTTPClassification(original HTTPCall, allowed []stri
 		}
 	}
 	return canonical, reads, writes, nil
+}
+
+func httpStandingReadMethod(original, canonical HTTPCall, declared []string) bool {
+	if original.Method == "POST" || canonical.Method == "POST" {
+		if original.Method != "POST" || canonical.Method != "POST" || original.Path != canonical.Path {
+			return false
+		}
+		return slices.Contains(declared, original.Path)
+	}
+	return safeHTTPReadMethod(original.Method) && safeHTTPReadMethod(canonical.Method)
+}
+
+func safeHTTPReadMethod(method string) bool {
+	return method == "GET" || method == "HEAD" || method == "OPTIONS"
 }
 
 func cloneChains(in [][]Resource) [][]Resource {

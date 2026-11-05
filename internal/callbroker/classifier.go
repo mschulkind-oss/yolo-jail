@@ -82,13 +82,14 @@ type Answer struct {
 // Classifier is the selected staged declaration and gate-approved scope, never a
 // jail-supplied executable path. No service call is executed by ClassifyCLI.
 type Classifier struct {
-	Source     string
-	Argv       []string
-	Identities map[string]loopholedecl.CallBrokerProgramIdentity
-	Roots      []string
-	Resources  []loopholedecl.CallBrokerResource
-	Cells      []loopholedecl.CallBrokerCell
-	Lookups    []loopholedecl.CallBrokerLookup
+	Source       string
+	Argv         []string
+	Identities   map[string]loopholedecl.CallBrokerProgramIdentity
+	Roots        []string
+	Resources    []loopholedecl.CallBrokerResource
+	Cells        []loopholedecl.CallBrokerCell
+	Lookups      []loopholedecl.CallBrokerLookup
+	ReadOverPost []string
 }
 
 // LookupReader is supplied by core only after it has checked a read grant and

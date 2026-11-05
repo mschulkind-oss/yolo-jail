@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestCallBrokerTypedHTTPNativeLookupDeclaration(t *testing.T) {
+	valid := strings.Replace(callBrokerFixture, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1)
+	valid = strings.Replace(valid, `"cli":["task","get","{id}"]`, `"http_method":"GET","http_path":"/items/{id}","http_resource":"task","http_id_pointer":"/id","http_parent_pointer":"/project/id"`, 1)
+	manifest, err := callBrokerManifest(valid)
+	if err != nil || len(manifest.CallBroker.Lookups) != 1 || manifest.CallBroker.Lookups[0].HTTPParentPointer != "/project/id" {
+		t.Fatalf("typed HTTP native mapping not decoded: manifest=%+v err=%v", manifest, err)
+	}
+	for _, bad := range []string{`"http_id_pointer":"/id"`, `"http_parent_pointer":"/project/id"`, `"http_method":"GET"`, `"http_resource":"task"`} {
+		altered := strings.Replace(valid, bad, strings.SplitN(bad, ":", 2)[0]+":true", 1)
+		if _, err := callBrokerManifest(altered); err == nil {
+			t.Errorf("bad native mapping %q was accepted", bad)
+		}
+	}
+	for _, route := range []string{"/items/{id}?page=2", "https://evil.example/{id}", "/items/{id}/{id}", "/items/../{id}"} {
+		altered := strings.Replace(valid, `"http_path":"/items/{id}"`, `"http_path":"`+route+`"`, 1)
+		if _, err := callBrokerManifest(altered); err == nil {
+			t.Errorf("unsafe typed HTTP lookup route %q loaded", route)
+		}
+	}
+	duplicate := strings.Replace(valid, `"lookup":[`, `"lookup":[{"name":"other-task-project","http_method":"GET","http_path":"/other/{id}","http_resource":"task","http_id_pointer":"/id","http_parent_pointer":"/project/id"},`, 1)
+	if _, err := callBrokerManifest(duplicate); err == nil {
+		t.Fatal("conflicting native mapping for the same resource loaded")
+	}
+	invalid := strings.Replace(valid, `"http_parent_pointer":"/project/id"`, `"http_parent_pointer":"/project/~9id"`, 1)
+	if _, err := callBrokerManifest(invalid); err == nil {
+		t.Fatal("invalid RFC 6901 pointer loaded")
+	}
+}
+
 func TestCallBrokerHTTPDeclaration(t *testing.T) {
 	valid := strings.Replace(callBrokerFixture,
 		`"source":"local-tasks"`,

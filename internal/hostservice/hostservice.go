@@ -386,6 +386,15 @@ func ServeFrontedUnix(handler Handler, socketPath string, stop <-chan struct{}) 
 	return serveListener(handler, ln, stop, true)
 }
 
+func ServeHTTPBrokerFrontedUnix(handler Handler, socketPath string, stop <-chan struct{}, validate func([]byte) error) error {
+	ln, err := bindUnixSocket(socketPath)
+	if err != nil {
+		return err
+	}
+	Logger.Printf("listening on %s (HTTP broker bounded frame, behind yolo's front)", socketPath)
+	return serveListenerWithRequestLimit(handler, ln, stop, true, httpBrokerRequestFrameLimit, validate)
+}
+
 // bindUnixSocket binds the AF_UNIX listener both socket entry points want, with
 // the conventions this package has always applied: a stale socket left by a
 // crashed predecessor is removed so it cannot wedge its successor, the parent
@@ -524,7 +533,7 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readP
 	return serveListenerWithRequestLimit(handler, ln, stop, readPreamble, 0)
 }
 
-func serveListenerWithRequestLimit(handler Handler, ln net.Listener, stop <-chan struct{}, readPreamble bool, requestLimit uint32) error {
+func serveListenerWithRequestLimit(handler Handler, ln net.Listener, stop <-chan struct{}, readPreamble bool, requestLimit uint32, validate ...func([]byte) error) error {
 	Logger.Printf("serving frame protocol v%d", frameproto.ProtocolVersion)
 
 	// stop channel (explicit) OR signals (when run as a real daemon).
@@ -564,7 +573,7 @@ func serveListenerWithRequestLimit(handler Handler, ln net.Listener, stop <-chan
 		inFlight.Add(1)
 		go func() {
 			defer inFlight.Done()
-			handleOneWithRequestLimit(handler, conn, readPreamble, requestLimit)
+			handleOneWithRequestLimit(handler, conn, readPreamble, requestLimit, validate...)
 		}()
 	}
 	inFlight.Wait()
@@ -601,7 +610,7 @@ func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 	handleOneWithRequestLimit(handler, conn, readPreamble, 0)
 }
 
-func handleOneWithRequestLimit(handler Handler, conn net.Conn, readPreamble bool, requestLimit uint32) {
+func handleOneWithRequestLimit(handler Handler, conn net.Conn, readPreamble bool, requestLimit uint32, validate ...func([]byte) error) {
 	start := time.Now()
 	jailID := "unknown"
 	hostAsserted := false
@@ -677,6 +686,10 @@ func handleOneWithRequestLimit(handler Handler, conn net.Conn, readPreamble bool
 			} else {
 				Logger.Printf("conn closed without a request")
 			}
+			return
+		}
+		if len(validate) != 0 && validate[0] != nil && validate[0](body) != nil {
+			Logger.Printf("HTTP request rejected: invalid original schema; update the selected client and retry")
 			return
 		}
 	}

@@ -47,6 +47,7 @@ func Main(args []string) int {
 	var identity struct {
 		Source    string `json:"source"`
 		ScopeFile string `json:"scope_file"`
+		Front     string `json:"front"`
 	}
 	if err == nil {
 		err = json.Unmarshal(data, &identity)
@@ -65,7 +66,16 @@ func Main(args []string) int {
 		return 1
 	}
 	log := brokeraudit.Open(paths.BrokerAuditLog(), nil)
-	h, err := newCLIHandler(*input, workspace, store, log)
+	var h *CLIHandler
+	var httpHandler *HTTPHandler
+	if identity.Front == "http" {
+		httpHandler, err = newHTTPHandler(*input, workspace, store, log)
+		if err == nil {
+			h = httpHandler.CLIHandler
+		}
+	} else {
+		h, err = newCLIHandler(*input, workspace, store, log)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "call-broker: selected input is unavailable; relaunch the jail and retry")
 		return 1
@@ -90,14 +100,20 @@ func Main(args []string) int {
 		return 1
 	}
 	defer brokercore.CloseLease(h.input.Source, lease)
-	if err = brokerscope.BindCallCLI(h.input.ScopeFile, bound, h.program.path, h.program.sha256); err != nil {
-		fmt.Fprintln(os.Stderr, "call-broker: cannot pin host CLI for this launch; retry")
-		return 1
+	if identity.Front == "cli" {
+		if err = brokerscope.BindCallCLI(h.input.ScopeFile, bound, h.program.path, h.program.sha256); err != nil {
+			fmt.Fprintln(os.Stderr, "call-broker: cannot pin host CLI for this launch; retry")
+			return 1
+		}
+		bound.CallCLIHash = h.program.sha256
+		bound.CallCLIPath = h.program.path
 	}
-	bound.CallCLIHash = h.program.sha256
-	bound.CallCLIPath = h.program.path
 	h.scopePath, h.bound, h.start = h.input.ScopeFile, bound, start
-	store.Revalidate = h.revalidate
+	if httpHandler != nil {
+		store.Revalidate = httpHandler.revalidateHTTP
+	} else {
+		store.Revalidate = h.revalidate
+	}
 	store.PublishRecords = true
 	store.Audit = StoreAudit(log, h.input.Source)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,7 +131,15 @@ func Main(args []string) int {
 		case <-ctx.Done():
 		}
 	}()
-	if err := hostservice.ServeFrontedUnix(h.Handle, *socket, stop); err != nil && !errors.Is(err, context.Canceled) {
+	serve := hostservice.ServeFrontedUnix
+	handle := hostservice.Handler(h.Handle)
+	if httpHandler != nil {
+		serve = func(handler hostservice.Handler, socket string, stop <-chan struct{}) error {
+			return hostservice.ServeHTTPBrokerFrontedUnix(handler, socket, stop, validateHTTPBrokerFrame)
+		}
+		handle = httpHandler.Handle
+	}
+	if err := serve(handle, *socket, stop); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, "call-broker: host service failed; inspect the host service and retry")
 		return 1
 	}

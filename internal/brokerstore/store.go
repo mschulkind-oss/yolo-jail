@@ -94,12 +94,15 @@ type Request struct {
 	Argv                   []string
 	// OriginalArgv is the jail's bounded original invocation, for replaying a
 	// pack classifier; it is never an executable path or an approval by itself.
-	OriginalArgv                   []string    `json:",omitempty"`
-	CallWrites                     []CallWrite `json:",omitempty"`
-	Repo, StdinDigest, Digest, Set string
-	Policy                         Policy
-	Filed, Decided                 time.Time
-	State                          string
+	OriginalArgv []string `json:",omitempty"`
+	// HTTP approvals retain only length-delimited intent/canonical digests and
+	// selected declaration identity; the original body is resubmitted at act.
+	HTTPOriginalDigest, HTTPCanonicalDigest, HTTPDeclarationHash string      `json:",omitempty"`
+	CallWrites                                                   []CallWrite `json:",omitempty"`
+	Repo, StdinDigest, Digest, Set                               string
+	Policy                                                       Policy
+	Filed, Decided                                               time.Time
+	State                                                        string
 	// HookFailure is one line saying the user's on_request failed for this request, such
 	// as "hook exited 127: sh: notify-send: not found"; HookOutput is the last of what it
 	// printed. Both are terminal-safe, and empty unless it failed (NoteHookFailure).
@@ -638,7 +641,9 @@ func digest(q Request) string {
 	// call additionally binds every write's cell and full parent chain, so an
 	// approval for the same argv on another resource cannot join or spend it.
 	input := []any{q.Argv, q.Repo, q.StdinDigest}
-	if len(q.CallWrites) != 0 {
+	if q.HTTPOriginalDigest != "" {
+		input = append(input, "http", q.HTTPOriginalDigest, q.HTTPCanonicalDigest, q.HTTPDeclarationHash, q.CallWrites)
+	} else if len(q.CallWrites) != 0 {
 		input = append(input, q.CallWrites, q.OriginalArgv)
 	}
 	b, _ := json.Marshal(input)
@@ -674,7 +679,25 @@ func checkFiling(input Request) error {
 	if input.Jail == "" || input.Start == "" || input.Workspace == "" || input.Set == "" || input.Repo == "" || len(input.Argv) == 0 || input.StdinDigest == "" {
 		return errors.New("request needs host holder, workspace, set, command, repository and stdin digest")
 	}
+	if input.HTTPOriginalDigest == "" && (input.HTTPCanonicalDigest != "" || input.HTTPDeclarationHash != "") {
+		return errors.New("incomplete HTTP approval metadata")
+	}
+	if input.HTTPOriginalDigest != "" && (len(input.CallWrites) == 0 || len(input.OriginalArgv) != 0 || len(input.Argv) != 1 || input.Argv[0] != "http" || input.StdinDigest != input.HTTPOriginalDigest || !validHTTPDigest(input.HTTPOriginalDigest) || !validHTTPDigest(input.HTTPCanonicalDigest) || !validHTTPDigest(input.HTTPDeclarationHash)) {
+		return errors.New("HTTP approval needs only exact digests, cells and non-replayable metadata")
+	}
 	return validatePolicy(input.Policy)
+}
+
+func validHTTPDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' && char < 'a' || char > 'f' {
+			return false
+		}
+	}
+	return true
 }
 
 // fileIn joins input to an identical pending request of the same jail, lifetime and set, or
@@ -740,6 +763,14 @@ func (e *FilingError) Unwrap() error { return e.Err }
 // issued. In one transaction no decision can land between finding no grant and joining the
 // request. A failure while joining or filing is a *FilingError; any other error is the spend's.
 func (s *Store) SpendExactOrFileContext(ctx context.Context, input Request, revalidate Revalidate, dispatch func() error) (Grant, bool, Request, error) {
+	return s.SpendExactOrFilePreparedContext(ctx, input, revalidate, nil, dispatch)
+}
+
+// SpendExactOrFilePreparedContext runs prepare under the source transaction,
+// after exact eligibility and current revalidation but before a grant is spent.
+// It must not acquire this store lock or transmit request bytes. Once the use
+// commits, dispatch runs at most once without refund even on a transport error.
+func (s *Store) SpendExactOrFilePreparedContext(ctx context.Context, input Request, revalidate Revalidate, prepare, dispatch func() error) (Grant, bool, Request, error) {
 	var (
 		g     Grant
 		spent bool
@@ -751,7 +782,7 @@ func (s *Store) SpendExactOrFileContext(ctx context.Context, input Request, reva
 	input.Digest = digest(input)
 	err := s.transactionContext(ctx, func(r *records, now time.Time) error {
 		var err error
-		g, spent, err = s.spendIn(ctx, r, now, input.Workspace, input.Jail, input.Set, input.Digest, revalidate, true)
+		g, spent, err = s.spendInPrepared(ctx, r, now, input.Workspace, input.Jail, input.Set, input.Digest, revalidate, true, prepare)
 		if err != nil || spent {
 			return afterSpend(ctx, spent, err, dispatch)
 		}
@@ -1177,8 +1208,20 @@ func afterSpend(ctx context.Context, found bool, err error, dispatch func() erro
 // spendIn spends and audits one use of the first live grant covering the invocation, inside
 // the caller's transaction, and reports whether it found one.
 func (s *Store) spendIn(ctx context.Context, r *records, now time.Time, workspace, jail, set, commandDigest string, revalidate Revalidate, exactOnly bool) (Grant, bool, error) {
+	return s.spendInPrepared(ctx, r, now, workspace, jail, set, commandDigest, revalidate, exactOnly, nil)
+}
+
+func (s *Store) spendInPrepared(ctx context.Context, r *records, now time.Time, workspace, jail, set, commandDigest string, revalidate Revalidate, exactOnly bool, prepare func() error) (Grant, bool, error) {
 	_, parent, grantAt, parentAt, found, err := eligibleGrantIn(r, now, workspace, set, commandDigest, revalidate, exactOnly)
 	if err != nil || !found {
+		return Grant{}, false, err
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return Grant{}, false, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		return Grant{}, false, err
 	}
 	stored := &r.grants[grantAt]
