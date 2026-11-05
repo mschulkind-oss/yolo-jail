@@ -76,6 +76,7 @@ func runProgramPreparationTick(t *testing.T, complete func() bool) {
 	ticks := make(chan time.Time, 1)
 	done := make(chan error, 1)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, preparationRoot(), run.SelfExecPath(), nil, func(ownerCtx context.Context) error {
 			return runPreparationScheduler(ownerCtx, ticks, io.Discard)
 		})
@@ -86,7 +87,7 @@ func runProgramPreparationTick(t *testing.T, complete func() bool) {
 			t.Error(err)
 		}
 	}()
-	owner := awaitPreparationOwner(t, preparationRoot())
+	owner := awaitPreparationOwner(t, preparationRoot(), done, cancel)
 	if err := controlPreparationWorker(context.Background(), preparationRoot(), owner.Identity, "wake"); err != nil {
 		t.Fatal(err)
 	}

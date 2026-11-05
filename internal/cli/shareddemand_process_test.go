@@ -356,9 +356,10 @@ func TestSharedDemandSchedulerStopDetachesBeforeDemandStateUnlockWithProcessChil
 	schedulerDone := make(chan error, 1)
 	ownerTicks := make(chan time.Time, 1)
 	go func() {
+		defer close(schedulerDone)
 		schedulerDone <- runPreparationWorker(ctx, preparationRoot(), run.SelfExecPath(), ownerTicks, func(ownerCtx context.Context) error { return runPreparationScheduler(ownerCtx, ticks, io.Discard) })
 	}()
-	awaitPreparationOwner(t, preparationRoot())
+	awaitPreparationOwner(t, preparationRoot(), schedulerDone, stop)
 	ownerTicks <- time.Now()
 	ticks <- f.fx.now
 	childConn, pid := f.child(t)

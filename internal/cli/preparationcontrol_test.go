@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,18 +23,97 @@ func preparationFixture(t *testing.T) (string, string) {
 	}
 	return root, exe
 }
-func awaitPreparationOwner(t *testing.T, root string) preparationWorker {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+func waitPreparationOwner(root string, done <-chan error, timeout time.Duration) (preparationWorker, error) {
+	deadline := time.Now().Add(timeout)
+	lastStatus := preparationUnknown
+	var lastProbeErr error
 	for time.Now().Before(deadline) {
-		r, s, _ := probePreparationWorker(root)
-		if s == preparationAlive {
-			return r
+		select {
+		case err, ok := <-done:
+			if !ok || err == nil {
+				return preparationWorker{}, errors.New("worker exited before readiness without an error")
+			}
+			return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", err)
+		default:
+		}
+
+		record, status, err := probePreparationWorker(root)
+		lastStatus, lastProbeErr = status, err
+		if status == preparationAlive {
+			return record, nil
+		}
+		select {
+		case workerErr, ok := <-done:
+			if !ok || workerErr == nil {
+				return preparationWorker{}, errors.New("worker exited before readiness without an error")
+			}
+			return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", workerErr)
+		default:
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("worker not ready")
-	return preparationWorker{}
+	select {
+	case err, ok := <-done:
+		if !ok || err == nil {
+			return preparationWorker{}, errors.New("worker exited before readiness without an error")
+		}
+		return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", err)
+	default:
+	}
+	return preparationWorker{}, fmt.Errorf("worker not ready after %s (last probe status=%s, error=%v)", timeout, lastStatus, lastProbeErr)
+}
+
+func TestPreparationReadinessReportsStartupFailure(t *testing.T) {
+	root, exe := preparationFixture(t)
+	if err := os.Remove(exe); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("startup worker did not exit")
+		}
+	})
+	_, err := waitPreparationOwner(root, done, 3*time.Second)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("readiness error %v does not preserve the startup failure", err)
+	}
+}
+
+func TestPreparationReadinessTimeoutRetainsProbeDiagnostic(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "scheduler")
+	_, err := waitPreparationOwner(root, make(chan error), 5*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "last probe status=gone") || !strings.Contains(err.Error(), "error=<nil>") {
+		t.Fatalf("timeout did not retain last probe status and error: %v", err)
+	}
+}
+
+func awaitPreparationOwner(t *testing.T, root string, done <-chan error, cancel context.CancelFunc) preparationWorker {
+	t.Helper()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err, ok := <-done:
+			if ok && err != nil && !errors.Is(err, context.Canceled) {
+				t.Errorf("preparation worker cleanup: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("preparation worker did not exit after cancellation")
+		}
+	})
+	record, err := waitPreparationOwner(root, done, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 func TestPreparationWakeStopAndIncarnation(t *testing.T) {
 	root, exe := preparationFixture(t)
@@ -42,9 +123,10 @@ func TestPreparationWakeStopAndIncarnation(t *testing.T) {
 	started := make(chan struct{}, 2)
 	done := make(chan error, 1)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(ctx context.Context) error { started <- struct{}{}; <-ctx.Done(); return ctx.Err() })
 	}()
-	r := awaitPreparationOwner(t, root)
+	r := awaitPreparationOwner(t, root, done, cancel)
 	if err := controlPreparationWorker(ctx, root, "stale", "stop"); err == nil {
 		t.Fatal("stale incarnation accepted")
 	}
@@ -86,9 +168,10 @@ func TestPreparationReplacementDrainsAndBlocksDispatch(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { started <- struct{}{}; <-release; return nil })
 	}()
-	r := awaitPreparationOwner(t, root)
+	r := awaitPreparationOwner(t, root, done, cancel)
 	ticks <- time.Now()
 	<-started
 	if err := controlPreparationWorker(ctx, root, r.Identity, "replace"); err != nil {
@@ -141,9 +224,10 @@ func TestPreparationTimerChecksSelectedExecutable(t *testing.T) {
 	done := make(chan error, 1)
 	calls := make(chan struct{}, 2)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { calls <- struct{}{}; return nil })
 	}()
-	awaitPreparationOwner(t, root)
+	awaitPreparationOwner(t, root, done, cancel)
 	ticks <- time.Now()
 	select {
 	case <-calls:
@@ -197,8 +281,11 @@ func TestPreparationNewLeaseRejectsPriorIdentity(t *testing.T) {
 	start := func() (preparationWorker, chan error, context.CancelFunc) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
-		go func() { done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil }) }()
-		return awaitPreparationOwner(t, root), done, cancel
+		go func() {
+			defer close(done)
+			done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
+		}()
+		return awaitPreparationOwner(t, root, done, cancel), done, cancel
 	}
 	first, done, cancel := start()
 	cancel()
@@ -228,8 +315,11 @@ func TestPreparationConcurrentLeaseDoesNotDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil }) }()
-	r := awaitPreparationOwner(t, root)
+	go func() {
+		defer close(done)
+		done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
+	}()
+	r := awaitPreparationOwner(t, root, done, cancel)
 	if err := runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { t.Fatal("duplicate dispatch"); return nil }); !errors.Is(err, pidlock.ErrHeld) {
 		t.Fatalf("%v", err)
 	}
@@ -271,9 +361,10 @@ func TestPreparationUnreadableExecutableStopsBeforeDispatch(t *testing.T) {
 	ticks := make(chan time.Time)
 	done := make(chan error, 1)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { t.Error("unproven executable dispatched"); return nil })
 	}()
-	awaitPreparationOwner(t, root)
+	awaitPreparationOwner(t, root, done, cancel)
 	if err := os.Remove(exe); err != nil {
 		t.Fatal(err)
 	}
@@ -295,9 +386,10 @@ func TestPreparationSlowAuthenticatedClientDoesNotDelayStop(t *testing.T) {
 	ticks := make(chan time.Time)
 	done := make(chan error, 1)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { return nil })
 	}()
-	owner := awaitPreparationOwner(t, root)
+	owner := awaitPreparationOwner(t, root, done, cancel)
 	slow, err := svcendpoint.DialLocal(filepath.Join(root, "control.endpoint"), time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -326,6 +418,7 @@ func startAuthenticatedPreparationOwner(t *testing.T, root string) preparationWo
 	done := make(chan error, 1)
 	ticks := make(chan time.Time)
 	go func() {
+		defer close(done)
 		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { return nil })
 	}()
 	t.Cleanup(func() {
@@ -334,5 +427,5 @@ func startAuthenticatedPreparationOwner(t *testing.T, root string) preparationWo
 			t.Error(err)
 		}
 	})
-	return awaitPreparationOwner(t, root)
+	return awaitPreparationOwner(t, root, done, cancel)
 }
