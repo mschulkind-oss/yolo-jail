@@ -3,21 +3,23 @@ title: "Pack broker HTTP calls stay within the selected host decision"
 date: 2026-11-05
 status: in-review
 stage: DESIGN
-next: "Rule [OQ-HTTP1](#OQ-HTTP1) before specifying the HTTP pack-executor wire"
+next: "Rule [OQ-HTTP2](#OQ-HTTP2) before publishing a selected HTTP front on shared loopback; [OQ-HTTP1](#OQ-HTTP1) remains custom-executor-only"
 tags: [design, broker, packs, http]
-summary: "Settled HTTP call safeguards with the custom-executor boundary open."
+summary: "G3 core is partially integrated; custom-executor and shared-loopback publication boundaries remain open."
 ---
 
 # Pack broker HTTP calls stay within the selected host decision
 
-**Status:** 2026-11-06. The HTTP binding, bounded ingress/classifier and core decision
-semantics are settled; the custom-executor boundary remains open. The primary source at `a1626df`
-integrates G1/G2, but HTTP native lookups are still refused by
-[`ClassifyHTTP`](../../internal/callbroker/http.go#L168-L170); G3 host decision/execution,
-G4 front wiring and runtime proof remain outstanding. No external authentication or real
-grants are established. This does not accept the broader [pack broker design](pack-brokers.md),
-whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add and mixed-cell timed
-answers.
+**Status:** 2026-11-06. The HTTP binding, bounded ingress/classifier and partial G3
+core host decision/execution are integrated on primary `d06a47707d87`; this includes
+typed native lookups and live preflight checks. The independent closure covers four G3
+findings only, not full G3 acceptance. The selected G4 front, launch publication and
+end-to-end runtime path are absent from primary. [OQ-HTTP1](#OQ-HTTP1) gates only custom
+HTTP executor/signing; [OQ-HTTP2](#OQ-HTTP2) gates publication where jails can share
+loopback. Both questions remain open; neither implies an OS sandbox, and no proposed
+custom-executor wire is accepted. No external authentication or live grants are established. This does not accept the broader [pack broker
+design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add
+and mixed-cell timed answers.
 
 > **In short.** An HTTP front carries a call, not authority: only the selected host broker binds its destination and credential, classifies exact bytes and fresh facts, decides, audits and executes once.
 
@@ -32,7 +34,7 @@ This scope excludes For/Add/Remember and mixed-cell timed approvals pending
 [OQ-BX7](pack-brokers.md#OQ-BX7), MCP sign-in, actual CircleCI/cloud auth, and publication.
 No new credential channel, grant, approval RPC or relaxed CLI limit is authorized.
 
-**Needs your ruling:** [OQ-HTTP1](#OQ-HTTP1).
+**Needs your ruling:** [OQ-HTTP1](#OQ-HTTP1), [OQ-HTTP2](#OQ-HTTP2).
 
 ## HTTP pending custody and revalidation
 
@@ -158,6 +160,19 @@ approval behavior is accepted here.
 | A refusal reaches the agent as | Exit 64 and the refusal text on stderr, as `gh`'s | Status 403 with headers `Yolo-Verdict` and `Yolo-Request`, and a body in the error shape the block declares (GraphQL's `errors` array for the local HTTP proof), whose message is the refusal text |
 | An ask reaches the agent as | Exit 75 and the menu | Status 403, `Yolo-Verdict: asks`, the menu in the message |
 
+### Shared-loopback caller boundary
+
+The selected pack's client-facing base URL is a local HTTP route, not the host TLS
+endpoint file or a host credential. The TLS preamble identifies the front's configured
+`FrontJailID` on its host connection; it does not identify which jail dialed that front over
+a shared loopback. If jail B can reach jail A's front, A's request could therefore arrive at
+the host with A's identity and use A's selected binding and grant. This is an architectural
+confused-deputy path, not a measured two-jail runtime result; [OQ-HTTP2](#OQ-HTTP2)
+records the caller boundary. The existing `{caller_token}` is defined by
+[`loopholedecl.TokenCallerToken`](../../internal/loopholedecl/tokens.go) and resolved by the
+selected [`CredentialScope`](../../internal/packload/credentialscope.go); this proves scoped
+delivery, not that a given HTTP client can transmit it locally.
+
 ### HTTP custody and retries
 
 The jail-front loopback request carries a jail-identity preamble authenticated by host TLS,
@@ -173,7 +188,7 @@ and unusable responses never trigger an automatic retry or new grant: the client
 inspect host state. The existing CLI rule for an actually completed child process is
 separate; not every HTTP transport error proves transmission.
 
-The HTTP front and executor are not wired at the checked source tree; these requirements are not runtime proof. No token store, keychain, privilege, global mount, parallel approval RPC, channel, grant, or source-specific registry is added.
+The selected in-jail front and launch publication are not wired in the checked primary tree; these requirements are not runtime proof. No token store, keychain, privilege, global mount, parallel approval RPC, channel, grant, or source-specific registry is added.
 
 ## Open Questions
 
@@ -192,6 +207,24 @@ The HTTP front and executor are not wired at the checked source tree; these requ
    <!-- vantage: question id=OQ-HTTP1 leaning="A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established." -->
 
    _Leaning:_ A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established.
+
+2. 💬 **OQ-HTTP2: Can a jail borrow another jail's selected HTTP front?**
+
+   Jail A publishes a nonsecret loopback URL to its selected HTTP client. Jail B may dial it
+   on shared loopback; A's front then reaches the host as A's `FrontJailID`. What prevents B
+   from using A's selection and grant?
+
+   - **A — Require a local caller capability.** Require client support for the existing
+     pack-scoped caller capability; the front consumes it before the host request and never
+     forwards it. Clients without verified support are ineligible.
+   - **B — Hold shared-loopback publication.** Keep shared/native backends in the supported
+     intent, but refuse the affected front launch until another caller-isolation strategy is
+     verified. Do not silently disable a backend.
+
+   <!-- vantage: question id=OQ-HTTP2 leaning="A — Require a pack-scoped local caller capability for clients verified to present it; consume it at the front, never as a host credential." -->
+
+   _Leaning:_ A — Require a pack-scoped local caller capability for clients verified to
+   present it; consume it at the front, never as a host credential.
 
    **Answer:**
 

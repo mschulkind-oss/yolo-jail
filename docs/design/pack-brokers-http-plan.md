@@ -3,18 +3,53 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-05
 status: accepted
 stage: DECIDED
-next: "Build the G4 selected in-jail front on the integrated G3 core; keep custom executor fail-closed at OQ-HTTP1"
+next: "Resolve [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) before publishing a selected front on shared loopback; keep nonpublishing G4 work moving and custom execution fail-closed at OQ-HTTP1"
 tags: [plan, broker, http]
-summary: "Tree-grounded HTTP build hand-off; custom-executor transport authority remains open."
+summary: "Tree-grounded HTTP build hand-off; custom execution and shared-loopback publication remain open."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-06. G1's HTTP declaration, existing config-gate binding and selected private launch-input path are integrated on the current MCP source; the attached independent G1 composition review is OK. G2's bounded HTTP-only authenticated host ingress and typed classifier/canonical request implementation are integrated and independently reviewed. **G3 core source is now integrated** from the reviewed `0dec2ce2f792` candidate, preserving the primary's existing canonical-header/staticcheck fix; the focused four-finding independent closure is OK, but G3 is still partial, not complete. The source now includes host decision/execution, typed native lookup rounds, and live preflight authority checks, while the selected in-jail front remains unbuilt. **[OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) gates only the custom HTTP pack executor/signing wire:** G4 selected-front work may proceed without that owner ruling, and neither core transport checks nor this plan claim an OS sandbox for a host program. No selected-front or HTTP runtime proof is established. Combined final matched-source/native gates remain. **Design:** [HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md) remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong. Stop without committing if a named symbol disappears, the test is not red for its predicted reason, a file is dirty with another writer's work, a change escapes the fence or an unrelated gate fails.
+**Status:** 2026-11-06. Primary `d06a47707d87` integrates G3 core partially;
+independent closure covers four findings only. The d06 matched bundle, host
+`check --no-build`, and selective `just done` passed; `just done` is not whole-tree
+CI. The rootful nested empty-packs smoke is for candidate `0dec2ce2f792`, not d06.
+No primary selected-front launch/publication, full G3 acceptance, combined `check-ci`,
+full integration, remote CI or native rootless/macOS proof is established. The
+front-handler work can proceed without the custom executor ruling, but
+[OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) gates shared-loopback URL publication;
+[OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) gates only custom execution/signing. Neither
+core checks nor this plan claim an OS sandbox for a host program. **Design:**
+[HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md)
+remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on
+behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong.
+Stop without committing if a named symbol disappears, the test is not red for its
+predicted reason, a file is dirty with another writer's work, a change escapes the
+fence or an unrelated gate fails.
 
 **Source prerequisite:** Reviewed F read/list and host-environment/XDG source and its scope-bind-failure cleanup repair are integrated. G1 preserves the independent MCP final-stop, confirmed-absence and harvest-failure checks; it does not weaken or replace them. F's read/list behavior does not prove cloud login. `ForAddRemember` and mixed-cell timed/Add stay disabled pending [OQ-BX7](pack-brokers.md#OQ-BX7) and safe persistence. No external credentials or account probes.
 
-**G3 core integration checkpoint:** The primary includes the reviewed G3 core source and tests. The independent `G3_FOUR_FINDINGS_CLOSURE: OK` covers the exact-schema, post-TLS-withdrawal, pinned credential-parent and fresh-root fixes only; it is not full G3 acceptance. G4 selected-front/launch wiring, H conformance, and combined native/rootless/macOS proof remain. External host-state change after the final preflight remains nonatomic with remote transmission. **[OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) stays open and custom execution remains blocked, but does not block G4.**
+**G3 core integration checkpoint:** Primary `d06a47707d87` integrates reviewed
+candidate `0dec2ce2f792`; the 17 nonoverlapping source paths match and
+[`internal/callbroker/http.go`](../../internal/callbroker/http.go) preserves the primary's existing `allowed[key]`
+canonical-header/staticcheck fix. The primary focused host test, five affected package
+tests, four-package race tests, Linux/Darwin vet and staticcheck, format and matched build
+passed. The clean-environment matched launcher reports `0.16.1+112.gd06a47707d87`;
+the first `--version` inherited a `YOLO_VERSION` override and is not evidence. Host
+`check --no-build` passed (22 checks, 3 warnings, 1 skipped); it did not launch a jail.
+The selective `just done` passed. The independent
+`G3_FOUR_FINDINGS_CLOSURE: OK` covers exact-schema, post-TLS-withdrawal, pinned
+credential-parent and fresh-root findings only; it is not full G3 acceptance. The
+candidate's rootful empty-packs smoke is evidence for `0dec…`, not d06; d06's
+`check --no-build` was only host preflight. No combined `check-ci`, full integration,
+native/rootless/macOS proof or external authentication is established. G4
+selected-front/launch wiring remains absent from primary; an isolated front
+adapter/dispatch component is partial, not a selected launch, published URL, ready
+service or G4 acceptance. External host-state change after the final preflight remains
+nonatomic with remote transmission. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) stays
+open and custom execution remains blocked, but does not block G4.
+[OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) separately gates agent-facing publication
+on shared loopback; nonpublishing front work may proceed.
 
 ## Map
 
@@ -23,7 +58,7 @@ summary: "Tree-grounded HTTP build hand-off; custom-executor transport authority
 | `internal/loopholedecl/callbroker.go`, `callbroker_test.go`, `tomlform_test.go`; `internal/config/callbroker.go`, `scopeapproval.go`, `readabledeclarations.go`, config/gate tests; `internal/cli/run/launchinput.go`, `keeperplan.go`, `keeperspawn.go`, tests; `internal/callbrokerinput/launch.go` | G1: strict source-bound HTTP declaration, gate display/approved binding and selected private input; preserve CLI behavior (**integrated; focused findings closed; combined review remains**) |
 | `internal/frameproto/frameproto.go`, `frameproto_test.go`; `internal/hostservice/hostservice.go`, tests; `internal/callbroker/classifier.go`, `http.go` (new), HTTP tests | G2: HTTP-only authenticated host-ingress preallocation bound and HTTP classifier/canonical bytes; leave generic CLI/Git/GH frame caps alone |
 | `internal/callbroker/daemon.go`, `authority.go`, `handler.go`, `decision.go`, `http_handler.go`, `http_executor.go`, `http_native.go`, `http_write.go`, HTTP tests; `internal/brokerstore/store.go`, tests; `internal/brokeraudit/`, tests | G3: host HTTP decision, non-body pending metadata/act resubmission, exact spend/audit and pinned core executor (**partial core source integrated; four focused findings independently closed; custom signer/executor wire awaits [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1); G3 acceptance remains separate**) |
-| `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`; `internal/cli/run/launchinput.go`, runtime tests; `internal/callbroker/httpfront.go` (new), tests | G4: selected in-jail HTTP front and real launch wiring, authenticated host identity and response envelope |
+| `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`; `internal/cli/run/launchinput.go`, `packservices.go`, `servedaddresses.go`, runtime tests; `internal/launchservice/reserve.go`; `internal/loopholedecl/tokens.go`; `internal/loopholes/runtime.go`; `internal/packload/served.go`, `credentialscope.go`; `internal/callbroker/httpfront.go` (new); `integration/packbroker_test.go` (new) | G4: selected in-jail front, client base-URL publication and real launch wiring, authenticated host identity, readiness and cross-jail caller boundary |
 | `internal/callbroker/conformance.go` (new), `internal/callbroker/*_test.go`, `integration/packbroker_test.go` (new), `tools/broker-fixture/` (new), `integration/testdata/pack-broker-{cli,http}/` (new), `userguide/guides/pack-broker-demo.md` (new), overlapping reference docs | H: real CLI/HTTP conformance and host controls |
 
 ## Reuse and traps
@@ -83,10 +118,70 @@ func TestCallBrokerHTTPDeclaration(t *testing.T) {
 
 **Custom HTTP executor — blocked on [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1).** The parent design's pack-executor scope remains intended, not removed, but its HTTP transport authority is not settled. Do not implement a signer or full HTTP pack executor from either proposed option. After the owner rules the question and the design records it, add the chosen wire and its custody, transport, audit and verification gates here. Core-owned G3 and G4 work may proceed without it; neither core transport checks nor this plan claim an OS sandbox for a host program.
 
-**G4 — actual in-jail HTTP front and launch** (after G3; unblock H).
+### G4 — selected front, launch and publication (after G3; handler work can proceed before [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2))
+
+**Publication gate:** [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) must be ruled before an
+agent-facing HTTP URL is published on a shared loopback. Do not infer local caller
+authentication from the host TLS preamble: it carries the front's `FrontJailID`, not the
+identity of the jail that dialed its local URL. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1)
+still gates only custom executor/signing and does not block this core-front work.
+
+- **Pack-to-client association:** use the selected pack's existing `kind = "env"`
+  contribution, `served_by` naming the same selected front, and `http://{listen}` to set
+  that client's existing base-URL variable. The producer must gate only selected, enabled
+  and approved HTTP fronts; `loopholes.Set.JailDaemons` appends extra specs without applying
+  that selection gate. The host TLS endpoint file is private host transport material, never
+  the client-facing URL. Add no manifest field or global client environment name.
+- **One usable address through launch and attach:** the core producer supplies the actual
+  nonzero loopback `JailDaemonSpec.Listen` used both in daemon argv and the resolved
+  `{listen}` environment pointer. Hold a unique address keyed by selected front name for
+  private and shared network namespaces; attach adopts the running jail's name/address map,
+  never a new port. Publish the selected client variable and ready name only after the local
+  listener is bound, selected host endpoint/generation is verified, and required readiness
+  passes. On allocation, bind, readiness or stale-generation failure, withhold the URL and
+  fail the affected selected front with a next step; never fall back to a declared port or
+  leave stale publication.
+- **Current-source trap:** `ListenAddressProblem` rejects port `0`;
+  `settleServedAddresses` reserves declared host:port entries only on shared namespaces and
+  warns/falls back to declared addresses on reservation failure. Existing address state keys
+  declared endpoints, not dynamic front names. Do not encode `127.0.0.1:0` in pack schema or
+  treat the current relocation/attach channel as this allocator. Add only the core name-keyed
+  held-address and attach/readiness path the contract requires; do not add a privileged pack
+  daemon, binary, host grant or new credential channel.
+- **Caller choice:** implement only the owner-ruled branch of
+  [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2). If its local-capability branch is selected,
+  require verified client support and consume the existing pack-scoped caller capability at
+  the front before any host request; it is not a host credential and is never forwarded. If
+  shared-loopback publication is held, keep those backends in the supported intent and fail
+  the affected front launch with an actionable next step until another isolation strategy is
+  independently verified.
+- **Consumer regression after a selected front is callable:** in
+  `integration/packbroker_test.go`, use the actual selected client environment and two
+  independently selected fixture jails A and B that share loopback. A has an approved write;
+  B must not inherit A's caller authority. B calls A's real published URL. The red must show
+  B's request reaching A's host handler; a connection refusal caused by missing
+  dispatch/publication is not evidence of the defect. After
+  [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) is ruled, the fix must refuse B before A's
+  handler, with zero receiver requests and zero spend. For the local-capability branch, also
+  assert A's supported client succeeds once and absent/foreign capability is refused. For
+  the hold branch, assert the affected launch fails before listener or URL publication. This
+  is not a helper-only test or a measured native-Mac/rootless claim. Red:
+  `go test -run '^TestPackBrokerHTTPFrontCannotBeBorrowedByAnotherJail$' ./integration`.
+
 - **Literal front-path assertions:** send a selected fixture client request `POST /graphql` with `Authorization: jail-forged` and an original body from G3; for ASK assert `403`, `Yolo-Verdict: asks`, an opaque `Yolo-Request`, a GraphQL `errors` array carrying the actionable menu, and zero receiver requests. Repeat with no selected pack, invalid host preamble and missing grant; each refuses before the counted receiver. A selected approved call instead reaches it once with the host-built header, never `jail-forged`. Do not mistake a disconnected test listener for successful refusal routing.
-- **Tests first:** selected fixture HTTP pack's real base-URL env reaches `yolo-jaild` front → authenticated loopback-TLS → bound host handler → counted TLS receiver; absent selection, invalid preamble, unbound launch, missing grant, ASK and denied responses cause zero receiver requests. HTTP 403 `Yolo-Verdict`/`Yolo-Request` + GraphQL `errors` envelope/menu; client Authorization stripped and disclosed. Red: `go test -short ./cmd/yolo-jaild ./internal/entrypoint ./internal/cli/run ./internal/callbroker -run 'TestSelectedPackHTTPFrontBindsHostIdentity|TestPackHTTPFrontRefusalShape' -count=1` (test the actual service dispatch; helper-only HTTP tests are insufficient).
-- **Change:** `cmd/yolo-jaild/main.go`, `internal/entrypoint/requiredservice.go`, run's *existing* `YOLO_JAIL_DAEMONS`/selected launch producer/endpoint path and `internal/callbroker/httpfront.go` (new). Existing preamble supplies host-asserted jail identity, not `Yolo-*` client headers; no separate in-jail client binary, front holds no authority. **Fence:** no global network setting/production TLS trust override or pack-owned daemon privilege. **Gate:** red above, green affected packages, `just build-dev-bundle` + absolute emitted launcher in throwaway workspace; rootful nested test does not prove rootless network. **Commit:** `feat(broker): connect selected HTTP front to host decision`.
+- **Tests first:** selected fixture HTTP pack's actual client path reaches `yolo-jaild` front → authenticated loopback-TLS → bound host handler → counted TLS receiver; absent selection, invalid preamble, unbound launch, missing grant, ASK and denied responses cause zero receiver requests. Assert HTTP 403 `Yolo-Verdict`/`Yolo-Request` + GraphQL `errors` menu; client Authorization is stripped and disclosed. Red: `go test -short ./cmd/yolo-jaild ./internal/entrypoint ./internal/cli/run ./internal/callbroker -run 'TestSelectedPackHTTPFrontBindsHostIdentity|TestPackHTTPFrontRefusalShape' -count=1` (production dispatch, not helper-only).
+- **Change:** `cmd/yolo-jaild/main.go`, `internal/entrypoint/requiredservice.go`, run's
+  existing `YOLO_JAIL_DAEMONS`/selected launch producer and endpoint path in
+  `internal/cli/run/packservices.go` and `servedaddresses.go`,
+  `internal/launchservice/reserve.go`, `internal/loopholedecl/tokens.go`,
+  `internal/loopholes/runtime.go`, `internal/packload/served.go` and
+  `credentialscope.go`, and `internal/callbroker/httpfront.go` (new). The existing
+  preamble supplies front-to-host jail identity, not local caller identity; the front holds
+  no host authority. **Fence:** no host credential, new global env/config, production TLS
+  trust override or pack-owned privileged daemon. **Gate:** red consumer tests above, green
+  affected packages, `just build-dev-bundle` + absolute emitted launcher in a throwaway
+  workspace; rootful nested tests do not prove native Mac/rootless isolation. **Commit:**
+  `feat(broker): connect selected HTTP front to host decision`.
 
 ### H — conformance, nested-jail proof and operator guide (after real G4 and C/F fixture integration)
 
