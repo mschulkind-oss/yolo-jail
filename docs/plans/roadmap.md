@@ -482,9 +482,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 53. [Sharing MCP sign-ins](../design/mcp-auth-sharing.md) — Phase A's static remote configuration,
     supported renders and scope attribution are integrated; Phase B's sign-in broker and credential
     sharing are not. Reviewed Tasks 7, 8 and 10, plus Codex's store-declaration metadata, are integrated
-    as foundations only. The [implementation plan](../design/mcp-auth-sharing-plan.md) keeps Task 11's
-    canonical store/planners and the generic per-launch input delivery unfinished; no live sign-in or
-    native MCP behavior is claimed.
+    as foundations; Task 11's canonical store, Codex adapter and pure planners are now integrated too.
+    The generic per-launch input delivery and Task 12's pack/daemon remain unbuilt; no live sign-in or
+    native MCP behavior is claimed. The [implementation plan](../design/mcp-auth-sharing-plan.md)
+    records the current boundary.
 54. [Let a pack's broker use the approval machinery](../design/pack-brokers.md), and [let the agent read and predict its own access](../design/access-introspection.md) — keep bounded declaration and fixture work ahead of execution because the call-broker extension point depends on the access decision seam. The [access build hand-off](../design/access-introspection-plan.md) records GitHub tasks 1–2 integrated, with historical-handler and actual status/evaluate/ask consumer tests; access tasks 3–5 are not claimed. The [pack-broker hand-off](../design/pack-brokers-plan.md) records A/B/C integrated and bounded D work still active. Pack requests remain deny/revoke-only: E is not integrated, and generic `launch_input` producer/runtime delivery remains absent. The prior task-2 consumer-test review gap is closed; the empty-pack outer-jail result is not nested-jail acceptance.
 55. [Bound Yolo workspace work in owner-managed resource groups](../design/resource-groups.md) — complete the tree-grounded implementation handoff, then build the explicitly opted-in Linux-first path; prove authority and placement before claiming enforcement, and use device evidence to bound performance claims.
 

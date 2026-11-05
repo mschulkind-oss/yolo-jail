@@ -122,6 +122,13 @@ func OpenRegularFileBeneath(r *os.Root, name string) (*os.File, error) {
 	return openRegularBeneath(r, name, os.O_RDONLY, 0)
 }
 
+// OpenLockFileBeneath opens name below r as a regular file for an advisory lock. It creates
+// the file when absent but never truncates it; links and non-regular files are refused or
+// replaced under the same rules as other state files.
+func OpenLockFileBeneath(r *os.Root, name string) (*os.File, error) {
+	return openRegularBeneath(r, name, os.O_RDWR|os.O_CREATE, 0o600)
+}
+
 // WriteRegularFileBeneath is os.WriteFile of name below r, on OpenWorkspaceStateFile's terms: a
 // regular file already there is truncated and rewritten in place, keeping its inode; anything
 // else there (a link the jail left, dangling or not) is removed and replaced by a regular file;
@@ -200,6 +207,12 @@ func WriteWorkspaceStateFile(workspace, name string, data []byte, perm fs.FileMo
 // openRegularBeneath opens name below r as a regular file, removing a non-regular file there
 // first when flag creates.
 func openRegularBeneath(r *os.Root, name string, flag int, perm fs.FileMode) (*os.File, error) {
+	return openRegularBeneathAfterCheck(r, name, flag, perm, nil)
+}
+
+// afterCheck is a per-call test seam for swapping a leaf after classification but before
+// the production open; normal callers pass nil through openRegularBeneath.
+func openRegularBeneathAfterCheck(r *os.Root, name string, flag int, perm fs.FileMode, afterCheck func()) (*os.File, error) {
 	if fi, err := r.Lstat(name); err == nil && !fi.Mode().IsRegular() {
 		if flag&os.O_CREATE == 0 {
 			return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.EINVAL}
@@ -210,13 +223,22 @@ func openRegularBeneath(r *os.Root, name string, flag int, perm fs.FileMode) (*o
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	f, err := r.OpenFile(name, flag|syscall.O_NONBLOCK, perm)
+	if afterCheck != nil {
+		afterCheck()
+	}
+	f, err := openNoFollowLeaf(r, name, flag|syscall.O_NONBLOCK, perm)
 	if err != nil {
 		return nil, err
 	}
 	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
 		f.Close()
 		return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.EINVAL}
+	}
+	if flag&os.O_TRUNC != 0 {
+		if err := f.Truncate(0); err != nil {
+			f.Close()
+			return nil, err
+		}
 	}
 	return f, nil
 }

@@ -3,7 +3,7 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Complete the active canonical-store/planner implementation in Task 11; separately revalidate generic per-launch input delivery before producer work; no agent or credential runtime is measured"
+next: "Task 12's producer/daemon and canonical-store consumers remain unbuilt; revalidate generic per-launch launch_input delivery before claiming a brokered runtime, and measure native B1/B2 separately"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Build hand-off: Phase A adds the remote mcp_servers form, supported-agent renders, safe withholding, and scope attribution. Phase B (the mcp-auth pack and broker) remains separate and unimplemented here; later slices are re-planned against the tree when phase B lands."
@@ -15,14 +15,17 @@ summary: "Build hand-off: Phase A adds the remote mcp_servers form, supported-ag
 Codex/Claude/opencode rendering, safe transport withholding with boot notices, effective-transport
 header binding, scope attribution, and `config why` with header redaction and unavailable provenance.
 The affected package suites and real-jail integration tests cover static rendered files and effective
-transport/header outcomes; no agent, authentication flow, or MCP endpoint was invoked. Phase B is not
-built. Reviewed Tasks 7, 8 and 10 are now source-integrated, along with Codex's `mcp_auth` declaration
-metadata as a Task 12 prerequisite; these are foundations only, not runtime work. Task 11's canonical
-store and pure planners remain unbuilt and active separately; no native credential reads were
-performed. Task 9's selected host-daemon state fence is already in main. The generic per-launch input
-channel is still missing, and B1 still gates any claim that a running Codex process uses a propagated
-credential; B2 separately gates additional agents' remote dialects. Phases C to E remain outlines,
-not build hand-offs.
+transport/header outcomes; no agent, authentication flow, or MCP endpoint was invoked. Reviewed
+Tasks 7, 8 and 10, and Codex's `mcp_auth` declaration metadata, are source-integrated foundations.
+Task 11's canonical store, Codex JSON adapter, and pure seed/adopt planners are now source-integrated;
+`go test ./internal/mcpauth ./internal/paths`, `go test -race ./internal/mcpauth`, their shared-path
+caller package tests, and `just check-ci` pass. The Task 11 filesystem change includes the reviewed
+leaf-symlink no-follow open repair. It does not read native credentials or provide an agent/runtime
+flow. Task 9's selected host-daemon state fence is already in main. Task 12's pack, daemon and
+seed/harvest consumer are unbuilt; the generic per-launch `launch_input` channel and B1/B2 runtime
+measurements remain outstanding. B1 still gates any claim that a running Codex process uses a
+propagated credential; B2 separately gates additional agents' remote dialects. Phases C to E remain
+outlines, not build hand-offs.
 
 **Phase A boundary for the broker.** The effective merged MCP entry, not the raw project override,
 is the identity input: `config.secureMCPServerMerge` and `packload.mergeMCPEntry` drop inherited
@@ -670,16 +673,19 @@ are not read yet ([Blockers](#blockers)).
 
 ### Phase B: slice 1, Codex on podman and Linux `yolo host`
 
-**Current work status:** reviewed Tasks 7, 8 and 10, including the bounded repair commits, are
-source-integrated. Task 7 contributes the sandboxed-Lua helpers and shipped Codex key vectors; task 8
+**Current work status:** reviewed Tasks 7, 8 and 10, including their bounded repair commits, are
+source-integrated. Task 7 contributes sandboxed-Lua helpers and shipped Codex key vectors; task 8
 adds strict `mcp-auth` declaration decoding, the pack-wide `bin` rejection and restored release
 compatibility rows; task 10 adds server/generation audit events and rendering. Codex's official
-`mcp_auth` manifest declaration is also integrated as a Task 12 prerequisite; it is metadata, not a
-store consumer. These foundations have focused package tests, but no authentication/runtime flow is
-claimed. Task 11's canonical store and pure planners are an active, separate implementation and are
-not in this tree; no native credential reads were performed. Task 9's selected host-daemon state
-fence is already built at `c62ca3ce0`. These are task-local progress facts, not proof of broker or
-credential runtime.
+`mcp_auth` manifest declaration is integrated as a Task 12 prerequisite; it is metadata, not a store
+consumer. Task 11 is now source-integrated: the canonical store, Codex JSON adapter, pure seed/adopt
+planners, and the no-follow leaf-open repair in `internal/paths`. Their focused tests, race test,
+shared-path caller package tests, and `just check-ci` passed. These foundations still do not provide
+an authentication/runtime flow, and no native credential reads were performed. Task 9's selected
+host-daemon state fence is already built at `c62ca3ce0`. Task 12's pack and daemon remain unbuilt;
+its generic per-launch producer/delivery is absent. Native B1 and B2 runtime measurements remain
+separate gates; nothing here establishes that a running Codex process uses a propagated credential
+or measures another agent's remote dialect.
 
 **Implementation boundary:** the accepted design specifies one core-owned generic per-launch input,
 through `launch_input` and `{launch_input}`. That producer registry, token validation/resolution and
@@ -694,8 +700,9 @@ channel before claiming a broker launch input.
 task 8 covers strict manifest declaration decoding; task 10 covers audit record and CLI rendering.
 Their reviewed repairs are integrated, but these foundations do not make an authentication or runtime
 flow ready. Codex's official `mcp_auth` manifest metadata is a Task 12 prerequisite only. Task 11's
-canonical store and planners remain a distinct implementation after task 8; declaration metadata does
-not complete or substitute for Task 11.
+canonical store and planners are now integrated as a separate, pure storage/adapter/planner slice;
+the declaration metadata neither completes nor substitutes for Task 11. Task 12 still must connect
+the store to a producer and daemon before any brokered sign-in or runtime claim.
 
 <a id="task-7"></a>**Task 7: the Lua helpers and the `mcp_auth` registration.** *Independent.*
 

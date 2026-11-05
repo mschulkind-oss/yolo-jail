@@ -197,3 +197,41 @@ func assertRegularHolding(t *testing.T, p, body string) {
 		t.Errorf("%s holds %q, want %q", p, got, body)
 	}
 }
+
+func TestOpenLockFileBeneathCreatesWithoutTruncatingAndReplacesLink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "lock")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	f, err := OpenLockFileBeneath(r, "lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if got, err := os.ReadFile(target); err != nil || string(got) != "keep" {
+		t.Fatalf("lock helper followed link: %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "lock")); err != nil || len(got) != 0 {
+		t.Fatalf("lock file contents = %q err=%v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "existing"), []byte("must remain"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err = OpenLockFileBeneath(r, "existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if got, err := os.ReadFile(filepath.Join(dir, "existing")); err != nil || string(got) != "must remain" {
+		t.Fatalf("opening existing lock file truncated it: %q err=%v", got, err)
+	}
+}
