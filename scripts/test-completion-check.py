@@ -528,12 +528,29 @@ class Census(unittest.TestCase):
         self.assertEqual(listed, {"assets"})
 
     def test_non_git_archive_keeps_conservative_directory_coverage(self):
+        from unittest import mock
         census, root = self.git_fixture(with_git=False)
+        self.assertFalse(os.path.lexists(root / ".git"), "archive fixture has no local Git metadata")
+        original_lexists = os.path.lexists
+        ambient_git = next((parent / ".git" for parent in root.parents
+                            if original_lexists(parent / ".git")), None)
         ignored_like = root / "pkg" / ".yolo"
         ignored_like.mkdir()
         (ignored_like / "housekeeping.log").write_text("archive has no ignore authority\n")
-        opened, listed, _ = census.parse_log(
-            f"open {ignored_like / 'housekeeping.log'}\nstat {ignored_like}", root / "other", set())
+        log = f"open {ignored_like / 'housekeeping.log'}\nstat {ignored_like}"
+
+        def lexists_without_ambient_git(path):
+            candidate = Path(os.path.abspath(os.fsdecode(path)))
+            if candidate.name == ".git" and candidate.parent in root.parents:
+                return False
+            return original_lexists(path)
+
+        # A source archive nested under TMPDIR must not inherit the checkout's ignore rules.
+        with mock.patch.object(os.path, "lexists", side_effect=lexists_without_ambient_git):
+            opened, listed, _ = census.parse_log(log, root / "other", set())
+        self.assertIs(os.path.lexists, original_lexists, "ambient filesystem lookup was restored")
+        if ambient_git is not None:
+            self.assertTrue(os.path.lexists(ambient_git), "ambient metadata remains visible after the scoped model")
         self.assertEqual(opened, {"pkg/.yolo/housekeeping.log"})
         self.assertEqual(listed, {"pkg/.yolo"})
 
