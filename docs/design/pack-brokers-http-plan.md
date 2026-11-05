@@ -3,14 +3,14 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-05
 status: accepted
 stage: DECIDED
-next: "Obtain the required independent combined-source review of the integrated G1; then begin G2 on this source if no blocking finding remains"
+next: "Begin G3 on the integrated G2 source; retain final matched-source/native gates for the combined landing"
 tags: [plan, broker, http]
 summary: "Tree-grounded G1–G4/H tasks for the independently accepted HTTP contract."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-06. G1's HTTP declaration, existing config-gate binding and selected private launch-input path are integrated on the current MCP source. The six focused G1 review findings are closed on the accepted candidate, including empty-array preservation, selected-pack/declaration-hash gate identity, DNS-only origins, required JSON arrays, Unicode control rejection, and real keeper/private-input publication coverage. The G1 HTTP front and execution remain unbuilt; G2–G4/H are not activated. Combined-source review and final matched-source/native gates remain. **Design:** [accepted HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md) remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong. Stop without committing if a named symbol disappears, the test is not red for its predicted reason, a file is dirty with another writer's work, a change escapes the fence or an unrelated gate fails.
+**Status:** 2026-11-06. G1's HTTP declaration, existing config-gate binding and selected private launch-input path are integrated on the current MCP source; the attached independent G1 composition review is OK. G2's bounded HTTP-only authenticated host ingress and typed classifier/canonical request implementation are integrated and independently reviewed; focused package and targeted race tests pass on the integrated source. The endpoint and classifier remain unwired to a live selected HTTP front or host execution. G3–G4/H remain unbuilt; combined final matched-source/native gates remain. **Design:** [accepted HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md) remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong. Stop without committing if a named symbol disappears, the test is not red for its predicted reason, a file is dirty with another writer's work, a change escapes the fence or an unrelated gate fails.
 
 **Source prerequisite:** Reviewed F read/list and host-environment/XDG source and its scope-bind-failure cleanup repair are integrated. G1 preserves the independent MCP final-stop, confirmed-absence and harvest-failure checks; it does not weaken or replace them. F's read/list behavior does not prove cloud login. `ForAddRemember` and mixed-cell timed/Add stay disabled pending [OQ-BX7](pack-brokers.md#OQ-BX7) and safe persistence. No external credentials or account probes.
 

@@ -94,6 +94,18 @@ func TestPackCLIClassifierValidatesCanonicalResourceAndDoesNotExecute(t *testing
 	}
 }
 
+func TestPackCLIClassifierInputRemainsBoundedTo64KiB(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	classifier := fixtureClassifier(t, fmt.Sprintf("touch %q; printf '%%s' '{}'", marker))
+	_, err := classifier.ClassifyCLI(context.Background(), []string{strings.Repeat("x", classifierLimit)}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "input exceeds 64 KiB") {
+		t.Fatalf("oversized CLI classifier input was not rejected at 64 KiB: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("oversized CLI input started the classifier: %v", err)
+	}
+}
+
 func TestPackCLIClassifierFailsClosed(t *testing.T) {
 	stdin := []byte("request input")
 	cases := []struct{ name, script string }{

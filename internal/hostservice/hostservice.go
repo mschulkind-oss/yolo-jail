@@ -64,7 +64,9 @@
 package hostservice
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -491,6 +493,20 @@ func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) e
 	return serveListener(handler, ln, stop, true)
 }
 
+const httpBrokerRequestFrameLimit uint32 = 4_456_448
+
+// ServeHTTPBrokerEndpoint is the authenticated host ingress for the selected
+// HTTP broker route. Its service context, not a peer field, selects the HTTP
+// JSON frame budget. Generic ServeEndpoint callers retain the legacy unbounded
+// frame protocol until their own protocol declares a bound.
+func ServeHTTPBrokerEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
+	ln, err := svcendpoint.Listen(endpointPath, "")
+	if err != nil {
+		return err
+	}
+	return serveListenerWithRequestLimit(handler, ln, stop, true, httpBrokerRequestFrameLimit)
+}
+
 // serveListener is the transport-agnostic half: shutdown wiring plus the accept
 // loop. Split out of Serve so the loop is testable against any net.Listener and so
 // there is exactly one place that decides a connection becomes a session.
@@ -505,6 +521,10 @@ func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) e
 // broker's transport was silently re-pointed once already (see the note above
 // ServeUnix).
 func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readPreamble bool) error {
+	return serveListenerWithRequestLimit(handler, ln, stop, readPreamble, 0)
+}
+
+func serveListenerWithRequestLimit(handler Handler, ln net.Listener, stop <-chan struct{}, readPreamble bool, requestLimit uint32) error {
 	Logger.Printf("serving frame protocol v%d", frameproto.ProtocolVersion)
 
 	// stop channel (explicit) OR signals (when run as a real daemon).
@@ -544,7 +564,7 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readP
 		inFlight.Add(1)
 		go func() {
 			defer inFlight.Done()
-			handleOne(handler, conn, readPreamble)
+			handleOneWithRequestLimit(handler, conn, readPreamble, requestLimit)
 		}()
 	}
 	inFlight.Wait()
@@ -578,6 +598,10 @@ func serveListener(handler Handler, ln net.Listener, stop <-chan struct{}, readP
 // as "closed before a request" already does — one log line, one closed
 // connection, the accept loop untouched.
 func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
+	handleOneWithRequestLimit(handler, conn, readPreamble, 0)
+}
+
+func handleOneWithRequestLimit(handler Handler, conn net.Conn, readPreamble bool, requestLimit uint32) {
 	start := time.Now()
 	jailID := "unknown"
 	hostAsserted := false
@@ -631,10 +655,30 @@ func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 		}
 	}
 
-	body, err := frameproto.ReadRequestBytes(conn)
+	var body []byte
+	var err error
+	if requestLimit == 0 {
+		body, err = frameproto.ReadRequestBytes(conn)
+	} else {
+		body, err = frameproto.ReadRequestBytesBounded(conn, requestLimit)
+	}
 	if err != nil {
-		Logger.Printf("conn closed without a request")
+		if errors.Is(err, frameproto.ErrRequestFrameTooLarge) {
+			Logger.Printf("request frame rejected: declared length exceeds service limit")
+		} else {
+			Logger.Printf("conn closed without a request")
+		}
 		return
+	}
+	if requestLimit != 0 {
+		if err := rejectDuplicateHTTPJSONFields(body); err != nil {
+			if errors.Is(err, errDuplicateHTTPJSONField) {
+				Logger.Printf("HTTP request rejected: duplicate JSON object field")
+			} else {
+				Logger.Printf("conn closed without a request")
+			}
+			return
+		}
 	}
 	decoded, derr := jsonx.Decode(body)
 	if derr != nil {
@@ -678,6 +722,76 @@ func handleOne(handler Handler, conn net.Conn, readPreamble bool) {
 		handler(sess)
 		sess.Exit(0) // default exit if handler didn't
 	}()
+}
+
+var errDuplicateHTTPJSONField = errors.New("duplicate JSON object field")
+
+// rejectDuplicateHTTPJSONFields checks one already bounded HTTP-route JSON frame
+// before jsonx.OrderedMap can overwrite repeated keys. It does not change the
+// decoder or duplicate-key behavior for other hostservice protocols.
+func rejectDuplicateHTTPJSONFields(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	duplicate, err := scanHTTPJSONValue(decoder)
+	if err != nil {
+		return errors.New("invalid HTTP request JSON")
+	}
+	if duplicate {
+		return errDuplicateHTTPJSONField
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("trailing HTTP request JSON")
+	}
+	return nil
+}
+
+func scanHTTPJSONValue(decoder *json.Decoder) (bool, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return false, nil
+	}
+	switch delim {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return false, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return false, errors.New("invalid object key")
+			}
+			if _, exists := seen[key]; exists {
+				return true, nil
+			}
+			seen[key] = struct{}{}
+			duplicate, err := scanHTTPJSONValue(decoder)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		if _, err := decoder.Token(); err != nil {
+			return false, err
+		}
+	case '[':
+		for decoder.More() {
+			duplicate, err := scanHTTPJSONValue(decoder)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		if _, err := decoder.Token(); err != nil {
+			return false, err
+		}
+	default:
+		return false, errors.New("invalid JSON delimiter")
+	}
+	return false, nil
 }
 
 // exitCodeFromErr extracts a process exit code from cmd.Wait's error, mapping

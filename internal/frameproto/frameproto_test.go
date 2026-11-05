@@ -7,6 +7,27 @@ import (
 	"testing"
 )
 
+func TestReadRequestBytesBoundedRejectsOversizedPrefixWithoutBody(t *testing.T) {
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], 4_456_449)
+	body, err := ReadRequestBytesBounded(bytes.NewReader(header[:]), 4_456_448)
+	if !errors.Is(err, ErrRequestFrameTooLarge) || body != nil {
+		t.Fatalf("ReadRequestBytesBounded = (%d bytes, %v), want nil and ErrRequestFrameTooLarge", len(body), err)
+	}
+}
+
+func TestGenericRequestReaderRetainsItsPriorUnboundedBehavior(t *testing.T) {
+	body := bytes.Repeat([]byte("x"), 65_537)
+	var frame bytes.Buffer
+	if err := WriteRequest(&frame, body); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadRequestBytes(&frame)
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("generic request read len=%d err=%v; generic callers retain legacy frame behavior", len(got), err)
+	}
+}
+
 func TestReadFrameBoundedRejectsOversizedHeaderWithoutBody(t *testing.T) {
 	var header [5]byte
 	header[0] = StreamStdout

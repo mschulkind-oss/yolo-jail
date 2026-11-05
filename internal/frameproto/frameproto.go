@@ -71,6 +71,30 @@ func ReadRequestBytes(r io.Reader) ([]byte, error) {
 	return body, nil
 }
 
+// ErrRequestFrameTooLarge is returned by ReadRequestBytesBounded when the
+// peer-declared JSON request exceeds the caller's limit. The prefix is checked
+// before the body allocation or read.
+var ErrRequestFrameTooLarge = errors.New("frameproto: request frame exceeds limit")
+
+// ReadRequestBytesBounded reads one request frame, rejecting its declared size
+// before allocating or reading the body. ReadRequestBytes remains unbounded for
+// existing CLI, Git and other frame-protocol consumers.
+func ReadRequestBytesBounded(r io.Reader, maxBody uint32) ([]byte, error) {
+	header, err := ReadExact(r, 4)
+	if err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(header)
+	if length > maxBody {
+		return nil, fmt.Errorf("%w: declared %d bytes, limit %d", ErrRequestFrameTooLarge, length, maxBody)
+	}
+	body, err := ReadExact(r, int(length))
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
 // WriteRequest frames body as a request (4-byte BE length prefix + body) and
 // writes it. This is the client side (yolo-ps, terminator).
 func WriteRequest(w io.Writer, body []byte) error {

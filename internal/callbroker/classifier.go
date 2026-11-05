@@ -161,48 +161,65 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 }
 
 func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) {
-	binary := c.Argv[0]
-	if strings.HasPrefix(binary, "{program:") && strings.HasSuffix(binary, "}") {
-		name := strings.TrimSuffix(strings.TrimPrefix(binary, "{program:"), "}")
-		identity, ok := c.Identities[name]
-		if !ok || identity.Bin != name || identity.Path == "" || identity.SHA256 == "" || !filepath.IsAbs(identity.Path) {
-			return Answer{}, errors.New("selected classifier identity is unavailable")
-		}
-		resolved, err := filepath.EvalSymlinks(identity.Path)
-		if err != nil || resolved != identity.Path {
-			return Answer{}, errors.New("selected classifier path changed")
-		}
-		file, err := os.Open(identity.Path)
-		if err != nil {
-			return Answer{}, err
-		}
-		info, statErr := file.Stat()
-		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-			file.Close()
-			return Answer{}, errors.New("selected classifier is not a regular executable")
-		}
-		h := sha256.New()
-		_, err = io.Copy(h, file)
-		closeErr := file.Close()
-		if err != nil || closeErr != nil || hex.EncodeToString(h.Sum(nil)) != identity.SHA256 {
-			return Answer{}, errors.New("selected classifier checksum changed")
-		}
-		binary = identity.Path
-	} else if binary == "yolo" {
-		var err error
-		binary, err = os.Executable()
-		if err != nil {
-			return Answer{}, err
-		}
-	} else {
-		return Answer{}, errors.New("classifier must be selected staged program or yolo")
-	}
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return Answer{}, err
 	}
 	if len(payload) > classifierLimit {
 		return Answer{}, errors.New("classifier input exceeds 64 KiB")
+	}
+	raw, err := c.invokePayload(ctx, payload)
+	if err != nil {
+		return Answer{}, err
+	}
+	var answer Answer
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&answer); err != nil {
+		return Answer{}, fmt.Errorf("classifier answer is not strict JSON: %w", err)
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return Answer{}, errors.New("classifier answer has trailing data")
+	}
+	return answer, nil
+}
+
+func (c Classifier) invokePayload(ctx context.Context, payload []byte) ([]byte, error) {
+	binary := c.Argv[0]
+	if strings.HasPrefix(binary, "{program:") && strings.HasSuffix(binary, "}") {
+		name := strings.TrimSuffix(strings.TrimPrefix(binary, "{program:"), "}")
+		identity, ok := c.Identities[name]
+		if !ok || identity.Bin != name || identity.Path == "" || identity.SHA256 == "" || !filepath.IsAbs(identity.Path) {
+			return nil, errors.New("selected classifier identity is unavailable")
+		}
+		resolved, err := filepath.EvalSymlinks(identity.Path)
+		if err != nil || resolved != identity.Path {
+			return nil, errors.New("selected classifier path changed")
+		}
+		file, err := os.Open(identity.Path)
+		if err != nil {
+			return nil, err
+		}
+		info, statErr := file.Stat()
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			file.Close()
+			return nil, errors.New("selected classifier is not a regular executable")
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, file)
+		closeErr := file.Close()
+		if err != nil || closeErr != nil || hex.EncodeToString(h.Sum(nil)) != identity.SHA256 {
+			return nil, errors.New("selected classifier checksum changed")
+		}
+		binary = identity.Path
+	} else if binary == "yolo" {
+		var err error
+		binary, err = os.Executable()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, errors.New("classifier must be selected staged program or yolo")
 	}
 	cmd := exec.Command(binary, c.Argv[1:]...)
 	cmd.Dir = "/"
@@ -214,26 +231,17 @@ func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) 
 	if err := runOwnedGroup(ctx, cmd); err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) {
-			return Answer{}, fmt.Errorf("classifier lifecycle failed: %w", err)
+			return nil, fmt.Errorf("classifier lifecycle failed: %w", err)
 		}
 		if ctx.Err() != nil {
-			return Answer{}, fmt.Errorf("classifier timed out or was cancelled: %w", ctx.Err())
+			return nil, fmt.Errorf("classifier timed out or was cancelled: %w", ctx.Err())
 		}
-		return Answer{}, fmt.Errorf("classifier exited unsuccessfully: %w", err)
+		return nil, fmt.Errorf("classifier exited unsuccessfully: %w", err)
 	}
 	if stdout.tooLarge {
-		return Answer{}, errors.New("classifier answer exceeds 64 KiB")
+		return nil, errors.New("classifier answer exceeds 64 KiB")
 	}
-	var answer Answer
-	decoder := json.NewDecoder(bytes.NewReader(stdout.Bytes()))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&answer); err != nil {
-		return Answer{}, fmt.Errorf("classifier answer is not strict JSON: %w", err)
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return Answer{}, errors.New("classifier answer has trailing data")
-	}
-	return answer, nil
+	return append([]byte(nil), stdout.Bytes()...), nil
 }
 
 type boundedAnswer struct {
