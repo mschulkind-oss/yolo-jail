@@ -23,17 +23,18 @@ import (
 
 const auditUsage = `Usage: yolo audit [flags]
 
-On the host: list the brokered calls — every command a jail sent a broker such as
+On the host: list broker audit events — every command a jail sent a broker such as
 the github-broker, whether it ran, was refused, was out of the workspace's
-repository scope, or needed an approval. One line per call, oldest first, from
+repository scope, or needed an approval, plus events from services such as mcp-auth. One
+line per event, oldest first, from
 ~/.local/share/yolo-jail/broker/audit.jsonl and its rotated archives.
 
 Refuses inside a jail: the log is on the host, and yolo mounts it into no jail.
 
 Flags:
-  --since <when>      Only calls at or after <when>: a duration back from now
+  --since <when>      Only events at or after <when>: a duration back from now
                       (30m, 2h, 7d) or an RFC 3339 time.
-  --service <source>  Only calls to this broker source, such as github.
+  --service <source>  Only calls/events to this broker source, such as github or mcp-auth.
   --jail <id>         Only calls from this jail id.
   --workspace <path>  Only calls from this workspace.
   --set <name>        Only calls the broker assigned this set: read-only,
@@ -47,7 +48,7 @@ Examples:
   yolo audit                          # everything the log holds
   yolo audit --since 1h --set refused # the last hour's commands the broker never runs
   yolo audit --set out-of-scope       # commands that reached outside the workspace's repositories
-  yolo audit --json | jq .argv        # the canonical argv of each call`
+  yolo audit --service mcp-auth       # MCP sign-in events`
 
 func runAudit(args []string) int {
 	if answerHelp("audit", args, os.Stdout) {
@@ -143,9 +144,9 @@ func auditMain(args []string, inJail bool, logPath string, now time.Time, stdout
 	if !f.json {
 		switch {
 		case len(events) == 0:
-			fmt.Fprintf(stdout, "No brokered calls recorded (%s).\n", logPath)
+			fmt.Fprintf(stdout, "No broker audit events recorded (%s).\n", logPath)
 		case shown == 0:
-			fmt.Fprintf(stdout, "No brokered call matches (%d recorded).\n", len(events))
+			fmt.Fprintf(stdout, "No broker audit events match (%d recorded).\n", len(events))
 		}
 	}
 	if skipped > 0 {
@@ -168,8 +169,8 @@ func (f auditFilter) match(e brokeraudit.Event) bool {
 		(f.grant == "" || e.Grant == f.grant)
 }
 
-// auditLine is one call for a reader: when, which jail, the set, what became of it, the
-// exit code and the command as the broker built it.
+// auditLine is one event for a reader: a command when argv is present, or the server and
+// generation for a broker event that has no argv.
 //
 // THE ARGV IS THE JAIL'S WORDS, printed on the host's terminal, so it is quoted for DISPLAY
 // (shquote.JoinDisplay): a word carrying an ESC or a carriage return would otherwise clear
@@ -180,9 +181,22 @@ func auditLine(e brokeraudit.Event) string {
 	if e.Exit != nil {
 		exit = strconv.Itoa(*e.Exit)
 	}
-	line := fmt.Sprintf("%s  %-12s  %-12s  %-11s  %4s  %s: %s", termsafe.Visible(e.Time),
-		termsafe.Visible(e.Jail), termsafe.Visible(e.Set), termsafe.Visible(e.Outcome), exit,
-		termsafe.Visible(e.Service), shquote.JoinDisplay(e.Argv))
+	var line string
+	if e.Server != "" && len(e.Argv) == 0 {
+		detail := fmt.Sprintf("%s %s %s", termsafe.Visible(e.Service), termsafe.Visible(e.Event), termsafe.Visible(e.Server))
+		if e.Generation != 0 {
+			detail += fmt.Sprintf(" (generation %d)", e.Generation)
+		}
+		if e.Outcome != "" {
+			detail += " " + termsafe.Visible(e.Outcome)
+		}
+		line = fmt.Sprintf("%s  %-12s  %-12s  %4s  %s", termsafe.Visible(e.Time),
+			termsafe.Visible(e.Jail), termsafe.Visible(e.Set), exit, detail)
+	} else {
+		line = fmt.Sprintf("%s  %-12s  %-12s  %-11s  %4s  %s: %s", termsafe.Visible(e.Time),
+			termsafe.Visible(e.Jail), termsafe.Visible(e.Set), termsafe.Visible(e.Outcome), exit,
+			termsafe.Visible(e.Service), shquote.JoinDisplay(e.Argv))
+	}
 	if e.Workspace != "" {
 		line += "  [" + termsafe.Visible(e.Workspace) + "]"
 	}

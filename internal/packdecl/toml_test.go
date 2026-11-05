@@ -521,8 +521,8 @@ compact_at = 200_000
 }
 
 func TestGroupedKindNamesCoverAllLiveKinds(t *testing.T) {
-	if got := len(KnownKinds()); got != 22 {
-		t.Fatalf("live kind count = %d, want 22", got)
+	if got := len(KnownKinds()); got != 23 {
+		t.Fatalf("live kind count = %d, want 23", got)
 	}
 	for _, kind := range KnownKinds() {
 		group := strings.ReplaceAll(string(kind), "-", "_")

@@ -38,6 +38,7 @@ package luahook
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -80,8 +81,84 @@ func TestEveryShippedPackDeriveStillRuns(t *testing.T) {
 			if _, eerr := (GopherLuaVM{}).Derive(string(src), shippedPackCtx(pack, "", true)); eerr != nil {
 				t.Errorf("Derive(env): %v", eerr)
 			}
+			// mcp_auth is an independent registration space. Exercise every shipped key and
+			// match pair against one server so the real pack source, not a copied fixture,
+			// remains the consumer of these core helpers.
+			authAgents, aerr := shippedMCPAuthAgents(string(src))
+			if aerr != nil {
+				t.Fatalf("mcp_auth registrations: %v", aerr)
+			}
+			if pack == "codex" {
+				foundCodex := false
+				for _, agent := range authAgents {
+					foundCodex = foundCodex || agent == "codex"
+				}
+				if !foundCodex {
+					t.Fatal("shipped Codex derive has no codex mcp_auth registration")
+				}
+			}
+			for _, agent := range authAgents {
+				t.Run("mcp_auth/"+agent, func(t *testing.T) {
+					server := MCPServerRef{Name: "fixture", URL: "https://mcp.example.test/mcp", Transport: "http"}
+					keys, err := MCPAuthKeys(string(src), agent, []MCPServerRef{server})
+					if err != nil {
+						t.Fatalf("MCPAuthKeys: %v", err)
+					}
+					key, ok := keys[server.Name]
+					if !ok {
+						t.Fatalf("MCPAuthKeys returned no key for %q: %v", server.Name, keys)
+					}
+					match, err := MCPAuthMatch(string(src), agent, key,
+						map[string]any{"server_url": server.URL})
+					if err != nil || match == nil || match.Name != server.Name || match.URL != server.URL {
+						t.Fatalf("match(key(server), entry_for(server)) = %+v, %v", match, err)
+					}
+				})
+			}
 		})
 	}
+}
+
+func TestShippedCodexMCPAuthKeyVectorsAndMatch(t *testing.T) {
+	src, err := os.ReadFile("../../../packs/codex/derive.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, url, want string }{
+		{"linear", "https://mcp.linear.app/mcp", "linear|9436f96375b1259b"},
+		{"local:linear", "https://mcp.linear.app/mcp", "linear|9436f96375b1259b"},
+		{"odd", "https://mcp.example.test/mcp?a=1&b=<2>", "odd|8ac55be545c4b620"},
+	} {
+		keys, err := MCPAuthKeys(string(src), "codex", []MCPServerRef{{Name: tc.name, URL: tc.url}})
+		if err != nil {
+			t.Fatalf("MCPAuthKeys(%s): %v", tc.name, err)
+		}
+		if keys[tc.name] != tc.want {
+			t.Errorf("shipped Codex key(%s) = %q, want %q", tc.name, keys[tc.name], tc.want)
+		}
+	}
+	const name, url, key = "linear", "https://mcp.linear.app/mcp", "linear|9436f96375b1259b"
+	match, err := MCPAuthMatch(string(src), "codex", key, map[string]any{"server_url": url})
+	if err != nil || match == nil || match.Name != name || match.URL != url {
+		t.Fatalf("shipped Codex match(key(server), fake record) = %+v, %v", match, err)
+	}
+}
+
+// shippedMCPAuthAgents is a registration probe only: like DeriveRegistrations, it tolerates
+// unknown APIs so it can enumerate registrations from a script authored for a newer yolo.
+// The production MCPAuthKeys and MCPAuthMatch execution path is deliberately strict.
+func shippedMCPAuthAgents(script string) ([]string, error) {
+	s, err := newDeriveSession(GopherLuaVM{}, script, &DeriveCtx{UnknownAPI: func(string) {}})
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+	agents := make([]string, 0, len(s.mcpAuth))
+	for agent := range s.mcpAuth {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	return agents, nil
 }
 
 // shippedPackCtx is the live-config world the shipped derives are run against. It is

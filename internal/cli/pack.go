@@ -132,6 +132,8 @@ one file's audience never stops another file from shipping:
                    one MCP server entry composed into mcp_servers, which every agent's
                    config renders; a "~/" word is a path under the agent's home, your
                    own mcp_servers entry merges over it, and null removes it
+  mcp-auth         declare an agent-neutral MCP sign-in store shape; schema-only today,
+                   with no runtime consumer at any setup
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.

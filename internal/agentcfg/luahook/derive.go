@@ -393,6 +393,7 @@ type deriveSession struct {
 	ctxTable *lua.LTable
 	derives  map[deriveKey]*lua.LFunction
 	envs     map[string]*lua.LFunction
+	mcpAuth  map[string]mcpAuthFunctions
 	sentinel *lua.LUserData
 	emptyArr *lua.LUserData
 	cancel   context.CancelFunc
@@ -431,6 +432,7 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 		cancel:  cancel,
 		derives: map[deriveKey]*lua.LFunction{},
 		envs:    map[string]*lua.LFunction{},
+		mcpAuth: map[string]mcpAuthFunctions{},
 	}
 
 	if err := openSandboxLibs(L); err != nil {
@@ -475,6 +477,7 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 	// yolo.model_for(alias): the one HELPER beside the two registrations (modelfor.go,
 	// OQ-XM1). Installed before the guard, which reads the known members off the table.
 	installModelFor(L, yolo, ctx)
+	installMCPAuth(L, yolo, s)
 	guardUnknownAPI(L, yolo, ctx.UnknownAPI)
 	L.SetGlobal("yolo", yolo)
 

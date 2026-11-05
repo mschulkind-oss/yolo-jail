@@ -49,6 +49,28 @@ func TestAuditListsEveryCallOldestFirst(t *testing.T) {
 	}
 }
 
+func TestAuditRendersMCPAuthEventWithoutArgv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broker", "audit.jsonl")
+	brokeraudit.Open(path, nil).Append(brokeraudit.Event{
+		Time: "2026-09-29T10:00:00Z", Service: "mcp-auth", Event: "refresh", Server: "linear",
+		Generation: 4, Outcome: "ok", Jail: "aaa", Argv: nil,
+	})
+
+	rc, out, errOut := runAuditCase(t, path, "--service", "mcp-auth")
+	line := strings.TrimSpace(out)
+	if rc != 0 || errOut != "" || strings.Contains(line, "\n") {
+		t.Fatalf("rc %d out %q err %q", rc, out, errOut)
+	}
+	if !strings.Contains(line, "mcp-auth refresh linear (generation 4) ok") {
+		t.Fatalf("audit event was not rendered by yolo audit: %q", line)
+	}
+	for _, forbidden := range []string{"[]", "access_token", "refresh_token", "Authorization", "Bearer ", "header-secret"} {
+		if strings.Contains(line, forbidden) {
+			t.Errorf("audit line contains argv placeholder or credential material %q: %q", forbidden, line)
+		}
+	}
+}
+
 func TestAuditFilters(t *testing.T) {
 	path := auditFixture(t)
 	for _, c := range []struct {
@@ -109,11 +131,30 @@ func TestAuditThroughTheRegistry(t *testing.T) {
 	if rc != 0 || !strings.Contains(out, `"argv":["pr","list"]`) {
 		t.Fatalf("rc %d out %q err %q", rc, out, errOut)
 	}
+	l.Append(brokeraudit.Event{Event: "refresh", Service: "mcp-auth", Server: "linear", Generation: 4, Outcome: "ok"})
+	rc, out, errOut = runMainCaptured(t, "audit", "--service", "mcp-auth")
+	if rc != 0 || !strings.Contains(out, "mcp-auth refresh linear (generation 4) ok") || strings.Contains(out, "[]") {
+		t.Fatalf("rc %d out %q err %q", rc, out, errOut)
+	}
+}
+
+func TestAuditThroughTheRegistryWithMCPOnlyLogAndNoMatches(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_NO_BANNER", "1")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	l := brokeraudit.Open(filepath.Join(home, ".local", "share", "yolo-jail", "broker", "audit.jsonl"), nil)
+	l.Append(brokeraudit.Event{Event: "refresh", Service: "mcp-auth", Server: "linear", Generation: 4, Outcome: "ok"})
+
+	rc, out, errOut := runMainCaptured(t, "audit", "--service", "github")
+	if rc != 0 || errOut != "" || !strings.Contains(out, "No broker audit events match (1 recorded)") {
+		t.Fatalf("rc %d out %q err %q", rc, out, errOut)
+	}
 }
 
 func TestAuditWithNoLog(t *testing.T) {
 	rc, out, _ := runAuditCase(t, filepath.Join(t.TempDir(), "none.jsonl"))
-	if rc != 0 || !strings.Contains(out, "No brokered calls recorded") {
+	if rc != 0 || !strings.Contains(out, "No broker audit events recorded") {
 		t.Fatalf("rc %d out %q", rc, out)
 	}
 }

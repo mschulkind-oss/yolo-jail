@@ -136,6 +136,11 @@ type Manifest struct {
 	// RemoteMCPTransportsDecl is the set of remote MCP transports this pack's derives render.
 	RemoteMCPTransportsDecl []string `json:"mcp_remote_transports,omitempty"`
 
+	// MCPAuth is the first (and only) `mcp-auth` contribution, projected for schema readers that
+	// need the pack's single declaration. It is derived from Contributes on every decode, never
+	// serialized as a second copy.
+	MCPAuth *MCPAuth `json:"-"`
+
 	// Formerly records the names this pack and its profiles had before a rename, read only to
 	// word the refusal of an old name (formerly.go; docs/design/provider-enablement.md PE-D7).
 	Formerly *Formerly `json:"formerly,omitempty"`
@@ -691,6 +696,7 @@ func Decode(data []byte) (*Manifest, []string) {
 	}
 	problems := append(m.retiredFieldProblems(), m.installHintProblems()...)
 	m.setLegacyOrigin()
+	m.projectMCPAuth()
 	return &m, append(problems, m.Validate()...)
 }
 
@@ -852,6 +858,7 @@ func decodeTolerantWithIndexes(data []byte) (m *Manifest, problems, skipped []st
 	index := make([]int, 0, len(man.Contributes))
 	skippedService := -1
 	firstAutonomy := -1
+	firstMCPAuth := -1
 	for i, c := range man.Contributes {
 		if c.Kind != "" && !KnownKind(c.Kind) {
 			// A RETIRED kind is skipped exactly like an unknown one — the boot must not
@@ -906,6 +913,13 @@ func decodeTolerantWithIndexes(data []byte) (m *Manifest, problems, skipped []st
 		if c.Kind == KindAutonomy {
 			firstAutonomy = i
 		}
+		if note := secondMCPAuthSkip(i, c, firstMCPAuth); note != "" {
+			skipped = append(skipped, note)
+			continue
+		}
+		if c.Kind == KindMCPAuth {
+			firstMCPAuth = i
+		}
 		problems = append(problems, validateContributionAt(i, c)...)
 		problems = append(problems, mcpContributionProblems(fmt.Sprintf("contributes[%d]", i), c)...)
 		kept = append(kept, c)
@@ -918,6 +932,7 @@ func decodeTolerantWithIndexes(data []byte) (m *Manifest, problems, skipped []st
 	if len(skipped) > 0 {
 		man.Contributes = kept
 	}
+	man.projectMCPAuth()
 	return &man, problems, skipped, index
 }
 

@@ -61,6 +61,9 @@ type Event struct {
 	Time    string `json:"time"`
 	Event   string `json:"event"`
 	Service string `json:"service"`
+	// Server and Generation identify versioned MCP sign-in events without storing entry data.
+	Server     string `json:"server,omitempty"`
+	Generation int    `json:"generation,omitempty"`
 	// Jail and Workspace are HOST-ASSERTED: the jail id from the connection preamble and the
 	// workspace the launch recorded in its scope file, never a field the jail sent.
 	Jail      string `json:"jail"`

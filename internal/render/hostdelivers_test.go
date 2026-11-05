@@ -18,6 +18,7 @@ func TestHostDeliversIsTheCensusPerKind(t *testing.T) {
 		packdecl.KindMount:     true,
 		packdecl.KindReadsHost: true,
 		packdecl.KindHook:      true, // honored, with no renderer behind it
+		packdecl.KindMCPAuth:   true, // metadata only; no host broker consumer exists yet
 	}
 	for _, k := range packdecl.KnownKinds() {
 		if got := HostDelivers(fields, k); got == withheld[k] {

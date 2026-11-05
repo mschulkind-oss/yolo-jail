@@ -2413,6 +2413,13 @@
                     ~/.config/yolo-jail/local) has its entry written; a fetched pack's,
                     `git+file://` included, is left out and named.  The `chrome-devtools`
                     pack is the shipped instance.
+      mcp-auth      {store, format, entries_at, companions, empty_store, lock, fields,
+                    rereads_before_refresh, login_hint, unsupported_reason} — one pack-wide,
+                    agent-neutral MCP sign-in store declaration.  `store` is home-relative;
+                    `format` is `json`, `dir`, or `unsupported`; `empty_store` is `delete` or
+                    `{}`; `lock.protocol` is `flock`, `proper-lockfile`, `mkdir-heartbeat`,
+                    or `none`. `fields.expires_at.unit` is `ms` or `s`. It is schema-only:
+                    no current setup reads or delivers it.
     AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
     delivered to the program yolo starts, for that process only, and `yolo host apply`
     writes no file for them: what each declares reaches an agent through its process
@@ -2484,6 +2491,10 @@
                     pack, is a daemon pair plus an endpoint file under the jail's /run.  With
                     no jail there is nothing to supervise the jail half and nothing to read
                     the endpoint.
+      mcp-auth      the grouped declaration is retained and validated, but no setup's
+                    readers or renderers consume it today.  It therefore has no meaning at
+                    the host (or at any other setup); this is an interim schema foundation,
+                    not an implemented sign-in-sharing path.
     WHAT A HOST APPLY COMPUTES, as a jail does: `yolo host apply`, and the automatic
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected

@@ -79,6 +79,7 @@ func (f FieldSet) Refuse(k packdecl.Kind) string {
 // their entries here describe only the shape no host verb delivers, because a contribution of
 // either kind is told apart per contribution (cli's hostNotchOutcomeOf), not per kind.
 var refusalReasons = map[packdecl.Kind]string{
+	packdecl.KindMCPAuth: "mcp-auth is declaration metadata for a broker consumer that is not implemented; no host command reads or delivers its store adapter",
 	packdecl.KindProgram: "install is refused below jail (a pack must not mutate a real toolchain unprompted)",
 	// A GRANT THROUGH A JAIL'S WALL, not a missing mechanism (docs/reference/what-yolo-is.md,
 	// the confinement dial: the grants are holes through a wall, and "below `jail` there is no

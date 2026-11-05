@@ -3,7 +3,7 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Complete the active Phase B foundation repairs and revalidate generic per-launch input delivery before producer work; no agent or credential runtime is measured"
+next: "Complete the active canonical-store/planner implementation in Task 11; separately revalidate generic per-launch input delivery before producer work; no agent or credential runtime is measured"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Build hand-off: Phase A adds the remote mcp_servers form, supported-agent renders, safe withholding, and scope attribution. Phase B (the mcp-auth pack and broker) remains separate and unimplemented here; later slices are re-planned against the tree when phase B lands."
@@ -16,11 +16,13 @@ Codex/Claude/opencode rendering, safe transport withholding with boot notices, e
 header binding, scope attribution, and `config why` with header redaction and unavailable provenance.
 The affected package suites and real-jail integration tests cover static rendered files and effective
 transport/header outcomes; no agent, authentication flow, or MCP endpoint was invoked. Phase B is not
-built. Tasks 7, 8 and 10 have reviewed isolated work with bounded repairs still active; task 11's
-metadata-only work follows task 8. Task 9's selected host-daemon state fence is already in main. The
-remaining broker tasks need their own tree check at dispatch. B1 still gates any claim that a running
-Codex process uses a propagated credential; B2 separately gates additional agents' remote dialects.
-Phases C to E remain outlines, not build hand-offs.
+built. Reviewed Tasks 7, 8 and 10 are now source-integrated, along with Codex's `mcp_auth` declaration
+metadata as a Task 12 prerequisite; these are foundations only, not runtime work. Task 11's canonical
+store and pure planners remain unbuilt and active separately; no native credential reads were
+performed. Task 9's selected host-daemon state fence is already in main. The generic per-launch input
+channel is still missing, and B1 still gates any claim that a running Codex process uses a propagated
+credential; B2 separately gates additional agents' remote dialects. Phases C to E remain outlines,
+not build hand-offs.
 
 **Phase A boundary for the broker.** The effective merged MCP entry, not the raw project override,
 is the identity input: `config.secureMCPServerMerge` and `packload.mergeMCPEntry` drop inherited
@@ -668,12 +670,16 @@ are not read yet ([Blockers](#blockers)).
 
 ### Phase B: slice 1, Codex on podman and Linux `yolo host`
 
-**Current work status:** task 7 is reviewed with a prefix-related P2 repair active; task 8 is reviewed
-with a `bin` P2 repair active; its schema change dropped all four existing rows, and their restoration repair is active; no runtime work is claimed. Task 10 is
-reviewed, with its 21-word correction verified in the parent diff but awaiting integration. None of
-those private revisions is integrated in this tree. Task 11's metadata-only writer is active after
-its task-8 dependency; no native credential reads were performed. Task 9's state-directory fence is
-already built at `c62ca3ce0`. These are task-local progress facts, not proof of broker or auth runtime.
+**Current work status:** reviewed Tasks 7, 8 and 10, including the bounded repair commits, are
+source-integrated. Task 7 contributes the sandboxed-Lua helpers and shipped Codex key vectors; task 8
+adds strict `mcp-auth` declaration decoding, the pack-wide `bin` rejection and restored release
+compatibility rows; task 10 adds server/generation audit events and rendering. Codex's official
+`mcp_auth` manifest declaration is also integrated as a Task 12 prerequisite; it is metadata, not a
+store consumer. These foundations have focused package tests, but no authentication/runtime flow is
+claimed. Task 11's canonical store and pure planners are an active, separate implementation and are
+not in this tree; no native credential reads were performed. Task 9's selected host-daemon state
+fence is already built at `c62ca3ce0`. These are task-local progress facts, not proof of broker or
+credential runtime.
 
 **Implementation boundary:** the accepted design specifies one core-owned generic per-launch input,
 through `launch_input` and `{launch_input}`. That producer registry, token validation/resolution and
@@ -686,8 +692,10 @@ channel before claiming a broker launch input.
 
 **Independent foundation tasks:** task 7 covers sandboxed-Lua registration and Codex key vectors;
 task 8 covers strict manifest declaration decoding; task 10 covers audit record and CLI rendering.
-Their repair work stays fenced and each starts from its task's red test. Task 11 follows task 8 only.
-These foundations do not make an authentication or runtime flow ready.
+Their reviewed repairs are integrated, but these foundations do not make an authentication or runtime
+flow ready. Codex's official `mcp_auth` manifest metadata is a Task 12 prerequisite only. Task 11's
+canonical store and planners remain a distinct implementation after task 8; declaration metadata does
+not complete or substitute for Task 11.
 
 <a id="task-7"></a>**Task 7: the Lua helpers and the `mcp_auth` registration.** *Independent.*
 

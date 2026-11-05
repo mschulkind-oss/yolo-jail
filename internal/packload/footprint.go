@@ -634,6 +634,10 @@ func FootprintOf(p *Pack) Footprint {
 			// Collisions groups two packs shipping one server. Not review-worthy: an entry in the
 			// agent's config file; the Detail is the command the agent's MCP client starts.
 			add(packdecl.KindMCP, c.Name, mcpClaimDetail(c), false)
+		case packdecl.KindMCPAuth:
+			declaration := c.MCPAuthDeclaration()
+			add(packdecl.KindMCPAuth, p.Name,
+				"agent-neutral MCP sign-in store declaration at "+declaration.Store+" (format "+declaration.Format+")", false)
 		case packdecl.KindAutonomy:
 			// The posture PAIR, then the flags each posture injects. Naming the flags is not
 			// decoration: a permission-bypass flag declared here used to be declared as a

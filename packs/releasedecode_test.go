@@ -108,6 +108,29 @@ func firstOfList(key string) func(any) any {
 	return walk
 }
 
+func dropContributionKind(kind string) func(any) any {
+	return func(v any) any {
+		manifest, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		contributions, ok := manifest["contributes"].([]any)
+		if !ok {
+			return v
+		}
+		kept := make([]any, 0, len(contributions))
+		for _, raw := range contributions {
+			contribution, ok := raw.(map[string]any)
+			if ok && contribution["kind"] == kind {
+				continue
+			}
+			kept = append(kept, raw)
+		}
+		manifest["contributes"] = kept
+		return manifest
+	}
+}
+
 // dropKey is a repair: every object member named key is removed, the shape of a release that
 // never had the field. For a surface field that release's strict decoder refuses by name.
 func dropKey(key string) func(any) any {
@@ -223,6 +246,12 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.15.1", pack: "cgroup-delegate", problem: `unknown field "selected_by_default"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("selected_by_default")},
+	// Measured against v0.16.1 on 2026-11-04: the older grouped-kind TOML reader tolerates
+	// the new host-only declaration by skipping its unknown kind. An old jail keeps its staged
+	// pack tree on attach, and a fresh launch uses this tree's binaries.
+	{release: "v0.16.1", pack: "codex", problem: `unknown kind "mcp-auth"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("mcp-auth")},
 	// Measured against v0.16.1 on 2026-11-04: the older grouped-kind TOML reader treats the
 	// new pack-wide transport list as a contribution array and refuses each string child. A
 	// running older jail keeps its staged pack tree on attach and never reads this manifest.
@@ -653,21 +682,23 @@ func knownBreakFor(release, pack, problem string) int {
 	return -1
 }
 
-// knownSkippedBreakFor recognizes only a listed unknown-field diagnostic for the exact released
-// yolo and pack, on a skip that reader reports: a skipped program or provider contribution, or a
-// pack-wide field it ignores. Every such entry carries a repair, so the rest of what the skip hid
-// is decoded again without it. Other skips remain failures in the release-compatibility test.
+// knownSkippedBreakFor recognizes only a listed unknown-field or unknown-kind diagnostic for the exact released
+// yolo and pack. It covers skipped program/provider contributions, pack-wide fields it ignores, and unknown grouped
+// kinds. Every such entry carries a repair, so the rest of what the skip hid is decoded again without it. Other
+// skips remain failures in the release-compatibility test.
 func knownSkippedBreakFor(release, pack, skipped string) int {
-	if !strings.Contains(skipped, "skipping the program contribution") &&
-		!strings.Contains(skipped, "skipping the provider contribution") &&
-		!strings.Contains(skipped, `" is ignored`) {
+	fieldSkip := strings.Contains(skipped, "skipping the program contribution") ||
+		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`)
+	kindSkip := strings.Contains(skipped, "skipping unknown kind")
+	if !fieldSkip && !kindSkip {
 		return -1
 	}
 	for i, b := range knownReleaseBreaks {
-		if b.release != release || b.pack != pack || !strings.HasPrefix(b.problem, `unknown field "`) {
+		if b.release != release || b.pack != pack || !strings.Contains(skipped, b.problem) {
 			continue
 		}
-		if strings.Contains(skipped, b.problem) {
+		if (fieldSkip && strings.HasPrefix(b.problem, `unknown field "`)) ||
+			(kindSkip && strings.HasPrefix(b.problem, `unknown kind "`)) {
 			return i
 		}
 	}
@@ -692,6 +723,31 @@ func TestKnownSkippedReleaseBreakMatchesOnlyTheListedField(t *testing.T) {
 		{"not a skipped program", "v0.15.1", "claude", `unknown field "sandbox_tmpdir_env"`},
 		{"a skipped provider's other field", "v0.15.1", "claude-auth", `skipping the provider contribution "anthropic" — unknown field "pinned_endpoint_typo"`},
 		{"a skipped kind the list does not name", "v0.15.1", "claude-auth", `skipping the loophole contribution "x" — unknown field "pinned_endpoint"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := knownSkippedBreakFor(tc.release, tc.pack, tc.diagnostic); got != -1 {
+				t.Fatalf("unlisted skip matched break %d", got)
+			}
+		})
+	}
+}
+
+func TestKnownSkippedReleaseKindBreakMatchesOnlyTheListedKind(t *testing.T) {
+	const diagnostic = `pack codex: contributes[0]: skipping unknown kind "mcp-auth" — this build does not know it`
+	want := knownBreakFor("v0.16.1", "codex", `unknown kind "mcp-auth"`)
+	if want < 0 || knownReleaseBreaks[want].repair == nil {
+		t.Fatal("the v0.16.1 Codex mcp-auth kind break must be listed with a repair")
+	}
+	if got := knownSkippedBreakFor("v0.16.1", "codex", diagnostic); got != want {
+		t.Fatalf("listed diagnostic matched %d, want %d", got, want)
+	}
+	for _, tc := range []struct {
+		name, release, pack, diagnostic string
+	}{
+		{"wrong release", "v0.16.0", "codex", diagnostic},
+		{"wrong pack", "v0.16.1", "claude", diagnostic},
+		{"different kind", "v0.16.1", "codex", `skipping unknown kind "mcp-auth-typo"`},
+		{"not an unknown-kind skip", "v0.16.1", "codex", `unknown kind "mcp-auth"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := knownSkippedBreakFor(tc.release, tc.pack, tc.diagnostic); got != -1 {

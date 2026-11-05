@@ -65,6 +65,23 @@ func TestEveryPackKindHasACellOnEverySetup(t *testing.T) {
 	}
 }
 
+func TestMCPAuthDeclarationIsNotYetConsumed(t *testing.T) {
+	e, ok := Kind(packdecl.KindMCPAuth)
+	if !ok {
+		t.Fatal("mcp-auth is not classified in the setup census")
+	}
+	for _, setup := range Setups() {
+		cell := e.Cell(setup)
+		if cell.Disposition != Dropped || !strings.Contains(cell.Reason, "broker consumer is not implemented") ||
+			!strings.Contains(cell.Reason, "auth-store behavior is absent") || !strings.Contains(cell.Reason, "no launch notice exists") {
+			t.Errorf("mcp-auth on %s = %s (%s), want retained metadata with no auth-store behavior or launch notice", setup, cell.Disposition, cell.Reason)
+		}
+	}
+	if len(e.Guide) != 1 || e.Guide[0] != "`mcp-auth` — an MCP sign-in store declaration" {
+		t.Errorf("mcp-auth guide rows = %v", e.Guide)
+	}
+}
+
 // TestTheCensusHasNoPhantomEntries is the other direction: a key retired from the schema (or a
 // kind retired from the decoder) must not leave an entry nothing reads.
 func TestTheCensusHasNoPhantomEntries(t *testing.T) {

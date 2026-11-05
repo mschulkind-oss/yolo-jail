@@ -66,6 +66,9 @@ func TestDeriveStrictRefusesAnUnknownAPIByName(t *testing.T) {
 		"yolo.frobnicate", // the member, which "non-function object" never said
 		"yolo.derive",     // what this build DOES have, read off the table
 		"yolo.env",
+		"yolo.sha256",
+		"yolo.canonical_json",
+		"yolo.mcp_auth",
 		"version skew", // the reading a jail user needs
 		"typo",         // the reading a pack author needs
 	} {

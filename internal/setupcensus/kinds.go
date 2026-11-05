@@ -35,9 +35,15 @@ var kinds = map[packdecl.Kind]Entry{
 		"block dir when the replacement is on the agent's PATH (shims.go)"),
 	packdecl.KindIntercept: renderedEverywhere("GenerateIntercepts, called from GenerateShims, " +
 		"writes the forwarder into the block dir (interceptshims.go)"),
+	packdecl.KindMCPAuth: {
+		PodmanLinux:    dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
+		PodmanMac:      dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
+		AppleContainer: dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
+		MacosUser:      dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
+		Guide:          []string{"`mcp-auth` — an MCP sign-in store declaration"},
+	},
 	packdecl.KindMCP: {
-		PodmanLinux: honored("jailMCPServers (internal/cli/run assemble.go) composes each " +
-			"selected pack's `mcp` entries under the config's mcp_servers into YOLO_MCP_SERVERS, " +
+		PodmanLinux: honored("jailMCPServers (internal/cli/run assemble.go) composes each " + "selected pack's `mcp` entries under the config's mcp_servers into YOLO_MCP_SERVERS, " +
 			"which the boot renders per agent"),
 		PodmanMac:      honored("the same composition (assemble.go)"),
 		AppleContainer: honored("the same composition (assemble.go)"),

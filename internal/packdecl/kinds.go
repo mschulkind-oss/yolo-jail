@@ -348,6 +348,9 @@ const (
 	// refusal is the more specific statement, and the boot says so.
 	KindIntercept Kind = "intercept"
 
+	// KindMCPAuth is one pack's agent-neutral declaration of its program's MCP sign-in store.
+	KindMCPAuth Kind = "mcp-auth"
+
 	// KindMCP: ONE NAMED MCP SERVER ENTRY composed into yolo's own `mcp_servers` table
 	// (docs/design/mcp-presets-removal.md OQ-MP3, ruled 2026-09-20), the way `provider` composes
 	// into `providers`: every selected pack's entries first, the user's `mcp_servers` merged over
@@ -567,6 +570,10 @@ var footprints = map[Kind]Footprint{
 		Kind: KindAdapter, Combine: CombineExclusive,
 		Claims: "a protocol conversion (<from> → <to>) served at an address; " +
 			"nothing about who runs it",
+	},
+	KindMCPAuth: {
+		Kind: KindMCPAuth, Combine: CombineExclusive,
+		Claims: "a pack-level declaration of its agent-neutral MCP sign-in store; no runtime consumer in core",
 	},
 	KindMCP: {
 		// Exclusive by server NAME, the bare name as the target, so the generic exclusive loop in

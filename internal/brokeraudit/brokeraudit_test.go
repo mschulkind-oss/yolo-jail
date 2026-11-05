@@ -32,6 +32,46 @@ func TestAppendAndRead(t *testing.T) {
 	}
 }
 
+func TestMCPAuthAuditFieldsRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broker", "audit.jsonl")
+	Open(path, nil).Append(Event{Service: "mcp-auth", Event: "refresh", Server: "linear", Generation: 4, Outcome: "ok"})
+
+	events, skipped, err := Read(path)
+	if err != nil || skipped != 0 || len(events) != 1 {
+		t.Fatalf("Read: %v, skipped %d, events %+v", err, skipped, events)
+	}
+	got := events[0]
+	if got.Service != "mcp-auth" || got.Event != "refresh" || got.Server != "linear" || got.Generation != 4 || got.Outcome != "ok" {
+		t.Fatalf("event = %+v", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.Contains(line, `"server":"linear"`) || !strings.Contains(line, `"generation":4`) {
+		t.Fatalf("persisted event omitted its server/generation: %s", line)
+	}
+	for _, secret := range []string{"access_token", "refresh_token", "Authorization", "Bearer ", "header-secret"} {
+		if strings.Contains(line, secret) {
+			t.Errorf("persisted event contains sensitive material %q: %s", secret, line)
+		}
+	}
+}
+
+func TestLegacyEventOmitsNewMCPFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broker", "audit.jsonl")
+	Open(path, nil).Append(Event{Service: "github", Event: "call", Argv: []string{"pr", "list"}})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := string(data)
+	if strings.Contains(line, `"server"`) || strings.Contains(line, `"generation"`) {
+		t.Fatalf("legacy event gained empty MCP fields: %s", line)
+	}
+}
+
 // The log carries every workspace's argv, so it is owner-only, in an owner-only
 // directory (BB-D15).
 func TestLogIsOwnerOnly(t *testing.T) {

@@ -126,3 +126,25 @@ replace = true
 		t.Errorf("grouped round trip lost provider rows or replace bits:\n%s", encoded)
 	}
 }
+
+func TestEncodeTOMLRoundTripsMCPAuthKind(t *testing.T) {
+	manifest := mustDecodeLegacy(t, `{"contributes":[{"kind":"mcp-auth","store":".fixture/auth.json","format":"json","entries_at":[],"companions":[],"empty_store":"delete","lock":{"protocol":"flock","path":".fixture/auth.lock"},"fields":{"expires_at":{"path":"expires_at","unit":"ms"}}}]}`)
+	encoded, err := EncodeTOML(manifest)
+	if err != nil {
+		t.Fatalf("EncodeTOML: %v", err)
+	}
+	if !strings.Contains(string(encoded), "[[mcp_auth]]") || strings.Contains(string(encoded), "mcp_auth =") {
+		t.Fatalf("mcp-auth was not encoded as its grouped table:\n%s", encoded)
+	}
+	decoded, problems := DecodeTOML(encoded)
+	if len(problems) != 0 {
+		t.Fatalf("re-decode: %v\n%s", problems, encoded)
+	}
+	want, got := *manifest.MCPAuth, *decoded.MCPAuth
+	// Empty companion/entry arrays and absent arrays have the same declared meaning.
+	want.EntriesAt, got.EntriesAt = nil, nil
+	want.Companions, got.Companions = nil, nil
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("mcp-auth declaration changed in round trip: legacy=%#v grouped=%#v", want, got)
+	}
+}

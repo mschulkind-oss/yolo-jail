@@ -1245,6 +1245,20 @@ type Contribution struct {
 	Launch json.RawMessage `json:"launch,omitempty"`
 	Env    json.RawMessage `json:"env,omitempty"`
 
+	// --- mcp-auth (docs/design/mcp-auth-sharing.md §6) ---
+	// The agent-neutral shape of this pack's native MCP sign-in store. It is schema metadata,
+	// not a live store read or sharing behavior.
+	MCPAuthStore                string         `json:"store,omitempty"`
+	MCPAuthFormat               string         `json:"format,omitempty"`
+	MCPAuthEntriesAt            []string       `json:"entries_at,omitempty"`
+	MCPAuthCompanions           [][]string     `json:"companions,omitempty"`
+	MCPAuthEmptyStore           string         `json:"empty_store,omitempty"`
+	MCPAuthLock                 *MCPAuthLock   `json:"lock,omitempty"`
+	MCPAuthFields               *MCPAuthFields `json:"fields,omitempty"`
+	MCPAuthRereadsBeforeRefresh bool           `json:"rereads_before_refresh,omitempty"`
+	MCPAuthLoginHint            string         `json:"login_hint,omitempty"`
+	MCPAuthUnsupportedReason    string         `json:"unsupported_reason,omitempty"`
+
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — a `config` contribution's surface definition (the agentcfg surface schema),
 	// decoded by internal/agentcfg/manifest, and an `mcp` contribution's server
@@ -3118,6 +3132,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateAddressedFiles()...)
 	problems = append(problems, m.validateDuplicateContentSources()...)
 	problems = append(problems, m.validateSingleAutonomy()...)
+	problems = append(problems, m.validateSingleMCPAuth()...)
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
 	problems = append(problems, m.validatePatchBranchOrSeries()...)
@@ -3302,6 +3317,33 @@ func secondAutonomySkip(i int, c Contribution, firstAt int) string {
 			"contributes[%d]) — a pack declares one, with both postures inside it, so this "+
 			"one's postures are not rendered (the host refuses the manifest until they are "+
 			"merged)", i, firstAt)
+}
+
+// validateSingleMCPAuth refuses a second store declaration in one pack: every consumer needs
+// one unambiguous store adapter for the pack's program.
+func (m *Manifest) validateSingleMCPAuth() []string {
+	var problems []string
+	first := -1
+	for i, c := range m.Contributes {
+		if c.Kind != KindMCPAuth {
+			continue
+		}
+		if first < 0 {
+			first = i
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"contributes[%d]: a second \"mcp-auth\" declaration (first at contributes[%d]) — a pack declares only one",
+			i, first))
+	}
+	return problems
+}
+
+func secondMCPAuthSkip(i int, c Contribution, firstAt int) string {
+	if c.Kind != KindMCPAuth || firstAt < 0 {
+		return ""
+	}
+	return fmt.Sprintf("contributes[%d]: skipping a second \"mcp-auth\" declaration (first at contributes[%d]) — a pack declares only one", i, firstAt)
 }
 
 // validateFilesDestinations refuses a SECOND `files` destination for one agent in ONE pack —
@@ -4218,6 +4260,10 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, fmt.Sprintf("%s: kind %q needs %q", label, c.Kind, field))
 		}
 	}
+	if c.Kind != KindMCPAuth && c.hasMCPAuthFields() {
+		problems = append(problems, fmt.Sprintf(
+			`%s: kind %q does not take "store" or other mcp-auth declaration fields`, label, c.Kind))
+	}
 	// `profile` gates TWO kinds, and the refusal is this schema's standing answer to a
 	// field that would otherwise be accepted and ignored: `launch` is contemplated and
 	// has no consumer, so a `profile` on any other kind is a declaration that silently
@@ -4751,6 +4797,11 @@ func validateContribution(label string, c Contribution) []string {
 			}
 			problems = append(problems, hookFlagsProblems(label, c)...)
 		}
+	case KindMCPAuth:
+		if c.Bin != "" {
+			problems = append(problems, label+`: kind "mcp-auth" does not take "bin" — its store declaration is pack-wide, not bound to one program`)
+		}
+		problems = append(problems, mcpAuthProblems(label, c.MCPAuthDeclaration())...)
 	case KindAutonomy:
 		if c.Autonomous == nil && c.Guarded == nil {
 			problems = append(problems, label+": autonomy needs at least one of \"autonomous\" or \"guarded\"")

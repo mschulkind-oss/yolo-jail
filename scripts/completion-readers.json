@@ -4172,6 +4172,7 @@
 "docs/design/macos-user-privilege-lifecycle-plan.md",
 "docs/design/macos-user-privilege-lifecycle.md",
 "docs/design/macos-user-suite-on-a-developer-mac.md",
+"docs/design/mcp-auth-sharing.md",
 "docs/design/mcp-presets-removal.md",
 "docs/design/model-facts-migration.md",
 "docs/design/model-lists-and-pickers.md",
@@ -6562,6 +6563,7 @@
 "internal/agentcfg/luahook/derivein_full_test.go",
 "internal/agentcfg/luahook/derivesandbox_test.go",
 "internal/agentcfg/luahook/marshal_test.go",
+"internal/agentcfg/luahook/mcpauth_test.go",
 "internal/agentcfg/luahook/modelfor_test.go",
 "internal/agentcfg/luahook/selectedplatform_test.go",
 "internal/agentcfg/luahook/shippedpacks_test.go",
@@ -7822,6 +7824,7 @@
 "TestDerive_AgyStillCarriesItsServersAfterTheStrip": 13,
 "TestEveryShippedPackDeriveStillRuns": 14,
 "TestOpencodesSelectionNamesItsOwnProviderForThePlan": 11,
+"TestShippedCodexMCPAuthKeyVectorsAndMatch": 12,
 "TestShippedDerivesDeclareTheirInFullTables": 14,
 "TestShippedDerivesHonorTheAgentsOwnProviders": 10
 },

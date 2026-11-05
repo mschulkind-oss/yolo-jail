@@ -15,6 +15,7 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 		KindConfigOverlay, KindState, KindReadsHost, KindMount, KindEnv,
 		KindHook, KindAutonomy, KindProfile, KindProvider, KindLoophole,
 		KindService, KindAdapter, KindConfigList, KindModels, KindMCP,
+		KindMCPAuth,
 	} {
 		fp, ok := FootprintOf(k)
 		if !ok {
@@ -28,8 +29,8 @@ func TestKnownKindsCoverEveryConstant(t *testing.T) {
 			t.Errorf("kind %q has an empty Claims description", k)
 		}
 	}
-	if got := len(KnownKinds()); got != 22 {
-		t.Errorf("KnownKinds() has %d entries, want 22 — a kind was added/removed without updating the test", got)
+	if got := len(KnownKinds()); got != 23 {
+		t.Errorf("KnownKinds() has %d entries, want 23 — a kind was added/removed without updating the test", got)
 	}
 }
 

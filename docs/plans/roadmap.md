@@ -481,10 +481,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     What every backend and its run-as choice are called is [named setups](../design/named-setups.md): one named set of values, each field with its own default, chosen per launch, replacing `confinement`, `runtime` and `macos_user_mode`. Every question is ruled, and its [implementation plan](../design/named-setups-plan.md) is being built (from 2026-11-03); the Mac default moves to `seatbelt-self` with slice 11's default flip, when the owner calls the Seatbelt path ready.
 53. [Sharing MCP sign-ins](../design/mcp-auth-sharing.md) — Phase A's static remote configuration,
     supported renders and scope attribution are integrated; Phase B's sign-in broker and credential
-    sharing are not. The [implementation plan](../design/mcp-auth-sharing-plan.md) records the active
-    bounded foundation repairs, the still-missing generic per-launch input delivery, and separate
-    evidence gates for running Codex and additional agent dialects. No live sign-in or native MCP
-    behavior is claimed.
+    sharing are not. Reviewed Tasks 7, 8 and 10, plus Codex's store-declaration metadata, are integrated
+    as foundations only. The [implementation plan](../design/mcp-auth-sharing-plan.md) keeps Task 11's
+    canonical store/planners and the generic per-launch input delivery unfinished; no live sign-in or
+    native MCP behavior is claimed.
 54. [Let a pack's broker use the approval machinery](../design/pack-brokers.md), and [let the agent read and predict its own access](../design/access-introspection.md) — keep bounded declaration and fixture work ahead of execution because the call-broker extension point depends on the access decision seam. The [access build hand-off](../design/access-introspection-plan.md) and [pack-broker hand-off](../design/pack-brokers-plan.md) record that A/C are integrated and B/D remain active; pack requests stay deny-only until core validation E, and E waits on the reviewed task-2 consumer gap. The generic launch-input producer/runtime delivery is not implemented; the empty-pack outer-jail result is not nested-jail acceptance.
 55. [Bound Yolo workspace work in owner-managed resource groups](../design/resource-groups.md) — complete the tree-grounded implementation handoff, then build the explicitly opted-in Linux-first path; prove authority and placement before claiming enforcement, and use device evidence to bound performance claims.
 

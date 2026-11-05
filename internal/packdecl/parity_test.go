@@ -525,6 +525,12 @@ func assertContributionParity(t *testing.T, reader string, old, got *Manifest) {
 			t.Errorf("%s Contributions()[%d] (%s) differs:\n legacy=%#v\n grouped=%#v", reader, i, want[i].Kind, want[i], have[i])
 		}
 	}
+	if old.MCPAuth != nil && got.MCPAuth != nil {
+		seen[KindMCPAuth] = true
+		if !reflect.DeepEqual(old.MCPAuth, got.MCPAuth) {
+			t.Errorf("%s MCPAuth declaration differs: legacy=%#v grouped=%#v", reader, old.MCPAuth, got.MCPAuth)
+		}
+	}
 	if len(seen) != len(KnownKinds()) {
 		t.Errorf("fixture covers %d kinds, current schema has %d: seen=%v", len(seen), len(KnownKinds()), seen)
 	}
@@ -659,6 +665,10 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 	}
 	// The twenty-second kind is a separate program tree with the decided prebuilt/run shape.
 	contribs = append(contribs, map[string]any{"kind": "program", "bin": "fixture-built", "via": "pack", "from": "bin", "run": "fixture-built", "build": "make fixture-built", "prebuilt": map[string]any{"linux/amd64": map[string]any{"url": "https://example.test/fixture.tar.gz", "sha256": strings.Repeat("a", 64)}}})
+	contribs = append(contribs, map[string]any{
+		"kind": "mcp-auth", "store": ".fixture/auth.json", "format": "json", "entries_at": []any{},
+		"companions": []any{}, "empty_store": "delete", "lock": map[string]any{"protocol": "none"},
+	})
 	root := map[string]any{
 		"name": "parity-fixture", "description": "Contribution parity fixture.", "skills_tier": "flat",
 		"needs":                 []any{map[string]any{"pack": "wire-bridge", "when_bins": []string{"fixture-tool"}}},
@@ -693,7 +703,7 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var sections strings.Builder
+	var sectionsBuilder strings.Builder
 	for _, raw := range contribs {
 		kind := raw["kind"].(string)
 		if kind == "provider" {
@@ -703,8 +713,8 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 					fields[k] = parityTomlValue(t, v)
 				}
 			}
-			sections.WriteString("[providers.fixture-provider]\n")
-			writeParityTOMLFields(t, &sections, fields)
+			sectionsBuilder.WriteString("[providers.fixture-provider]\n")
+			writeParityTOMLFields(t, &sectionsBuilder, fields)
 			continue
 		}
 		fields := make(map[string]any, len(raw)-1)
@@ -729,10 +739,10 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 		if kind == "config-overlay" {
 			group = "overlay"
 		}
-		sections.WriteString("[[" + group + "]]\n")
-		writeParityTOMLFields(t, &sections, fields)
+		sectionsBuilder.WriteString("[[" + group + "]]\n")
+		writeParityTOMLFields(t, &sectionsBuilder, fields)
 	}
-	return legacy, append(metadata, []byte(sections.String())...)
+	return legacy, append(metadata, []byte(sectionsBuilder.String())...)
 }
 
 func writeParityTOMLFields(t *testing.T, out *strings.Builder, fields map[string]any) {

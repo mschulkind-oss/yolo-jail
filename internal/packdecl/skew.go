@@ -87,6 +87,7 @@ func decodeForUseWithIndexes(data []byte) (m *Manifest, problems, skipped []stri
 	if len(kept) != len(man.Contributes) {
 		man.Contributes = kept
 	}
+	man.projectMCPAuth()
 	problems = append(man.retiredFieldProblems(), man.installHintProblems()...)
 	problems = append(problems, man.Validate()...)
 	return &man, relabelContributions(problems, index), skipped, index

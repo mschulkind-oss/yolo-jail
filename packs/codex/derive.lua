@@ -388,6 +388,22 @@ local function in_full(ctx, t)
   return t
 end
 
+-- Codex keys persisted MCP OAuth records by the server name and the first 16 hex digits
+-- of SHA-256 over its canonical HTTP server descriptor. Match reads only that key and the
+-- stored URL; it does not inspect credentials or any other store field.
+yolo.mcp_auth("codex", {
+  key = function(server)
+    local descriptor = yolo.canonical_json({ type = "http", url = server.url, headers = {} })
+    local name = string.gsub(server.name, "^local:", "", 1)
+    return name .. "|" .. string.sub(yolo.sha256(descriptor), 1, 16)
+  end,
+  match = function(key, entry)
+    local name = string.match(key, "^(.*)|%x+$")
+    if name == nil or type(entry.server_url) ~= "string" then return nil end
+    return { name = name, url = entry.server_url }
+  end,
+})
+
 yolo.derive("codex", "config", function(ctx)
   local res = {}
 

@@ -169,6 +169,8 @@ func writeCensusPack(t *testing.T, dir string) {
 		// mcp is one server entry composed into mcp_servers; its `~/` word is joined to the home.
 		packdecl.KindMCP: `{"kind":"mcp","name":"censusmcp","bin":"censusbin",` +
 			`"config":{"command":"/bin/sh","args":["~/.census/files/marker.txt"]}}`,
+		packdecl.KindMCPAuth: `{"kind":"mcp-auth","store":".census/auth.json","format":"json",` +
+			`"empty_store":"delete","lock":{"protocol":"none"}}`,
 	}
 
 	var entries []string

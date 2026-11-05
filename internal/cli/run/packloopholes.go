@@ -250,6 +250,8 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// renders, read nothing on the host and run by nothing yolo starts. The program behind it,
 	// when there is one, is its own `program` contribution and is disclosed as one.
 	packdecl.KindMCP: disclosureSkip,
+	// mcp-auth retains store metadata for a future broker but reads no host store and starts no daemon.
+	packdecl.KindMCPAuth: disclosureSkip,
 
 	// service is the anti-loophole (wire-bridge.md §2.1): it binds the JAIL's own
 	// loopback, reads no host state, and crosses nothing — the same call as provider,
