@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Run the combined source gates for slice 9; then resume the remaining slices, with 6a/6b and native witnesses still pending"
+next: "Build 6a then 6b as separate commits in one combined candidate; obtain unchanged W-SU1/W-SU4 on the owner's Mac before either primary landing"
 depends-on:
   - named-setups.md
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
@@ -14,7 +14,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-05):** Slice 9's source changes are integrated at `06b3deab9` (launch/attach labeling, mechanics rendering, footer/briefing surfaces, path-table placement and custom-setup refusal advice). The combined `just check-ci` and full integration gates passed on the frozen source tree at `35c14f452`; this is Linux/rootful nested validation only, not a native macOS or rootless-host witness. Slice 6a/6b remain unimplemented: home/run-state identity and stop/ps/listing are not yet setup-qualified. Rootless-host behavior has not been witnessed; nested rootful validation cannot establish it.
+**Implementation status (2026-11-05):** Refreshed against current source tree `9eaba3d7d5687b01e968ceb0aa5aed76cfd25bc2`. Slices 4b, 5 and 9 are in this tree; slice 9 is integrated at `06b3deab9` and the combined `just check-ci` and full integration passed on source tree `35c14f452` (Linux/rootful nested, not a native Mac or rootless-host witness). Slices 6a/6b remain unimplemented: `WorkspaceHomeState` still exists, while `SetupStateDir`, `SetupHomeState`, `SetupsDir` and `runtime.JailName` do not. The 6a map's referenced source files remain present at this baseline. Slice 6b builds on a committed/tested 6a candidate; the unchanged W-SU1 checks 6b's `setup list` and `stop` surfaces, so freeze the combined 6a+6b candidate, obtain W-SU1 and W-SU4 on the owner's Mac, then serially land both reviewed commits. These witnesses gate primary landing, not useful source work. The only changes since the prior map baseline are MCP outcome handling and its roadmap receipt; they do not affect this named-setup map.
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -248,7 +248,7 @@ One row per file that changes. New files are marked. `…` means "and the siblin
 
 Build order is a property of each task's heading. **Parallel groups**: **A** = slices 1 and 7;
 **B** = 2; **C** = 3; **D** = 4a; **E** = 4b, 5 and 9; **F** = 6a; **G** = 6b, 8 and 10. Tasks in
-one group touch disjoint files. Slices **4a, 4b, 6a, 8 and 9 are launch-path changes**: whoever
+one group touch disjoint files. For 6a→6b, use separate commits but one materialized combined candidate: 6b needs the 6a commit and the exact W-SU1 witness exercises 6b. No primary landing of either commit before W-SU1/W-SU4. Slices **4a, 4b, 6a, 8 and 9 are launch-path changes**: whoever
 lands one runs the full `go test -count=1 -timeout 0 ./integration` once on the combined tree
 (the `TestMacosUser*` and `TestAppleContainer*` suites run on macOS CI, and their Mac witnesses
 are below).
@@ -796,8 +796,11 @@ are below).
   - `launch.log`: `attachLaunchLog` (`launchlog.go:151`) prefixes every line with `[<setup>]`.
 - **Gates:** `just test-fast`; `GOOS=darwin go vet ./internal/macosuser/... ./internal/cli/...`;
   `just check-ci`; nested: two launches in one throwaway workspace, `--setup podman-self -- true`
-  and `--setup host-self -- true` (through `yolo host`), then `ls .yolo/setups/`. Landing: the full
-  integration suite; the Mac witnesses **W-SU1**, **W-SU4**.
+  and `--setup host-self -- true` (through `yolo host`), then `ls .yolo/setups/`. On the
+  combined 6a+6b candidate, run the full integration suite and obtain **unchanged W-SU1/W-SU4
+  from the owner's Mac agent before either primary landing**. W-SU1 checks 6b's `setup list`/`stop`;
+  build and test 6b on the 6a commit first, then serially land the reviewed pair. A nested rootful
+  run does not witness rootless-only or native Mac paths.
 - **Fences:** `yolo stop`/`ps` enumeration (6b); `internal/macosuser/runplan.go` argv (8).
 - **Commit:** `feat(setups): one home and run state per setup under .yolo/setups/<name>; setup-qualified jail names`
 - **Report:** the red and green runs; the `ls .yolo/setups` output; the number of
@@ -809,7 +812,10 @@ are below).
   one"*; `yolo setup list` shows which setups are running in this project
   ([§6](named-setups.md#6-config-by-example), [§11](named-setups.md#11-what-done-looks-like));
   [SUP-D11](#SUP-D11).
-- **Preconditions:** slice 6a landed; `go doc ./internal/paths SetupsDir` prints.
+- **Preconditions:** slice 6a committed and its applicable tests green in the same
+  isolated candidate (not yet primary-landed); `go doc ./internal/paths SetupsDir` prints.
+  Do not make 6b a primary-tree change while 6a waits on W-SU1: that exact
+  witness exercises this slice's `setup list` and `stop`.
 - **Tests first:** `internal/cli/stop_test.go` (**rewrite** `stopruntime_test.go`, `stopgone_test.go`):
   with `.yolo/setups/{podman-self,seatbelt-self}` present and a stubbed runner, `yolo stop` issues
   one stop per jail name and prints `stopped podman-self` / `stopped seatbelt-self`;
@@ -822,7 +828,9 @@ are below).
   technology; `:601` other-runtime hint deleted. `ps.go:68-99,191-235`: same iteration;
   `commands.go:1068,436` wiring. `setupcmd.go`: the running column. `stores/inventory.go:547-548,
   1148-1153`: per setup.
-- **Gates:** `go test -short ./internal/cli/...`; `just check-ci`.
+- **Gates:** `go test -short ./internal/cli/...`; `just check-ci`; on the
+  frozen combined 6a+6b candidate, the unchanged W-SU1 and W-SU4 from the owner's
+  Mac agent plus 6a's full integration gate before either primary landing.
 - **Fences:** `internal/paths`, `internal/cli/run`.
 - **Commit:** `feat(cli): stop, ps, stores and setup list act per setup`
 - **Report:** the red and green runs; `yolo stop` output with two setups present.
@@ -1034,7 +1042,7 @@ Nothing in a Linux jail can verify darwin; the owner's Mac agent runs these and 
 into the slice's report (see the macos-user plan's
 [Mac checks](macos-user-model-plan.md#mac-checks) for the shape). Each names the slice it gates.
 
-- **W-SU1 (slice 6a, gates its landing):** in one fresh workspace under `/Users/Shared/yolo/a`,
+- **W-SU1 (combined 6a+6b candidate, gates both primary landings):** in one fresh workspace under `/Users/Shared/yolo/a`,
   `yolo --setup seatbelt-self -- bash` in terminal 1 and `yolo --setup seatbelt-yolo-account --
   bash` in terminal 2. Expected: both run; `echo $HOME` prints `…/a/.yolo/setups/seatbelt-self/home`
   and `…/a/.yolo/setups/seatbelt-yolo-account/home`; `id -un` prints your login in 1 and
@@ -1089,4 +1097,4 @@ into the slice's report (see the macos-user plan's
 None. Every behavior a slice needs is ruled in [the design's ledger](named-setups.md#decision-ledger);
 the mechanism choices are [this plan's](#implementation-decisions), each with its reason, and the
 owner may overrule any of them before its slice starts. Slice 8 cannot land without **W-SU3**, and
-slice 6a without **W-SU1** and **W-SU4**, which only the owner's Mac agent can run.
+slices 6a/6b cannot be primary-landed separately before the unchanged **W-SU1** and **W-SU4** run on their combined candidate; only the owner's Mac agent can run them.
