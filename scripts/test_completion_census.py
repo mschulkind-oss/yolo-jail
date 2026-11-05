@@ -192,9 +192,50 @@ class ParseLogTest(unittest.TestCase):
                 raise PermissionError("injected unresolvable fixture path")
             return original_resolve(path, *args, **kwargs)
 
-        with mock.patch.object(Path, "resolve", deny_fixture_target):
+        with mock.patch.object(Path, "resolve", deny_fixture_target), \
+                mock.patch.object(census.os, "open", side_effect=PermissionError("injected root denial")):
             leaks = census.jail_workspace_opens("open " + str(denied), str(source / "pkg"), allowed)
         self.assertEqual(leaks, {str(denied)})
+
+    def test_unresolvable_long_fixture_path_is_walked_from_its_private_anchor(self):
+        source, fixture, env = self._fixture_namespace()
+        allowed = census.validate_fixture_root(source, env)
+        source_file = source / "internal" / "source.go"
+        source_file.parent.mkdir()
+        source_file.write_text("outside")
+
+        components = ["b" * 200 for _ in range(22)]
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        descriptors = [os.open(fixture, flags)]
+        alias_created = loop_created = False
+        try:
+            for component in components:
+                os.mkdir(component, 0o755, dir_fd=descriptors[-1])
+                descriptors.append(os.open(component, flags, dir_fd=descriptors[-1]))
+            deep_missing = fixture.joinpath(*components, "leaf.md")
+            deep_alias = fixture.joinpath(*components, "outside.md")
+            os.symlink(str(source_file), "outside.md", dir_fd=descriptors[-1])
+            alias_created = True
+            loop = fixture / "loop"
+            os.symlink(str(loop), "loop", dir_fd=descriptors[0])
+            loop_created = True
+            deep_loop = loop.joinpath(*components, "leaf.md")
+            self.assertGreater(len(os.fsencode(deep_missing)), 4096)
+            self.assertEqual(census.jail_workspace_opens(
+                "open " + str(deep_missing), str(source / "pkg"), allowed), set())
+            self.assertEqual(census.jail_workspace_opens(
+                "open " + str(deep_alias), str(source / "pkg"), allowed), {str(deep_alias)})
+            self.assertEqual(census.jail_workspace_opens(
+                "open " + str(deep_loop), str(source / "pkg"), allowed), {str(deep_loop)})
+        finally:
+            if alias_created:
+                os.unlink("outside.md", dir_fd=descriptors[-1])
+            if loop_created:
+                os.unlink("loop", dir_fd=descriptors[0])
+            for index in range(len(descriptors) - 1, 0, -1):
+                os.close(descriptors[index])
+                os.rmdir(components[index - 1], dir_fd=descriptors[index - 1])
+            os.close(descriptors[0])
 
     def test_configured_fixture_root_does_not_hide_primary_workspace_reads(self):
         source, fixture, env = self._fixture_namespace()

@@ -111,10 +111,22 @@ func TestEveryCommandHonorsNoColor(t *testing.T) {
 			if ep.darwinOnlyEffect && goruntime.GOOS == "darwin" {
 				t.Skip("on darwin this command provisions the sandbox account for real")
 			}
+			testingCeiling := os.Getenv("GIT_CEILING_DIRECTORIES")
 			for _, tc := range []struct {
 				noColor  string
 				wantANSI bool
 			}{{"", true}, {"1", false}} {
+				tmp, err := filepath.EvalSymlinks(os.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				// A `git -C` from the fixture cwd must stop at its temp namespace,
+				// not discover the real checkout when TMPDIR is beneath /workspace.
+				ceiling := testingCeiling
+				if ceiling != "" {
+					ceiling += string(os.PathListSeparator)
+				}
+				t.Setenv("GIT_CEILING_DIRECTORIES", ceiling+tmp)
 				t.Setenv("HOME", t.TempDir())
 				t.Chdir(t.TempDir())
 				if ep.setup != nil {

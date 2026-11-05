@@ -225,6 +225,69 @@ def _resolve_with_missing_leaf(path):
         return resolved
 
 
+def _fixture_path_is_confined(path, fixture_root):
+    """Prove an unresolvable fixture path through no-follow directory descriptors."""
+    try:
+        relative = os.path.relpath(os.fspath(path), os.fspath(fixture_root))
+    except (OSError, ValueError):
+        return False
+    if relative == ".":
+        components = ()
+    elif relative == ".." or relative.startswith(".." + os.sep) or os.path.isabs(relative):
+        return False
+    else:
+        components = Path(relative).parts
+
+    directory = getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if not directory or not nofollow:
+        return False
+    flags = os.O_RDONLY | directory | nofollow
+    descriptors = []
+    try:
+        root_fd = os.open(fixture_root, flags)
+        descriptors.append(root_fd)
+        root_info = os.fstat(root_fd)
+        named_root = os.stat(fixture_root, follow_symlinks=False)
+        if (not stat.S_ISDIR(root_info.st_mode) or root_info.st_uid != os.getuid()
+                or stat.S_IMODE(root_info.st_mode) != 0o700
+                or (root_info.st_dev, root_info.st_ino) != (named_root.st_dev, named_root.st_ino)):
+            return False
+
+        current_fd = root_fd
+        for index, component in enumerate(components):
+            if component in ("", ".", "..") or os.sep in component:
+                return False
+            try:
+                info = os.stat(component, dir_fd=current_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                # Only the remaining suffix is absent; all existing ancestors were opened
+                # beneath the private anchor without following a link.
+                return True
+            if stat.S_ISLNK(info.st_mode):
+                return False
+            if index == len(components) - 1:
+                return True
+            if not stat.S_ISDIR(info.st_mode):
+                return False
+            child_fd = os.open(component, flags, dir_fd=current_fd)
+            descriptors.append(child_fd)
+            opened = os.fstat(child_fd)
+            if (not stat.S_ISDIR(opened.st_mode)
+                    or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino)):
+                return False
+            current_fd = child_fd
+        return True
+    except (OSError, ValueError):
+        return False
+    finally:
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
 def validate_fixture_root(root=ROOT, environ=None):
     """Validate and consume a fresh private TMPDIR namespace for a detached gate checkout."""
     environ = os.environ if environ is None else environ
@@ -293,9 +356,12 @@ def jail_workspace_opens(text, pkgdir, fixture_root=None):
         if fixture_root is not None and _is_within(p, fixture_root):
             try:
                 resolved = _resolve_with_missing_leaf(p)
-            except (OSError, RuntimeError):
-                # A missing leaf resolves lexically and remains a normal fixture; an error
-                # resolving a path cannot prove that its target stays inside the namespace.
+            except (OSError, RuntimeError, ValueError):
+                if _fixture_path_is_confined(p, fixture_root):
+                    continue
+                # A path-resolution error cannot be exempted lexically. The descriptor walk
+                # proves only currently existing, non-symlink components beneath the private
+                # fixture anchor; every unproved target remains a leak.
                 leaks.add(str(p))
                 continue
             # A fixture alias that resolves into a checkout or elsewhere is not a fixture read.
