@@ -15,7 +15,7 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
 
-**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and the full nested conformance suite remain. This does not establish live authentication or positive real pack grants. Timed/Add multiwrite approvals remain disabled; [OQ-BX7](#OQ-BX7) is still undecided. The original design evidence was read at `3ccc28def` on 2026-11-04. CircleCI compatibility evidence is linked anonymous public `v1.14.0` source; neither live authentication nor cloud behavior is claimed.
+**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and full nested conformance remain. The separate [HTTP contract](pack-brokers-http.md) is accepted and has a completed build plan; its runtime front/executor remain unimplemented. Neither live authentication nor positive real grants are established. Timed/Add multiwrite approvals remain disabled while [OQ-BX7](#OQ-BX7) is open.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
@@ -42,7 +42,7 @@ HTTP front, and a conformance kit.
 
 **Reads with:** [`access-introspection.md`](access-introspection.md) (the readout and the dry run;
 its decision function is the one every call broker uses),
-[`pack-brokers-plan.md`](pack-brokers-plan.md) (the implementation plan's seed; not a hand-off),
+[`pack-brokers-plan.md`](pack-brokers-plan.md) (the broader implementation seed), [`pack-brokers-http.md`](pack-brokers-http.md) and its [completed build plan](pack-brokers-http-plan.md) (independently accepted HTTP work),
 [`mcp-auth-sharing.md`](mcp-auth-sharing.md) (the MCP sign-in broker; see
 [§13](#13-coherence-with-the-mcp-sign-in-broker)).
 
@@ -239,10 +239,9 @@ A call that carries several writes, such as a GraphQL document with two mutation
 write, as a git push is per ref: it runs when every write runs, is refused when any is refused, and
 otherwise asks once for the whole call.
 
-**Revalidation in `yolo approve`** is source-neutral: core re-checks the stored classification's
-scope root and the workspace's standing, as GitHub's `ApprovalAuthority` does today, and the act
-that spends the approval classifies the call again from scratch. A classification that changed
-between filing and spending no longer matches the stored digest, so it asks again.
+**Revalidation in `yolo approve`** remains source-neutral. Core checks the current host user's ceiling for every recorded write cell, current selection, exact read grant, and standing against the stored classification and native chain. Approval does not certify that resource parents will remain unchanged.
+
+HTTP custody, act-time resubmission and fresh classification are specified in the [accepted HTTP contract](pack-brokers-http.md#http-pending-custody-and-revalidation). This does not change CLI private `OriginalArgv` replay or stdin handling.
 
 **A denial may carry an optional note.** `yolo approve r-<id> --deny --note "use the release
 branch"` records the note with that answer. `yolo wait` and `yolo history` show it as human
@@ -330,11 +329,7 @@ version, and is audited as `classifier-failed`.
 
 ### 7.3 Lookups
 
-A lookup is declared by the pack as a template, CLI argv or HTTP request, and run by core's
-executor, never by the classifier. It must classify as a standing read under the pack's own
-classifier; core checks this when the block loads, against the conformance fixtures, and again at
-run time. A lookup that fails is a fact the classifier is given, and it usually answers `refused`
-or classifies the write as asking.
+A pack declares a CLI-argv or HTTP-request lookup template; core instantiates and executes it, never the classifier. Before each dispatch, core classifies the instantiated lookup through the same selected classifier program and interface used for normal calls. Its verdict must be an exact standing `read`. For CLI, original and canonical argv must both equal the instantiated argv. HTTP exact lookup and native-parent facts are specified in the [accepted HTTP contract](pack-brokers-http.md#http-read-lookups-and-native-parents).
 
 ### 7.4 Working-set rules
 
@@ -368,18 +363,7 @@ the readout says so.
 
 ### 8.2 The HTTP executor
 
-Sends the canonical request to the one host the block pins, with the credential header built from
-the declared source (an env var or a 0600 file under a fenced path), and:
-
-- follows no redirect: a 3xx crosses back as is, so a credential never reaches another host;
-- sends no cookie and keeps none;
-- caps the response at 32 MiB and streams it;
-- refuses a credential found in a URL or query string in either direction;
-- redacts the credential from the response.
-
-**The method floor.** A non-safe method (anything but GET, HEAD, OPTIONS) can be classified `read`
-only on a path the block declares `read_over_post`, which the gate shows. GraphQL needs it; a REST
-API never should.
+The [accepted HTTP binding, ingress, classifier and executor contract](pack-brokers-http.md#http-binding-and-executor) owns this front. HTTP remains unimplemented; the selected pack, current ceiling, grant, private launch input, audit and host decision cannot be bypassed. This heading retains the [BX-D8](#decision-ledger) ledger target.
 
 ### 8.3 The pack executor
 
@@ -411,17 +395,11 @@ pack.
 
 ## 10. CLI and HTTP: what they share and where they differ
 
-| | CLI front | HTTP front |
-| :--- | :--- | :--- |
-| In the jail | `intercept` puts a forwarder named for the program ahead of it on PATH | A loopback HTTP listener run by `yolo-jaild`; the pack's `env` names its URL in the variable the client reads, such as a base-URL setting |
-| Identity, scope, decision, store, approvals, audit, dry run | Shared | Shared |
-| What the classifier reads | argv and the stdin digest | method, path, query, allowlisted headers, body |
-| Canonical form | argv | request bytes |
-| Lookups | argv templates | request templates |
-| Credential | The host program's own login | A header core builds from a declared source |
-| Executor hazards | Host file writes by flag, a server or token flag, spawned helper programs, git pushes | Redirects, cookies, credentials in URLs, response size, non-safe methods that read |
-| A refusal reaches the agent as | Exit 64 and the refusal text on stderr, as `gh`'s | Status 403 with headers `Yolo-Verdict` and `Yolo-Request`, and a body in the error shape the block declares (GraphQL's `errors` array for the local HTTP proof), whose message is the refusal text |
-| An ask reaches the agent as | Exit 75 and the menu | Status 403, `Yolo-Verdict: asks`, the menu in the message |
+The [accepted HTTP front, refusal and retry contract](pack-brokers-http.md#http-front-refusal-and-retries) owns the comparison and transmission outcome. CLI uses an intercepted front and its private argv replay; both fronts share core identity, decision, store, approvals and audit. HTTP does not relax CLI limits.
+
+### HTTP custody and retries
+
+See the [HTTP retry rule](pack-brokers-http.md#http-custody-and-retries): no automatic retry or refund follows possible transmission.
 
 ## 11. Proof one: CircleCI, through its CLI
 
@@ -708,7 +686,7 @@ that its implementation is built.
 | BX-D5 | Scope roots are the workspace's remotes or roots declared in the workspace config, both through the gate | 2026-11-04 | [§7.1](#71-the-block) | — |
 | BX-D6 | A resource may join a source's working set by following another source's working set, as declared | 2026-11-04 | [§7.4](#74-working-set-rules) | — |
 | BX-D7 | A call with several writes is decided per write; it asks once for the whole call | 2026-11-04 | [§6](#6-the-decision-is-cores) | — |
-| BX-D8 | The HTTP executor follows no redirect, and a non-safe method reads only on a declared, gate-shown path | 2026-11-04 | [§8.2](#82-the-http-executor) | — |
+| BX-D8 | The HTTP executor follows no redirect; only POST reads on a declared, gate-shown path, checked against original and canonical requests | 2026-11-05 | [§8.2](#82-the-http-executor) | — |
 | BX-D9 | The MCP sign-in broker uses the framework and not the call layer | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
 | BX-D10 | CircleCI's `api` passthrough is refused; the CLI's shortfalls are stated and not filled from the HTTP API | 2026-11-04 | [§11.4](#114-where-the-cli-falls-short) | — |
 | BX-D11 | The framework's fence is every selected host-daemon loophole's state directory, read-only `mounts` included; `credential_paths` adds to it. Adopted from the MCP sign-in plan's ID-9 | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | Implemented |

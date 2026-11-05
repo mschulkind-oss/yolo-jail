@@ -3,13 +3,16 @@ package run
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
@@ -94,6 +97,7 @@ func TestSelectedCallBrokerScopeUsesPrivateLaunchInputCarrier(t *testing.T) {
 	t.Cleanup(func() { loopholes.StateDirFor = previous })
 	var output strings.Builder
 	o := &Options{Workspace: workspace, Stderr: &output, launchInputMountArgv: mountArgv}
+	fillDefaults(o)
 	o.recordApprovedScopes(map[string][]config.ScopeRepo{lp.Name: {{Repo: "team:ENG"}}}, nil, nil)
 	policy, err := config.EffectiveCallBrokerCells(lp.CallBroker.Source, lp.CallBroker,
 		mustPolicyJSON(t, `{"allow":{"tasks":{"on_request":["all.update"]}}}`),
@@ -103,9 +107,49 @@ func TestSelectedCallBrokerScopeUsesPrivateLaunchInputCarrier(t *testing.T) {
 	}
 	o.callBrokerCells = map[string]map[string]config.CallBrokerCellPolicy{lp.Name: policy}
 	o.approvedLoopholeGrants = map[string]map[string]config.LoopholeGrantStanding{lp.Name: {"read": {Standing: config.LoopholeGrantGranted}}}
-	o.writeScopeFiles("pack-call-scope", []*loopholes.Loophole{lp})
-	if o.scopeFiles[lp.Name] == "" {
-		t.Fatalf("selected host scope missing: %s", output.String())
+	replicas := filepath.Join(private, "replicas")
+	publishedPath := filepath.Join(replicas, "pack-call-scope.json")
+	previousBind := bindCallInput
+	t.Cleanup(func() { bindCallInput = previousBind })
+	bindCalled := false
+	bindCallInput = func(string, brokerscope.File, string) error {
+		bindCalled = true
+		return errors.New("fixture bind failure")
+	}
+	o.settingsPrepared = true
+	o.settingsPlan = &preparedLoopholeSettings{
+		candidates: []*loopholes.Loophole{lp},
+		bytes:      map[string][]byte{lp.Name: []byte("{}")},
+		checked:    map[string]bool{lp.Name: false},
+	}
+	fakeBin := t.TempDir()
+	spawnMarker := filepath.Join(t.TempDir(), "call-broker-spawned")
+	if err := os.WriteFile(filepath.Join(fakeBin, "yolo"), []byte("#!/bin/sh\nprintf called > "+spawnMarker+"\nexit 97\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	o.ServiceReadyTimeout = time.Second
+	handles := o.startLoopholesMatching(selected, "pack-call-scope", "podman", jsonx.NewOrderedMap(), func(name string) bool {
+		return name == lp.Name
+	})
+	if len(handles) != 0 || !bindCalled {
+		t.Fatalf("selected host-service caller did not reach failed input bind: handles=%d bindCalled=%t output=%s", len(handles), bindCalled, output.String())
+	}
+	if _, err := os.Lstat(publishedPath); !os.IsNotExist(err) {
+		t.Fatalf("failed bind left a published input: %v", err)
+	}
+	if len(o.launchInputFiles) != 0 || len(o.launchInputOwners) != 0 || len(o.launchInputReports) != 0 {
+		t.Fatalf("failed bind left launch-input ownership maps: files=%v owners=%v reports=%v", o.launchInputFiles, o.launchInputOwners, o.launchInputReports)
+	}
+	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
+		t.Fatalf("host daemon spawned after failed input binding: %v", err)
+	}
+	if len(o.settingsSnapshots) != 0 {
+		t.Fatalf("selected host-service caller retained settings snapshots: %v", o.settingsSnapshots)
+	}
+	unbound, err := brokerscope.ReadFile(o.scopeFiles[lp.Name])
+	if err != nil || unbound.CallInput != "" {
+		t.Fatalf("failed bind changed the selected scope: %+v, %v", unbound, err)
 	}
 	grantBody, err := loopholegrant.Merge([]byte("{}"), loopholegrant.Block{Pack: lp.Pack, Workspace: workspace,
 		Container: "pack-call-scope", PID: os.Getpid(), Kinds: map[string]loopholegrant.Kind{"read": {Standing: loopholegrant.Granted}}})
@@ -117,6 +161,29 @@ func TestSelectedCallBrokerScopeUsesPrivateLaunchInputCarrier(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.settingsSnapshots = map[string]*ownedSettingsSnapshot{lp.Name: {path: grantPath}}
+	bindCallInput = func(_ string, _ brokerscope.File, input string) error {
+		replacement := input + ".replacement"
+		if err := os.WriteFile(replacement, []byte("replacement"), 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, input); err != nil {
+			return err
+		}
+		return errors.New("fixture bind failure after replacement")
+	}
+	if o.writeLaunchInput(lp, "pack-call-scope") {
+		t.Fatal("publisher accepted a failed bind after a replacement")
+	}
+	if got, err := os.ReadFile(publishedPath); err != nil || string(got) != "replacement" {
+		t.Fatalf("failed-bind cleanup removed or changed the replacement: %q, %v", got, err)
+	}
+	if len(o.launchInputFiles) != 0 || len(o.launchInputOwners) != 0 || len(o.launchInputReports) != 0 {
+		t.Fatalf("failed replacement bind left launch-input ownership maps: files=%v owners=%v reports=%v", o.launchInputFiles, o.launchInputOwners, o.launchInputReports)
+	}
+	if err := os.Remove(publishedPath); err != nil {
+		t.Fatal(err)
+	}
+	bindCallInput = previousBind
 	if !o.writeLaunchInput(lp, "pack-call-scope") {
 		t.Fatalf("production publisher refused: %s", output.String())
 	}

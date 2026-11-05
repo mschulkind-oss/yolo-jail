@@ -168,6 +168,10 @@ func cloneApprovedScopes(in map[string][]config.ScopeRepo) map[string][]config.S
 
 var launchInputMu sync.Mutex
 
+// bindCallInput is the host-side scope binding performed after the private file is published.
+// A variable keeps the publication failure path deterministic in its caller test.
+var bindCallInput = brokerscope.BindCallInput
+
 func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	if lp == nil {
 		return true
@@ -352,30 +356,43 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		return false
 	}
 	path := filepath.Join(stateDir, "replicas", leaf)
+	trackLaunchInput(o, lp.Name, path, published)
 	if frozen.CallBroker != nil {
 		bound, err := brokerscope.ReadFile(frozen.CallBroker.ScopeFile)
-		if err != nil || brokerscope.BindCallInput(frozen.CallBroker.ScopeFile, bound, path) != nil {
+		if err == nil {
+			err = bindCallInput(frozen.CallBroker.ScopeFile, bound, path)
+		}
+		if err != nil {
+			// Release the publication lock before the inode-guarded cleaner takes it.
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			_ = lock.Close()
+			o.removeLaunchInput(lp.Name, path, published)
 			o.pr(o.Stderr).print("[red]Call broker cannot bind its private input to the host scope; retry the launch.[/red]")
 			return false
 		}
 	}
+	if producer.Report != nil {
+		launchInputMu.Lock()
+		if o.launchInputReports == nil {
+			o.launchInputReports = make(map[string]func())
+		}
+		o.launchInputReports[lp.Name] = func() { producer.Report(o, frozen, data) }
+		launchInputMu.Unlock()
+	}
+	return true
+}
+
+func trackLaunchInput(o *Options, name, path string, published os.FileInfo) {
 	launchInputMu.Lock()
+	defer launchInputMu.Unlock()
 	if o.launchInputFiles == nil {
 		o.launchInputFiles = make(map[string]string)
 	}
 	if o.launchInputOwners == nil {
 		o.launchInputOwners = make(map[string]os.FileInfo)
 	}
-	o.launchInputFiles[lp.Name] = path
-	o.launchInputOwners[lp.Name] = published
-	if producer.Report != nil {
-		if o.launchInputReports == nil {
-			o.launchInputReports = make(map[string]func())
-		}
-		o.launchInputReports[lp.Name] = func() { producer.Report(o, frozen, data) }
-	}
-	launchInputMu.Unlock()
-	return true
+	o.launchInputFiles[name] = path
+	o.launchInputOwners[name] = published
 }
 
 func (o *Options) checkSpawnLaunchInputMounts(argv []string) error {
