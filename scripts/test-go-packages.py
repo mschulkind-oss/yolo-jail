@@ -65,10 +65,7 @@ class GoPackageSelection(unittest.TestCase):
         self.git("config", "user.email", "fixture@example.invalid")
         self.commit("fixture")
         (self.root / "scripts").mkdir()
-        production = self.root / "scripts" / "go_packages_production.py"
-        shutil.copy(HERE / "go_packages.py", production)
-        self.assertEqual(production.read_bytes(), (HERE / "go_packages.py").read_bytes())
-        (self.root / "scripts" / "go_packages.py").write_text(ARCHIVE_BOOTSTRAP)
+        shutil.copy(HERE / "go_packages.py", self.root / "scripts" / "go_packages.py")
 
     def write(self, path, contents):
         file = self.root / path
@@ -97,10 +94,16 @@ class GoPackageSelection(unittest.TestCase):
 
     def test_non_git_source_archive_uses_go_wildcard_and_preserves_failures(self):
         self.assertTrue(os.path.lexists(self.root / ".git"), "fixture starts as a real Git checkout")
-        self.assertTrue(os.path.lexists(REPO / ".git"), "archive fixture is nested below ambient checkout metadata")
+        ambient_git_metadata = os.path.lexists(REPO / ".git")
         shutil.rmtree(self.root / ".git")
         self.assertFalse(os.path.lexists(self.root / ".git"), "fixture's own Git metadata was removed")
-        self.assertTrue(os.path.lexists(REPO / ".git"), "ambient checkout metadata remains present")
+        self.assertEqual(os.path.lexists(REPO / ".git"), ambient_git_metadata,
+                         "archive fixture must preserve the ambient checkout metadata state")
+        production = self.root / "scripts" / "go_packages.py"
+        archive_production = production.with_name("go_packages_production.py")
+        production.rename(archive_production)
+        self.assertEqual(archive_production.read_bytes(), (HERE / "go_packages.py").read_bytes())
+        production.write_text(ARCHIVE_BOOTSTRAP)
         self.assertEqual(self.selected(), ["./pkg"])
         rc, output = self.run_go("test")
         self.assertEqual(rc, 0, output)
