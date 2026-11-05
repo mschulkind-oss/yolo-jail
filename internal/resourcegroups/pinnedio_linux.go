@@ -31,14 +31,18 @@ type pinnedIOChildren struct {
 	lock     *os.File
 }
 
-func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, percent int, lockDir string) (_ *pinnedIOChildren, err error) {
+// pinnedIOUnitObserver lets fixture tests provide an already-verified manager
+// identity while exercising openPinnedGroup's real cgroup-v2 filesystem guard.
+var pinnedIOUnitObserver = observeDelegatedIOUnit
+
+func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, percent int, lockDir string) (*pinnedIOChildren, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("delegated I/O context missing or canceled")
 	}
 	if percent < 1 || percent > 99 || lockDir == "" {
 		return nil, errors.New("delegated I/O split or shared lock unavailable")
 	}
-	if err := observeDelegatedIOUnit(ctx, unit, paths); err != nil {
+	if err := pinnedIOUnitObserver(ctx, unit, paths); err != nil {
 		return nil, err
 	}
 	plan := ReadAndPlanIO(IOPaths{Assigned: paths.Assigned, Devices: paths.Devices, Ancestors: paths.Ancestors}, percent, os.ReadFile)
@@ -51,8 +55,9 @@ func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, perce
 		return nil, err
 	}
 	p := &pinnedIOChildren{parent: parent, path: parentPath, unit: unit, paths: paths, percent: percent, plan: plan, children: map[string]*pinnedGroup{}}
+	completed := false
 	defer func() {
-		if err != nil {
+		if !completed {
 			p.close()
 		}
 	}()
@@ -60,7 +65,7 @@ func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, perce
 	if err != nil {
 		return nil, err
 	}
-	if err = observeDelegatedIOUnit(ctx, unit, paths); err != nil {
+	if err := pinnedIOUnitObserver(ctx, unit, paths); err != nil {
 		return nil, err
 	}
 	current := ReadAndPlanIO(IOPaths{Assigned: paths.Assigned, Devices: paths.Devices, Ancestors: paths.Ancestors}, percent, os.ReadFile)
@@ -68,13 +73,13 @@ func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, perce
 		return nil, errors.New("assigned I/O split changed under lock; run yolo check --no-build")
 	}
 	for _, name := range []string{"yolo-agent", "yolo-batch"} {
-		if err = ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err = p.parent.verifyPath(parentPath); err != nil {
+		if err := p.parent.verifyPath(parentPath); err != nil {
 			return nil, err
 		}
-		if err = observeDelegatedIOUnit(ctx, unit, paths); err != nil {
+		if err := pinnedIOUnitObserver(ctx, unit, paths); err != nil {
 			return nil, err
 		}
 		child, openErr := parent.openChild(name, true)
@@ -82,13 +87,14 @@ func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, perce
 			return nil, fmt.Errorf("cannot create or pin %s: %w", name, openErr)
 		}
 		p.children[name] = child
-		if err = p.verifyChild(name); err != nil {
+		if err := p.verifyChild(name); err != nil {
 			return nil, err
 		}
 	}
-	if err = observeDelegatedIOUnit(ctx, unit, paths); err != nil {
+	if err := pinnedIOUnitObserver(ctx, unit, paths); err != nil {
 		return nil, err
 	}
+	completed = true
 	return p, nil
 }
 

@@ -12,6 +12,58 @@ import (
 	"time"
 )
 
+// TestOpenPinnedIOChildrenRejectsOrdinaryFilesystemBeforeCreatingChildren supplies
+// valid selected-unit and finite-policy fixtures but keeps the constructor's real
+// cgroup-v2 filesystem guard; refusal must precede child creation or policy writes.
+func TestOpenPinnedIOChildrenRejectsOrdinaryFilesystemBeforeCreatingChildren(t *testing.T) {
+	root := t.TempDir()
+	delegated := filepath.Join(root, "delegated")
+	if err := os.Mkdir(delegated, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assigned := filepath.Join(delegated, "io.max")
+	before := []byte("8:0 rbps=101 wbps=20 riops=max\n")
+	if err := os.WriteFile(assigned, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	paths := IOPaths{Assigned: assigned, Devices: []string{"8:0"}, UserManager: true}
+	if plan := ReadAndPlanIO(paths, 5, os.ReadFile); !hasFiniteSplit(plan) {
+		t.Fatalf("fixture must provide a valid finite selected policy: %+v", plan)
+	}
+
+	originalObserver := pinnedIOUnitObserver
+	observerCalls := 0
+	pinnedIOUnitObserver = func(ctx context.Context, unit string, selected IOPaths) error {
+		observerCalls++
+		if ctx.Err() != nil || unit != "fixture.service" || !selected.UserManager ||
+			selected.Assigned != assigned || len(selected.Devices) != 1 || selected.Devices[0] != "8:0" {
+			return errors.New("fixture selected-unit metadata was invalid")
+		}
+		return nil
+	}
+	t.Cleanup(func() { pinnedIOUnitObserver = originalObserver })
+
+	children, err := openPinnedIOChildren(context.Background(), "fixture.service", paths, 5, filepath.Join(root, "locks"))
+	if children != nil {
+		children.close()
+		t.Fatal("ordinary filesystem was admitted as a delegated cgroup group")
+	}
+	if err == nil || !strings.Contains(err.Error(), "not on cgroup v2") {
+		t.Fatalf("constructor error = %v, want mandatory cgroup-v2 filesystem refusal", err)
+	}
+	if observerCalls != 1 {
+		t.Fatalf("selected-unit observer calls = %d, want exactly one before filesystem refusal", observerCalls)
+	}
+	if got, err := os.ReadFile(assigned); err != nil || string(got) != string(before) {
+		t.Fatalf("assigned fixture policy changed: %q err=%v", got, err)
+	}
+	for _, name := range []string{"yolo-agent", "yolo-batch", "locks"} {
+		if _, err := os.Lstat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("constructor created %s before refusing ordinary filesystem: %v", name, err)
+		}
+	}
+}
+
 // Ordinary-directory fixtures exercise real openat/write syscalls, not cgroup
 // authority. Cgroup-v2 rejects rename; this substitution stresses an even
 // stronger adversarial name change without granting a production filesystem bypass.
