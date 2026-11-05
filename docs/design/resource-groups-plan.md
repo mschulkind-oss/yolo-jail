@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Commit the reviewed fake-only admission increment, then run its matched-source development-bundle and default-off rootful nested smoke; keep mapped execution refused until stable-name exclusion and actual placement are proven."
+next: "Keep mapped execution refused. Any later real Brief 3 writer/Brief 4 placement work must resolve stable-name exclusion and least-authority native membership first; complete full combined-source and native evidence gates separately before claiming enforcement."
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is now integrated and independently HIGH-reviewed; its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. Its matched candidate development-bundle and rootful default-off nested checks also passed, but the primary integration still needs its own matched-source bundle and smoke. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven.
+**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is integrated and independently HIGH-reviewed. Its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. The committed primary-source development bundle reports the matching commit; its scrubbed `check --no-build` passed with resource groups disabled, and the required rootful `podman-self` default-off nested `true` launch passed. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven; whole-project combined and native gates are distinct and remain outstanding.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -69,7 +69,7 @@ depends-on: [resource-groups.md]
 
 ### Brief 3 — least-authority Linux adapter (fake-only admission boundary integrated; writer remains unbuilt)
 
-**Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates; the matched candidate bundle and rootful default-off nested smoke passed as well. The primary integration still needs its own matched-source bundle and smoke. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
+**Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates. The committed primary-source bundle/check and rootful default-off nested smoke passed. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
 
 **Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. `ReconcileDelegatedIO` and `ReconcileDelegatedIOAndStart` are not wired to a production writer or launch caller and do not prove authority or placement. Do not treat this increment as implementation of the real Brief 3 writer.
 
