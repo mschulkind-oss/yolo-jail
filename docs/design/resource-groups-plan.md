@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Review and land the disabled-by-default selection and read-only policy foundation; keep mapped execution refused until stable-name exclusion and actual placement are proven."
+next: "Run the independent HIGH review and combined-tree gates; keep mapped execution refused until stable-name exclusion and actual placement are proven."
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are composed on `b8fb7481485612f4a82e5d79fb142db35dc40745` from the accepted source lineages through `85601fcfa616253972af32802956648c4d037a5a`; this candidate awaits independent review and landing. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven.
+**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages through `384cf77b2c0ca2d6822e1db7177e9cec26db48b3`. This combined primary composition still needs the independent HIGH review and final affected-source gates. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -46,7 +46,7 @@ depends-on: [resource-groups.md]
 
 ## Build tasks
 
-### Brief 1 — owner-only selection and real consumers (composed candidate; acceptance and landing pending)
+### Brief 1 — owner-only selection and real consumers (source integrated; acceptance gates pending)
 
 **Settled — do not re-open:** no owner mapping means no resource-group manager/controller/device probes, group/process changes, caps, resource-group startup work or routine launch line. A matching explicit selection is required placement; until actual placement is supported and verified, run and host launch refuse before their remaining expensive launch work with `yolo check --no-build` as the next step. Check reports `disabled` or selected identity/source as `unsupported/unknown`, never `enforced`. Only user config may set these values. A default is an explicit opt-in; no mapping is off.
 
@@ -56,7 +56,7 @@ depends-on: [resource-groups.md]
 - **Fences:** no group manager/device probes, process moves, caps, activated Linux writer, cgroup delegate/keeper/runtime-argv changes, live migration, or performance claim. `ReconcileUserIO` is a read-only gate followed by an unsupported refusal; the injected fake-I/O algorithm is not a production writer. Host pack refresh and run migration/pack refresh happen before the owner config gate and remain named exclusions.
 - **Commit:** `feat(resources): expose owner-only opt-in selection and check status`.
 
-### Brief 2 — finite-policy plan and read-only check (composed candidate; acceptance and landing pending)
+### Brief 2 — finite-policy plan and read-only check (source integrated; acceptance gates pending)
 
 **Settled — do not re-open:** parse assigned `io.max` by device and independent dimension; `max`, absent records/dimensions, unreadable input, and finite ancestor-only limits remain distinct and never imply an assigned finite allowance. For each finite assigned allowance `A`, split `floor(A*s/100)` to agent and the remainder to batch (`s=5` default; owner override 1..99); both must be positive, finite and representable. Never invent a cap for an unconstrained dimension.
 
@@ -68,7 +68,7 @@ depends-on: [resource-groups.md]
 
 ### Brief 3 — least-authority Linux adapter (unbuilt; stable-name exclusion blocks a writer)
 
-**Current boundary:** the candidate's `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. The injected `ReconcileDelegatedIO` fake-I/O algorithm is not wired to a production writer and does not prove authority or placement. Do not treat it as implementation of Brief 3.
+**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. The injected `ReconcileDelegatedIO` fake-I/O algorithm is not wired to a production writer and does not prove authority or placement. Do not treat it as implementation of Brief 3.
 
 **Settled — do not re-open:** only existing verified user-manager delegated rights or an authorized manager-owned child route may place work. Never write owner parents or unrelated siblings, elevate privilege, widen the jail delegate protocol, move jobs between owner groups, or delete active/uncertain Yolo children. Without verified authority/membership, mapped starts refuse as unsupported/unknown.
 

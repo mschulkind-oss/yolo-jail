@@ -18,17 +18,6 @@ fields = { access_token = "access_token", refresh_token = "refresh_token", expir
 rereads_before_refresh = true
 login_hint = "codex mcp login {name}"
 
-[[mcp_auth]]
-store = ".codex/.credentials.json"
-format = "json"
-entries_at = []
-companions = []
-empty_store = "delete"
-lock = { protocol = "flock", path = ".codex/mcp-oauth-locks/file-store.lock" }
-fields = { access_token = "access_token", refresh_token = "refresh_token", expires_at = { path = "expires_at", unit = "ms" }, client_id = "client_id" }
-rereads_before_refresh = true
-login_hint = "codex mcp login {name}"
-
 # Where each install hint's name came from, one line per manager, checked 2026-10-02.
 #   brew-cask: https://formulae.brew.sh/api/cask/codex.json (binary artifact bin/codex, linked as `codex`; there is no codex formula)
 #   pacman: https://archlinux.org/packages/extra/x86_64/openai-codex/files/ (usr/bin/codex)
