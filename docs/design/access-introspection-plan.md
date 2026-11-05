@@ -26,8 +26,7 @@ operations; its frames have only the versioned `access` envelope, and evaluate/a
 argv. The historical act-handler rotation regression and flattened-envelope negative controls are
 included. Tasks 3–5 and task 4's launch snapshot/aggregate work remain unbuilt; do not infer Git
 prediction, MCP status, aggregate snapshots, or prediction-divergence audit from the GitHub path.
-The outstanding `go test -short ./internal/cli` broad-suite failures are recorded in the integration
-handoff report, and focused repetitions do not establish their cause or erase those failures.
+The earlier broad-run preparation readiness and temp-directory removal failures remain unexplained; this integration's affected-package run and `just check-ci` passed, which does not establish their cause or a flake-rate fix. The diagnostic receipts and their limits are recorded in the integration handoff report.
 
 ## Map
 
