@@ -325,7 +325,7 @@ func startAccessEndpoint(t *testing.T, handler func(*hostservice.Session), dirNa
 	t.Helper()
 	// The daemon socket path must not inherit t.TempDir's test-name prefix: that can
 	// exceed Darwin's AF_UNIX sun_path even when TMPDIR itself is short.
-	dir, err := os.MkdirTemp("/tmp", "ghb-")
+	dir, err := os.MkdirTemp(os.TempDir(), "ghb-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,6 +342,10 @@ func startAccessEndpointAt(t *testing.T, handler func(*hostservice.Session), dir
 	}
 	endpoint := filepath.Join(epDir, "github-broker.endpoint")
 	sock := filepath.Join(root, "daemon.sock")
+	if len(sock) > 103 {
+		t.Fatalf("daemon socket fixture path is %d bytes, over Darwin's 103-byte sun_path: %s", len(sock), sock)
+	}
+	t.Logf("daemon socket fixture path length=%d: %s", len(sock), sock)
 	stop := make(chan struct{})
 	daemonDone, frontDone := make(chan error, 1), make(chan error, 1)
 	go func() { daemonDone <- hostservice.ServeFrontedUnix(handler, sock, stop) }()
