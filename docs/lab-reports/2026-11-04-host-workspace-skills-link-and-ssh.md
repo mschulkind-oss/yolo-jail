@@ -37,6 +37,8 @@ summary: "yolo host -- claude links .claude/skills to the repository's .pi/skill
 | 7 | Copilot's commented `config.json` fix works; the new keychain message calls a measured result unmeasured | Verified, one stale clause ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
 | 8 | `yolo ps` and `yolo stop` miss a Seatbelt session under the default `apple-container-self` setup | Defect or doc gap ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
 | 9 | `yolo ps` puts Apple Container's whole row in STATUS, and lists the builder | Defect ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
+| 10 | W9's refusal is as specified, but two of its three routes don't run Copilot from that workspace | Witness passes, defects in its routes ([§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self)) |
+| 11 | Run-as-you mode has no working pip; with Homebrew's, `pip download` fills the host's pip cache | W2's cache line passes, with a substitute ([§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self)) |
 
 ## 2. What made `.claude/`
 
@@ -218,6 +220,79 @@ parser already reads this table by header, MEMORY's two tokens included.
 
 **Decision needed:** parse by header here too, and decide whether the builder belongs in
 `yolo ps`.
+
+## 8. W9 and W2's cache line, run through `YOLO_SETUP=seatbelt-self`
+
+Both witnesses needed `macos_user_mode = "self"` in the owner's user config, which these sessions
+did not edit. Named setups now select run-as-you mode for one launch (`YOLO_SETUP=seatbelt-self`),
+so both ran without a config change. Installed `yolo` `0.16.1+35.g7f1210e630c9`, over ssh, at
+`main` `dca0520ea` (nothing new had landed). Nothing was fixed.
+
+### W9 ([`copilot-keychain-boundary.md`](../research/copilot-keychain-boundary.md), `8a48c2cc7`)
+
+**The refusal: as specified.** In a fresh `/Users/Shared/yolo/w9-self`, `YOLO_SETUP=seatbelt-self
+yolo -- copilot -p 'hi'`, plain and with `YOLO_USE_INSTALLED=copilot`, printed in both cases,
+before any agent output:
+
+```
+yolo: ERROR: copilot 1.0.105 is installed. Copilot CLI 1.0.93 and newer cannot make HTTPS requests under macos-user self's
+required SecurityServer deny: its native TLS needs the macOS service com.apple.SecurityServer, which run-as-you mode denies
+because it is also the way into your login keychain. YOLO_USE_INSTALLED does not get past it, since every request the
+installed version makes fails the same way. Upstream: https://github.com/github/copilot-cli/issues/5085
+
+Next steps, in a terminal outside this jail:
+  yolo config set setup seatbelt-yolo-account --user  run as the yolo account (yolo yolo-account create creates it once)
+  yolo --setup podman-self -- copilot               run this launch in a podman container (apple-container-self for Apple Container)
+  yolo config set setup podman-self --user          run every launch in a podman container (apple-container-self for Apple Container)
+```
+
+Both logs: `Checking GitHub` 0 times, `Start anyway` 0 times, exit 1. The routes are now named by
+setup, no longer by `macos_user_mode` and `YOLO_RUNTIME` as the witness text has them.
+
+**Each route, with `copilot update` as the HTTPS check, from the same workspace:**
+
+| Route | Result |
+| :--- | :--- |
+| `seatbelt-yolo-account` (the first one named) | **Fails**: account mode denies Copilot `com.apple.SecurityServer` since slice 12a, and `copilot update` gets `error sending request` to `api.github.com` (the [slice 12a report, why Copilot cannot reach GitHub](2026-11-03-mac-slice-12a-witness-w1.md#why-copilot-cannot-reach-github-the-account-mode-now-denies-securityserver), confirmed against 12a's parent) |
+| `yolo --setup podman-self -- bash -c 'copilot update'` | **Works**: `GitHub Copilot CLI 1.0.98.`, then `Download complete. Installing...` / `Copilot CLI version 1.0.105 installed.`, rc 0 |
+| `yolo --setup apple-container-self -- …` (the parenthetical) | **Refused before start**, because the self-mode launch had just laid out this workspace's home: `refusing Apple Container inherited preflight scope: existing user file /Users/Shared/yolo/w9-self/.yolo/home/.config/yolo-jail/config.toml is in the way, and the whole HOME bind would overwrite it. Review it, preserving its contents and mode, then move it aside (mv … config.toml.moved-aside) and relaunch` |
+
+The Apple Container refusal is the reverse of the
+[slice 12a report §5](2026-11-03-mac-slice-12a-witness-w1.md#5-an-apple-container-home-blocks-a-later-account-mode-launch)
+collision: Seatbelt, then Apple Container, in one workspace. Unlike the Apple Container-then-Seatbelt
+direction ([MMP-D32](../design/macos-user-model-plan.md#MMP-D32)), it gets the generic message,
+which doesn't say that a Seatbelt launch laid out the home or how to keep using both. Named
+setups' per-setup homes ([`named-setups-plan.md`](../design/named-setups-plan.md) slice 6a, not
+built) are meant to remove the collision. Until then, the W9 refusal sends a user from a
+run-as-you workspace to one route that fails (account mode) and one that refuses in the same
+workspace (Apple Container). Only Podman worked.
+
+**Decision needed:** drop or qualify the account-mode route while account mode denies
+SecurityServer, and either qualify the Apple Container route or give the Seatbelt-then-Apple
+Container collision its named refusal before slice 6a.
+
+### W2's cache line ([MMP-D12](../design/macos-user-model-plan.md#MMP-D12), run-as-you mode shares host caches)
+
+- **The link is there and disclosed.** In `/Users/Shared/yolo/w2-pip`, the launch printed `Host
+  caches aliased (writable) — this jail shares these host stores instead of keeping second copies:`
+  / `pip: /Users/matt/Library/Caches/pip → /Users/matt/.local/share/yolo-jail/macos-user/Library/Caches/pip`.
+  Inside, `<ws>/.yolo/home/Library/Caches/pip -> /Users/matt/Library/Caches/pip`.
+- **The sandbox has no working pip.** `pip` resolves to nothing. `pip3` is `/usr/bin/pip3`, Apple's
+  stub, which printed `xcode-select: Failed to locate 'pip3', and no install could be requested
+  (perhaps no UI is present).` (rc 72; the Command Line Tools are not installed). `python3` is
+  yolo's tool-floor Python (`/nix/store/…-yolo-noncontainer-profile/bin/python3`), and it has `No
+  module named pip`. So W2's `pip download requests` cannot run as written on this Mac.
+- **With Homebrew's pip, it passes.** `/opt/homebrew/bin/python3 -m pip download --no-deps -q
+  requests -d "$(mktemp -d)"` inside the sandbox: rc 0, `requests-2.34.2-py3-none-any.whl`. The
+  host's `~/Library/Caches/pip` went from **3478 to 3482 files**. A count of files modified in the
+  last 3 minutes read 0, presumably because pip keeps the original times on what it caches, so the
+  count is the measurement.
+
+**Decision needed:** whether W2 should name a pip the sandbox has, or whether the floor should
+carry one.
+
+W2's other lines (Claude logged in twice with no `/login`, and a second workspace at the same time)
+were not run: they need the Claude subscription, which is out of credits until 2026-11-05.
 
 ## Evidence
 
