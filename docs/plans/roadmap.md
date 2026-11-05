@@ -337,7 +337,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     surface the import and trial build on.
 30. [Build agent access approvals in the maintainer's five steps](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
     he set the order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host CLI to
-    view and approve, a web UI out of tree on that CLI, then a talk about merging it. First is
+    view and approve, a web UI out of tree on that CLI, then a talk about merging it. Alongside that foundation, [coordinate the notification gallery, optional queue and broader service-mediation proposals](../design/approval-experience/README.md): the existing host broker and CLI provide the authority seam first, while the gallery and queue improve its experience and S3 begins broader service coverage. First is
     [the broker-core factoring and the git source](../design/git-broker.md), whose factoring waits on nothing and
     whose git source is ruled (a brokered transport, created branches persisted, a `create-branch` grant whose kind the
     user's config allows and whose repository the workspace's config names, joining at the config-change approval) and
