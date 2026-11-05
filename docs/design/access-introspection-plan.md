@@ -33,8 +33,15 @@ helper-mediated dry run; the host verifies proposed old refs against a fresh rec
 advertisement and reuses the act decision. Prediction and `--ask` send no ref-update or pack
 bytes, file only the existing canonical request under the same atomic coverage check, and do not
 spend a grant or wait. The typed `yolo.access.prediction/1` reply separates actual call/evidence
-digests and offers only verified commands. Seven affected packages and focused race suites
-passed on the integration source commit; that does not substitute for the combined landing gate.
+digests and offers only verified commands. Seven affected packages and focused race suites passed on the integration source commit. A complete census
+at `045be7632a12738f6eae634ccbeb864ee5509632` measured 16,988 tests and generated the current reader
+inventory: 979 reading tests in 35 packages, committed at `d22f8c6b7a2f5ff3cc3a87a2b3fc051b6e6cfb76`.
+The later parser guard at `21ed3f2c044bec6078ef06ef6a2f9ad6633b709a` only preserves existing field-presence
+checks and adds malformed-wire cases inside an already inventoried test; the census was not rerun after
+that Go-only change. On that exact source commit, `just check-ci`, `just done`, the six matching
+`TestGitBroker*` integration cases, and focused Git-package normal, race, and static checks passed.
+The full slow integration suite remains for final combined landing; this slice does not establish native
+macOS or rootless-only behavior.
 
 Tasks 4 and 5 remain unbuilt: Task 4 is the launch snapshot, aggregate readout and briefing;
 Task 5 is the equal-input prediction-divergence tripwire and shipped documentation. No GitHub
