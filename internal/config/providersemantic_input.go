@@ -226,6 +226,10 @@ func cloneReadableBrokerDeclarations(source []ReadableBrokerDeclaration) []Reada
 	}
 	cloned := make([]ReadableBrokerDeclaration, len(source))
 	for i, declaration := range source {
+		if declaration.CallBroker != nil {
+			cloned[i] = readableCallBrokerDeclaration(declaration.Pack, declaration.Label, declaration.CallBroker, declaration.Settings)
+			continue
+		}
 		cloned[i] = readableBrokerDeclaration(declaration.Pack, declaration.Label, declaration.Brokered, declaration.Settings)
 	}
 	return cloned

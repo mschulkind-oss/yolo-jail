@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -55,6 +56,86 @@ func pathBackedOfficialPackForReadableDeclarations(t *testing.T, name string) *p
 	}
 	loaded.Official = true
 	return loaded
+}
+
+func TestReadableSemanticInputsAcceptSelectedCallBrokerCeilingAndRequest(t *testing.T) {
+	pack := selectedCallBrokerFixturePack(t, t.TempDir(), "", []string{"working_set", "all"})
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	writeReadableScopeUser(t, home, "packs = [\"local-tasks\"]\n\n[allow.local-tasks]\non_request = [\"working_set.rerun_workflows\"]\n")
+	workspace := t.TempDir()
+	workspacePath, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = workspacePath
+	workspaceConfigPath := filepath.Join(workspace, WorkspaceTOMLConfigName)
+	if err := os.WriteFile(workspaceConfigPath, []byte("[requests.local-tasks.working_set]\nrerun_workflows = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	user, userSources, err := LoadConfigWithoutWorkspaceFileWithSources(workspace, true, nil)
+	if err != nil {
+		t.Fatalf("load authored host ceiling: %v", err)
+	}
+	loadedConfig, workspaceSources, err := LoadConfigWithSources(workspace, true, nil)
+	if err != nil {
+		t.Fatalf("load workspace request through config consumer: %v", err)
+	}
+	requests, _ := loadedConfig.Get("requests")
+	workspaceInput := jsonx.NewOrderedMap()
+	workspaceInput.Set("requests", requests)
+	ctx := &editValidationContext{rawUser: user, rawWorkspace: workspaceInput, userOrigins: userSources,
+		workspaceOrigins: workspaceSources, packs: []*packload.Pack{pack}, catalog: map[string]map[string]packdecl.ProviderModel{}}
+	var errs, warns []string
+	validateProvidersForExplicit(loadedConfig, loadedConfig, ctx, &errs, &warns)
+	if len(errs) != 0 || ctx.semantic == nil {
+		t.Fatalf("actual explicit config-edit consumer errors=%v warnings=%v semantic=%v", errs, warns, ctx.semantic)
+	}
+	inputs := *ctx.semantic
+	if len(inputs.AllowanceInput.Declarations) != 1 || inputs.AllowanceInput.Declarations[0].CallBroker == nil || inputs.AllowanceInput.Declarations[0].CallBroker.Source != "local-tasks" {
+		t.Fatalf("selected call-broker declaration was not projected into readable allowance input: %#v", inputs.AllowanceInput.Declarations)
+	}
+	if len(inputs.AllowancePlan.Sources) != 1 || len(inputs.AllowancePlan.Sources[0].OnRequest) != 1 || inputs.AllowancePlan.Sources[0].OnRequest[0] != "working_set.rerun_workflows" {
+		t.Fatalf("authored user ceiling was not consumed by the registered allowance resolver: %#v", inputs.AllowancePlan.Sources)
+	}
+	if len(inputs.AllowancePlan.Requests) != 1 || inputs.AllowancePlan.Requests[0].Status != ReadableRequestPending {
+		t.Fatalf("in-ceiling selected cell request = %#v, want metadata-only pending status", inputs.AllowancePlan.Requests)
+	}
+	ctx = &editValidationContext{rawUser: editReadableMap(t, `{}`), rawWorkspace: workspaceInput,
+		packs: []*packload.Pack{pack}, catalog: map[string]map[string]packdecl.ProviderModel{}}
+	errs, warns = nil, nil
+	validateProvidersForExplicit(loadedConfig, loadedConfig, ctx, &errs, &warns)
+	if len(errs) != 0 || ctx.semantic == nil {
+		t.Fatalf("actual explicit config-edit consumer with empty ceiling errors=%v warnings=%v", errs, warns)
+	}
+	inputs = *ctx.semantic
+	if len(inputs.AllowancePlan.Requests) != 1 || inputs.AllowancePlan.Requests[0].Status != ReadableRequestSkipped {
+		t.Fatalf("cell request outside authored user ceiling = %#v, want skipped", inputs.AllowancePlan.Requests)
+	}
+
+	writeReadableScopeUser(t, home, "packs = [\"local-tasks\"]\n\n[allow.local-tasks]\non_request = [\"all.rerun_workflows\"]\n")
+	user, userSources, err = LoadConfigWithoutWorkspaceFileWithSources(workspace, true, nil)
+	if err != nil {
+		t.Fatalf("load authored all-table host ceiling: %v", err)
+	}
+	ctx = &editValidationContext{rawUser: user, rawWorkspace: workspaceInput, userOrigins: userSources,
+		workspaceOrigins: workspaceSources, packs: []*packload.Pack{pack}, catalog: map[string]map[string]packdecl.ProviderModel{}}
+	errs, warns = nil, nil
+	validateProvidersForExplicit(loadedConfig, loadedConfig, ctx, &errs, &warns)
+	if len(errs) != 0 || ctx.semantic == nil {
+		t.Fatalf("actual explicit config-edit consumer with all-table ceiling errors=%v warnings=%v semantic=%v", errs, warns, ctx.semantic)
+	}
+	inputs = *ctx.semantic
+	if len(inputs.AllowancePlan.Sources) != 1 || len(inputs.AllowancePlan.Sources[0].OnRequest) != 1 || inputs.AllowancePlan.Sources[0].OnRequest[0] != "all.rerun_workflows" {
+		t.Fatalf("authored all-table user ceiling was not consumed: %#v", inputs.AllowancePlan.Sources)
+	}
+	if len(inputs.AllowancePlan.Requests) != 1 || inputs.AllowancePlan.Requests[0].Status != ReadableRequestPending {
+		t.Fatalf("working_set request covered by all-table ceiling = %#v, want metadata-only pending status", inputs.AllowancePlan.Requests)
+	}
 }
 
 func TestReadableDeclarationsForOfficialPackReadsEmbeddedModuleFiles(t *testing.T) {

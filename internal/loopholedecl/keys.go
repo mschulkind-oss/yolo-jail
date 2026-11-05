@@ -40,7 +40,7 @@ const (
 	keyPlatforms      = "platforms"
 	keyServes         = "serves"
 	keySettings       = "settings"
-
+	keyCallBroker     = "call_broker"
 	// The `settings.<key>` DECLARATION keys (settings.go). `description` is shared
 	// with the top level and spelled once, which is the whole reason this block of
 	// constants exists.
@@ -135,8 +135,8 @@ var (
 	topKeys = []string{
 		keyName, keyDescription, keyVersion, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
-		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
-		keyPlatforms, keyServes, keySettings, keyBrokered, keyGrants, keyAccess, keyBinaries, keyInheritFromParentJail,
+		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires, keyPlatforms, keyServes,
+		keySettings, keyCallBroker, keyBrokered, keyGrants, keyAccess, keyBinaries, keyInheritFromParentJail,
 	}
 	// settingDeclKeys is the census for ONE `settings.<key>` declaration. It is
 	// enforced by parseSettings and DELIBERATELY NOT descended into by

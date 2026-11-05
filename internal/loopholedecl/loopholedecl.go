@@ -350,9 +350,10 @@ type Manifest struct {
 	// NIL AND EMPTY MEAN THE SAME THING: this loophole owns no config keys, which is
 	// every manifest written before the block existed.
 	Settings []Setting
-	// Brokered is the `brokered` block (brokered.go), or nil: a loophole whose daemon
-	// runs a host credential's commands, fenced to the workspace's own repositories.
+	// Brokered is the legacy repository-scope declaration, nil for a call broker.
 	Brokered *Brokered
+	// CallBroker is a call-broker declaration. It does not imply a runnable daemon in this slice.
+	CallBroker *CallBroker
 	// Grants are the `[[grants]]` declarations (grants.go), in written order: the grant kinds a
 	// project can be granted at the config-change gate. nil means the loophole is ungated.
 	Grants []Grant
@@ -550,6 +551,11 @@ func decodeMode(data []byte, dir string, strict, readRetiredScope bool) (*Manife
 func decodeAt(data []byte, dir, manifestPath string, strict, readRetiredScope bool) (*Manifest, []string, error) {
 	var decoded any
 	var err error
+	if !looksLikeTOML(data) {
+		if duplicate, ok := callBrokerDuplicateKey(data); ok {
+			return nil, nil, Errorf("%s: duplicate key %q in 'call_broker'; declaration keys must occur once", manifestPath, duplicate)
+		}
+	}
 	if looksLikeTOML(data) {
 		decoded, err = decodeTOML(data)
 	} else {
@@ -781,6 +787,18 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	callBroker, err := parseCallBroker(manifestPath, getOrNil(data, keyCallBroker))
+	if err != nil {
+		return nil, err
+	}
+	if callBroker != nil {
+		if hostDaemon != nil || brokered != nil {
+			return nil, Errorf("%s: 'call_broker' replaces 'host_daemon' and the legacy 'brokered' block for this loophole; remove both keys", manifestPath)
+		}
+		if transport != TransportLoopbackTLS {
+			return nil, Errorf("%s: 'call_broker' requires transport %q so the core front can reach its host daemon", manifestPath, TransportLoopbackTLS)
+		}
+	}
 	grants, err := parseGrants(manifestPath, getOrNil(data, keyGrants))
 	if err != nil {
 		return nil, err
@@ -876,6 +894,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Serves:                serves,
 		Settings:              settings,
 		Brokered:              brokered,
+		CallBroker:            callBroker,
 		Grants:                grants,
 		Access:                access,
 		Binaries:              binaries,

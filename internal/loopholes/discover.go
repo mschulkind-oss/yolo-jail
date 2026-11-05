@@ -2,7 +2,10 @@ package loopholes
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokeridentity"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -214,6 +217,21 @@ func loadModuleDirs(modules []PackModule, source string) (map[string]*Loophole, 
 	load := loaderFor(source)
 	for _, module := range modules {
 		dir := module.Dir
+		if source == SourcePack && module.PackRoot != "" {
+			root, rootErr := filepath.EvalSymlinks(module.PackRoot)
+			if rootErr == nil {
+				root, rootErr = filepath.Abs(root)
+			}
+			selectedDir, dirErr := filepath.EvalSymlinks(dir)
+			if dirErr == nil {
+				selectedDir, dirErr = filepath.Abs(selectedDir)
+			}
+			rel, relErr := filepath.Rel(root, selectedDir)
+			if rootErr != nil || dirErr != nil || relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				warnf("loophole module dir %s is outside selected pack %s staged tree, so that loophole is NOT active; repair the selected pack tree", dir, module.Pack)
+				continue
+			}
+		}
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			warnf("loophole module dir %s is not a directory, so that loophole is NOT active", dir)
 			continue
@@ -234,6 +252,14 @@ func loadModuleDirs(modules []PackModule, source string) (map[string]*Loophole, 
 		loophole.Source = source
 		if source == SourcePack {
 			loophole.Pack = module.Pack
+			if loophole.CallBroker != nil {
+				identities, err := callbrokeridentity.Resolve(module.PackRoot, module.Pack, module.Dir, loophole.CallBroker)
+				if err != nil {
+					warnf("loophole %s call-broker declaration is NOT active: %v", loophole.Name, err)
+					continue
+				}
+				loophole.CallBroker.ProgramIdentities = identities
+			}
 		}
 		if ambiguous[loophole.Name] {
 			continue
@@ -361,6 +387,9 @@ type PackModule struct {
 	// Pack is the actual selected pack that contributed this module; it is not inferred from
 	// the module or loophole name.
 	Pack string
+	// PackRoot is the selected staged tree that owns Dir. External classifier/executor
+	// program identities are resolved only from this tree.
+	PackRoot string
 	// HostExecApproved says the caller RESOLVED this module from a pack the host user
 	// selected in their own config, and so vouches for running its host code.
 	//

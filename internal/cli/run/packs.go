@@ -765,9 +765,15 @@ func packLoopholeDecls(loaded []*packload.Pack) []PackLoopholeDecl {
 // That protection is against a programming error, not against a user's pack, and it is
 // unaffected by the ruling.
 func packLoopholeModules(loaded []*packload.Pack) []loopholes.PackModule {
+	roots := make(map[string]string, len(loaded))
+	for _, pack := range loaded {
+		if pack != nil {
+			roots[pack.Name] = pack.Root
+		}
+	}
 	var out []loopholes.PackModule
 	for _, d := range packLoopholeDecls(loaded) {
-		out = append(out, loopholes.PackModule{Dir: d.Dir, Pack: d.Pack, HostExecApproved: true})
+		out = append(out, loopholes.PackModule{Dir: d.Dir, Pack: d.Pack, PackRoot: roots[d.Pack], HostExecApproved: true})
 	}
 	return out
 }

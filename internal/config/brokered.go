@@ -71,6 +71,7 @@ const (
 	brokeredKey           = "brokered"
 	brokeredWorkspacesKey = "workspaces"
 	brokeredReposKey      = "repos"
+	brokeredRootsKey      = "roots"
 	brokeredSetsKey       = "sets"
 	// brokeredGrantsKey and brokeredGrantKindsKey are the two layers of a user grant
 	// (docs/design/boundary-broker.md BB-D96; docs/design/git-broker-plan.md ID-10): the user's own
@@ -413,7 +414,7 @@ var knownBrokeredSetKeys = set(brokeredSetNameKey, brokeredSetModeKey, brokeredS
 // Keeping each known at both scopes is what lets each scope answer in its own words — one
 // validates the key, the other refuses it — rather than either falling back to the generic
 // unknown-key message.
-var knownBrokeredSourceKeys = set(brokeredReposKey, brokeredWorkspacesKey, brokeredSetsKey,
+var knownBrokeredSourceKeys = set(brokeredReposKey, brokeredRootsKey, brokeredWorkspacesKey, brokeredSetsKey,
 	brokeredGrantsKey, brokeredGrantKindsKey)
 
 // brokeredGrantsPath is `brokered.<source>.grants`, the workspace half of a user grant.
@@ -484,6 +485,10 @@ func grantKindsProblems(path string, v any) []string {
 // brokeredReposPath is `brokered.<source>.repos`, the key every core-side text names (WW-D13).
 func brokeredReposPath(source string) string {
 	return brokeredKey + "." + source + "." + brokeredReposKey
+}
+
+func brokeredRootsPath(source string) string {
+	return brokeredKey + "." + source + "." + brokeredRootsKey
 }
 
 // BrokeredReposKey is brokeredReposPath for callers outside the package.
@@ -1080,11 +1085,11 @@ func reposSpelling(source string, repos []string) string {
 		strings.Join(quoted, ", ") + `]}}`
 }
 
-// validateBrokeredUserScope checks the user scope's own `brokered` (WW-D9): a `repos` list there
-// is refused, naming the workspace files instead, since with no workspace key it would widen every
-// workspace; a `sets` list there is validated, since user scope is where the sets live (BB-D23).
-// Other shapes are refused as they are at workspace scope; `workspaces` is the retired check's.
-// In a jail the user scope is the host-generated one, and each refusal is a warning.
+// validateBrokeredUserScope checks the user scope's own `brokered` (WW-D9): `repos` and declared
+// `roots` are refused there because they belong to one workspace, not every workspace; a `sets`
+// list is validated because user scope is where the sets live (BB-D23). Other shapes are refused as
+// they are at workspace scope; `workspaces` is the retired check's. In a jail the user scope is the
+// host-generated one, and each refusal is a warning.
 func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationContext) {
 	var userCfg *jsonx.OrderedMap
 	var userSources *Sources
@@ -1155,6 +1160,11 @@ func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationCon
 				WorkspaceConfigName + ", or " + WorkspaceLocalConfigName + " beside it for what the " +
 				"project should not commit, and approve it at that project's next launch. Then " +
 				"remove this key from " + paths.UserConfigDisplayPath() + ".")
+		}
+		if roots, has := src.Get(brokeredRootsKey); has && roots != nil {
+			refuse(path + "." + brokeredRootsKey + ": workspace scope only — declared roots constrain this " +
+				"project's selected call broker. Move the key to " + WorkspaceConfigName + " or " +
+				WorkspaceLocalConfigName + " beside the project, then remove it from " + paths.UserConfigDisplayPath() + ".")
 		}
 		if setsV, has := src.Get(brokeredSetsKey); has && setsV != nil {
 			_, problems := brokeredSetsValue(path+"."+brokeredSetsKey, setsV)
@@ -1458,6 +1468,26 @@ func brokeredShapeProblems(v any) []string {
 				"allow itself one (BB-D96). Put it in the user config, "+paths.UserConfigDisplayPath()+", and "+
 				"remove this key.")
 		}
+		rootsValue, rootsPresent := src.Get(brokeredRootsKey)
+		if rootsPresent && rootsValue != nil {
+			roots, ok := rootsValue.([]any)
+			if !ok {
+				out = append(out, srcPath+"."+brokeredRootsKey+": expected a list of declared root strings (got "+pyReprValue(rootsValue)+")")
+			} else {
+				seenRoots := map[string]bool{}
+				for i, value := range roots {
+					root, ok := value.(string)
+					if !ok || !loopholedecl.ValidCallBrokerRoot(root) {
+						out = append(out, srcPath+"."+brokeredRootsKey+"["+itoa(i)+"]: "+pyReprValue(value)+" is not a declared root identifier")
+						continue
+					}
+					if seenRoots[root] {
+						out = append(out, srcPath+"."+brokeredRootsKey+"["+itoa(i)+"]: duplicate root "+pyReprValue(root)+"; list each once")
+					}
+					seenRoots[root] = true
+				}
+			}
+		}
 		rv, _ := src.Get(brokeredReposKey)
 		if rv == nil {
 			continue
@@ -1536,9 +1566,9 @@ func brokeredOutsideProblems(n *srcNode) []string {
 	return out
 }
 
-// brokeredWrittenTwiceProblems is one refusal per `brokered`, `<source>` or `repos` key written
+// brokeredWrittenTwiceProblems is one refusal per `brokered`, `<source>`, `repos`, or `roots` key written
 // more than once in one file (WW-D24): the decoder keeps the last one silently, so the
-// repositories in the others would be dropped with nothing said.
+// entries in the others would be dropped with nothing said.
 func brokeredWrittenTwiceProblems(n *srcNode) []string {
 	if n == nil {
 		return nil
@@ -1553,7 +1583,8 @@ func brokeredWrittenTwiceProblems(n *srcNode) []string {
 		paths := [][]json5.Step{{json5.Key(brokeredKey)}}
 		for _, s := range sources {
 			paths = append(paths, []json5.Step{json5.Key(brokeredKey), json5.Key(s)},
-				[]json5.Step{json5.Key(brokeredKey), json5.Key(s), json5.Key(brokeredReposKey)})
+				[]json5.Step{json5.Key(brokeredKey), json5.Key(s), json5.Key(brokeredReposKey)},
+				[]json5.Step{json5.Key(brokeredKey), json5.Key(s), json5.Key(brokeredRootsKey)})
 		}
 		for _, p := range paths {
 			err := w.file.writtenTwice(p)

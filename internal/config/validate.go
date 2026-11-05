@@ -22,8 +22,8 @@ import (
 type LoopholeInfo struct {
 	Name          string
 	HasHostDaemon bool
-	// StateDir is the selected loophole's per-name host state directory, from the
-	// discovered loophole. It is present only when the loophole declares a host daemon.
+	// StateDir is the selected loophole's per-name host state directory. It is present for a
+	// host daemon or call broker, and is always fenced from jail mounts.
 	StateDir string
 	// Settings are the loophole's manifest-declared config keys, in declaration
 	// order — what makes `loopholes.<name>.settings` checkable rather than an
@@ -47,6 +47,8 @@ type LoopholeInfo struct {
 	// Brokered is the loophole's `brokered` block, or nil. Its presence among the
 	// selected packs' loopholes is what arms the mount fence (validateBrokerMountFence).
 	Brokered *loopholedecl.Brokered
+	// CallBroker is the selected call-broker declaration, or nil.
+	CallBroker *loopholedecl.CallBroker
 	// Grants is the loophole's `[[grants]]` declarations: their legacy keys name the legacy
 	// settings the legacy projection reads (loopholegrantlegacy.go), which the settings
 	// validator accepts though the manifest no longer declares them.
@@ -111,6 +113,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateLoopholes(config, workspace, resolver, errs, warns, edit)
 	validateBrokerMountFence(config, workspace, resolver, errs, warns, edit)
 	validateBrokered(config, workspace, resolver, errs, warns, edit)
+	validateCallBrokerConfig(workspace, config, resolver, errs, warns, edit)
 	validateLoopholeGrants(config, workspace, errs, warns, edit)
 	validateBrokeredRequests(config, workspace, warns, edit)
 	validateWorkspaceFile(workspace, errs, warns)

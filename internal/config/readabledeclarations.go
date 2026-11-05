@@ -37,7 +37,9 @@ func ReadableDeclarationsForPacks(packs []*packload.Pack) ([]ReadableBrokerDecla
 			moduleSettings := cloneReadableSettingDecls(module.Decl.Settings)
 			settings = append(settings, ReadablePackDeclaration{Pack: pack.Name, Settings: moduleSettings,
 				Loophole: module.Name, Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...)})
-			if module.Decl.Brokered != nil {
+			if module.Decl.CallBroker != nil {
+				brokers = append(brokers, readableCallBrokerDeclaration(pack.Name, module.Name, module.Decl.CallBroker, moduleSettings))
+			} else if module.Decl.Brokered != nil {
 				brokers = append(brokers, readableBrokerDeclaration(pack.Name, module.Name, *module.Decl.Brokered, moduleSettings))
 			}
 		}
@@ -56,6 +58,44 @@ func cloneReadableSettingDecls(settings []loopholedecl.Setting) []loopholedecl.S
 		}
 	}
 	return cloned
+}
+
+func readableCallBrokerDeclaration(pack, label string, broker *loopholedecl.CallBroker, settings []loopholedecl.Setting) ReadableBrokerDeclaration {
+	return ReadableBrokerDeclaration{Pack: pack, Label: label, CallBroker: cloneReadableCallBroker(broker), Settings: cloneReadableSettingDecls(settings)}
+}
+
+func cloneReadableCallBroker(broker *loopholedecl.CallBroker) *loopholedecl.CallBroker {
+	if broker == nil {
+		return nil
+	}
+	cloned := *broker
+	cloned.Classifier = append([]string(nil), broker.Classifier...)
+	cloned.CredentialPaths = append([]string(nil), broker.CredentialPaths...)
+	cloned.EnvFromHost = append([]string(nil), broker.EnvFromHost...)
+	cloned.Resources = append([]loopholedecl.CallBrokerResource(nil), broker.Resources...)
+	cloned.Cells = append([]loopholedecl.CallBrokerCell(nil), broker.Cells...)
+	for i := range cloned.Cells {
+		cloned.Cells[i].Tables = append([]string(nil), broker.Cells[i].Tables...)
+		if broker.Cells[i].Default != nil {
+			cloned.Cells[i].Default = make(map[string]bool, len(broker.Cells[i].Default))
+			for table, enabled := range broker.Cells[i].Default {
+				cloned.Cells[i].Default[table] = enabled
+			}
+		}
+	}
+	cloned.Lookups = append([]loopholedecl.CallBrokerLookup(nil), broker.Lookups...)
+	for i := range cloned.Lookups {
+		cloned.Lookups[i].CLI = append([]string(nil), broker.Lookups[i].CLI...)
+	}
+	cloned.ReadOverPost = append([]string(nil), broker.ReadOverPost...)
+	cloned.Joins = append([]loopholedecl.CallBrokerJoin(nil), broker.Joins...)
+	if broker.ProgramIdentities != nil {
+		cloned.ProgramIdentities = make(map[string]loopholedecl.CallBrokerProgramIdentity, len(broker.ProgramIdentities))
+		for name, identity := range broker.ProgramIdentities {
+			cloned.ProgramIdentities[name] = identity
+		}
+	}
+	return &cloned
 }
 
 // readableBrokerDeclaration projects only explicitly declared canonical metadata. Pending-only

@@ -97,6 +97,9 @@ func TestShippedAudioPackIsTheOnlyAudioLoophole(t *testing.T) {
 	if mods[0].Pack != "audio" {
 		t.Errorf("selected module owner = %q, want audio", mods[0].Pack)
 	}
+	if mods[0].PackRoot != p.Root {
+		t.Errorf("selected module staged root = %q, want %q", mods[0].PackRoot, p.Root)
+	}
 	if !mods[0].HostExecApproved {
 		t.Error("an embedded pack's loophole module must be host-exec approved — the origin " +
 			"gate for an embedded pack is the user's own authority, and a false here would " +

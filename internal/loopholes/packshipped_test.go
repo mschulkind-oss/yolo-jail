@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // packMod writes a module dir under a fresh loopholes root and returns its path.
@@ -475,10 +477,11 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		HostDevices:   []string{"/dev/acme"}, StateFiles: []string{"ca.crt"},
 		Requires:  Requires{CommandOnPath: "python3", CommandOnPathSet: true},
 		Platforms: []string{"linux"}, PlatformsSet: true,
-		Serves:   []string{"acme-capability"},
-		Brokered: &Brokered{Source: "acme", RemoteHost: "acme.test"},
-		Grants:   []Grant{{Kind: "read", Text: "read acme"}},
-		Access:   "reach acme",
+		Serves:     []string{"acme-capability"},
+		Brokered:   &Brokered{Source: "acme", RemoteHost: "acme.test"},
+		CallBroker: &loopholedecl.CallBroker{Source: "acme-calls", Front: "cli", Program: "acme", Classifier: []string{"yolo", "internal"}},
+		Grants:     []Grant{{Kind: "read", Text: "read acme"}},
+		Access:     "reach acme",
 		Settings: []Setting{{
 			Key: "opt", Type: SettingTypeString, Scope: SettingScopeUser, Default: "",
 		}},

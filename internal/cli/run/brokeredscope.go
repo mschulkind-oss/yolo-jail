@@ -73,6 +73,7 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 	}
 	selected := make([]config.ReadablePackDeclaration, 0)
 	selectedBrokers := make([]config.ReadableSelectedBroker, 0)
+	var selectedCallBrokers []config.SelectedCallBrokerScope
 	var granting []config.GateLoophole
 	for _, lp := range set.All() {
 		if lp.Source != loopholes.SourcePack {
@@ -80,6 +81,9 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 		}
 		selected = append(selected, config.ReadablePackDeclaration{Pack: lp.Pack, Settings: lp.Settings,
 			Loophole: lp.Name, Grants: lp.Grants})
+		if lp.CallBroker != nil && lp.Enabled {
+			selectedCallBrokers = append(selectedCallBrokers, config.SelectedCallBrokerScope{Source: lp.CallBroker.Source, Label: lp.Name, Declaration: lp.CallBroker})
+		}
 		if lp.Brokered != nil && lp.Brokered.ReadCapability != "" {
 			selectedBrokers = append(selectedBrokers, config.ReadableSelectedBroker{Pack: lp.Pack, Label: lp.Name, Brokered: *lp.Brokered})
 		}
@@ -92,6 +96,7 @@ func CollectScopeCheck(in ScopeInput) *config.ScopeCheck {
 	if len(brokers) > 0 {
 		check = config.NewSelectedScopeCheck(in.Workspace, brokers, in.Read, selected, selectedBrokers)
 	}
+	check = config.WithCallBrokerDeclarations(check, in.Workspace, selectedCallBrokers, in.Read)
 	return config.WithLoopholeGrants(check, in.Workspace, in.Read, granting)
 }
 

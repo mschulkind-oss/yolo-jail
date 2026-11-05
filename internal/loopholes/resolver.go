@@ -61,11 +61,14 @@ func (r *Resolver) Known() (map[string]config.LoopholeInfo, bool) {
 			// loophole a SELECTED pack ships is here, which is BB-D26's "with the pack
 			// selected".
 			Brokered: lp.Brokered,
+			// A canonical call_broker block participates in config metadata and the change gate,
+			// but does not activate a broker runtime.
+			CallBroker: lp.CallBroker,
 			// The `[[grants]]` declarations, whose legacy keys name the legacy settings the
 			// legacy projection reads (config/loopholegrantlegacy.go).
 			Grants: lp.Grants,
 		}
-		if lp.HostDaemon != nil {
+		if lp.HostDaemon != nil || lp.CallBroker != nil {
 			info.StateDir = lp.StateDir()
 		}
 		out[lp.Name] = info

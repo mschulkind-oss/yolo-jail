@@ -385,39 +385,53 @@ type mountFence struct{ path, owner, what string }
 // mountFences are the broker mount fence's paths for one resolver.
 type mountFences []mountFence
 
-// brokerMountFences are the paths fenced by selected brokered or host-daemon loopholes. A
-// brokered loophole also arms yolo's broker directory and its declared credential paths.
+// brokerMountFences are the paths fenced by selected brokered, host-daemon and call-broker loopholes.
+// A brokered loophole also arms yolo's broker directory and its declared credential paths.
 func brokerMountFences(resolver LoopholeResolver) mountFences {
 	if resolver == nil || inJail() {
 		return nil
 	}
 	known, _ := resolver.Known()
-	var brokerNames, daemonNames []string
+	var brokerNames, stateNames, credentialNames []string
 	for name, info := range known {
 		if info.Brokered != nil {
 			brokerNames = append(brokerNames, name)
 		}
-		if info.HasHostDaemon && info.StateDir != "" {
-			daemonNames = append(daemonNames, name)
+		if (info.HasHostDaemon || info.CallBroker != nil) && info.StateDir != "" {
+			stateNames = append(stateNames, name)
+		}
+		if (info.Brokered != nil && len(info.Brokered.CredentialPaths) > 0) || (info.CallBroker != nil && len(info.CallBroker.CredentialPaths) > 0) {
+			credentialNames = append(credentialNames, name)
 		}
 	}
-	if len(brokerNames) == 0 && len(daemonNames) == 0 {
+	if len(brokerNames) == 0 && len(stateNames) == 0 && len(credentialNames) == 0 {
 		return nil
 	}
 	sortStrings(brokerNames)
-	sortStrings(daemonNames)
+	sortStrings(stateNames)
+	sortStrings(credentialNames)
 	var fences mountFences
 	if len(brokerNames) > 0 {
 		fences = append(fences, mountFence{paths.BrokerDir(), strings.Join(brokerNames, ", "),
 			"yolo's broker directory: the brokers' store, each launch's repository scope and the " +
 				"audit log of every workspace's brokered calls"})
 	}
-	for _, name := range daemonNames {
-		fences = append(fences, mountFence{known[name].StateDir, name,
-			"the state of the " + name + " host daemon, which holds credentials the jail must not read"})
+	for _, name := range stateNames {
+		reason := "the state of the " + name + " host daemon, which holds credentials the jail must not read"
+		if known[name].CallBroker != nil {
+			reason = "the state directory reserved for call broker " + name + ", which is host-owned and not jail input"
+		}
+		fences = append(fences, mountFence{known[name].StateDir, name, reason})
 	}
-	for _, name := range brokerNames {
-		for _, p := range brokerscope.FencedPaths(known[name].Brokered.CredentialPaths, os.Getenv("HOME"), os.Getenv)[1:] {
+	for _, name := range credentialNames {
+		var declared []string
+		if known[name].Brokered != nil {
+			declared = append(declared, known[name].Brokered.CredentialPaths...)
+		}
+		if known[name].CallBroker != nil {
+			declared = append(declared, known[name].CallBroker.CredentialPaths...)
+		}
+		for _, p := range brokerscope.FencedPaths(declared, os.Getenv("HOME"), os.Getenv)[1:] {
 			fences = append(fences, mountFence{p, name, "the host credential the " + name +
 				" loophole keeps out of the jail"})
 		}

@@ -286,6 +286,11 @@ func TestAUserScopeReposListIsRefusedNamingTheWorkspaceFiles(t *testing.T) {
 	if errs, _ := h.validate(t); !strings.Contains(errs, "config.brokered.github.sets: expected a list of sets") {
 		t.Errorf("a user-scope sets of the wrong shape is not refused as a list:\n%s", errs)
 	}
+	write(t, h.userCfg, `{"brokered": {"tasks": {"roots": ["team:alpha"]}}}`)
+	if errs, _ := h.validate(t); !strings.Contains(errs, "config.brokered.tasks.roots: workspace scope only") ||
+		!strings.Contains(errs, WorkspaceConfigName) {
+		t.Errorf("declared roots at user scope were not refused with workspace-only guidance:\n%s", errs)
+	}
 }
 
 // WW-D21: the old form is refused at every scope. The message gives the exact edit, into the

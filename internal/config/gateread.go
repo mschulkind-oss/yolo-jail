@@ -113,6 +113,53 @@ type EntryRepo struct {
 	Files []string
 }
 
+// CallRoots is what this read's `brokered.<source>.roots` lists: each safe root once, with the
+// workspace-relative files that declare it. Invalid values are skipped because validation refuses
+// them before this read is offered to the gate.
+func (r *WorkspaceRead) CallRoots(source string) []EntryRepo {
+	if r == nil || r.Config == nil {
+		return nil
+	}
+	sv, _ := r.Config.Get(brokeredKey)
+	sources, ok := asMap(sv)
+	if !ok {
+		return nil
+	}
+	srcv, _ := sources.Get(source)
+	src, ok := asMap(srcv)
+	if !ok {
+		return nil
+	}
+	raw, _ := src.Get(brokeredRootsKey)
+	list, _ := raw.([]any)
+	var node *srcNode
+	if r.sources != nil {
+		node = r.sources.node().key(brokeredKey).key(source).key(brokeredRootsKey)
+	}
+	index := map[string]int{}
+	var out []EntryRepo
+	for i, value := range list {
+		root, ok := value.(string)
+		if !ok || !loopholedecl.ValidCallBrokerRoot(root) {
+			continue
+		}
+		at, seen := index[root]
+		if !seen {
+			at = len(out)
+			index[root] = at
+			out = append(out, EntryRepo{Repo: root})
+		}
+		if node != nil {
+			for _, writer := range node.elem(i).writerList() {
+				if writer.file != nil && writer.file.contained && !inList(out[at].Files, writer.file.rel) {
+					out[at].Files = append(out[at].Files, writer.file.rel)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // Entry is what this read's `brokered.<source>.repos` lists: each repository once, compared
 // without case, with the files that list it. A malformed element, which validation refuses, is
 // skipped, so a refused one reaches no scope even where nothing validated.

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
@@ -127,6 +128,9 @@ type Loophole struct {
 	// workspace's remotes at each fresh launch, approved in the config-change diff and
 	// handed to its daemon in the launch's scope file.
 	Brokered *Brokered
+	// CallBroker is the selected manifest's call-broker declaration. It is metadata only until
+	// the core call pipeline is implemented; it never admits a daemon by itself.
+	CallBroker *loopholedecl.CallBroker
 	// Grants is the manifest's `[[grants]]` declarations verbatim (loopholedecl/grants.go): the
 	// grant kinds a project can be granted. Nil means the loophole is ungated.
 	Grants []Grant

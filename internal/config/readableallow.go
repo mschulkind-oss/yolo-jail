@@ -21,6 +21,7 @@ type ReadableBrokerDeclaration struct {
 	Pack                string
 	Label               string
 	Brokered            loopholedecl.Brokered
+	CallBroker          *loopholedecl.CallBroker
 	ReadCapability      string
 	KindCapabilities    map[string]string
 	PendingCapabilities []string
@@ -108,6 +109,7 @@ type ReadableBrokerPolicy struct {
 	Label               string
 	Source              string
 	RemoteHost          string
+	CallBroker          *loopholedecl.CallBroker
 	ReadCapability      string
 	Ambiguous           bool
 	KindCapabilities    map[string]string
@@ -212,7 +214,11 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 	plan := ReadableAllowancePlan{PackSettings: map[string]map[string]any{}, PackSettingOrigins: map[string]map[string][]string{}}
 	seenSources := map[string]bool{}
 	for _, declaration := range input.Declarations {
-		broker := brokers[declaration.Brokered.Source]
+		source := declaration.Brokered.Source
+		if declaration.CallBroker != nil {
+			source = declaration.CallBroker.Source
+		}
+		broker := brokers[source]
 		if selected[broker.Pack] && !seenSources[broker.Source] {
 			plan.Sources = append(plan.Sources, broker)
 			seenSources[broker.Source] = true
@@ -270,7 +276,12 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 					if e != nil {
 						return plan, e
 					}
-					validated, e := validateReadableCapabilities(name, key, values, policy)
+					var validated []string
+					if policy.CallBroker != nil {
+						validated, e = validateReadableCallBrokerCeiling(name, key, values, policy.CallBroker)
+					} else {
+						validated, e = validateReadableCapabilities(name, key, values, policy)
+					}
 					if e != nil {
 						return plan, e
 					}
@@ -280,6 +291,9 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 						policy.OnRequest, policy.OnRequestOrigins = validated, cloneOrigins(input.UserOrigins["allow."+name+".on_request"])
 					}
 				case AllowSetsKey:
+					if policy.CallBroker != nil {
+						return plan, fmt.Errorf("allow.%s.%s is not declared for this call-broker source", name, key)
+					}
 					// The source's permission sets, the TOML spelling of brokered.<source>.sets
 					// (RC-D54), read by BrokeredSets and judged by the same validator.
 					if name == policy.Pack {
@@ -482,6 +496,17 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 		if !selected[policy.Pack] {
 			plan.Diagnostics = append(plan.Diagnostics, fmt.Sprintf("requests.%s names an unselected broker pack; add %q to packs or remove this request", name, policy.Pack))
 		}
+		if policy.CallBroker != nil {
+			if err := validateReadableCallBrokerRequests(name, policy, table, selected[policy.Pack], input.WorkspaceOrigins, &plan); err != nil {
+				return plan, err
+			}
+			if selected[policy.Pack] {
+				if i := readableBrokerIndex(plan.Sources, name); i >= 0 {
+					plan.Sources[i] = policy
+				}
+			}
+			continue
+		}
 		for _, key := range table.Keys() {
 			path := "requests." + name + "." + key
 			value := readableValue(table, key)
@@ -595,7 +620,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		input.TableTombstones[i].Files = cloneOrigins(input.TableTombstones[i].Files)
 	}
 	for _, policy := range plan.Sources {
-		if policy.RemoteHost == brokerscope.AnyRemoteHost {
+		if policy.CallBroker != nil || policy.RemoteHost == brokerscope.AnyRemoteHost {
 			continue
 		}
 		for _, requested := range policy.Repos {
@@ -605,6 +630,9 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		}
 	}
 	for _, policy := range plan.Sources {
+		if policy.CallBroker != nil {
+			continue // Call-broker cells are validation metadata, not legacy repository grants.
+		}
 		var remotes brokerscope.Read
 		if policy.RemoteHost == brokerscope.AnyRemoteHost {
 			remotes = brokerscope.ReadAllRemotes(workspace)
@@ -1116,6 +1144,31 @@ func readableDeclarations(input ReadableAllowanceInput) (map[string][]loopholede
 		settings[declaration.Pack] = append(settings[declaration.Pack], declaration.Settings...)
 	}
 	for _, declaration := range input.Declarations {
+		if declaration.CallBroker != nil {
+			callBroker := declaration.CallBroker
+			if declaration.Pack == "" || declaration.Label == "" || callBroker.Source == "" || declaration.Brokered.Source != "" || declaration.ReadCapability != "" || len(declaration.KindCapabilities) > 0 || len(declaration.PendingCapabilities) > 0 {
+				return nil, nil, fmt.Errorf("pack %q call-broker declaration needs a pack handle, label and source, and must not contain legacy broker metadata", declaration.Pack)
+			}
+			policy := ReadableBrokerPolicy{Pack: declaration.Pack, Label: declaration.Label, Source: callBroker.Source,
+				CallBroker: cloneReadableCallBroker(callBroker)}
+			if previous, found := brokers[callBroker.Source]; found {
+				previousSelected, currentSelected := selected[previous.Pack], selected[declaration.Pack]
+				switch {
+				case previousSelected && currentSelected:
+					return nil, nil, fmt.Errorf("broker source %q is declared by two selected packs %q and %q", callBroker.Source, previous.Pack, declaration.Pack)
+				case currentSelected:
+					brokers[callBroker.Source] = policy
+				case previousSelected:
+				default:
+					previous.Ambiguous = true
+					brokers[callBroker.Source] = previous
+				}
+			} else {
+				brokers[callBroker.Source] = policy
+			}
+			settings[declaration.Pack] = append(settings[declaration.Pack], declaration.Settings...)
+			continue
+		}
 		b := declaration.Brokered
 		if declaration.Pack == "" || declaration.Label == "" || b.Source == "" || declaration.ReadCapability == "" {
 			return nil, nil, fmt.Errorf("pack %q broker declaration needs a pack handle, label, source and read capability", declaration.Pack)
@@ -1227,6 +1280,111 @@ func readableStringList(value any, path string) ([]string, error) {
 	return out, nil
 }
 
+func validateReadableCallBrokerCeiling(source, field string, values []string, broker *loopholedecl.CallBroker) ([]string, error) {
+	out, seen := make([]string, 0, len(values)), map[string]bool{}
+	for i, token := range values {
+		valid := false
+		for _, cell := range broker.Cells {
+			for _, table := range cell.Tables {
+				if token == table || token == table+"."+cell.Name {
+					valid = true
+				}
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf("allow.%s.%s[%d]: %q is not a declared call-broker table/cell ceiling", source, field, i, token)
+		}
+		if seen[token] {
+			return nil, fmt.Errorf("allow.%s.%s[%d]: call-broker ceiling %q is listed twice", source, field, i, token)
+		}
+		seen[token] = true
+		out = append(out, token)
+	}
+	return out, nil
+}
+
+func validateReadableCallBrokerRequests(source string, policy ReadableBrokerPolicy, requests *jsonx.OrderedMap, selected bool, origins map[string][]string, plan *ReadableAllowancePlan) error {
+	broker := policy.CallBroker
+	if broker == nil {
+		return nil
+	}
+	values := make(map[string]map[string]bool)
+	for _, cell := range broker.Cells {
+		values[cell.Name] = map[string]bool{}
+		for table, enabled := range cell.Default {
+			values[cell.Name][table] = enabled
+		}
+	}
+	for _, table := range requests.Keys() {
+		path := "requests." + source + "." + table
+		if table != "working_set" && table != "all" {
+			return fmt.Errorf("%s: not a declared call-broker table; use working_set or all", path)
+		}
+		raw := readableValue(requests, table)
+		cells, ok := asMap(raw)
+		if !ok {
+			return fmt.Errorf("%s: expected a table of declared call-broker cells", path)
+		}
+		for _, name := range cells.Keys() {
+			cell, found := callBrokerCell(broker, name)
+			cellPath := path + "." + name
+			if !found {
+				return fmt.Errorf("%s: not a declared call-broker cell", cellPath)
+			}
+			if !slices.Contains(cell.Tables, table) {
+				return fmt.Errorf("%s: table/cell pair is not declared by the call-broker cell", cellPath)
+			}
+			value := readableValue(cells, name)
+			requested := false
+			switch typed := value.(type) {
+			case bool:
+				requested = typed
+			case string:
+				if typed != "ask" {
+					return fmt.Errorf("%s: expected true, false, or \"ask\"", cellPath)
+				}
+			default:
+				return fmt.Errorf("%s: expected true, false, or \"ask\"", cellPath)
+			}
+			values[name][table] = requested
+			if !selected || !requested {
+				continue
+			}
+			capability := table + "." + name
+			allowed := readableCallBrokerCeilingAllows(policy, table, name)
+			status, reason := ReadableRequestPending, "call-broker cell request is declaration metadata; runtime authority is not supplied here"
+			if !allowed {
+				status, reason = ReadableRequestSkipped, outsideCeilingReason(source)
+			}
+			plan.Requests = append(plan.Requests, ReadableRequestResult{Path: cellPath, Files: cloneOrigins(origins[cellPath]), Capability: capability, Value: requested, Status: status, Reason: reason})
+		}
+	}
+	for _, cell := range broker.Cells {
+		if slices.Contains(cell.Tables, "working_set") && slices.Contains(cell.Tables, "all") && values[cell.Name]["all"] && !values[cell.Name]["working_set"] {
+			return fmt.Errorf("requests.%s: all.%s = true but working_set.%s is not true; keep working_set at least as permissive as all, or change all to false/\"ask\"", source, cell.Name, cell.Name)
+		}
+	}
+	return nil
+}
+
+func callBrokerCell(broker *loopholedecl.CallBroker, name string) (loopholedecl.CallBrokerCell, bool) {
+	for _, cell := range broker.Cells {
+		if cell.Name == name {
+			return cell, true
+		}
+	}
+	return loopholedecl.CallBrokerCell{}, false
+}
+
+func readableCallBrokerCeilingAllows(policy ReadableBrokerPolicy, table, cell string) bool {
+	for _, capability := range append(append([]string(nil), policy.Always...), policy.OnRequest...) {
+		if capability == table || capability == table+"."+cell || (table == "working_set" && (capability == "all" || capability == "all."+cell)) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateReadableCapabilities(source, field string, values []string, policy ReadableBrokerPolicy) ([]string, error) {
 	out, seen := make([]string, 0, len(values)), map[string]bool{}
 	for i, capability := range values {
@@ -1276,6 +1434,16 @@ func readableHasCapability(policy ReadableBrokerPolicy, name string) bool {
 	return false
 }
 func readableCapabilities(policy ReadableBrokerPolicy) []string {
+	if policy.CallBroker != nil {
+		var capabilities []string
+		for _, cell := range policy.CallBroker.Cells {
+			for _, table := range cell.Tables {
+				capabilities = append(capabilities, table+"."+cell.Name)
+			}
+		}
+		sort.Strings(capabilities)
+		return capabilities
+	}
 	seen := map[string]bool{policy.ReadCapability: true}
 	out := []string{policy.ReadCapability}
 	var rest []string

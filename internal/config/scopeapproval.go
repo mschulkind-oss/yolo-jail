@@ -58,7 +58,11 @@ type ScopeSource struct {
 	// EntryKey is the authored key naming this source's changed repository entries. Readable
 	// requests keep their requests.* vocabulary instead of remediating through brokered.*.
 	EntryKey string
-	// Grants are the user grants the workspace's `brokered.<Source>.grants` names, of a kind
+	// Disclosure is selected call-broker declaration metadata recorded and shown with this gate.
+	// It carries no runtime authority.
+	Disclosure []string
+	// ScopeKind names non-repository roots (for example, a call-broker root).
+	ScopeKind string
 	// the source defines and the user's own config allows (WorkspaceRead.Grants), and GrantFiles
 	// the workspace-relative files that name them. A grant is a line of the source's block of its
 	// own, recorded under grantsRecordKey (BB-D96; docs/design/git-broker-plan.md ID-10).
@@ -467,6 +471,11 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		out.nextSources[k] = v
 	}
 	for _, s := range check.Sources {
+		declarationKey := callBrokerScopeRecordKey(s.Source)
+		declarationChanged := len(s.Disclosure) > 0 && !sameStrings(old[declarationKey], s.Disclosure)
+		if len(s.Disclosure) > 0 {
+			out.next[declarationKey] = append([]string(nil), s.Disclosure...)
+		}
 		if s.Dormant {
 			out.approved[s.Label] = []ScopeRepo{}
 			// BB-D110 preserves inert historical records while keeping them out of current
@@ -508,7 +517,7 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		} else {
 			delete(out.next, gkey)
 		}
-		if !had && len(cur) == 0 && len(s.Grants) == 0 && len(prevGrants) == 0 {
+		if !had && len(cur) == 0 && len(s.Grants) == 0 && len(prevGrants) == 0 && !declarationChanged {
 			// Nothing to approve and no record yet: recorded silently, as an empty config is.
 			continue
 		}
@@ -531,7 +540,13 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 					Files: append([]string(nil), s.GrantFiles...)})
 			}
 		}
-		changed = changed || gChanged
+		changed = changed || gChanged || declarationChanged
+		if declarationChanged {
+			block = append(block, "selected call-broker declaration for "+termsafe.Visible(s.Source)+":")
+			for _, line := range s.Disclosure {
+				block = append(block, termsafe.Visible(line))
+			}
+		}
 		if !changed {
 			continue
 		}
@@ -571,7 +586,11 @@ func scopeBlock(s ScopeSource, cur []scopeRepo, prev []string, had bool,
 		}
 		from += " and " + strings.Join(shown, ", ")
 	}
-	lines := []string{s.Label + " repository scope, read from " + from + ":"}
+	kind := s.ScopeKind
+	if kind == "" {
+		kind = "repository"
+	}
+	lines := []string{s.Label + " " + kind + " scope, read from " + from + ":"}
 	type row struct{ mark, repo, sources, what string }
 	var rows []row
 	// A wildcard entry admits far more than one repository, so its row says what it admits
