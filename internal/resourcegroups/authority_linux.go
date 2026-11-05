@@ -17,32 +17,34 @@ import (
 	"time"
 )
 
-// ReconcileUserIO refuses real cgroup mutation: a verified parent/child name and
-// pinned fd cannot exclude an authorized rename between verification and mutation.
-// No existing user-manager right or cooperative lock provides that exclusion.
-// Even the read-only filesystem gate runs before the unsupported refusal, so an
-// ordinary directory cannot be mistaken for a cgroup delegation.
+// ReconcileUserIO refuses real cgroup mutation: the unactivated FD writer
+// cannot establish selected unit lifetime, safe policy reconciliation and
+// actual placement. A pinned FD alone is not delegated authority. Even the
+// read-only filesystem gate runs before refusal, so an ordinary directory
+// cannot be mistaken for a cgroup delegation.
 func ReconcileUserIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error)) error {
 	group, err := openPinnedGroup(filepath.Dir(paths.Assigned), true)
 	if err != nil {
 		return fmt.Errorf("cannot pin assigned cgroup: %w", err)
 	}
 	group.close()
-	return errors.New("direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build")
+	return errors.New("direct cgroup I/O writer unsupported: native delegation, lifetime and placement unverified; inspect selection with yolo check --no-build")
 }
 
 // ReconcileDelegatedIO is a conditional adapter for fake/injected I/O, not a
 // real cgroup writer. It requires a resolved USER-manager identity and a shared
-// private lock, but those cannot exclude authorized parent/child renames.
-// Callers must not supply a real filesystem writer until stable-name ownership
-// is established independently; current mapped launches always refuse.
+// private lock, but the actual host writer is still unactivated; a fake
+// observer cannot establish delegated unit lifetime or actual placement.
+// Callers must not supply a real filesystem writer until native authority
+// and placement are independently proven; current mapped launches refuse.
 func ReconcileDelegatedIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error) error {
 	return reconcileDelegatedIO(ctx, paths, percent, lockDir, observe, read, mkdir, write, nil, nil)
 }
 
 // ReconcileDelegatedIOAndStart is a fake/injected algorithm boundary for testing
 // required-start admission. It is not a production start API or writer: all I/O
-// callbacks must remain fake until stable-name ownership and placement are proven.
+// callbacks must remain fake until native delegated authority and actual
+// placement are separately proven.
 // The callback runs under the assigned-group lock only after reconciliation and
 // observed PID membership in the requested managed child both succeed.
 func ReconcileDelegatedIOAndStart(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error, child string, pid int, observeMember func(int) (string, error), start func() error) error {

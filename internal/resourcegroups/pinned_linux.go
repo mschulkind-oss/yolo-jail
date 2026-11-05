@@ -110,11 +110,32 @@ func (g *pinnedGroup) verifyChild(child *pinnedGroup, name string) error {
 	return nil
 }
 func (g *pinnedGroup) writePolicy(data []byte, _ bool) error {
-	fd, err := syscall.Openat(g.fd, "io.max", syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	return writePolicyAt(g.fd, data, requireCgroup2Policy)
+}
+
+// writePolicyAt owns the actual descriptor-relative syscall. The production
+// entry always requires cgroup v2; a regular-file fixture substitutes only the
+// filesystem validator, never the descriptor-relative open/write operation.
+func writePolicyAt(dirFD int, data []byte, validate func(int) error) error {
+	fd, err := syscall.Openat(dirFD, "io.max", syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
 	defer syscall.Close(fd)
+	if err := validate(fd); err != nil {
+		return err
+	}
+	n, err := syscall.Write(fd, data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return errors.New("short delegated policy write")
+	}
+	return nil
+}
+
+func requireCgroup2Policy(fd int) error {
 	var stat syscall.Stat_t
 	var fs syscall.Statfs_t
 	if err := syscall.Fstat(fd, &stat); err != nil {
@@ -125,13 +146,6 @@ func (g *pinnedGroup) writePolicy(data []byte, _ bool) error {
 	}
 	if stat.Mode&syscall.S_IFMT != syscall.S_IFREG || fs.Type != cgroup2Magic || stat.Ino == 0 {
 		return errors.New("delegated io.max is not a cgroup v2 policy file; run yolo check --no-build")
-	}
-	n, err := syscall.Write(fd, data)
-	if err != nil {
-		return err
-	}
-	if n != len(data) {
-		return errors.New("short delegated policy write")
 	}
 	return nil
 }

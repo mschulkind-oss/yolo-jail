@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Keep mapped execution refused. Any later real Brief 3 writer/Brief 4 placement work must resolve stable-name exclusion and least-authority native membership first; complete full combined-source and native evidence gates separately before claiming enforcement."
+next: "Keep mapped execution refused. Review the unactivated descriptor-relative Linux prototype and verify native least-authority delegation/lifetime plus actual placement separately before connecting any writer to launch; complete combined and native evidence gates before claiming enforcement."
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is integrated and independently HIGH-reviewed. Its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. The committed primary-source development bundle reports the matching commit; its scrubbed `check --no-build` passed with resource groups disabled, and the required rootful `podman-self` default-off nested `true` launch passed. Stable-name exclusion, real writer authority, actual placement, native enforcement, and device evidence remain unproven; whole-project combined and native gates are distinct and remain outstanding.
+**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is integrated and independently HIGH-reviewed. Its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. The committed primary-source development bundle reports the matching commit; its scrubbed `check --no-build` passed with resource groups disabled, and the required rootful `podman-self` default-off nested `true` launch passed. An unactivated descriptor-relative child-writer prototype has no production caller; its package, bundle and nested gates are separately reported after this candidate's validation. Native delegated-unit authority, actual placement, enforcement and device evidence remain unproven; whole-project combined and native gates are distinct and remain outstanding.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -27,6 +27,7 @@ depends-on: [resource-groups.md]
 | `internal/cli/check/resourcegroups.go`, `internal/cli/run/resourcegroups.go` | actual Check and Run consumers; Check exposes the read-only plan and mapped Run refuses before prewarm |
 | `internal/resourcegroups/authority_linux.go`, `authority_other.go`, `pinned_linux.go` | guarded direct-writer refusal, unsupported-platform result, and fake-only required-start admission boundary; no activated writer |
 | `internal/resourcegroups/authority_linux_test.go` | fake injected admission tests; no production caller or native authority proof |
+| `internal/resourcegroups/pinnedio_linux.go`, `pinnedio_linux_test.go` | unactivated descriptor-relative Linux child-writer/guard prototype and ordinary-filesystem syscall fixtures; no mapped execution |
 | `internal/cli/run/` launch-boundary files, `internal/cli/host.go` | Brief 4: actual placement-witnessed execution boundaries; unbuilt |
 
 ## Reuse
@@ -64,14 +65,14 @@ depends-on: [resource-groups.md]
 - **Tests first:** `TestCheckResourceGroupsFiniteAssignedPlan` calls `Check` with a fake read-only observer and asserts `101 rbps -> 5/96`, `20 wbps -> 1/19`, unconstrained `riops`, and refusal for `wiops=1`; include max, missing, unreadable, ancestor-only, duplicate/wrong device, stale readback and max integer cases. `TestMappedLaunchUsesResourceGroupPlanBeforePrewarm` drives `Run` and proves parse/authorization refusal precedes capture, prewarm, image and runtime hooks.
 - **Change:** add pure parser/planner under `internal/resourcegroups`; inject one read-only authority/observer into the actual check and launch consumers. Keep the same plan object for later apply; no manager probes on the off path.
 - **Gates:** red/green consumer tests plus `go test ./internal/resourcegroups ./internal/cli/check ./internal/cli/run`, `just format`, and `just build-dev-bundle`.
-- **Fences:** no cgroup writes or `enforced` status; no host-wide arbitrary device scan. `ReconcileUserIO` performs only a read-only cgroup gate and then refuses with the stable-name exclusion; it does not write. The injected `ReconcileDelegatedIO` algorithm and its fake-writer tests do not establish an activated writer or enforcement.
+- **Fences:** no cgroup writes or `enforced` status; no host-wide arbitrary device scan. `ReconcileUserIO` performs only a read-only cgroup gate and then refuses because native delegated authority and placement remain unverified; it does not write. The injected `ReconcileDelegatedIO` algorithm and its fake-writer tests do not establish an activated writer or enforcement.
 - **Commit:** `feat(resources): surface finite assigned IO plans without enforcement`.
 
-### Brief 3 — least-authority Linux adapter (fake-only admission boundary integrated; writer remains unbuilt)
+### Brief 3 — least-authority Linux adapter (unactivated descriptor-relative prototype; writer/placement remain unbuilt)
 
 **Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates. The committed primary-source bundle/check and rootful default-off nested smoke passed. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
 
-**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses with `direct cgroup I/O writer unsupported: stable-name exclusion is unavailable; inspect selection with yolo check --no-build`. `ReconcileDelegatedIO` and `ReconcileDelegatedIOAndStart` are not wired to a production writer or launch caller and do not prove authority or placement. Do not treat this increment as implementation of the real Brief 3 writer.
+**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses native mutation. `ReconcileDelegatedIO` and `ReconcileDelegatedIOAndStart` are not wired to a production writer or launch caller. An unactivated [`pinnedIOChildren`](../../internal/resourcegroups/pinnedio_linux.go) prototype uses descriptor-relative child writes gated on observed user-manager delegation and cgroup-v2 checks; fixture tests do not establish native delegation, lifetime, safe allocation, or placement. The [native authority investigation](../research/resource-groups-native-authority.md) and independent review show upstream cgroup v2 disallows rename, whereas deletion/recreation and owner revocation still need identity checks. This is not implementation of the real Brief 3 writer and must not be wired to mapped starts before independent review and native evidence.
 
 **Settled — do not re-open:** only existing verified user-manager delegated rights or an authorized manager-owned child route may place work. Never write owner parents or unrelated siblings, elevate privilege, widen the jail delegate protocol, move jobs between owner groups, or delete active/uncertain Yolo children. Without verified authority/membership, mapped starts refuse as unsupported/unknown.
 
