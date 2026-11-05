@@ -322,7 +322,15 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 }
 
 func startAccessEndpoint(t *testing.T, handler func(*hostservice.Session), dirName string) string {
-	return startAccessEndpointAt(t, handler, dirName, t.TempDir())
+	t.Helper()
+	// The daemon socket path must not inherit t.TempDir's test-name prefix: that can
+	// exceed Darwin's AF_UNIX sun_path even when TMPDIR itself is short.
+	dir, err := os.MkdirTemp("/tmp", "ghb-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return startAccessEndpointAt(t, handler, dirName, dir)
 }
 
 func startAccessEndpointAt(t *testing.T, handler func(*hostservice.Session), dirName, root string) string {
