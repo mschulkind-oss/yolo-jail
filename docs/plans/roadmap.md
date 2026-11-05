@@ -491,10 +491,18 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 
     G4 selected front/publication is absent from primary; a separate front adapter/dispatch
     component remains partial and is not a selected launch, ready service or G4 acceptance.
-    Route the shared-loopback caller choice through
-    [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2): continue nonpublishing front work,
-    but do not publish an agent-facing shared-loopback URL until ruled.
-    [OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1) gates only custom executor/signing
+    Route the shared-loopback caller boundary through
+    [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2). The owner prefers the selected
+    client's ordinary token/API-key field carrying a fresh jail-scoped replacement token,
+    consumed at the front while the host injects the real origin credential; this is not an
+    approved wire, custody path, client-eligibility rule or backend restriction. Current token
+    records, agent files and snapshots are workspace-backed; source review identifies a
+    same-workspace peer-read path, but no two-jail runtime reproduction has run. Private
+    delivery and consumer-chain integrity are engineering next steps; test actual token
+    acquisition/replay and startup-chain tampering.
+    Keep nonpublishing front work moving, do not pre-emptively exclude clients/backends, and
+    return only a concrete compatibility or isolation boundary for ruling before shared-loopback
+    URL publication. [OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1) gates only custom executor/signing
     and does not block G4. F still permits only explicit project-scoped `run list` reads;
     declaration-selected host environment names are captured only at the pinned host CLI,
     while CircleCI XDG credentials are fenced. No live authentication, Cloud/Server behavior,

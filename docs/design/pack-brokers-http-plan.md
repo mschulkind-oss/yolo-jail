@@ -147,25 +147,46 @@ still gates only custom executor/signing and does not block this core-front work
   declared endpoints, not dynamic front names. Do not encode `127.0.0.1:0` in pack schema or
   treat the current relocation/attach channel as this allocator. Add only the core name-keyed
   held-address and attach/readiness path the contract requires; do not add a privileged pack
-  daemon, binary, host grant or new credential channel.
-- **Caller choice:** implement only the owner-ruled branch of
-  [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2). If its local-capability branch is selected,
-  require verified client support and consume the existing pack-scoped caller capability at
-  the front before any host request; it is not a host credential and is never forwarded. If
-  shared-loopback publication is held, keep those backends in the supported intent and fail
-  the affected front launch with an actionable next step until another isolation strategy is
-  independently verified.
+  daemon, binary or host grant. Local token delivery is separate engineering below; this
+  plan does not authorize an actual origin credential, CLI TLS bearer, or generic host
+  credential channel.
+- **Local caller token and custody:** the owner prefers trying the selected client's existing
+  ordinary configurable token/API-key field with a fresh jail-scoped replacement token, not
+  a new special client header. A's front consumes and strips that local token before host
+  dispatch; the host independently injects the actual origin credential. This is a preference,
+  not an accepted wire, custody mechanism, compatibility guarantee, client-eligibility rule,
+  or backend restriction. Never use an actual vendor credential or the CLI transport bearer
+  as the local token.
+
+  Do not reuse current `{caller_token}` delivery as proof of cross-jail secrecy. The selected
+  value is recorded in the per-entry channel and rendered into selected-agent environment
+  files and session snapshots under `paths.WorkspaceHomeState`; the workspace is also exposed
+  to each jail. See [`callertokens.go`](../../internal/cli/run/callertokens.go),
+  [`userenv.go`](../../internal/cli/run/userenv.go),
+  [`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go),
+  [`sessionsnapshot.go`](../../internal/cli/run/sessionsnapshot.go), and the workspace/home
+  binds in [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go). A same-owner
+  peer jail sharing the workspace can read those aliases; `0600`, a read-only home overlay,
+  and no-follow/root-walk protections do not establish peer secrecy. This is a source-based
+  finding, not a reproduced two-jail runtime result. Engineer private delivery and protect the
+  token-bearing consumer startup chain, including workspace-backed launcher/environment
+  inputs. This is the next engineering action, not a blanket owner-approval hold. If it
+  requires a changed shared-runtime trust boundary, return that concrete choice to the owner.
 - **Consumer regression after a selected front is callable:** in
   `integration/packbroker_test.go`, use the actual selected client environment and two
-  independently selected fixture jails A and B that share loopback. A has an approved write;
-  B must not inherit A's caller authority. B calls A's real published URL. The red must show
-  B's request reaching A's host handler; a connection refusal caused by missing
-  dispatch/publication is not evidence of the defect. After
-  [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) is ruled, the fix must refuse B before A's
-  handler, with zero receiver requests and zero spend. For the local-capability branch, also
-  assert A's supported client succeeds once and absent/foreign capability is refused. For
-  the hold branch, assert the affected launch fails before listener or URL publication. This
-  is not a helper-only test or a measured native-Mac/rootless claim. Red:
+  independently selected fixture jails A and B that share loopback and the same workspace.
+  A has an approved write and succeeds once through its normal token field. B must attempt to
+  acquire A's actual token through every published workspace alias and session snapshot, then
+  replay any acquired value through the same client field; also attempt to tamper with the
+  token-bearing consumer startup chain. The current-path red must show acquisition and replay
+  reaching A's host handler; connection refusal or only absent/foreign-token rejection is not
+  evidence. After private delivery and consumer integrity pass, B must neither acquire nor
+  replay A's capability, enter A's host handler, cause a receiver request, or spend. Count
+  A's handler entries, receiver effects and spend. A host-origin credential is independently
+  injected by the host and never becomes the client's local token. For a concrete client path
+  that cannot meet these conditions, record the specific compatibility/isolation boundary
+  and return it to the owner; do not pre-emptively exclude a client or backend. This is not a
+  helper-only test or a measured native-Mac/rootless claim. Red:
   `go test -run '^TestPackBrokerHTTPFrontCannotBeBorrowedByAnotherJail$' ./integration`.
 
 - **Literal front-path assertions:** send a selected fixture client request `POST /graphql` with `Authorization: jail-forged` and an original body from G3; for ASK assert `403`, `Yolo-Verdict: asks`, an opaque `Yolo-Request`, a GraphQL `errors` array carrying the actionable menu, and zero receiver requests. Repeat with no selected pack, invalid host preamble and missing grant; each refuses before the counted receiver. A selected approved call instead reaches it once with the host-built header, never `jail-forged`. Do not mistake a disconnected test listener for successful refusal routing.

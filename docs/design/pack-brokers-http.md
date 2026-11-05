@@ -168,10 +168,21 @@ endpoint file or a host credential. The TLS preamble identifies the front's conf
 a shared loopback. If jail B can reach jail A's front, A's request could therefore arrive at
 the host with A's identity and use A's selected binding and grant. This is an architectural
 confused-deputy path, not a measured two-jail runtime result; [OQ-HTTP2](#OQ-HTTP2)
-records the caller boundary. The existing `{caller_token}` is defined by
+records the caller boundary.
+
+The existing `{caller_token}` is defined by
 [`loopholedecl.TokenCallerToken`](../../internal/loopholedecl/tokens.go) and resolved by the
-selected [`CredentialScope`](../../internal/packload/credentialscope.go); this proves scoped
-delivery, not that a given HTTP client can transmit it locally.
+selected [`CredentialScope`](../../internal/packload/credentialscope.go), but this proves
+selection-aware composition, not cross-jail secrecy. Source review found token records in the
+per-entry channel, selected-agent environment files, and session snapshots under
+[`paths.WorkspaceHomeState`](../../internal/paths/paths.go); the workspace is also exposed
+to each jail. A same-owner peer jail sharing the workspace can therefore read those
+workspace aliases and obtain the value, regardless of a `0600` mode or the read-only home
+overlay. No-follow and `os.Root` protections prevent path escape; they do not hide legitimate
+files in the shared workspace. The current token-bearing consumer startup chain is
+workspace-backed too. Private delivery and consumer integrity are engineering prerequisites
+before reusing this composition for cross-jail isolation. This is a source-based finding, not a
+reproduced two-jail exploit or runtime verification.
 
 ### HTTP custody and retries
 
@@ -208,23 +219,25 @@ The selected in-jail front and launch publication are not wired in the checked p
 
    _Leaning:_ A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established.
 
-2. 💬 **OQ-HTTP2: Can a jail borrow another jail's selected HTTP front?**
+2. 💬 **OQ-HTTP2: What if a client cannot safely use the ordinary token field?**
 
-   Jail A publishes a nonsecret loopback URL to its selected HTTP client. Jail B may dial it
-   on shared loopback; A's front then reaches the host as A's `FrontJailID`. What prevents B
-   from using A's selection and grant?
+   Jail B may reach A's loopback front, where the host sees A's identity. The owner prefers
+   a fresh jail-scoped replacement in the selected client's ordinary API-token field: the
+   front consumes it, and the host injects the real origin credential. This is a preference,
+   not approval of custody, wire, compatibility, client eligibility, or backend restrictions;
+   never substitute an actual vendor credential or the CLI TLS bearer.
 
-   - **A — Require a local caller capability.** Require client support for the existing
-     pack-scoped caller capability; the front consumes it before the host request and never
-     forwards it. Clients without verified support are ineligible.
-   - **B — Hold shared-loopback publication.** Keep shared/native backends in the supported
-     intent, but refuse the affected front launch until another caller-isolation strategy is
-     verified. Do not silently disable a backend.
+   - **A — If one client path cannot meet these conditions, hold only that front unpublished**;
+     keep backend intent unchanged.
+   - **B — Require another verified isolation strategy** that preserves that client's launch
+     and selected backend behavior.
 
-   <!-- vantage: question id=OQ-HTTP2 leaning="A — Require a pack-scoped local caller capability for clients verified to present it; consume it at the front, never as a host credential." -->
+   <!-- vantage: question id=OQ-HTTP2 leaning="Owner preference: test a fresh jail-scoped replacement token in the ordinary client API-token field, consumed by the front while the host injects the real origin credential; custody, wire, compatibility and backend restrictions remain open." -->
 
-   _Leaning:_ A — Require a pack-scoped local caller capability for clients verified to
-   present it; consume it at the front, never as a host credential.
+   _Leaning:_ First continue engineering and verification of the ordinary-field path with
+   private delivery and consumer integrity. Return a concrete compatibility or isolation
+   conflict to the owner; do not pre-emptively exclude a client or backend. This work order is
+   not approval of its wire, custody or eligibility.
 
    **Answer:**
 
