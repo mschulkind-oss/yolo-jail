@@ -95,6 +95,81 @@ class ParseLogTest(unittest.TestCase):
                                     "open ../other/data.txt", "stat ../missing"])
         self.assertEqual(got, ({"other/data.txt"}, {"other"}, {"missing"}))
 
+    def _fixture_namespace(self):
+        case = self.tmp / f"case-{len(list(self.tmp.iterdir()))}"
+        durable = case / ".yolo" / "durable"
+        source = durable / "worktrees" / "source"
+        source.mkdir(parents=True)
+        fixture = durable / "completion-census-fixture-c4"
+        fixture.mkdir(mode=0o700)
+        os.chmod(fixture, 0o700)
+        marker = fixture / ".completion-census-fixture"
+        marker.write_text("completion-census dedicated fixture root v1\n")
+        os.chmod(marker, 0o600)
+        env = {"TMPDIR": str(fixture), "YOLO_CENSUS_FIXTURE_ROOT": str(fixture)}
+        census.ROOT = source.resolve()
+        return source, fixture, env
+
+    def test_dedicated_fixture_namespace_is_allowed_but_source_is_not(self):
+        source, fixture, env = self._fixture_namespace()
+        allowed = census.validate_fixture_root(source, env)
+        self.assertEqual(allowed, fixture.resolve())
+        self.assertFalse((fixture / census.FIXTURE_ROOT_MARKER).exists())
+        with self.assertRaises(census.CensusError):
+            census.validate_fixture_root(source, env)
+        log = "open " + str(fixture / "TestCase123" / "001" / "fixture.txt")
+        self.assertEqual(census.jail_workspace_opens(log, str(source / "pkg"), allowed), set())
+        source_file = source / "internal" / "source.go"
+        source_file.parent.mkdir()
+        source_file.write_text("source")
+        log = "open " + str(source_file)
+        self.assertEqual(census.jail_workspace_opens(log, str(source / "pkg"), allowed), set())
+
+    def test_fixture_prefix_confusion_and_symlink_escape_remain_leaks(self):
+        source, fixture, env = self._fixture_namespace()
+        allowed = census.validate_fixture_root(source, env)
+        source_file = source / "internal" / "source.go"
+        source_file.parent.mkdir()
+        source_file.write_text("source")
+        alias = fixture / "source-alias.go"
+        alias.symlink_to(source_file)
+        sibling = fixture.with_name(fixture.name + "-other") / "secret"
+        sibling_worktree = source.parent / "other" / "internal" / "source.go"
+        log = "open " + str(alias) + "\nopen " + str(sibling) + "\nopen " + str(sibling_worktree)
+        leaks = census.jail_workspace_opens(log, str(source / "pkg"), allowed)
+        self.assertEqual(leaks, {str(alias.resolve()), str(sibling), str(sibling_worktree)})
+
+    def test_dedicated_fixture_configuration_rejects_broad_and_unsafe_roots(self):
+        source, fixture, env = self._fixture_namespace()
+        for path in (Path("/workspace"), source.parent.parent, source.parent, source, self.tmp):
+            with self.subTest(path=path):
+                bad_env = {"TMPDIR": str(path), "YOLO_CENSUS_FIXTURE_ROOT": str(path)}
+                with self.assertRaises(census.CensusError):
+                    census.validate_fixture_root(source, bad_env)
+        bad_env = dict(env, YOLO_CENSUS_FIXTURE_ROOT=str(fixture) + "-other")
+        with self.assertRaises(census.CensusError):
+            census.validate_fixture_root(source, bad_env)
+
+    def test_dedicated_fixture_rejects_symlinked_root_and_existing_contents(self):
+        source, fixture, env = self._fixture_namespace()
+        marker = fixture / ".completion-census-fixture"
+        marker.unlink()
+        (fixture / "source.go").write_text("not an empty fixture namespace")
+        with self.assertRaises(census.CensusError):
+            census.validate_fixture_root(source, env)
+
+        source, fixture, env = self._fixture_namespace()
+        link = fixture.parent / "completion-census-fixture-link"
+        link.symlink_to(fixture, target_is_directory=True)
+        bad_env = {"TMPDIR": str(link), "YOLO_CENSUS_FIXTURE_ROOT": str(link)}
+        with self.assertRaises(census.CensusError):
+            census.validate_fixture_root(source, bad_env)
+
+    def test_unconfigured_fixture_root_does_not_exempt_external_workspace_reads(self):
+        source, fixture, env = self._fixture_namespace()
+        leaks = census.jail_workspace_opens("open /workspace/internal/source.go", str(source / "pkg"))
+        self.assertEqual(leaks, {"/workspace/internal/source.go"})
+
 
 if __name__ == "__main__":
     unittest.main()

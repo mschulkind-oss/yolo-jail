@@ -30,10 +30,19 @@ there: in this repository's jail, the live checkout's. The census cannot tell th
 real one when it runs from the checkout that IS `/workspace`, where it would record the file,
 while every other checkout drops it, so the two outputs differ. So the census
 refuses, naming every such test, wherever it can see the leak: from any other checkout.
+
+For a detached gate checkout nested under a private durable `worktrees/` directory, the test
+temporary root can be a dedicated sibling directory outside that checkout but still lexically
+under `/workspace`. Set `TMPDIR` and `YOLO_CENSUS_FIXTURE_ROOT` to the same fresh directory and
+create only the census marker described by `validate_fixture_root`. The census consumes that
+marker before running tests. It accepts only the owned, mode-0700, canonical sibling namespace;
+the broad durable parent and source roots are never exempt, and an open whose resolved target
+leaves the fixture root remains a leak. Ordinary runs need no fixture-root setting.
 """
 import concurrent.futures as cf
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -182,25 +191,96 @@ def parse_log(text, pkgdir, pkg_dirs, visibility=None):
 
 
 JAIL_WORKSPACE = "/workspace"
+FIXTURE_ROOT_ENV = "YOLO_CENSUS_FIXTURE_ROOT"
+FIXTURE_ROOT_PREFIX = "completion-census-fixture-"
+FIXTURE_ROOT_MARKER = ".completion-census-fixture"
+FIXTURE_ROOT_MARKER_TEXT = "completion-census dedicated fixture root v1\n"
 
 
-def jail_workspace_opens(text, pkgdir):
-    """The paths a test log opens under the literal jail workspace that are not in this checkout
-    (module docstring). Stats are not counted: production stats the workspace root, and
-    resolving the checkout's own path stats its ancestors."""
+def _is_within(path, base):
+    """Component-aware containment; unlike string prefixes, sibling prefixes do not match."""
+    try:
+        return os.path.commonpath((os.fspath(path), os.fspath(base))) == os.fspath(base)
+    except (TypeError, ValueError):
+        return False
+
+
+def validate_fixture_root(root=ROOT, environ=None):
+    """Validate and consume a fresh private TMPDIR namespace for a detached gate checkout."""
+    environ = os.environ if environ is None else environ
+    configured = environ.get(FIXTURE_ROOT_ENV)
+    if not configured:
+        return None
+    tmpdir = environ.get("TMPDIR")
+    if not tmpdir or tmpdir != configured:
+        raise CensusError(f"{FIXTURE_ROOT_ENV} must exactly match TMPDIR; refusing an unproved fixture namespace")
+
+    candidate = Path(configured)
+    try:
+        canonical = candidate.resolve(strict=True)
+        source = Path(root).resolve(strict=True)
+        source_parent = source.parent
+        durable_parent = source_parent.parent
+    except OSError as exc:
+        raise CensusError(f"cannot resolve source and fixture roots: {exc}") from exc
+
+    # The caller provides one fresh sibling of this detached worktree under its private durable
+    # parent. Never treat a source root, one of its ancestors, or the broad parent as fixtures.
+    if (not candidate.is_absolute() or candidate != canonical or source_parent.name != "worktrees"
+            or durable_parent.name != "durable" or durable_parent.parent.name != ".yolo"
+            or candidate.parent != durable_parent or not candidate.name.startswith(FIXTURE_ROOT_PREFIX)
+            or _is_within(candidate, source) or _is_within(source, candidate)
+            or candidate == Path(JAIL_WORKSPACE) or candidate == durable_parent):
+        raise CensusError(f"{FIXTURE_ROOT_ENV} is not a dedicated sibling fixture namespace")
+
+    try:
+        dir_info = candidate.lstat()
+        marker = candidate / FIXTURE_ROOT_MARKER
+        marker_info = marker.lstat()
+        entries = list(candidate.iterdir())
+        if (not stat.S_ISDIR(dir_info.st_mode) or dir_info.st_uid != os.getuid()
+                or stat.S_IMODE(dir_info.st_mode) != 0o700):
+            raise CensusError("fixture namespace must be an owned, non-symlink, mode-0700 directory")
+        if (entries != [marker] or not stat.S_ISREG(marker_info.st_mode)
+                or marker_info.st_uid != os.getuid() or stat.S_IMODE(marker_info.st_mode) != 0o600
+                or marker.read_text() != FIXTURE_ROOT_MARKER_TEXT):
+            raise CensusError("fixture namespace must contain only its owned mode-0600 census marker")
+        marker.unlink()
+        if list(candidate.iterdir()):
+            raise CensusError("fixture namespace changed while its marker was consumed")
+    except CensusError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise CensusError(f"cannot validate the dedicated fixture namespace: {exc}") from exc
+    return canonical
+
+
+def jail_workspace_opens(text, pkgdir, fixture_root=None):
+    """Open paths under literal /workspace that are not this checkout or proven fixtures."""
     leaks = set()
+    fixture_root = Path(fixture_root).resolve(strict=True) if fixture_root is not None else None
     for line in text.splitlines():
         op, _, path = line.partition(" ")
         if op != "open":
             continue
-        p = os.path.normpath(path if os.path.isabs(path) else os.path.join(pkgdir, path))
-        if p != JAIL_WORKSPACE and not p.startswith(JAIL_WORKSPACE + os.sep):
+        p = Path(os.path.normpath(path if os.path.isabs(path) else os.path.join(pkgdir, path)))
+        if p != Path(JAIL_WORKSPACE) and not _is_within(p, Path(JAIL_WORKSPACE)):
             continue
-        if rel(p, pkgdir) is not None:
+        if rel(str(p), pkgdir) is not None:
             continue
-        if str(ROOT).startswith(p + os.sep):  # an ancestor of this checkout
+        if _is_within(Path(ROOT), p):  # an ancestor of this checkout
             continue
-        leaks.add(p)
+        if fixture_root is not None and _is_within(p, fixture_root):
+            try:
+                resolved = p.resolve(strict=False)
+            except OSError:
+                resolved = p
+            # A fixture alias that resolves into a checkout or elsewhere is not a fixture read.
+            if _is_within(resolved, fixture_root):
+                continue
+            leaks.add(str(resolved))
+            continue
+        leaks.add(str(p))
     return leaks
 
 
@@ -332,6 +412,7 @@ def run_test(binary, cwd, name, log):
 
 
 def main():
+    fixture_root = validate_fixture_root(ROOT, os.environ)
     jobs_n = int(os.environ.get("CENSUS_JOBS", str(max(2, (os.cpu_count() or 4) // 2))))
     pkgs, pkg_dirs = go_packages()
     by_dir = tracked_dirs()
@@ -357,7 +438,7 @@ def main():
             ip, d = pkgs[i]
             log = tmp / f"{i}-{name}.log"
             text = run_test(bins[i], d, name, log)
-            return i, name, parse_log(text, d, pkg_dirs, visibility), jail_workspace_opens(text, d)
+            return i, name, parse_log(text, d, pkg_dirs, visibility), jail_workspace_opens(text, d, fixture_root)
 
         readers, sets, index, leaks = {}, [], {}, {}
         with cf.ThreadPoolExecutor(jobs_n) as ex:
