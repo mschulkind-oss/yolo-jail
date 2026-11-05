@@ -136,6 +136,9 @@ func TestSelectedCallBrokerScopeUsesPrivateLaunchInputCarrier(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
+	if got.Lookups != nil {
+		t.Fatalf("a classifier with no declared lookups must publish the same nil form the host rereads, got %#v", got.Lookups)
+	}
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte("#!/bin/sh\nexit 0\n")))
 	if got.Version != "yolo.call-broker-launch/2" || got.Source != "tasks" || len(got.Roots) != 1 || got.Roots[0] != "team:ENG" || got.ProgramIdentities["classifier"].SHA256 != hash || len(got.Cells) != 1 || got.EffectiveCells["update"].Tables["all"].Ceiling != "on_request" || got.EffectiveCells["update"].Tables["all"].Decision != "ask" || !got.ReadStanding || got.ReadGrantStanding != config.LoopholeGrantGranted {
 		t.Fatalf("unapproved or incomplete selected snapshot: %+v", got)

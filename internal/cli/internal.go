@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/circleciclassify"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudesecurity"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -52,6 +53,8 @@ func runInternal(args []string) int {
 		// The selected program launcher's native TMPDIR-confinement check, called immediately
 		// before exec with roots baked from the host-resolved macos-user launch context.
 		return runSandboxTmpdirValidation(args[1:])
+	case "call-broker-classify":
+		return circleciclassify.Run(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "call-broker-forward":
 		if len(args) < 4 || args[2] != "--" {
 			fmt.Fprintln(os.Stderr, "use the selected pack's call broker intercept with its original arguments")

@@ -57,7 +57,7 @@ func newCLIHandler(inputFile, workspace string, store *brokerstore.Store, audit 
 	if input.Version != "yolo.call-broker-launch/2" || !loopholedecl.ValidBrokerSourceName(input.Source) || input.Loophole == "" || input.Front != "cli" || input.Program == "" || store == nil || store.SourceName() != input.Source || audit == nil || workspace == "" {
 		return nil, errors.New("selected call broker input is incomplete; relaunch the jail with its pack selected")
 	}
-	program, err := pinCLI(input.Program, nil)
+	program, err := pinCLI(input.Program, input.HostEnvNames)
 	if err != nil {
 		return nil, err
 	}

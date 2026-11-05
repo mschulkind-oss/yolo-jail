@@ -93,10 +93,9 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 			declaredCells[i].Default[table] = value
 		}
 	}
-	lookups := make([]loopholedecl.CallBrokerLookup, len(b.Lookups))
-	for i, lookup := range b.Lookups {
-		lookups[i] = lookup
-		lookups[i].CLI = append([]string(nil), lookup.CLI...)
+	lookups := append([]loopholedecl.CallBrokerLookup(nil), b.Lookups...)
+	for i := range lookups {
+		lookups[i].CLI = append([]string(nil), b.Lookups[i].CLI...)
 	}
 	readDeclared := false
 	for _, grant := range lp.Grants {
@@ -111,7 +110,7 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 	}
 	input := &CallBrokerLaunchInput{Version: "yolo.call-broker-launch/2", Loophole: lp.Name, Pack: lp.Pack, DeclarationHash: callbrokerinput.DeclarationHash(lp.CallBroker),
 		Source: b.Source, Front: b.Front, Program: b.Program, Classifier: append([]string(nil), b.Classifier...),
-		Executor: b.Executor, ProgramIdentities: identities,
+		Executor: b.Executor, HostEnvNames: append([]string(nil), b.EnvFromHost...), ProgramIdentities: identities,
 		Resources: append([]loopholedecl.CallBrokerResource(nil), b.Resources...),
 		Cells:     declaredCells, EffectiveCells: cloneCellPolicy(policy),
 		ReadStanding:      readDeclared && readGrant.Standing == config.LoopholeGrantGranted,

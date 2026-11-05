@@ -1,0 +1,9 @@
+name = "circleci"
+description = "Broker scoped CircleCI run listings through the host CLI using the host's own login; the jail can read only repositories approved for this workspace."
+
+[[loophole]]
+from = "loopholes/circleci-broker"
+
+[[intercept]]
+bin = "circleci"
+forward = ["yolo", "internal", "call-broker-forward", "circleci-broker", "--"]

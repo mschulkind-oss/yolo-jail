@@ -15,15 +15,7 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
 
-**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built.
-A detached candidate connects the selected CLI front to a live host scope, current host
-ceilings/standing, the existing request store and exact Allow once (one use/15 minutes),
-with synthetic front→host approval→CLI-effect coverage and a focused selected
-nested-jail fake-CLI smoke (including live read-grant withdrawal). It is not yet
-integrated or accepted for real pack grants: independent HIGH review, combined-tree
-verification and the full nested conformance suite remain. Timed/Add multiwrite approvals remain disabled; [OQ-BX7](#OQ-BX7)
-is still undecided. The original design evidence was read at `3ccc28def` on 2026-11-04;
-CircleCI CLI/API compatibility is based on published documentation, not a local account test.
+**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and the full nested conformance suite remain. This does not establish live authentication or positive real pack grants. Timed/Add multiwrite approvals remain disabled; [OQ-BX7](#OQ-BX7) is still undecided. The original design evidence was read at `3ccc28def` on 2026-11-04. CircleCI compatibility evidence is linked anonymous public `v1.14.0` source; neither live authentication nor cloud behavior is claimed.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
@@ -440,12 +432,11 @@ Local fake CLI execution verifies the same classifier and approval wiring in nes
 does not prove the real CLI's login or cloud behavior; those require separate compatibility
 evidence. The local fixture must not silently replace the production host program.
 
-CircleCI's current CLI (v1, a Go rewrite on API v3, generally available August 2026) has a verb
-for everything an agent needs: listing and reading runs, workflows, jobs, test results and
-pipelines; triggering, cancelling, rerunning and approving; reading and setting project
-environment variables and contexts. The host's `circleci auth login` stores the token in the
-host's keyring, and the host CLI reads it itself, so the jail never sees a token and core injects
-nothing, as with `gh`.
+The upstream [`CircleCI-Public/circleci-cli` v1.14.0 `run list` source](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/run/list.go) defines `--project`, `--branch`/`-b`, and `--json`. The tagged source also defines [`workflow rerun`](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/workflow/rerun.go), [`run approve`](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/run/approve.go), and [`pipeline create`](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/pipeline/create.go). The [`api` command](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/api/api.go) documents `/api/v3` as its default path prefix but explicitly permits another API-version prefix. The [tagged README](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/README.md) says the CLI is supported for both circleci.com and CircleCI Server; this does not support a cloud-only claim. The current classifier is deliberately narrower: it permits only the explicit project-scoped read `circleci run list --project gh/<org>/<repo>` (optionally `--branch`/`-b` and `--json`), where the slug exactly matches a gate-approved workspace root. Other upstream verbs, including workflow rerun, run approve and pipeline create, remain refused until their lookup chains and canonical write calls are implemented. It never falls back to `circleci api` or direct HTTP.
+
+The tagged [`auth login` source](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/cmd/cmdauth/login.go) says it stores a token in the system keyring or, with `--insecure-storage`, a YAML config file; the [tagged config reader](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/apiclient/config.go) also accepts `CIRCLE_TOKEN` (and a legacy `CIRCLE_CLI_TOKEN`). The [tagged config location source](https://github.com/CircleCI-Public/circleci-cli/blob/v1.14.0/internal/config/config.go) uses `$XDG_CONFIG_HOME/circleci/config.yml` when that host variable is set. The selected pack fences both the conventional and XDG CircleCI directories, and forwards only its declared host environment names to the host CLI; no environment values enter the classifier or jail. This source evidence is not a live login test. `yolo check` verifies only that the host CLI executable is on `PATH`; it does not read credential files, inspect a keyring, or contact CircleCI, and explicitly says login status is unknown. No successful authentication is claimed. The host CLI remains the executor and keeps its credential outside the jail; a keyring- or file-stored token is not available to core for output redaction.
+
+The table below remains the intended classifier surface; its implemented bounded subset is stated above.
 
 ### 11.2 Classification
 
@@ -482,19 +473,12 @@ naming `brokered.circleci.repos`.
 
 Said plainly, with no HTTP fallback behind any of them:
 
-1. **Cloud only.** v1 speaks API v3, which CircleCI Server does not serve. A Server user's v0 CLI
-   has a different grammar this pack does not classify; the daemon refuses to start against a host
-   other than CircleCI's cloud, and the readout says so.
-2. **No passthrough.** Anything only `circleci api` reaches is unavailable through the broker
-   until v1 gains a verb for it.
-3. **Files.** A command whose only output is a host file is refused; artifact download is out
-   until the plan confirms it can stream to stdout.
-4. **A local file input.** `config validate` reads a path; the broker never reads a jail-named
-   path on the host, so it is refused until the plan confirms the CLI reads stdin.
-5. **The keyring.** A host daemon started without a session bus cannot read a keyring login; the
-   read fails, and the refusal names `circleci auth login --insecure-storage` or a host
-   `CIRCLE_TOKEN` as the human's choice.
-6. **No redaction backstop** for a keyring login, since core cannot read the token to look for it.
+1. **Server compatibility is not claimed by this classifier.** The v1.14.0 README says the CLI is supported on circleci.com and CircleCI Server. This contradicts the former cloud-only statement; the `circleci api` command defaults to `/api/v3` but accepts another API-version prefix. This pack accepts no host/server override flags and does not infer that a particular host is safe from a CLI version. Test Server behavior and host selection before widening the classifier; no HTTP fallback is permitted.
+2. **No passthrough.** Anything only `circleci api` reaches is unavailable through the broker until its own verb and scope classification are implemented.
+3. **Files.** A command whose only output is a host file is refused; artifact download remains out until the plan confirms it can stream to stdout.
+4. **A local file input.** `config validate` reads a path; the broker never reads a jail-named path on the host, so it is refused until the plan confirms the CLI reads stdin.
+5. **Authentication is not attested.** `yolo check` only checks that the host CLI is present; it does not inspect keyrings/config files or call CircleCI. If a request reports missing authentication, the human can run `circleci auth login` on the host. The v1.14.0 source documents keyring and YAML-file storage plus `CIRCLE_TOKEN` and legacy `CIRCLE_CLI_TOKEN`; keyring/file credentials cannot be redacted by comparing their bytes.
+6. **No redaction backstop** for a keyring- or file-stored login, since core cannot read the token to look for it.
 7. **A new CLI release's new flags** are refused until the classifier learns them
    ([BX-P4](#BX-P4)); yolo pins no CLI version.
 

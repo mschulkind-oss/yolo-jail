@@ -204,6 +204,53 @@ func TestValidateConfigRunsTheMountFence(t *testing.T) {
 	}
 }
 
+// TestValidateConfigFencesSelectedCircleCIXDGCredentials exercises the real
+// selected CircleCI declaration through the production config-validation caller.
+func TestValidateConfigFencesSelectedCircleCIXDGCredentials(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	xdg, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	module := filepath.Join("..", "..", "packs", "circleci", "loopholes", "circleci-broker")
+	manifest, err := loopholedecl.LoadDir(module)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.CallBroker == nil || len(manifest.CallBroker.CredentialPaths) < 2 {
+		t.Fatalf("selected CircleCI credential declaration absent: %+v", manifest.CallBroker)
+	}
+	resolver := fenceResolver{known: map[string]LoopholeInfo{
+		"circleci-broker": {Name: "circleci-broker", HasHostDaemon: true, CallBroker: manifest.CallBroker},
+	}}
+	ws, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.Mkdir(filepath.Join(xdg, "circleci"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "linked-circleci")
+	if err := os.Symlink(filepath.Join(xdg, "circleci"), link); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{xdg, filepath.Join(xdg, "circleci"), filepath.Join(xdg, "circleci", "config.yml"), link} {
+		spec := source + ":/ctx/circleci"
+		body := `{"mounts":["` + spec + `"]}`
+		if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		errs, _ := ValidateConfig(decode(t, body), ws, resolver)
+		if !strings.Contains(strings.Join(errs, "\n"), "A workspace config may not mount it") {
+			t.Errorf("XDG credential source %s not refused: %q", source, errs)
+		}
+	}
+	for _, source := range []string{filepath.Join(home, "cache"), filepath.Join(xdg, "other-cache")} {
+		spec := source + ":/ctx/cache"
+		errs, _ := ValidateConfig(decode(t, `{"mounts":["`+spec+`"]}`), ws, resolver)
+		if len(errs) != 0 {
+			t.Errorf("unrelated source %s refused: %q", source, errs)
+		}
+	}
+}
+
 // countingResolver counts Known() calls. The real resolver is not free, and not pure: its first
 // answer resolves the configured packs from the store and is memoized for the process.
 type countingResolver struct {

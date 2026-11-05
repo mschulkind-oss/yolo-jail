@@ -41,6 +41,7 @@ var shippedManifestHome = map[string]string{
 	"aws-auth":            "aws-auth",
 	"github-broker":       "github",
 	"git-broker":          "git",
+	"circleci-broker":     "circleci",
 	// A throwaway that exists to EXERCISE the pack-shipped jail-binary path rather than to
 	// serve a user (docs/reference/pack-binaries.md, "A pack's own tree cannot carry an executable"). It belongs in this table
 	// for the table's own reason — every shipped loophole gets the decode bar and the field

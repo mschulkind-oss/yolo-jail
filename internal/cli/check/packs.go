@@ -339,6 +339,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// function hands it, the closure's additions included (notch-convergence item 6).
 	o.selectedPacks = append([]*packload.Pack(nil), loaded...)
 	o.selectedPacksKnown = true
+	o.reportSelectedCallBrokerPrerequisites(r, loaded)
 
 	// A REF NO CHECK HAS RESOLVED ON THIS MACHINE: check reaches no network, so a patch branch or an
 	// upstream ?ref= naming nothing passes here and is refused at the launch that fetches it. Said, with

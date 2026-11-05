@@ -27,6 +27,7 @@ type Launch struct {
 	Classifier        []string                                          `json:"classifier"`
 	Executor          string                                            `json:"executor"`
 	ProgramIdentities map[string]loopholedecl.CallBrokerProgramIdentity `json:"program_identities"`
+	HostEnvNames      []string                                          `json:"host_env_names,omitempty"`
 	Roots             []string                                          `json:"roots"`
 	Resources         []loopholedecl.CallBrokerResource                 `json:"resources"`
 	Cells             []loopholedecl.CallBrokerCell                     `json:"cells"`

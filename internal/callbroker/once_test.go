@@ -47,12 +47,13 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 	old, inputPath, marker, _ := testCallHandler(t)
 	home := filepath.Dir(marker)
 	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("SYNTHETIC_HOST_TOKEN", "synthetic-only-host-value")
 	t.Cleanup(packload.ReleaseEmbedded)
 	moduleDir := filepath.Join(home, "test-pack", "loopholes", "tasks")
 	if err := os.MkdirAll(moduleDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"tasks","access":"read fixture tasks","transport":"loopback-tls","grants":[{"kind":"read","text":"read tasks"}],"call_broker":{"source":"local-tasks","front":"cli","program":"tasks","classifier":["{program:classifier}"],"scope":{"roots":"declared"},"resource":[{"type":"project"},{"type":"task","parent":"project"},{"type":"pr","parent":"project"}],"cell":[{"name":"change","tables":["working_set","all"]},{"name":"blocked","tables":["all"]}],"lookup":[{"name":"task-project","cli":["lookup","{id}"]}]}}`
+	manifest := `{"name":"tasks","access":"read fixture tasks","transport":"loopback-tls","grants":[{"kind":"read","text":"read tasks"}],"call_broker":{"source":"local-tasks","front":"cli","program":"tasks","classifier":["{program:classifier}"],"env_from_host":["SYNTHETIC_HOST_TOKEN"],"scope":{"roots":"declared"},"resource":[{"type":"project"},{"type":"task","parent":"project"},{"type":"pr","parent":"project"}],"cell":[{"name":"change","tables":["working_set","all"]},{"name":"blocked","tables":["all"]}],"lookup":[{"name":"task-project","cli":["lookup","{id}"]}]}}`
 	if err := os.WriteFile(filepath.Join(moduleDir, "manifest.jsonc"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +95,7 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 	}
 	old.input.Pack = selectedPack
 	old.input.DeclarationHash = callbrokerinput.DeclarationHash(declared.CallBroker)
+	old.input.HostEnvNames = append([]string(nil), declared.CallBroker.EnvFromHost...)
 	old.input.Executor = declared.CallBroker.Executor
 	old.input.Cells = declared.CallBroker.Cells
 	old.input.Resources = declared.CallBroker.Resources
@@ -188,6 +190,18 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 		t.Fatal("fixture missing initial read grant became live")
 	}
 	return &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: bound}
+}
+
+func TestSelectedCLIHostEnvironmentIsDeclarationBoundAndPrivate(t *testing.T) {
+	f := selectedOnceFixture(t)
+	if !strings.Contains(strings.Join(f.h.program.env, "\n"), "SYNTHETIC_HOST_TOKEN=synthetic-only-host-value") ||
+		len(f.h.program.secrets) != 1 || string(f.h.program.secrets[0]) != "synthetic-only-host-value" {
+		t.Fatalf("selected host-only environment was not captured by the executor")
+	}
+	if strings.Contains(string(mustRead(t, f.inputPath)), "synthetic-only-host-value") ||
+		strings.Contains(fmt.Sprintf("%+v", f.h.classifier), "synthetic-only-host-value") {
+		t.Fatal("host environment value reached the private input or classifier")
+	}
 }
 
 func (f *onceFixture) call(t *testing.T, op string, argv ...string) (Verdict, CLIResult, error) {
@@ -312,6 +326,50 @@ func TestSelectedCLIExactOnceRefusesChangedAuthorityWithoutSpending(t *testing.T
 		{"change classifier checksum", func(t *testing.T, f *onceFixture) {
 			original := f.h.classifier.Identities["classifier"]
 			f.h.classifier.Identities["classifier"] = loopholedecl.CallBrokerProgramIdentity{Pack: original.Pack, Bin: original.Bin, Path: original.Path, SHA256: strings.Repeat("0", 64)}
+		}},
+		{"change selected host environment names", func(t *testing.T, f *onceFixture) {
+			path := filepath.Join(f.home, "test-pack", "loopholes", "tasks", "manifest.jsonc")
+			body := string(mustRead(t, path))
+			changed := strings.Replace(body, `"env_from_host":["SYNTHETIC_HOST_TOKEN"]`, `"env_from_host":["OTHER_TOKEN"]`, 1)
+			if changed == body {
+				t.Fatal("fixture environment declaration not found")
+			}
+			if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"change classifier arguments in selected declaration", func(t *testing.T, f *onceFixture) {
+			path := filepath.Join(f.home, "test-pack", "loopholes", "tasks", "manifest.jsonc")
+			body := string(mustRead(t, path))
+			changed := strings.Replace(body, `"classifier":["{program:classifier}"]`, `"classifier":["{program:classifier}","--different-mode"]`, 1)
+			if changed == body {
+				t.Fatal("fixture classifier argv was not found")
+			}
+			if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"retarget selected classifier to another built-in command", func(t *testing.T, f *onceFixture) {
+			path := filepath.Join(f.home, "test-pack", "loopholes", "tasks", "manifest.jsonc")
+			body := string(mustRead(t, path))
+			changed := strings.Replace(body, `"classifier":["{program:classifier}"]`, `"classifier":["yolo","internal","call-broker-classify","other"]`, 1)
+			if changed == body {
+				t.Fatal("fixture classifier argv was not found")
+			}
+			if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"change selected declaration source", func(t *testing.T, f *onceFixture) {
+			path := filepath.Join(f.home, "test-pack", "loopholes", "tasks", "manifest.jsonc")
+			body := string(mustRead(t, path))
+			changed := strings.Replace(body, `"source":"local-tasks"`, `"source":"other-tasks"`, 1)
+			if changed == body {
+				t.Fatal("fixture source was not found")
+			}
+			if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
+				t.Fatal(err)
+			}
 		}},
 	}
 	for _, tc := range cases {

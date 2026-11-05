@@ -67,7 +67,7 @@ func TestTheCgroupDelegateRunsWithAnEmptyConfig(t *testing.T) {
 
 	o.IsMacOS = false
 	o.PathExists = func(string) bool { return true }
-	dir := t.TempDir()
+	dir := cgroupDelegateSocketDir(t)
 	h, ok := o.startCgroupDelegate("yolo-test-cgd-default", "podman", dir)
 	if !ok {
 		t.Fatalf("startCgroupDelegate did not start:\n%s", out.String())
@@ -77,6 +77,29 @@ func TestTheCgroupDelegateRunsWithAnEmptyConfig(t *testing.T) {
 	if err != nil || fi.Mode()&os.ModeSocket == 0 {
 		t.Fatalf("no socket published at %s (err %v)", filepath.Join(dir, paths.CgdSocketName), err)
 	}
+}
+
+// cgroupDelegateSocketDir gives the in-process daemon a short, test-owned native socket path.
+// Unix-domain socket path limits are byte limits; keep below the platform's conservative budget.
+func cgroupDelegateSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(os.TempDir(), "cg-")
+	if err != nil {
+		t.Fatalf("creating cgroup delegate socket directory under %q: %v", os.TempDir(), err)
+	}
+	sockPath := filepath.Join(dir, paths.CgdSocketName)
+	if len([]byte(sockPath)) > 103 {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("cgroup delegate socket path is %d bytes (limit 103), and removing %q failed: %v; set TMPDIR to a shorter writable directory before running this test", len([]byte(sockPath)), dir, err)
+		}
+		t.Fatalf("cgroup delegate socket path is %d bytes (limit 103): %q; set TMPDIR to a shorter writable directory before running this test", len([]byte(sockPath)), sockPath)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("removing cgroup delegate socket directory %q: %v", dir, err)
+		}
+	})
+	return dir
 }
 
 // The default-selected pack is not a coding agent: with it alone selected, the launch still says

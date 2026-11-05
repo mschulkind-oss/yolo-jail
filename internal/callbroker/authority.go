@@ -120,7 +120,7 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 				return brokerscope.File{}, nil, errors.New("host read ceiling withdrawn; use yolo allow before retrying")
 			}
 			if module.Name != h.input.Loophole || pack.Name != h.input.Pack || h.input.DeclarationHash == "" || callbrokerinput.DeclarationHash(b) != h.input.DeclarationHash || b.Front != h.input.Front || b.Program != h.input.Program ||
-				!slices.Equal(b.Classifier, h.input.Classifier) || b.Executor != h.input.Executor || !reflect.DeepEqual(b.Resources, h.input.Resources) || !reflect.DeepEqual(b.Cells, h.input.Cells) || !reflect.DeepEqual(b.Lookups, h.input.Lookups) {
+				!slices.Equal(b.Classifier, h.input.Classifier) || !slices.Equal(b.EnvFromHost, h.input.HostEnvNames) || b.Executor != h.input.Executor || !reflect.DeepEqual(b.Resources, h.input.Resources) || !reflect.DeepEqual(b.Cells, h.input.Cells) || !reflect.DeepEqual(b.Lookups, h.input.Lookups) {
 				return brokerscope.File{}, nil, errors.New("selected pack declaration changed; relaunch and retry")
 			}
 			matched++
