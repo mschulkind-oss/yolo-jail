@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Group A first: slice 1 (internal/setup) and slice 7 (yolo-account verbs) in parallel; then 2, 3, 4a in order"
+next: "Run the combined source gates for slice 9; then resume the remaining slices, with 6a/6b and native witnesses still pending"
 depends-on:
   - named-setups.md
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
@@ -14,8 +14,10 @@ vantage:
 
 # Plan: build named setups
 
-**Status:** 2026-11-03. Completed against the tree by the planner, written against `ce92cf26e`
-(the design's [SU-R6](named-setups.md#SU-R6) commit). Nothing is built.
+**Implementation status (2026-11-05):** Slice 9's source changes are integrated at `06b3deab9` (launch/attach labeling, mechanics rendering, footer/briefing surfaces, path-table placement and custom-setup refusal advice). The combined `just check-ci` and full integration gates are still pending. Slice 6a/6b remain unimplemented: home/run-state identity and stop/ps/listing are not yet setup-qualified. Native macOS and rootless-host behavior has not been witnessed; nested rootful validation cannot establish either.
+
+**Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
+(the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
 
 **Design:** [`named-setups.md`](named-setups.md). It wins on behavior; this file is advice about
 the tree and is the first thing to be wrong.
@@ -922,7 +924,7 @@ are below).
   `just check-ci`; landing runs the integration suite (the footer test on macOS CI).
 - **Fences:** `internal/config`, `internal/paths`, `stop.go`, `ps.go`.
 - **Commit:** `feat(setups): the launch line, footer and briefing name the setup and its fields`
-- **Report:** the red and green runs; one launch's first yolo line verbatim.
+- **Report:** the red and green runs; one launch's first yolo line verbatim. The slice-9 source changes are now integrated at `06b3deab9`; the combined CI and full integration gates and the native macOS witness remain separate pending evidence.
 
 ### Slice 10 — docs (after 5 and 6a)
 
