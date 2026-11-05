@@ -14,7 +14,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-05):** Slice 9's source changes are integrated at `06b3deab9` (launch/attach labeling, mechanics rendering, footer/briefing surfaces, path-table placement and custom-setup refusal advice). The combined `just check-ci` and full integration gates are still pending. Slice 6a/6b remain unimplemented: home/run-state identity and stop/ps/listing are not yet setup-qualified. Native macOS and rootless-host behavior has not been witnessed; nested rootful validation cannot establish either.
+**Implementation status (2026-11-05):** Slice 9's source changes are integrated at `06b3deab9` (launch/attach labeling, mechanics rendering, footer/briefing surfaces, path-table placement and custom-setup refusal advice). The combined `just check-ci` and full integration gates passed on the frozen source tree at `35c14f452`; this is Linux/rootful nested validation only, not a native macOS or rootless-host witness. Slice 6a/6b remain unimplemented: home/run-state identity and stop/ps/listing are not yet setup-qualified. Rootless-host behavior has not been witnessed; nested rootful validation cannot establish it.
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -924,7 +924,7 @@ are below).
   `just check-ci`; landing runs the integration suite (the footer test on macOS CI).
 - **Fences:** `internal/config`, `internal/paths`, `stop.go`, `ps.go`.
 - **Commit:** `feat(setups): the launch line, footer and briefing name the setup and its fields`
-- **Report:** the red and green runs; one launch's first yolo line verbatim. The slice-9 source changes are now integrated at `06b3deab9`; the combined CI and full integration gates and the native macOS witness remain separate pending evidence.
+- **Report:** the red and green runs; one launch's first yolo line verbatim. The slice-9 source changes are integrated at `06b3deab9`; the combined CI and full integration gates passed on source tree `35c14f452`. The native macOS witness remains outstanding.
 
 ### Slice 10 — docs (after 5 and 6a)
 
