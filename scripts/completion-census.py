@@ -192,7 +192,7 @@ def parse_log(text, pkgdir, pkg_dirs, visibility=None):
 
 JAIL_WORKSPACE = "/workspace"
 FIXTURE_ROOT_ENV = "YOLO_CENSUS_FIXTURE_ROOT"
-FIXTURE_ROOT_PREFIX = "completion-census-fixture-"
+FIXTURE_ROOT_PREFIX = "cc-"
 FIXTURE_ROOT_MARKER = ".completion-census-fixture"
 FIXTURE_ROOT_MARKER_TEXT = "completion-census dedicated fixture root v1\n"
 
@@ -203,6 +203,26 @@ def _is_within(path, base):
         return os.path.commonpath((os.fspath(path), os.fspath(base))) == os.fspath(base)
     except (TypeError, ValueError):
         return False
+
+
+def _resolve_with_missing_leaf(path):
+    """Resolve every existing component, allowing only a genuinely missing suffix."""
+    suffix = []
+    current = Path(path)
+    while True:
+        try:
+            current.lstat()
+        except FileNotFoundError:
+            parent = current.parent
+            if parent == current:
+                raise
+            suffix.append(current.name)
+            current = parent
+            continue
+        resolved = current.resolve(strict=True)
+        for component in reversed(suffix):
+            resolved = resolved / component
+        return resolved
 
 
 def validate_fixture_root(root=ROOT, environ=None):
@@ -272,9 +292,12 @@ def jail_workspace_opens(text, pkgdir, fixture_root=None):
             continue
         if fixture_root is not None and _is_within(p, fixture_root):
             try:
-                resolved = p.resolve(strict=False)
-            except OSError:
-                resolved = p
+                resolved = _resolve_with_missing_leaf(p)
+            except (OSError, RuntimeError):
+                # A missing leaf resolves lexically and remains a normal fixture; an error
+                # resolving a path cannot prove that its target stays inside the namespace.
+                leaks.add(str(p))
+                continue
             # A fixture alias that resolves into a checkout or elsewhere is not a fixture read.
             if _is_within(resolved, fixture_root):
                 continue
