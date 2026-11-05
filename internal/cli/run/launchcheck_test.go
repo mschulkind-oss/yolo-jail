@@ -115,7 +115,18 @@ func serveFrontedFixture(t *testing.T, handler hostservice.Handler, sock string)
 // mutate hostservice's package-global logger while serving concurrently.
 func TestServeFrontedFixtureKeepsGlobalLoggerWithTwoLiveServers(t *testing.T) {
 	logger := hostservice.Logger
-	dir := t.TempDir()
+	// Keep the socket paths short even when TMPDIR is a durable, nested location. Testing's
+	// long per-test temp directory can exceed Darwin's sun_path limit before the socket name.
+	dir, err := os.MkdirTemp(os.TempDir(), "yj-fronted-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Registered before the server cleanups below, so both servers stop and join before removal.
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove fronted fixture directory: %v", err)
+		}
+	})
 	serveFrontedFixture(t, func(*hostservice.Session) {}, filepath.Join(dir, "first.sock"))
 	serveFrontedFixture(t, func(*hostservice.Session) {}, filepath.Join(dir, "second.sock"))
 	if hostservice.Logger != logger {
