@@ -123,12 +123,12 @@ func nestedNetworkFromPodmanInfo(info string) (string, error) {
 		if path.IsAbs(facts.Host.Pasta.Executable) {
 			return "pasta", nil
 		}
-		return "", fmt.Errorf("Podman %s does not report host.pasta.executable", facts.Version.Version)
+		return "", fmt.Errorf("podman %s does not report host.pasta.executable", facts.Version.Version)
 	}
 	if path.IsAbs(facts.Host.Slirp4netns.Executable) {
 		return "slirp4netns", nil
 	}
-	return "", fmt.Errorf("Podman %s does not report host.slirp4netns.executable", facts.Version.Version)
+	return "", fmt.Errorf("podman %s does not report host.slirp4netns.executable", facts.Version.Version)
 }
 
 func podmanMajorVersion(version string) (int, error) {
