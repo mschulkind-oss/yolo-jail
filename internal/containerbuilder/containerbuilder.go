@@ -11,7 +11,9 @@ package containerbuilder
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"path"
 	"runtime"
 	"strconv"
 	"strings"
@@ -57,32 +59,14 @@ func PullArgv(runtime, image string) []string {
 // run_argv. Empty image/name/0 hostPort fall back to the frozen defaults.
 //
 // This is the NOT-nested argv, byte for byte what it has always been; Session.Start
-// adds NestedNetwork when podman itself runs inside a container (see runArgv).
+// adds a private network selector only after checking Podman's reported capabilities.
 func RunArgv(runtime, pubkey, image, name string, hostPort int) []string {
-	return runArgv(runtime, pubkey, image, name, hostPort, false)
+	return runArgv(runtime, pubkey, image, name, hostPort, "")
 }
 
-// NestedNetwork is the network a podman builder takes when podman runs INSIDE a
-// container — a yolo jail. podman's default there is a netavark bridge, which needs a
-// veth pair, and a container's netns cannot always make one: the kernel's veth module
-// must already be loaded on the host, because a non-initial user namespace may not
-// autoload it, so after a host reboot that has not loaded it every nested `podman run -p`
-// fails with `netavark: create veth pair: Netlink error: Operation not supported (os
-// error 95)` (measured 2026-10-09, podman 5.8.7, kernel 7.2.7). slirp4netns needs only a
-// tap device, and it keeps the `-p 127.0.0.1:<hostPort>:22` publish, so the address
-// Session dials and the builders line are unchanged. The jail image ships slirp4netns
-// (flake.nix: it is the nested podman's default rootless network command).
-//
-// Not `--net=host`, which is what the run assembler forces on a nested JAIL: the builder
-// image's sshd listens on port 22 and nothing else, so sharing the launcher's namespace
-// would serve the builder on that namespace's port 22 — the host's own sshd's port on a
-// `network.mode: host` chain — and leave 127.0.0.1:<hostPort> empty (measured the same day:
-// keyscan answers on :22 and nothing on :31022).
-const NestedNetwork = "--network=slirp4netns"
-
-// runArgv is RunArgv with the nested choice made explicit. Apple Container takes no
-// network selector, so nested is ignored there.
-func runArgv(runtime, pubkey, image, name string, hostPort int, nested bool) []string {
+// runArgv is RunArgv with a nested Podman network choice made explicit. Apple
+// Container takes no network selector, so nested is ignored there.
+func runArgv(runtime, pubkey, image, name string, hostPort int, nestedNetwork string) []string {
 	if image == "" {
 		image = BuilderImage
 	}
@@ -103,11 +87,76 @@ func runArgv(runtime, pubkey, image, name string, hostPort int, nested bool) []s
 	}
 	argv := []string{runtime}
 	argv = append(argv, common...)
-	if nested {
-		argv = append(argv, NestedNetwork)
+	if nestedNetwork != "" {
+		argv = append(argv, "--network="+nestedNetwork)
 	}
 	argv = append(argv, "-p", fmt.Sprintf("127.0.0.1:%d:%d", hostPort, BuilderGuestPort), image)
 	return argv
+}
+
+// nestedNetworkFromPodmanInfo chooses only a private network whose Podman mode
+// and bundled helper are both identified by podman's own info document. Podman 6
+// removed slirp4netns as a supported network mode; RootlessNetworkCmd is only a
+// rootless default and is not evidence that a nested rootful `podman run` accepts it.
+func nestedNetworkFromPodmanInfo(info string) (string, error) {
+	var facts struct {
+		Host struct {
+			Pasta struct {
+				Executable string `json:"executable"`
+			} `json:"pasta"`
+			Slirp4netns struct {
+				Executable string `json:"executable"`
+			} `json:"slirp4netns"`
+		} `json:"host"`
+		Version struct {
+			Version string `json:"Version"`
+		} `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(info), &facts); err != nil {
+		return "", fmt.Errorf("could not parse podman info: %w", err)
+	}
+	major, err := podmanMajorVersion(facts.Version.Version)
+	if err != nil {
+		return "", err
+	}
+	if major >= 6 {
+		if path.IsAbs(facts.Host.Pasta.Executable) {
+			return "pasta", nil
+		}
+		return "", fmt.Errorf("Podman %s does not report host.pasta.executable", facts.Version.Version)
+	}
+	if path.IsAbs(facts.Host.Slirp4netns.Executable) {
+		return "slirp4netns", nil
+	}
+	return "", fmt.Errorf("Podman %s does not report host.slirp4netns.executable", facts.Version.Version)
+}
+
+func podmanMajorVersion(version string) (int, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 3 {
+		return 0, fmt.Errorf("podman info has no valid version.Version")
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major < 1 {
+		return 0, fmt.Errorf("podman info has no valid version.Version")
+	}
+	if _, err := strconv.Atoi(parts[1]); err != nil {
+		return 0, fmt.Errorf("podman info has no valid version.Version")
+	}
+	patch := parts[2]
+	if len(parts) > 3 && !strings.ContainsAny(patch, "-+") {
+		return 0, fmt.Errorf("podman info has no valid version.Version")
+	}
+	if before, _, ok := strings.Cut(patch, "-"); ok {
+		patch = before
+	}
+	if before, _, ok := strings.Cut(patch, "+"); ok {
+		patch = before
+	}
+	if _, err := strconv.Atoi(patch); err != nil {
+		return 0, fmt.Errorf("podman info has no valid version.Version")
+	}
+	return major, nil
 }
 
 // BuilderURI is the ssh-ng store/builder URI nix uses to reach the container. The key path is

@@ -38,6 +38,74 @@ func TestRunArgv(t *testing.T) {
 	}
 }
 
+func TestNestedNetworkFromPodmanInfo(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		info string
+		want string
+		fail bool
+	}{
+		{
+			name: "Podman 6 pasta helper ignores stale rootless default",
+			info: `{"version":{"Version":"6.1.4"},"host":{"rootlessNetworkCmd":"slirp4netns","pasta":{"executable":"/nix/store/podman/libexec/podman/pasta"}}}`,
+			want: "pasta",
+		},
+		{
+			name: "older Podman with reported slirp helper",
+			info: `{"version":{"Version":"5.8.9"},"host":{"slirp4netns":{"executable":"/usr/bin/slirp4netns"}}}`,
+			want: "slirp4netns",
+		},
+		{
+			name: "Podman 6 does not fall back to slirp",
+			info: `{"version":{"Version":"6.1.4"},"host":{"slirp4netns":{"executable":"/usr/bin/slirp4netns"}}}`,
+			fail: true,
+		},
+		{
+			name: "relative helper is not runtime evidence",
+			info: `{"version":{"Version":"6.1.4"},"host":{"pasta":{"executable":"pasta"}}}`,
+			fail: true,
+		},
+		{
+			name: "malformed extra version component",
+			info: `{"version":{"Version":"6.1.4.0"},"host":{"pasta":{"executable":"/bin/pasta"}}}`,
+			fail: true,
+		},
+		{
+			name: "legitimate version suffix",
+			info: `{"version":{"Version":"6.1.4-1"},"host":{"pasta":{"executable":"/bin/pasta"}}}`,
+			want: "pasta",
+		},
+		{
+			name: "legitimate dotted prerelease suffix",
+			info: `{"version":{"Version":"6.1.4-rc.1"},"host":{"pasta":{"executable":"/bin/pasta"}}}`,
+			want: "pasta",
+		},
+		{
+			name: "malformed version",
+			info: `{"version":{"Version":"unknown"},"host":{"pasta":{"executable":"/bin/pasta"}}}`,
+			fail: true,
+		},
+		{
+			name: "malformed JSON",
+			info: `{`,
+			fail: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := nestedNetworkFromPodmanInfo(tc.info)
+			if tc.fail {
+				if err == nil {
+					t.Fatalf("network = %q, want failure", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("network = %q, error %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuilderURIAndLine(t *testing.T) {
 	uri := BuilderURI("127.0.0.1", 0, "/keys/id_ed25519")
 	if uri != "ssh-ng://root@127.0.0.1:31022?ssh-key=/keys/id_ed25519" {

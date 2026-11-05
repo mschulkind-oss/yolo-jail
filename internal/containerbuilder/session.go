@@ -27,8 +27,9 @@ import (
 type Deps struct {
 	// Run runs argv (inherit stdio) and returns the return code.
 	Run func(argv []string) int
-	// Output runs argv and returns (stdout, rc) — `container ls` ADDR discovery on
-	// Apple Container, and the `ssh-keyscan` readiness probe on BOTH runtimes.
+	// Output runs argv and returns stdout plus the return code. It provides Podman
+	// info facts before a nested start, `container ls` ADDR discovery on Apple
+	// Container, and the `ssh-keyscan` readiness probe on both runtimes.
 	Output func(argv []string) (string, int)
 	// Reachable reports whether host:port accepts a TCP connection. A cheap negative
 	// filter ONLY: on podman machine an accepted connection says nothing about
@@ -41,8 +42,8 @@ type Deps struct {
 	// Out receives human progress lines. nil => io.Discard.
 	Out io.Writer
 	// InContainer reports whether the runtime's podman runs inside a container (a
-	// yolo jail), which picks NestedNetwork for the builder. nil => the real probe,
-	// insideContainer, so every caller gets the nested network without wiring it.
+	// yolo jail), which requires a private network for the builder. nil => the real
+	// probe, insideContainer, so every caller gets the nested behavior without wiring it.
 	InContainer func() bool
 }
 
@@ -91,11 +92,23 @@ func (s *Session) Start() (host string, port int, ok bool) {
 		out = io.Discard
 	}
 
+	nested := s.Deps.nested()
+	nestedNetwork := ""
+	if s.Runtime == "podman" && nested {
+		network, err := s.nestedPodmanNetwork()
+		if err != nil {
+			fmt.Fprintf(out, "could not choose a supported private network for the nested Linux builder: %v\n", err)
+			fmt.Fprintln(out, "Fix: inspect `podman info --format json` and use Podman with its supported private-network helper reported there")
+			return "", 0, false
+		}
+		nestedNetwork = network
+	}
+
 	if s.Deps.Run(PullArgv(s.Runtime, "")) != 0 {
 		fmt.Fprintln(out, "could not pull the Linux builder image")
 		return "", 0, false
 	}
-	if s.Deps.Run(runArgv(s.Runtime, s.Pubkey, "", "", 0, s.Deps.nested())) != 0 {
+	if s.Deps.Run(runArgv(s.Runtime, s.Pubkey, "", "", 0, nestedNetwork)) != 0 {
 		fmt.Fprintln(out, "could not start the Linux builder container")
 		return "", 0, false
 	}
@@ -139,6 +152,17 @@ func (s *Session) Start() (host string, port int, ok bool) {
 		net.JoinHostPort(host, strconv.Itoa(port))+
 		" — the container started, so the address is reachable but nothing is serving SSH behind it")
 	return "", 0, false
+}
+
+func (s *Session) nestedPodmanNetwork() (string, error) {
+	if s.Deps.Output == nil {
+		return "", fmt.Errorf("podman info could not be read")
+	}
+	info, rc := s.Deps.Output([]string{"podman", "info", "--format", "json"})
+	if rc != 0 {
+		return "", fmt.Errorf("podman info exited with status %d", rc)
+	}
+	return nestedNetworkFromPodmanInfo(info)
 }
 
 // scanHostKey returns the builder's host key, base64'd for the builders line, or ""

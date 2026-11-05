@@ -40,11 +40,12 @@ func TestSessionStartPodmanReachable(t *testing.T) {
 		Runtime: "podman",
 		Pubkey:  "ssh-ed25519 AAAA...",
 		Deps: Deps{
-			Run:       func(argv []string) int { ran = append(ran, argv); return 0 },
-			Output:    okOutput(""),
-			Reachable: func(host string, port int) bool { return host == "127.0.0.1" && port == BuilderHostPort },
-			Sleep:     func(float64) {},
-			Now:       clk.now,
+			Run:         func(argv []string) int { ran = append(ran, argv); return 0 },
+			Output:      okOutput(""),
+			Reachable:   func(host string, port int) bool { return host == "127.0.0.1" && port == BuilderHostPort },
+			Sleep:       func(float64) {},
+			Now:         clk.now,
+			InContainer: func() bool { return false },
 		},
 	}
 	host, port, ok := s.Start()
@@ -68,11 +69,12 @@ func TestSessionStartPullFailsAborts(t *testing.T) {
 	s := &Session{
 		Runtime: "podman",
 		Deps: Deps{
-			Run:       func(argv []string) int { return 1 }, // pull fails
-			Output:    okOutput(""),
-			Reachable: func(string, int) bool { return true },
-			Sleep:     func(float64) {},
-			Now:       (&fakeClock{}).now,
+			Run:         func(argv []string) int { return 1 }, // pull fails
+			Output:      okOutput(""),
+			Reachable:   func(string, int) bool { return true },
+			Sleep:       func(float64) {},
+			Now:         (&fakeClock{}).now,
+			InContainer: func() bool { return false },
 		},
 	}
 	if _, _, ok := s.Start(); ok {
@@ -93,10 +95,11 @@ func TestSessionStartTimeoutStops(t *testing.T) {
 				}
 				return 0
 			},
-			Output:    okOutput(""),
-			Reachable: func(string, int) bool { return false }, // never reachable
-			Sleep:     func(float64) { big.t += 100 },          // blow past the 60s deadline
-			Now:       big.now,
+			Output:      okOutput(""),
+			Reachable:   func(string, int) bool { return false }, // never reachable
+			Sleep:       func(float64) { big.t += 100 },          // blow past the 60s deadline
+			Now:         big.now,
+			InContainer: func() bool { return false },
 		},
 	}
 	if _, _, ok := s.Start(); ok {
@@ -179,9 +182,10 @@ func TestSessionStartRefusesAPortWithNothingServingSSH(t *testing.T) {
 			// Connectable, always — the accept-then-dial forwarder.
 			Reachable: func(string, int) bool { return true },
 			// …and nothing behind it: ssh-keyscan prints nothing at all.
-			Output: func(argv []string) (string, int) { return "", 0 },
-			Sleep:  func(float64) { clk.t += 100 },
-			Now:    clk.now,
+			Output:      func(argv []string) (string, int) { return "", 0 },
+			Sleep:       func(float64) { clk.t += 100 },
+			Now:         clk.now,
+			InContainer: func() bool { return false },
 		},
 	}
 	if host, port, ok := s.Start(); ok {
@@ -203,11 +207,12 @@ func TestSessionStartPinsTheScannedHostKeyIntoTheBuildersLine(t *testing.T) {
 	s := &Session{
 		Runtime: "podman",
 		Deps: Deps{
-			Run:       func([]string) int { return 0 },
-			Output:    okOutput(""),
-			Reachable: func(string, int) bool { return true },
-			Sleep:     func(float64) {},
-			Now:       clk.now,
+			Run:         func([]string) int { return 0 },
+			Output:      okOutput(""),
+			Reachable:   func(string, int) bool { return true },
+			Sleep:       func(float64) {},
+			Now:         clk.now,
+			InContainer: func() bool { return false },
 		},
 	}
 	host, port, ok := s.Start()
@@ -235,10 +240,11 @@ func TestSessionStartWithoutAnOutputSeamDoesNotStart(t *testing.T) {
 	s := &Session{
 		Runtime: "podman",
 		Deps: Deps{
-			Run:       func([]string) int { return 0 },
-			Reachable: func(string, int) bool { return true },
-			Sleep:     func(float64) { clk.t += 100 },
-			Now:       clk.now,
+			Run:         func([]string) int { return 0 },
+			Reachable:   func(string, int) bool { return true },
+			Sleep:       func(float64) { clk.t += 100 },
+			Now:         clk.now,
+			InContainer: func() bool { return false },
 		},
 	}
 	if _, _, ok := s.Start(); ok {
@@ -247,45 +253,92 @@ func TestSessionStartWithoutAnOutputSeamDoesNotStart(t *testing.T) {
 }
 
 // TestSessionStartPicksTheNestedNetworkFromTheProbe drives Start — the call site — so it
-// fails if Start stops consulting Deps.InContainer or stops passing its answer to the run
-// argv. Nested podman cannot always make the bridge's veth pair (NestedNetwork's comment
-// has the measurement); not-nested must stay byte-identical to RunArgv, which is what
-// every macOS launch runs.
+// proves that nested Podman uses a private mode selected from pre-launch Podman facts.
+// Non-nested Podman and Apple Container must not probe or change their existing argv.
 func TestSessionStartPicksTheNestedNetworkFromTheProbe(t *testing.T) {
 	for _, tc := range []struct {
-		runtime string
-		nested  bool
-		want    []string
+		name      string
+		runtime   string
+		nested    bool
+		info      string
+		wantNet   string
+		wantStart bool
+		wantProbe bool
 	}{
-		{"podman", false, RunArgv("podman", "PUB", "", "", 0)},
-		{"podman", true, []string{
-			"podman", "run", "-d", "--rm", "--name", BuilderContainer,
-			"-e", "YOLO_BUILDER_PUBKEY=PUB",
-			"--network=slirp4netns",
-			"-p", "127.0.0.1:31022:22", BuilderImage,
-		}},
-		// Apple Container takes no network selector, nested or not.
-		{"container", true, RunArgv("container", "PUB", "", "", 0)},
+		{name: "non-nested podman", runtime: "podman", wantStart: true},
+		{name: "podman 6 pasta", runtime: "podman", nested: true,
+			info:    `{"version":{"Version":"6.1.4"},"host":{"pasta":{"executable":"/nix/store/podman/libexec/podman/pasta"}}}`,
+			wantNet: "--network=pasta", wantStart: true, wantProbe: true},
+		{name: "older slirp-only podman", runtime: "podman", nested: true,
+			info:    `{"version":{"Version":"5.8.9"},"host":{"slirp4netns":{"executable":"/usr/bin/slirp4netns"}}}`,
+			wantNet: "--network=slirp4netns", wantStart: true, wantProbe: true},
+		{name: "malformed extra version component", runtime: "podman", nested: true,
+			info:      `{"version":{"Version":"6.1.4.0"},"host":{"pasta":{"executable":"/nix/store/podman/libexec/podman/pasta"}}}`,
+			wantStart: false, wantProbe: true},
+		{name: "no supported helper", runtime: "podman", nested: true,
+			info:      `{"version":{"Version":"6.1.4"},"host":{"rootlessNetworkCmd":"slirp4netns"}}`,
+			wantStart: false, wantProbe: true},
+		{name: "apple container", runtime: "container", nested: true, wantStart: true},
 	} {
-		var ran [][]string
-		nested := tc.nested
-		s := &Session{
-			Runtime: tc.runtime,
-			Pubkey:  "PUB",
-			Deps: Deps{
-				Run:         func(argv []string) int { ran = append(ran, argv); return 0 },
-				Output:      okOutput("NAME STATE ADDR\n" + BuilderContainer + " running 192.168.64.2/24\n"),
-				Reachable:   func(string, int) bool { return true },
-				Sleep:       func(float64) {},
-				Now:         (&fakeClock{}).now,
-				InContainer: func() bool { return nested },
-			},
-		}
-		if _, _, ok := s.Start(); !ok {
-			t.Fatalf("%s nested=%v: Start failed", tc.runtime, tc.nested)
-		}
-		if len(ran) < 2 || !reflect.DeepEqual(ran[1], tc.want) {
-			t.Errorf("%s nested=%v: run argv\n got %v\n want %v", tc.runtime, tc.nested, ran, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			var ran [][]string
+			var out strings.Builder
+			infoProbed := false
+			s := &Session{
+				Runtime: tc.runtime,
+				Pubkey:  "PUB",
+				Deps: Deps{
+					Run: func(argv []string) int { ran = append(ran, argv); return 0 },
+					Output: func(argv []string) (string, int) {
+						if reflect.DeepEqual(argv, []string{"podman", "info", "--format", "json"}) {
+							infoProbed = true
+							if tc.info == "" {
+								return "{}", 0
+							}
+							return tc.info, 0
+						}
+						return okOutput("NAME STATE ADDR\n" + BuilderContainer + " running 192.168.64.2/24\n")(argv)
+					},
+					Reachable:   func(string, int) bool { return true },
+					Sleep:       func(float64) {},
+					Now:         (&fakeClock{}).now,
+					InContainer: func() bool { return tc.nested },
+					Out:         &out,
+				},
+			}
+			_, _, ok := s.Start()
+			if ok != tc.wantStart {
+				t.Fatalf("Start ok = %v, want %v; output: %s", ok, tc.wantStart, out.String())
+			}
+			if infoProbed != tc.wantProbe {
+				t.Errorf("Podman info probed = %v, want %v", infoProbed, tc.wantProbe)
+			}
+			if !tc.wantStart {
+				if len(ran) != 0 {
+					t.Errorf("unsupported network must fail before pull or run, got commands %v", ran)
+				}
+				if !strings.Contains(out.String(), "podman info --format json") || !strings.Contains(out.String(), "Fix:") {
+					t.Errorf("failure lacks actionable probe guidance: %q", out.String())
+				}
+				return
+			}
+			var runArgv []string
+			for _, argv := range ran {
+				if len(argv) > 1 && argv[1] == "run" {
+					runArgv = argv
+				}
+			}
+			want := RunArgv(tc.runtime, "PUB", "", "", 0)
+			if tc.wantNet != "" {
+				at := len(want) - 3
+				want = append(want[:at], append([]string{tc.wantNet}, want[at:]...)...)
+			}
+			if !reflect.DeepEqual(runArgv, want) {
+				t.Errorf("run argv = %v, want %v", runArgv, want)
+			}
+			if tc.wantNet != "" && !strings.Contains(strings.Join(runArgv, " "), "-p 127.0.0.1:31022:22") {
+				t.Errorf("nested private network lost loopback publish: %v", runArgv)
+			}
+		})
 	}
 }
