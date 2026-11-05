@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -190,24 +189,22 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 		t.Errorf("detectListingRuntime honoring config = %q, want macos-user", got)
 	}
 
-	// A workspace with no config and no override → whatever the PLATFORM PROBE says.
-	//
-	// Asserted against the probe rather than the literal "podman": this test ran on a
-	// Linux host for its whole life, and hardcoding the Linux answer made it fail on
-	// macOS — where the correct result is "container" if Apple Container is installed —
-	// reporting a broken resolver when the resolver was right. The platform matrix
-	// itself is not this test's job and is already pinned exhaustively by
-	// runtime.TestResolveRuntimeConfigAware; what belongs HERE is that a config-less
-	// workspace reaches the probe at all instead of the previous line's "container"
-	// leaking across, which is the wiring audit finding 5 was about.
-	t.Setenv("HOME", t.TempDir()) // no user config, so no `setup`
-	empty := t.TempDir()
-	want := runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
-		_, err := exec.LookPath(bin)
-		return err == nil
-	})
-	if got := detectListingRuntime(empty); got != want {
-		t.Errorf("detectListingRuntime with no config = %q, want the platform probe's %q", got, want)
+	// No selection means the platform's NAMED SETUP default, not the retired
+	// runtime-availability probe. A Mac defaults to Apple Container even if only
+	// Podman is installed; the launch names the missing setup's prerequisite.
+	// Exercise both platforms and an empty PATH so neither the real host nor an
+	// installed runtime can make the resolver assertion vacuous.
+	for _, tc := range []struct{ goos, backend string }{{"linux", "podman"}, {"darwin", "container"}} {
+		t.Run("default "+tc.goos, func(t *testing.T) {
+			origMac, origLinux := paths.IsMacOS, paths.IsLinux
+			paths.IsMacOS, paths.IsLinux = tc.goos == "darwin", tc.goos == "linux"
+			t.Cleanup(func() { paths.IsMacOS, paths.IsLinux = origMac, origLinux })
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("PATH", t.TempDir())
+			if got := detectListingRuntime(t.TempDir()); got != tc.backend {
+				t.Errorf("unselected %s setup backend = %q, want %q", tc.goos, got, tc.backend)
+			}
+		})
 	}
 }
 

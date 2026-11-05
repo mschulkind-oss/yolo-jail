@@ -50,12 +50,19 @@ func withHostConfinement(t *testing.T, abi int, err error) {
 	t.Cleanup(func() { hostConfinementABI = orig })
 }
 
-// onCaptureGOOS makes goos the platform `yolo capture` chooses its arm for (captureHostGOOS).
+// onCaptureGOOS models the platform at both the capture arm and its setup resolver.
+// Changing only the confinement arm leaves a Linux fixture choosing macOS's default
+// Apple Container setup when the test itself runs on a Mac.
 func onCaptureGOOS(t *testing.T, goos string) {
 	t.Helper()
-	orig := captureHostGOOS
-	captureHostGOOS = goos
-	t.Cleanup(func() { captureHostGOOS = orig })
+	orig, origSetup := captureHostGOOS, setupGOOS
+	origMac, origLinux := paths.IsMacOS, paths.IsLinux
+	captureHostGOOS, setupGOOS = goos, goos
+	paths.IsMacOS, paths.IsLinux = goos == "darwin", goos == "linux"
+	t.Cleanup(func() {
+		captureHostGOOS, setupGOOS = orig, origSetup
+		paths.IsMacOS, paths.IsLinux = origMac, origLinux
+	})
 }
 
 // macSetup is a Mac as the floor's capture predicate reads it. The zero value is a Mac before
@@ -256,6 +263,7 @@ func TestAMacsFloorNamesWhyTheMacosUserActCannotRun(t *testing.T) {
 // with one that does not, no floor entry naming both ways on (a runtime, or a kernel with Landlock);
 // and a runtime the user selected is the reason when it is missing, whatever the kernel offers.
 func TestALinuxFloorWithNoRuntimeCapturesWhereTheKernelConfinesIt(t *testing.T) {
+	onCaptureGOOS(t, "linux")
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
