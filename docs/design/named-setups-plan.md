@@ -14,7 +14,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-05):** Refreshed against current source tree `9eaba3d7d5687b01e968ceb0aa5aed76cfd25bc2`. Slices 4b, 5 and 9 are in this tree; slice 9 is integrated at `06b3deab9` and the combined `just check-ci` and full integration passed on source tree `35c14f452` (Linux/rootful nested, not a native Mac or rootless-host witness). Slices 6a/6b remain unimplemented: `WorkspaceHomeState` still exists, while `SetupStateDir`, `SetupHomeState`, `SetupsDir` and `runtime.JailName` do not. The 6a map's referenced source files remain present at this baseline. Slice 6b builds on a committed/tested 6a candidate; the unchanged W-SU1 checks 6b's `setup list` and `stop` surfaces, so freeze the combined 6a+6b candidate, obtain W-SU1 and W-SU4 on the owner's Mac, then serially land both reviewed commits. These witnesses gate primary landing, not useful source work. The only changes since the prior map baseline are MCP outcome handling and its roadmap receipt; they do not affect this named-setup map.
+**Implementation status (2026-11-05):** Refreshed against current source tree `9eaba3d7d5687b01e968ceb0aa5aed76cfd25bc2`. Slices 4b, 5 and 9 are in this tree; slice 9 is integrated at `06b3deab9` and the combined `just check-ci` and full integration passed on source tree `35c14f452` (Linux/rootful nested, not a native Mac or rootless-host witness). Slices 6a/6b remain unimplemented: `WorkspaceHomeState` still exists, while `SetupStateDir`, `SetupHomeState`, `SetupsDir` and `runtime.JailName` do not. The 6a map's referenced source files remain present at this baseline. Slice 6b builds on a committed/tested 6a candidate; the unchanged W-SU1 checks 6b's `setup list` and `stop` surfaces, so freeze the combined 6a+6b candidate, obtain W-SU1 and W-SU4 on the owner's Mac, then serially land both reviewed commits. These witnesses gate primary landing, not useful source work. Since the prior map baseline, MCP outcome handling and its roadmap receipt were updated: `ok` now requires the selected service's observed stop, confirmed jail absence, and no harvest failure. G1's HTTP snapshot extension remains unlanded; the named-setup map otherwise remains unchanged.
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -129,9 +129,9 @@ One row per file that changes. New files are marked. `…` means "and the siblin
 | `integration/harness_test.go:395-410,538`, `macosusergate_test.go:659-673`, `applecontainer_test.go:166-167`, `applecontainerkeeper_test.go:315`, `macarchivedelivery_test.go:199`, `treeremovable_test.go:297`, `keeperreadywindow_regression_test.go:68`, `imageskew_parse_test.go:117,149,161`, `archivedeliveryworkflow_test.go:148`; `Justfile:1-2,196-216`; `.github/workflows/ci.yml:490`, `packs.yml:226,271`, `nightly-macos.yml:828,1023,1053`, `apple-container.yml:333-337` | `YOLO_RUNTIME` → `YOLO_SETUP` / `YOLO_LOAD_RUNTIME` ([SUP-D7](#SUP-D7), [slice 4a](#slice-4a--the-launch-resolves-a-setup-after-3-launch-path)) |
 | `internal/cli/run/assemble.go:636-662`, `backendcaps.go:200-215`, `internal/cli/check` (a new `section_network` check) | `network.mode` refused where the technology cannot hold it ([slice 4b](#slice-4b--refuse-a-networkmode-the-technology-cannot-hold-after-4a)) |
 | `internal/config/confinement.go`, `confinementruntime_test.go`, `macosusermode.go` …, `validate.go:95-96,218-230`, `renames.go:33-39`, `config.go:114-117`; `internal/configmigrate/lower.go:179-200` | the removed keys refused and migrated; the notch code deleted ([slice 5](#slice-5--refuse-the-removed-spellings-and-delete-the-notch-code-after-4a)) |
-| `internal/paths/paths.go:659-759` | `SetupStateDir`, `SetupHomeState`, `SetupsDir`; `WorkspaceHomeState` deleted ([slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
-| `internal/runtime/naming.go` | `JailName(ws, setup)` ([SUP-D2](#SUP-D2), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
-| the 29 non-test callers of `paths.WorkspaceHomeState` (`rg -n 'WorkspaceHomeState\(' internal --type go \| rg -v _test`), `internal/config/drift.go:38-43`, `assembled.go:59,89`, `internal/cli/run/launchcontext.go:663`, `configcapture.go:79`, `configtarget.go:372,435,444`, `internal/render/target.go:390`, the `runtime.FromWorkspace` callers that name a running jail (list in [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) | per-setup paths and jail name ([slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
+| `internal/paths/paths.go:659-759`, `statefile.go:27-115`, `workspacescope.go` | `SetupStateDir`, `SetupHomeState`, `SetupsDir`; delete `WorkspaceHomeState`; retain `EnsureWorkspaceStateDir` as the `.yolo` creation chokepoint and the existing no-follow root helpers for jail-writable state ([slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
+| Home readers/writers in `internal/cli/run`, `internal/cli`, `internal/macosuser`, `internal/claudeview`, `internal/prune`; config baseline/capture paths in `internal/config`, `internal/configmigrate`, `internal/render`, `internal/entrypoint` (the complete map and their consumers are in [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) | per-setup home, baseline and prism store; preserve capture routing and no-follow reads ([slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
+| `internal/runtime/naming.go`; running-jail identity call sites in `internal/cli/run`, `internal/cli`, `internal/hostrun`, `internal/macosuser` and `internal/prune` (enumerated in [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) | setup-qualified jail identity; keep per-project approval/grant keys on `FromWorkspace` ([SUP-D2](#SUP-D2), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
 | `internal/cli/run/inheritscope.go:742-808`, a new `internal/cli/run/legacyhome.go` | adoption and the legacy-container refusal ([SUP-D9](#SUP-D9), [SUP-D10](#SUP-D10), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
 | `internal/cli/stop.go:82-196,323-420,601`, `ps.go:68-99,191-235`, `setupcmd.go` (running column), `internal/cli/stores/inventory.go:547-548,1148-1153` | enumerate setups ([slice 6b](#slice-6b--stop-ps-stores-and-setup-list-see-every-setup-after-6a)) |
 | `internal/macosuser/runplan.go` (`RunPlan`, `BuildRunPlanWithStages:604`, `PlanInvariants:1613`, argv builders), `provision.go:148-169`, `serviceprobe.go:46-64,119`, `jaildaemon.go:487`, `orchestrator.go:949,1325`; `internal/cli/host.go:214-250,606`; `commands.go` (the host-yolo-account dispatch) | `host-yolo-account` ([SUP-D5](#SUP-D5), [slice 8](#slice-8--host-yolo-account-on-macos-after-6a-mac-witness)) |
@@ -738,25 +738,32 @@ are below).
   deleted ([§9](named-setups.md#9-state-per-setup)). [SUP-D2](#SUP-D2), [SUP-D9](#SUP-D9),
   [SUP-D10](#SUP-D10). Do not re-open.
 - **Preconditions:** slices 4b, 5 and 9 landed (so `run.go` is quiet);
-  `rg -n 'WorkspaceHomeState\(' internal --type go | rg -v _test | wc -l` prints `29`
-  (cosmetic drift is fine; a new caller is a file to add to the list).
+  `rg -n 'WorkspaceHomeState\(|FromWorkspace\(' internal --glob '*.go' | rg -v '_test.go'`
+  is the call-site inventory. Classify each use by lifetime: per-setup home or running-jail
+  identity versus per-project approval/grant identity; follow the actual bind, capture and
+  discovery paths too, since a search count is not a complete map. Stop on a missing caller,
+  unexpected dirty file, or a behavior conflict with the accepted design. `runtime.JailName`
+  and the setup-path helpers are absent.
 - **Tests first:**
+  - **Behavioral red first:** `integration/setups_test.go`, `TestNamedSetupsHaveDistinctHomes` (new): in one workspace, run `yolo run --setup podman-self -- true` and `yolo host --setup host-self -- true`; assert both `.yolo/setups/<name>/home` directories exist and differ. Red: `go test -count=1 -run '^TestNamedSetupsHaveDistinctHomes$' ./integration`; it must fail because the current launch reuses `.yolo/home`. A compile error or an assertion that a future helper is absent is not the behavioral red.
   - `internal/paths/setups_test.go`: `SetupStateDir(ws, "podman-self") == ws+"/.yolo/setups/podman-self"`,
-    `SetupHomeState(ws, name) == …/home`; `SetupsDir(ws)` lists the directories present;
-    `WorkspaceHomeState` is gone (a compile failure is the assertion).
+    `SetupHomeState(ws, name) == …/home`; `SetupsDir(ws)` returns the path
+    `ws+"/.yolo/setups"` and creates nothing; `WorkspaceHomeState` is removed. Test that a
+    linked `.yolo`, `setups` or named setup child is refused before any host write.
   - `internal/runtime/naming_test.go`: add `TestJailNameAppendsTheSetup`
     (`JailName("/w/alpha", "seatbelt-self") == FromWorkspace("/w/alpha")+"-seatbelt-self"`);
     `TestFromResolvedGolden` (`:23`) unchanged and still green.
   - `internal/config/drift_test.go`: the baseline path is `SetupStateDir(ws, os.Getenv("YOLO_SETUP"))/config-boot.json`;
     with `YOLO_SETUP` unset in-jail, `ReadWorkspaceBootBaseline` returns a named error (no silent
     `.yolo/config-boot.json`).
-  - `internal/cli/run/legacyhome_test.go`: with `<ws>/.yolo/home/.claude.json` present (Apple
-    Container's layout) and a stdin of `y\n`, the first `apple-container-self` launch renames it to
+  - `internal/cli/run/legacyhome_test.go`: with the generated Apple Container inherited preflight
+    user-config file (`<ws>/.yolo/home/.config/yolo-jail/config.jsonc` or `config.toml`) and
+    its generated header recognized by `isAppleContainerInheritedCopy`, and a stdin of `y\n`,
+    the first `apple-container-self` launch renames the whole legacy home to
     `<ws>/.yolo/setups/apple-container-self/home` and prints what it did; with `n\n` or no
-    terminal it prints `mv <ws>/.yolo/home <ws>/.yolo/setups/apple-container-self/home` and
-    launches with a fresh home; nothing is removed in either case (assert the old directory still
-    exists after `n`). With a container named `runtime.FromWorkspace(ws)` reported present by the
-    stubbed runner, the launch refuses naming `podman stop <name>`.
+    terminal it prints the exact `mv` and launches with a fresh home, leaving the old tree intact.
+    With a container named `runtime.FromWorkspace(ws)` reported present by the stubbed runner,
+    the launch refuses naming `podman stop <name>` before any move or other state effect.
   - **Rewrite** every test asserting `.yolo/home`: unit — `internal/cli/run/inheritscope_test.go`
     (the MMP-D32 refusal becomes the adoption prompt), `internal/macosuser/*_test.go` reading
     `WorkspaceHomeState`; integration — `isolation_test.go:39`, `hostfiles_test.go:205`,
@@ -766,45 +773,80 @@ are below).
     `macosuserdenydefault_test.go:147,327,1521`, `macosuserseatbelt_test.go:180`): `$HOME` is
     `<ws>/.yolo/setups/<name>/home`.
 - **Change:**
-  - `internal/paths/paths.go:745-759`: `SetupsDir(ws)`, `SetupStateDir(ws, name)`,
-    `SetupHomeState(ws, name)`; delete `WorkspaceHomeState`; `EnsureWorkspaceStateDir` stays the
-    `.yolo` chokepoint and `SetupStateDir` is created through `OpenWorkspaceStateSubdir`
-    (`statefile.go`), never by plain `MkdirAll` (the `.yolo` is jail-writable: `statefile.go:12-22`).
+  - `internal/paths/paths.go:664-759`: `SetupsDir(ws)`, `SetupStateDir(ws, name)`,
+    `SetupHomeState(ws, name)`; delete `WorkspaceHomeState`. `SetupsDir` names the path;
+    6b enumerates it. `EnsureWorkspaceStateDir` remains the `.yolo` chokepoint. New
+    setup-state creation and readers must use the no-link chain formed by `OpenStateDirRoot`
+    and `OpenStateSubdirRoot` (`statefile.go:33-85`), not unchecked joins or
+    `OpenWorkspaceStateSubdir` (read-only and only for an existing direct child).
   - `internal/runtime/naming.go`: `JailName(ws, setup string) string`.
-  - The 29 `WorkspaceHomeState` callers take `(ws, o.Setup.Name)`; in-jail callers
-    (`internal/entrypoint/reachability.go`, `internal/macosuser/*` guest-side) read
-    `os.Getenv("YOLO_SETUP")`.
-  - `config/drift.go:38-43`, `assembled.go:59,89`, `configmigrate/plan.go:878`,
-    `migraterecord.go:179,192`: under `SetupStateDir`; `internal/cli/run/launchcontext.go:663`,
-    `configcapture.go:79`, `configtarget.go:372,435,444`, `render/target.go:390`: `prism` under
-    the setup dir.
-  - Jail-name minting sites switch from `runtime.FromWorkspace(o.Workspace)` to
-    `runtime.JailName(o.Workspace, o.Setup.Name)`: `run.go:169,345`, `actooldisk.go:51`,
-    `hosttiming.go:45`, `macosuserguestdaemons.go:78`, `hostlaunchcontext.go:85`,
-    `launchrecord.go:78,206`, `trackingcleanup.go:114`, `launchlog.go:407`,
-    `keeperspawn.go:698-1760` (eight sites), `hostdoorways.go:475`, `migrateoffer.go:256`,
-    `inheritscope.go:843`, `liveapply.go:162`, `runcmd.go:1145`; `internal/cli/stop.go:196`,
-    `configrunningjail.go:85`, `programcapture.go:77`, `programcaptureproducer.go:414-523`,
-    `capturehost.go:253`, `backgroundadvance.go:226`, `forkbuild.go:877,949`,
-    `check/sections_loopholes.go:574`; `internal/hostrun/host.go:128`;
-    `internal/macosuser/runplan.go:2706` (`cnameFn`); `internal/prune/orphancname.go:440`,
-    `miseversions.go:307`, `misevolumes.go:151-153`. **Not** `internal/config/snapshot.go:46`,
-    `scopeapproval.go:291,301`, `loopholegrantgate.go:43` (per project, [SUP-D2](#SUP-D2)).
+  - Follow the actual `WorkspaceHomeState` readers/writers, including
+    `run/prepare.go`, `assemble.go`/`persistencemap.go`/`wsstatebeneath.go`,
+    `run/inheritscope.go`, `run/jailgrant.go`, `run/agentlogreap.go`,
+    `cli/buildjaillogs.go`, `cli/internal.go`, `cli/capturehost.go`, `cli/forkbuild.go`,
+    `macosuser/{mode,runplan,orchestrator,provision,jaildaemon,homereadonly}.go`,
+    `claudeview.go`, and `prune/prune.go`. The direct-call search is not a complete
+    mount/capture inventory: `persistencemap.go:117` hand-joins `home`; shadow binds,
+    Apple Container's whole-home bind, podman's per-dir binds and native `$HOME` must agree.
+    In-jail session paths use `YOLO_SETUP`; do not invent a `WorkspaceHomeState` caller in
+    `entrypoint/reachability.go` (there is none at this source stamp).
+  - `config/drift.go:38-43`, `assembled.go:59,89`, `configmigrate/plan.go:1099` and
+    its record application in `configmigrate/apply.go:235-239`: put boot baseline and
+    assembled records under `SetupStateDir`, retaining the session digest check.
+    `internal/cli/configtarget.go:114-125,329-438`, `configcapture.go:79`,
+    `run/launchcontext.go:663`, `render/target.go:403-415` and `entrypoint/prism.go:42-53`
+    must resolve the **same** setup-qualified prism store; `configtarget.go` and
+    `configcapture.go` live in `internal/cli`, not `run`. Preserve `render.Target`'s host-own
+    capture routing, sealed-workspace behavior, and no-follow readers through the nested
+    state-root chain. `configtarget.go:366-374` also treats the boot baseline as a workspace
+    marker; keep its discovery working.
+  - Mint the qualified `cname` after setup selection at `run/run.go:358`;
+    `run.go:168` initializes perf before selection, so move that per-run identity
+    initialization without losing early-probe timing. Follow the actual running-jail
+    callers in `internal/cli/run` (`keeperspawn`, `hostdoorways`, `hostlaunchcontext`,
+    `hosttiming`, `macosuserguestdaemons`, `launchrecord`, `trackingcleanup`, `launchlog`,
+    `liveapply`, `inheritscope`, `migrateoffer`, `runcmd`); `internal/cli` (`stop`,
+    `configrunningjail`, `programcapture`, `programcaptureproducer`, `capturehost`,
+    `backgroundadvance`, `forkbuild`, `check/sections_loopholes`); `internal/hostrun/host.go`;
+    `internal/macosuser/runplan.go` (`cnameFn`); and prune (`miseversions` plus orphan/volume
+    discovery). Staging workspaces for capture/fork use the setup their acts really run under
+    ([SUP-D14](#SUP-D14)). Carry `cname` through keeper plan/spawn, lease and private MCP
+    outcome generation (`keeperplan.go`, `mcpteardown.go`, `mcpoutcomeretire.go`), broker
+    scope files, native `SessionKey`, host-service endpoint hash, pack-tree root, attach and
+    cleanup. **Do not** qualify the approval/grant project key (`config/{snapshot,
+    scopeapproval,loopholegrantgate}.go` retain `FromWorkspace`).
+  - The selected MCP launch input flows through `launchinputmcp.go` → `keeperplan.go:106` →
+    `keeperspawn.go:169-264` → `loopholesruntime.go`; resource placement remains default OFF.
+    The current final-harvest receipt requires an observed stop of the selected service,
+    confirmed jail absence, and no harvest failure before `ok` is published; carry the selected
+    service and generation identity with the setup-qualified jail key. G1's HTTP snapshot
+    extension remains unlanded. Make no fresh-origin, grant-file or resource-policy change in
+    6a. If G1 lands first, re-read its keeper and selected-service callers and compose only the
+    setup-qualified lifetime/identity wiring.
   - `internal/cli/run/legacyhome.go` (new): `adoptLegacyHome(o)` and `refuseLegacyContainer(o)`,
-    called right after `resolveSetup`; `inheritscope.go:742-808`: `refuseAppleContainerHome`
-    deleted, `isAppleContainerInheritedCopy` kept as the identifier.
-  - `launch.log`: `attachLaunchLog` (`launchlog.go:151`) prefixes every line with `[<setup>]`.
+    after `resolveSetup` but before any home preparation or other state effect. Check the **old**
+    `runtime.FromWorkspace` container name before any move. `inheritscope.go:760-808`: retire
+    `refuseAppleContainerHome` for distinct homes; retain `isAppleContainerInheritedCopy` as a
+    layout signal for the generated preflight user-config header, not `.claude.json`. Move the
+    whole home only after explicit adoption; never copy then delete credentials or state. On
+    decline or nonterminal input, preserve the old home and print the exact `mv` to take next.
+  - `launch.log`: retain the existing setup-prefix behavior in `attachLaunchLog` (`launchlog.go`);
+    do not duplicate or rename the project-wide file.
 - **Gates:** `just test-fast`; `GOOS=darwin go vet ./internal/macosuser/... ./internal/cli/...`;
-  `just check-ci`; nested: two launches in one throwaway workspace, `--setup podman-self -- true`
-  and `--setup host-self -- true` (through `yolo host`), then `ls .yolo/setups/`. On the
-  combined 6a+6b candidate, run the full integration suite and obtain **unchanged W-SU1/W-SU4
-  from the owner's Mac agent before either primary landing**. W-SU1 checks 6b's `setup list`/`stop`;
-  build and test 6b on the 6a commit first, then serially land the reviewed pair. A nested rootful
-  run does not witness rootless-only or native Mac paths.
+  `just check-ci`; build `just build-dev-bundle` under the original build `HOME` and effective
+  Go settings, then invoke its absolute emitted launcher from a throwaway workspace with only the
+  execution `HOME` isolated; do not isolate `HOME` for the build or change its effective Go
+  settings. Keep the normal `YOLO_TEST_JAIL_TIMEOUT` integration-helper budget (300 seconds by
+  default); do not disable or silently shrink it. Launch once with
+  `--setup podman-self -- true` and once with `yolo host --setup host-self -- true`, then inspect
+  `ls .yolo/setups/`. On the combined 6a+6b candidate, run the full integration suite and obtain
+  **unchanged W-SU1/W-SU4 from the owner's Mac agent before either primary landing**. W-SU1
+  checks 6b's `setup list`/`stop`; build and test 6b on the 6a commit first, then serially land
+  the reviewed pair. A nested rootful run does not witness rootless-only or native Mac paths.
 - **Fences:** `yolo stop`/`ps` enumeration (6b); `internal/macosuser/runplan.go` argv (8).
 - **Commit:** `feat(setups): one home and run state per setup under .yolo/setups/<name>; setup-qualified jail names`
-- **Report:** the red and green runs; the `ls .yolo/setups` output; the number of
-  `WorkspaceHomeState` callers you actually changed.
+- **Report:** the red and green runs; the `ls .yolo/setups` output; the source-grounded
+  identity/home/capture caller map and the unchanged native witness output before landing.
 
 ### Slice 6b — stop, ps, stores and `setup list` see every setup (after 6a)
 
@@ -1074,10 +1116,13 @@ into the slice's report (see the macos-user plan's
   --predicate 'sender == "Sandbox"'` shows no denial from this session's processes; `claude -p
   'Reply with the single word: ok'` answers. On a Mac without the account, the launch refuses
   with *"Create it once (it asks for your admin password): `yolo yolo-account create`"*.
-- **W-SU4 (slice 6a):** a workspace last used by Apple Container before this change (its
-  `.yolo/home/.claude.json` present). `yolo --setup apple-container-self -- true` asks `Move it to
-  this setup's home? [y/N]`; `n` prints the one `mv` and `ls .yolo/home` is unchanged; `y` on a
-  second run moves it and `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
+- **W-SU4 (slice 6a):** a workspace last used by Apple Container before this change, with its
+  generated preflight user-config (`config.jsonc` or `config.toml`) under
+  `.yolo/home/.config/yolo-jail/` carrying yolo's inherited-config header. `yolo --setup
+  apple-container-self -- true` asks `Move it to this setup's home? [y/N]`; `n` prints the exact
+  `mv` and leaves the old home and header intact. On a second run, `y` moves the whole home
+  (not a copy-then-delete), and the generated config is present under
+  `.yolo/setups/apple-container-self/home/.config/yolo-jail/`. Then
   `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
   ./integration` passes.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
