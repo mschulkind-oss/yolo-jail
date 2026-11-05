@@ -1263,6 +1263,12 @@ the colleague who reported the refusal):
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside
   writes into the host's `~/Library/Caches/pip`. Paste as a dated run beside W1.
+  *Run 2026-11-05* ([lab report](../lab-reports/2026-11-04-host-workspace-skills-link-and-ssh.md#9-2026-11-05-the-claude-subscription-lines-of-w1-and-w2-pass)),
+  through `YOLO_SETUP=seatbelt-self` and no config edit: **passes**. Claude answered on both
+  `~/code/alpha` launches with no `/login`, and `~/code/beta` ran at the same time. The pip line
+  passed with Homebrew's pip, because the sandbox has no working one
+  ([lab report, W2's cache line](../lab-reports/2026-11-04-host-workspace-skills-link-and-ssh.md#w2s-cache-line-mmp-d12-run-as-you-mode-shares-host-caches)).
+  W1's `claude -p` on the subscription also answered in both of its workspaces.
 - **W3 (slice 12c):** two account-mode workspaces with different `cache_relocations` or alias sets
   launched in turn; A's alias links under `/Users/_yolojail/.cache` survive B's launch.
 

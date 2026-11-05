@@ -39,6 +39,7 @@ summary: "yolo host -- claude links .claude/skills to the repository's .pi/skill
 | 9 | `yolo ps` puts Apple Container's whole row in STATUS, and lists the builder | Defect ([§7](#7-later-the-same-day-712b4238c-on-the-mac-and-the-macos-guides-yolo-ps--yolo-stop)) |
 | 10 | W9's refusal is as specified, but two of its three routes don't run Copilot from that workspace | Witness passes, defects in its routes ([§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self)) |
 | 11 | Run-as-you mode has no working pip; with Homebrew's, `pip download` fills the host's pip cache | W2's cache line passes, with a substitute ([§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self)) |
+| 12 | After the owner's `/login`, `claude -p` answers on the subscription in both W1 workspaces and every W2 launch | W1 and W2 pass ([§9](#9-2026-11-05-the-claude-subscription-lines-of-w1-and-w2-pass)) |
 
 ## 2. What made `.claude/`
 
@@ -293,6 +294,28 @@ carry one.
 
 W2's other lines (Claude logged in twice with no `/login`, and a second workspace at the same time)
 were not run: they need the Claude subscription, which is out of credits until 2026-11-05.
+
+## 9. 2026-11-05: the Claude subscription lines of W1 and W2 pass
+
+The owner signed the shared Claude login in again with `/login` in a
+`YOLO_SETUP=seatbelt-yolo-account yolo -- claude` session. Before that, the same probe still
+failed with `Failed to authenticate: OAuth token revoked.` Then, over ssh, installed `yolo`
+`0.16.1+35.g7f1210e630c9`, every probe being `claude -p "Reply with the single word: ok"` inside
+the launch:
+
+| Witness line | Setup, workspace | Result |
+| :--- | :--- | :--- |
+| W1: `claude -p` answers in both workspaces | `seatbelt-yolo-account`, `/Users/Shared/yolo/w1b-a` | `ok`, rc 0 |
+| | `seatbelt-yolo-account`, `/Users/Shared/yolo/w1-d` | `ok`, rc 0 |
+| W2: logged in on the first launch, no `/login` | `seatbelt-self`, fresh `~/code/alpha` (`HOME=/Users/matt/code/alpha/.yolo/home`) | `ok` |
+| W2: a second workspace runs at the same time | `seatbelt-self`, fresh `~/code/beta`, launched while alpha's session slept | `ok`, exit 0; alpha's session was still running (its `A1 DONE` printed later) |
+| W2: logged in on the second launch, no `/login` | `seatbelt-self`, `~/code/alpha` again, after the first session ended (exit 0) | `ok` |
+
+With the pip-cache line of [§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self),
+**W2 passes in full** (pip by Homebrew's, as [§8](#8-w9-and-w2s-cache-line-run-through-yolo_setupseatbelt-self) says), and **W1's last line passes**. That
+leaves W1's own expectations met apart from the findings already recorded in the
+[slice 12a report](2026-11-03-mac-slice-12a-witness-w1.md) (the overlay copy is ruled; the
+account-mode SecurityServer deny is open). Nothing was fixed.
 
 ## Evidence
 
