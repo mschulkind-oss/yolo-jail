@@ -252,10 +252,37 @@ class ParseLogTest(unittest.TestCase):
             "open " + str(through_parent), str(source / "pkg"), allowed), {str(source_file)})
 
         components = ["c" * 200 for _ in range(22)]
-        deep_parent = fixture.joinpath("link", "..", *components, "leaf.md")
-        self.assertGreater(len(os.fsencode(deep_parent)), 4096)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        descriptors = [os.open(source, flags)]
+        try:
+            for component in components:
+                os.mkdir(component, 0o755, dir_fd=descriptors[-1])
+                descriptors.append(os.open(component, flags, dir_fd=descriptors[-1]))
+            deep_parent = fixture.joinpath("link", "..", *components, "leaf.md")
+            self.assertGreater(len(os.fsencode(deep_parent)), 4096)
+            self.assertEqual(census.jail_workspace_opens(
+                "open " + str(deep_parent), str(source / "pkg"), allowed), {str(deep_parent)})
+        finally:
+            for index in range(len(descriptors) - 1, 0, -1):
+                os.close(descriptors[index])
+                os.rmdir(components[index - 1], dir_fd=descriptors[index - 1])
+            os.close(descriptors[0])
+
+    def test_relative_parent_path_to_fixture_is_resolved_from_package_cwd(self):
+        source, fixture, env = self._fixture_namespace()
+        allowed = census.validate_fixture_root(source, env)
+        pkgdir = source / "pkg"
+        pkgdir.mkdir()
+        fixture_file = fixture / "reader path with spaces and 'quotes" / "yolo-jail.jsonc"
+        fixture_file.parent.mkdir()
+        fixture_file.write_text("fixture")
+        relative = os.path.relpath(fixture_file, pkgdir)
+        fixture_file.unlink()
+        fixture_file.parent.rmdir()
+
+        self.assertIn("..", Path(relative).parts)
         self.assertEqual(census.jail_workspace_opens(
-            "open " + str(deep_parent), str(source / "pkg"), allowed), {str(deep_parent)})
+            "open " + relative, str(pkgdir), allowed), set())
 
     def test_configured_fixture_root_does_not_hide_primary_workspace_reads(self):
         source, fixture, env = self._fixture_namespace()

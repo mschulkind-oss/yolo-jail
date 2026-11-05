@@ -206,23 +206,33 @@ def _is_within(path, base):
 
 
 def _resolve_with_missing_leaf(path):
-    """Resolve every existing component, allowing only a genuinely missing suffix."""
-    suffix = []
-    current = Path(path)
-    while True:
-        try:
-            current.lstat()
-        except FileNotFoundError:
-            parent = current.parent
-            if parent == current:
-                raise
-            suffix.append(current.name)
-            current = parent
+    """Resolve path components in order, allowing only a genuinely missing suffix."""
+    raw = Path(path)
+    if not raw.is_absolute():
+        raise ValueError("fixture path must be absolute")
+    parts = raw.parts[1:]
+    resolved = Path(raw.anchor)
+    missing = False
+    for index, component in enumerate(parts):
+        if component == "..":
+            if missing:
+                raise FileNotFoundError("parent traversal after a missing fixture component")
+            resolved = resolved.parent
             continue
-        resolved = current.resolve(strict=True)
-        for component in reversed(suffix):
-            resolved = resolved / component
-        return resolved
+        candidate = resolved / component
+        if missing:
+            resolved = candidate
+            continue
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            if any(part == ".." for part in parts[index + 1:]):
+                raise FileNotFoundError("parent traversal after a missing fixture component")
+            missing = True
+            resolved = candidate
+            continue
+        resolved = candidate.resolve(strict=True)
+    return resolved
 
 
 def _fixture_path_is_confined(path, fixture_root):
@@ -365,6 +375,16 @@ def jail_workspace_opens(text, pkgdir, fixture_root=None):
             leaks.add(str(resolved))
             continue
         normalized = Path(os.path.normpath(raw_path))
+        if fixture_root is not None and ".." in p.parts and _is_within(normalized, fixture_root):
+            try:
+                resolved = _resolve_with_missing_leaf(p)
+            except (OSError, RuntimeError, ValueError):
+                leaks.add(str(p))
+                continue
+            if _is_within(resolved, fixture_root):
+                continue
+            leaks.add(str(resolved))
+            continue
         if rel(str(normalized), pkgdir) is not None:
             continue
         if _is_within(Path(ROOT), normalized):  # an ancestor of this checkout
