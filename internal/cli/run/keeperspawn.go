@@ -48,6 +48,8 @@ import (
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
+const selectedMCPHostService = "mcp-auth-broker"
+
 // keeperSpawner starts a keeper for launch with a plan file and its descriptors (the launch lock
 // may be nil, and reserved, the jail's reserved ports, empty) and returns a wait for its exit
 // status. The spawner's copies of the descriptors are the caller's to close once it returns.
@@ -243,7 +245,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		forwardDir = ""
 	}
 	var teardownID string
-	if slices.Contains(services, "mcp-auth-broker") && o.frozenLaunchMCPForKeeper() != nil {
+	if slices.Contains(services, selectedMCPHostService) && o.frozenLaunchMCPForKeeper() != nil {
 		var nonce [16]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return nil, fmt.Errorf("could not identify this MCP teardown: %w; retry the launch", err)

@@ -32,13 +32,14 @@ import (
 // see hostServiceEnvVar vs hostServiceSocketEnvVar. stop() tears the daemon down at
 // container exit.
 type loopholeDaemon struct {
-	name           string
-	hostPath       string
-	jailPath       string
-	envVarName     string
-	stop           func()
-	finalFailure   func() error
-	startupOutcome hostservice.StartupOutcome
+	name              string
+	hostPath          string
+	jailPath          string
+	envVarName        string
+	stop              func()
+	finalFailure      func() error
+	finalStopObserved *bool // set only after stop and a successful final-status check
+	startupOutcome    hostservice.StartupOutcome
 	// launchCheck is the manifest's `host_daemon.launch_check`, and hasJailDaemon whether the
 	// loophole declares a jail_daemon: together they decide whether the launch asks this
 	// daemon the launch check (launchcheck.go). Set by markLaunchCheck. hostWide marks an
@@ -805,6 +806,8 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 				if err := h.finalFailure(); err != nil {
 					failed = true
 					out.printf("[bold red]Host service '%s' final harvest was not confirmed (%v). Inspect its private host-service log and repair the workspace store or lock before relaunching.[/bold red]", h.name, err)
+				} else if h.finalStopObserved != nil {
+					*h.finalStopObserved = true
 				}
 			}
 		}()
@@ -1820,8 +1823,10 @@ func (o *Options) startExternalService(
 	var finalErr error
 	checkFinalExit := hd != nil && hd.Detach && hd.LaunchInput != ""
 	var finalStatus func() error
+	var finalStopObserved *bool
 	if checkFinalExit {
 		finalStatus = func() error { return finalErr }
+		finalStopObserved = new(bool)
 	}
 	// stopCurrent is the teardown's stop of whichever process the supervisor holds now, marked
 	// stopping first so the stop is never read as a death and restarted.
@@ -1937,15 +1942,16 @@ func (o *Options) startExternalService(
 		snapshotOwned = true
 	}
 	h := loopholeDaemon{
-		name:           name,
-		hostPath:       hostPath,
-		jailPath:       jailPath,
-		envVarName:     envVar,
-		stop:           stop,
-		finalFailure:   finalStatus,
-		startupOutcome: outcome,
-		end:            end,
-		log:            serviceLog,
+		name:              name,
+		hostPath:          hostPath,
+		jailPath:          jailPath,
+		envVarName:        envVar,
+		stop:              stop,
+		finalFailure:      finalStatus,
+		finalStopObserved: finalStopObserved,
+		startupOutcome:    outcome,
+		end:               end,
+		log:               serviceLog,
 	}
 	if fronted {
 		h.upstream = daemonPath

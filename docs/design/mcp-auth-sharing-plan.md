@@ -3,7 +3,7 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Resolve the Codex native-origin proof gap before supporting fresh native sign-in harvest; run the independent HIGH and combined-source gates"
+next: "Resolve the Codex native-origin proof gap before supporting fresh native sign-in harvest; run the matched-source combined gates; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Phase A and the reviewed Task 12 launch-boundary foundations are integrated. Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
@@ -11,7 +11,7 @@ summary: "Phase A and the reviewed Task 12 launch-boundary foundations are integ
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
 
-**Integrated source boundary (2026-11-05):** The selected `mcp-auth` pack and private launch-input producer feed the Codex store daemon; current-keeper identity, startup refusal/journaling, generation-reader leases, and guarded outcome retirement are integrated. The source includes synthetic Linux coverage, but this primary composition still requires independent HIGH review and the matched-source integration/landing gates. No real agent, credential, sign-in, provider, or MCP endpoint was used. This is not a claim of native sign-in adoption.
+**Integrated source boundary (2026-11-05):** The selected `mcp-auth` pack and private launch-input producer feed the Codex store daemon; current-keeper identity, startup refusal/journaling, generation-reader leases, and guarded outcome retirement are integrated. Final-harvest success now requires the selected service's observed final stop, confirmed jail absence, and no observed harvest failure. A missing selected service, empty teardown, or unkept jail cannot publish `ok`; an observed harvest failure remains `failed` even when teardown follows a signal. Independent HIGH review accepted this targeted outcome closure, and the absence-guard regression exercises the actual final-harvest reader after a clean observed service stop. The broader composition review and matched-source combined gates remain. No real agent, credential, sign-in, provider, or MCP endpoint was used. This is not a claim of native sign-in adoption.
 
 Codex's native key hashes empty headers, its native match returns only name and URL, and its stored entry has no sign-in header provenance. Therefore fresh native-origin proof is unavailable: unknown native entries are preserved but never promoted or shared, and fresh native sign-in harvest remains unsupported. The empty SAVE/LOAD headers and client-ID metadata do not prove native origin. Do not claim native B1/B2, rootless, macOS, or cross-backend behavior. Tasks 13–15 remain separate; native-origin support needs independently reviewed proof or an owner ruling.
 

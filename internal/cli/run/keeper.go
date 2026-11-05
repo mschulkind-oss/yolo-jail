@@ -51,6 +51,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -186,10 +187,12 @@ func runKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 
 // keeper is one keeper's state.
 type keeper struct {
-	o             *Options
-	plan          *keeperPlan
-	sink          *keeperSink
-	harvestFailed bool
+	o                  *Options
+	plan               *keeperPlan
+	sink               *keeperSink
+	harvestFailed      bool
+	teardownComplete   bool
+	selectedMCPStopped bool
 
 	progress   *os.File
 	launchLock *os.File
@@ -919,6 +922,16 @@ func (k *keeper) endJail(reason string, stop bool) {
 		}
 	}
 	k.harvestFailed = o.teardownAfterExit(k.socat, p.ForwardDir, k.handles, p.SocketsDir, p.Cname, p.Runtime, p.Skeleton, rc)
+	k.teardownComplete = true
+	// Only a ready handle returned by the actual spawn, whose final stop and
+	// status check both ran, has a final harvest to observe. A planned ID alone
+	// survives skipped input preflights and cannot certify an empty teardown.
+	for _, h := range k.handles {
+		if h.name == selectedMCPHostService && h.startupOutcome.Kind == hostservice.StartupKindReady &&
+			h.finalStopObserved != nil && *h.finalStopObserved {
+			k.selectedMCPStopped = true
+		}
+	}
 	if k.jailLeft {
 		o.writeOwnerPID(p.Cname)
 	}
@@ -1000,11 +1013,20 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 		}
 	}
 	if p.MCPTeardownID != "" {
-		outcome := "ok"
-		if rc != 0 {
+		// A signal or failed main-process client changes the keeper's exit status,
+		// not the observed host-service harvest. Conversely, a still-present (or
+		// unobservable) jail may write its credential stores again after teardown:
+		// no final success can be certified for that generation.
+		outcome := ""
+		switch {
+		case k.harvestFailed:
 			outcome = "failed"
+		case k.teardownComplete && !k.jailLeft && k.selectedMCPStopped:
+			outcome = "ok"
 		}
-		if err := writeMCPTeardownOutcomeFor(k.stateKey(), p.MCPTeardownID, outcome, p.Workspace, p.Runtime); err != nil {
+		if outcome == "" {
+			k.sink.logf("keeper: selected MCP final harvest is unconfirmed; inspect its host service log and repair the workspace store or lock before relaunching; if the jail remains, %s ends it", stopRemedy(p.Runtime, p.Cname))
+		} else if err := writeMCPTeardownOutcomeFor(k.stateKey(), p.MCPTeardownID, outcome, p.Workspace, p.Runtime); err != nil {
 			k.sink.logf("keeper: could not confirm selected MCP teardown (%v); inspect host service state and relaunch", err)
 			if rc == 0 {
 				rc = 1
