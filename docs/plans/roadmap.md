@@ -497,20 +497,23 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     consumed at the front while the host injects the real origin credential; this is not an
     approved wire, custody path, client-eligibility rule or backend restriction. Current token
     records, agent files and snapshots are workspace-backed; source review identifies a
-    same-workspace peer-read path, but no two-jail runtime reproduction has run. Private
-    delivery and consumer-chain integrity are engineering next steps; test actual token
-    acquisition/replay and startup-chain tampering.
-    Keep nonpublishing front work moving, do not pre-emptively exclude clients/backends, and
-    return only a concrete compatibility or isolation boundary for ruling before shared-loopback
-    URL publication. [OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1) gates only custom executor/signing
-    and does not block G4. F still permits only explicit project-scoped `run list` reads;
-    declaration-selected host environment names are captured only at the pinned host CLI,
-    while CircleCI XDG credentials are fenced. No live authentication, Cloud/Server behavior,
-    native runtime, or real-grant proof is claimed. `ForAddRemember` remains OFF under
-    [OQ-BX7](../design/pack-brokers.md#OQ-BX7); Access tasks 4–5 remain separate and
-    unbuilt. The [HTTP plan](../design/pack-brokers-http-plan.md) records the implementation
-    boundary; the [broader pack-broker seed](../design/pack-brokers-plan.md) records approval
-    review residuals and audit/store uncertainty.
+    same-workspace peer-read path, but no two-jail runtime reproduction has run. The HTTP design
+    now records a proposed private per-generation payload, managed-consumer integrity, local
+    HTTPS and per-setup verification; none is implemented or natively proved. Continue
+    nonpublishing engineering and actual selected-client A/B acquisition/replay and startup-
+    tampering tests. Keep [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2) open only for fallback if a selected client is demonstrated
+    incompatible: it does not block activation of a compatible client/setup cell once that
+    cell's private-custody, consumer, TLS and native-isolation gates pass. Hold only a failing
+    cell and return its concrete compatibility/isolation boundary; do not pre-emptively exclude
+    clients or backends. [OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1) gates only custom
+    executor/signing and does not block G4. F still permits only explicit project-scoped
+    `run list` reads; declaration-selected host environment names are captured only at the
+    pinned host CLI, while CircleCI XDG credentials are fenced. No live authentication,
+    Cloud/Server behavior, native runtime or real-grant proof is claimed. `ForAddRemember`
+    remains OFF under [OQ-BX7](../design/pack-brokers.md#OQ-BX7); Access tasks 4–5 remain
+    separate and unbuilt. The [HTTP plan](../design/pack-brokers-http-plan.md) records the
+    implementation boundary; the [broader pack-broker seed](../design/pack-brokers-plan.md)
+    records approval review residuals and audit/store uncertainty.
 55. [Bound Yolo workspace work in owner-managed resource groups](../design/resource-groups.md) — the owner-only, default-off selection and read-only finite-policy planning foundation is integrated; selected Host placements fail closed at `Run`, and every mapped writer remains unsupported. The bounded fake-only required-start admission test boundary is integrated and independently HIGH-reviewed; its exact source passed resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. Its committed primary-source development bundle reports the matching commit; scrubbed `check --no-build` showed resource groups disabled, and the rootful `podman-self` default-off nested launch passed. No production caller, native authority/placement, or enforcement is established. Stable-name exclusion, the real Brief 3 writer, Brief 4 placement, device/performance evidence, and whole-project combined/native gates remain outstanding.
 ## Boundaries
 

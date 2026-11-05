@@ -3,23 +3,24 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-05
 status: accepted
 stage: DECIDED
-next: "Resolve [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) before publishing a selected front on shared loopback; keep nonpublishing G4 work moving and custom execution fail-closed at OQ-HTTP1"
+next: "Build private selected-client delivery and tests; keep [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) open only for incompatible-cell fallback, not as a blanket activation gate"
 tags: [plan, broker, http]
-summary: "Tree-grounded HTTP build hand-off; custom execution and shared-loopback publication remain open."
+summary: "Tree-grounded HTTP build hand-off; private client delivery is proposed and G4 remains per-cell gated."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-06. Primary `d06a47707d87` integrates G3 core partially;
+**Status:** 2026-11-05. Primary `d06a47707d87` integrates G3 core partially;
 independent closure covers four findings only. The d06 matched bundle, host
 `check --no-build`, and selective `just done` passed; `just done` is not whole-tree
 CI. The rootful nested empty-packs smoke is for candidate `0dec2ce2f792`, not d06.
 No primary selected-front launch/publication, full G3 acceptance, combined `check-ci`,
-full integration, remote CI or native rootless/macOS proof is established. The
-front-handler work can proceed without the custom executor ruling, but
-[OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) gates shared-loopback URL publication;
-[OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) gates only custom execution/signing. Neither
-core checks nor this plan claim an OS sandbox for a host program. **Design:**
+full integration, remote CI or native rootless/macOS proof is established. G4 implementation
+and activation are per selected client/setup cell: complete private delivery, real client
+field/TLS behavior and native isolation gates before publishing that cell. [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2)
+remains open only for a demonstrated incompatible-client fallback and is not a blanket
+prerequisite. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) gates only custom execution/signing.
+Neither core checks nor this plan claim an OS sandbox for a host program. **Design:**
 [HTTP contract](pack-brokers-http.md). The [broader plan](pack-brokers-plan.md)
 remains a seed under [OQ-BX7](pack-brokers.md#OQ-BX7). Precedence: design wins on
 behavior, the tree wins on cosmetic fact, this plan is advice and first to be wrong.
@@ -48,8 +49,10 @@ adapter/dispatch component is partial, not a selected launch, published URL, rea
 service or G4 acceptance. External host-state change after the final preflight remains
 nonatomic with remote transmission. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) stays
 open and custom execution remains blocked, but does not block G4.
-[OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) separately gates agent-facing publication
-on shared loopback; nonpublishing front work may proceed.
+[OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) remains open only for a concrete fallback if a
+selected client is demonstrated incompatible with ordinary-field delivery; it is not a
+blanket publication gate for compatible client/setup cells that pass the per-cell evidence in
+G4.
 
 ## Map
 
@@ -58,7 +61,7 @@ on shared loopback; nonpublishing front work may proceed.
 | `internal/loopholedecl/callbroker.go`, `callbroker_test.go`, `tomlform_test.go`; `internal/config/callbroker.go`, `scopeapproval.go`, `readabledeclarations.go`, config/gate tests; `internal/cli/run/launchinput.go`, `keeperplan.go`, `keeperspawn.go`, tests; `internal/callbrokerinput/launch.go` | G1: strict source-bound HTTP declaration, gate display/approved binding and selected private input; preserve CLI behavior (**integrated; focused findings closed; combined review remains**) |
 | `internal/frameproto/frameproto.go`, `frameproto_test.go`; `internal/hostservice/hostservice.go`, tests; `internal/callbroker/classifier.go`, `http.go` (new), HTTP tests | G2: HTTP-only authenticated host-ingress preallocation bound and HTTP classifier/canonical bytes; leave generic CLI/Git/GH frame caps alone |
 | `internal/callbroker/daemon.go`, `authority.go`, `handler.go`, `decision.go`, `http_handler.go`, `http_executor.go`, `http_native.go`, `http_write.go`, HTTP tests; `internal/brokerstore/store.go`, tests; `internal/brokeraudit/`, tests | G3: host HTTP decision, non-body pending metadata/act resubmission, exact spend/audit and pinned core executor (**partial core source integrated; four focused findings independently closed; custom signer/executor wire awaits [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1); G3 acceptance remains separate**) |
-| `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`; `internal/cli/run/launchinput.go`, `packservices.go`, `servedaddresses.go`, runtime tests; `internal/launchservice/reserve.go`; `internal/loopholedecl/tokens.go`; `internal/loopholes/runtime.go`; `internal/packload/served.go`, `credentialscope.go`; `internal/callbroker/httpfront.go` (new); `integration/packbroker_test.go` (new) | G4: selected in-jail front, client base-URL publication and real launch wiring, authenticated host identity, readiness and cross-jail caller boundary |
+| `cmd/yolo-jaild/main.go`, `main_test.go`; `internal/entrypoint/requiredservice.go`, `agentenv.go`, `shell.go`; `internal/cli/run/launchinput.go`, `packservices.go`, `servedaddresses.go`, `callertokens.go`, `userenv.go`, `agentenvfiles.go`, `sessionsnapshot.go`, `assemble.go`, `assemble_parts.go`, `jailgrant.go`; `internal/paths/paths.go`; `internal/macosuser/runplan.go`, `seatbeltdeny.go`; `internal/launchservice/reserve.go`; `internal/loopholedecl/tokens.go`; `internal/loopholes/runtime.go`; `internal/packload/served.go`, `credentialscope.go`; `internal/packdecl/contributes.go`; `internal/callbroker/httpfront.go` (new); `integration/packbroker_test.go` (new) | G4: selected in-jail front, private ordinary-client delivery and managed startup integrity, local HTTPS, client base-URL publication, authenticated host identity, readiness and cross-jail caller boundary |
 | `internal/callbroker/conformance.go` (new), `internal/callbroker/*_test.go`, `integration/packbroker_test.go` (new), `tools/broker-fixture/` (new), `integration/testdata/pack-broker-{cli,http}/` (new), `userguide/guides/pack-broker-demo.md` (new), overlapping reference docs | H: real CLI/HTTP conformance and host controls |
 
 ## Reuse and traps
@@ -118,79 +121,38 @@ func TestCallBrokerHTTPDeclaration(t *testing.T) {
 
 **Custom HTTP executor — blocked on [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1).** The parent design's pack-executor scope remains intended, not removed, but its HTTP transport authority is not settled. Do not implement a signer or full HTTP pack executor from either proposed option. After the owner rules the question and the design records it, add the chosen wire and its custody, transport, audit and verification gates here. Core-owned G3 and G4 work may proceed without it; neither core transport checks nor this plan claim an OS sandbox for a host program.
 
-### G4 — selected front, launch and publication (after G3; handler work can proceed before [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2))
+### G4 — selected front, private client delivery and per-cell publication (after G3; implementation does not wait on [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2))
 
-**Publication gate:** [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) must be ruled before an
-agent-facing HTTP URL is published on a shared loopback. Do not infer local caller
-authentication from the host TLS preamble: it carries the front's `FrontJailID`, not the
-identity of the jail that dialed its local URL. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1)
-still gates only custom executor/signing and does not block this core-front work.
+**Per-cell publication rule:** [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2) remains open only to rule the fallback for a selected client demonstrated incompatible with the ordinary-token path. It is not a blanket prerequisite for implementation or activation. For each client/setup cell, publish only after its actual acquisition/replay, managed-startup integrity, local TLS/client behavior and native isolation gates pass. A failing cell stays unpublished while compatible cells may proceed; preserve all backend intent and bring a concrete incompatibility to the owner. [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) still gates only custom executor/signing and does not block this core-front work.
 
-- **Pack-to-client association:** use the selected pack's existing `kind = "env"`
-  contribution, `served_by` naming the same selected front, and `http://{listen}` to set
-  that client's existing base-URL variable. The producer must gate only selected, enabled
-  and approved HTTP fronts; `loopholes.Set.JailDaemons` appends extra specs without applying
-  that selection gate. The host TLS endpoint file is private host transport material, never
-  the client-facing URL. Add no manifest field or global client environment name.
-- **One usable address through launch and attach:** the core producer supplies the actual
-  nonzero loopback `JailDaemonSpec.Listen` used both in daemon argv and the resolved
-  `{listen}` environment pointer. Hold a unique address keyed by selected front name for
-  private and shared network namespaces; attach adopts the running jail's name/address map,
-  never a new port. Publish the selected client variable and ready name only after the local
-  listener is bound, selected host endpoint/generation is verified, and required readiness
-  passes. On allocation, bind, readiness or stale-generation failure, withhold the URL and
-  fail the affected selected front with a next step; never fall back to a declared port or
-  leave stale publication.
+- **Pack-to-client association:** use the selected pack's existing `kind = "env"` contribution with `served_by` naming the same selected front, plus a proposed generic `bin` target using the existing program-name spelling. This schema delta names the selected program's ordinary token and base-URL variables; only selected, enabled and approved HTTP fronts resolve `{caller_token}` and `https://{listen}`. `loopholes.Set.JailDaemons` appends extra specs without applying that selection gate. The host TLS endpoint file is private host transport material, never the client-facing URL. Do not add a profile-free global variable, provider/login path or agent registry; retain the current profile/platform gate for unrelated service contributions.
+- **One usable address through launch and attach:** the core producer supplies the actual nonzero loopback `JailDaemonSpec.Listen` used both in daemon argv and the resolved `{listen}` environment pointer. Hold a unique address keyed by selected front name for private and shared network namespaces; attach adopts the running jail's name/address map, never a new port. Keep the per-front local certificate name and trust settings tied to that address. Publish the selected client variable, token, trust settings and ready name together only after the local listener is bound, selected host endpoint/generation is verified, and required readiness passes. On allocation, bind, readiness or stale-generation failure, withhold the URL and fail the affected selected front with a next step; never fall back to a declared port or leave stale publication.
 - **Current-source trap:** `ListenAddressProblem` rejects port `0`;
   `settleServedAddresses` reserves declared host:port entries only on shared namespaces and
   warns/falls back to declared addresses on reservation failure. Existing address state keys
   declared endpoints, not dynamic front names. Do not encode `127.0.0.1:0` in pack schema or
   treat the current relocation/attach channel as this allocator. Add only the core name-keyed
   held-address and attach/readiness path the contract requires; do not add a privileged pack
-  daemon, binary or host grant. Local token delivery is separate engineering below; this
-  plan does not authorize an actual origin credential, CLI TLS bearer, or generic host
-  credential channel.
-- **Local caller token and custody:** the owner prefers trying the selected client's existing
-  ordinary configurable token/API-key field with a fresh jail-scoped replacement token, not
-  a new special client header. A's front consumes and strips that local token before host
-  dispatch; the host independently injects the actual origin credential. This is a preference,
-  not an accepted wire, custody mechanism, compatibility guarantee, client-eligibility rule,
-  or backend restriction. Never use an actual vendor credential or the CLI transport bearer
-  as the local token.
+  daemon, binary or host grant. The selected local token, private certificate/trust and
+  consumer startup chain require the separate delivery below. This plan does not authorize an
+  actual origin credential, CLI TLS bearer, generic host credential channel or insecure local
+  TLS fallback.
+- **Private caller token and custody:** the owner prefers the selected client's ordinary token/API-key field with a fresh jail-scoped replacement token, consumed by the front while the host independently injects the origin credential. This remains a preference, not an accepted wire, custody mechanism, compatibility guarantee, eligibility rule or backend restriction. Never use a vendor credential or CLI TLS bearer as the local token.
 
-  Do not reuse current `{caller_token}` delivery as proof of cross-jail secrecy. The selected
-  value is recorded in the per-entry channel and rendered into selected-agent environment
-  files and session snapshots under `paths.WorkspaceHomeState`; the workspace is also exposed
-  to each jail. See [`callertokens.go`](../../internal/cli/run/callertokens.go),
-  [`userenv.go`](../../internal/cli/run/userenv.go),
-  [`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go),
-  [`sessionsnapshot.go`](../../internal/cli/run/sessionsnapshot.go), and the workspace/home
-  binds in [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go). A same-owner
-  peer jail sharing the workspace can read those aliases; `0600`, a read-only home overlay,
-  and no-follow/root-walk protections do not establish peer secrecy. This is a source-based
-  finding, not a reproduced two-jail runtime result. Engineer private delivery and protect the
-  token-bearing consumer startup chain, including workspace-backed launcher/environment
-  inputs. This is the next engineering action, not a blanket owner-approval hold. If it
-  requires a changed shared-runtime trust boundary, return that concrete choice to the owner.
-- **Consumer regression after a selected front is callable:** in
-  `integration/packbroker_test.go`, use the actual selected client environment and two
-  independently selected fixture jails A and B that share loopback and the same workspace.
-  A has an approved write and succeeds once through its normal token field. B must attempt to
-  acquire A's actual token through every published workspace alias and session snapshot, then
-  replay any acquired value through the same client field; also attempt to tamper with the
-  token-bearing consumer startup chain. The current-path red must show acquisition and replay
-  reaching A's host handler; connection refusal or only absent/foreign-token rejection is not
-  evidence. After private delivery and consumer integrity pass, B must neither acquire nor
-  replay A's capability, enter A's host handler, cause a receiver request, or spend. Count
-  A's handler entries, receiver effects and spend. A host-origin credential is independently
-  injected by the host and never becomes the client's local token. For a concrete client path
-  that cannot meet these conditions, record the specific compatibility/isolation boundary
-  and return it to the owner; do not pre-emptively exclude a client or backend. This is not a
-  helper-only test or a measured native-Mac/rootless claim. Red:
-  `go test -run '^TestPackBrokerHTTPFrontCannotBeBorrowedByAnotherJail$' ./integration`.
+  Do not reuse the current `{caller_token}` channel as proof of peer secrecy. Its per-entry records, selected-agent files and session snapshots are under `paths.WorkspaceHomeState`, and the workspace is exposed to each jail; see [`callertokens.go`](../../internal/cli/run/callertokens.go), [`userenv.go`](../../internal/cli/run/userenv.go), [`agentenvfiles.go`](../../internal/cli/run/agentenvfiles.go), [`sessionsnapshot.go`](../../internal/cli/run/sessionsnapshot.go) and [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go). A same-owner peer can read those aliases; `0600`, read-only overlays and no-follow/root-walk protections do not establish peer secrecy. This is a source-based finding, not a reproduced exploit. Follow the [private-delivery proposal](pack-brokers-http.md#proposed-private-ordinary-client-delivery): a per-front/per-generation payload outside all peer-visible workspace, shared cache and program paths; atomic launch/attach/retire; and protected selected-client startup, interpreter, dependencies and install prefix. Do not protect only the token file while leaving its automatic reader replaceable. This is nonpublishing engineering work, not a blanket approval hold.
+
+- **Permanent production-consumer regression first:** after the selected front is callable, add `TestPackBrokerHTTPPrivateClientDeliveryCannotBeBorrowed` through selected-pack composition, private generation payload, actual managed client launcher, local HTTPS auth, front dispatch, counted host handler/TLS receiver, store and spend. Two selected fixture jails A and B share a workspace and can reach the loopback. Exercise token acquisition from every published workspace alias and session snapshot, plus B's attempts to replace A's automatic startup reader; replay any acquired value through the same ordinary client field. The current-path red must show B acquiring A's live token from a published alias or snapshot and replaying it through the ordinary field so A's host handler records the request; a missing front, disconnected listener, absent token, reader replacement alone or foreign-token rejection is not that red. Green: A's actual client produces exactly one A-handler entry, one receiver effect and one spend; B cannot acquire, replace or replay A's capability and produces zero of all three. Count handler entries, receiver effects and spend separately. A local token deliberately copied by A to B is still bearer authority; the claim is only that managed publication/startup/traffic does not expose it.
+
+- **Acquisition and consumer-integrity cases:** shared user/agent env, channel records, rendered client settings, snapshots, public metadata, pack copies, launcher and shell-init aliases, interpreter/program dependencies, private install prefixes, shared caches, environment and file descriptors. Test the production consumer after peer overwrites; modes and a private-writer helper alone are insufficient. Synthetic values only. Deliberately executing peer-authored project code is outside the boundary.
+
+- **Local protocol and generation cases:** real selected-client Bearer/API-key and header-prefix behavior; missing, wrong, duplicate and conflicting values; authentication before body read; private TLS trust failure and attempted interception; stripping/redaction before classifier, pending store, audit, logs and dry run; stale generation, valid attach continuity and old-record refusal; withdrawal before send and no retry/refund after possible send. Verify the client's normal error shape and count host-handler, receiver and spend effects.
+
+- **Native gates:** keep Podman rootful/rootless, private/shared/nested networking, Apple Container, both Seatbelt modes and host in scope. Run the actual A/B selected-client consumer on every intended native setup and record mount, process, network, TLS and cleanup facts. Nested rootful tests prove only the tested mechanism, not rootless or macOS isolation. A failing cell stays unpublished pending a concrete fallback; it is not silently dropped. No native isolation proof or real credential probe exists in this plan.
+
+  Red after production dispatch is callable: `go test -run '^TestPackBrokerHTTPPrivateClientDeliveryCannotBeBorrowed$' ./integration`. A source-only custody test is not the acceptance test.
 
 - **Literal front-path assertions:** send a selected fixture client request `POST /graphql` with `Authorization: jail-forged` and an original body from G3; for ASK assert `403`, `Yolo-Verdict: asks`, an opaque `Yolo-Request`, a GraphQL `errors` array carrying the actionable menu, and zero receiver requests. Repeat with no selected pack, invalid host preamble and missing grant; each refuses before the counted receiver. A selected approved call instead reaches it once with the host-built header, never `jail-forged`. Do not mistake a disconnected test listener for successful refusal routing.
-- **Tests first:** selected fixture HTTP pack's actual client path reaches `yolo-jaild` front → authenticated loopback-TLS → bound host handler → counted TLS receiver; absent selection, invalid preamble, unbound launch, missing grant, ASK and denied responses cause zero receiver requests. Assert HTTP 403 `Yolo-Verdict`/`Yolo-Request` + GraphQL `errors` menu; client Authorization is stripped and disclosed. Red: `go test -short ./cmd/yolo-jaild ./internal/entrypoint ./internal/cli/run ./internal/callbroker -run 'TestSelectedPackHTTPFrontBindsHostIdentity|TestPackHTTPFrontRefusalShape' -count=1` (production dispatch, not helper-only).
+- **Tests first:** the selected fixture HTTP pack's actual client path reaches `yolo-jaild` front → local HTTPS/authentication → authenticated host loopback TLS → bound host handler → counted TLS receiver. Assert absent selection, invalid host preamble, unbound launch, missing grant, ASK and denied responses cause zero receiver requests. The local caller token must be stripped before host input, and unauthenticated/duplicate-token requests must fail before body read or host effects. Assert HTTP 403 `Yolo-Verdict`/`Yolo-Request` + GraphQL `errors` menu for broker refusals, plus the selected client's own error shape for local 401. Red and green must be observed through the production dispatch, not a helper-only listener.
 - **Change:** `cmd/yolo-jaild/main.go`, `internal/entrypoint/requiredservice.go`, run's
   existing `YOLO_JAIL_DAEMONS`/selected launch producer and endpoint path in
   `internal/cli/run/packservices.go` and `servedaddresses.go`,

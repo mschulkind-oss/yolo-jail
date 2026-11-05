@@ -3,21 +3,25 @@ title: "Pack broker HTTP calls stay within the selected host decision"
 date: 2026-11-05
 status: in-review
 stage: DESIGN
-next: "Rule [OQ-HTTP2](#OQ-HTTP2) before publishing a selected HTTP front on shared loopback; [OQ-HTTP1](#OQ-HTTP1) remains custom-executor-only"
+next: "Review the private-delivery proposal; compatible cells may proceed once their gates pass while [OQ-HTTP2](#OQ-HTTP2) remains open for fallback"
 tags: [design, broker, packs, http]
-summary: "G3 core is partially integrated; custom-executor and shared-loopback publication boundaries remain open."
+summary: "G3 core is partially integrated; private delivery is proposed and unverified; G4 remains unactivated."
 ---
 
 # Pack broker HTTP calls stay within the selected host decision
 
-**Status:** 2026-11-06. The HTTP binding, bounded ingress/classifier and partial G3
+**Status:** 2026-11-05. The HTTP binding, bounded ingress/classifier and partial G3
 core host decision/execution are integrated on primary `d06a47707d87`; this includes
 typed native lookups and live preflight checks. The independent closure covers four G3
 findings only, not full G3 acceptance. The selected G4 front, launch publication and
-end-to-end runtime path are absent from primary. [OQ-HTTP1](#OQ-HTTP1) gates only custom
-HTTP executor/signing; [OQ-HTTP2](#OQ-HTTP2) gates publication where jails can share
-loopback. Both questions remain open; neither implies an OS sandbox, and no proposed
-custom-executor wire is accepted. No external authentication or live grants are established. This does not accept the broader [pack broker
+end-to-end runtime path are absent from primary. The private ordinary-client delivery below
+is an engineering proposal, not implemented behavior or native proof. A compatible
+client/setup cell may proceed to activation after its actual private-custody, consumer-
+integrity, TLS and isolation gates pass; [OQ-HTTP2](#OQ-HTTP2) remains open only for the
+fallback if a selected client is demonstrated incompatible, and is not a blanket prerequisite.
+[OQ-HTTP1](#OQ-HTTP1) gates only custom-executor/signing. Both questions remain open; neither
+implies an OS sandbox, and no proposed custom-executor wire is accepted. No external
+authentication or live grants are established. This does not accept the broader [pack broker
 design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add
 and mixed-cell timed answers.
 
@@ -177,12 +181,118 @@ selection-aware composition, not cross-jail secrecy. Source review found token r
 per-entry channel, selected-agent environment files, and session snapshots under
 [`paths.WorkspaceHomeState`](../../internal/paths/paths.go); the workspace is also exposed
 to each jail. A same-owner peer jail sharing the workspace can therefore read those
-workspace aliases and obtain the value, regardless of a `0600` mode or the read-only home
-overlay. No-follow and `os.Root` protections prevent path escape; they do not hide legitimate
-files in the shared workspace. The current token-bearing consumer startup chain is
-workspace-backed too. Private delivery and consumer integrity are engineering prerequisites
-before reusing this composition for cross-jail isolation. This is a source-based finding, not a
-reproduced two-jail exploit or runtime verification.
+workspace aliases, regardless of a `0600` mode or the read-only home overlay. No-follow and
+`os.Root` protections prevent path escape; they do not hide legitimate files in the shared
+workspace. The current token-bearing consumer startup chain is workspace-backed too. This is
+a source-based finding, not a reproduced two-jail exploit or runtime verification. Private
+delivery and consumer integrity are engineering prerequisites before reusing this composition
+for cross-jail isolation; the following proposal describes that work without claiming it is
+implemented.
+
+### Proposed private ordinary-client delivery
+
+**Design proposal only.** The owner prefers a fresh jail-scoped replacement token in the
+selected client's ordinary API-token field, consumed by the front while the host independently
+injects the real origin credential. That preference does not settle custody, local wire,
+client compatibility or backend support. A demonstrated incompatible client remains an
+[OQ-HTTP2](#OQ-HTTP2) fallback question; it does not hold compatible cells whose own gates
+pass.
+
+#### Private payload and consumer integrity
+
+Mint 256 fresh random bits for each selected front in each live jail generation. Use
+[`svcendpoint.NewToken`](../../internal/svcendpoint/token.go#L64) for entropy only; never reuse a service token, a vendor
+credential or the CLI TLS bearer. Keep the token, the front's server certificate/key, per-client TLS trust material, selected-client
+environment/settings and immutable session snapshots in a private per-jail-generation payload
+outside the workspace, shared caches, shared program prefixes and every peer-visible bind. An
+outside-workspace host-state path (for example, a dedicated per-jail child beneath
+[`paths.AgentsDir`](../../internal/paths/paths.go#L1110)) is a candidate, subject to lifecycle
+and native mount review; the existing [`jailgrant` vehicle](../../internal/cli/run/jailgrant.go#L186-L227)
+is only a source of mount-shape evidence, not grant policy or proof of this boundary. Publish
+files atomically and use owner-only modes, but rely on mount or session-sandbox exclusion for
+same-owner peers: `0700` and `0600` alone are not that boundary.
+
+Public state contains only front name, address, generation and readiness/failure reason, never
+the token, its hash or private key. Launch and valid attach read the private record directly;
+there is no workspace replica or fallback to the existing channel. A missing or changed record
+refuses attach and requires a fresh generation. A zero-front selection creates no token or
+trust payload.
+
+Associate the delivery with the selected program, not a global agent/profile variable. A
+candidate generic schema adds a `bin` target to the existing `env` contribution and requires
+it together with `served_by`; it names the client's ordinary token and base-URL variables and
+resolves `{caller_token}` and `https://{listen}` only for selected, approved fronts. Validate
+missing, duplicate and conflicting targets. This proposed schema change must not weaken the
+current profile/platform gate for unrelated services or create a provider, login, global API
+variable or agent registry.
+
+The generated consumer startup chain must use this generation's managed scripts and private
+settings, not workspace `.bashrc`, shell init, `agent-env` files or launcher aliases. Start it
+through an absolute shipped bootstrap without user shell hooks, and parse export records as
+data rather than executable shell. The selected program, interpreter, libraries and automatic
+startup configuration must resolve to the image/read-only bundle or a private install prefix
+that peer B cannot see; do not use peer-writable pack copies or cache aliases. Stage updates
+before atomically replacing a complete consumer version, and never rewrite a live generation's
+snapshot. This boundary covers automatic managed startup, not user code deliberately executed
+from the shared project: that code runs with the user's authority and may use the token.
+
+#### Local authentication and request path
+
+The client-facing URL is HTTPS, separate from the host's authenticated TLS endpoint file and
+preamble. Give each front a separate certificate/key for its actual loopback name and a private
+per-client trust configuration. Do not install a host trust root, accept insecure TLS, use a
+client certificate as a new grant, or put a bearer on plaintext shared loopback. Podman currently adds `NET_RAW` in its nesting and host branches, and nested launches share
+the parent network namespace; this is source evidence to avoid assuming plaintext secrecy, not
+a packet-capture result or a universal escape claim ([`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L252-L304), [`assemble.go`](../../internal/cli/run/assemble.go#L350-L355)).
+
+The selected client must send the local token through its ordinary field. Candidate local
+header/prefix validation reuses the selected HTTP credential's declared header and prefix only
+when the actual client emits them; verify that behavior against the real client before
+publication. Require exactly one well-formed credential field, reject duplicates or conflicts,
+and compare token bytes in constant time. A missing or wrong token returns the client's
+ordinary authentication-error shape before reading its body, classifying or contacting the
+host. No global trust override or missing-TLS fallback is allowed; an incompatible path remains
+unpublished pending the fallback ruling.
+
+Strip local authorization and all caller-supplied authorization before host input. Refuse the
+exact local token bytes anywhere outside the designated credential field; they must not reach
+the classifier, pending store, audit, launch log or dry run. Preserve G3's existing approved `host_env`/`fenced_file` origin-credential source and post-decision load path in [`loadHTTPCredential`](../../internal/callbroker/http_executor.go#L240-L263) unchanged. The
+origin credential never enters the client environment or local front. No actual vendor or
+transport credential is used in tests.
+
+#### Generation, readiness and retirement
+
+Reserve a nonzero address by selected front name before readiness; do not reuse a shared port.
+Publish the URL, token and private trust settings together only after the listener is bound and
+the selected host endpoint/generation is ready. A valid attach adopts that generation's token,
+address and snapshots; it does not remint. Changed selection/binding or missing private state
+requires a fresh launch, not opportunistic migration of workspace token records.
+
+Retire by withdrawing admission and the host generation first, then canceling and draining
+in-flight work before releasing the address and private files. Serialize withdrawal against the
+host's final send admission. A request withdrawn before send has zero effects; a request that
+may already have been sent is not refunded and is never automatically retried. An old client
+reaching a reused address must meet a different certificate and token, not renewed authority.
+
+#### Setup boundary and verification
+
+Keep every intended setup in scope. The rows below name candidate mechanisms and required
+proof, not verified support:
+
+| Setup | Candidate vehicle and required proof |
+| :--- | :--- |
+| Podman self: rootful/rootless, private/shared network, nested | An outside-workspace per-jail payload and private install prefix. Verify peer mount exclusion, actual user/network namespace and capability effects, client traffic and cleanup in each intended mode. |
+| Apple Container self | A separate per-jail payload/install bind or copy to a private destination outside workspace home. Never copy the token or managed startup into the workspace-backed jail home. Do not depend on an unsupported read-only suffix; verify the actual peer boundary and process separation natively. |
+| Seatbelt self | Exact session-private payload, startup and install paths in staged reads/writes. Verify sibling-path, filesystem-alias and process-environment denial natively. |
+| Seatbelt yolo account | The same per-session path restriction; account ownership alone does not isolate peer sessions. Verify exact reads, denies and cleanup natively. |
+| Host | Keep private staging to avoid accidental workspace disclosure; unconfined same-owner host processes are trusted, not a malicious-peer boundary. Do not claim a host-process sandbox. |
+
+A source review, synthetic helper test, shared Go cache, workspace alias, file mode, rootful
+nested test or certificate construction alone proves neither custody nor native isolation.
+The actual selected-client path must pass same-workspace A/B acquisition, startup-tampering,
+replay and counted-effect tests, then each intended native setup's mount/process/network
+checks. Keep unsupported cells in scope as engineering work; do not convert a failed proof into
+a silent backend exclusion. No such native proof exists in this draft.
 
 ### HTTP custody and retries
 
@@ -219,25 +329,22 @@ The selected in-jail front and launch publication are not wired in the checked p
 
    _Leaning:_ A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established.
 
-2. 💬 **OQ-HTTP2: What if a client cannot safely use the ordinary token field?**
+2. 💬 **OQ-HTTP2: What fallback applies if a selected client is demonstrated incompatible with the ordinary token field?**
 
-   Jail B may reach A's loopback front, where the host sees A's identity. The owner prefers
-   a fresh jail-scoped replacement in the selected client's ordinary API-token field: the
-   front consumes it, and the host injects the real origin credential. This is a preference,
-   not approval of custody, wire, compatibility, client eligibility, or backend restrictions;
-   never substitute an actual vendor credential or the CLI TLS bearer.
+   The preferred direction is a fresh jail-scoped token in the client's ordinary API field,
+   consumed by the front while the host injects the origin credential. No client incompatibility
+   is demonstrated. Rule this only if a selected client/setup fails verification; compatible
+   cells may proceed when their gates pass.
 
-   - **A — If one client path cannot meet these conditions, hold only that front unpublished**;
-     keep backend intent unchanged.
-   - **B — Require another verified isolation strategy** that preserves that client's launch
-     and selected backend behavior.
+   - **A — Hold only the incompatible cell** and preserve its backend intent; proceed with
+     compatible cells.
+   - **B — Build another verified path** for that cell; do not exclude the client or backend.
 
-   <!-- vantage: question id=OQ-HTTP2 leaning="Owner preference: test a fresh jail-scoped replacement token in the ordinary client API-token field, consumed by the front while the host injects the real origin credential; custody, wire, compatibility and backend restrictions remain open." -->
+   <!-- vantage: question id=OQ-HTTP2 leaning="Continue the ordinary-field path; hold only a demonstrated incompatible cell for its concrete fallback ruling. Compatible cells have no blanket delay." -->
 
-   _Leaning:_ First continue engineering and verification of the ordinary-field path with
-   private delivery and consumer integrity. Return a concrete compatibility or isolation
-   conflict to the owner; do not pre-emptively exclude a client or backend. This work order is
-   not approval of its wire, custody or eligibility.
+   _Leaning:_ Keep ordinary-field engineering moving. If evidence identifies an incompatible
+   cell, hold only that cell and ask for its concrete fallback; do not delay compatible cells or
+   pre-emptively exclude any client/backend.
 
    **Answer:**
 
