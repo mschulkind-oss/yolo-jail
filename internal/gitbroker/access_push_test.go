@@ -261,6 +261,9 @@ func TestGitAccessPushRejectsMalformedWireBeforeAdvertisement(t *testing.T) {
 		`{"access":{"op":"ask","version":2,"proposal":` + string(body) + `}}`,
 		`{"access":{"op":"ask","version":1,"proposal":` + string(body) + `},"service":"git-receive-pack"}`,
 		`{"op":"ask","version":1,"proposal":` + string(body) + `}`,
+		`{"access":{"op":"ask","version":1,"missing":true}}`,
+		`{"access":{"op":"ask","version":1,"proposal":{"service":"git-receive-pack","url":"x","push_options":[],"extra":true}}}`,
+		`{"access":{"op":"ask","version":1,"proposal":{"service":"git-receive-pack","url":"x","commands":[{"Old":"0000000000000000000000000000000000000000","New":"1111111111111111111111111111111111111111","Ref":"refs/heads/main"}],"extra":true}}}`,
 		`{"access":{"op":"ask","version":1,"proposal":{"service":"git-receive-pack","url":"x","commands":[],"push_options":[],"unknown":true}}}`,
 	} {
 		conn, err := svcendpoint.Dial(f.endpoint, time.Second)

@@ -206,9 +206,9 @@ func parseRequest(s *hostservice.Session) request {
 			r.Invalid = "unsupported access operation or version"
 			return r
 		}
-		candidate, ok := object.Get("proposal")
-		proposal, ok := candidate.(*jsonx.OrderedMap)
-		if !ok || len(proposal.Keys()) != 4 {
+		candidate, proposalExists := object.Get("proposal")
+		proposal, proposalIsMap := candidate.(*jsonx.OrderedMap)
+		if !proposalExists || !proposalIsMap || len(proposal.Keys()) != 4 {
 			r.Invalid = "malformed push proposal"
 			return r
 		}
@@ -227,9 +227,9 @@ func parseRequest(s *hostservice.Session) request {
 			return r
 		}
 		r.Proposal.Service = serviceReceivePack
-		commands, ok := proposal.Get("commands")
-		list, ok := commands.([]any)
-		if !ok || len(list) == 0 || len(list) > gitproto.MaxCommandBytes/80 {
+		commands, commandsExist := proposal.Get("commands")
+		list, commandsAreList := commands.([]any)
+		if !commandsExist || !commandsAreList || len(list) == 0 || len(list) > gitproto.MaxCommandBytes/80 {
 			r.Invalid = "malformed push commands"
 			return r
 		}
@@ -255,9 +255,9 @@ func parseRequest(s *hostservice.Session) request {
 			}
 			r.Proposal.Commands = append(r.Proposal.Commands, gitproto.Command{Old: o, New: n, Ref: name})
 		}
-		options, ok := proposal.Get("push_options")
-		optionList, ok := options.([]any)
-		if !ok {
+		options, optionsExist := proposal.Get("push_options")
+		optionList, optionsAreList := options.([]any)
+		if !optionsExist || !optionsAreList {
 			r.Invalid = "malformed push options"
 			return r
 		}
