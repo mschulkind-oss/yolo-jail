@@ -227,16 +227,14 @@ def _resolve_with_missing_leaf(path):
 
 def _fixture_path_is_confined(path, fixture_root):
     """Prove an unresolvable fixture path through no-follow directory descriptors."""
-    try:
-        relative = os.path.relpath(os.fspath(path), os.fspath(fixture_root))
-    except (OSError, ValueError):
+    candidate_parts = Path(os.fspath(path)).parts
+    root_parts = Path(os.fspath(fixture_root)).parts
+    if len(candidate_parts) < len(root_parts) or candidate_parts[:len(root_parts)] != root_parts:
         return False
-    if relative == ".":
-        components = ()
-    elif relative == ".." or relative.startswith(".." + os.sep) or os.path.isabs(relative):
+    components = candidate_parts[len(root_parts):]
+    # Do not let relpath or common-prefix normalization erase a symlink/.. traversal.
+    if any(component == ".." for component in components):
         return False
-    else:
-        components = Path(relative).parts
 
     directory = getattr(os, "O_DIRECTORY", 0)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
@@ -346,12 +344,9 @@ def jail_workspace_opens(text, pkgdir, fixture_root=None):
         op, _, path = line.partition(" ")
         if op != "open":
             continue
-        p = Path(os.path.normpath(path if os.path.isabs(path) else os.path.join(pkgdir, path)))
+        raw_path = path if os.path.isabs(path) else os.path.join(pkgdir, path)
+        p = Path(raw_path)
         if p != Path(JAIL_WORKSPACE) and not _is_within(p, Path(JAIL_WORKSPACE)):
-            continue
-        if rel(str(p), pkgdir) is not None:
-            continue
-        if _is_within(Path(ROOT), p):  # an ancestor of this checkout
             continue
         if fixture_root is not None and _is_within(p, fixture_root):
             try:
@@ -369,7 +364,12 @@ def jail_workspace_opens(text, pkgdir, fixture_root=None):
                 continue
             leaks.add(str(resolved))
             continue
-        leaks.add(str(p))
+        normalized = Path(os.path.normpath(raw_path))
+        if rel(str(normalized), pkgdir) is not None:
+            continue
+        if _is_within(Path(ROOT), normalized):  # an ancestor of this checkout
+            continue
+        leaks.add(str(normalized))
     return leaks
 
 

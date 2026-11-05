@@ -237,6 +237,26 @@ class ParseLogTest(unittest.TestCase):
                 os.rmdir(components[index - 1], dir_fd=descriptors[index - 1])
             os.close(descriptors[0])
 
+    def test_fixture_symlink_parent_components_are_not_lexically_collapsed(self):
+        source, fixture, env = self._fixture_namespace()
+        allowed = census.validate_fixture_root(source, env)
+        source_dir = source / "internal"
+        source_dir.mkdir()
+        source_file = source / "source.go"
+        source_file.write_text("checkout bytes")
+        link = fixture / "link"
+        link.symlink_to(source_dir, target_is_directory=True)
+
+        through_parent = fixture / "link" / ".." / "source.go"
+        self.assertEqual(census.jail_workspace_opens(
+            "open " + str(through_parent), str(source / "pkg"), allowed), {str(source_file)})
+
+        components = ["c" * 200 for _ in range(22)]
+        deep_parent = fixture.joinpath("link", "..", *components, "leaf.md")
+        self.assertGreater(len(os.fsencode(deep_parent)), 4096)
+        self.assertEqual(census.jail_workspace_opens(
+            "open " + str(deep_parent), str(source / "pkg"), allowed), {str(deep_parent)})
+
     def test_configured_fixture_root_does_not_hide_primary_workspace_reads(self):
         source, fixture, env = self._fixture_namespace()
         allowed = census.validate_fixture_root(source, env)
