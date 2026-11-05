@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,8 +89,6 @@ func serveLaunchCheckDaemon(t *testing.T, handler hostservice.Handler) {
 // ends, and returns once it accepts.
 func serveFrontedFixture(t *testing.T, handler hostservice.Handler, sock string) {
 	t.Helper()
-	saved := hostservice.Logger
-	hostservice.Logger = log.New(io.Discard, "", 0)
 	assertSockPathFits(t, sock)
 	_ = os.Remove(sock)
 	stop := make(chan struct{})
@@ -104,7 +100,6 @@ func serveFrontedFixture(t *testing.T, handler hostservice.Handler, sock string)
 	t.Cleanup(func() {
 		close(stop)
 		<-done
-		hostservice.Logger = saved
 		_ = os.Remove(sock)
 	})
 	deadline := time.Now().Add(5 * time.Second)
@@ -113,6 +108,18 @@ func serveFrontedFixture(t *testing.T, handler hostservice.Handler, sock string)
 			t.Fatal("the fixture daemon never bound its socket")
 		}
 		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// TestServeFrontedFixtureKeepsGlobalLoggerWithTwoLiveServers pins that fixtures do not
+// mutate hostservice's package-global logger while serving concurrently.
+func TestServeFrontedFixtureKeepsGlobalLoggerWithTwoLiveServers(t *testing.T) {
+	logger := hostservice.Logger
+	dir := t.TempDir()
+	serveFrontedFixture(t, func(*hostservice.Session) {}, filepath.Join(dir, "first.sock"))
+	serveFrontedFixture(t, func(*hostservice.Session) {}, filepath.Join(dir, "second.sock"))
+	if hostservice.Logger != logger {
+		t.Fatal("serving fixtures changed hostservice.Logger")
 	}
 }
 
