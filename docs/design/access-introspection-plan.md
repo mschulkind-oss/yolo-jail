@@ -3,7 +3,7 @@ title: "Access introspection: build hand-off"
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Build task 3 (Git ref-update prediction and pre-ask); tasks 1–2 are integrated for GitHub"
+next: "Await parent authorization to start Task 4 (own-jail readout and grant snapshot)"
 depends-on:
   - access-introspection.md
 tags: [plan, broker, dry-run, introspection]
@@ -19,14 +19,31 @@ is first to be wrong. Never twist code to match an overtaken plan. Stop and repo
 committing if a named seam disappears, a proposed red test is not red for the stated reason,
 someone else's file is dirty, a fix crosses a task's fence, or an out-of-scope gate fails.
 
-**Integrated implementation receipt:** GitHub tasks 1–2 now provide shared act/evaluate decisions,
+**Integrated implementation receipt:** GitHub tasks 1–2 provide shared act/evaluate decisions,
 versioned status/evaluate/ask forwarding, workspace-scoped status, and atomic pre-ask. The actual
 `ForwardAccess` production handler path is pinned through the published endpoint for all three
 operations; its frames have only the versioned `access` envelope, and evaluate/ask carry nested
-argv. The historical act-handler rotation regression and flattened-envelope negative controls are
-included. Tasks 3–5 and task 4's launch snapshot/aggregate work remain unbuilt; do not infer Git
-prediction, MCP status, aggregate snapshots, or prediction-divergence audit from the GitHub path.
-The earlier broad-run preparation readiness and temp-directory removal failures remain unexplained; this integration's affected-package run and `just check-ci` passed, which does not establish their cause or a flake-rate fix. The diagnostic receipts and their limits are recorded in the integration handoff report.
+argv. The historical act-handler rotation regression and flattened-envelope negative controls
+are included.
+
+**Task 3 (Git ref-update prediction and pre-ask) is integrated in main at**
+`bc5f0f7da23b806fce5c7c5ba38c4b602fac27e8`; its accepted frozen source lineage ends at
+`0c4c09fdac9bab2e0ec3c765634663ec5e93b8a4`. The client derives selected updates through a
+helper-mediated dry run; the host verifies proposed old refs against a fresh receive-pack
+advertisement and reuses the act decision. Prediction and `--ask` send no ref-update or pack
+bytes, file only the existing canonical request under the same atomic coverage check, and do not
+spend a grant or wait. The typed `yolo.access.prediction/1` reply separates actual call/evidence
+digests and offers only verified commands. Seven affected packages and focused race suites
+passed on the integration source commit; that does not substitute for the combined landing gate.
+
+Tasks 4 and 5 remain unbuilt: Task 4 is the launch snapshot, aggregate readout and briefing;
+Task 5 is the equal-input prediction-divergence tripwire and shipped documentation. No GitHub
+path is evidence for Git prediction, MCP status, aggregate snapshots, or divergence audit.
+Starting Task 4 awaits explicit parent authorization; do not import its snapshot/runtime work,
+MCP status, or resource-group code as part of Task 3. The earlier broad-run preparation readiness
+and temp-directory removal failures remain unexplained; the prior Task 2 affected-package run and
+`just check-ci` passed, which does not establish their cause or a flake-rate fix. Earlier
+integration receipts and their limits remain recorded in their handoff.
 
 ## Map
 
