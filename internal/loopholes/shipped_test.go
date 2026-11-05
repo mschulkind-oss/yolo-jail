@@ -49,6 +49,7 @@ var shippedLoopholes = []struct{ name, pack string }{
 	{"aws-auth", "aws-auth"},
 	{"github-broker", "github"},
 	{"git-broker", "git"},
+	{"circleci-broker", "circleci"},
 	// A throwaway pack that exists to EXERCISE the pack-shipped jail-binary path rather
 	// than to serve a user (docs/reference/pack-binaries.md, "A pack's own tree cannot carry an executable"). It found that
 	// path half-broken: an embedded pack cannot carry an exec bit at all, so this row is

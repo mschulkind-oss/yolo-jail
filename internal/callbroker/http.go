@@ -297,8 +297,7 @@ func prepareHTTPCall(call HTTPCall, approved []string) (HTTPCall, error) {
 		if blockedHTTPHeader(canonical) {
 			continue
 		}
-		canonical, ok = allowed[key]
-		if !ok {
+		if _, ok := allowed[key]; !ok {
 			continue
 		}
 		for _, value := range header.Values {

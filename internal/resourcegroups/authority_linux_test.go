@@ -498,7 +498,7 @@ func TestDelegatedIOCrashLeavesChildrenAndPermissionFailureFailsClosed(t *testin
 	}
 	for _, child := range []string{"yolo-agent", "yolo-batch"} {
 		if !f.dirs[filepath.Join(root, child)] {
-			t.Fatal(fmt.Sprintf("crash removed %s", child))
+			t.Fatalf("crash removed %s", child)
 		}
 	}
 }

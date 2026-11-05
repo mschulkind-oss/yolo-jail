@@ -32,6 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -61,10 +62,10 @@ func runInternal(args []string) int {
 			return 64
 		}
 		var stdin io.Reader
-		if info, err := os.Stdin.Stat(); err != nil {
+		if _, err := os.Stdin.Stat(); err != nil {
 			fmt.Fprintln(os.Stderr, "cannot inspect stdin; retry the selected pack command")
 			return 64
-		} else if info.Mode()&os.ModeCharDevice == 0 {
+		} else if !tty.IsTerminalFile(os.Stdin) {
 			stdin = os.Stdin
 		}
 		return callbroker.ForwardCLI(args[1], "act", args[3:], stdin, os.Stdout, os.Stderr, os.Getenv)
