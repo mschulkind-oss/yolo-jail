@@ -204,6 +204,11 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 		t.Fatalf("historical worktree must be 5a361ba5826acbf120280180c9f918dbc1748c89: %s %v", sha, err)
 	}
 	root := t.TempDir()
+	fixtureDir, err := os.MkdirTemp(os.TempDir(), "gh-hist-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(fixtureDir) })
 	fixture, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -223,9 +228,9 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build historical broker: %v\n%s", err, output)
 	}
-	historical := exec.Command(binary, "-test.run=^TestActualLegacyHandler5a361$", "-test.v")
+	historical := exec.Command(binary, "-test.run=^(TestActualLegacyHandler5a361|TestLegacySocketWaitReportsEarlyBindFailure)$", "-test.v")
 	historical.Dir = root
-	historical.Env = append(os.Environ(), "YOLO_LEGACY_FIXTURE_DIR="+root, "HOME="+filepath.Join(root, "home"))
+	historical.Env = append(os.Environ(), "YOLO_LEGACY_FIXTURE_DIR="+fixtureDir, "HOME="+filepath.Join(root, "home"))
 	var output bytes.Buffer
 	historical.Stdout, historical.Stderr = &output, &output
 	if err := historical.Start(); err != nil {
@@ -243,7 +248,7 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 	var legacyEndpoint string
 	deadline := time.Now().Add(10 * time.Second)
 	for legacyEndpoint == "" {
-		data, err := os.ReadFile(filepath.Join(root, "endpoint"))
+		data, err := os.ReadFile(filepath.Join(fixtureDir, "endpoint"))
 		if err == nil {
 			legacyEndpoint = string(data)
 			break
@@ -267,12 +272,17 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 	if code := Forward(writeReq().Argv, env); code != 0 {
 		t.Fatalf("actual historical ACT positive control exit=%d; %s", code, output.String())
 	}
-	before, err := os.ReadFile(filepath.Join(root, "synthetic-write"))
+	before, err := os.ReadFile(filepath.Join(fixtureDir, "synthetic-write"))
 	if err != nil || len(before) == 0 {
 		t.Fatalf("historical fake executor did not write: %v", err)
 	}
 	b, executed := windowFixture(t)
-	modernEndpoint := startAccessEndpoint(t, b.Handle, productionEndpointDirs(authorityContainer)["container"])
+	modernFixtureDir, err := os.MkdirTemp(os.TempDir(), "gh-modern-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(modernFixtureDir) })
+	modernEndpoint := startAccessEndpointAt(t, b.Handle, productionEndpointDirs(authorityContainer)["container"], modernFixtureDir)
 	calls := 0
 	env.Getenv = func(name string) string {
 		if name != EndpointEnv {
@@ -290,11 +300,11 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 	if code != ExitUsage || calls != 2 {
 		t.Fatalf("rotated access frame must reach and be refused by historical handler: exit=%d lookups=%d stderr=%q historical=%s", code, calls, rejected.String(), output.String())
 	}
-	after, err := os.ReadFile(filepath.Join(root, "synthetic-write"))
+	after, err := os.ReadFile(filepath.Join(fixtureDir, "synthetic-write"))
 	if err != nil || !bytes.Equal(before, after) || executed.Load() != 0 {
 		t.Fatalf("rotated frame wrote: before=%q after=%q current executions=%d err=%v", before, after, executed.Load(), err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "done"), nil, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(fixtureDir, "done"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -312,9 +322,12 @@ func TestAccessForwardCannotTurnIntoLegacyActAfterEndpointRotation(t *testing.T)
 }
 
 func startAccessEndpoint(t *testing.T, handler func(*hostservice.Session), dirName string) string {
+	return startAccessEndpointAt(t, handler, dirName, t.TempDir())
+}
+
+func startAccessEndpointAt(t *testing.T, handler func(*hostservice.Session), dirName, root string) string {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
-	root := t.TempDir()
 	epDir := filepath.Join(root, dirName)
 	if err := os.Mkdir(epDir, 0700); err != nil {
 		t.Fatal(err)

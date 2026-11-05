@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,72 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
+
+func TestLegacySocketWaitReportsEarlyBindFailure(t *testing.T) {
+	dir, err := os.MkdirTemp(os.TempDir(), "gh-wait-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "not-a-directory", "legacy.sock")
+	if err := os.WriteFile(filepath.Dir(sock), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() {
+		finished <- hostservice.ServeFrontedUnix(func(*hostservice.Session) {}, sock, make(chan struct{}))
+	}()
+	err = waitForLegacySocket(sock, finished, 2*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "historical daemon exited before publishing socket") {
+		t.Fatalf("early daemon bind failure was not reported: %v", err)
+	}
+	select {
+	case daemonErr := <-finished:
+		if daemonErr == nil {
+			t.Fatal("fixture did not exercise an early bind failure")
+		}
+	default:
+		t.Fatal("socket waiter consumed the daemon result needed by cleanup")
+	}
+}
+
+func waitForLegacySocket(sock string, finishedDaemon chan error, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for {
+		info, err := os.Stat(sock)
+		if err == nil && info.Mode()&os.ModeSocket != 0 {
+			return nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			select {
+			case daemonErr := <-finishedDaemon:
+				finishedDaemon <- daemonErr
+				if daemonErr != nil {
+					return fmt.Errorf("historical daemon exited before publishing socket: %w", daemonErr)
+				}
+				return fmt.Errorf("historical daemon exited before publishing socket")
+			case <-deadline.C:
+				return fmt.Errorf("inspect historical daemon socket: %w", err)
+			case <-poll.C:
+				continue
+			}
+		}
+		select {
+		case daemonErr := <-finishedDaemon:
+			finishedDaemon <- daemonErr
+			if daemonErr != nil {
+				return fmt.Errorf("historical daemon exited before publishing socket: %w", daemonErr)
+			}
+			return fmt.Errorf("historical daemon exited before publishing socket")
+		case <-deadline.C:
+			return fmt.Errorf("timed out after %s waiting for historical daemon Unix socket", timeout)
+		case <-poll.C:
+		}
+	}
+}
 
 func TestActualLegacyHandler5a361(t *testing.T) {
 	dir := os.Getenv("YOLO_LEGACY_FIXTURE_DIR")
@@ -50,6 +117,9 @@ func TestActualLegacyHandler5a361(t *testing.T) {
 		t.Fatal(err)
 	}
 	sock := filepath.Join(dir, "legacy.sock")
+	if len(sock) > 100 {
+		t.Fatalf("private historical fixture socket path is too long (%d bytes): %s", len(sock), sock)
+	}
 	stop := make(chan struct{})
 	finishedDaemon, finishedFront := make(chan error, 1), make(chan error, 1)
 	go func() {
@@ -61,15 +131,18 @@ func TestActualLegacyHandler5a361(t *testing.T) {
 			b.Handle(s)
 		}, sock, stop)
 	}()
-	defer func() { close(stop); <-finishedDaemon; <-finishedFront }()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
-		if _, err := os.Stat(sock); err == nil {
-			break
+	frontStarted := false
+	defer func() {
+		close(stop)
+		<-finishedDaemon
+		if frontStarted {
+			<-finishedFront
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("historical daemon socket unavailable")
-		}
+	}()
+	if err := waitForLegacySocket(sock, finishedDaemon, 5*time.Second); err != nil {
+		t.Fatal(err)
 	}
+	frontStarted = true
 	go func() { finishedFront <- svcendpoint.ServeFront(endpoint, "127.0.0.1", sock, stop) }()
 	for deadline := time.Now().Add(5 * time.Second); !svcendpoint.Probe(endpoint); time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
