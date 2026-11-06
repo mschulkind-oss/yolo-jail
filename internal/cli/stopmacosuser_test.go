@@ -9,6 +9,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"io"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestAMacosUserStopEndsTheWorkspacesKeeperAndSessions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var got string
 	orig := stopMacosUser
-	stopMacosUser = func(stdout, _ io.Writer, ws string) int {
+	stopMacosUser = func(stdout, _ io.Writer, ws, _ string) int {
 		got = ws
 		fmt.Fprintln(stdout, "ended the macos-user sessions")
 		return 3
@@ -27,7 +28,7 @@ func TestAMacosUserStopEndsTheWorkspacesKeeperAndSessions(t *testing.T) {
 	t.Cleanup(func() { stopMacosUser = orig })
 	var out, errOut bytes.Buffer
 	s := &stopRun{}
-	if rc := stopJail(&out, &errOut, "/ws", "macos-user", s.run, nil, false); rc != 3 {
+	if rc := stopJail(&out, &errOut, "/ws", runtime.FromWorkspace("/ws"), "macos-user", s.run, nil, false); rc != 3 {
 		t.Fatalf("stopJail at macos-user = %d, want the macos-user stop's own status (3)\n%s%s", rc, out.String(), errOut.String())
 	}
 	if got != "/ws" {

@@ -15,11 +15,11 @@ func TestTheDriftDiffNamesTheConfigThisJailHas(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packages":["jq"]}`)
 	wsCfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", wsCfg); err != nil {
 		t.Fatal(err)
 	}
 	writeWSConfig(t, ws, `{"packages":["jq","ripgrep"]}`)
-	diff, _, _, err := WorkspaceConfigDrift(ws)
+	diff, _, _, err := WorkspaceConfigDrift(ws, "podman-self")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,22 +37,22 @@ func TestFoldBootBaselineKeyReplacesOneKey(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"mounts":["/a"],"install":{"nix":["jq"],"mise":{"python":"3.12"}},"machine":{"ports":[{"host":1,"jail":1}]}}`)
 	boot, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, boot); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", boot); err != nil {
 		t.Fatal(err)
 	}
 	writeWSConfig(t, ws, `{"mounts":["/a","/b"],"install":{"nix":["jq","ripgrep"]},"machine":{"ports":[{"host":2,"jail":2}]}}`)
 	cur, _ := LoadWorkspaceConfig(ws, false, func(string) {})
 
-	if err := FoldBootBaselineKey(ws, "mounts", cur); err != nil {
+	if err := FoldBootBaselineKey(ws, "podman-self", "mounts", cur); err != nil {
 		t.Fatal(err)
 	}
-	if err := FoldBootBaselineKey(ws, "install.nix", cur); err != nil {
+	if err := FoldBootBaselineKey(ws, "podman-self", "install.nix", cur); err != nil {
 		t.Fatal(err)
 	}
-	if err := FoldBootBaselineKey(ws, "install.mise", cur); err != nil {
+	if err := FoldBootBaselineKey(ws, "podman-self", "install.mise", cur); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := ReadWorkspaceBootBaseline(ws)
+	got, ok, err := ReadWorkspaceBootBaseline(ws, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("ReadWorkspaceBootBaseline: ok=%v err=%v", ok, err)
 	}
@@ -75,7 +75,7 @@ func TestFoldBootBaselineKeyReplacesOneKey(t *testing.T) {
 		t.Errorf("an unfolded nested sibling moved: machine.ports = %s", s)
 	}
 	// The drift that remains is exactly the unfolded nested path.
-	diff, hasDrift, _, _ := WorkspaceConfigDrift(ws)
+	diff, hasDrift, _, _ := WorkspaceConfigDrift(ws, "podman-self")
 	joined := strings.Join(diff, "\n")
 	if !hasDrift || !strings.Contains(joined, `"host": 2`) || strings.Contains(joined, `"/b"`) || strings.Contains(joined, `"ripgrep"`) {
 		t.Errorf("after folding mounts and install paths, only machine.ports should drift:\n%s", joined)
@@ -88,16 +88,16 @@ func TestFoldBootBaselineKeySetsAndDeletesExactCanonicalPaths(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"install":{"nix":["jq"],"mise":{"python":"3.12","node":"22"}},"machine":{"ports":[{"host":1,"jail":1}],"resources":{"memory":"4g"}}}`)
 	boot, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, boot); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", boot); err != nil {
 		t.Fatal(err)
 	}
 	cur := mapOfConfigTest(t, `{"install":{"nix":["jq","ripgrep"],"mise":{"python":"3.13"}},"machine":{"ports":[{"host":2,"jail":2}],"resources":{"memory":"8g"}}}`)
 	for _, path := range []string{"install.nix", "install.mise", "machine.ports"} {
-		if err := FoldBootBaselineKey(ws, path, cur); err != nil {
+		if err := FoldBootBaselineKey(ws, "podman-self", path, cur); err != nil {
 			t.Fatalf("FoldBootBaselineKey(%q): %v", path, err)
 		}
 	}
-	got, ok, err := ReadWorkspaceBootBaseline(ws)
+	got, ok, err := ReadWorkspaceBootBaseline(ws, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("ReadWorkspaceBootBaseline: ok=%v err=%v", ok, err)
 	}
@@ -133,10 +133,10 @@ func TestFoldBootBaselineKeyNeedsABaseline(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packages":["jq"]}`)
 	cur, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if err := FoldBootBaselineKey(ws, "packages", cur); err == nil {
+	if err := FoldBootBaselineKey(ws, "podman-self", "packages", cur); err == nil {
 		t.Fatal("folding into a missing baseline must fail")
 	}
-	if _, err := os.Stat(WorkspaceConfigBootPath(ws)); !os.IsNotExist(err) {
+	if _, err := os.Stat(WorkspaceConfigBootPath(ws, "podman-self")); !os.IsNotExist(err) {
 		t.Error("a fold with no baseline created one")
 	}
 }

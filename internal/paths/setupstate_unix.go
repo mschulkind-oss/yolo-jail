@@ -85,6 +85,24 @@ func NewFreshHome(workspace, name string, now time.Time) (string, error) {
 	return "", fmt.Errorf("no free fresh home name under %s", SetupStateDir(workspace, name))
 }
 
+// WriteSetupStateFile is os.WriteFile of name directly in <workspace>/.yolo/setups/<setupName>,
+// on WriteWorkspaceStateFile's terms: the setup's directory is created first
+// (EnsureSetupStateDir), the walk to it follows no link, and anything at name that is not a
+// regular file is replaced rather than followed.
+func WriteSetupStateFile(workspace, setupName, name string, data []byte, perm fs.FileMode) error {
+	d, err := EnsureSetupStateDir(workspace, setupName)
+	if err != nil {
+		return err
+	}
+	d.Close()
+	r, err := openWorkspaceStateRel(workspace, "setups/"+setupName)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return WriteRegularFileBeneath(r, name, data, perm)
+}
+
 // mkdirOpenNoFollowAt creates name beneath parent when it is absent and opens it as a directory
 // without following a link.
 func mkdirOpenNoFollowAt(parent int, name, full string) (int, error) {

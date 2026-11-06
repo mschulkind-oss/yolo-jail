@@ -94,8 +94,10 @@ import (
 // swept (term 3 above).
 const OrphanCnameAgeFloor = 14 * 24 * time.Hour
 
-// cnamePattern is runtime.FromResolved's output: "yolo-", the sanitized basename, "-", eight hex.
-const cnamePattern = `yolo-[a-z0-9-]+-[0-9a-f]{8}`
+// cnamePattern is a jail name: runtime.FromResolved's output ("yolo-", the sanitized basename,
+// "-", eight hex), the legacy name, optionally followed by "-" and a setup's name (runtime.JailName,
+// setup.ValidName's shape; named-setups-plan.md SUP-D2).
+const cnamePattern = `yolo-[a-z0-9-]+-[0-9a-f]{8}(?:-[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)?`
 
 // notchPattern is the optional ".<notch>" a macos-user keeper key adds to a cname
 // (internal/cli/run keeperKey: "macos-user" and "guest").
@@ -420,7 +422,7 @@ func allOlderThan(ents []orphanEntry, now time.Time, floor time.Duration) bool {
 }
 
 // workspaceGone is term 4: the cname's current-image pointer names a workspace that hashes back
-// to the cname, and nothing exists at that path. Any doubt (no pointer, a malformed one, a path
+// to the cname (its legacy name, or a setup's: runtime.IsJailOfResolved), and nothing exists at that path. Any doubt (no pointer, a malformed one, a path
 // that does not hash back, an Lstat error other than not-exist) is "not gone".
 func workspaceGone(currentImagesDir, cname string) bool {
 	data, err := os.ReadFile(filepath.Join(currentImagesDir, cname))
@@ -437,7 +439,7 @@ func workspaceGone(currentImagesDir, cname string) bool {
 		return false
 	}
 	ws := lines[1]
-	if !filepath.IsAbs(ws) || runtime.FromResolved(ws) != cname {
+	if !filepath.IsAbs(ws) || !runtime.IsJailOfResolved(ws, cname) {
 		return false
 	}
 	_, err = os.Lstat(ws)

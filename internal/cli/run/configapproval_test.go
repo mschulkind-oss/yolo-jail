@@ -154,6 +154,8 @@ func TestFreshLaunchDeliversTheAssembledConfigTheJailReadsBack(t *testing.T) {
 	o.writeLaunchConfigArtifacts(merged)
 
 	// Read it back the way an in-jail LoadConfig does, for the jail's OWN workspace.
+	// The jail reads its own setup's records (SUP-D37): the one this launch wrote under.
+	t.Setenv("YOLO_SETUP", o.setupName())
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
 	t.Setenv("YOLO_WORKSPACE", ws)
 	got, err := config.LoadConfig(ws, false, func(string) {})

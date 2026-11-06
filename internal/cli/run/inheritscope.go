@@ -50,7 +50,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -882,7 +881,7 @@ func (o *Options) openInheritedStaging() (*inheritedStaging, bool) {
 	if err != nil {
 		return nil, false
 	}
-	return &inheritedStaging{root: root, rootPath: rootPath, cname: yoloruntime.FromWorkspace(o.Workspace), euid: euid}, true
+	return &inheritedStaging{root: root, rootPath: rootPath, cname: o.jailName(), euid: euid}, true
 }
 
 // recordLeaf is the delivery record's directory (one level below the root) and file name.

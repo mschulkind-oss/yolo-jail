@@ -47,7 +47,7 @@ func planWithCtx(t *testing.T, hostCtx HostContext) RunPlan {
 func TestRunPlanStagesAndNamesTheContextRoot(t *testing.T) {
 	plan := planWithCtx(t, deliveredCtx())
 
-	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj"), "")
+	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj", ""), "")
 	if plan.CtxRoot != want {
 		t.Fatalf("plan.CtxRoot = %q, want %q", plan.CtxRoot, want)
 	}
@@ -442,7 +442,7 @@ func TestPlanRenderNamesTheContextTreeEitherWay(t *testing.T) {
 	PrintPlan(&staged, planWithCtx(t, deliveredCtx()), nil)
 	PrintPlan(&bare, planWithCtx(t, HostContext{}), nil)
 
-	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj"), "")
+	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj", ""), "")
 	if !strings.Contains(staged.String(), want) {
 		t.Errorf("the plan never names the staged context tree %s:\n%s", want, staged.String())
 	}
@@ -503,7 +503,7 @@ func TestRunPlanNamesTheStagedGlobalGitignoreToTheBootstrap(t *testing.T) {
 	ctx := deliveredCtx()
 	ctx.GlobalGitignore = paths.ContextGlobalGitignore
 	plan := planWithCtx(t, ctx)
-	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj"), "") + "/host-user/_global-gitignore"
+	want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj", ""), "") + "/host-user/_global-gitignore"
 	if !containsArg(plan.BootstrapArgv, GlobalGitignoreEnv+"="+want) {
 		t.Errorf("the bootstrap is not told %s=%s: %v", GlobalGitignoreEnv, want, plan.BootstrapArgv)
 	}

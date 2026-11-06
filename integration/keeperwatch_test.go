@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // childrenMatching is every child of parent whose command line holds each of parts. A child of
@@ -67,7 +66,7 @@ func TestAHostServiceThatGoesDownIsToldToItsSessionsAndTheNextArrival(t *testing
 	// backoff) and the death stands, which is what this test records.
 	packHome(t, oncePerJailSocat(t, service, socat))
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,
@@ -164,7 +163,7 @@ func TestAKilledHostDaemonIsRestartedByItsKeeper(t *testing.T) {
 	packHome(t, `{"loopholes": {"`+service+`": {"command": ["sh", "-c", "exec `+socat+
 		` UNIX-LISTEN:\"$0\",fork EXEC:cat", "{socket}"]}}}`)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,

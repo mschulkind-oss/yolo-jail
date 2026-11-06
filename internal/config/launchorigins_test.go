@@ -126,10 +126,10 @@ func TestARefusalAboutTheAssembledCopyNamesTheHostFile(t *testing.T) {
 	if err != nil || src == nil {
 		t.Fatalf("host load: %v (record %v)", err, src)
 	}
-	if err := WriteAssembledConfig(ws, merged); err != nil {
+	if err := WriteAssembledConfig(ws, "podman-self", merged); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteAssembledOrigins(ws, merged, src); err != nil {
+	if err := WriteAssembledOrigins(ws, "podman-self", merged, src); err != nil {
 		t.Fatal(err)
 	}
 
@@ -137,6 +137,7 @@ func TestARefusalAboutTheAssembledCopyNamesTheHostFile(t *testing.T) {
 	sourcesHome(t)
 	t.Setenv("YOLO_VERSION", "9.9.9")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	cfg, jsrc, err := LoadConfigWithSources(ws, false, discard)
 	if err != nil {
 		t.Fatal(err)
@@ -151,19 +152,19 @@ func TestARefusalAboutTheAssembledCopyNamesTheHostFile(t *testing.T) {
 	}
 
 	// A copy rewritten without a record (an older launcher) is not described by the old record.
-	if err := WriteAssembledConfig(ws, decode(t, `{"packages": ["jq"]}`)); err != nil {
+	if err := WriteAssembledConfig(ws, "podman-self", decode(t, `{"packages": ["jq"]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, jsrc, _ := LoadConfigWithSources(ws, false, discard); jsrc != nil {
 		t.Errorf("a record of another copy still located this one: %v", jsrc.Locations("config.packages"))
 	}
-	if err := WriteAssembledConfig(ws, merged); err != nil {
+	if err := WriteAssembledConfig(ws, "podman-self", merged); err != nil {
 		t.Fatal(err)
 	}
 
 	// A launch that records nothing (a sealed one) overwrites the record, so no earlier
 	// launch's record describes it.
-	if err := WriteAssembledOrigins(ws, merged, nil); err != nil {
+	if err := WriteAssembledOrigins(ws, "podman-self", merged, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, jsrc, _ := LoadConfigWithSources(ws, false, discard); jsrc != nil {

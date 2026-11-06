@@ -50,7 +50,7 @@ var sealNeedsWithheld = regexp.MustCompile(`Sealed build: [1-9][0-9]* pack env v
 
 func TestASealedBuildIsHandedNothingItsBasesNeedsDeclare(t *testing.T) {
 	argv, ws, home, printed := sealNeedsFixture.launch(t, true)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 
 	// THE CLOSURE RUNS UNDER THE SEAL, so each joined pack's declarations are in the launch; claude
 	// was narrowed away, and its own need on wire-bridge with it.

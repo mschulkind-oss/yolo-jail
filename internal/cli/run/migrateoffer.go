@@ -46,7 +46,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configmigrate"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // offerConfigMigration offers to convert this launch's old-format config files, and converts
@@ -277,7 +276,7 @@ func (o *Options) launchWillAttach() bool {
 	if o.NeverAttach {
 		return false
 	}
-	return probeKeeper(yoloruntime.FromWorkspace(o.Workspace)) == keeperAlive
+	return probeKeeper(o.jailName()) == keeperAlive
 }
 
 // convertLaterState reads the user's old-format config file: where a person would write

@@ -23,7 +23,7 @@ func TestARefusedFreshLaunchLeavesNoHostServicesDir(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := runtime.FromWorkspace(ws)
+	cname := runtime.JailName(ws, "podman-self")
 
 	// THE FAULT: the home skeleton's root is a regular file, so buildHomeSkeleton refuses the
 	// launch. It is a filesystem fault rather than a config one on purpose — no pack, profile

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 const nestedMechanicsSkillPath = "/home/agent/.claude/skills/jail-mechanics"
@@ -60,7 +59,7 @@ func TestNestedMechanicsTracksAppliedLaunchAndLiveMounts(t *testing.T) {
 		`"host_files":[{"path":"~/.config/yolo-mechanics/fixture.txt","source":"`+filepath.ToSlash(fixtureSource)+`"}]}`)
 
 	workspace := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(workspace)
+	cname := jailName(workspace)
 	const release = "release-nested-mechanics"
 	holder := startYoloBackground(t, "mechanics-holder", workspace,
 		`printf 'FIXTURE-BEGIN\n'; cat /home/agent/.config/yolo-mechanics/fixture.txt; `+

@@ -212,7 +212,7 @@ func TestAPodmanJailGrantRidesAGrantFileNeverTheArgv(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, grantConfig(t, `"zai", "cerebras"`, ""))
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	hostFile := jailGrantHostFile(cname)
 	var plan *keeperPlan
 	var rawPlan, atSpawn []byte
@@ -395,7 +395,11 @@ func TestTheJailsTeardownRemovesItsGrantAndAgentEnvFiles(t *testing.T) {
 	var ws, wsState, cname string
 	f := startKeeperFixture(t, true, func(p *keeperPlan) {
 		ws = p.Workspace
-		cname = yoloruntime.FromWorkspace(ws)
+		// A custom setup's jail (6a-iii): the keeper knows its setup by name only and cannot
+		// resolve a custom one again, so the jail it tears down must be the plan's own
+		// (keeperJailName). Red if the keeper stops pinning it.
+		p.Setup = "lab"
+		cname = yoloruntime.JailName(ws, "lab")
 		p.Cname = cname
 		wsState = paths.LegacyHomeState(ws)
 		writeExec(t, filepath.Join(wsState, agentEnvStateDir, "pi.sh"), "export ZAI_API_KEY='tok-old'\n")
@@ -633,7 +637,7 @@ func TestALaunchRefusedAfterStagingItsGrantRemovesTheFile(t *testing.T) {
 	quoted, _ := json.Marshal(store)
 	writeUserConfig(t, home, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+string(quoted)+`]}`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	saved := defaultKeeperSpawner
 	t.Cleanup(func() { defaultKeeperSpawner = saved })
 	spawned := false

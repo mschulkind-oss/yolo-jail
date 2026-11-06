@@ -16,7 +16,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestASkippedExtensionIsNotBuiltMountedOrStopped(t *testing.T) {
@@ -80,7 +79,7 @@ func TestAnAttachSaysTheSkipAppliesAtTheNextFreshLaunch(t *testing.T) {
 	treeLaunchHome(t, true)
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
 		withEnv(o, patchrecovery.SkipExtensionsEnv, "1")
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		tree, err := newPackTree(cname)
 		if err != nil {
 			t.Fatal(err)

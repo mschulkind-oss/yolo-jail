@@ -257,6 +257,9 @@ func TestConfigRenderExplainDoesNotAttributeOwnOutputToHost(t *testing.T) {
 // 3 drifted. These pin them so an agent branching on $? never silently breaks.
 func TestConfigDriftExitCodes(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
+	// The setup a launch here selects, and the one a jail of it exports (SUP-D4): its records
+	// are under .yolo/setups/podman-self.
+	t.Setenv("YOLO_SETUP", "podman-self")
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
 
 	// No baseline yet → exit 4 (cannot determine).
@@ -266,7 +269,7 @@ func TestConfigDriftExitCodes(t *testing.T) {
 	}
 
 	// Freeze a baseline matching the current config → in sync, exit 0.
-	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+	writeFile(t, config.WorkspaceConfigBootPath(repo, "podman-self"), canonicalWS(t, repo))
 	out.Reset()
 	errw.Reset()
 	if rc := configRunW([]string{"drift"}, &out, &errw); rc != 0 {
@@ -301,8 +304,11 @@ func TestConfigDriftExitCodes(t *testing.T) {
 // TestConfigDriftExitCodes keeps pinning the interface.
 func TestConfigDriftNamesTheUserScopeItCannotCompare(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
+	// The setup a launch here selects, and the one a jail of it exports (SUP-D4): its records
+	// are under .yolo/setups/podman-self.
+	t.Setenv("YOLO_SETUP", "podman-self")
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
-	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+	writeFile(t, config.WorkspaceConfigBootPath(repo, "podman-self"), canonicalWS(t, repo))
 
 	// On the HOST the user config is right there and live — no note, nothing to disclose.
 	//
@@ -387,8 +393,11 @@ func canonicalWS(t *testing.T, repo string) string {
 // and names the relaunch that gives it a baseline of its own — never 0, the false "in sync".
 func TestConfigDriftNamesAReplacedBaseline(t *testing.T) {
 	_, repo := withHomeAndCwd(t)
+	// The setup a launch here selects, and the one a jail of it exports (SUP-D4): its records
+	// are under .yolo/setups/podman-self.
+	t.Setenv("YOLO_SETUP", "podman-self")
 	writeFile(t, filepath.Join(repo, "yolo-jail.jsonc"), `{"packs":["claude"]}`)
-	writeFile(t, filepath.Join(repo, ".yolo", "config-boot.json"), canonicalWS(t, repo))
+	writeFile(t, config.WorkspaceConfigBootPath(repo, "podman-self"), canonicalWS(t, repo))
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
 	t.Setenv("YOLO_WORKSPACE", repo) // the session's own workspace, as its launch names it
 	t.Setenv(config.BootBaselineDigestEnv, "not-this-baseline")

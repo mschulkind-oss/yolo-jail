@@ -33,15 +33,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// WorkspaceAssembledConfigPath is <workspace>/.yolo/config-assembled.json — the
-// merged (user + workspace) config the HOST assembled for this launch, delivered
-// into the jail through the workspace bind mount.
+// WorkspaceAssembledConfigPath is <workspace>/.yolo/setups/<setup>/config-assembled.json — the
+// merged (user + workspace) config the HOST assembled for this launch of the setup, delivered
+// into the jail through the workspace bind mount (setupstate.go; setupName "" is this session's
+// setup).
 //
 // Beside config-boot.json, and distinct from it in both content and lifetime:
 // the boot baseline is WORKSPACE-ONLY and frozen for the jail's life so
@@ -52,11 +51,8 @@ import (
 // approval vocabulary in docs/reference/config-safety.md, and leaving that word on
 // the workspace-side file would keep pointing readers at the mount the ruling
 // just moved the approval record out of.
-func WorkspaceAssembledConfigPath(workspace string) string {
-	if workspace == "" {
-		workspace = cwd()
-	}
-	return filepath.Join(workspace, ".yolo", "config-assembled.json")
+func WorkspaceAssembledConfigPath(workspace, setupName string) string {
+	return setupRecordPath(workspace, setupName, assembledConfigLeaf)
 }
 
 // WriteAssembledConfig writes the merged config in canonical snapshot form to
@@ -71,22 +67,19 @@ func WorkspaceAssembledConfigPath(workspace string) string {
 // delivery copy: an absent or stale copy silently degrades the in-jail read to a
 // reduced re-assemble, and "the config was unchanged" is precisely the launch on
 // which nobody would look.
-func WriteAssembledConfig(workspace string, merged *jsonx.OrderedMap) error {
+func WriteAssembledConfig(workspace, setupName string, merged *jsonx.OrderedMap) error {
 	j, err := SnapshotJSON(merged)
 	if err != nil {
 		return err
 	}
-	return writeWorkspaceSnapshot(workspace, WorkspaceAssembledConfigPath(workspace), j)
+	return writeSetupRecord(workspace, setupName, assembledConfigLeaf, j)
 }
 
-// WorkspaceAssembledOriginsPath is <workspace>/.yolo/config-assembled-origins.json: the launch
+// WorkspaceAssembledOriginsPath is <workspace>/.yolo/setups/<setup>/config-assembled-origins.json: the launch
 // origins of the assembled config beside it (launchorigins.go), which host file set each value,
 // so a refusal in the jail about a key of that copy names the file to edit.
-func WorkspaceAssembledOriginsPath(workspace string) string {
-	if workspace == "" {
-		workspace = cwd()
-	}
-	return filepath.Join(workspace, ".yolo", "config-assembled-origins.json")
+func WorkspaceAssembledOriginsPath(workspace, setupName string) string {
+	return setupRecordPath(workspace, setupName, assembledOriginsLeaf)
 }
 
 // WriteAssembledOrigins writes the launch origins of merged, the config WriteAssembledConfig
@@ -97,7 +90,7 @@ func WorkspaceAssembledOriginsPath(workspace string) string {
 // The record names the digest of the copy it describes, and a reader ignores a record whose
 // digest is not the copy's, so a copy rewritten by a launcher that writes no record (an older
 // yolo) is never described by the record an earlier launch left.
-func WriteAssembledOrigins(workspace string, merged *jsonx.OrderedMap, src *Sources) error {
+func WriteAssembledOrigins(workspace, setupName string, merged *jsonx.OrderedMap, src *Sources) error {
 	j, err := SnapshotJSON(merged)
 	if err != nil {
 		return err
@@ -110,7 +103,7 @@ func WriteAssembledOrigins(workspace string, merged *jsonx.OrderedMap, src *Sour
 	if err != nil {
 		return err
 	}
-	return writeWorkspaceSnapshot(workspace, WorkspaceAssembledOriginsPath(workspace), string(b))
+	return writeSetupRecord(workspace, setupName, assembledOriginsLeaf, string(b))
 }
 
 // assembledOrigins is the file WriteAssembledOrigins writes: the sha256 of the copy's bytes, and
@@ -126,9 +119,9 @@ func copyDigest(data []byte) string {
 }
 
 // assembledOriginsTree is the provenance tree of snap, the assembled copy, from the launch
-// origins beside it; nil when there are none.
+// origins beside it, both this session's setup's; nil when there are none.
 func assembledOriginsTree(workspace string, snap *jsonx.OrderedMap) *srcNode {
-	data, err := os.ReadFile(WorkspaceAssembledOriginsPath(workspace))
+	data, err := readSetupRecord(workspace, "", assembledOriginsLeaf)
 	if err != nil {
 		return nil
 	}
@@ -136,8 +129,8 @@ func assembledOriginsTree(workspace string, snap *jsonx.OrderedMap) *srcNode {
 	if json.Unmarshal(data, &rec) != nil {
 		return nil
 	}
-	copyPath := WorkspaceAssembledConfigPath(workspace)
-	copyData, err := os.ReadFile(copyPath)
+	copyPath := WorkspaceAssembledConfigPath(workspace, "")
+	copyData, err := readSetupRecord(workspace, "", assembledConfigLeaf)
 	if err != nil || rec.Copy != copyDigest(copyData) {
 		return nil // a record of another copy
 	}

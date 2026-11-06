@@ -49,7 +49,7 @@ func TestADeathBetweenTheReadyFrameAndTheFirstSessionIsNamedOnceByItsQuit(t *tes
 }
 `)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	jail := newFakeJail(t, cname)
 	started := filepath.Join(jail.dir, "started")
 	die := filepath.Join(t.TempDir(), "die")

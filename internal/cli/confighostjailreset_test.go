@@ -75,8 +75,14 @@ func withJailRuntime(t *testing.T, rt string) {
 // claim a container name a launch would not use. The SHAPE is the other half of the same rule:
 // `container ls` emits a fixed table whose first line is a header, and its parser drops that
 // line, so a stub without one claims a live jail the production parser cannot see.
+//
+// The jail is the selected setup's (workspaceJailName, named-setups-plan.md SUP-D2), as a launch
+// from ws names it; runningJailNamed prints any other name, such as the legacy one.
 func runningJailStdout(rt, ws string) string {
-	name := runtime.FromWorkspace(ws)
+	return runningJailNamed(rt, workspaceJailName(ws))
+}
+
+func runningJailNamed(rt, name string) string {
 	if rt == "container" {
 		return "ID IMAGE OS ARCH STATE IP CPUS MEMORY STARTED\n" + name + " running\n"
 	}
@@ -176,6 +182,30 @@ func TestHostSideResetRefusesWhileThatWorkspacesJailIsRunning(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(store, "claude-settings.overlay.json")); err != nil {
 				t.Errorf("a refused reset touched the store anyway (err=%v)", err)
+			}
+		})
+	}
+}
+
+// A JAIL AN OLDER YOLO STARTED IS RUNNING TOO (SUP-D10): it is keyed by the project key alone,
+// not by the selected setup's jail name, and it binds the home this setup's launch would use
+// until a quiesced launch moves it, so a host-side reset refuses while it runs.
+func TestHostSideResetRefusesWhileTheLegacyJailRuns(t *testing.T) {
+	for _, rt := range jailRuntimes {
+		t.Run(rt, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("YOLO_VERSION", "")
+			withJailRuntime(t, rt)
+			ws, store := withWorkspaceCwd(t)
+			withJailLiveness(t, runningJailNamed(rt, runtime.FromWorkspace(ws)), true)
+			writeSidecar(t, store, "claude", "settings", `{"theme":"dark"}`, `{"theme":"light"}`)
+
+			var out, errw bytes.Buffer
+			if rc := surfaceRunW([]string{"reset", "claude/settings"}, &out, &errw); rc == 0 {
+				t.Fatalf("reset wrote while the legacy jail runs:\n%s%s", out.String(), errw.String())
+			}
+			if !strings.Contains(errw.String(), runtime.FromWorkspace(ws)) {
+				t.Errorf("the refusal does not name the running legacy jail:\n%s", errw.String())
 			}
 		})
 	}

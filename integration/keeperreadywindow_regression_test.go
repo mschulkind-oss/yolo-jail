@@ -15,7 +15,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -143,7 +142,7 @@ func readyWindowRecordProcess(t *testing.T) {
 		if !locked {
 			t.Fatal("the production record writer never reached its lock")
 		}
-		cname := naming.FromWorkspace(dir)
+		cname := jailName(dir)
 		keeperLog := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
 		if err := os.WriteFile(keeperLog, []byte("holds "+cname+" until its last session leaves\n"), 0o600); err != nil {
 			t.Fatal(err)

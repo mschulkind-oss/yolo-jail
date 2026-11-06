@@ -22,7 +22,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 const (
@@ -81,7 +80,7 @@ func TestALaunchHandsAPatchedForkToItsAdvance(t *testing.T) {
 					t.Errorf("Hand: %v", err)
 				}
 				// Beside the launch's own tree (Run took a copy of these options, so find it by name).
-				found, _ := filepath.Glob(filepath.Join(paths.PackTreeRoot(yoloruntime.FromWorkspace(o.Workspace)),
+				found, _ := filepath.Glob(filepath.Join(paths.PackTreeRoot(o.jailName()),
 					"*"+handedForksSuffix))
 				if len(found) != 1 {
 					t.Errorf("Hand wrote %d delivery records beside the pack trees, want 1: %v", len(found), found)
@@ -272,7 +271,7 @@ func attachSaysWhichPatchedBuildItsJailRuns(t *testing.T, key, label string) {
 	patchedLaunchHome(t)
 	var cname string
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
-		cname = yoloruntime.FromWorkspace(o.Workspace)
+		cname = o.jailName()
 		tree, err := newPackTree(cname)
 		if err != nil {
 			t.Fatal(err)

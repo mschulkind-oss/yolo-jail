@@ -28,7 +28,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -191,10 +190,10 @@ func newXBFixture(t *testing.T) *xbFixture {
 			if info, err := os.Stat(ws); err != nil || !info.IsDir() {
 				continue
 			}
-			if !run.ForceRemoveContainer(naming.FromWorkspace(ws), "podman") {
+			if !run.ForceRemoveContainer(jailName(ws), "podman") {
 				t.Errorf("fixture cleanup could not remove %s", ws)
 			}
-			if err := run.WaitForKeeper(ws, detachedWriterWait); err != nil {
+			if err := run.WaitForKeeper(jailName(ws), detachedWriterWait); err != nil {
 				t.Error(err)
 			}
 			if err := run.WaitForScratchRemovers(ws, detachedWriterWait); err != nil {
@@ -570,7 +569,7 @@ func (f *xbFixture) ready(t *testing.T) (xbProcess, xbProcess, string) {
 		t.Fatalf("build child pid=%d pgid=%d err=%v", child.pid, group, err)
 	}
 	if !xbContainerPresent(t, staging) {
-		t.Fatalf("real sealed build container missing: the runtime answered that %s does not exist", naming.FromWorkspace(staging))
+		t.Fatalf("real sealed build container missing: the runtime answered that %s does not exist", jailName(staging))
 	}
 	return bg, child, staging
 }
@@ -585,7 +584,7 @@ func (f *xbFixture) ready(t *testing.T) (xbProcess, xbProcess, string) {
 // podman's own output, so a runtime that never answers fails with its reason.
 func xbContainerPresent(t *testing.T, staging string) bool {
 	t.Helper()
-	cname := naming.FromWorkspace(staging)
+	cname := jailName(staging)
 	var present bool
 	unknown := 0
 	xbAwait(t, "a known answer from podman about build jail "+cname, func() bool {
@@ -622,10 +621,10 @@ func (f *xbFixture) assertNoBuildFailure(t *testing.T) {
 func xbContainerGone(t *testing.T, staging string) {
 	t.Helper()
 	xbAwait(t, "known removal of fixture build jail", func() bool {
-		present, known := run.ProbeExistingContainer(naming.FromWorkspace(staging), "podman", 5*time.Second)
+		present, known := run.ProbeExistingContainer(jailName(staging), "podman", 5*time.Second)
 		return known && !present
 	})
-	if err := run.WaitForKeeper(staging, detachedWriterWait); err != nil {
+	if err := run.WaitForKeeper(jailName(staging), detachedWriterWait); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -886,7 +885,7 @@ func TestBackgroundAdvanceSignalsFenceAndRecoverItsRealBuildWorkspace(t *testing
 				// SIGKILL bypasses the daemon's signal handler. The active owner/keeper must
 				// fence same-ID Stage, not erase a directory the real container still binds.
 				if !xbContainerPresent(t, staging) {
-					t.Fatalf("SIGKILL left no real orphan container to exercise recovery: podman answered that %s does not exist", naming.FromWorkspace(staging))
+					t.Fatalf("SIGKILL left no real orphan container to exercise recovery: podman answered that %s does not exist", jailName(staging))
 				}
 				recordStore := &packsrc.Store{Dir: paths.PacksDir()}
 				before, beforeErr := recordStore.LoadCheckRecord(xbKey)

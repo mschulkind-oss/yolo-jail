@@ -12,10 +12,12 @@ package run
 // Container, macos-user). TestFreshHomeLaunchBindsANewEmptyHome fails if the call is deleted.
 //
 // AN ATTACH NEVER SWITCHES HOMES. A jail that is running already has the home it booted on, and a
-// launch in its workspace would join it there, so --fresh-home is refused while any jail of the
-// project runs (o.projectJails, the probe the legacy-home move trusts), naming `yolo stop`; one the
-// runtime could not ask about is refused too, since it may run. The check is made under the
-// workspace launch lock, and attachExisting refuses the flag again, for the jail a concurrent
+// launch of its setup would join it there, so --fresh-home is refused while this launch's own
+// jail runs (o.jailRuns of its setup-qualified name, the probe the legacy-home move trusts),
+// naming `yolo stop`; one the runtime could not ask about is refused too, since it may run.
+// Another setup's jail is never joined, so it does not refuse (named-setups-plan.md SUP-D45); a
+// jail under the legacy name is refused before this, by refuseLegacyJail. The check is made under
+// this jail's launch lock, and attachExisting refuses the flag again, for the jail a concurrent
 // launch started after it. The other way round, a plain launch that attaches to a jail running on
 // a fresh home says so, and delivers into the jail's home rather than the usual one
 // (adoptRunningFreshHome).
@@ -29,7 +31,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // FreshHomeFlag is the flag's spelling, which every refusal and disclosure names.
@@ -41,8 +42,8 @@ const FreshHomeFlag = "--fresh-home"
 // refusal is printed.
 func (o *Options) selectFreshHome() bool {
 	out := o.pr(o.Stderr)
-	o.holdLaunchLock(yoloruntime.FromWorkspace(o.Workspace))
-	switch o.projectJails() {
+	o.holdLaunchLock(o.jailName())
+	switch j, _ := o.jailRuns(o.jailName()); j {
 	case projectJailsRunning:
 		o.refuseFreshHomeWhileRunning()
 		return false

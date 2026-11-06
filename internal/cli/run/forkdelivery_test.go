@@ -183,7 +183,7 @@ func TestAnAttachTriggersNoForkBuild(t *testing.T) {
 	pinFork(t, strings.Repeat("12", 20))
 	called := false
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			joined := strings.Join(argv, " ")
 			switch {
@@ -239,8 +239,14 @@ func TestUpdatePublicLaunchRefusesCreatedToRunningRaceBeforeEffects(t *testing.T
 	removed, probes, built := false, 0, false
 	argv, out := fakePodmanLaunch(t, func(o *Options) {
 		o.Update = true
+		// The race is this setup's jail's: a probe of any other name (the legacy jail's, SUP-D10)
+		// finds nothing.
+		mine := "name=^/" + o.jailName() + "$"
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			joined := strings.Join(argv, " ")
+			if len(argv) > 1 && argv[1] == "ps" && !strings.Contains(joined, mine) {
+				return ExecResult{Ran: true, RC: 0}
+			}
 			switch {
 			case strings.Contains(joined, "ps -a -q"):
 				return ExecResult{Ran: true, RC: 0, Stdout: "racing-created\n"}

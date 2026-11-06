@@ -230,6 +230,14 @@ type Options struct {
 	// (holdLaunchLock has the window, per backend). nil until then, and in a caller that
 	// never takes it.
 	launchLock *workspaceLock
+	// homeLock is this launch's hold on the PROJECT lock while it decides about, and binds, a
+	// legacy home (holdHomeLock). nil when it took none.
+	homeLock *workspaceLock
+	// keeperJailName is the jail a keeper keeps (keeperPlan.Cname), which jailName answers
+	// before any selection: a keeper's Options carries its setup's NAME only, and a setup the
+	// keeper cannot resolve again (a custom one, whose config it does not read) must not turn its
+	// own jail into another's. "" outside a keeper.
+	keeperJailName string
 	// sessionLock is this launch's hold on its container jail's SESSION LOCK (sessionlock.go):
 	// LOCK_SH, taken under the launch lock by the fresh launch before its container starts and
 	// by an attach before its exec, and released by Run's deferred releaseSessionLock. nil

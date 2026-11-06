@@ -21,7 +21,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ctxinject"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // liveCtxPodmanRootless is `podman info --format {{.Host.Security.Rootless}}`, logged with the
@@ -132,7 +131,7 @@ func TestLiveCtxMountInjectAndRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := writeProject(t, `{"mounts": ["`+atLaunch+`:/ctx/atlaunch"]}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-livectx"
 	first := startYoloBackground(t, "hold", dir,
@@ -342,7 +341,7 @@ func main() {
 	packHome(t, `{"packs": []}`)
 	dir := writeProject(t, `{"mcp_servers": {}, "mounts": ["`+
 		launchSource+`:/ctx/launch-ro"]}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-livectx-remount"
 	first := startYoloBackground(t, "hold-remount-parity", dir,

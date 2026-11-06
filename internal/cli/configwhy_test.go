@@ -85,6 +85,7 @@ headers = { Authorization = "Bearer workspace-sentinel" }
 	}
 	t.Setenv("YOLO_VERSION", "test")
 	t.Setenv("YOLO_WORKSPACE", fx.workspace)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	t.Setenv("YOLO_PACK_ROOT", root)
 
 	for _, tc := range []struct {
@@ -98,7 +99,7 @@ headers = { Authorization = "Bearer workspace-sentinel" }
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.snapshot == "" {
-				if err := os.Remove(config.WorkspaceAssembledConfigPath(fx.workspace)); err != nil && !os.IsNotExist(err) {
+				if err := os.Remove(config.WorkspaceAssembledConfigPath(fx.workspace, "podman-self")); err != nil && !os.IsNotExist(err) {
 					t.Fatal(err)
 				}
 			} else {
@@ -106,7 +107,7 @@ headers = { Authorization = "Bearer workspace-sentinel" }
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := config.WriteAssembledConfig(fx.workspace, snapshot.(*jsonx.OrderedMap)); err != nil {
+				if err := config.WriteAssembledConfig(fx.workspace, "podman-self", snapshot.(*jsonx.OrderedMap)); err != nil {
 					t.Fatal(err)
 				}
 			}

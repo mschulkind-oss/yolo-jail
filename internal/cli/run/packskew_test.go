@@ -54,17 +54,17 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	// terminal and read the first stdin line as its answer, leaving the restart prompt at end of input
 	// ("a yes did not stop the jail: stops=[]"). The lock is let go when the jail is stopped, as a
 	// keeper's is, so the restart's fresh launch does not wait on it.
-	keeper, kerr := holdLivenessLock(yoloruntime.FromWorkspace(ws))
+	keeper, kerr := holdLivenessLock(yoloruntime.JailName(ws, "podman-self"))
 	if kerr != nil {
 		t.Fatal(kerr)
 	}
 	var keeperOnce sync.Once
 	dropKeeper := func() { keeperOnce.Do(func() { releaseLock(keeper) }) }
 	t.Cleanup(dropKeeper)
-	r := packSkewRun{rt: &skewRuntime{env: env, execIDs: "1"}}
+	r := packSkewRun{rt: &skewRuntime{env: env, execIDs: "1", legacy: yoloruntime.FromWorkspace(ws)}}
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
-	writeCurrentKeeperRecord(t, yoloruntime.FromWorkspace(ws), keeperRecord{
+	writeCurrentKeeperRecord(t, yoloruntime.JailName(ws, "podman-self"), keeperRecord{
 		Started: time.Now(), Workspace: ws, Runtime: "podman", MCPTeardownKnown: true,
 	})
 	if repo, ok := o.RepoRoot(); ok {
@@ -110,7 +110,7 @@ func jailWithoutZai(t *testing.T) (home, ws, cname, jailTree string) {
 	emptyLoopholeDirs(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws = t.TempDir()
-	cname = yoloruntime.FromWorkspace(ws)
+	cname = yoloruntime.JailName(ws, "podman-self")
 	var out bytes.Buffer
 	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
 	cfg, ok := fresh.loadAndValidateConfig()
@@ -281,7 +281,7 @@ func TestAnAttachToAJailWhoseTreeWillNotLoadTakesTheDisposition(t *testing.T) {
 			emptyLoopholeDirs(t)
 			writeUserPacks(t, home, `["claude"]`)
 			ws := t.TempDir()
-			cname := yoloruntime.FromWorkspace(ws)
+			cname := yoloruntime.JailName(ws, "podman-self")
 			legacy := legacyTreeThisBuildRefuses(t, cname)
 			agents := filepath.Join(paths.AgentsDir(), cname)
 			// The attach's own staging goes under pack-trees and is checked apart, below.
@@ -346,7 +346,7 @@ func TestAnAttachThatCannotFindTheJailsTreeSaysSo(t *testing.T) {
 			emptyLoopholeDirs(t)
 			writeUserPacks(t, home, `["claude", "zai", "copilot"]`)
 			ws := t.TempDir()
-			cname := yoloruntime.FromWorkspace(ws)
+			cname := yoloruntime.JailName(ws, "podman-self")
 			if tc.record != "" {
 				if err := os.MkdirAll(paths.PackTreeRoot(cname), 0o755); err != nil {
 					t.Fatal(err)
@@ -399,7 +399,7 @@ func TestAnAttachToAJailTheLastReleaseLaunchedNeverRidesAlong(t *testing.T) {
 	emptyLoopholeDirs(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	legacy := paths.LegacyPackStagingDir(cname)
 	archiveReleasePacks(t, root, release, filepath.Join(legacy, officialStagingDir))
 	_, loadErr := loadUnrecordedPackTree(legacy)
@@ -526,7 +526,7 @@ func TestAnAcknowledgedPackSkewExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
 	emptyLoopholeDirs(t)
 	writeUserPacks(t, home, `["claude", "copilot"]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var out bytes.Buffer
 	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
 	cfg, ok := fresh.loadAndValidateConfig()

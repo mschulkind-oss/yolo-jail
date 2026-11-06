@@ -749,24 +749,38 @@ func unkeptReapReason(pid, keeper int) string {
 	return fmt.Sprintf("its keeper (pid %d) was gone, and yolo (pid %d) ended it with its last session", keeper, pid)
 }
 
-// KeeperLogOffset is the length of the workspace's jail keeper's log now: `yolo stop` notes it
-// before its stop, so FinishStop streams only the teardown that stop causes.
-func KeeperLogOffset(workspace string) int64 {
-	return keeperLogSize(yoloruntime.FromWorkspace(workspace))
+// KeeperLogOffset is the length of the keeper log of the jail named cname (jailname.go) now:
+// `yolo stop` notes it before its stop, so FinishStop streams only the teardown that stop causes.
+func KeeperLogOffset(cname string) int64 {
+	return keeperLogSize(cname)
 }
 
-// KeeperAlive reports whether a keeper holds the workspace's jail, or cannot be told not to.
-func KeeperAlive(workspace string) bool {
-	return probeKeeper(yoloruntime.FromWorkspace(workspace)) != keeperGone
+// KeeperAlive reports whether a keeper holds the jail named cname, or cannot be told not to.
+func KeeperAlive(cname string) bool {
+	return probeKeeper(cname) != keeperGone
 }
 
-// LaunchedRuntime is the runtime the workspace's jail was launched on, as its keeper's start record
+// JailKnown reports whether anything of a jail named cname is left to stop: a keeper record (a
+// live keeper's, or one a dead keeper left), a keeper that cannot be told gone, a live session
+// record under its key or its macos-user and guest keys, or a tracking file. `yolo stop` asks it
+// of the legacy jail name, which it stops only when a jail an older yolo started is there.
+func JailKnown(cname string) bool {
+	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+		if _, ok := readKeeperRecord(key); ok || probeKeeper(key) != keeperGone || len(liveKeyedSessions(key)) > 0 {
+			return true
+		}
+	}
+	_, tracked := yoloruntime.ReadContainerWorkspace(cname)
+	return tracked
+}
+
+// LaunchedRuntime is the runtime the jail named cname was launched on, as its keeper's start record
 // names it; ok is false when no record names one. The record stays while the keeper lives and after
 // one that died, so it is there for every jail a keeper started that is not known gone. `yolo stop`
 // asks this runtime ahead of the one the config and YOLO_RUNTIME resolve (JL-D79): a jail launched
 // with YOLO_RUNTIME=container in a workspace whose default is podman runs where podman cannot see it.
-func LaunchedRuntime(workspace string) (string, bool) {
-	rec, ok := readKeeperRecord(yoloruntime.FromWorkspace(workspace))
+func LaunchedRuntime(cname string) (string, bool) {
+	rec, ok := readKeeperRecord(cname)
 	if !ok || rec.Runtime == "" {
 		return "", false
 	}
@@ -787,7 +801,9 @@ func LaunchedRuntime(workspace string) (string, bool) {
 //   - a jail an older yolo started: its own launcher tears it down, as `yolo stop` always left it to.
 //
 // capture is the E3 config capture the CLI wires into a launch. The status is `yolo stop`'s.
-func FinishStop(stdout, stderr io.Writer, workspace, rt string, logFrom int64, capture func(workspace, home, rt string), force bool) int {
+// cname is the jail's name (jailname.go): the selected setup's, or the legacy name of a jail an
+// older yolo started.
+func FinishStop(stdout, stderr io.Writer, workspace, cname, rt string, logFrom int64, capture func(workspace, home, rt string), force bool) int {
 	o := NewDefaultOptions()
 	o.Workspace = workspace
 	o.Stdout, o.Stderr = stdout, stderr
@@ -795,7 +811,6 @@ func FinishStop(stdout, stderr io.Writer, workspace, rt string, logFrom int64, c
 	o.CaptureOnTerminate = capture
 	fillDefaults(&o)
 	o.runtime = rt
-	cname := yoloruntime.FromWorkspace(workspace)
 	// The home the jail bound, from its keeper's start record (keeperRecord.Home), so the reap of
 	// an unkept jail captures its config edits from that home (docs/design/named-setups.md §9). A
 	// record from before setups had homes names none: homeDir then answers the legacy home, the
@@ -890,8 +905,7 @@ func (o *Options) finishStop(cname, rt string, logFrom int64, force bool) int {
 // it, and not ending it, and that session's own launch waits again once it has gone (the suite's
 // cleanups run last-registered first, so a foreground entry's wait runs before the release of a
 // background session started earlier).
-func WaitForKeeper(workspace string, timeout time.Duration) error {
-	cname := yoloruntime.FromWorkspace(workspace)
+func WaitForKeeper(cname string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		if probeKeeper(cname) == keeperGone || sessionsRemain(cname) {
@@ -1658,7 +1672,7 @@ func (o *Options) endMacosUserSession(rt string, rc int) int {
 	closeKeyedSessionRecord(m.record)
 	m.record = nil
 	o.releaseSessionLock()
-	cname := yoloruntime.FromWorkspace(o.Workspace)
+	cname := o.jailName()
 	sp := o.Perf.Span("session.after_quit")
 	state, locks := o.probeAfterQuit(m.key)
 	sp.End()
@@ -1820,14 +1834,13 @@ var signalKeyProcess = func(pid int, sig syscall.Signal) error { return syscall.
 // forwards it to its sudo and so to the sandboxed command (macosuserarm.go's session phase); then it
 // streams the keeper's teardown, within keeperTeardownWait, or, for an UNKEPT key, removes what its
 // dead keeper left once the sessions it signalled let the count go. The status is `yolo stop`'s.
-func StopMacosUser(stdout, stderr io.Writer, workspace string) int {
+func StopMacosUser(stdout, stderr io.Writer, workspace, cname string) int {
 	o := NewDefaultOptions()
 	o.Workspace = workspace
 	o.Stdout, o.Stderr = stdout, stderr
 	o.PerfLoggingConfig = func() bool { return false }
 	fillDefaults(&o)
 	o.runtime = "macos-user"
-	cname := yoloruntime.FromWorkspace(workspace)
 	rc, stopped := 0, false
 	for _, notch := range macosUserKeeperNotches {
 		krc, did := o.stopMacosUserKey(cname, keeperKey(cname, notch))

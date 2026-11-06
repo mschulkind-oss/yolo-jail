@@ -167,7 +167,7 @@ func TestWaitForKeeperWaitsOutADrainThatOvertakesItsProbe(t *testing.T) {
 		}
 		return orig(fd, how)
 	}
-	if err := WaitForKeeper(ws, 10*time.Second); err != nil {
+	if err := WaitForKeeper(cname, 10*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if !overtaken {

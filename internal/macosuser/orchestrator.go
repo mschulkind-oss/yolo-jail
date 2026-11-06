@@ -753,11 +753,11 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	// root, and the plan builder below is pure. The plan keys the staged copy on the same
 	// spelling (cnameFor of the resolved workspace).
 	overlay := opts.HostHomeOverlay
-	overlay.StagedCurrent = homeOverlayStagedCurrent(overlay.Tree, cnameFor(resolvePathAbs(opts.Workspace)), "")
+	overlay.StagedCurrent = homeOverlayStagedCurrent(overlay.Tree, cnameFor(resolvePathAbs(opts.Workspace), opts.Setup.Name), "")
 	return BuildRunPlanWithStages(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, overlay, opts.HostCtx, env, darwin,
 		opts.BlockedTools, opts.JailDaemons, floors, programs,
-		PlanSession{ID: opts.SessionID, BundleIdentity: opts.BundleIdentity, CATrust: opts.CATrust,
+		PlanSession{ID: opts.SessionID, Setup: opts.Setup.Name, BundleIdentity: opts.BundleIdentity, CATrust: opts.CATrust,
 			Fonts: opts.Fonts, Mode: opts.Mode, HostHome: opts.HostHome, HostUser: opts.HostUser,
 			DarwinUserTempDir: deps.darwinUserTempDir(opts.Mode), SharedTmp: opts.SharedTmp})
 }

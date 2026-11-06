@@ -34,7 +34,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // backgroundAdvanceVerb is the hidden subcommand: `yolo internal background-advance`.
@@ -223,7 +222,7 @@ var removeBuildJail = run.ForceRemoveContainer
 // removeBuildJailOf removes the build jail of staging, which a SIGTERM stopped, on the runtime its
 // build recorded, else the advance's (XB-D19).
 func (a *advance) removeBuildJailOf(staging string) {
-	cname := runtime.FromWorkspace(staging)
+	cname := stagingJailName(staging)
 	rt, err := readForkBuildRuntime(staging)
 	if err != nil {
 		rt = a.o.runtime

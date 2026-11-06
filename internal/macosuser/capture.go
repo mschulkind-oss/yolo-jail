@@ -317,7 +317,7 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 	runAs := captureRunAs(opts, stagingHome)
 	self := runAs.Mode == ModeSelf
 	outDir := CaptureStagingOut(stagingRoot)
-	cname := cnameFor(stagingRoot)
+	cname := cnameFor(stagingRoot, "")
 	profilePath := SessionProfilePath(cname, "")
 
 	// Git identity, read out of the launch env by prefix — the same way BuildRunPlan reads

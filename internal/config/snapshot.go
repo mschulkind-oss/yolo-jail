@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -643,39 +642,13 @@ func workspaceOrCwd(workspace string) string {
 }
 
 // writeSnapshot writes currentJSON + "\n", creating the containing directory as
-// needed. It serves three destinations now — the host-side approvals dir, the
-// workspace's config-assembled.json and its config-boot.json — so it names the
-// PARENT of whatever path it is handed rather than any one of them.
+// needed: the host-side approvals dir. The workspace's launch records are written through no
+// link under .yolo/setups/<setup> instead (setupstate.go), since the jail can write there.
 func writeSnapshot(path, currentJSON string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(path, []byte(currentJSON+"\n"), 0o644)
-}
-
-// writeWorkspaceSnapshot is writeSnapshot for the two destinations under
-// <workspace>/.yolo — config-assembled.json and config-boot.json — and it differs in the
-// one way that matters: the directory comes from paths.EnsureWorkspaceStateDir instead of a
-// bare MkdirAll.
-//
-// TWO THINGS THAT BUYS, and the first is why writeSnapshot cannot simply be changed:
-// writeSnapshot's third caller is the host-side approvals dir, which lives INSIDE
-// ~/.local/share/yolo-jail by design, so routing every caller through a helper that refuses
-// boundary directories would refuse the approval record. Splitting the workspace half off
-// gets it the state dir's .gitignore (a bare MkdirAll skips it, so a workspace whose first
-// artifact was a config snapshot had an un-ignored .yolo) and the scope refusal, which for
-// these two is defence in depth — both are on the launch path, behind the guard.
-//
-// AND THE FILE IS WRITTEN BENEATH A ROOT ON `.yolo` (paths.WriteWorkspaceStateFile), never
-// by path: `.yolo` is jail-writable, and os.WriteFile followed a link the last jail left at
-// either name, truncating the host file it named and writing this config JSON into it. path
-// must name a file directly in the workspace's `.yolo`, which both destinations do.
-func writeWorkspaceSnapshot(workspace, path, currentJSON string) error {
-	ws := workspaceOrCwd(workspace)
-	if filepath.Dir(path) != paths.WorkspaceStateDir(ws) {
-		return fmt.Errorf("internal: workspace snapshot %s is not directly in %s", path, paths.WorkspaceStateDir(ws))
-	}
-	return paths.WriteWorkspaceStateFile(ws, filepath.Base(path), []byte(currentJSON+"\n"), 0o644)
 }
 
 // pyRstrip trims trailing whitespace using the same whitespace set as

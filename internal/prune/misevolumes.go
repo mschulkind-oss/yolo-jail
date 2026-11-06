@@ -148,9 +148,11 @@ func (v MiseVolume) State() (MiseVolumeState, string) {
 		return MiseVolumeUnattributed, "no workspace is recorded on it (Apple Container made it itself, unlabelled)"
 	}
 	ws := richtext.Escape(v.Workspace)
-	if runtime.FromResolved(v.Workspace) != v.Cname {
+	// A disk of a setup's jail is named by its setup-qualified jail name (runtime.JailName,
+	// named-setups-plan.md SUP-D2), one an older yolo made by the workspace alone.
+	if !runtime.IsJailOfResolved(v.Workspace, v.Cname) {
 		return MiseVolumeUnattributed, "its label names " + ws + ", whose disk would be named " +
-			MiseVolumeName(runtime.FromResolved(v.Workspace))
+			MiseVolumeName(runtime.FromResolved(v.Workspace)) + " or that name with a setup's appended"
 	}
 	if _, err := os.Stat(v.Workspace); errors.Is(err, fs.ErrNotExist) {
 		return MiseVolumeWorkspaceGone, "workspace " + ws + " is gone"

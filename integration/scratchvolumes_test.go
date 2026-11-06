@@ -33,7 +33,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"gopkg.in/yaml.v3"
 )
 
@@ -308,7 +307,7 @@ func TestQuitDoesNotWaitForTheScratchDelete(t *testing.T) {
 	requireJail(t)
 	requirePodman(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	base := launchAndQuit(t, dir, cname, true)
 	awaitScratchRemoval(t, dir, cname, 1)

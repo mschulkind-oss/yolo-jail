@@ -17,7 +17,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 	"golang.org/x/sys/unix"
 )
@@ -411,7 +410,7 @@ func runProgramCaptureJail(args []string, out, w io.Writer) int {
 
 func stageProgramCapture(store *capture.Store, id string) (string, error) {
 	staging := store.StagingDir(id)
-	cname := runtime.FromWorkspace(staging)
+	cname := stagingJailName(staging)
 	if captureWorkspaceArtifactsExist(staging, cname) {
 		release, safe := forkBuildWorkspaceReclaimable(staging, cname)
 		if !safe {
@@ -427,7 +426,7 @@ func programCaptureRuntimeGone(workspace string) (func(), error) {
 	if !forkBuildRunReturned(workspace) {
 		return nil, forkBuildRetained{msg: "selected npm runtime has no return witness — stop its owned jail before retrying"}
 	}
-	release, safe := forkBuildWorkspaceReclaimable(workspace, runtime.FromWorkspace(workspace))
+	release, safe := forkBuildWorkspaceReclaimable(workspace, stagingJailName(workspace))
 	if !safe {
 		return nil, forkBuildRetained{msg: "selected npm runtime teardown is unknown — wait for its owned jail to stop before retrying"}
 	}
@@ -490,7 +489,7 @@ func resolveSelectedNPMCapture(ctx context.Context, store *capture.Store, in npm
 			return nil, err
 		}
 		defer release()
-		defer cleanupForkBuildWorkspace(staging, runtime.FromWorkspace(staging))
+		defer cleanupForkBuildWorkspace(staging, stagingJailName(staging))
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -520,7 +519,7 @@ func resolveSelectedNPMCapture(ctx context.Context, store *capture.Store, in npm
 		return nil, err
 	}
 	defer release()
-	defer cleanupForkBuildWorkspace(staging, runtime.FromWorkspace(staging))
+	defer cleanupForkBuildWorkspace(staging, stagingJailName(staging))
 	raw, err := os.ReadFile(filepath.Join(staging, "resolution.json"))
 	if err != nil {
 		return nil, err

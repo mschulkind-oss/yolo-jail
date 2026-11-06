@@ -25,12 +25,12 @@ func TestWaitForKeeperReturnsForASessionAndWaitsForATeardown(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	if err := WaitForKeeper(ws, 10*time.Second); err != nil || time.Since(start) > 2*time.Second {
+	if err := WaitForKeeper(cname, 10*time.Second); err != nil || time.Since(start) > 2*time.Second {
 		t.Errorf("with a session in the jail: err=%v after %s, want at once", err, time.Since(start))
 	}
 	session.release()
 
-	if err := WaitForKeeper(ws, 200*time.Millisecond); err == nil {
+	if err := WaitForKeeper(cname, 200*time.Millisecond); err == nil {
 		t.Error("a keeper that never ends was not reported after the bound")
 	}
 
@@ -44,7 +44,7 @@ func TestWaitForKeeperReturnsForASessionAndWaitsForATeardown(t *testing.T) {
 		releaseLock(live)
 	}()
 	start = time.Now()
-	if err := WaitForKeeper(ws, 10*time.Second); err != nil || time.Since(start) < 100*time.Millisecond {
+	if err := WaitForKeeper(cname, 10*time.Second); err != nil || time.Since(start) < 100*time.Millisecond {
 		t.Errorf("a draining keeper: err=%v after %s, want a wait until it was gone", err, time.Since(start))
 	}
 }

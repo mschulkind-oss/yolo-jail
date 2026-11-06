@@ -312,7 +312,7 @@ func TestApplyRespellsApprovalAndBootRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := config.WriteBootBaseline(ws, boot); err != nil {
+	if err := config.WriteBootBaseline(ws, "podman-self", boot); err != nil {
 		t.Fatal(err)
 	}
 	gateSeesNoChange := func() error {
@@ -350,7 +350,7 @@ func TestApplyRespellsApprovalAndBootRecords(t *testing.T) {
 	if record == approved || !strings.Contains(record, `"files"`) {
 		t.Fatalf("approval record not respelled:\n%s", record)
 	}
-	baseline, _, _ := config.ReadBootBaseline(ws)
+	baseline, _, _ := config.ReadBootBaseline(ws, "podman-self")
 	if now, _ := config.BootBaselinePart(ws); baseline != now {
 		t.Fatalf("boot baseline not respelled:\n%s", baseline)
 	}

@@ -112,7 +112,7 @@ func (o *Options) forgetGone(cname, rt, skeleton, tree string) {
 // entry writes what it composes, so nothing is lost. Only for this workspace's own jail: forgetGone
 // is asked about cname, and the files are this Options' workspace's.
 func (o *Options) forgetGoneCredentials(cname, rt string) {
-	if o.Workspace == "" || runtime.FromWorkspace(o.Workspace) != cname {
+	if o.Workspace == "" || o.jailName() != cname {
 		return
 	}
 	wsState := o.homeDir()

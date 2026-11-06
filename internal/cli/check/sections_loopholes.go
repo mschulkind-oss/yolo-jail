@@ -614,7 +614,9 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	// another suite's jail was up). This check cannot know another workspace's selection, so
 	// on a foreign jail an ABSENT file is a skip; a file that jail DID publish is its own
 	// service and is still probed below, and this workspace's own jail is graded as always.
-	ownJail := runtime.FromWorkspace(o.Workspace)
+	//
+	// A jail of this workspace is any of its names: the legacy one an older yolo keyed it by, or
+	// a setup's (runtime.IsJailOf, named-setups-plan.md SUP-D2).
 	for _, cname := range cnames {
 		socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 		// Every service of this jail publishes into one directory, so a missing directory is
@@ -637,7 +639,7 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 		for _, lp := range externals {
 			label := fmt.Sprintf("loophole %s @ %s", lp.Name, cname)
 			published := publishedServicePath(socketsDir, lp)
-			if cname != ownJail && !o.PathExists(published) {
+			if !runtime.IsJailOf(o.Workspace, cname) && !o.PathExists(published) {
 				if !foreignResolved {
 					foreignWorkspace, foreignResolved = o.getContainerWorkspace(cname, rt), true
 				}

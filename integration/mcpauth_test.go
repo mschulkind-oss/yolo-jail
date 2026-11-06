@@ -15,7 +15,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestMCPAuthBrokerSeedsButDoesNotAdoptUnprovedCodexSignIn crosses the selected pack, core launch
@@ -84,7 +83,7 @@ PY`
 	// This ordinary selected launch actually traversed keeper publication and
 	// the ending reader: neither the token-free result nor its per-generation
 	// claim/lease may survive a confirmed last session.
-	cname := yoloruntime.FromWorkspace(workspace)
+	cname := jailName(workspace)
 	owners := filepath.Join(paths.GlobalStorageUnder(home), "owners")
 	files, err := os.ReadDir(owners)
 	if err != nil {

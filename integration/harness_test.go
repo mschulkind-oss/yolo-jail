@@ -45,7 +45,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
@@ -1085,9 +1084,10 @@ func runYoloCLI(t *testing.T, dir string, args ...string) result {
 	return runCommand(t, dir, args)
 }
 
-// forceRemoveContainer removes the jail container for a workspace dir, deriving
-// the name from the real algorithm (internal/runtime.FromWorkspace) rather than
-// a mirror. Errors are ignored; the legacy hash-only name is not tried (it named
+// forceRemoveContainer removes the jail containers for a workspace dir, deriving
+// the names from the real algorithm (internal/runtime.JailName, through jailNamesOf)
+// rather than a mirror: every setup's, and the legacy project-key name an older yolo used
+// (named-setups-plan.md SUP-D10). Errors are ignored; the hash-only name is not tried (it named
 // pre-rename Python-era containers only).
 func forceRemoveContainer(dir string) {
 	rt := detectRuntime()
@@ -1103,7 +1103,10 @@ func forceRemoveContainer(dir string) {
 		// `rm` has no such flag.
 		argv = append(argv, "-t", "0")
 	}
-	_ = exec.CommandContext(ctx, rt, append(argv, naming.FromWorkspace(dir))...).Run()
+	names := jailNamesOf(dir)
+	for _, cname := range names {
+		_ = exec.CommandContext(ctx, rt, append(slices.Clone(argv), cname)...).Run()
+	}
 	if rt == "container" {
 		// The workspace's tool disk (OQ-MB1, internal/prune/misevolumes.go): Apple Container
 		// gives each workspace its own /mise disk, and this workspace is about to be deleted, so
@@ -1111,8 +1114,9 @@ func forceRemoveContainer(dir string) {
 		// runtime refuses it while a container still names it, which leaves it to `yolo prune`.
 		vctx, vcancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vcancel()
-		_ = exec.CommandContext(vctx, "container", "volume", "rm",
-			prune.MiseVolumeName(naming.FromWorkspace(dir))).Run()
+		for _, cname := range names {
+			_ = exec.CommandContext(vctx, "container", "volume", "rm", prune.MiseVolumeName(cname)).Run()
+		}
 	}
 }
 

@@ -77,7 +77,7 @@ func TestAStopSaysStoppedOnlyOnceTheContainerIsGone(t *testing.T) {
 			cname := runtime.FromWorkspace("/ws")
 			f := &stuckStopRuntime{cname: cname, present: true, removable: false}
 			var out, errb bytes.Buffer
-			rc := stopJail(&out, &errb, "/ws", "podman", f.run, nil, force)
+			rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", f.run, nil, force)
 			if rc == 0 {
 				t.Fatalf("a stop whose container is still there reported success\nstdout:\n%s", out.String())
 			}
@@ -106,7 +106,7 @@ func TestAStopForceRemovesAContainerItsStopLeft(t *testing.T) {
 	cname := runtime.FromWorkspace("/ws")
 	f := &stuckStopRuntime{cname: cname, present: true, removable: true}
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", f.run, nil, false); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", f.run, nil, false); rc != 0 {
 		t.Fatalf("rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if !strings.Contains(out.String(), "Stopped "+cname) {
@@ -129,7 +129,7 @@ func TestAStopCannotSayStoppedWhenTheRuntimeCannotBeAsked(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := &stopRun{stats: []string{"true\n", "", "-"}} // the stop runs; the existence probe cannot
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 1 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 1 {
 		t.Fatalf("rc=%d, want 1\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if strings.Contains(out.String(), "Stopped ") {
@@ -146,7 +146,7 @@ func TestStopRefusesUnansweredExistenceAcrossPaths(t *testing.T) {
 			t.Run(path+map[bool]string{false: "-exit125", true: "-not-run"}[runtimeFailure], func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				saved := finishStop
-				finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
+				finishStop = func(_, _ io.Writer, _, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
 				t.Cleanup(func() { finishStop = saved })
 				existsCalls := 0
 				runner := func(argv []string, _ time.Duration) (string, bool, int) {
@@ -169,7 +169,7 @@ func TestStopRefusesUnansweredExistenceAcrossPaths(t *testing.T) {
 					return "", false, 1
 				}
 				var out, errb bytes.Buffer
-				if rc := stopJail(&out, &errb, "/ws", "podman", runner, nil, path == "force"); rc != 1 {
+				if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", runner, nil, path == "force"); rc != 1 {
 					t.Fatalf("rc=%d stdout=%s stderr=%s", rc, &out, &errb)
 				}
 				if strings.Contains(out.String(), "Stopped ") || strings.Contains(out.String(), "Ended the leftover") || strings.Contains(out.String(), "No jail running") {
@@ -193,7 +193,7 @@ func TestStopUnknownProbeAfterForceRemovalIsNotSuccess(t *testing.T) {
 		return f.run(argv, stopRuntimeCommandTimeout)
 	}
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", runner, nil, false); rc != 1 || !strings.Contains(errb.String(), "could not be asked") {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", runner, nil, false); rc != 1 || !strings.Contains(errb.String(), "could not be asked") {
 		t.Fatalf("rc=%d stdout=%s stderr=%s", rc, &out, &errb)
 	}
 }
@@ -218,7 +218,7 @@ func TestStopAlreadyEndingKeeperStillRequiresAbsence(t *testing.T) {
 			}
 			saved := finishStop
 			called := false
-			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), gotForce bool) int {
+			finishStop = func(_, _ io.Writer, _, _, _ string, _ int64, _ func(string, string, string), gotForce bool) int {
 				called = true
 				if gotForce != force {
 					t.Error("force not forwarded")
@@ -234,7 +234,7 @@ func TestStopAlreadyEndingKeeperStillRequiresAbsence(t *testing.T) {
 				return stuck.run(argv, stopRuntimeCommandTimeout)
 			}
 			var out, errb bytes.Buffer
-			if rc := stopJail(&out, &errb, "/ws", "podman", runner, nil, force); rc != 1 || !called || !strings.Contains(errb.String(), "still there") {
+			if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", runner, nil, force); rc != 1 || !called || !strings.Contains(errb.String(), "still there") {
 				t.Fatalf("rc=%d called=%v stdout=%s stderr=%s", rc, called, &out, &errb)
 			}
 		})
@@ -247,7 +247,7 @@ func TestStopAppleContainerRequiresTerminalAbsence(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			shrinkStopGone(t)
 			saved := finishStop
-			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
+			finishStop = func(_, _ io.Writer, _, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
 			t.Cleanup(func() { finishStop = saved })
 			cname := runtime.FromWorkspace("/ws")
 			runner := func(argv []string, _ time.Duration) (string, bool, int) {
@@ -264,7 +264,7 @@ func TestStopAppleContainerRequiresTerminalAbsence(t *testing.T) {
 				return "", false, 1
 			}
 			var out, errb bytes.Buffer
-			if rc := stopJail(&out, &errb, "/ws", "container", runner, nil, false); rc != 1 || strings.Contains(out.String(), "Stopped ") {
+			if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "container", runner, nil, false); rc != 1 || strings.Contains(out.String(), "Stopped ") {
 				t.Fatalf("rc=%d stdout=%s stderr=%s", rc, &out, &errb)
 			}
 		})

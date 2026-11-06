@@ -171,6 +171,9 @@ type skewRuntime struct {
 	// stuck keeps the container running through a stop.
 	stuck   bool
 	stopped bool
+	// legacy is the workspace's legacy jail name, which runs no container (SUP-D10): the
+	// launch's probe for it is answered empty. "" answers every name alike.
+	legacy string
 }
 
 func (r *skewRuntime) exec(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
@@ -187,7 +190,7 @@ func (r *skewRuntime) exec(argv []string, _ string, _ []string, _ time.Duration)
 	case len(argv) > 1 && argv[1] == "ps" && strings.Contains(joined, "--format"):
 		return ExecResult{Ran: true, RC: 0} // liveYoloContainers: none owned here
 	case len(argv) > 1 && argv[1] == "ps":
-		if r.stopped {
+		if r.stopped || (r.legacy != "" && slices.Contains(argv, "name=^/"+r.legacy+"$")) {
 			return ExecResult{Ran: true, RC: 0}
 		}
 		return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}

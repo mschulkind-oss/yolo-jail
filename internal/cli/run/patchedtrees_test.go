@@ -119,7 +119,7 @@ func TestALaunchRunsTheTreeArmAndMountsItsCopy(t *testing.T) {
 		t.Fatalf("the tree arm was handed %+v\n%s", req, printed)
 	}
 	if !strings.HasSuffix(req.CopyRoot, patchedCopiesSuffix) ||
-		filepath.Dir(req.CopyRoot) != paths.PackTreeRoot(yoloruntime.FromWorkspace(req.Workspace)) {
+		filepath.Dir(req.CopyRoot) != paths.PackTreeRoot(yoloruntime.JailName(req.Workspace, "podman-self")) {
 		t.Errorf("the copy root %q is not beside the launch's pack tree", req.CopyRoot)
 	}
 	if req.ReuseCopies {
@@ -290,7 +290,7 @@ func TestAnAttachNamesTheTreeItsJailMounts(t *testing.T) {
 func TestAnAttachThroughRunNamesTheTreeItsJailMounts(t *testing.T) {
 	treeLaunchHome(t, true)
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		tree, err := newPackTree(cname)
 		if err != nil {
 			t.Fatal(err)

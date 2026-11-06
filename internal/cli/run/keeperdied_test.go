@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestALaunchWhoseKeeperDiesBeforeItStartsSaysSo drives a whole fresh launch to a keeper that exits
@@ -32,7 +31,7 @@ func TestALaunchWhoseKeeperDiesBeforeItStartsSaysSo(t *testing.T) {
 	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
 	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := o.jailName()
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	if rc := Run(*o); rc != 3 {
 		t.Errorf("rc %d, want the keeper's 3\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())

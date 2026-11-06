@@ -97,12 +97,13 @@ type journalRecord struct {
 	State  RecordState `json:"state"`
 	Why    string      `json:"why,omitempty"`
 	Before string      `json:"before,omitempty"`
+	Setup  string      `json:"setup,omitempty"`
 }
 
 func journalRecords(rs []Record) []journalRecord {
 	out := make([]journalRecord, len(rs))
 	for i, r := range rs {
-		out[i] = journalRecord{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, Before: r.before}
+		out[i] = journalRecord{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, Before: r.before, Setup: r.setup}
 	}
 	return out
 }
@@ -110,7 +111,7 @@ func journalRecords(rs []Record) []journalRecord {
 func (j *migrationJournal) records() []Record {
 	out := make([]Record, len(j.Records))
 	for i, r := range j.Records {
-		out[i] = Record{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, before: r.Before}
+		out[i] = Record{Kind: r.Kind, Path: r.Path, State: r.State, Why: r.Why, before: r.Before, setup: r.Setup}
 	}
 	return out
 }

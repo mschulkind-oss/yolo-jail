@@ -232,7 +232,10 @@ func respellRecords(planned []Record, workspace string) []Record {
 		}
 		read, current, write := config.ReadApprovalRecord, config.ApprovalRecordPart, config.WriteApprovalRecord
 		if r.Kind == "boot baseline" {
-			read, current, write = config.ReadBootBaseline, config.BootBaselinePart, config.WriteBootBaseline
+			name := r.setup
+			read = func(ws string) (string, bool, error) { return config.ReadBootBaseline(ws, name) }
+			current = config.BootBaselinePart
+			write = func(ws, part string) error { return config.WriteBootBaseline(ws, name, part) }
 		}
 		text, exists, err := read(workspace)
 		if err != nil || !exists || text != r.before {

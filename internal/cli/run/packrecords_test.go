@@ -13,7 +13,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // packrecords_test.go pins the launch SCOPE of the process-wide pack records, from Run's
@@ -59,7 +58,7 @@ func TestASubLaunchLeavesTheParentLaunchsPackRecordsAlone(t *testing.T) {
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
 		// The parent's own pack tree is one of those under its pack-tree root, and the only
 		// launch staging there is the parent's.
-		parentRoot = paths.PackTreeRoot(yoloruntime.FromWorkspace(o.Workspace))
+		parentRoot = paths.PackTreeRoot(o.jailName())
 		o.AutoCapture = func([]string, string, io.Writer, bool) {
 			beforeMods, beforeSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
 			subs++

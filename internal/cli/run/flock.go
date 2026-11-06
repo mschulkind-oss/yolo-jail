@@ -22,6 +22,10 @@ type workspaceLock struct {
 	// path is set only on a lock registered as this process's LAUNCH lock (holdLaunchLock), so
 	// that Close can take it back out of heldLaunchLocks.
 	path string
+	// companion is a lock Close releases with this one, and handOff leaves held: the project lock
+	// a launch took for the legacy home's decision (holdHomeLock) rides on its launch lock, so
+	// every release of the launch lock that is not a hand-over to a keeper lets it go too.
+	companion *workspaceLock
 }
 
 // lockNotices are the two console seams acquireWorkspaceLock speaks through.
@@ -126,6 +130,13 @@ func (l *workspaceLock) Close() {
 	if l.closed {
 		return
 	}
+	// The companion goes with this release, and with no other: a lock handed off keeps it, and
+	// a Close after the hand-off is not a release. Its mutex is taken under this one's; a
+	// companion never takes the mutex of the lock it rides on, so the order is fixed.
+	if c := l.companion; c != nil {
+		l.companion = nil
+		defer c.Close()
+	}
 	l.closed = true
 	if l.path != "" {
 		heldLaunchLocks.forget(l.path, l)
@@ -134,6 +145,19 @@ func (l *workspaceLock) Close() {
 	// below is the fallback either way.
 	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
 	_ = l.f.Close()
+}
+
+// ride makes l release with launch: Close of launch releases l too. A nil or closed launch, or
+// a closed l, changes nothing.
+func (l *workspaceLock) ride(launch *workspaceLock) {
+	if l == nil || launch == nil || l.isClosed() {
+		return
+	}
+	launch.mu.Lock()
+	defer launch.mu.Unlock()
+	if !launch.closed {
+		launch.companion = l
+	}
 }
 
 // handOff ends this process's hold on the lock WITHOUT releasing the lock: a child it spawned holds a
@@ -315,12 +339,59 @@ func (o *Options) holdLaunchLock(cname string) {
 	lock.path = path
 	heldLaunchLocks.hold(path, lock)
 	o.launchLock = lock
+	// The project lock this launch holds for the legacy home's decision goes with this one
+	// (holdHomeLock).
+	o.homeLock.ride(lock)
 }
 
 // releaseLaunchLock ends this launch's hold on the workspace launch lock. Idempotent, and a
 // no-op for a launch that holds none.
 func (o *Options) releaseLaunchLock() {
 	o.launchLock.Close()
+}
+
+// holdHomeLock takes the PROJECT lock, the launch lock file of the legacy jail name
+// (legacyJailName), for a launch that decides about the legacy home (selectHome;
+// named-setups-plan.md SUP-D36). Every launch of the project that might move or bind that home
+// takes it, whatever its setup, and so did every launch of an older yolo, whose jail name it was.
+//
+// It is released with the launch lock this launch takes next (workspaceLock.ride): when the jail
+// is up, or at the launch's end. A launch that hands its launch lock to a keeper keeps it until
+// the keeper says the jail is up (releaseHomeLock), and Run releases it at every return.
+//
+// The order is always this lock, then the launch lock. A launch whose jail name IS the legacy
+// name (a caller that resolved no setup) takes its launch lock instead: one process cannot take
+// one lock file twice.
+func (o *Options) holdHomeLock() {
+	legacy := o.legacyJailName()
+	if o.jailName() == legacy {
+		o.holdLaunchLock(legacy)
+		return
+	}
+	if o.homeLock != nil && !o.homeLock.isClosed() {
+		return
+	}
+	out := o.pr(o.Stderr)
+	path := launchLockPath(legacy)
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	lock, err := acquireWorkspaceLock(path, o.Workspace, lockNotices{
+		warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
+		waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
+	})
+	if err != nil {
+		out.printf("[dim]Warning: could not open the workspace lock (%s); concurrent launches "+
+			"in this workspace are not serialised[/dim]", err.Error())
+		return
+	}
+	lock.path = path
+	o.homeLock = lock
+	o.homeLock.ride(o.launchLock)
+}
+
+// releaseHomeLock ends this launch's hold on the project lock (holdHomeLock). Idempotent, and a
+// no-op for a launch that holds none.
+func (o *Options) releaseHomeLock() {
+	o.homeLock.Close()
 }
 
 // isClosed reports whether Close has run.

@@ -287,3 +287,45 @@ func TestCheckFindsOnlyALiveKeepersMovedState(t *testing.T) {
 		t.Errorf("findings: %v", got)
 	}
 }
+
+// TestCheckFindsASetupJailsMovedState: a jail keyed by its setup-qualified name
+// (runtime.JailName, named-setups-plan.md SUP-D2) is found too, by its keeper's record, after the
+// `.yolo` that held its setup's directory has moved; another workspace's keeper is not.
+func TestCheckFindsASetupJailsMovedState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws, home := rescueWorkspace(t)
+	other, otherHome := rescueWorkspace(t)
+	for _, k := range []struct{ cname, ws, home string }{
+		{yoloruntime.JailName(ws, "podman-self"), ws, home},
+		{keeperKey(yoloruntime.JailName(ws, "seatbelt-self"), keeperNotchMacosUser), ws, home},
+		{yoloruntime.JailName(other, "podman-self"), other, otherHome},
+	} {
+		if err := writeKeeperRecord(k.cname, keeperRecord{PID: os.Getpid(), Workspace: k.ws,
+			StateIdentity: stateguard.Take(k.ws, k.home, []string{k.home})}); err != nil {
+			t.Fatal(err)
+		}
+		live, err := holdLivenessLock(k.cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer releaseLock(live)
+	}
+	for _, w := range []string{ws, other} {
+		if err := os.Rename(filepath.Join(w, ".yolo"), filepath.Join(t.TempDir(), "moved")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := StateMovedFindings(ws)
+	n := 0
+	for _, l := range got {
+		if l == got[0] {
+			n++
+		}
+		if strings.Contains(l, other) {
+			t.Errorf("another workspace's jail was reported: %q", l)
+		}
+	}
+	if n != 2 || !strings.Contains(got[0], filepath.Join(ws, ".yolo")) {
+		t.Errorf("want one warning per setup jail (2), got %d in %v", n, got)
+	}
+}

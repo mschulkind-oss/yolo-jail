@@ -78,3 +78,30 @@ func TestJailNameAppendsTheSetup(t *testing.T) {
 		t.Error("two setups of one workspace share a jail name")
 	}
 }
+
+// TestIsJailOfNamesBothSpellings: a workspace's jails are its legacy name and each setup's
+// (SUP-D2, SUP-D10), and no other workspace's, so a check that attributes a running jail to its
+// workspace sees one an older yolo started and one of every setup.
+func TestIsJailOfNamesBothSpellings(t *testing.T) {
+	ws := t.TempDir()
+	other := t.TempDir()
+	for _, c := range []struct {
+		cname string
+		want  bool
+	}{
+		{FromWorkspace(ws), true},
+		{JailName(ws, "podman-self"), true},
+		{JailName(ws, "seatbelt-self"), true},
+		{FromWorkspace(ws) + "-Not_A_Setup", false},
+		{FromWorkspace(ws) + "-", false},
+		{FromWorkspace(other), false},
+		{JailName(other, "podman-self"), false},
+	} {
+		if got := IsJailOf(ws, c.cname); got != c.want {
+			t.Errorf("IsJailOf(ws, %q) = %v, want %v", c.cname, got, c.want)
+		}
+		if got := IsJailOfResolved(ResolveWorkspace(ws), c.cname); got != c.want {
+			t.Errorf("IsJailOfResolved(ws, %q) = %v, want %v", c.cname, got, c.want)
+		}
+	}
+}

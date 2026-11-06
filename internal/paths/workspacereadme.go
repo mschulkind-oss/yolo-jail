@@ -141,11 +141,13 @@ func WorkspaceStateReadme(workspace string) string {
 		"- `approvals/`, `approval-waiters/` IRREPLACEABLE: the host's approval records for this project.",
 		"- `archive/` IRREPLACEABLE: verbatim copies of your own agent config from before yolo " +
 			"managed it, kept for good.",
-		"- `nix-roots/`, `receipts.jsonl`, `config-boot.json`: records yolo's cleanup and drift checks read.",
+		"- `nix-roots/`, `receipts.jsonl`, `setups/<setup>/config-boot.json`: records yolo's cleanup " +
+			"and drift checks read.",
 		"- `" + WorkspaceLogsDirName + "/`: yolo's logs for this project (`launch.log`, `boot.log`, `startup.log`, " +
 			"`build-*.log` and the like), regenerated. A jail started by an older yolo writes its logs " +
 			"directly in this directory instead, and older logs may still sit here.",
-		"- Everything else (`*.lock`, `last-launch*.json`, `config-assembled*.json` and the like): locks " +
+		"- Everything else (`*.lock`, `last-launch*.json`, `setups/<setup>/config-assembled*.json` and " +
+			"the like): locks " +
 			"and records yolo regenerates. The locks stay here until no jail an older yolo started can " +
 			"still be taking them.",
 		"",

@@ -42,7 +42,7 @@ func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 		selected = append(selected, p)
 	}
 	stageRoot := floortest.ResolvedTemp(t)
-	session := yoloruntime.FromWorkspace(ws)
+	session := macosUserJailName(ws, macosuser.ModeAccount)
 	previousRoot := inheritedScopeStagingRoot
 	inheritedScopeStagingRoot = func() string { return stageRoot }
 	t.Cleanup(func() { inheritedScopeStagingRoot = previousRoot })
@@ -141,7 +141,7 @@ func newInheritedDeliveryProofFixture(t *testing.T) inheritedDeliveryProofFixtur
 	previousRoot := inheritedScopeStagingRoot
 	inheritedScopeStagingRoot = func() string { return stageRoot }
 	t.Cleanup(func() { inheritedScopeStagingRoot = previousRoot })
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self") // the bare Options below select the Linux default
 	source := filepath.Join(macosuser.StagedHomeOverlay(cname, stageRoot), filepath.FromSlash(inheritPreflightLegacyRel))
 	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func newInheritedDeliveryProofFixture(t *testing.T) inheritedDeliveryProofFixtur
 		return macosuser.StagingRootFacts{Exists: true, IsDir: fi.IsDir(), IsSymlink: fi.Mode()&os.ModeSymlink != 0,
 			UID: stat.Uid, Mode: fi.Mode().Perm()}
 	}
-	o := &Options{Workspace: ws, MacosUserLaunchProbes: func() macosuser.LaunchProbes {
+	o := &Options{Workspace: ws, Getenv: func(string) string { return "" }, MacosUserLaunchProbes: func() macosuser.LaunchProbes {
 		return macosuser.LaunchProbes{Geteuid: os.Geteuid, StagingRoot: func(string) macosuser.StagingRootFacts { return facts() }}
 	}}
 	t.Cleanup(func() { _ = exec.Command("chmod", "-R", "u+w", stageRoot).Run() })
@@ -318,7 +318,7 @@ func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *test
 		selected = append(selected, p)
 	}
 	stageRoot := floortest.ResolvedTemp(t)
-	session := yoloruntime.FromWorkspace(ws)
+	session := macosUserJailName(ws, macosuser.ModeAccount)
 	previousRoot := inheritedScopeStagingRoot
 	inheritedScopeStagingRoot = func() string { return stageRoot }
 	t.Cleanup(func() { inheritedScopeStagingRoot = previousRoot })

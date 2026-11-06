@@ -10,6 +10,7 @@ package run
 // drives the keeper: through Run(), the sandbox stubbed and the keeper in-process.
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -310,7 +311,7 @@ func TestAnArrivalWhileYoloStopReapsAnUnkeptKeyWaitsForTheReap(t *testing.T) {
 		},
 	})
 	var stopOut lockedBuffer
-	stopRC := StopMacosUser(&stopOut, &stopOut, ws)
+	stopRC := StopMacosUser(&stopOut, &stopOut, ws, macosUserJailName(ws, macosuser.ModeAccount))
 	<-reaped
 	t.Cleanup(releaseLate)
 	if !sawEnding.Load() {
@@ -562,7 +563,7 @@ func TestYoloStopEndsAMacosUserSessionNoKeeperHolds(t *testing.T) {
 	o, out := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int {
 		go func() {
 			defer close(stopped)
-			stopRC = StopMacosUser(&stopOut, &stopOut, ws)
+			stopRC = StopMacosUser(&stopOut, &stopOut, ws, macosUserJailName(ws, macosuser.ModeAccount))
 		}()
 		select {
 		case <-ends:

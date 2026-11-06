@@ -61,7 +61,7 @@ func TestANestedLaunchThroughRunSaysItMountsNoTree(t *testing.T) {
 func TestAnAttachNamesTheTreeAFreshLaunchHanded(t *testing.T) {
 	treeLaunchHome(t, true)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	saved := t.TempDir()
 	// The delivery record goes with its pack tree once the launch ends, so the fake podman keeps a
 	// copy at its `run`, while the jail it starts would hold it.
@@ -177,7 +177,7 @@ func TestAPatchedExtensionOverAConfigSurfaceIsRefused(t *testing.T) {
 func TestAnAttachSaysAnUnreadableDeliveryRecordOnce(t *testing.T) {
 	treeLaunchHome(t, true)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	_, printed := fakePodmanLaunchIn(t, ws, "", func(o *Options) {
 		tree, err := newPackTree(cname)
 		if err != nil {

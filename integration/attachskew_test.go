@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
@@ -53,7 +52,7 @@ func startStandInOlderJail(t *testing.T, frozenSetup bool) (dir, cname string) {
 	dir = writeProject(t, projectConfig)
 	packHome(t, `{"packs": ["claude", "zai"]}`)
 	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
-	cname = naming.FromWorkspace(dir)
+	cname = jailName(dir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 	defer cancel()

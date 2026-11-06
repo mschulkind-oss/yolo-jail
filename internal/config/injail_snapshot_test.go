@@ -31,6 +31,7 @@ func TestLoadConfigInJailReadsSnapshot(t *testing.T) {
 	// jailOwnWorkspace), so point the marker at this temp dir — that is what makes
 	// ws "the workspace this jail was launched for" rather than some other one.
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	// The jail has a mounted config.jsonc whose include_if_found points at an
 	// overrides.jsonc that does NOT exist in the jail (it's host-only). A
 	// re-assemble would therefore drop mcp_servers.
@@ -38,7 +39,7 @@ func TestLoadConfigInJailReadsSnapshot(t *testing.T) {
 		`{ "include_if_found": ["overrides.jsonc"], "mise_tools": {"neovim": "nightly"} }`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// The host wrote a snapshot WITH the assembled mcp_servers.
-	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{
+	mustWrite(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `{
   "packages": ["ripgrep"],
   "mcp_servers": { "tavily": { "command": "npx" } }
 }`)
@@ -67,7 +68,7 @@ func TestLoadConfigHostStillAssembles(t *testing.T) {
 		`{ "mise_tools": {"neovim": "nightly"} }`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
 	// A stale snapshot with a DIFFERENT value must be ignored on the host.
-	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{ "packages": ["stale-should-be-ignored"] }`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `{ "packages": ["stale-should-be-ignored"] }`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
@@ -120,12 +121,13 @@ func TestLoadConfigInJailOtherWorkspaceAssembles(t *testing.T) {
 	// In-jail, but this jail owns some OTHER workspace — so ws's snapshot was not
 	// written for this launch and must not outrank ws's files.
 	t.Setenv("YOLO_WORKSPACE", filepath.Join(home, "owned-workspace"))
+	t.Setenv("YOLO_SETUP", "podman-self")
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	// The live workspace config says curl is UNBLOCKED...
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "security": { "blocked_tools": [] } }`)
 	// ...while the stale snapshot from a previous launch still blocks it.
-	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{ "security": { "blocked_tools": ["curl"] } }`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `{ "security": { "blocked_tools": ["curl"] } }`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {
@@ -170,7 +172,7 @@ func TestLoadConfigInJailIgnoresNonObjectSnapshot(t *testing.T) {
 
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{ "packages": ["ripgrep"] }`)
-	mustWrite(t, WorkspaceAssembledConfigPath(ws), `["not", "an", "object"]`)
+	mustWrite(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `["not", "an", "object"]`)
 
 	cfg, err := LoadConfig(ws, true, func(string) {})
 	if err != nil {

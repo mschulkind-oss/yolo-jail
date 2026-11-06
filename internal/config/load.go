@@ -900,18 +900,19 @@ func JailLaunchConfig(workspace string) (*jsonx.OrderedMap, bool) {
 	return loadAssembledSnapshot(workspace)
 }
 
-// loadAssembledSnapshot reads the host-delivered assembled config
-// (<workspace>/.yolo/config-assembled.json) and returns it as the merged config.
+// loadAssembledSnapshot reads the host-delivered assembled config of this session's setup
+// (<workspace>/.yolo/setups/<setup>/config-assembled.json, WorkspaceAssembledConfigPath) and
+// returns it as the merged config.
 // The file is the config serialized with sorted keys, so decoding it
 // yields the same config the host assembled (dict keys sorted — cosmetic;
 // list order, which is the only order that matters, is preserved). Returns
-// ok=false when the file is missing or not a JSON object, so the caller falls
-// back to a normal re-assemble.
+// ok=false when the file is missing or not a JSON object, or when the session names no setup
+// (ErrNoSessionSetup), so the caller falls back to a normal re-assemble.
 func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
 	if workspace == "" {
 		workspace = cwd()
 	}
-	data, err := os.ReadFile(WorkspaceAssembledConfigPath(workspace))
+	data, err := readSetupRecord(workspace, "", assembledConfigLeaf)
 	if err != nil {
 		return nil, false
 	}

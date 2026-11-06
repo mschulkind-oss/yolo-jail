@@ -11,7 +11,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // prepareProgramCapture is the ordinary admission adapter. It does no source checking,
@@ -74,7 +73,7 @@ func prepareProgramCapture(ctx context.Context, store *capture.Store, inputs cap
 	}
 	stagingID := "program-" + identity
 	staging := store.StagingDir(stagingID)
-	cname := runtime.FromWorkspace(staging)
+	cname := stagingJailName(staging)
 	if captureWorkspaceArtifactsExist(staging, cname) {
 		release, safe := forkBuildWorkspaceReclaimable(staging, cname)
 		if !safe {

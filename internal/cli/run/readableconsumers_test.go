@@ -87,7 +87,7 @@ priority = "idle"
 			t.Errorf("public Run output lacks canonical resource effect %q:\n%s", want, printed)
 		}
 	}
-	briefingPath := filepath.Join(snap, yoloruntime.FromWorkspace(workspace), briefingStagingName(claudeBriefingDest))
+	briefingPath := filepath.Join(snap, yoloruntime.JailName(workspace, "podman-self"), briefingStagingName(claudeBriefingDest))
 	briefingBytes, err := os.ReadFile(briefingPath)
 	if err != nil {
 		t.Fatalf("public Run did not stage its claude briefing: %v", err)

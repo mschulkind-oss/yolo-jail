@@ -49,6 +49,7 @@ const provisionOutcomePoll = 5 * time.Second
 type miseUseRecorder struct {
 	store     string // the tool store as this jail sees it: $MISE_DATA_DIR
 	workspace string // YOLO_HOST_DIR, the record's Workspace
+	setup     string // YOLO_SETUP, the record's Setup
 	name      string // miseuse.NewName, once
 	now       func() time.Time
 	// mise runs one mise command and returns its stdout.
@@ -69,6 +70,7 @@ func newMiseUseRecorder(e *Env) *miseUseRecorder {
 	return &miseUseRecorder{
 		store:     e.MiseData,
 		workspace: e.Getenv("YOLO_HOST_DIR"),
+		setup:     e.Getenv("YOLO_SETUP"),
 		name:      miseuse.NewName(),
 		now:       time.Now,
 		mise: func(args ...string) ([]byte, error) {
@@ -99,7 +101,7 @@ func newMiseUseRecorder(e *Env) *miseUseRecorder {
 
 // record writes the record once: what the workspace uses now, or why that could not be told.
 func (r *miseUseRecorder) record() error {
-	rec := miseuse.Record{Workspace: r.workspace, Recorded: r.now()}
+	rec := miseuse.Record{Workspace: r.workspace, Setup: r.setup, Recorded: r.now()}
 	installed, err1 := r.mise("ls", "--installed", "--json")
 	prunable, err2 := r.mise("ls", "--prunable", "--json")
 	current, err3 := r.mise("ls", "--current", "--installed", "--json")

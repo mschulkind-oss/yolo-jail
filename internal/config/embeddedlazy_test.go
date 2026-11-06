@@ -49,7 +49,7 @@ func TestConfigCodeThatReadsNoPackCreatesNothing(t *testing.T) {
 	restore := packload.OverrideEmbeddedCacheDir(cache)
 	t.Cleanup(restore)
 
-	_ = WorkspaceConfigBootPath(t.TempDir())
+	_ = WorkspaceConfigBootPath(t.TempDir(), "podman-self")
 	_ = AgentUpdatesWire()
 
 	if packload.EmbeddedLoaded() {

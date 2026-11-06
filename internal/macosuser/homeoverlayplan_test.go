@@ -34,7 +34,7 @@ const hostOverlayTree = "/Users/matt/.local/share/yolo-jail/agents/proj/home-ove
 func TestRunPlanStagesAndNamesTheHomeOverlay(t *testing.T) {
 	plan := planWithOverlay(t, hostOverlayTree)
 
-	want := StagedHomeOverlay(cnameFor("/Users/Shared/yolo/proj"), "")
+	want := StagedHomeOverlay(cnameFor("/Users/Shared/yolo/proj", ""), "")
 	var staged bool
 	for _, cmd := range plan.StageCommands {
 		if strings.Join(cmd, " ") == cpBin+" -R "+hostOverlayTree+" "+want+".new" {

@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // Shim-behavior and host-CLI-surface tests. Every test drives the real `yolo`
@@ -139,7 +137,7 @@ func TestYoloCheckValidConfig(t *testing.T) {
 	dir := tempProject(t)
 	r := runYoloCLI(t, dir, "check", "--no-build")
 	if r.rc != 0 {
-		own, foreign := foreignJailFails(r.stdout, naming.FromWorkspace(dir))
+		own, foreign := foreignJailFails(r.stdout, jailName(dir))
 		if r.rc != 1 || len(own) > 0 || len(foreign) == 0 {
 			t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.combined())
 		}

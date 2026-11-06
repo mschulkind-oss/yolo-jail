@@ -9,7 +9,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // AN UNCHANGED RELAUNCH ON A MAC KEEPS EVERY DELIVERED FILE, AND A DELIVERED FILE THAT WAS EDITED IS
@@ -59,7 +58,7 @@ echo "=== END DELIVERED ==="
 				return got
 			}
 			first := launch(1)
-			staged := filepath.Join(macosuser.StagedHomeOverlay(naming.FromWorkspace(ws), ""), filepath.FromSlash(first["rel"]))
+			staged := filepath.Join(macosuser.StagedHomeOverlay(jailNameOn(ws, macosUserSetupFor(mode)), ""), filepath.FromSlash(first["rel"]))
 			requireStagedBytes := func(n int, got map[string]string) {
 				t.Helper()
 				want, err := os.ReadFile(staged)

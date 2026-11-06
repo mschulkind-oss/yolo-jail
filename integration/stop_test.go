@@ -13,15 +13,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestStopEndsTheWorkspaceJail(t *testing.T) {
 	requireJail(t)
 
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	// Hold the jail open via the live /workspace bind, as the concurrency tests do.
 	const releaseName = "release-stop-test"

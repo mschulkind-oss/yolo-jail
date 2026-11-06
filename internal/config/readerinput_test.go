@@ -198,9 +198,10 @@ func TestLoadConfigWithReadInputBypassesOnlyTheOwnWorkspaceSnapshotShortcut(t *t
 	t.Setenv("YOLO_USER_LAYER", "")
 	ws := t.TempDir()
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	path := filepath.Join(ws, WorkspaceTOMLConfigName)
 	write(t, path, "[install]\nnix = ['live']\n")
-	write(t, WorkspaceAssembledConfigPath(ws), `{"install":{"nix":["assembled"]}}`)
+	write(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `{"install":{"nix":["assembled"]}}`)
 
 	ordinary, err := LoadConfig(ws, true, nil)
 	if err != nil {
@@ -223,7 +224,7 @@ func TestLoadConfigWithReadInputBypassesOnlyTheOwnWorkspaceSnapshotShortcut(t *t
 	if value, _ := install.Get("nix"); !hasString(value, "edited") {
 		t.Fatalf("explicit read-input invocation did not recompose the file: %#v", value)
 	}
-	unsupported, err := NewConfigReadInput(WorkspaceAssembledConfigPath(ws), []byte(`{"install":{"nix":["not-a-reader-input"]}}`))
+	unsupported, err := NewConfigReadInput(WorkspaceAssembledConfigPath(ws, "podman-self"), []byte(`{"install":{"nix":["not-a-reader-input"]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

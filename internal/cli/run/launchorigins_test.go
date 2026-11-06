@@ -104,6 +104,7 @@ func TestTheAssembledCopyNamesTheHostFileOfAKey(t *testing.T) {
 	// The jail's own-workspace read, with no user config of its own.
 	jailHomeWith(t, "", "")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", o.setupName()) // the jail reads its own setup's records (SUP-D37)
 	_, src, err := config.LoadConfigWithSources(ws, false, func(string) {})
 	if err != nil {
 		t.Fatal(err)

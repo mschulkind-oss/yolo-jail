@@ -54,7 +54,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // placeModuleDirsInGuest is specs with each loophole daemon whose argv names its module
@@ -75,7 +74,7 @@ func (o *Options) placeModuleDirsInGuest(rt string, specs []loopholes.JailDaemon
 		return specs
 	}
 	out := append([]loopholes.JailDaemonSpec(nil), specs...)
-	guestRoot := macosuser.StagedPackTreeRoot(runtime.FromWorkspace(o.Workspace), o.packTree, "")
+	guestRoot := macosuser.StagedPackTreeRoot(o.jailName(), o.packTree, "")
 	for i, s := range out {
 		if !s.NamesModuleDir() {
 			continue

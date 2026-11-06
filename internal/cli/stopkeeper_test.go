@@ -30,7 +30,7 @@ func TestAStopWaitsForTheJailsKeeper(t *testing.T) {
 	t.Cleanup(func() { finishStop = saved })
 	var got []string
 	finishRC := 0
-	finishStop = func(stdout, _ io.Writer, ws, rt string, _ int64, capture func(string, string, string), _ bool) int {
+	finishStop = func(stdout, _ io.Writer, ws, _, rt string, _ int64, capture func(string, string, string), _ bool) int {
 		got = append(got, ws+" "+rt)
 		if capture == nil {
 			t.Error("the stop hands the reap no config capture")
@@ -40,7 +40,7 @@ func TestAStopWaitsForTheJailsKeeper(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	s := &stopRun{stats: []string{"true\n", "", "!Error: no such container"}}
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 0 {
 		t.Fatalf("rc=%d, err=%s", rc, errb.String())
 	}
 	if len(got) != 1 || got[0] != "/ws podman" {
@@ -52,7 +52,7 @@ func TestAStopWaitsForTheJailsKeeper(t *testing.T) {
 	finishRC = 1
 	out.Reset()
 	s = &stopRun{stats: []string{"true\n", ""}}
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 1 || strings.Contains(out.String(), "Stopped ") {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 1 || strings.Contains(out.String(), "Stopped ") {
 		t.Errorf("a teardown that did not finish: rc=%d\n%s", rc, out.String())
 	}
 	// Already ending: the container is gone and its keeper still holds the jail.
@@ -72,7 +72,7 @@ func TestAStopWaitsForTheJailsKeeper(t *testing.T) {
 	}
 	out.Reset()
 	s = &stopRun{stats: []string{"false\n", "!Error: no such container"}}
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 0 || len(got) != 1 ||
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 0 || len(got) != 1 ||
 		!strings.Contains(out.String(), "already ending") {
 		t.Errorf("a jail already ending was not waited for: rc=%d got=%v\n%s", rc, got, out.String())
 	}

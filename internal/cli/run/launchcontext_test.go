@@ -191,7 +191,7 @@ func TestTheLaunchLogRecordsTheLaunchsArchaeology(t *testing.T) {
 	first := launch(func(o *Options) { o.Invocation = []string{"--", "acme"} })
 	for _, want := range []string{
 		"  invocation: yolo -- acme\n",
-		"  jail: " + yoloruntime.FromWorkspace(ws) + "  runtime=macos-user",
+		"  jail: " + macosUserJailName(ws, macosuser.ModeAccount) + "  runtime=macos-user",
 		"  profile: acme=none (config profile.acme)",
 		"  config: no previous launch recorded\n",
 		"  config files: " + userCfg + " (modified ",
@@ -242,7 +242,7 @@ func TestAnAttachRecordsItsDecisionInTheLaunchLog(t *testing.T) {
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
 	attachThroughRun(t, ws, nil)
-	want := "  decision: attach to the running jail " + yoloruntime.FromWorkspace(ws) + "\n"
+	want := "  decision: attach to the running jail " + yoloruntime.JailName(ws, "podman-self") + "\n"
 	if got := readLaunchLog(t, ws); !strings.Contains(got, want) {
 		t.Errorf("the launch log lacks %q:\n%s", want, got)
 	}
@@ -261,7 +261,7 @@ func TestAFreshContainerLaunchRecordsItsDecisionInTheLaunchLog(t *testing.T) {
 	}
 	_ = Run(*o)
 	got := readLaunchLog(t, ws)
-	want := "  decision: fresh launch of " + yoloruntime.FromWorkspace(ws) + " (no running jail to attach to)\n"
+	want := "  decision: fresh launch of " + o.jailName() + " (no running jail to attach to)\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("the launch log lacks %q:\nstdout:\n%s\nstderr:\n%s\nlog:\n%s", want, stdout.String(), stderr.String(), got)
 	}

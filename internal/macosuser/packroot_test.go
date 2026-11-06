@@ -57,7 +57,7 @@ func TestTwoLaunchPackTreesHaveDifferentGuestRoots(t *testing.T) {
 func TestRunPlanStagesAndNamesThePackRoot(t *testing.T) {
 	plan := planWithPacks(t, hostStaged)
 
-	want := StagedPackTreeRoot(cnameFor("/Users/Shared/yolo/proj"), hostStaged, "")
+	want := StagedPackTreeRoot(cnameFor("/Users/Shared/yolo/proj", ""), hostStaged, "")
 	if plan.PackRoot != want {
 		t.Fatalf("plan.PackRoot = %q, want %q", plan.PackRoot, want)
 	}

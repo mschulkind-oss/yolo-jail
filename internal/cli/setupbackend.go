@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -121,6 +122,42 @@ func actSetup(rt string) setup.Setup {
 		return setup.MustBuiltIn("seatbelt-yolo-account")
 	}
 	return setup.Setup{}
+}
+
+// workspaceJailName is the jail name a launch from workspace would key its jail by now
+// (run.JailNameFor of the selected setup; named-setups-plan.md SUP-D2), tolerantly: a selection
+// that refuses names the jail of the built-in its backend would act as (actSetup).
+func workspaceJailName(workspace string) string {
+	return run.JailNameFor(workspace, workspaceSetup())
+}
+
+// workspaceSetup is the setup a launch here would run as: the selected one, or, when the
+// selection refuses, the built-in setup of the backend it would fall back to.
+func workspaceSetup() setup.Setup {
+	if choice, err := selectedSetup(nil); err == nil {
+		return choice.Setup
+	}
+	return actSetup(selectedSetupBackend(nil))
+}
+
+// recordSetupName is the setup whose launch records (.yolo/setups/<setup>, config.WorkspaceConfigBootPath)
+// a reader here reads: in a jail "", the session's own (YOLO_SETUP), which is a named error when
+// the session names none; on the host the setup a launch here would run as (workspaceSetup).
+func recordSetupName() string {
+	if config.InJail() {
+		return ""
+	}
+	return workspaceSetup().Name
+}
+
+// actJailName is the jail name of an act's jail on rt in staging: the name of the setup it runs
+// as (actSetup, SUP-D14), which runCaptureJail hands its launch. rt "" is an act that names no
+// runtime, whose launch selects as any launch does (workspaceJailName).
+func actJailName(staging, rt string) string {
+	if rt == "" {
+		return workspaceJailName(staging)
+	}
+	return run.JailNameFor(staging, actSetup(rt))
 }
 
 // actMacosUserMode is who a macos-user act runs as (macosuser.ModeFor of actSetup's run_as): the

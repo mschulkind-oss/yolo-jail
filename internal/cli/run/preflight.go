@@ -532,14 +532,14 @@ func printScopeCounts(out printer, counts []string) {
 func (o *Options) writeLaunchConfigArtifacts(cfg *jsonx.OrderedMap) (baselineDigest string) {
 	out := o.pr(o.Stderr)
 	assembled := o.assembledConfigFor(cfg)
-	if err := config.WriteAssembledConfig(o.Workspace, assembled); err != nil {
+	if err := config.WriteAssembledConfig(o.Workspace, o.setupName(), assembled); err != nil {
 		out.printf("[dim]Warning: could not write the assembled config for the jail: %s[/dim]", err.Error())
-	} else if err := config.WriteAssembledOrigins(o.Workspace, assembled, o.assembledSourcesFor()); err != nil {
+	} else if err := config.WriteAssembledOrigins(o.Workspace, o.setupName(), assembled, o.assembledSourcesFor()); err != nil {
 		// Beside it, which host file set each key, so a refusal in the jail names that file.
 		out.printf("[dim]Warning: could not record where the jail's config keys were set: %s[/dim]", err.Error())
 	}
 	if wsCfg, wsErr := config.LoadWorkspaceConfig(o.Workspace, false, func(string) {}); wsErr == nil {
-		d, err := config.WriteWorkspaceBootBaseline(o.Workspace, wsCfg)
+		d, err := config.WriteWorkspaceBootBaseline(o.Workspace, o.setupName(), wsCfg)
 		if err != nil {
 			out.printf("[dim]Warning: could not write config drift baseline: %s[/dim]", err.Error())
 		}

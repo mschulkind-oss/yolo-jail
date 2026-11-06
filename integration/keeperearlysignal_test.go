@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestASIGINTRightAfterTheKeeperStartedLeavesNoJailRunning interrupts a fresh launch at several
@@ -25,7 +23,7 @@ import (
 func TestASIGINTRightAfterTheKeeperStartedLeavesNoJailRunning(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
 	for _, delay := range []time.Duration{0, 100 * time.Millisecond, 200 * time.Millisecond} {
 		run := startYoloBackground(t, "interrupted", dir, `echo SESSION-IN-$((40+2)); sleep 600`)

@@ -78,7 +78,7 @@ func TestMechanicsTimingMatchesProductionPlannerForEveryConfigKey(t *testing.T) 
 					default:
 						current.Set(key, "changed")
 					}
-					if _, err := config.WriteWorkspaceBootBaseline(workspace, jsonx.NewOrderedMap()); err != nil {
+					if _, err := config.WriteWorkspaceBootBaseline(workspace, o.setupName(), jsonx.NewOrderedMap()); err != nil {
 						t.Fatal(err)
 					}
 

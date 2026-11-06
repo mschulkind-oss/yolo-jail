@@ -29,7 +29,7 @@ func freshLaunch(t *testing.T, path, started, psAnswer string) (ws, cname, stdou
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws = t.TempDir()
-	cname = yoloruntime.FromWorkspace(ws)
+	cname = yoloruntime.JailName(ws, "podman-self")
 	t.Setenv("PATH", path)
 	var out, errOut bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &out, &errOut, nil)

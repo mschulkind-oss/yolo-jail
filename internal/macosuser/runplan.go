@@ -454,7 +454,11 @@ func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []s
 // workspace's inputs: its id (sessionfiles.go; "" is SessionPlaceholder) and its TLS trust
 // (cabundle.go; the zero value composes none).
 type PlanSession struct {
-	ID             string
+	ID string
+	// Setup is the launch's setup name, which with the workspace names its jail (cnameFor;
+	// named-setups-plan.md SUP-D2): the session key, the staged pack tree and home overlay, and the
+	// launch lock the backend is handed. "" names the legacy jail, keyed by the workspace alone.
+	Setup          string
 	BundleIdentity string
 	CATrust        CATrust
 	// Fonts is the session's composed fonts (fontsconf.go; the zero value composes none).
@@ -680,7 +684,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		sandboxEnv = withHostNixEnv(sandboxEnv)
 	}
 
-	cname := cnameFor(workspace)
+	cname := cnameFor(workspace, session.Setup)
 	// THE SESSION'S OWN NAMES (sessionfiles.go): every staged file only this session writes
 	// is named by its key, never by the workspace's cname, which every terminal in the workspace
 	// shares.
@@ -2705,12 +2709,18 @@ func stageCopySourceEmpty(cmds [][]string) bool {
 	return false
 }
 
-func cnameFor(workspace string) string {
-	return cnameFn(workspace)
+// cnameFor is the jail name of a launch of setupName in workspace: the run pipeline's own
+// (run.JailNameFor), so the lock it hands this backend and the names it stages under are the ones
+// this backend keys by. "" names the legacy jail, keyed by the workspace alone.
+func cnameFor(workspace, setupName string) string {
+	if setupName == "" {
+		return cnameFn(workspace)
+	}
+	return cnameFn(workspace) + "-" + setupName
 }
 
 // cnameFn is a package var so the run orchestrator can share a single naming
-// definition; defaults to runtime.FromWorkspace.
+// definition; defaults to runtime.FromWorkspace, the project key a setup's name is appended to.
 var cnameFn = runtime.FromWorkspace
 
 // --- config accessors (thin adapters over jsonx.OrderedMap) -----------------

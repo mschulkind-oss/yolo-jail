@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // sanitizeRe is applied AFTER lowercasing, so uppercase ASCII is first folded
@@ -69,6 +71,27 @@ func FromWorkspace(workspace string) string {
 // (setup.ValidName), which keeps the result a valid container name.
 func JailName(workspace, setup string) string {
 	return FromWorkspace(workspace) + "-" + setup
+}
+
+// IsJailOf reports whether cname is a jail name of workspace: its legacy name (FromWorkspace),
+// which every jail an older yolo started was keyed by, or a setup's (JailName of a valid setup
+// name).
+func IsJailOf(workspace, cname string) bool {
+	return isJailOfKey(FromWorkspace(workspace), cname)
+}
+
+// IsJailOfResolved is IsJailOf for a workspace path already resolved (ResolveWorkspace), as a
+// record keeps one.
+func IsJailOfResolved(resolved, cname string) bool {
+	return isJailOfKey(FromResolved(resolved), cname)
+}
+
+func isJailOfKey(key, cname string) bool {
+	if cname == key {
+		return true
+	}
+	name, ok := strings.CutPrefix(cname, key+"-")
+	return ok && setup.ValidName(name)
 }
 
 // ResolveWorkspace is the path FromWorkspace names a container from: absolute, with

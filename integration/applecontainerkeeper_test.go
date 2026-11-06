@@ -115,7 +115,7 @@ func acKeeperWorkspace(t *testing.T) (dir, cname string) {
 	requireAppleContainer(t)
 	requireJail(t)
 	dir = writeProject(t, `{}`)
-	return dir, naming.FromWorkspace(dir)
+	return dir, jailNameOn(dir, setupForRuntime("container"))
 }
 
 func TestAppleContainerExecClientDeath(t *testing.T) {
@@ -1021,7 +1021,7 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 		rec := newKeeperRecord(t, "stop-says-why/yolo-stop (JL-D53)")
 		dir := writeProject(t, `{}`)
 		first, attach := start(t, dir)
-		lag := startStopListingLag(t, rt, naming.FromWorkspace(dir), 4501)
+		lag := startStopListingLag(t, rt, jailNameOn(dir, setupForRuntime(rt)), 4501)
 		stop := runCommand(t, dir, []string{"stop"}, keeperEnv(rt))
 		t.Logf("%s `yolo stop` returned %d:\n%s", acKeeperTag, stop.rc, lastLines(stop.combined(), 30))
 		lag.report(t, "`yolo stop`")
@@ -1034,14 +1034,14 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 			"the attached session is told that `yolo stop` ended its jail", attach.combined())
 		frc := rec.awaitEnd(first)
 		rec.expect(frc == 143, fmt.Sprintf("the first session ends 143, a stop being recorded (JL-D59; it ended %d)", frc), first.combined())
-		rec.expect(runningContainersOn(t, rt, naming.FromWorkspace(dir)) == 0, "no container of the name is left after `yolo stop`", "")
+		rec.expect(runningContainersOn(t, rt, jailNameOn(dir, setupForRuntime(rt))) == 0, "no container of the name is left after `yolo stop`", "")
 		rec.verdict()
 	})
 
 	t.Run("a stop from outside yolo", func(t *testing.T) {
 		rec := newKeeperRecord(t, "stop-says-why/outside-stop (JL-D53)")
 		dir := writeProject(t, `{}`)
-		cname := naming.FromWorkspace(dir)
+		cname := jailNameOn(dir, setupForRuntime(rt))
 		first, attach := start(t, dir)
 		argv := []string{rt, "stop", cname}
 		if rt == "podman" {

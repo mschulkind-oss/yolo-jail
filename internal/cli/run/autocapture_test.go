@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // autocapture_test.go pins the auto-capture TRIGGER at the call site, from Run's own
@@ -148,7 +147,7 @@ func TestAnAttachTriggersNoAutoCapture(t *testing.T) {
 	installerLaunchHome(t)
 	called := 0
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			joined := strings.Join(argv, " ")
 			switch {

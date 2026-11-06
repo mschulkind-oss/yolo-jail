@@ -23,7 +23,7 @@ func TestEveryPlanNamesAndStagesTheContextDir(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			plan := planWithCtx(t, hostCtx)
-			want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj"), "")
+			want := StagedCtxRoot(cnameFor("/Users/Shared/yolo/proj", ""), "")
 
 			if plan.ContextDir != want {
 				t.Fatalf("plan.ContextDir = %q, want %q", plan.ContextDir, want)

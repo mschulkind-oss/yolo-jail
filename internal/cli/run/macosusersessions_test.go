@@ -117,7 +117,7 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 	}
 	home := packHome(t)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 
 	const broker, proxy = "yjtest-hd10-broker", "yjtest-hd10-proxy"
 	writeLocalLoopholeModules(t, home, map[string]string{
@@ -195,10 +195,11 @@ func TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking(t *test
 		t.Errorf("a session touched the machine-wide rendezvous %s, which only an older yolo's "+
 			"singleton uses now", paths.HostSingletonSocket(broker))
 	}
-	// The workspace's spawn guard was taken and released by the keeper (HD-D4): it is free now.
-	if lock, err := os.OpenFile(hostDaemonSpawnGuardPath(cname), os.O_RDWR, 0); err != nil {
-		t.Errorf("the keeper did not take the workspace's host-service spawn guard %s: %v",
-			hostDaemonSpawnGuardPath(cname), err)
+	// The workspace's spawn guard was taken and released by the keeper (HD-D4): it is free now. It
+	// is the project's, keyed as `yolo host` keys it, not by this setup's jail name (SUP-D44).
+	guardPath := hostDaemonSpawnGuardPath(yoloruntime.FromWorkspace(ws))
+	if lock, err := os.OpenFile(guardPath, os.O_RDWR, 0); err != nil {
+		t.Errorf("the keeper did not take the workspace's host-service spawn guard %s: %v", guardPath, err)
 	} else {
 		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			t.Errorf("the workspace's host-service spawn guard is still held after both sessions ended: %v", err)
@@ -271,7 +272,7 @@ func TestAMacosUserLaunchCollectsOnlySessionsKnownToBeGone(t *testing.T) {
 	home := packHome(t)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 	// Another workspace's dead session, too: liveness is each session's own lock, so the sweep
 	// is machine-wide, and a workspace nobody launches again would otherwise keep it.
 	elsewhere := yoloruntime.FromWorkspace(t.TempDir())
@@ -408,7 +409,7 @@ func TestASessionsUpstreamSocketsAreOutOfAContainerTeardownsReach(t *testing.T) 
 func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 	home := packHome(t)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 	writeLocalLoopholePack(t, home, openAIAuthBrokerName, `{"name": "`+openAIAuthBrokerName+`",
 		"description": "credential service fixture", 
 		"transport": "loopback-tls",
@@ -523,7 +524,7 @@ func TestAMacosUserSessionsRecordNamesItsNotchAndWorkspace(t *testing.T) {
 	home := packHome(t)
 	writeUserConfigJSON(t, home, `{"packs": []}`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)

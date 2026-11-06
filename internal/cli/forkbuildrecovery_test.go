@@ -169,7 +169,7 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 			setForkRecoveryKeeperRecord(t, keeperPath, tc.keeper)
 			if tc.keeper == forkRecoveryPodman || tc.keeper == forkRecoveryContainer || tc.keeper == forkRecoveryUnknown {
 				want := recoveryEvidenceRuntime(tc.keeper)
-				if got, ok := run.LaunchedRuntime(staging); !ok || got != want {
+				if got, ok := run.LaunchedRuntime(cname); !ok || got != want {
 					t.Fatalf("persisted keeper start record reads as %q (%v), want %q", got, ok, want)
 				}
 			}
@@ -180,8 +180,8 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 			probeRuntime := ""
 			probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
 				probeCalls++
-				if gotName != cname {
-					t.Errorf("probe cname = %q, want retained build jail %q", gotName, cname)
+				if want := stagingJailName(staging); gotName != want || (probeCalls == 1 && gotName != cname) {
+					t.Errorf("probe cname = %q, want the jail staging's record names, %q (the retained build jail %q first)", gotName, want, cname)
 				}
 				probeRuntime = gotRuntime
 				probeRuntimes = append(probeRuntimes, gotRuntime)
@@ -200,7 +200,7 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 				runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
 					runCalls++
 					return fake(run.Options{Workspace: workspace, SetupName: config.SetupForRemovedRuntime(newRuntime), OnRuntimeResolved: func(rt string) error {
-						return writeForkBuildRuntime(workspace, rt)
+						return writeForkBuildRuntime(workspace, rt, "")
 					}})
 				}}, io.Discard, io.Discard, false)
 
@@ -373,7 +373,7 @@ func setForkRecoverySidecar(t *testing.T, path string, state forkRecoveryEvidenc
 	switch state {
 	case forkRecoveryMissing:
 	case forkRecoveryPodman, forkRecoveryContainer:
-		if err := writeForkBuildRuntime(strings.TrimSuffix(path, forkBuildRuntimeRecordSuffix), recoveryEvidenceRuntime(state)); err != nil {
+		if err := writeForkBuildRuntime(strings.TrimSuffix(path, forkBuildRuntimeRecordSuffix), recoveryEvidenceRuntime(state), ""); err != nil {
 			t.Fatal(err)
 		}
 	case forkRecoveryUnknown:
@@ -512,7 +512,7 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 			if err := runtime.WriteContainerTracking(cname, staging); err != nil {
 				t.Fatal(err)
 			}
-			if err := writeForkBuildRuntime(staging, "macos-user"); err != nil {
+			if err := writeForkBuildRuntime(staging, "macos-user", ""); err != nil {
 				t.Fatal(err)
 			}
 			if tc.returned {
@@ -524,8 +524,8 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 			previousProbe := probeForkBuildContainer
 			probeByRuntime := map[string]int{}
 			probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
-				if gotName != cname {
-					t.Errorf("probe cname = %q, want %q", gotName, cname)
+				if want := stagingJailName(staging); gotName != want || (len(probeByRuntime) == 0 && gotName != cname) {
+					t.Errorf("probe cname = %q, want the jail staging's record names, %q (the retained build jail %q first)", gotName, want, cname)
 				}
 				probeByRuntime[gotRuntime]++
 				// The new run's own completion check on its runtime may answer known-absent; native stays unknown.
@@ -540,7 +540,7 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 				runJail: func(workspace string, _ forkBuild, _ captureStreams) int {
 					runCalls++
 					return fake(run.Options{Workspace: workspace, SetupName: config.SetupForRemovedRuntime("podman"), OnRuntimeResolved: func(rt string) error {
-						return writeForkBuildRuntime(workspace, rt)
+						return writeForkBuildRuntime(workspace, rt, "")
 					}})
 				}}, io.Discard, io.Discard, false)
 
@@ -579,7 +579,7 @@ func TestARetainedContainerBuildThatReturnedIsStillProbed(t *testing.T) {
 	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeForkBuildRuntime(staging, "podman"); err != nil {
+	if err := writeForkBuildRuntime(staging, "podman", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeForkBuildRunReturned(staging); err != nil {

@@ -94,7 +94,7 @@ func runPackTreeLaunch(t *testing.T, agentRC int, table func() ([]GuestProc, err
 	t.Helper()
 	shortSettle(t)
 	workspace := filepath.Join(t.TempDir(), "project")
-	cname := cnameFor(workspace)
+	cname := cnameFor(workspace, "")
 	state := t.TempDir()
 	unsealOnCleanup(t, state)
 	host := writeFixturePackTree(t, "#!/bin/sh\necho launch\n", strconv.Itoa(agentRC))
@@ -273,9 +273,9 @@ func TestAFailedPackCopyRemovesTheReservedTree(t *testing.T) {
 	state := t.TempDir()
 	unsealOnCleanup(t, state)
 	host := writeFixturePackTree(t, "#!/bin/sh\necho copy\n")
-	tree := StagedPackTreeRoot(cnameFor(workspace), host, state)
-	sibling := StagedPackTreeRoot(cnameFor(workspace), writeFixturePackTree(t, "#!/bin/sh\necho sibling\n"), state)
-	legacy := StagedPackRoot(cnameFor(workspace), state)
+	tree := StagedPackTreeRoot(cnameFor(workspace, ""), host, state)
+	sibling := StagedPackTreeRoot(cnameFor(workspace, ""), writeFixturePackTree(t, "#!/bin/sh\necho sibling\n"), state)
+	legacy := StagedPackRoot(cnameFor(workspace, ""), state)
 	for _, dir := range []string{sibling, legacy} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)

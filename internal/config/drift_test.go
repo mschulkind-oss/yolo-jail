@@ -25,11 +25,11 @@ func TestWorkspaceDriftInSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
-	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws)
+	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws, "podman-self")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,14 +47,14 @@ func TestWorkspaceDriftDetectsEdit(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packs":["claude"],"resources":{"pids_limit":4096}}`)
 	wsCfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
 	// Human edits the config (adds a pack, bumps a limit) after boot.
 	writeWSConfig(t, ws, `{"packs":["claude","codex"],"resources":{"pids_limit":8192}}`)
 
-	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws)
+	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("err=%v ok=%v", err, ok)
 	}
@@ -76,7 +76,7 @@ func TestWorkspaceDriftDetectsEdit(t *testing.T) {
 func TestWorkspaceDriftNoBaseline(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packs":["claude"]}`)
-	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws)
+	diff, hasDrift, ok, err := WorkspaceConfigDrift(ws, "podman-self")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestWorkspaceDriftIgnoresCosmeticReorder(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packs":["claude"],"resources":{"pids_limit":4096}}`)
 	wsCfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, wsCfg); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", wsCfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestWorkspaceDriftIgnoresCosmeticReorder(t *testing.T) {
 	// is not semantic, so the canonical form is identical → no drift.
 	writeWSConfig(t, ws, "{\n  // reordered, reformatted\n  \"resources\":  { \"pids_limit\": 4096 },\n  \"packs\": [\"claude\"]\n}\n")
 
-	_, hasDrift, ok, err := WorkspaceConfigDrift(ws)
+	_, hasDrift, ok, err := WorkspaceConfigDrift(ws, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("err=%v ok=%v", err, ok)
 	}
@@ -117,19 +117,19 @@ func TestWorkspaceDriftIgnoresCosmeticReorder(t *testing.T) {
 // never clobber each other.
 func TestBootBaselineIsDistinctFromSnapshot(t *testing.T) {
 	ws := t.TempDir()
-	if WorkspaceConfigBootPath(ws) == WorkspaceAssembledConfigPath(ws) {
+	if WorkspaceConfigBootPath(ws, "podman-self") == WorkspaceAssembledConfigPath(ws, "podman-self") {
 		t.Fatal("boot baseline and assembled config must be different files")
 	}
 	m := jsonx.NewOrderedMap()
 	m.Set("packs", []any{"claude"})
-	if _, err := WriteWorkspaceBootBaseline(ws, m); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(WorkspaceConfigBootPath(ws)); err != nil {
+	if _, err := os.Stat(WorkspaceConfigBootPath(ws, "podman-self")); err != nil {
 		t.Errorf("baseline not written: %v", err)
 	}
 	// The merged assembled config must NOT have been written by the baseline call.
-	if _, err := os.Stat(WorkspaceAssembledConfigPath(ws)); !os.IsNotExist(err) {
+	if _, err := os.Stat(WorkspaceAssembledConfigPath(ws, "podman-self")); !os.IsNotExist(err) {
 		t.Errorf("writing the boot baseline must not touch config-assembled.json (err=%v)", err)
 	}
 }
@@ -147,37 +147,39 @@ func TestWorkspaceDriftRefusesAReplacedBaseline(t *testing.T) {
 	// In the session: a jail, whose own workspace is ws.
 	t.Setenv("YOLO_VERSION", "test")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	writeWSConfig(t, ws, `{"packages":["jq"]}`)
 	first, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	d, err := WriteWorkspaceBootBaseline(ws, first)
+	d, err := WriteWorkspaceBootBaseline(ws, "podman-self", first)
 	if err != nil || d == "" {
 		t.Fatalf("WriteWorkspaceBootBaseline returned digest %q, err %v", d, err)
 	}
 	t.Setenv(BootBaselineDigestEnv, d)
-	if _, drift, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok || drift {
+	if _, drift, ok, err := WorkspaceConfigDrift(ws, "podman-self"); err != nil || !ok || drift {
 		t.Fatalf("against its own baseline: drift=%v ok=%v err=%v, want in sync", drift, ok, err)
 	}
 
 	// A second launch, after an edit, freezes the edited config.
 	writeWSConfig(t, ws, `{"packages":["ripgrep"]}`)
 	second, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	if _, err := WriteWorkspaceBootBaseline(ws, second); err != nil {
+	if _, err := WriteWorkspaceBootBaseline(ws, "podman-self", second); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok, err := WorkspaceConfigDrift(ws); ok || !errors.Is(err, ErrBaselineReplaced) {
+	if _, _, ok, err := WorkspaceConfigDrift(ws, "podman-self"); ok || !errors.Is(err, ErrBaselineReplaced) {
 		t.Errorf("a replaced baseline: ok=%v err=%v, want ErrBaselineReplaced", ok, err)
 	}
 
 	// THE CONTROL: without the digest, the same files give the false "in sync" this exists for.
 	t.Setenv(BootBaselineDigestEnv, "")
-	if _, drift, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok || drift {
+	if _, drift, ok, err := WorkspaceConfigDrift(ws, "podman-self"); err != nil || !ok || drift {
 		t.Errorf("control without the digest: drift=%v ok=%v err=%v, want the false in-sync", drift, ok, err)
 	}
 
 	// And only for the session's own workspace: the digest says nothing about another one's.
 	t.Setenv(BootBaselineDigestEnv, d)
 	t.Setenv("YOLO_WORKSPACE", filepath.Join(ws, "elsewhere"))
-	if _, _, ok, err := WorkspaceConfigDrift(ws); err != nil || !ok {
+	t.Setenv("YOLO_SETUP", "podman-self")
+	if _, _, ok, err := WorkspaceConfigDrift(ws, "podman-self"); err != nil || !ok {
 		t.Errorf("another workspace's baseline was judged by this session's digest: ok=%v err=%v", ok, err)
 	}
 }
@@ -187,15 +189,15 @@ func TestTheBootBaselineDigestIsOfTheFileOnDisk(t *testing.T) {
 	ws := t.TempDir()
 	writeWSConfig(t, ws, `{"packages":["jq"]}`)
 	cfg, _ := LoadWorkspaceConfig(ws, false, func(string) {})
-	d, err := WriteWorkspaceBootBaseline(ws, cfg)
+	d, err := WriteWorkspaceBootBaseline(ws, "podman-self", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(WorkspaceConfigBootPath(ws))
+	b, err := os.ReadFile(WorkspaceConfigBootPath(ws, "podman-self"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := baselineDigest(string(b)); got != d {
-		t.Errorf("the digest of %s is %s, the writer returned %s", WorkspaceConfigBootPath(ws), got, d)
+		t.Errorf("the digest of %s is %s, the writer returned %s", WorkspaceConfigBootPath(ws, "podman-self"), got, d)
 	}
 }

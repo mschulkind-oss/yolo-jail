@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // keeperPID is the jail's keeper, read off the owner-PID file it writes, and checked to be the
@@ -36,7 +35,7 @@ func keeperPID(t *testing.T, dir string) int {
 // findKeeperPID is keeperPID for a caller that records a missing keeper rather than failing on
 // it: the pid, or 0 and why none was found within bound.
 func findKeeperPID(dir string, bound time.Duration) (int, string) {
-	path := filepath.Join(paths.GlobalStorage(), "owners", naming.FromWorkspace(dir))
+	path := filepath.Join(paths.GlobalStorage(), "owners", jailName(dir))
 	deadline := time.Now().Add(bound)
 	for {
 		raw, err := os.ReadFile(path)
@@ -73,7 +72,7 @@ func awaitProcessGone(pid int, bound time.Duration) bool {
 func TestQuittingTheFirstSessionLeavesTheOthersRunning(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const releaseFirst, releaseSecond = "release-first", "release-second"
 	first := startYoloBackground(t, "first", dir,
@@ -153,7 +152,7 @@ func TestQuittingTheFirstSessionLeavesTheOthersRunning(t *testing.T) {
 func TestAKilledKeeperLeavesItsSessionsAndRefusesArrivals(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,
@@ -213,7 +212,7 @@ func TestAKilledKeeperLeavesItsSessionsAndRefusesArrivals(t *testing.T) {
 func TestAHungUpFirstSessionEndsOnlyItself(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	first := startYoloBackground(t, "first", dir, `echo FIRST-IN-$((40+2)); exec sleep 4321`)
 	awaitOutput(t, first, regexp.MustCompile(`FIRST-IN-42`))
@@ -287,7 +286,7 @@ func findMainProcessClient(keeper int) int {
 func TestAKilledMainProcessClientLeavesTheJailKept(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,

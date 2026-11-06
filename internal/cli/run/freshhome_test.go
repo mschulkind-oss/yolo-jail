@@ -102,21 +102,22 @@ func TestFreshHomeContainerLaunchBindsTheFreshHome(t *testing.T) {
 }
 
 // TestFreshHomeIsRefusedWhileAJailOfTheProjectRuns: a running jail has the home it booted on, and a
-// launch beside it would join it there, so --fresh-home is refused naming `yolo stop`, before any
-// home is made or the backend is reached. Red if selectFreshHome stops asking o.projectJails.
+// launch of its setup would join it there, so --fresh-home is refused naming `yolo stop`, before
+// any home is made or the backend is reached. Red if selectFreshHome stops asking jailRuns of its
+// own setup-qualified jail name (named-setups-plan.md SUP-D45).
 func TestFreshHomeIsRefusedWhileAJailOfTheProjectRuns(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	held, err := holdLivenessLock(keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchMacosUser))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer releaseLock(held)
 
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.FreshHome = true
+	held, err := holdLivenessLock(keeperKey(o.jailName(), keeperNotchMacosUser))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock(held)
 	called := false
 	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { called = true; return 0 })
 	if rc := Run(*o); rc != 1 {
@@ -142,8 +143,8 @@ func TestFreshHomeIsRefusedWhenTheRuntimeCannotSay(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.FreshHome = true
-	// podman is on PATH and answers the workspace's container probe with a failure.
-	answerContainerOf(o, yoloruntime.FromWorkspace(ws), "podman", "", 125)
+	// podman is on PATH and answers the probe of this launch's own jail with a failure.
+	answerContainerOf(o, o.jailName(), "podman", "", 125)
 	called := false
 	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { called = true; return 0 })
 	if rc := Run(*o); rc != 1 || called {
@@ -151,6 +152,63 @@ func TestFreshHomeIsRefusedWhenTheRuntimeCannotSay(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "could not ask") || !strings.Contains(stderr.String(), "`yolo stop`") {
 		t.Errorf("the refusal does not say why and what next:\n%s", stderr.String())
+	}
+}
+
+// TestFreshHomeIsNotRefusedByAnotherSetupsJail: a launch never joins another setup's jail, so a
+// jail of the project running under another setup's name does not refuse --fresh-home
+// (named-setups-plan.md SUP-D45); and a jail under the legacy name refuses it as it refuses every
+// launch (SUP-D10), with the legacy jail's refusal, before a fresh home is made.
+func TestFreshHomeIsNotRefusedByAnotherSetupsJail(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.FreshHome = true
+	other := "seatbelt-yolo-account"
+	if o.SetupName == other {
+		other = "seatbelt-self"
+	}
+	// The other setup has state here, as its launch made, so the project's jails include it.
+	if err := os.MkdirAll(paths.SetupStateDir(ws, other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := holdLivenessLock(keeperKey(yoloruntime.JailName(ws, other), keeperNotchMacosUser))
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { called = true; return 0 })
+	if rc := Run(*o); rc != 0 || !called {
+		t.Fatalf("Run() = %d (backend ran: %v), want the fresh-home launch beside another setup's jail\nstderr:\n%s",
+			rc, called, stderr.String())
+	}
+	if homes := paths.WorkspaceFreshHomes(ws); len(homes) != 1 {
+		t.Errorf("want one fresh home, got %+v", homes)
+	}
+	releaseLock(held)
+
+	ws2 := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	o = dispatchOptions(t, ws2, "macos-user", &stdout, &stderr, nil)
+	o.FreshHome = true
+	legacy, err := holdLivenessLock(keeperKey(yoloruntime.FromWorkspace(ws2), keeperNotchMacosUser))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock(legacy)
+	called = false
+	o.MacosUserRun = fakeMacosUserRun(func(macosUserCall) int { called = true; return 0 })
+	if rc := Run(*o); rc != 1 || called {
+		t.Fatalf("Run() = %d (backend ran: %v), want the legacy jail's refusal\nstderr:\n%s", rc, called, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "a jail an earlier yolo started") {
+		t.Errorf("want the legacy jail's refusal:\n%s", stderr.String())
+	}
+	if homes := paths.WorkspaceFreshHomes(ws2); len(homes) != 0 {
+		t.Errorf("a refused launch made a fresh home: %+v", homes)
 	}
 }
 

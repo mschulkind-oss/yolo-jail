@@ -243,6 +243,46 @@ func WorkspaceHomeStates(workspace string) []string {
 	return out
 }
 
+// SetupStateNames lists, sorted, the setups with state in workspace now: every real directory
+// under .yolo/setups whose name is a setup name (setup.ValidName). A link at `.yolo`, `setups` or
+// a setup's directory is not followed and not listed. A workspace with none lists nothing.
+func SetupStateNames(workspace string) []string {
+	r, err := openWorkspaceStateRel(workspace, "setups")
+	if err != nil {
+		return nil
+	}
+	defer r.Close()
+	f, err := r.Open(".")
+	if err != nil {
+		return nil
+	}
+	names, _ := f.Readdirnames(-1)
+	f.Close()
+	sort.Strings(names)
+	var out []string
+	for _, name := range names {
+		if fi, err := r.Lstat(name); err == nil && fi.IsDir() && setup.ValidName(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// ReadSetupStateFile reads name, a regular file directly in <workspace>/.yolo/setups/<setupName>,
+// through a no-link descriptor chain: a link at `.yolo`, `setups`, the setup's directory or the
+// file is never followed. A file or directory that is not there is an fs.ErrNotExist.
+func ReadSetupStateFile(workspace, setupName, name string) ([]byte, error) {
+	if !setup.ValidName(setupName) {
+		return nil, &fs.PathError{Op: "open", Path: SetupStateDir(workspace, setupName), Err: fs.ErrInvalid}
+	}
+	r, err := openWorkspaceStateRel(workspace, "setups/"+setupName)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return ReadRegularFileBeneath(r, name)
+}
+
 // SplitHomeState splits home, a workspace home in either spelling (LegacyHomeState or
 // SetupHomeState), into its workspace and its path under <workspace>/.yolo (HomeStateRel).
 // ok is false for a path that is neither, so a reader can re-root a home onto its own

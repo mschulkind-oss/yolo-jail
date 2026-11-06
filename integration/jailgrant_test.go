@@ -18,8 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
@@ -72,9 +70,9 @@ func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
 	// `-e` lands in the container's configuration, which `inspect` prints and the runtime's
 	// database keeps after the container is gone. The grant rides its own file instead.
 	if rt := detectRuntime(); rt != "" {
-		ins, err := exec.Command(rt, "inspect", naming.FromWorkspace(dir)).CombinedOutput()
+		ins, err := exec.Command(rt, "inspect", jailName(dir)).CombinedOutput()
 		if err != nil {
-			t.Fatalf("%s inspect %s: %v\n%s", rt, naming.FromWorkspace(dir), err, ins)
+			t.Fatalf("%s inspect %s: %v\n%s", rt, jailName(dir), err, ins)
 		}
 		if strings.Contains(string(ins), zaiKey) {
 			t.Errorf("`%s inspect` of the jail shows the granted value", rt)
@@ -90,7 +88,7 @@ func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
 		// found an `-e` value in while the jail ran: the libpod database and the container's own
 		// config.json. A store it cannot read is said, never failed.
 		if rt == "podman" && goruntime.GOOS == "linux" {
-			for _, f := range podmanStoreFiles(t, naming.FromWorkspace(dir)) {
+			for _, f := range podmanStoreFiles(t, jailName(dir)) {
 				b, err := os.ReadFile(f)
 				if err != nil {
 					t.Logf("could not read %s to check it for the granted value: %v", f, err)

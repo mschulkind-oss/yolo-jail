@@ -128,7 +128,7 @@ func TestProgramCaptureAdmissionRetainsUnknownRuntimeOutput(t *testing.T) {
 	forkBuildGoneWait = 0
 	t.Cleanup(func() { probeForkBuildContainer = oldProbe; forkBuildGoneWait = oldWait })
 	producer := func(ctx context.Context, staging string) error {
-		if err := writeForkBuildRuntime(staging, "podman"); err != nil {
+		if err := writeForkBuildRuntime(staging, "podman", ""); err != nil {
 			return err
 		}
 		return produce(ctx, staging)

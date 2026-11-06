@@ -17,7 +17,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // inheritedRelaunchFixture drives Run through the real home-overlay installer for one macos-user
@@ -45,7 +44,7 @@ func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRe
 	}
 	f.delivered = filepath.Join(sidecar, ".config", "yolo-jail", "config.jsonc")
 	stageRoot := floortest.ResolvedTemp(t)
-	session := yoloruntime.FromWorkspace(ws)
+	session := macosUserJailName(ws, mode)
 	previousRoot := inheritedScopeStagingRoot
 	inheritedScopeStagingRoot = func() string { return stageRoot }
 	t.Cleanup(func() { inheritedScopeStagingRoot = previousRoot })

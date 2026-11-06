@@ -55,7 +55,7 @@ func configDrift(args []string, out, errw io.Writer, color bool) int {
 	// Empty workspace → WorkspaceConfigDrift defaults to cwd, which is /workspace
 	// in a container jail and the invoking dir on the host — the place the baseline
 	// and the live workspace config both live.
-	diffLines, hasDrift, ok, err := config.WorkspaceConfigDrift("")
+	diffLines, hasDrift, ok, err := config.WorkspaceConfigDrift("", recordSetupName())
 	pr := richtext.Printer{W: out, Color: color}
 	if errors.Is(err, config.ErrBaselineReplaced) {
 		// A macos-user session, whose workspace was launched again after it started: that

@@ -226,6 +226,8 @@ func Run(opts Options) (rc int) {
 	if rc, refused := o.resolveSetup(cfg); refused {
 		return rc
 	}
+	// The launch line names the jail this launch keys its state by, now that the setup is known.
+	o.keyLaunchRecord(o.jailName())
 	// THE NETWORK REFUSAL (networkrefusal.go): a network mode this setup's technology cannot
 	// hold, from the setup alone, before its runtime is asked anything.
 	if o.refuseNetworkMode(cfg) {
@@ -346,13 +348,20 @@ func Run(opts Options) (rc int) {
 	// names the home a launch would bind now. Pinned by
 	// TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome.
 	//
-	// selectHome may take the workspace launch lock (its comment says when), so its release is
-	// deferred first, for every return from here on. Idempotent.
+	// selectHome may take the project lock (holdHomeLock), and selectFreshHome this jail's launch
+	// lock, so their releases are deferred first, for every return from here on. Idempotent.
 	//
 	// --fresh-home replaces the selection whole (freshhome.go, SD-D14): a new, empty home, and no
 	// legacy move, since that launch never touches the usual home. Pinned by
 	// TestFreshHomeLaunchBindsANewEmptyHome.
 	defer o.releaseLaunchLock()
+	defer o.releaseHomeLock()
+	// A JAIL UNDER THE LEGACY NAME refuses the launch first (legacyjail.go, SUP-D10): it holds the
+	// legacy home, and this launch's jail name is not its name, so nothing below would find it. A
+	// fresh-home launch is refused too, since it would start a second jail of the project beside it.
+	if !o.DryRun && o.refuseLegacyJail() {
+		return 1
+	}
 	switch {
 	case o.FreshHome:
 		if !o.selectFreshHome() {
@@ -369,7 +378,9 @@ func Run(opts Options) (rc int) {
 		o.refuseLinkedState(linked)
 		return 1
 	}
-	cname := runtime.FromWorkspace(o.Workspace)
+	// THE JAIL NAME (jailname.go, SUP-D2): the setup-qualified name every per-run key below is
+	// keyed by, so two setups of one project never share a container, keeper or pack tree.
+	cname := o.jailName()
 	o.stagingCfg = cfg
 	// Each arm takes the workspace launch lock where it first touches what the workspace's
 	// launches share (holdLaunchLock); this is the release for every return that does not reach
@@ -2770,6 +2781,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	// READY: from here this launch is an ordinary session of its jail (§9.3). The lifeline is done:
 	// the keeper stops reading it at ready, since a first session's end is one session ending.
+	// The jail binds its home and its keeper answers for it, so the project lock a legacy home's
+	// decision took goes (holdHomeLock).
+	o.releaseHomeLock()
 	if !arm.retarget(o.attachTeardown(rt, cname, sessionID)) {
 		select {} // the signal arm is ending this launch; never race it
 	}

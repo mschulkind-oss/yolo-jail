@@ -53,7 +53,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestASIGINTBetweenReadyAndTheFirstSessionEndsTheJailPromptly interrupts a fresh launch in that
@@ -65,7 +64,7 @@ func TestASIGINTBetweenReadyAndTheFirstSessionEndsTheJailPromptly(t *testing.T) 
 	const bound = 10 * time.Second // half the launch's 20 s unwind bound
 	for try := 1; try <= 3; try++ {
 		dir := writeProject(t, `{}`)
-		cname := naming.FromWorkspace(dir)
+		cname := jailName(dir)
 		logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
 		ready := "holds " + cname + " until its last session leaves"
 		run := startYoloBackground(t, "interrupted", dir, `echo SESSION-IN-$((40+2)); sleep 600`)
@@ -194,7 +193,7 @@ func holdAtReadyWithAnother(t *testing.T, try int, firstScript string) *readyWin
 	t.Helper()
 	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
 	ready := "holds " + cname + " until its last session leaves"
 	// The spawned frame after "keeper: started" records the launch under this flock. Stopping

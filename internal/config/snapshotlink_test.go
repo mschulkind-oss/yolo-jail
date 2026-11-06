@@ -22,8 +22,8 @@ func TestWorkspaceSnapshotsNeverWriteThroughALink(t *testing.T) {
 		path  func(ws string) string
 		write func(ws string) error
 	}{
-		{"config-assembled.json", WorkspaceAssembledConfigPath, func(ws string) error { return WriteAssembledConfig(ws, cfg) }},
-		{"config-boot.json", WorkspaceConfigBootPath, func(ws string) error { _, err := WriteWorkspaceBootBaseline(ws, cfg); return err }},
+		{"config-assembled.json", func(ws string) string { return WorkspaceAssembledConfigPath(ws, "podman-self") }, func(ws string) error { return WriteAssembledConfig(ws, "podman-self", cfg) }},
+		{"config-boot.json", func(ws string) string { return WorkspaceConfigBootPath(ws, "podman-self") }, func(ws string) error { _, err := WriteWorkspaceBootBaseline(ws, "podman-self", cfg); return err }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ws := t.TempDir()

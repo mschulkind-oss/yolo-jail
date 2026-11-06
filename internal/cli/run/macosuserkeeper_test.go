@@ -38,7 +38,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // keeperProxy is the fixture loophole every test here starts: a per-jail daemon behind a front,
@@ -81,7 +80,7 @@ func keeperLaunch(t *testing.T, ws string, stub func(env *jsonx.OrderedMap) int)
 		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		// The real backend releases the workspace launch lock before its agent (run.AcquireWorkspaceLockFor
 		// hands it this launch's own hold), so another terminal's launch can run while this one is up.
-		AcquireWorkspaceLockFor(ws, yoloruntime.FromWorkspace(ws), nil, nil)()
+		AcquireWorkspaceLockFor(ws, macosUserJailName(ws, macosuser.ModeAccount), nil, nil)()
 		return stub(env)
 	}
 	return o, out
@@ -99,7 +98,7 @@ func envString(env *jsonx.OrderedMap, name string) string {
 
 // macosUserKeyOf is the macos-user key of ws's workspace.
 func macosUserKeyOf(ws string) string {
-	return keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchGuest)
+	return keeperKey(macosUserJailName(ws, macosuser.ModeAccount), keeperNotchGuest)
 }
 
 // assertKeyEnded fails unless nothing of key's keeper is left: no keeper, no roster, no session
@@ -389,7 +388,7 @@ func TestTwoMacosUserSessionsOfOneWorkspaceShareOneKeeper(t *testing.T) {
 // /tmp's symlink to /private/tmp, and a dir planted under the other one is one the reap never matches.
 func plantDeadKeeper(t *testing.T, ws, key string, isMacOS bool) (dir string, count *sessionLock, record *os.File) {
 	t.Helper()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 	base := paths.HostServicesBase(isMacOS)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
@@ -448,8 +447,9 @@ func TestAnArrivalAtAMacosUserKeyWhoseKeeperDiedIsRefused(t *testing.T) {
 	// THE GUARD: a reap whose roster names another keeper by now removes nothing.
 	q := &Options{Workspace: ws}
 	fillDefaults(q)
+	selectRuntimeSetup(q, "macos-user") // the session's jail is the launch's setup's
 	q.Stdout, q.Stderr = out, out
-	q.reapKeyRecords(key, yoloruntime.FromWorkspace(ws), keeperRecord{PID: 9999, SocketsDir: dir})
+	q.reapKeyRecords(key, macosUserJailName(ws, macosuser.ModeAccount), keeperRecord{PID: 9999, SocketsDir: dir})
 	if _, ok := readKeeperRecord(key); !ok || !fileExists(dir) {
 		t.Fatalf("a reap for a keeper the roster does not name removed the roster or its dir")
 	}
@@ -703,7 +703,7 @@ func TestYoloStopEndsAMacosUserKeeperAndItsSessions(t *testing.T) {
 		endpoint = envString(env, hostServiceEnvVar(keeperProxy))
 		go func() {
 			defer close(stopped)
-			stopRC = StopMacosUser(stopOut, stopOut, ws)
+			stopRC = StopMacosUser(stopOut, stopOut, ws, macosUserJailName(ws, macosuser.ModeAccount))
 		}()
 		select {
 		case <-sessionEnds:
@@ -750,7 +750,7 @@ func TestYoloStopReapsAnUnkeptMacosUserKey(t *testing.T) {
 		},
 	})
 	var out bytes.Buffer
-	if rc := StopMacosUser(&out, &out, ws); rc != 0 {
+	if rc := StopMacosUser(&out, &out, ws, macosUserJailName(ws, macosuser.ModeAccount)); rc != 0 {
 		t.Fatalf("StopMacosUser() = %d\n%s", rc, out.String())
 	}
 	if len(*sent) != 1 || (*sent)[0] != 4248 {
@@ -768,7 +768,7 @@ func TestYoloStopAtAnIdleMacosUserWorkspaceSaysSo(t *testing.T) {
 	packHome(t)
 	ws := t.TempDir()
 	var out bytes.Buffer
-	if rc := StopMacosUser(&out, &out, ws); rc != 0 {
+	if rc := StopMacosUser(&out, &out, ws, macosUserJailName(ws, macosuser.ModeAccount)); rc != 0 {
 		t.Fatalf("StopMacosUser() = %d\n%s", rc, out.String())
 	}
 	if !strings.Contains(out.String(), "Nothing to stop: no macos-user session of this workspace") {
@@ -818,7 +818,7 @@ func TestAJoiningMacosUserSessionSkipsTheGrantsTheFirstMade(t *testing.T) {
 	armB := oB.MacosUserArm
 	oB.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
-		AcquireWorkspaceLockFor(ws, yoloruntime.FromWorkspace(ws), nil, nil)()
+		AcquireWorkspaceLockFor(ws, macosUserJailName(ws, macosuser.ModeAccount), nil, nil)()
 		joinerSkips = armB.SkipGrant(envString(env, hostServiceEnvVar(keeperProxy)))
 		joinerSkipsElsewhere = armB.SkipGrant("/elsewhere/x.endpoint")
 		return 0
@@ -829,7 +829,7 @@ func TestAJoiningMacosUserSessionSkipsTheGrantsTheFirstMade(t *testing.T) {
 	rcB := -1
 	oA.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
-		AcquireWorkspaceLockFor(ws, yoloruntime.FromWorkspace(ws), nil, nil)()
+		AcquireWorkspaceLockFor(ws, macosUserJailName(ws, macosuser.ModeAccount), nil, nil)()
 		endpoint = envString(env, hostServiceEnvVar(keeperProxy))
 		firstSkips = armA.SkipGrant(endpoint)
 		// What the first session's stage would report it granted: the file, its dir, and a path of

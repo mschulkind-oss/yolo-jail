@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // macosusercaptureterminate_test.go pins E3 on the macos-user arm (macosusercapture.go): the fold
@@ -73,7 +73,7 @@ func TestMacosUserDryRunCapturesNothing(t *testing.T) {
 // that render is replacing; that render folds the same edits. Fails if the try-lock goes.
 func TestMacosUserCaptureYieldsToALaunchMidBoot(t *testing.T) {
 	calls, _, _, _ := macosUserCaptureRun(t, false, func(ws string) {
-		cname := yoloruntime.FromWorkspace(ws)
+		cname := macosUserJailName(ws, macosuser.ModeAccount)
 		// What the real backend does before its agent: release the hold the launch handed it.
 		AcquireWorkspaceLockFor(ws, cname, nil, nil)()
 		// Then another launch of the workspace takes the lock for its bootstrap.

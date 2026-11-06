@@ -19,7 +19,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestASIGINTBeforeTheKeeperLeavesNoPackTree interrupts a fresh launch the moment it names the jail
@@ -28,7 +27,7 @@ import (
 func TestASIGINTBeforeTheKeeperLeavesNoPackTree(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	run := startYoloBackground(t, "interrupted", dir, `echo SESSION-IN-$((40+2)); sleep 600`)
 	// Polled tightly: the image build after this line is the window under test.
 	for deadline := time.Now().Add(jailTimeout()); !strings.Contains(run.combined(), "Jail binaries:"); time.Sleep(5 * time.Millisecond) {

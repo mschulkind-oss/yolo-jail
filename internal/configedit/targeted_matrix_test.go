@@ -596,10 +596,10 @@ func TestResolveTargetRefusesWrongScopeUnconsumedAliasAndAssembledWitness(t *tes
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := config.WriteAssembledConfig(workspace, assembled); err != nil {
+		if err := config.WriteAssembledConfig(workspace, "podman-self", assembled); err != nil {
 			t.Fatal(err)
 		}
-		if err := config.WriteAssembledOrigins(workspace, assembled, sources); err != nil {
+		if err := config.WriteAssembledOrigins(workspace, "podman-self", assembled, sources); err != nil {
 			t.Fatal(err)
 		}
 		workspaceEffective, workspaceSources, err := config.LoadReadableWorkspaceConfigWithSources(workspace, true, nil)
@@ -612,6 +612,7 @@ func TestResolveTargetRefusesWrongScopeUnconsumedAliasAndAssembledWitness(t *tes
 		projectBefore, _ := os.ReadFile(project)
 		t.Setenv("YOLO_VERSION", "test-jail")
 		t.Setenv("YOLO_WORKSPACE", workspace)
+		t.Setenv("YOLO_SETUP", "podman-self")
 		ordinaryBefore, err := config.LoadReadableConfig(workspace, true, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -715,6 +716,7 @@ func TestApplyTargetedOwnJailRejectsInvalidAuthoredResourceAndScopeBeforeEveryMo
 					t.Setenv("HOME", home)
 					t.Setenv("YOLO_VERSION", "")
 					t.Setenv("YOLO_WORKSPACE", "")
+					t.Setenv("YOLO_SETUP", "podman-self")
 					user := filepath.Join(home, ".config", "yolo-jail", format.userName)
 					project := filepath.Join(workspace, format.projectName)
 					local := filepath.Join(workspace, format.localName)
@@ -784,6 +786,7 @@ func TestApplyTargetedOwnJailRejectsInvalidAuthoredResourceAndScopeBeforeEveryMo
 					}
 					t.Setenv("YOLO_VERSION", "test-jail")
 					t.Setenv("YOLO_WORKSPACE", workspace)
+					t.Setenv("YOLO_SETUP", "podman-self")
 					ordinary, err := config.LoadReadableConfig(workspace, true, nil)
 					if err != nil {
 						t.Fatal(err)
@@ -848,6 +851,7 @@ func TestApplyTargetedOwnJailPostwriteMaskedRawResourceRollbackBothFormats(t *te
 			t.Setenv("HOME", home)
 			t.Setenv("YOLO_VERSION", "")
 			t.Setenv("YOLO_WORKSPACE", "")
+			t.Setenv("YOLO_SETUP", "podman-self")
 			user := filepath.Join(home, ".config", "yolo-jail", format.userName)
 			project := filepath.Join(workspace, format.projectName)
 			fragment := filepath.Join(workspace, format.fragmentName)
@@ -885,6 +889,7 @@ func TestApplyTargetedOwnJailPostwriteMaskedRawResourceRollbackBothFormats(t *te
 			}
 			t.Setenv("YOLO_VERSION", "test-jail")
 			t.Setenv("YOLO_WORKSPACE", workspace)
+			t.Setenv("YOLO_SETUP", "podman-self")
 			beforeInput, err := config.NewConfigReadInput(project, projectBefore)
 			if err != nil {
 				t.Fatal(err)

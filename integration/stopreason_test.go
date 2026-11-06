@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestAnAttachWhoseJailEndedSaysWhy: a second terminal is attached when the jail ends, first because
@@ -75,7 +74,7 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 	t.Run("a stop from outside yolo", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
 		first, attach := start(t, dir)
-		cname := naming.FromWorkspace(dir)
+		cname := jailName(dir)
 		rt := detectRuntime()
 		ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 		defer cancel()

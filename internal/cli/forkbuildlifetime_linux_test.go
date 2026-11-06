@@ -39,7 +39,7 @@ func TestHandledForkBuildSignalRetainsUntilKeeperAndOriginalBackendAreGone(t *te
 			b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 			store := &capture.Store{Dir: paths.CapturesDir()}
 			staging := store.StagingDir("fork-" + b.id())
-			cname := runtime.FromWorkspace(staging)
+			cname := actJailName(staging, "podman")
 			lockPath := filepath.Join(paths.GlobalStorage(), "locks", cname+".keeper")
 			keeperReady := filepath.Join(t.TempDir(), "keeper-ready")
 			keeper := startForkBuildDetachedKeeperWithLock(t, keeperReady, lockPath)
@@ -159,7 +159,7 @@ func TestHandledForkBuildSignalWithoutKeeperStillRetainsUnknownRunLifetime(t *te
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "podman")
 	ready := filepath.Join(t.TempDir(), "child-ready")
 	descendantPIDPath := filepath.Join(t.TempDir(), "descriptor-free-helper.pid")
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
@@ -237,7 +237,7 @@ func TestForkBuildDoesNotAdmitMutableOutputOrDeleteWorkspaceAfterUnknownKeeperWa
 					b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 					store := &capture.Store{Dir: paths.CapturesDir()}
 					staging := store.StagingDir("fork-" + b.id())
-					cname := runtime.FromWorkspace(staging)
+					cname := actJailName(staging, "podman")
 					ready := filepath.Join(t.TempDir(), "keeper-ready")
 					var keeper *os.Process
 					if keeperState == "live" {
@@ -332,7 +332,7 @@ func TestNativeBuildUnknownKeeperRefusesAdmissionAndRetainsOriginalState(t *test
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "macos-user")
 	lockPath := filepath.Join(paths.GlobalStorage(), "locks", cname+".keeper")
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func runNativeForkBuildForOwnershipTest(t *testing.T, setup func(string)) native
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "macos-user")
 	if setup != nil {
 		setup(cname)
 	}

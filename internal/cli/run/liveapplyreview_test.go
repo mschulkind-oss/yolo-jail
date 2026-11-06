@@ -65,7 +65,7 @@ func TestConfigApplyRefusesAConfigThatChangedBetweenItsReads(t *testing.T) {
 				!strings.Contains(out, "yolo config apply") {
 				t.Errorf("no refusal naming the rerun:\n%s", out)
 			}
-			if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace); !drifted {
+			if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); !drifted {
 				t.Error("a refused apply folded a key")
 			}
 		})

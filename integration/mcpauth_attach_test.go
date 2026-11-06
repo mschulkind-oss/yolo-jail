@@ -11,7 +11,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // An attached session must not start when the running selected keeper's
@@ -27,7 +26,7 @@ func TestMCPAuthAttachRefusesMissingKeeperRecordWithoutLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := holdIOPrioJail(t, workspace, "release-mcp-attach", `true`)
-	cname := yoloruntime.FromWorkspace(workspace)
+	cname := jailName(workspace)
 	owners := filepath.Join(paths.GlobalStorageUnder(home), "owners")
 	recordPath := filepath.Join(owners, cname+".keeper.json")
 	data, err := os.ReadFile(recordPath)

@@ -18,7 +18,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 type preparationLifecycleState struct {
@@ -255,7 +254,7 @@ func (o *preparationLifecycleOwnership) cleanup() {
 	for _, p := range o.workers {
 		if p.alive() && processHasArgs(p.pid, "internal", "preparation-scheduler") {
 			if workspace := preparationChildWorkspace(p.pid); workspace != "" {
-				name := naming.FromWorkspace(workspace)
+				name := jailName(workspace)
 				if !containsPreparationContainer(o.containers, name) {
 					o.containers = append(o.containers, name)
 				}
@@ -438,7 +437,7 @@ func waitPreparationPausedChild(t *testing.T, statePath string, bound time.Durat
 		state := readPreparationLifecycleState(t, statePath)
 		if state.Worker.PID != 0 {
 			if workspace := preparationChildWorkspace(state.Worker.PID); workspace != "" {
-				name := naming.FromWorkspace(workspace)
+				name := jailName(workspace)
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				err := exec.CommandContext(ctx, "podman", "exec", name, "test", "-p", "/workspace/hold").Run()
 				cancel()

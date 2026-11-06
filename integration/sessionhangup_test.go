@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // inJailSleepCount counts the jail's `sleep 4321` processes, from /proc.
@@ -29,7 +27,7 @@ const inJailSleepCount = `n=0; for p in /proc/[0-9]*; do ` +
 func TestAHungUpAttachEndsItsOwnSessionAndNoOther(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,

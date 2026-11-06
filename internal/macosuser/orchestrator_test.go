@@ -223,7 +223,7 @@ func TestAnUnusedReservedPackTreeIsUnsealedAndRemovedAsTheHost(t *testing.T) {
 // owned tree be removed. Writer or consumer dispatch requires conservative exact-path retention.
 func TestRunMacosUserPackTreeOwnershipBoundaries(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "project")
-	cname := cnameFor(workspace)
+	cname := cnameFor(workspace, "")
 	state := t.TempDir()
 	unsealOnCleanup(t, state) // the staged pack trees are sealed
 	hostA := writeFixturePackTree(t, "#!/bin/sh\necho A\n")

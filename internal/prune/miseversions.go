@@ -296,25 +296,31 @@ func judgeMiseUse(c miseuse.Census, live runtime.LiveSet, now time.Time) miseJud
 		j.remedy = "check that the runtime answers (`podman ps`), then run `yolo prune` again"
 		return j
 	}
-	cnames := map[string]string{}
-	cnameOf := func(ws string) string {
-		if ws == "" {
+	// A record names its jail by its workspace and setup (runtime.JailName; named-setups-plan.md
+	// SUP-D2), and a record from a jail an older yolo started by its workspace alone.
+	cnames := map[[2]string]string{}
+	cnameOf := func(rec miseuse.Record) string {
+		if rec.Workspace == "" {
 			return ""
 		}
-		if n, ok := cnames[ws]; ok {
+		k := [2]string{rec.Workspace, rec.Setup}
+		if n, ok := cnames[k]; ok {
 			return n
 		}
-		n := runtime.FromWorkspace(ws)
-		cnames[ws] = n
+		n := runtime.FromWorkspace(rec.Workspace)
+		if rec.Setup != "" {
+			n = runtime.JailName(rec.Workspace, rec.Setup)
+		}
+		cnames[k] = n
 		return n
 	}
-	// A workspace's NEWEST record is what it says now. Each jail life writes under a name of its
+	// A jail's NEWEST record is what it says now. Each jail life writes under a name of its
 	// own, so the record an earlier life left is never replaced: without this, an earlier life's
 	// "could not tell" would outlive the fix and the relaunch its remedy asks for.
 	newest := map[string]time.Time{}
 	for _, r := range c.Records {
-		if ws := r.Record.Workspace; r.Err == nil && ws != "" && r.Record.Recorded.After(newest[ws]) {
-			newest[ws] = r.Record.Recorded
+		if name := cnameOf(r.Record); r.Err == nil && name != "" && r.Record.Recorded.After(newest[name]) {
+			newest[name] = r.Record.Recorded
 		}
 	}
 	recorded := map[string]bool{}
@@ -330,7 +336,7 @@ func judgeMiseUse(c miseuse.Census, live runtime.LiveSet, now time.Time) miseJud
 			continue
 		}
 		rec := r.Record
-		name := cnameOf(rec.Workspace)
+		name := cnameOf(rec)
 		_, running := live.Names[name]
 		running = running && name != ""
 		if name != "" {
@@ -344,8 +350,8 @@ func judgeMiseUse(c miseuse.Census, live runtime.LiveSet, now time.Time) miseJud
 		if !running && now.Sub(rec.Recorded) >= MiseVersionsWindow {
 			continue
 		}
-		if rec.Unknown != "" && rec.Workspace != "" && rec.Recorded.Before(newest[rec.Workspace]) {
-			continue // superseded: a later record of the same workspace says what it uses
+		if rec.Unknown != "" && name != "" && rec.Recorded.Before(newest[name]) {
+			continue // superseded: a later record of the same jail says what it uses
 		}
 		if rec.Unknown != "" {
 			j.declined = fmt.Sprintf("a jail of %s could not say which tool versions it uses "+

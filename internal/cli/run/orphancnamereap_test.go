@@ -14,9 +14,18 @@ import (
 // Every per-name file this package writes must parse as its cname's in the sweep's directory, or
 // it leaks again with every sweep test green. A writer that changes its spelling, or a new
 // per-name file, fails here.
+//
+// Both spellings of a jail name are pinned: the legacy one (the project key) and a setup's
+// (runtime.JailName, named-setups-plan.md SUP-D2), whose files every launch now writes.
 func TestEveryPerNameWriterParsesForTheOrphanSweep(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	const c = "yolo-some-workspace-0123abcd"
+	for _, c := range []string{"yolo-some-workspace-0123abcd", "yolo-some-workspace-0123abcd-podman-self"} {
+		everyPerNameWriterParses(t, c)
+	}
+}
+
+func everyPerNameWriterParses(t *testing.T, c string) {
+	t.Helper()
 	dirs := prune.OrphanCnameDirsUnder(paths.GlobalStorage(), paths.BuildDir(), paths.ContainerDir())
 	type spelled struct{ class, dir, path string }
 	cases := []spelled{

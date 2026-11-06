@@ -76,13 +76,13 @@ var jailLivenessProbe = psRunCmd
 // workspaceJailLiveness asks the runtime whether a jail for this target's workspace is live,
 // and returns the container name either way so a refusal can name it.
 //
-// The NAME comes from runtime.FromWorkspace — the frozen naming contract a launch uses — so
-// this asks about the same container `yolo` would start here rather than about a name
-// derived twice. The RUNTIME comes off the target, which resolved it the way `yolo ps` does
+// The NAME is the jail name a launch from the workspace keys by now (workspaceJailName: the
+// selected setup's, named-setups-plan.md SUP-D2), so this asks about the same container `yolo`
+// would start here rather than about a name derived twice. The RUNTIME comes off the target, which resolved it the way `yolo ps` does
 // (env > the workspace's `runtime` key > platform probe), so a report and a launch agree
 // about which backend this workspace uses.
 func workspaceJailLiveness(t configTarget) (jailLiveness, string) {
-	name := runtime.FromWorkspace(t.workspace)
+	name := workspaceJailName(t.workspace)
 	rt := t.runtime
 	if rt == "" {
 		rt = detectListingRuntime(t.workspace)
@@ -103,6 +103,13 @@ func workspaceJailLiveness(t configTarget) (jailLiveness, string) {
 	}
 	if _, running := live[name]; running {
 		return jailRunning, name
+	}
+	// A jail an older yolo started is keyed by the project key alone (SUP-D10), and it binds the
+	// home this setup's launch would use until a quiesced launch moves it, so it is running too.
+	if legacy := runtime.FromWorkspace(t.workspace); legacy != name {
+		if _, running := live[legacy]; running {
+			return jailRunning, legacy
+		}
 	}
 	return jailNotRunning, name
 }

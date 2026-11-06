@@ -11,7 +11,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestComposeGitconfig pins the rendered INI: [user] with name/email (each
@@ -151,7 +150,6 @@ func TestRunRefusesFailedGitIdentityStaging(t *testing.T) {
 			home := packHome(t)
 			writeUserPacks(t, home, `[]`)
 			ws := t.TempDir()
-			cname := yoloruntime.FromWorkspace(ws)
 			wsState := runtimeHome(ws, rt)
 			staged := "yolo-gitconfig"
 			if rt == "container" {
@@ -176,6 +174,7 @@ func TestRunRefusesFailedGitIdentityStaging(t *testing.T) {
 			if rt == "container" {
 				o.IsMacOS, o.IsLinux = true, false
 			}
+			cname := o.jailName()
 			repo, _ := o.RepoRoot()
 			o.PathExists = func(p string) bool {
 				return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint")

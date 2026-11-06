@@ -5,6 +5,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // THE ORDERING INVARIANT: pack staging happens BEFORE the backend dispatch.
@@ -113,6 +115,15 @@ func selectRuntimeSetup(o *Options, rt string) {
 		o.setupOS = "darwin"
 	}
 	o.Getenv = func(string) string { return "" }
+}
+
+// macosUserJailName is the jail name a macos-user test's launch of mode keys its per-run state by
+// in ws: its Seatbelt setup's (selectMacosUserMode; dispatchOptions' "macos-user" is account mode).
+func macosUserJailName(ws string, mode macosuser.Mode) string {
+	if mode == macosuser.ModeSelf {
+		return yoloruntime.JailName(ws, "seatbelt-self")
+	}
+	return yoloruntime.JailName(ws, "seatbelt-yolo-account")
 }
 
 // selectMacosUserMode makes a macos-user test's launch run as mode, through the Seatbelt setup
@@ -290,8 +301,12 @@ func TestStagingFailureStopsBeforeAnyContainerWork(t *testing.T) {
 	if !strings.Contains(stderr.String(), "ghost") {
 		t.Errorf("the failure does not name the pack that could not be staged:\n%s", stderr.String())
 	}
+	// The one question a launch asks a runtime before staging is whether a jail an older yolo
+	// started still runs under the legacy name (refuseLegacyJail, SUP-D10): it reads, it does
+	// nothing, and it must come before the home's move, which comes before staging.
+	legacyProbe := "name=^/" + yoloruntime.FromWorkspace(ws) + "$"
 	for _, argv := range execRec {
-		if len(argv) < 2 {
+		if len(argv) < 2 || (argv[1] == "ps" && slices.Contains(argv, legacyProbe)) {
 			continue
 		}
 		switch argv[1] {

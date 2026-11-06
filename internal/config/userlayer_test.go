@@ -205,11 +205,12 @@ func TestUserLayerBeatsTheInJailSnapshotShortCircuit(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("YOLO_VERSION", "9.9.9-test") // inJail()
 	t.Setenv("YOLO_WORKSPACE", ws)         // this jail's OWN workspace
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+	t.Setenv("YOLO_SETUP", "podman-self")  // the setup its launch exported
+	if err := os.MkdirAll(filepath.Dir(WorkspaceAssembledConfigPath(ws, "podman-self")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// A snapshot that does NOT contain the layered key — a previous launch's frozen view.
-	if err := os.WriteFile(WorkspaceAssembledConfigPath(ws),
+	if err := os.WriteFile(WorkspaceAssembledConfigPath(ws, "podman-self"),
 		[]byte(`{"agents_md_extra": "from the frozen snapshot\n"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

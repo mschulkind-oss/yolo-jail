@@ -53,7 +53,7 @@ func TestTheMacosUserBackendIsHandedTheLaunchLockStagingTook(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 	lockPath := launchLockPath(cname)
 
 	var stdout, stderr bytes.Buffer
@@ -112,7 +112,7 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	lockPath := launchLockPath(cname)
 	// No runtime binary: the attach's exec fails as "not found on PATH" after every host-side
 	// step it has, which is all this test needs.

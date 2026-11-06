@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // firstPacksAnswer is the first session's sync point: the ANSWER to its /ctx/packs listing, the
@@ -36,7 +35,7 @@ func TestAnAttachKeepsThePackTreeTheJailBootedWith(t *testing.T) {
 
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["zai"]}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	const releaseName = "release-pack-tree"
 	first := startYoloBackground(t, "first", dir,

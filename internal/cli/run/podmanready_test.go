@@ -466,7 +466,7 @@ func TestTheAttachRefusalNamesEachRuntimesListCommand(t *testing.T) {
 		t.Run(tc.rt, func(t *testing.T) {
 			packHome(t)
 			ws := t.TempDir()
-			cname := yoloruntime.FromWorkspace(ws)
+			cname := yoloruntime.JailName(ws, "podman-self")
 			var stdout, stderr bytes.Buffer
 			o := dispatchOptions(t, ws, tc.rt, &stdout, &stderr, nil)
 			var asked []string
@@ -497,7 +497,7 @@ func TestAnAttachDecisionThatCannotAskRefuses(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 	started := false
@@ -533,7 +533,7 @@ func TestALaunchAsksPodmanOnceAndEveryReaderTakesTheGatesAnswer(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argvFile + "'\n"

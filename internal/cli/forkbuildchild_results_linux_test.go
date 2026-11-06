@@ -42,7 +42,7 @@ func TestExternallySignalledForkBuildRetainsAndFencesThroughProductionCaller(t *
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "podman")
 	agentState := filepath.Join(paths.AgentsDir(), cname)
 	keeperReady := filepath.Join(t.TempDir(), "keeper-ready")
 	keeperProcess := startForkBuildDetachedKeeper(t, keeperReady)
@@ -150,7 +150,7 @@ func TestForkBuildTimeoutZeroExitCannotAdmitThroughLaunchCaller(t *testing.T) {
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "podman")
 	ready := filepath.Join(t.TempDir(), "child-ready")
 	signalled := filepath.Join(t.TempDir(), "sigint-seen")
 	installForkBuildResultFixtureWithPaths(t, "bound-zero", ready, "", signalled, "")
@@ -190,7 +190,7 @@ func TestForkBuildChildOrdinarySuccessStillAdmitsThroughLaunchCaller(t *testing.
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	staging := store.StagingDir("fork-" + b.id())
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, "podman")
 	ready := filepath.Join(t.TempDir(), "child-ready")
 	installForkBuildResultFixtureWithPaths(t, "ordinary-success", ready, "", "", "")
 	withBoundedProductionForkBuildChild(t, time.Hour)
@@ -306,7 +306,7 @@ func TestForkBuildResultChildFixture(t *testing.T) {
 		handled = make(chan os.Signal, 1)
 		signal.Notify(handled, handledSignal)
 	}
-	cname := runtime.FromWorkspace(workspace)
+	cname := actJailName(workspace, "podman")
 	agentState := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(agentState, 0o755); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestForkBuildResultChildFixture(t *testing.T) {
 	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeForkBuildRuntime(workspace, "podman"); err != nil {
+	if err := writeForkBuildRuntime(workspace, "podman", cname); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, forkToolchainLeaf), []byte("image-identity-fixture\n"), 0o600); err != nil {

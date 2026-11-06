@@ -251,7 +251,7 @@ func resolveConfigTarget(setupName string) (configTarget, string) {
 			// into the project you meant"*, and a second way to name a workspace is exactly
 			// what that refusal rules out.
 			return configTarget{}, "--setup " + s.Name + " needs a workspace, and " + describeCwd() +
-				" resolves none — no .yolo/config-boot.json and no " +
+				" resolves none — no launch record under .yolo and no " +
 				config.WorkspaceConfigName + " in it or above it. cd into the project you " +
 				"meant, or pass --setup host-self to ask about your real home."
 		}
@@ -402,7 +402,9 @@ func sealedConfigTarget() configTarget {
 }
 
 // workspaceMarked reports whether dir carries a workspace marker: the launch artifact
-// `.yolo/config-boot.json`, or any of the four workspace config file names.
+// `config-boot.json`, a setup's under `.yolo/setups/<setup>/` or the legacy `.yolo/config-boot.json`
+// an older yolo wrote (config.BootBaselineMarked, named-setups-plan.md SUP-D37), or any of the four
+// workspace config file names.
 //
 // Either artifact is enough, and the four names are config.WorkspaceConfigFileNames, the list
 // config.ResolveWorkspaceConfigPath tries, rather than spelled as four literals here — the set
@@ -418,7 +420,7 @@ func sealedConfigTarget() configTarget {
 // named `config-boot.json` — the whole reason the marker is an artifact rather than a
 // directory is that a directory's mere existence is what went wrong the first time.
 func workspaceMarked(dir string) bool {
-	if isRegularFile(config.WorkspaceConfigBootPath(dir)) {
+	if config.BootBaselineMarked(dir) {
 		return true
 	}
 	for _, name := range config.WorkspaceConfigFileNames() {

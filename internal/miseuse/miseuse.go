@@ -93,6 +93,10 @@ type Record struct {
 	// for a host launch, the outer jail's path for a nested one. The host maps it to a container
 	// name to tell whether the jail is running.
 	Workspace string `json:"workspace"`
+	// Setup is the jail's setup (YOLO_SETUP), which with Workspace names its container
+	// (runtime.JailName; named-setups-plan.md SUP-D2). "" in a record from a jail an older yolo
+	// started, which was named by its workspace alone.
+	Setup string `json:"setup,omitempty"`
 	// Recorded is when the jail wrote this record.
 	Recorded time.Time `json:"recorded"`
 	// Installs is every install directory the workspace names, each "<tool dir>/<version>"

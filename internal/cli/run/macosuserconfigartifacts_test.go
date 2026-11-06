@@ -48,7 +48,7 @@ func macosUserConfigLaunch(t *testing.T, dryRun bool) (ws string, got macosUserC
 // neither. Fails on a tree whose macos-user arm does not call writeLaunchConfigArtifacts.
 func TestMacosUserLaunchWritesTheConfigArtifacts(t *testing.T) {
 	ws, _, stderr := macosUserConfigLaunch(t, false)
-	for _, p := range []string{config.WorkspaceConfigBootPath(ws), config.WorkspaceAssembledConfigPath(ws)} {
+	for _, p := range []string{config.WorkspaceConfigBootPath(ws, "seatbelt-yolo-account"), config.WorkspaceAssembledConfigPath(ws, "seatbelt-yolo-account")} {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("a macos-user launch wrote no %s (%v), so an in-sandbox `yolo config %s` "+
 				"has nothing to read\nstderr:\n%s", filepath.Base(p), err,
@@ -59,7 +59,7 @@ func TestMacosUserLaunchWritesTheConfigArtifacts(t *testing.T) {
 
 func TestMacosUserDryRunWritesNoConfigArtifacts(t *testing.T) {
 	ws, got, _ := macosUserConfigLaunch(t, true)
-	for _, p := range []string{config.WorkspaceConfigBootPath(ws), config.WorkspaceAssembledConfigPath(ws)} {
+	for _, p := range []string{config.WorkspaceConfigBootPath(ws, "seatbelt-yolo-account"), config.WorkspaceAssembledConfigPath(ws, "seatbelt-yolo-account")} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("a macos-user --dry-run wrote %s; a plan render launches nothing", p)
 		}
@@ -79,7 +79,7 @@ func TestMacosUserSandboxReadsTheLaunchConfig(t *testing.T) {
 	if got.cfg == nil || got.packEnv == nil {
 		t.Fatal("the fake backend was not called")
 	}
-	baseline, err := os.ReadFile(config.WorkspaceConfigBootPath(ws))
+	baseline, err := os.ReadFile(config.WorkspaceConfigBootPath(ws, "seatbelt-yolo-account"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +98,9 @@ func TestMacosUserSandboxReadsTheLaunchConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	t.Setenv(config.BootBaselineDigestEnv, digest.(string))
-	if _, drift, ok, err := config.WorkspaceConfigDrift(ws); err != nil || !ok || drift {
+	if _, drift, ok, err := config.WorkspaceConfigDrift(ws, "seatbelt-yolo-account"); err != nil || !ok || drift {
 		t.Errorf("in-sandbox drift: drift=%v ok=%v err=%v, want in sync", drift, ok, err)
 	}
 	inSandbox, err := config.LoadConfig(ws, false, func(string) {})
@@ -113,6 +114,7 @@ func TestMacosUserSandboxReadsTheLaunchConfig(t *testing.T) {
 	// THE CONTROL: without the session naming its workspace, the read re-assembles under the
 	// sandbox's home, and the user scope's `packs` is gone.
 	t.Setenv("YOLO_WORKSPACE", "")
+	t.Setenv("YOLO_SETUP", "seatbelt-yolo-account")
 	reassembled, err := config.LoadConfig(ws, false, func(string) {})
 	if err != nil {
 		t.Fatal(err)

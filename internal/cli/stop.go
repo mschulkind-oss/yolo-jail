@@ -100,7 +100,7 @@ func runStop(args []string) int {
 	// own to grow, and the person running it is often already asking "why is
 	// everything slow".
 	p := run.TimingLogFor(ws, os.Getenv, os.Stderr)
-	rc := stopJail(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), stopExec, p, force)
+	rc := stopWorkspaceJails(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), stopExec, p, force)
 	// D12, stop's small case of it: recording and REPORTING are different
 	// questions. The spans are already in <ws>/.yolo/logs/host-perf.log; the table
 	// prints only when the user asked for it on THIS invocation, which for stop
@@ -159,7 +159,29 @@ func realStopExec(argv []string, timeout time.Duration) (string, bool, int) {
 	return out.String(), true, 0
 }
 
-// stopJail is stop's testable core. A RUNNING container is stopped gracefully
+// stopWorkspaceJails stops the jail a launch from ws would key by now, the selected setup's
+// (workspaceJailName), and then a jail an earlier yolo started under the workspace's legacy jail
+// name (runtime.FromWorkspace; named-setups-plan.md SUP-D10), when anything of one is left
+// (run.JailKnown). A launch refuses while that legacy jail runs and names this stop, so the stop
+// must reach it. Every setup's jail is slice 6b's. The status is the first failure's, else 0.
+func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
+	run stopCommandRunner, p *perf.Log, force bool) int {
+	cname := workspaceJailName(ws)
+	rc := stopJail(stdout, stderr, ws, cname, rt, run, p, force)
+	if legacy := runtime.FromWorkspace(ws); legacy != cname && stopLegacyJailKnown(legacy) {
+		fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
+		if lrc := stopJail(stdout, stderr, ws, legacy, rt, run, p, force); rc == 0 {
+			rc = lrc
+		}
+	}
+	return rc
+}
+
+// stopLegacyJailKnown is run.JailKnown behind a var, for the tests.
+var stopLegacyJailKnown = run.JailKnown
+
+// stopJail is stop's testable core, for the jail named cname (jailname.go's name: the selected
+// setup's, or the legacy name of a jail an older yolo started). A RUNNING container is stopped gracefully
 // (the runtime's own TERM-then-KILL discipline; the launcher's --rm removes
 // the container as it exits, so the next launch is fresh by construction). A
 // absent container is SUCCESS: stop is idempotent. A stopped leftover must be
@@ -172,9 +194,9 @@ func realStopExec(argv []string, timeout time.Duration) (string, bool, int) {
 // p is the optional timing collector; a nil p makes every span a no-op, which
 // is the everyday off state. force is `yolo stop --force`: the container stop drops
 // its grace and the keeper's teardown is not waited out (finishStop signals instead).
-func stopJail(stdout, stderr io.Writer, ws, rt string,
+func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) int {
-	launched, known := launchedRuntime(ws)
+	launched, known := launchedRuntime(cname)
 	if known && launched != rt {
 		if rt != "" {
 			fmt.Fprintf(stdout, "This workspace's jail was launched on %s, so this stop asks %s, not %s.\n",
@@ -192,9 +214,8 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 		// arrival at an unkept key names. It signals them, streams the keeper's teardown, and removes
 		// what a dead keeper left. --force is a container-backend flag: this path already signals its
 		// keeper (StopMacosUser).
-		return stopMacosUser(stdout, stderr, ws)
+		return stopMacosUser(stdout, stderr, ws, cname)
 	}
-	cname := runtime.FromWorkspace(ws)
 
 	// Is anything actually running? `stop` on a non-existent container errors,
 	// and an erroring stop would make the stop-then-launch series fail on its
@@ -215,13 +236,13 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	}
 	// The keeper's log as it stands before the stop, so the teardown streamed below is the one this
 	// stop causes (run.FinishStop).
-	logFrom := keeperLogOffset(ws)
+	logFrom := keeperLogOffset(cname)
 	if !running {
 		// A jail whose container is gone and whose keeper is still ending it: the stop waits for that
 		// teardown, as it waits for the one it causes, so the next launch finds it done.
-		if keeperAlive(ws) {
+		if keeperAlive(cname) {
 			fmt.Fprintf(stdout, "This workspace's jail (%s) is already ending.\n", cname)
-			if frc := finishStop(stdout, stderr, ws, rt, logFrom, stopCapture(stderr), force); frc != 0 {
+			if frc := finishStop(stdout, stderr, ws, cname, rt, logFrom, stopCapture(stderr), force); frc != 0 {
 				return frc
 			}
 			// The keeper's teardown is done; the container may still be there (see stopContainerGone).
@@ -301,7 +322,7 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	// (JL-D30). Returning at the runtime's stop would let the next launch, or a `yolo config diff`,
 	// meet a teardown still running.
 	sp = p.Span("stop.keeper_teardown")
-	frc := finishStop(stdout, stderr, ws, rt, logFrom, stopCapture(stderr), force)
+	frc := finishStop(stdout, stderr, ws, cname, rt, logFrom, stopCapture(stderr), force)
 	sp.End()
 	if frc != 0 {
 		return frc
@@ -579,10 +600,10 @@ func stopStillThere(stderr io.Writer, rt, cname, state string) {
 		cname, state, leftoverRemoveHint(rt, cname))
 }
 
-// launchedRuntime is the container runtime the workspace's jail was launched on, from its keeper's
+// launchedRuntime is the container runtime the jail named cname was launched on, from its keeper's
 // start record (run.LaunchedRuntime); ok is false when no record names one of them.
-func launchedRuntime(ws string) (string, bool) {
-	rt, ok := run.LaunchedRuntime(ws)
+func launchedRuntime(cname string) (string, bool) {
+	rt, ok := run.LaunchedRuntime(cname)
 	if !ok || !slices.Contains(paths.SupportedRuntimes, rt) {
 		return "", false
 	}
@@ -620,6 +641,6 @@ func recordYoloStop(cname string) {
 
 // keeperLogOffset and keeperAlive are run.KeeperLogOffset and run.KeeperAlive, outside stopJail for
 // recordYoloStop's reason.
-func keeperLogOffset(ws string) int64 { return run.KeeperLogOffset(ws) }
+func keeperLogOffset(cname string) int64 { return run.KeeperLogOffset(cname) }
 
-func keeperAlive(ws string) bool { return run.KeeperAlive(ws) }
+func keeperAlive(cname string) bool { return run.KeeperAlive(cname) }

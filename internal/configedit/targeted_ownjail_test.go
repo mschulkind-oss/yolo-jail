@@ -46,6 +46,7 @@ func TestResolveAndApplyTargetedOwnJailUsesAuthoredProjectAndLocal(t *testing.T)
 			t.Setenv("HOME", home)
 			t.Setenv("YOLO_VERSION", "")
 			t.Setenv("YOLO_WORKSPACE", "")
+			t.Setenv("YOLO_SETUP", "podman-self")
 			t.Setenv(config.UserLayerEnv, "")
 			user := filepath.Join(home, ".config", "yolo-jail", tc.userName)
 			var userOverride string
@@ -74,10 +75,10 @@ func TestResolveAndApplyTargetedOwnJailUsesAuthoredProjectAndLocal(t *testing.T)
 			if err != nil {
 				t.Fatalf("host-side assembly: %v", err)
 			}
-			if err := config.WriteAssembledConfig(workspace, assembled); err != nil {
+			if err := config.WriteAssembledConfig(workspace, "podman-self", assembled); err != nil {
 				t.Fatal(err)
 			}
-			if err := config.WriteAssembledOrigins(workspace, assembled, sources); err != nil {
+			if err := config.WriteAssembledOrigins(workspace, "podman-self", assembled, sources); err != nil {
 				t.Fatal(err)
 			}
 			assembledBytes, err := config.SnapshotJSON(assembled)
@@ -89,6 +90,7 @@ func TestResolveAndApplyTargetedOwnJailUsesAuthoredProjectAndLocal(t *testing.T)
 			}
 			t.Setenv("YOLO_VERSION", "test-jail")
 			t.Setenv("YOLO_WORKSPACE", workspace)
+			t.Setenv("YOLO_SETUP", "podman-self")
 
 			ordinaryBefore, err := config.LoadReadableConfig(workspace, true, nil)
 			if err != nil {
@@ -288,6 +290,7 @@ func TestResolveTargetOwnJailOriginsDoNotAuthorizeUnconsumedOrHostFilesBothForma
 			t.Setenv("HOME", home)
 			t.Setenv("YOLO_VERSION", "")
 			t.Setenv("YOLO_WORKSPACE", "")
+			t.Setenv("YOLO_SETUP", "podman-self")
 			t.Setenv(config.UserLayerEnv, "")
 			user := filepath.Join(home, ".config", "yolo-jail", tc.userName)
 			project := filepath.Join(workspace, tc.projectName)
@@ -309,6 +312,7 @@ func TestResolveTargetOwnJailOriginsDoNotAuthorizeUnconsumedOrHostFilesBothForma
 			forgedOrigins := forgeOwnJailOriginTree(t, workspace, unconsumed, hostOnly)
 			t.Setenv("YOLO_VERSION", "test-jail")
 			t.Setenv("YOLO_WORKSPACE", workspace)
+			t.Setenv("YOLO_SETUP", "podman-self")
 			ordinary, err := config.LoadReadableConfig(workspace, true, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -423,6 +427,7 @@ func TestResolveTargetOwnJailRejectsConflictingProjectLocalPhysicalAliasesBothFo
 			}
 			t.Setenv("YOLO_VERSION", "test-jail")
 			t.Setenv("YOLO_WORKSPACE", workspace)
+			t.Setenv("YOLO_SETUP", "podman-self")
 			for _, named := range []string{shared, alias} {
 				_, err := ResolveTarget(workspace, Mutation{Action: Set, Path: matrixPath("machine", "resources", "cpus"), Value: int64(4)}, config.EditTargetChoice{Kind: config.EditTargetFile, File: named})
 				if err == nil || !strings.Contains(err.Error(), "conflicting reader roles") {
@@ -468,6 +473,7 @@ func TestResolveTargetOwnJailRejectsGeneratedAndInheritedUserCopiesBothSourceFor
 			t.Setenv("HOME", home)
 			t.Setenv("YOLO_VERSION", "")
 			t.Setenv("YOLO_WORKSPACE", "")
+			t.Setenv("YOLO_SETUP", "podman-self")
 			t.Setenv(config.UserLayerEnv, "")
 			sourceUser := filepath.Join(home, ".config", "yolo-jail", tc.userName)
 			project := filepath.Join(workspace, tc.projectName)
@@ -481,10 +487,10 @@ func TestResolveTargetOwnJailRejectsGeneratedAndInheritedUserCopiesBothSourceFor
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := config.WriteAssembledConfig(workspace, assembledMap); err != nil {
+			if err := config.WriteAssembledConfig(workspace, "podman-self", assembledMap); err != nil {
 				t.Fatal(err)
 			}
-			if err := config.WriteAssembledOrigins(workspace, assembledMap, assembledSources); err != nil {
+			if err := config.WriteAssembledOrigins(workspace, "podman-self", assembledMap, assembledSources); err != nil {
 				t.Fatal(err)
 			}
 			assembled, err := config.SnapshotJSON(assembledMap)
@@ -513,6 +519,7 @@ func TestResolveTargetOwnJailRejectsGeneratedAndInheritedUserCopiesBothSourceFor
 			}
 			t.Setenv("YOLO_VERSION", "test-jail")
 			t.Setenv("YOLO_WORKSPACE", workspace)
+			t.Setenv("YOLO_SETUP", "podman-self")
 			inherited := config.InheritedLaunchPath()
 			if inherited == "" || inherited == generatedUser {
 				t.Fatalf("in-jail inherited path = %q, want a distinct generated path", inherited)
@@ -594,6 +601,7 @@ func TestApplyTargetedOwnJailDisclosesAndPreservesProjectLocalFileSymlinksBothFo
 				t.Setenv("HOME", home)
 				t.Setenv("YOLO_VERSION", "")
 				t.Setenv("YOLO_WORKSPACE", "")
+				t.Setenv("YOLO_SETUP", "podman-self")
 				user := filepath.Join(home, ".config", "yolo-jail", format.userName)
 				projectLogical := filepath.Join(workspace, format.projectName)
 				localLogical := filepath.Join(workspace, format.localName)
@@ -648,6 +656,7 @@ func TestApplyTargetedOwnJailDisclosesAndPreservesProjectLocalFileSymlinksBothFo
 				wantSnapshot := writeOwnJailDelivery(t, workspace)
 				t.Setenv("YOLO_VERSION", "test-jail")
 				t.Setenv("YOLO_WORKSPACE", workspace)
+				t.Setenv("YOLO_SETUP", "podman-self")
 				mutation := Mutation{Action: Set, Path: matrixPath("machine", "resources", "cpus"), Value: int64(4)}
 				choice := config.EditTargetChoice{Kind: config.EditTargetAutomatic}
 				if scope == "Local" {
@@ -712,10 +721,10 @@ func writeOwnJailDelivery(t *testing.T, workspace string) string {
 	if err != nil {
 		t.Fatalf("assemble own-jail delivery fixture: %v", err)
 	}
-	if err := config.WriteAssembledConfig(workspace, assembled); err != nil {
+	if err := config.WriteAssembledConfig(workspace, "podman-self", assembled); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.WriteAssembledOrigins(workspace, assembled, sources); err != nil {
+	if err := config.WriteAssembledOrigins(workspace, "podman-self", assembled, sources); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := config.SnapshotJSON(assembled)
@@ -727,7 +736,7 @@ func writeOwnJailDelivery(t *testing.T, workspace string) string {
 
 func forgeOwnJailOriginTree(t *testing.T, workspace string, labels ...string) string {
 	t.Helper()
-	path := config.WorkspaceAssembledOriginsPath(workspace)
+	path := config.WorkspaceAssembledOriginsPath(workspace, "podman-self")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -811,14 +820,15 @@ func TestApplyTargetedOwnJailRollsBackLostAuthoredConsumptionWhenLocalMasksChang
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := config.WriteAssembledConfig(workspace, assembled); err != nil {
+	if err := config.WriteAssembledConfig(workspace, "podman-self", assembled); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.WriteAssembledOrigins(workspace, assembled, sources); err != nil {
+	if err := config.WriteAssembledOrigins(workspace, "podman-self", assembled, sources); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("YOLO_VERSION", "test-jail")
 	t.Setenv("YOLO_WORKSPACE", workspace)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	mutation := Mutation{Action: Set, Path: matrixPath("machine", "resources", "cpus"), Value: int64(4)}
 	target, err := ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetFile, File: project})
 	if err != nil || target.Role != config.ExplicitEditProject || target.LogicalPath != project {

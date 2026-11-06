@@ -225,15 +225,18 @@ func TestForkBuildRetryUsesRetainedBackendWhenRuntimeIsUnspecified(t *testing.T)
 	t.Setenv("YOLO_SETUP", "apple-container-self")
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
-	_, cname, _ := seedRetainedForkBuildWorkspace(t, b, "podman")
+	staging, cname, _ := seedRetainedForkBuildWorkspace(t, b, "podman")
+	// The retained jail is the one its record names (an older yolo's: the project key); the fresh
+	// one is keyed by the setup its act ran as (named-setups-plan.md SUP-D14).
+	wantNames := []string{cname, runtime.JailName(staging, "apple-container-self")}
 	prevProbe := probeForkBuildContainer
 	probes := 0
 	var probeRuntimes []string
 	probeForkBuildContainer = func(gotName, gotRuntime string, _ time.Duration) (bool, bool) {
-		probes++
-		if gotName != cname {
-			t.Errorf("retry probed %q; want %q", gotName, cname)
+		if probes < len(wantNames) && gotName != wantNames[probes] {
+			t.Errorf("probe %d named %q; want %q", probes, gotName, wantNames[probes])
 		}
+		probes++
 		probeRuntimes = append(probeRuntimes, gotRuntime)
 		return false, true
 	}
@@ -374,7 +377,7 @@ func seedRetainedForkBuildWorkspace(t *testing.T, b forkBuild, rt string) (stagi
 	}
 	marker = filepath.Join(staging, "retained")
 	writeFile(t, marker, "retained")
-	if err := writeForkBuildRuntime(staging, rt); err != nil {
+	if err := writeForkBuildRuntime(staging, rt, ""); err != nil {
 		t.Fatal(err)
 	}
 	agentMarker := filepath.Join(paths.AgentsDir(), cname, "retained")
@@ -423,7 +426,7 @@ func TestMacosUserForkBuildUnknownLivenessRetainsAndFencesWorkspace(t *testing.T
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeForkBuildRuntime(staging, "macos-user"); err != nil {
+	if err := writeForkBuildRuntime(staging, "macos-user", ""); err != nil {
 		t.Fatal(err)
 	}
 	cname := runtime.FromWorkspace(staging)
@@ -486,7 +489,7 @@ func TestMacosUserForkBuildSuccessStillCleansItsWorkspace(t *testing.T) {
 			}
 			writeFile(t, marker, "completed")
 			rc := fake(run.Options{Workspace: workspace})
-			if err := writeForkBuildRuntime(workspace, "macos-user"); err != nil {
+			if err := writeForkBuildRuntime(workspace, "macos-user", ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := writeForkBuildRunReturned(workspace); err != nil {

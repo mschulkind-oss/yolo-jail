@@ -17,8 +17,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // jailShapeProbe prints what a session can see of the jail's shape. The hold's flag is built
@@ -42,7 +40,7 @@ const jailShapeProbe = `pat="--yolo-""hold-main"; ` +
 func TestTheMainProcessIsAHoldAndTheFirstSessionAnExec(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 
 	r := runYolo(t, dir, jailShapeProbe)
 	if r.rc != 0 {
@@ -75,7 +73,7 @@ func TestTheMainProcessIsAHoldAndTheFirstSessionAnExec(t *testing.T) {
 func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	other := writeProject(t, `{}`)
 
 	const releaseFirst, releaseAttach = "release-first", "release-attach"

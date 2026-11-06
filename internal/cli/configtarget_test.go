@@ -201,7 +201,7 @@ func TestTheMarkerIsAnArtifactNotADirectory(t *testing.T) {
 		{
 			name: "a launch artifact",
 			seed: func(t *testing.T, dir string) {
-				writeFile(t, config.WorkspaceConfigBootPath(dir), `{}`)
+				writeFile(t, config.WorkspaceConfigBootPath(dir, "podman-self"), `{}`)
 			},
 			marks: true,
 		},

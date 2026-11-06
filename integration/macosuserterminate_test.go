@@ -101,7 +101,7 @@ func TestMacosUserTerminateEndsTheSessionThroughItsTeardown(t *testing.T) {
 			}
 			requireNoGuestSupervisorLeft(t, diag)
 			sessions, _ := yoloruntime.ListSessions(paths.HostServicesBase(true))
-			key := paths.JailShortHash(yoloruntime.FromWorkspace(ws))
+			key := paths.JailShortHash(jailNameOn(ws, macosUserSetupFor("account")))
 			for _, s := range sessions {
 				if s.Key == key {
 					t.Errorf("the session's host-services dir %s survives its teardown%s", s.Dir, diag())

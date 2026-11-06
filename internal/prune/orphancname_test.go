@@ -99,7 +99,14 @@ func (f *orphanFixture) assertAll(t *testing.T, wantGone bool) {
 }
 
 func TestOrphanCnameOfParsesOnlyPerNameFiles(t *testing.T) {
-	c := "yolo-fork-1535ffccf8c9e593-9764d892"
+	// The legacy jail name, and a setup's (named-setups-plan.md SUP-D2).
+	for _, c := range []string{"yolo-fork-1535ffccf8c9e593-9764d892", "yolo-fork-1535ffccf8c9e593-9764d892-seatbelt-self"} {
+		orphanCnameOfParses(t, c)
+	}
+}
+
+func orphanCnameOfParses(t *testing.T, c string) {
+	t.Helper()
 	for _, tc := range []struct {
 		class, base string
 		ok          bool
@@ -477,4 +484,26 @@ func TestOrphanSweepKeepsThePointerWhileAnApprovalPartStays(t *testing.T) {
 	}
 	f.assertClass(t, OrphanClassCurrentImages, false)
 	f.assertClass(t, OrphanClassLocks, true)
+}
+
+// A SETUP'S JAIL NAME IS SWEPT LIKE THE LEGACY ONE (named-setups-plan.md SUP-D2): every launch now
+// keys its per-name state by its workspace and setup (runtime.JailName), so a sweep that parsed
+// only the legacy name would leave every such file for ever; and its pointer, whose workspace
+// hashes back to the name's project key, proves the workspace gone.
+func TestOrphanSweepRemovesASetupsAgedOrphanWhoseWorkspaceIsGone(t *testing.T) {
+	gs := t.TempDir()
+	if r, err := filepath.EvalSymlinks(gs); err == nil {
+		gs = r
+	}
+	f := &orphanFixture{gs: gs, build: filepath.Join(gs, "build"), containers: filepath.Join(gs, "containers"),
+		now: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), files: map[string][]string{}}
+	f.dirs = OrphanCnameDirsUnder(gs, f.build, f.containers)
+	f.ws = filepath.Join(gs, "workspaces", "gone-ws")
+	f.cname = runtime.FromResolved(f.ws) + "-podman-self"
+	f.add(t, f.cname)
+	rep := f.sweep(nil, true, nil)
+	if len(rep.Names) != 1 || rep.Names[0] != f.cname {
+		t.Errorf("swept %v, want the setup's jail name %s alone", rep.Names, f.cname)
+	}
+	f.assertAll(t, true)
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -162,7 +161,7 @@ func TestPatchedForkFollowsItsUpstreamAndHoldsAtAConflict(t *testing.T) {
 	// §6.3). Until then a move keeps the build that jail was handed.
 	jailGone := func() {
 		t.Helper()
-		root := filepath.Join(state, "agents", naming.FromWorkspace(lastWorkspace), "pack-trees")
+		root := filepath.Join(state, "agents", jailName(lastWorkspace), "pack-trees")
 		deadline := time.Now().Add(90 * time.Second)
 		for time.Now().Before(deadline) {
 			if left, _ := filepath.Glob(filepath.Join(root, "*.forks.json")); len(left) == 0 {

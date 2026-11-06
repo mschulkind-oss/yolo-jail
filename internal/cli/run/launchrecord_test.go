@@ -79,16 +79,30 @@ func TestLineNamesWorkspaceIsNotFooledByAJailCodeThatContainsTheFolderName(t *te
 	}
 }
 
-// assertOneLaunchLine checks the log holds exactly one line for ws, with every want field,
-// and nothing that names the workspace.
+// assertOneLaunchLine checks the log holds exactly one line for a launch of ws that got past its
+// setup's resolution, with every want field, and nothing that names the workspace. Such a line is
+// keyed by the launch's jail name (keyLaunchRecord): podman-self's, the setup dispatchOptions'
+// "podman" selects.
 func assertOneLaunchLine(t *testing.T, ws string, want ...string) string {
+	t.Helper()
+	return assertOneLaunchLineFor(t, ws, yoloruntime.JailName(ws, "podman-self"), want...)
+}
+
+// assertOneProjectLaunchLine is assertOneLaunchLine for a launch refused before its setup was
+// resolved, whose line is keyed by the project key (armLaunchRecord).
+func assertOneProjectLaunchLine(t *testing.T, ws string, want ...string) string {
+	t.Helper()
+	return assertOneLaunchLineFor(t, ws, yoloruntime.FromWorkspace(ws), want...)
+}
+
+func assertOneLaunchLineFor(t *testing.T, ws, cname string, want ...string) string {
 	t.Helper()
 	lines := launchLines(t)
 	if len(lines) != 1 {
 		t.Fatalf("launch log has %d lines, want one per launch:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	line := lines[0]
-	code := paths.JailShortHash(yoloruntime.FromWorkspace(ws))
+	code := paths.JailShortHash(cname)
 	for _, w := range append([]string{" launch jail=" + code + " "}, want...) {
 		if !strings.Contains(line, w) {
 			t.Errorf("launch line lacks %q:\n%s", w, line)
@@ -150,7 +164,7 @@ func TestALaunchRefusedBeforeTheRuntimeLeavesItsLine(t *testing.T) {
 	if gate.count() != 0 {
 		t.Fatalf("the fixture reached runtime selection (%d gate attempts); it must refuse before", gate.count())
 	}
-	assertOneLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
+	assertOneProjectLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
 }
 
 // An attach is recorded as one, when it begins — not when its session ends.
@@ -182,7 +196,7 @@ func TestAStartedLaunchWritesItsLineWhileTheJailRuns(t *testing.T) {
 	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
 	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
-	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(yoloruntime.FromWorkspace(ws), false)) })
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(yoloruntime.JailName(ws, "podman-self"), false)) })
 
 	done := make(chan int, 1)
 	go func() { done <- Run(*o) }()
@@ -319,7 +333,7 @@ func TestALaunchRefusedByAnEarliestGuardLeavesItsLine(t *testing.T) {
 			if rc := Run(*o); rc != 1 || !strings.Contains(stderr.String(), "Refusing to launch") {
 				t.Fatalf("Run = %d, want the guard's refusal\nstderr:\n%s", rc, stderr.String())
 			}
-			assertOneLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
+			assertOneProjectLaunchLine(t, ws, "runtime=- podman_wait=- tries=- outcome=not-started rc=1")
 		})
 	}
 }
@@ -339,7 +353,7 @@ func TestALaunchASignalEndsAfterItsPackStagingLeavesItsLine(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	t.Setenv("PATH", t.TempDir())
 	var atExit string
 	exits := seeArmExitsWith(t, cname, func() { atExit = launchLogAtExit() })
@@ -421,7 +435,7 @@ func TestALaunchASignalEndsBeforeItsRuntimeIsSpawnedLeavesItsLine(t *testing.T) 
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	t.Setenv("PATH", t.TempDir())
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	t.Cleanup(packRecordScope())

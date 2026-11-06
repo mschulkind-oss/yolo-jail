@@ -10,7 +10,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func buildReceiptSnapshot(t *testing.T, store, key string) ([]entrypoint.BuildReceipt, []byte) {
@@ -143,7 +142,7 @@ func assertPhysicalNestedPodmanControls(t *testing.T, workspace, output, logPath
 			call = call[:0]
 		case "END":
 			for i := 0; i+1 < len(call); i++ {
-				if call[i] == "--name" && call[i+1] == naming.FromWorkspace(workspace) {
+				if call[i] == "--name" && call[i+1] == jailName(workspace) {
 					found = containsArgPair(call, "--userns", "host") && containsArg(call, "--net=host")
 				}
 			}

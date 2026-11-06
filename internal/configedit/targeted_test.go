@@ -162,6 +162,7 @@ func TestApplyTargetedRejectsJailedUserTargetsBeforeEveryMode(t *testing.T) {
 			for _, choice := range choices {
 				t.Setenv("YOLO_VERSION", "")
 				t.Setenv("YOLO_WORKSPACE", "")
+				t.Setenv("YOLO_SETUP", "podman-self")
 				mutation := Mutation{Action: Set, Path: []configdoc.Step{{Key: "allow"}, {Key: "git"}, {Key: "always"}}, Value: []any{"fetch"}}
 				if mode != "noop" {
 					mutation = Mutation{Action: Append, Path: []configdoc.Step{{Key: "allow"}, {Key: "git"}, {Key: "always"}}, Value: "push"}
@@ -171,14 +172,15 @@ func TestApplyTargetedRejectsJailedUserTargetsBeforeEveryMode(t *testing.T) {
 					t.Fatal(err)
 				}
 				writes := spySystemWrites(t)
-				if err := os.MkdirAll(filepath.Dir(config.WorkspaceAssembledConfigPath(workspace)), 0700); err != nil {
+				if err := os.MkdirAll(filepath.Dir(config.WorkspaceAssembledConfigPath(workspace, "podman-self")), 0700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(config.WorkspaceAssembledConfigPath(workspace), []byte(`{"allow":{"git":{"always":["fetch"]}}}`), 0600); err != nil {
+				if err := os.WriteFile(config.WorkspaceAssembledConfigPath(workspace, "podman-self"), []byte(`{"allow":{"git":{"always":["fetch"]}}}`), 0600); err != nil {
 					t.Fatal(err)
 				}
 				t.Setenv("YOLO_VERSION", "test-jail")
 				t.Setenv("YOLO_WORKSPACE", workspace)
+				t.Setenv("YOLO_SETUP", "podman-self")
 				_, err = ApplyTargeted(workspace, target, mutation, ApplyOptions{DryRun: mode == "dry-run"})
 				assertJailedUserRefusal(t, err, user, *writes)
 				got, readErr := os.ReadFile(user)

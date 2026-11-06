@@ -139,21 +139,32 @@ func TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome(t *testing.T) {
 // (6a-ii review M1): a keeper, a keeperless macos-user session record (JL-D42), and a container of
 // the workspace's name whose keeper died. Red if selectHome stops asking o.projectJails, or
 // projectJails drops any of the three.
+//
+// The running jail is ANOTHER setup's (6a-iii): a jail under the legacy name refuses the launch
+// before any move (SUP-D10, TestALegacyJailRunningRefusesTheLaunchBeforeAnyMove), so the jail the
+// move must wait for is one of a setup with state under .yolo/setups (projectJailNames, SUP-D43).
 func TestALaunchWhileAJailRunsKeepsTheLegacyHome(t *testing.T) {
+	other := func(t *testing.T, ws, name string) string {
+		t.Helper()
+		if err := os.MkdirAll(paths.SetupStateDir(ws, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return yoloruntime.JailName(ws, name)
+	}
 	for _, tc := range []struct {
 		name string
 		// running makes a jail of ws run, and returns its release.
 		running func(t *testing.T, ws string, o *Options) func()
 	}{
 		{"a keeper", func(t *testing.T, ws string, _ *Options) func() {
-			held, err := holdLivenessLock(keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchMacosUser))
+			held, err := holdLivenessLock(keeperKey(other(t, ws, "seatbelt-self"), keeperNotchMacosUser))
 			if err != nil {
 				t.Fatal(err)
 			}
 			return func() { releaseLock(held) }
 		}},
 		{"a keeperless session", func(t *testing.T, ws string, _ *Options) func() {
-			rec, err := openKeyedSessionRecord(keeperKey(yoloruntime.FromWorkspace(ws), keeperNotchMacosUser),
+			rec, err := openKeyedSessionRecord(keeperKey(other(t, ws, "seatbelt-self"), keeperNotchMacosUser),
 				4242, time.Unix(0, 0), false)
 			if err != nil {
 				t.Fatal(err)
@@ -161,7 +172,7 @@ func TestALaunchWhileAJailRunsKeepsTheLegacyHome(t *testing.T) {
 			return func() { closeKeyedSessionRecord(rec) }
 		}},
 		{"a container whose keeper died", func(t *testing.T, ws string, o *Options) func() {
-			answerContainerOf(o, yoloruntime.FromWorkspace(ws), "podman", "c0ffee\n", 0)
+			answerContainerOf(o, other(t, ws, "podman-self"), "podman", "c0ffee\n", 0)
 			return func() {}
 		}},
 	} {
@@ -177,6 +188,9 @@ func TestALaunchWhileAJailRunsKeepsTheLegacyHome(t *testing.T) {
 			var got macosUserCall
 			o.MacosUserRun = fakeMacosUserRun(func(c macosUserCall) int { got = c; return 0 })
 			Run(*o)
+			if got.packEnv == nil {
+				t.Fatalf("the launch never reached its backend\nstderr:\n%s", stderr.String())
+			}
 			if _, err := os.Stat(filepath.Join(paths.LegacyHomeState(ws), marker)); err != nil {
 				t.Errorf("the legacy home moved while a jail of the project ran: %v\nstderr:\n%s", err, stderr.String())
 			}
@@ -313,7 +327,7 @@ func TestBothKeeperPlansCarryTheLaunchsHome(t *testing.T) {
 }
 
 // TestSelectHomeDecidesUnderTheLaunchLock (6a-ii review m2): while a legacy home is in place, the
-// launch decides whether to move it under the workspace launch lock and keeps holding it, so no
+// launch decides whether to move it under the project lock (SUP-D36) and keeps holding it, so no
 // other launch can move the home between this one's decision and its jail answering the probe.
 // Once the home has moved, selectHome takes no lock. Red if selectHome stops taking it.
 func TestSelectHomeDecidesUnderTheLaunchLock(t *testing.T) {
@@ -328,13 +342,16 @@ func TestSelectHomeDecidesUnderTheLaunchLock(t *testing.T) {
 		o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 		o.Setup = setup.MustBuiltIn(o.SetupName) // what Run's resolveSetup leaves
 		o.selectHome()
-		held := o.launchLock != nil && !o.launchLock.isClosed()
-		if held && o.launchLock.path != launchLockPath(yoloruntime.FromWorkspace(ws)) {
-			t.Errorf("legacy=%v: selectHome holds lock %s, not the workspace's launch lock", legacy, o.launchLock.path)
+		// The decision's lock is the PROJECT lock (SUP-D36): the launch lock file of the project
+		// key, which every setup's launch that might move the legacy home takes.
+		held := o.homeLock != nil && !o.homeLock.isClosed()
+		if held && o.homeLock.path != launchLockPath(yoloruntime.FromWorkspace(ws)) {
+			t.Errorf("legacy=%v: selectHome holds lock %s, not the project lock", legacy, o.homeLock.path)
 		}
 		if held != legacy {
-			t.Errorf("legacy home in place=%v: selectHome holds the launch lock=%v\nstderr:\n%s", legacy, held, stderr.String())
+			t.Errorf("legacy home in place=%v: selectHome holds the project lock=%v\nstderr:\n%s", legacy, held, stderr.String())
 		}
+		o.releaseHomeLock()
 		o.releaseLaunchLock()
 	}
 }

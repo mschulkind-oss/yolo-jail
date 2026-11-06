@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestADeathInTheReadyWindowIsToldOnceAtTheFirstSessionsQuit: a jail's keeper runs a host daemon the
@@ -50,7 +49,7 @@ func TestADeathInTheReadyWindowIsToldOnceAtTheFirstSessionsQuit(t *testing.T) {
 	// fail and the death stands, after HD-D25's five (oncePerJailSocat).
 	packHome(t, oncePerJailSocat(t, service, socat))
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
 	ready := "holds " + cname + " until its last session leaves"
 	want := "host service '" + service + "' went down"

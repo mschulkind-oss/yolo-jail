@@ -34,7 +34,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // doorwaysSeen is what the stubbed doorway start observed.
@@ -281,7 +280,7 @@ func TestMacosUserSaysARefusedDoorwayTheGuestDeclinesRunsNowhere(t *testing.T) {
 	if strings.Contains(refusal, "runs in the sandbox instead") {
 		t.Errorf("the refusal says the jail daemon runs in the sandbox, which declined it:\n%s", got.out)
 	}
-	guestProgram := filepath.Join(macosuser.StagedPackTreeRoot(runtime.FromWorkspace(ws), got.hostPackRoot, ""),
+	guestProgram := filepath.Join(macosuser.StagedPackTreeRoot(macosUserJailName(ws, macosuser.ModeAccount), got.hostPackRoot, ""),
 		"acme", "loopholes", "acme-proxy", "my-agent")
 	if !strings.Contains(refusal, "declined in the sandbox too") ||
 		!strings.Contains(got.out, "acme-proxy: "+guestProgram) || !strings.Contains(got.out, "a Linux executable") {

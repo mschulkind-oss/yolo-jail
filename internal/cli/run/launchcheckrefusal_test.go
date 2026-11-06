@@ -94,7 +94,7 @@ func containerLaunch(t *testing.T, handler hostservice.Handler,
 		p(t)
 	}
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	bin, ran := t.TempDir(), filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\nif [ \"$1\" = run ]; then : > '" + ran + "'; fi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
@@ -238,7 +238,7 @@ func attachAgainst(t *testing.T, handler hostservice.Handler, prep ...func(*test
 	launchCheckRefusalHome(t)
 	serveLaunchCheckDaemon(t, handler)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var out bytes.Buffer
 	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
 	cfg, ok := fresh.loadAndValidateConfig()

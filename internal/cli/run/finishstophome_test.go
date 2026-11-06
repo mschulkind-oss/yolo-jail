@@ -37,7 +37,7 @@ func TestFinishStopCapturesFromTheHomeTheJailBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	var homes []string
-	FinishStop(io.Discard, io.Discard, ws, "podman", 0, func(w, h, _ string) {
+	FinishStop(io.Discard, io.Discard, ws, cname, "podman", 0, func(w, h, _ string) {
 		if w == ws {
 			homes = append(homes, h)
 		}

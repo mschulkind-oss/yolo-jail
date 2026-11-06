@@ -176,7 +176,7 @@ func TestRunApplyStepsRefreshesOnlyMechanicsIndexAndMapForSuccessfulMount(t *tes
 	// A successful next-session key is effective for the next entry even though its requested
 	// config differs from this jail's previous applied baseline.
 	o.Workspace = t.TempDir()
-	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, mapOf(t, `{"agents_md_extra":"prior"}`)); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", mapOf(t, `{"agents_md_extra":"prior"}`)); err != nil {
 		t.Fatal(err)
 	}
 	run.current = mapOf(t, `{"agents_md_extra":"approved"}`)
@@ -192,7 +192,7 @@ func TestRunApplyStepsRefreshesOnlyMechanicsIndexAndMapForSuccessfulMount(t *tes
 	if err != nil || os.SameFile(beforeNextSessionIndex, afterNextSessionIndex) {
 		t.Fatalf("successful next-session config apply did not regenerate mechanics index: stat err=%v", err)
 	}
-	folded, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace)
+	folded, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("read effective-config baseline: ok=%t err=%v", ok, err)
 	}
@@ -339,7 +339,7 @@ func TestRunApplyStepsRefreshesIdenticalMechanicsAndSuccessfulMountDespiteKeyFol
 
 	// A successful next-session fold regenerates both mechanics files even though this key
 	// does not alter their rendered bytes.
-	if _, err := config.WriteWorkspaceBootBaseline(workspace, mapOf(t, `{"agents_md_extra":"prior"}`)); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(workspace, "podman-self", mapOf(t, `{"agents_md_extra":"prior"}`)); err != nil {
 		t.Fatal(err)
 	}
 	beforeIndex, err := os.Stat(indexPath)
@@ -372,7 +372,7 @@ func TestRunApplyStepsRefreshesIdenticalMechanicsAndSuccessfulMountDespiteKeyFol
 
 	// The other key cannot fold after the baseline is removed, but the successful mount
 	// operation still refreshes from its updated authenticated live-mount record.
-	if err := os.Remove(config.WorkspaceConfigBootPath(workspace)); err != nil {
+	if err := os.Remove(config.WorkspaceConfigBootPath(workspace, "podman-self")); err != nil {
 		t.Fatal(err)
 	}
 	swapSeam(t, &injectCtxMountSeam, func(*Options, string, string, configCtxMount, time.Time) error { return nil })
@@ -527,7 +527,7 @@ func TestSuccessfulNextSessionFoldFeedsTheNextAttachBriefingAndWorkspaceSkills(t
 	if err := writeCtxMountRecord(cname, token, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.WriteWorkspaceBootBaseline(workspace, oldCfg); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(workspace, "podman-self", oldCfg); err != nil {
 		t.Fatal(err)
 	}
 	run := &applyRun{rt: "podman", cname: cname, envLines: []string{ctxMountsTokenEnv + "=" + token},
@@ -566,7 +566,7 @@ func TestSuccessfulNextSessionFoldFeedsTheNextAttachBriefingAndWorkspaceSkills(t
 
 	// With no effective-config baseline, an otherwise-successful timing result cannot
 	// promote the unapproved producer value into the authenticated mechanics snapshot.
-	if err := os.Remove(config.WorkspaceConfigBootPath(workspace)); err != nil {
+	if err := os.Remove(config.WorkspaceConfigBootPath(workspace, "podman-self")); err != nil {
 		t.Fatal(err)
 	}
 	run.current = appliedTestConfig("agents_md_extra", "not recorded")

@@ -18,11 +18,12 @@ func TestInJailReadWithoutTheWorkspaceFileSkipsTheAssembledCopy(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv(UserLayerEnv, "")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	mustWrite(t, filepath.Join(home, ".config", "yolo-jail", "config.toml"), "packs = [\"pi\"]\n")
 	mustWrite(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"packages": ["ripgrep"]}`)
 	// What the host assembled for this launch: the workspace config plus the per-workspace file's
 	// switch, which is for the host's workspace alone.
-	mustWrite(t, WorkspaceAssembledConfigPath(ws), `{"packages": ["ripgrep"], "packs": ["pi"],
+	mustWrite(t, WorkspaceAssembledConfigPath(ws, "podman-self"), `{"packages": ["ripgrep"], "packs": ["pi"],
   "loopholes": {"github-broker": {"enabled": true}}}`)
 	t.Setenv("YOLO_VERSION", "9.9.9-test")
 

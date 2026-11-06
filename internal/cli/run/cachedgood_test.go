@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func cachedGoodEnv(value string) func(string) string {
@@ -70,7 +69,7 @@ func TestCachedGoodOwnerRefusesAttach(t *testing.T) {
 	called := false
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.Getenv = cachedGoodEnv("forkpack/tool")
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			joined := strings.Join(argv, " ")
 			switch {

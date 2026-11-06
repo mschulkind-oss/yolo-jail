@@ -38,7 +38,7 @@ func TestWorkspaceRootStopsAtABoundaryDirectory(t *testing.T) {
 	home := scopeWalkHome(t)
 	// A PRE-GUARD LAUNCH ARTIFACT, at the depth it really sits at — and a real marker, so
 	// the breach stop is what this measures rather than the marker test.
-	writeFile(t, config.WorkspaceConfigBootPath(home), `{}`)
+	writeFile(t, config.WorkspaceConfigBootPath(home, "podman-self"), `{}`)
 	// Somewhere under the home that is NOT a workspace — the ordinary case for a user
 	// poking around their own files.
 	sub := filepath.Join(home, "notes", "scratch")

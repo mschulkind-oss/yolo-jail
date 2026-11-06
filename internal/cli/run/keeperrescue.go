@@ -30,10 +30,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -343,16 +345,50 @@ func (o *Options) warnStateMoved(rec keeperRecord) {
 // StateMovedFindings is `yolo check`'s view of the same check: for each running jail of workspace
 // whose keeper recorded an identity stamp, the warning lines when its `.yolo` is not the one it
 // started on. A jail whose keeper is gone is not asked: its binds are gone with it.
+//
+// EVERY JAIL OF THE WORKSPACE, by its keeper's record (workspaceKeeperKeys): the legacy name an
+// older yolo keyed it by and every setup-qualified name (named-setups-plan.md SUP-D2). The keys
+// come from the records themselves, not from .yolo/setups, because the `.yolo` this check is
+// about may be the one that moved.
 func StateMovedFindings(workspace string) []string {
-	cname := yoloruntime.FromWorkspace(workspace)
 	var out []string
-	for _, key := range append([]string{cname}, keyedNames(cname)...) {
+	for _, key := range workspaceKeeperKeys(workspace) {
 		rec, ok := readKeeperRecord(key)
 		if !ok || probeKeeper(key) == keeperGone {
 			continue
 		}
 		out = append(out, stateMovedLines(rec)...)
 	}
+	return out
+}
+
+// workspaceKeeperKeys lists, sorted, every keeper key with a start record whose jail is one of
+// workspace's (runtime.IsJailOf of the key's jail name): the container key and its macos-user keys
+// (macosUserKeeperNotches), under the legacy name or any setup's.
+func workspaceKeeperKeys(workspace string) []string {
+	entries, err := os.ReadDir(ownerPIDDir())
+	if err != nil {
+		return nil
+	}
+	notches := map[string]bool{}
+	for _, n := range macosUserKeeperNotches {
+		notches[n] = true
+	}
+	var out []string
+	for _, e := range entries {
+		key, ok := strings.CutSuffix(e.Name(), ".keeper.json")
+		if !ok {
+			continue
+		}
+		cname := key
+		if i := strings.LastIndexByte(key, '.'); i >= 0 && notches[key[i+1:]] {
+			cname = key[:i]
+		}
+		if yoloruntime.IsJailOf(workspace, cname) {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 

@@ -74,11 +74,11 @@ func grantApplyFixture(t *testing.T, userTOML, wsTOML string) (*Options, *string
 	if err != nil {
 		t.Fatal(err)
 	}
-	cname := runtime.FromWorkspace(ws)
+	cname := runtime.JailName(ws, "podman-self")
 
 	// THE LAUNCH: an empty workspace config, its gate accepted, its effective-config record, and
 	// the grant file it handed the journal daemon, which this process stands in for.
-	if _, err := config.WriteWorkspaceBootBaseline(ws, jsonx.NewOrderedMap()); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(ws, "podman-self", jsonx.NewOrderedMap()); err != nil {
 		t.Fatal(err)
 	}
 	launch, launchOut := grantApplyOptions(t, ws)
@@ -247,7 +247,7 @@ func TestConfigApplyOfAMediatedGrantOwesNoRestartAndFolds(t *testing.T) {
 	if !strings.Contains(buf.String(), "requests.audio: applied now") {
 		t.Errorf("no line for the skipped audio request:\n%s", buf.String())
 	}
-	boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace)
+	boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("no effective-config record: %v", err)
 	}

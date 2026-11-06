@@ -13,7 +13,7 @@ import (
 func TestRunApplyStepsFoldsOnlySuccessfulCanonicalPaths(t *testing.T) {
 	workspace := t.TempDir()
 	boot := mapOf(t, `{"install":{"nix":["jq"],"mise":{"python":"3.12"}},"machine":{"ports":[{"host":1,"jail":1}],"resources":{"memory":"4g"}}}`)
-	if _, err := config.WriteWorkspaceBootBaseline(workspace, boot); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(workspace, "podman-self", boot); err != nil {
 		t.Fatal(err)
 	}
 	current := mapOf(t, `{"install":{"nix":["jq","ripgrep"]},"machine":{"ports":[{"host":2,"jail":2}],"resources":{"memory":"8g"}}}`)
@@ -28,7 +28,7 @@ func TestRunApplyStepsFoldsOnlySuccessfulCanonicalPaths(t *testing.T) {
 	if len(result) != 4 {
 		t.Fatalf("runApplySteps returned %d changes, want 4", len(result))
 	}
-	got, ok, err := config.ReadWorkspaceBootBaseline(workspace)
+	got, ok, err := config.ReadWorkspaceBootBaseline(workspace, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("ReadWorkspaceBootBaseline: ok=%v err=%v", ok, err)
 	}
@@ -57,7 +57,7 @@ func TestRunApplyStepsFoldsOnlySuccessfulCanonicalPaths(t *testing.T) {
 func TestFoldAppliedReturnsExactCanonicalValueAndPresence(t *testing.T) {
 	workspace := t.TempDir()
 	boot := mapOf(t, `{"install":{"nix":["jq"],"mise":{"python":"3.12"}}}`)
-	if _, err := config.WriteWorkspaceBootBaseline(workspace, boot); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(workspace, "podman-self", boot); err != nil {
 		t.Fatal(err)
 	}
 	current := mapOf(t, `{"install":{"nix":["jq","ripgrep"]}}`)
@@ -82,7 +82,7 @@ func TestFoldAppliedReturnsExactCanonicalValueAndPresence(t *testing.T) {
 
 func TestFoldAppliedReturnsNoFactsWhenBaselineWriteFails(t *testing.T) {
 	workspace := t.TempDir()
-	if err := os.MkdirAll(config.WorkspaceConfigBootPath(workspace), 0o700); err != nil {
+	if err := os.MkdirAll(config.WorkspaceConfigBootPath(workspace, "podman-self"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	o := &Options{Workspace: workspace}
@@ -108,10 +108,10 @@ func TestFoldAppliedDoesNotWriteForUnknownNotRunningOrMacosUser(t *testing.T) {
 			t.Setenv(config.BootBaselineDigestEnv, "macos-session-digest")
 			workspace := t.TempDir()
 			boot := mapOf(t, `{"install":{"nix":["old"]}}`)
-			if _, err := config.WriteWorkspaceBootBaseline(workspace, boot); err != nil {
+			if _, err := config.WriteWorkspaceBootBaseline(workspace, "podman-self", boot); err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(config.WorkspaceConfigBootPath(workspace))
+			before, err := os.ReadFile(config.WorkspaceConfigBootPath(workspace, "podman-self"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +123,7 @@ func TestFoldAppliedDoesNotWriteForUnknownNotRunningOrMacosUser(t *testing.T) {
 			if len(folded) != 0 {
 				t.Fatalf("ineligible apply returned facts: %+v", folded)
 			}
-			after, err := os.ReadFile(config.WorkspaceConfigBootPath(workspace))
+			after, err := os.ReadFile(config.WorkspaceConfigBootPath(workspace, "podman-self"))
 			if err != nil {
 				t.Fatal(err)
 			}

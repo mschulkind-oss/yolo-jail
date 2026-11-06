@@ -27,7 +27,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // testHostDaemonCmdJSON is a host daemon a unit test may really run: the test binary's own
@@ -118,7 +117,7 @@ func macosUserLaunchWithOptions(t *testing.T, ws string, during func(macosuser.J
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
-	cname := runtime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 	got := macosUserLaunchResult{}
 	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, hostPackRoot string, _ macosuser.HomeOverlay,
 		_ macosuser.HostContext, dryRun bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
@@ -263,7 +262,7 @@ func TestMacosUserDryRunStartsNoHostServices(t *testing.T) {
 		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
 		return 0
 	}
-	cname := runtime.FromWorkspace(ws)
+	cname := macosUserJailName(ws, macosuser.ModeAccount)
 
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run(--dry-run) = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())

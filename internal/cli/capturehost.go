@@ -251,7 +251,7 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 		fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(bin))
 		return 1
 	}
-	cname := runtime.FromWorkspace(staging)
+	cname := actJailName(staging, arm.runtime)
 	defer cleanupCaptureWorkspace(staging, cname)
 
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
@@ -772,8 +772,10 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	opts.Workspace = workspace
 	opts.Args = argv
 	opts.Color = color
+	actRT := ""
 	if len(on) > 0 && on[0].runtime != "" {
-		opts.SetupName = actSetup(on[0].runtime).Name
+		actRT = on[0].runtime
+		opts.SetupName = actSetup(actRT).Name
 	}
 	if seal != nil {
 		opts.Sealed = true
@@ -812,7 +814,9 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 		// The actual runtime is selected inside the ordinary pipeline, where confinement, backend
 		// validation and automatic fallback are all applied. Persist that answer before its backend
 		// starts; a PATH-based prediction here could name a different owner of this staging tree.
-		opts.OnRuntimeResolved = func(rt string) error { return writeForkBuildRuntime(workspace, rt) }
+		opts.OnRuntimeResolved = func(rt string) error {
+			return writeForkBuildRuntime(workspace, rt, actJailName(workspace, actRT))
+		}
 	}
 	// Never attach. A capture must run its installer in a home the BOOT just made,
 	// and attaching to a live container for this workspace would run it in whatever state
@@ -1096,6 +1100,9 @@ func captureStagingInNamespace(rt string, errw io.Writer) func(string) error {
 // jail is already gone by now (forkBuildWorkspaceReclaimable), so the first listing it makes
 // normally answers. Past the bound the cleanup goes ahead, best-effort like the rest of it.
 func cleanupCaptureWorkspace(workspace, cname string) {
+	// The project key, read while the workspace is still there to resolve: a path that no longer
+	// resolves (macOS's /var under /private) would key another name.
+	projectKey := runtime.FromWorkspace(workspace)
 	_ = run.WaitForScratchRemovers(workspace, captureScratchRemoverWait)
 	preserveBuildJailLogs(workspace)
 	_ = os.RemoveAll(workspace)
@@ -1103,8 +1110,9 @@ func cleanupCaptureWorkspace(workspace, cname string) {
 	_ = os.RemoveAll(filepath.Join(paths.AgentsDir(), cname))
 	// Every part of the approval record (docs/design/boundary-broker.md BB-D30;
 	// workspace-widening.md WW-D11): a path that deletes the record deletes each part, and
-	// deleting one alone fails safe. config.ApprovalRecordFiles is the one list of them.
-	for _, part := range config.ApprovalRecordFiles(cname) {
+	// deleting one alone fails safe. config.ApprovalRecordFiles is the one list of them. It is
+	// keyed by the project key, never the setup-qualified jail name (named-setups-plan.md SUP-D2).
+	for _, part := range config.ApprovalRecordFiles(projectKey) {
 		_ = os.Remove(part)
 	}
 }

@@ -26,11 +26,11 @@ import (
 // installed: <stateDir>/profile-<key>.sb.
 func launchedSessionKey(t *testing.T, rec []string, ws string) string {
 	t.Helper()
-	prefix := "write:" + stateDir + "/profile-" + cnameFor(resolvePathAbs(ws)) + "."
+	prefix := "write:" + stateDir + "/profile-" + cnameFor(resolvePathAbs(ws), "") + "."
 	for _, r := range rec {
 		if rest, ok := strings.CutPrefix(r, prefix); ok {
 			if sid, ok := strings.CutSuffix(rest, ".sb"); ok {
-				return SessionKey(cnameFor(resolvePathAbs(ws)), sid)
+				return SessionKey(cnameFor(resolvePathAbs(ws), ""), sid)
 			}
 		}
 	}
@@ -216,7 +216,7 @@ func freeRecord(t *testing.T, dir, key string) string {
 // a pending record, which no glob of finished records matches.
 func TestTheSweepRemovesOnlyAnEndedSessionsFiles(t *testing.T) {
 	dir := t.TempDir()
-	cname := cnameFor("/Users/Shared/yolo/proj")
+	cname := cnameFor("/Users/Shared/yolo/proj", "")
 	gone := SessionKey(cname, "0123456789abcdef")
 	live := SessionKey(cname, "1111111111111111")
 	odd := SessionKey(cname, "2222222222222222")
@@ -271,7 +271,7 @@ func TestTheSweepRemovesOnlyAnEndedSessionsFiles(t *testing.T) {
 // command; it never refuses.
 func TestASweepWhoseRemovalFailsKeepsTheRecord(t *testing.T) {
 	dir := t.TempDir()
-	key := SessionKey(cnameFor("/Users/Shared/yolo/proj"), "0123456789abcdef")
+	key := SessionKey(cnameFor("/Users/Shared/yolo/proj", ""), "0123456789abcdef")
 	p := freeRecord(t, dir, key)
 	d := mockDeps(nil)
 	d.Run = func([]string) int { return 1 }
@@ -293,7 +293,7 @@ func TestASweepWhoseRemovalFailsKeepsTheRecord(t *testing.T) {
 // session beside them is still swept, as the host.
 func TestTheSweepKeepsALegacySessionsRecordAndWarnsOnce(t *testing.T) {
 	dir := t.TempDir()
-	cname := cnameFor("/Users/Shared/yolo/proj")
+	cname := cnameFor("/Users/Shared/yolo/proj", "")
 	legacyA := SessionKey(cname, "0123456789abcdef")
 	legacyB := SessionKey(cname, "1123456789abcdef")
 	ordinary := SessionKey(cname, "2123456789abcdef")
@@ -355,7 +355,7 @@ func TestTheSweepKeepsALegacySessionsRecordAndWarnsOnce(t *testing.T) {
 func TestALaunchSweepsAnEndedSessionsFilesBeforeItWritesItsOwn(t *testing.T) {
 	ws := "/Users/Shared/yolo/proj"
 	dir := t.TempDir()
-	gone := SessionKey(cnameFor(ws), "0123456789abcdef")
+	gone := SessionKey(cnameFor(ws, ""), "0123456789abcdef")
 	goneRecord := freeRecord(t, dir, gone)
 	var rec []string
 	d := mockDeps(&rec)
@@ -396,7 +396,7 @@ func TestADryRunCreatesNoRecordAndPrintsTheSessionPlaceholder(t *testing.T) {
 	if left, _ := os.ReadDir(dir); len(left) != 0 {
 		t.Errorf("a dry run created %v", left)
 	}
-	key := SessionKey(cnameFor(resolvePathAbs(o.Workspace)), SessionPlaceholder)
+	key := SessionKey(cnameFor(resolvePathAbs(o.Workspace), ""), SessionPlaceholder)
 	for _, want := range []string{"session:     " + key, "profile-" + key + ".sb",
 		SandboxEnvFile(key, ""), "when the session ends", "all plan invariants hold"} {
 		if !strings.Contains(out.String(), want) {

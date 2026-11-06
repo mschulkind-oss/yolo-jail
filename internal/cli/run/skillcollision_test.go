@@ -102,7 +102,7 @@ func TestALaunchRefusesTwoPacksShippingOneSkillName(t *testing.T) {
 func TestAnAttachRefusesTwoPacksShippingOneSkillName(t *testing.T) {
 	collidingSkillPacks(t)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var stdout, stderr bytes.Buffer
 	var execRec [][]string
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, &execRec)

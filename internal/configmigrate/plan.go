@@ -120,6 +120,9 @@ type Record struct {
 	Why string
 
 	before string
+	// setup is the setup a boot baseline belongs to (named-setups-plan.md SUP-D37): each setup's
+	// jail keeps its own, under .yolo/setups/<setup>.
+	setup string
 }
 
 // MigrationPlan is everything one migration would do, and its proof.
@@ -1144,9 +1147,14 @@ func planRecords(workspace string) []Record {
 		approval = decideRecord(approval, config.ReadApprovalRecord, config.ApprovalRecordPart, workspace)
 	}
 	out = append(out, approval)
-	boot := decideRecord(Record{Kind: "boot baseline", Path: config.WorkspaceConfigBootPath(workspace)},
-		config.ReadBootBaseline, config.BootBaselinePart, workspace)
-	out = append(out, boot)
+	// One boot baseline per setup a launch recorded one for (SUP-D37). The file an older yolo wrote
+	// at .yolo/config-boot.json is read by nothing now, so nothing respells it.
+	for _, name := range config.BootBaselineSetups(workspace) {
+		read := func(ws string) (string, bool, error) { return config.ReadBootBaseline(ws, name) }
+		boot := decideRecord(Record{Kind: "boot baseline", Path: config.WorkspaceConfigBootPath(workspace, name), setup: name},
+			read, config.BootBaselinePart, workspace)
+		out = append(out, boot)
+	}
 	return out
 }
 

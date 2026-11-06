@@ -58,6 +58,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // KeeperVerb is the keeper's member name in the `yolo internal daemon` group.
@@ -289,6 +290,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	fillDefaults(&o)
 	o.runtime = plan.Runtime
 	o.SetupName = plan.Setup
+	o.keeperJailName = plan.Cname
 	// The home the launch bound (keeperPlan.Home), for the config capture at teardown; one that is
 	// none of the workspace's homes is dropped, and homeDir answers as for a launch.
 	if paths.IsWorkspaceHomeState(plan.Workspace, plan.Home) {
@@ -452,11 +454,16 @@ func (k *keeper) run() int {
 	// workspace's own macos-user sessions, but `yolo host` of the same workspace starts host
 	// services of its own (HostDoorways.Start) and writes the same settings file, so both take the
 	// guard. A guard the keeper cannot take refuses the launch before any service starts.
+	//
+	// The guard is the PROJECT's, keyed by runtime.FromWorkspace as `yolo host` keys it, not by
+	// this jail's setup-qualified name (named-setups-plan.md SUP-D39): the settings file both
+	// write is not per setup, so two setups' starts must still meet at one guard.
 	var guard *workspaceLock
 	if p.Notch != "" && !p.Sealed {
-		g, gerr := o.takeHostDaemonSpawnGuard(p.Cname)
+		project := yoloruntime.FromWorkspace(p.Workspace)
+		g, gerr := o.takeHostDaemonSpawnGuard(project)
 		if gerr != nil {
-			o.pr(o.Stderr).print(hostDaemonSpawnGuardRefusal(p.Cname, gerr))
+			o.pr(o.Stderr).print(hostDaemonSpawnGuardRefusal(project, gerr))
 			return k.unwindUnstarted(1)
 		}
 		guard = g

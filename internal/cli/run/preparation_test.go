@@ -1,6 +1,7 @@
 package run
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,8 @@ func TestPreparationUpdateAttachRefusesBeforeAdvance(t *testing.T) {
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.Update = true
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-			if len(argv) > 1 && argv[1] == "ps" {
+			// The setup's jail runs; a jail under the legacy name does not (SUP-D10).
+			if len(argv) > 1 && argv[1] == "ps" && !slices.Contains(argv, "name=^/"+o.legacyJailName()+"$") {
 				return ExecResult{Ran: true, RC: 0, Stdout: "running\n"}
 			}
 			return ExecResult{Ran: true, RC: 0}

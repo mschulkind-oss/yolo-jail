@@ -152,7 +152,7 @@ func TestSharedDemandProcessHelper(t *testing.T) {
 		}
 	case "child":
 		staging := os.Getenv("YOLO_TEST_DEMAND_STAGING")
-		if err := writeForkBuildRuntime(staging, "podman"); err != nil {
+		if err := writeForkBuildRuntime(staging, "podman", ""); err != nil {
 			t.Fatal(err)
 		}
 		conn, err := net.Dial("unix", os.Getenv("YOLO_TEST_DEMAND_GATE"))

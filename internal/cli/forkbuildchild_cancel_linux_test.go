@@ -600,7 +600,7 @@ func TestCancelledForkBuildKeepsWorkspaceUntilItsDetachedKeeperStops(t *testing.
 				t.Errorf("confirmed-gone keeper marker survived safe workspace cleanup: %v", err)
 			}
 			retried = true
-			if err := writeForkBuildRuntime(workspace, "podman"); err != nil {
+			if err := writeForkBuildRuntime(workspace, "podman", ""); err != nil {
 				t.Fatalf("record retry runtime: %v", err)
 			}
 			rc := fake(run.Options{Workspace: workspace})
@@ -637,7 +637,7 @@ func TestForkBuildCancelledBuildChildFixture(t *testing.T) {
 	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeForkBuildRuntime(workspace, "podman"); err != nil {
+	if err := writeForkBuildRuntime(workspace, "podman", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "child-ready"), nil, 0o600); err != nil {

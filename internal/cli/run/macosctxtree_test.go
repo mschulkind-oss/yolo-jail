@@ -13,7 +13,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // DP-L1: the host bytes a `/ctx` mount carries on every other backend now cross on
@@ -821,7 +820,7 @@ func TestMacosUserSaysNothingAboutContextMountsNobodyDeclared(t *testing.T) {
 // cnameFromWorkspace is the container name the run pipeline derives for ws.
 func cnameFromWorkspace(t *testing.T, ws string) string {
 	t.Helper()
-	return runtime.FromWorkspace(resolvePath(ws))
+	return macosUserJailName(resolvePath(ws), macosuser.ModeAccount)
 }
 
 // containsString is a local membership test — the run package has no generic helper and

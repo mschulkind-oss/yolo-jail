@@ -58,6 +58,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -101,23 +102,54 @@ func writeForkBuildRunReturned(staging string) error {
 	return os.WriteFile(forkBuildRunReturnedPath(staging), []byte("returned\n"), 0o600)
 }
 
+// readForkBuildRuntime is the runtime staging's capture jail resolved, the record's first line.
 func readForkBuildRuntime(staging string) (string, error) {
 	data, err := os.ReadFile(forkBuildRuntimeRecordPath(staging))
 	if err != nil {
 		return "", err
 	}
-	rt := strings.TrimSpace(string(data))
+	rt, _, _ := strings.Cut(string(data), "\n")
+	rt = strings.TrimSpace(rt)
 	if rt == "" || !slices.Contains(paths.AllRuntimes, rt) {
 		return "", fmt.Errorf("invalid retained runtime %q", rt)
 	}
 	return rt, nil
 }
 
-func writeForkBuildRuntime(staging, rt string) error {
+// stagingJailName is the jail name staging's capture jail keyed its container, keeper and launch
+// lock by, from the record's second line (writeForkBuildRuntime): the name its act's setup gave it
+// (named-setups-plan.md SUP-D14), which a later process cannot re-derive, since the selection may
+// have changed since. A record an older yolo wrote has one line, and its jail was keyed by the
+// project key alone, which is the answer then; so is a staging tree with no record, whose jail
+// never resolved a runtime and so never started.
+func stagingJailName(staging string) string {
+	return stagingJailNameOr(staging, runtime.FromWorkspace(staging))
+}
+
+// stagingJailNameOr is stagingJailName with absent named for a staging tree that holds no record:
+// a build that just ran reads the name its jail recorded, and falls back to the one it predicted
+// (actJailName) only when the jail recorded none.
+func stagingJailNameOr(staging, absent string) string {
+	data, err := os.ReadFile(forkBuildRuntimeRecordPath(staging))
+	if err != nil {
+		return absent
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 2 {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(lines[1]), runtime.FromWorkspace(staging)+"-"); ok && setup.ValidName(name) {
+			return runtime.JailName(staging, name)
+		}
+	}
+	return runtime.FromWorkspace(staging)
+}
+
+// writeForkBuildRuntime records, before its backend starts, the runtime staging's capture jail
+// resolved and the jail name it keys by (stagingJailName).
+func writeForkBuildRuntime(staging, rt, cname string) error {
 	if rt == "" {
 		return errors.New("the capture jail runtime was not resolved")
 	}
-	return os.WriteFile(forkBuildRuntimeRecordPath(staging), []byte(rt+"\n"), 0o600)
+	return os.WriteFile(forkBuildRuntimeRecordPath(staging), []byte(rt+"\n"+cname+"\n"), 0o600)
 }
 
 // errForkBuildWorkspaceRetained marks a build that did not run, or whose output was not admitted,
@@ -157,7 +189,7 @@ func forkBuildWorkspaceReclaimable(staging, cname string) (func(), bool) {
 		release()
 		return nil, false
 	}
-	if run.KeeperAlive(staging) {
+	if run.KeeperAlive(cname) {
 		return fail()
 	}
 	rt, err := readForkBuildRuntime(staging)
@@ -874,7 +906,8 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	}
 	stagingID := "fork-" + b.id()
 	staging := store.StagingDir(stagingID)
-	cname := runtime.FromWorkspace(staging)
+	// A retained workspace's jail is named by its record (stagingJailName), not by this run's setup.
+	cname := stagingJailName(staging)
 	var releaseWorkspaceLaunch func()
 	workspaceLaunchHeld := false
 	defer func() {
@@ -890,7 +923,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 			return nil, forkBuildWorkspaceOwnershipError(b, staging, cname,
 				"workspace launch ownership is busy or could not be checked", "Wait for that workspace launch to finish, then retry the launch.")
 		}
-		if run.KeeperAlive(staging) {
+		if run.KeeperAlive(cname) {
 			releaseWorkspaceLaunch()
 			releaseWorkspaceLaunch = nil
 			workspaceLaunchHeld = false
@@ -900,7 +933,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		oldRuntime, runtimeErr := readForkBuildRuntime(staging)
 		// A keeper record contributes only a recognized runtime. An unsupported value is not a
 		// conflict with a valid sidecar; it is unusable provenance, and cannot become a probe target.
-		if launchedRuntime, ok := run.LaunchedRuntime(staging); ok && slices.Contains(paths.AllRuntimes, launchedRuntime) {
+		if launchedRuntime, ok := run.LaunchedRuntime(cname); ok && slices.Contains(paths.AllRuntimes, launchedRuntime) {
 			if runtimeErr == nil && oldRuntime != launchedRuntime {
 				releaseWorkspaceLaunch()
 				releaseWorkspaceLaunch = nil
@@ -946,7 +979,8 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	if err != nil {
 		return nil, err
 	}
-	cname = runtime.FromWorkspace(staging)
+	// This run's jail, under the setup its act runs as (actJailName, SUP-D14).
+	cname = actJailName(staging, mode.runtime)
 	retained := false
 	// A witness left from an earlier run must not outlive into this one: it licenses reuse of a
 	// retained workspace (the retry above) and admission (forkBuildWorkspaceReclaimable).
@@ -959,6 +993,8 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	defer func() {
 		// TIMED: the wait for the jail to be known gone, its diagnostics kept, the workspace removed.
 		defer advanceSpan(f, "cleanup").End()
+		// The jail is the one the run recorded (stagingJailNameOr), not only the one predicted.
+		cname := stagingJailNameOr(staging, cname)
 		if !*mode.retainWorkspace {
 			if !workspaceLaunchHeld {
 				release, safe := forkBuildWorkspaceReclaimable(staging, cname)
@@ -1110,7 +1146,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 				return 1
 			}
 			reclaimSp := advanceSpan(f, "reclaim")
-			release, safe := forkBuildWorkspaceReclaimable(staging, cname)
+			release, safe := forkBuildWorkspaceReclaimable(staging, stagingJailNameOr(staging, cname))
 			reclaimSp.End()
 			if !safe {
 				*mode.retainWorkspace = true
@@ -1171,7 +1207,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		recorded, _ := readForkBuildRuntime(staging)
 		return nil, forkBuildRetained{fmt.Sprintf("the build of %s finished, but its capture jail %s is not yet known gone on %s; "+
 			"its output was not admitted and its staging %s is retained. Retry the launch once that jail has stopped",
-			f.Key(), cname, runtimeLabel(recorded), staging)}
+			f.Key(), stagingJailNameOr(staging, cname), runtimeLabel(recorded), staging)}
 	}
 	toolchain, terr := os.ReadFile(filepath.Join(staging, forkToolchainLeaf))
 	var exit captureJailExit

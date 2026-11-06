@@ -95,7 +95,7 @@ func TestASIGINTWhileTheImageBuildsLeavesNoPackTree(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	cname := runtime.FromWorkspace(ws)
+	cname := runtime.JailName(ws, "podman-self")
 	// Nothing named podman is reachable, so a launch that went past the build could not start a
 	// real container.
 	t.Setenv("PATH", t.TempDir())

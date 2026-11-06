@@ -122,7 +122,7 @@ func (f sealFixture) launchStreams(t *testing.T, sealed bool) (argv []string, ws
 	// Resolved like packHome's home and dispatchOptions' repo root: every -v source is compared
 	// against it, and on darwin t.TempDir() is under a /var symlink the launch may resolve.
 	ws = floortest.ResolvedTemp(t)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")
 	// The fake runtime also notes whether the jail's host-services dir exists as its container
@@ -250,7 +250,7 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 // config copies included), and the launch's staged agents dir (pack tree, skeleton, briefings,
 // skills).
 func sealedJailReadable(ws string) []string {
-	return []string{ws, filepath.Join(paths.AgentsDir(), yoloruntime.FromWorkspace(ws))}
+	return []string{ws, filepath.Join(paths.AgentsDir(), yoloruntime.JailName(ws, "podman-self"))}
 }
 
 // grepTree reports every regular file under root whose bytes contain any needle, as
@@ -335,7 +335,7 @@ func sealWithin(dir, p string) bool {
 
 func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 	argv, ws, _, printed := sealedLaunch(t, true)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 
 	// -e: THE ALLOWLIST.
 	for _, e := range argvValues(argv, "-e") {
@@ -446,7 +446,7 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 		t.Errorf("a sealed launch's argv carries the user's own value: %s", hit)
 	}
 	// The assembled config copy is the empty object (assembledConfigFor), not the user's config.
-	if body, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws)); err != nil || strings.TrimSpace(string(body)) != "{}" {
+	if body, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws, "podman-self")); err != nil || strings.TrimSpace(string(body)) != "{}" {
 		t.Errorf("a sealed launch's assembled config copy (err %v) is not the empty object:\n%s", err, body)
 	}
 	// No MCP or LSP server (agentServerTables): a build runs no agent.
@@ -513,21 +513,21 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	// Every crossing the sealed briefing must not describe is described unsealed, with the user's
 	// agents_md_extra and the machine-wide stores, so the seal's withholding each is its doing.
 	for what, text := range sealBriefingCrossings {
-		if !stagedBriefingsHold(t, yoloruntime.FromWorkspace(ws), text) {
+		if !stagedBriefingsHold(t, yoloruntime.JailName(ws, "podman-self"), text) {
 			t.Errorf("the unsealed fixture's briefing does not describe %s (%q), so that site is unexercised", what, text)
 		}
 	}
 	for _, text := range []string{"sealtest-extra-secret", "- **Every workspace on this machine**"} {
-		if !stagedBriefingsHold(t, yoloruntime.FromWorkspace(ws), text) {
+		if !stagedBriefingsHold(t, yoloruntime.JailName(ws, "podman-self"), text) {
 			t.Errorf("the unsealed fixture's briefing does not carry %q, so that site is unexercised", text)
 		}
 	}
-	if stagedBriefingsHold(t, yoloruntime.FromWorkspace(ws), sealedNetworkLine) {
+	if stagedBriefingsHold(t, yoloruntime.JailName(ws, "podman-self"), sealedNetworkLine) {
 		t.Error("the unsealed fixture's briefing calls its jail sealed")
 	}
 	// The assembled config copy, the MCP and LSP tables and the LSP plugin cross
 	// unsealed, so a sealed launch's withholding each is the seal's doing.
-	if body, _ := os.ReadFile(config.WorkspaceAssembledConfigPath(ws)); !strings.Contains(string(body), "sealtest-secret-value") {
+	if body, _ := os.ReadFile(config.WorkspaceAssembledConfigPath(ws, "podman-self")); !strings.Contains(string(body), "sealtest-secret-value") {
 		t.Errorf("the unsealed fixture's assembled config copy carries no env_sources value:\n%s", body)
 	}
 	jail := launchedJailEnv(t, argv, ws)
@@ -536,7 +536,7 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 			t.Errorf("the unsealed fixture's %s=%s carries no %q, so that site is unexercised", name, v, secret)
 		}
 	}
-	if hits := grepTree(t, filepath.Join(paths.AgentsDir(), yoloruntime.FromWorkspace(ws)), "sealtest-lsp-secret"); len(hits) == 0 {
+	if hits := grepTree(t, filepath.Join(paths.AgentsDir(), yoloruntime.JailName(ws, "podman-self")), "sealtest-lsp-secret"); len(hits) == 0 {
 		t.Error("the unsealed fixture renders no LSP plugin from lsp_servers, so that site is unexercised")
 	}
 }

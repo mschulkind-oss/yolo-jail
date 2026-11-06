@@ -14,7 +14,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // missingTreeLaunch is a fresh launch whose patched extension, which pack agentpack loads, has no
@@ -168,7 +167,7 @@ func TestAnUnmatchedHatchNameWarnsAtAFreshLaunch(t *testing.T) {
 func TestASetHatchSaysItDoesNothingOnAnAttach(t *testing.T) {
 	patchedLaunchHome(t)
 	_, printed := fakePodmanLaunch(t, func(o *Options) {
-		cname := yoloruntime.FromWorkspace(o.Workspace)
+		cname := o.jailName()
 		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 			joined := strings.Join(argv, " ")
 			switch {

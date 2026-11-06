@@ -26,7 +26,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -159,7 +158,7 @@ func (o *Options) configApply(recordOnly bool) int {
 	if !ok {
 		return 1
 	}
-	cname := runtime.FromWorkspace(o.Workspace)
+	cname := o.jailName()
 	// THE LAUNCH LOCK, prompt included (LA-D3): a launch or attach that arrives meanwhile
 	// waits with the existing line, and this apply never interleaves with one.
 	o.holdLaunchLock(cname)
@@ -301,7 +300,7 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 		current = jsonx.NewOrderedMap()
 		run.current = current
 	}
-	boot, bootOK, _ := config.ReadWorkspaceBootBaseline(o.Workspace)
+	boot, bootOK, _ := config.ReadWorkspaceBootBaseline(o.Workspace, o.setupName())
 	in := applyPlanInput{rt: run.rt, running: run.mode.running || run.mode.unknown, boot: boot,
 		bootOK: bootOK, current: current, mountRefusal: liveMountRefusal,
 		sessionInputs: jailTakesSessionInputs(run.envLines)}
@@ -574,12 +573,12 @@ func (o *Options) foldApplied(run *applyRun, res []applyChange) []foldedAppliedK
 		value, present, err := config.ConfigValueAtPath(run.current, k)
 		if err != nil {
 			o.pr(o.Stderr).printf("[dim]Warning: could not read applied config path %s before folding it into %s: %s; `yolo config apply` can retry it.[/dim]",
-				k, config.WorkspaceConfigBootPath(o.Workspace), richtext.Escape(err.Error()))
+				k, config.WorkspaceConfigBootPath(o.Workspace, o.setupName()), richtext.Escape(err.Error()))
 			continue
 		}
-		if err := config.FoldBootBaselineKey(o.Workspace, k, run.current); err != nil {
+		if err := config.FoldBootBaselineKey(o.Workspace, o.setupName(), k, run.current); err != nil {
 			o.pr(o.Stderr).printf("[dim]Warning: could not record %s as applied in %s: %s; `yolo config "+
-				"drift` will still list it.[/dim]", k, config.WorkspaceConfigBootPath(o.Workspace),
+				"drift` will still list it.[/dim]", k, config.WorkspaceConfigBootPath(o.Workspace, o.setupName()),
 				richtext.Escape(err.Error()))
 			continue
 		}
@@ -621,7 +620,7 @@ func (o *Options) applyAtAttach(cname, rt string, cfg *jsonx.OrderedMap, envLine
 // from it, config part or scope part, or the host's record of the jail's mounts differs from the
 // mounts the config now binds (a read-write one is the user scope's, which neither record holds).
 func (o *Options) configChangesPending(rt, cname string, cfg *jsonx.OrderedMap, envLines []string) bool {
-	if _, drifted, _, err := config.WorkspaceConfigDrift(o.Workspace); err == nil && drifted {
+	if _, drifted, _, err := config.WorkspaceConfigDrift(o.Workspace, o.setupName()); err == nil && drifted {
 		return true
 	}
 	if rt == "podman" { // parity: NotApplicable — only a podman jail has the host's record of its mounts

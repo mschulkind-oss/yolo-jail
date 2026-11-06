@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -48,6 +49,19 @@ func TestNamedSetupsHaveDistinctHomes(t *testing.T) {
 		}
 		if _, err := os.Lstat(paths.LegacyHomeState(dir)); !os.IsNotExist(err) {
 			t.Errorf("a launch made the legacy home %s (err %v)", paths.LegacyHomeState(dir), err)
+		}
+		// Each setup's launch records are its own (slice 6a-iii, SUP-D37): the boot baseline and
+		// the assembled config sit beside its home, and nothing writes the legacy workspace-wide
+		// spelling.
+		for name := range homes {
+			for _, rec := range []string{config.WorkspaceConfigBootPath(dir, name), config.WorkspaceAssembledConfigPath(dir, name)} {
+				if _, err := os.Stat(rec); err != nil {
+					t.Errorf("the %s launch wrote no %s: %v", name, rec, err)
+				}
+			}
+		}
+		if _, err := os.Lstat(config.LegacyConfigBootPath(dir)); !os.IsNotExist(err) {
+			t.Errorf("a launch wrote the legacy boot baseline %s (err %v)", config.LegacyConfigBootPath(dir), err)
 		}
 	})
 

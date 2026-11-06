@@ -18,7 +18,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // liveapply_test.go pins `yolo config apply` and the attach-time gate
@@ -61,7 +60,7 @@ func applyFixture(t *testing.T, bootConfig, wsConfig string, jail applyJail) (*O
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := config.WriteWorkspaceBootBaseline(ws, boot); err != nil {
+		if _, err := config.WriteWorkspaceBootBaseline(ws, "podman-self", boot); err != nil {
 			t.Fatal(err)
 		}
 		if err := config.RecordApproval(ws, boot, nil); err != nil {
@@ -129,6 +128,7 @@ func TestConfigApplyRefusesInAJail(t *testing.T) {
 	}
 	t.Setenv("YOLO_VERSION", "9.9.9")
 	t.Setenv("YOLO_WORKSPACE", o.Workspace)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	before, _ := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace))
 	answer(o, "y")
 	if rc := o.configApply(false); rc != 1 {
@@ -157,6 +157,7 @@ func TestConfigApplyInAJailServesANestedWorkspace(t *testing.T) {
 	}
 	t.Setenv("YOLO_VERSION", "9.9.9")
 	t.Setenv("YOLO_WORKSPACE", "/workspace")
+	t.Setenv("YOLO_SETUP", "podman-self")
 	answer(o, "y")
 	if rc := o.configApply(false); rc == 1 {
 		t.Fatalf("rc = 1, want the nested workspace's apply to run:\n%s", buf.String())
@@ -198,7 +199,7 @@ func TestConfigApplyRecordsWhatALaunchsGateRecords(t *testing.T) {
 func TestConfigApplyDeclineRecordsNothing(t *testing.T) {
 	o, buf := applyFixture(t, `{}`, `{"packages":["jq"]}`, applyJail{running: true})
 	before, _ := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace))
-	bootBefore, _ := os.ReadFile(config.WorkspaceConfigBootPath(o.Workspace))
+	bootBefore, _ := os.ReadFile(config.WorkspaceConfigBootPath(o.Workspace, "podman-self"))
 	answer(o, "n")
 	if rc := o.configApply(false); rc != 1 {
 		t.Fatalf("rc = %d, want 1\n%s", rc, buf.String())
@@ -206,7 +207,7 @@ func TestConfigApplyDeclineRecordsNothing(t *testing.T) {
 	if now, _ := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace)); !bytes.Equal(before, now) {
 		t.Error("a declined apply rewrote the approval record")
 	}
-	if now, _ := os.ReadFile(config.WorkspaceConfigBootPath(o.Workspace)); !bytes.Equal(bootBefore, now) {
+	if now, _ := os.ReadFile(config.WorkspaceConfigBootPath(o.Workspace, "podman-self")); !bytes.Equal(bootBefore, now) {
 		t.Error("a declined apply folded a change into the effective-config record")
 	}
 	if !strings.Contains(buf.String(), "nothing was recorded") {
@@ -240,7 +241,7 @@ func TestConfigApplyNetworkPortsWaitsForRestart(t *testing.T) {
 		strings.Count(out, "[y/N]") > 1 {
 		t.Errorf("the command offered a restart:\n%s", out)
 	}
-	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace); !drifted {
+	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); !drifted {
 		t.Error("a restart-only key was folded into the effective-config record")
 	}
 }
@@ -256,7 +257,7 @@ func TestConfigApplyFoldsANextSessionKey(t *testing.T) {
 	if !strings.Contains(buf.String(), "agents_md_extra: from your next yolo session") {
 		t.Errorf("no next-session line:\n%s", buf.String())
 	}
-	if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace); err != nil || !ok || drifted {
+	if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); err != nil || !ok || drifted {
 		t.Errorf("after the apply the record must match the workspace: drifted=%v ok=%v err=%v", drifted, ok, err)
 	}
 }
@@ -285,7 +286,7 @@ func TestConfigApplySessionInputsReachTheNextSession(t *testing.T) {
 			if !strings.Contains(buf.String(), c.key+": from your next yolo session") {
 				t.Errorf("no next-session line for %s:\n%s", c.key, buf.String())
 			}
-			if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace); err != nil || !ok || drifted {
+			if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); err != nil || !ok || drifted {
 				t.Errorf("a next-session input was not folded: drifted=%v ok=%v err=%v", drifted, ok, err)
 			}
 
@@ -317,7 +318,7 @@ func TestConfigApplyFoldsAMiseChangeWithoutAPendingPackageChange(t *testing.T) {
 		!strings.Contains(out, "install.nix: at next restart") {
 		t.Errorf("want a next-session mise line and a restart package line:\n%s", out)
 	}
-	boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace)
+	boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace, "podman-self")
 	if err != nil || !ok {
 		t.Fatalf("no effective-config record: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestConfigApplyRestoresTheInvalidatedMountRecordThroughRealApply(t *testing
 			o, buf := applyFixture(t, boot, current, applyJail{running: true, env: env})
 			o.PathExists = func(string) bool { return false }
 			answeringPodman(o, rootlessInfo)
-			cname := runtime.FromWorkspace(o.Workspace)
+			cname := o.jailName()
 			if err := writeCtxMountRecord(cname, token, initial); err != nil {
 				t.Fatal(err)
 			}
@@ -568,7 +569,7 @@ func TestConfigApplyRestoresTheInvalidatedMountRecordThroughRealApply(t *testing
 				if !slices.Equal(mounted, want) {
 					t.Fatalf("mock namespace mounts = %+v; want %+v", mounted, want)
 				}
-				if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace); err != nil || !ok || drifted {
+				if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); err != nil || !ok || drifted {
 					t.Fatalf("successful mount change was not folded: drifted=%v ok=%v err=%v", drifted, ok, err)
 				}
 			}
@@ -613,7 +614,7 @@ func TestConfigApplyInjectsALiveMount(t *testing.T) {
 	if !strings.Contains(buf.String(), "(read-only): applied now") {
 		t.Errorf("no applied-now line:\n%s", buf.String())
 	}
-	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace); drifted {
+	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); drifted {
 		t.Error("the applied mounts key was not folded")
 	}
 }
@@ -629,7 +630,7 @@ func TestConfigApplyFilesystemRecordRestoreFailureKeepsRemovalPending(t *testing
 	o, buf := applyFixture(t, `{}`, `{"mounts":["`+src+`"]}`, applyJail{running: true, env: env})
 	o.PathExists = func(string) bool { return false }
 	answeringPodman(o, rootlessInfo)
-	cname := runtime.FromWorkspace(o.Workspace)
+	cname := o.jailName()
 	if err := writeCtxMountRecord(cname, token, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +679,7 @@ func TestConfigApplyFilesystemRecordRestoreFailureKeepsRemovalPending(t *testing
 			t.Errorf("record failure output does not contain %q:\n%s", want, out)
 		}
 	}
-	if _, drifted, _, err := config.WorkspaceConfigDrift(o.Workspace); err != nil || !drifted {
+	if _, drifted, _, err := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); err != nil || !drifted {
 		t.Fatalf("failed record update was folded: drifted=%v err=%v", drifted, err)
 	}
 
@@ -731,7 +732,7 @@ func TestConfigApplyRecordFailureInvalidatesMountStateAndKeepsRemovalPending(t *
 	if injected != 1 || invalidated != 2 {
 		t.Fatalf("injections %d, invalidations %d; want one injection and invalidation before and after the failed record write", injected, invalidated)
 	}
-	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace); !drifted {
+	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); !drifted {
 		t.Fatal("a mount whose record failed was folded as applied")
 	}
 	if !strings.Contains(buf.String(), "record disk is full") || !strings.Contains(buf.String(), "at next restart") {
@@ -809,7 +810,7 @@ func TestConfigApplyAFailedOrSlowMountStaysPending(t *testing.T) {
 			if !strings.Contains(out, "at next restart") || !strings.Contains(out, c.want) {
 				t.Errorf("want at next restart naming %q:\n%s", c.want, out)
 			}
-			if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace); !drifted {
+			if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); !drifted {
 				t.Error("a key with a failed element was folded")
 			}
 		})
@@ -836,7 +837,7 @@ func TestConfigApplyDisclosesAReadWriteMount(t *testing.T) {
 // what the gate approved, on each file, and says applied now.
 func TestConfigApplyReplacesTheLiveScope(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
-	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, jsonx.NewOrderedMap()); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", jsonx.NewOrderedMap()); err != nil {
 		t.Fatal(err)
 	}
 	writeUserConfigOf(t, gbOn())
@@ -875,7 +876,7 @@ func TestConfigApplyReplacesTheLiveScope(t *testing.T) {
 // old spelling admitted.
 func TestConfigApplyReplacesACaseOnlyRemoteURLChange(t *testing.T) {
 	o, buf, _ := brokeredFixtureOn(t, true, "*")
-	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, jsonx.NewOrderedMap()); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", jsonx.NewOrderedMap()); err != nil {
 		t.Fatal(err)
 	}
 	writeUserConfigOf(t, gbOn())
@@ -909,7 +910,7 @@ func TestConfigApplyReplacesACaseOnlyRemoteURLChange(t *testing.T) {
 // scope change, named on its line, and the seam writes the approved grants.
 func TestConfigApplyReplacesGrants(t *testing.T) {
 	o, buf, _ := brokeredFixtureGrants(t)
-	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, jsonx.NewOrderedMap()); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", jsonx.NewOrderedMap()); err != nil {
 		t.Fatal(err)
 	}
 	user := gbOn()
@@ -956,7 +957,7 @@ func TestConfigApplyReplacesGrants(t *testing.T) {
 // A broker that cannot take live scope: recorded, at next restart.
 func TestConfigApplyScopeOnAnOldBrokerWaits(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
-	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, jsonx.NewOrderedMap()); err != nil {
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", jsonx.NewOrderedMap()); err != nil {
 		t.Fatal(err)
 	}
 	writeUserConfigOf(t, gbOn())

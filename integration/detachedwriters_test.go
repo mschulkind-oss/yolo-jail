@@ -86,8 +86,13 @@ func awaitDetachedWriters(t *testing.T, dir, home string) {
 	t.Helper()
 	sweep := home != "" && hostHome != "" && home != hostHome
 	t.Cleanup(func() {
-		if err := run.WaitForKeeper(dir, detachedWriterWait); err != nil {
-			t.Errorf("%v: its teardown would land in the middle of this test's temp-dir cleanup", err)
+		// Every name a jail of dir may run under: the test's launch may have selected any setup.
+		kept := false
+		for _, cname := range jailNamesOf(dir) {
+			if err := run.WaitForKeeper(cname, detachedWriterWait); err != nil {
+				t.Errorf("%v: its teardown would land in the middle of this test's temp-dir cleanup", err)
+			}
+			kept = kept || run.KeeperAlive(cname)
 		}
 		// NOT WHILE THE JAIL IS STILL KEPT for a session: WaitForKeeper returns at once then, and
 		// the jail's host daemons are rightly alive. That session's own launch registered its
@@ -95,7 +100,7 @@ func awaitDetachedWriters(t *testing.T, dir, home string) {
 		// the home then. Measured: TestAttachDeliversTheSelectedProfile's attach cleanup ran
 		// before the release of the background session it attached to, and reported that
 		// session's live daemons as stragglers.
-		if sweep && !run.KeeperAlive(dir) {
+		if sweep && !kept {
 			// The launch's own host daemons, SIGTERMed by its end and left to finish (HD-R1's
 			// detach): waited for, never stopped by name (homedaemons_test.go).
 			if left := awaitHomeHostDaemons(home, homeDaemonBound); len(left) > 0 {

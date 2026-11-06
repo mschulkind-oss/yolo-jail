@@ -78,6 +78,15 @@ func (o *Options) armLaunchRecord() {
 	o.launchRecord = &launchRecord{start: o.Now(), cname: runtime.FromWorkspace(o.Workspace)}
 }
 
+// keyLaunchRecord names the launch line's jail once the setup is resolved: a launch refused
+// before then is named by the project key, one past it by its setup-qualified jail name
+// (jailname.go).
+func (o *Options) keyLaunchRecord(cname string) {
+	if o.launchRecord != nil {
+		o.launchRecord.cname = cname
+	}
+}
+
 // recordLaunchOutcome writes this launch's line, the first time it is called; every later call
 // is a no-op. rc < 0 writes no exit code (the launch is still running).
 func (o *Options) recordLaunchOutcome(outcome string, rc int) {

@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestPodmanHomeIsAPerJailReadOnlySkeleton asserts, from INSIDE a real container, what the
@@ -93,7 +91,7 @@ echo "SEARCH done"
 		}
 		t.Logf("probe output:\n%s", r.stdout)
 
-		cname := naming.FromWorkspace(dir)
+		cname := jailName(dir)
 		var mount string
 		for l := range lines {
 			if strings.HasPrefix(l, "HOMEMOUNT ") {

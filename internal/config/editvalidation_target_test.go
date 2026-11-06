@@ -201,6 +201,7 @@ func TestResolveEditTargetUsesAuthoredFilesBehindAssembledSnapshot(t *testing.T)
 	t.Setenv("HOME", home)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_WORKSPACE", workspace)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	user := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName)
 	project := filepath.Join(workspace, paths.WorkspaceConfigTOMLName)
 	writeTargetFixture(t, user, "[allow.git]\nalways = ['fetch']\n")
@@ -209,13 +210,13 @@ func TestResolveEditTargetUsesAuthoredFilesBehindAssembledSnapshot(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(WorkspaceAssembledConfigPath(workspace)), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(WorkspaceAssembledConfigPath(workspace, "podman-self")), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteAssembledConfig(workspace, assembled); err != nil {
+	if err := WriteAssembledConfig(workspace, "podman-self", assembled); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteAssembledOrigins(workspace, assembled, sources); err != nil {
+	if err := WriteAssembledOrigins(workspace, "podman-self", assembled, sources); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("YOLO_VERSION", "test-jail")
@@ -231,7 +232,7 @@ func TestResolveEditTargetUsesAuthoredFilesBehindAssembledSnapshot(t *testing.T)
 	if err != nil || userTarget.LogicalPath != user || userTarget.Role != ExplicitEditUser {
 		t.Fatalf("authored User target = (%#v, %v), want %s/User", userTarget, err, user)
 	}
-	if _, err := ResolveEditTarget(workspace, cpus, EditTargetChoice{Kind: EditTargetFile, File: WorkspaceAssembledConfigPath(workspace)}); err == nil || !strings.Contains(err.Error(), "not consumed") {
+	if _, err := ResolveEditTarget(workspace, cpus, EditTargetChoice{Kind: EditTargetFile, File: WorkspaceAssembledConfigPath(workspace, "podman-self")}); err == nil || !strings.Contains(err.Error(), "not consumed") {
 		t.Fatalf("delivered assembled copy was accepted as a named writable file: %v", err)
 	}
 	if err := os.Remove(project); err != nil {

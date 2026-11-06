@@ -25,21 +25,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// WorkspaceConfigBootPath is <workspace>/.yolo/config-boot.json — the frozen
-// workspace config a jail was built from. Beside config-assembled.json, but distinct:
-// that file is the merged (user+workspace) config and is rewritten every launch;
-// this is workspace-only and written once per fresh launch.
-func WorkspaceConfigBootPath(workspace string) string {
-	if workspace == "" {
-		workspace = cwd()
-	}
-	return filepath.Join(workspace, ".yolo", "config-boot.json")
+// WorkspaceConfigBootPath is <workspace>/.yolo/setups/<setup>/config-boot.json — the frozen
+// workspace config the setup's jail was built from (setupstate.go; setupName "" is this
+// session's setup). Beside config-assembled.json, but distinct: that file is the merged
+// (user+workspace) config and is rewritten every launch; this is workspace-only and written once
+// per fresh launch.
+func WorkspaceConfigBootPath(workspace, setupName string) string {
+	return setupRecordPath(workspace, setupName, bootBaselineLeaf)
 }
 
 // WriteWorkspaceBootBaseline freezes the workspace-only config as canonical snapshot
@@ -51,12 +48,12 @@ func WorkspaceConfigBootPath(workspace string) string {
 // It returns the baseline's digest (baselineDigest), for a launch to hand its session in
 // BootBaselineDigestEnv. A container launch ignores it; see that constant for the backend
 // that needs it.
-func WriteWorkspaceBootBaseline(workspace string, wsCfg *jsonx.OrderedMap) (string, error) {
+func WriteWorkspaceBootBaseline(workspace, setupName string, wsCfg *jsonx.OrderedMap) (string, error) {
 	j, err := SnapshotJSON(wsCfg)
 	if err != nil {
 		return "", err
 	}
-	if err := writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), j); err != nil {
+	if err := writeSetupRecord(workspace, setupName, bootBaselineLeaf, j); err != nil {
 		return "", err
 	}
 	return baselineDigest(j), nil
@@ -93,6 +90,7 @@ func baselineDigest(canonical string) string {
 //
 //   - No baseline (a jail started before this feature, or config-boot.json removed):
 //     ok=false, so a caller can say "cannot determine drift" rather than "no drift".
+//   - setupName "" in a session whose launch named no setup: ok=false and ErrNoSessionSetup.
 //   - A baseline a later launch of this workspace wrote, in a session that carries its own
 //     baseline's digest (BootBaselineDigestEnv): ok=false and ErrBaselineReplaced.
 //   - Baseline present, live config equal: hasDrift=false, no diff lines.
@@ -102,13 +100,13 @@ func baselineDigest(canonical string) string {
 // formatting — so cosmetic reordering or whitespace in the source file is not drift;
 // only a real value/structure change is. List order (the order that matters) is
 // preserved by the canonical form.
-func WorkspaceConfigDrift(workspace string) (diffLines []string, hasDrift, ok bool, err error) {
+func WorkspaceConfigDrift(workspace, setupName string) (diffLines []string, hasDrift, ok bool, err error) {
 	if workspace == "" {
 		workspace = cwd()
 	}
-	baselineBytes, readErr := os.ReadFile(WorkspaceConfigBootPath(workspace))
+	baselineBytes, readErr := readSetupRecord(workspace, setupName, bootBaselineLeaf)
 	if readErr != nil {
-		if os.IsNotExist(readErr) {
+		if isNotExist(readErr) {
 			return nil, false, false, nil
 		}
 		return nil, false, false, readErr
@@ -143,27 +141,29 @@ func WorkspaceConfigDrift(workspace string) (diffLines []string, hasDrift, ok bo
 
 // ReadWorkspaceBootBaseline reads the effective-config record, WorkspaceConfigBootPath, as a
 // map. ok is false when there is none (a jail launched before baselines, or the file removed).
+// setupName "" reads this session's setup's, and is ErrNoSessionSetup in a session that names
+// none.
 //
 // THE RECORD IS THE CONFIG A RUNNING JAIL HAS, not only the one it booted with
 // (docs/design/live-config-apply.md LA-D8): `yolo config apply` folds each changed canonical path
 // it applied live into it, one dotted path at a time (FoldBootBaselineKey), so drift against it is
 // exactly what is still pending. It stays a convenience in the agent-writable workspace; the
 // approval record is the trust, and nothing reads this one to decide what to admit.
-func ReadWorkspaceBootBaseline(workspace string) (*jsonx.OrderedMap, bool, error) {
-	data, err := os.ReadFile(WorkspaceConfigBootPath(workspace))
+func ReadWorkspaceBootBaseline(workspace, setupName string) (*jsonx.OrderedMap, bool, error) {
+	data, err := readSetupRecord(workspace, setupName, bootBaselineLeaf)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if isNotExist(err) {
 			return nil, false, nil
 		}
 		return nil, false, err
 	}
 	v, err := jsonx.Decode(data)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: %w", WorkspaceConfigBootPath(workspace), err)
+		return nil, false, fmt.Errorf("%s: %w", WorkspaceConfigBootPath(workspace, setupName), err)
 	}
 	m, ok := v.(*jsonx.OrderedMap)
 	if !ok {
-		return nil, false, fmt.Errorf("%s: not a JSON object", WorkspaceConfigBootPath(workspace))
+		return nil, false, fmt.Errorf("%s: not a JSON object", WorkspaceConfigBootPath(workspace, setupName))
 	}
 	return m, true, nil
 }
@@ -255,18 +255,18 @@ func deleteCanonicalConfigPath(root *jsonx.OrderedMap, parts []string) {
 //
 // It refuses when there is no record: a fold would otherwise create a baseline holding one path,
 // and drift would then report every other path as a change the jail never had.
-func FoldBootBaselineKey(workspace, key string, current *jsonx.OrderedMap) error {
+func FoldBootBaselineKey(workspace, setupName, key string, current *jsonx.OrderedMap) error {
 	parts, err := canonicalConfigPathParts(key)
 	if err != nil {
 		return err
 	}
-	boot, ok, err := ReadWorkspaceBootBaseline(workspace)
+	boot, ok, err := ReadWorkspaceBootBaseline(workspace, setupName)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return fmt.Errorf("%s does not exist, so there is no record to fold %s into",
-			WorkspaceConfigBootPath(workspace), key)
+			WorkspaceConfigBootPath(workspace, setupName), key)
 	}
 	value, present, err := ConfigValueAtPath(current, key)
 	if err != nil {
@@ -283,7 +283,7 @@ func FoldBootBaselineKey(workspace, key string, current *jsonx.OrderedMap) error
 	if err != nil {
 		return err
 	}
-	return writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), j)
+	return writeSetupRecord(workspace, setupName, bootBaselineLeaf, j)
 }
 
 // ConfigPartChanged reports whether the workspace config part of the approval record differs

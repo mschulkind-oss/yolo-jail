@@ -16,7 +16,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -142,7 +141,7 @@ func (fx githubBrokerFixture) recordScope(t *testing.T, want string) {
 		t.Fatalf("yolo check --accept-config-changes did not record %q:\nrc %d\n%s", line, r.rc, r.combined())
 	}
 	if r.rc != 0 {
-		own, foreign := foreignJailFails(r.stdout, naming.FromWorkspace(fx.dir))
+		own, foreign := foreignJailFails(r.stdout, jailName(fx.dir))
 		if r.rc != 1 || len(own) > 0 || len(foreign) == 0 {
 			t.Fatalf("yolo check --accept-config-changes recorded the scope and then exited %d:\n%s",
 				r.rc, r.combined())
@@ -514,7 +513,7 @@ func TestGitHubBrokerRecordsTheScopeBesideAnotherWorkspacesJail(t *testing.T) {
 		}
 	}
 	if r.rc != 0 {
-		own, others := foreignJailFails(r.stdout, naming.FromWorkspace(fx.dir))
+		own, others := foreignJailFails(r.stdout, jailName(fx.dir))
 		if r.rc != 1 || len(own) > 0 || len(others) == 0 {
 			t.Fatalf("expected rc 0, got %d\n%s", r.rc, out)
 		}

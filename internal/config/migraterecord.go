@@ -188,12 +188,12 @@ func BootBaselinePart(workspace string) (string, error) {
 	return SnapshotJSON(cfg)
 }
 
-// ReadBootBaseline returns the workspace's boot baseline as WorkspaceConfigDrift compares it
-// (trailing whitespace stripped), and whether one exists.
-func ReadBootBaseline(workspace string) (string, bool, error) {
-	data, err := os.ReadFile(WorkspaceConfigBootPath(workspace))
+// ReadBootBaseline returns setupName's boot baseline in workspace as WorkspaceConfigDrift
+// compares it (trailing whitespace stripped), and whether one exists.
+func ReadBootBaseline(workspace, setupName string) (string, bool, error) {
+	data, err := readSetupRecord(workspace, setupName, bootBaselineLeaf)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if isNotExist(err) {
 			return "", false, nil
 		}
 		return "", false, err
@@ -201,8 +201,8 @@ func ReadBootBaseline(workspace string) (string, bool, error) {
 	return pyRstrip(string(data)), true, nil
 }
 
-// WriteBootBaseline replaces the workspace's boot baseline with part, beneath the root on its
-// `.yolo` exactly as a launch writes it (writeWorkspaceSnapshot).
-func WriteBootBaseline(workspace, part string) error {
-	return writeWorkspaceSnapshot(workspace, WorkspaceConfigBootPath(workspace), part)
+// WriteBootBaseline replaces setupName's boot baseline in workspace with part, through no link,
+// exactly as a launch writes it (WriteWorkspaceBootBaseline).
+func WriteBootBaseline(workspace, setupName, part string) error {
+	return writeSetupRecord(workspace, setupName, bootBaselineLeaf, part)
 }

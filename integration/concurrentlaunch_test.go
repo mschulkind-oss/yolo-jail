@@ -198,7 +198,7 @@ func lockIsHeld(t *testing.T, lockPath string) bool {
 // first, the profile test again in the second, and each passing when run alone.
 func awaitLaunchLockReleased(t *testing.T, dir string, first *bgRun) {
 	t.Helper()
-	lockPath := filepath.Join(paths.GlobalStorage(), "locks", naming.FromWorkspace(dir)+".lock")
+	lockPath := filepath.Join(paths.GlobalStorage(), "locks", jailName(dir)+".lock")
 	deadline := time.Now().Add(jailTimeout())
 	for lockIsHeld(t, lockPath) {
 		select {
@@ -239,7 +239,7 @@ func TestConcurrentLaunchesInOneWorkspace(t *testing.T) {
 	// the launcher's serialisation, and every second of provisioning it can avoid is a
 	// second off both launches.
 	dir := writeProject(t, `{}`)
-	cname := naming.FromWorkspace(dir)
+	cname := jailName(dir)
 	lockPath := filepath.Join(paths.GlobalStorage(), "locks", cname+".lock")
 
 	// Take the workspace launch lock from THIS process before either launch starts. The locks

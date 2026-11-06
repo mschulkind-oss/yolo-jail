@@ -359,3 +359,29 @@ func TestAToolDiskWhoseWorkspaceIsReachedThroughALinkIsLive(t *testing.T) {
 		t.Errorf("state %v (%s), want live", st, why)
 	}
 }
+
+// A SETUP'S TOOL DISK IS ITS WORKSPACE'S (named-setups-plan.md SUP-D2): the disk of a jail named
+// by its workspace and setup is attributed to the workspace its label names, so it is kept while
+// the workspace is there and reclaimed once it is gone. Reading only the legacy name would leave
+// every setup's disk unattributed, kept forever.
+func TestASetupsToolDiskIsAttributedToItsWorkspace(t *testing.T) {
+	liveWS := t.TempDir()
+	goneWS := filepath.Join(t.TempDir(), "deleted-project")
+	live := MiseVolumeName(runtime.FromResolved(liveWS) + "-apple-container-self")
+	gone := MiseVolumeName(runtime.FromResolved(goneWS) + "-apple-container-self")
+	fake := &volumeFake{listOK: true, listing: acVolumeListing(t,
+		acVolume(live, liveWS), acVolume(gone, goneWS))}
+	vols, known := ListMiseVolumes("container", fake.run)
+	if !known {
+		t.Fatal("a listing that answered read as could-not-ask")
+	}
+	want := map[string]MiseVolumeState{live: MiseVolumeLive, gone: MiseVolumeWorkspaceGone}
+	for _, v := range vols {
+		if got, why := v.State(); got != want[v.Name] {
+			t.Errorf("%s: state %v (%s), want %v", v.Name, got, why, want[v.Name])
+		}
+	}
+	if len(vols) != len(want) {
+		t.Errorf("listed %d disks, want %d", len(vols), len(want))
+	}
+}

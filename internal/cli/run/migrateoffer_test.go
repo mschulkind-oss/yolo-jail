@@ -16,7 +16,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 type offerLaunch struct {
@@ -170,7 +169,7 @@ func TestConvertLaterSilencesTheOffer(t *testing.T) {
 func TestAnAttachIsNotOfferedTheConversion(t *testing.T) {
 	var held *os.File
 	l := runOfferLaunchWith(t, oldUserConfig, true, "y\n", func(o *Options) {
-		live, err := holdLivenessLock(yoloruntime.FromWorkspace(o.Workspace))
+		live, err := holdLivenessLock(o.jailName())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,7 +190,7 @@ func TestANeverAttachLaunchIsOfferedBesideARunningJail(t *testing.T) {
 	var held *os.File
 	l := runOfferLaunchWith(t, oldUserConfig, true, "n\n", func(o *Options) {
 		o.NeverAttach = true
-		live, err := holdLivenessLock(yoloruntime.FromWorkspace(o.Workspace))
+		live, err := holdLivenessLock(o.jailName())
 		if err != nil {
 			t.Fatal(err)
 		}

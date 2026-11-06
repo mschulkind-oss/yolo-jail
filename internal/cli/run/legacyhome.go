@@ -267,17 +267,18 @@ var legacyHomeAccountUID = macosuser.SandboxUID
 // launch binds (o.homeState). Run calls it once every launch gate has passed, before anything reads or
 // prepares a home. It never refuses the launch.
 //
-// WHILE A LEGACY HOME IS IN PLACE it decides under the workspace launch lock, which the launch then
-// holds until its arm lets go of it once its jail is up and answers the probe (6a-ii review m2).
-// Without it, a launch could decide to keep the legacy home because a jail ran, the jail could
-// stop, and a second launch could move the home before the first bound it, so the first would
-// recreate an empty .yolo/home and start on it. Once the home has moved this takes no lock, so
-// only the launches that might move it wait.
+// WHILE A LEGACY HOME IS IN PLACE it decides under the PROJECT lock (holdHomeLock), the launch
+// lock file of the project key that every jail of the workspace was keyed by before
+// setup-qualified names (named-setups-plan.md SUP-D36). The launch holds it, beside its own jail's
+// launch lock, until its jail is up and answers the probe (releaseHomeLock), so a launch of another
+// setup the legacy home is attributed to cannot move it between this launch's decision and its
+// bind (6a-ii review m2): without it, the first would recreate an empty .yolo/home and start on
+// it. Once the home has moved this takes no lock, so only the launches that might move it wait.
 func (o *Options) selectHome() {
 	o.homeState = ""
 	legacy := paths.LegacyHomeState(o.Workspace)
 	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
-		o.holdLaunchLock(yoloruntime.FromWorkspace(o.Workspace))
+		o.holdHomeLock()
 		r := legacyHomeRequest{
 			Workspace:          o.Workspace,
 			Setup:              o.Setup,
@@ -342,33 +343,70 @@ func HomeFor(workspace string, s setup.Setup) string {
 	return o.currentHome()
 }
 
-// projectJails asks whether any jail of the workspace runs, three ways, because a jail can run
-// with any one of them silent (6a-ii review M1):
+// projectJails asks whether any jail of the workspace runs (jailRuns, for each of its names): the
+// legacy name an older yolo keyed every setup by, and the jail name of every setup with state under
+// .yolo/setups, the selected one's included (projectJailNames). Any one running is running; any one
+// that could not be asked is unknown, which the move reads as running.
+func (o *Options) projectJails() projectJails {
+	answer := projectJailsStopped
+	for _, cname := range o.projectJailNames() {
+		switch j, _ := o.jailRuns(cname); j {
+		case projectJailsRunning:
+			return projectJailsRunning
+		case projectJailsUnknown:
+			answer = projectJailsUnknown
+		}
+	}
+	return answer
+}
+
+// projectJailNames is every name a jail of the workspace can run under: the legacy name, the
+// selected setup's, and that of every setup with a directory under .yolo/setups. A launch makes
+// its setup's directory before its jail starts (ensureSetupState), so a jail this yolo started
+// always has one; the legacy name covers every jail an older yolo started. A directory whose name
+// is not a valid setup name is no setup's and names no jail.
+func (o *Options) projectJailNames() []string {
+	names := []string{o.legacyJailName()}
+	seen := map[string]bool{names[0]: true}
+	add := func(setupName string) {
+		if !setup.ValidName(setupName) {
+			return
+		}
+		if n := yoloruntime.JailName(o.Workspace, setupName); !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	add(o.Setup.Name)
+	for _, name := range paths.SetupStateNames(o.Workspace) {
+		add(name)
+	}
+	return names
+}
+
+// jailRuns asks whether a jail runs under cname, three ways, because a jail can run with any one
+// of them silent (6a-ii review M1):
 //
 //   - the keeper of its container, and of its macos-user and guest sessions (probeKeeper);
 //   - a live session record under any of those keys, kept or not (liveKeyedSessions): a keeperless
 //     macos-user session (JL-D42) holds no keeper lock, only its record;
-//   - a container of the workspace's name in each container runtime on PATH
-//     (probeExistingContainer, SUP-D10's probe): a jail whose keeper died, or one a yolo from before
-//     keepers started, has neither of the others.
+//   - a container of the name in each container runtime on PATH (probeExistingContainer,
+//     SUP-D10's probe): a jail whose keeper died, or one a yolo from before keepers started, has
+//     neither of the others.
 //
-// Any one found is running; any one that could not be asked is unknown, which the move reads as
-// running. A runtime not on PATH runs no jail, so it is not asked.
-//
-// The names are the workspace's one jail name (runtime.FromWorkspace), because jail names are not
-// setup-qualified yet (named-setups-plan.md SUP-D32): every setup of a project is keyed there.
-func (o *Options) projectJails() projectJails {
-	cname := yoloruntime.FromWorkspace(o.Workspace)
-	answer := projectJailsStopped
+// how names what answered running (a runtime's name, "keeper" or "session"), for a refusal to name
+// the stop. A runtime not on PATH runs no jail, so it is not asked.
+func (o *Options) jailRuns(cname string) (answer projectJails, how string) {
+	answer = projectJailsStopped
 	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
 		switch probeKeeper(key) {
 		case keeperAlive:
-			return projectJailsRunning
+			return projectJailsRunning, "keeper"
 		case keeperUnknown:
 			answer = projectJailsUnknown
 		}
 		if len(liveKeyedSessions(key)) > 0 {
-			return projectJailsRunning
+			return projectJailsRunning, "session"
 		}
 	}
 	for _, rt := range projectContainerRuntimes {
@@ -377,12 +415,12 @@ func (o *Options) projectJails() projectJails {
 		}
 		switch id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); {
 		case id != "":
-			return projectJailsRunning
+			return projectJailsRunning, rt
 		case !known:
 			answer = projectJailsUnknown
 		}
 	}
-	return answer
+	return answer, ""
 }
 
 // projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's

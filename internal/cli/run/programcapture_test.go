@@ -18,7 +18,7 @@ func TestSelectedOrdinaryEmptyPackSealActualRuntimeInputs(t *testing.T) {
 	fixture := sealCrossingsFixture
 	fixture.only = []string{}
 	argv, ws, _, printed := fixture.launch(t, true)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	for _, pair := range argvValues(argv, "-e") {
 		name, _, _ := strings.Cut(pair, "=")
 		if !sealedEnvAllowlist[name] {
@@ -40,7 +40,7 @@ func TestSelectedOrdinaryEmptyPackSealActualRuntimeInputs(t *testing.T) {
 	if hits := argvCarrying(argv, sealFixtureSecrets...); len(hits) > 0 {
 		t.Fatalf("producer argv contains withheld values: %v", hits)
 	}
-	if raw, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws)); err != nil || strings.TrimSpace(string(raw)) != "{}" {
+	if raw, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws, "podman-self")); err != nil || strings.TrimSpace(string(raw)) != "{}" {
 		t.Fatalf("assembled config %q: %v", raw, err)
 	}
 	if got := launchedJailEnv(t, argv, ws)["YOLO_MCP_SERVERS"]; got != "{}" {

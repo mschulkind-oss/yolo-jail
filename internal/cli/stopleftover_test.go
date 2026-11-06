@@ -57,7 +57,7 @@ func TestAStopEndsALeftoverContainerThatWouldBlockTheNextLaunch(t *testing.T) {
 	removed := false
 	run := leftoverRuntime(cname, "exited", &rmArgv, &removed, false)
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", run, nil, false); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", run, nil, false); rc != 0 {
 		t.Fatalf("rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if strings.Contains(out.String(), "No jail running") {
@@ -83,7 +83,7 @@ func TestAForcedStopForceRemovesALeftoverContainer(t *testing.T) {
 	removed := false
 	run := leftoverRuntime(cname, "created", &rmArgv, &removed, false)
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", run, nil, true); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", run, nil, true); rc != 0 {
 		t.Fatalf("rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if want := []string{"podman", "rm", "--force", cname}; !slices.Equal(rmArgv, want) {
@@ -102,7 +102,7 @@ func TestAStopThatCannotRemoveALeftoverNamesTheNextStep(t *testing.T) {
 	removed := false
 	run := leftoverRuntime(cname, "exited", &rmArgv, &removed, true)
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", run, nil, false); rc != 1 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", run, nil, false); rc != 1 {
 		t.Fatalf("rc=%d, want 1\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if strings.Contains(out.String(), "No jail running") {

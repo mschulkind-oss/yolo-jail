@@ -43,7 +43,7 @@ func TestAForcedStopDropsTheGraceAndForcesTheKeeper(t *testing.T) {
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
 	var forced []bool
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), force bool) int {
+	finishStop = func(_, _ io.Writer, _, _, _ string, _ int64, _ func(string, string, string), force bool) int {
 		forced = append(forced, force)
 		return 0
 	}
@@ -51,7 +51,7 @@ func TestAForcedStopDropsTheGraceAndForcesTheKeeper(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	s := &stopRun{stats: []string{"true\n", "", "!Error: no such container"}}
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, false); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 0 {
 		t.Fatalf("rc=%d, err=%s", rc, errb.String())
 	}
 	want := []string{"podman", "stop", "-t", strconv.Itoa(run.TeardownStopTimeoutSeconds), cname}
@@ -62,7 +62,7 @@ func TestAForcedStopDropsTheGraceAndForcesTheKeeper(t *testing.T) {
 	out.Reset()
 	errb.Reset()
 	s = &stopRun{stats: []string{"true\n", "", "!Error: no such container"}}
-	if rc := stopJail(&out, &errb, "/ws", "podman", s.run, nil, true); rc != 0 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, true); rc != 0 {
 		t.Fatalf("rc=%d, err=%s", rc, errb.String())
 	}
 	wantForced := []string{"podman", "stop", "-t", "0", cname}
@@ -142,7 +142,7 @@ func TestStopJailDoesNotTreatUnknownAfterStopAsGone(t *testing.T) {
 	runningProbes := 0
 	finished := false
 	savedFinish := finishStop
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
 		finished = true
 		return 0
 	}
@@ -172,7 +172,7 @@ func TestStopJailDoesNotTreatUnknownAfterStopAsGone(t *testing.T) {
 		}
 	}
 	var out, errb bytes.Buffer
-	if rc := stopJail(&out, &errb, "/ws", "podman", runner, nil, true); rc != 1 {
+	if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", runner, nil, true); rc != 1 {
 		t.Fatalf("unknown post-stop running state returned %d, want failure\nstdout:\n%s\nstderr:\n%s", rc, out.String(), errb.String())
 	}
 	if !slices.Equal(calls[0], []string{"podman", "inspect", "--type", "container", "--format", "{{.State.Running}}", cname}) {

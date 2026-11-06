@@ -306,7 +306,7 @@ func attachStagingFixture(t *testing.T) (home, ws, tree, local string) {
 	writeUserPacks(t, home, `["claude", "pi", "file://`+local+`"]`)
 
 	ws = t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var out bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &out, &out, nil)
 	cfg, ok := o.loadAndValidateConfig()
@@ -347,7 +347,7 @@ type attachRun struct {
 // what the pack-tree root holds at that moment, and exits 0.
 func attachThroughRun(t *testing.T, ws string, mutate func(*Options)) attachRun {
 	t.Helper()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	bin := t.TempDir()
 	rec := t.TempDir()
 	script := "#!/bin/sh\nprintf '%s ' \"$@\" > '" + filepath.Join(rec, "argv") + "'\n" +
@@ -412,7 +412,7 @@ func entrypointContractTagsLine() string {
 // which it needs only to compare, included — and it says nothing about packs.
 func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *testing.T) {
 	_, ws, tree, _ := attachStagingFixture(t)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	root := filepath.Join(paths.AgentsDir(), cname)
 	before := snapshotStaging(t, root)
 	// The fixture must really contain what the assertion is about, or it proves nothing.
@@ -477,7 +477,7 @@ func TestAnAttachWithAnUnchangedConfigLeavesTheLiveJailsStagingUntouched(t *test
 // picks it up.
 func TestAnAttachWritesNothingIntoTheRunningJailsPackTree(t *testing.T) {
 	home, ws, tree, local := attachStagingFixture(t)
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	before := snapshotTree(t, tree, nil)
 	agents := filepath.Join(paths.AgentsDir(), cname)
 
@@ -551,7 +551,7 @@ func TestAnAttachExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
 	emptyLoopholeDirs(t)
 	writeUserPacks(t, home, `["copilot"]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	var out bytes.Buffer
 	fresh := dispatchOptions(t, ws, "podman", &out, &out, nil)
 	cfg, ok := fresh.loadAndValidateConfig()
@@ -586,7 +586,7 @@ func TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone(t *
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	ws := t.TempDir()
-	cname := yoloruntime.FromWorkspace(ws)
+	cname := yoloruntime.JailName(ws, "podman-self")
 	// What an older launch left: a shared tree holding an embedded pack that this config no
 	// longer selects, and no record and no per-launch tree.
 	legacy := paths.LegacyPackStagingDir(cname)

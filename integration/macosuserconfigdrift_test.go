@@ -2,10 +2,10 @@ package integration
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -40,7 +40,7 @@ func TestMacosUserConfigDriftAndDump(t *testing.T) {
 	if got := section(r.stdout, "=== DRIFT ===", "=== DUMP ==="); !strings.Contains(got, "RC=0") {
 		t.Errorf("`yolo config drift` in a fresh sandbox did not report in sync (exit 0):\n%s", got)
 	}
-	assembled, err := os.ReadFile(filepath.Join(ws, ".yolo", "config-assembled.json"))
+	assembled, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws, macosUserSetupFor("account")))
 	if err != nil {
 		t.Fatalf("the launch wrote no config-assembled.json: %v", err)
 	}

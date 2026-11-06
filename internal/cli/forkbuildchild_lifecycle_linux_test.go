@@ -152,7 +152,7 @@ func forkBuildLifecycleDispatch(t *testing.T, workspace, cname string) {
 	}
 	// run.Run records the resolved runtime before it dispatches any backend; the fixture's
 	// "dispatched" keeper therefore comes with that record, as in production.
-	if err := writeForkBuildRuntime(workspace, "podman"); err != nil {
+	if err := writeForkBuildRuntime(workspace, "podman", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {

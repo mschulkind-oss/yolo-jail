@@ -276,7 +276,7 @@ func TestAnUnknownRunningBuildJailKeepsItsStagingAndTheCandidatePending(t *testi
 		color bool) (int, bool) {
 		// A build whose jail ran on podman and returned, and whose container the runtime cannot account for.
 		staged = staging
-		if err := writeForkBuildRuntime(staging, "podman"); err != nil {
+		if err := writeForkBuildRuntime(staging, "podman", ""); err != nil {
 			t.Error(err)
 		}
 		rc, bound := prevChild(ctx, d, staging, b, s, color)

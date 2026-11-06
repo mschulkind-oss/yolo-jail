@@ -39,10 +39,10 @@ bare = true
 	if errs, _ := ValidateConfig(merged, ws, nil); len(errs) != 0 {
 		t.Fatalf("fixture: the host itself refuses this config: %v", errs)
 	}
-	if err := WriteAssembledConfig(ws, merged); err != nil {
+	if err := WriteAssembledConfig(ws, "podman-self", merged); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteAssembledOrigins(ws, merged, src); err != nil {
+	if err := WriteAssembledOrigins(ws, "podman-self", merged, src); err != nil {
 		t.Fatal(err)
 	}
 	effective, esrc, err := LoadConfigWithoutWorkspaceFileWithSources(ws, true, discard)
@@ -63,6 +63,7 @@ bare = true
 	write(t, filepath.Join(jailHome, "mine-packs", "tools", "pack.toml"), "description = 'tools'\n")
 	t.Setenv("YOLO_VERSION", "9.9.9")
 	t.Setenv("YOLO_WORKSPACE", ws)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	cfg, jsrc, err := LoadConfigWithSources(ws, false, discard)
 	if err != nil {
 		t.Fatal(err)
