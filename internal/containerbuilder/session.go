@@ -76,7 +76,22 @@ type Session struct {
 	// makes, not a knob: a caller that supplied one would be pinning a key it has
 	// no way to have seen, since the container mints a fresh one every boot.
 	hostKey string
+
+	// failure is why Start gave up, the line it printed to Deps.Out saying so; "" until it
+	// gives up. Failure returns it.
+	failure string
 }
+
+// fail prints why Start gave up and remembers it for Failure.
+func (s *Session) fail(out io.Writer, reason string) {
+	s.failure = reason
+	fmt.Fprintln(out, reason)
+}
+
+// Failure is why the last Start gave up, "" when it did not. The caller quotes it in the build
+// failure report: that report shows the build's returned tail, and the line Start printed to
+// Deps.Out lands above the report, outside it.
+func (s *Session) Failure() string { return s.failure }
 
 // reachableTimeout is how long Start polls for the builder sshd before giving up.
 const reachableTimeout = 60.0
@@ -97,7 +112,7 @@ func (s *Session) Start() (host string, port int, ok bool) {
 	if s.Runtime == "podman" && nested {
 		network, err := s.nestedPodmanNetwork()
 		if err != nil {
-			fmt.Fprintf(out, "could not choose a supported private network for the nested Linux builder: %v\n", err)
+			s.fail(out, fmt.Sprintf("could not choose a supported private network for the nested Linux builder: %v", err))
 			fmt.Fprintln(out, "Fix: inspect `podman info --format json` and use Podman with its supported private-network helper reported there")
 			return "", 0, false
 		}
@@ -105,11 +120,11 @@ func (s *Session) Start() (host string, port int, ok bool) {
 	}
 
 	if s.Deps.Run(PullArgv(s.Runtime, "")) != 0 {
-		fmt.Fprintln(out, "could not pull the Linux builder image")
+		s.fail(out, "could not pull the Linux builder image")
 		return "", 0, false
 	}
 	if s.Deps.Run(runArgv(s.Runtime, s.Pubkey, "", "", 0, nestedNetwork)) != 0 {
-		fmt.Fprintln(out, "could not start the Linux builder container")
+		s.fail(out, "could not start the Linux builder container")
 		return "", 0, false
 	}
 
@@ -117,7 +132,7 @@ func (s *Session) Start() (host string, port int, ok bool) {
 	host, port = s.reachableAddress()
 	if host == "" {
 		s.Stop()
-		fmt.Fprintln(out, "could not resolve the builder container address")
+		s.fail(out, "could not resolve the builder container address")
 		return "", 0, false
 	}
 
@@ -148,7 +163,7 @@ func (s *Session) Start() (host string, port int, ok bool) {
 		s.Deps.Sleep(1.0)
 	}
 	s.Stop()
-	fmt.Fprintln(out, "the Linux builder container's sshd never answered at "+
+	s.fail(out, "the Linux builder container's sshd never answered at "+
 		net.JoinHostPort(host, strconv.Itoa(port))+
 		" — the container started, so the address is reachable but nothing is serving SSH behind it")
 	return "", 0, false
