@@ -435,6 +435,13 @@ func TestUnknownLaunchInputProducerDoesNotStartDaemon(t *testing.T) {
 
 // TestDetachedLaunchInputOutlivesSignalUntilObservedExit exercises the real
 // selected-daemon spawn, not a stand-in stop callback.
+//
+// The fixture's shell EXECS the daemon. A detached stop signals the bare pid
+// (detachService), and Debian's and Ubuntu's dash do not replace `sh -c` with
+// its last command, so without the exec the SIGTERM killed the shell, the
+// daemon behind it never saw it, and the stop read the shell's death as the
+// daemon exiting unsuccessfully. Every wait below ends on an event: the
+// daemon's marker, or the stop returning because the daemon exited.
 func TestDetachedLaunchInputOutlivesSignalUntilObservedExit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix daemon")
@@ -447,7 +454,7 @@ func TestDetachedLaunchInputOutlivesSignalUntilObservedExit(t *testing.T) {
 	}
 	workspace := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "shutdown.marker")
-	command := fmt.Sprintf("%q -test.run=^TestLaunchInputFixtureDaemon$ -- \"$1\" \"$2\" %q", os.Args[0], marker)
+	command := fmt.Sprintf("exec %q -test.run=^TestLaunchInputFixtureDaemon$ -- \"$1\" \"$2\" %q", os.Args[0], marker)
 	manifest := fmt.Sprintf(`{"name":%q,"description":"synthetic","transport":"loopback-tls","lifecycle":"spawned","host_daemon":{"cmd":["/bin/sh","-c",%q,"--","{launch_input}","{socket}"],"publishes":"socket","detach":true,"launch_input":"fixture-approved-scope"}}`, name, command)
 	module := filepath.Join(t.TempDir(), name)
 	if err := os.MkdirAll(module, 0o700); err != nil {
@@ -463,8 +470,7 @@ func TestDetachedLaunchInputOutlivesSignalUntilObservedExit(t *testing.T) {
 	}}
 	fillDefaults(o)
 	o.Stdout, o.Stderr = &output, &output
-	o.ServiceReadyTimeout = 2 * time.Second
-	o.ServiceTermGrace = time.Second
+	o.ServiceReadyTimeout = time.Minute // readiness returns when the socket accepts; this bounds only a failure
 	o.PathExists = func(string) bool { return false }
 	cname := "yolo-detached-launch-input"
 	sockets := hostServiceSocketsDir(cname, false)
@@ -483,17 +489,20 @@ func TestDetachedLaunchInputOutlivesSignalUntilObservedExit(t *testing.T) {
 		}
 	})
 	input := o.launchInputFiles[name]
-	o.stopLoopholes(handles, sockets, cname, "podman")
+	// The stop waits for the daemon's exit, and the daemon exits only once this
+	// test releases it, so the stop runs beside the test. Its return is the
+	// event that says the daemon is gone.
 	stopped = true
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(marker + ".shutdown"); err == nil {
-			break
+	stopDone := make(chan bool)
+	go func() { stopDone <- o.stopLoopholes(handles, sockets, cname, "podman") }()
+	for shutdownSeen := false; !shutdownSeen; {
+		select {
+		case failed := <-stopDone:
+			t.Fatalf("the daemon exited (stop failed=%v) without reading its input during shutdown: %s", failed, output.String())
+		case <-time.After(10 * time.Millisecond):
+			_, err := os.Stat(marker + ".shutdown")
+			shutdownSeen = err == nil
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("daemon never read input during shutdown: %s", output.String())
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	if bytes, err := os.ReadFile(marker + ".shutdown"); err != nil || string(bytes) != "shutdown-secret" {
 		t.Fatalf("shutdown read: %q %v", bytes, err)
@@ -504,12 +513,14 @@ func TestDetachedLaunchInputOutlivesSignalUntilObservedExit(t *testing.T) {
 	if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if failed := <-stopDone; failed {
+		t.Fatalf("the released daemon's exit was not confirmed as its final harvest: %s", output.String())
+	}
+	// Removal follows the observed exit on a goroutine of its own, so it is
+	// awaited, not bounded: a removal that never comes fails at the suite's timeout.
 	for {
 		if _, err := os.Stat(input); os.IsNotExist(err) {
 			break
-		}
-		if time.Now().After(deadline.Add(2 * time.Second)) {
-			t.Fatal("input survived observed daemon exit")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
