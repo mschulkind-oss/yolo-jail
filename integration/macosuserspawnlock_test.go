@@ -248,10 +248,13 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 }
 
 // hd10KeeperRole is what one launch's output says it did about the workspace's keeper: "spawned",
-// "joined", or "none".
+// "joined", or "none". A spawning launch names its key's services at either notch
+// (run.macosUserKeyServices): "this workspace's macos-user host services", or at the guest notch
+// "this workspace's guest-notch macos-user host services".
 func hd10KeeperRole(out string) string {
 	switch {
-	case strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services"):
+	case strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services"),
+		strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services"):
 		return "spawned"
 	case strings.Contains(out, "keeper: joined yolo internal daemon jail-keeper (pid "):
 		return "joined"
@@ -765,6 +768,9 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 
 	// The keeper assertion: one spawns and one joins, and the two are told one file and one token.
 	spawned := "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (x)"
+	// The guest notch's keeper names its own key (run.macosUserKeyServices, JL-D37), and the
+	// 2026-11-05 macos-user run spawned one: a parser reading only the line above called it "none".
+	spawnedGuest := "keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (x)"
 	joined := "keeper: joined yolo internal daemon jail-keeper (pid 7), which holds"
 	same := map[string]string{"A_DURING_VAR": "/tmp/s/x.endpoint", "A_DURING_TOKENHASH": "11"}
 	sameB := map[string]string{"B_DURING_VAR": "/tmp/s/x.endpoint", "B_DURING_TOKENHASH": "11"}
@@ -774,6 +780,7 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 		want       string
 	}{
 		{"one keeper, one file", spawned, joined, sameB, ""},
+		{"one guest-notch keeper, one file", spawnedGuest, joined, sameB, ""},
 		{"two keepers", spawned, spawned, sameB, "did not share one keeper"},
 		{"no keeper", "", "", sameB, "did not share one keeper"},
 		{"two files", joined, spawned, map[string]string{"B_DURING_VAR": "/tmp/t/x.endpoint", "B_DURING_TOKENHASH": "11"}, "different endpoint files"},
