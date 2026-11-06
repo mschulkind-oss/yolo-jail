@@ -862,9 +862,14 @@ are below).
   [SUP-D11](#SUP-D11).
 - **Open API decision:** mixed-backend JSON root fields wait on
   [OQ-SU6](named-setups.md#OQ-SU6); neither the proposed additive `backends` metadata nor its
-  homogeneous/mixed root-field semantics are approved. It blocks only the mixed-backend JSON
-  root contract, not text listing, stop/setup-list work, or settled backend enumeration. This
-  does not reopen conservative unknown pruning or existing project keys.
+  homogeneous/mixed root-field semantics are approved. At primary source baseline,
+  [`psReport`](../../internal/cli/ps.go) emits root `runtime`, `enumerated` and `jails`; the
+  existing [macOS-user integration test](../../integration/macosuserps_test.go) asserts
+  `Runtime == "macos-user"` and `Enumerated == true`. This records the current single-backend
+  compatibility surface only. The owner's question about whether an additive approach can retain
+  both root fields (and what each means in mixed output) remains unanswered. It blocks only the
+  mixed-backend JSON root contract, not text listing, stop/setup-list work, or settled backend
+  enumeration. This does not reopen conservative unknown pruning or existing project keys.
 - **Preconditions:** slice 6a committed and its applicable tests green in the same
   isolated candidate (not yet primary-landed); `go doc ./internal/paths SetupsDir` prints.
   Do not make 6b a primary-tree change while 6a waits on W-SU1: that exact
