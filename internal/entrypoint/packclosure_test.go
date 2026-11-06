@@ -77,10 +77,10 @@ func TestTestPacksForAgentResolvesTheNeedsClosure(t *testing.T) {
 		// cerebras needs wire-bridge only when claude or copilot is installed; pi is neither.
 		{agent: "pi", extra: []string{"cerebras"},
 			want: []string{"cerebras", "pi"}},
-		// claude's unconditional needs are claude-auth and wire-bridge, and the latter satisfies
-		// kilo's conditional one as well.
+		// claude's unconditional needs are claude-auth, mcp-auth and wire-bridge, and the last
+		// satisfies kilo's conditional one as well.
 		{agent: "omp", extra: []string{"claude", "kilo"},
-			want: []string{"claude", "claude-auth", "kilo", "omp", "wire-bridge"}},
+			want: []string{"claude", "claude-auth", "kilo", "mcp-auth", "omp", "wire-bridge"}},
 		// bedrock's own need joins aws-auth.
 		{agent: "omp", extra: []string{"bedrock"},
 			want: []string{"aws-auth", "bedrock", "omp"}},
