@@ -10,6 +10,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-06
+
+Where an agent runs is now one named setup, MCP servers can be remote, and an agent can ask whether a GitHub command would run before it tries.
+
+### Added
+
+**Named setups.** Choose where an agent runs by name: `--setup <name>` for one launch, `YOLO_SETUP`, or `setup` in your user config. `yolo setup list` shows the built-in setups (`podman-self`, `apple-container-self`, `seatbelt-self`, `seatbelt-yolo-account`), and `yolo setup new` copies one into your user config to change. See [where agents run](userguide/guides/confinement.md#choosing-a-setup).
+
+**Remote MCP servers.** An `mcp_servers` entry can name a `url` instead of a `command`, over streamable HTTP or SSE, with headers and OAuth client fields. Agents that cannot use a remote server are named at boot. `yolo config why mcp_servers.<name>` says whether a server comes from your user config or the project.
+
+**`yolo access`.** In a jail, shows the GitHub broker's scope, grants and requests, and predicts whether a `gh` command would run, ask or be refused. `--ask` files the approval request without running the command. See [GitHub](userguide/guides/github.md#inspecting-before-a-write).
+
+**CircleCI pack.** `yolo pack add circleci` lets an agent read CircleCI runs through your host's `circleci` login, for this workspace's repositories only.
+
+### Changed
+
+- The `confinement`, `runtime` and `macos_user_mode` config keys are refused, each naming the setup it meant. Run `yolo config migrate`, or `yolo config set setup <name> --user`.
+- `--at` is refused: use `--setup <name>`, or `yolo host` for the old `--at host`. `YOLO_RUNTIME` is refused on the host: use `YOLO_SETUP`.
+- A `network.mode` or `--network` the selected setup cannot hold (such as `bridge` under Seatbelt) now refuses the launch, naming a setup that can.
+
+### Fixed
+
+- `yolo yolo-account create` on a Mac that is already set up no longer asks for a password or fails; `--recheck` forces the full check.
+- `yolo config migrate` keeps a loophole off when the workspace's `enabled: false` and its own requests disagree.
+- The PATH line `yolo host`, `yolo host apply` and `yolo check` print is spelled with `$HOME`, so dotfiles shared across machines keep working.
+
 ## [0.16.1] - 2026-11-04
 
 Every config that launched on 0.15.1 launches again and means the same, `yolo config migrate` converts all of it, and macos-user runs two workspaces at once.
