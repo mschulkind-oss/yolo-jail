@@ -186,3 +186,42 @@ func TestAConfigNameThatIsALoopOrADirectoryOrUnreadableIsRefused(t *testing.T) {
 		t.Fatalf("unreadable: %v", err)
 	}
 }
+
+// LC-D11 (docs/design/legacy-config-compat.md#LC-D11), the owner's sandbox-home case: an rcm
+// link config.jsonc -> ~/.dotfiles/yolo/config.jsonc, whose target `yolo config migrate` renamed
+// to config.toml. The refusal names that twin as what the link should point at, at the TOML name.
+func TestADanglingLegacyConfigLinkNamesItsTargetsTOMLTwin(t *testing.T) {
+	home := mintDir(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	twin := filepath.Join(home, ".dotfiles", "yolo", "config.toml")
+	write(t, twin, "packs = ['git']\n")
+	link := filepath.Join(dir, paths.UserConfigLegacyJSONCName)
+	symlink(t, "../../.dotfiles/yolo/config.jsonc", link)
+
+	_, err := LoadReadableUserScopeConfig(true, nil)
+	if err == nil {
+		t.Fatal("a dangling config.jsonc link was read as no config")
+	}
+	tomlName := filepath.Join(dir, paths.UserConfigTOMLName)
+	for _, want := range []string{
+		link + " is a symbolic link to ../../.dotfiles/yolo/config.jsonc, which does not exist",
+		twin,
+		"ln -s ../../.dotfiles/yolo/config.toml " + tomlName,
+		"rm " + link,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %q:\n%v", want, err)
+		}
+	}
+
+	// With no twin, the step is RC-D59's own: restore the target or remove the link.
+	if err := os.Remove(twin); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadReadableUserScopeConfig(true, nil)
+	if err == nil || strings.Contains(err.Error(), "config.toml") || !strings.Contains(err.Error(), "Restore the target") {
+		t.Fatalf("refusal without a twin: %v", err)
+	}
+}

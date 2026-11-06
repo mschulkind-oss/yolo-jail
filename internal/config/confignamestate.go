@@ -103,6 +103,9 @@ func configNameError(path, from string, kind configNameKind, target, reason stri
 	case nameDangling:
 		fact = path + " is a symbolic link to " + target + ", which does not exist"
 		step = "Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: " + rm + "."
+		if twinStep := danglingTwinStep(path, target, rm); twinStep != "" {
+			step = twinStep
+		}
 		tail = " Nothing was started."
 	case nameLoop:
 		fact = path + " is a symbolic link that leads back to itself (" + target + ")"
@@ -123,6 +126,41 @@ func configNameError(path, from string, kind configNameKind, target, reason stri
 		Fact: prefix + fact,
 		Step: step,
 	}
+}
+
+// danglingTwinStep is LC-D11's step for a dangling link to a legacy config whose target has a
+// `.toml` twin (docs/design/legacy-config-compat.md#LC-D11): the usual way a link comes to
+// point at nothing is `yolo config migrate` run where the target lives, which renamed it. The
+// twin is what the link should point at, under the TOML name, since a `.jsonc` name is read
+// as JSONC. "" when the link or its target is not a legacy config name or no twin exists. The
+// target is only read as the link's own text, never followed past the twin's existence check.
+func danglingTwinStep(path, target, rm string) string {
+	legacyExt := func(name string) string {
+		for _, ext := range []string{".jsonc", ".json"} {
+			if strings.HasSuffix(name, ext) {
+				return ext
+			}
+		}
+		return ""
+	}
+	linkExt, targetExt := legacyExt(path), legacyExt(target)
+	if linkExt == "" || targetExt == "" {
+		return ""
+	}
+	twinTarget := strings.TrimSuffix(target, targetExt) + ".toml"
+	twin := twinTarget
+	if !filepath.IsAbs(twin) {
+		twin = filepath.Join(filepath.Dir(path), twin)
+	}
+	if info, err := os.Stat(twin); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	tomlName := strings.TrimSuffix(path, linkExt) + ".toml"
+	if _, err := os.Lstat(tomlName); err == nil {
+		return "Its target was converted to " + twin + ", and " + tomlName + " is there already: remove the stale link: " + rm + "."
+	}
+	return "Its target was converted to " + twin + ": replace the link with one at the TOML name: " + rm +
+		" && ln -s " + shquote.Quote(twinTarget) + " " + shquote.Quote(tomlName) + "."
 }
 
 // includeSkipNotice is RC-D67's answer for an include_if_found entry whose name exists but cannot
