@@ -73,8 +73,11 @@ func runWorkerLaunchAs(t *testing.T, dir, service, agent, body string, signals c
 	args ...string) workerLaunch {
 	t.Helper()
 	bin := t.TempDir()
+	// The marker is renamed into place, never written where it is read: a reader that acts the
+	// moment `agent` exists (the signal test sends SIGTERM then) must find "alive" in it, not the
+	// empty file a redirect creates before echo writes (CI run 42290852593).
 	script := "#!/bin/sh\nkill -0 \"$(cat '" + dir + "/pid." + service + "' 2>/dev/null)\" 2>/dev/null && " +
-		"echo alive > '" + dir + "/agent'\n" + body + "\n"
+		"echo alive > '" + dir + "/agent.tmp' && mv '" + dir + "/agent.tmp' '" + dir + "/agent'\n" + body + "\n"
 	if err := os.WriteFile(filepath.Join(bin, agent), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
