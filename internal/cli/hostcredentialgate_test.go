@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // hostGateLaunch runs `yolo host [flags] -- <agent>` over the shipped claude, codex, pi, zai
@@ -179,6 +180,20 @@ func hostGateHomeRaw(t *testing.T, cfg string, shell map[string]string) string {
 		t.Setenv(k, v)
 	}
 	t.Chdir(t.TempDir())
+	// EACH CELL ITS OWN HOST-SERVICES BASE: every `yolo host` launch holds a session dir there
+	// (SUP-D29), so one cell's must never reach another's listing. Made under the package's
+	// isolated singleton dir rather than t.TempDir(), so a socket built there stays under
+	// darwin's 104-byte sun_path.
+	singletons, err := os.MkdirTemp(paths.HostSingletonDir, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevSingletons := paths.HostSingletonDir
+	paths.HostSingletonDir = singletons
+	t.Cleanup(func() {
+		paths.HostSingletonDir = prevSingletons
+		_ = os.RemoveAll(singletons)
+	})
 	userCfg(t, home, cfg)
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }

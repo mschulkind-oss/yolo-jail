@@ -89,6 +89,12 @@ type SessionRecord struct {
 	Workspace string `json:"workspace"`
 	// Name is the workspace's container name (FromWorkspace), the name `yolo ps` lists.
 	Name string `json:"name"`
+	// PID is the process whose life is the session's, 0 when the record names none. A `yolo
+	// host` launch records its own: the agent keeps it across the exec, and on the resident path
+	// yolo outlives its agent by its teardown alone. The lock is inherited by every process the
+	// agent spawns, so a held lock alone says only that one of them is still running;
+	// ListSessions reads a held session whose PID has exited as gone (SUP-D29).
+	PID int `json:"pid,omitempty"`
 }
 
 // WriteSessionRecord writes r into a session dir, 0600, refusing to overwrite: a session writes
@@ -166,6 +172,8 @@ type Session struct {
 	Notch     string
 	Workspace string
 	Name      string
+	// PID is the record's PID, 0 when it names none.
+	PID int
 }
 
 // ListSessions lists every session dir under base that belongs to this user, with its liveness
@@ -198,12 +206,27 @@ func ListSessions(base string) (sessions []Session, ok bool) {
 		}
 		s.Liveness = state
 		if r, found := readSessionRecord(dir); found {
-			s.Notch, s.Workspace, s.Name = r.Notch, r.Workspace, r.Name
+			s.Notch, s.Workspace, s.Name, s.PID = r.Notch, r.Workspace, r.Name, r.PID
+		}
+		// A held lock outlives its agent in any process the agent spawned (the lock is
+		// inherited), so a session whose recorded process has exited is gone to a listing. Not
+		// to a collector: claimGoneServicesSession takes the lock itself, which a survivor
+		// still holds, so the dir stays until the last holder exits.
+		if s.Liveness == SessionLive && s.PID > 0 && !processAlive(s.PID) {
+			s.Liveness = SessionGone
 		}
 		sessions = append(sessions, s)
 	}
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].Dir < sessions[j].Dir })
 	return sessions, true
+}
+
+// processAlive reports whether pid names a running process: signal 0 reaches it, or reaches a
+// process this user may not signal (EPERM), which is running too. A pid reused by another
+// process reads as running, the safe direction for a listing that keeps what it cannot rule out.
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // MacosUserSessions is ListSessions narrowed to what can be a macos-user session: every session

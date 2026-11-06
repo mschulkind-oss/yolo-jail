@@ -32,9 +32,12 @@ package run
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -78,7 +81,14 @@ func (o *Options) openServicesSession(cname, notch string) (*servicesSession, er
 	if err != nil {
 		return nil, err
 	}
-	_ = runtime.WriteSessionRecord(dir, runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname})
+	rec := runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname}
+	if notch == hostNotchRuntime {
+		// The agent's pid: an exec keeps it, and a resident launch lives as long as its agent.
+		// A listing reads the session as gone once it exits, whatever its descendants still hold
+		// (runtime.SessionRecord.PID). A macos-user session records none: its lock is the answer.
+		rec.PID = os.Getpid()
+	}
+	_ = runtime.WriteSessionRecord(dir, rec)
 	pending := filepath.Join(dir, servicesSessionLockPending)
 	f, err := os.OpenFile(pending, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
@@ -96,6 +106,61 @@ func (o *Options) openServicesSession(cname, notch string) (*servicesSession, er
 		return nil, err
 	}
 	return &servicesSession{dir: dir, lock: f}, nil
+}
+
+// HostSession is a `yolo host` launch's session when it opens no doorway (named-setups.md
+// SU-D12): the same dir, record and liveness lock a doorway's session has, with nothing published
+// in it, so `yolo ps`'s host source lists every `yolo host` agent and not only the ones a doorway
+// serves. A launch that opens doorways has its session from HostDoorways.Start instead.
+type HostSession struct {
+	s *servicesSession
+}
+
+// OpenHostSession opens workspace's host session, collecting dead sessions first as every
+// session open does. An error is the caller's to warn about: the record is what lists the
+// agent, never a reason to refuse its launch (openServicesSession's record write is not fatal
+// either).
+func OpenHostSession(workspace string, isMacOS bool, stderr io.Writer) (*HostSession, error) {
+	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: isMacOS}
+	fillDefaults(o)
+	s, err := o.openServicesSession(runtime.FromWorkspace(workspace), hostNotchRuntime)
+	if err != nil {
+		return nil, err
+	}
+	return &HostSession{s: s}, nil
+}
+
+// End removes the session's dir, then lets its lock go, in the order every session ends in
+// (release says why). nil-safe.
+func (h *HostSession) End() {
+	if h == nil || h.s == nil {
+		return
+	}
+	_ = os.RemoveAll(h.s.dir)
+	h.s.release()
+	h.s = nil
+}
+
+// KeepAcrossExec clears close-on-exec on the session's lock, so the program `yolo host` execs
+// holds it. The lock alone does not track the program's life: every process the program spawns
+// inherits it, so a daemon it leaves behind keeps it held. The record's pid, which the exec keeps,
+// is the program's, and a listing reads the session as gone once that process exits
+// (runtime.ListSessions). The dir is collected by the next session open after the LAST holder
+// exits (collectDeadServicesSessions), since nothing of yolo's is left to remove it. nil-safe.
+func (h *HostSession) KeepAcrossExec() error {
+	if h == nil || h.s == nil || h.s.lock == nil {
+		return nil
+	}
+	_, err := unix.FcntlInt(h.s.lock.Fd(), unix.F_SETFD, 0)
+	return err
+}
+
+// Dir is the session's dir, "" for nil.
+func (h *HostSession) Dir() string {
+	if h == nil || h.s == nil {
+		return ""
+	}
+	return h.s.dir
 }
 
 // servicesSessionLockPending is the lock file's name between its creation and its flock. No

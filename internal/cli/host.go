@@ -1032,6 +1032,21 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			}
 		}
 	}()
+	// THE LAUNCH'S SESSION (named-setups.md SU-D12): every `yolo host` agent holds a session
+	// record for its life, so `yolo ps` lists it. A launch with doorways opens its session in
+	// run.HostDoorways.Start, below; every other one opens it here. The exec path hands its lock
+	// to the program (KeepAcrossExec, below); every path that returns ends it.
+	var hostSession *run.HostSession
+	if len(launch.doorways.Plans()) == 0 {
+		hs, err := run.OpenHostSession(launch.workspace, paths.IsMacOS, errw)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo host: could not record this launch for `yolo ps` (%v), so it does not list %s. "+
+				"The launch goes on; `yolo ps` lists the next one.\n", err, launch.agent)
+		} else {
+			hostSession = hs
+			defer hostSession.End()
+		}
+	}
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
 	// agent resolved on PATH and after the prelaunch, so a missing agent starts nothing and the
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
@@ -1146,6 +1161,11 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// The session homes' leases cross the exec too, so the program holds them for its life and a
 	// later launch reaps its directory only once it has exited.
 	sessionHomes.KeepAcrossExec(errw)
+	// The launch's session lock crosses it too, so `yolo ps` lists the program for its life.
+	if err := hostSession.KeepAcrossExec(); err != nil {
+		fmt.Fprintf(errw, "yolo host: could not hand this launch's session lock to %s (%v), so `yolo ps` "+
+			"will not list it once it starts.\n", cmd[0], err)
+	}
 	trace.log.HandedOver("exec")
 	if err := hostSyscallExec(target, argv, environ); err != nil {
 		sessionHomes.remove()
