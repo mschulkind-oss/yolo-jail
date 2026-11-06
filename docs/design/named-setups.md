@@ -17,7 +17,9 @@ vantage:
 **Status:** 2026-11-05. Setup naming and per-setup state remain the accepted direction, but
 [OQ-SU5](#OQ-SU5) asks whether to change the previously accepted automatic move of an existing
 home. The source-swap regression in an unlanded slice 6a candidate prevents claiming that move
-safe or built. Independent slices can proceed; the implementation hand-off is
+safe or built. [OQ-SU6](#OQ-SU6) records the separate public JSON compatibility decision for
+mixed-backend `yolo ps` output before slice 6b fixes that contract. Independent work can proceed;
+the implementation hand-off is
 [`named-setups-plan.md`](named-setups-plan.md). Earlier rulings remain in
 [the ledger](#decision-ledger).
 
@@ -39,7 +41,8 @@ technology is missing.
 
 **Start at [§4](#4-the-fields)**, the fields; everything else falls out of them.
 
-**Needs your ruling:** [OQ-SU5](#OQ-SU5) — existing-home automatic movement only.
+**Needs your ruling:** [OQ-SU5](#OQ-SU5) — existing-home automatic movement only;
+[OQ-SU6](#OQ-SU6) — the mixed-backend `yolo ps --format json` root-field contract.
 
 **Reads with:** [the macos-user model](macos-user-model.md) (the two ways of running Seatbelt this
 names), [its plan](macos-user-model-plan.md#MMP-D25) (slice 12a's per-project home), [the
@@ -477,6 +480,31 @@ own designs build them.
    _Leaning:_ A — revise only optional automatic legacy-home adoption to require an
    owner-quiesced manual move. It avoids a demonstrated wrong-home move; this is a proposal,
    not a new ruling or an implemented fallback.
+
+   **Answer:**
+
+   > _(empty — fill in when decided)_
+
+2. 💬 **OQ-SU6: What root fields should mixed-backend `yolo ps --format json` use?**
+
+   A workspace can track setups on Podman and Apple Container; root `runtime` cannot describe
+   mixed results. Which contract should consumers use?
+
+   - **A — Add per-backend coverage.** Add `backends: [{runtime, enumerated}]`; preserve root
+     `runtime` and `enumerated` for homogeneous output. In mixed output omit root `runtime` (never
+     use `"mixed"` or choose a backend); root `enumerated` is true only if every required backend
+     answered authoritatively.
+   - **B — Replace the root summaries.** Use one multi-backend envelope for every result,
+     migrating or breaking existing JSON consumers.
+
+   Query only host-supported backends with configured or tracked setups. Preserve conservative
+   unknown pruning and existing project keys; an unanswered backend is not empty.
+
+   <!-- vantage: question id=OQ-SU6 leaning="A — add per-backend coverage metadata while preserving homogeneous root fields; omit root runtime and report complete coverage only when every required backend answered." -->
+
+   _Leaning:_ A — add per-backend coverage metadata while preserving homogeneous root fields;
+   omit root `runtime` and report complete coverage only when every required backend answered.
+   This is a compatibility proposal, not an approved API contract.
 
    **Answer:**
 

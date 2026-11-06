@@ -860,6 +860,11 @@ are below).
   one"*; `yolo setup list` shows which setups are running in this project
   ([§6](named-setups.md#6-config-by-example), [§11](named-setups.md#11-what-done-looks-like));
   [SUP-D11](#SUP-D11).
+- **Open API decision:** mixed-backend JSON root fields wait on
+  [OQ-SU6](named-setups.md#OQ-SU6); neither the proposed additive `backends` metadata nor its
+  homogeneous/mixed root-field semantics are approved. It blocks only the mixed-backend JSON
+  root contract, not text listing, stop/setup-list work, or settled backend enumeration. This
+  does not reopen conservative unknown pruning or existing project keys.
 - **Preconditions:** slice 6a committed and its applicable tests green in the same
   isolated candidate (not yet primary-landed); `go doc ./internal/paths SetupsDir` prints.
   Do not make 6b a primary-tree change while 6a waits on W-SU1: that exact
