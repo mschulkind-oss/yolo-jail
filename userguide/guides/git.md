@@ -188,10 +188,11 @@ entry; `yolo config unset requests.git.push --project` the whole list) and run `
 or remove `push` from `allow.git.on_request` in your user config. The broker reads both at every
 push, so either reaches the next one.
 
-**A push the agent was refused can write this line for you.** When you answer a push request
-with `yolo approve r-<id> --remember`, the push is allowed once and each ref it needed approval
-for is written into the project's config as above, so after `yolo config apply` it needs no
-approval again ([Approving What the Agent Asks For](approvals.md#answering-on-your-machine)).
+**A push the agent was refused names this line for you.** Its refusal lists the project request
+that covers each ref it needed approval for (`yolo request git push <branch>` for an existing
+branch): the agent runs it in the jail, and after `yolo config apply` the branch needs no
+approval again
+([Approving What the Agent Asks For](approvals.md#answering-on-your-machine)).
 
 ## Letting the agent push tags
 
@@ -221,7 +222,7 @@ of a running jail as a `tag grant` line, marked `from config`.
 | A push of a new branch, with a new-branches grant | Sent to the remote; when the remote accepts it, the branch joins the working set |
 | A push to a branch in the working set, recorded or declared in config | Sent to the remote, force-pushes and deletes included |
 | A push of a tag a tag grant covers | Sent to the remote, force-pushes and deletes included; the tag joins no working set |
-| Any other `git push`, tags included | Asks you. The push waits 30 seconds for an answer; unanswered, it is refused per ref with nothing sent: `! [remote rejected] <ref> (needs approval: r-<id>)`, and the refusal lists every way to allow it. `yolo approve r-<id>` on your machine allows that exact push once, within 15 minutes; `--for 15m` allows every push to those refs for a time; `--add` adds the branches to the working set for good; `--remember` allows it and writes the push grant into the project's config; `--deny` refuses it. See [Approving What the Agent Asks For](approvals.md#one-action-yolo-approve) |
+| Any other `git push`, tags included | Asks you. The push waits 30 seconds for an answer; unanswered, it is refused per ref with nothing sent: `! [remote rejected] <ref> (needs approval: r-<id>)`, and the refusal lists every way to allow it. `yolo approve r-<id>` on your machine allows that exact push once, within 15 minutes; `--for 15m` allows every push to those refs for a time; the project request it names, `yolo request git push <branch>` then `yolo config apply`, allows it for good; `--deny` refuses it. See [Approving What the Agent Asks For](approvals.md#one-action-yolo-approve) |
 | A push of several branches, one of them refused | Refused whole: a push through the broker goes through entirely or not at all |
 | A push to anything but a branch or a tag | Refused always, naming `refs/heads/` and `refs/tags/` |
 | A remote you did not approve | Refused at once, naming the approved remotes and how to add one; nothing runs |

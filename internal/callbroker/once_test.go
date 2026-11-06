@@ -489,7 +489,7 @@ func TestSelectedCLIForwarderHostApproveOnceReportsCompletedOversizedWrite(t *te
 		t.Fatalf("ACT filed %d requests", len(requests))
 	}
 	hostEnv := []string{"HOME=" + f.home, "XDG_CONFIG_HOME=", "PATH=" + filepath.Dir(binary) + ":" + os.Getenv("PATH"), "USER=fixture"}
-	for _, extra := range [][]string{{"--for", "15m"}, {"--add"}} {
+	for _, extra := range [][]string{{"--for", "15m"}} {
 		args := append([]string{"approve", requests[0].ID}, extra...)
 		blocked := exec.Command(binary, args...)
 		blocked.Dir, blocked.Env = f.home, hostEnv

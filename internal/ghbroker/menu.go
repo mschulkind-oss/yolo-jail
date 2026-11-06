@@ -17,12 +17,10 @@ const retryCommand = "run the same gh command again"
 // pendingMenu is request id's menu for the write argv to t.
 func pendingMenu(t writeTarget, argv []string, id string) approvalwait.Menu {
 	m := approvalwait.Menu{ID: id, Retry: retryCommand}
+	// `yolo approve --add`, which put a PR or issue in the working set for good, is removed
+	// (github-write-scopes.md OQ-GW2): a write to an item the agent did not create takes Allow
+	// once or `--for`.
 	switch t.Kind {
-	case targetPR, targetIssue, targetIssueOrPR:
-		m.Lasting = []approvalwait.Answer{{
-			What:  "For good, on this host: add " + t.describe() + " to the working set, so later writes to it run unasked",
-			Flags: "--add",
-		}}
 	case targetCreatePR, targetCreateIssue:
 		m.Project = []approvalwait.ProjectStep{{Command: requestCreateCommand(t)}}
 	}

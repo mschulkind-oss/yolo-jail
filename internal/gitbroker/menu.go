@@ -3,11 +3,9 @@ package gitbroker
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
-	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
@@ -94,18 +92,12 @@ const hostPushCommand = "git push"
 // retryPush is what the agent runs again once a push's request is allowed.
 const retryPush = "run the same push again"
 
-// menu is the push's paths for request id ("" when none was filed), needs being the refs that
-// asked for approval.
-func (m *pushMenu) menu(id string, needs []string) approvalwait.Menu {
+// menu is the push's paths for request id ("" when none was filed). Its lasting paths are the
+// project's requests alone: `yolo approve`'s own lasting answers, `--add` and `--remember`, are
+// removed (git-broker.md GB-D28), so the menu offers Allow once, `--for 15m`, the project
+// request, and the push from the host.
+func (m *pushMenu) menu(id string) approvalwait.Menu {
 	out := approvalwait.Menu{ID: id, Retry: retryPush, Fallback: hostPushCommand}
-	out.Lasting = []approvalwait.Answer{{What: "Once now, and remembered in the project's config for later pushes", Flags: "--remember"}}
-	branches := len(needs) == 0
-	for _, ref := range needs {
-		branches = branches || strings.HasPrefix(ref, brokerscope.RefNamespace(brokerscope.KindBranch))
-	}
-	if branches {
-		out.Lasting = append(out.Lasting, approvalwait.Answer{What: "For good, on this host: add these branches to the working set", Flags: "--add"})
-	}
 	if m != nil {
 		m.mu.Lock()
 		defer m.mu.Unlock()

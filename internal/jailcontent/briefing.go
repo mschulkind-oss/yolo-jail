@@ -873,12 +873,8 @@ func BriefingContent(in BriefingInput) string {
 // example cannot drift from what a refusal really says. A placeholder id, since the example
 // is read, not run.
 var briefingMenuExample = approvalwait.Menu{
-	ID:    "r-<id>",
-	Retry: "run the refused command again",
-	Lasting: []approvalwait.Answer{
-		{What: "Once now, and remembered in the project's config for later pushes", Flags: "--remember"},
-		{What: "For good, on this host: add these branches to the working set", Flags: "--add"},
-	},
+	ID:       "r-<id>",
+	Retry:    "run the refused command again",
 	Project:  []approvalwait.ProjectStep{{Command: "yolo request git push <branch>"}},
 	Fallback: "git push",
 }
@@ -906,10 +902,10 @@ func hostRunSection() []string {
 		"  commands again and stop. Any other exit: report what it printed, and do not retry.",
 		"",
 		"A git or gh write that needs approval is refused with a menu of every path that answers it.",
-		"Relay the whole menu, and recommend one path: `--remember`, or the project request and then",
-		"`yolo config apply`, for a branch you will push again; `yolo approve r-<id>` alone for a",
-		"one-off. Never report a host capability as impossible: the refusal names a path. A refusal's",
-		"menu reads like this:",
+		"Relay the whole menu, and recommend one path: the project request and then `yolo config apply`",
+		"for a branch you will push again; `yolo approve r-<id>` alone for a one-off.",
+		"Never report a host capability as impossible: the refusal names a path. A refusal's menu",
+		"reads like this:",
 		"",
 		"```text",
 	}

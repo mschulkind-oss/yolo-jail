@@ -161,7 +161,7 @@ cmd = ["fixture-broker", "{repository_scope}"]
 	}
 
 	_, pendingApproval := pending("local-tasks", "update task-2")
-	for _, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}, {"--remember"}} {
+	for _, flags := range [][]string{{}, {"--for", "15m"}} {
 		request := pendingApproval
 		if len(flags) > 0 {
 			_, request = pending("local-tasks", "update task-2")

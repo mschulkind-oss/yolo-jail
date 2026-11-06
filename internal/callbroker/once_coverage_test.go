@@ -9,7 +9,7 @@ import (
 func TestSelectedCLIActUsesLateStandingCoverageWithoutSpendingExactGrant(t *testing.T) {
 	f := selectedOnceFixtureWithStanding(t, true)
 	// This fixture models a separate, already authorized working-set source; it
-	// does not activate --for or --add on the pack approval CLI.
+	// does not activate --for on the pack approval CLI.
 	if v, _, err := f.call(t, "ask", "update-pr"); err != nil || v.Verdict != "asks" {
 		t.Fatalf("ask %+v %v", v, err)
 	}

@@ -47,9 +47,7 @@ With the broker running:
   Otherwise it is refused whole, nothing is pushed, each such ref's line in git's report names
   the request (`! [remote rejected] <ref> (needs approval: r-<id>)`), and the refusal lists every
   path that answers it, each command on its own line: `yolo approve r-<id>` once, `--for 15m`,
-  `--remember` (once now, and remembered in the project's config), `--add` (the branches join
-  the working set on this host), the project request here then `yolo config apply` on the host,
-  and the push from the host. Relay that whole menu as **Running a command on the host** says,
+  the project request here then `yolo config apply` on the host, and the push from the host. Relay that whole menu as **Running a command on the host** says,
   recommend one path, and start `yolo wait r-<id>` in the background; on exit 0, run the same
   push again, once. Allow once covers exactly that push, once, within 15 minutes: a different
   push (another commit, another ref) asks again. `(needs approval: r-<id>, denied on the host)`

@@ -31,9 +31,18 @@ func TestGitRefusalNextStepsNameRealCommands(t *testing.T) {
 		}
 	}
 	const id = "r-00000000000000000000000000000000"
-	for _, must := range []string{"yolo wait " + id, "yolo approve " + id + " --remember", "yolo approve " + id + " --add", "yolo approve " + id + " --for 15m"} {
+	for _, must := range []string{"yolo wait " + id, "yolo approve " + id, "yolo approve " + id + " --for 15m", "yolo request git push main", "yolo config apply"} {
 		if !seen[must] {
 			t.Errorf("no next step names %q", must)
+		}
+	}
+	// --add and --remember are removed (GB-D28, OQ-GW2): no refusal offers them, in a menu
+	// line or inside a sentence.
+	for _, step := range steps {
+		for _, removed := range []string{"--add", "--remember"} {
+			if strings.Contains(step, removed) {
+				t.Errorf("a next step still offers the removed %s:\n%s", removed, step)
+			}
 		}
 	}
 	for line := range seen {

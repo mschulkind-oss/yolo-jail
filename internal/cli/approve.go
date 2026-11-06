@@ -29,7 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
-const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --add | --remember | --deny [--note <text>]]
+const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --deny [--note <text>]]
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
        yolo approve --json
        yolo approve --watch [--json]
@@ -43,25 +43,22 @@ characters, and is shown as human feedback, never executed or treated as a grant
 minutes and never beyond its set's ceiling. --for hands over the whole requested set, within its policy ceiling
 and use cap; session is 12 hours. For a GitHub write, --for <duration> (at
 most 12h) allows that kind of write on its resource (the PR, the issue, PR or
-issue creation, or the repository's other writes) for that long, and --add adds
-the PR or issue it writes to the workspace's working set, where later writes to
-it run unasked until the PR is merged or the entry revoked; a merge, a
-creation and a repository-level write refuse --add, naming --for. A PR or issue
+issue creation, or the repository's other writes) for that long. A PR or issue
 the agent creates under a create-pr or create-issue grant, a --for or an Allow
-once joins the working set the same way. A git push request lists
+once joins the workspace's working set, where later writes to it run unasked
+until the PR is merged or the entry revoked. A git push request lists
 each ref it would change, old id -> new id, marked "needs approval" where no
 grant or working-set entry covered it, then each push option it sends; Allow
 once covers that exact push, every ref and option of it, once, and a new branch
 it creates joins the working set. For a git push, --for <duration> (at most 24h) allows
 every push to
-the refs that needed approval for that long, and --add adds those branches to
-the workspace's working set for good; --add is refused for a tag and for a new
-branch, naming --for as the next step. --remember allows that push once and
-remembers each ref it needed approval for in the project's config, writing what
-` + "`yolo request git push <branch>`" + ` (or ` + "`push_tags <tag>`" + `) writes there, through
-that verb, so later pushes to it need no approval once ` + "`yolo config apply`" + ` approves
-the change; it is refused, with nothing written, while the project's config is
-still in the deprecated JSONC format. A grant
+the refs that needed approval for that long. For a branch the agent pushes again,
+the lasting path is the project's own: the agent runs
+` + "`yolo request git push <branch>`" + ` (or ` + "`push_tags <tag>`" + `) in the jail, and
+` + "`yolo config apply`" + ` on the host approves the change. --add and --remember
+are removed: either is refused with exit 2, deciding nothing, and names these
+answers; branches, PRs and issues a human added with --add before its removal
+stay in the working set until revoked. A grant
 belongs to the request's workspace: every jail of that project may use it, and
 it lasts through broker and jail restarts and relaunches until it expires, its
 uses run out, or it is revoked.
@@ -74,8 +71,8 @@ branch grant declares in the project's config (a c-<id> line, marked "from
 config", listed while a jail of that project runs). A workspace's GitHub
 working set is the PRs and issues its github-broker writes unasked (w-<id>
 entries, by create-pr, create-issue, a grant's g-<id>, a timed grant's w-<id>,
-or human for --add), until the PR is merged or the entry revoked; a GitHub
---for is a w-<id> entry too, listed with its expiry. --revoke w-<id> ends one
+or human for an --add given before its removal), until the PR is merged or the
+entry revoked; a GitHub --for is a w-<id> entry too, listed with its expiry. --revoke w-<id> ends one
 entry; --revoke c-<id> refuses with exit 5 and names the config file to remove
 the grant from (exit 4 when no running jail declares it). --revoke all ends
 every live grant; --revoke all --workspace <path> ends that workspace's grants
@@ -104,8 +101,8 @@ it approves: a jail can reach a port the host listens on.
 Exit codes: 0 done; 1 the store could not be read or written; 2 usage;
 3 the request is already decided; 4 no request, grant or entry has that id
 (or, with --workspace, that workspace path);
-5 refused by policy (beyond the set's ceiling, a revoke of a branch declared
-in config, or a --remember that cannot be written); 6 the host can no longer confirm
+5 refused by policy (beyond the set's ceiling, or a revoke of a branch declared
+in config); 6 the host can no longer confirm
 the request (its jail's launch is gone or its scope changed), so it cannot be
 allowed. A request whose jail stopped normally is already refused, which is 3.
 
@@ -117,7 +114,6 @@ Examples:
   yolo approve
   yolo approve r-<id>
   yolo approve r-<id> --for 15m
-  yolo approve r-<id> --remember     # a git push: allow it and remember it in the project's config
   yolo approve r-<id> --deny
   yolo approve r-<id> --deny --note "use the release branch"
   yolo approve r-<id> --deny --note=--json
@@ -212,7 +208,8 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	}
 	var request, revoke, workspace string
 	var d brokerstore.Decision
-	forSeen, addSeen, rememberSeen, noteSeen, asJSON, watch, workspaceSeen := false, false, false, false, false, false, false
+	var removed string // the first removed answer flag given (GB-D28, OQ-GW2)
+	forSeen, noteSeen, asJSON, watch, workspaceSeen := false, false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, value, eq := strings.Cut(a, "=")
@@ -252,16 +249,10 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 				}
 				d.For = duration
 			}
-		case "--add":
-			if eq || addSeen {
-				return fail(fmt.Errorf("specify --add once, without a value"))
+		case "--add", "--remember":
+			if removed == "" {
+				removed = name
 			}
-			addSeen = true
-		case "--remember":
-			if eq || rememberSeen {
-				return fail(fmt.Errorf("specify --remember once, without a value"))
-			}
-			rememberSeen = true
 		case "--note":
 			if noteSeen {
 				return fail(fmt.Errorf("specify --note only once"))
@@ -304,12 +295,15 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 			request = a
 		}
 	}
+	if removed != "" {
+		return refuseRemovedApproveFlag(removed, request, errs)
+	}
 	if noteSeen && !d.Deny {
 		return fail(fmt.Errorf("a note is only for --deny; remove it or pair it with --deny"))
 	}
-	// The answers to one request exclude each other: Deny, Allow for a time, Add, Remember.
+	// The answers to one request exclude each other: Deny, Allow for a time.
 	answers := 0
-	for _, seen := range []bool{d.Deny, forSeen, addSeen, rememberSeen} {
+	for _, seen := range []bool{d.Deny, forSeen} {
 		if seen {
 			answers++
 		}
@@ -339,37 +333,17 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	if (asJSON || watch) && (request != "" || revoke != "") {
 		return fail(fmt.Errorf("decide or revoke without --json or --watch, which only list or follow the store"))
 	}
-	if request != "" && (forSeen || addSeen || rememberSeen) {
+	if request != "" && forSeen {
 		source, found, err := pendingRequestSource(stores, request)
 		if err != nil {
 			return approveFailure(err, errs)
 		}
 		if descriptor, ok := descriptorForSource(stores, source); found && ok && descriptor.allowOnceOnly != "" && !descriptor.perResource {
-			flag := "--for"
-			if addSeen {
-				flag = "--add"
-			} else if rememberSeen {
-				flag = "--remember"
-			}
-			fmt.Fprintf(errs, "yolo approve: %s is not available for %s. Next: run `yolo approve %s` with no flags to Allow once.\n", flag, descriptor.allowOnceOnly, termsafe.Visible(request))
+			fmt.Fprintf(errs, "yolo approve: --for is not available for %s. Next: run `yolo approve %s` with no flags to Allow once.\n", descriptor.allowOnceOnly, termsafe.Visible(request))
 			return approveExitPolicy
 		}
-		if rememberSeen {
-			return approveRemember(stores, request, d.Via, out, errs)
-		}
-		if !found && addSeen {
-			// No request has this id: the selected git store owns the per-ref answer path; without
-			// that source in the registry this is an unknown request, not a usage error.
-			if storeForSource(stores, gitbroker.Source) == nil {
-				return approveFailure(brokerstore.ErrUnknownID, errs)
-			}
-			source, found = gitbroker.Source, true
-		}
 		if descriptor, ok := descriptorForSource(stores, source); found && ok && descriptor.perResource && perRefStore(stores, source) != nil {
-			return approvePerRef(stores, source, request, d, addSeen, out, errs)
-		}
-		if addSeen {
-			return fail(fmt.Errorf("unexpected argument %q", "--add"))
+			return approvePerRef(stores, source, request, d, out, errs)
 		}
 	}
 	if watch {
@@ -428,7 +402,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 		fmt.Fprintln(out, "Requests are source-labeled: only sources with active core authority can be granted; pack sources without a core adapter and removed or unknown sources are deny/revoke only. Run `yolo check` to resolve incomplete selection, or use `yolo approve <id> --deny` for a refusal.")
 		fmt.Fprintln(out, "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.")
 	} else {
-		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource or `--add` for its PR or issue; a git push takes `--for <duration>` to allow its refs for that long, `--add` to add its branches to the working set, or `--remember` to allow it and remember its refs in the project's config; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
+		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource; a git push takes `--for <duration>` to allow its refs for that long, and a branch the agent pushes again lasts through its `yolo request git push <branch>` and `yolo config apply`; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
 	}
 	return 0
 }
@@ -477,18 +451,17 @@ func perRefStore(stores []*brokerstore.Store, source string) *brokerstore.Store 
 	return nil
 }
 
-// approvePerRef answers request id with `--for <duration>` (Allow push to its refs for a time)
-// or `--add` (Add them to the working set): working-set entries per ref, in place of a command
-// grant (GB-D26).
-func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore.Decision, add bool, out, errs io.Writer) int {
+// approvePerRef answers request id with `--for <duration>` (Allow push to its refs for a
+// time): working-set entries per ref, in place of a command grant (GB-D26). The answer that
+// added them for good is removed (GB-D28).
+func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore.Decision, out, errs io.Writer) int {
 	if source == ghbroker.Source {
-		return approveGitHubPerResource(perRefStore(stores, source), id, d, add, out, errs)
+		return approveGitHubPerResource(perRefStore(stores, source), id, d, out, errs)
 	}
 	if d.Session {
 		fmt.Fprintf(errs, "yolo approve: --for session is not available for git pushes, which allow a duration of at most 24h. Next: run `yolo approve %s --for 15m`.\n", termsafe.Visible(id))
 		return approveExitPolicy
 	}
-	d.Add = add
 	entries, err := perRefStore(stores, source).DecideWorking(id, d)
 	if err != nil {
 		return approveFailure(err, errs)
@@ -497,12 +470,27 @@ func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore
 	for _, e := range entries {
 		refs = append(refs, termsafe.Visible(e.Resource))
 	}
-	if add {
-		approveGitAddOutcome(out, id, refs, entries)
-		return 0
-	}
 	approveTimedOutcome(out, id, "pushes to "+strings.Join(refs, ", "), entries)
 	return 0
+}
+
+// refuseRemovedApproveFlag refuses `--add` or `--remember`, both removed (git-broker.md GB-D28,
+// github-write-scopes.md OQ-GW2), naming the answers that replace them. It decides nothing.
+func refuseRemovedApproveFlag(flag, request string, errs io.Writer) int {
+	id := "<id>"
+	if request != "" {
+		id = termsafe.Visible(request)
+	}
+	what := "an answer no longer adds anything to the working set"
+	if flag == "--remember" {
+		what = "an answer no longer writes the project's config"
+	}
+	fmt.Fprintf(errs, "yolo approve: %s was removed: %s. Nothing was decided. "+
+		"Next: run `yolo approve %s` to Allow once, or `yolo approve %s --for 15m` to allow it for a while; "+
+		"for a git branch to push unasked for good, the agent runs `yolo request git push <branch>` (or `push_tags <tag>`) in the jail "+
+		"and you run `yolo config apply` on the host, in the project. "+
+		"Entries added with --add before its removal stay in the working set until `yolo approve --revoke w-<id>`.\n", flag, what, id, id)
+	return approveExitUsage
 }
 
 // pendingRequestSource returns the source owning a currently visible pending request.

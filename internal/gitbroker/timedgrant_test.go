@@ -45,9 +45,14 @@ func TestApproveGitForRecordsTimedGrantAndPushWithinItGoesThrough(t *testing.T) 
 	f.commit("one")
 	out, err := f.git("push", "origin", "HEAD:main")
 	id := refusedRequest(t, out, err)
-	for _, want := range []string{"--for 15m", "--add"} {
+	for _, want := range []string{"--for 15m"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the refusal does not name %q:\n%s", want, out)
+		}
+	}
+	for _, removed := range []string{"--add", "--remember"} {
+		if strings.Contains(out, removed) {
+			t.Fatalf("the refusal still offers the removed %s (GB-D28):\n%s", removed, out)
 		}
 	}
 
@@ -86,8 +91,9 @@ func TestApproveGitForRecordsTimedGrantAndPushWithinItGoesThrough(t *testing.T) 
 	}
 }
 
-// TestApproveGitAddJoinsWorkingSetAcrossRelaunch: Add puts the branch in the workspace's working
-// set for good, so a new broker of a new launch, holding no grant, still covers it.
+// TestApproveGitAddJoinsWorkingSetAcrossRelaunch: the store's Add, what the removed
+// `yolo approve --add` wrote (GB-D28), put the branch in the workspace's working set for good;
+// such an entry keeps covering, so a new broker of a new launch, holding no grant, still covers it.
 func TestApproveGitAddJoinsWorkingSetAcrossRelaunch(t *testing.T) {
 	f := newFixture(t, "")
 	mustGit(t, f.bare, "update-ref", "refs/heads/dev", f.upstreamRef("refs/heads/main"))

@@ -203,12 +203,14 @@ func TestAMergedPRLeavesTheWorkingSetAndItsWriteAsks(t *testing.T) {
 	}
 }
 
-// TestApproveAddAndForCoverTheNextWrite answers a filed request the way `yolo approve` does,
-// through the GitHub store's Entries hook, and runs the write again.
+// TestApproveAddAndForCoverTheNextWrite answers a filed request through the GitHub store's
+// Entries hook, as `yolo approve --for` does and as the removed `--add` did (OQ-GW2: an entry
+// it added before the removal keeps covering), and runs the write again. The pending write's
+// menu no longer offers `--add`.
 func TestApproveAddAndForCoverTheNextWrite(t *testing.T) {
 	b, gh := workingSetBroker(t)
 	b.store.Entries = RequestEntries
-	if code, msg := serveGH(b, "pr", "comment", "12", "--body", "x"); code != ExitTempFail || !strings.Contains(msg, "--add") {
+	if code, msg := serveGH(b, "pr", "comment", "12", "--body", "x"); code != ExitTempFail || !strings.Contains(msg, "--for 15m") || strings.Contains(msg, "--add") {
 		t.Fatalf("first write: code %d: %s", code, msg)
 	}
 	q := pending(t, b)[0]

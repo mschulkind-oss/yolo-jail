@@ -694,8 +694,7 @@
     notification with Allow once and Deny buttons:
       on_request = 'a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
     Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
-    also takes `--for <duration>` on its resource and `--add` for its PR or
-    issue (see `yolo approve --help`).  The same lines can live in a script
+    also takes `--for <duration>` on its resource (see `yolo approve --help`).  The same lines can live in a script
     the key names instead.  `"$YOLO_BIN" approve` works wherever plain yolo approve does.
     • A run may take as long as its request waits, one hour, so a notification
       left on screen can still be answered; several requests run several

@@ -28,8 +28,8 @@ func TestPendingMessageListsEveryAnswerOnItsOwnLine(t *testing.T) {
 		want, not []string
 	}{
 		{"pr comment", writeTarget{Kind: targetPR, Repo: "o/r", Number: 7},
-			[]string{"yolo approve " + id, "yolo approve " + id + " --for 15m", "yolo approve " + id + " --add", "yolo wait " + id},
-			[]string{"yolo config apply"}},
+			[]string{"yolo approve " + id, "yolo approve " + id + " --for 15m", "yolo wait " + id},
+			[]string{"yolo config apply", "yolo approve " + id + " --add"}},
 		{"merge", writeTarget{Kind: targetMerge, Repo: "o/r", Number: 7},
 			[]string{"yolo approve " + id, "yolo approve " + id + " --for 15m", "yolo wait " + id},
 			[]string{"yolo approve " + id + " --add"}},

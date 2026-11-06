@@ -138,8 +138,6 @@ yolo host-run wait           # in the jail: wait for that output; also show
 yolo approve                         # on the host: pending requests, live grants, each project's working set
 yolo approve r-<id>                  # allow that exact push or gh write once, within 15 minutes
 yolo approve r-<id> --for 15m        # allow pushes to those refs, or that kind of gh write, for a time
-yolo approve r-<id> --add            # add the branches, or the PR or issue, to the working set
-yolo approve r-<id> --remember       # git: allow once and write the push grant into the project's config
 yolo approve r-<id> --deny           # refuse it
 yolo approve --revoke <g-id|w-id|all> [--workspace <path>]   # end a grant or a working-set entry
 yolo approve --json                  # the same, as one JSON document

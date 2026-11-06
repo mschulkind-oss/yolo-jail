@@ -109,14 +109,16 @@ command. Then answer it:
 |---|---|
 | `yolo approve r-<id>` | **Allow once**: that exact command, one use, within 15 minutes |
 | `yolo approve r-<id> --for 15m` | For a git push: every push to the refs that needed approval, for that long (any duration up to 24 hours). For a GitHub write: that kind of write on its PR or issue (or, for a creation or a repository-level write, in its repository), up to 12 hours |
-| `yolo approve r-<id> --add` | For a git push: the branches join the project's **working set**, the branches the agent may push, force-push and delete without asking, for good; refused for a tag and for a new branch, naming `--for`. For a GitHub write: the PR or issue joins the working set until the PR is merged or you revoke it; refused for a merge, a creation and a repository-level write |
-| `yolo approve r-<id> --remember` | Git only: allow the push once **and** write each ref it needed into the project's config, as `yolo request git push <branch>` or `push_tags <tag>` would, so later pushes to it need no approval once `yolo config apply` approves the change. Refused while the project's config is still JSONC; convert with `yolo config migrate` first |
 | `yolo approve r-<id> --deny` | Refuse it. The agent is told, and should not try it again without asking you |
 
 The refusal the agent relays prints exactly these lines for its request, plus the project request
 (`yolo request git push <branch>` then `yolo config apply`) and the command to run on your machine
-instead. For a branch you will push again, `--remember` or the project request is the one to
-pick; a one-off takes `yolo approve r-<id>` alone.
+instead. For a branch you will push again, the project request is the one to pick; a one-off
+takes `yolo approve r-<id>` alone.
+
+`--add` and `--remember` are gone. Either is refused, deciding nothing, with a message naming the
+answers above. Branches, PRs and issues you added with `--add` before then stay in the working
+set until you revoke them.
 
 An approval belongs to the project, not to one jail: every jail of that project may use it, and
 it lasts through broker and jail restarts until it expires, its uses run out, or you revoke it.

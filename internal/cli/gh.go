@@ -32,7 +32,6 @@ a host terminal directly (not through ` + "`yolo host-run`" + `):
                                    repository and stdin digest
     yolo approve <id> --for 15m    allow that kind of write on that PR, issue
                                    or repository for 15 minutes
-    yolo approve <id> --add        add that PR or issue to the working set
 
 Start ` + "`yolo wait <id>`" + ` in the background meanwhile: it exits 0 once the request
 is allowed, and then the same command runs. A standing ` + "`read-write`" + ` entry in

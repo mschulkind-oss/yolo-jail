@@ -532,8 +532,8 @@ func TestGitBrokerAllowPushForATime(t *testing.T) {
 	if r.rc != 0 || a.err != nil {
 		t.Fatalf("the launch or the host's approval failed%s", gitBrokerDaemonLog(t))
 	}
-	if !strings.Contains(string(refused), "--for 15m") || !strings.Contains(string(refused), "--add") {
-		t.Errorf("the first push's refusal does not name the --for and --add answers:\n%s", refused)
+	if !strings.Contains(string(refused), "--for 15m") || strings.Contains(string(refused), "--add") || strings.Contains(string(refused), "--remember") {
+		t.Errorf("the first push's refusal does not name the --for answer, or still offers the removed --add or --remember (GB-D28):\n%s", refused)
 	}
 	for k, want := range map[string]string{"RCA": "0", "RCB": "1", "RCC": "0", "RCD": "0", "RCE": "0"} {
 		if got := kvLine(r.stdout, k); got != want {

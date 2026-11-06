@@ -10,15 +10,12 @@ import (
 )
 
 // Every approve outcome is a one-line headline, indented facts, and the revoke command alone
-// on its own indented line; an issue, which is never merged, lasts "until revoked", and only
-// a PR's entry ends at its merge.
+// on its own indented line, one per entry.
 func TestApproveOutcomesAreShortLines(t *testing.T) {
 	const id = "r-d3c8000000000000000000000000000a"
 	expires := time.Date(2026, 11, 2, 18, 0, 0, 0, time.UTC)
 	issue := brokerstore.WorkingEntry{ID: "w-f8a1", Workspace: "/home/matt/code/yolo-jail", Repo: "github.com/mschulkind-oss/yolo-jail",
-		Kind: brokerstore.WorkingIssue, Resource: "#70"}
-	pr := issue
-	pr.Kind = brokerstore.WorkingPR
+		Kind: brokerstore.WorkingIssue, Resource: "#70", Expires: expires}
 	for _, c := range []struct {
 		name      string
 		print     func(*bytes.Buffer)
@@ -26,26 +23,18 @@ func TestApproveOutcomesAreShortLines(t *testing.T) {
 		want, not []string
 		revoke    string
 	}{
-		{"issue --add", func(b *bytes.Buffer) { approveGitHubAddOutcome(b, id, issue) },
-			"Allowed " + id + ": issue mschulkind-oss/yolo-jail#70 joined this workspace's working set.",
-			[]string{"every write to it, unasked", "until revoked", "every jail of /home/matt/code/yolo-jail"},
-			[]string{"merge", "github.com/"}, "w-f8a1"},
-		{"pr --add", func(b *bytes.Buffer) { approveGitHubAddOutcome(b, id, pr) },
-			"Allowed " + id + ": PR mschulkind-oss/yolo-jail#70 joined this workspace's working set.",
-			[]string{"every write to it but a merge, unasked", "until the PR is merged, or revoked"}, nil, "w-f8a1"},
 		{"--for", func(b *bytes.Buffer) {
-			e := issue
-			e.Expires = expires
-			approveTimedOutcome(b, id, githubEntryName(e), []brokerstore.WorkingEntry{e})
-		}, "", []string{"issue mschulkind-oss/yolo-jail#70, unasked, for a while.", "2026-11-02T18:00:00Z"}, nil, "w-f8a1"},
+			approveTimedOutcome(b, id, githubEntryName(issue), []brokerstore.WorkingEntry{issue})
+		}, "", []string{"issue mschulkind-oss/yolo-jail#70, unasked, for a while.", "2026-11-02T18:00:00Z", "every jail of /home/matt/code/yolo-jail"},
+			[]string{"github.com/"}, "w-f8a1"},
 		{"once", func(b *bytes.Buffer) {
 			approveOnceOutcome(b, id, brokerstore.Grant{ID: "g-1", Workspace: "/w", Digest: "d", Uses: 1, Expires: expires})
 		}, "Allowed " + id + ": this exact command, once.", []string{"until it is used, or", "every jail of /w"}, nil, "g-1"},
-		{"git --add", func(b *bytes.Buffer) {
-			approveGitAddOutcome(b, id, []string{"refs/heads/a", "refs/heads/b"},
-				[]brokerstore.WorkingEntry{{ID: "w-a", Workspace: "/w"}, {ID: "w-b", Workspace: "/w"}})
-		}, "Allowed " + id + ": refs/heads/a, refs/heads/b joined this workspace's working set.",
-			[]string{"until the branch is deleted, or revoked", "\n      yolo approve --revoke w-b\n"}, nil, "w-a"},
+		{"git --for", func(b *bytes.Buffer) {
+			approveTimedOutcome(b, id, "pushes to refs/heads/a, refs/heads/b",
+				[]brokerstore.WorkingEntry{{ID: "w-a", Workspace: "/w", Expires: expires}, {ID: "w-b", Workspace: "/w", Expires: expires}})
+		}, "Allowed " + id + ": pushes to refs/heads/a, refs/heads/b, unasked, for a while.",
+			[]string{"\n      yolo approve --revoke w-b\n"}, nil, "w-a"},
 	} {
 		var b bytes.Buffer
 		c.print(&b)
