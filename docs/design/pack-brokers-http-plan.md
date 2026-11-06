@@ -3,14 +3,14 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-06
 status: accepted
 stage: DECIDED
-next: "Obtain focused HIGH closure of the three recorded Task 1 findings; keep front and client publication disabled"
+next: "Build Task 1's nonpublishing prepared-identity slice only; keep publication off"
 tags: [plan, broker, http]
 summary: "Tree-grounded HTTP build hand-off; private client delivery is proposed and G4 remains per-cell gated."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-06. G3 remains partial; the G4 front component is integrated but unactivated. Task 1 remains nonpublishing. Its three findings from the focused HIGH BUILD BLOCK are now recorded in the design body and this hand-off; the next review is focused HIGH closure of those findings before implementation, not a new all-G4, private-delivery or native-acceptance approval. This plan is not full G3/G4 or release acceptance.
+**Status:** 2026-11-06. G3 remains partial; the G4 front is integrated but unactivated. Focused HIGH review closed exactly the three Task 1 BUILD findings (`G4_PRIVATE_PAYLOAD_TASK1_THREE_FINDINGS_CLOSURE: OK`); only Task 1's nonpublishing prepared-identity slice is now DECIDED/BUILD-scoped. This does not advance the whole plan, approve design architecture, or authorize G4 publication, private-delivery, native, or whole-G4 acceptance. Tasks 2–4 remain sketches, and publication remains off.
 
 **Primary evidence:** Commit `7e587d200af37d654582303af5c1be0136432be2` changes six files (`1,017` insertions, `6` deletions); five are byte-identical to reviewed candidate `03f`, and the sixth only removes one unused test constant. The original HIGH review returned `BLOCK`; `G4_FOUR_FINDINGS_CLOSURE: OK` closes only framing, uncertain post-transmission outcomes, capture overflow and body-read deadlines, not primary integration review. The package/race tests, five repair regressions, Linux/Darwin vet, Linux staticcheck, Darwin/arm64 compile, matched bundle, host `check --no-build`, rootful empty-pack nested smoke (Podman reported `Rootless=false`) and selective `just done` passed. They prove neither HTTP activation, native/rootless isolation, full CI nor full G4. Full integration, remote CI and native rootless/macOS proof remain unverified.
 
@@ -160,7 +160,7 @@ func TestCallBrokerHTTPDeclaration(t *testing.T) {
 
 **Task 1 — private prepared payload with a production owner; no listener/client publication.**
 
-**Task 1 review state: the three corrections below await focused HIGH closure; do not implement before that closure. This is not a request for new whole-G4 BUILD or private/native approval.**
+**Task 1 status — DECIDED / BUILD scope, nonpublishing only:** The focused HIGH review accepted closure of exactly these three Task 1 findings (`G4_PRIVATE_PAYLOAD_TASK1_THREE_FINDINGS_CLOSURE: OK`) against frozen documentation commit `13d86d3696e05956ad1c38b0e1a2bcb9cc1b95b9`, tree `3e9d4a22010b258fa9abc930a057902e0d1b117b`. This releases only the Task 1 private prepared-identity work to its bounded source builder under the existing tests, producer/attach/cleanup callsite requirements, and fences below. It is not a whole-plan BUILD, architecture-owner ruling, G4 integration acceptance, or approval for publication, private delivery, or native behavior. Tasks 2–4 remain sketches; front and client publication stay off.
 
 - **Settled:** `[[env]] bin = "fixture-http-client"`, `served_by = "fixture-http"`; ordinary variables use `FIXTURE_API_TOKEN = "{caller_token}"`, `FIXTURE_BASE_URL = "https://{listen}"`, `SSL_CERT_FILE = "{client_trust}"`. `{client_trust}` is proposed, not currently available. Resolve no values unless the selected program, selected enabled HTTP front, approved binding and unique selected program recipe/need all match. Keep token as the whole env value; the actual client supplies header/prefix. Reject mixed bin/profile/platform gates, missing/ambiguous/unresolved/colliding recipe or front, conflicting managed assignments and unknown substitutions. Zero matching clients/fronts and read-only/check paths mint and write nothing. Do not weaken grants, selected-pack policy or unrelated service gates.
 - **Immutable PRE-LEASE prepared record:** proposed `callbrokerinput.PreparedHTTPClientGeneration`, version `yolo.http-client-prepared/1`, phase `prepared`, with a fresh generation nonce. Required producer-known fields: exact container and producer-issued `FrontJailID`; frozen runtime, selected setup name and staged pack-tree identity; host scope `LaunchID`; selected loophole/front/pack/source and declaration hash; gate-approved roots and program identities; and selected client plans binding bin, owning pack/front, resolved recipe/asserted-need identity, and token/URL/trust variable names. Keep all field types explicit and required identity strings nonempty; empty roots/program-identity collections remain legal only where current G3 permits them. The record is a nonsecret placement snapshot, not a lease, ready state, authentication or authority. Freeze setup in the producer context; never reconstruct it from workspace or current config.
