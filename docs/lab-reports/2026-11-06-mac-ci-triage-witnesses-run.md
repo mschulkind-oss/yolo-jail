@@ -160,11 +160,14 @@ Nothing. This report is the only commit.
 ## Open
 
 1. The Apple Container JSONC relaunch refusal in [§2](#2-the-config-migration-tests-fail-under-apple-container-self):
-   is it a defect, and should a test run under `apple-container-self`? (Owner.)
-2. Triage W1's build failure is not reproduced on this Mac, whose nix does not trust the Cachix
+   is it a defect, and should a test run under `apple-container-self`? (Owner.) Fix in
+   progress, 2026-11-06.
+2. `yolo ps` under Apple Container prints the whole `container ls` row as STATUS
+   ([§3](#3-apple-containers-starteddate-for-w-su11)). Fix in progress, 2026-11-06.
+3. Triage W1's build failure is not reproduced on this Mac, whose nix does not trust the Cachix
    substituter. A rerun on a CI runner is the only witness left.
-3. Triage W5 waits on a `v0.17.0` tag, and W6 on the next two scheduled nightlies.
-4. W-SU1, W-SU4 and the rest of W-SU11 wait on slices 6a-ii, 6b and 11d.
+4. Triage W5 waits on a `v0.17.0` tag, and W6 on the next two scheduled nightlies.
+5. W-SU1, W-SU4 and the rest of W-SU11 wait on slices 6a-ii, 6b and 11d.
 
 ## Evidence
 

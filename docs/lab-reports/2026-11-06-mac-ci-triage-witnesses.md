@@ -115,6 +115,12 @@ Linux has run the move. If APFS refuses the rename with `EACCES`, the move falls
 "left in place" line. That line's manual `mv` would fail the same way, and every later launch
 would print it again.
 
+The Mac run measured who owns such a home
+([run report §4](2026-11-06-mac-ci-triage-witnesses-run.md#4-who-owns-a-seatbelt-yolo-account-home)):
+the `.yolo/home` directory is the invoking user's, and only its contents are the yolo account's.
+Renaming a directory needs write access only to the directory that holds it, `.yolo`, so
+`EACCES` is not expected. W7 still stands as the live confirmation.
+
 - W7. In a throwaway workspace, launch `seatbelt-yolo-account` once on a yolo from before 6a-ii,
   so the account lays `.yolo/home`. Then launch it once on a commit carrying 6a-ii. Record the
   launch's home line, and `ls -leO` of `.yolo/home` and `.yolo/setups/seatbelt-yolo-account/home`
@@ -123,7 +129,7 @@ would print it again.
 **Decision needed:** none if the move prints "Moved this project's home". On `EACCES`, the move
 needs a step the account can take, and its "left" line needs a remedy that works.
 
-**Mac run, 2026-11-06 at `9e1e9d8d3`** ([report](2026-11-06-mac-ci-triage-witnesses-run.md)): W1's build passes natively, so the failure is not reproduced. W2 passes under `podman-self` with no image build, but both tests fail under `apple-container-self` on the second launch. W3 and W4 pass. W5 and W6 cannot run yet.
+**Mac run, 2026-11-06 at `9e1e9d8d3`** ([report](2026-11-06-mac-ci-triage-witnesses-run.md)): W1's build passes natively, so the failure is not reproduced. W2 passes under `podman-self` with no image build, but both tests fail under `apple-container-self` on the second launch. W3 and W4 pass. W5 and W6 cannot run yet. The `apple-container-self` refusal and the `yolo ps` row finding the run reported: fix in progress, 2026-11-06.
 
 ## Evidence
 
