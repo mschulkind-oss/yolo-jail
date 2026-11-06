@@ -62,6 +62,15 @@ func FromWorkspace(workspace string) string {
 	return FromResolved(ResolveWorkspace(workspace))
 }
 
+// JailName is the setup-qualified jail name (named-setups-plan.md SUP-D2): the project key
+// FromWorkspace returns, with the setup's name appended. It names what identifies a RUNNING jail
+// or its per-run state, so two setups of one project never share one; what stays per project
+// (approval and grant records) keeps FromWorkspace. setup must be a valid setup name
+// (setup.ValidName), which keeps the result a valid container name.
+func JailName(workspace, setup string) string {
+	return FromWorkspace(workspace) + "-" + setup
+}
+
 // ResolveWorkspace is the path FromWorkspace names a container from: absolute, with
 // symlinks resolved where they resolve. A caller that records which workspace a container
 // name stands for records this, so FromResolved of the record gives the name back.
