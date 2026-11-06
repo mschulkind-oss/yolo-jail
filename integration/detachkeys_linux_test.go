@@ -14,7 +14,6 @@ package integration
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -49,9 +48,7 @@ func TestTheDetachSequenceNeverLeavesAnAttachedSessionHeadless(t *testing.T) {
 	cmd := exec.Command(yoloBin, append(jailRunArgs(), "--", "sh", "-c",
 		`echo DK-READY-$((40+2)); exec cat -v`)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=dumb")
-	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
-	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
+	cmd.Env = launchEnvironment(runConfig{})
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {

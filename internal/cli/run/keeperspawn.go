@@ -1388,21 +1388,24 @@ func (o *Options) keeperHandOff(plan *keeperPlan) (*workspaceLock, []*os.File, f
 	return m.arrival, m.handed, o.releaseHandedReservations
 }
 
-// macosUserKeyServices names what a keeper of this launch's key holds, naming the key's notch
-// (JL-D41): the jail notch's are "this workspace's macos-user host services", and the guest notch's,
-// a key of their own (JL-D37), "this workspace's guest-notch macos-user host services".
+// macosUserKeyServices names what a keeper of this launch's key holds, naming its key (JL-D41).
+// Both Seatbelt setups (seatbelt-self, seatbelt-yolo-account) launch at the guest key, a key of
+// its own (JL-D37) that the two share, so its keeper holds "this workspace's Seatbelt host
+// services". The notch is no longer a word a user configures (named setups, slice 5), so the line
+// names the setups' technology instead. The other key (keeperNotchMacosUser), which `yolo stop`
+// still ends, holds "this workspace's macos-user host services".
 func (o *Options) macosUserKeyServices() string {
 	if o.macosUserKeeperNotch() == keeperNotchGuest {
-		return "this workspace's guest-notch macos-user host services"
+		return "this workspace's Seatbelt host services"
 	}
 	return "this workspace's macos-user host services"
 }
 
-// macosUserKeySession names one session of this launch's key, its notch named as
+// macosUserKeySession names one session of this launch's key, its key named as
 // macosUserKeyServices names it.
 func (o *Options) macosUserKeySession() string {
 	if o.macosUserKeeperNotch() == keeperNotchGuest {
-		return "guest-notch macos-user session"
+		return "Seatbelt session"
 	}
 	return "macos-user session"
 }
