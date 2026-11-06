@@ -131,11 +131,20 @@ func TestSelectedKeeperWithoutStartedServiceCannotConfirmFinalHarvest(t *testing
 	}
 }
 
+// A session is held until the keeper has acted on the signal. With none, the
+// keeper's ready loop also sees its last session gone, and which of the two
+// ways out it took was the scheduler's choice: a slow CI runner drained (rc 0).
 func TestSelectedKeeperForcedStopWithoutServiceCannotConfirmFinalHarvest(t *testing.T) {
 	id := strings.Repeat("b", 32)
+	var session *sessionLock
 	f := startKeeperFixture(t, true, func(p *keeperPlan) {
 		p.MCPTeardownID = id
 		if err := createMCPOutcomeGeneration(p.Cname, id, p.Workspace, p.Runtime); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		session, _, err = takeSessionLock(p.Cname)
+		if err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -143,6 +152,17 @@ func TestSelectedKeeperForcedStopWithoutServiceCannotConfirmFinalHarvest(t *test
 		t.Fatalf("selected keeper did not reach ready: %s", f.errOut.String())
 	}
 	f.signals <- syscall.SIGTERM
+	// The keeper's stop of the jail is the event that it took the signal; only
+	// then may the session go, which the signalled keeper's finish waits for.
+	for f.jail.stopCount() == 0 {
+		select {
+		case rc := <-f.done:
+			session.release()
+			t.Fatalf("keeper ended (rc=%d) without stopping the jail for its signal", rc)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	session.release()
 	if rc := f.wait(); rc != 128+int(syscall.SIGTERM) {
 		t.Errorf("keeper rc=%d, want signal exit", rc)
 	}

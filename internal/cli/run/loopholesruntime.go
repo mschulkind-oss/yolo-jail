@@ -1787,7 +1787,10 @@ func (o *Options) startExternalService(
 		return next, nextExited, nil
 	}
 	sup.ready = func(next *exec.Cmd, nextExited <-chan struct{}) string {
-		return o.waitServiceReady(reachable, nextExited, next)
+		// A teardown ends the wait at once: restart reads the stop before the clause this
+		// returns, so the stop's wording never reaches a line, and supervision ends with the
+		// teardown rather than at the readiness deadline.
+		return o.waitServiceReadyUntil(time.Now().Add(o.serviceReadyTimeout()), reachable, nextExited, sup.stopCh, next)
 	}
 	sup.abandon = func(next *exec.Cmd) {
 		if hd != nil && hd.Detach {

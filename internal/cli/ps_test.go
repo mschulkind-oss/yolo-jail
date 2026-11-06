@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -264,24 +263,32 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 		t.Errorf("detectListingRuntime honoring config = %q, want macos-user", got)
 	}
 
-	// A workspace with no config and no override → whatever the PLATFORM PROBE says.
+	// A workspace with no config and no override → the platform's NAMED default setup's
+	// backend: podman-self on Linux, apple-container-self on macOS (setup.Default, chosen by
+	// name and never by probing; whether it is installed is Buildable's question). What belongs
+	// HERE is that a config-less workspace reaches the default instead of the previous line's
+	// macos-user leaking across, which is the wiring audit finding 5 was about.
 	//
-	// Asserted against the probe rather than the literal "podman": this test ran on a
-	// Linux host for its whole life, and hardcoding the Linux answer made it fail on
-	// macOS — where the correct result is "container" if Apple Container is installed —
-	// reporting a broken resolver when the resolver was right. The platform matrix
-	// itself is not this test's job and is already pinned exhaustively by
-	// runtime.TestResolveRuntimeConfigAware; what belongs HERE is that a config-less
-	// workspace reaches the probe at all instead of the previous line's "container"
-	// leaking across, which is the wiring audit finding 5 was about.
+	// Both platforms are stated (onPlatform) with a PATH holding only podman, so the answer
+	// cannot come from the machine running the test: an expectation computed from the runtime
+	// probe said "podman" on a macOS runner without Apple's container CLI on PATH, while the
+	// selection rightly said "container".
 	t.Setenv("HOME", t.TempDir()) // no user config, so no `setup`
+	bin := t.TempDir()
+	if err := os.Symlink("/bin/true", filepath.Join(bin, "podman")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
 	empty := t.TempDir()
-	want := runtime.ResolveRuntime("", "", paths.IsMacOS, func(bin string) bool {
-		_, err := exec.LookPath(bin)
-		return err == nil
-	})
-	if got := detectListingRuntime(empty); got != want {
-		t.Errorf("detectListingRuntime with no config = %q, want the platform probe's %q", got, want)
+	for _, tc := range []struct {
+		macOS bool
+		want  string
+	}{{false, "podman"}, {true, "container"}} {
+		onPlatform(t, tc.macOS)
+		if got := detectListingRuntime(empty); got != tc.want {
+			t.Errorf("macOS=%v: detectListingRuntime with no config = %q, want the named default's %q",
+				tc.macOS, got, tc.want)
+		}
 	}
 }
 

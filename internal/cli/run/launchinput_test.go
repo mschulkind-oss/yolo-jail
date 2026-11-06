@@ -555,9 +555,9 @@ func TestRestartedDetachedLaunchInputWaitsForCurrentProcessExit(t *testing.T) {
 	}}
 	fillDefaults(o)
 	o.Stdout, o.Stderr = &output, &output
-	// Longer than the front's teardown grace: supervision must leave its
-	// restart-readiness wait after stop, while the detached process stays live.
-	o.ServiceReadyTimeout = 5 * time.Second
+	// Far longer than the test: supervision must leave its restart-readiness wait
+	// because of the stop, not its deadline, while the detached process stays live.
+	o.ServiceReadyTimeout = time.Hour
 	o.ServiceTermGrace = time.Second
 	o.PathExists = func(string) bool { return false }
 	cname := "yolo-restarted-detached-input"
@@ -578,15 +578,13 @@ func TestRestartedDetachedLaunchInputWaitsForCurrentProcessExit(t *testing.T) {
 		}
 	})
 	input := filepath.Join(state, "replicas", cname+".json")
+	// Every wait below is on an event the daemon or the supervisor produces;
+	// the go test timeout is the only clock.
 	wait := func(suffix string) {
 		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
 		for {
 			if _, err := os.Stat(marker + suffix); err == nil {
 				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("daemon did not reach %s: %s", suffix, output.String())
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -598,24 +596,30 @@ func TestRestartedDetachedLaunchInputWaitsForCurrentProcessExit(t *testing.T) {
 	wait(".restarted")
 	// The restarted process is still blocked before listening; teardown ends
 	// supervision but must not remove its input until that process exits.
-	o.stopLoopholes(handles, sockets, cname, "podman")
+	// The stop waits for that exit, which only .release allows, so it runs
+	// beside the checks rather than sitting out its final-exit timer.
 	stopped = true
+	stopDone := make(chan bool, 1)
+	go func() { stopDone <- o.stopLoopholes(handles, sockets, cname, "podman") }()
 	wait(".shutdown")
 	body, err := os.ReadFile(marker + ".shutdown")
 	if err != nil || string(body) != "restart-secret" {
 		t.Fatalf("restarted daemon's shutdown read: %q %v", body, err)
 	}
 	// The non-fronted selected daemon exposes the supervisor's end directly.
-	// Its restart-readiness wait ends on teardown before the process exits.
+	// Its restart-readiness wait ends on teardown before the process exits; a
+	// wait that ignored the stop would hold this for the hour above.
 	select {
 	case <-handles[0].end.done:
-	case <-time.After(7 * time.Second):
-		t.Fatal("supervisor did not end after teardown during restart readiness")
+	case failed := <-stopDone:
+		t.Fatalf("stop returned (failed=%v) before the restarted process exited", failed)
 	}
 	select {
 	case <-handles[0].inputExited:
 		t.Fatal("input cleanup signaled before the restarted process's exit")
-	case <-time.After(50 * time.Millisecond):
+	case failed := <-stopDone:
+		t.Fatalf("stop returned (failed=%v) before the restarted process exited", failed)
+	default:
 	}
 	if _, err := os.Stat(input); err != nil {
 		t.Fatalf("input removed before restarted process exited: %v", err)
@@ -623,18 +627,13 @@ func TestRestartedDetachedLaunchInputWaitsForCurrentProcessExit(t *testing.T) {
 	if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-handles[0].inputExited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("observed restarted process exit never closed cleanup signal")
+	<-handles[0].inputExited
+	if failed := <-stopDone; failed {
+		t.Fatalf("stop reported a failure after the restarted process exited: %s", output.String())
 	}
-	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(input); os.IsNotExist(err) {
 			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("input survived restarted process's observed exit")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
