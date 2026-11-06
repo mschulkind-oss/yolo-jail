@@ -6,10 +6,11 @@ package run
 // destination of its own kind in this jail. Such content is composed into nothing, and its
 // author believes it was delivered.
 //
-// A REPORT, NEVER A REFUSAL, and that is the ruling rather than a softness. By the time this
-// runs the eighth pre-flight (packload.AgentAudienceProblems) has already refused every name
-// that is not in this jail's vocabulary, so every name reaching here IS owned by a selected
-// pack. The addressing pack's `agents` is therefore correct, and what is missing is an `agent`
+// A REPORT, NEVER A REFUSAL, and that is the ruling rather than a softness. A contribution none
+// of whose names is in this jail's vocabulary is not reported here: it was SKIPPED, and
+// discloseAudienceSkips has already said so in its own words (FS-D6). So every contribution
+// reported here names at least one agent a selected pack owns. The addressing pack's `agents`
+// is therefore plausible, and what is missing is an `agent`
 // on the OWNING pack's destination of that kind: refusing would punish the wrong author
 // (agent-briefings.md, "Two severities"). `yolo host apply` prints the same fact as a `no effect`
 // warning at exit status 0 (reportInferredDestinations in internal/cli); this is the line the
@@ -44,11 +45,27 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
+
+// discloseAudienceSkips prints one line per `agents` name no selected pack provides
+// (packload.AgentAudienceSkips; FS-D6, docs/design/pack-files-for-agent-state.md §4.2): what was
+// skipped and why, and the `yolo pack add` that makes it apply when a pack yolo ships provides
+// the agent. Called once per launch, from stagePacksInto, whatever the selection; a narrowed
+// build jail (selectionNarrowed) gets no next step, because its narrowing dropped the agent.
+func (o *Options) discloseAudienceSkips(packs []*packload.Pack, narrowed bool) {
+	for _, s := range packload.AgentAudienceSkips(packs, packload.Embedded()) {
+		line := "packs: skipped — " + s.Line()
+		if next := s.NextStep(); next != "" && !narrowed {
+			line += ". " + next
+		}
+		o.pr(o.Stderr).print("[yellow]" + richtext.Escape(line) + "[/yellow]")
+	}
+}
 
 // reportUnmatchedAudiences prints one warning per addressed contribution in the selected set
 // whose audience reaches no destination of its kind (unmatchedAudiences). Called once per
-// launch, from stagePacks, after the vocabulary pre-flight and before anything is delivered.
+// launch, from stagePacks, after the skip disclosure (discloseAudienceSkips) and before anything is delivered.
 func (o *Options) reportUnmatchedAudiences(packs []*packload.Pack) {
 	for _, line := range unmatchedAudiences(packs) {
 		o.pr(o.Stderr).print("[yellow]Warning: " + line + "[/yellow]")
@@ -80,6 +97,10 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 		}
 	}
 
+	// A contribution none of whose names any selected pack provides was skipped (FS-D6), and is
+	// disclosed by discloseAudienceSkips; this report is for the names the jail HAS.
+	vocab := packload.AgentVocabulary(packs)
+
 	var lines []string
 	for _, p := range packs {
 		if p == nil || p.Decl == nil {
@@ -97,7 +118,8 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 			var order []string
 			groups := map[string]*group{}
 			for _, src := range sources {
-				if len(src.By.Agents) == 0 || reachesAny(src.By.Agents, dests[kind]) {
+				if len(src.By.Agents) == 0 || reachesAny(src.By.Agents, dests[kind]) ||
+					!packload.AudienceKnown(src.By.Agents, vocab) {
 					continue
 				}
 				key := src.By.SourceKey() + "\x00" + strings.Join(src.By.Agents, "\x00")
@@ -116,7 +138,7 @@ func unmatchedAudiences(packs []*packload.Pack) []string {
 			}
 		}
 		for _, a := range p.ResolveDestinations(packs).Addressed {
-			if a.Kind != packdecl.KindFiles || len(a.Into) > 0 {
+			if a.Kind != packdecl.KindFiles || len(a.Into) > 0 || !packload.AudienceKnown(a.Agents, vocab) {
 				continue
 			}
 			lines = append(lines, unmatchedAudienceLine(p.Name, a.Kind, []string{a.From}, a.Agents))
@@ -137,8 +159,8 @@ func reachesAny(agents []string, dests map[string]bool) bool {
 
 // unmatchedAudienceLine is the warning text. It names the pack, the kind, the pack-relative
 // sources and the audience, and states the remedy the way `yolo host apply` does — with the one
-// difference a launch allows: the pre-flight has already proved every name here is owned by a
-// selected pack, so "select the pack" is not a remedy at this point and is not offered.
+// difference a launch allows: unmatchedAudiences reports only a contribution naming at least one
+// agent a selected pack owns, so "select the pack" is not the remedy here and is not offered.
 func unmatchedAudienceLine(pack string, kind packdecl.Kind, sources, agents []string) string {
 	quoted := make([]string, 0, len(sources))
 	for _, s := range sources {

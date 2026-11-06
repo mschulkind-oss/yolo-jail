@@ -60,7 +60,7 @@ here too.
 | The in-jail read-back refusal on the host prepend | `internal/cli/run` (`mayPrependHostBriefing`) |
 | The launch line for a host prepend that is there and cannot be read | `internal/cli/run` (`prependHostBriefing`, `unreadHostSource`); the link-chain walk is `entrypoint.FindDanglingLink` |
 | The audience fields and their validation | `internal/packdecl` (`Contribution.Agent`, `Contribution.Agents`) |
-| The fatal unknown-name gate, and the agent vocabulary | `internal/packload` (`AgentAudienceProblems`, `AgentNames`) |
+| The unknown-name skip, and the agent vocabulary | `internal/packload` (`AgentAudienceSkips`, `AgentNames`, `AgentVocabulary`) |
 | One owner per agent name | `internal/packload` (`AgentNameCollisions`) |
 | Host-side audience resolution and its report | `internal/packload` (`ResolveDestinations`, `Destinations`, `Orphan`, `AddressedDelivery`) |
 | The ownership record that gates the host prepend | `internal/entrypoint` (`GeneratedHostBriefings`, `HostBriefingManifestPath`) |
@@ -384,14 +384,15 @@ drift apart.
 audience reaches every destination of its kind. An empty identity is the other half of the same
 rule: a destination that declared none still receives every broadcast, and no addressed content.
 This is what let the field land before any pack adopted it. It also makes a broadcast portable,
-because listing every agent by name is fatal in any jail that does not select one of them (P3).
+because a list of every agent by name prints a skip line for each one a jail does not select (P3).
 
-<a id="ba-p3"></a>**P3. The vocabulary is the ENABLED packs, and anything else is fatal.** An
-`agents` entry may name only an agent some pack in `packs` claims. There is no second, laxer tier
-for a name that exists somewhere but is not selected here. `agents: ["cloude"]` and
-`agents: ["codex"]` in a jail without codex fail identically, because from the jail's point of
-view they are the same mistake: the prose names an audience this jail does not have. The remedy
-is the same too: fix the name, or select the pack.
+<a id="ba-p3"></a>**P3. The vocabulary is the ENABLED packs, and anything else is skipped.** An
+`agents` entry reaches only an agent some pack in `packs` claims. Content addressed to any other
+name delivers nothing for that name, the launch runs, and the skip is disclosed
+([FS-D6](../design/pack-files-for-agent-state.md#FS-D6), which amended this principle from
+"fatal"). `agents: ["cloude"]` and `agents: ["codex"]` in a jail without codex are skipped
+identically, because yolo cannot tell a misspelling from an agent whose pack the user did not
+select: a name outside the selection may belong to a pack yolo has never seen.
 
 <a id="ba-p4"></a>**P4. A content pack names its audience; it never names a path.** Where an
 agent reads, prose or skills, is the agent pack's business, and it changes when that agent
@@ -421,31 +422,39 @@ it.
 > [`yolo host apply` and the jail launch report it](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)
 > rather than hiding it.
 
-#### Two severities: an unknown name is fatal, an unmatched destination is reported
+<a id="two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported"></a>
 
-An addressed contribution can go wrong in two ways. The severity splits where the user's remedy
-splits:
+#### Two outcomes: an unknown name is skipped, an unmatched destination is reported
 
-| Question | Decidable from | Severity | Whose fix |
+An addressed contribution can reach nothing in two ways. The outcome splits where the user's
+remedy splits:
+
+| Question | Decidable from | Outcome | Whose fix |
 | :--- | :--- | :--- | :--- |
-| Is the name in the vocabulary? Does any enabled pack claim `claude` at all? | the claim set alone | **fatal** (P3) | the addressing pack: fix the name, or select the pack |
+| Is the name in the vocabulary? Does any enabled pack claim `claude` at all? | the claim set alone | **skipped and disclosed** (P3, [FS-D6](../design/pack-files-for-agent-state.md#FS-D6)) | the user, if they want it: `yolo pack add <pack>` when a shipped pack provides the name; otherwise the addressing pack's spelling |
 | Did the name reach a destination of *this kind*? The pack owning `claude` is here, but does it declare a `skills` destination with `agent: claude`? | resolution | **reported**, never refused | the *owning* pack: an `agent` on its destination of that kind |
 
 Refusing the second case would punish the wrong author, because the addressing pack's `agents` is
 correct.
 
-**The fatal gate is `packload.AgentAudienceProblems`.** Its vocabulary is `packload.AgentNames`
-over the **loaded** packs only, never the embedded universe. It runs at the two points that hold
-the enabled set: the launch pre-flight (`run`'s pack loading, which also covers attach) and
-`yolo host apply`. The refusal names the offending string, the declaring pack, every agent the
-`packs` provide, and a did-you-mean guess. It prints one message for a typo and for an unselected
-pack, because it cannot tell which mistake was made. The wording is notch-neutral ("no pack in
-`packs` provides"), because one of its two callers runs where there is no jail.
+**The skip is `packload.AgentAudienceSkips`.** Its vocabulary is `packload.AgentNames` over the
+**loaded** packs only; the packs yolo ships are read only to name a provider in the next step,
+which reserves nothing. Each skip is one line naming the pack, the kind and the agent as written:
 
-`yolo pack lint` does **not** run this gate, and must not. Lint takes a single pack root with no
-config, so it cannot know the enabled set. It reports what a contribution targets and refuses
-nothing. The severity lives upstream, where the user has every remedy. `yolo check` does not run
-it either.
+```text
+pack matt-agentwork: files for agy not delivered — no selected pack provides agy
+```
+
+with `If you want it here:  yolo pack add agy` beside it when a shipped pack provides the agent,
+and nothing beside it otherwise, so a misspelling reads as written. Three readers print it, and
+none refuses: the launch's pack loading (`discloseAudienceSkips` in
+`internal/cli/run/unmatchedaudience.go`, every launch it applies to, a narrowed build jail's
+included, without the `yolo pack add` step there), `yolo host apply` (a `skipped` line in its
+report), and `yolo check` (a `[SKIP]` row in its Pack audiences section,
+`internal/cli/check/section_packaudiences.go`).
+
+`yolo pack lint` does **not** read it, and must not. Lint takes a single pack root with no config,
+so it cannot know the enabled set.
 
 **The report is resolution's outcome, `packload.Destinations`,** which carries two views that are
 not redundant:
@@ -466,10 +475,10 @@ it says outright that declaring `into` is not the remedy.
 
 **The jail launch prints its own warning for the unmatched case, and still refuses nothing**
 (`reportUnmatchedAudiences` in `internal/cli/run/unmatchedaudience.go`, called from the launch's
-pack loading right after the fatal gate). The line names the addressing pack, the kind, the
+pack loading right after the skip disclosure). The line names the addressing pack, the kind, the
 pack-relative sources and the audience, and it says that declaring `into` is not the remedy. It
-does not tell the user to select a pack, because the fatal gate has just proved that every name
-reaching it belongs to a selected pack. The launch still reads neither `Orphaned` nor
+does not tell the user to select a pack, because it reports only a contribution naming at least
+one agent a selected pack provides; one naming none was skipped, and said so in its own line. The launch still reads neither `Orphaned` nor
 `Addressed`. The jail never resolves destinations the host's way: it composes each destination
 from the whole pack set, filtering by that destination's declared identity. So the report asks
 the jail's own enumerations instead: `briefingDestinations` for briefing, `packSkillTargets` for
@@ -1051,7 +1060,7 @@ only place the values themselves are stated.
 | yolo's own LSP plugin | written last into every skills destination when `lsp_servers` is non-empty | `jailcontent.LSPPluginDir`, `writeLSPPlugin` |
 | Audience fields | `agent` (a destination's identity), `agents` (a contribution's audience); accepted on `briefing`, `skills` and `files` only | `packdecl.Contribution` |
 | Shipped agent identities | each equals the pack's `program` bin; for `omp` that is `oh-omp`, not the pack name | `packs/*/pack.json` |
-| Unknown-name gate | fatal at the launch pre-flight and at `yolo host apply`; not in `yolo pack lint` or `yolo check` | `packload.AgentAudienceProblems` |
+| Unknown-name skip | skipped and disclosed at the launch, `yolo host apply` and `yolo check` (a `[SKIP]` row); never refused; not in `yolo pack lint` | `packload.AgentAudienceSkips` |
 | One-owner gate | fatal at the launch pre-flight, `yolo host apply` and `yolo check` | `packload.AgentNameCollisions` |
 | Skill-name collision gate | fatal at the launch pre-flight (an attach included) and at `yolo host apply`; one message at both | `hostskills.Collisions`, `hostskills.CollisionError`, `run.checkSkillCollisions` |
 | Unmatched-audience report | a `no effect` warning at exit status 0, from `yolo host apply` only | `cli.reportInferredDestinations`, `packload.Destinations` |
@@ -1071,7 +1080,7 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | <a id="s3"></a>[`S3`](#s3) | Neither briefings nor skills read yolo's own generated host output back in | Once the host notch composes a destination wholesale, reading it back in composes every pack twice — measured, byte-identical duplicates in prose, and last-writer-wins invisibility in skills. The user's own content reaches a jail through the conventional local pack instead, which is an ordinary pack entry with ordinary precedence. The in-jail read-back refusal on the host prepend is the same rule at the nesting boundary. |
 | <a id="oq-ba1"></a>[`OQ-BA1`](#oq-ba1) | The audience is keyed by **launcher command (`bin`)**, never by pack slug ([P1](#ba-p1)) | A slug can be renamed per config entry, so a reference to it breaks from a line the referencing pack cannot see. The bin namespace is exclusive by construction, and it is what the user types. |
 | <a id="oq-ba2"></a>[`OQ-BA2`](#oq-ba2) | The audience match is against a **declared** string, never anything derived | A derived identity (a pack name, a path segment, the pack's bins) would silently change meaning the moment either was renamed, and nothing would report it. The profile chain's `packload.binOwner` finds whose launch a CLI name is, through sole-owned `program` bins; the audience match does not use it. |
-| <a id="oq-ba3"></a>[`OQ-BA3`](#oq-ba3) | **Allowlist only**, drawn from the ENABLED packs, and anything else is fatal ([P3](#ba-p3)) | A typo and an unselected agent are the same mistake from the jail's point of view, with the same remedy. A denylist relieves a burden that P3 already bounds, and would need its own answer for an excluded agent that is not enabled. |
+| <a id="oq-ba3"></a>[`OQ-BA3`](#oq-ba3) | **Allowlist only**, drawn from the ENABLED packs, and anything else is skipped and disclosed ([P3](#ba-p3); "fatal" until [FS-D6](../design/pack-files-for-agent-state.md#FS-D6) amended it) | yolo cannot tell a typo from an unselected agent, so both are skipped the same way. A denylist relieves a burden that P3 already bounds, and would need its own answer for an excluded agent that is not enabled. |
 | <a id="oq-ba4"></a>[`OQ-BA4`](#oq-ba4) | **`skills` takes the same fields and every rule unchanged** | The two kinds are parallel: a conventional source, many packs merging into destinations agent packs name. One mechanism, not two. A second, different audience rule for skills would be the drift. |
 | <a id="oq-ba5"></a>[`OQ-BA5`](#oq-ba5) | The fields are spelled **`agent`** (identity) and **`agents`** (audience), and the value is still the bin | The spelling follows what users call a launcher command and what a config surface already calls its owner. Renaming them to `bins` or `for` would change nothing about the namespace and break every manifest. |
 | <a id="oq-ba6"></a>[`OQ-BA6`](#oq-ba6) | The identity is **declared by the agent pack that owns the name**, and two packs claiming one name is **fatal**, through a pass of its own | The generic collision loop skips kinds that merge, which `briefing` and `skills` do by design, so folding this into it makes the collision invisible. |

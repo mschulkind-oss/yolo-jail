@@ -202,11 +202,14 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 // is an agent this jail runs, and a build jail runs a build line and no agent; the user's own
 // launches still run every one of them over the whole selection:
 //
-//	an `agents` selector naming an agent no selected pack provides   AgentAudienceProblems
 //	an addressed contribution reaching no destination (reported)     reportUnmatchedAudiences
 //	a `supersedes` claim no selected pack's loophole serves          refuseUnmatchedSupersessions
 //	a via profile whose service serves no route for it               checkViaRoutes
 //	a required capability no selected pack satisfies                 refuseUnmetCapabilities
+//
+// The gate that met first, an `agents` selector naming an agent no selected pack provides, is a
+// gate no longer: FS-D6 made it a skip every launch discloses (discloseAudienceSkips), a build
+// jail's included, which only drops the `yolo pack add` step its narrowing would make wrong.
 //
 // The one gate of that shape a skip cannot answer is a fork whose base is not selected
 // (packload.ApplyForks), which the jail's own loader repeats over the staged tree: there the build

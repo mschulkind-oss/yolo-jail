@@ -424,34 +424,26 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		return nil, nil, err
 	}
 
-	// THE EIGHTH bespoke pre-flight, and the other half of the same namespace: an `agents`
-	// selector naming an agent this jail does not HAVE (docs/reference/agent-briefings.md#ba-p3, #oq-ba3).
-	// The vocabulary is the SELECTED packs' claims and nothing wider, so a typo and a name
-	// belonging to a pack the user did not select fail identically — from the jail's point of
-	// view they are the same mistake, with the same two remedies.
+	// An `agents` selector naming an agent this jail does not HAVE is SKIPPED, never refused
+	// (FS-D6, docs/design/pack-files-for-agent-state.md §4.2): the contribution delivers nothing
+	// for that name, and the launch runs. yolo cannot tell a misspelling from an agent whose pack
+	// the user did not select, so both read the same way. A DISCLOSURE, so it is printed on every
+	// launch it applies to (OQ-RO3), a narrowed build jail's included: the content really is not
+	// delivered there either. There it carries no `yolo pack add`, since the narrowing, not the
+	// user's `packs`, dropped the agent. `yolo check` prints the same lines as [SKIP] rows, and
+	// `yolo host apply` in its report (section_packaudiences.go in internal/cli/check, apply.go
+	// in internal/cli).
 	//
-	// FATAL, like the seven above, and for the reason `checkProfileTargets` is (its nearest
-	// twin — "a selector keyed to a CLI name no pack installs"): a silently inert selector is
-	// indistinguishable from a working one. Prose addressed to nobody is worse than prose
-	// addressed to everybody, because the author believes it was delivered.
-	//
-	// What is NOT refused here is a name whose pack IS selected but which declares no
-	// destination of that kind — that is R1, reported through the resolution outcome, because
-	// the remedy is a line in the OWNING pack (AgentAudienceProblems' package doc has the
-	// split, and why keeping both severities is what makes P3 and R1 one rule).
-	//
-	// NONE OF THE FOUR BELOW RUNS FOR A BUILD JAIL'S NARROWED SELECTION (selectionNarrowed,
+	// A name whose pack IS selected but which declares no destination of that kind is R1,
+	// reported by reportUnmatchedAudiences below, because the remedy is a line in the OWNING pack.
+	narrowed := o.selectionNarrowed()
+	o.discloseAudienceSkips(loaded, narrowed)
+	// NONE OF THE THREE BELOW RUNS FOR A BUILD JAIL'S NARROWED SELECTION (selectionNarrowed,
 	// PPX-D39): each asks whether another selected pack provides what one names, and the
 	// narrowing is what dropped that pack.
-	narrowed := o.selectionNarrowed()
-	if !narrowed {
-		if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
-			return nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
-		}
-	}
 	// A `supersedes` claim that matches no capability any loophole of this set serves
 	// (refuseUnmatchedSupersessions; docs/design/reference-mismatch-diagnostics.md §7 step 4).
-	// FATAL for the reason the audience check above is: a claim that retires nothing is
+	// FATAL: a claim that retires nothing is
 	// indistinguishable from one that worked. And BEFORE the ninth, deliberately: checkViaRoutes
 	// composes the jail-daemon payload through NewHostSet, whose discovery warns this same
 	// sentence to stderr, so a later refusal would print the finding twice.

@@ -1,10 +1,10 @@
 package run
 
-// packagentaudience_test.go is the EIGHTH launch pre-flight (docs/reference/agent-briefings.md#ba-p3,
-// #oq-ba3): an `agents` selector naming an agent this jail does not have.
+// packagentaudience_test.go pins the launch's FS-D6 skip (docs/design/pack-files-for-agent-state.md#FS-D6):
+// an `agents` selector naming an agent this jail does not have delivers nothing, and says so.
 //
-// Through stagePacks, not packload.AgentAudienceProblems — that function has its own unit
-// tests, and a test of it alone would stay green with the pre-flight deleted.
+// Through stagePacks, not packload.AgentAudienceSkips — that function has its own unit tests,
+// and a test of it alone would stay green with the disclosure deleted.
 
 import (
 	"os"
@@ -44,37 +44,65 @@ func audienceLaunch(t *testing.T, addressed string) *Options {
 	return &Options{Workspace: t.TempDir(), Stdout: &strings.Builder{}}
 }
 
-// THE CALL-SITE TEST, and P3's headline: a typo and a real agent nobody selected are refused
-// identically, because from the jail's point of view they are the same mistake.
-func TestLaunchRefusesAnAudienceThisJailDoesNotHave(t *testing.T) {
-	for _, addressed := range []string{"alphaclu", "codex"} {
-		t.Run(addressed, func(t *testing.T) {
-			o := audienceLaunch(t, addressed)
-			_, _, _, err := o.stagePacks("yolo-test-audience")
-			if err == nil {
-				t.Fatalf("stagePacks accepted `agents: [%q]` in a jail that has no such agent — "+
-					"prose addressed to nobody is worse than prose addressed to everybody, "+
-					"because the author believes it was delivered", addressed)
+// THE CALL-SITE TEST, and FS-D6's headline (docs/design/pack-files-for-agent-state.md#FS-D6): a
+// misspelling and a real agent nobody selected are SKIPPED identically, the launch runs, and the
+// skip is disclosed on stderr naming the pack, the kind and the agent as written. Only a name a
+// shipped pack provides earns the `yolo pack add` next step.
+func TestLaunchSkipsAnAudienceThisJailDoesNotHave(t *testing.T) {
+	for _, tc := range []struct{ addressed, next string }{
+		{"alphaclu", ""},
+		{"codex", "yolo pack add codex"},
+	} {
+		t.Run(tc.addressed, func(t *testing.T) {
+			o := audienceLaunch(t, tc.addressed)
+			stderr := &strings.Builder{}
+			o.Stderr = stderr
+			_, _, proses, err := o.stagePacks("yolo-test-audience")
+			if err != nil {
+				t.Fatalf("stagePacks refused `agents: [%q]`; FS-D6 rules it skipped, and the "+
+					"launch runs: %v", tc.addressed, err)
 			}
-			msg := err.Error()
-			for _, want := range []string{
-				addressed,
-				"pack house",
-				"Agents your `packs` provide: alphacli",
-				"Fix the name, or add the pack",
-			} {
-				if !strings.Contains(msg, want) {
-					t.Errorf("refusal missing %q; got:\n%s", want, msg)
+			want := "pack house: briefing for " + tc.addressed + " not delivered — no selected " +
+				"pack provides " + tc.addressed
+			if !strings.Contains(stderr.String(), want) {
+				t.Errorf("the launch did not disclose the skip %q; stderr:\n%s", want, stderr)
+			}
+			if tc.next != "" && !strings.Contains(stderr.String(), tc.next) {
+				t.Errorf("the skip of a shipped agent must name %q; stderr:\n%s", tc.next, stderr)
+			}
+			if tc.next == "" && strings.Contains(stderr.String(), "yolo pack add") {
+				t.Errorf("a name no shipped pack provides must carry no next step; stderr:\n%s", stderr)
+			}
+			// ONE VOICE: the R1 "no destination declares a matching `agent`" warning is for a
+			// name the selection HAS, and must not repeat a skip with the wrong remedy.
+			if strings.Contains(stderr.String(), "declares a matching `agent`") {
+				t.Errorf("a skipped name was also reported as an unmatched audience; stderr:\n%s", stderr)
+			}
+			for _, p := range proses {
+				if strings.Contains(p.Text, "Addressed prose.") && len(p.Agents) == 0 {
+					t.Errorf("prose addressed to %q lost its audience: %+v", tc.addressed, p)
 				}
 			}
 		})
 	}
-	// And the near miss carries a did-you-mean, which is the half of R3 a candidate list alone
-	// does not provide.
-	o := audienceLaunch(t, "alphaclu")
-	_, _, _, err := o.stagePacks("yolo-test-audience-guess")
-	if err == nil || !strings.Contains(err.Error(), `did you mean "alphacli"`) {
-		t.Errorf("a one-character typo must earn a did-you-mean; got: %v", err)
+}
+
+// A BUILD JAIL'S NARROWED SELECTION (selectionNarrowed, PPX-D39) still discloses the skip, but
+// names no `yolo pack add`: the narrowing dropped the agent, not the user's `packs`, so the step
+// would be wrong advice there.
+func TestANarrowedLaunchSkipsWithoutAPackAddStep(t *testing.T) {
+	o := audienceLaunch(t, "codex")
+	stderr := &strings.Builder{}
+	o.Stderr = stderr
+	o.OnlyPacks = []string{"house"}
+	if _, _, _, err := o.stagePacks("yolo-test-audience-narrowed"); err != nil {
+		t.Fatalf("a narrowed selection refused a skipped audience: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "pack house: briefing for codex not delivered") {
+		t.Errorf("the narrowed launch did not disclose the skip; stderr:\n%s", stderr)
+	}
+	if strings.Contains(stderr.String(), "yolo pack add") {
+		t.Errorf("a narrowed launch offered `yolo pack add`; stderr:\n%s", stderr)
 	}
 }
 

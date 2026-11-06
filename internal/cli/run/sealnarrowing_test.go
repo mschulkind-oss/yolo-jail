@@ -138,6 +138,11 @@ func TestAForkBuildJailsNarrowingIsNotRefusedForWhatItDropped(t *testing.T) {
 	if strings.Contains(printed, "which no pack in `packs` provides") {
 		t.Errorf("the fork's sealed build jail refused the agent the seal dropped:\n%s", printed)
 	}
+	// FS-D6: the skip is a disclosure, so the build jail says it too
+	// (TestANarrowedLaunchSkipsWithoutAPackAddStep has why it names no `yolo pack add`).
+	if !strings.Contains(printed, "pack forkpack: briefing for other not delivered") {
+		t.Errorf("the build jail did not disclose the skipped audience:\n%s", printed)
+	}
 }
 
 // THE VIA-ROUTE GATE is skipped for a narrowed selection as well: what it protects is an agent's

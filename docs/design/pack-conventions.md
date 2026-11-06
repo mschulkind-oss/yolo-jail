@@ -793,8 +793,8 @@ maintainer's packs as staged on 2026-10-04 at `/ctx/packs/`.
   (`internal/cli/run/packfiles.go`, skipping a contribution with no `into`); `yolo check`'s
   `packload.Collisions(packload.Embedded())` (`internal/cli/check/packs.go`); `filesTarget`
   (`internal/packload/footprint.go`).
-- **Audience**: `packload.AgentAudienceProblems` (`internal/packload/agentaudience.go`), fatal at
-  the launch (`internal/cli/run/packs.go`); the no-destination report
+- **Audience**: `packload.AgentAudienceSkips` (`internal/packload/agentaudience.go`), skipped and
+  disclosed at the launch (`internal/cli/run/unmatchedaudience.go`, FS-D6); the no-destination report
   (`internal/cli/run/unmatchedaudience.go`); what claims an agent name (`agentNameClaims`,
   `internal/packload/footprint.go`).
 - **Briefing governance**: `internal/packload/governance.go`, `GovernedSources`,
