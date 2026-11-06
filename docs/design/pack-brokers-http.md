@@ -1,29 +1,16 @@
 ---
 title: "Pack broker HTTP calls stay within the selected host decision"
-date: 2026-11-05
+date: 2026-11-06
 status: in-review
 stage: DESIGN
-next: "Review the private-delivery proposal; compatible cells may proceed once their gates pass while [OQ-HTTP2](#OQ-HTTP2) remains open for fallback"
+next: "Review the private-delivery contract and obtain a focused HIGH BUILD critique of Task 1; keep compatible-cell publication separately gated and OQ-HTTP2 fallback-only"
 tags: [design, broker, packs, http]
 summary: "G3 core is partially integrated; private delivery is proposed and unverified; G4 remains unactivated."
 ---
 
 # Pack broker HTTP calls stay within the selected host decision
 
-**Status:** 2026-11-05. The HTTP binding, bounded ingress/classifier and partial G3
-core host decision/execution are integrated on primary `d06a47707d87`; this includes
-typed native lookups and live preflight checks. The independent closure covers four G3
-findings only, not full G3 acceptance. The selected G4 front, launch publication and
-end-to-end runtime path are absent from primary. The private ordinary-client delivery below
-is an engineering proposal, not implemented behavior or native proof. A compatible
-client/setup cell may proceed to activation after its actual private-custody, consumer-
-integrity, TLS and isolation gates pass; [OQ-HTTP2](#OQ-HTTP2) remains open only for the
-fallback if a selected client is demonstrated incompatible, and is not a blanket prerequisite.
-[OQ-HTTP1](#OQ-HTTP1) gates only custom-executor/signing. Both questions remain open; neither
-implies an OS sandbox, and no proposed custom-executor wire is accepted. No external
-authentication or live grants are established. This does not accept the broader [pack broker
-design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add
-and mixed-cell timed answers.
+**Status:** 2026-11-06. G3 core remains partial; closure of four findings is not full G3 acceptance. Primary `7e587d200af37d654582303af5c1be0136432be2` adds a six-file G4 front that is manually dispatchable but lacks selected-pack launch, local authentication, private custody and publication. Focused package/race and cross-platform checks, matched bundle, host preflight, rootful empty-pack smoke and selective `just done` passed; these prove neither HTTP activation, native/rootless isolation, full CI nor full G4, and independent primary review is pending. Private ordinary-client delivery remains proposed; its first payload task awaits a focused HIGH BUILD critique. Compatible cells remain separately gated. [OQ-HTTP2](#OQ-HTTP2) is fallback-only after demonstrated incompatibility; [OQ-HTTP1](#OQ-HTTP1) gates only custom executor/signing. No host sandbox, live grants or proposed custom-executor wire is accepted. This does not accept the broader [pack broker design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add and mixed-cell timed answers.
 
 > **In short.** An HTTP front carries a call, not authority: only the selected host broker binds its destination and credential, classifies exact bytes and fresh facts, decides, audits and executes once.
 
@@ -218,13 +205,13 @@ there is no workspace replica or fallback to the existing channel. A missing or 
 refuses attach and requires a fresh generation. A zero-front selection creates no token or
 trust payload.
 
-Associate the delivery with the selected program, not a global agent/profile variable. A
-candidate generic schema adds a `bin` target to the existing `env` contribution and requires
-it together with `served_by`; it names the client's ordinary token and base-URL variables and
-resolves `{caller_token}` and `https://{listen}` only for selected, approved fronts. Validate
-missing, duplicate and conflicting targets. This proposed schema change must not weaken the
-current profile/platform gate for unrelated services or create a provider, login, global API
-variable or agent registry.
+Associate delivery with the selected program, not a global agent/profile variable. The proposed generic `env` contribution adds `bin`, paired with `served_by` naming the same selected front: for example, `[[env]]` with `bin = "fixture-http-client"`, `served_by = "fixture-http"`, and ordinary `vars` that resolve `{caller_token}`, `https://{listen}` and the proposed `{client_trust}` path. The token remains the complete value of the client's ordinary variable; the client supplies the approved header and prefix. `env.bin` and `served_by` do not create a provider, login path, global API variable, agent registry or new front eligibility. Resolve only one selected program recipe (or asserted need) and an enabled, selected, approved HTTP binding; reject missing, ambiguous, colliding or unresolved targets, conflicting managed fields and unknown substitutions. Keep existing profile/platform gates for unrelated service contributions unchanged. No targeted client/front means no generated material. Read-only/check composition validates and predicts without minting, staging, installing or executing pack derives.
+
+The actual selected launch-input producer is the sole owner that creates and attaches a private prepared generation. It derives the `FrontJailID` and setup/runtime binding from the producer-issued launch context, never from workspace or jail-name reconstruction. A generation record binds version, random generation, container, front jail identity/name, pack/source, declaration hash, staged pack-tree identity, runtime, host-launch identity, broker start, listen address and lifecycle phase; client plans bind bin, pack/front and token, URL and trust variable names. Keep host-owned identity/lease records distinct from client/server payloads deliberately exposed to that one jail. The private server payload contains the local header/prefix, replacement token, front certificate/key and host-endpoint path; each client payload contains only its selected managed token/URL/trust fields and required private runtime paths. The optional host-input `HTTPFrontGeneration` field is present only for an applicable selected private HTTP generation; nonclient G3 inputs remain unchanged. It contains only a generation/nonce reference, not local token, trust key or payload contents, and the host-input consumer validates that reference against the selected live binding before accepting requests. The proposed declaration hash covers declarations, never secret values; public readiness carries only front name, address, generation and status.
+
+Bind the host HTTP frame's `front_generation` to this host-input generation and the live broker start; it is transport metadata, not caller-supplied authority. Readiness and retirement retain the selected generation through valid attach and withdraw it before address/files are released.
+
+Under the existing launch lock, publish a fresh immutable prepared generation outside the workspace in per-jail host state. Its private host record and guest payload copies have owner-only modes, confined/no-follow writes and atomic directory publication. The keeper adopts the generation held by the launch rather than restaging it; attach validates the running runtime/container, booted pack tree, producer-issued identity, exact declaration/setup binding and live host lease. Missing, changed or stale state refuses attach with fresh-launch advice. Cleanup retires only the generation it owns and occurs after the container is confirmed gone; late cleanup must not delete a replacement. Independent external selection/grant changes are not atomic with remote transmission. The existing caller-token channel remains separate and cannot be used as the private mechanism or as peer-secrecy evidence.
 
 The generated consumer startup chain must use this generation's managed scripts and private
 settings, not workspace `.bashrc`, shell init, `agent-env` files or launcher aliases. Start it
@@ -248,11 +235,14 @@ a packet-capture result or a universal escape claim ([`assemble_parts.go`](../..
 The selected client must send the local token through its ordinary field. Candidate local
 header/prefix validation reuses the selected HTTP credential's declared header and prefix only
 when the actual client emits them; verify that behavior against the real client before
-publication. Require exactly one well-formed credential field, reject duplicates or conflicts,
-and compare token bytes in constant time. A missing or wrong token returns the client's
-ordinary authentication-error shape before reading its body, classifying or contacting the
-host. No global trust override or missing-TLS fallback is allowed; an incompatible path remains
-unpublished pending the fallback ruling.
+publication. Require exactly one well-formed credential field and reject duplicates or conflicts.
+A missing or wrong local token returns **401 before reading the body or contacting the host**;
+the handler, receiver and spend counters remain zero. A valid local token may proceed to the host
+broker, where ASK returns **403** with `Yolo-Verdict: asks`, an opaque `Yolo-Request` and the
+client's normal error shape (GraphQL `errors` for the fixture); this enters the host handler once,
+while receiver and spend remain zero. Compare the local token in constant time; do not install
+a global trust override or allow a missing-TLS fallback. Keep forged-origin-authorization
+stripping in G3's host-input test; do not bypass local authentication to manufacture the ASK case.
 
 Strip local authorization and all caller-supplied authorization before host input. Refuse the
 exact local token bytes anywhere outside the designated credential field; they must not reach
@@ -288,11 +278,14 @@ proof, not verified support:
 | Host | Keep private staging to avoid accidental workspace disclosure; unconfined same-owner host processes are trusted, not a malicious-peer boundary. Do not claim a host-process sandbox. |
 
 A source review, synthetic helper test, shared Go cache, workspace alias, file mode, rootful
-nested test or certificate construction alone proves neither custody nor native isolation.
-The actual selected-client path must pass same-workspace A/B acquisition, startup-tampering,
-replay and counted-effect tests, then each intended native setup's mount/process/network
-checks. Keep unsupported cells in scope as engineering work; do not convert a failed proof into
-a silent backend exclusion. No such native proof exists in this draft.
+nested test or certificate construction alone proves neither custody nor native isolation. For
+confined setups, the actual selected-client path must pass same-workspace A/B acquisition,
+startup-tampering, replay and counted-effect tests, then each intended native setup's
+mount/process/network checks. **Host acceptance is narrower but not excluded:** verify normal
+selected-client and TLS behavior and absence of accidental workspace disclosure, but do not gate
+host on hostile same-owner process acquisition or claim a host-process sandbox; same-owner host
+processes are trusted by this boundary. Keep every intended setup in scope. No such native proof
+exists in this draft.
 
 ### HTTP custody and retries
 

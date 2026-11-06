@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Reconciled:** 2026-10-19; 0.14.0 was tagged 2026-10-15 (release commit `6750951f6`).
+**Reconciled:** 2026-11-06; 0.14.0 was tagged 2026-10-15 (release commit `6750951f6`).
 
 This page owns the order in which open work is taken up, and why. Each linked document owns its state, next step and
 gates; read it before starting, because a place on this list is not permission to build.
@@ -493,19 +493,19 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     or whole-tree acceptance. Candidate `0dec…` rootful nested smoke is not d06 evidence;
     d06 `check --no-build` was host preflight only.
 
-    G4 selected front/publication is absent from primary; a separate front adapter/dispatch
-    component remains partial and is not a selected launch, ready service or G4 acceptance.
+    Primary `7e587d200af37d654582303af5c1be0136432be2` integrates the G4 HTTP-front component in six files (`1,017` insertions, `6` deletions; five files byte-identical to reviewed candidate `03f`, with one unused test constant removed from the sixth). The front is manually dispatchable but unactivated: there is no selected-pack producer, launch wiring, local authentication gate, private token custody, readiness or publication. Its package/race tests, five repair regressions, Linux/Darwin vet, Linux staticcheck, Darwin/arm64 compile, matched bundle, host preflight, rootful empty-pack smoke and selective `just done` passed. These checks establish neither HTTP activation, native/rootless isolation, full G3/G4, full CI nor independent acceptance review. The first nonpublishing private-payload task is recorded at the [grounded G4 Task 1](../design/pack-brokers-http-plan.md#g4-task-1-private-prepared-payload-no-publication); it awaits a focused HIGH BUILD critique before implementation. The design and plan keep the selected-client contract proposed, not an accepted wire or universal compatibility claim.
+
     Route the shared-loopback caller boundary through
     [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2). The owner prefers the selected
     client's ordinary token/API-key field carrying a fresh jail-scoped replacement token,
     consumed at the front while the host injects the real origin credential; this is not an
     approved wire, custody path, client-eligibility rule or backend restriction. Current token
     records, agent files and snapshots are workspace-backed; source review identifies a
-    same-workspace peer-read path, but no two-jail runtime reproduction has run. The HTTP design
-    now records a proposed private per-generation payload, managed-consumer integrity, local
-    HTTPS and per-setup verification; none is implemented or natively proved. Continue
+    same-workspace peer-read path, but no two-jail runtime reproduction has run. Continue
     nonpublishing engineering and actual selected-client A/B acquisition/replay and startup-
-    tampering tests. Keep [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2) open only for fallback if a selected client is demonstrated
+    tampering tests for confined setups. Host verification covers normal client/TLS behavior
+    and no accidental workspace disclosure, not hostile same-owner process isolation or a host
+    sandbox. Keep [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2) open only for fallback if a selected client is demonstrated
     incompatible: it does not block activation of a compatible client/setup cell once that
     cell's private-custody, consumer, TLS and native-isolation gates pass. Hold only a failing
     cell and return its concrete compatibility/isolation boundary; do not pre-emptively exclude
