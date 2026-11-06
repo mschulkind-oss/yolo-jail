@@ -21,7 +21,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -88,9 +87,13 @@ func (f HTTPFront) authenticate(r *http.Request) (string, bool) {
 // tokenOutsideField reports whether the authenticated token also appears in the
 // request target, Host, or any header field other than the designated one.
 func (f HTTPFront) tokenOutsideField(r *http.Request, token string) bool {
-	places := []string{r.URL.EscapedPath(), r.URL.Path, r.URL.RawQuery, r.Host}
-	if unescaped, err := url.QueryUnescape(r.URL.RawQuery); err == nil {
-		places = append(places, unescaped)
+	places := []string{r.URL.EscapedPath(), r.URL.Path, lenientUnescape(r.URL.EscapedPath()), r.URL.RawQuery, r.Host}
+	// Each query piece is decoded on its own, and leniently, so one malformed
+	// escape anywhere in the query cannot hide an encoded token elsewhere.
+	for _, pair := range strings.FieldsFunc(r.URL.RawQuery, func(c rune) bool { return c == '&' || c == ';' }) {
+		for _, part := range strings.SplitN(pair, "=", 2) {
+			places = append(places, lenientUnescape(part), lenientUnescape(strings.ReplaceAll(part, "+", " ")))
+		}
 	}
 	for key, values := range r.Header {
 		if strings.EqualFold(key, f.Header) {
@@ -105,6 +108,26 @@ func (f HTTPFront) tokenOutsideField(r *http.Request, token string) bool {
 		}
 	}
 	return false
+}
+
+// lenientUnescape decodes every well-formed %XX escape in s and keeps any
+// malformed one literally, so a bad escape never stops the decoding of the rest.
+func lenientUnescape(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			if decoded, err := hex.DecodeString(s[i+1 : i+3]); err == nil {
+				out = append(out, decoded[0])
+				i += 2
+				continue
+			}
+		}
+		out = append(out, s[i])
+	}
+	return string(out)
 }
 
 // ServeHTTP implements one-shot HTTP forwarding through the selected host
@@ -619,16 +642,16 @@ func HTTPFrontMain(args []string) int {
 // httpFrontGeneration finds loophole's generation in the launch's
 // `<loophole>=<generation>[,…]` list.
 func httpFrontGeneration(list, loophole string) (string, error) {
-	found := ""
+	found, seen := "", false
 	for _, entry := range strings.Split(list, ",") {
 		name, generation, ok := strings.Cut(strings.TrimSpace(entry), "=")
 		if !ok || name != loophole {
 			continue
 		}
-		if found != "" {
+		if seen {
 			return "", fmt.Errorf("%s names loophole %q twice; relaunch the jail", paths.HTTPFrontGenerationsEnv, loophole)
 		}
-		found = generation
+		found, seen = generation, true
 	}
 	if !callbrokerinput.ValidHTTPFrontGeneration(found) {
 		return "", fmt.Errorf("%s carries no valid generation for loophole %q; relaunch the jail with the selected pack", paths.HTTPFrontGenerationsEnv, loophole)
@@ -706,16 +729,21 @@ func ServeHTTPFront(ctx context.Context, endpoint, loophole, generation string) 
 	return serveHTTPFront(ctx, endpoint, loophole, generation, 0)
 }
 
+// httpFrontSealTimeout bounds the startup seal exchange. It is fixed and
+// independent of the per-request timeout, which bounds only served requests.
+const httpFrontSealTimeout = 30 * time.Second
+
 func serveHTTPFront(ctx context.Context, endpoint, loophole, generation string, timeout time.Duration) (err error) {
-	if endpoint == "" || loophole == "" || !callbrokerinput.ValidHTTPFrontGeneration(generation) {
-		return errors.New("HTTP front requires a selected host endpoint, loophole and generation; relaunch the jail with the selected pack")
-	}
 	ready := false
 	defer func() {
-		if err != nil && !ready {
+		// A front with no loophole has no readiness name to answer under.
+		if err != nil && !ready && loophole != "" {
 			reportHTTPFrontReadiness("failed", loophole, err.Error())
 		}
 	}()
+	if endpoint == "" || loophole == "" || !callbrokerinput.ValidHTTPFrontGeneration(generation) {
+		return errors.New("HTTP front requires a selected host endpoint, loophole and generation; relaunch the jail with the selected pack")
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("HTTP front cannot bind a loopback port; relaunch the jail: %w", err)
@@ -729,7 +757,7 @@ func serveHTTPFront(ctx context.Context, endpoint, loophole, generation string, 
 	if front.Timeout <= 0 {
 		front.Timeout = 30 * time.Second
 	}
-	sealCtx, cancelSeal := context.WithTimeout(ctx, front.Timeout)
+	sealCtx, cancelSeal := context.WithTimeout(ctx, httpFrontSealTimeout)
 	reply, err := front.seal(sealCtx, listener.Addr().String(), der)
 	cancelSeal()
 	if err != nil {

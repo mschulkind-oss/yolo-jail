@@ -460,6 +460,23 @@ func TestHTTPFrontStripsTheLocalCredential(t *testing.T) {
 				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project?copy="+front.Token, nil)
 				return req
 			},
+			"path": func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project/"+front.Token, nil)
+				return req
+			},
+			"percent-encoded path": func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project/"+percentEncodeAll(front.Token), nil)
+				return req
+			},
+			"Host": func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project", nil)
+				req.Host = front.Token
+				return req
+			},
+			"encoded query pair beside a malformed escape": func() *http.Request {
+				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project?a=%zz&b="+percentEncodeAll(front.Token), nil)
+				return req
+			},
 			"another header": func() *http.Request {
 				req, _ := http.NewRequest(http.MethodGet, front.URL()+"/project", nil)
 				req.Header.Set("X-Echo", front.Token)
@@ -470,17 +487,20 @@ func TestHTTPFrontStripsTheLocalCredential(t *testing.T) {
 				return req
 			},
 		} {
-			req := build()
-			req.Header.Set("Authorization", front.Bearer())
-			resp, err := front.Client().Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			refusal := decodeFrontRefusal(t, resp.Body)
-			_ = resp.Body.Close()
-			if resp.StatusCode != http.StatusForbidden || len(refusal.Errors) != 1 || !strings.Contains(refusal.Errors[0].Message, "outside its field") || front.Handled.Load() != 0 {
-				t.Fatalf("%s: token outside its field: status=%d refusal=%+v handled=%d", name, resp.StatusCode, refusal, front.Handled.Load())
-			}
+			t.Run(name, func(t *testing.T) {
+				before := front.Handled.Load()
+				req := build()
+				req.Header.Set("Authorization", front.Bearer())
+				resp, err := front.Client().Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				if resp.StatusCode != http.StatusForbidden || !bytes.Contains(body, []byte("outside its field")) || front.Handled.Load() != before {
+					t.Fatalf("token outside its field: status=%d body=%q handled %d -> %d", resp.StatusCode, body, before, front.Handled.Load())
+				}
+			})
 		}
 	})
 	t.Run("two designated fields are unauthenticated", func(t *testing.T) {
@@ -493,17 +513,95 @@ func TestHTTPFrontStripsTheLocalCredential(t *testing.T) {
 	})
 }
 
-func TestHTTPFrontRefusesPlainHTTPAndOtherTrust(t *testing.T) {
-	front := serveStubSealTestHTTPFront(t, "Authorization", "Bearer ", 30*time.Second, okFrontHost(nil))
-	plain := &http.Client{Timeout: testFrontGuard}
-	if resp, err := plain.Get("http://" + front.Address + "/project"); err == nil {
-		_ = resp.Body.Close()
-		if resp.StatusCode < 400 {
-			t.Fatalf("plain HTTP was served: status=%d", resp.StatusCode)
+func percentEncodeAll(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		fmt.Fprintf(&b, "%%%02X", s[i])
+	}
+	return b.String()
+}
+
+func TestHTTPFrontGenerationFromTheLaunchList(t *testing.T) {
+	gen := strings.Repeat("c", 32)
+	for list, wantErr := range map[string]bool{
+		"tasks=" + gen:                         false,
+		"other=x, tasks=" + gen:                false,
+		"":                                     true,
+		"other=" + gen:                         true,
+		"tasks=not-a-generation":               true,
+		"tasks=,tasks=" + gen:                  true,
+		"tasks=" + gen + ",tasks=":             true,
+		"tasks=" + gen + ",tasks=" + gen:       true,
+		"tasks=" + gen + ",tasks=" + gen + "d": true,
+	} {
+		got, err := httpFrontGeneration(list, testFrontLoophole)
+		if (err != nil) != wantErr || (!wantErr && got != gen) {
+			t.Errorf("httpFrontGeneration(%q) = %q, %v; want error=%v", list, got, err, wantErr)
 		}
 	}
+}
+
+func TestHTTPFrontRefusesAMalformedSealReply(t *testing.T) {
+	good := strings.Repeat("ab", 32)
+	for name, stdout := range map[string]string{
+		"empty":           ``,
+		"uppercase hash":  `{"token_sha256":"` + strings.ToUpper(good) + `","credential_header":"Authorization","credential_prefix":"Bearer "}`,
+		"short hash":      `{"token_sha256":"` + good[:62] + `","credential_header":"Authorization","credential_prefix":"Bearer "}`,
+		"non-hex hash":    `{"token_sha256":"` + strings.Repeat("zz", 32) + `","credential_header":"Authorization","credential_prefix":"Bearer "}`,
+		"empty header":    `{"token_sha256":"` + good + `","credential_header":"","credential_prefix":"Bearer "}`,
+		"bad header name": `{"token_sha256":"` + good + `","credential_header":"X Api","credential_prefix":""}`,
+		"CRLF in prefix":  `{"token_sha256":"` + good + `","credential_header":"Authorization","credential_prefix":"Bearer\r\n"}`,
+		"unknown key":     `{"token_sha256":"` + good + `","credential_header":"Authorization","credential_prefix":"Bearer ","extra":"x"}`,
+		"trailing JSON":   `{"token_sha256":"` + good + `","credential_header":"Authorization","credential_prefix":"Bearer "}{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, endpoint := selectedHTTPHostFramesWithHandler(t, func(s *hostservice.Session) {
+				s.Stdout(stdout)
+				s.Exit(0)
+			})
+			ready := readinessPipe(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- serveHTTPFront(ctx, endpoint, testFrontLoophole, strings.Repeat("c", 32), 0) }()
+			// The readiness line is the event: a front that accepted the reply
+			// writes ready and serves until canceled.
+			line := readReadinessLine(t, ready)
+			cancel()
+			err := <-done
+			if !strings.HasPrefix(line, "failed http-front-"+testFrontLoophole+" ") {
+				t.Fatalf("malformed seal reply readiness = %q", line)
+			}
+			if err == nil || !strings.Contains(err.Error(), "HTTP front could not seal its generation: ") {
+				t.Fatalf("front accepted a malformed seal reply: %v", err)
+			}
+		})
+	}
+}
+
+func TestHTTPFrontRefusesPlainHTTPAndOtherTrust(t *testing.T) {
+	front := serveStubSealTestHTTPFront(t, "Authorization", "Bearer ", 30*time.Second, okFrontHost(nil))
+	// A plain-HTTP request carrying the valid token: a front that served plain
+	// HTTP would answer it (200 from this host stub, or any HTTP status line).
+	// A TLS front answers no HTTP at all: at most a TLS alert record, then close.
+	conn, err := net.DialTimeout("tcp", front.Address, testFrontGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(testFrontGuard))
+	if _, err := io.WriteString(conn, "GET /project HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: "+front.Bearer()+"\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	answer, err := io.ReadAll(conn)
+	_ = conn.Close()
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.Fatal("front neither answered nor closed a plain-HTTP connection")
+	}
+	if bytes.HasPrefix(answer, []byte("HTTP/")) || (len(answer) != 0 && answer[0] != 0x15) {
+		t.Fatalf("plain HTTP got a non-TLS answer: %q", answer)
+	}
 	other := &http.Client{Timeout: testFrontGuard, Transport: &http.Transport{TLSClientConfig: trustOnly(t, frontFixtureCertificate(t, "127.0.0.1", true))}}
-	_, err := other.Get(front.URL() + "/project")
+	_, err = other.Get(front.URL() + "/project")
 	var verify *tls.CertificateVerificationError
 	if !errors.As(err, &verify) {
 		t.Fatalf("a client trusting another certificate did not fail verification: %v", err)
@@ -604,8 +702,19 @@ func TestHTTPFrontRequiresItsSelectedIdentity(t *testing.T) {
 		}
 	}
 	t.Setenv(paths.HTTPFrontGenerationsEnv, "other="+strings.Repeat("c", 32))
+	ready := readinessPipe(t)
 	if rc := HTTPFrontMain([]string{"--endpoint", "/selected/host.endpoint", "--loophole", testFrontLoophole}); rc != 1 {
 		t.Fatalf("front without its own generation rc=%d, want 1", rc)
+	}
+	if line := readReadinessLine(t, ready); !strings.HasPrefix(line, "failed http-front-"+testFrontLoophole+" ") || !strings.Contains(line, paths.HTTPFrontGenerationsEnv) {
+		t.Fatalf("front without its own generation readiness = %q", line)
+	}
+	// A direct caller with a loophole but an invalid generation still answers.
+	if err := ServeHTTPFront(ctx, "/selected/host.endpoint", testFrontLoophole, "bad"); err == nil {
+		t.Fatal("front started with an invalid generation")
+	}
+	if line := readReadinessLine(t, ready); !strings.HasPrefix(line, "failed http-front-"+testFrontLoophole+" ") {
+		t.Fatalf("direct invalid-generation readiness = %q", line)
 	}
 }
 
@@ -803,8 +912,12 @@ func TestHTTPFrontRejectsHeaderCaptureOverflowBeforeDispatch(t *testing.T) {
 }
 
 // The body read is bounded by the front's request timeout: a body that never
-// arrives is refused before any host dispatch. Only the outcome is asserted;
-// the guard on the raw request is the failure bound, so host load cannot fail it.
+// arrives is refused before any host dispatch. The test is event-driven: it
+// starts sending only after the front's readiness line (the seal is done by
+// then, under its own fixed deadline), and passes on the refusal response
+// itself. Whenever the request deadline passes, before or during the body read,
+// the outcome is the same 403, so machine speed cannot change it; the guard on
+// the raw connection only turns a hang into a failure.
 func TestHTTPFrontBoundsBodyReadByRequestTimeout(t *testing.T) {
 	front := serveStubSealTestHTTPFront(t, "Authorization", "Bearer ", 300*time.Millisecond, okFrontHost(nil))
 	resp := rawHTTPFrontRequest(t, front, "POST /graphql HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: "+front.Bearer()+"\r\nContent-Length: 1\r\nConnection: close\r\n\r\n")
