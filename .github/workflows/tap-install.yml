@@ -42,8 +42,8 @@ on:
     workflows: [Release]
     types: [completed]
   # Weekly, because the formula's inputs move without a release: Homebrew, its Go, and
-  # the macOS image under `macos-latest` all change on their own schedules. Wednesday
-  # 08:00 UTC sits clear of the daily 06:00 and 07:00 macOS nightlies.
+  # the macOS image under `macos-latest` all change on their own schedules. Whenever it
+  # fires, it waits its turn in the scheduled-macos group (see `concurrency` below).
   schedule:
     - cron: "0 8 * * 3"
   workflow_dispatch:
@@ -57,6 +57,14 @@ on:
 # a user's is.
 permissions:
   contents: read
+
+# THE WEEKLY RUN WAITS ITS TURN behind the other scheduled macOS work (nightly-macos.yml's
+# `concurrency` says why they share one group). A run after a release, or one a human or
+# tools/release-wiring/request.sh dispatched, gets a group of its own: release follow-through
+# must not wait hours behind a nightly.
+concurrency:
+  group: ${{ github.event_name == 'schedule' && 'scheduled-macos' || format('tap-install-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 # See ci.yml for the full rationale (pinned JS actions that still bundle Node 20).
 env:
