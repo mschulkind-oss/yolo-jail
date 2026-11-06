@@ -328,10 +328,36 @@ func TestHTTPClassifierAnswerRemainsBoundedAndDeadlineIsUnchanged(t *testing.T) 
 	if _, err := oversized.ClassifyHTTP(context.Background(), fixtureHTTPCall(nil, false), nil); err == nil || !strings.Contains(err.Error(), "64 KiB") {
 		t.Fatalf("oversized HTTP answer accepted: %v", err)
 	}
-	slow := fixtureHTTPClassifier(t, "sleep 3\nprintf '%s' '{\"version\":\"yolo.call-broker-classifier/1\",\"local\":true}'")
+	slow := fixtureHTTPClassifier(t, "sleep 30\nprintf '%s' '{\"version\":\"yolo.call-broker-classifier/1\",\"local\":true}'")
+	slow.deadline = 200 * time.Millisecond
 	start := time.Now()
-	if _, err := slow.ClassifyHTTP(context.Background(), fixtureHTTPCall(nil, false), nil); err == nil || time.Since(start) > 2700*time.Millisecond {
-		t.Fatalf("HTTP classifier deadline changed: elapsed=%s err=%v", time.Since(start), err)
+	if _, err := slow.ClassifyHTTP(context.Background(), fixtureHTTPCall(nil, false), nil); err == nil || !strings.Contains(err.Error(), "timed out") || time.Since(start) > 20*time.Second {
+		t.Fatalf("HTTP classifier deadline was not enforced: elapsed=%s err=%v", time.Since(start), err)
+	}
+}
+
+// The classifier deadline bounds each HTTP classifier process, not the lookups
+// core runs between rounds: a lookup that outlasts the production per-process
+// deadline must not refuse a classification whose classifier answers promptly.
+func TestHTTPClassifierDeadlineBoundsEachInvocationNotLookups(t *testing.T) {
+	body := []byte(`{"query":"query { item { id } }"}`)
+	answer := fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original")
+	script := "input=$(cat)\nif printf '%s' \"$input\" | grep -q '\"arguments\"'; then cat <<'CLASS'\n" + answer +
+		"\nCLASS\nelse printf '%s' '{\"version\":\"yolo.call-broker-classifier/1\",\"lookups\":[{\"name\":\"task-project\",\"arguments\":[\"a1\"]}]}'; fi"
+	classifier := fixtureHTTPClassifier(t, script)
+	classifier.Lookups = []loopholedecl.CallBrokerLookup{{Name: "task-project", HTTPMethod: "GET", HTTPPath: "/items/{id}", HTTPResource: "task"}}
+	read := func(ctx context.Context, _ loopholedecl.CallBrokerLookup, _ []string) (json.RawMessage, error) {
+		// Outlast the production per-process deadline; a reader whose context
+		// a whole-classification deadline cuts short returns that error.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(classifierDeadline + 200*time.Millisecond):
+			return json.RawMessage(`{"id":"a1"}`), nil
+		}
+	}
+	if _, err := classifier.ClassifyHTTPWithLookups(context.Background(), fixtureHTTPCall(body, true), []string{"Content-Type"}, read); err != nil {
+		t.Fatalf("slow lookup consumed the HTTP classifier deadline: %v", err)
 	}
 }
 

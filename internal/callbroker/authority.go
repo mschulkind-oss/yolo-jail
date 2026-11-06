@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -178,7 +179,10 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	classifier := h.classifier
 	classifier.Roots = slices.Clone(sf.Repos)
 	answer, err := classifier.ClassifyCLIDigest(context.Background(), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
-	if err != nil || answer.Classification == nil || len(answer.Classification.Writes) == 0 {
+	if err != nil {
+		return brokerstore.Policy{}, fmt.Errorf("current classifier refused this call (%v); retry the original call", err)
+	}
+	if answer.Classification == nil || len(answer.Classification.Writes) == 0 {
 		return brokerstore.Policy{}, errors.New("current classifier refused this call; retry the original call")
 	}
 	expected := callRequest(h.input.Source, q.Workspace, q.Jail, q.Start, q.LaunchID, *answer.Classification, nil)

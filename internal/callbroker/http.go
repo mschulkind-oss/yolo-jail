@@ -110,7 +110,9 @@ func (c Classifier) ClassifyHTTP(ctx context.Context, original HTTPCall, allowed
 }
 
 // ClassifyHTTPWithLookups lets core satisfy only selected, exact standing-read
-// lookup templates. Each classifier round shares one two-second deadline.
+// lookup templates. Each classifier process has its own deadline
+// (classifierDeadline); the whole classification, lookups included, is bounded
+// only by classificationBudget, for callers that bring no deadline of their own.
 func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCall, allowedHeaders []string, read LookupReader) (HTTPResult, error) {
 	if c.Source == "" || len(c.Argv) == 0 {
 		return HTTPResult{}, errors.New("call broker classifier has no selected declaration; retry with its pack selected")
@@ -126,7 +128,7 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 	input := httpClassifierInput{Version: "yolo.call-broker-classifier/1", Front: "http", Roots: append([]string(nil), c.Roots...),
 		Request: httpClassifierRequest{Method: prepared.Method, Path: prepared.Path, Query: prepared.Query,
 			Headers: prepared.Headers, BodyPresent: prepared.BodyPresent, BodyBase64: base64.StdEncoding.EncodeToString(prepared.Body)}}
-	ctx, cancel := context.WithTimeout(ctx, classifierDeadline)
+	ctx, cancel := context.WithTimeout(ctx, classificationBudget)
 	defer cancel()
 	seenLookups := make(map[string]bool)
 	failedLookup := false

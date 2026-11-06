@@ -56,3 +56,17 @@ func TestSelectedCLIReadAndEvaluateRefuseCurrentHostReadWithdrawal(t *testing.T)
 		}
 	}
 }
+
+// A revalidation refusal names the classifier's own failure, not only the
+// generic sentence, so a timeout is distinguishable from a changed answer.
+func TestSelectedCLIRevalidationNamesTheClassifierError(t *testing.T) {
+	f := selectedOnceFixture(t)
+	if v, _, err := f.call(t, "ask", "update", "a1"); err != nil || v.Verdict != "asks" {
+		t.Fatalf("ask: %+v %v", v, err)
+	}
+	f.h.classifier.deadline = time.Nanosecond
+	_, err := f.h.revalidate(f.pending(t)[0])
+	if err == nil || !strings.Contains(err.Error(), "current classifier refused this call") || !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Fatalf("revalidation hid the classifier's error: %v", err)
+	}
+}
