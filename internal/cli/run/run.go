@@ -3108,7 +3108,19 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	channel, targetCmd = view.channel, view.targetCmd
 	attachPacks, attachTree := view.staged.packs, view.staged.root
 	if view.unreadable || view.unfound != "" {
-		attachPacks, attachTree = staged.packs, ""
+		preparedExpected, err := o.runningHTTPPreparedExpected(cname)
+		if err != nil || preparedExpected {
+			reason := "the running pack tree is unavailable while its HTTP identity is selected"
+			if err != nil {
+				reason = err.Error()
+			}
+			releaseLock()
+			o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then relaunch so its running HTTP identity can be verified.[/bold red]", richtext.Escape(reason), stopRemedy(rt, cname))
+			return 1, false
+		}
+		// Only a host-owned running launch scope may verify that the running front was non-G4.
+		// The current configured selection is not evidence about the jail's frozen tree.
+		attachPacks, attachTree = nil, ""
 	}
 	if err := o.validateAttachedPrivateHTTP(cname, rt, actualSetup.Name, attachTree, attachPacks); err != nil {
 		releaseLock()

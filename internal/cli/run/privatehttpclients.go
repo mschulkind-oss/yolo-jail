@@ -179,7 +179,21 @@ func readPrivateHTTPAttachPair(stateDir, leaf string) (input, prepared []byte, i
 	if !privateHTTPDirOwned(replicas) {
 		return nil, nil, nil, nil, errors.New("private replica directory is not owned and mode 0700")
 	}
+	inputPresent, err := privateHTTPEntryPresent(replicas, leaf)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	preparedPresent, err := privateHTTPEntryPresent(replicas, leaf+".prepared")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if !inputPresent && !preparedPresent {
+		return nil, nil, os.ErrNotExist, os.ErrNotExist, nil
+	}
 	lock, err := replicas.OpenFile(".launch-input.lock", os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil, nil, errors.New("private launch-input lock is missing while HTTP identity files exist")
+	}
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -194,6 +208,97 @@ func readPrivateHTTPAttachPair(stateDir, leaf string) (input, prepared []byte, i
 	input, _, inputErr = readPrivateHTTPFile(replicas, leaf)
 	prepared, _, preparedErr = readPrivateHTTPFile(replicas, leaf+".prepared")
 	return input, prepared, inputErr, preparedErr, nil
+}
+
+func (o *Options) runningHTTPPreparedExpected(cname string) (bool, error) {
+	sources, err := os.ReadDir(paths.BrokerDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("running broker scopes cannot be listed: %w", err)
+	}
+	for _, source := range sources {
+		if !source.IsDir() || !loopholedecl.ValidBrokerSourceName(source.Name()) {
+			continue
+		}
+		dir := filepath.Join(paths.BrokerSourceDir(source.Name()), "scope")
+		files, err := os.ReadDir(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("broker scope source %q cannot be listed: %w", source.Name(), err)
+		}
+		for _, file := range files {
+			if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+				continue
+			}
+			scopePath := filepath.Join(dir, file.Name())
+			scope, err := brokerscope.ReadFile(scopePath)
+			if err != nil {
+				return false, fmt.Errorf("broker scope source %q has an unreadable scope record: %w", source.Name(), err)
+			}
+			if scope.Container != cname || scope.Form != brokerscope.FormCallRoot || scope.CallInput == "" {
+				continue
+			}
+			if filepath.Base(scopePath) != scope.LaunchID+".json" {
+				return false, errors.New("running broker scope path does not match its launch identity")
+			}
+			expected, err := runningScopeHasPreparedHTTP(cname, source.Name(), scopePath, scope)
+			if err != nil {
+				return false, err
+			}
+			if expected {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func runningScopeHasPreparedHTTP(cname, source, scopePath string, scope brokerscope.File) (bool, error) {
+	inputPath := scope.CallInput
+	if !filepath.IsAbs(inputPath) || filepath.Base(inputPath) != cname+".json" || filepath.Base(filepath.Dir(inputPath)) != "replicas" {
+		return false, errors.New("running broker scope has an invalid private call-input path")
+	}
+	inputBytes, _, inputErr, preparedErr, err := readPrivateHTTPAttachPair(filepath.Dir(filepath.Dir(inputPath)), filepath.Base(inputPath))
+	if err != nil || inputErr != nil {
+		return false, fmt.Errorf("running broker scope %q has no verifiable launch input", scope.LaunchID)
+	}
+	if err := callbrokerinput.RejectDuplicateLaunchHTTPFrontGeneration(inputBytes); err != nil {
+		return false, fmt.Errorf("running broker scope %q has an invalid launch identity", scope.LaunchID)
+	}
+	var in callbrokerinput.Launch
+	if err := json.Unmarshal(inputBytes, &in); err != nil || in.Version != "yolo.call-broker-launch/2" ||
+		in.ScopeFile != scopePath || in.Source != source || in.Source != scope.Source || in.Loophole == "" ||
+		filepath.Clean(inputPath) != filepath.Clean(filepath.Join(loopholes.StateDirFor(in.Loophole), "replicas", cname+".json")) {
+		return false, fmt.Errorf("running broker scope %q does not match its private launch input", scope.LaunchID)
+	}
+	if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
+		return false, fmt.Errorf("running broker scope %q has an unsafe prepared identity", scope.LaunchID)
+	}
+	if in.Front == "http" {
+		if in.HTTPFrontGeneration != "" {
+			return true, nil
+		}
+		if preparedErr == nil {
+			return false, fmt.Errorf("running broker scope %q has an orphaned prepared identity", scope.LaunchID)
+		}
+		return false, nil
+	}
+	if in.HTTPFrontGeneration != "" || preparedErr == nil {
+		return false, fmt.Errorf("running broker scope %q carries HTTP identity on a non-HTTP front", scope.LaunchID)
+	}
+	return false, nil
+}
+
+func privateHTTPEntryPresent(root *os.Root, leaf string) (bool, error) {
+	_, err := root.Lstat(leaf)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func privateHTTPDirOwned(root *os.Root) bool {

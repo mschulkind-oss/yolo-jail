@@ -370,6 +370,26 @@ func TestAttachExistingAdoptsTheFrozenPreparedHTTPIdentity(t *testing.T) {
 			}
 		}, true},
 		{"different frozen tree", true, true, func(_, _ string, g *callbrokerinput.PreparedHTTPClientGeneration) { g.PackTree = "/host/other-tree" }, true},
+		{"missing lock with valid generation", true, true, func(_, sidecar string, _ *callbrokerinput.PreparedHTTPClientGeneration) {
+			if err := os.Remove(filepath.Join(filepath.Dir(sidecar), ".launch-input.lock")); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"missing lock with mismatched generation", true, true, func(_, sidecar string, g *callbrokerinput.PreparedHTTPClientGeneration) {
+			g.Generation = strings.Repeat("f", 32)
+			writePreparedTestFile(t, sidecar, g)
+			if err := os.Remove(filepath.Join(filepath.Dir(sidecar), ".launch-input.lock")); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"missing lock with orphan record", true, true, func(input, sidecar string, _ *callbrokerinput.PreparedHTTPClientGeneration) {
+			if err := os.Remove(input); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(filepath.Dir(sidecar), ".launch-input.lock")); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
 		{"unselected front", true, false, nil, false},
 		{"zero client legacy input", false, true, nil, false},
 	} {
@@ -394,6 +414,11 @@ func TestAttachExistingAdoptsTheFrozenPreparedHTTPIdentity(t *testing.T) {
 			} else if rc != 0 || restarted || !execed {
 				t.Fatalf("valid/legacy attach refused: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
 			}
+			if strings.Contains(tc.name, "missing lock") {
+				if _, err := os.Lstat(filepath.Join(filepath.Dir(f.preparedPath), ".launch-input.lock")); !os.IsNotExist(err) {
+					t.Fatalf("attach created or repaired the missing private lock: %v", err)
+				}
+			}
 			if producerCalls != 0 {
 				t.Fatalf("attach restaged through a producer %d times", producerCalls)
 			}
@@ -401,14 +426,62 @@ func TestAttachExistingAdoptsTheFrozenPreparedHTTPIdentity(t *testing.T) {
 	}
 }
 
+func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		includeClient bool
+		unreadable    bool
+		wantRefusal   bool
+	}{
+		{"missing tree with prepared generation", true, false, true},
+		{"unreadable tree with prepared generation", true, true, true},
+		{"missing tree with verified legacy input", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := attachedPrivateHTTPFixture(t, tc.includeClient, true)
+			f.packs = nil // current staging no longer selects any HTTP pack.
+			if tc.unreadable {
+				if err := os.WriteFile(filepath.Join(f.tree, packload.PackTreeRecordName), []byte("{"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				getenv := f.o.Getenv
+				f.o.Getenv = func(key string) string {
+					if key == AllowAttachSkewEnv {
+						return "1"
+					}
+					return getenv(key)
+				}
+			} else if err := os.RemoveAll(f.tree); err != nil {
+				t.Fatal(err)
+			}
+			producerCalls := 0
+			f.o.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": {
+				StateDir: func(LaunchInputContext) string { return f.stateDir },
+				Produce:  func(LaunchInputContext) ([]byte, error) { producerCalls++; return nil, nil },
+			}}
+			rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
+			if tc.wantRefusal {
+				if rc != 1 || restarted || execed {
+					t.Fatalf("unverifiable G4 attach was not refused: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+				}
+			} else if rc != 0 || restarted || !execed {
+				t.Fatalf("verified legacy attach changed behavior: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+			}
+			if producerCalls != 0 {
+				t.Fatalf("attach invoked producer %d times", producerCalls)
+			}
+		})
+	}
+}
+
 type attachedPrivateHTTP struct {
-	o                                 *Options
-	cfg                               *jsonx.OrderedMap
-	channel                           *packChannel
-	stderr                            *bytes.Buffer
-	packs                             []*packload.Pack
-	stateDir, inputPath, preparedPath string
-	prepared                          callbrokerinput.PreparedHTTPClientGeneration
+	o                                       *Options
+	cfg                                     *jsonx.OrderedMap
+	channel                                 *packChannel
+	stderr                                  *bytes.Buffer
+	packs                                   []*packload.Pack
+	stateDir, inputPath, preparedPath, tree string
+	prepared                                callbrokerinput.PreparedHTTPClientGeneration
 }
 
 func attachedPrivateHTTPFixture(t *testing.T, includeClient, writeInput bool) attachedPrivateHTTP {
@@ -566,7 +639,7 @@ prefix = "Bearer "
 			t.Fatal(err)
 		}
 	}
-	return attachedPrivateHTTP{o: o, cfg: cfg, channel: channel, stderr: stderr, packs: packs, stateDir: stateDir, inputPath: inputPath, preparedPath: preparedPath, prepared: prepared}
+	return attachedPrivateHTTP{o: o, cfg: cfg, channel: channel, stderr: stderr, packs: packs, stateDir: stateDir, inputPath: inputPath, preparedPath: preparedPath, tree: root, prepared: prepared}
 }
 
 func writePreparedTestFile(t *testing.T, path string, generation *callbrokerinput.PreparedHTTPClientGeneration) {
