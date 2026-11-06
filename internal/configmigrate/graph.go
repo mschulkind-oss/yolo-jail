@@ -352,8 +352,12 @@ func (g *Graph) topLevel(dir, tomlName string, oldNames []string, scope Scope) (
 		return nil, nil
 	}
 	if len(found) > 1 {
-		return nil, fmt.Errorf("%s and %s are both here; config formats are never merged. Keep one active (move the other aside, for example to <name>.backup), then run `yolo config migrate` again",
-			filepath.Join(dir, found[0]), filepath.Join(dir, found[1]))
+		// The launch's own refusal, so a file that came back after a migration is named as that.
+		paths := make([]string, len(found))
+		for i, name := range found {
+			paths[i] = filepath.Join(dir, name)
+		}
+		return nil, config.SiblingCollisionError(paths)
 	}
 	f, err := g.read(filepath.Join(dir, found[0]), "", scope)
 	if err != nil {

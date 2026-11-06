@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,6 +211,11 @@ func consumeReadableFormat(values *jsonx.OrderedMap, label, path string) error {
 	return nil
 }
 
+// readableSiblingCollisionError is the refusal for a TOML config beside a legacy one in the same
+// place (RC-D19: formats are never merged). It names the files and the easiest safe step, each
+// command alone on its own line (the happy-path principle). The common case, a legacy file that
+// came back after `yolo config migrate` converted it (a dotfiles or link manager re-created a
+// link migrate moved aside), is said as exactly that, with its one removal (RC-D70).
 func readableSiblingCollisionError(files []string) error {
 	// The one collision yolo makes itself: a migration stopped between placing a converted file
 	// and moving its original aside. Finishing it is the step, never choosing by hand.
@@ -226,26 +232,90 @@ func readableSiblingCollisionError(files []string) error {
 		absolute[i] = file
 	}
 	files = absolute
-	display := strings.Join(files, ", ")
-	var choices []string
-	for i, keep := range files {
-		var moves []string
-		for j, other := range files {
-			if i != j {
-				moves = append(moves, guardedReadableSiblingMove(other))
+	names := make([]string, len(files))
+	for i, file := range files {
+		names[i] = filepath.Base(file)
+	}
+	var fact string
+	var lines []string
+	if len(files) == 2 && strings.HasSuffix(files[0], ".toml") && cameBackAfterMigration(files[1]) {
+		legacy, kept := files[1], names[1]+".pre-migrate"
+		fact = legacy + " came back after you migrated to " + names[0] + ": it is the same file yolo config migrate kept as " + kept +
+			", and yolo reads only one config format"
+		lines = []string{names[0] + " is your config now. Remove the old name:", "    rm " + shquote.Quote(legacy)}
+		if target, err := os.Readlink(legacy); err == nil {
+			lines = append(lines, names[1]+" is a symbolic link to "+target+"; rm removes only the link, and "+target+" is untouched. "+
+				"Something re-created the link after the migration (a dotfiles or link manager, for example); "+
+				"stop it restoring "+names[1]+", or the link will come back.")
+		} else {
+			lines = append(lines, "Its contents are kept in "+kept+".")
+		}
+	} else {
+		fact = filepath.Dir(files[0]) + " has both " + joinNames(names) + ", and yolo reads only one config format"
+		lines = []string{"Move aside the files you do not want to keep (mv -n never overwrites)."}
+		for i, keep := range names {
+			lines = append(lines, "To keep "+keep+":")
+			for j, other := range files {
+				if i != j {
+					lines = append(lines, "    mv -n "+shquote.Quote(other)+" "+shquote.Quote(freeBackupName(other)))
+				}
 			}
 		}
-		choices = append(choices, fmt.Sprintf("To keep %s active: `%s`.", keep, strings.Join(moves, " && ")))
+		for i, file := range files {
+			if target, err := os.Readlink(file); err == nil {
+				lines = append(lines, names[i]+" is a symbolic link to "+target+"; moving it leaves "+target+" untouched.")
+			}
+		}
 	}
-	return configErr("config siblings %s exist; config formats are never merged. Choose exactly one file to keep active, first confirm each backup path does not already exist (including dangling symlinks), then run its full-path guarded move command; then rerun the command. Each command refuses an existing backup destination and uses no-clobber moves. %s The original files are preserved; neither file is converted or merged", display, strings.Join(choices, " "))
+	step := strings.Join(lines, "\n")
+	return &ConfigError{Msg: fact + ".\n" + step + "\nThen rerun the command.", Fact: fact, Step: step}
 }
 
-func guardedReadableSiblingMove(path string) string {
-	backup := path + ".backup"
-	quotedPath, quotedBackup := shquote.Quote(path), shquote.Quote(backup)
-	message := shquote.Quote("backup path already exists: " + backup)
-	return "if [ ! -e " + quotedBackup + " ] && [ ! -L " + quotedBackup + " ]; then mv -n " + quotedPath + " " + quotedBackup + " && { [ ! -e " + quotedPath + " ] && [ ! -L " + quotedPath + " ]; }; else printf '%s\\n' " + message + " >&2; exit 1; fi"
+// cameBackAfterMigration is whether legacy is the same file `yolo config migrate` already
+// converted and kept as <name>.pre-migrate beside it: both links with the same text, both
+// resolving to the same file, or the same bytes.
+func cameBackAfterMigration(legacy string) bool {
+	kept := legacy + ".pre-migrate"
+	if _, err := os.Lstat(kept); err != nil {
+		return false
+	}
+	a, aErr := os.Readlink(legacy)
+	b, bErr := os.Readlink(kept)
+	if aErr == nil && bErr == nil && a == b {
+		return true
+	}
+	ra, aErr := filepath.EvalSymlinks(legacy)
+	rb, bErr := filepath.EvalSymlinks(kept)
+	if aErr == nil && bErr == nil && ra == rb {
+		return true
+	}
+	da, aErr := os.ReadFile(legacy)
+	db, bErr := os.ReadFile(kept)
+	return aErr == nil && bErr == nil && bytes.Equal(da, db)
 }
+
+// freeBackupName is path.backup, or path.backup-<n> for the first n from 2 whose name is free,
+// so the step offered never meets a backup already there.
+func freeBackupName(path string) string {
+	candidate := path + ".backup"
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(candidate); err != nil {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s.backup-%d", path, n)
+	}
+}
+
+func joinNames(names []string) string {
+	if len(names) <= 2 {
+		return strings.Join(names, " and ")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// SiblingCollisionError is the refusal for config files of both formats in one place, for a
+// reader outside this package (`yolo config migrate`'s discovery) to say it the same way.
+func SiblingCollisionError(files []string) error { return readableSiblingCollisionError(files) }
 
 // UserConfigFile is the user config file the format-aware reader reads: `config.toml`, else
 // the legacy `config.jsonc` or `config.json`, and `config.toml` when none exists (the file a
