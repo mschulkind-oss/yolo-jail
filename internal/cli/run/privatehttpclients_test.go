@@ -238,6 +238,25 @@ prefix = "Bearer "
 	if err != nil || strings.Join(withEnv, " ") != "podman run --rm -e "+entrypoint.PrivateHTTPClientsEnv+"="+wantEnv+" image:ref cmd" {
 		t.Fatalf("keeper did not hand the container its published binding: %q %v", withEnv, err)
 	}
+	unchecked := newKeeper(plan, KeeperSeams{}, nil, nil, nil, nil).o
+	unchecked.privateClientEntrypoints = nil
+	uncheckedCname := cname + "-unchecked"
+	unchecked.writeScopeFiles(uncheckedCname, []*loopholes.Loophole{selected})
+	// assembledPrivateFixtureMounts moves HOME (t.Setenv): keep this launch's HOME for the steps
+	// after this one, whose ownership records live under it.
+	launchHome := os.Getenv("HOME")
+	unchecked.launchInputMountArgv = assembledPrivateFixtureMounts(t, workspace, uncheckedCname)
+	t.Setenv("HOME", launchHome)
+	unchecked.launchInputProducers = producer.launchInputProducers
+	callsBefore := producerCalls
+	if unchecked.writeLaunchInput(selected, uncheckedCname) || producerCalls != callsBefore {
+		t.Fatal("a selected client with no checked delivery reached the launch input producer")
+	}
+	for _, leaf := range []string{".prepared", ".prepared.entrypoints"} {
+		if _, err := os.Lstat(filepath.Join(private, "replicas", uncheckedCname+".json"+leaf)); !os.IsNotExist(err) {
+			t.Fatalf("an unchecked client left %s: %v", leaf, err)
+		}
+	}
 	beforeInput, err := os.ReadFile(inputPath)
 	if err != nil {
 		t.Fatal(err)
@@ -626,21 +645,6 @@ prefix = "Bearer "
 	rescope()
 	if !producer.writeLaunchInput(selected, cname) {
 		t.Fatalf("a launch after the unverifiable files were removed by hand refused:\n%s", output.String())
-	}
-	unchecked := newKeeper(plan, KeeperSeams{}, nil, nil, nil, nil).o
-	unchecked.privateClientEntrypoints = nil
-	uncheckedCname := cname + "-unchecked"
-	unchecked.writeScopeFiles(uncheckedCname, []*loopholes.Loophole{selected})
-	unchecked.launchInputMountArgv = assembledPrivateFixtureMounts(t, workspace, uncheckedCname)
-	unchecked.launchInputProducers = producer.launchInputProducers
-	callsBefore := producerCalls
-	if unchecked.writeLaunchInput(selected, uncheckedCname) || producerCalls != callsBefore {
-		t.Fatal("a selected client with no checked delivery reached the launch input producer")
-	}
-	for _, leaf := range []string{".prepared", ".prepared.entrypoints"} {
-		if _, err := os.Lstat(filepath.Join(private, "replicas", uncheckedCname+".json"+leaf)); !os.IsNotExist(err) {
-			t.Fatalf("an unchecked client left %s: %v", leaf, err)
-		}
 	}
 }
 
