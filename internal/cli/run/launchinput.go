@@ -281,9 +281,15 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		return false
 	}
 	dest := filepath.Join(stateDir, "replicas", cname+".json")
-	if err := launchInputOutsideJail(dest, o.launchInputMountArgv); err != nil {
-		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot prove its launch input is outside every jail mount; it was not started. Remove the overlapping mount and retry.[/red]")
-		return false
+	pathsToProve := []string{dest}
+	if deferPreparedHTTPProducer {
+		pathsToProve = append(pathsToProve, dest+".prepared")
+	}
+	for _, privatePath := range pathsToProve {
+		if err := launchInputOutsideJail(privatePath, o.launchInputMountArgv); err != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot prove its private launch input is outside every jail mount; it was not started. Remove the overlapping mount and retry.[/red]")
+			return false
+		}
 	}
 	if !deferPreparedHTTPProducer {
 		var produceErr error
@@ -465,9 +471,12 @@ func trackLaunchInput(o *Options, name, path string, published os.FileInfo) {
 
 func (o *Options) checkSpawnLaunchInputMounts(argv []string) error {
 	launchInputMu.Lock()
-	paths := make([]string, 0, len(o.launchInputFiles))
+	paths := make([]string, 0, len(o.launchInputFiles)+len(o.preparedHTTPGenerationOwners))
 	for _, path := range o.launchInputFiles {
 		paths = append(paths, path)
+	}
+	for _, owner := range o.preparedHTTPGenerationOwners {
+		paths = append(paths, owner.path)
 	}
 	launchInputMu.Unlock()
 	if len(paths) == 0 {

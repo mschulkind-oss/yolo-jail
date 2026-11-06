@@ -14,7 +14,9 @@ func preparedHTTPFixture() PreparedHTTPClientGeneration {
 		Container: "fixture-container", FrontJailID: "fixture-front", Runtime: "podman", Setup: "podman-self",
 		PackTree: "/host/pack-tree", LaunchID: strings.Repeat("b", 16), Loophole: "fixture-http", Front: "http",
 		Pack: "fixture-pack", Source: "fixture-source", DeclarationHash: strings.Repeat("c", 64),
-		Roots: []string{}, ProgramIdentities: map[string]loopholedecl.CallBrokerProgramIdentity{},
+		Roots: []string{}, ProgramIdentities: map[string]loopholedecl.CallBrokerProgramIdentity{
+			"classifier": {Pack: "client-pack", Bin: "classifier", Path: "/bin/classifier", RelPath: "classifier", SHA256: strings.Repeat("d", 64)},
+		},
 		Clients: []PreparedHTTPClientPlan{{Bin: "fixture-client", Pack: "client-pack", Front: "fixture-http",
 			RecipePack: "client-pack", RecipeIdentity: "sha256:fixture", TokenVariable: "TOKEN",
 			URLVariable: "URL", TrustVariable: "TRUST"}},
@@ -36,6 +38,11 @@ func TestDecodePreparedHTTPClientGenerationStrictPreLeaseSchema(t *testing.T) {
 		{"missing generation", strings.Replace(string(valid), `"generation":"`+strings.Repeat("a", 32)+`",`, "", 1)},
 		{"duplicate top-level", strings.TrimSuffix(string(valid), "}") + `,"phase":"prepared"}`},
 		{"duplicate nested", strings.Replace(string(valid), `"bin":"fixture-client"`, `"bin":"fixture-client","bin":"other"`, 1)},
+		{"case-fold top-level alias", strings.Replace(string(valid), `"phase":"prepared"`, `"PHASE":"prepared"`, 1)},
+		{"case-fold phase overwrite", strings.Replace(string(valid), `"phase":"prepared"`, `"phase":"ready","PHASE":"prepared"`, 1)},
+		{"case-fold nested alias", strings.Replace(string(valid), `"token_variable":"TOKEN"`, `"TOKEN_VARIABLE":"TOKEN"`, 1)},
+		{"case-fold nested overwrite", strings.Replace(string(valid), `"token_variable":"TOKEN"`, `"token_variable":"OTHER","TOKEN_VARIABLE":"TOKEN"`, 1)},
+		{"case-fold identity alias", strings.Replace(string(valid), `"Pack":"client-pack"`, `"Pack":"client-pack","pack":"other"`, 1)},
 		{"null roots", strings.Replace(string(valid), `"roots":[]`, `"roots":null`, 1)},
 		{"wrong nested type", strings.Replace(string(valid), `"token_variable":"TOKEN"`, `"token_variable":1`, 1)},
 	} {

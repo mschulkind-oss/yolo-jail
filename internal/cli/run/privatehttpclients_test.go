@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,9 +11,13 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
@@ -203,6 +208,69 @@ prefix = "Bearer "
 	if mode := mustFileMode(t, inputPath+".prepared"); mode != 0600 {
 		t.Errorf("prepared identity mode=%o, want 0600", mode)
 	}
+	beforeInput, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforePrepared, err := os.ReadFile(inputPath + ".prepared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparedInfo, err := os.Lstat(inputPath + ".prepared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparedAlias := filepath.Join(t.TempDir(), "prepared-alias")
+	if err := os.Symlink(inputPath+".prepared", preparedAlias); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, source string }{
+		{"exact sidecar", inputPath + ".prepared"}, {"symlink alias", preparedAlias},
+	} {
+		producer.launchInputMountArgv = append(append([]string(nil), argv...), "--volume", tc.source+":/prepared:ro")
+		if producer.writeLaunchInput(selected, cname) {
+			t.Fatalf("producer accepted a jail mount of the %s", tc.name)
+		}
+		if producerCalls != 1 {
+			t.Fatalf("%s mount reached producer: calls=%d", tc.name, producerCalls)
+		}
+		if got, err := os.ReadFile(inputPath); err != nil || string(got) != string(beforeInput) {
+			t.Fatalf("%s mount partially replaced the launch input: err=%v", tc.name, err)
+		}
+		if got, err := os.ReadFile(inputPath + ".prepared"); err != nil || string(got) != string(beforePrepared) {
+			t.Fatalf("%s mount changed the prepared sidecar: err=%v", tc.name, err)
+		}
+		if now, err := os.Lstat(inputPath + ".prepared"); err != nil || !os.SameFile(preparedInfo, now) {
+			t.Fatalf("%s mount replaced the prepared sidecar inode: err=%v", tc.name, err)
+		}
+	}
+	producer.launchInputMountArgv = append(append([]string(nil), argv...), "--volume", inputPath+".prepared:/prepared:ro")
+	if err := producer.checkSpawnLaunchInputMounts(producer.launchInputMountArgv); err == nil {
+		t.Fatal("final spawn topology allowed a mounted prepared sidecar")
+	}
+	launchInputMu.Lock()
+	preparedOwner, tracked := producer.preparedHTTPGenerationOwners[inputPath+".prepared"]
+	launchInputMu.Unlock()
+	if !tracked {
+		t.Fatal("actual producer did not transfer sidecar ownership to the keeper")
+	}
+	spawnMarker := filepath.Join(t.TempDir(), "runtime-spawned")
+	dispatchPlan := *plan
+	dispatchPlan.Sealed = true
+	dispatchPlan.Services, dispatchPlan.Forwards = nil, nil
+	dispatchPlan.PackTree, dispatchPlan.Packs = "", nil
+	dispatchPlan.Config = json.RawMessage(`{}`)
+	dispatchPlan.Uncounted = true
+	dispatchPlan.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker, "--volume", inputPath + ".prepared:/prepared:ro"}
+	dispatch := newKeeper(&dispatchPlan, KeeperSeams{}, nil, nil, nil, nil)
+	dispatch.o.LookPath = func(string) (string, bool) { return "", false }
+	trackPreparedHTTPGeneration(dispatch.o, preparedOwner)
+	if rc := dispatch.run(); rc != 1 {
+		t.Fatalf("keeper dispatch with a prepared-sidecar bind returned %d, want pre-spawn refusal", rc)
+	}
+	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
+		t.Fatalf("keeper dispatch spawned the runtime with a mounted prepared sidecar: %v", err)
+	}
 	failedCname := cname + "-producer-failure"
 	failedPlan := *plan
 	failedPlan.Cname = failedCname
@@ -231,6 +299,284 @@ prefix = "Bearer "
 		if strings.HasPrefix(entry.Name(), ".prepared-http-client-") {
 			t.Fatalf("producer failure left unpublished identity temp %q", entry.Name())
 		}
+	}
+}
+
+func TestSelectedPrivateProgramPacksUsesRecordedForkProjection(t *testing.T) {
+	tree := t.TempDir()
+	baseDir, forkDir := filepath.Join(tree, "base"), filepath.Join(tree, "fork")
+	for _, dir := range []string{baseDir, forkDir} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	baseManifest := `{"name":"base","contributes":[{"kind":"program","bin":"fixture-client","via":"npm","package":"base-client"},{"kind":"env","bin":"fixture-client","served_by":"http-front","vars":{"TOKEN":"{caller_token}","URL":"https://{listen}","TRUST":"{client_trust}"}}]}`
+	forkManifest := `{"name":"fork","contributes":[{"kind":"program","bin":"fixture-client","via":"source","fork_of":"base","source":"git+https://example.com/client-fork?ref=main","build":"make install","produces":[".local/bin/fixture-client"]}]}`
+	for _, entry := range []struct{ dir, body string }{{baseDir, baseManifest}, {forkDir, forkManifest}} {
+		if err := os.WriteFile(filepath.Join(entry.dir, packdecl.ManifestLegacyJSONCName), []byte(entry.body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base, problems := packload.LoadDir(baseDir, "base")
+	if base == nil || len(problems) != 0 {
+		t.Fatalf("base fixture: %v", problems)
+	}
+	fork, problems := packload.LoadDir(forkDir, "fork")
+	if fork == nil || len(problems) != 0 {
+		t.Fatalf("fork fixture: %v", problems)
+	}
+	if err := packload.WritePackTreeRecord(tree, []*packload.Pack{base, fork}); err != nil {
+		t.Fatal(err)
+	}
+	rawPlans, err := packload.ResolvePrivateProgramEnv([]*packload.Pack{base, fork}, "http-front", "front-pack", true)
+	if err != nil || len(rawPlans) != 1 {
+		t.Fatalf("raw base plan: %+v %v", rawPlans, err)
+	}
+	loaded, err := selectedPrivateProgramPacks(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := packload.ResolvePrivateProgramEnv(loaded, "http-front", "front-pack", true)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("recorded fork plan: %+v %v", plans, err)
+	}
+	if plans[0].RecipeIdentity == rawPlans[0].RecipeIdentity || plans[0].RecipePack != "base" {
+		t.Fatalf("private recipe ignored the selected fork delivery: raw=%+v projected=%+v", rawPlans[0], plans[0])
+	}
+}
+
+func TestAttachExistingAdoptsTheFrozenPreparedHTTPIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		includeClient bool
+		writeInput    bool
+		mutate        func(string, string, *callbrokerinput.PreparedHTTPClientGeneration)
+		wantRefusal   bool
+	}{
+		{"valid running tree", true, true, nil, false},
+		{"missing prepared generation", true, true, func(_, sidecar string, _ *callbrokerinput.PreparedHTTPClientGeneration) { _ = os.Remove(sidecar) }, true},
+		{"replaced generation", true, true, func(_, sidecar string, g *callbrokerinput.PreparedHTTPClientGeneration) {
+			g.Generation = strings.Repeat("f", 32)
+			writePreparedTestFile(t, sidecar, g)
+		}, true},
+		{"symlink prepared generation", true, true, func(_, sidecar string, g *callbrokerinput.PreparedHTTPClientGeneration) {
+			target := sidecar + ".target"
+			writePreparedTestFile(t, target, g)
+			if err := os.Remove(sidecar); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, sidecar); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"different frozen tree", true, true, func(_, _ string, g *callbrokerinput.PreparedHTTPClientGeneration) { g.PackTree = "/host/other-tree" }, true},
+		{"unselected front", true, false, nil, false},
+		{"zero client legacy input", false, true, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := attachedPrivateHTTPFixture(t, tc.includeClient, tc.writeInput)
+			if tc.mutate != nil {
+				tc.mutate(f.inputPath, f.preparedPath, &f.prepared)
+				if tc.name == "different frozen tree" {
+					writePreparedTestFile(t, f.preparedPath, &f.prepared)
+				}
+			}
+			producerCalls := 0
+			f.o.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": {
+				StateDir: func(LaunchInputContext) string { return f.stateDir },
+				Produce:  func(LaunchInputContext) ([]byte, error) { producerCalls++; return []byte("no attach producer"), nil },
+			}}
+			rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
+			if tc.wantRefusal {
+				if rc != 1 || restarted || execed {
+					t.Fatalf("invalid running prepared identity attached: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+				}
+			} else if rc != 0 || restarted || !execed {
+				t.Fatalf("valid/legacy attach refused: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+			}
+			if producerCalls != 0 {
+				t.Fatalf("attach restaged through a producer %d times", producerCalls)
+			}
+		})
+	}
+}
+
+type attachedPrivateHTTP struct {
+	o                                 *Options
+	cfg                               *jsonx.OrderedMap
+	channel                           *packChannel
+	stderr                            *bytes.Buffer
+	packs                             []*packload.Pack
+	stateDir, inputPath, preparedPath string
+	prepared                          callbrokerinput.PreparedHTTPClientGeneration
+}
+
+func attachedPrivateHTTPFixture(t *testing.T, includeClient, writeInput bool) attachedPrivateHTTP {
+	t.Helper()
+	root := t.TempDir()
+	frontDir, clientDir := filepath.Join(root, "front"), filepath.Join(root, "client")
+	_ = os.Mkdir(frontDir, 0700)
+	if includeClient {
+		_ = os.Mkdir(clientDir, 0700)
+	}
+	frontPackJSON := `{"name":"front-pack","contributes":[{"kind":"loophole","from":"loopholes/tasks"}]}`
+	if err := os.WriteFile(filepath.Join(frontDir, packdecl.ManifestLegacyJSONCName), []byte(frontPackJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	moduleDir := filepath.Join(frontDir, "loopholes", "tasks")
+	if err := os.MkdirAll(moduleDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	frontManifest := `name = "tasks"
+transport = "loopback-tls"
+[call_broker]
+source = "tasks"
+front = "http"
+classifier = ["yolo", "internal", "call-broker-classify", "tasks"]
+env_from_host = ["TASKS_TOKEN"]
+[call_broker.scope]
+roots = "declared"
+[[call_broker.resource]]
+type = "project"
+[[call_broker.cell]]
+name = "update"
+tables = ["all"]
+[call_broker.http]
+origin = "https://fixture.example"
+request_headers = ["Content-Type"]
+[call_broker.http.credential]
+source = "host_env"
+key = "TASKS_TOKEN"
+header = "Authorization"
+prefix = "Bearer "
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, loopholedecl.ManifestTOMLName), []byte(frontManifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	front, problems := packload.LoadDir(frontDir, "front-pack")
+	if front == nil || len(problems) != 0 {
+		t.Fatalf("front pack: %v", problems)
+	}
+	packs := []*packload.Pack{front}
+	if includeClient {
+		clientJSON := `{"name":"client-pack","contributes":[{"kind":"program","bin":"fixture-client","via":"npm","package":"fixture-client"},{"kind":"env","bin":"fixture-client","served_by":"tasks","vars":{"TOKEN":"{caller_token}","URL":"https://{listen}","TRUST":"{client_trust}"}}]}`
+		if err := os.WriteFile(filepath.Join(clientDir, packdecl.ManifestLegacyJSONCName), []byte(clientJSON), 0600); err != nil {
+			t.Fatal(err)
+		}
+		client, issues := packload.LoadDir(clientDir, "client-pack")
+		if client == nil || len(issues) != 0 {
+			t.Fatalf("client pack: %v", issues)
+		}
+		packs = append(packs, client)
+	}
+	if err := packload.WritePackTreeRecord(root, packs); err != nil {
+		t.Fatal(err)
+	}
+	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
+	const cname = "yolo-ws-abcd1234"
+	treeSource := root
+	root = filepath.Join(paths.PackTreeRoot(cname), "attach-fixture")
+	if err := os.MkdirAll(filepath.Dir(root), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(root, os.DirFS(treeSource)); err != nil {
+		t.Fatal(err)
+	}
+	selectedPacks, err := loadPackTree(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packs = selectedPacks
+	moduleDir = filepath.Join(root, "front", "loopholes", "tasks")
+	if err := os.MkdirAll(filepath.Dir(paths.LivePackTreeRecord(cname)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLivePackTree(cname, root); err != nil {
+		t.Fatal(err)
+	}
+	oldStateDir := loopholes.StateDirFor
+	stateDir := filepath.Join(t.TempDir(), "front-state")
+	if err := os.Mkdir(stateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	loopholes.StateDirFor = func(name string) string {
+		if name == "tasks" {
+			return stateDir
+		}
+		return oldStateDir(name)
+	}
+	t.Cleanup(func() {
+		loopholes.StateDirFor = oldStateDir
+		loopholes.SetPackModules(nil)
+		loopholes.SetPackSupersessions(nil)
+	})
+	loopholes.SetPackModules(packLoopholeModules(packs))
+	call, err := loopholedecl.LoadDir(moduleDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declHash := loopholedecl.CallBrokerDeclarationHash(call.CallBroker)
+	launchID := "attachfixture01"
+	scopePath, err := brokerscope.Write(brokerscope.File{Source: "tasks", LaunchID: launchID, PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Form: brokerscope.FormCallRoot, Repos: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := callbrokerinput.Launch{Version: "yolo.call-broker-launch/2", ScopeFile: scopePath, FrontJailID: filepath.Base(hostServiceSocketsDir(cname, false)),
+		Loophole: "tasks", Pack: "front-pack", DeclarationHash: declHash, Source: "tasks", Front: "http", ProgramIdentities: map[string]loopholedecl.CallBrokerProgramIdentity{}, Roots: []string{}}
+	input.HTTPBinding = &config.ApprovedCallBrokerHTTP{Pack: input.Pack, Source: input.Source, DeclarationHash: declHash, HTTP: *call.CallBroker.HTTP}
+	plans, err := packload.ResolvePrivateProgramEnv(packs, "tasks", "front-pack", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := callbrokerinput.PreparedHTTPClientGeneration{Version: callbrokerinput.PreparedHTTPClientGenerationVersion, Phase: "prepared", Generation: strings.Repeat("a", 32),
+		Container: cname, FrontJailID: input.FrontJailID, Runtime: "podman", Setup: "podman-self", PackTree: root, LaunchID: launchID,
+		Loophole: input.Loophole, Front: input.Front, Pack: input.Pack, Source: input.Source, DeclarationHash: declHash,
+		Roots: []string{}, ProgramIdentities: input.ProgramIdentities, Clients: make([]callbrokerinput.PreparedHTTPClientPlan, len(plans))}
+	for i, p := range plans {
+		prepared.Clients[i] = callbrokerinput.PreparedHTTPClientPlan{Bin: p.Bin, Pack: p.Pack, Front: p.Front, RecipePack: p.RecipePack, RecipeIdentity: p.RecipeIdentity, TokenVariable: p.TokenVariable, URLVariable: p.URLVariable, TrustVariable: p.TrustVariable}
+	}
+	replicas := filepath.Join(stateDir, "replicas")
+	if err := os.Mkdir(replicas, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(replicas, ".launch-input.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = lock.Close()
+	inputPath := filepath.Join(replicas, cname+".json")
+	preparedPath := inputPath + ".prepared"
+	if writeInput {
+		if includeClient {
+			writePreparedTestFile(t, preparedPath, &prepared)
+			input.HTTPFrontGeneration = prepared.Generation
+		}
+		data, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(inputPath, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		scope, err := brokerscope.ReadFile(scopePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := brokerscope.BindCallInput(scopePath, scope, inputPath); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return attachedPrivateHTTP{o: o, cfg: cfg, channel: channel, stderr: stderr, packs: packs, stateDir: stateDir, inputPath: inputPath, preparedPath: preparedPath, prepared: prepared}
+}
+
+func writePreparedTestFile(t *testing.T, path string, generation *callbrokerinput.PreparedHTTPClientGeneration) {
+	t.Helper()
+	data, err := json.Marshal(generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
 	}
 }
 

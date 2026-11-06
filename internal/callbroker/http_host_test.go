@@ -105,6 +105,12 @@ func TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	in.Roots = nil
+	scope.Repos = nil
+	in.ScopeFile, err = brokerscope.Write(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	generation := strings.Repeat("a", 32)
 	in.HTTPFrontGeneration = generation
 	prepared := callbrokerinput.PreparedHTTPClientGeneration{
@@ -137,6 +143,33 @@ func TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState(t *te
 	}
 	if constructed.start != "" {
 		t.Fatalf("constructor unexpectedly established live front state: start=%q", constructed.start)
+	}
+
+	validReference := `"http_front_generation":"` + generation + `"`
+	for _, tc := range []struct {
+		name, raw string
+	}{
+		{"null", strings.Replace(string(launch), validReference, `"http_front_generation":null`, 1)},
+		{"empty", strings.Replace(string(launch), validReference, `"http_front_generation":""`, 1)},
+		{"wrong type", strings.Replace(string(launch), validReference, `"http_front_generation":17`, 1)},
+		{"malformed", strings.Replace(string(launch), validReference, `"http_front_generation":"not-a-generation"`, 1)},
+		{"case-fold alias", strings.Replace(string(launch), `"http_front_generation"`, `"HTTP_FRONT_GENERATION"`, 1)},
+		{"case-fold semantic duplicate", strings.Replace(string(launch), validReference, validReference+`,"HTTP_FRONT_GENERATION":""`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(f.inputPath, []byte(tc.raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit); err == nil {
+				t.Fatal("present invalid or aliased reference was accepted")
+			}
+		})
+	}
+
+	in.HTTPFrontGeneration = generation
+	launch, _ = json.Marshal(in)
+	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
+		t.Fatal(err)
 	}
 
 	in.HTTPFrontGeneration = strings.Repeat("b", 32)

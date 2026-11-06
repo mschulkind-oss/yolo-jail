@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokeridentity"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -32,26 +34,7 @@ func selectedPrivateProgramPacks(tree string) ([]*packload.Pack, error) {
 	if tree == "" {
 		return nil, nil
 	}
-	entries, recorded, err := packload.ReadPackTreeRecord(tree)
-	if err != nil {
-		return nil, err
-	}
-	if !recorded {
-		return nil, nil
-	}
-	packs := make([]*packload.Pack, 0, len(entries))
-	for _, entry := range entries {
-		root := filepath.Join(tree, filepath.FromSlash(entry.Dir))
-		p, problems := packload.LoadDir(root, entry.Name)
-		if p == nil || len(problems) != 0 {
-			return nil, fmt.Errorf("selected staged pack %q could not be read for private client metadata: %v", entry.Name, problems)
-		}
-		if p.Name != entry.Name {
-			return nil, fmt.Errorf("selected staged pack record changed for %q", entry.Name)
-		}
-		packs = append(packs, p)
-	}
-	return packs, nil
+	return loadPackTree(tree)
 }
 
 func (o *Options) prepareHTTPClientGeneration(lp *loopholes.Loophole, frozen LaunchInputContext, input *CallBrokerLaunchInput,
@@ -173,6 +156,171 @@ func publishPreparedHTTPGeneration(replicas *os.Root, owner *preparedHTTPGenerat
 		return err
 	}
 	owner.temp = ""
+	return nil
+}
+
+func readPrivateHTTPAttachPair(stateDir, leaf string) (input, prepared []byte, inputErr, preparedErr, err error) {
+	if leaf == "" || filepath.Base(leaf) != leaf {
+		return nil, nil, nil, nil, errors.New("private launch input name is invalid")
+	}
+	root, err := paths.OpenStateDirRoot(stateDir)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer root.Close()
+	if !privateHTTPDirOwned(root) {
+		return nil, nil, nil, nil, errors.New("private state directory is not owned and mode 0700")
+	}
+	replicas, err := paths.OpenStateSubdirRoot(root, "replicas", filepath.Join(stateDir, "replicas"))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer replicas.Close()
+	if !privateHTTPDirOwned(replicas) {
+		return nil, nil, nil, nil, errors.New("private replica directory is not owned and mode 0700")
+	}
+	lock, err := replicas.OpenFile(".launch-input.lock", os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer lock.Close()
+	if info, statErr := lock.Stat(); statErr != nil || !privateHTTPFileOwned(info, 0600) {
+		return nil, nil, nil, nil, errors.New("private launch-input lock is unsafe")
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_SH); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	input, _, inputErr = readPrivateHTTPFile(replicas, leaf)
+	prepared, _, preparedErr = readPrivateHTTPFile(replicas, leaf+".prepared")
+	return input, prepared, inputErr, preparedErr, nil
+}
+
+func privateHTTPDirOwned(root *os.Root) bool {
+	info, err := root.Stat(".")
+	return err == nil && info.IsDir() && info.Mode().Perm() == 0700 && privateHTTPUser(info)
+}
+
+func privateHTTPFileOwned(info os.FileInfo, mode os.FileMode) bool {
+	return info.Mode().IsRegular() && info.Mode().Perm() == mode && privateHTTPUser(info)
+}
+
+func privateHTTPUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(stat.Uid) == os.Getuid()
+}
+
+func readPrivateHTTPFile(root *os.Root, leaf string) ([]byte, os.FileInfo, error) {
+	before, err := root.Lstat(leaf)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !privateHTTPFileOwned(before, 0600) {
+		return nil, nil, errors.New("private HTTP identity file has unsafe ownership, type, or mode")
+	}
+	file, err := root.OpenFile(leaf, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(before, opened) || !privateHTTPFileOwned(opened, 0600) {
+		return nil, nil, errors.New("private HTTP identity file changed while opening")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
+	if err != nil || len(data) > 1<<20 {
+		return nil, nil, errors.New("private HTTP identity file is unreadable or too large")
+	}
+	return data, opened, nil
+}
+
+func (o *Options) validateAttachedPrivateHTTP(cname, rt, setupName, tree string, packs []*packload.Pack) error {
+	for _, module := range packLoopholeDecls(packs) {
+		declared, err := loopholedecl.LoadDir(module.Dir)
+		if err != nil {
+			return fmt.Errorf("running pack %q has an unreadable selected front: %w", module.Pack, err)
+		}
+		if declared.CallBroker == nil || declared.CallBroker.Front != "http" {
+			continue
+		}
+		plans, err := packload.ResolvePrivateProgramEnv(packs, module.Name, module.Pack, true)
+		if err != nil {
+			return err
+		}
+		stateDir := loopholes.StateDirFor(module.Name)
+		inputBytes, preparedBytes, inputErr, preparedErr, pairErr := readPrivateHTTPAttachPair(stateDir, cname+".json")
+		if pairErr != nil {
+			if errors.Is(pairErr, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("running HTTP front %q has unsafe private launch state: %w", module.Name, pairErr)
+		}
+		if errors.Is(inputErr, os.ErrNotExist) {
+			if errors.Is(preparedErr, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("running HTTP front %q has an orphaned prepared identity", module.Name)
+		}
+		if inputErr != nil {
+			return fmt.Errorf("running HTTP front %q launch input is unsafe: %w", module.Name, inputErr)
+		}
+		if err := callbrokerinput.RejectDuplicateLaunchHTTPFrontGeneration(inputBytes); err != nil {
+			return fmt.Errorf("running HTTP front %q reference is invalid: %w", module.Name, err)
+		}
+		var in callbrokerinput.Launch
+		if err := json.Unmarshal(inputBytes, &in); err != nil || in.Version != "yolo.call-broker-launch/2" ||
+			in.Loophole != module.Name || in.Pack != module.Pack || in.Source != declared.CallBroker.Source ||
+			in.Front != "http" || in.HTTPBinding == nil || in.HTTPBinding.Pack != module.Pack ||
+			in.HTTPBinding.Source != in.Source || in.DeclarationHash != callbrokerinput.DeclarationHash(declared.CallBroker) ||
+			in.HTTPBinding.DeclarationHash != in.DeclarationHash || declared.CallBroker.HTTP == nil ||
+			!reflect.DeepEqual(in.HTTPBinding.HTTP, *declared.CallBroker.HTTP) ||
+			!reflect.DeepEqual(in.HTTPBinding.ReadOverPost, declared.CallBroker.ReadOverPost) {
+			return fmt.Errorf("running HTTP front %q launch input no longer matches its staged declaration", module.Name)
+		}
+		packRoot := ""
+		for _, pack := range packs {
+			if pack.Name == module.Pack {
+				packRoot = pack.Root
+				break
+			}
+		}
+		identities, err := callbrokeridentity.Resolve(packRoot, module.Pack, module.Dir, declared.CallBroker)
+		if err != nil {
+			return fmt.Errorf("running HTTP front %q program identity cannot be verified: %w", module.Name, err)
+		}
+		if identities == nil {
+			identities = map[string]loopholedecl.CallBrokerProgramIdentity{}
+		}
+		if !maps.Equal(in.ProgramIdentities, identities) {
+			return fmt.Errorf("running HTTP front %q program identities no longer match its staged declaration", module.Name)
+		}
+		if len(plans) == 0 && in.HTTPFrontGeneration == "" && errors.Is(preparedErr, os.ErrNotExist) {
+			continue
+		}
+		if len(plans) == 0 || in.HTTPFrontGeneration == "" || preparedErr != nil {
+			return fmt.Errorf("running HTTP front %q lacks its selected prepared identity", module.Name)
+		}
+		prepared, err := callbrokerinput.DecodePreparedHTTPClientGeneration(preparedBytes)
+		if err != nil {
+			return fmt.Errorf("running HTTP front %q prepared identity is invalid: %w", module.Name, err)
+		}
+		scope, err := brokerscope.ReadFile(in.ScopeFile)
+		if err != nil || scope.CallInput != filepath.Join(stateDir, "replicas", cname+".json") ||
+			callbrokerinput.ValidatePreparedHTTPClientLaunch(prepared, in, scope.Container, scope.LaunchID, scope.Source, scope.Repos) != nil {
+			return fmt.Errorf("running HTTP front %q prepared identity does not match its host scope", module.Name)
+		}
+		expected := make([]callbrokerinput.PreparedHTTPClientPlan, len(plans))
+		for i, plan := range plans {
+			expected[i] = callbrokerinput.PreparedHTTPClientPlan{Bin: plan.Bin, Pack: plan.Pack, Front: plan.Front,
+				RecipePack: plan.RecipePack, RecipeIdentity: plan.RecipeIdentity, TokenVariable: plan.TokenVariable,
+				URLVariable: plan.URLVariable, TrustVariable: plan.TrustVariable}
+		}
+		if prepared.Container != cname || prepared.FrontJailID != filepath.Base(hostServiceSocketsDir(cname, o.IsMacOS)) ||
+			prepared.Runtime != rt || prepared.Setup != setupName || prepared.PackTree != tree ||
+			!reflect.DeepEqual(prepared.Clients, expected) {
+			return fmt.Errorf("running HTTP front %q prepared identity does not match its frozen running pack tree", module.Name)
+		}
+	}
 	return nil
 }
 

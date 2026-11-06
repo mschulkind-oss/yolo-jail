@@ -3106,6 +3106,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		}
 	}
 	channel, targetCmd = view.channel, view.targetCmd
+	attachPacks, attachTree := view.staged.packs, view.staged.root
+	if view.unreadable || view.unfound != "" {
+		attachPacks, attachTree = staged.packs, ""
+	}
+	if err := o.validateAttachedPrivateHTTP(cname, rt, actualSetup.Name, attachTree, attachPacks); err != nil {
+		releaseLock()
+		o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then repeat the launch so its private HTTP identity can be verified.[/bold red]", richtext.Escape(err.Error()), stopRemedy(rt, cname))
+		return 1, false
+	}
 	// A PROFILE-SERVED DAEMON this entry's selection needs and the running jail never started
 	// (OQ-CN7 (b)): its launch selected no profile it serves, and an attach starts no daemon, so
 	// the pointer this entry would deliver points at nothing. The attach-skew disposition, as

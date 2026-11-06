@@ -2,11 +2,13 @@ package callbrokerinput
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -84,6 +86,8 @@ func (g PreparedHTTPClientGeneration) Validate() error {
 	return nil
 }
 
+// RejectDuplicateLaunchHTTPFrontGeneration validates only the optional Task 1 reference so
+// unrelated legacy launch fields retain their existing decoder behavior.
 func RejectDuplicateLaunchHTTPFrontGeneration(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	token, err := decoder.Token()
@@ -103,11 +107,27 @@ func RejectDuplicateLaunchHTTPFrontGeneration(data []byte) error {
 		if !ok {
 			return errors.New("call broker launch input has a non-string key")
 		}
-		if key == "http_front_generation" {
-			if seen {
-				return errors.New("call broker launch input has duplicate HTTP front generation references")
+		if strings.EqualFold(key, "http_front_generation") {
+			if key != "http_front_generation" || seen {
+				return errors.New("call broker launch input has an aliased or duplicate HTTP front generation reference")
 			}
 			seen = true
+			var raw json.RawMessage
+			if err := decoder.Decode(&raw); err != nil {
+				return err
+			}
+			trimmed := bytes.TrimSpace(raw)
+			if len(trimmed) < 2 || trimmed[0] != '"' {
+				return errors.New("call broker launch input has a non-string HTTP front generation reference")
+			}
+			var reference string
+			if err := json.Unmarshal(trimmed, &reference); err != nil || len(reference) != 32 {
+				return errors.New("call broker launch input has an invalid HTTP front generation reference")
+			}
+			if _, err := hex.DecodeString(reference); err != nil {
+				return errors.New("call broker launch input has an invalid HTTP front generation reference")
+			}
+			continue
 		}
 		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
@@ -152,11 +172,11 @@ func ValidatePreparedHTTPClientLaunch(g PreparedHTTPClientGeneration, in Launch,
 	if err := g.Validate(); err != nil {
 		return err
 	}
-	if scopeContainer == "" || scopeLaunchID == "" || scopeSource != in.Source || !reflect.DeepEqual(scopeRoots, in.Roots) || in.HTTPFrontGeneration == "" ||
+	if scopeContainer == "" || scopeLaunchID == "" || scopeSource != in.Source || !slices.Equal(scopeRoots, in.Roots) || in.HTTPFrontGeneration == "" ||
 		g.Generation != in.HTTPFrontGeneration || g.Container != scopeContainer || g.LaunchID != scopeLaunchID ||
 		g.Source != in.Source || g.Loophole != in.Loophole || g.Pack != in.Pack || g.Front != in.Front ||
 		g.FrontJailID != in.FrontJailID || g.DeclarationHash != in.DeclarationHash ||
-		!reflect.DeepEqual(g.Roots, in.Roots) || !reflect.DeepEqual(g.ProgramIdentities, in.ProgramIdentities) {
+		!slices.Equal(g.Roots, in.Roots) || !reflect.DeepEqual(g.ProgramIdentities, in.ProgramIdentities) {
 		return errors.New("prepared HTTP identity does not match the selected launch scope")
 	}
 	return nil
@@ -165,7 +185,7 @@ func ValidatePreparedHTTPClientLaunch(g PreparedHTTPClientGeneration, in Launch,
 func rejectDuplicateObjectKeys(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := scanJSONValue(decoder); err != nil {
+	if err := scanJSONValue(decoder, preparedObject); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -174,17 +194,45 @@ func rejectDuplicateObjectKeys(data []byte) error {
 	return nil
 }
 
-func scanJSONValue(decoder *json.Decoder) error {
+type preparedJSONShape uint8
+
+const (
+	anyJSONValue preparedJSONShape = iota
+	preparedObject
+	programIdentityMap
+	programIdentityObject
+	clientArray
+	clientObject
+)
+
+func scanJSONValue(decoder *json.Decoder, shape preparedJSONShape) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
 	}
 	delim, ok := token.(json.Delim)
 	if !ok {
+		if shape == programIdentityMap || shape == programIdentityObject || shape == clientArray || shape == clientObject || shape == preparedObject {
+			return errors.New("prepared HTTP client generation has a value with the wrong schema type")
+		}
 		return nil
 	}
-	switch delim {
-	case '{':
+	if delim == '{' {
+		allowed := map[string]bool(nil)
+		switch shape {
+		case preparedObject:
+			allowed = map[string]bool{"version": true, "phase": true, "generation": true, "container": true,
+				"front_jail_id": true, "runtime": true, "setup": true, "pack_tree": true, "launch_id": true,
+				"loophole": true, "front": true, "pack": true, "source": true, "declaration_hash": true,
+				"roots": true, "program_identities": true, "clients": true}
+		case programIdentityObject:
+			allowed = map[string]bool{"Pack": true, "Bin": true, "Path": true, "RelPath": true, "SHA256": true}
+		case clientObject:
+			allowed = map[string]bool{"bin": true, "pack": true, "front": true, "recipe_pack": true,
+				"recipe_identity": true, "token_variable": true, "url_variable": true, "trust_variable": true}
+		case clientArray:
+			return errors.New("prepared HTTP client generation has a value with the wrong schema type")
+		}
 		seen := map[string]bool{}
 		for decoder.More() {
 			keyToken, err := decoder.Token()
@@ -199,21 +247,42 @@ func scanJSONValue(decoder *json.Decoder) error {
 				return fmt.Errorf("prepared HTTP client generation has duplicate field %q", key)
 			}
 			seen[key] = true
-			if err := scanJSONValue(decoder); err != nil {
+			if allowed != nil && !allowed[key] {
+				return fmt.Errorf("prepared HTTP client generation has unknown or aliased field %q", key)
+			}
+			child := anyJSONValue
+			switch {
+			case shape == preparedObject && key == "program_identities":
+				child = programIdentityMap
+			case shape == preparedObject && key == "clients":
+				child = clientArray
+			case shape == programIdentityMap:
+				child = programIdentityObject
+			case shape == clientArray:
+				child = clientObject
+			}
+			if err := scanJSONValue(decoder, child); err != nil {
 				return err
 			}
 		}
 		_, err = decoder.Token()
 		return err
-	case '[':
-		for decoder.More() {
-			if err := scanJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		_, err = decoder.Token()
-		return err
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delim)
 	}
+	if delim == '[' {
+		if shape != anyJSONValue && shape != clientArray {
+			return errors.New("prepared HTTP client generation has a value with the wrong schema type")
+		}
+		child := anyJSONValue
+		if shape == clientArray {
+			child = clientObject
+		}
+		for decoder.More() {
+			if err := scanJSONValue(decoder, child); err != nil {
+				return err
+			}
+		}
+		_, err = decoder.Token()
+		return err
+	}
+	return fmt.Errorf("prepared HTTP client generation has unexpected JSON delimiter %q", delim)
 }
