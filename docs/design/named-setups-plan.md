@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Find and prove an engine consume-before-guest custody path without raw directory-FD exposure; and unchanged W-SU1/W-SU4 before primary 6a-ii/6b landing; land 6a-i (SUP-D19: JailName, setup paths, the unwired SUP-D9 move); 6a-ii wires the move under SUP-D21 after the seatbelt-yolo-account home-owner check"
+next: "Owner rules OQ-SU7 (bind-source custody; leaning C: a held /proc fd on Linux podman, local rootful probe green, with a refusal where no mechanism exists); then a rootless witness for that fd, and unchanged W-SU1/W-SU4, before 6a-ii/6b land; 6a-ii wires the move under SUP-D21 after the seatbelt-yolo-account home-owner check"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -761,6 +761,58 @@ A separate one-command local `podman run --preserve-fds=1` countercontrol passed
 
 The next engineering proof must identify a supported engine consume-before-guest path that preserves verified host-side FD custody through every admission and operation, while keeping the raw directory FD out of guest code. The source FD must be consumed and closed before untrusted guest code starts; do not substitute file modes (including `0700`), a token, pathname/PID/FD-slot identity, effective UID, or guest bootstrap ordering for that boundary. Verify the engine resolver and lifetime directly, and check guest descriptor absence plus lack of parent-relative access. Do not infer this from a PID/FD-slot path or pre-parse `fstat`. No new runtime wrapper, custom namespace, public flag, privilege change, or backend exclusion is settled here; the raw-FD pass-through result is not activation authority. The synthetic prototype still conservatively retains uncertain-COMMIT FD copies in-process; neither that closure nor the local probes prove a production release operation. No lease or queued-lookup protocol, native activation, rootless/remote Podman, Apple Container, macOS or Seatbelt behavior is established. No backend fallback or source activation follows from it.
 
+**Held `/proc/<holder>/fd/<n>` probe (2026-11-06; rootful nested Podman 6.1.4 with crun, Linux;
+scripts and logs under `$YOLO_DURABLE_DIR/slice6a/probes/`, outside the repository).** A host
+holder process opened a source directory through an `O_DIRECTORY|O_NOFOLLOW` chain, marked
+close-on-exec. Before `podman run -d --rm --init`, it renamed the source's parent aside and
+planted a symbolic link to an outside directory in its place. The run named the source as
+`/proc/<holder-pid>/fd/<n>`, once with `-v` and once with `--mount type=bind` (`procfd_holder.py`;
+`v.log`, `mount.log`).
+
+- **Resolution time.** The stored mount source stayed the unresolved `/proc/...` string at create,
+  so the engine resolved it at start.
+- **What the guest saw.** The guest read the original directory's marker, and mountinfo named the
+  original directory as the mount root.
+- **No descriptor in the guest.** No guest process held a directory descriptor: the shell held
+  only standard streams and pipes, and init held only standard streams and a signalfd.
+- **No parent-relative access.** `..` of the mount point was the container's own `/mnt`, the
+  outside sibling was absent, and the holder's `/proc` entry was not visible.
+- **After the holder closed it.** After start, the holder closed the descriptor and a second
+  rename moved the original again. Guest writes still landed in the original directory, and
+  nothing reached the outside directory or a decoy.
+
+**Restart re-resolves.** A container whose holder closed the descriptor after start and reused
+the same slot for a decoy directory was `podman restart`ed. The restart returned 0, and the guest
+then wrote into both the original and the decoy (`procfd_restart.py`; `restart.log`). The holder
+must therefore keep the descriptor for the container's whole life, and nothing yolo runs may
+restart a container. Production launches use `run --rm` (`internal/cli/run/assemble.go`) and yolo
+restarts none, but a host user's manual `podman restart` would resolve whatever then holds the
+slot. A holder that lives as long as the container closes that gap.
+
+**Masking a subtree does not stop a jail's writes.** The probe bound a workspace read-write and
+mounted a tmpfs at `/workspace/.yolo/setups` (`mask_rename.py`; `mask.log`). Renaming the masked
+mount point failed with EBUSY. But the jail renamed the parent `.yolo` aside, recreated it, and
+planted `.yolo/setups -> ../.yolo-aside/setups`, and that link was visible on the host. Hiding
+part of the path cannot replace custody, because jails share the workspace and a jail can still
+rewrite a directory above the hidden part.
+
+**Assessed but not probed:**
+
+- **`openat2` with `RESOLVE_NO_SYMLINKS` or `RESOLVE_BENEATH`.** yolo cannot make the engine
+  resolve this way. A yolo-side `openat2` check is only validation, and it still leaves the window
+  before the engine reads the path.
+- **A host-side bind into a private staging directory.** Mounting needs mount privilege, which
+  rootless podman has only inside `podman unshare`'s namespace. That is a new privileged step, not
+  a cheap mechanism.
+
+**What these probes do not show.** Rootless podman is unverified: a nested jail runs with
+`--userns=host`. Reading another process's `/proc/<pid>/fd` needs a ptrace read-mode check against
+the same user, which rootless podman's runtime should pass, but no probe has run it. macOS podman
+runs its engine in a VM, which cannot open the host's `/proc`, and Apple Container has no `/proc`
+at all, so neither is covered. Seatbelt mounts nothing. This evidence supports option **C** of
+[OQ-SU7](named-setups.md#OQ-SU7) on Linux podman only. It is not activation authority until the
+owner rules [OQ-SU7](named-setups.md#OQ-SU7).
+
 **Landing split ([SUP-D19](#SUP-D19), 2026-11-06).** *6a-i, which lands now*, covers the
 `internal/runtime/naming.go` `JailName` row of **Tests first**, the `internal/paths/setupstate_test.go`
 row (with `WorkspaceHomeState` kept), the `legacyhome_test.go` move cases ([SUP-D20](#SUP-D20)),
@@ -1354,7 +1406,11 @@ into the slice's report (see the macos-user plan's
 ## Blockers
 
 [OQ-SU5](named-setups.md#OQ-SU5) is ruled
-([SUP-D9](#SUP-D9)), so no owner question blocks the legacy-home move. Slices 6a/6b still need independent review and
+([SUP-D9](#SUP-D9)), so no owner question blocks the legacy-home move.
+[OQ-SU7](named-setups.md#OQ-SU7) (open) blocks 6a-ii. It asks whether bind-source custody is
+needed on every launch, only while a running jail could write the source's path, or per backend.
+Under its leaning, C, Linux podman would also need a rootless witness for the held-`/proc`
+descriptor mechanism. Slices 6a/6b still need independent review and
 **unchanged W-SU1/W-SU4** on the combined candidate before primary landing; W-SU4's yes
 expectation cannot be quietly revised. Slice 8 separately needs W-SU3. No native Mac or
 rootless-host witness is established by the private Linux fixture.
