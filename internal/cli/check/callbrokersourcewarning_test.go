@@ -31,7 +31,7 @@ func TestCheckDoesNotWarnForASelectedCallBrokerSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root := t.TempDir()
+	root := canonicalTempDir(t)
 	module := filepath.Join(root, "loopholes", "tasks")
 	classifierDir := filepath.Join(root, "tools", "classifier")
 	if err := os.MkdirAll(module, 0o755); err != nil {

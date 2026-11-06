@@ -49,8 +49,8 @@ func injectFailedOwnedGroupSignal(t *testing.T) func() {
 }
 
 func TestCanonicalCLIExecutorKeepsFailedGroupSignalDiagnosticBeforeOutputCap(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "overflowed")
-	binary := filepath.Join(t.TempDir(), "fixture")
+	marker := filepath.Join(canonicalTempDir(t), "overflowed")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	body := fmt.Sprintf("#!/bin/sh\nhead -c 33554433 /dev/zero | tr '\\000' x\nprintf done > %q\nwhile :; do printf synthetic-secret; sleep 0.01; done\n", marker)
 	if err := os.WriteFile(binary, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestCanonicalCLIExecutorDoesNotReadOutputWhenLeaderObservationAndSignalFail
 	started := fixtureFIFO(t, "started")
 	hold := fixtureFIFO(t, "hold")
 	fixtureStarted := awaitFIFO(started)
-	binary := filepath.Join(t.TempDir(), "fixture")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	if err := os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf synthetic-secret\nprintf started > %q\nread x < %q\n", started, hold)), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +151,8 @@ func TestCanonicalCLIExecutorDoesNotReadOutputWhenLeaderObservationAndSignalFail
 }
 
 func TestCanonicalCLIExecutorRetainsUncertainDescendantAfterDeadLeaderSignalFailure(t *testing.T) {
-	childFile := filepath.Join(t.TempDir(), "child-pid")
-	binary := filepath.Join(t.TempDir(), "fixture")
+	childFile := filepath.Join(canonicalTempDir(t), "child-pid")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	if err := os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nsleep 5 &\necho $! > %q\n", childFile)), 0o700); err != nil {
 		t.Fatal(err)
 	}

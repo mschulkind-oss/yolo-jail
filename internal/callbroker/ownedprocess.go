@@ -12,6 +12,7 @@ import (
 var startOwnedCommand = (*exec.Cmd).Start
 var observeOwnedLeader = ownedLeaderExited
 var signalOwnedGroup = syscall.Kill
+var ownedGroupHasNoLiveMember = ownedGroupHasNoLiveMemberOS
 
 // runOwnedGroup keeps the leader unreaped while it observes exit and terminates
 // its process group. Cmd.Wait would release the PID/PGID before a successful
@@ -53,11 +54,22 @@ func runOwnedGroup(ctx context.Context, cmd *exec.Cmd) error {
 	// The unreaped leader reserves pid as a PGID, including after normal exit.
 	if err := signalOwnedGroup(-pid, syscall.SIGKILL); err != nil {
 		// ESRCH after a known exited leader means there was no group left.
-		if !errors.Is(err, syscall.ESRCH) || ctx.Err() != nil {
+		// darwin answers EPERM instead when no member could be signalled
+		// because every one is a zombie (the unreaped leader included), so
+		// EPERM counts as gone only once the group is listed with no live
+		// member: a live member that refused the signal still fails closed.
+		if ctx.Err() != nil || !(errors.Is(err, syscall.ESRCH) || (errors.Is(err, syscall.EPERM) && ownedGroupConfirmedEmpty(pid))) {
 			return failedOwnedGroupSignal(cmd, err)
 		}
 	}
 	return cmd.Wait()
+}
+
+// ownedGroupConfirmedEmpty reports whether process group pgid was listed and
+// held no live member. A listing error is not a confirmation.
+func ownedGroupConfirmedEmpty(pgid int) bool {
+	empty, err := ownedGroupHasNoLiveMember(pgid)
+	return err == nil && empty
 }
 
 func failedOwnedGroupSignal(cmd *exec.Cmd, signalErr error) error {

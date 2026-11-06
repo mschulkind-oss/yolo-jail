@@ -40,12 +40,25 @@ func fakeExec(cases map[string]ExecResult) func([]string, string, []string, time
 	}
 }
 
+// canonicalTempDir mints t.TempDir() with its symlinks resolved. On macOS
+// the temp root sits under /var, a link to /private/var, and production
+// code that canonicalizes a path (resource-group mappings, a pack program's
+// resolved identity) would otherwise disagree with the fixture's spelling.
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 // baseOptions returns Options wired for a deterministic in-jail no-runtime
 // fixture: no binaries on PATH, no subprocesses succeed, a fixed clock, and an
 // isolated temp workspace/home so filesystem probes are stable.
 func baseOptions(t *testing.T, out *bytes.Buffer) Options {
 	t.Helper()
-	ws := t.TempDir()
+	ws := canonicalTempDir(t)
 	return Options{
 		Build:             false,
 		SkipEnsureStorage: true,

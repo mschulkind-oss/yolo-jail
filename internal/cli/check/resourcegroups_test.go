@@ -131,7 +131,7 @@ func TestCheckResourceGroupsInJailDoesNotProbeHostPolicy(t *testing.T) {
 }
 
 func TestCheckResourceGroupDiagnosticsEscapeDynamicTerminalText(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "[bold red]project\x1b[31m[/bold red]", "child")
+	workspace := filepath.Join(canonicalTempDir(t), "[bold red]project\x1b[31m[/bold red]", "child")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
