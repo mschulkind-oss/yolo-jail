@@ -98,6 +98,7 @@ The **[feature index](features.md)** links every feature to the page that covers
 | [Writing Your Own Pack](guides/migrating-to-packs.md) | Your setup as a pack, and applying it to your own machine |
 | [Follow an Upstream with a Patch Series](guides/patch-series.md) | Your changes to a program or a pi extension, kept on its newest upstream version |
 | [Run a Host Command for the Agent](guides/host-commands.md) | You run one line on the host; its output goes back to the agent |
+| [Paste an Image into the Agent](guides/image-paste.md) | `yolo paste`: a screenshot from your clipboard, attached in any agent on any setup |
 | [Your Own Host Service](guides/host-services.md) | Run a program on the host for the jail |
 | [Writing a Loophole](guides/writing-loopholes.md) | The loophole manifest, for pack authors |
 | [Troubleshooting](guides/troubleshooting.md) | Common failures and their fixes |

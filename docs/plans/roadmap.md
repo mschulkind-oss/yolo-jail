@@ -361,7 +361,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     Also asked for on 2026-10-09: [image paste in every agent](../design/image-paste.md), where [how far Ctrl+V is
     consumed](../design/image-paste.md#OQ-PA2) shapes the key handling, with [closing macos-user's possibly open
     pasteboard](../design/image-paste.md#OQ-PA1) and [the default](../design/image-paste.md#OQ-PA3); its first slice,
-    the host reader and `yolo paste`, waits on none of them.
+    the host reader and `yolo paste`, is built and [in the user guide](../../userguide/guides/image-paste.md),
+    and the Ctrl+V paste arm waits on [OQ-PA2](../design/image-paste.md#OQ-PA2).
 31. Finish [image build reuse](../reference/image-staging-vs-baking.md) with native Apple Container stock-tag dispatch and warm-launch validation; Linux baked, ambient and lean record reuse now has live evidence. Then [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
     as Podman's installer gives libkrun, the slowest shared folder measured. Then
     [make OrbStack a working Podman host](../research/orbstack-as-a-podman-host.md), with [its native verification
