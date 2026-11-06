@@ -3,14 +3,14 @@ title: "Pack broker HTTP: bounded build hand-off"
 date: 2026-11-06
 status: accepted
 stage: DECIDED
-next: "Task 3 (local TLS/authentication, held address, host generation seal); seal the Task 2 interpreter closure; keep publication off"
+next: "Build G4 Task 3 slice 3.1 (host generation seal and request-frame front_generation); seal the Task 2 interpreter closure; keep publication off"
 tags: [plan, broker, http]
 summary: "Tree-grounded HTTP build hand-off; private client delivery is proposed and G4 remains per-cell gated."
 ---
 
 # Pack broker HTTP: bounded build hand-off
 
-**Status:** 2026-11-06. G3 remains partial; the G4 front is integrated but unactivated. **Task 1** (private prepared payload) and the **Task 2 first slice** (the audited semver cell) are built, independently reviewed OK after repair, and on main; see their status lines below. Whole Task 2 (the interpreter closure), Task 3 and Task 4 remain open; publication remains off.
+**Status:** 2026-11-06. G3 remains partial; the G4 front is integrated but unactivated. **Task 1** (private prepared payload) and the **Task 2 first slice** (the audited semver cell) are built, independently reviewed OK after repair, and on main; see their status lines below. Whole Task 2 (the interpreter closure) and Task 4 remain open. [Task 3](#g4-task-3-local-tls-authentication-and-the-host-generation-seal) is a sliced build contract with nothing built; build slice 3.1 first. Publication remains off.
 
 **Primary evidence:** Commit `7e587d200af37d654582303af5c1be0136432be2` changes six files (`1,017` insertions, `6` deletions); five are byte-identical to reviewed candidate `03f`, and the sixth only removes one unused test constant. The original HIGH review returned `BLOCK`; `G4_FOUR_FINDINGS_CLOSURE: OK` closes only framing, uncertain post-transmission outcomes, capture overflow and body-read deadlines, not primary integration review. The package/race tests, five repair regressions, Linux/Darwin vet, Linux staticcheck, Darwin/arm64 compile, matched bundle, host `check --no-build`, rootful empty-pack nested smoke (Podman reported `Rootless=false`) and selective `just done` passed. They prove neither HTTP activation, native/rootless isolation, full CI nor full G4. Full integration, remote CI and native rootless/macOS proof remain unverified.
 
@@ -201,15 +201,237 @@ func TestCallBrokerHTTPDeclaration(t *testing.T) {
 
 **Tests first and limit:** drive the production selected producer plus generated/direct/attach callsites; deleting a production caller must produce wrong execution or a pre-consumer refusal, not merely fail a synthetic helper. Cover exact delivery/binding mismatches and argv, unselected-bin, same-key, platform/profile and source-fork controls. This proves neither full automatic interpreter/plugin/config closure nor Seatbelt process-environment/native A/B isolation; all remaining Task 2 work and Task 3 stay sketches.
 
-**Task 3 — local TLS/authentication, held address and host generation (source-grounded SKETCH only; after accepted Tasks 1–2):** local TLS and readiness are proposed boundaries, not existing accepted APIs.
+### G4 Task 3: local TLS, authentication and the host generation seal
 
-**Observed at source 7e:** the manually dispatchable front reads the body before host forwarding; its frame schema has no `front_generation`. The daemon constructs the HTTP handler before `NewStartID`/`BindLease`. Existing readiness reports service names, while served-address selection handles only its current namespace cases and may retain declared-address fallback; it is not proof of an actual selected-front listener. Standing HTTP calls preflight DNS/TLS, recheck authority, then send without serialized generation withdrawal.
+**Status:** 2026-11-06. BUILD contract, nothing built. Written against main as of this date, after the Task 1 and Task 2 first-slice status lines above. **Build slice 3.1 first.** Slices land in order, one commit each, and each is shippable alone: publication stays off through all four. The design wins on behavior; the tree wins on cosmetic fact (a renamed helper with the same role: follow the tree and say so in the report). **Stop and report, do not commit**, when a test does not fail the way its slice predicts, when a precondition below fails, when a fix needs a file outside the slice's fence, or when a settled rule below would have to bend.
 
-**Sketch, not an accepted interface:** hold a real nonzero loopback listener by selected front name in its serving namespace; refuse gaps rather than require a new `front_listen` setting or trust a declared fallback. After the existing lease bind, a proposed side-effect-free private probe would verify the current generation, front-specific TLS/authentication and actual listener/certificate/trust without sending to an external origin; it is distinct from ordinary HTTP send authority. The host would accept only a launch-owner-created boot/keeper receipt binding the container, selected front name, generation, scope, live broker start and actual held address/certificate/trust identity, then publish a separate immutable seal. Exact receipt/probe representation remains to be built, not presumed present. Ordinary HTTP request frames remain refused until that seal; the probe grants no send authority. Only after matching seal/lease/readiness may URL, token and trust publish. Add request-frame `front_generation` only here and compare it with the host-input reference, bound start, seal/live lease and selected `FrontJailID`; caller headers do not establish authority. Never promote or mutate Task 1's prepared identity.
+**Settled rules, unchanged from the design:** a missing or wrong local token gets `401` before the front reads the body or contacts the host, with handler, origin receiver and spend all zero. A valid token whose call reaches an ASK gets `403`, with handler one and receiver and spend zero. Front-specific key and certificate only: no global CA, no insecure fallback. The seal is a separate immutable record and the Task 1 prepared record is never mutated or promoted. Every request frame from a selected front carries `front_generation`, and the host checks it. Withdrawal before send has zero effects; after possible transmission there is no refund and no retry. No URL, token or trust is published until seal, live lease and readiness agree, and Task 3 publishes none of them (Task 4 does). Spend and audit still precede the write, and an independent external grant change after preflight remains G3's stated nonatomic residual.
 
-Preserve pre-body local `401` with handler/receiver/spend all zero, versus valid-token ASK `403` with handler one and receiver/spend zero. Consume the selected ordinary auth field locally; strip it and any caller Authorization/API-key value before constructing `HTTPCall`, reject credential copies elsewhere before host contact, and redact through classifier/store/audit/log. Use front-specific key/certificate and private client trust, never a global CA or insecure fallback. After DNS/TLS, recheck current generation and lease at the final send boundary; serialize withdrawal against that send. Preserve spend/audit-before-write and possible-transmission accounting: withdrawal before send has zero effects; after possible transmission, do not refund or retry. This does not make an independent external grant atomic with the network. Native namespace, listener handoff and per-setup proof remain unresolved; no source, readiness or probe design here establishes them.
+#### Where the source changed the sketch
 
-**Task 4 — actual acquisition/replay and native per-cell proof (after Task 3):** sketch the permanent selected-client A/B replay test and native Podman rootful/rootless, networking, Apple Container, Seatbelt self/account and host evidence. Confined setups require actual peer acquisition/startup replacement/replay effects plus native boundary; host requires normal client/TLS and no workspace disclosure, not hostile same-owner isolation. Rootful nesting cannot establish rootless or macOS proof. No client/setup cell publishes until its own evidence and independent review pass; only demonstrated incompatibility reaches [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2), while [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) stays custom-executor-only.
+The sketch above assumed things the tree does not support. Each is ruled here, inside the design's boundary, so no new open question is filed.
+
+1. **No host-held address exists to hand over.** Launcher reservations (`servedaddresses.go`, `launchservice.ReservePorts`) are released before the container starts, nothing is reserved on a private network namespace, and no descriptor crosses into a container. Ruling: the front binds `127.0.0.1:0` itself and fails closed if that bind fails. There is no declared port, no `front_listen` key and no declared-address fallback; `servedaddresses.go` and `loopholedecl.ListenAddressProblem` stay untouched. The address is reported, not trusted: the pinned per-front certificate is the identity, so a process that later squats a freed port cannot complete TLS against the published trust.
+2. **The front mints its own key in memory**, following `svcendpoint`'s rule that a private key never leaves process memory (the unexported `mintCert` in `internal/svcendpoint/cert.go`). Only the certificate goes to the host. No key file exists anywhere, which is stronger than the design text's "certificate/key in a private per-generation payload". Aligning that design sentence is a follow-up for the design's owner, not this plan.
+3. **The keeper cannot produce the receipt the sketch named.** It sees only `entrypoint.BootReadyLine` and cannot reach the jail's loopback. Ruling: the front seals itself through one side-effect-free host op, `seal`, over the host endpoint it already uses. That connection's preamble asserts the jail identity, and another jail cannot read this jail's `/run/yolo-services`, so this stays within the stated caller boundary.
+4. **The front never holds the raw token.** The host mints it with `svcendpoint.NewToken` at seal time and keeps it in a host-private file. The front receives only its SHA-256 and compares hashes with `crypto/subtle.ConstantTimeCompare`.
+5. **Today's front forwards the caller's `Authorization` into the host frame** (`frontHeaders` copies every header, and `digestHTTPCall` digests the original headers). The front must strip the local credential field before building `HTTPCall`, and the host also refuses any frame carrying the sealed token bytes, before classification.
+6. **The `401` is new.** Every refusal in `httpfront.go` is a `403` through `writeRequestRefusal`, and `ServeHTTP` reads the body before calling the host. Authentication becomes the first check.
+7. **No production producer starts the front**: `call-broker-http-front` appears only in `cmd/yolo-jaild/main.go`, its test and `httpfront.go`. Slice 3.4 adds the first.
+
+#### Decisions (cheap, recorded so nobody re-derives them)
+
+- **Restart policy `no` for the front.** A broker restart gets a new start ID, so the seal is stale and ordinary frames refuse with "stop the jail and relaunch".
+- **Legacy G3 inputs** (no `HTTPFrontGeneration`) keep accepting frames without `front_generation`, and refuse a frame that carries one and the `seal` op. Existing host tests stay valid.
+- **Seal and token leaves** sit beside the prepared record: `<launch-input>.prepared.seal` and `<launch-input>.prepared.token`, both `0600`, created with `O_EXCL|O_NOFOLLOW`. The token file holds exactly the 64 hex characters, no newline. Write the token first, then the seal; if the seal write fails, remove the token. A leftover token without a seal refuses a later seal ("relaunch"), which fails closed.
+- **The local credential field** is the binding's own `HTTPBinding.HTTP.Credential.Header` and `Prefix` (for example `Authorization` and `Bearer `): the client sends the local token where it would send its usual credential.
+- **The daemon name** is `http-front-<loophole>`, and readiness uses the existing line protocol: `ready <name>` after a successful seal, `failed <name> <reason>` otherwise. Copy the dup-and-write shape of `signalReadinessOnFD` in `internal/wirebridged/boot.go` as a private helper; do not export `launchservice.reportReadiness`.
+- **Response shapes:** the `401` reuses the existing GraphQL `errors` body with `Yolo-Verdict: refused`. The token found anywhere other than the designated field gets a local `403` with handler zero. Duplicate or conflicting designated fields get a `401`. `Yolo-Authorization-Stripped` stays, set only when a non-designated authorization header was stripped.
+- **Map types, helper factoring and error wording** beyond the strings quoted below are the builder's choice.
+
+#### Slice 3.1 (FIRST): host generation seal and request-frame `front_generation`
+
+**Preconditions:** `go test -short ./internal/callbroker ./internal/callbrokerinput` is green. Stop if the extracted prepared fixture (below) makes `currentAuthority` refuse after reconstruction.
+
+**Tests first.** Two test-only helpers in `internal/callbroker/http_host_test.go`:
+
+- `selectedPreparedHTTPReadFixture(t, origin, executor) (*HTTPHandler, *onceFixture, string)` extracts the prepared-record writing from `TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState`, rebuilds the handler with `newHTTPHandler`, and copies `scopePath`, `bound` and `start` back as `selectedHTTPReadFixtureWithNative` does.
+- `selectedHTTPRawFrames(t, handler hostservice.Handler) func(map[string]any) (int, string)` generalizes the closure in `selectedHTTPHostFramesWithHandler`, which then delegates to it.
+
+Add `frontFixtureCertificate(t, ip string, serverAuth bool) []byte`: a P-256 self-signed DER with an IP SAN of `ip`. New file `internal/callbroker/http_seal_test.go`:
+
+```go
+func TestSelectedHTTPFrontSealGatesOrdinaryFrames(t *testing.T) {
+	var requests atomic.Int32
+	_, executor, origin := fixturePinnedHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	h, f, generation := selectedPreparedHTTPReadFixture(t, origin, executor)
+	frame := selectedHTTPRawFrames(t, h.Handle)
+	call := HTTPCall{Method: "GET", Path: "/project"}
+	act := func(gen any) (int, string) {
+		payload := map[string]any{"op": "act", "http": call}
+		if gen != nil {
+			payload["front_generation"] = gen
+		}
+		return frame(payload)
+	}
+	if rc, out := act(generation); rc != 64 || !strings.Contains(out, "has not sealed") {
+		t.Fatalf("unsealed generation reached classification: rc=%d out=%q", rc, out)
+	}
+	if rc, _ := act(nil); rc != 64 {
+		t.Fatalf("selected-front frame without front_generation was accepted: rc=%d", rc)
+	}
+	prepared, err := os.ReadFile(f.inputPath + ".prepared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seal := func(gen, address string, cert []byte) (int, string) {
+		return frame(map[string]any{"op": "seal", "front_generation": gen,
+			"front": map[string]any{"address": address, "certificate_base64": base64.StdEncoding.EncodeToString(cert)}})
+	}
+	good := frontFixtureCertificate(t, "127.0.0.1", true)
+	for name, tc := range map[string]struct {
+		gen, address string
+		cert         []byte
+	}{
+		"wrong generation":   {strings.Repeat("b", 32), "127.0.0.1:41000", good},
+		"not loopback":       {generation, "10.0.0.1:41000", good},
+		"port zero":          {generation, "127.0.0.1:0", good},
+		"SAN mismatch":       {generation, "127.0.0.1:41000", frontFixtureCertificate(t, "127.0.0.2", true)},
+		"no ServerAuth":      {generation, "127.0.0.1:41000", frontFixtureCertificate(t, "127.0.0.1", false)},
+		"not a certificate":  {generation, "127.0.0.1:41000", []byte("not-der")},
+	} {
+		if rc, _ := seal(tc.gen, tc.address, tc.cert); rc != 64 {
+			t.Fatalf("%s: bad seal accepted: rc=%d", name, rc)
+		}
+		if _, err := os.Stat(f.inputPath + ".prepared.seal"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s: refused seal left a record: %v", name, err)
+		}
+	}
+	rc, reply := seal(generation, "127.0.0.1:41000", good)
+	var answer struct {
+		TokenSHA256      string `json:"token_sha256"`
+		CredentialHeader string `json:"credential_header"`
+		CredentialPrefix string `json:"credential_prefix"`
+	}
+	if rc != 0 || json.Unmarshal([]byte(reply), &answer) != nil || answer.CredentialHeader != "Authorization" || answer.CredentialPrefix != "Bearer " {
+		t.Fatalf("valid seal refused: rc=%d reply=%q", rc, reply)
+	}
+	token, err := os.ReadFile(f.inputPath + ".prepared.token")
+	sum := sha256.Sum256(token)
+	if err != nil || !svcendpoint.IsToken(string(token)) || hex.EncodeToString(sum[:]) != answer.TokenSHA256 {
+		t.Fatalf("token leaf does not match the sealed hash: err=%v", err)
+	}
+	raw, err := os.ReadFile(f.inputPath + ".prepared.seal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := callbrokerinput.DecodePreparedHTTPFrontSeal(raw)
+	if err != nil || sealed.Generation != generation || sealed.BrokerStart != h.start || sealed.Address != "127.0.0.1:41000" ||
+		bytes.Contains(raw, token) || strings.Contains(string(raw), answer.TokenSHA256) {
+		t.Fatalf("seal does not bind the live start and address without the token: %+v err=%v", sealed, err)
+	}
+	if after, _ := os.ReadFile(f.inputPath + ".prepared"); !bytes.Equal(after, prepared) {
+		t.Fatal("sealing mutated the prepared record")
+	}
+	if rc, _ := seal(generation, "127.0.0.1:41000", good); rc != 64 {
+		t.Fatal("a second seal was accepted")
+	}
+	if rc, _ := act(strings.Repeat("b", 32)); rc != 64 || requests.Load() != 0 {
+		t.Fatalf("wrong front_generation reached the origin: rc=%d requests=%d", rc, requests.Load())
+	}
+	smuggled := call
+	smuggled.Headers = []HTTPHeader{{Name: "X-Echo", Values: []string{string(token)}}}
+	if rc, _ := frame(map[string]any{"op": "act", "http": smuggled, "front_generation": generation}); rc != 64 || requests.Load() != 0 {
+		t.Fatalf("frame carrying the sealed token was classified: rc=%d", rc)
+	}
+	if rc, out := act(generation); rc != 0 || requests.Load() != 1 {
+		t.Fatalf("sealed generation did not send exactly once: rc=%d out=%q requests=%d", rc, out, requests.Load())
+	}
+}
+```
+
+Also `TestLegacyHTTPInputRefusesGenerationAndSeal`: with `selectedHTTPReadFixture` (no generation), a frame with `"front_generation": strings.Repeat("a", 32)` and any `seal` op return `64`; a frame without it still returns `0`. In `internal/callbrokerinput`, a table test for `DecodePreparedHTTPFrontSeal` refusing unknown keys, case-fold duplicates (reuse `rejectDuplicateObjectKeys`), a bad version and a malformed generation. Red: `go test -short -run 'TestSelectedHTTPFrontSeal|TestLegacyHTTPInput|TestPreparedHTTPFrontSeal' ./internal/callbroker ./internal/callbrokerinput` fails to compile (no `DecodePreparedHTTPFrontSeal`).
+
+**Change.**
+
+- `internal/callbrokerinput/frontseal.go` (new): `PreparedHTTPFrontSeal{Version "yolo.http-front-seal/1", Generation, Container, FrontJailID, LaunchID, BrokerStart, Loophole, DeclarationHash, Address, CertificateSHA256, CertificateDER}`, plus `Validate()` and the strict `DecodePreparedHTTPFrontSeal`. It has no token and no token hash.
+- `internal/callbroker/http_schema.go`: `validateHTTPBrokerFrame` accepts exactly `{op, http}` with optional `front_generation` and `jail_id`, or `{op:"seal", front_generation, front{address, certificate_base64}}` with optional `jail_id`.
+- `internal/callbroker/http_handler.go`: `HTTPHandler` gains `inputFile` and an in-memory `front` state (mutex, sealed seal, token). `Handle` widens its allowed keys to match and routes `seal`. Before `serveHTTP` it runs the generation gate: if the input has a generation, the frame's value must equal it, the in-memory seal must exist with `BrokerStart == h.start`, and the frame must not contain the token. If it has none, the frame must not carry one.
+- `internal/callbroker/http_seal.go` (new): `(h *HTTPHandler) seal(jail string, req)`. It checks, in order: legacy input refuses; the generation equals `h.input.HTTPFrontGeneration`; `jail == h.input.FrontJailID`; `h.start != ""`; `validatePreparedHTTPGeneration` passes again; `currentAuthority` passes; no seal is held in memory or on disk; the address is a literal loopback IP with a nonzero port; and the certificate parses with an IP SAN equal to that IP and the `ServerAuth` usage. Then it writes the token, then the seal, and replies `{token_sha256, credential_header, credential_prefix}` with exit `0`.
+
+**Production call sites:** `Handle` is already the daemon's handler through `ServeHTTPBrokerFrontedUnix`. Seal and gate live only in `Handle` and `serveHTTP`, **never in `currentAuthority` or `revalidateHTTP`**: `ApprovalAuthority` in `authority.go` builds a fresh handler with no front state for `yolo approve`, and a gate there breaks every approval (symptom: approvals refuse with the seal message).
+
+**Refusals (exit `64`, with the next step):** "the selected HTTP front has not sealed this generation; stop the jail and relaunch"; "HTTP front generation does not match this launch; stop the jail and relaunch"; "HTTP front seal already exists for this generation; stop the jail and relaunch"; "the request carries the local front token outside its field; remove it and retry".
+
+**Does NOT:** touch `httpfront.go`, start any front, publish anything, clean up seal or token leaves (no production front can seal before 3.4), or add withdrawal.
+
+**Fences:** only `internal/callbroker/{http_schema,http_handler,http_seal}.go`, `internal/callbrokerinput/frontseal.go` and their tests. `daemon.go`, `authority.go` and `internal/cli/run` are fenced; a fence break is a stop.
+
+**Gates:** `go test -short ./internal/callbroker ./internal/callbrokerinput`, then `just check-ci`. **Commit:** `feat(callbroker): seal a prepared HTTP front generation and check request-frame front_generation`. **Report:** the red command and its output, the green gates, and anything the tree forced.
+
+#### Slice 3.2: TLS and local authentication in the front
+
+**Preconditions:** 3.1 has landed.
+
+**Tests first** (all in `internal/callbroker/httpfront_test.go`). Every existing test in that file is **rewritten to the new behavior, not repaired until green**. That covers `TestSelectedPackHTTPFrontBindsHostIdentity` and `TestPackHTTPFrontRefusalShape`, which send `Authorization: jail-forged` and expect it forwarded and stripped. `serveTestHTTPFront` becomes: start the front against `selectedHTTPHostFramesWithHandler`'s endpoint with a counting handler (`func(s *hostservice.Session) { handled.Add(1); h.Handle(s) }`) and a `selectedPrepared…` fixture. It returns the bound address, a `*tls.Config` trusting only the sealed certificate DER (read from the seal leaf), and the token (from the token leaf). `rawHTTPFrontRequest` dials through that TLS config.
+
+- `TestHTTPFrontRefusesMissingOrWrongTokenBeforeBody`: `POST /graphql` with `Content-Length: 10` and **no body bytes**, once with no `Authorization` and once with `Authorization: Bearer <64 zeros>`. Each gets `401` within 2 seconds: a body read would block until the server's timeout. `handled == 0`, origin `requests == 0`, and `f.store.List()` shows no pending request and unchanged grant uses.
+- `TestHTTPFrontValidTokenAskIs403`: with `selectedHTTPWriteFixture` (prepared and sealed), a write with `Authorization: Bearer <token>` gets `403` with `Yolo-Verdict: asks`, `handled == 1`, origin `writes == 0`, and grant uses unchanged.
+- `TestHTTPFrontStripsTheLocalCredential`: the host frame (captured in the counting handler from `s.Request`) has no `Authorization` header, With a fixture variant whose credential is `{Header: "X-Api-Key", Prefix: ""}`, a caller `Authorization` is stripped before the frame and flagged by `Yolo-Authorization-Stripped: true`. The token in a query, another header or the body gets a local `403` with `handled == 0`. Two `Authorization` fields get `401`.
+- `TestHTTPFrontRefusesPlainHTTPAndOtherTrust`: a plain-HTTP request fails the handshake, and a TLS client trusting another self-signed certificate fails verification. The test also reads `httpfront.go` and fails if it contains `InsecureSkipVerify`.
+- `TestHTTPFrontSealsBeforeReady`: with the ready descriptor a pipe, the front writes exactly `ready http-front-<loophole>\n` after the seal reply. If the host refuses the seal, it writes `failed http-front-<loophole> <reason>\n` and exits non-zero without accepting a connection.
+- `cmd/yolo-jaild/main_test.go`: `call-broker-http-front` without `--endpoint` or `--loophole`, or with the old `--listen`, exits `2`.
+
+Red: `go test -short -run 'TestHTTPFront' ./internal/callbroker` fails on the plain-HTTP front.
+
+**Change** in `internal/callbroker/httpfront.go`:
+
+- `HTTPFrontMain` takes `--endpoint` and `--loophole`, drops `--listen`, and reads its generation from `YOLO_HTTP_FRONT_GENERATIONS` (`<loophole>=<generation>[,…]`; added to `paths` in this slice, and launch-side in 3.4).
+- `ServeHTTPFront(ctx, endpoint, loophole, generation)` runs, in order: `net.Listen("tcp", "127.0.0.1:0")`; mint an in-memory P-256 certificate (IP SAN `127.0.0.1`, `ServerAuth`, `NextProtos` `http/1.1`); send `seal`; keep the reply in `HTTPFront{TokenSHA256, Header, Prefix, Generation}`; serve on `frontListener(tls.NewListener(listener, cfg))`; report ready.
+- `ServeHTTP` authenticates first: exactly one designated field, the prefix stripped, then `subtle.ConstantTimeCompare(sha256(presented), TokenSHA256)`. Only then does it do the existing checks and the body read.
+- `frontHeaders` drops the designated field and, when that field is not `Authorization`, also drops a caller `Authorization` and sets the existing stripped flag.
+- `callHost` adds `front_generation` to every frame.
+
+**Trap:** wrap the TLS listener with `frontListener` (`frontListener(tls.NewListener(l, cfg))`), never `server.ServeTLS` over an `httpFrontConn` listener. The capture must see decrypted bytes. Symptom of the wrong order: every request refuses with "headers exceed the front's capture limit".
+
+**Production call sites:** `cmd/yolo-jaild/main.go` dispatch only (unchanged). **Refusals:** `401` "missing or invalid local front token; use the token this jail's launch published", and the startup failures "HTTP front could not seal its generation: <host message>". **Does NOT:** start from any launch, publish URL, token or trust, or add withdrawal.
+
+**Fences:** `httpfront.go`, `httpfront_test.go`, `cmd/yolo-jaild/main_test.go`, and the `paths` constant. **Gates:** `go test -short ./internal/callbroker ./cmd/yolo-jaild`, then `just check-ci`. **Commit:** `feat(callbroker): serve the selected HTTP front over its own TLS with local authentication`. **Report** as in 3.1.
+
+#### Slice 3.3: withdrawal serialized against the final send
+
+**Preconditions:** 3.1 has landed.
+
+**Tests first** (in `internal/callbroker/http_host_test.go`, beside the existing `…WithdrawalDuringPinnedTLSHandshake…` tests and reusing their handshake gate):
+
+- `TestSealedFrontWithdrawalBeforeSendHasNoEffects`: read and write cases on a sealed fixture. Hold the handshake, call `h.withdrawFront()`, then release. Assert the call refuses, `requests == 0`, and grant uses are unchanged.
+- `TestSealedFrontWithdrawalAfterPossibleSendDoesNotRefundOrRetry`: withdraw from inside the origin handler. The write is spent once, the origin sees exactly one request, and a second `act` with the same call refuses without a second request.
+- `TestDaemonSignalWithdrawsBeforeCancel`: an AST pin over `daemon.go`'s `Main` showing the signal goroutine calls `withdrawFront` before `cancel`, in the repo's existing `funcDecl` pin style.
+
+**Change:**
+
+- `http_seal.go` adds `begin() error` (refuses when withdrawn or unsealed, otherwise counts one in-flight call) and `end()`, plus `withdrawFront()`.
+- `http_write.go`'s `boundHTTPWrite` makes `begin` the last step of each `prepare` closure, after the final revalidate, so a withdrawal before it leaves the spend uncommitted. `end` is deferred in `dispatch`.
+- `http_native.go`'s `runStandingHTTP` calls `begin` after `ctx.Err` and immediately before `send`.
+- `daemon.go`'s signal goroutine calls `withdrawFront` (when the handler is HTTP) before `cancel()`.
+- Legacy inputs: `begin` is a no-op.
+
+**Refusal:** "the selected HTTP front was withdrawn before sending; nothing was sent or spent; relaunch the jail". **Does NOT:** make an external grant change atomic with the network, retry, or refund. **Fences:** `http_seal.go`, `http_write.go`, `http_native.go`, `daemon.go` and their tests. **Gates:** `go test -short -race ./internal/callbroker`, then `just check-ci`. **Commit:** `feat(callbroker): serialize HTTP front withdrawal against the final send`.
+
+#### Slice 3.4: the selected launch starts the front
+
+**Preconditions:** 3.1 to 3.3 have landed. `prepareOrdinaryPrograms` still sets `o.privateClientEntrypoints` before `assembleInput` inside `runContainer`.
+
+**Tests first:**
+
+- `internal/cli/run`: extend `TestPrepareOrdinaryProgramsBindsSelectedPrivateClientsOrRefuses`'s fixture (`attachedPrivateHTTPFixture`) so that a bound private client naming front `L` yields one `JailDaemonSpec{Name: "http-front-L", Cmd: [yolo-jaild call-broker-http-front --endpoint /run/yolo-services/<host service>.endpoint --loophole L], Restart: "no", RequiredReady: true}`. No private client yields none.
+- A test on `serviceEndpointEnvArgs` that the wire bridge plus one front give exactly one `-e YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge,http-front-L` (two `-e` flags for the same variable is the trap).
+- A keeper test that the generation is inserted as `-e YOLO_HTTP_FRONT_GENERATIONS=L=<generation>` before the image, beside `insertPrivateClientEnv`.
+- An AST pin in the style of `TestTheFreshLaunchStartsAPrivateClientThroughItsPublishedBinding`: `runContainer` calls the front-spec composer after `prepareOrdinaryPrograms`.
+- A cleanup test: after confirmed container absence, `sweepDeadLaunchPreparedHTTP` and `removePreparedHTTPOwnership` remove `.seal` and `.token` leaves whose generation matches, keep a replacement's, and retain everything on unknown liveness.
+
+**Change:**
+
+- `internal/loopholes/runtime.go`: add `CoreCallBrokerHTTPFrontDaemon(loophole, endpoint string) JailDaemonSpec` and a non-wire `RequiredReady bool` field (`JailDaemonPayload` still writes only name, cmd and restart).
+- `internal/cli/run/run.go` (`runContainer`): append the spec for each front named by `o.privateClientEntrypoints`, Podman cell only (`privateClientCellUnsupported` already refuses others).
+- `packservices.go`: compose ready names from every `RequiredReady` spec into one value.
+- `keeper.go`: insert the generation env next to `insertPrivateClientEnv`.
+- `unknownlaunchenv.go`: register `YOLO_HTTP_FRONT_GENERATIONS` (`TestEveryYOLOEnvNameTheModuleSpellsIsClassified` fails otherwise).
+- `privatehttpownership.go` and `privatehttpclients.go`: the leaf cleanup.
+
+`paths.AllowUnreachableServicesEnv` lets the boot continue past a failed front but never yields a seal: ordinary frames still refuse.
+
+**Production call sites:** `runContainer`, then `assembleInput`, then the entrypoint's `startJailDaemons`, then the supervisor, then the front. Attach (`entryDaemons`) adopts nothing new in Task 3.
+
+**Refusals:** a front that cannot seal reports `failed`, and the boot stops naming the front and "stop the jail and relaunch; `yolo check` on the host shows the call broker's state".
+
+**Does NOT:** publish URL, token or trust, change the private-client bootstrap (it still injects nothing), add attach ready adoption, or prove rootless or macOS behavior.
+
+**Fences:** the files named above and their tests. **Gates:** `just check-ci`; the integration tests that read the touched names (`rg -n 'READY_NAMES|private-client|call-broker' integration/`); then `just build-dev-bundle` and its emitted launcher by absolute path from a throwaway workspace selecting the semver cell. A nested rootful jail proves the front starts and seals there, and nothing about rootless or macOS. **Commit:** `feat(run): start and seal the selected HTTP front in the launch`.
+
+**Task 4 — publication, actual acquisition/replay and native per-cell proof (after Task 3):** Task 4 owns publishing the URL, token and trust to an audited client cell once seal, live lease and readiness agree; attach ready adoption; and the permanent selected-client A/B replay test. It also owns the native evidence: Podman rootful and rootless, networking, Apple Container, Seatbelt self and account, and host. Confined setups require actual peer acquisition, startup replacement and replay effects plus the native boundary; host requires a normal client and TLS with no workspace disclosure, not hostile same-owner isolation. Rootful nesting cannot establish rootless or macOS proof. No client or setup cell publishes until its own evidence and independent review pass. Only demonstrated incompatibility reaches [OQ-HTTP2](pack-brokers-http.md#OQ-HTTP2), while [OQ-HTTP1](pack-brokers-http.md#OQ-HTTP1) stays custom-executor-only.
 
 ### H — conformance, nested-jail proof and operator guide (after real G4 and C/F fixture integration)
 
