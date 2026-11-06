@@ -6,9 +6,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // psDeps are the injectable seams. RunCmd runs argv and returns (stdout, ok):
@@ -28,8 +31,14 @@ import (
 // doctor tip); the caller resolves it to (requested && os.Stdout is a TTY), so
 // a bytes.Buffer or a pipe yields byte-identical plain output.
 // Format is "text" (the human table) or "json"; see outputformat.go.
+//
+// GOOS and HasBinary say which container runtimes this machine has (psContainerAnswers), so the
+// tracking-file prune can tell a runtime that was not asked from one that is not installed;
+// "" defaults to platformGOOS(), nil to "nothing installed".
 type psDeps struct {
 	DetectRuntime func() string
+	GOOS          string
+	HasBinary     func(bin string) bool
 	RunCmd        func(argv []string) (string, bool)
 	PathIsDir     func(path string) bool
 	Out           io.Writer
@@ -110,9 +119,9 @@ func psRun(deps psDeps) int {
 
 	if len(rows) == 0 {
 		pr.Print("[dim]No running jails.[/dim]")
-		// Enumeration succeeded and returned nothing → safe to prune all stale
-		// tracking files.
-		runtime.PruneStaleTrackingFiles(map[string]struct{}{})
+		// Enumeration succeeded and returned nothing → the prune may drop every
+		// tracking file, but only if every other container runtime here is absent.
+		runtime.PruneStaleTrackingFiles(psContainerAnswers(deps, rt, map[string]struct{}{}))
 		return psFinish(deps, report)
 	}
 
@@ -128,8 +137,9 @@ func psRun(deps psDeps) int {
 		running[r.Name] = struct{}{}
 	}
 
-	// Prune stale tracking files (keep only running names).
-	runtime.PruneStaleTrackingFiles(running)
+	// Prune stale tracking files: keep the running names, and keep everything when
+	// another installed container runtime was not asked (psContainerAnswers).
+	runtime.PruneStaleTrackingFiles(psContainerAnswers(deps, rt, running))
 
 	// Render the table via the ported renderer.
 	pcs := make([]runtime.PsContainer, len(containers))
@@ -256,6 +266,42 @@ func psFinish(deps psDeps, report psReport) int {
 	return 0
 }
 
+// psContainerAnswers is the prune's view of every container runtime this OS has
+// (named-setups.md SU-D10, named-setups-plan.md SUP-D22/SUP-D26): rt, the one asked, listed
+// running; every other one installed here was not asked, so its jails are unknown
+// (unreachable); one not installed runs nothing. A technology this OS does not have (Apple
+// Container on Linux) is no source at all. Whether a runtime is here is setup.Buildable of
+// its built-in, the launch's own answer.
+func psContainerAnswers(deps psDeps, rt string, running map[string]struct{}) []runtime.SourceAnswer {
+	goos := deps.GOOS
+	if goos == "" {
+		goos = platformGOOS()
+	}
+	hasBinary := deps.HasBinary
+	if hasBinary == nil {
+		hasBinary = func(string) bool { return false }
+	}
+	var answers []runtime.SourceAnswer
+	for _, name := range []string{"podman-self", "apple-container-self"} {
+		s := setup.MustBuiltIn(name)
+		a := runtime.SourceAnswer{Confinement: string(s.Confinement)}
+		err := setup.Buildable(s, goos, hasBinary)
+		var missing *setup.MissingTechnologyError
+		switch {
+		case s.Backend() == rt:
+			a.State, a.Names = runtime.SourceListed, running
+		case err == nil:
+			a.State = runtime.SourceUnreachable
+		case errors.As(err, &missing):
+			a.State = runtime.SourceNotInstalled
+		default:
+			continue
+		}
+		answers = append(answers, a)
+	}
+	return answers
+}
+
 // getContainerWorkspace resolves a container's workspace: the tracking file
 // first (fast), then the runtime inspect's YOLO_HOST_DIR env; "unknown" when
 // neither yields a value.
@@ -305,7 +351,12 @@ func stuckReason(deps psDeps, name, rt string) string {
 func psRealDeps(runCmd func(argv []string) (string, bool), detectRuntime func() string, format string) psDeps {
 	return psDeps{
 		DetectRuntime: detectRuntime,
-		RunCmd:        runCmd,
+		GOOS:          platformGOOS(),
+		HasBinary: func(bin string) bool {
+			_, err := exec.LookPath(bin)
+			return err == nil
+		},
+		RunCmd: runCmd,
 		PathIsDir: func(path string) bool {
 			info, err := os.Stat(path)
 			return err == nil && info.IsDir()

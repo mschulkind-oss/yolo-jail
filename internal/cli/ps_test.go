@@ -101,6 +101,45 @@ func TestPsPrunesStaleTracking(t *testing.T) {
 	_ = paths.ContainerDir()
 }
 
+// TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords is SU-D10's defect (named-setups.md §12.1):
+// on a Mac with Podman and Apple Container both installed, `YOLO_SETUP=podman-self yolo ps` asks
+// Podman alone and handed the prune Podman's names, so every running Apple Container jail's
+// tracking file was deleted. Apple Container was not asked, so its jails are unknown and no file
+// may go; once Apple Container is not installed, Podman's answer is every container source's and
+// the dead file goes again.
+func TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		installed map[string]bool
+		wantKept  bool
+	}{
+		{"both runtimes installed", map[string]bool{"podman": true, "container": true}, true},
+		{"apple container not installed", map[string]bool{"podman": true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			must(t, runtime.WriteContainerTracking("yolo-ac-1234", "/ac-workspace"))
+			psRun(psDeps{
+				DetectRuntime: func() string { return "podman" },
+				GOOS:          "darwin",
+				HasBinary:     func(bin string) bool { return tc.installed[bin] },
+				RunCmd: func(argv []string) (string, bool) {
+					if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "ps" {
+						return "", true // Podman answered: it runs no yolo jail
+					}
+					t.Errorf("ps ran %v; only Podman's listing was expected", argv)
+					return "", false
+				},
+				PathIsDir: func(string) bool { return true },
+				Out:       &bytes.Buffer{},
+			})
+			if _, kept := runtime.ReadContainerWorkspace("yolo-ac-1234"); kept != tc.wantKept {
+				t.Errorf("Apple Container jail's tracking file kept = %v, want %v", kept, tc.wantKept)
+			}
+		})
+	}
+}
+
 // TestPsContainerRuntimeKeepsLiveTracking documents the end state the unified
 // resolver enables on an Apple Container host (the destructive §B/D11 bug): with
 // the runtime resolved to "container", ps enumerates via `container ls` and the
