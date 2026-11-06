@@ -3,15 +3,21 @@
 package gitbroker
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func processIdentity(pid int) (string, bool, error) {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if os.IsNotExist(err) {
+	return processIdentityRead(pid, os.ReadFile)
+}
+
+func processIdentityRead(pid int, readFile func(string) ([]byte, error)) (string, bool, error) {
+	b, err := readFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if os.IsNotExist(err) || errors.Is(err, syscall.ESRCH) {
 		return "", false, nil
 	}
 	if err != nil {
