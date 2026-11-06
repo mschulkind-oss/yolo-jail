@@ -482,6 +482,10 @@ func GenerateAgentLaunchers(e *Env) error {
 	if err := resetAnchorDir(e.FloorPendingDir()); err != nil {
 		return err
 	}
+	// The bound launchers' own dir is this generation's too (PrivateClientDir).
+	if err := resetAnchorDir(e.PrivateClientDir()); err != nil {
+		return err
+	}
 	stampDir := filepath.Join(e.Home, ".cache", "yolo-agent-stamps")
 	// B2's generation-time collision check, computed ONCE for the whole loop: the probe
 	// path and the declared mise set are the same for every pack. See launchercollision.go
@@ -568,8 +572,15 @@ func GenerateAgentLaunchers(e *Env) error {
 						return fmt.Errorf("private HTTP client %s: its packs declare launch flags for it (%s), which its private bootstrap does not carry; remove them or the client's env contribution naming the front, then stop the jail and rerun yolo", inst.Bin, strings.Join(flags, " "))
 					}
 				}
-				if err := writeExecutable(launcherPath, privateClientLauncher(binding)); err != nil {
-					return err
+				// A blocked name stays blocked: the private dir goes ahead of the block dir after
+				// activation, so a bound bin that is also a blocked tool is refused, not bypassed.
+				if pathExists(filepath.Join(e.BlockDir(), inst.Bin)) {
+					return fmt.Errorf("private HTTP client %s is also a blocked tool in this jail; unblock it or remove the client's env contribution naming the front, then stop the jail and rerun yolo", inst.Bin)
+				}
+				for _, path := range []string{launcherPath, filepath.Join(e.PrivateClientDir(), inst.Bin)} {
+					if err := writeExecutable(path, privateClientLauncher(binding)); err != nil {
+						return err
+					}
 				}
 				continue
 			}
@@ -668,7 +679,7 @@ func GenerateAgentLaunchers(e *Env) error {
 			}
 		}
 	}
-	return privateLaunchersWritten(launcherDir, privateClients)
+	return privateLaunchersWritten(launcherDir, e.PrivateClientDir(), privateClients)
 }
 
 // npmAgentLauncher renders the npm lazy-install launcher for one `program via npm`

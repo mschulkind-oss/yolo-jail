@@ -188,6 +188,11 @@ func Bashrc(e *Env) string {
 	b.WriteString(bashrcPart2)
 	b.WriteString(miseShims)
 	b.WriteString(bashrcPart3)
+	// After mise's activation (bashrcPart3) and its hooks: a bound jail's private client launchers
+	// resolve first in every interactive shell too (privateClientPathShell).
+	if private := privateClientPathShell(e, true); private != "" {
+		b.WriteString(private + "\n")
+	}
 	if aliases != "" {
 		b.WriteString(aliases + "\n")
 	}

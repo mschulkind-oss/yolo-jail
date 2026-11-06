@@ -681,7 +681,8 @@ func activationPrefix(e *Env) string {
 	if pathExists(userEnvFile) {
 		sourceUserEnv = `. "` + userEnvFile + `" 2>/dev/null; `
 	}
-	return sourceUserEnv + `eval "$(mise env -s bash)" 2>/dev/null; `
+	// A bound jail's private client launchers go ahead of what mise just prepended (privateClientPathShell).
+	return sourceUserEnv + `eval "$(mise env -s bash)" 2>/dev/null; ` + privateClientPathShell(e, false)
 }
 
 // ---------------------------------------------------------------------------

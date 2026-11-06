@@ -486,6 +486,13 @@ func (e *Env) BlockDir() string { return filepath.Join(e.GeneratedBinDir(), "blo
 // It was HOME/.yolo-launchers until 2026-08-30; see BlockDir for the rename's reason.
 func (e *Env) LaunchDir() string { return filepath.Join(e.GeneratedBinDir(), "launch") }
 
+// PrivateClientDir holds only a bound jail's private HTTP client launchers (PrivateHTTPClientsEnv),
+// each the same bootstrap as its LaunchDir copy. It is on NO BootPath: a bound session's activation
+// moves it to the PATH's front AFTER mise's own prepends (privateClientPathShell), so a project mise
+// tool that also installs the bound name cannot resolve ahead of it, while every ordinary
+// program keeps the order BootPath gives it.
+func (e *Env) PrivateClientDir() string { return filepath.Join(e.GeneratedBinDir(), "private") }
+
 // FloorPendingDir holds one record per npm launcher whose declared Node floor nothing met when
 // it was generated (writeFloorPending, AR-L5), for the provisioning stage to finish once it has
 // installed a satisfying node. Under the same anchor as LaunchDir, cleared with it, and on no

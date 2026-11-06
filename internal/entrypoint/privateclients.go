@@ -304,15 +304,19 @@ func privateClientBindings(e *Env) (map[string]PrivateClientBinding, error) {
 	return out, nil
 }
 
-// privateLaunchersWritten is nil when every bound bin's launcher is exactly its bootstrap, and
+// privateLaunchersWritten is nil when every bound bin's launcher, in the launch dir and the
+// private dir alike, is exactly its bootstrap, and
 // otherwise the boot's refusal naming each bin that is not: a bound client whose name no selected
 // program wrote would run whatever else provides that name, an ordinary unverified copy.
-func privateLaunchersWritten(launcherDir string, bound map[string]PrivateClientBinding) error {
+func privateLaunchersWritten(launcherDir, privateDir string, bound map[string]PrivateClientBinding) error {
 	var missing []string
 	for bin, b := range bound {
-		got, err := os.ReadFile(filepath.Join(launcherDir, bin))
-		if err != nil || string(got) != privateClientLauncher(b) {
-			missing = append(missing, bin)
+		for _, dir := range []string{launcherDir, privateDir} {
+			got, err := os.ReadFile(filepath.Join(dir, bin))
+			if err != nil || string(got) != privateClientLauncher(b) {
+				missing = append(missing, bin)
+				break
+			}
 		}
 	}
 	if len(missing) == 0 {
@@ -320,4 +324,35 @@ func privateLaunchersWritten(launcherDir string, bound map[string]PrivateClientB
 	}
 	slices.Sort(missing)
 	return fmt.Errorf("yolo-entrypoint: private HTTP client %s is bound for this jail, but no selected pack's program wrote its private launcher, so it would run an ordinary copy; stop the jail and rerun yolo to reprepare its private clients (drop the client's env contribution naming the front if its pack no longer declares the program)", strings.Join(missing, ", "))
+}
+
+// privateClientPathShell is the shell text a bound session runs after mise's activation, or "" in
+// a jail with no bound client (so an ordinary jail's activation is unchanged byte for byte). It
+// moves PrivateClientDir to the PATH's front, which `mise env` and `mise activate` would otherwise
+// have put their tool dirs ahead of, and then fails the shell, with its next step, unless every
+// bound bin resolves to its bootstrap there. This is position, not a census of mise's names: a
+// project's own mise.toml, or a tool shipping the bin under another key, is covered the same way.
+//
+// With hooks (the .bashrc's interactive shells) it also runs after mise's own prompt and chpwd
+// hooks, which re-prepend mise's dirs on every prompt and every cd.
+func privateClientPathShell(e *Env, hooks bool) string {
+	bindings, err := ParsePrivateClients(e.Getenv(PrivateHTTPClientsEnv))
+	if err != nil || len(bindings) == 0 {
+		return ""
+	}
+	dir := shquote.Quote(e.PrivateClientDir())
+	bins := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		bins = append(bins, shquote.Quote(b.Bin))
+	}
+	s := `_yolo_private_first() { local d=` + dir + ` p; p=":$PATH:"; p="${p//":$d:"/:}"; p="${p#:}"; PATH="$d:${p%:}"; export PATH; }; _yolo_private_first; ` +
+		`for _yolo_b in ` + strings.Join(bins, " ") + `; do [ "$(command -v -- "$_yolo_b")" = ` + dir + `/"$_yolo_b" ] || ` +
+		`{ echo "yolo: private HTTP client $_yolo_b does not resolve to its bootstrap launcher in this shell; stop the jail and rerun yolo to reprepare its private clients" >&2; exit 1; }; done; unset _yolo_b; `
+	if hooks {
+		s += `if [[ $- == *i* ]]; then ` +
+			`if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then PROMPT_COMMAND+=(_yolo_private_first); ` +
+			`else PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_yolo_private_first"; fi; ` +
+			`chpwd_functions+=(_yolo_private_first); fi`
+	}
+	return s
 }
