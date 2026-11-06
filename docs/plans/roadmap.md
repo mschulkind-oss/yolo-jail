@@ -171,18 +171,7 @@ and a pi-subagents registry several extensions can share stays in item 28.
    the path in the error is just whichever bind podman checks first. One launch also left
    `yolo-gitconfig` unwritten, which is unexplained.
 
-10. **`yolo host --` calls its cwd a bind-mounted workspace, so it refuses `aws-auth` in the home**
-    — measured 2026-10-19. The host notch takes `os.Getwd()`
-    ([`host.go:2399`](../../internal/cli/host.go)) and hands it to the placement rule, whose
-    workspace branch is worded for a jail (*"the workspace this launch bind-mounts :rw"*); the
-    host notch mounts nothing. Run from `$HOME` that tree contains `~/.local/share/yolo-jail`, so
-    the rule refuses the loophole serving Bedrock credentials, and ⚠ the refused tree is
-    `embedded-packs` — kept out of `cache/` precisely so no agent writes it. The empty-workspace
-    path the rule documents (*"a caller with no workspace in hand"*) already exists and
-    `internal/loopholes` uses it; this notch does not. Two notes beside it: the refusal did not
-    stop the doorway from opening, and a jail launch would have refused that cwd outright via
-    `refuseWorkspaceScope`, which the host notch bypasses. Details and the workaround are in
-    [the lab report](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md).
+10. **`yolo host --` judged its cwd as a bind-mounted workspace** — done 2026-11-06: the host notch judges the [placement rule](../reference/loophole-system.md#the-placement-rule) with no workspace, and every backend refuses a doorway whose host service the rule refuses ([HS-D34](../design/host-notch-services.md#HS-D34)).
 
 11. [Finish the readable-config redesign](../design/readable-config.md) — the maintainer,
     2026-10-24: *"this is important"*. Most of it is built; what remains is listed in its

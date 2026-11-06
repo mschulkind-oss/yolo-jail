@@ -432,38 +432,6 @@ func (d *HostDoorways) CallerTokens() map[string]string {
 	return launchservice.CallerTokens(d.plans)
 }
 
-// refusePlacementOfDoorways refuses the launch, before anything starts, when the placement rule
-// refuses the host service a planned doorway forwards to (docs/reference/loophole-system.md#the-placement-rule).
-// The spawn below would skip that service and still open the doorway, which the composition has
-// already pointed the agent at: a doorway with no service behind it, announced as forwarding to
-// one, answering every request with an error (the Mac lab report of 2026-10-19, §4, saw "Refusing
-// to start loophole aws-auth" and then "opened the aws-auth doorway"). A refusal that lets its
-// doorway open refuses nothing, so a doorway whose service cannot start is one that cannot start,
-// and that refuses the launch (§4.5), naming the placement to fix.
-func (o *Options) refusePlacementOfDoorways(d *HostDoorways) error {
-	var refused []string
-	for _, plan := range d.plans {
-		lp, ok := d.set.Lookup(plan.Service)
-		if !ok {
-			continue
-		}
-		problems := lp.PlacementProblems(o.placementWorkspace())
-		for _, problem := range problems {
-			o.pr(o.Stderr).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
-		}
-		if len(problems) > 0 {
-			refused = append(refused, fmt.Sprintf("the %q doorway (pack %q) forwards to loophole %q's "+
-				"host service, which the placement rule refuses to start (the lines above name the "+
-				"file and the tree), so the doorway is not opened", plan.Service, plan.Pack, lp.Name))
-		}
-	}
-	if len(refused) == 0 {
-		return nil
-	}
-	return errors.New(strings.Join(refused, "; ") + ". Move the pack's files out of that tree, " +
-		"then run the launch again")
-}
-
 // HostDoorwayStart starts one planned doorway: internal/cli's startLaunchService, so a test
 // can observe it, and launchservice.Start otherwise.
 type HostDoorwayStart func(*launchservice.Plan, map[string]string) (*launchservice.Running, error)
@@ -490,7 +458,7 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 		reachSubject: agent, mountsNoWorkspace: true}
 	fillDefaults(o)
 	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
-	if err := o.refusePlacementOfDoorways(d); err != nil {
+	if err := o.refusePlacementOfDoorways(d.set, doorwayRefsOf(d.plans)); err != nil {
 		return nil, func() {}, nil, err
 	}
 	o.discloseSettingsCheckHostExec(d.packs, d.set, cfg, allow)

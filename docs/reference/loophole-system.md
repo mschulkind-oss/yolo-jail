@@ -611,6 +611,15 @@ there refuses the launch before it opens, naming the file and the tree, rather t
 pointed at a service that never started (`run.Options.placementWorkspace`,
 `refusePlacementOfDoorways`).
 
+**Every backend refuses that doorway the same way**
+([HS-D34](../design/host-notch-services.md#HS-D34)). A container jail runs the doorway inside as
+a jail daemon, and macos-user opens it outside the sandbox, so either one would answer every
+request `ServiceUnreachable` behind the refused service. Both launches refuse after the
+config-change gate and before the keeper's spawn, a join or any host service (a macos-user dry
+run is refused too), through the same check (`refusePlacementOfJailDoorways`). A service that fails at spawn for any
+other reason still leaves its doorway answering with the reason
+([HS-D19](../design/host-notch-services.md#HS-D19)).
+
 > [!WARNING]
 > **The rule cannot be complete, and it has two edges.** yolo knows the workspace it is
 > launching and the homes it manages, not that some other checkout is agent-writable in a
