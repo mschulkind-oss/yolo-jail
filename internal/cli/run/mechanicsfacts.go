@@ -67,6 +67,10 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 		LiveMounts: rt == "podman" && !o.IsMacOS,                       // parity: HonoredBy — only Linux podman has live mount changes; Apple Container's VM mounts are fixed for the launch
 		LiveScope:  rt == "podman" && !o.IsMacOS || rt == "macos-user", // parity: HonoredBy — podman applies live scope on Linux and macos-user reads native scope paths directly
 		Rebuild:    packageDelivery == changetiming.BakedImage,
+		// This launch's jail takes the session inputs from its channel (the session-inputs
+		// contract tag, LA-D18) on every backend: podman and Apple Container rewrite the channel
+		// on every entry, and macos-user composes each invocation afresh.
+		SessionInputs: true,
 	}
 	hostConfig, configName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
 	facts.ConfigPath = filepath.Join(facts.WorkspacePath, configName)

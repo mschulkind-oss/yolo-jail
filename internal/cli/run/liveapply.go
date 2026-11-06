@@ -303,7 +303,8 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 	}
 	boot, bootOK, _ := config.ReadWorkspaceBootBaseline(o.Workspace)
 	in := applyPlanInput{rt: run.rt, running: run.mode.running || run.mode.unknown, boot: boot,
-		bootOK: bootOK, current: current, mountRefusal: liveMountRefusal}
+		bootOK: bootOK, current: current, mountRefusal: liveMountRefusal,
+		sessionInputs: jailTakesSessionInputs(run.envLines)}
 	if run.rt == "podman" && run.mode.running { // parity: Warned — only Podman supports live mounts; other backends report why they wait
 		in.mountRecordInvalidated = ctxMountRecordInvalidatedSeam(run.cname, run.envLines)
 	}

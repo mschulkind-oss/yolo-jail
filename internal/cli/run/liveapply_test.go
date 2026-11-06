@@ -261,6 +261,76 @@ func TestConfigApplyFoldsANextSessionKey(t *testing.T) {
 	}
 }
 
+// LA-S4a: the MCP, LSP, blocked-tool and mise inputs ride the per-entry channel, so in a jail whose
+// contract tags say it reads them there a change reaches the next session and is folded at once;
+// in a jail launched before that, it waits for the restart and says why.
+func TestConfigApplySessionInputsReachTheNextSession(t *testing.T) {
+	cases := []struct {
+		key, boot, now string
+	}{
+		{"mcp_servers.a, mcp_servers.b", `{"mcp_servers":{"a":{"command":"a"}}}`, `{"mcp_servers":{"b":{"command":"b"}}}`},
+		{"lsp_servers.a, lsp_servers.b", `{"lsp_servers":{"a":{"command":"a","fileExtensions":{".a":"a"}}}}`, `{"lsp_servers":{"b":{"command":"b","fileExtensions":{".b":"b"}}}}`},
+		{"security.blocked_tools", `{"security":{"blocked_tools":[]}}`, `{"security":{"blocked_tools":[{"name":"wget","message":"no"}]}}`},
+		{"install.mise.jq", `{"mise_tools":{"jq":"1.7.1"}}`, `{"mise_tools":{"jq":"1.8.0"}}`},
+	}
+	current := entrypoint.ContractTagsEnv + "=" + launchContractTagsValue() + "\n"
+	older := entrypoint.ContractTagsEnv + "=" + contractEntryChannel + "," + contractLiveCtxMounts + "\n"
+	for _, c := range cases {
+		t.Run(c.key, func(t *testing.T) {
+			o, buf := applyFixture(t, c.boot, c.now, applyJail{running: true, env: current})
+			answer(o, "y")
+			if rc := o.configApply(false); rc != 0 {
+				t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
+			}
+			if !strings.Contains(buf.String(), c.key+": from your next yolo session") {
+				t.Errorf("no next-session line for %s:\n%s", c.key, buf.String())
+			}
+			if _, drifted, ok, err := config.WorkspaceConfigDrift(o.Workspace); err != nil || !ok || drifted {
+				t.Errorf("a next-session input was not folded: drifted=%v ok=%v err=%v", drifted, ok, err)
+			}
+
+			o, buf = applyFixture(t, c.boot, c.now, applyJail{running: true, env: older})
+			answer(o, "y")
+			if rc := o.configApply(false); rc != 3 {
+				t.Fatalf("an older jail: rc = %d, want 3\n%s", rc, buf.String())
+			}
+			if !strings.Contains(buf.String(), c.key+": at next restart (yolo stop, then yolo) — this jail was launched before") {
+				t.Errorf("an older jail must wait for its restart and say why:\n%s", buf.String())
+			}
+		})
+	}
+}
+
+// `install` gathers `packages` and `mise_tools` (config.LegacyKeyForReadablePath), whose timings
+// differ: the mise change reaches the next session and is folded alone, and the package change
+// still waits for its restart, so drift still reports it.
+func TestConfigApplyFoldsAMiseChangeWithoutAPendingPackageChange(t *testing.T) {
+	current := entrypoint.ContractTagsEnv + "=" + launchContractTagsValue() + "\n"
+	o, buf := applyFixture(t, `{"packages":["jq"],"mise_tools":{"jq":"1.7.1"}}`,
+		`{"packages":["jq","ripgrep"],"mise_tools":{"jq":"1.8.0"}}`, applyJail{running: true, env: current})
+	answer(o, "y")
+	if rc := o.configApply(false); rc != 3 {
+		t.Fatalf("rc = %d, want 3\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "install.mise.jq: from your next yolo session") ||
+		!strings.Contains(out, "install.nix: at next restart") {
+		t.Errorf("want a next-session mise line and a restart package line:\n%s", out)
+	}
+	boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace)
+	if err != nil || !ok {
+		t.Fatalf("no effective-config record: %v", err)
+	}
+	mise, _, _ := config.ConfigValueAtPath(boot, "install.mise.jq")
+	nix, _, _ := config.ConfigValueAtPath(boot, "install.nix")
+	if mise != "1.8.0" {
+		t.Errorf("the mise change was not folded: install.mise.jq = %v", mise)
+	}
+	if s, _ := jsonx.DumpsSnapshot(nix); strings.Contains(s, "ripgrep") {
+		t.Errorf("the restart-owed package change was folded with it: install.nix = %s", s)
+	}
+}
+
 // With no jail running the command records only and says the next `yolo` launches with the
 // changes; a restart key changed, so the exit is 3.
 func TestConfigApplyWithNoJailRunningRecordsOnly(t *testing.T) {

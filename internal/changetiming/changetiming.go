@@ -60,6 +60,12 @@ type Context struct {
 	// LiveGrants: every running daemon of that loophole was found, by its grant file, and takes
 	// a rewritten one at its next request.
 	LiveGrants bool
+	// SessionInputs: the jail reads its next-session inputs (sessionInputKeys) from the per-entry
+	// channel every entry rewrites, and a session's pass installs what a changed `mise_tools`
+	// adds (docs/design/live-config-apply.md LA-S4a; the `session-inputs` contract tag). A
+	// container launched before that froze them into its environment, so a change waits for
+	// its restart.
+	SessionInputs bool
 }
 
 // GrantCrossing is how a grant-declaring loophole's grant reaches the host (§4.4): checked per
@@ -115,6 +121,15 @@ var schemaRows = map[string]Outcome{
 var nextSessionKeys = map[string]bool{
 	"env_sources": true, "providers": true, "profiles": true, "profile": true,
 	"model_facts": true, "adapters": true,
+}
+
+// sessionInputKeys are the keys whose jail input left the launch's frozen environment for the
+// per-entry channel (docs/design/live-config-apply.md LA-S4a): every session's boot regenerates
+// the MCP and LSP config, the blocked-tool shims and the mise config from them, and a session's
+// pass installs what a changed `mise_tools` adds. Next session in a jail that proves it reads
+// them so (Context.SessionInputs).
+var sessionInputKeys = map[string]bool{
+	"mcp_servers": true, "lsp_servers": true, "security": true, "mise_tools": true,
 }
 
 // hostApplyConsumedKeys is narrower than host field applicability: HostFields
@@ -204,6 +219,12 @@ func Classify(key string, ctx Context) (Row, error) {
 	default:
 		if nextSessionKeys[key] {
 			row.Outcome = NextSession
+		} else if sessionInputKeys[key] {
+			if ctx.SessionInputs {
+				row.Outcome = NextSession
+			} else {
+				row.Reason = "this jail was launched before a session could take this setting"
+			}
 		}
 	}
 	return row, nil

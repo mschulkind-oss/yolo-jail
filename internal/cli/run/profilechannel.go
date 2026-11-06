@@ -89,6 +89,9 @@ type packChannel struct {
 	// included. No writer delivers it whole any more: the shared file carries the shared
 	// composition (scope.SharedEnv), and each agent's file what its own composition adds.
 	userEnv *jsonx.OrderedMap
+	// sessionInputs are this entry's session inputs (composeSessionInputs, LA-D18), written in the
+	// shared file's channel section after the wire tables. nil writes none.
+	sessionInputs []sessionInput
 	// hostKeychainEnv is, per agent, the variables a macos-user launch read from the host
 	// keychain for it (hostkeychainenv.go, keychain-from-a-jail.md OQ-KC5): written into that
 	// agent's own env file alone, def-form, and nowhere else. nil on every other runtime.
@@ -306,6 +309,10 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 			scopedTokenVars[v] = true
 		}
 	}
+	// THE SESSION INPUTS (sessioninputs.go, LA-D18). The capture-jail mark is Options.captureJail,
+	// read through subLaunch, which a hand-built Options with no CapturesDir answers as an
+	// ordinary launch rather than a nil call.
+	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv)
 	c := &packChannel{
 		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,
@@ -316,6 +323,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		profiles:                    profiles,
 		providers:                   providers,
 		userEnv:                     userEnv,
+		sessionInputs:               sessionInputs,
 		resolvedProfiles:            resolved,
 		localProviderForwards:       localProviderForwards(cfgMap(cfg, "providers")),
 		localProviderForwardSources: localProviderForwardSources(cfgMap(cfg, "providers")),

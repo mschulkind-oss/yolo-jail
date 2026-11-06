@@ -138,3 +138,28 @@ func TestAMediatedGrantIsLiveAndAnUnmediatedOneWaitsForRestart(t *testing.T) {
 		}
 	}
 }
+
+// LA-S4a (docs/design/live-config-apply.md): the MCP, LSP, blocked-tool and mise inputs ride the
+// per-entry channel, so a jail that proves it reads them there takes a change at its next
+// session; one launched before that froze them and waits for its restart, saying why.
+func TestSessionInputsReachTheNextSessionOfAJailThatReadsThem(t *testing.T) {
+	for _, key := range []string{"mcp_servers", "lsp_servers", "security", "mise_tools"} {
+		for _, backend := range []Backend{Podman, AppleContainer} {
+			row, err := Classify(key, Context{Backend: backend, SessionInputs: true})
+			if err != nil || row.Outcome != NextSession {
+				t.Errorf("Classify(%q, %s, session inputs) = %+v, %v; want next session", key, backend, row, err)
+			}
+			row, err = Classify(key, Context{Backend: backend})
+			if err != nil || row.Outcome != AtNextRestart || row.Reason == "" {
+				t.Errorf("Classify(%q, %s, older jail) = %+v, %v; want at next restart with a reason", key, backend, row, err)
+			}
+		}
+		if row, err := Classify(key, Context{Backend: MacOSUser}); err != nil || row.Outcome != NextSession {
+			t.Errorf("Classify(%q, macos-user) = %+v, %v; want next session", key, row, err)
+		}
+	}
+	// The capability moves nothing else.
+	if row, _ := Classify("network", Context{Backend: Podman, SessionInputs: true}); row.Outcome != AtNextRestart {
+		t.Errorf("network with session inputs = %q, want at next restart", row.Outcome)
+	}
+}

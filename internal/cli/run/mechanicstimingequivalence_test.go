@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -106,7 +107,8 @@ func TestMechanicsTimingMatchesProductionPlannerForEveryConfigKey(t *testing.T) 
 						}}}
 					}
 					run := &applyRun{cfg: current, current: current, rt: backend.runtime, cname: cname,
-						envLines: []string{ctxMountsTokenEnv + "=schema-token"}, mode: applyMode{running: true}}
+						envLines: []string{ctxMountsTokenEnv + "=schema-token",
+							entrypoint.ContractTagsEnv + "=" + strings.Join(launchContractTags, ",")}, mode: applyMode{running: true}}
 					plan := o.applyPlan(run, scope)
 					planned, ok := productionPlanOutcome(plan, key)
 					if !ok {

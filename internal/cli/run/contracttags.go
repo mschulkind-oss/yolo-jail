@@ -109,6 +109,15 @@ const (
 	// a jail without the tag has /ctx on its read-only image rootfs, and every mount change waits
 	// for its restart.
 	contractLiveCtxMounts = "live-ctx-mounts"
+	// contractSessionInputs: the jail reads its MCP and LSP tables, its blocked-tool list and its
+	// mise table (YOLO_MCP_SERVERS, YOLO_LSP_SERVERS, YOLO_BLOCK_CONFIG, YOLO_MISE_TOOLS and
+	// MISE_DISABLE_TOOLS; sessioninputs.go) from the per-entry channel rather than its frozen
+	// environment, and a session's pass installs what a changed mise table adds
+	// (entrypoint/misereprovision.go). So `yolo config apply` reports a change to one of them as
+	// reaching the next session (docs/design/live-config-apply.md LA-S4a). No attach NEEDS it:
+	// an older jail's boot applies every plain-form channel line too, and only its report and
+	// its mise install differ. No legacy inference.
+	contractSessionInputs = "session-inputs"
 )
 
 // launchContractTags is every contract THIS build's jail implements, frozen into every
@@ -123,10 +132,19 @@ const (
 // attach no longer writes any pack tree, so it asks nothing of the jail's binaries, and it finds
 // the tree an older jail binds on the host side (packtree.go's runningJailPackTree).
 var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles, contractProfileSets,
-	contractSessionHangup, contractSessionHomes, contractLiveCtxMounts}
+	contractSessionHangup, contractSessionHomes, contractLiveCtxMounts, contractSessionInputs}
 
 // launchContractTagsValue is ContractTagsEnv's value for a launch: the tags, comma-joined.
 func launchContractTagsValue() string { return strings.Join(launchContractTags, ",") }
+
+// jailTakesSessionInputs reports whether the running jail whose container-inspect env listing
+// is envLines takes its next-session inputs per entry (contractSessionInputs). A listing that
+// proves nothing is the current build's, by jailContractTags' "cannot prove, do not refuse"
+// rule.
+func jailTakesSessionInputs(envLines []string) bool {
+	tags, known := jailContractTags(envLines)
+	return !known || tags[contractSessionInputs]
+}
 
 // jailContractTags reads a running jail's contract tags from its container-inspect env
 // listing. known is false when the listing proves nothing: an inspect that failed, or a

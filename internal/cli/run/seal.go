@@ -47,14 +47,14 @@ package run
 //	(writeLaunchConfigArtifacts)           the merged config holds inline env_sources, and
 //	                                       the build's workspace is bound read-write
 //	the MCP and LSP tables                 empty (agentServerTables, FP-D20): a server's
-//	(commonEnvBlock), and the LSP plugin   literal env or args is a credential, and a build
-//	from lsp_servers                       runs no agent
+//	(the session inputs), and the LSP      literal env or args is a credential, and a build
+//	plugin from lsp_servers                runs no agent
 //	(refreshJailBriefings)
 //	env_sources' MISE_DISABLE_TOOLS        not hydrated
 //	the user config's `mise_tools`         none, in EVERY capture jail, sealed or not
 //	(YOLO_MISE_TOOLS, and MISE_DISABLE_    (jailMiseTools, FP-D19): only yolo's defaults
-//	TOOLS' pnpm lift; commonEnvBlock and   cross, so the jail's mise install installs no
-//	assembleRunCmd)                        tool of the user's; a pack's node_floor never
+//	TOOLS' pnpm lift; the session inputs,  cross, so the jail's mise install installs no
+//	composeSessionInputs)                  tool of the user's; a pack's node_floor never
 //	                                       rode the table, and still installs
 //	the jail's briefing                    describes only what crosses (sealedBriefingInput,
 //	(refreshJailBriefings)                 FP-D23): no loophole, context mount, port, host
@@ -128,16 +128,19 @@ const (
 
 // sealedChannel is the channel a sealed launch delivers: no env_sources, no pack env, no provider,
 // no profile and no caller token. Its credential scope is the gate's answer to an empty input, so
-// every reader of the channel reads a well-formed empty one rather than a nil.
-func sealedChannel() *packChannel {
+// every reader of the channel reads a well-formed empty one rather than a nil. Its session inputs
+// are the seal's (composeSessionInputs): the blocked tools, and none of the user's servers or mise
+// tools.
+func sealedChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack) *packChannel {
 	served := packload.NothingServed()
 	scope, _ := packload.ScopeCredentials(packload.ScopeInput{Served: &served})
 	return &packChannel{
-		profiles:  jsonx.NewOrderedMap(),
-		providers: jsonx.NewOrderedMap(),
-		scope:     scope,
-		userEnv:   jsonx.NewOrderedMap(),
-		served:    served,
+		profiles:      jsonx.NewOrderedMap(),
+		providers:     jsonx.NewOrderedMap(),
+		scope:         scope,
+		userEnv:       jsonx.NewOrderedMap(),
+		served:        served,
+		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil),
 	}
 }
 
@@ -169,7 +172,7 @@ func sealedBuildSharesNetns(rt string, isMacOS bool, exists func(string) bool) b
 // the commands and reads the files it names on the host.
 func (o *Options) launchChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack) (*packChannel, error) {
 	if o.Sealed {
-		return sealedChannel(), nil
+		return sealedChannel(cfg, packs), nil
 	}
 	return o.composePackChannel(cfg, packs, nil)
 }
@@ -224,11 +227,10 @@ func (o *Options) captureJail() bool { return o.Sealed || o.CapturesDir() == "" 
 
 // jailMiseTools is the install.mise table this launch hands its jail — YOLO_MISE_TOOLS, which the jail's
 // global mise config and so its `mise install` are rendered from — and the keys of the config's own
-// table that it withholds in a capture jail. Both readers of the table ask it — YOLO_MISE_TOOLS
-// (commonEnvBlock) and the MISE_DISABLE_TOOLS beside it (assembleRunCmd), which lifts pnpm out of the
-// list for a declared mise pnpm — because the jail writes yolo's pnpm launcher from the first, and the
-// two halves disagreeing leaves a jail with no pnpm at all (misepnpm_test.go). The sealed launch's
-// withheld line counts the second result (sealedWithheldLine).
+// table that it withholds in a capture jail: config.JailMiseTools, which the session inputs read too
+// (composeSessionInputs: YOLO_MISE_TOOLS and the MISE_DISABLE_TOOLS beside it, from one call, so the
+// two halves cannot disagree, misepnpm_test.go). The sealed launch's withheld line counts the second
+// result (sealedWithheldLine).
 func (in *assembleInput) jailMiseTools() (tools *jsonx.OrderedMap, withheld []string) {
 	return config.JailMiseTools(in.cfg, in.sealed || in.captureJail)
 }

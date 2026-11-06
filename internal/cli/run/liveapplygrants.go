@@ -261,7 +261,7 @@ func requestsLines(in applyPlanInput, grantPacks, lined map[string]bool) []apply
 		rest = append(rest, p)
 	}
 	if len(rest) > 0 {
-		o, why := keyOutcome(in.rt, "requests")
+		o, why := keyOutcome(in.rt, "requests", in.sessionInputs)
 		out = append(out, applyChange{kind: changeKey, sign: keySign(in.boot, in.current, "requests"),
 			label: strings.Join(rest, ", "), key: "requests", outcome: o, reason: why})
 	}
