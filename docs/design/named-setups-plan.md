@@ -1187,7 +1187,10 @@ rule's legacy half, which is the half that protects every record that exists.
   `runtime.ListSessions` narrowed to `notch: host` ([SUP-D28](#SUP-D28)).
   `internal/runtime/display.go` `RenderPsTable` becomes the five-column table; Podman's listing
   argv gains `{{.StartedAt}}` ([SUP-D25](#SUP-D25)). `internal/cli/commands.go` `runPs` drops
-  `listingDetect`; its note becomes the source line.
+  `listingDetect`; its note becomes the source line. **Close 11a's review gap here:**
+  `not-installed` is a `LookPath` miss, so a runtime installed off `yolo ps`'s PATH reads as
+  absent and its jails' legacy records can be pruned. 11d (or 11b's technology-named records)
+  must not let a PATH miss alone authorize deleting a record.
 - **Integration:** `integration/macosuserps_test.go` reads the old JSON and is rewritten to
   [§12.4](named-setups.md#124-the-json-document) in this commit (coordinate with whoever holds
   `integration/macosuser*`); it runs only on a Mac, so its run is a witness for the owner's Mac

@@ -106,28 +106,37 @@ func TestPsPrunesStaleTracking(t *testing.T) {
 // Podman alone and handed the prune Podman's names, so every running Apple Container jail's
 // tracking file was deleted. Apple Container was not asked, so its jails are unknown and no file
 // may go; once Apple Container is not installed, Podman's answer is every container source's and
-// the dead file goes again.
+// the dead file goes again. Both of psRun's prunes are pinned: Podman listing nothing, and Podman
+// listing a jail of its own, whose record survives either way.
 func TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords(t *testing.T) {
+	const podmanRow = "yolo-pd-5678\tUp 1 hour\t1 hour ago\n"
 	for _, tc := range []struct {
 		name      string
 		installed map[string]bool
+		podmanOut string
 		wantKept  bool
 	}{
-		{"both runtimes installed", map[string]bool{"podman": true, "container": true}, true},
-		{"apple container not installed", map[string]bool{"podman": true}, false},
+		{"both runtimes installed, podman runs none", map[string]bool{"podman": true, "container": true}, "", true},
+		{"apple container not installed, podman runs none", map[string]bool{"podman": true}, "", false},
+		{"both runtimes installed, podman runs one", map[string]bool{"podman": true, "container": true}, podmanRow, true},
+		{"apple container not installed, podman runs one", map[string]bool{"podman": true}, podmanRow, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			must(t, runtime.WriteContainerTracking("yolo-ac-1234", "/ac-workspace"))
+			must(t, runtime.WriteContainerTracking("yolo-pd-5678", "/pd-workspace"))
 			psRun(psDeps{
 				DetectRuntime: func() string { return "podman" },
 				GOOS:          "darwin",
 				HasBinary:     func(bin string) bool { return tc.installed[bin] },
 				RunCmd: func(argv []string) (string, bool) {
 					if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "ps" {
-						return "", true // Podman answered: it runs no yolo jail
+						return tc.podmanOut, true // Podman answered with its own jails
 					}
-					t.Errorf("ps ran %v; only Podman's listing was expected", argv)
+					if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "top" {
+						return "COMMAND\nclaude\n", true
+					}
+					t.Errorf("ps ran %v; only Podman was expected to be asked", argv)
 					return "", false
 				},
 				PathIsDir: func(string) bool { return true },
@@ -136,7 +145,33 @@ func TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords(t *testing.T) {
 			if _, kept := runtime.ReadContainerWorkspace("yolo-ac-1234"); kept != tc.wantKept {
 				t.Errorf("Apple Container jail's tracking file kept = %v, want %v", kept, tc.wantKept)
 			}
+			if _, kept := runtime.ReadContainerWorkspace("yolo-pd-5678"); tc.podmanOut != "" && !kept {
+				t.Error("the record of the jail Podman listed was pruned")
+			}
 		})
+	}
+}
+
+// TestPsContainerAnswersKeepEverythingForAnUnknownRuntime: a listing runtime no built-in setup
+// runs on is no container source psContainerAnswers knows, so dropping it would let the prune
+// judge its jails' records against the other runtimes alone. It answers unreachable instead,
+// which prunes nothing.
+func TestPsContainerAnswersKeepEverythingForAnUnknownRuntime(t *testing.T) {
+	answers := psContainerAnswers(psDeps{GOOS: "linux", HasBinary: func(string) bool { return true }},
+		"elsewhere", map[string]struct{}{"yolo-x-1": {}})
+	found := false
+	for _, a := range answers {
+		if a.Confinement == "elsewhere" {
+			found = a.State == runtime.SourceUnreachable
+		}
+	}
+	if !found {
+		t.Errorf("answers = %+v; want the unknown runtime answering unreachable", answers)
+	}
+	t.Setenv("HOME", t.TempDir())
+	must(t, runtime.WriteContainerTracking("yolo-x-2", "/ws"))
+	if removed := runtime.PruneStaleTrackingFiles(answers); len(removed) != 0 {
+		t.Errorf("the prune removed %v on an unknown runtime's answer", removed)
 	}
 }
 
