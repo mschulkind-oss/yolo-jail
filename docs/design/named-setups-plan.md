@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Continue independent 6a work and its 6b candidate; hold automatic legacy-home adoption for OQ-SU5 and unchanged W-SU1/W-SU4 before primary landing"
+next: "Record independent completion reviews for fixture tasks 20/21; prove the native bind-holder lifecycle and resolve OQ-SU5/W-SU1/W-SU4 before primary 6a/6b landing"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-05):** Current primary source tree `2a918b2322c1a5ae12773e3176980c70f1a7ba2f` at `1dbee06d23a3810d7d6979a658afde72422ab0a6` has slices 4b, 5 and 9 but not 6a/6b. An unlanded private 6a candidate exposed a blocking source-swap defect in optional automatic adoption: after identifying `.yolo/home`, a writer can replace its name before the actual Linux destination-exclusive rename, moving a different home. The candidate's real-rename regression is red; it is not a primary-tree test or a Mac witness. The design now asks [OQ-SU5](named-setups.md#OQ-SU5) whether to revise that one accepted requirement to owner-quiesced manual handling or retain it pending a vetted identity-safe mechanism. Continue independent per-setup home/identity and lifecycle caller and fixture work; do not land automatic adoption as-is or label 6a accepted. The unchanged W-SU1/W-SU4 still gate both combined 6a+6b primary landings, and W-SU4's yes-branch expectation must not be rewritten before the ruling. Slices 4b/5/9 and their earlier integration evidence are unchanged; rootless-host and native Mac behavior remain unproved.
+**Implementation status (2026-11-06):** Main is clean at `294d87685dae9052725c9becb0d01844224251f7` (tree `c0c8421fb40c08d673bff6ee9f397809592fb3ee`) and contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings only; it is not an accepted source candidate or native verification. The independent outside/foreign-pack pathname red and SU5 legacy-adoption source-swap red remain. Fixture tasks 20/21 have independent completion reviews requested, not verdicts. The unchanged W-SU1/W-SU4 and [OQ-SU5](named-setups.md#OQ-SU5) still gate primary landing; [OQ-SU6](named-setups.md#OQ-SU6) remains open for both JSON contracts. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -727,6 +727,8 @@ are below).
   holding `"runtime": "podman"` and `"confinement": "guest"`.
 
 ### Slice 6a — one home and run state per setup (after 4b, 5 and 9; launch-path)
+
+**Focused source review (2026-11-06; not acceptance).** The private prototype's focused review closes three synthetic-only findings: strict phases bind the complete selection and actual spawned PID; the synthetic receiver validates singleton roles and descriptor kinds before taking ownership, requiring the lock at file descriptor (FD) 5 while valid reserved sockets at FDs 6/7 remain unchanged; and withdrawal waits for operations holding real duplicated FDs before `WITHDRAWN`. An FD here is an open kernel handle, not a pathname. This closure is not a whole-source verdict: the native outside/foreign-pack pathname semantic RED and the separate SU5 legacy-home adoption RED remain. The only complete `go test -count=1 ./internal/cli/run` run was 340.601s, RC 1; the focused race run (21.535s), scoped vet and Darwin/arm64 compile passed. A rootful check using the old `--mount` primitive is not actual `-v` binding or holder-death proof. Uncertain-COMMIT FD copies remain conservatively held in-process; a native operational release is unproved. Independent completion reviews for fixture tasks 20/21 are requested, with verdicts still pending.
 
 - **Settled except [OQ-SU5](named-setups.md#OQ-SU5):** *"Each setup in a project has its own home and run state, under
   `<project>/.yolo/setups/<name>/`"*; per setup: the home, the `per_side_paths` copies, the

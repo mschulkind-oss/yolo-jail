@@ -14,14 +14,12 @@ vantage:
 
 # Named setups: one name chooses every wall
 
-**Status:** 2026-11-05. Setup naming and per-setup state remain the accepted direction, but
-[OQ-SU5](#OQ-SU5) asks whether to change the previously accepted automatic move of an existing
-home. The source-swap regression in an unlanded slice 6a candidate prevents claiming that move
-safe or built. [OQ-SU6](#OQ-SU6) leaves the mixed-backend JSON contracts for `yolo ps` and
-`yolo stores --json` unresolved; the additive proposal is not an owner ruling. Independent work can
-proceed; the implementation hand-off is
-[`named-setups-plan.md`](named-setups-plan.md). Earlier rulings remain in
-[the ledger](#decision-ledger).
+**Status:** 2026-11-06. Setup naming and per-setup state remain the accepted direction, while
+[OQ-SU5](#OQ-SU5) leaves legacy-home automatic adoption unresolved and [OQ-SU6](#OQ-SU6) leaves
+the mixed-backend JSON contracts for both `yolo ps --format json` and `yolo stores --json` open.
+A private 6a/6b source prototype has focused synthetic-only closure of three held-bind findings;
+that is neither accepted source nor proof of the native pathname route. The outside/foreign-pack
+path and legacy-home adoption red remain; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
@@ -411,6 +409,18 @@ belongs to the project, the agent or you.
   retain it until an identity-safe mechanism is vetted. Until then, preserve the legacy home;
   do not silently turn the automatic yes into a manual-only flow. The source candidate is not
   landed, and the ordinary per-setup home split remains the direction.
+
+**Implementation evidence is separate from this design.** Main still lacks slices 6a/6b. A
+private prototype's focused review closes only three synthetic-source findings: strict phases bind
+the complete selection and actual spawned process; the synthetic receiver validates descriptor
+roles and kinds before ownership, requiring the lock at FD5 while preserving valid reserved sockets
+at FD6/7; and withdrawal waits for operations holding real duplicated file descriptors before
+acknowledgment. A file descriptor (FD) here means an open kernel handle, not a pathname. This does
+not prove native pathname binding, actual `-v` behavior, holder death or an operational release
+after uncertain COMMIT. The outside/foreign-pack pathname red is separate from the legacy-home
+source-swap red governed by [OQ-SU5](#OQ-SU5). Neither finding changes the accepted direction or
+authorizes activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
+for the bounded evidence.
 
 **Cost.** Changing setup in a project starts with that setup's own transcripts: `claude --resume`
 under `seatbelt-self` does not see a conversation held under `podman-self`.
