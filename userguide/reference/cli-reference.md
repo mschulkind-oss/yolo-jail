@@ -128,6 +128,7 @@ yolo loopholes status        # on the host: run each loophole's self-check
 yolo audit                   # on the host: every brokered call, such as the jail's gh commands
 yolo host-run -- <cmd>       # on the host: run a command and send its output to the agent
 yolo host-run wait           # in the jail: wait for that output; also show
+yolo paste                   # on the host: save the clipboard's image for the agent; paste its path
 ```
 
 `yolo audit` takes `--since 1h`, `--service <source>` (such as `github` or `git`), `--jail <id>`, `--workspace <path>`, `--set <name>` and `--json`.

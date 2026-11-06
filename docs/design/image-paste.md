@@ -3,14 +3,18 @@ title: "Image paste in a jail: the keypress fetches the image, and the agent get
 date: 2026-10-09
 status: in-review
 stage: DESIGN
-next: "Rule OQ-PA2, how far Ctrl+V is consumed; the first build slice (§10) waits on nothing else, and measurements M1 to M3 can run now"
+next: "Rule OQ-PA2, how far Ctrl+V is consumed, then build §10 step 3 (the Linux paste arm); steps 1 and 2 are built, and measurements M1 to M4 can run now"
 tags: [design, ttyproxy, clipboard, paste, images, security, macos-user]
 summary: "Every agent yolo ships reads a pasted image from the host clipboard, which a jail cannot reach, so Ctrl+V on an image does nothing inside one. The design puts the read where the user's keypress already is: the host-side terminal proxy sees the one Ctrl+V key, reads the host clipboard's image itself, decodes it and writes a fresh PNG into the workspace's .yolo/paste, and types that file's in-jail path into the agent as a bracketed paste. Every shipped agent attaches a pasted image path, so one mechanism covers all six, Codex and Copilot included, and the jail gets no clipboard channel at all. A clipboard without an image, a program that has not turned bracketed paste on, or a host with no clipboard reader forwards the key unchanged. Darwin backends have no proxy today; the proxy's key path is ported, and a host `yolo paste` command covers every backend meanwhile."
 ---
 
 # Image paste in a jail: the keypress fetches the image, and the agent gets a path
 
-**Status:** 2026-10-09. Nothing built. Written from a two-agent research pass over the six shipped
+**Status:** 2026-11-06: [§10](#10-first-build-slice) steps 1 and 2 are built: the clipboard reader, checks and paste store
+([`internal/clipimage`](../../internal/clipimage/reader.go)) and the host verb `yolo paste`
+([`paste.go`](../../internal/cli/paste.go)), documented for users in
+[Paste an Image into the Agent](../../userguide/guides/image-paste.md). The paste arm (steps 3 to 5)
+is not built. 2026-10-09: written from a two-agent research pass over the six shipped
 agents and yolo's terminal proxy; every yolo file and line cited here was re-read against the tree
 at `b573fd48a` the same day. The per-agent facts are from that research and are marked where
 unmeasured.
@@ -468,6 +472,12 @@ Thinnest first, each step testable alone. Files are where the work lands, not a 
 2. **`yolo paste`** — a host subcommand under `internal/cli` using step 1
    ([§6.4](#64-the-fallback-on-every-backend-yolo-paste)). This alone makes paste work on every
    backend.
+
+   **Steps 1 and 2 built 2026-11-06.** The tests inject the tool runner rather than putting stubs on
+   PATH, except one through the `yolo paste` registry entry, which shadows `wl-paste`, `wl-copy`,
+   `osascript` and `pbcopy` with stub scripts; no test reads or writes a real clipboard. Retention
+   runs at each `yolo paste` for now; the housekeeping and `yolo prune` sweeps come with step 4
+   ([PA-D13](#PA-D13)).
 3. **The Linux paste arm** — in `internal/ttyproxy`: the exact-chunk matcher beside
    `classifyInput`, the bracketed-paste tracker on the output path, and the arm in the pump, calling
    a callback the run pipeline supplies (the proxy does not import the reader). Tests feed chunks
@@ -493,12 +503,15 @@ Mechanism choices made in this design, under the 2026-09-25 delegation of implem
 | PA-D2 | The armed clipboard loophole (B, B+X) and per-read approval (C) are rejected | 2026-10-09 | [§3.1](#31-alternatives-with-verdicts) | — |
 | PA-D3 | Ctrl+V is consumed only for one exact key chunk, with bracketed paste on and an image present; else forwarded | 2026-10-09 | [§4](#4-the-chord-consumed-only-when-it-can-be-honored) | — |
 | PA-D4 | Only Ctrl+V triggers; no configurable chord in v1 | 2026-10-09 | [§4](#4-the-chord-consumed-only-when-it-can-be-honored) | — |
-| PA-D5 | The host decodes and re-encodes every image as PNG; PNG, JPEG and GIF accepted; 32 MiB and 40 MP caps | 2026-10-09 | [§7.2](#72-checks-and-why-the-image-is-re-encoded) | — |
-| PA-D6 | Store at `<workspace>/.yolo/paste/`, atomic writes, 7-day and 200-file retention | 2026-10-09 | [§7.3](#73-the-paste-store) | — |
+| PA-D5 | The host decodes and re-encodes every image as PNG; PNG, JPEG and GIF accepted; 32 MiB and 40 MP caps | 2026-10-09 | [§7.2](#72-checks-and-why-the-image-is-re-encoded) | `clipimage.Normalize`, 2026-11-06 |
+| PA-D6 | Store at `<workspace>/.yolo/paste/`, atomic writes, 7-day and 200-file retention | 2026-10-09 | [§7.3](#73-the-paste-store) | `clipimage.Save`, `clipimage.Sweep`, 2026-11-06; the sweep runs at `yolo paste` only ([PA-D13](#PA-D13)) |
 | PA-D7 | Nothing printed mid-session; per-paste lines go to `launch.log`, refusals to an end-of-session summary | 2026-10-09 | [§8.3](#83-disclosure) | — |
 | PA-D8 | Every failure forwards the original key | 2026-10-09 | [§8.4](#84-failure-paths) | — |
-| PA-D9 | `yolo paste` is the fallback on every backend and replaces the clipboard with the path | 2026-10-09 | [§6.4](#64-the-fallback-on-every-backend-yolo-paste) | — |
+| PA-D9 | `yolo paste` is the fallback on every backend and replaces the clipboard with the path | 2026-10-09 | [§6.4](#64-the-fallback-on-every-backend-yolo-paste) | `internal/cli/paste.go`, 2026-11-06 |
 | PA-D10 | Darwin gets the arm by porting the proxy's input path, not by a darwin-only mechanism | 2026-10-09 | [§6.2](#62-darwin-container-backends) | — |
+| <a id="PA-D11"></a>PA-D11 | The macOS reader parses osascript's printed `«data PNGf<hex>»` result instead of writing a temporary file: no file to create, clean up or race, and the cap applies to the hex (twice the bytes) | 2026-11-06 | [§7.1](#71-reading-the-host-clipboard) | `clipimage.Reader.readMac` |
+| <a id="PA-D12"></a>PA-D12 | `yolo paste` prints the path for the setup a launch in that workspace would select, `--setup` overriding: a container setup sees `/workspace`, a seatbelt setup and the host see the host path. On Linux, X11 is the fallback only when `wl-paste` is not on PATH, not when it answers "no image" | 2026-11-06 | [§6.4](#64-the-fallback-on-every-backend-yolo-paste), [§7.3](#73-the-paste-store) | `pasteJailWorkspace`, `clipimage.Reader.readTool` |
+| <a id="PA-D13"></a>PA-D13 | Until step 4 wires housekeeping and `yolo prune`, retention runs after each `yolo paste`, which is the only writer of the store today | 2026-11-06 | [§7.3](#73-the-paste-store) | `pasteMain` calls `clipimage.Sweep` |
 
 ## 12. Open questions
 

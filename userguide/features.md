@@ -82,6 +82,10 @@ runs unasked only under a grant you gave; every other one asks you.
 once; a one-off push or `gh` write asks you with `yolo approve`, and one line of config pops the
 request up on your desktop with Allow and Deny buttons. [Approvals →](guides/approvals.md)
 
+**Paste a screenshot into any agent.** `yolo paste` saves the image on your clipboard into the
+project and puts its path on the clipboard, so your next paste attaches it, on every setup. The jail
+never gets a clipboard of its own. [Paste an image →](guides/image-paste.md)
+
 **Reach services and ports.** Open a jail's dev server from your browser, or reach a database on
 your host from the jail. [Networking →](guides/networking.md)
 

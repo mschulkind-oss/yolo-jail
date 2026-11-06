@@ -70,6 +70,9 @@ var registry = map[string]func(args []string) int{
 	// A host command a human runs, delivered to the jail (hostrun.go); Main routes it early too.
 	"host-run": runHostRunVerb,
 	"wait":     runWaitVerb,
+	// The host clipboard's image, saved into the workspace for the agent (paste.go;
+	// docs/design/image-paste.md §6.4).
+	"paste": runPaste,
 	// What happened to this workspace's requests, in a jail and on the host (history.go).
 	"history": runHistoryVerb,
 	// The named verbs for a broker ceiling and a project's request (allow.go, request.go;
