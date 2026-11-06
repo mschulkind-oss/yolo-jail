@@ -22,7 +22,17 @@ import (
 )
 
 const classifierLimit = 64 << 10
+
+// classifierDeadline bounds ONE classifier process: the checksum check, the
+// exec and its answer. It does not cover the core-run lookups between rounds,
+// the authority checks they make, or the host program a lookup executes, so a
+// slow service or a busy host does not turn a legitimate call into a refusal.
 const classifierDeadline = 2 * time.Second
+
+// classificationBudget bounds a whole multi-round classification, lookups
+// included, for a caller that brings no deadline of its own (a revalidation
+// under the store's transaction); it is the CLI handler's per-call budget.
+const classificationBudget = cliHandlerCallBudget
 const maxLookupRounds = 3
 
 // CLIInput is all the information supplied to a classifier: never a credential,
@@ -90,6 +100,17 @@ type Classifier struct {
 	Cells        []loopholedecl.CallBrokerCell
 	Lookups      []loopholedecl.CallBrokerLookup
 	ReadOverPost []string
+
+	// deadline bounds one classifier process; zero means classifierDeadline.
+	// Tests set it to exceed or stay within the bound deterministically.
+	deadline time.Duration
+}
+
+func (c Classifier) invokeDeadline() time.Duration {
+	if c.deadline > 0 {
+		return c.deadline
+	}
+	return classifierDeadline
 }
 
 // LookupReader is supplied by core only after it has checked a read grant and
@@ -116,7 +137,7 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 	if c.Source == "" || len(c.Argv) == 0 || len(argv) == 0 {
 		return Answer{}, errors.New("call broker classifier has no selected declaration or call; retry with its pack selected")
 	}
-	ctx, cancel := context.WithTimeout(ctx, classifierDeadline)
+	ctx, cancel := context.WithTimeout(ctx, classificationBudget)
 	defer cancel()
 	input := CLIInput{Version: "yolo.call-broker-classifier/1", Front: "cli", Argv: append([]string(nil), argv...),
 		StdinSHA256: stdinSHA256, Roots: append([]string(nil), c.Roots...)}
@@ -186,6 +207,8 @@ func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) 
 }
 
 func (c Classifier) invokePayload(ctx context.Context, payload []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.invokeDeadline())
+	defer cancel()
 	binary := c.Argv[0]
 	if strings.HasPrefix(binary, "{program:") && strings.HasSuffix(binary, "}") {
 		name := strings.TrimSuffix(strings.TrimPrefix(binary, "{program:"), "}")

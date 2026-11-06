@@ -113,13 +113,16 @@ func TestPackCLIClassifierFailsClosed(t *testing.T) {
 		{"malformed", `printf '{invalid'`},
 		{"unknown field", `printf '%s' '{"version":"yolo.call-broker-classifier/1","local":true,"extra":true}'`},
 		{"oversized", `head -c 65537 /dev/zero | tr '\\000' x`},
-		{"timeout", "sleep 3"},
+		{"timeout", "sleep 30"},
 		{"unknown lookup", `printf '%s' '{"version":"yolo.call-broker-classifier/1","lookups":[{"name":"undeclared","arguments":["a1"]}]}'`},
 		{"unsafe refusal", `printf '%s' '{"version":"yolo.call-broker-classifier/1","refused":{"class":"unknown","reason":"no","next_step":"retry\u001b[31m"}}'`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			classifier := fixtureClassifier(t, tc.script)
+			if tc.name == "timeout" {
+				classifier.deadline = 200 * time.Millisecond
+			}
 			start := time.Now()
 			_, err := classifier.ClassifyCLI(context.Background(), []string{"update", "a1"}, stdin, nil)
 			if err == nil || !strings.Contains(err.Error(), "check the selected pack") {
@@ -128,8 +131,8 @@ func TestPackCLIClassifierFailsClosed(t *testing.T) {
 			if tc.name == "oversized" && !strings.Contains(err.Error(), "64 KiB") {
 				t.Fatalf("oversized classifier answer was not bounded: %v", err)
 			}
-			if tc.name == "timeout" && time.Since(start) > 2700*time.Millisecond {
-				t.Fatalf("classifier deadline was not enforced: %v", time.Since(start))
+			if tc.name == "timeout" && (!strings.Contains(err.Error(), "timed out") || time.Since(start) > 20*time.Second) {
+				t.Fatalf("classifier deadline was not enforced: %v after %v", err, time.Since(start))
 			}
 		})
 	}
@@ -181,5 +184,27 @@ func TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit(t *test
 	time.Sleep(600 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("owned child survived normal exit: %v", err)
+	}
+}
+
+// The classifier deadline bounds each classifier process, not the lookups core
+// runs between rounds: a host lookup that outlasts one deadline must not refuse
+// a classification whose classifier answers promptly every round.
+func TestPackCLIClassifierDeadlineBoundsEachInvocationNotLookups(t *testing.T) {
+	classifier := fixtureClassifier(t, `if grep -q '"facts"'; then printf '%s' '`+fixtureAnswer(nil, "team:alpha")+`'; else printf '%s' '{"version":"yolo.call-broker-classifier/1","lookups":[{"name":"task-project","arguments":["a1"]}]}'; fi`)
+	classifier.deadline = time.Second
+	reader := func(ctx context.Context, _ loopholedecl.CallBrokerLookup, _ []string) (json.RawMessage, error) {
+		// Outlast one classifier deadline; a reader whose context the
+		// classifier's deadline cuts short returns that error instead.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(classifier.deadline + 200*time.Millisecond):
+			return json.RawMessage(`{"project":"team:alpha"}`), nil
+		}
+	}
+	answer, err := classifier.ClassifyCLI(context.Background(), []string{"update", "a1"}, nil, reader)
+	if err != nil || answer.Classification == nil || len(answer.Classification.Writes) != 1 {
+		t.Fatalf("slow lookup consumed the classifier deadline: answer=%+v err=%v", answer, err)
 	}
 }
