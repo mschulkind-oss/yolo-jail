@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// THE CALL SITE of the record move (docs/design/pack-naming.md §3.2): the refresh every launch and
+// THE CALL SITE of the record move (docs/reference/pack-system.md#pack-identity): the refresh every launch and
 // `yolo host apply` runs moves a renamed pack's pin to its new handle before anything reads it.
 // Delete the ReconcilePackRecords call from refreshConfiguredPacks and this goes red.
 func TestTheLaunchRefreshMovesARenamedPacksPin(t *testing.T) {

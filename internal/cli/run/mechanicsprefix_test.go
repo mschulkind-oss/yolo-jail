@@ -9,7 +9,7 @@ import (
 )
 
 // The warning that the mechanics skill is stale names the skill as it is delivered under the
-// user's shipped_skill_prefix (docs/design/pack-naming.md PN-D13), not the bare jail-mechanics.
+// user's shipped_skill_prefix (docs/reference/pack-system.md PN-D13), not the bare jail-mechanics.
 func TestTheMechanicsRefreshWarningNamesTheDeliveredSkill(t *testing.T) {
 	for _, tc := range []struct{ prefix, want string }{{"", "jail-mechanics"}, {"yolo", "yolo-jail-mechanics"}} {
 		t.Run("prefix="+tc.prefix, func(t *testing.T) {

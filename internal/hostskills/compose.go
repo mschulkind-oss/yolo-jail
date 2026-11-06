@@ -94,7 +94,7 @@ type Layer struct {
 	// Generated marks a core-generated contribution, whose ownership identity is not a pack.
 	Generated bool
 	// Namespace is the word every name this layer delivers starts with, `<namespace>-<skill>`
-	// and `<namespace>-<plugin>`, "" for a layer delivered bare (docs/design/pack-naming.md §3.4).
+	// and `<namespace>-<plugin>`, "" for a layer delivered bare (docs/reference/pack-system.md#delivered-names).
 	// It comes from the user's config entry (packload.Pack.Namespace), never from the pack, and
 	// never from what else is selected (PN-D3).
 	Namespace string
@@ -102,19 +102,19 @@ type Layer struct {
 	// by a refusal of two of its names that Namespace delivers alike; "" when not known.
 	BareStep string
 	// Shipped marks a layer of a pack yolo ships, for the clash message: its names are bare and
-	// not the user's to change (pack-naming.md §3.5).
+	// not the user's to change (pack-system.md#pack-name-clashes).
 	Shipped bool
 	// Tier is the pack's `skills_tier`, and it now decides ONE thing: whether a WRAPPED PLUGIN is
 	// delivered whole at `<namespace>-<plugin>` (namespaced, the wrapper's opt-in) or as its skills
 	// alone, named like any other skill, with its hooks and MCP servers refused by name (flat, the
 	// default). It never renames a skill: names are the user's namespace choice
-	// (docs/design/pack-naming.md PN-D9), so a pack's own skills are delivered one by one at
+	// (docs/reference/pack-system.md PN-D9), so a pack's own skills are delivered one by one at
 	// either tier.
 	Tier Tier
 	// Aliases is {other name → the name this layer delivers}: a name the layer does not write but
 	// stands for, so another layer's entry under it is a clash as one under the delivered name is.
 	// yolo's built-in suite under a shipped_skill_prefix claims each skill's bare name this way
-	// (docs/design/pack-naming.md PN-D13).
+	// (docs/reference/pack-system.md PN-D13).
 	Aliases map[string]string
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
@@ -322,12 +322,12 @@ func PackLayer(p *packload.Pack) Layer {
 		SourceOf: p.SourcePath}
 	if p.Official && l.Namespace == "" {
 		// A shipped pack's skills take the user's shipped_skill_prefix, as yolo's built-in skills
-		// do (docs/design/pack-naming.md PN-D13); unset, they stay bare.
+		// do (docs/reference/pack-system.md PN-D13); unset, they stay bare.
 		l.Namespace = shippedSkillPrefix()
 	}
 	if p.Decl != nil {
 		// The pack's `skills_tier` decides only how a wrapped plugin is delivered (Layer.Tier);
-		// what anything is called is the user's namespace choice (pack-naming.md PN-D9).
+		// what anything is called is the user's namespace choice (pack-system.md PN-D9).
 		l.Description, l.Tier = p.Decl.Description, PackTier(p.Decl.SkillsTier)
 	}
 	return l
@@ -385,7 +385,7 @@ type Claim struct {
 	BareStep string
 }
 
-// Message is the refusal a user reads (docs/design/pack-naming.md §3.5): every contending entry,
+// Message is the refusal a user reads (docs/reference/pack-system.md#pack-name-clashes): every contending entry,
 // its source, and the one step that resolves this kind of clash. yolo never renames anything to
 // resolve one (PN-D3), so the step is always the user's or the pack author's.
 func (c Collision) Message() string {
@@ -521,7 +521,7 @@ func ClaimsAt(d Destination, name string) []Claim {
 }
 
 // NamesInNamespace is every distinct top-level name the layers in namespace deliver across dests,
-// sorted: the agent-facing names a rename of that namespace changes (pack-naming.md §3.6). A whole
+// sorted: the agent-facing names a rename of that namespace changes (pack-system.md#renaming-a-source). A whole
 // plugin's inner skill is shown by its own name whatever the namespace, so it is not one of them.
 func NamesInNamespace(dests []Destination, namespace string) []string {
 	seen := map[string]bool{}
@@ -612,7 +612,7 @@ type layerClaim struct {
 // layerClaims is {delivered top-level name → its claims} for one layer: exactly the names this
 // layer would create at the destination's top level, which is what can collide. Every name is the
 // DELIVERED one, `<namespace>-<name>` or bare (packname.Delivered), so two packs whose names
-// hyphenate alike collide here like any other two (docs/design/pack-naming.md §3.5). One layer
+// hyphenate alike collide here like any other two (docs/reference/pack-system.md#pack-name-clashes). One layer
 // may claim a name under two author names that deliver alike; both are kept, so the clash is
 // refused naming both rather than settled by map order.
 //
@@ -1122,7 +1122,7 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 	var out []Result
 	// A wrapped plugin goes out whole only when its wrapper opted in (Layer.Tier), otherwise as its
 	// skills alone. A pack's own skills are always delivered one by one (Deliver below, TierFlat):
-	// the tier no longer names anything (docs/design/pack-naming.md PN-D9).
+	// the tier no longer names anything (docs/reference/pack-system.md PN-D9).
 	for _, pl := range l.Plugins {
 		res, err := DeliverPlugin(PluginRequest{
 			Pack: l.Pack, Namespace: l.Namespace, BareStep: l.BareStep, Plugin: pl, SkillsDir: dir, Tier: l.Tier,

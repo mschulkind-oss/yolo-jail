@@ -1,7 +1,7 @@
 package cli
 
 // packsourcerename_test.go drives `yolo pack source rename` through packMain, the CLI's own
-// dispatcher, over a synthetic user config (docs/design/pack-naming.md §3.6).
+// dispatcher, over a synthetic user config (docs/reference/pack-system.md#renaming-a-source).
 
 import (
 	"os"

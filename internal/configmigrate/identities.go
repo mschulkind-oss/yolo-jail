@@ -1,6 +1,6 @@
 package configmigrate
 
-// identities.go keeps every pack's records with its identity (docs/design/pack-naming.md §3.2,
+// identities.go keeps every pack's records with its identity (docs/reference/pack-system.md#pack-identity,
 // PN-D10): a renamed handle finds the records its pack had under the old one, and a pack whose
 // handle now reads from somewhere else starts its pins over.
 //

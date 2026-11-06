@@ -1,7 +1,7 @@
 package cli
 
 // packlintskillstier_test.go pins `yolo pack lint`'s warning for `skills_tier = "namespaced"`
-// (docs/design/pack-naming.md PN-D9): the key now only delivers a wrapped plugin whole, so a pack
+// (docs/reference/pack-system.md PN-D9): the key now only delivers a wrapped plugin whole, so a pack
 // that wraps none is told it changes nothing, and a pack that wraps one, or omits the key, is not.
 
 import (

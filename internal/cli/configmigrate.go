@@ -188,7 +188,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 		if keptUserBackup(result.Backups) {
 			fmt.Fprintln(out, "While the user config's .pre-migrate copy is kept, the launch, `yolo check` and "+
 				"`yolo host apply` report any pack whose skill names, files landing or /ctx directory a "+
-				"default namespace changes (docs/design/pack-naming.md §7); once it is deleted, they no longer do.")
+				"default namespace changes (docs/reference/pack-system.md#pack-name-migration); once it is deleted, they no longer do.")
 		}
 	}
 	if s := configmigrate.Respelled(result.Records); s != "" {

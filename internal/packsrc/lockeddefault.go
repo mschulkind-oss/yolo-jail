@@ -20,7 +20,7 @@ func (s *Store) ResolvePackDefault(addr Addr, name, stagedName, source, lockPath
 	if !ok {
 		// A pack whose handle was renamed since its pin was written (a source key renamed, before
 		// the next launch moves its records): the pin is found by where the pack lives
-		// (docs/design/pack-naming.md §3.2), so a rename never reads as an unpinned pack.
+		// (docs/reference/pack-system.md#pack-identity), so a rename never reads as an unpinned pack.
 		pin, ok = lock.BySource(source)
 	}
 	if !ok || pin.Source != source || pin.Ref == "" || !isFullSHA(pin.Commit) {

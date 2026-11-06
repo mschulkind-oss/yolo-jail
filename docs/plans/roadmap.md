@@ -132,8 +132,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
    host](../reference/mcp-configuration.md#OQ-MC2), which host apply never deletes and pi keeps loading, with
    [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1). For pack files: [warning on a folder another pack keeps state in](../design/pack-files-for-agent-state.md#OQ-FS2) and [whether a Mac
    bootstrap stops at a failed home layout](../design/pack-files-for-agent-state.md#OQ-FS4); [skipping files for an unselected
-   agent](../design/pack-files-for-agent-state.md#FS-D6) is ruled and buildable. [How a pack and its skills are
-   named](../design/pack-naming.md) is built; graduate it into [the pack system's reference](../reference/pack-system.md).
+   agent](../design/pack-files-for-agent-state.md#FS-D6) is ruled and buildable.
 4. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — rule 2 calls such a success a dead end, `--assert` ends at its counts, and the line waits on a ruling against [the
    verdict block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the

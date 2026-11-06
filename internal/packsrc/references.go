@@ -25,7 +25,7 @@ type SourceDefinition struct {
 	Repo string // normalized git repository URL, or empty for a local tree
 	Ref  string // authored git ref, or empty to pin the repository's advertised default
 	// Bare delivers every pack of this source under its own names, with no namespace
-	// (docs/design/pack-naming.md PN-D7): `{ path = "…", bare = true }`.
+	// (docs/reference/pack-system.md PN-D7): `{ path = "…", bare = true }`.
 	Bare bool
 	// Marked says the source's table carries a `bare` key, true or false: its user chose. A source
 	// without one gets the default namespace (its key), which main's migrator never wrote.
@@ -103,7 +103,7 @@ type PackReference struct {
 	AllowDefaultRef bool
 	Origin          string
 	// Namespace is the word every agent-facing name of the pack starts with
-	// (docs/design/pack-naming.md §3.3), "" for a pack delivered bare: a shipped pack, or an
+	// (docs/reference/pack-system.md#pack-namespace), "" for a pack delivered bare: a shipped pack, or an
 	// entry or source marked `bare = true`.
 	Namespace string
 	// NamespaceOwner says whose word Namespace is — "source:<key>", "local:<pack>" or

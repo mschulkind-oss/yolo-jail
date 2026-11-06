@@ -42,7 +42,7 @@ func collidingSkillPacks(t *testing.T) (home, shared string) {
 // the contended name, each claim naming its pack as bare, the shared pack's own source path, and
 // both remedies (namespace one entry with `bare = false`, or rename your own skill). The retired
 // remedies (RENAME in the pack, `skills_tier`, a /<pack>:<skill> invocation) are gone
-// (docs/design/pack-naming.md PN-D9).
+// (docs/reference/pack-system.md PN-D9).
 func assertSkillCollisionRefusal(t *testing.T, out string) {
 	t.Helper()
 	for _, want := range []string{
@@ -177,7 +177,7 @@ func readFileT(t *testing.T, path string) string {
 
 // THE RULING'S SECOND HALF, AFTER PACK NAMING: the jail stages skills as the host does, and a
 // manifest's `skills_tier = "namespaced"` is now IGNORED there and here alike
-// (docs/design/pack-naming.md PN-D9). A bare pack that still asks for it gets its skill staged
+// (docs/reference/pack-system.md PN-D9). A bare pack that still asks for it gets its skill staged
 // flat under the author's own name, /review, with no per-pack subtree or plugin manifest — the
 // namespace is the config entry's to give, not the manifest's to ask for.
 func TestAJailNamespacesAPackThatAskedForIt(t *testing.T) {

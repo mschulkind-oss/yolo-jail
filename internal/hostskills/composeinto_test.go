@@ -29,7 +29,7 @@ func intoSource(t *testing.T, names ...string) string {
 
 // A namespaced pack's skills land at `<namespace>-<skill>`, each its own top-level entry, with no
 // per-pack subtree: the namespace names them, and a Tier on the layer changes nothing about its
-// own skills (docs/design/pack-naming.md PN-D9) — the shape the host render writes, at the jail too.
+// own skills (docs/reference/pack-system.md PN-D9) — the shape the host render writes, at the jail too.
 func TestComposeIntoNamespacesAPackThatAskedForIt(t *testing.T) {
 	dir := t.TempDir()
 	d := Destination{Dir: "~/.claude/skills", Layers: []Layer{

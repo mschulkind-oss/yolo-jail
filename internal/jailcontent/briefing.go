@@ -227,7 +227,7 @@ type BriefingInput struct {
 
 	// ShippedSkillPrefix is the user's `shipped_skill_prefix` (config.ShippedSkillPrefix): the
 	// skills section names each built-in skill as it is delivered, `<prefix>-<skill>`
-	// (docs/design/pack-naming.md PN-D13). Empty names them bare, as before. The caller reads
+	// (docs/reference/pack-system.md PN-D13). Empty names them bare, as before. The caller reads
 	// it, as it reads the provisioning log: this function reads no file.
 	ShippedSkillPrefix string
 }

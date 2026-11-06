@@ -346,7 +346,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 // addHostBuiltinLayer adds the generated suite as each destination's last layer. Under a
 // shipped_skill_prefix the layer also claims each skill's bare name, so a pack's skill under either
-// name is refused as a clash, as it is with no prefix (docs/design/pack-naming.md PN-D13).
+// name is refused as a clash, as it is with no prefix (docs/reference/pack-system.md PN-D13).
 func addHostBuiltinLayer(dests []hostskills.Destination, root, prefix string) []hostskills.Destination {
 	var aliases map[string]string
 	if prefix != "" {
@@ -413,7 +413,7 @@ func prepareHostBuiltinSkills(pr richtext.Printer, userCfg *jsonx.OrderedMap, pa
 	}
 	files, renderErr := renderHostBuiltinSkills(facts)
 	// Under the user's shipped_skill_prefix every built-in skill is delivered as
-	// `<prefix>-<skill>`, here as in a jail (docs/design/pack-naming.md PN-D13).
+	// `<prefix>-<skill>`, here as in a jail (docs/reference/pack-system.md PN-D13).
 	prefix := config.ShippedSkillPrefixIn(userCfg)
 	files = jailcontent.PrefixBuiltinSkillFiles(files, prefix)
 	root, err := os.MkdirTemp("", "yolo-host-skills-")

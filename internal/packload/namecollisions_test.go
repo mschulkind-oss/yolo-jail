@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The two rows of docs/design/pack-naming.md §3.4.1's second table that need no skill read: a
+// The two rows of docs/reference/pack-system.md#delivered-names's second table that need no skill read: a
 // namespace word two entries share, and a landing two packs share. Each names both entries and
 // the step.
 func TestNameCollisionsRefuseASharedWordAndASharedLanding(t *testing.T) {

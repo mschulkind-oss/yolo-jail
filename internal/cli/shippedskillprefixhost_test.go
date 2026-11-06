@@ -1,7 +1,7 @@
 package cli
 
 // shippedskillprefixhost_test.go pins the host side of a pack skill meeting a built-in under
-// shipped_skill_prefix (docs/design/pack-naming.md PN-D13): either name is a clash, and a render
+// shipped_skill_prefix (docs/reference/pack-system.md PN-D13): either name is a clash, and a render
 // that fails after the prefix changed keeps the suite under the names it has.
 
 import (

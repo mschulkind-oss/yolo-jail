@@ -1,7 +1,7 @@
 package cli
 
 // packrecordsprune_test.go pins that `yolo pack install` keeps the records an identity still
-// claims (docs/design/pack-naming.md §7, PN-D15): a parked pack's, and a deselected pack's, so
+// claims (docs/reference/pack-system.md#pack-name-migration, PN-D15): a parked pack's, and a deselected pack's, so
 // either is found again when it returns.
 
 import (

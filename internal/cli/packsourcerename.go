@@ -1,6 +1,6 @@
 package cli
 
-// packsourcerename.go is `yolo pack source rename OLD NEW` (docs/design/pack-naming.md §3.6): it
+// packsourcerename.go is `yolo pack source rename OLD NEW` (docs/reference/pack-system.md#renaming-a-source): it
 // renames one `[pack_sources]` key, every handle that uses it, and every user-config table keyed by
 // one of those handles (`[allow."OLD/x"]`), as one validated write of the user config, after
 // showing the edit and every agent-facing name it changes and asking. A source's key IS its

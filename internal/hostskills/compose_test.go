@@ -168,7 +168,7 @@ func TestOnePacksOwnDuplicateIsNotACollision(t *testing.T) {
 
 // A NAMESPACED PACK does not contend for a bare skill name — which is what makes the message's
 // first remedy real rather than advice. Both survive, each under its own name. A layer's Tier
-// never namespaces its own skills (docs/design/pack-naming.md PN-D9): the namespace does.
+// never namespaces its own skills (docs/reference/pack-system.md PN-D9): the namespace does.
 func TestNamespacingResolvesTheCollision(t *testing.T) {
 	d, sources := composeFixture(t, TierFlat, "sflat", "local")
 	d.Layers[1].Namespace = "local" // the local pack is given a namespace

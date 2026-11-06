@@ -1,7 +1,7 @@
 package cli
 
 // packexplainmanifest_test.go pins `yolo pack explain`'s delivered-names line for a pack with a
-// manifest whose skills are in the conventional skills/ tree (docs/design/pack-naming.md §8): each
+// manifest whose skills are in the conventional skills/ tree (docs/reference/pack-system.md#delivered-names): each
 // skill under the name agents see, and whether the entry is bare or namespaced.
 
 import (

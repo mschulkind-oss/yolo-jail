@@ -114,7 +114,7 @@ func classifyGitPack(text string) convertedPack {
 }
 
 // bareEntry is { pack = HANDLE, bare = true }: a converted pack listed on its own keeps the bare
-// names it was delivered under before conversion (pack-naming.md PN-D7).
+// names it was delivered under before conversion (pack-system.md PN-D7).
 func bareEntry(handle string) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
 	entry.Set("pack", handle)
@@ -165,7 +165,7 @@ func sourceNames(list []any) map[string]string {
 			repo, _, _ := strings.Cut(strings.TrimPrefix(c.source.key, "git:"), "@")
 			base = path.Base(repo)
 		}
-		// The key is the source's namespace (pack-naming.md PN-D11), so it is written in the spelling
+		// The key is the source's namespace (pack-system.md PN-D11), so it is written in the spelling
 		// agents carry: the folder's name normalized, with no prompt (PN-D12).
 		base = packname.Normalize(base)
 		if base == "" || len(base) > packname.MaxLen-8 {

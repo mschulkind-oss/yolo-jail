@@ -79,7 +79,7 @@ type PackSkillSource struct {
 	// pack, because a tier decides what a skill is CALLED (S2). The zero value is flat.
 	Tier hostskills.Tier
 	// Namespace and Shipped are the pack's naming (hostskills.Layer's fields of these names,
-	// docs/design/pack-naming.md §3.4): every skill and wrapped plugin is delivered as
+	// docs/reference/pack-system.md#delivered-names): every skill and wrapped plugin is delivered as
 	// `<namespace>-<name>`, or bare when Namespace is "".
 	Namespace string
 	Shipped   bool

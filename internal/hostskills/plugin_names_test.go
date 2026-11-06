@@ -1,7 +1,7 @@
 package hostskills
 
 // plugin_names_test.go pins what a WRAPPED PLUGIN puts in front of an agent under pack naming
-// (docs/design/pack-naming.md §3.4, §3.5): a wrapper that did not opt in delivers the plugin's
+// (docs/reference/pack-system.md#delivered-names, #pack-name-clashes): a wrapper that did not opt in delivers the plugin's
 // skills alone, named like any other skill, with its hooks and MCP servers refused as on main; a
 // whole plugin's inner skills are claimed under the name each agent shows them by; and two names
 // one namespace delivers alike are refused naming both.

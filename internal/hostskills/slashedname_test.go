@@ -10,7 +10,7 @@ import (
 
 // slashedname_test.go pins the internal half of RC-D48 (docs/design/readable-config.md): the
 // ownership record a yolo-written plugin manifest carries (x-yolo-pack) and the claimant query
-// (ClaimsAt). The agent-facing spelling of a pack's names is pack-naming.md's, not an escape.
+// (ClaimsAt). The agent-facing spelling of a pack's names is pack-system.md's, not an escape.
 
 // TestAPluginManifestRecordsThePacksOwnName: the dropped-pack sweep reads YoloPluginOwner, which
 // prefers x-yolo-pack, so a manifest whose Name is not the pack's name still names its owner.
