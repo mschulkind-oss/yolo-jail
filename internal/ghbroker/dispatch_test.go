@@ -13,7 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// dispatch_test.go pins the `dispatch-workflow` user grant through the broker's real entry
+// dispatch_test.go pins the `runs` user grant through the broker's real entry
 // point (docs/design/github-write-scopes.md GW-D14): a run of the granted workflow on the
 // repository's default branch runs unasked and is audited under its own set; a run on another
 // ref, of another workflow, on another repository, or under a kind the user's config no longer
@@ -63,7 +63,7 @@ func dispatchBroker(t *testing.T) (*Broker, *dispatchGHFake) {
 }
 
 // grantDispatch gives the bound scope file the grants and the user config an allowance of
-// dispatch_workflows (or not), as `yolo request github dispatch_workflows <file>` and `yolo
+// runs (or not), as `yolo request github runs <file>` and `yolo
 // config apply` would.
 func grantDispatch(t *testing.T, b *Broker, allowed bool, grants ...brokerscope.Grant) {
 	t.Helper()
@@ -73,7 +73,7 @@ func grantDispatch(t *testing.T, b *Broker, allowed bool, grants ...brokerscope.
 	}
 	allow := "always = ['read']\n"
 	if allowed {
-		allow += "on_request = ['dispatch_workflows']\n"
+		allow += "on_request = ['runs']\n"
 	}
 	dir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -85,7 +85,7 @@ func grantDispatch(t *testing.T, b *Broker, allowed bool, grants ...brokerscope.
 }
 
 func nightlyGrant(workflow string) brokerscope.Grant {
-	return brokerscope.Grant{Kind: GrantDispatchWorkflow, Repo: "github.com/o/r", Workflow: workflow}
+	return brokerscope.Grant{Kind: GrantRuns, Repo: "github.com/o/r", Workflow: workflow}
 }
 
 func TestEvaluateDispatchUsesCanonicalPinnedDefaultBranchArgv(t *testing.T) {
@@ -152,9 +152,9 @@ func TestDispatchOnTheDefaultBranchRunsUnaskedAndIsAudited(t *testing.T) {
 				t.Fatal("a covered dispatch filed a request")
 			}
 			audit, err := os.ReadFile(paths.BrokerAuditLog())
-			if err != nil || !strings.Contains(string(audit), `"set":"dispatch-workflow"`) ||
+			if err != nil || !strings.Contains(string(audit), `"set":"runs"`) ||
 				!strings.Contains(string(audit), c.ref) {
-				t.Fatalf("no audit line under the dispatch-workflow set naming %s (%v):\n%s", c.ref, err, audit)
+				t.Fatalf("no audit line under the runs set naming %s (%v):\n%s", c.ref, err, audit)
 			}
 		})
 	}
@@ -202,7 +202,7 @@ func TestDispatchTheGrantDoesNotCoverAsks(t *testing.T) {
 			[]string{"workflow", "run", "Nightly macOS", "--ref", "main"}, ""},
 		{"a workflow by id", nightlyGrant(brokerscope.AnyWorkflow), true,
 			[]string{"workflow", "run", "123456", "--ref", "main"}, ""},
-		{"another repository", brokerscope.Grant{Kind: GrantDispatchWorkflow, Repo: "github.com/o/other", Workflow: "*"}, true,
+		{"another repository", brokerscope.Grant{Kind: GrantRuns, Repo: "github.com/o/other", Workflow: "*"}, true,
 			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, ""},
 		{"not allowed by the user", nightlyGrant("nightly-macos.yml"), false,
 			[]string{"workflow", "run", "nightly-macos.yml", "--ref", "main"}, ""},
@@ -214,8 +214,6 @@ func TestDispatchTheGrantDoesNotCoverAsks(t *testing.T) {
 			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "-f", "ref=main", "-f", "ref]=evil"}, ""},
 		{"api with its body from input", nightlyGrant("nightly-macos.yml"), true,
 			[]string{"api", "repos/o/r/actions/workflows/nightly-macos.yml/dispatches", "--input", "-"}, ""},
-		{"a rerun", nightlyGrant(brokerscope.AnyWorkflow), true,
-			[]string{"run", "rerun", "12345"}, ""},
 		{"a workflow disable", nightlyGrant(brokerscope.AnyWorkflow), true,
 			[]string{"workflow", "disable", "nightly-macos.yml"}, ""},
 	} {
@@ -240,7 +238,7 @@ func TestDispatchTheGrantDoesNotCoverAsks(t *testing.T) {
 func TestDispatchPendingRequestNamesTheGrant(t *testing.T) {
 	b, _ := dispatchBroker(t)
 	code, msg := serveGH(b, "workflow", "run", "nightly-macos.yml", "--ref", "main")
-	if code != ExitTempFail || !strings.Contains(msg, "yolo request github dispatch_workflows nightly-macos.yml") {
+	if code != ExitTempFail || !strings.Contains(msg, "yolo request github runs nightly-macos.yml") {
 		t.Fatalf("code %d: %s", code, msg)
 	}
 }
@@ -253,7 +251,7 @@ func TestDispatchGrantWithdrawnBeforeTheTransactionAsks(t *testing.T) {
 	afterGrantLook = func() { grantDispatch(t, b, false, nightlyGrant("nightly-macos.yml")) }
 	t.Cleanup(func() { afterGrantLook = nil })
 	code, msg := serveGH(b, "workflow", "run", "nightly-macos.yml", "--ref", "main")
-	if len(gh.writes()) != 0 || code == 0 || !strings.Contains(msg, "dispatch-workflow grant no longer holds") {
+	if len(gh.writes()) != 0 || code == 0 || !strings.Contains(msg, "runs grant no longer holds") {
 		t.Fatalf("a withdrawn grant ran: code %d, writes %v: %s", code, gh.writes(), msg)
 	}
 }

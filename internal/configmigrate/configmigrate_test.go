@@ -144,8 +144,9 @@ func TestPlanRefusesOnInequality(t *testing.T) {
 	}
 }
 
-// A legacy dispatch-workflow grant on the workspace's one remote converts to the request naming
-// its workflow (docs/design/github-write-scopes.md GW-D14).
+// A legacy dispatch-workflow grant on the workspace's one remote converts to the request
+// naming its workflow under the kind's current name, runs (docs/design/github-write-scopes.md
+// GW-D14, GW-D78).
 func TestPlanConvertsADispatchWorkflowGrant(t *testing.T) {
 	env(t)
 	ws := realDir(t)
@@ -161,7 +162,7 @@ func TestPlanConvertsADispatchWorkflowGrant(t *testing.T) {
 		t.Fatalf("plan unequal: %+v", p.Differences)
 	}
 	got := string(target(t, p, filepath.Join(ws, "yolo-jail.jsonc")).Bytes)
-	if !strings.Contains(got, "[requests.github]\ndispatch_workflows = [\"nightly.yml\"]") {
+	if !strings.Contains(got, "[requests.github]\nruns = [\"nightly.yml\"]") {
 		t.Fatalf("converted file:\n%s", got)
 	}
 }

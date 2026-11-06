@@ -215,13 +215,34 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, stdout, s
 	if ok, code, msg := run(func(dispatch func() error) (brokerstore.Grant, bool, error) {
 		return b.store.ConsumeExactDispatchContext(ctx, b.workspace, jail, d.Set, q.Digest, gate, dispatch)
 	}); ok {
-		return code, msg
+		return code, naming(q.ID, msg)
 	}
 	// Answered with `--add` or `--for`: no command grant, but an entry on the resource now.
 	if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev, nil); ok {
-		return code, msg
+		return code, naming(q.ID, msg)
 	}
-	return ExitNoPerm, "no live grant covers this command; refile and approve it on the host"
+	return ExitNoPerm, allowedUncoveredMessage(q.ID)
+}
+
+// naming is msg, a refusal after request id was filed, led by id when msg does not already
+// name it, so the agent can relay which request it concerns; "" stays "".
+func naming(id, msg string) string {
+	if msg == "" || strings.Contains(msg, id) {
+		return msg
+	}
+	return id + ": " + msg
+}
+
+// allowedUncoveredMessage is the refusal when the host allowed request id but this broker
+// finds no grant or working-set entry of that answer covering the command: the answer was
+// revoked or ran out first, or it was recorded by a yolo newer than this running broker, which
+// cannot read it. Nothing ran, and a new run files a new request.
+func allowedUncoveredMessage(id string) string {
+	return "the host allowed " + id + ", but this broker finds no grant or working-set entry of that answer " +
+		"covering this command (revoked or expired since, or recorded by a newer yolo than this running broker); " +
+		"nothing ran. Next: run the same command again, which files a new request, and ask the human to run " +
+		"`yolo approve <its id>` on the host; if this repeats right after an answer, relaunch the jail so its " +
+		"host broker matches the host's yolo"
 }
 
 // notifierNote is a sentence for the agent when the user's on_request failed for request

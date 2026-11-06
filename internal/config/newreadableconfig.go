@@ -94,15 +94,20 @@ func loadTOMLConfigFile(path, label string, strict bool, warn Warn, record bool,
 	file := &srcFile{path: path, data: data, format: configdoc.TOML, document: doc,
 		contained: rel != "", rel: rel, via: at.via, seq: at.ws.nextSeq(), role: at.role}
 	if !record {
-		return doc.Values, file, readableResetTree(doc.Values, nil), nil
+		node := readableResetTree(doc.Values, nil)
+		respellFormerReadable(doc.Values, node)
+		return doc.Values, file, node, nil
 	}
 	node := fileTree(file, doc.Values)
 	if rel == "" && isGeneratedUserScope(path) {
 		if origins := generatedOrigins(data); origins != nil {
-			return doc.Values, file, launchCopyTree(file, doc.Values, origins), nil
+			node := launchCopyTree(file, doc.Values, origins)
+			respellFormerReadable(doc.Values, node)
+			return doc.Values, file, node, nil
 		}
 	}
 	markReadableRemovalValues(node, doc.Values, nil)
+	respellFormerReadable(doc.Values, node)
 	return doc.Values, file, node, nil
 }
 
@@ -140,10 +145,13 @@ func loadProspectiveTOMLConfigFile(path, label string, strict bool, warn Warn, r
 	file := &srcFile{path: path, data: data, format: configdoc.TOML, document: doc,
 		contained: rel != "", rel: rel, via: at.via, seq: at.ws.nextSeq(), role: at.role}
 	if !record {
-		return doc.Values, file, readableResetTree(doc.Values, nil), nil
+		node := readableResetTree(doc.Values, nil)
+		respellFormerReadable(doc.Values, node)
+		return doc.Values, file, node, nil
 	}
 	node := fileTree(file, doc.Values)
 	markReadableRemovalValues(node, doc.Values, nil)
+	respellFormerReadable(doc.Values, node)
 	return doc.Values, file, node, nil
 }
 

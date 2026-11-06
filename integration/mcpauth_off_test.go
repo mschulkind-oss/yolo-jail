@@ -16,22 +16,13 @@ func TestMCPAuthUserOffNeverStartsProducerOrDaemon(t *testing.T) {
 	if detectRuntime() != "podman" || goruntime.GOOS != "linux" {
 		t.Skip("Linux podman MCP broker slice")
 	}
-	// The test's own HOME contains no links to real config, cache, or credentials.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cfg := `packs = ["codex"]
+	// The test's yolo state is its own; only the harness's store links are shared.
+	home := mcpAuthHome(t, `packs = ["codex"]
 [allow.mcp-auth]
 off = true
 [mcp_servers.linear]
 url = "https://mcp.example.test/mcp"
-`
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	workspace := writeProject(t, `{"requests":{"mcp-auth":{"off":false}}}`)
 	state := loopholes.StateDirFor("mcp-auth-broker")
 	if err := os.MkdirAll(state, 0o700); err != nil {

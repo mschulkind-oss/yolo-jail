@@ -15,9 +15,9 @@ import (
 
 func githubApproveDeclarations() []config.ReadableBrokerDeclaration {
 	return []config.ReadableBrokerDeclaration{{Pack: "github", Label: "github-broker",
-		Brokered:       loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "dispatch-workflow", "approve-run"}},
+		Brokered:       loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs", "approve-run"}},
 		ReadCapability: "read", KindCapabilities: map[string]string{"create-pr": "create_pr", "create-issue": "create_issue",
-			"dispatch-workflow": "dispatch_workflows", "approve-run": "approve_runs"}}}
+			"runs": "runs", "approve-run": "approve_runs"}}}
 }
 
 func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
@@ -47,7 +47,7 @@ func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
 
 func TestReadableApproveRunsOutsideTheCeilingIsSkipped(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
-		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["dispatch_workflows"]}}}`),
+		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["runs"]}}}`),
 		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/private"],"approve_runs":["octocat"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubApproveDeclarations()})
 	if err != nil {

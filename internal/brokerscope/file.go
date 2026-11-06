@@ -223,6 +223,10 @@ func ReadFile(path string) (File, error) {
 	if f.Version != FileVersion {
 		return f, fmt.Errorf("scope file %s has version %d, this build reads %d", path, f.Version, FileVersion)
 	}
+	// A file an older yolo wrote may still name a grant kind by its former name.
+	for i := range f.Grants {
+		f.Grants[i].Kind = CanonicalGrantKind(f.Grants[i].Kind)
+	}
 	return f, nil
 }
 

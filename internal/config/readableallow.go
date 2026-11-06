@@ -567,13 +567,13 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			if shape == SchemaTypeList {
 				kind := legacyKind(policy, key)
 				for index, name := range stringList(value) {
-					if kind == brokerscope.KindDispatchWorkflow && !brokerscope.ValidGrantName(kind, name) {
+					if kind == brokerscope.KindRuns && !brokerscope.ValidGrantName(kind, name) {
 						return plan, fmt.Errorf("%s[%d]: %q is not a workflow a grant can name: write the workflow's file name in .github/workflows, such as \"nightly.yml\" (not its path, numeric id or display name), or \"*\" for every workflow in the repository", path, index, name)
 					}
 					if kind == brokerscope.KindApproveRun && !brokerscope.ValidGrantName(kind, name) {
 						return plan, fmt.Errorf("%s[%d]: %q is not an actor a grant can name: write the GitHub login that triggers the runs, such as \"github-actions[bot]\" (letters, digits and hyphens, with `[bot]` after an app's name), or \"*\" for every actor", path, index, name)
 					}
-					if kind != brokerscope.KindDispatchWorkflow && kind != brokerscope.KindApproveRun && !brokerscope.ValidGrantRefPattern(name) {
+					if kind != brokerscope.KindRuns && kind != brokerscope.KindApproveRun && !brokerscope.ValidGrantRefPattern(name) {
 						return plan, fmt.Errorf("%s[%d]: %q is not a ref name a grant can take: write a short name git accepts, such as \"main\" or \"v1.0\", optionally with one `*` matching any run of characters, such as \"patch/*\" or \"v*\"", path, index, name)
 					}
 				}

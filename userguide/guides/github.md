@@ -177,7 +177,7 @@ the entry to put in each project's local config instead.
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
 | `gh pr create` or `gh issue create` under a `create_pr` or `create_issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
-| `gh workflow run nightly.yml` under a `dispatch_workflows` grant naming that workflow, on the repository's default branch | It runs without asking. See [running a workflow](#running-a-workflow) |
+| `gh workflow run nightly.yml` on the repository's default branch, `gh run rerun <id>` of a run of that workflow on the default branch, and `gh run cancel <id>`, under a `runs` grant naming that workflow | It runs without asking. See [running a workflow](#running-a-workflow) |
 | `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` under an `approve_runs` grant naming the run's triggering actor, for a run from the repository itself | It runs without asking. See [approving a held run](#approving-a-held-run) |
 | `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the command waits 30 seconds for your answer; unanswered, it is refused with the ways to allow it. `yolo approve <id>` on your machine allows that exact command once; the agent then runs it again. See [one action](approvals.md#one-action-yolo-approve) |
 | `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
@@ -253,16 +253,16 @@ w-<id>` ends one. A merge always asks.
 
 ### Running a workflow
 
-To let the agent start a workflow without asking, allow the capability and name the workflow file
-in the project:
+To let the agent start, re-run and cancel workflow runs without asking, allow the capability and
+name the workflow file in the project:
 
 ```sh
-yolo allow github on_request dispatch_workflows          # on your machine: your ceiling
-yolo request github dispatch_workflows nightly.yml       # in the project (or the jail)
+yolo allow github on_request runs                        # on your machine: your ceiling
+yolo request github runs nightly.yml                     # in the project (or the jail)
 yolo config apply                                        # on your machine, in the project: approve it
 ```
 
-The project file then holds `dispatch_workflows = ["nightly.yml"]` under `[requests.github]`;
+The project file then holds `runs = ["nightly.yml"]` under `[requests.github]`;
 `"*"` there names every workflow in the repository. With it, `gh workflow run nightly.yml` runs
 without asking, with any inputs (`-f`, `-F`, `--json`), but only on the repository's default
 branch: leave out `--ref`, or pass the default branch's name. The broker sends that run as the
@@ -270,8 +270,18 @@ full branch ref (`refs/heads/main`), so a tag with the same name cannot stand in
 branch. A run on any other branch or tag
 asks, because a workflow runs as its file is on that ref, with the repository's secrets, and an
 agent that can push a branch could change the file there first. The agent must name the workflow
-by its file name; a numeric id or display name asks. Re-running, cancelling, enabling and
-disabling workflows always ask.
+by its file name; a numeric id or display name asks.
+
+The same grant lets the agent re-run a run of that workflow, `gh run rerun <id>` (with `--failed`,
+`--debug`, or `--job <job-id>` in place of the id), when the run's branch is the repository's
+default branch and the run is from the repository itself, not a fork: a re-run runs the workflow
+file of the run's own commit, which is then one on the default branch. A re-run of a run on any
+other branch, or from a fork, asks. Any `runs` grant on the repository also lets the agent cancel
+any of its runs, `gh run cancel <id>`, since cancelling runs no code. Enabling and disabling
+workflows, and deleting runs, always ask.
+
+A config written before this grant was named `runs` says `dispatch_workflows`; yolo reads that as
+`runs`, so it keeps working, and now covers re-runs and cancels too.
 
 ### Approving a held run
 

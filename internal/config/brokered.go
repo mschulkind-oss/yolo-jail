@@ -97,14 +97,14 @@ var knownBrokeredGrantKeys = set(brokeredGrantKindKey, brokeredGrantRepoKey, bro
 
 // grantRefKeys are the grant-entry keys that name something beside the repository, each the key
 // brokerscope.GrantNameKey gives its kind: `branch` (KindBranch), `tag` (KindTag), `workflow`
-// (KindDispatchWorkflow) and `actor` (KindApproveRun).
+// (KindRuns) and `actor` (KindApproveRun).
 var grantRefKeys = []string{brokeredGrantBranchKey, brokeredGrantTagKey, brokeredGrantWorkflowKey, brokeredGrantActorKey}
 
 // grantRefKind is the kind each name key belongs to.
 var grantRefKind = map[string]string{
 	brokeredGrantBranchKey:   brokerscope.KindBranch,
 	brokeredGrantTagKey:      brokerscope.KindTag,
-	brokeredGrantWorkflowKey: brokerscope.KindDispatchWorkflow,
+	brokeredGrantWorkflowKey: brokerscope.KindRuns,
 	brokeredGrantActorKey:    brokerscope.KindApproveRun,
 }
 
@@ -127,6 +127,7 @@ func grantEntry(m *jsonx.OrderedMap) (brokerscope.Grant, bool) {
 		return s, has, ok || !has
 	}
 	kind, _, kindOK := str(brokeredGrantKindKey)
+	kind = brokerscope.CanonicalGrantKind(kind)
 	repo, _, repoOK := str(brokeredGrantRepoKey)
 	branch, hasBranch, branchOK := str(brokeredGrantBranchKey)
 	tag, hasTag, tagOK := str(brokeredGrantTagKey)
@@ -144,7 +145,7 @@ func grantEntry(m *jsonx.OrderedMap) (brokerscope.Grant, bool) {
 
 // grantRefProblem is the error for a grant entry's `branch`, `tag` and `workflow`, "" when they
 // are right: a kind that names a ref (brokerscope.GrantTakesRef) has a valid name or one-`*`
-// pattern under the key of its own name, on a repository or "*" (GB-D25); a `dispatch-workflow`
+// pattern under the key of its own name, on a repository or "*" (GB-D25); a `runs`
 // grant has a workflow file name or "*" under `workflow` (GW-D14); and no kind has another kind's
 // key. The second result is the name as written, valid or not.
 func grantRefProblem(entryPath, kind string, m *jsonx.OrderedMap) (string, string) {
@@ -167,9 +168,9 @@ func grantRefProblem(entryPath, kind string, m *jsonx.OrderedMap) (string, strin
 			"\" (" + example[1] + "). Add it.", ""
 	}
 	name, ok := v.(string)
-	if kind == brokerscope.KindDispatchWorkflow {
+	if kind == brokerscope.KindRuns {
 		if !ok || !brokerscope.ValidGrantWorkflow(name) {
-			return path + ": " + pyReprValue(v) + " is not a workflow a dispatch-workflow grant can name: write the " +
+			return path + ": " + pyReprValue(v) + " is not a workflow a runs grant can name: write the " +
 				"workflow's file name in .github/workflows, such as \"" + example[0] + "\" (not its path, numeric " +
 				"id or display name), or \"*\" for every workflow in the repository. List each workflow as its own grant.", name
 		}
@@ -450,8 +451,8 @@ func grantKindsOf(user *jsonx.OrderedMap, source string) []string {
 	list, _ := kv.([]any)
 	var out []string
 	for _, e := range list {
-		if k, ok := e.(string); ok && loopholedecl.ValidGrantKind(k) && !inList(out, k) {
-			out = append(out, k)
+		if k, ok := e.(string); ok && loopholedecl.ValidGrantKind(k) && !inList(out, brokerscope.CanonicalGrantKind(k)) {
+			out = append(out, brokerscope.CanonicalGrantKind(k))
 		}
 	}
 	return out
