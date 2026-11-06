@@ -127,8 +127,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
    host](../reference/mcp-configuration.md#OQ-MC2), which host apply never deletes and pi keeps loading, with
    [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1). For pack files: [warning on a folder another pack keeps state in](../design/pack-files-for-agent-state.md#OQ-FS2) and [whether a Mac
    bootstrap stops at a failed home layout](../design/pack-files-for-agent-state.md#OQ-FS4); [skipping files for an unselected
-   agent](../design/pack-files-for-agent-state.md#FS-D6) is built. [How a pack and its skills are
-   named](../design/pack-naming.md) is built; graduate it into [the pack system's reference](../reference/pack-system.md).
+   agent](../design/pack-files-for-agent-state.md#FS-D6) is built.
 4. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — rule 2 calls such a success a dead end, `--assert` ends at its counts, and the line waits on a ruling against [the
    verdict block](../reference/report-tiers.md#the-verdict-block)'s "Only the dry run has a footer"; this entry is the
@@ -240,8 +239,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [approvals](../../userguide/guides/approvals.md)). What remains of the maintainer's 2026-10-23 ask (*"proper
     evergreen documents and a user guide section that's up to date"*) is graduation: [the git broker's
     reference](../reference/git-broker.md) is written, and [its design](../design/git-broker.md) graduates once
-    [GB-D28](../design/git-broker.md#GB-D28)'s removal of `yolo approve --add` and `--remember` is built; [the
-    host-run mailbox](../design/host-run-mailbox.md) still needs its system doc.
+    [GB-D28](../design/git-broker.md#GB-D28)'s removal of `yolo approve --add` and `--remember` is built.
     [Which writes to a PR or issue run unasked](../design/github-write-scopes.md) is ruled, including the same removal
     for GitHub; complete [its plan](../design/github-write-scopes-plan.md) against the tree. [Workspace widening](../design/workspace-widening.md)
     graduates once [OQ-WW1](../design/workspace-widening.md#OQ-WW1) is ruled. Also asked for on 2026-10-09:

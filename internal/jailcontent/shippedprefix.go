@@ -1,7 +1,7 @@
 package jailcontent
 
 // shippedprefix.go delivers yolo's built-in skills under the user's `shipped_skill_prefix`
-// (docs/design/pack-naming.md §3.7, PN-D13): with it set, configuring-the-jail is delivered as
+// (docs/reference/pack-system.md#shipped-skill-prefix, PN-D13): with it set, configuring-the-jail is delivered as
 // `<prefix>-configuring-the-jail`, its SKILL.md says so, and every reference to a built-in skill —
 // in the suite's own bodies and in the briefing — names the delivered skill. Unset, every name is
 // exactly what it always was. Shipped PACKS take the same prefix through hostskills.PackLayer.

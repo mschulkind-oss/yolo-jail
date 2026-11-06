@@ -1,7 +1,7 @@
 package check
 
-// packnames_test.go pins `yolo check`'s two pack-naming failures (docs/design/pack-naming.md
-// §3.5): two entries in one namespace, and two packs delivering one skill name. The launch and
+// packnames_test.go pins `yolo check`'s two pack-naming failures (docs/reference/pack-system.md
+// #pack-name-clashes): two entries in one namespace, and two packs delivering one skill name. The launch and
 // `yolo host apply` refuse both, so a check that passed them would pass a config that cannot start.
 
 import (

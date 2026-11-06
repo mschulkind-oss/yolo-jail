@@ -1,6 +1,6 @@
 package packsrc
 
-// naming_test.go pins each entry's namespace and landing (docs/design/pack-naming.md §3.3, §3.4)
+// naming_test.go pins each entry's namespace and landing (docs/reference/pack-system.md#pack-namespace, #delivered-names)
 // on the design's worked example, §3.4.1, through ParseSourceDefinitions and ParsePackReference,
 // the two calls config reads a TOML `packs` list with.
 

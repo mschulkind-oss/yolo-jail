@@ -1,6 +1,6 @@
 package cli
 
-// packlsnamespace_test.go pins docs/design/pack-naming.md §8's two inspection lines: `yolo pack ls`
+// packlsnamespace_test.go pins docs/reference/pack-system.md#delivered-names's two inspection lines: `yolo pack ls`
 // shows each entry's namespace beside its handle, and `yolo pack explain` lists each skill under
 // the name agents see it by.
 

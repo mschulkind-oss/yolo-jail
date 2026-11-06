@@ -90,7 +90,7 @@ type Pack struct {
 	// never directly.
 	LaunchName string
 	// Namespace is the word every agent-facing name of this pack's skills and wrapped plugins
-	// starts with, "" for a pack delivered bare (docs/design/pack-naming.md §3.3, §3.4). Set
+	// starts with, "" for a pack delivered bare (docs/reference/pack-system.md#pack-namespace, #delivered-names). Set
 	// from the config entry at the host (config.ResolvePack, the selection's shipped prefix) and
 	// from the staged tree's record in the jail.
 	Namespace string
@@ -574,11 +574,11 @@ func (p *Pack) landingName() string {
 }
 
 // LandingName is the agent-facing directory this pack's `files` trees land under in a slot
-// (docs/design/pack-naming.md §3.4).
+// (docs/reference/pack-system.md#delivered-names).
 func (p *Pack) LandingName() string { return p.landingName() }
 
 // CtxName is the key this pack's `reads-host` grants are mounted under, `/ctx/host-<CtxName>/`:
-// the pack's Landing (docs/design/pack-naming.md §3.4), or, for a pack with none, its staged
+// the pack's Landing (docs/reference/pack-system.md#delivered-names), or, for a pack with none, its staged
 // directory (StagedSlug), which is what both halves keyed on before. Both halves evaluate this
 // one expression: the host from the config entry, the jail from the tree's record.
 func (p *Pack) CtxName() string {

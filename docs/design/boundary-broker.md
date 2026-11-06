@@ -108,9 +108,9 @@ to a running jail), [`loophole-system.md`](../reference/loophole-system.md) and
 reaches it), [`config-safety.md`](../reference/config-safety.md) (the config-change gate the
 scope is approved through), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)
 (delivery as specific as possible), [`agent-credentials.md`](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth) (the second consumer waiting for a
-request shape), [`host-run-mailbox.md`](host-run-mailbox.md) (the paste-to-host stopgap
+request shape), [`host-run-mailbox.md`](../reference/host-run-mailbox.md) (the paste-to-host stopgap
 for everything this design does not yet cover, planned to become one more front-end of its
-store: its [§8](host-run-mailbox.md#8-how-the-gateway-absorbs-it)). The bounded host-store slice is recorded in [§7](#7-grants-and-the-request-store).
+store: see [what it does not do](../reference/host-run-mailbox.md#what-this-does-not-do)). The bounded host-store slice is recorded in [§7](#7-grants-and-the-request-store).
 
 ---
 
@@ -2327,8 +2327,8 @@ covered:
 
 2. ✅ <a id="OQ-BB14"></a>**[OQ-BB14](#OQ-BB14): Once the doorbell exists, may a notification
     approve an arbitrary host command filed through host-run?** Raised 2026-10-09 by
-    [`host-run-mailbox.md`](host-run-mailbox.md), the paste-to-host stopgap this design is
-    planned to absorb ([its §8](host-run-mailbox.md#8-how-the-gateway-absorbs-it)). This decides
+    [`host-run-mailbox.md`](../reference/host-run-mailbox.md), the paste-to-host stopgap this design is
+    planned to absorb ([what it does not do](../reference/host-run-mailbox.md#what-this-does-not-do)). This decides
     whether that tier stays paste-only for good or becomes one of this broker's services.
 
     - **A — Paste only, permanently.** The gateway carries its store, audit and doorbell; an
@@ -2343,7 +2343,7 @@ covered:
     > arbitrary host command; host-run stays paste-only, and there is no generic mechanism.
     > *"we're not ready yet for that, but it's something we may consider. So the answer is no for
     > now."* The paste-back half (the command's output returning to the jail after the paste) is
-    > [`host-run-mailbox.md`](host-run-mailbox.md)'s own design and is not affected.
+    > [`host-run-mailbox.md`](../reference/host-run-mailbox.md)'s own design and is not affected.
 
 3. ✅ <a id="OQ-BB15"></a>**[OQ-BB15](#OQ-BB15): Does explicit `admit` replace or augment a default set's rules?**
     [§5.7](#57-permission-sets) says a same-named default with no `admit` keeps its rules,

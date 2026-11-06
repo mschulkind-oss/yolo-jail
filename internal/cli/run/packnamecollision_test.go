@@ -1,7 +1,7 @@
 package run
 
-// packnamecollision_test.go drives the launch's pack-name pre-flight (docs/design/pack-naming.md
-// §3.5) through the real stagePacks, so it fails if the call to packload.NameCollisions is
+// packnamecollision_test.go drives the launch's pack-name pre-flight (docs/reference/pack-system.md
+// #pack-name-clashes) through the real stagePacks, so it fails if the call to packload.NameCollisions is
 // deleted: `local/acme` is its own namespace, `acme`, which is also the source `acme`'s.
 
 import (

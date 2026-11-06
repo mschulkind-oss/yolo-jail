@@ -409,7 +409,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		}
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(msgs, "\npacks: "))
 	}
-	// Two entries given one namespace or one landing (docs/design/pack-naming.md §3.5).
+	// Two entries given one namespace or one landing (docs/reference/pack-system.md#pack-name-clashes).
 	if cols := packload.NameCollisions(loaded); len(cols) > 0 {
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(cols, "\npacks: "))
 	}

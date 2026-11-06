@@ -1,6 +1,6 @@
 package hostskills
 
-// delivered_names_test.go pins the names an agent sees (docs/design/pack-naming.md §3.4) and the
+// delivered_names_test.go pins the names an agent sees (docs/reference/pack-system.md#delivered-names) and the
 // skill-name clashes (§3.5) on the design's worked example, §3.4.1. Every layer is built by
 // PackLayer from a pack carrying the namespace its config entry gave it, the constructor both
 // notches read a pack through, and composed by ComposeInto, the writer both notches share.

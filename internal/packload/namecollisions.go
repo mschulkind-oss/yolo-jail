@@ -2,7 +2,7 @@ package packload
 
 // namecollisions.go refuses two selected packs that would be given ONE agent-facing name that is
 // not a skill's: two entries whose namespaces are one word, and two packs whose `files` landing and
-// `/ctx/host-…` directory are one name (docs/design/pack-naming.md §3.5). A skill name two packs
+// `/ctx/host-…` directory are one name (docs/reference/pack-system.md#pack-name-clashes). A skill name two packs
 // deliver alike is hostskills.Collisions' refusal; this is the half that needs no skills read.
 //
 // Every clash is refused, never resolved by renaming: no name may depend on what else is

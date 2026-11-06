@@ -390,7 +390,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
 	}
 	// Two entries given one namespace or one landing, and two packs delivering one skill name
-	// (docs/design/pack-naming.md §3.5): the launch and `yolo host apply` refuse both, so a
+	// (docs/reference/pack-system.md#pack-name-clashes): the launch and `yolo host apply` refuse both, so a
 	// check that passed them would pass a config that cannot start.
 	for _, c := range packload.NameCollisions(loaded) {
 		r.fail("pack name collision", c)

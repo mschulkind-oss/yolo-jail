@@ -36,7 +36,7 @@ type PackRename struct {
 	NewSource string `json:"new_source,omitempty"`
 	// SkillsRenamed reports that the converted entry names the pack's skills differently from the
 	// old one (its namespace or landing differs), and Namespace is the namespace they take. The
-	// conversion writes `bare = true` on everything it converts (pack-naming.md PN-D7), so this is
+	// conversion writes `bare = true` on everything it converts (pack-system.md PN-D7), so this is
 	// false unless a launch would read the converted entry otherwise.
 	SkillsRenamed bool   `json:"skills_renamed,omitempty"`
 	Namespace     string `json:"namespace,omitempty"`

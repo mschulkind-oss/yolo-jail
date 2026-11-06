@@ -13,7 +13,7 @@ import (
 )
 
 // TestHostRunDeliversAHostCommandToTheJail drives yolo host-run end to end
-// (docs/design/host-run-mailbox-plan.md, task 6): in the jail the line prints a ready line
+// (docs/reference/host-run-mailbox.md): in the jail the line prints a ready line
 // naming the host's path for the workspace; on the host (this test process, with YOLO_VERSION
 // unset) the same line runs at a terminal and delivers into the mailbox; and back in the jail
 // `yolo host-run show` reads the delivered run.

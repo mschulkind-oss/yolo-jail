@@ -249,7 +249,7 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    ```
 
    The conversion writes `bare = true` on every entry and source it converts
-   ([PN-D7](pack-naming.md#PN-D7)), and the proof compares each renamed pack's namespace and
+   ([PN-D7](../reference/pack-system.md#PN-D7)), and the proof compares each renamed pack's namespace and
    landing before and after; where they differ, the closing sentence names the pack and the
    namespace its skills take instead of saying they keep their names.
 

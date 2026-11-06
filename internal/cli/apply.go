@@ -795,7 +795,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			"owning pack. Nothing was written.[/bold red]", len(cols))
 		return 1
 	}
-	// Two entries given one namespace or one landing (docs/design/pack-naming.md §3.5); a skill
+	// Two entries given one namespace or one landing (docs/reference/pack-system.md#pack-name-clashes); a skill
 	// name two packs deliver alike is refused by the skills step (reportSkillCollisions).
 	if cols := packload.NameCollisions(loaded); len(cols) > 0 {
 		for _, c := range cols {

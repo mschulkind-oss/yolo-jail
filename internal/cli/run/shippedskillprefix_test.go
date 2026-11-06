@@ -12,7 +12,7 @@ import (
 )
 
 // The launch's briefing names yolo's built-in skills under the user's shipped_skill_prefix
-// (docs/design/pack-naming.md PN-D13), and bare without one. Through refreshJailBriefings, the
+// (docs/reference/pack-system.md PN-D13), and bare without one. Through refreshJailBriefings, the
 // call site that reads the key, so deleting that read fails this.
 func TestTheLaunchBriefingFollowsTheShippedSkillPrefix(t *testing.T) {
 	for _, tc := range []struct{ prefixLine, want, unwanted string }{

@@ -17,10 +17,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// hostrun.go is `yolo host-run` (docs/design/host-run-mailbox.md): one line a human runs in a
+// hostrun.go is `yolo host-run`: one line a human runs in a
 // host terminal, whose stdout, stderr and exit status reach the jail through the workspace's
 // mailbox, and the two jail forms that read it. The work is in internal/hostrun; this file is
-// the verb, the in-jail ready line and steps 2 to 6 of the host form (design §4.3).
+// the verb, the in-jail ready line and steps 2 to 6 of the host form.
+//
+// Architecture and invariants: docs/reference/host-run-mailbox.md
 //
 // MAIN ROUTES IT BEFORE THE FRONT DOOR (cli.go), as it does `gh` (HX-D15): the host form's
 // terminal carries another program's output, and the banner, the update notice and the global

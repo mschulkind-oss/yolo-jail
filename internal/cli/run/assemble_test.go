@@ -1225,9 +1225,9 @@ func TestAssembleNeverMountsTheEmbeddedPackCache(t *testing.T) {
 // a jail that could write one would choose an unconfined agent's instructions.
 //
 // yolo's host-managed directories (hostpath.ManagedDirs: the generated bin tree, which holds the
-// host launch wrappers and blocker shims) are held to it too: `yolo host-run` trusts a PATH entry
-// there as one no jail can write (host-run-mailbox.md HX-D32), and that trust is only as good as
-// this assertion.
+// host launch wrappers and blocker shims) are held to it too: a host launch runs the wrappers
+// there, and `yolo host-run`'s program lookup skips the tree as yolo's own
+// (docs/reference/host-run-mailbox.md HX-D32), so no jail may ever write it.
 func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 	check := func(t *testing.T, home string, argv []string) {
 		t.Helper()

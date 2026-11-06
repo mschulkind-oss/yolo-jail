@@ -53,7 +53,7 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 		return // the config error is the launch's to report, where it reports the others
 	}
 	// Before anything reads a pin: a pack renamed since the last launch finds its records under
-	// its new handle (docs/design/pack-naming.md §3.2), so the refresh below neither re-resolves
+	// its new handle (docs/reference/pack-system.md#pack-identity), so the refresh below neither re-resolves
 	// it nor prunes its old entry.
 	ReconcilePackRecords(entries, say, warn)
 	var git []packsrc.RefreshPack

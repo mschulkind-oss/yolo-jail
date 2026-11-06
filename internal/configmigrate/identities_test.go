@@ -1,6 +1,6 @@
 package configmigrate
 
-// identities_test.go drives ReconcilePackRecords (docs/design/pack-naming.md §3.2, PN-D10, PN-D15)
+// identities_test.go drives ReconcilePackRecords (docs/reference/pack-system.md#pack-identity, PN-D10, PN-D15)
 // over records a launch left under one handle.
 
 import (

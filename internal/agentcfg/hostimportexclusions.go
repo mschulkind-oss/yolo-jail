@@ -8,6 +8,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 )
 
+// Architecture and invariants: docs/reference/host-import-exclusions.md
+
 // FilterHostImportExclusions removes exact object members from one imported
 // host configuration document. An empty pointer list leaves the original bytes
 // untouched; active filters fail closed if the codec cannot process the object.

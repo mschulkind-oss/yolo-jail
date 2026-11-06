@@ -1,6 +1,6 @@
 package packsrc
 
-// identity.go is the pack identity (docs/design/pack-naming.md §3.2, PN-D10): the canonical place
+// identity.go is the pack identity (docs/reference/pack-system.md#pack-identity, PN-D10): the canonical place
 // a pack is read from, independent of the handle the user's config calls it. A rename of a source
 // key changes every handle under it and no identity; moving a pack's directory or repository
 // changes its identity and no handle.

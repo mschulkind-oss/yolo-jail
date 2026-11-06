@@ -1,7 +1,7 @@
 package packsrc
 
 // naming.go parses one `packs` entry and names the pack for agents
-// (docs/design/pack-naming.md §3.3, §3.4): its namespace, whose word that is, and its landing.
+// (docs/reference/pack-system.md#pack-namespace, #delivered-names): its namespace, whose word that is, and its landing.
 // Every one is a function of the entry and its source alone, never of what else is selected
 // (PN-D3); a clash between two entries is refused elsewhere, never resolved here.
 
@@ -96,7 +96,7 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 		true, marked, bare, namespace, origin)
 }
 
-// scopeKind is where a pack's namespace comes from (docs/design/pack-naming.md §3.3).
+// scopeKind is where a pack's namespace comes from (docs/reference/pack-system.md#pack-namespace).
 type scopeKind int
 
 const (
@@ -160,7 +160,7 @@ func parseHandle(text string, sources map[string]SourceDefinition, localRoot, ho
 		SourceID: def.Name, AllowDefaultRef: def.Ref == "", Origin: origin}, scope, nil
 }
 
-// named fills ref's namespace, its owner and its landing (docs/design/pack-naming.md §3.3, §3.4).
+// named fills ref's namespace, its owner and its landing (docs/reference/pack-system.md#pack-namespace, #delivered-names).
 //
 // A BARE pack is left exactly as main named it (PN-D7): no landing of its own, so its files and
 // /ctx directory keep their old spelling, and no character or length rule on its names — those

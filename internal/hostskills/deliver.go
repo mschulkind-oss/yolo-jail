@@ -188,7 +188,7 @@ type Request struct {
 	Pack string
 	// Namespace is the pack's namespace: each skill lands as `<namespace>-<skill>`, the copied
 	// SKILL.md's `name` saying the same, and as the author named it when "" (a bare pack,
-	// docs/design/pack-naming.md §3.4).
+	// docs/reference/pack-system.md#delivered-names).
 	Namespace string
 	// BareStep is the one command that lists the pack bare (packload.Pack.BareStep), for the
 	// refusal of two names its namespace delivers alike; "" names the key instead.
@@ -435,7 +435,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 	}
 
 	// The names an agent sees: `<namespace>-<skill>`, or the author's own for a bare pack
-	// (docs/design/pack-naming.md §3.4). renameTo is the `name` the copied SKILL.md carries
+	// (docs/reference/pack-system.md#delivered-names). renameTo is the `name` the copied SKILL.md carries
 	// instead of the author's, set only where a namespace changed the name.
 	//
 	// A bare pack's names are its author's, unchanged: no length or character rule applies to them

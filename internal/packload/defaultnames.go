@@ -1,7 +1,7 @@
 package packload
 
 // defaultnames.go is the warning that keeps a converted config's skill names from changing in
-// silence (docs/design/pack-naming.md §7, review finding M5). Main's migrator wrote `[pack_sources]`
+// silence (docs/reference/pack-system.md#pack-name-migration, review finding M5). Main's migrator wrote `[pack_sources]`
 // keys and `local/<pack>` entries with no `bare`, which was all a config could say before pack
 // naming; under pack naming such an entry gets its default namespace, so every skill it delivered
 // as `review` is now `<namespace>-review`. The current migrator writes `bare = true`, so only a

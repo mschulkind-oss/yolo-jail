@@ -106,7 +106,7 @@ type PackEntry struct {
 	EmbeddedName string `json:"embeddedName,omitempty"`
 
 	// Namespace, NamespaceOwner and Landing name the pack for agents
-	// (docs/design/pack-naming.md §3.3, §3.4; packsrc.PackReference has each one's meaning).
+	// (docs/reference/pack-system.md#pack-namespace, #delivered-names; packsrc.PackReference has each one's meaning).
 	// Empty for a shipped pack, a legacy JSONC entry and the conventional local pack, all of
 	// which deliver under their own names as they always have.
 	Namespace      string `json:"namespace,omitempty"`
@@ -163,7 +163,7 @@ type PackEntry struct {
 	ByDefault bool `json:"-"`
 }
 
-// Identity is the pack's identity (packsrc.PackIdentity; docs/design/pack-naming.md §3.2): where
+// Identity is the pack's identity (packsrc.PackIdentity; docs/reference/pack-system.md#pack-identity): where
 // it is read from, whatever its handle. "" when that cannot be told.
 func (p PackEntry) Identity() string {
 	embedded := p.EmbeddedName

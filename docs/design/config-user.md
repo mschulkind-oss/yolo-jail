@@ -172,7 +172,7 @@ sources, and why this is Homebrew's model, is
 [appendix A.5](#a5-how-other-tools-name-things-from-several-sources).
 
 What an AGENT calls a pack's skills is a separate name, ruled in
-[`pack-naming.md`](pack-naming.md#33-the-namespace--what-agents-see): every pack not shipped is
+[the pack system's pack names](../reference/pack-system.md#pack-namespace): every pack not shipped is
 delivered under a **namespace**, its source key, its own name for `local/<pack>` and a repository
 listed on its own, or a `namespace = "…"` written on that entry, so `acme/tools`' skill `review`
 reaches an agent as `acme-review`. `bare = true` on a source (`dotfiles = { path = "…", bare =

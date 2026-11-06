@@ -1099,7 +1099,7 @@ func TestConfigApplyEntryParsesItsFlags(t *testing.T) {
 	}
 }
 
-// `yolo host-run -- yolo config apply` (docs/design/host-run-mailbox.md): the host terminal is
+// `yolo host-run -- yolo config apply` (docs/reference/host-run-mailbox.md): the host terminal is
 // the command's stdin, and its stdout and stderr are pipes host-run copies to that terminal as
 // they arrive. A human is there to answer, so the apply asks, and a y records the change. The
 // owner's first run of exactly this refused "no terminal" over a question it could have asked.

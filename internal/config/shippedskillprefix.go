@@ -6,7 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// shippedskillprefix.go is `shipped_skill_prefix` (docs/design/pack-naming.md §3.7, PN-D13): the
+// shippedskillprefix.go is `shipped_skill_prefix` (docs/reference/pack-system.md#shipped-skill-prefix, PN-D13): the
 // word every skill yolo ships is delivered under, `<prefix>-<skill>`, built-in skills and shipped
 // packs' skills alike. Unset is no prefix, the default: shipped skills carry no marker.
 //

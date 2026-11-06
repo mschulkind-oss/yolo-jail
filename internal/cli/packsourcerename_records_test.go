@@ -1,7 +1,7 @@
 package cli
 
 // packsourcerename_records_test.go pins what `yolo pack source rename` does beyond the handles
-// (docs/design/pack-naming.md §3.6, PN-D10): the handle-keyed tables, the pins that follow each
+// (docs/reference/pack-system.md#renaming-a-source, PN-D10): the handle-keyed tables, the pins that follow each
 // pack, and an omitted-ref git source that stays at its pinned commit.
 
 import (

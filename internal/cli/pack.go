@@ -295,7 +295,7 @@ func runPack(args []string) int {
 // packMain dispatches a pack subcommand.
 //
 // IT TAKES NO STDIN, except `source rename`, which asks before renaming a namespace agents
-// invoke (docs/design/pack-naming.md §3.6) and reads packSourceStdin. It used to, for one reason: the install-time host-access approval
+// invoke (docs/reference/pack-system.md#renaming-a-source) and reads packSourceStdin. It used to, for one reason: the install-time host-access approval
 // prompt, which OQ-TP9 deleted (docs/design/trust-paths.md, 2026-09-04). No `yolo pack`
 // verb asks a question now — `install`/`update` fetch and report, `series check` fetches patch series
 // and explicit `--online` patch branches into scratch copies it deletes, `init` scaffolds a pack, and everything else inspects — so there is no
@@ -873,7 +873,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape(w))
 	}
 	// `skills_tier = "namespaced"` now decides one thing: that a WRAPPED PLUGIN is delivered whole
-	// (docs/design/pack-naming.md PN-D9). On a pack that wraps none it changes nothing.
+	// (docs/reference/pack-system.md PN-D9). On a pack that wraps none it changes nothing.
 	if pack.Decl != nil && pack.Decl.WantsNamespacedSkills() {
 		if plugins, _ := pack.HonoredPlugins(); len(plugins) == 0 {
 			pr.Printf("[yellow]⚠[/yellow] %s", richtext.Escape("skills_tier = \"namespaced\" changes "+
@@ -1533,7 +1533,7 @@ func packLs(out, errw io.Writer, color bool) int {
 			source = "(ships with yolo; selected by default)"
 		}
 		pr.Printf("%-20s %-8s %s", e.Name, kind, source)
-		// The word its skills are delivered under (docs/design/pack-naming.md §3.3).
+		// The word its skills are delivered under (docs/reference/pack-system.md#pack-namespace).
 		if e.Namespace != "" {
 			pr.Printf("  [dim]namespace: %s[/dim]", e.Namespace)
 		}
@@ -1606,7 +1606,7 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 			pr.Printf("  [dim]%s[/dim]", s)
 		}
 	}
-	// Each skill under the name agents see it by (docs/design/pack-naming.md §3.4).
+	// Each skill under the name agents see it by (docs/reference/pack-system.md#delivered-names).
 	// A shipped pack's namespace is the user's shipped_skill_prefix (PN-D13), as
 	// hostskills.PackLayer delivers it.
 	if names := packload.SkillNames(resolved.Pack); len(names) > 0 {
@@ -1851,7 +1851,7 @@ func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 	}
 	pr := richtext.Printer{W: out, Color: color}
 	// A pack renamed since its records were written finds them under its new handle before the
-	// prune below could drop them as a removed pack's (docs/design/pack-naming.md §3.2).
+	// prune below could drop them as a removed pack's (docs/reference/pack-system.md#pack-identity).
 	run.ReconcilePackRecords(entries, func(line string) { fmt.Fprintln(out, line) },
 		func(line string) { fmt.Fprintf(errw, "Warning: %s\n", line) })
 

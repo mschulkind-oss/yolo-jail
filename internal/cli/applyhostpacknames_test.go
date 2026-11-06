@@ -1,7 +1,7 @@
 package cli
 
-// applyhostpacknames_test.go drives `yolo host apply`'s pack-name refusal (docs/design/pack-naming.md
-// §3.5) through the real apply, so it fails if the call to packload.NameCollisions is deleted:
+// applyhostpacknames_test.go drives `yolo host apply`'s pack-name refusal (docs/reference/pack-system.md
+// #pack-name-clashes) through the real apply, so it fails if the call to packload.NameCollisions is deleted:
 // `local/acme` is its own namespace, acme, and `local/other` chooses the same word.
 
 import (

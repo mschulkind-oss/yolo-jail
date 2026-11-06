@@ -2,7 +2,7 @@ package hostskills
 
 // skillname.go writes a namespaced skill's delivered name into its COPY of SKILL.md: pi and Copilot
 // key a skill on the frontmatter `name` field rather than its directory, so one skill has one name
-// at every agent only if both say `<namespace>-<skill>` (docs/design/pack-naming.md §3.4, §5). The
+// at every agent only if both say `<namespace>-<skill>` (docs/reference/pack-system.md#delivered-names, #pn-p4). The
 // pack's own file is never edited.
 
 import (

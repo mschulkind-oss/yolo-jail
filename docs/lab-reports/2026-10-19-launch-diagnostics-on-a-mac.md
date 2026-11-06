@@ -39,7 +39,7 @@ launches.
 **Why it matters more than a typo.** The two backends fail differently, and this session has one
 defect that reaches only one of them: the Apple Container build gate rejects every real
 `container ls` ([the store-build design's Apple arm](../design/pi-extension-store-builds.md),
-roadmap item 7), and its gate is `runtime == "container"`, so podman never meets it. A reader who
+on the roadmap), and its gate is `runtime == "container"`, so podman never meets it. A reader who
 believes they switched runtimes and did not will attribute a backend-specific failure to both,
 which is exactly what happened. **Podman remains untested on this host.**
 

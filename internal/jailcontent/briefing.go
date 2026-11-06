@@ -227,7 +227,7 @@ type BriefingInput struct {
 
 	// ShippedSkillPrefix is the user's `shipped_skill_prefix` (config.ShippedSkillPrefix): the
 	// skills section names each built-in skill as it is delivered, `<prefix>-<skill>`
-	// (docs/design/pack-naming.md PN-D13). Empty names them bare, as before. The caller reads
+	// (docs/reference/pack-system.md PN-D13). Empty names them bare, as before. The caller reads
 	// it, as it reads the provisioning log: this function reads no file.
 	ShippedSkillPrefix string
 }
@@ -882,7 +882,7 @@ var briefingMenuExample = approvalwait.Menu{
 // hostRunSection teaches the agent what to do when the human must act on the host: the three
 // rules (approvals are not host-run; each human command alone in a fenced block; the waiter
 // started in the background in the same turn), the approval menu a refusal prints, and
-// `yolo host-run` (docs/design/host-run-mailbox.md §4.1, HX-D41), one line a human runs on the
+// `yolo host-run` (docs/reference/host-run-mailbox.md, HX-D41), one line a human runs on the
 // host whose output comes back here. It is a jail section; the host notch's briefing returns
 // before it. It names no harness: a pack that installs one adds how its background task is
 // started.

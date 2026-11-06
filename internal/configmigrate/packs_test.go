@@ -42,7 +42,7 @@ func TestClassifyPackGivesEachLegacySpellingItsHandle(t *testing.T) {
 		}
 		handle, _ := got.handle.(string)
 		if table, ok := got.handle.(*jsonx.OrderedMap); ok {
-			// Every converted entry listed on its own is bare (pack-naming.md PN-D7).
+			// Every converted entry listed on its own is bare (pack-system.md PN-D7).
 			if bare, _ := table.Get("bare"); bare != true {
 				t.Errorf("%s: converted entry is not bare: %v", c.entry, table)
 			}
@@ -90,7 +90,7 @@ func TestSourceNamesAreDistinctAndNeverReserved(t *testing.T) {
 }
 
 // A source takes its folder's name with no prompt, in the spelling agents carry, since the key
-// is the source's namespace (pack-naming.md PN-D11, PN-D12).
+// is the source's namespace (pack-system.md PN-D11, PN-D12).
 func TestASourceTakesItsFoldersNameAsAWord(t *testing.T) {
 	env(t)
 	names := sourceNames([]any{"/a/Yolo_Packs/x", "/b/___/y"})

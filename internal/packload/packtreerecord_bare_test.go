@@ -7,7 +7,7 @@ import (
 
 // The pack tree record carries each entry's exact bare command, so an attach, which reads the
 // running jail's tree instead of the config, refuses two names a namespace delivers alike with
-// the same command the launch prints (docs/design/pack-naming.md §3.5).
+// the same command the launch prints (docs/reference/pack-system.md#pack-name-clashes).
 func TestThePackTreeRecordCarriesTheBareCommand(t *testing.T) {
 	root := t.TempDir()
 	const step = "`yolo config set 'pack_sources.acme.bare' true --user`"

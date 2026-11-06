@@ -46,7 +46,7 @@ type PluginRequest struct {
 	// that is what the tools namespace its skills by.
 	Pack string
 	// Namespace is the wrapping pack's namespace: the tree lands at `<namespace>-<manifest name>`
-	// and its copied manifest's `name` says so, "" for a bare pack (docs/design/pack-naming.md §3.4).
+	// and its copied manifest's `name` says so, "" for a bare pack (docs/reference/pack-system.md#delivered-names).
 	Namespace string
 	// BareStep is Request.BareStep, for the plugin's skills delivered one by one.
 	BareStep string
@@ -368,7 +368,7 @@ func markedManifestBytes(path string, m manifestMark) ([]byte, bool, error) {
 	raw["x-yolo-managed-by"] = marker
 	// The pack that delivered the tree, so ownership survives the pack leaving the config
 	// (YoloPluginOwner), and the delivered name, which the agent reads from `name`
-	// (docs/design/pack-naming.md §3.4). The pack's own file is never edited; this is the copy.
+	// (docs/reference/pack-system.md#delivered-names). The pack's own file is never edited; this is the copy.
 	if m.pack != "" {
 		if raw["x-yolo-pack"], err = json.Marshal(m.pack); err != nil {
 			return nil, false, err

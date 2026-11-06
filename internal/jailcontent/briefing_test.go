@@ -329,9 +329,9 @@ func TestTheJailBriefingCarriesTheHandOffRules(t *testing.T) {
 
 func hostRunSectionText() string { return strings.Join(hostRunSection(), "\n") }
 
-// The jail briefing teaches `yolo host-run` (docs/design/host-run-mailbox.md §4.1); the host
-// notch's base does not, since there is no jail to deliver to. A locked config's request names
-// the host-run line for the check's output.
+// The jail briefing teaches `yolo host-run` (docs/reference/host-run-mailbox.md); the host
+// notch's base does not, since there is no jail to deliver to. A locked config's briefing
+// carries no host-run line for the check's output, only the mechanics pointer.
 func TestTheJailBriefingTeachesHostRun(t *testing.T) {
 	jail := BriefingContent(BriefingInput{Workspace: "/w"})
 	for _, want := range []string{"## Running a command on the host", "Then start `yolo wait <fresh-label>` in the background",

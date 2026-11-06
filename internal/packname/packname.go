@@ -1,8 +1,8 @@
 // Package packname is the spelling of every name an AGENT sees for a pack's content: a skill, a
-// wrapped plugin, a `files` landing and a `/ctx/host-…` directory (docs/design/pack-naming.md §3.4).
+// wrapped plugin, a `files` landing and a `/ctx/host-…` directory (docs/reference/pack-system.md#delivered-names).
 //
 // Every such name is lowercase letters, digits and single hyphens, at most MaxLen characters — the
-// only spelling every agent yolo delivers to carries (pack-naming.md §5). A name the USER writes
+// only spelling every agent yolo delivers to carries (pack-system.md#pn-p4). A name the USER writes
 // (a `[pack_sources]` key, a `namespace` value, `shipped_skill_prefix`) must already be in that
 // spelling and is refused otherwise (Word); a name an AUTHOR chose (a pack or skill directory, a
 // plugin manifest's name) is normalized into it (Normalize).
@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// MaxLen is the longest delivered name: the strictest limit any agent states (pack-naming.md §5).
+// MaxLen is the longest delivered name: the strictest limit any agent states (pack-system.md#pn-p4).
 const MaxLen = 64
 
 // Normalize is an author's name in the agent-facing spelling: lowercased, every character other
@@ -60,7 +60,7 @@ func Word(what, s string) error {
 // Delivered is the name an agent sees for an author's name under a namespace: `<namespace>-<name>`,
 // with name normalized, or name EXACTLY as the author wrote it when namespace is "" (a bare entry,
 // or a shipped pack). A bare name is left alone so a converted config, which the migration marks
-// bare, delivers every name it delivered before (pack-naming.md PN-D7); namespace is already a word.
+// bare, delivers every name it delivered before (pack-system.md PN-D7); namespace is already a word.
 func Delivered(namespace, name string) string {
 	if namespace == "" {
 		return name

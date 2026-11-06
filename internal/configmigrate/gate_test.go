@@ -113,7 +113,7 @@ func TestAPlanTheLaunchGateRefusesTouchesNothing(t *testing.T) {
 // and the next launch refused it ("expected source/pack, such as local/matt"). A pack under
 // ~/.config/yolo-jail/packs becomes local/<name>; one elsewhere is named through a
 // [pack_sources] entry for its directory (OQ-RC15). Both are written `bare = true`, so no
-// agent-facing name changes at conversion (pack-naming.md PN-D7). The converted files pass the
+// agent-facing name changes at conversion (pack-system.md PN-D7). The converted files pass the
 // launch's gate.
 func TestLegacyPackPathsConvertToSourceHandlesTheLaunchAccepts(t *testing.T) {
 	home := env(t)
