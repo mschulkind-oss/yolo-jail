@@ -195,7 +195,9 @@ type Observer struct {
 	ownsTTY            func(int) bool
 	beforeSuspend      func()
 	afterSuspendCommit func()
-	cancelWake         <-chan os.Signal
+	// Test-only gate between kernel reap and publication: PID disappearance is not publication.
+	beforeChildReaped func(<-chan struct{})
+	cancelWake        <-chan os.Signal
 	// outputBlocked is told each time host stdout refuses output with EAGAIN, just
 	// before the writer parks in poll: a test's exact witness that output is stalled.
 	outputBlocked func()
@@ -615,7 +617,7 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 	sess.output = sink
 	obs.run = sess
 	// Reap before exposing a kill-waiting Handle to the synchronous Arm callback.
-	exitedCh := reapChild(c, sess)
+	exitedCh := reapChild(c, sess, obs.beforeChildReaped)
 	callerArms := obs.Arm != nil
 	if callerArms {
 		func() {
@@ -736,7 +738,7 @@ func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, err
 		return 0, err
 	}
 	sess := newSession(-1, nil, c, hook)
-	exitedCh := reapChild(c, sess)
+	exitedCh := reapChild(c, sess, nil)
 	if obs.Arm != nil {
 		func() {
 			defer func() { _ = recover() }()
@@ -756,10 +758,13 @@ func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, err
 	return rc, nil
 }
 
-func reapChild(c *exec.Cmd, sess *session) <-chan int {
+func reapChild(c *exec.Cmd, sess *session, beforeReaped func(<-chan struct{})) <-chan int {
 	exitedCh := make(chan int, 1)
 	go func() {
 		rc := exitCode(c.Wait())
+		if beforeReaped != nil {
+			beforeReaped(sess.childDone)
+		}
 		if sess != nil {
 			sess.childReaped()
 		}
@@ -1178,7 +1183,7 @@ func proxyLoop(inFd, master int, c *exec.Cmd, cooked *unix.Termios, obs Observer
 	}
 
 	if exitedCh == nil {
-		exitedCh = reapChild(c, obs.run)
+		exitedCh = reapChild(c, obs.run, nil)
 	}
 
 	for {

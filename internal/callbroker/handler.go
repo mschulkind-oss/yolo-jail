@@ -346,6 +346,8 @@ func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) Lo
 	}
 }
 
+const cliHandlerCallBudget = 30 * time.Second
+
 // Handle is the production hostservice handler, not a test-only dispatcher.
 // Only a fronted, host-identified connection reaches its operation boundary.
 func (h *CLIHandler) Handle(s *hostservice.Session) {
@@ -412,7 +414,7 @@ func (h *CLIHandler) Handle(s *hostservice.Session) {
 			return
 		}
 	}
-	ctx, cancel := context.WithTimeout(h.shutdown, 30*time.Second)
+	ctx, cancel := context.WithTimeout(h.shutdown, cliHandlerCallBudget)
 	defer cancel()
 	verdict, result, err := h.serveCLI(ctx, mode, s.JailID, argv, stdin)
 	if err != nil {

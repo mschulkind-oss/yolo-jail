@@ -304,6 +304,21 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 		fifo := os.Getenv("YOLO_TTYPROXY_PRESSURE_FIFO")
 		outputBytes := os.Getenv("YOLO_TTYPROXY_PRESSURE_BYTES")
 		observer := Observer{Env: []string{"YOLO_TTYPROXY_PRESSURE_FIFO=" + fifo, "YOLO_TTYPROXY_PRESSURE_BYTES=" + outputBytes, "YOLO_TTYPROXY_OUTPUT_ACK=" + os.Getenv("YOLO_TTYPROXY_OUTPUT_ACK")}}
+		if os.Getenv("YOLO_TTYPROXY_HOLD_REAP") == "1" {
+			observer.beforeChildReaped = func(childDone <-chan struct{}) {
+				go func() {
+					<-childDone
+					_ = writePressureReceipt(fifo+".reap", 'P')
+				}()
+				_ = writePressureReceipt(fifo+".reap", 'K')
+				for {
+					if _, err := os.Stat(fifo + ".reap-release"); err == nil {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+		}
 		if os.Getenv("YOLO_TTYPROXY_OUTPUT_BLOCKED_MARKER") == "1" {
 			var once sync.Once
 			observer.outputBlocked = func() {
@@ -1439,6 +1454,84 @@ func runSuspendResumePreservesOutputQueueOrder(t *testing.T, backgroundChildExit
 	}
 }
 
+func TestOwnedChildEarlySignalCleanupReapsChild(t *testing.T) {
+	master, slave, err := openPty()
+	if err != nil {
+		t.Skipf("cannot open pty: %v", err)
+	}
+	defer unix.Close(master)
+	hostTTY := os.NewFile(uintptr(slave), "proxy-early-signal-tty")
+	defer hostTTY.Close()
+	cooked := mustGetTermios(t, slave)
+	control := filepath.Join(t.TempDir(), "child-read")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestOutputPressureDoesNotStopInputForwarding$", "-test.count=1")
+	cmd.Stdin, cmd.Stdout = hostTTY, hostTTY
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control,
+		"YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(readChunk), "YOLO_TTYPROXY_EXPECT_SUSPEND=1",
+		"YOLO_TTYPROXY_HOLD_REAP=1", "YOLO_TTYPROXY_OUTPUT_ACK=1", "YOLO_TTYPROXY_ACK_AFTER_WRITE=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- cmd.Wait() }()
+	var pid int
+	helperDone := false
+	defer func() {
+		_ = os.WriteFile(control+".reap-release", []byte("release"), 0600)
+		if !helperDone {
+			_ = cmd.Process.Kill()
+			<-waitDone
+		}
+		if pid != 0 && !errors.Is(unix.Kill(pid, 0), unix.ESRCH) {
+			_ = unix.Kill(pid, syscall.SIGKILL)
+		}
+	}()
+	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("owned child did not start: %v stderr=%q", err, stderr.String())
+	}
+	pidBytes, err := os.ReadFile(control + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err = strconv.Atoi(string(pidBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitPressureMarker(t, control+".reap", 'K', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("signal arm did not kill and reap its owned child: %v", err)
+	}
+	if stages, err := os.ReadFile(control + ".reap"); err != nil || bytes.Contains(stages, []byte{'P'}) {
+		t.Fatalf("reaper published exit while held: stages=%q err=%v", stages, err)
+	}
+	if err := os.WriteFile(control+".reap-release", []byte("release"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-waitDone:
+		helperDone = true
+		if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 128+int(syscall.SIGTERM) {
+			t.Fatalf("signal arm exit=%v, want SIGTERM status; stderr=%q", err, stderr.String())
+		}
+	case <-time.After(childDeadline):
+		t.Fatal("signal arm did not finish after reaping its child")
+	}
+	if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
+		t.Fatalf("owned child %d was not reaped: %v", pid, err)
+	}
+	if stages, err := os.ReadFile(control + ".proxy"); err != nil || !bytes.Contains(stages, []byte{'A'}) {
+		t.Fatalf("default signal arm did not publish cancellation: stages=%q err=%v", stages, err)
+	}
+	if after := mustGetTermios(t, slave); *after != *cooked {
+		t.Fatalf("signal arm did not restore cooked terminal: before=%+v after=%+v", *cooked, *after)
+	}
+}
+
 func TestOwnedChildExitPreemptsPendingSuspend(t *testing.T) {
 	master, slave, err := openPty()
 	if err != nil {
@@ -1454,7 +1547,7 @@ func TestOwnedChildExitPreemptsPendingSuspend(t *testing.T) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control,
 		"YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(readChunk), "YOLO_TTYPROXY_EXPECT_SUSPEND=1",
-		"YOLO_TTYPROXY_FINAL_CLAIM_GATE=1", "YOLO_TTYPROXY_EXIT_GATE_NEWLINE=1", "YOLO_TTYPROXY_OUTPUT_ACK=1", "YOLO_TTYPROXY_ACK_AFTER_WRITE=1")
+		"YOLO_TTYPROXY_FINAL_CLAIM_GATE=1", "YOLO_TTYPROXY_EXIT_GATE_NEWLINE=1", "YOLO_TTYPROXY_HOLD_REAP=1", "YOLO_TTYPROXY_OUTPUT_ACK=1", "YOLO_TTYPROXY_ACK_AFTER_WRITE=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
@@ -1493,6 +1586,7 @@ func TestOwnedChildExitPreemptsPendingSuspend(t *testing.T) {
 	}
 	startedDrain := false
 	defer func() {
+		_ = os.WriteFile(control+".reap-release", []byte("release"), 0600)
 		if !helperDone {
 			_ = cmd.Process.Signal(syscall.SIGCONT)
 			_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -1555,6 +1649,18 @@ func TestOwnedChildExitPreemptsPendingSuspend(t *testing.T) {
 	}
 	if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
 		t.Fatalf("owned child %d was not reaped at the stop gate: %v", pid, err)
+	}
+	if err := waitPressureMarker(t, control+".reap", 'K', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("kernel-reaped child did not reach publication gate: %v", err)
+	}
+	if stages, err := os.ReadFile(control + ".reap"); err != nil || bytes.Contains(stages, []byte{'P'}) {
+		t.Fatalf("reap publication preceded held reaper: stages=%q err=%v", stages, err)
+	}
+	if err := os.WriteFile(control+".reap-release", []byte("release"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitPressureMarker(t, control+".reap", 'P', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("owned-child reap was not published before suspend gate release: %v", err)
 	}
 	if err := os.WriteFile(control+".release", []byte("release"), 0600); err != nil {
 		t.Fatal(err)

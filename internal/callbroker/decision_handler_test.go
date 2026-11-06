@@ -283,7 +283,22 @@ func TestPackCLIHandlerAuditsReadLookupsAndKeepsMultiwriteInert(t *testing.T) {
 	stop := make(chan struct{})
 	server := make(chan error, 1)
 	front := make(chan error, 1)
-	go func() { server <- hostservice.ServeFrontedUnix(h.Handle, sock, stop) }()
+	queuedMultiwrite := make(chan struct{})
+	queueDelay := 5*time.Second + 100*time.Millisecond
+	go func() {
+		server <- hostservice.ServeFrontedUnix(func(s *hostservice.Session) {
+			if op, _ := s.Get("op"); op == "ask" {
+				if argv, ok := s.Get("argv"); ok {
+					if words, ok := argv.([]any); ok && len(words) == 3 {
+						close(queuedMultiwrite)
+						// Queue before Handle starts its own execution budget.
+						<-time.After(queueDelay)
+					}
+				}
+			}
+			h.Handle(s)
+		}, sock, stop)
+	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(sock); err == nil {
@@ -309,7 +324,9 @@ func TestPackCLIHandlerAuditsReadLookupsAndKeepsMultiwriteInert(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		// The test queues one request before Handle starts its 30s budget;
+		// leave one bounded second for TLS and frame delivery.
+		_ = conn.SetDeadline(time.Now().Add(queueDelay + cliHandlerCallBudget + time.Second))
 		body, err := json.Marshal(map[string]any{"op": op, "argv": argv})
 		if err != nil {
 			t.Fatal(err)
@@ -340,6 +357,11 @@ func TestPackCLIHandlerAuditsReadLookupsAndKeepsMultiwriteInert(t *testing.T) {
 	}
 	if rc, out := request("ask", "update", "a1", "b1"); rc != 0 || !strings.Contains(out, `"verdict":"refused"`) || strings.Contains(out, "cannot be filed") {
 		t.Fatalf("ask blocked multiwrite rc=%d output=%q", rc, out)
+	}
+	select {
+	case <-queuedMultiwrite:
+	default:
+		t.Fatal("multiwrite never entered the real host handler queue")
 	}
 	if rc, _ := request("act", "update", "a1", "b1"); rc != 64 {
 		t.Fatalf("refused multiwrite rc=%d", rc)
