@@ -362,15 +362,17 @@ Two things to read before the table:
 > **"Unconfigured" is not "uncapped" on Apple Container.** With no `resources` block, the `container` backend still gets a memory and CPU cap — **yolo's own arithmetic**, roughly half your RAM and half your cores. The startup banner does not mention it (it prints only what you wrote); the agent's briefing does. On both podman backends, unset really does mean unlimited.
 
 > [!IMPORTANT]
-> **The resource and networking controls in this table are fixed when the jail starts.** Re-entering a
-> running jail does not change its limits, network mode or published ports. `yolo config apply` can
+> **Resource limits and networking controls in this table are fixed when the jail starts.** Re-entering a
+> running jail does not change its limits, network mode or published ports. Resource-group selection is
+> checked on every invocation, including re-entry: a newly matching owner mapping refuses access to
+> an existing jail; it does not change that jail's resource limits. `yolo config apply` can
 > apply eligible context-mount additions/removals and supported GitHub repository-scope changes; it
-> does not hot-update the resource and network rows below. The command reports what took effect and
+> does not hot-update resource limits or networking. The command reports what took effect and
 > what still needs a restart.
 
 | Key | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS | Takes effect |
 |---|---|---|---|---|---|
-| `resource_groups` — owner-only placement selection | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | fresh launch |
+| `resource_groups` — owner-only placement selection | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | selected mapping: refuses[^resource-groups] | every invocation, including re-entry |
 | `resources.memory` | works — kernel-enforced [^cgroups] | works — enforced in the VM, clipped to it [^vm-limits] | works — **but a cap you never wrote** [^acdefault] | works, sampled — not kernel-enforced; the largest process is stopped [^mures] | fresh launch [^muentry] |
 | `resources.cpus` | works — kernel-enforced [^cgroups] | works — clipped to the VM's vCPUs, silently [^vm-limits] | works — half your cores unless set [^acdefault] | works, cooperatively — common build tools' parallelism, not a cap [^mures] | fresh launch [^muentry] |
 | `resources.pids_limit` | works — always capped, default applied | works — always capped | absent, **silent** — no surface mentions it [^acpids] | absent, warns — an open question [^mures] | fresh launch [^muentry] |
