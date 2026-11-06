@@ -25,6 +25,7 @@ import (
 // reapOrphanedJails already does — the callee is pinned directly and the
 // wiring is additionally checked by nested-jail verification (see AGENTS.md).
 func TestAutoReapOldImagesWiring(t *testing.T) {
+	t.Setenv(autoReapOptOutEnv, "") // the gate a landing run sets must not hide the reap
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	buildDir := paths.BuildDir()
@@ -131,6 +132,7 @@ func TestAutoReapOldImagesWiring(t *testing.T) {
 // was reordered deliberately — listing candidates first is what distinguishes
 // a denied sweep from a machine where yolo has never loaded an image.
 func TestAutoReapOldImagesWiringDeclinesOnUnknownRetention(t *testing.T) {
+	t.Setenv(autoReapOptOutEnv, "") // the gate a landing run sets must not hide the decline
 	// There is no current-image pointer in EITHER case (no current-images/ dir
 	// under buildDir), so what separates them is only whether there was anything
 	// to reap.
