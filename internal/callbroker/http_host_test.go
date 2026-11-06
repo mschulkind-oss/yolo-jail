@@ -207,6 +207,15 @@ func writePreparedHTTPGeneration(t *testing.T, f *onceFixture, in *callbrokerinp
 func selectedPreparedHTTPReadFixture(t *testing.T, origin string, executor httpExecutor) (*HTTPHandler, *onceFixture, string) {
 	t.Helper()
 	base, f := selectedHTTPReadFixture(t, origin, executor)
+	h, generation := preparedHTTPFixture(t, base, f)
+	return h, f, generation
+}
+
+// preparedHTTPFixture rebuilds a selected HTTP fixture's handler from a launch
+// input that references a valid prepared generation, keeping its live scope,
+// broker start, executor and store revalidation.
+func preparedHTTPFixture(t *testing.T, base *HTTPHandler, f *onceFixture) (*HTTPHandler, string) {
+	t.Helper()
 	in := base.input
 	scope, err := brokerscope.ReadFile(in.ScopeFile)
 	if err != nil {
@@ -219,11 +228,14 @@ func selectedPreparedHTTPReadFixture(t *testing.T, origin string, executor httpE
 		t.Fatalf("prepared selected HTTP fixture did not construct: %v", err)
 	}
 	h.scopePath, h.bound, h.start = f.scopePath, f.scope, f.h.start
-	h.httpClient = executor
+	h.httpClient = base.httpClient
+	if f.store.Revalidate != nil {
+		f.store.Revalidate = h.revalidateHTTP
+	}
 	if _, _, err := h.currentAuthority(); err != nil {
 		t.Fatalf("prepared selected HTTP fixture is not live: %v", err)
 	}
-	return h, f, generation
+	return h, generation
 }
 
 func selectedHTTPHostFrame(t *testing.T, h *HTTPHandler) func(string, HTTPCall) (int, string) {

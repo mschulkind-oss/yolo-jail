@@ -158,6 +158,12 @@ const (
 	// children as fd 3, and a ready daemon writes its declared name after the
 	// endpoint it registered is live.
 	JailDaemonReadyFDEnv = "YOLO_JAIL_DAEMON_READY_FD"
+	// HTTPFrontGenerationsEnv carries each selected HTTP loophole's front
+	// generation as `<loophole>=<generation>[,…]`. The selected front
+	// (`yolo-jaild call-broker-http-front --loophole <loophole>`) seals with its
+	// own entry; the launch side sets it (docs/design/pack-brokers-http-plan.md,
+	// Task 3).
+	HTTPFrontGenerationsEnv = "YOLO_HTTP_FRONT_GENERATIONS"
 )
 
 // SerialEndpointEnv, HostProcessesEndpointEnv and MacosLogEndpointEnv are the endpoint
