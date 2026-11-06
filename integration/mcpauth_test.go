@@ -25,19 +25,9 @@ func TestMCPAuthBrokerSeedsButDoesNotAdoptUnprovedCodexSignIn(t *testing.T) {
 	if detectRuntime() != "podman" || goruntime.GOOS != "linux" {
 		t.Skip("Codex MCP sharing slice is Linux podman only")
 	}
-	// requireJail isolates config, but links host state. Replace HOME altogether before
-	// invoking the launcher: no link to any real config, cache, or credential store.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	configText := "packs = [\"codex\"]\n[active_provider]\ncodex = \"codex\"\n[mcp_servers.linear]\nurl = \"https://mcp.example.test/mcp\"\n[mcp_servers.env]\nurl = \"https://mcp.example.test/env\"\nrequires_env = [\"YOLO_UNSET_SYNTHETIC_MCP\"]\n[mcp_servers.capability]\nurl = \"https://mcp.example.test/capability\"\nprovides = \"web_search\"\n"
 	t.Setenv("YOLO_UNSET_SYNTHETIC_MCP", "")
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configText), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	home := mcpAuthHome(t, configText)
 	workspace := writeProject(t, `{"mcp_servers":{"private":{"url":"https://workspace.example/mcp"}}}`)
 	state := loopholes.StateDirFor("mcp-auth-broker")
 	canonical, err := mcpauth.NewCanonicalStore(state)
@@ -152,4 +142,35 @@ PY`
 	if !strings.Contains(result.stderr, "mcp-auth-broker") {
 		t.Fatal("selected broker was not disclosed")
 	}
+}
+
+// mcpAuthHome gives an MCP auth test a HOME whose yolo state is its own (the broker's
+// canonical store, the keeper records, the daemon logs) and whose user config is exactly
+// configTOML, and returns it.
+//
+// IT KEEPS THE HARNESS'S STORE LINKS, and that is the whole point of it. These tests once
+// minted HOME as a bare t.TempDir(), which carries no link to anything. Under yolo's own
+// jail podman is root and its graphroot is /var/lib/containers/storage, which no HOME
+// moves, so the suite passed here. On a GitHub runner podman is rootless and its graphroot
+// is $HOME/.local/share/containers/storage, so every one of these launches loaded the
+// whole jail image into the temp HOME (about 40 s each) and left overlay layers owned by
+// the runner's subuids, which t.TempDir()'s RemoveAll cannot unlink: all four tests failed
+// in cleanup after their assertions passed (CI run 42265513840). packHomeSharedStores
+// states that rule; withPrivateFixtureYoloStore honors it and keeps yolo's state private,
+// so this only swaps the JSONC config it seeds for the TOML these tests write.
+func mcpAuthHome(t *testing.T, configTOML string) string {
+	t.Helper()
+	home := withPrivateFixtureYoloStore(t)
+	configDir := filepath.Join(home, ".config", "yolo-jail")
+	// A TOML user config beside a legacy JSONC one is refused, so the seeded one goes.
+	if err := os.Remove(filepath.Join(configDir, "config.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
 }

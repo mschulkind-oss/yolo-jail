@@ -23,15 +23,7 @@ func TestMCPAuthFinalHarvestLockFailureFailsSelectedLaunch(t *testing.T) {
 	if detectRuntime() != "podman" || goruntime.GOOS != "linux" {
 		t.Skip("Linux podman only")
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg := filepath.Join(home, ".config", "yolo-jail")
-	if err := os.MkdirAll(cfg, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("packs = [\"codex\"]\n[mcp_servers.linear]\nurl = \"https://mcp.example.test/mcp\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	home := mcpAuthHome(t, "packs = [\"codex\"]\n[mcp_servers.linear]\nurl = \"https://mcp.example.test/mcp\"\n")
 	workspace := writeProject(t, `{}`)
 	state := loopholes.StateDirFor("mcp-auth-broker")
 	canonical, err := mcpauth.NewCanonicalStore(state)
