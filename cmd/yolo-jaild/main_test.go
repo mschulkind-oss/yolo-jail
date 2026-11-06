@@ -55,11 +55,24 @@ func TestUsageStillExits2(t *testing.T) {
 }
 
 func TestDispatchRoutesCallBrokerHTTPFront(t *testing.T) {
-	// A non-loopback address reaches the selected front's validation path and
-	// returns its daemon failure code; a missing dispatch row falls through to
+	// A front with no generation of its own reaches the selected front's startup
+	// and returns its daemon failure code; a missing dispatch row falls through to
 	// usage (2). No listener or host endpoint is created by this probe.
-	if rc := run([]string{"call-broker-http-front", "--endpoint", "/selected/host.endpoint", "--listen", "0.0.0.0:0"}); rc != 1 {
+	t.Setenv(paths.HTTPFrontGenerationsEnv, "")
+	t.Setenv(paths.JailDaemonReadyFDEnv, "")
+	if rc := run([]string{"call-broker-http-front", "--endpoint", "/selected/host.endpoint", "--loophole", "tasks"}); rc != 1 {
 		t.Fatalf("call-broker-http-front dispatch rc = %d, want front refusal 1", rc)
+	}
+	// The front chooses its own loopback port; a caller-named listen address is
+	// no longer a flag, and neither selected identity flag may be omitted.
+	for name, args := range map[string][]string{
+		"listen":      {"--endpoint", "/selected/host.endpoint", "--loophole", "tasks", "--listen", "127.0.0.1:0"},
+		"no endpoint": {"--loophole", "tasks"},
+		"no loophole": {"--endpoint", "/selected/host.endpoint"},
+	} {
+		if rc := run(append([]string{"call-broker-http-front"}, args...)); rc != 2 {
+			t.Fatalf("call-broker-http-front %s rc = %d, want usage 2", name, rc)
+		}
 	}
 }
 
