@@ -13,10 +13,11 @@ import (
 // Verdict describes the same classified call in evaluate and act mode. It is not
 // permission to dispatch: act must check live authority at its effect boundary.
 type Verdict struct {
-	Verdict string `json:"verdict"`
-	Rule    string `json:"rule"`
-	Next    string `json:"next,omitempty"`
-	Digest  string `json:"digest,omitempty"`
+	Verdict   string `json:"verdict"`
+	Rule      string `json:"rule"`
+	Next      string `json:"next,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func callRequest(source, workspace, jail, start, launch string, c Classification, stdin []byte) brokerstore.Request {

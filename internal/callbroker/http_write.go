@@ -206,7 +206,7 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 	if filed.ID == "" {
 		return Verdict{Verdict: "refused", Next: "Inspect the host approval store before retrying", Digest: q.Digest}, reply, errors.New("HTTP call was neither filed nor covered")
 	}
-	return Verdict{Verdict: "asks", Rule: "host approval required", Next: "Ask the human to run `yolo approve " + filed.ID + "` on the host, then resubmit the original call", Digest: q.Digest}, reply, nil
+	return Verdict{Verdict: "asks", Rule: "host approval required", Next: "Ask the human to run `yolo approve " + filed.ID + "` on the host, then resubmit the original call", Digest: q.Digest, RequestID: filed.ID}, reply, nil
 }
 
 func (h *HTTPHandler) httpWriteFailure(digest string, attempted, preflightFailed bool, err error) Verdict {

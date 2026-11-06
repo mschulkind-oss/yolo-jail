@@ -54,6 +54,15 @@ func TestUsageStillExits2(t *testing.T) {
 	}
 }
 
+func TestDispatchRoutesCallBrokerHTTPFront(t *testing.T) {
+	// A non-loopback address reaches the selected front's validation path and
+	// returns its daemon failure code; a missing dispatch row falls through to
+	// usage (2). No listener or host endpoint is created by this probe.
+	if rc := run([]string{"call-broker-http-front", "--endpoint", "/selected/host.endpoint", "--listen", "0.0.0.0:0"}); rc != 1 {
+		t.Fatalf("call-broker-http-front dispatch rc = %d, want front refusal 1", rc)
+	}
+}
+
 func TestDispatchRoutesOpenAIAuthAdapter(t *testing.T) {
 	t.Setenv("YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN", strings.Repeat("ab", 32)) // past the caller-token idle
 	// An invalid listen address reaches adapter startup and returns its runtime

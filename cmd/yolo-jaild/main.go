@@ -6,6 +6,7 @@
 //	yolo-jaild oauth-terminator   # in-jail TLS terminator for Claude OAuth
 //	yolo-jaild openai-auth-adapter # in-jail Codex refresh adapter
 //	yolo-jaild aws-credential-adapter # in-jail AWS container-credentials endpoint
+//	yolo-jaild call-broker-http-front # non-authoritative HTTP front for a selected host broker
 //	yolo-jaild wire-bridge        # anthropic→openai wire bridge (selection-lazy)
 //	yolo-jaild nix-roots          # the root watcher (docs/reference/in-jail-nix-roots.md "The root watcher")
 //
@@ -18,6 +19,7 @@ import (
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
@@ -57,6 +59,8 @@ func run(args []string) int {
 		return openaiauthadapter.Main(rest)
 	case "aws-credential-adapter":
 		return awscredadapter.Main(rest)
+	case "call-broker-http-front":
+		return callbroker.HTTPFrontMain(rest)
 	case "wire-bridge":
 		return wirebridged.Main(rest)
 	case "nix-roots":
@@ -74,6 +78,6 @@ func run(args []string) int {
 // (TestRunJudgesGuestScopeAgainstTheRealHome).
 var usage = func() int {
 	fmt.Fprintln(os.Stderr, "usage: yolo-jaild <supervise|oauth-terminator|openai-auth-adapter|"+
-		"aws-credential-adapter|wire-bridge|nix-roots|reap-worktrees|durable-size> [args...]")
+		"aws-credential-adapter|call-broker-http-front|wire-bridge|nix-roots|reap-worktrees|durable-size> [args...]")
 	return 2
 }
