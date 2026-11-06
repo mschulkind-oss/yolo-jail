@@ -40,8 +40,8 @@ func TestMCPAuthFinalHarvestLockFailureFailsSelectedLaunch(t *testing.T) {
 	marker := filepath.Join(workspace, "lock-held")
 	finished := make(chan error, 1)
 	go func() {
-		lockPath := filepath.Join(paths.WorkspaceStateDir(workspace), "home", "codex", "mcp-oauth-locks", "file-store.lock")
-		storePath := filepath.Join(paths.WorkspaceStateDir(workspace), "home", "codex", ".credentials.json")
+		lockPath := filepath.Join(jailHome(workspace), "codex", "mcp-oauth-locks", "file-store.lock")
+		storePath := filepath.Join(jailHome(workspace), "codex", ".credentials.json")
 		deadline := time.Now().Add(90 * time.Second)
 		for time.Now().Before(deadline) {
 			if _, err := os.Stat(storePath); err == nil {

@@ -112,7 +112,7 @@ PY`
 			t.Fatal("unproved native login changed canonical record")
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(workspace), "home", "codex", ".credentials.json"))
+	data, err := os.ReadFile(filepath.Join(jailHome(workspace), "codex", ".credentials.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
