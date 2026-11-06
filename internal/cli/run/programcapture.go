@@ -113,6 +113,9 @@ func (o *Options) prepareOrdinaryPrograms(cfg *jsonx.OrderedMap, rt, repoRoot st
 		if cause != "" {
 			return refuse(privateClientRefusal{cell: cells[0], cause: cause, repair: privateClientBaselineRepair})
 		}
+		if r := privateClientLaunchFlagsRefusal(cells, packs); r != nil {
+			return refuse(*r)
+		}
 	}
 	if o.PreparePrograms == nil || o.roBindsUnsupported(rt) != "" {
 		return 0

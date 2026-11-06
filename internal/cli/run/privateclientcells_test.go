@@ -396,3 +396,51 @@ func TestAttachRefusesACheckedPrivateClientWithNoCommittedBinding(t *testing.T) 
 		})
 	}
 }
+
+// A private client the bootstrap would start without its pack's launch flags is refused, before
+// anything is prepared, rather than run with them silently dropped.
+func TestPrepareOrdinaryProgramsRefusesAPrivateClientWithLaunchFlags(t *testing.T) {
+	oldHost := hostPlatform
+	t.Cleanup(func() { hostPlatform = oldHost })
+	hostPlatform = privateClientPlatform
+	if containerJailPlatform() != privateClientPlatform {
+		t.Skip("the private client cell is linux/amd64 only")
+	}
+	repoRoot := t.TempDir()
+	for _, name := range []string{"flake.nix", "flake.lock"} {
+		if err := os.WriteFile(filepath.Join(repoRoot, name), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := attachedPrivateHTTPFixture(t, true, false)
+	flagsDir := filepath.Join(t.TempDir(), "flags")
+	if err := os.Mkdir(flagsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(flagsDir, "pack.json"), []byte(`{"name":"flags","contributes":[{"kind":"autonomy","autonomous":{"launch":[{"bin":"fixture-client","flags":["--fixture-flag"]}]}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flags, problems := packload.LoadDir(flagsDir, "flags")
+	if flags == nil || len(problems) != 0 {
+		t.Fatalf("launch-flag pack: %v", problems)
+	}
+	o := f.o
+	var stderr strings.Builder
+	o.Stderr = &stderr
+	o.approvedHTTPBindings = map[string]config.ApprovedCallBrokerHTTP{"tasks": {Pack: "front-pack"}}
+	calls := 0
+	o.PreparePrograms = func(ProgramCaptureRequest) (map[string]entrypoint.ProgramCaptureDelivery, error) {
+		calls++
+		return nil, nil
+	}
+	rc := o.prepareOrdinaryPrograms(jsonx.NewOrderedMap(), "podman", repoRoot, append(f.packs, flags), nil)
+	out := stderr.String()
+	if rc != 1 || calls != 0 {
+		t.Fatalf("a private client with launch flags was prepared: rc=%d calls=%d\n%s", rc, calls, out)
+	}
+	for _, want := range []string{"fixture-client", "launch flags", "Repair:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("refusal does not name %q:\n%s", want, out)
+		}
+	}
+}

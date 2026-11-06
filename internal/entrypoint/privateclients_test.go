@@ -176,3 +176,28 @@ func TestVerifyPrivateClientChecksEntrypointAndRuntimeFiles(t *testing.T) {
 		t.Fatal("a symlinked entrypoint directory was accepted")
 	}
 }
+
+// A bound bin whose packs declare launch flags gets no launcher that would drop them: generation
+// refuses, naming the bin and the repair.
+func TestGeneratedLaunchersRefuseABoundBinWithLaunchFlags(t *testing.T) {
+	home, packRoot := t.TempDir(), writeSemverPack(t)
+	dir := filepath.Join(packRoot, "audited-semver")
+	manifest := `{"name":"audited-semver","contributes":[` +
+		`{"kind":"program","bin":"semver","via":"npm","package":"semver@7.7.2"},` +
+		`{"kind":"autonomy","autonomous":{"launch":[{"bin":"semver","flags":["--fixture-flag"]}]}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := MarshalPrivateClients([]PrivateClientBinding{fixturePrivateBinding()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, PrivateHTTPClientsEnv: value})
+	err = GenerateAgentLaunchers(e)
+	if err == nil || !strings.Contains(err.Error(), "semver") || !strings.Contains(err.Error(), "launch flags") || !strings.Contains(err.Error(), "rerun yolo") {
+		t.Fatalf("a bound bin with launch flags got a launcher: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(e.LaunchDir(), "semver")); strings.Contains(string(got), PrivateClientExecVerb) {
+		t.Fatalf("a bound launcher that drops launch flags was written:\n%s", got)
+	}
+}

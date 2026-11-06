@@ -586,6 +586,13 @@ func GenerateAgentLaunchers(e *Env) error {
 				continue
 			}
 			if binding, bound := privateClients[inst.Bin]; bound {
+				// The bootstrap starts the verified entrypoint with the caller's arguments only: a
+				// bin with launch flags is refused rather than started without them.
+				for _, autonomy := range []bool{true, false} {
+					if flags := packload.LaunchFlagsFor(packs, autonomy)[inst.Bin]; len(flags) > 0 {
+						return fmt.Errorf("private HTTP client %s: its packs declare launch flags for it (%s), which its private bootstrap does not carry; remove them or the client's env contribution naming the front, then stop the jail and rerun yolo", inst.Bin, strings.Join(flags, " "))
+					}
+				}
 				if err := writeExecutable(launcherPath, privateClientLauncher(binding)); err != nil {
 					return err
 				}

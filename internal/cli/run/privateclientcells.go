@@ -79,6 +79,22 @@ func (r privateClientRefusal) Render(color bool) string {
 	return b.String()
 }
 
+// privateClientLaunchFlagsRefusal refuses a cell whose bin some selected pack declares launch
+// flags for, in either autonomy posture: the private bootstrap starts the verified entrypoint with
+// the caller's own arguments only, so those flags would be dropped silently.
+func privateClientLaunchFlagsRefusal(cells []packload.PrivateProgramEnvPlan, packs []*packload.Pack) *privateClientRefusal {
+	for _, cell := range cells {
+		for _, autonomy := range []bool{true, false} {
+			if flags := packload.LaunchFlagsFor(packs, autonomy)[cell.Bin]; len(flags) > 0 {
+				return &privateClientRefusal{cell: cell,
+					cause:  "its packs declare launch flags for it (" + strings.Join(flags, " ") + "), which its private bootstrap does not carry",
+					repair: "remove the launch flags for " + cell.Bin + " from the selected packs, or remove this client's `env` contribution naming the front, then rerun `yolo`"}
+			}
+		}
+	}
+	return nil
+}
+
 // checkPrivateClientDeliveries binds each cell to the producer's checked entrypoint, or refuses.
 func checkPrivateClientDeliveries(cells []packload.PrivateProgramEnvPlan, verified map[string]callbrokerinput.PreparedHTTPClientEntrypoint) ([]callbrokerinput.PreparedHTTPClientEntrypoint, *privateClientRefusal) {
 	var out []callbrokerinput.PreparedHTTPClientEntrypoint
