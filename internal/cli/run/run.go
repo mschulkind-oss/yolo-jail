@@ -3108,28 +3108,31 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	channel, targetCmd = view.channel, view.targetCmd
 	attachPacks, attachTree := view.staged.packs, view.staged.root
 	if view.unreadable || view.unfound != "" {
+		// THE RUNNING TREE IS GONE, so nothing it selected can be checked here. That refuses only
+		// when the host holds evidence of an HTTP front this entry cannot verify: an ownership
+		// record (written by every HTTP-front launch before its input) that does not match the
+		// frozen container, or that retains a prepared identity, or a running call-root scope
+		// whose HTTP identity does not verify. A jail with no such evidence never ran an HTTP
+		// front of this build, and attaches exactly as before (the warning or the acknowledged
+		// skew above), with its current configuration still never standing in for the lost tree.
 		owner, _, ownerPresent, ownerErr := readPreparedHTTPOwnership(cname)
-		verifiedLegacy := false
 		preparedExpected := false
 		var identityErr error
 		if ownerErr != nil {
-			identityErr = ownerErr
+			identityErr = fmt.Errorf("the prepared-HTTP ownership record %s is unreadable: %w", preparedHTTPOwnershipPath(cname), ownerErr)
 		} else if ownerPresent {
 			if !verifiedPreparedHTTPOwnership(owner, cname, rt, actualSetup.Name) {
-				identityErr = errors.New("running prepared-HTTP ownership does not match the frozen container, setup, runtime, or pack tree")
+				identityErr = fmt.Errorf("the prepared-HTTP ownership record %s does not match the frozen container, setup, runtime, or pack tree", preparedHTTPOwnershipPath(cname))
 			} else {
 				preparedExpected = len(owner.Generations) != 0
-				verifiedLegacy = !preparedExpected
 			}
 		} else {
-			preparedExpected, verifiedLegacy, identityErr = o.runningHTTPPreparedExpected(cname)
+			preparedExpected, identityErr = o.runningHTTPPreparedExpected(cname)
 		}
-		if identityErr != nil || preparedExpected || !verifiedLegacy {
-			reason := "the running pack tree is unavailable and no host-owned launch evidence verifies its HTTP identity"
+		if identityErr != nil || preparedExpected {
+			reason := "the running launch retains a prepared HTTP identity that its lost pack tree can no longer verify"
 			if identityErr != nil {
 				reason = identityErr.Error()
-			} else if preparedExpected {
-				reason = "the running launch retains a prepared HTTP identity"
 			}
 			releaseLock()
 			o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then relaunch so its running HTTP identity can be verified.[/bold red]", richtext.Escape(reason), stopRemedy(rt, cname))

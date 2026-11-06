@@ -1078,7 +1078,6 @@ func TestAttachLeavesTheSkeletonByteIdentical(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 	channel := channelFor(t, o, changed, staged.packs, nil)
-	writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 	rc, _ := o.attachExisting(cname, "podman", "true", changed, staged, channel, false, nil)
 	if got := stderr.String(); rc != 1 || !strings.Contains(got, "Attaching to existing jail") ||
 		!strings.Contains(got, "not found on PATH") {

@@ -550,24 +550,65 @@ func TestAttachUsesAffirmativeEmptyOwnerWithoutScopeOrInput(t *testing.T) {
 	}
 }
 
-func TestAttachRefusesMissingTreeWithoutAffirmativeHTTPOwnerOrLegacyInput(t *testing.T) {
+// A LOST RUNNING TREE REFUSES ONLY ON HTTP EVIDENCE IT CANNOT VERIFY. A jail whose host holds no
+// HTTP ownership record and no call-root scope never ran an HTTP front, and attaches as main did
+// (TestAttachDeliversWhenNothingItNeedsIsMissing is the plain non-HTTP case); an ownership record
+// for another tree, or a running scope whose input is gone, refuses and names what it found.
+func TestAttachWithLostTreeRefusesOnlyUnverifiableHTTPEvidence(t *testing.T) {
 	const cname = "yolo-ws-abcd1234"
-	f := attachedPrivateHTTPFixture(t, false, false)
-	f.packs = nil
-	_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
-	_ = os.Remove(filepath.Join(loopholes.StateDirFor("tasks"), "replicas", cname+".json"))
-	if err := os.MkdirAll(paths.PackTreeRoot(cname), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeLivePackTree(cname, f.tree); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(f.tree); err != nil {
-		t.Fatal(err)
-	}
-	rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
-	if rc != 1 || restarted || execed || !strings.Contains(f.stderr.String(), "no host-owned launch evidence verifies its HTTP identity") {
-		t.Fatalf("unknown HTTP identity did not fail closed: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+	for _, tc := range []struct {
+		name       string
+		writeInput bool
+		mutate     func(t *testing.T, f attachedPrivateHTTP)
+		wantRefuse string
+	}{
+		{"no HTTP evidence at all", false, func(*testing.T, attachedPrivateHTTP) {
+			_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
+		}, ""},
+		{"ownership record for another pack tree", false, func(t *testing.T, _ attachedPrivateHTTP) {
+			_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
+			if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := writePreparedHTTPOwnership(preparedHTTPOwnershipRecord{Version: preparedHTTPOwnershipVersion, Container: cname,
+				Runtime: "podman", Setup: "podman-self", PackTree: "/host/other-tree", Generations: []preparedHTTPGenerationRef{}}, nil); err != nil {
+				t.Fatal(err)
+			}
+		}, "<ownership record>"},
+		{"running HTTP scope whose input is gone", true, func(t *testing.T, f attachedPrivateHTTP) {
+			if err := os.Remove(f.inputPath); err != nil {
+				t.Fatal(err)
+			}
+		}, "has no verifiable launch input"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := attachedPrivateHTTPFixture(t, false, tc.writeInput)
+			f.packs = nil
+			if err := os.MkdirAll(paths.PackTreeRoot(cname), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeLivePackTree(cname, f.tree); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(f.tree); err != nil {
+				t.Fatal(err)
+			}
+			tc.mutate(t, f)
+			if tc.wantRefuse == "<ownership record>" {
+				tc.wantRefuse = preparedHTTPOwnershipPath(cname) // under the fixture's HOME
+			}
+			rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
+			if tc.wantRefuse == "" {
+				if rc != 0 || restarted || !execed {
+					t.Fatalf("a lost tree with no HTTP evidence did not attach: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+				}
+				return
+			}
+			if rc != 1 || restarted || execed || !strings.Contains(f.stderr.String(), tc.wantRefuse) ||
+				!strings.Contains(f.stderr.String(), "Stop this jail with") {
+				t.Fatalf("unverifiable HTTP evidence did not refuse naming %q: rc=%d restarted=%v execed=%v\n%s", tc.wantRefuse, rc, restarted, execed, f.stderr.String())
+			}
+		})
 	}
 }
 
@@ -644,8 +685,6 @@ prefix = "Bearer "
 	}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
 	const cname = "yolo-ws-abcd1234"
-	_ = os.Remove(paths.BrokerScopeFile("attach-fixture", "attachfixture01"))
-	_ = os.Remove(filepath.Join(loopholes.StateDirFor("attach-fixture-front"), "replicas", cname+".json"))
 	treeSource := root
 	root = filepath.Join(paths.PackTreeRoot(cname), "attach-fixture")
 	homeSuffix := string(os.PathSeparator) + filepath.Join(paths.GlobalStorageRel(), "agents", cname, "pack-trees", "attach-fixture")

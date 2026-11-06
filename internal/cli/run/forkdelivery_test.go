@@ -195,7 +195,6 @@ func TestAnAttachTriggersNoForkBuild(t *testing.T) {
 			return ExecResult{Ran: true, RC: 0}
 		}
 		o.BuildForks = func(ForkBuildRequest) map[string]entrypoint.ForkDelivery { called = true; return nil }
-		writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 	})
 	if !strings.Contains(printed, "Attaching to existing jail") {
 		t.Fatalf("the fixture did not attach, so the attach path is unexercised:\n%s", printed)

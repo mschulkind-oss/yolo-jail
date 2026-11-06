@@ -344,7 +344,6 @@ func ioAttach(t *testing.T, rt string, macOS bool, cfg *jsonx.OrderedMap, frozen
 	const cname = "yolo-attach-ioprio"
 	packs := claudePackFixture(t)
 	channel := channelFor(t, o, cfg, packs, nil)
-	writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 	if rc, _ := o.attachExisting(cname, rt, "true", cfg, stagedPacks{packs: packs}, channel, false, nil); rc != 0 {
 		t.Fatalf("the attach did not run through to its exec (rc=%d):\n%s", rc, &stderr)
 	}
