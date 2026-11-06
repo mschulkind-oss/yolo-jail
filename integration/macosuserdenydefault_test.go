@@ -1535,7 +1535,7 @@ func denyDefaultFixtureParams() macosuser.ProfileParams {
 		CacheAliases: []macosuser.CacheAlias{{Tool: "pip", Link: home + "/Library/Caches/pip",
 			Target: "/Users/you/Library/Caches/pip"}},
 		ReadonlyRels: []string{"vendored"},
-		HomeReadonly: macosuser.ResolveHomeReadonly(home, ws,
+		HomeReadonly: macosuser.ResolveHomeReadonly(home, paths.LegacyHomeState(ws),
 			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}),
 		Devices:      seatbeltFixtureDevices,
 		RunAsUser:    "you",

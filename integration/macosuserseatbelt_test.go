@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // sharedUsersDir is where a fixture workspace has to live, and it is NOT
@@ -971,7 +972,7 @@ func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
 	// rules a launch with a pack, a `mounts` entry or a relocation generates are the ones this
 	// never checks.
 	profile := macosuser.SeatbeltProfileWithRelocations("/Users/Shared/proj", "", []string{"vendored"},
-		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), "/Users/Shared/proj",
+		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), paths.LegacyHomeState("/Users/Shared/proj"),
 			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}),
 		[]macosuser.ContextLink{
 			{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true},
@@ -1307,7 +1308,7 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 	f.stateDir = filepath.Join(f.ws, ".yolo", "home", "claude")
 	f.skills = filepath.Join(f.stateDir, "skills")
 	f.briefing = filepath.Join(f.stateDir, "CLAUDE.md")
-	f.content = macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), f.ws,
+	f.content = macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), paths.LegacyHomeState(f.ws),
 		[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"})
 	f.ctxRoot = filepath.Join(resolved, "ctx")
 	f.ctxRO = filepath.Join(f.ctxRoot, "ro")
