@@ -25,6 +25,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // inProcessKeeper is the package's keeper spawner under test (TestMain installs it): it runs the
@@ -101,7 +102,7 @@ func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock 
 	go func() {
 		seams := KeeperSeams{}
 		if c := launch.CaptureOnTerminate; c != nil {
-			seams.CaptureOnTerminate = func(ws, rt string, _ func(string)) { c(ws, rt) }
+			seams.CaptureOnTerminate = func(ws, home, rt string, _ func(string)) { c(ws, home, rt) }
 		}
 		rc := runKeeper(plan, seams, p, l, k, held, make(chan os.Signal), func(ko *Options) { adoptLaunchSeams(ko, launch) })
 		_ = p.Close()
@@ -347,6 +348,9 @@ func TestTheKeeperDrainsOnTheLastSessionAndTearsDown(t *testing.T) {
 			t.Fatal(err)
 		}
 		first = lock
+		// The home the launch bound rides into the start record, where `yolo stop`'s reap of an
+		// unkept jail reads it (TestFinishStopCapturesFromTheHomeTheJailBound).
+		p.Home = paths.SetupHomeState(p.Workspace, "podman-self")
 	})
 	if !f.relay() {
 		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
@@ -363,7 +367,7 @@ func TestTheKeeperDrainsOnTheLastSessionAndTearsDown(t *testing.T) {
 	if pid, ok := readOwnerPID(f.cname); !ok || pid != os.Getpid() {
 		t.Errorf("the owner-PID file names %d (%v), want the keeper", pid, ok)
 	}
-	if rec, ok := readKeeperRecord(f.cname); !ok || rec.PID != os.Getpid() || rec.SocketsDir != f.plan.SocketsDir {
+	if rec, ok := readKeeperRecord(f.cname); !ok || rec.PID != os.Getpid() || rec.SocketsDir != f.plan.SocketsDir || rec.Home != f.plan.Home {
 		t.Errorf("the start record is %+v (%v)", rec, ok)
 	}
 	if _, err := os.Stat(f.plan.SocketsDir); err != nil {

@@ -211,7 +211,7 @@ PY`)
 
 // TestWorkspaceMcpConfigsAreIsolated confirms each workspace keeps its own
 // generated MCP config files (host-side per-agent overlays at
-// <ws>/.yolo/home/{copilot/mcp-config.json,codex/config.toml}), so one
+// <ws>/.yolo/setups/<setup>/home/{copilot/mcp-config.json,codex/config.toml}), so one
 // workspace's servers never leak into another's.
 func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 	requireJail(t)
@@ -240,7 +240,7 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 	// one shape for both.
 	hasProbe := func(dir, agent, file string) bool {
 		t.Helper()
-		p := filepath.Join(dir, ".yolo", "home", agent, file)
+		p := filepath.Join(jailHome(dir), agent, file)
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("reading %s: %v", p, err)

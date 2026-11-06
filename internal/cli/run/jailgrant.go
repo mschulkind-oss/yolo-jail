@@ -278,7 +278,7 @@ func (o *Options) discardUnheldJailGrant(cname, rt string) {
 	if o.jailGrantFile == "" || o.packTreeHeld {
 		return
 	}
-	removeJailGrantFiles(cname, rt, paths.WorkspaceHomeState(o.Workspace))
+	removeJailGrantFiles(cname, rt, o.homeDir())
 	o.jailGrantFile = ""
 }
 

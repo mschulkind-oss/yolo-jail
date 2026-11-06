@@ -58,8 +58,8 @@ func TestMacosUserHomeTierIsPerWorkspace(t *testing.T) {
 
 	wsA := macosUserWorkspace(t, `{}`)
 	wsB := macosUserWorkspace(t, `{}`)
-	sidecarA := filepath.Join(wsA, ".yolo", "home")
-	sidecarB := filepath.Join(wsB, ".yolo", "home")
+	sidecarA := macosUserHome(wsA, "account")
+	sidecarB := macosUserHome(wsB, "account")
 	// Unique per run and per workspace, derived from the fixture's own directory name, so
 	// an old marker left anywhere can never be mistaken for this run's.
 	markerA := "marker-" + filepath.Base(wsA) + ".jsonl"

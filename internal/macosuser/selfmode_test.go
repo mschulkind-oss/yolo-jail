@@ -79,7 +79,7 @@ func TestAccountModePlanTakesTheDenyDefaultProfileAndTheWorkspaceHome(t *testing
 	if !strings.Contains(plan.Seatbelt, "\n(deny default)\n") || strings.Contains(plan.Seatbelt, "(allow default)") {
 		t.Error("the account mode does not run under the deny-default profile")
 	}
-	home := paths.WorkspaceHomeState("/Users/Shared/proj")
+	home := paths.LegacyHomeState("/Users/Shared/proj")
 	if !containsArg(plan.LaunchArgv, "HOME="+home) {
 		t.Errorf("launch HOME is not the workspace home %s: %v", home, plan.LaunchArgv)
 	}
@@ -118,12 +118,12 @@ func TestAccountModeBootstrapIsToldTheHomes(t *testing.T) {
 	ws := "/Users/Shared/proj"
 	plan := testRunPlan(t)
 	h := plan.RunAs.Homes
-	if h != (Homes{Home: paths.WorkspaceHomeState(ws), Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}) {
+	if h != (Homes{Home: paths.LegacyHomeState(ws), Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}) {
 		t.Fatalf("the account-mode plan's homes are %+v", h)
 	}
 	for _, want := range []string{
-		"HOME=" + paths.WorkspaceHomeState(ws),
-		entrypoint.DarwinHomeSidecarEnv + "=" + paths.WorkspaceHomeState(ws),
+		"HOME=" + paths.LegacyHomeState(ws),
+		entrypoint.DarwinHomeSidecarEnv + "=" + paths.LegacyHomeState(ws),
 		entrypoint.DarwinMachineHomeEnv + "=" + SandboxHome(),
 		entrypoint.DarwinSharedHomeEnv + "=" + SandboxHome(),
 		paths.DarwinRealHomeEnv + "=" + SandboxHome(),
@@ -201,10 +201,10 @@ func replaceArg(argv []string, old, new string) []string {
 func TestSelfModeBootstrapIsToldTheHomes(t *testing.T) {
 	ws := "/Users/you/code/alpha"
 	plan := selfRunPlan(t, ws)
-	h := LaunchHomes(ModeSelf, ws, "/Users/you")
+	h := LaunchHomes(ModeSelf, paths.LegacyHomeState(ws), "/Users/you")
 	for _, want := range []string{
 		"HOME=" + h.Home,
-		entrypoint.DarwinHomeSidecarEnv + "=" + paths.WorkspaceHomeState(ws),
+		entrypoint.DarwinHomeSidecarEnv + "=" + paths.LegacyHomeState(ws),
 		entrypoint.DarwinMachineHomeEnv + "=" + h.Machine,
 		entrypoint.DarwinSharedHomeEnv + "=" + h.Shared,
 		paths.DarwinRealHomeEnv + "=/Users/you",
@@ -227,7 +227,7 @@ func TestSelfModeBootstrapIsToldTheHomes(t *testing.T) {
 // bootstrap is told to lay. Fails if the self branch stops passing the aliases or the homes.
 func TestSelfModeProfileOpensTheHomesAndTheCacheAliases(t *testing.T) {
 	ws := "/Users/you/code/alpha"
-	h := LaunchHomes(ModeSelf, ws, "/Users/you")
+	h := LaunchHomes(ModeSelf, paths.LegacyHomeState(ws), "/Users/you")
 	alias := CacheAlias{Tool: "pip", Link: filepath.Join(h.Machine, "Library", "Caches", "pip"),
 		Target: "/Users/you/Library/Caches/pip"}
 	plan := selfRunPlanWith(t, ws, HostContext{CacheAliases: []CacheAlias{alias}})
@@ -252,7 +252,7 @@ func TestSelfModeProfileOpensTheHomesAndTheCacheAliases(t *testing.T) {
 // AN ALIAS MISSING EITHER HALF IS A PLAN PROBLEM: the profile's allow or the bootstrap's link.
 func TestSelfModeInvariantsCatchAHalfWiredCacheAlias(t *testing.T) {
 	ws := "/Users/you/code/alpha"
-	h := LaunchHomes(ModeSelf, ws, "/Users/you")
+	h := LaunchHomes(ModeSelf, paths.LegacyHomeState(ws), "/Users/you")
 	alias := CacheAlias{Tool: "pip", Link: filepath.Join(h.Machine, "Library", "Caches", "pip"),
 		Target: "/Users/you/Library/Caches/pip"}
 	base := selfRunPlanWith(t, ws, HostContext{CacheAliases: []CacheAlias{alias}})

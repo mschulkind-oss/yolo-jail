@@ -259,7 +259,7 @@ func observeHeldServices(t *testing.T) (*atomic.Int32, *fakeHeld) {
 
 // agentEnvFile is the per-agent env file of agent the macos-user arm writes for ws.
 func agentEnvFile(ws, agent string) string {
-	return filepath.Join(paths.WorkspaceHomeState(ws), macosUserAgentEnvDir, agent+".sh")
+	return filepath.Join(runtimeHome(ws, "macos-user"), macosUserAgentEnvDir, agent+".sh")
 }
 
 // TWO ARRIVALS SHARE ONE KEEPER (JL-D39, JL-D41; §8 item 14 without an agent turn): the second

@@ -1624,7 +1624,7 @@ func forkBuildJailArgv(build string) []string {
 	return []string{
 		"yolo", "internal", "capture-run",
 		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
-		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--surface-root-of=" + containerWorkspace,
 		"--scan-content-refs",
 		"--line-status=" + path.Join(containerWorkspace, capture.InstallerStatusLeaf),
 		"--", "env", "YOLO_BYPASS_SHIMS=1", "bash", "-c", script,
@@ -1717,7 +1717,7 @@ func treeBuildJailArgv(build, name string) []string {
 	return []string{
 		"yolo", "internal", "capture-run",
 		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
-		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--surface-root-of=" + containerWorkspace,
 		"--scan-content-refs",
 		"--line-status=" + path.Join(containerWorkspace, capture.InstallerStatusLeaf),
 		"--", "env", "YOLO_BYPASS_SHIMS=1", "bash", "-c", script,

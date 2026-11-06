@@ -253,7 +253,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		teardownID = hex.EncodeToString(nonce[:])
 	}
 	return &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name,
+		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(),
 		Network: o.Network, Color: o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
@@ -787,7 +787,7 @@ func LaunchedRuntime(workspace string) (string, bool) {
 //   - a jail an older yolo started: its own launcher tears it down, as `yolo stop` always left it to.
 //
 // capture is the E3 config capture the CLI wires into a launch. The status is `yolo stop`'s.
-func FinishStop(stdout, stderr io.Writer, workspace, rt string, logFrom int64, capture func(workspace, rt string), force bool) int {
+func FinishStop(stdout, stderr io.Writer, workspace, rt string, logFrom int64, capture func(workspace, home, rt string), force bool) int {
 	o := NewDefaultOptions()
 	o.Workspace = workspace
 	o.Stdout, o.Stderr = stdout, stderr
@@ -795,7 +795,15 @@ func FinishStop(stdout, stderr io.Writer, workspace, rt string, logFrom int64, c
 	o.CaptureOnTerminate = capture
 	fillDefaults(&o)
 	o.runtime = rt
-	return o.finishStop(yoloruntime.FromWorkspace(workspace), rt, logFrom, force)
+	cname := yoloruntime.FromWorkspace(workspace)
+	// The home the jail bound, from its keeper's start record (keeperRecord.Home), so the reap of
+	// an unkept jail captures its config edits from that home (docs/design/named-setups.md §9). A
+	// record from before setups had homes names none: homeDir then answers the legacy home, the
+	// only one such a jail could bind.
+	if rec, ok := readKeeperRecord(cname); ok && paths.IsWorkspaceHomeState(workspace, rec.Home) {
+		o.homeState = rec.Home
+	}
+	return o.finishStop(cname, rt, logFrom, force)
 }
 
 func (o *Options) finishStop(cname, rt string, logFrom int64, force bool) int {
@@ -1295,7 +1303,7 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		names = append(names, p.Name)
 	}
 	plan := &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Network: o.Network,
+		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(), Network: o.Network,
 		MacosUserMode: o.MacosUserMode,
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
 		Payload: payload, ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), ApprovedHTTPBindings: cloneHTTPBindings(o.approvedHTTPBindings), PrivateClientEntrypoints: slices.Clone(o.privateClientEntrypoints), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,

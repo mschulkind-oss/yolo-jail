@@ -111,10 +111,10 @@ func TestMacosUserGrantRidesTheSessionEnvFileOnly(t *testing.T) {
 		t.Errorf("claude keeps its zai profile beside the grant: ANTHROPIC_BASE_URL = %q",
 			envAt(env, "ANTHROPIC_BASE_URL"))
 	}
-	if hits := filesHolding(t, paths.WorkspaceHomeState(ws), "tok-c"); len(hits) != 0 {
-		t.Errorf("the granted value reached a file under <workspace>/.yolo/home: %v", hits)
+	if hits := filesHolding(t, runtimeHome(ws, "macos-user"), "tok-c"); len(hits) != 0 {
+		t.Errorf("the granted value reached a file under the launch.s home: %v", hits)
 	}
-	claudeFile := filepath.Join(paths.WorkspaceHomeState(ws), macosUserAgentEnvDir, "claude.sh")
+	claudeFile := filepath.Join(runtimeHome(ws, "macos-user"), macosUserAgentEnvDir, "claude.sh")
 	if b, err := os.ReadFile(claudeFile); err != nil || !strings.Contains(string(b), "tok-z") {
 		t.Errorf("claude's own env file must still carry its profile's key (err %v):\n%s", err, b)
 	}
@@ -397,7 +397,7 @@ func TestTheJailsTeardownRemovesItsGrantAndAgentEnvFiles(t *testing.T) {
 		ws = p.Workspace
 		cname = yoloruntime.FromWorkspace(ws)
 		p.Cname = cname
-		wsState = paths.WorkspaceHomeState(ws)
+		wsState = paths.LegacyHomeState(ws)
 		writeExec(t, filepath.Join(wsState, agentEnvStateDir, "pi.sh"), "export ZAI_API_KEY='tok-old'\n")
 		writeExec(t, filepath.Join(wsState, jailGrantHomeRel("podman")), "")
 		writeExec(t, jailGrantHostFile(cname), "export ZAI_API_KEY='tok-old'\n")
@@ -554,7 +554,7 @@ func TestAnAttachTreatsTheGrantFilesValuesAsYolos(t *testing.T) {
 	if rc, _, execed := attachToExec(t, o, cfg, packs, channel); rc != 0 || !execed {
 		t.Fatalf("attach rc %d execed %v\n%s", rc, execed, stderr.String())
 	}
-	b, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	b, err := os.ReadFile(filepath.Join(launchHome(t, o), agentEnvStateDir, "claude.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +614,7 @@ func TestAnAttachSaysWhenItsProfileDeliversAKeyTheGrantDidNotName(t *testing.T) 
 		}
 	}
 	// The behavior the ruling keeps: claude's own file carries the profile's key.
-	b, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	b, _ := os.ReadFile(filepath.Join(launchHome(t, o), agentEnvStateDir, "claude.sh"))
 	if !strings.Contains(string(b), "tok-z") {
 		t.Errorf("an attach's profile still delivers its provider's key, by ruling; claude's file:\n%s", b)
 	}

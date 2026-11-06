@@ -10,3 +10,8 @@ import "errors"
 func guestProcessesReal(Mode) ([]GuestProc, error) {
 	return nil, errors.New("the sandbox account's processes are read on macOS only")
 }
+
+// SandboxUID off macOS: there is no yolo account.
+func SandboxUID() (uint32, error) {
+	return 0, errors.New("the yolo account exists on macOS only")
+}

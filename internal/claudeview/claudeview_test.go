@@ -300,3 +300,63 @@ func TestAHostLocationIsADirectoryYoloManages(t *testing.T) {
 		}
 	}
 }
+
+// TestASetupsViewLivesInThatSetupsHome: a location naming a setup's home (Home) makes, reads and
+// writes the view there, not in the legacy home; a link at any component on the way is refused;
+// and a Home that is no home of the workspace is invalid (named-setups.md §9).
+func TestASetupsViewLivesInThatSetupsHome(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(root, "ws")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	loc := Location{Workspace: ws, Home: "setups/podman-self/home", Subdir: "claude"}
+	if !loc.Valid() {
+		t.Fatal("a setup's home is not a valid location")
+	}
+	if err := loc.EnsureDir(); err != nil {
+		t.Fatal(err)
+	}
+	if err := loc.Write([]byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ws, ".yolo", "setups", "podman-self", "home", "claude", ViewFile)
+	if loc.Path() != want {
+		t.Errorf("Path() = %q, want %q", loc.Path(), want)
+	}
+	if b, err := os.ReadFile(want); err != nil || string(b) != "{}" {
+		t.Errorf("the view is not in the setup's home: %q, %v", b, err)
+	}
+	if _, err := os.Lstat(filepath.Join(ws, ".yolo", "home")); !os.IsNotExist(err) {
+		t.Errorf("a setup's view made the legacy home (err %v)", err)
+	}
+	for _, bad := range []string{"setups/podman-self", "setups/Bad/home", "prism", "setups/podman-self/home/x"} {
+		if (Location{Workspace: ws, Home: bad, Subdir: "claude"}).Valid() {
+			t.Errorf("Home %q is valid", bad)
+		}
+	}
+
+	elsewhere := filepath.Join(root, "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, "home", "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	setupDir := filepath.Join(ws, ".yolo", "setups", "podman-self")
+	if err := os.RemoveAll(setupDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, setupDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := loc.Write([]byte("{}")); !errors.Is(err, ErrViewIsLink) {
+		t.Errorf("Write with the setup's directory linked = %v, want ErrViewIsLink", err)
+	}
+	if err := loc.EnsureDir(); !errors.Is(err, ErrViewIsLink) {
+		t.Errorf("EnsureDir with the setup's directory linked = %v, want ErrViewIsLink", err)
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "home", "claude", ViewFile)); !os.IsNotExist(err) {
+		t.Errorf("a view landed through the link: %v", err)
+	}
+}

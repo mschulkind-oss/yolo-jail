@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func viewEnv(val string) func(string) string {
@@ -193,7 +194,7 @@ func TestRegistrationUsesTheClaudeHomeForEachMode(t *testing.T) {
 				t.Fatalf("registered %+v, want workspace %q subdir %q", loc, ws, tc.want)
 			}
 			if tc.rt == "macos-user" {
-				homes := macosuser.LaunchHomes(tc.mode, ws, o.MacosUserHostHome)
+				homes := macosuser.LaunchHomes(tc.mode, paths.LegacyHomeState(ws), o.MacosUserHostHome)
 				if loc.Path() != filepath.Join(homes.Home, claudeview.ViewRel) {
 					t.Fatalf("registered view %q, Claude HOME reads %q", loc.Path(), filepath.Join(homes.Home, claudeview.ViewRel))
 				}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
@@ -487,24 +488,60 @@ func forEachIdentInPackageSource(t *testing.T, fn func(file, name string)) {
 
 // --- the store, resolved ------------------------------------------------------------------
 
-// At the JAIL notch the resolved store must be byte-identical to the retired hand-joined
-// path, which is what makes step 1 a refactor: the Reuse note in the plan says the collapse
-// changes behaviour ONLY under `own`, and this is that claim.
+// At the JAIL notch the resolved store is the one beside the home a launch of the selected setup
+// binds (named-setups-plan.md SUP-D35): the setup's own, `.yolo/setups/<name>/prism`, and the
+// legacy `.yolo/prism` while SUP-D21 keeps the legacy home bound. The jail's boot writes the same
+// store through render.Target.WithHomeState, so a verb and the boot cannot read two baselines.
+// Red if the target goes back to one store per project, which reverted one setup's edits when
+// another setup booted (6a-ii review M2).
 func TestTheJailStoreIsWhereThePrismTwinsPutIt(t *testing.T) {
 	scratchHostHome(t)
+	t.Setenv("YOLO_SETUP", "podman-self")
 	ws, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	tgt := jailConfigTarget(ws, "the cwd")
-	want := filepath.Join(paths.WorkspaceStateDir(ws), "prism")
+	want := filepath.Join(paths.SetupStateDir(ws, "podman-self"), "prism")
 	if got := tgt.sidecarDir(); got != want {
-		t.Errorf("the resolved jail store = %q, want the workspace prism tree %q", got, want)
+		t.Errorf("the resolved jail store = %q, want the setup's prism %q", got, want)
 	}
 	if got, w := tgt.overlayPath("claude", "settings"),
 		filepath.Join(want, "claude-settings.overlay.json"); got != w {
 		t.Errorf("overlayPath = %q, want %q", got, w)
 	}
+	if got, w := tgt.storeFile(tgt.overlayPath("claude", "settings")).rootDir(), want; got != w {
+		t.Errorf("the rooted store file opens %q, want %q", got, w)
+	}
+	if got := sealedWorkspaceStoreAt(t, ws).SidecarDir(); got != want {
+		t.Errorf("apply --sealed reads %q, want the setup's prism %q", got, want)
+	}
+
+	// The jail's own render, told the home its launch bound, writes where the verb reads.
+	boot := render.Jail(paths.Home(), ws, nil).WithHomeState("setups/podman-self/home")
+	if got := boot.SidecarDir(); got != want {
+		t.Errorf("the boot's store = %q, want the verb's %q", got, want)
+	}
+
+	// While the legacy home is still bound (SUP-D21), its store is the legacy one.
+	if err := os.MkdirAll(paths.LegacyHomeState(ws), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(paths.WorkspaceStateDir(ws), "prism")
+	if got := jailConfigTarget(ws, "the cwd").sidecarDir(); got != legacy {
+		t.Errorf("with the legacy home bound, the store = %q, want %q", got, legacy)
+	}
+	if got := render.Jail(paths.Home(), ws, nil).WithHomeState("home").SidecarDir(); got != legacy {
+		t.Errorf("the boot's store with the legacy home bound = %q, want %q", got, legacy)
+	}
+}
+
+// sealedWorkspaceStoreAt is sealedWorkspaceStore from ws as the cwd.
+func sealedWorkspaceStoreAt(t *testing.T, ws string) render.Target {
+	t.Helper()
+	writeFile(t, filepath.Join(ws, config.WorkspaceConfigName), `{}`)
+	t.Chdir(ws)
+	return sealedWorkspaceStore()
 }
 
 // mkdirAllT is os.MkdirAll with the test's error handling.

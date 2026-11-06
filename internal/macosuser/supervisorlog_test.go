@@ -36,7 +36,7 @@ var readyLine = supervisor.StartedLinePrefix + "openai-auth-broker (pid 4242)\n"
 // sees no readiness line.
 func fakeSupervisor(d *Deps, rec *[]string, ws, logBefore, logAfter, launcherOut string, exited bool) {
 	started := false
-	log := SupervisorLogPath(ws)
+	log := SupervisorLogPath(paths.LegacyHomeState(ws))
 	d.ReadFile = func(p string) (string, bool) {
 		if p != log {
 			return "", true
@@ -80,8 +80,8 @@ func TestTheSupervisorArgvSendsItsOutputToTheWorkspaceLog(t *testing.T) {
 	ws := "/Users/Shared/yolo/proj"
 	want := filepath.Join(ws, ".yolo", "home", ".local", "state", "yolo-jail-daemons", "supervisor.log")
 	for _, mode := range []Mode{ModeAccount, ModeSelf} {
-		daemonLogs := filepath.Join(LaunchHomes(mode, ws, "/Users/you").Home, filepath.FromSlash(paths.JailDaemonLogsRel()))
-		if got := SupervisorLogPath(ws); filepath.Dir(got) != daemonLogs {
+		daemonLogs := filepath.Join(LaunchHomes(mode, paths.LegacyHomeState(ws), "/Users/you").Home, filepath.FromSlash(paths.JailDaemonLogsRel()))
+		if got := SupervisorLogPath(paths.LegacyHomeState(ws)); filepath.Dir(got) != daemonLogs {
 			t.Errorf("%s: the supervisor log %s is not beside the daemons' logs in %s", mode, got, daemonLogs)
 		}
 	}
@@ -175,7 +175,7 @@ func TestAStartedSupervisorIsDisclosedAsStarted(t *testing.T) {
 		t.Fatalf("rc = %d\n%s", rc, out)
 	}
 	if !strings.Contains(out, "Started openai-auth-broker inside the sandbox") ||
-		!strings.Contains(out, "Logs: "+filepath.Dir(SupervisorLogPath(ws))) {
+		!strings.Contains(out, "Logs: "+filepath.Dir(SupervisorLogPath(paths.LegacyHomeState(ws)))) {
 		t.Errorf("the launch does not disclose the started supervisor and its logs:\n%s", out)
 	}
 }
@@ -198,7 +198,7 @@ func TestAnOldReadinessLineDoesNotCountAsThisStart(t *testing.T) {
 		t.Errorf("an earlier session's readiness line was taken for this start:\n%s", out)
 	}
 	if !strings.Contains(out, "has not said it is supervising") ||
-		!strings.Contains(out, SupervisorLogPath("/Users/Shared/yolo/proj")) {
+		!strings.Contains(out, SupervisorLogPath(paths.LegacyHomeState("/Users/Shared/yolo/proj"))) {
 		t.Errorf("a silent supervisor is not reported as unconfirmed, naming its log:\n%s", out)
 	}
 }
@@ -223,7 +223,7 @@ func TestAnUnconfirmedSupervisorIsStillDisclosed(t *testing.T) {
 	disclosure := "Starting openai-auth-broker inside the sandbox (confined by its Seatbelt profile, as " +
 		SandboxUser + ")"
 	if !strings.Contains(out, disclosure) ||
-		!strings.Contains(out, "Logs: "+filepath.Dir(SupervisorLogPath(ws))) {
+		!strings.Contains(out, "Logs: "+filepath.Dir(SupervisorLogPath(paths.LegacyHomeState(ws)))) {
 		t.Errorf("a supervisor still silent past the bound is not disclosed (want %q and its log "+
 			"directory):\n%s", disclosure, out)
 	}
@@ -251,7 +251,7 @@ func TestASupervisorThatExitsBeforeStartingIsDisclosedWithItsLog(t *testing.T) {
 	}
 	for _, want := range []string{
 		"supervisor exited before it started openai-auth-broker",
-		SupervisorLogPath(ws),
+		SupervisorLogPath(paths.LegacyHomeState(ws)),
 		"cannot open /var/yolo-jail/env/x.daemons.env",
 		"sudo: a password is required",
 	} {

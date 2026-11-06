@@ -115,7 +115,7 @@ func (o *Options) forgetGoneCredentials(cname, rt string) {
 	if o.Workspace == "" || runtime.FromWorkspace(o.Workspace) != cname {
 		return
 	}
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := o.homeDir()
 	removeJailGrantFiles(cname, rt, wsState)
 	clearAgentEnvFiles(wsState, rt)
 }

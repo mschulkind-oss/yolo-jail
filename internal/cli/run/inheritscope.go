@@ -583,7 +583,7 @@ func (o *Options) userConfigMountArgsForHome(rt, wsState string, selectLegacy fu
 // previous launch's user scope to every in-sandbox reader. A plan render removes nothing.
 func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 	var core []overlayFile
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := o.homeDir()
 	storage := o.macosUserInheritedStorage
 	preserve := map[string]bool{}
 	// delivered holds each admitted previous delivery's bytes; recorded, those the delivery record
@@ -692,8 +692,8 @@ func (o *Options) macosUserInheritedScope(rt string) ([]overlayFile, error) {
 // entrypoint.DeriveDarwinWorkspaceHome makes HOME the sidecar, with ~/.config a real `.config`
 // in it. A destination the layout does not keep in the sidecar is an error, never a guess.
 func (o *Options) macosUserInheritedStorage(rel string) (string, error) {
-	sidecar := paths.WorkspaceHomeState(o.Workspace)
-	home := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, "").Home
+	sidecar := o.homeDir()
+	home := macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), "").Home
 	var layout entrypoint.DarwinHomeLayout
 	if filepath.Clean(home) == filepath.Clean(sidecar) {
 		layout = entrypoint.DeriveDarwinWorkspaceHome(entrypoint.DarwinHomes{Home: home}, nil, nil)
@@ -799,6 +799,32 @@ func isAppleContainerInheritedCopy(path string, uid int) bool {
 		return false
 	}
 	defer f.Close()
+	line, err := bufio.NewReader(io.LimitReader(f, 4096)).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false
+	}
+	line = strings.TrimRight(line, "\r\n")
+	return line == inheritHeaderFirstLine() || line == inheritTOMLHeaderFirstLine()
+}
+
+// isAppleContainerInheritedCopyBeneath is isAppleContainerInheritedCopy of rel below r, a root on a
+// jail-writable home: a link at rel, or one on the way that leaves r, is never read.
+func isAppleContainerInheritedCopyBeneath(r *os.Root, rel string, uid int) bool {
+	info, err := r.Lstat(rel)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 == 0 || !inheritedFileOwnedBy(info, uid) {
+		return false
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return false
+	}
+	f, err := paths.OpenRegularFileBeneath(r, rel)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !os.SameFile(info, st) {
+		return false
+	}
 	line, err := bufio.NewReader(io.LimitReader(f, 4096)).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false

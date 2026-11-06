@@ -442,8 +442,8 @@ const SupervisorLogName = "supervisor.log"
 // the sandbox account, inside the workspace, whose inheriting `group:_yolojail` ACEs
 // (WorkspaceACLAces) are applied to whatever is created there whoever creates it — and the host
 // user is a member of that group. Nothing here grants anything.
-func SupervisorLogPath(workspace string) string {
-	return filepath.Join(paths.WorkspaceHomeState(workspace), filepath.FromSlash(paths.JailDaemonLogsRel()),
+func SupervisorLogPath(home string) string {
+	return filepath.Join(home, filepath.FromSlash(paths.JailDaemonLogsRel()),
 		SupervisorLogName)
 }
 

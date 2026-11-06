@@ -181,7 +181,7 @@ func TestHostFilesSurfaceLsAndReset(t *testing.T) {
 	// It used to refuse, on the premise that reset truncates a surface file resolved against
 	// the INVOKING process's home. That premise is true of a real home and false of the one
 	// this resolves: a workspace target finds the jail's own home overlay,
-	// <workspace>/.yolo/home/…, which is the same inode the jail writes. The refusal cost a
+	// <workspace>/.yolo/setups/<setup>/home/…, which is the same inode the jail writes. The refusal cost a
 	// real capability — the only exit from a captured edit was the verb inside the owning
 	// jail, so discarding a STOPPED jail's captures meant launching it, and a launch renders
 	// and captures first.
@@ -202,13 +202,13 @@ func TestHostFilesSurfaceLsAndReset(t *testing.T) {
 	// without it the next boot finds no baseline, takes the first-migration branch and ADOPTS
 	// the file, so the discarded edit comes straight back. A `user` surface reaches this only
 	// because its codec and layers now come from the matching `host_files` entry.
-	surface := filepath.Join(dir, ".yolo", "home", "config", "yolo-it", "cap.json")
+	surface := filepath.Join(jailHome(dir), "config", "yolo-it", "cap.json")
 	if data, err := os.ReadFile(surface); err != nil {
 		t.Errorf("read the jail's own copy after reset: %v", err)
 	} else if strings.Contains(string(data), "mine") {
 		t.Errorf("reset discarded the sidecars and left the edit in the jail's file — half an "+
 			"undo, and the next launch adopts it back:\n%s", data)
-	} else if baseline, berr := os.ReadFile(filepath.Join(dir, ".yolo", "prism",
+	} else if baseline, berr := os.ReadFile(filepath.Join(jailPrism(dir),
 		"user-"+userCapSlug+".last_render")); berr != nil {
 		// RE-SEEDED, NOT DELETED (OQ-CO7 D1, reseedResetBaseline): reset has just written
 		// these bytes, so it writes the baseline for them rather than leaving the next render
@@ -252,7 +252,7 @@ const userCapSlug = ".config_2fyolo-it_2fcap.json"
 func captureOverlays(workspaceDir string) []string {
 	var out []string
 	for _, suffix := range []string{"*.overlay.json"} {
-		found, _ := filepath.Glob(filepath.Join(workspaceDir, ".yolo", "prism", "user-"+suffix))
+		found, _ := filepath.Glob(filepath.Join(jailPrism(workspaceDir), "user-"+suffix))
 		out = append(out, found...)
 	}
 	return out

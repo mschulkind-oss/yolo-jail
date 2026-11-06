@@ -1345,6 +1345,11 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	if o.Setup.Name != "" {
 		env = append(env, "-e", setup.EnvVar+"="+o.Setup.Name)
 	}
+	// THE HOME THIS LAUNCH BOUND, told to the session relative to .yolo (paths.HomeStateEnv;
+	// named-setups-plan.md SUP-D34, SUP-D35): the in-jail render keys its capture store (the prism
+	// baseline) to it, and capture-run's surface door names it, rather than either guessing the
+	// home from the setup, which SUP-D21's unmoved legacy home would get wrong.
+	env = append(env, "-e", paths.HomeStateEnv+"="+o.homeRel())
 	// programs.autoprune (OQ-PD4's third clause, program-delivery.md §10 step four) —
 	// EMITTED ONLY WHEN ON, which is the opposite of YOLO_HOST_LOOPBACK's always-emit rule
 	// and for a reason that inverts it. There, an absent variable had to be

@@ -74,7 +74,7 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	r := macosUserRunProbe(t, "jail-daemon", ws, jailDaemonProbeScript(seen))
 	hostSaw, lastListing := watch.stop()
 
-	logDir := filepath.Join(ws, ".yolo", "home", ".local", "state", "yolo-jail-daemons")
+	logDir := filepath.Join(macosUserHome(ws, "account"), ".local", "state", "yolo-jail-daemons")
 	diag := func() string {
 		return fmt.Sprintf("\n--- the supervisor's logs: %s (in the sandbox: ~/.local/state/yolo-jail-daemons; "+
 			"supervisor.log is the supervisor's own stdout and stderr, and the launch quotes "+
@@ -174,7 +174,7 @@ func TestMacosUserRunsAPackServiceJailDaemonInTheGuest(t *testing.T) {
 	ws := macosUserWorkspace(t, `{}`)
 	logRel := ".local/state/yolo-jail-daemons/acme-svc.log"
 	r := macosUserRunProbe(t, "guest-service", ws, guestLogProbeScript(logRel, "acme-svc-up"))
-	hostLog := filepath.Join(ws, ".yolo", "home", ".local", "state", "yolo-jail-daemons", "acme-svc.log")
+	hostLog := filepath.Join(macosUserHome(ws, "account"), ".local", "state", "yolo-jail-daemons", "acme-svc.log")
 	diag := func() string {
 		return fmt.Sprintf("\n--- the daemons' logs:\n%s\n--- launch stdout:\n%s\n--- launch stderr:\n%s",
 			dumpDir(filepath.Dir(hostLog)), r.stdout, r.stderr)
@@ -219,7 +219,7 @@ func TestMacosUserRunsAModuleDirJailDaemonInTheGuest(t *testing.T) {
 	ws := macosUserWorkspace(t, `{}`)
 	logRel := ".local/state/yolo-jail-daemons/hello-guest.log"
 	r := macosUserRunProbe(t, "guest-module-dir", ws, guestLogProbeScript(logRel, "hello from"))
-	hostLog := filepath.Join(ws, ".yolo", "home", ".local", "state", "yolo-jail-daemons", "hello-guest.log")
+	hostLog := filepath.Join(macosUserHome(ws, "account"), ".local", "state", "yolo-jail-daemons", "hello-guest.log")
 	diag := func() string {
 		return fmt.Sprintf("\n--- the daemons' logs:\n%s\n--- launch stdout:\n%s\n--- launch stderr:\n%s",
 			dumpDir(filepath.Dir(hostLog)), r.stdout, r.stderr)

@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // HOST CODE TOUCHES JAIL-WRITABLE STATE ONLY BENEATH AN os.Root (docs/reference/jail-home.md,
@@ -42,19 +44,57 @@ import (
 // same refusal paths.OpenStateDirRoot returns for `.yolo` and the machine store's dirs.
 type linkedStateRootError = paths.LinkedStateDirError
 
-// linkedWorkspaceState returns `<workspace>/.yolo` or `<workspace>/.yolo/home` when either is
-// a symbolic link, and "" when neither is. Both are reachable from the jail through the
-// workspace bind, so either can be a link the jail left for the next launch: every host write
-// below it would follow it, and podman would bind whatever its bind sources then resolve to.
-// Run refuses such a launch (its first check after the workspace-scope guard), and
-// prepareWsState writes nothing below one.
-func linkedWorkspaceState(workspace string) string {
-	for _, p := range []string{paths.WorkspaceStateDir(workspace), paths.WorkspaceHomeState(workspace)} {
+// linkedWorkspaceState returns the first of `<workspace>/.yolo`, `<workspace>/.yolo/home` and,
+// when home is one of the workspace's per-setup homes, each directory from `.yolo/setups` down to
+// home, that is a symbolic link, and "" when none is. All are reachable from the jail through the
+// workspace bind, so any can be a link the jail left for the next launch: every host write below
+// it would follow it, and podman would bind whatever its bind sources then resolve to. Run
+// refuses such a launch: before the launch log for `.yolo` and the legacy home (home ""), and
+// again once selectHome has chosen the home; prepareWsState writes nothing below one. This is the
+// no-link check a per-setup home is bound by pathname after (named-setups-plan.md SUP-D30).
+func linkedWorkspaceState(workspace, home string) string {
+	check := []string{paths.WorkspaceStateDir(workspace), paths.LegacyHomeState(workspace)}
+	if rel, ok := paths.HomeStateRel(workspace, home); ok {
+		p := paths.WorkspaceStateDir(workspace)
+		for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+			p = filepath.Join(p, seg)
+			check = append(check, p)
+		}
+	}
+	for _, p := range check {
 		if fi, err := os.Lstat(p); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 			return p
 		}
 	}
 	return ""
+}
+
+// refuseLinkedState prints Run's refusal of a launch whose jail-writable state has a link at
+// linked (linkedWorkspaceState).
+//
+// TWO NEXT STEPS, because the launch cannot tell who made the link (jail-home.md, OQ-JH1): `rm` is
+// right for a link the jail left, and wrong for a directory the user moved on purpose, whose next
+// launch would start from an empty one and strand the moved state. So the refusal names where the
+// link points and the move that brings it back.
+func (o *Options) refuseLinkedState(linked string) {
+	target := linkedStateTarget(linked)
+	to := ""
+	if target != "" {
+		to = " to " + richtext.Escape(target)
+	}
+	o.pr(o.Stderr).print("[bold red]Refusing to launch: " + richtext.Escape(linked) +
+		" is a symbolic link" + to + ". The jail can write this workspace's .yolo, so a " +
+		"link there would carry the launcher's writes, and the container's binds, to " +
+		"wherever it points.[/bold red]")
+	remedy := "If the jail left that link, remove it (rm " + richtext.Escape(shquote.Quote(linked)) +
+		"); yolo recreates the directory on the next launch."
+	if target != "" {
+		remedy += " If you moved the directory to " + richtext.Escape(target) + " yourself, " +
+			"move it back instead, so its contents come with it: rm " +
+			richtext.Escape(shquote.Quote(linked)) + " && mv " +
+			richtext.Escape(shquote.Quote(target)) + " " + richtext.Escape(shquote.Quote(linked)) + "."
+	}
+	o.pr(o.Stderr).print("[dim]" + remedy + " There is no override for this one.[/dim]")
 }
 
 // linkedStateTarget returns where the link at link points, as an absolute path: a relative
@@ -78,14 +118,55 @@ func linkedStateTarget(link string) string {
 // the two components the jail can replace. The parent is opened first and dir beneath it, and
 // each open is checked against the directory that was Lstat'ed, so a link swapped in between
 // the check and the open is refused too.
+//
+// A directory in a per-setup state dir (`<ws>/.yolo/setups/<name>/...`, a per-setup home above
+// all) has more jail-replaceable components than its parent: `.yolo`, `setups`, `<name>` and every
+// one below. Each is opened, or created, beneath the one above it, refusing a link at any of them,
+// so nothing is created through a link the jail left on the way (setupStateRoot).
 func openStateRoot(dir string) (*os.Root, error) {
 	dir = filepath.Clean(dir)
+	if r, ok, err := setupStateRoot(dir); ok {
+		return r, err
+	}
 	parent, err := openDirRefusingLink(filepath.Dir(dir))
 	if err != nil {
 		return nil, err
 	}
 	defer parent.Close()
 	return openChildRefusingLink(parent, filepath.Base(dir), dir)
+}
+
+// setupStateRoot is openStateRoot for a dir at or below `<ws>/.yolo/setups`, reporting ok false for
+// any other dir. The workspace is everything before the LAST `.yolo` component, so a workspace
+// that itself sits under another project's `.yolo` (a throwaway one under .yolo/durable) is still
+// its own; `.yolo` is opened refusing a link at it, and each component below it is opened, or
+// created, beneath the one above, refusing a link.
+func setupStateRoot(dir string) (*os.Root, bool, error) {
+	segs := strings.Split(dir, string(filepath.Separator))
+	at := -1
+	for i, s := range segs {
+		if s == ".yolo" {
+			at = i
+		}
+	}
+	if at < 1 || at+1 >= len(segs) || segs[at+1] != "setups" {
+		return nil, false, nil
+	}
+	cur := strings.Join(segs[:at+1], string(filepath.Separator))
+	r, err := openDirRefusingLink(cur)
+	if err != nil {
+		return nil, true, err
+	}
+	for _, seg := range segs[at+1:] {
+		full := filepath.Join(cur, seg)
+		next, err := openChildRefusingLink(r, seg, full)
+		r.Close()
+		if err != nil {
+			return nil, true, err
+		}
+		r, cur = next, full
+	}
+	return r, true, nil
 }
 
 // openDirRefusingLink opens dir as an os.Root, creating it with MkdirAll when it is missing,

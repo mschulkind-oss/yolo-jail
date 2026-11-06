@@ -1031,7 +1031,7 @@
     extension that hardcodes a home path yolo doesn't know about (e.g. pi-lens
     writing ~/.pi-lens) hits that read-only base and its mkdir fails.  List the
     path here and it becomes an ordinary writable dir, backed by
-    <workspace>/.yolo/home/writable-home/<path> — so it persists per workspace
+    <workspace>/.yolo/setups/<setup>/home/writable-home/<path> — so it persists per workspace
     and survives restarts, exactly like the built-in overlays.
     You do NOT need this for anything already writable: ~/.config, ~/.local,
     ~/.cache, ~/go, ~/.ssh and every selected agent's own dir (~/.claude, …)
@@ -1623,7 +1623,7 @@
     then `yolo config unset macos_user_mode --user`.  seatbelt-self runs the
     agent as you, with no account, admin setup or access grants, under a
     deny-by-default Seatbelt profile that opens the workspace, the agent's own
-    home in .yolo/home and the tools, and denies the rest of your files, your
+    home in .yolo/setups/<setup>/home and the tools, and denies the rest of your files, your
     keychain and your other processes; each launch gets its own TMPDIR (see
     macos_user_shared_tmp), and every such launch says so first.
 
@@ -1738,7 +1738,7 @@
   [bold]per_side_paths[/bold] (array of strings): Workspace sub-paths kept per side.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Each gets a per-workspace backing dir (under
-    <workspace>/.yolo/home/venv-shadows/) shadow-mounted over it, so the
+    <workspace>/.yolo/setups/<setup>/home/venv-shadows/) shadow-mounted over it, so the
     host and the jail each see their own copy — for derived state that must
     not cross the host/jail boundary (interpreter symlinks, native builds).
     ".venv", "node_modules", and the venv path configured in the workspace's
@@ -3403,7 +3403,7 @@
 
   [bold]Home Directory (/home/agent)[/bold]
     Composed at every launch, not one directory. Most of it is the
-    workspace's own overlay (<workspace>/.yolo/home): npm/go globals, shell
+    workspace's own overlay (<workspace>/.yolo/setups/<setup>/home, one per setup): npm/go globals, shell
     and agent state, sessions. It survives restarts of that workspace's jail
     and is not seen by any other. Shared by every jail on the machine: each
     selected pack's shared dirs, the cache at ~/.cache, and, on podman, mise
@@ -3420,7 +3420,7 @@
     GitHub CLI (gh) is not signed in: the host's gh token does not cross
     into the jail. Give gh a credential of its own if the work needs it
     (e.g. GH_TOKEN through env_sources, or `gh auth login` in the jail).
-    SSH keys are per-workspace — configure in <workspace>/.yolo/home/ssh/.
+    SSH keys are per-workspace — configure in <workspace>/.yolo/setups/<setup>/home/ssh/.
 
   [bold]Tools & Runtimes[/bold]
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)

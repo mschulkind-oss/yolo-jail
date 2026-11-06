@@ -136,7 +136,7 @@ func TestCaptureMaterializesIntoTwoWorkspacesWithOneDownload(t *testing.T) {
 				name, m[3], map[bool]string{true: "was printed", false: "was not"}[saidCopy], out)
 		}
 
-		tool := filepath.Join(ws, ".yolo", "home", "local",
+		tool := filepath.Join(jailHome(ws), "local",
 			"share", "fixturetool", "1.0.0", "tool")
 		body, err := os.ReadFile(tool)
 		if err != nil {
@@ -150,14 +150,14 @@ func TestCaptureMaterializesIntoTwoWorkspacesWithOneDownload(t *testing.T) {
 		// The absolute symlink the fixture installs comes across verbatim: on the container
 		// backends the capture home and the materialize home are both /home/agent, which is
 		// the whole reason relocation is macos-user's problem and not this path's.
-		link, err := os.Readlink(filepath.Join(ws, ".yolo", "home", "local", "bin", captureFixtureBin))
+		link, err := os.Readlink(filepath.Join(jailHome(ws), "local", "bin", captureFixtureBin))
 		if err != nil {
 			t.Errorf("%s workspace: the launcher symlink was not materialized: %v", name, err)
 		} else if link != "/home/agent/.local/share/fixturetool/1.0.0/tool" {
 			t.Errorf("%s workspace: symlink target = %q, want the capture's verbatim", name, link)
 		}
 		// The second surface, so this is not accidentally ".local only".
-		if _, err := os.Stat(filepath.Join(ws, ".yolo", "home", "npm-global", "lib",
+		if _, err := os.Stat(filepath.Join(jailHome(ws), "npm-global", "lib",
 			"fixturetool-marker")); err != nil {
 			t.Errorf("%s workspace: the .npm-global side of the entry is missing: %v", name, err)
 		}

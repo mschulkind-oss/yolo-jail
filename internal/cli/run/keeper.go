@@ -67,7 +67,7 @@ const KeeperVerb = "jail-keeper"
 // capture lives in internal/cli, which imports this package. Its warnings go to warn, which is the
 // keeper's log: a keeper's stderr is /dev/null.
 type KeeperSeams struct {
-	CaptureOnTerminate func(workspace, runtime string, warn func(string))
+	CaptureOnTerminate func(workspace, home, runtime string, warn func(string))
 	// lifelineGone, when set, runs once the keeper has seen its lifeline end (keeper.lifelineGone
 	// closed): a test's in-process keeper uses it to know the keeper has, so what it then asserts
 	// about the keeper's end before ready does not race the goroutine that reads the lifeline. The CLI
@@ -280,8 +280,8 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	recording := plan.PerfRecording
 	o.PerfLoggingConfig = func() bool { return recording }
 	if capture := seams.CaptureOnTerminate; capture != nil {
-		o.CaptureOnTerminate = func(workspace, rt string) {
-			capture(workspace, rt, func(msg string) { k.sink.logf("Warning: %s", msg) })
+		o.CaptureOnTerminate = func(workspace, home, rt string) {
+			capture(workspace, home, rt, func(msg string) { k.sink.logf("Warning: %s", msg) })
 		}
 	}
 	o.Stdout = keeperStream{k.sink, frameStdout}
@@ -289,6 +289,11 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	fillDefaults(&o)
 	o.runtime = plan.Runtime
 	o.SetupName = plan.Setup
+	// The home the launch bound (keeperPlan.Home), for the config capture at teardown; one that is
+	// none of the workspace's homes is dropped, and homeDir answers as for a launch.
+	if paths.IsWorkspaceHomeState(plan.Workspace, plan.Home) {
+		o.homeState = plan.Home
+	}
 	o.approvedScopes = plan.ApprovedScopes
 	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
 	o.approvedHTTPBindings = cloneHTTPBindings(plan.ApprovedHTTPBindings)
@@ -394,7 +399,7 @@ func (k *keeper) run() int {
 	}
 	k.recMu.Lock()
 	k.record = keeperRecord{PID: k.pid, Birth: keeperProcessBirth(k.pid), Started: time.Now(),
-		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
+		Workspace: p.Workspace, Runtime: p.Runtime, Home: p.Home, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
 		Scope: k.scope, Log: keeperLogPath(k.stateKey()), MCPTeardownKnown: true,
 		MCPTeardownRequired: p.MCPTeardownID != "", MCPTeardownID: p.MCPTeardownID,

@@ -47,6 +47,9 @@ type keeperPlan struct {
 	Runtime   string `json:"runtime"`
 	// Setup is the selected launch setup, frozen so host service input producers do not infer it.
 	Setup string `json:"setup,omitempty"`
+	// Home is the workspace home the launch binds (Options.homeDir; docs/design/named-setups.md §9):
+	// the keeper captures config edits from it and records it for a later reap.
+	Home string `json:"home,omitempty"`
 	// MacosUserMode is the resolved mode of a macos-user launch. The keeper carries the launch's
 	// decision rather than re-reading config, which may no longer describe the resolved launch.
 	MacosUserMode macosuser.Mode `json:"macos_user_mode,omitempty"`

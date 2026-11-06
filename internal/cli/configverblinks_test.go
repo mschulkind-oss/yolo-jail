@@ -24,12 +24,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // verbLinkWorld is a host-side workspace target: HOME is a scratch dir, the process is not in
-// a jail, the runtime is podman (so ~/.claude/settings.json is backed by
-// <ws>/.yolo/home/claude/settings.json), and no jail is running for the workspace.
+// a jail, the setup is podman-self (so ~/.claude/settings.json is backed by
+// <ws>/.yolo/setups/podman-self/home/claude/settings.json), and no jail is running for the workspace.
 type verbLinkWorld struct{ ws, store string }
 
 func newVerbLinkWorld(t *testing.T) verbLinkWorld {
@@ -43,7 +44,7 @@ func newVerbLinkWorld(t *testing.T) verbLinkWorld {
 }
 
 func (w verbLinkWorld) surface() string {
-	return filepath.Join(w.ws, ".yolo", "home", "claude", "settings.json")
+	return filepath.Join(paths.SetupHomeState(w.ws, "podman-self"), "claude", "settings.json")
 }
 
 func (w verbLinkWorld) sidecar(suffix string) string {
@@ -136,8 +137,21 @@ func assertNamedRefusal(t *testing.T, errw, path string) {
 
 // The directories above a store file or a surface a jail can replace with a link.
 var (
-	storeDirLinks = []string{".yolo", filepath.Join(".yolo", "prism")}
-	homeDirLinks  = []string{filepath.Join(".yolo", "home"), filepath.Join(".yolo", "home", "claude")}
+	// The store beside the home the verbs read (named-setups-plan.md SUP-D35), and each
+	// directory above it.
+	verbStore     = filepath.Join(".yolo", "setups", "podman-self", "prism")
+	storeDirLinks = []string{
+		".yolo",
+		filepath.Join(".yolo", "setups"),
+		filepath.Join(".yolo", "setups", "podman-self"),
+		verbStore,
+	}
+	homeDirLinks = []string{
+		filepath.Join(".yolo", "setups"),
+		filepath.Join(".yolo", "setups", "podman-self"),
+		filepath.Join(".yolo", "setups", "podman-self", "home"),
+		filepath.Join(".yolo", "setups", "podman-self", "home", "claude"),
+	}
 )
 
 // --- diff ---------------------------------------------------------------------------------
@@ -407,7 +421,7 @@ func TestConfigCaptureNeverFollowsALink(t *testing.T) {
 				_, out, errw := runSurfaceVerb(t, "capture", "claude/settings", "--force")
 
 				verify(t)
-				if got := readOverlayNoFollow(t, w.ws, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
+				if got := readOverlayNoFollow(t, w.ws, verbStore, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
 					t.Errorf("capture read a host file through the jail's link at %s:\n%s", link, got)
 				}
 				assertNamedRefusal(t, out+errw, link)
@@ -423,7 +437,7 @@ func TestConfigCaptureNeverListsALinkedStore(t *testing.T) {
 	w := newVerbLinkWorld(t)
 	w.seed(t, `{"model":"base"}`, `{"model":"base"}`, "", "")
 	writeFile(t, filepath.Join(w.store, "user-hostOnlySlug.overlay.json"), `{"k":1}`)
-	linked := filepath.Join(".yolo", "prism")
+	linked := verbStore
 	hostDir, before := linkDirToHost(t, w.ws, linked, "")
 
 	_, out, errw := runSurfaceVerb(t, "capture", "user", "--force")
@@ -450,7 +464,7 @@ func TestConfigCaptureNeverFollowsALinkedDirectory(t *testing.T) {
 				t.Errorf("capture wrote into the host directory behind %s:\nbefore:\n%s\nafter:\n%s",
 					linked, before, after)
 			}
-			if got := readOverlayNoFollow(t, w.ws, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
+			if got := readOverlayNoFollow(t, w.ws, verbStore, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
 				t.Errorf("capture read the host directory behind the link at %s:\n%s", linked, got)
 			}
 			assertNamedRefusal(t, errw, filepath.Join(w.ws, linked))
@@ -572,18 +586,18 @@ func TestConfigPromoteNeverWritesTheOverlayThroughALink(t *testing.T) {
 				if err != nil || !fi.Mode().IsRegular() {
 					t.Fatalf("the rewritten overlay is not a regular file (err %v)", err)
 				}
-				if got := readOverlayNoFollow(t, w.ws, "claude-settings"); !strings.Contains(got, "kept") ||
+				if got := readOverlayNoFollow(t, w.ws, verbStore, "claude-settings"); !strings.Contains(got, "kept") ||
 					strings.Contains(got, "autoMemoryEnabled") {
 					t.Errorf("the rewritten overlay = %q, want only the unpromoted key", got)
 				}
 			}
 		}, true},
-		{"a link at .yolo/prism", func(t *testing.T, w verbLinkWorld) func(*testing.T) {
-			hostDir, before := linkDirToHost(t, w.ws, filepath.Join(".yolo", "prism"), "")
+		{"a link at the store", func(t *testing.T, w verbLinkWorld) func(*testing.T) {
+			hostDir, before := linkDirToHost(t, w.ws, verbStore, "")
 			return func(t *testing.T) {
 				t.Helper()
 				if after := treeListing(t, hostDir); after != before {
-					t.Errorf("promote wrote into the host directory behind .yolo/prism:\nbefore:\n%s\nafter:\n%s",
+					t.Errorf("promote wrote into the host directory behind the store:\nbefore:\n%s\nafter:\n%s",
 						before, after)
 				}
 				if _, err := os.Lstat(localPackManifestPath()); !os.IsNotExist(err) {
@@ -635,7 +649,7 @@ func TestConfigPromoteNeverWritesTheOverlayThroughALink(t *testing.T) {
 				if rc == 0 {
 					t.Errorf("promote exited 0 over an overlay reset it refused:\n%s%s", out, errw)
 				}
-				assertNamedRefusal(t, errw, filepath.Join(w.ws, ".yolo", "prism"))
+				assertNamedRefusal(t, errw, filepath.Join(w.ws, verbStore))
 			}
 		})
 	}

@@ -91,7 +91,7 @@ func TestConfigListSurvivesInJailEditsAndPackDrop(t *testing.T) {
 	if countEntry(second, configListKilo) != 1 || countEntry(second, configListEdit) != 1 {
 		t.Fatalf("launch 2: packages = %v, want the contributed entry and the in-jail edit once each", second)
 	}
-	overlay, _ := os.ReadFile(filepath.Join(dir, ".yolo", "prism", "pi-settings.overlay.json"))
+	overlay, _ := os.ReadFile(filepath.Join(jailPrism(dir), "pi-settings.overlay.json"))
 	if strings.Contains(string(overlay), "packages") {
 		t.Fatalf("the capture overlay holds the whole packages array — the freeze OQ-AL1 rules out:\n%s", overlay)
 	}

@@ -13,7 +13,7 @@ import (
 // TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount is slice 12a on the hardware
 // (docs/design/macos-user-model-plan.md, MMP-D25): while a session of workspace A runs as the
 // sandbox account, a launch in workspace B runs too. Each session's $HOME is its own workspace's
-// home state (<ws>/.yolo/home), and nothing under the account's home is a link into either
+// home state (<ws>/.yolo/setups/seatbelt-yolo-account/home), and nothing under the account's home is a link into either
 // sidecar, so neither workspace's layout can repoint the other's.
 //
 // The pre-12a refusal ("Refusing the macos-user launch … shares one sandbox account") must not
@@ -31,7 +31,7 @@ func TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("A's session recorded no $HOME: %v", err)
 	}
-	if want := filepath.Join(wsA, ".yolo", "home"); string(homeA) != want {
+	if want := macosUserHome(wsA, "account"); string(homeA) != want {
 		t.Errorf("A's $HOME is %q, want its own workspace home %q", homeA, want)
 	}
 
@@ -43,14 +43,14 @@ func TestMacosUserTwoWorkspacesRunAtOnceAsTheAccount(t *testing.T) {
 	if strings.Contains(out, "Refusing the macos-user launch") {
 		t.Errorf("B's launch printed the pre-12a refusal:\n%s", out)
 	}
-	if want := "HOME=" + filepath.Join(wsB, ".yolo", "home"); !strings.Contains(r.stdout, want) {
+	if want := "HOME=" + macosUserHome(wsB, "account"); !strings.Contains(r.stdout, want) {
 		t.Errorf("B's session does not have its own workspace home (%s):\n%s", want, r.stdout)
 	}
 
 	// Nothing under the account's home points into either sidecar. A pre-12a account home may
 	// still hold links into an OLD workspace's sidecar (nothing migrates, OQ-MM4); these two
 	// workspaces are fresh, so any link into them was laid by this run.
-	sidecars := []string{filepath.Join(wsA, ".yolo", "home"), filepath.Join(wsB, ".yolo", "home")}
+	sidecars := []string{macosUserHome(wsA, "account"), macosUserHome(wsB, "account")}
 	root := macosuser.SandboxHome()
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

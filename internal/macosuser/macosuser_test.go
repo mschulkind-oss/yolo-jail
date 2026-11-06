@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // --- Unit tests for the macOS sandbox-user helpers ------
@@ -578,7 +579,7 @@ func TestSandboxEnvPairsCarryTheHomes(t *testing.T) {
 	ws, host := "/Users/you/code/alpha", "/Users/you"
 	machine := "/Users/you/.local/share/yolo-jail/macos-user"
 	shared := "/Users/you/.local/share/yolo-jail/home"
-	h := LaunchHomes(ModeSelf, ws, host)
+	h := LaunchHomes(ModeSelf, paths.LegacyHomeState(ws), host)
 	if want := (Homes{Home: ws + "/.yolo/home", Machine: machine, Shared: shared, Real: host}); h != want {
 		t.Fatalf("LaunchHomes(self) = %+v, want %+v", h, want)
 	}
@@ -607,11 +608,11 @@ func TestSandboxEnvPairsCarryTheHomes(t *testing.T) {
 	// THE ACCOUNT MODE (MMP-D25): HOME is the workspace's own home, so two workspaces share no
 	// HOME, and the account's home is the machine root, the shared root and the real home at
 	// once — the caller's home is never consulted.
-	acct := LaunchHomes(ModeAccount, ws, host)
+	acct := LaunchHomes(ModeAccount, paths.LegacyHomeState(ws), host)
 	if want := (Homes{Home: ws + "/.yolo/home", Machine: SandboxHome(), Shared: SandboxHome(), Real: SandboxHome()}); acct != want {
 		t.Errorf("LaunchHomes(account) = %+v, want %+v", acct, want)
 	}
-	if other := LaunchHomes(ModeAccount, "/Users/Shared/beta", host); other.Home == acct.Home {
+	if other := LaunchHomes(ModeAccount, paths.LegacyHomeState("/Users/Shared/beta"), host); other.Home == acct.Home {
 		t.Errorf("two workspaces got one account-mode HOME %s", acct.Home)
 	}
 	acctPairs := sandboxEnvPairs(acct, SandboxUser, "/usr/bin:/bin", "")

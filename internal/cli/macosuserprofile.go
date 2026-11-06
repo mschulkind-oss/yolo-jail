@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // macosUserProfileVerb is `yolo internal macos-user-profile`: it prints the deny-by-default
@@ -37,7 +38,8 @@ const macosUserProfileUsage = "usage: yolo internal " + macosUserProfileVerb +
 	"         [--home H] [--host-home H] [--darwin-tmp D] [--account NAME] [--services-dir D]...\n" +
 	"         [--shared-tmp shared|private] [--host-software PATH]... [--no-host-software]\n" +
 	"Prints the deny-by-default macos-user Seatbelt profile for these inputs. Paths are made\n" +
-	"absolute and resolved through symlinks when they exist. --home defaults to W/.yolo/home,\n" +
+	"absolute and resolved through symlinks when they exist. --home defaults to the mode's\n" +
+	"built-in setup's home, W/.yolo/setups/seatbelt-self/home or .../seatbelt-yolo-account/home,\n" +
 	"--host-home to $HOME, --darwin-tmp to `getconf DARWIN_USER_TEMP_DIR` on macOS.\n" +
 	"--services-dir grants a session's host-services dir read-only by exact path. The last\n" +
 	"three flags override the rulings' production values (the closed shared /tmp, which\n" +
@@ -102,7 +104,7 @@ func macosUserProfileMain(args []string, stdout, stderr io.Writer, env macosUser
 	fs.SetOutput(io.Discard)
 	mode := fs.String("mode", "", "self or account: the user the profile runs as (header only)")
 	workspace := fs.String("workspace", "", "the workspace, read-write")
-	home := fs.String("home", "", "the agent's HOME (default <workspace>/.yolo/home)")
+	home := fs.String("home", "", "the agent's HOME (default <workspace>/.yolo/setups/<setup>/home)")
 	hostHome := fs.String("host-home", "", "the invoking human's home (default $HOME)")
 	tmp := fs.String("tmp", "", "the launch's own TMPDIR, read-write")
 	darwinTmp := fs.String("darwin-tmp", "", "the running user's DARWIN_USER_TEMP_DIR")
@@ -149,7 +151,12 @@ func macosUserProfileMain(args []string, stdout, stderr io.Writer, env macosUser
 		StagingRoot: macosuser.StagingRoot(),
 	}
 	if p.Home == "" {
-		p.Home = filepath.Join(ws, ".yolo", "home")
+		// The home a launch of this mode's built-in setup binds (named-setups.md §9).
+		name := "seatbelt-yolo-account"
+		if m == macosuser.ModeSelf {
+			name = "seatbelt-self"
+		}
+		p.Home = paths.SetupHomeState(ws, name)
 	}
 	if p.HostHome == "" {
 		p.HostHome = physicalPath(env.home())

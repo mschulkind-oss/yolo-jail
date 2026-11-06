@@ -28,7 +28,7 @@ import (
 // passed, which is about as misleading as a red badge gets.
 //
 // A pack's vendor installer writes into the workspace's home overlay
-// (<workspace>/.yolo/home, paths.WorkspaceHomeState), which for these fixtures
+// (<workspace>/.yolo/setups/<setup>/home, paths.SetupHomeState), which for these fixtures
 // is a t.TempDir() — so whatever modes it leaves behind become this suite's
 // cleanup problem. The Pack Installs job went down twice that way (runs
 // 33938946012 and 33972100139).

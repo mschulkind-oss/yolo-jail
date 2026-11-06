@@ -29,6 +29,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -118,7 +119,7 @@ func TestCaptureOnTerminateReplacesTheSidecarsItWrites(t *testing.T) {
 			verify := pinSecondName(t, ws, sidecar)
 
 			var warnings []string
-			captureOnTerminate(ws, "podman", func(m string) { warnings = append(warnings, m) })
+			captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(m string) { warnings = append(warnings, m) })
 
 			if got, _ := os.ReadFile(sidecar); !strings.Contains(string(got), tc.want) {
 				t.Fatalf("the capture did not rewrite %s (warnings %v), so the check proves "+

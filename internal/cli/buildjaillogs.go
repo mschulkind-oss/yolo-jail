@@ -34,6 +34,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // buildJailLogPrefix starts the name of every preserved build-jail log.
@@ -56,14 +57,44 @@ type buildJailLogSource struct{ label, rel string }
 
 // buildJailLogSources are the launch's own diagnostics, in the order a reader wants them: the host
 // half's spans, the entrypoint's boot, the jail half's checkpoints, then the whole teed stream.
-func buildJailLogSources() []buildJailLogSource {
+func buildJailLogSources(workspace string) []buildJailLogSource {
 	state := paths.WorkspaceStateDir("")
-	return []buildJailLogSource{
+	out := []buildJailLogSource{
 		{"host-perf.log", filepath.Join(state, run.HostPerfLogName)},
 		{"boot.log", filepath.Join(state, "boot.log")},
-		{"yolo-perf.log (the jail half)", filepath.Join(paths.WorkspaceHomeState(""), "yolo-perf.log")},
-		{"launch.log", filepath.Join(state, run.LaunchLogName)},
 	}
+	out = append(out, buildJailPerfLogSources(workspace)...)
+	return append(out, buildJailLogSource{"launch.log", filepath.Join(state, run.LaunchLogName)})
+}
+
+// buildJailPerfLogSources are the jail half's checkpoints, yolo-perf.log at the top of the home the
+// build jail ran with (docs/design/named-setups.md §9): every built-in setup's home and the legacy
+// one, which the rewriter needs before the jail has made any, plus every other home the workspace
+// holds now (paths.WorkspaceHomeStates), for a build jail run under a user-defined setup.
+func buildJailPerfLogSources(workspace string) []buildJailLogSource {
+	var homes []string
+	homes = append(homes, paths.LegacyHomeState(""))
+	for _, s := range setup.BuiltIns() {
+		homes = append(homes, paths.SetupHomeState("", s.Name))
+	}
+	if workspace != "" {
+		for _, h := range paths.WorkspaceHomeStates(workspace) {
+			if rel, err := filepath.Rel(workspace, h); err == nil {
+				homes = append(homes, rel)
+			}
+		}
+	}
+	var out []buildJailLogSource
+	seen := map[string]bool{}
+	for _, h := range homes {
+		rel := filepath.Join(h, "yolo-perf.log")
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, buildJailLogSource{"yolo-perf.log (the jail half)", rel})
+	}
+	return out
 }
 
 // preserveBuildJailLogs appends what the build jail that ran in workspace left of its diagnostics
@@ -88,7 +119,7 @@ func preserveBuildJailLogs(workspace string) {
 			pruneBuildJailLogs(filepath.Dir(dest), buildJailLogsKept)
 		}
 	}()
-	for _, src := range buildJailLogSources() {
+	for _, src := range buildJailLogSources(workspace) {
 		data, truncated, ok := readBuildJailLog(root, src.rel)
 		if !ok {
 			continue
@@ -210,7 +241,7 @@ func newBuildJailLogRewriter(w io.Writer, workspace string) io.Writer {
 		return nil
 	}
 	r := &buildJailLogRewriter{w: w, saved: []byte(buildJailLogPath(workspace))}
-	for _, src := range buildJailLogSources() {
+	for _, src := range buildJailLogSources(workspace) {
 		r.olds = append(r.olds, []byte(filepath.Join(workspace, src.rel)))
 	}
 	if lw, ok := w.(run.LogWriter); ok {

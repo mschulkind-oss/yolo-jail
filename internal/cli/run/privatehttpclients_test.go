@@ -117,6 +117,11 @@ prefix = "Bearer "
 	if plan.Setup != "podman-self" {
 		t.Fatalf("keeper plan lost selected setup identity: %q", plan.Setup)
 	}
+	if plan.Home != paths.SetupHomeState(workspace, "podman-self") {
+		t.Fatalf("keeper plan names home %q, want the setup's", plan.Home)
+	}
+	// The keeper binds the home its plan names (keeper.go), which its own Options, holding no
+	// resolved setup, would otherwise answer as the legacy one.
 	planBytes, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +140,11 @@ prefix = "Bearer "
 	ownershipSeenBeforeProduce := false
 	selectedProducer.Produce = func(ctx LaunchInputContext) ([]byte, error) {
 		producerCalls++
+		// The launch's home rides the plan to the keeper and into every producer's input
+		// (named-setups.md §9): the MCP share names it for the broker.
+		if plan.Home == "" || ctx.Home != plan.Home {
+			t.Errorf("launch input names home %q, keeper plan %q: the producer reads the wrong home", ctx.Home, plan.Home)
+		}
 		owner, _, present, ownerErr := readPreparedHTTPOwnership(cname)
 		if ownerErr == nil && present && owner.Container == cname && owner.Runtime == "podman" && owner.Setup == "podman-self" && owner.PackTree == packTree && len(owner.Generations) == 1 {
 			ownershipSeenBeforeProduce = true

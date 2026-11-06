@@ -66,16 +66,21 @@ func PurgeAgentLogsGuarded(workspaces []string, globalCache string, olderThanDay
 		// jail-writable (the workspace bind puts them at /workspace/.yolo), so a link at either
 		// would aim this purge at a host directory of the jail's choosing. Such a workspace,
 		// like one with no overlay, has nothing of its own to purge.
-		home, err := paths.OpenWorkspaceStateSubdir(ws, "home")
-		if err != nil {
-			continue
+		// Every home the workspace holds is swept: the legacy one and each setup's
+		// (paths.WorkspaceHomeStates; docs/design/named-setups.md §9), each opened refusing a link
+		// at every component below `.yolo`.
+		for _, dir := range paths.WorkspaceHomeStates(ws) {
+			home, err := paths.OpenWorkspaceHomeRoot(ws, dir)
+			if err != nil {
+				continue
+			}
+			for _, sub := range agentLogWorkspaceSubdirs {
+				b, f := purgeOldFilesUnder(home, sub, cutoff, apply, guard)
+				bytesRemoved += b
+				filesRemoved += f
+			}
+			home.Close()
 		}
-		for _, sub := range agentLogWorkspaceSubdirs {
-			b, f := purgeOldFilesUnder(home, sub, cutoff, apply, guard)
-			bytesRemoved += b
-			filesRemoved += f
-		}
-		home.Close()
 	}
 	if globalCache == "" {
 		return bytesRemoved, filesRemoved

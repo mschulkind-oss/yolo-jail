@@ -29,7 +29,9 @@ import (
 // Core writes the producer's bytes and binds the resulting private file to the one selected host
 // daemon that declared it.
 type LaunchInputContext struct {
-	Workspace           string
+	Workspace string
+	// Home is the launch's workspace home (Options.homeDir; docs/design/named-setups.md §9).
+	Home                string
 	Runtime             string
 	PackTree            string
 	Container           string
@@ -226,7 +228,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			launchInput + "'; it was not started. Use a yolo build that registers this core-owned producer, then retry.[/red]")
 		return false
 	}
-	frozen := LaunchInputContext{Container: cname, Workspace: o.Workspace, Runtime: o.runtime, PackTree: o.packTree, ApprovedScopes: cloneApprovedScopes(o.approvedScopes)}
+	frozen := LaunchInputContext{Container: cname, Workspace: o.Workspace, Home: o.homeDir(), Runtime: o.runtime, PackTree: o.packTree, ApprovedScopes: cloneApprovedScopes(o.approvedScopes)}
 	if launchInput == "call-broker-scope" {
 		input, err := selectedCallBrokerLaunchInput(lp, o.approvedScopes, o.callBrokerCells, o.approvedLoopholeGrants, o.approvedHTTPBindings)
 		if err != nil {

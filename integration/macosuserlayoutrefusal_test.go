@@ -58,7 +58,7 @@ func TestMacosUserLayoutRefusesAnOccupiedSidecarMirror(t *testing.T) {
 	packHome(t, `{"packs": ["claude"]}`)
 
 	ws := macosUserWorkspace(t, `{}`)
-	home := filepath.Join(ws, ".yolo", "home")
+	home := macosUserHome(ws, "account")
 	// Occupy the path where HOME's link to the machine root's credential dir belongs — the
 	// state a container-era launch (Apple Container bound /home/agent straight at this
 	// directory and mounted no shared dirs until 2026-08-24) leaves behind.

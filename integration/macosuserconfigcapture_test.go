@@ -13,8 +13,8 @@ import (
 // fold, which a container's teardown runs.
 //
 // What the Linux gate cannot reach and this does: the host user writing a sidecar in the
-// sandbox-created <ws>/.yolo/prism (through the workspace ACL's grant), and reading the surface the
-// sandbox account wrote at <ws>/.yolo/home/.claude, its HOME since slice 12a (MMP-D25); the fold
+// sandbox-created store beside the setup's home, <ws>/.yolo/setups/<setup>/prism (through the workspace ACL's grant), and reading the surface the
+// sandbox account wrote at <ws>/.yolo/setups/<setup>/home/.claude, its HOME (MMP-D25, SUP-D9); the fold
 // read the podman spelling <ws>/.yolo/home/claude until the Mac run of 2026-11-03. ONE launch:
 // the next boot would fold the edit anyway, so a second launch would hide the very defect this pins.
 func TestMacosUserCapturesConfigEditsWhenTheSessionEnds(t *testing.T) {
@@ -34,11 +34,11 @@ fs.writeFileSync(f, JSON.stringify(j, null, 2));
 		t.Fatalf("the macos-user launch did not make its edit (rc %d), so nothing below is a "+
 			"statement about the capture.\nstdout:\n%s\nstderr:\n%s", r.rc, r.stdout, r.stderr)
 	}
-	overlay := filepath.Join(ws, ".yolo", "prism", "claude-settings.overlay.json")
+	overlay := filepath.Join(filepath.Dir(macosUserHome(ws, "account")), "prism", "claude-settings.overlay.json")
 	got, err := os.ReadFile(overlay)
 	if err != nil {
 		t.Fatalf("no overlay sidecar after the session ended (%v): the host-side capture did "+
-			"not run, or could not write <ws>/.yolo/prism.\nstderr:\n%s", err, r.stderr)
+			"not run, or could not write the store beside the setup's home (SUP-D35).\nstderr:\n%s", err, r.stderr)
 	}
 	if !strings.Contains(string(got), "captured-at-exit") {
 		t.Fatalf("the session's edit to ~/.claude/settings.json is not in %s once it ended, so "+

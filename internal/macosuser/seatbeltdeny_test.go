@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The deny-by-default profile's text tests (docs/design/macos-user-model-plan.md slice 4). As
@@ -35,7 +37,7 @@ func fullProfileParams() ProfileParams {
 	pp.Relocations = []CacheRelocation{{Subdir: "huggingface", Target: "/Volumes/Data/hf"}}
 	pp.ReadonlyRels = []string{"vendored"}
 	pp.ReadonlyTargets = []string{"/Users/you/dotfiles/yolo-jail.jsonc"}
-	pp.HomeReadonly = ResolveHomeReadonly(pp.Home, pp.Workspace, []string{".claude"},
+	pp.HomeReadonly = ResolveHomeReadonly(pp.Home, paths.LegacyHomeState(pp.Workspace), []string{".claude"},
 		[]string{".claude/skills", ".claude/CLAUDE.md"})
 	pp.Devices = []string{"/dev/cu.usbserial-1"}
 	pp.CacheAliases = []CacheAlias{{Tool: "pip", Link: pp.Home + "/Library/Caches/pip",

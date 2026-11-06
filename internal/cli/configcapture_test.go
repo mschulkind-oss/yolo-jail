@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -56,13 +57,53 @@ func TestCaptureOnTerminateFoldsThisSessionsEdits(t *testing.T) {
 		`{"model":"base"}`, `{"model":"base","myEdit":"present"}`)
 
 	var warnings []string
-	captureOnTerminate(ws, "podman", func(m string) { warnings = append(warnings, m) })
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(m string) { warnings = append(warnings, m) })
 
 	if got := readOverlay(t, ws, "claude-settings"); !strings.Contains(got, "myEdit") {
 		t.Errorf("the in-jail edit was not captured at teardown:\n%s", got)
 	}
 	if len(warnings) != 0 {
 		t.Errorf("clean teardown warned: %v", warnings)
+	}
+}
+
+// TestCaptureOnTerminateUsesTheStoreBesideTheHome (named-setups-plan.md SUP-D35): a jail that
+// bound a setup's home is captured against the baseline beside that home,
+// `.yolo/setups/<name>/prism`, never the legacy home's `.yolo/prism`, which another setup's boots
+// keep. Red if captureOnTerminateIn goes back to one store per project.
+func TestCaptureOnTerminateUsesTheStoreBesideTheHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := t.TempDir()
+	setupStore := filepath.Join(paths.SetupStateDir(ws, "lab"), "prism")
+	legacyStore := filepath.Join(paths.WorkspaceStateDir(ws), "prism")
+	for dir, baseline := range map[string]string{
+		setupStore:  `{"model":"base"}`,
+		legacyStore: `{"model":"base","myEdit":"present"}`, // another setup's render: no edit against it
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "claude-settings.last_render"), []byte(baseline), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := paths.SetupHomeState(ws, "lab")
+	surface := filepath.Join(home, "claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(surface), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(surface, []byte(`{"model":"base","myEdit":"present"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	captureOnTerminateIn(ws, home, "podman", func(string) {})
+
+	data, err := os.ReadFile(filepath.Join(setupStore, "claude-settings.overlay.json"))
+	if err != nil || !strings.Contains(string(data), "myEdit") {
+		t.Errorf("the edit was not captured into the store beside the setup's home: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(legacyStore, "claude-settings.overlay.json")); !os.IsNotExist(err) {
+		t.Errorf("the capture wrote the legacy home's store (err %v)", err)
 	}
 }
 
@@ -88,7 +129,7 @@ func TestCaptureOnTerminateNeverReadsTheRealHome(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	captureOnTerminate(ws, "podman", func(string) {})
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
 	got := readOverlay(t, ws, "claude-settings")
 	if strings.Contains(got, "hostOnlySecret") {
@@ -127,7 +168,7 @@ func TestCaptureOnTerminateNeverBreaksTeardown(t *testing.T) {
 	}
 
 	var warnings []string
-	captureOnTerminate(ws, "podman", func(m string) { warnings = append(warnings, m) })
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(m string) { warnings = append(warnings, m) })
 
 	if len(warnings) == 0 {
 		t.Fatal("a failed capture must warn — silence makes the stale diff undiagnosable")
@@ -149,7 +190,7 @@ func TestCaptureOnTerminateSurvivesAPanickingCapture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, ".yolo", "prism"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	captureOnTerminate(ws, "podman", func(string) {}) // must simply return
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {}) // must simply return
 }
 
 // TestCaptureOnTerminateIsANoOpWithoutABaseline: a workspace no jail has rendered
@@ -170,7 +211,7 @@ func TestCaptureOnTerminateIsANoOpWithoutABaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	captureOnTerminate(ws, "podman", func(string) {})
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
 	if got := readOverlay(t, ws, "claude-settings"); got != "" {
 		t.Errorf("captured with no baseline — yolo's own output would freeze as an edit:\n%s", got)

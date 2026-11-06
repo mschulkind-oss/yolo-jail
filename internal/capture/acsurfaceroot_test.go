@@ -14,11 +14,12 @@ import (
 //
 // # The two layouts the one argv meets
 //
-// The host act passes the same `--surface-root=/workspace/.yolo/home` on every container backend
-// (captureJailArgv). On podman each surface is its own bind from `<ws>/.yolo/home/<Subtree>`, so
+// The host act passes the same `--surface-root-of=/workspace` on every container backend, which the
+// driver resolves to the session setup's home under it, `/workspace/.yolo/setups/<setup>/home`
+// (captureJailArgv). On podman each surface is its own bind from `<home>/<Subtree>`, so
 // `<root>/local` IS `$HOME/.local` through the workspace's mount. Apple Container binds
-// `<ws>/.yolo/home` WHOLE at the home (appleContainerBaseMounts), so `$HOME/.local` is
-// `<ws>/.yolo/home/.local` — the dotted HomeRel spelling — and `<root>/local` names a directory
+// `<home>` WHOLE at the home (appleContainerBaseMounts), so `$HOME/.local` is
+// `<home>/.local` — the dotted HomeRel spelling — and `<root>/local` names a directory
 // nothing creates (prepareWsState lays out no podman bind source on that backend).
 //
 // MEASURED on a Mac, 2026-10-02 (docs/research/macos-backend-performance.md §8): every Apple
@@ -28,9 +29,9 @@ import (
 //
 // # Modelling it
 //
-// HOME is a symlink to `<ws>/.yolo/home` — one directory with two paths, as the home bind and the
-// workspace bind give it on that backend — and the surface root is paths.WorkspaceHomeState(ws),
-// the expression captureJailArgv spells. The installer writes through HOME, as it does in a jail.
+// HOME is a symlink to the setup's home — one directory with two paths, as the home bind and the
+// workspace bind give it on that backend — and the surface root is paths.SetupHomeState(ws, "apple-container-self"),
+// the home capture-run --surface-root-of resolves to in an Apple Container session. The installer writes through HOME, as it does in a jail.
 
 // acHome builds the Apple Container fixture: a workspace whose .yolo/home holds the surfaces under
 // their HOME spellings, and a HOME that is a second path to that directory. Returns (home, ws).
@@ -38,7 +39,7 @@ func acHome(t *testing.T) (string, string) {
 	t.Helper()
 	base := t.TempDir()
 	ws := filepath.Join(base, "ws")
-	state := paths.WorkspaceHomeState(ws)
+	state := paths.SetupHomeState(ws, "apple-container-self")
 	// What a booted Apple Container home holds before any installer: the boot's npm prefix,
 	// ~/.local with yolo's own state in it, and $GOPATH (prepareWsState makes `go`, whose two
 	// spellings agree).
@@ -81,7 +82,7 @@ func TestAnAppleContainerCaptureFindsWhatTheInstallerWrote(t *testing.T) {
 	res, err := Run(Options{
 		Home:        home,
 		Out:         out,
-		SurfaceRoot: paths.WorkspaceHomeState(ws),
+		SurfaceRoot: paths.SetupHomeState(ws, "apple-container-self"),
 		Command:     writeInstaller(t, acInstaller),
 	})
 	must(t, err)
@@ -125,7 +126,7 @@ func TestAnAppleContainerCaptureFindsWhatTheInstallerWrote(t *testing.T) {
 // empty stray `<root>/local`.
 func TestASurfaceRootDirectoryThatIsNotTheHomesIsNotUsed(t *testing.T) {
 	home, ws := acHome(t)
-	state := paths.WorkspaceHomeState(ws)
+	state := paths.SetupHomeState(ws, "apple-container-self")
 	// A podman bind source with nothing in it, beside the dotted directory the home really uses.
 	must(t, os.MkdirAll(filepath.Join(state, "local", "bin"), 0o755))
 	out := filepath.Join(t.TempDir(), "staging-1")

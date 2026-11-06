@@ -233,7 +233,10 @@ func TestAppleContainerBindsADeepDestination(t *testing.T) {
 //
 // Before fix #1 this backend mounted no `scope: machine` pack dir, so its whole-home wsState
 // bind is where one's contents landed — an Apple Container user's
-// ~/.claude-shared-credentials sits in <workspace>/.yolo/home. Fix #1 mounts the dir from
+// ~/.claude-shared-credentials sits in <workspace>/.yolo/home. The plant stays in that legacy
+// home on purpose: an upgrading workspace has it there, the launch first moves it to
+// apple-container-self's home (named-setups-plan.md Slice 6a-ii), and the rescue then reads the
+// moved copy. Fix #1 mounts the dir from
 // GlobalHome, which SHADOWS that stranded copy; fix #2 copies it into GlobalHome, if-missing,
 // before the launch (prepareWsState). Linux tests pin the copy; what they cannot show is the
 // jail reading the rescued bytes through the NESTED machine mount rather than through the
@@ -263,8 +266,8 @@ func TestAppleContainerRescuesAStrandedSharedDir(t *testing.T) {
 	rescueName, machineName := "yolo-it-rescue-"+nonce, "yolo-it-machine-"+nonce
 	globalShared := filepath.Join(paths.GlobalStorageUnder(os.Getenv("HOME")), "home", shared)
 	for path, body := range map[string]string{
-		filepath.Join(paths.WorkspaceHomeState(dir), shared, rescueName): "STRANDED-" + nonce,
-		filepath.Join(globalShared, machineName):                         "MACHINE-" + nonce,
+		filepath.Join(paths.LegacyHomeState(dir), shared, rescueName): "STRANDED-" + nonce,
+		filepath.Join(globalShared, machineName):                      "MACHINE-" + nonce,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)

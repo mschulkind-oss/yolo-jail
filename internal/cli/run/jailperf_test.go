@@ -40,7 +40,7 @@ func launchWithJailPerf(t *testing.T, ws, stale, boot, session string, ready boo
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
 	writeUserPacks(t, home, `[]`)
-	half := filepath.Join(ws, ".yolo", "home", "yolo-perf.log")
+	half := filepath.Join(runtimeHome(ws, "podman"), "yolo-perf.log")
 	// THE FIRST SESSION is the runtime client's exec: its pass and provisioning append to the half.
 	bin := t.TempDir()
 	sessionFile := filepath.Join(bin, "session")
@@ -189,7 +189,7 @@ func TestTheJailHalfIsReadAsUntrusted(t *testing.T) {
 	}
 	var events []perf.Event
 	log := perf.New(time.Now, func(e perf.Event) { events = append(events, e) })
-	r := &jailPerfReader{ws: ws, rel: jailPerfRel("podman")}
+	r := &jailPerfReader{ws: ws, rel: jailPerfRel("podman", "home")}
 	r.recordBoot(log)
 	if len(events) != 0 {
 		t.Errorf("a linked jail half was read: %v", events)
@@ -206,7 +206,7 @@ func TestTheJailHalfIsReadAsUntrusted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, ".yolo", "home", "yolo-perf.log"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r = &jailPerfReader{ws: ws, rel: jailPerfRel("podman")}
+	r = &jailPerfReader{ws: ws, rel: jailPerfRel("podman", "home")}
 	r.recordBoot(log)
 	if len(events) != perf.MaxForeignSteps {
 		t.Errorf("recorded %d steps, want the cap %d", len(events), perf.MaxForeignSteps)
@@ -220,10 +220,10 @@ func TestTheJailHalfIsReadAsUntrusted(t *testing.T) {
 
 // TestTheJailHalfIsWhereEachBackendBindsIt: podman binds the single file, Apple Container the home.
 func TestTheJailHalfIsWhereEachBackendBindsIt(t *testing.T) {
-	if got := jailPerfRel("podman"); got != filepath.Join("home", "yolo-perf.log") {
+	if got := jailPerfRel("podman", "home"); got != filepath.Join("home", "yolo-perf.log") {
 		t.Errorf("podman: %s", got)
 	}
-	if got := jailPerfRel("container"); got != filepath.Join("home", ".yolo-perf.log") {
+	if got := jailPerfRel("container", "home"); got != filepath.Join("home", ".yolo-perf.log") {
 		t.Errorf("Apple Container: %s", got)
 	}
 }

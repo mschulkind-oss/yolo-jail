@@ -211,7 +211,7 @@ func TestStageExecsTheGeneratedScriptAndLogsWhereTheBriefingLooks(t *testing.T) 
 
 	// The generator resolves the script through the sidecar it is handed; the stage
 	// resolves it through the workspace. They must land on one path.
-	want := entrypoint.DarwinBootstrapScriptPath(paths.WorkspaceHomeState(ws))
+	want := entrypoint.DarwinBootstrapScriptPath(paths.LegacyHomeState(ws))
 	if plan.ProvisionScriptPath != want {
 		t.Errorf("stage execs %s, bootstrap writes %s", plan.ProvisionScriptPath, want)
 	}
@@ -266,7 +266,7 @@ func TestStageAndAgentShareOneEnvironment(t *testing.T) {
 	plan := provisionPlan(t)
 	// HOME is the workspace's own home and the mise store the machine root's (MMP-D25).
 	for _, want := range []string{
-		"HOME=" + paths.WorkspaceHomeState("/Users/Shared/yolo/proj"),
+		"HOME=" + paths.LegacyHomeState("/Users/Shared/yolo/proj"),
 		"MISE_DATA_DIR=" + SandboxMiseData(SandboxHome()),
 	} {
 		if !containsArg(plan.ProvisionArgv, want) {
@@ -406,7 +406,7 @@ func TestBuildPlanStartsStageForAnAbsentSelectedProgram(t *testing.T) {
 		!strings.Contains(plan.ProvisionPrograms.Missing[0], "readyfixture-bin") {
 		t.Fatalf("program readiness decision = %+v, want the absent declared program", plan.ProvisionPrograms)
 	}
-	if !strings.Contains(strings.Join(plan.ProvisionArgv, " "), entrypoint.DarwinBootstrapScriptPath(paths.WorkspaceHomeState(opts.Workspace))) {
+	if !strings.Contains(strings.Join(plan.ProvisionArgv, " "), entrypoint.DarwinBootstrapScriptPath(paths.LegacyHomeState(opts.Workspace))) {
 		t.Errorf("the admitted stage does not execute the generated readiness bootstrap: %v", plan.ProvisionArgv)
 	}
 }
@@ -472,7 +472,7 @@ func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *t
 	workspaceA := readinessPhysicalTempDir(t)
 	workspaceB := readinessPhysicalTempDir(t)
 	packRoot := readinessPackRootWithWorkspaceState(t, ".claude")
-	layout := entrypoint.DeriveDarwinHomeLayout(accountHome, paths.WorkspaceHomeState(workspaceA),
+	layout := entrypoint.DeriveDarwinHomeLayout(accountHome, paths.LegacyHomeState(workspaceA),
 		[]string{".claude"}, nil)
 	if err := layout.Apply(); err != nil {
 		t.Fatal(err)
@@ -494,7 +494,7 @@ func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *t
 		{name: "account-home symlink alias", homePath: filepath.Join(accountHomeAlias, ".config"), subtree: "config"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			oldBin := filepath.Join(paths.WorkspaceHomeState(workspaceA), tc.subtree, "npm", "bin", "readyfixture-bin")
+			oldBin := filepath.Join(paths.LegacyHomeState(workspaceA), tc.subtree, "npm", "bin", "readyfixture-bin")
 			if err := os.MkdirAll(filepath.Dir(oldBin), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -504,7 +504,7 @@ func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *t
 			sandboxEnv := jsonx.NewOrderedMap()
 			sandboxEnv.Set("NPM_CONFIG_PREFIX", filepath.Join(tc.homePath, "npm"))
 			decision := programReadinessStageFor(packRoot, accountHome, workspaceB,
-				paths.WorkspaceHomeState(workspaceB), "/usr/bin:/bin",
+				paths.LegacyHomeState(workspaceB), "/usr/bin:/bin",
 				config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
 			if !decision.Needed() || len(decision.Missing) != 1 {
 				t.Fatalf("the configured prefix followed workspace A's stale account-home link: %+v", decision)
@@ -522,7 +522,7 @@ func TestProgramReadinessMapsConfiguredPrefixesThroughTheIncomingHomeLayout(t *t
 	sandboxEnv := jsonx.NewOrderedMap()
 	sandboxEnv.Set("NPM_CONFIG_PREFIX", filepath.Join(accountHome, ".unselected", "npm"))
 	decision := programReadinessStageFor(packRoot, accountHome, workspaceB,
-		paths.WorkspaceHomeState(workspaceB), "/usr/bin:/bin", config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
+		paths.LegacyHomeState(workspaceB), "/usr/bin:/bin", config.MergeMiseTools(jsonx.NewOrderedMap()), sandboxEnv)
 	if !decision.Needed() || decision.Unknown == "" {
 		t.Fatalf("an account-home symlink outside the established incoming layout was treated as known: %+v", decision)
 	}
@@ -696,7 +696,7 @@ func TestADeclaredNodeFloorStartsTheStageUnlessTheHostShowsItMet(t *testing.T) {
 				t.Errorf("the host check read PATH %q, but the sandbox's is %q", askedPath, want)
 			}
 			// The agent's HOME, the workspace's own in every mode (MMP-D25).
-			if want := paths.WorkspaceHomeState("/Users/Shared/yolo/proj"); askedHome != want {
+			if want := paths.LegacyHomeState("/Users/Shared/yolo/proj"); askedHome != want {
 				t.Errorf("the host check excluded home %q, want the sandbox's %q", askedHome, want)
 			}
 		})

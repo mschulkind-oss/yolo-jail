@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -95,7 +96,7 @@ func TestTheBootstrapDeliversOnlyWhereTheHostsRulesPoint(t *testing.T) {
 			const marker = "this launch's content"
 			bootErr := bootContent(t, home, sidecar, packs, marker)
 
-			rules := ResolveHomeReadonly(home, ws, packload.WritableDirs(packs), dests)
+			rules := ResolveHomeReadonly(home, paths.LegacyHomeState(ws), packload.WritableDirs(packs), dests)
 
 			var found []string
 			_ = filepath.Walk(base, func(p string, fi os.FileInfo, err error) error {

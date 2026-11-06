@@ -233,8 +233,7 @@ func captureRunAs(opts CaptureOptions, stagingHome string) RunAs {
 	if hostHome != "" {
 		hostHome = resolvePathAbs(hostHome)
 	}
-	homes := LaunchHomes(ModeSelf, filepath.Dir(stagingHome), hostHome)
-	homes.Home = stagingHome
+	homes := LaunchHomes(ModeSelf, stagingHome, hostHome)
 	if hostHome == "" {
 		homes.Machine, homes.Shared = "", ""
 	}

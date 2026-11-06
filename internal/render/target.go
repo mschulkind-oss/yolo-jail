@@ -84,6 +84,25 @@ type Target struct {
 	// session is a session pass's render (session.go): redirected surface paths and their
 	// baseline sidecars. nil everywhere but a jail session pass; set only by WithSession.
 	session *Session
+
+	// homeState is the workspace home this jail target renders into, relative to the workspace's
+	// .yolo ("home" or "setups/<name>/home", paths.HomeStateRel), and it chooses the capture
+	// store beside that home (paths.PrismStateRel). "" is the legacy home. Set only by
+	// WithHomeState.
+	homeState string
+}
+
+// WithHomeState returns t rendering into the workspace home at rel (paths.HomeStateRel's
+// spelling), so its capture sidecars live in that home's own store, `.yolo/setups/<name>/prism`
+// beside `.yolo/setups/<name>/home` (named-setups-plan.md SUP-D35): two setups' homes never diff
+// against each other's render. Only a jail or preview target keeps a workspace store; any other
+// target, and an invalid rel, is returned unchanged.
+func (t Target) WithHomeState(rel string) Target {
+	if (t.kind != KindJail && t.kind != KindPreview) || !paths.ValidHomeStateRel(rel) {
+		return t
+	}
+	t.homeState = rel
+	return t
 }
 
 // HostOwnership is the declared ownership contract for the files yolo renders into a real
@@ -403,7 +422,7 @@ const hostCaptureLeaf = "host-capture"
 func (t Target) SidecarDir() string {
 	switch t.KindOf() {
 	case KindJail, KindPreview:
-		return filepath.Join(t.Workspace, ".yolo", "prism")
+		return filepath.Join(t.Workspace, ".yolo", paths.PrismStateRel(t.homeState))
 	case KindHost:
 		// The CONTRACT decides, not the notch: `none` keeps no capture state, so it gets the
 		// same "" a guest does, and the answer changes the moment the user declares `own`

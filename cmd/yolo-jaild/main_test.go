@@ -142,10 +142,10 @@ func TestRunJudgesGuestScopeAgainstTheRealHome(t *testing.T) {
 	}
 	realHome := filepath.Join(base, "you")
 	ws := filepath.Join(realHome, "code", "alpha")
-	if err := os.MkdirAll(paths.WorkspaceHomeState(ws), 0o755); err != nil {
+	if err := os.MkdirAll(paths.LegacyHomeState(ws), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", paths.WorkspaceHomeState(ws))
+	t.Setenv("HOME", paths.LegacyHomeState(ws))
 	var breach *paths.ScopeBreach
 	saved := usage
 	usage = func() int { breach = paths.WorkspaceScopeBreach(ws); return 2 }

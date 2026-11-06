@@ -105,3 +105,118 @@ func TestEnsureSetupStateDirRefusesLinks(t *testing.T) {
 		})
 	}
 }
+
+// TestHomeStateRelNamesOnlyTheWorkspacesHomes: the legacy home and a valid setup's home are
+// the workspace's; anything else (another workspace's, a setup dir, a bad name) is not, and
+// SplitHomeState recovers the workspace from either spelling.
+func TestHomeStateRelNamesOnlyTheWorkspacesHomes(t *testing.T) {
+	ws := "/w/proj"
+	for _, c := range []struct {
+		home, rel string
+		ok        bool
+	}{
+		{"/w/proj/.yolo/home", "home", true},
+		{"/w/proj/.yolo/setups/podman-self/home", "setups/podman-self/home", true},
+		{"/w/proj/.yolo/setups/podman-self/home/", "setups/podman-self/home", true},
+		{"/w/proj/.yolo/setups/podman-self", "", false},
+		{"/w/proj/.yolo/setups/Bad Name/home", "", false},
+		{"/w/proj/.yolo/setups/podman-self/home/x", "", false},
+		{"/w/other/.yolo/home", "", false},
+		{"/w/proj/.yolo/prism", "", false},
+		{"", "", false},
+	} {
+		rel, ok := HomeStateRel(ws, c.home)
+		if rel != c.rel || ok != c.ok {
+			t.Errorf("HomeStateRel(%q) = %q, %v; want %q, %v", c.home, rel, ok, c.rel, c.ok)
+		}
+		if IsWorkspaceHomeState(ws, c.home) != c.ok {
+			t.Errorf("IsWorkspaceHomeState(%q) != %v", c.home, c.ok)
+		}
+		if !c.ok {
+			continue
+		}
+		gotWS, gotRel, ok := SplitHomeState(c.home)
+		if !ok || gotWS != ws || gotRel != c.rel {
+			t.Errorf("SplitHomeState(%q) = %q, %q, %v; want %q, %q", c.home, gotWS, gotRel, ok, ws, c.rel)
+		}
+	}
+	if _, _, ok := SplitHomeState("/w/proj/.yolo/prism"); ok {
+		t.Error("SplitHomeState accepted a path that is no home")
+	}
+}
+
+// TestWorkspaceHomeStatesListsRealHomesOnly: the legacy home and each setup's home that is a real
+// directory are listed; a link at a setup's dir or home is neither followed nor listed.
+func TestWorkspaceHomeStatesListsRealHomesOnly(t *testing.T) {
+	ws := t.TempDir()
+	for _, d := range []string{".yolo/home", ".yolo/setups/podman-self/home", ".yolo/setups/seatbelt-self/home", ".yolo/setups/empty"} {
+		if err := os.MkdirAll(filepath.Join(ws, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(elsewhere, "home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(ws, ".yolo/setups/linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo/setups/homelink"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "home"), filepath.Join(ws, ".yolo/setups/homelink/home")); err != nil {
+		t.Fatal(err)
+	}
+	got := WorkspaceHomeStates(ws)
+	want := []string{LegacyHomeState(ws), SetupHomeState(ws, "podman-self"), SetupHomeState(ws, "seatbelt-self")}
+	if len(got) != len(want) {
+		t.Fatalf("WorkspaceHomeStates = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("WorkspaceHomeStates = %v, want %v", got, want)
+		}
+	}
+}
+
+// TestOpenWorkspaceHomeRootRefusesALinkOnTheWay: a link at `.yolo`, `setups`, the setup's dir or
+// the home is a LinkedStateDirError naming it; a path that is no home is refused unopened.
+func TestOpenWorkspaceHomeRootRefusesALinkOnTheWay(t *testing.T) {
+	for _, at := range []string{".yolo", ".yolo/setups", ".yolo/setups/podman-self", ".yolo/setups/podman-self/home"} {
+		t.Run(at, func(t *testing.T) {
+			ws := t.TempDir()
+			target := t.TempDir()
+			for _, d := range []string{"setups/podman-self/home", "podman-self/home", "home"} {
+				_ = os.MkdirAll(filepath.Join(target, d), 0o755)
+			}
+			link := filepath.Join(ws, at)
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			r, err := OpenWorkspaceHomeRoot(ws, SetupHomeState(ws, "podman-self"))
+			if err == nil {
+				r.Close()
+				t.Fatalf("a link at %s was followed", at)
+			}
+			var linked *LinkedStateDirError
+			if !errors.As(err, &linked) || linked.Path != link {
+				t.Errorf("err = %v, want a LinkedStateDirError naming %s", err, link)
+			}
+		})
+	}
+	ws := t.TempDir()
+	if err := os.MkdirAll(SetupHomeState(ws, "podman-self"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenWorkspaceHomeRoot(ws, SetupHomeState(ws, "podman-self"))
+	if err != nil {
+		t.Fatalf("a real setup home did not open: %v", err)
+	}
+	r.Close()
+	if _, err := OpenWorkspaceHomeRoot(ws, filepath.Join(ws, ".yolo", "prism")); !errors.Is(err, os.ErrInvalid) {
+		t.Errorf("a path that is no home: err = %v, want ErrInvalid", err)
+	}
+}

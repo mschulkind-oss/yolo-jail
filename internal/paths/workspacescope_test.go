@@ -256,7 +256,7 @@ func TestGuestScopeJudgesAgainstTheRealHome(t *testing.T) {
 	}
 	realHome := filepath.Join(base, "you")
 	ws := filepath.Join(realHome, "code", "alpha")
-	sessionHome := WorkspaceHomeState(ws)
+	sessionHome := LegacyHomeState(ws)
 	if err := os.MkdirAll(sessionHome, 0o755); err != nil {
 		t.Fatal(err)
 	}

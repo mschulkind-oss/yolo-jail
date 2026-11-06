@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capturelog"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func TestTheCaptureVerbNeverRecordsAProviderKey(t *testing.T) {
@@ -59,7 +60,7 @@ func TestTheTeardownCaptureNeverRecordsAProviderKey(t *testing.T) {
 		`{"model":"base","env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/gw"}}`)
 	writeFile(t, filepath.Join(prism, "claude-settings.last_render"), `{"model":"base"}`)
 	var warned []string
-	captureOnTerminate(ws, "podman", func(s string) { warned = append(warned, s) })
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(s string) { warned = append(warned, s) })
 	overlay, err := os.ReadFile(filepath.Join(prism, "claude-settings.overlay.json"))
 	if err != nil {
 		t.Fatalf("the teardown capture wrote no overlay (warnings %v): %v", warned, err)

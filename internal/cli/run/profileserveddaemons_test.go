@@ -248,7 +248,7 @@ func TestAnAttachNeedingAnUnstartedAdapterTakesTheSkewDisposition(t *testing.T) 
 	if strings.Contains(stderr.String(), "jail daemon that this") {
 		t.Fatalf("an attach into a jail that runs the adapter took the skew disposition:\n%s", stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "codex.sh")); err != nil {
+	if _, err := os.Stat(filepath.Join(launchHome(t, o), agentEnvStateDir, "codex.sh")); err != nil {
 		t.Errorf("the attach into a jail that runs the adapter delivered no file for codex: %v\n%s", err, stderr.String())
 	}
 }
@@ -350,7 +350,7 @@ func TestAnAttachKeepsTheRunningAdaptersScopedToken(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	tokenEnv := paths.ServiceCallerTokenEnv("aws-auth")
 	running := strings.Repeat("5a", 32)
-	wsStateOf := func(o *Options) string { return paths.WorkspaceHomeState(o.Workspace) }
+	wsStateOf := func(o *Options) string { return launchHome(t, o) }
 	attach := func(profiles map[string]string, seed func(wsState string)) (string, map[string]string, string) {
 		t.Helper()
 		o, cfg, channel, stderr := attachFixture(t, awsAdapterJailEnv, packs, emptyEnv(),

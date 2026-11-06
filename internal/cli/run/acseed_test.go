@@ -74,7 +74,7 @@ func TestAppleContainerSeedReachesTheJailsClaudeJSON(t *testing.T) {
 func TestAppleContainerLoginIsLearnedByTheSeed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	o := &Options{Workspace: t.TempDir()}
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := paths.LegacyHomeState(o.Workspace)
 	if err := os.MkdirAll(wsState, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestTheSeedDoesNotWriteThroughAJailPlantedLink(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			writeSeed(t)
 			o := &Options{Workspace: t.TempDir()}
-			wsState := paths.WorkspaceHomeState(o.Workspace)
+			wsState := paths.LegacyHomeState(o.Workspace)
 			hostFile := filepath.Join(t.TempDir(), "authorized_keys")
 			const victim = "ssh-ed25519 AAAA host-user-key\n"
 			if err := os.WriteFile(hostFile, []byte(victim), 0o600); err != nil {
@@ -187,7 +187,7 @@ func TestLegacyMigrationsLandInEachBackendsLayout(t *testing.T) {
 		t.Run(tc.rt, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			o := &Options{Workspace: t.TempDir()}
-			wsState := paths.WorkspaceHomeState(o.Workspace)
+			wsState := paths.LegacyHomeState(o.Workspace)
 			for rel, body := range map[string]string{
 				filepath.Join("claude-projects", "s.jsonl"): "{}\n",
 				"claude-settings.json":                      "{}\n",

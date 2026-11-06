@@ -136,7 +136,7 @@ func TestRunPlanCarriesOnlyResolvedTempValidationContextToNativeLaunchers(t *tes
 	if err != nil {
 		t.Fatalf("parsing the native env-file context: %v", err)
 	}
-	if ctx.Mode != ModeSelf || ctx.Workspace != plan.Workspace || ctx.Home != paths.WorkspaceHomeState(plan.Workspace) ||
+	if ctx.Mode != ModeSelf || ctx.Workspace != plan.Workspace || ctx.Home != paths.LegacyHomeState(plan.Workspace) ||
 		ctx.DarwinUserTempDir != "/var/folders/ab/xyz/T" || !ctx.SharedTmp {
 		t.Errorf("native validation roots were not the resolved producer values: %+v", ctx)
 	}

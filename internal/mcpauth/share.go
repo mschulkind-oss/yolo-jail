@@ -9,16 +9,30 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // Share is an immutable, host-produced instruction for one launch's selected replicas.
 // It carries keys and declarations, never OAuth credentials or agent-written paths.
 type Share struct {
-	Version   int       `json:"version"`
-	Jail      string    `json:"jail"`
-	Workspace string    `json:"workspace"`
+	Version   int    `json:"version"`
+	Jail      string `json:"jail"`
+	Workspace string `json:"workspace"`
+	// Home is the launch's workspace home relative to <workspace>/.yolo (paths.HomeStateRel):
+	// "setups/<setup>/home", or "" for the legacy "home" (docs/design/named-setups.md §9). Each
+	// replica's Root[0] "home" names this directory.
+	Home      string    `json:"home,omitempty"`
 	WrittenAt time.Time `json:"written_at"`
 	Replicas  []Replica `json:"replicas"`
+}
+
+// HomeRel is the share's workspace home relative to <workspace>/.yolo: Home, or the legacy
+// "home" when the share names none.
+func (s Share) HomeRel() string {
+	if s.Home == "" {
+		return "home"
+	}
+	return s.Home
 }
 
 type Replica struct {
@@ -42,6 +56,11 @@ type SharedEntry struct {
 func (s Share) Validate() error {
 	if s.Version != 1 || s.Jail == "" || filepath.Base(s.Jail) != s.Jail || !filepath.IsAbs(s.Workspace) || s.WrittenAt.IsZero() {
 		return errors.New("mcp-auth: invalid launch share; retry the launch")
+	}
+	if s.Home != "" {
+		if rel, ok := paths.HomeStateRel(s.Workspace, filepath.Join(paths.WorkspaceStateDir(s.Workspace), s.Home)); !ok || rel != s.Home {
+			return errors.New("mcp-auth: the launch share names no home of its workspace; retry the launch")
+		}
 	}
 	for _, r := range s.Replicas {
 		if r.Pack == "" || filepath.Base(r.Pack) != r.Pack || r.Pack == "." || r.Pack == ".." || !filepath.IsAbs(r.DeriveFile) || filepath.Base(r.DeriveFile) != "derive.lua" || len(r.Root) != 2 || r.Root[0] != "home" || r.Decl.Format != "json" || r.Lock.Protocol != "flock" || r.Store == "" || r.Decl.Lock == nil || *r.Decl.Lock != r.Lock {

@@ -17,7 +17,7 @@ import (
 //
 // The expected path is read off the launch itself rather than retyped: the podman bind whose
 // destination is pi's home directory, from the wsState production hands the assembler
-// (paths.WorkspaceHomeState, prepareWsState), and Apple Container's spelling of the same
+// (paths.LegacyHomeState, prepareWsState), and Apple Container's spelling of the same
 // directory through wsStateHomeRel, the function that backend's whole-home bind is laid out by.
 // Moving either bind fails this test until the skill follows.
 func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
@@ -25,7 +25,7 @@ func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	ws := "/ws"
-	wsState := paths.WorkspaceHomeState(ws)
+	wsState := paths.LegacyHomeState(ws)
 	o := goldenOptions(ws, home)
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
@@ -53,7 +53,7 @@ func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
 	if podmanRel == "" {
 		t.Fatalf("no podman bind for /home/agent/.pi in the argv: %v", argv)
 	}
-	acRel := filepath.ToSlash(filepath.Join(paths.WorkspaceHomeState("."), wsStateHomeRel("container", ".pi")))
+	acRel := filepath.ToSlash(filepath.Join(paths.LegacyHomeState("."), wsStateHomeRel("container", ".pi")))
 
 	b, err := builtinskills.FS.ReadFile("configuring-the-jail/SKILL.md")
 	if err != nil {

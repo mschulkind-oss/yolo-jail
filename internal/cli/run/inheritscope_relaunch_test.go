@@ -16,7 +16,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -25,7 +24,7 @@ import (
 func TestMacosUserAccountRelaunchKeepsDeliveredInheritedJSONC(t *testing.T) {
 	treeLaunchHome(t, true) // Object pack entries exercise RenderFilteredForDelivery's JSONC fallback.
 	ws := floortest.ResolvedTemp(t)
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := macosUserModeHome(ws, macosuser.ModeAccount)
 	guestHome := sidecar // HOME is the workspace's own home in account mode too (MMP-D25)
 	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
 		t.Fatal(err)
@@ -301,7 +300,7 @@ func TestPriorInheritedDeliveryRequiresAnUnchangedSealedHardlink(t *testing.T) {
 func TestMacosUserAccountRelaunchRefusesOwnerReplacementAtBothBoundaries(t *testing.T) {
 	treeLaunchHome(t, true)
 	ws := floortest.ResolvedTemp(t)
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := macosUserModeHome(ws, macosuser.ModeAccount)
 	guestHome := sidecar // HOME is the workspace's own home in account mode too (MMP-D25)
 	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
 		t.Fatal(err)

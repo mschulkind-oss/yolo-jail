@@ -10,7 +10,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
@@ -117,7 +116,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 	})
 
 	tiers := parseMacosUserTiers(section(r.stdout, "=== TIERS ===", "=== END ==="))
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := macosUserHome(ws, "account")
 
 	t.Run("mise_store_is_machine_tier", func(t *testing.T) {
 		// THE CONTRAST IS THE TEST. "the store is under /Users/_yolojail" is also true of the
@@ -127,7 +126,7 @@ func TestMacosUserDeclaredToolsArrive(t *testing.T) {
 		// outside the per-workspace home rather than merely inside some home.
 		if home := tiers["home"].target; !samePath(home, sidecar) {
 			t.Fatalf("the session's $HOME is %q, want this workspace's home %s. Slice 12a runs "+
-				"account mode with HOME = <ws>/.yolo/home (MMP-D25); any other HOME means the "+
+				"account mode with HOME = <ws>/.yolo/setups/seatbelt-yolo-account/home (MMP-D25); any other HOME means the "+
 				"launch did not take that geometry, so the machine-tier assertion below would "+
 				"pass or fail for the wrong reason and is not attempted. Build and launch the "+
 				"current dev bundle (`just build-dev-bundle`).", home, sidecar)

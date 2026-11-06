@@ -43,7 +43,7 @@ func TestAForcedStopDropsTheGraceAndForcesTheKeeper(t *testing.T) {
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
 	var forced []bool
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), force bool) int {
+	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), force bool) int {
 		forced = append(forced, force)
 		return 0
 	}
@@ -142,7 +142,7 @@ func TestStopJailDoesNotTreatUnknownAfterStopAsGone(t *testing.T) {
 	runningProbes := 0
 	finished := false
 	savedFinish := finishStop
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
 		finished = true
 		return 0
 	}

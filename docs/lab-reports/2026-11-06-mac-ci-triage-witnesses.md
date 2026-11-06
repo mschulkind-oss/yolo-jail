@@ -104,6 +104,25 @@ variance.
 **Decision needed (owner):** if any shard passes 55 minutes, either add shards or raise the step
 cap. Each costs runner minutes; neither is decided here.
 
+### 5. The legacy home's move under the yolo account
+
+Named setups slice 6a-ii moves a project's legacy home, `.yolo/home`, to the selected setup's
+home, `.yolo/setups/<setup>/home`, on the first launch with no jail of the project running
+([SUP-D9](../design/named-setups-plan.md#SUP-D9),
+[SUP-D31](../design/named-setups-plan.md#SUP-D31)). Under `seatbelt-yolo-account` the yolo
+account owns that home, and the invoking user renames it into a directory the user owns. Only
+Linux has run the move. If APFS refuses the rename with `EACCES`, the move falls through to its
+"left in place" line. That line's manual `mv` would fail the same way, and every later launch
+would print it again.
+
+- W7. In a throwaway workspace, launch `seatbelt-yolo-account` once on a yolo from before 6a-ii,
+  so the account lays `.yolo/home`. Then launch it once on a commit carrying 6a-ii. Record the
+  launch's home line, and `ls -leO` of `.yolo/home` and `.yolo/setups/seatbelt-yolo-account/home`
+  before and after the second launch.
+
+**Decision needed:** none if the move prints "Moved this project's home". On `EACCES`, the move
+needs a step the account can take, and its "left" line needs a remedy that works.
+
 ## Evidence
 
 - Run logs and job annotations: `gh run view -R mschulkind-oss/yolo-jail <id> --log-failed`,

@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // claudeCredentialView reports whether this launch delivers the Claude login as a credential
@@ -63,13 +64,18 @@ var retireView = func(loc claudeview.Location) (bool, error) {
 func (o *Options) claudeCredentialViewLocation(rt string) claudeview.Location {
 	subdir := claudeview.HostSubdir(rt)
 	if rt == "macos-user" { // parity: HonoredBy — registration follows the native HOME (MMP-D5, MMP-D25)
-		homes := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome())
+		homes := macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome())
 		// MMP-D5 (and MMP-D25 for the account mode) makes HOME the workspace's home state; place
 		// the view at the `.claude` directory under that HOME, where CL-D8 says Claude reads
 		// without env overrides.
 		subdir = filepath.Base(filepath.Join(homes.Home, filepath.Dir(claudeview.ViewRel)))
 	}
-	return claudeview.Location{Workspace: o.Workspace, Subdir: subdir}
+	// Under the launch's own home (docs/design/named-setups.md §9): "" names the legacy one.
+	home, _ := paths.HomeStateRel(o.Workspace, o.homeDir())
+	if home == "home" {
+		home = ""
+	}
+	return claudeview.Location{Workspace: o.Workspace, Home: home, Subdir: subdir}
 }
 
 // registerClaudeCredentialView registers this workspace's view with the host broker and writes

@@ -26,7 +26,7 @@ func TestTheMacosUserBriefingNamesTheSandboxHome(t *testing.T) {
 			o.MacosUserMode, o.MacosUserHostHome = mode, "/Users/you"
 			ws = o.Workspace
 		})
-		if want := "- **Home**: `" + paths.WorkspaceHomeState(ws) + "`"; !strings.Contains(got, want) {
+		if want := "- **Home**: `" + paths.SetupHomeState(ws, "seatbelt-self") + "`"; !strings.Contains(got, want) {
 			t.Errorf("%s: the briefing does not name the sandbox home (%q).\n\nA macos-user agent is "+
 				"told its home is somewhere it does not live, on the one surface it reads first.\n\n%s",
 				mode, want, got)

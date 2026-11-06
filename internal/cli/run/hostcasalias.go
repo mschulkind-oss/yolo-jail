@@ -105,7 +105,7 @@ func (o *Options) macosUserHostCASFacts(mode macosuser.Mode, relocations []macos
 	sandboxHome, machine := macosuser.SandboxHome(), ""
 	if self {
 		ownership = hostcas.OwnershipYours
-		homes := macosuser.LaunchHomes(mode, o.Workspace, o.macosUserHostHome())
+		homes := macosuser.LaunchHomes(mode, o.homeDir(), o.macosUserHostHome())
 		sandboxHome, machine = homes.Home, homes.Machine
 	}
 	hostPlatform := o.macosHostCASPlatform

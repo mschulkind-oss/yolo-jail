@@ -3,10 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // captureRunUsage is the whole surface of the inner driver. It is a HIDDEN subcommand
@@ -15,7 +18,7 @@ import (
 // home it is pointed at and MOVES the result out of it, which is correct inside a
 // throwaway capture jail and destructive anywhere else.
 const captureRunUsage = "usage: yolo internal capture-run --out=DIR [--home=DIR] " +
-	"[--surface-root=DIR] [--scan-content-refs] [--end-process-group] [--line-status=FILE] " +
+	"[--surface-root=DIR | --surface-root-of=WORKSPACE] [--scan-content-refs] [--end-process-group] [--line-status=FILE] " +
 	"[--artifact=HOME-RELATIVE-PATH ...] " +
 	"-- <installer argv...>"
 
@@ -70,6 +73,12 @@ func runCaptureRun(args []string) int {
 			// bind exists and where it lands; the driver itself just uses the door it
 			// is given.
 			surfaceRoot = strings.TrimPrefix(a, "--surface-root=")
+		case strings.HasPrefix(a, "--surface-root-of="):
+			// The same door, named by the workspace bind it is under: the home is the session's
+			// setup's (docs/design/named-setups.md §9), which the host act does not choose, so it
+			// is resolved here from the home the session's launch bound (captureSurfaceRootOf).
+			surfaceRoot = captureSurfaceRootOf(strings.TrimPrefix(a, "--surface-root-of="),
+				os.Getenv(paths.HomeStateEnv), os.Getenv(setup.EnvVar))
 		default:
 			fmt.Fprintf(os.Stderr, "capture-run: unexpected argument %q\n%s\n", a, captureRunUsage)
 			return 2
@@ -105,4 +114,25 @@ func runCaptureRun(args []string) int {
 	fmt.Fprintf(os.Stderr, "capture-run: %d paths in %s (%d renamed, %d copied)\n",
 		len(res.Manifest.Entries), res.Tree, res.Renamed, res.Copied)
 	return 0
+}
+
+// captureSurfaceRootOf is the capture surfaces' second door under the workspace bind at
+// workspace: the home the session's launch bound, homeRel (the session's paths.HomeStateEnv),
+// which is the only answer that is right while SUP-D21 keeps the legacy home bound beside a setup
+// home that exists (named-setups-plan.md SUP-D34). A session launched by a yolo that did not say
+// falls back to a guess: the setup's home (paths.SetupHomeState of setupName, the session's
+// YOLO_SETUP) when it is a directory, else the legacy home. The driver checks the door against
+// the home before it uses it (capture.Options.SurfaceRoot), so a wrong guess costs a copy for a
+// rename, never a wrong capture.
+func captureSurfaceRootOf(workspace, homeRel, setupName string) string {
+	if paths.ValidHomeStateRel(homeRel) {
+		return filepath.Join(paths.WorkspaceStateDir(workspace), filepath.FromSlash(homeRel))
+	}
+	if setup.ValidName(setupName) {
+		home := paths.SetupHomeState(workspace, setupName)
+		if fi, err := os.Lstat(home); err == nil && fi.IsDir() {
+			return home
+		}
+	}
+	return paths.LegacyHomeState(workspace)
 }

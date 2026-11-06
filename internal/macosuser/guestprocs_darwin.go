@@ -127,3 +127,8 @@ func sandboxUIDReal() (uint32, error) {
 	sandboxUID.uid, sandboxUID.known = uint32(n), true
 	return sandboxUID.uid, nil
 }
+
+// SandboxUID is the yolo account's uid (SandboxUser), asked of the directory service once per
+// process. The legacy-home move reads it to take a home a seatbelt-yolo-account launch laid
+// (named-setups-plan.md SUP-D31).
+func SandboxUID() (uint32, error) { return sandboxUIDReal() }

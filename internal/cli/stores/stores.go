@@ -340,7 +340,7 @@ func fillDefaults(o *Options) {
 				HostGetenv:    os.Getenv,
 				// /mise's host side is machine-wide; ~/.local and ~/go are per
 				// workspace, and this command is not, so those stores' private copies
-				// are left unnamed (each workspace's .yolo/home/local and .yolo/home/go).
+				// are left unnamed (each workspace's home's local and go).
 				JailMiseHost: paths.GlobalMise(),
 				// THE FRAME AGAIN: paths.GlobalCache() is the host's tree for a host
 				// yolo and this jail's own for an in-jail one, so the "stranded"

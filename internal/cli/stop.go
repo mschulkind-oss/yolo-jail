@@ -606,9 +606,9 @@ func noteOtherRuntimes(stdout io.Writer, rt, cname string) {
 
 // stopCapture is the E3 config capture `yolo stop` hands the reap of an unkept jail, as a launch is
 // handed it (commands.go).
-func stopCapture(stderr io.Writer) func(workspace, rt string) {
-	return func(workspace, rt string) {
-		captureOnTerminate(workspace, rt, func(msg string) { fmt.Fprintln(stderr, "Warning: "+msg) })
+func stopCapture(stderr io.Writer) func(workspace, home, rt string) {
+	return func(workspace, home, rt string) {
+		captureOnTerminateIn(workspace, home, rt, func(msg string) { fmt.Fprintln(stderr, "Warning: "+msg) })
 	}
 }
 

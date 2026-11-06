@@ -33,10 +33,13 @@ import (
 func teardownThenPromote(t *testing.T, lastRender, file string) *promoteWorld {
 	t.Helper()
 	w := newPromoteWorld(t, `["claude"]`)
-	writeFile(t, filepath.Join(w.ws, ".yolo", "home", "claude", "settings.json"), file)
+	// The home a launch of the selected setup binds, whose store beside it the promote reads
+	// (named-setups-plan.md SUP-D35).
+	home := selectedHomeFor(w.ws)
+	writeFile(t, filepath.Join(home, "claude", "settings.json"), file)
 	writeFile(t, w.sidecar("claude", "settings", ".last_render"), lastRender)
 	var warned []string
-	captureOnTerminate(w.ws, "podman", func(s string) { warned = append(warned, s) })
+	captureOnTerminateIn(w.ws, home, "podman", func(s string) { warned = append(warned, s) })
 	if _, err := os.Stat(w.sidecar("claude", "settings", ".overlay.json")); err != nil {
 		t.Fatalf("the teardown capture wrote no overlay (warnings %v): %v", warned, err)
 	}

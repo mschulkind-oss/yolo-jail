@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // RUNBOOK ITEM 1'S TWIN: WHOSE SANDBOX A LAUNCH STARTS, AND WHERE
@@ -27,7 +26,7 @@ import (
 // uid is the one the host resolves for that account (so a name that happened to print right
 // over the wrong uid still fails), the PHYSICAL working directory is the workspace the fixture
 // minted (resolved where it was minted, per AGENTS.md's darwin path-resolution rule), and $HOME
-// is the workspace's own home, <ws>/.yolo/home (MMP-D25: the account's home is only its machine root). Two of those are the item's own; uid and HOME cost nothing on the
+// is the workspace's own home, <ws>/.yolo/setups/seatbelt-yolo-account/home (MMP-D25: the account's home is only its machine root). Two of those are the item's own; uid and HOME cost nothing on the
 // same probe and are what "whose" means.
 func TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace(t *testing.T) {
 	requireMacosUser(t)
@@ -46,7 +45,7 @@ func TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace(t *testing.T) {
 		"id-un":  macosuser.SandboxUser,
 		"uid":    wantUID,
 		"pwd":    ws,
-		"home":   paths.WorkspaceHomeState(ws),
+		"home":   macosUserHome(ws, "account"),
 	}
 	why := map[string]string{
 		"whoami": "the launch's `sudo --user=" + macosuser.SandboxUser + "` did not land: the " +

@@ -49,7 +49,7 @@ import (
 // /workspace-side one shares a mount with /workspace/out. rename(2) compares the MOUNT, not
 // the device (MEASURED here 2026-09-04: the same directory renames through one path and
 // returns EXDEV through the other), so reaching the surfaces through the workspace is the
-// difference between moving 1.2 GB and copying it. See paths.WorkspaceHomeState and
+// difference between moving 1.2 GB and copying it. See paths.LegacyHomeState and
 // capture.Options.SurfaceRoot; captureJailArgv is where the two facts meet.
 //
 // Putting the workspace under <CapturesDir>/staging is forced by the OTHER rename: admission
@@ -713,8 +713,9 @@ const packdeclNPMKind = "npm"
 // none of them is checkable at run time:
 //
 //   - the workspace is bound at containerWorkspace, so the out dir is inside that bind;
-//   - the home surfaces are ALSO reachable under it, at paths.WorkspaceHomeState of that
-//     same path — which is what makes the delta move a rename rather than a 1.2 GB copy;
+//   - the home surfaces are ALSO reachable under it, at the session's setup's home under that
+//     same path (capture-run --surface-root-of resolves it in the jail, captureSurfaceRootOf) —
+//     which is what makes the delta move a rename rather than a 1.2 GB copy;
 //   - the installer is the generated launcher, run with entrypoint.InstallOnlyEnv set so it
 //     installs and stops instead of exec'ing the tool into the surfaces being captured.
 //
@@ -733,7 +734,7 @@ func captureJailArgv(bin string) []string {
 	return []string{
 		"yolo", "internal", "capture-run",
 		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
-		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--surface-root-of=" + containerWorkspace,
 		"--scan-content-refs",
 		"--", "env", entrypoint.InstallOnlyEnv + "=1", bin,
 	}

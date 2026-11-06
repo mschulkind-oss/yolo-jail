@@ -126,7 +126,8 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 	// What yolo deletes in this class. In every shape it is the pi pack's reaper of clean, idle
 	// worktrees its tool left in the durable dir (internal/worktreereap). On a read-only home it
 	// is also the age-out of a few agents' log dirs (the launch's daily slot and `yolo prune
-	// --apply`), which it finds at `<ws>/.yolo/home/copilot/logs`, `pi/agent/logs` and the like
+	// --apply`), which it finds in each of the workspace's homes (paths.WorkspaceHomeStates) at
+	// `copilot/logs`, `pi/agent/logs` and the like
 	// (prune.AgentLogSubdirs): the names podman binds with the leading dot stripped. A
 	// WHOLE-HOME bind (Apple Container) keeps the dots, so that age-out finds nothing there, and
 	// what yolo does delete is its own delivered files — the pack tree and generated scripts it
@@ -140,7 +141,7 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 	switch {
 	case homeDurable:
 		where = append(where, "all of `"+home+"` outside the other classes, writable and kept in "+
-			"this workspace's `.yolo/home`"+toolsOwn)
+			"this workspace's home under `.yolo/setups/<setup>/home`"+toolsOwn)
 		deletes = "yolo deletes nothing here but its own files (below)" + worktrees
 	case len(inHome) > 0:
 		where = append(where, "in home, only "+joinTilde(inHome, home)+toolsOwn)

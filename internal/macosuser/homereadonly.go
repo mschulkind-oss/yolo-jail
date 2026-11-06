@@ -81,6 +81,28 @@ type HomeOverlay struct {
 	// (HomeOverlayStagedCurrent), so the plan stages nothing for it. Decided by the
 	// orchestrator, which may read the staging root, because the plan builder is pure.
 	StagedCurrent bool
+	// Sidecar is the workspace home the launch selected (docs/design/named-setups.md §9):
+	// <workspace>/.yolo/setups/<setup>/home, or the legacy <workspace>/.yolo/home while that
+	// is still attributed to the setup (SUP-D21). It is HOME in both modes and where every
+	// WorkspaceDirs link lands, so it rides with them. Set by the run pipeline (its homeDir)
+	// on every launch; "" is the legacy home, which only a caller with no launch (a fixture,
+	// a probe) leaves.
+	Sidecar string
+}
+
+// workspaceSidecar is the launch's workspace home under workspace (already resolved by the
+// caller): overlay.Sidecar re-rooted on that spelling (paths.SplitHomeState), so a sidecar
+// spelled through a link the resolution removed still names the same directory, and the legacy
+// home when the overlay names none. A sidecar that is no workspace home at all is returned as
+// it is, for PlanInvariants to refuse.
+func workspaceSidecar(workspace string, overlay HomeOverlay) string {
+	if overlay.Sidecar == "" {
+		return paths.LegacyHomeState(workspace)
+	}
+	if _, rel, ok := paths.SplitHomeState(overlay.Sidecar); ok {
+		return filepath.Join(paths.WorkspaceStateDir(workspace), rel)
+	}
+	return overlay.Sidecar
 }
 
 // HomeReadonly is the sandbox-home half of the profile's write carve-outs: the rendered
@@ -106,8 +128,8 @@ func (h HomeReadonly) Empty() bool { return len(h.Paths) == 0 && len(h.Anchors) 
 // ResolveHomeReadonly turns an overlay's home-relative destinations into the absolute paths
 // the kernel will evaluate a write against, and the anchors above them.
 //
-// `home` is the account home and `workspace` the (already resolved) workspace; the sidecar
-// is derived from it with the one spelling both backends use (paths.WorkspaceHomeState).
+// `home` is the account home and `sidecar` the workspace home the layout links point into (the
+// selected setup's home, workspaceSidecar), the one directory both backends bind it from.
 // Both are resolved through their longest EXISTING prefix before anything is joined onto
 // them: SandboxHome() reaches here as a constant that nothing has EvalSymlinks'd, and a
 // fixture home under a symlinked TMPDIR is exactly the darwin /var → /private/var shape.
@@ -124,10 +146,14 @@ func (h HomeReadonly) Empty() bool { return len(h.Paths) == 0 && len(h.Anchors) 
 // declarations are validated upstream, and a deny on a path outside the home would widen
 // the profile's refusals to somewhere nobody asked for rather than narrow the agent's
 // writes.
-func ResolveHomeReadonly(home, workspace string, workspaceDirs, dests []string) HomeReadonly {
+func ResolveHomeReadonly(home, sidecar string, workspaceDirs, dests []string) HomeReadonly {
 	home = resolveLongestExisting(home)
-	workspace = resolveLongestExisting(workspace)
-	sidecar := paths.WorkspaceHomeState(workspace)
+	sidecar = resolveLongestExisting(sidecar)
+	// The chain of anchors starts at the workspace above the sidecar, in either home spelling.
+	workspace, _, ok := paths.SplitHomeState(sidecar)
+	if !ok {
+		workspace = filepath.Dir(filepath.Dir(sidecar))
+	}
 
 	links := map[string]string{} // home-relative link path → physical target
 	for _, l := range entrypoint.DeriveDarwinHomeLayout(home, sidecar, workspaceDirs, nil).Links {

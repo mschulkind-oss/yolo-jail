@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -90,7 +91,7 @@ func TestCaptureOnTerminateNeverWritesASidecarThroughALink(t *testing.T) {
 				link := filepath.Join(ws, ".yolo", "prism", sidecar.file)
 				verify := shape.plant(t, link)
 
-				captureOnTerminate(ws, "podman", func(string) {})
+				captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
 				verify(t)
 			})
@@ -104,7 +105,7 @@ func TestCaptureOnTerminateNeverWritesASidecarThroughALink(t *testing.T) {
 		captureSymlink(t, filepath.Join(dir, "gone"), link)
 
 		var warnings []string
-		captureOnTerminate(ws, "podman", func(m string) { warnings = append(warnings, m) })
+		captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(m string) { warnings = append(warnings, m) })
 
 		if fi, err := os.Lstat(link); err != nil || !fi.Mode().IsRegular() {
 			t.Fatalf("the overlay is not a regular file after the capture (%v, %v): the link must be "+
@@ -131,9 +132,9 @@ func TestCaptureOnTerminateNeverReadsThroughALink(t *testing.T) {
 			host, _ := captureHostFile(t)
 			captureSymlink(t, host, filepath.Join(ws, ".yolo", tc.link))
 
-			captureOnTerminate(ws, "podman", func(string) {})
+			captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
-			if got := readOverlayNoFollow(t, ws, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
+			if got := readOverlayNoFollow(t, ws, filepath.Join(".yolo", "prism"), "claude-settings"); strings.Contains(got, "hostOnlySecret") {
 				t.Errorf("the capture read a host file through the jail's link at %s:\n%s", tc.link, got)
 			}
 		})
@@ -148,7 +149,7 @@ func TestCaptureOnTerminateNeverReadsThroughALink(t *testing.T) {
 		}
 		captureSymlink(t, host, filepath.Join(ws, ".yolo", "prism", "claude-settings"+render.ListCaptureSuffix))
 
-		captureOnTerminate(ws, "podman", func(string) {})
+		captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
 		if got, _ := os.ReadFile(host); string(got) != body {
 			t.Errorf("the capture rewrote the host file behind the jail's list-capture link: %s", got)
@@ -192,13 +193,13 @@ func TestCaptureOnTerminateNeverFollowsALinkedDirectory(t *testing.T) {
 			before := treeListing(t, hostDir)
 			captureSymlink(t, hostDir, real)
 
-			captureOnTerminate(ws, "podman", func(string) {})
+			captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 
 			if after := treeListing(t, hostDir); after != before {
 				t.Errorf("the capture wrote into the host directory behind the link at %s:\nbefore:\n%s\nafter:\n%s",
 					linked, before, after)
 			}
-			if got := readOverlayNoFollow(t, ws, "claude-settings"); strings.Contains(got, "hostOnlySecret") {
+			if got := readOverlayNoFollow(t, ws, filepath.Join(".yolo", "prism"), "claude-settings"); strings.Contains(got, "hostOnlySecret") {
 				t.Errorf("the capture read the host directory behind the link at %s:\n%s", linked, got)
 			}
 		})
@@ -206,16 +207,19 @@ func TestCaptureOnTerminateNeverFollowsALinkedDirectory(t *testing.T) {
 }
 
 // readOverlayNoFollow is readOverlay that reads only a REGULAR overlay file beneath a real
-// `.yolo/prism`: a test must not itself follow the link it planted and report the host file's
-// content as the capture's.
-func readOverlayNoFollow(t *testing.T, ws, name string) string {
+// store at storeRel (relative to ws: `.yolo/prism` for the legacy home's, `.yolo/setups/<name>/prism`
+// for a setup's), every component a real directory: a test must not itself follow the link it
+// planted and report the host file's content as the capture's.
+func readOverlayNoFollow(t *testing.T, ws, storeRel, name string) string {
 	t.Helper()
-	for _, p := range []string{filepath.Join(ws, ".yolo"), filepath.Join(ws, ".yolo", "prism")} {
+	p := ws
+	for _, seg := range strings.Split(filepath.ToSlash(storeRel), "/") {
+		p = filepath.Join(p, seg)
 		if fi, err := os.Lstat(p); err != nil || !fi.IsDir() {
 			return ""
 		}
 	}
-	p := filepath.Join(ws, ".yolo", "prism", name+".overlay.json")
+	p = filepath.Join(p, name+".overlay.json")
 	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
 		return ""
 	}

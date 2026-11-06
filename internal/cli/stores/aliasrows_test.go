@@ -350,8 +350,8 @@ func TestDefaultHostCASReaderPassesTheOwnershipFact(t *testing.T) {
 // jail's ~/.local is the overlay's `local`, not `.local`.
 func TestPerWorkspaceStrandedUsesTheOverlayMapping(t *testing.T) {
 	for dest, want := range map[string]string{
-		"/home/agent/.local/share/pnpm/store": "each workspace's .yolo/home/local/share/pnpm/store",
-		"/home/agent/go/pkg/mod":              "each workspace's .yolo/home/go/pkg/mod",
+		"/home/agent/.local/share/pnpm/store": "each workspace's .yolo/setups/<setup>/home/local/share/pnpm/store",
+		"/home/agent/go/pkg/mod":              "each workspace's .yolo/setups/<setup>/home/go/pkg/mod",
 	} {
 		if got := perWorkspaceStranded(dest); got != want {
 			t.Errorf("perWorkspaceStranded(%q) = %q, want %q", dest, got, want)

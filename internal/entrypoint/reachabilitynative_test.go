@@ -281,7 +281,7 @@ func TestWitnessLogSurvivesTheSandboxHomesConfigLink(t *testing.T) {
 	}
 	ws := filepath.Join(base, "ws")
 	home := filepath.Join(base, "sandbox-home")
-	sidecarConfig := filepath.Join(paths.WorkspaceHomeState(ws), "config")
+	sidecarConfig := filepath.Join(paths.LegacyHomeState(ws), "config")
 	for _, d := range []string{filepath.Join(sidecarConfig, "yolo-jail"), home} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)

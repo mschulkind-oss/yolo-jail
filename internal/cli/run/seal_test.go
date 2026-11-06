@@ -45,7 +45,7 @@ var sealedEnvAllowlist = map[string]bool{
 	"NPM_CONFIG_FUND": true, "NPM_CONFIG_UPDATE_NOTIFIER": true,
 	"OVERMIND_SOCKET": true, "PAGER": true, "RUSTUP_HOME": true, "TZ": true,
 	"VISUAL": true, "YOLO_AGENT_UPDATES": true, "YOLO_BLOCK_CONFIG": true, "YOLO_CONTEXT_DIR": true,
-	"YOLO_CONTRACT_TAGS": true, "YOLO_DURABLE_DIR": true, "YOLO_HOST_CA_FILE": true, "YOLO_HOST_DIR": true, "YOLO_HOST_LAYERS": true,
+	"YOLO_CONTRACT_TAGS": true, "YOLO_DURABLE_DIR": true, "YOLO_HOST_CA_FILE": true, "YOLO_HOME_STATE": true, "YOLO_HOST_DIR": true, "YOLO_HOST_LAYERS": true,
 	"YOLO_HOST_LOOPBACK": true, "YOLO_JAIL_BACKEND": true, "YOLO_JAIL_MAIN": true, "YOLO_LSP_SERVERS": true,
 	"YOLO_MCP_SERVERS": true, "YOLO_MISE_TOOLS": true, "YOLO_PACK_ROOT": true, "YOLO_GPU_ENABLED": true, "YOLO_SETUP": true,
 	"YOLO_SEALED_BUILD": true, "YOLO_VERSION": true,
@@ -374,7 +374,7 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 	if _, ok := sealedBindSources(argv)["/home/agent/.config/git/ignore"]; ok {
 		t.Error("a sealed launch binds the host's global gitignore")
 	}
-	if body, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-gitconfig")); strings.Contains(string(body), "excludesFile") {
+	if body, _ := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-gitconfig")); strings.Contains(string(body), "excludesFile") {
 		t.Errorf("a sealed launch's git config names the host's gitignore:\n%s", body)
 	}
 	// No host layer crossed, and the jail is told so rather than that the user has none.
@@ -397,7 +397,7 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 		t.Errorf("a sealed launch publishes a port: %q", argv)
 	}
 	// The channel's one crossing is the env file, and it carries no env_sources.
-	if body, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh")); err != nil ||
+	if body, err := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh")); err != nil ||
 		strings.Contains(string(body), "sealtest-secret-value") {
 		t.Errorf("the sealed channel file (err %v) carries the user's env_sources", err)
 	}
@@ -497,7 +497,7 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	if !slices.Contains(argv, "-p") {
 		t.Error("the unsealed fixture publishes no port, so the publish site is unexercised")
 	}
-	body, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh"))
+	body, _ := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh"))
 	if !strings.Contains(string(body), "sealtest-secret-value") {
 		t.Error("the unsealed fixture's env_sources never reach the channel file")
 	}
