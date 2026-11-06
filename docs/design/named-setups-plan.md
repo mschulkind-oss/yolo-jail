@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#OQ-SU6) remains open for both JSON contracts. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and seeded here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a), not built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -131,7 +131,8 @@ One row per file that changes. New files are marked. `…` means "and the siblin
 | Home readers/writers in `internal/cli/run`, `internal/cli`, `internal/macosuser`, `internal/claudeview`, `internal/prune`; config baseline/capture paths in `internal/config`, `internal/configmigrate`, `internal/render`, `internal/entrypoint` (the complete map and their consumers are in [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) | per-setup home, baseline and prism store; preserve capture routing and no-follow reads ([slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
 | `internal/runtime/naming.go`; running-jail identity call sites in `internal/cli/run`, `internal/cli`, `internal/hostrun`, `internal/macosuser` and `internal/prune` (enumerated in [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) | setup-qualified jail identity; keep per-project approval/grant keys on `FromWorkspace` ([SUP-D2](#SUP-D2), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
 | `internal/cli/run/inheritscope.go:742-808`, a new `internal/cli/run/legacyhome.go` | adoption and the legacy-container refusal ([SUP-D9](#SUP-D9), [SUP-D10](#SUP-D10), [slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)) |
-| `internal/cli/stop.go:82-196,323-420,601`, `ps.go:68-99,191-235`, `setupcmd.go` (running column), `internal/cli/stores/inventory.go:547-548,1148-1153` | enumerate setups ([slice 6b](#slice-6b--stop-ps-stores-and-setup-list-see-every-setup-after-6a)) |
+| `internal/cli/stop.go:82-196,323-420,601`, `setupcmd.go` (running column) | enumerate setups ([slice 6b](#slice-6b--stop-ps-stores-and-setup-list-see-every-setup-after-6a)) |
+| `internal/cli/ps.go`, `internal/runtime/tracking.go`, `macosusersessions.go`, `display.go`; `internal/cli/stores/inventory.go`; `internal/cli/run/servicessession.go`, `loopholesruntime.go` | one machine-wide list ([slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a), sketch) |
 | `internal/macosuser/runplan.go` (`RunPlan`, `BuildRunPlanWithStages:604`, `PlanInvariants:1613`, argv builders), `provision.go:148-169`, `serviceprobe.go:46-64,119`, `jaildaemon.go:487`, `orchestrator.go:949,1325`; `internal/cli/host.go:214-250,606`; `commands.go` (the host-yolo-account dispatch) | `host-yolo-account` ([SUP-D5](#SUP-D5), [slice 8](#slice-8--host-yolo-account-on-macos-after-6a-mac-witness)) |
 | `internal/cli/run/banner.go:23-33`, `run.go:2524,3026,3549`; `internal/footer/footer.go:78-87,173-185`; `internal/jailcontent/briefing.go:128-133,280,308-320,390-455,526-531`; `internal/cli/run/prepare.go:182`, `mechanicsfacts.go:31`, `sharednetwork.go:20`; `internal/cli/check/section_packageprofile.go`; `internal/macosuser/orchestrator.go:888-900`; all pack footer adapter templates (`packs/claude`, `agy`, `copilot`, `omp`, `opencode`, `pi`) | the setup named everywhere the notch was ([slice 9](#slice-9--the-launch-line-the-footer-and-the-briefing-name-the-setup-after-4a)) |
 | `internal/cli/commands.go:112-145`, `dispatch.go:55-58`, `help.go:97-109`, `subhelp.go:132-135`; `internal/macosuser/commands.go`, `preconditions.go`, `privilege.go:158-165`, `macosuser.go`, `capture.go`, `ctxlinks.go`, `sessionfiles.go`, `mode.go:17`; `internal/cli/hostfloor.go:341`, `packbuild.go:353`, `hosttrees.go`; `internal/cli/run/run.go:269`, `macosuserrelocations.go`, `launchlog.go`, `autocapture.go`; `internal/entrypoint/programcompatibility.go:145`, `boot.go`; `integration/macosusergate_test.go:607,753-755`, `macosuserrelocations_test.go:131`, `macosusernorootsudo_test.go:357-366`, `hostfloor_test.go:427`; `.github/workflows/macos-user.yml:312,652` | the `yolo-account` verbs ([slice 7](#slice-7--yolo-yolo-account-create--remove--share--unshare-independent)) |
@@ -878,19 +879,11 @@ The next engineering proof must identify a supported engine consume-before-guest
   one"*; `yolo setup list` shows which setups are running in this project
   ([§6](named-setups.md#6-config-by-example), [§11](named-setups.md#11-what-done-looks-like));
   [SUP-D11](#SUP-D11).
-- **Open API decision:** the mixed-backend public JSON contracts of `yolo ps --format json` and
-  `yolo stores --json` wait on [OQ-SU6](named-setups.md#OQ-SU6). At primary source baseline,
-  [`psReport`](../../internal/cli/ps.go) has scalar root `runtime`, `enumerated`, `jails`;
-  [`runStores`](../../internal/cli/commands.go) routes stores through [`ParseArgs`](../../internal/cli/stores/stores.go)
-  and [`Run`](../../internal/cli/stores/stores.go), which marshal
-  [`Report`](../../internal/cli/stores/inventory.go) with root `runtime` (omitempty) and `stores`,
-  but no `enumerated`. Additive per-backend coverage preserving homogeneous legacy
-  fields is only a leaning. Mixed output must not synthesize one runtime; root-runtime omission
-  and `ps` completeness semantics remain unruled. Stores row backend provenance, reclaimer routing,
-  and representing machine/account/cache/project-durable inventory exactly once are also part of
-  the unresolved API contract. This holds only the mixed-backend public JSON contracts—not text
-  inventory, all-stop operations, setup-list, internal collection work, or settled backend
-  enumeration. Preserve conservative unknown pruning and existing project keys.
+- **`yolo ps` and `yolo stores` are [slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s**,
+  ruled by [OQ-SU6](named-setups.md#decision-ledger). Once 6a's setup-qualified names exist, they
+  already list one row per setup; this slice adds nothing to them beyond the `ps_test.go` case
+  below. `yolo setup list`'s running column reads slice 11's discovery narrowed to the workspace
+  ([§12.6](named-setups.md#126-narrowing-with---setup)).
 - **Preconditions:** slice 6a committed and its applicable tests green in the same
   isolated candidate (not yet primary-landed); `go doc ./internal/paths SetupsDir` prints.
   Do not make 6b a primary-tree change while 6a waits on W-SU1: that exact
@@ -1054,6 +1047,60 @@ The next engineering proof must identify a supported engine consume-before-guest
 - **Fences:** `docs/design/*`; no code outside `internal/setupcensus/census.go`.
 - **Commit:** `docs(setups): the user guide and references describe named setups`
 - **Report:** the vantage output; the census rename diff.
+
+### Slice 11 — `yolo ps` and `yolo stores` list every technology (after 4a; independent of 6a)
+
+**Seed, designer-written 2026-11-06; incomplete.** The design is
+[§12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and its ledger rows
+[SU-D9](named-setups.md#SU-D9) to [SU-D14](named-setups.md#SU-D14). A planner completes this
+against the tree before anyone builds from it; nothing below was surveyed for completeness.
+
+- **Settled:** one list across every source of the OS, a state per source, `complete`,
+  `schema: "yolo.ps/1"` and `"yolo.stores/1"`, `null` for unknown, setup vocabulary for
+  `confinement`/`run_as`, exit 0, `YOLO_SETUP` ignored and `--setup` narrowing, pruning per
+  technology, every `yolo host --` launch holding a session record. No compatibility with
+  today's `psReport` or `Report.Runtime`.
+- **Files the design work touched** (starting points, not a map):
+  - `internal/cli/ps.go`: `psRun`'s single `DetectRuntime` branch and `psMacosUser` become one
+    collector per source run concurrently; `psReport`/`psJail` replaced by the [§12.4](named-setups.md#124-the-json-document) shape;
+    `psFinish` keeps "one document on every path".
+  - `internal/cli/commands.go` `runPs`: drop `listingDetect` (its absent-runtime note becomes the
+    source line); accept `--setup`. `internal/cli/absentruntime.go` then has `stores` and `prune`
+    as callers; check whether `stores` still needs it.
+  - `internal/runtime/tracking.go`: the tracking file becomes the JSON launch record (read the
+    one-line legacy form too); `PruneStaleTrackingFiles` takes the per-source answers, not one
+    name set ([SU-D10](named-setups.md#SU-D10)). `WriteContainerTracking`'s caller is
+    `internal/cli/run/sliceutil.go`.
+  - `internal/runtime/macosusersessions.go`: `SessionRecord` gains the launch-record fields;
+    `MacosUserSessions` stops being the only listing, since host sessions become a source.
+  - `internal/cli/run/loopholesruntime.go`, `servicessession.go`: a `yolo host` launch opens its
+    session whether or not it publishes a doorway ([SU-D12](named-setups.md#SU-D12)). Check what
+    else keys off a host session existing (the dead-session sweep, `yolo prune`'s session reads)
+    before relying on it.
+  - `internal/runtime/display.go` `RenderPsTable`: the five-column table of [§12.3](named-setups.md#123-sort-order-and-the-table).
+  - `internal/cli/stores/inventory.go`: `Inventory`'s one `rt` becomes the per-source set;
+    `imageStores`, `scratchStores`, `toolDiskStores`, `nixStores` run per `listed` source;
+    `durableStores` merges projects across sources; the `onMacosUserContainerPass` trigger
+    rewriting generalizes to "the prune of this row's technology". `prune.LiveYoloContainers`
+    is per runtime; the union and its decline live in the caller.
+- **Check before relying on it:** that Apple Container's `container ls` has a machine-readable
+  form with a start time (else the launch record is the only start time there); that
+  `podman ps --format json` gives a start time on the Podman versions CI runs.
+- **Tests to add:** `internal/cli/ps_test.go`: a Mac fixture with three stubbed sources (one
+  `unreachable`) lists the other two's rows, prints the unreachable line with its step, and
+  `complete: false`; a `timed-out` source; an unknown-setup row (`?`/`null`, footnote);
+  `YOLO_SETUP` set does not narrow; `--setup` narrows and counts unmatched unknown rows; sort
+  order. `internal/runtime/tracking_test.go`: a Podman-only answer leaves an Apple Container
+  record (the [SU-D10](named-setups.md#SU-D10) defect, red first); a legacy record survives
+  unless every container source listed. `internal/cli/stores/`: a two-technology fixture shows
+  each image section once per technology, one durable row per project, and a declined liveness
+  note when a container source did not answer. `integration/macosuserps_test.go` reads today's
+  JSON shape and is rewritten to [§12.4](named-setups.md#124-the-json-document).
+- **Gates:** `go test -short ./internal/cli/... ./internal/runtime/...`; `just check-ci`; the
+  integration tests that read `yolo ps` or `yolo stores` output (`rg -l 'yolo ps|yolo stores'
+  integration/`). The Mac "what done looks like" bullet of
+  [§11](named-setups.md#11-what-done-looks-like) is a witness for the owner's Mac agent.
+- **Commit:** `feat(cli): yolo ps and yolo stores list every technology in one list`
 
 ## Ships with
 

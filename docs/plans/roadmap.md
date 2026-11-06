@@ -479,14 +479,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     The [implementation plan](../design/macos-user-model-plan.md) builds it in thirteen slices; the default flips only after a human reruns the prototype checks against the generated profile.
     Inside that profile [mise cannot reach HTTPS](../design/macos-native-tls.md): its macOS TLS needs the keychain service the profile denies. The nix-built rustls mise is built ([MT-D5](../design/macos-native-tls.md#decision-ledger)); the yolo boundary baseline is now measured against deployed `d159a57f0` (`0.15.1+705`), but the Safehouse synthetic-policy comparison and Copilot's current native request path remain unmeasured. Keep the deny; the [design](../design/macos-native-tls.md) owns the next step and blocks graduation until both are resolved.
     What every backend and its run-as choice are called is [named setups](../design/named-setups.md): one named set of values, each field with its own default, chosen per launch, replacing `confinement`, `runtime` and `macos_user_mode`. [OQ-SU5](../design/named-setups.md#OQ-SU5) is ruled: an existing legacy home moves silently once no jail of the project runs.
-    [OQ-SU6](../design/named-setups.md#OQ-SU6) separately leaves mixed-backend JSON output of
-    both `yolo ps --format json` and `yolo stores --json` unresolved. Additive per-backend coverage
-    preserving homogeneous legacy fields is only a leaning; mixed output must not invent one
-    runtime, and root-runtime omission plus `ps` completeness semantics remain unruled. Stores row
-    backend provenance, reclaimer routing and exactly-once machine/account/cache/project-durable
-    inventory also remain open. Resolve these public JSON contracts without holding text listing,
-    all-stop work or internal collection, and without reopening conservative pruning or tracking
-    scope. Keep that path unlanded, continue independent 6a/6b candidate work, and do not change
+    [OQ-SU6](../design/named-setups.md#decision-ledger) is ruled (2026-11-06): `yolo ps` and
+    `yolo stores` become one machine-wide list across every technology, designed in
+    [§12 of the design](../design/named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and
+    seeded as the plan's slice 11, which needs no 6a. Continue independent 6a/6b candidate work, and do not change
     W-SU4's yes expectation before a ruling. Slice 9's source changes are integrated at `06b3deab9` (including running-jail attach disclosures and the focused path-table/custom-setup-remedy repairs); combined `just check-ci` and full integration passed on source tree `35c14f452`. Main still lacks slices 6a/6b: per-setup home/run-state identity and stop/ps/listing are not
     setup-qualified. A private 6a/6b prototype has focused synthetic-only closure of three held-bind
     findings, not whole-source acceptance. A separate local nested rootful Linux Podman/crun `-v`

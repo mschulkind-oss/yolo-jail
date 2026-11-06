@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: in-review
 stage: DESIGN
-next: "Rule OQ-SU6 (the unified yolo ps/stores listing); independent setup work can continue"
+next: "Build slice 6a with the silent legacy-home move (SUP-D9) and slice 11, the unified yolo ps/stores; no owner question is open"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -15,9 +15,9 @@ vantage:
 # Named setups: one name chooses every wall
 
 **Status:** 2026-11-06. Setup naming and per-setup state remain the accepted direction, while
-[OQ-SU5](#OQ-SU5) is ruled (an existing home moves silently once no jail of the workspace runs)
-and [OQ-SU6](#OQ-SU6) leaves
-the mixed-backend JSON contracts for both `yolo ps --format json` and `yolo stores --json` open.
+[OQ-SU5](#OQ-SU5) is ruled: an existing home moves silently once no jail of the workspace runs. The listing commands are
+designed in [§12](#12-listing-what-runs-yolo-ps-and-yolo-stores) (one machine-wide list across every
+technology, ruled 2026-11-06 as [OQ-SU6](#decision-ledger)); none of it is built.
 A private 6a/6b prototype has focused synthetic-only closure of three held-bind findings; a separate
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
 A self-process `--preserve-fds` countercontrol also shows the raw source descriptor available to
@@ -43,8 +43,7 @@ technology is missing.
 
 **Start at [§4](#4-the-fields)**, the fields; everything else falls out of them.
 
-**Needs your ruling:** [OQ-SU6](#OQ-SU6) — mixed-backend JSON contracts for `yolo ps --format json` and
-`yolo stores --json`.
+**Needs your ruling:** nothing open.
 
 **Reads with:** [the macos-user model](macos-user-model.md) (the two ways of running Seatbelt this
 names), [its plan](macos-user-model-plan.md#MMP-D25) (slice 12a's per-project home), [the
@@ -436,8 +435,8 @@ then used FD-relative parent traversal to read an owned sibling outside the moun
 negative isolation result for direct FD pass-through, not proof of access to unrelated host paths or
 credentials; none were tested. The engine process resolving `/proc/self` was not identified, and
 this was not a detached create/start or keeper-protocol test. Do not pass the raw host directory FD
-to an untrusted guest. The outside/foreign-pack pathname red is separate from the legacy-home
-source-swap red governed by [OQ-SU5](#OQ-SU5). Neither source prototype nor local probe authorizes
+to an untrusted guest. The outside/foreign-pack pathname red is separate from the legacy-home move, which
+[OQ-SU5](#OQ-SU5) settles. Neither source prototype nor local probe authorizes
 activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
 for the remaining proof boundary.
 
@@ -475,12 +474,277 @@ replacement where the old value names exactly one.
 - Every removed spelling in [§10](#10-what-is-removed) refuses with its replacement, in `yolo check`
   and at launch.
 - No code path reads one setup field to decide another's meaning or default.
+- On a Mac running a `podman-self`, an `apple-container-self` and a `seatbelt-self` jail, one
+  `yolo ps` lists all three with their setups; stopping Apple Container's system makes the same
+  command still list the other two, print the Apple Container line with `container system start`,
+  and report `"complete": false` in JSON, and no launch record of the Apple Container jail is
+  deleted.
 
 **Not in scope:** building Landlock, building the yolo account on Linux, building
 `host-yolo-account` on Linux or a container run as the yolo account, or changing what any technology's walls allow. This design names them; their
 own designs build them.
 
-## 12. Alternatives considered
+## 12. Listing what runs: `yolo ps` and `yolo stores`
+
+**One list of every running jail on this machine, whatever its setup, one row each.** `yolo ps`
+asks every technology this machine has, at once, and shows the rows in one table and one JSON
+document, each row naming its setup, its technology and its workspace. Nothing is split by
+backend, and no environment variable is needed to see a second technology's jails
+([OQ-SU6](#decision-ledger)). Nothing about today's table or JSON shape is preserved.
+
+Today `yolo ps` asks one runtime, the one `YOLO_SETUP` or the platform picks
+([`psRun`](../../internal/cli/ps.go)), so a Mac with Apple Container and Seatbelt jails needs
+`YOLO_SETUP=apple-container-self yolo ps` and `YOLO_SETUP=seatbelt-self yolo ps` to see both, and
+the Seatbelt empty state says exactly that. Two terms used below:
+
+- **A source** *(coined here)*: one technology's way of answering "what is running": `podman ps`,
+  Apple Container's `container ls`, the Seatbelt session records, the `yolo host` session records.
+  Not a setup: two setups on one technology (`seatbelt-self`, `seatbelt-yolo-account`) share one
+  source.
+- **A launch record** *(coined here)*: the file the host launcher writes when it starts a jail,
+  saying what it started. Today's container tracking file under yolo's state dir (`containers/<name>`,
+  [`tracking.go`](../../internal/runtime/tracking.go)) holds only the workspace path; the Seatbelt
+  session record ([`SessionRecord`](../../internal/runtime/macosusersessions.go)) holds the notch,
+  the workspace and the jail name. Both become one shape, below. Not the boot-time config baseline
+  in the workspace's `.yolo`, which the agent can write.
+
+### 12.1 Discovery: every source, in parallel, each with its own answer
+
+1. **Which sources.** Every technology this OS has and yolo has built: on Linux Podman and host; on
+   a Mac Podman, Apple Container, Seatbelt and host. Landlock joins when it is built. A technology
+   of the other OS is not a source and is never mentioned.
+2. **Each source is asked concurrently**, with a 10 second budget for its listing. Rows are
+   assembled only after every source has answered or run out of time, so the output order never
+   depends on which answered first.
+3. **Each source ends in exactly one state** (the D11 tri-state, kept per source):
+
+   | State | Meaning | Its rows |
+   | :--- | :--- | :--- |
+   | `listed` | Asked and answered | The rows it gave, possibly none |
+   | `not-installed` | Its binary is not on this machine (`podman`, `container`), so it was not asked | None, and that is a fact |
+   | `unreachable` | Installed, asked, and the ask failed (spawn error, non-zero exit) | **Unknown, never "none"** |
+   | `timed-out` | Installed, asked, no answer within 10 s | Unknown, never "none" |
+
+   Seatbelt and host sessions are read from directories, so they are `unreachable` only when the
+   listing itself fails, as [`ListSessions`](../../internal/runtime/macosusersessions.go) reports today.
+4. **Each row is then filled in** from its launch record, with per-row runtime calls (inspect,
+   `top`) bounded at 5 seconds each. A row whose call fails keeps its row and shows the fields it
+   could not fill as unknown; a per-row failure never changes its source's state.
+5. **`YOLO_SETUP` does not narrow the list.** Every launch exports it into the session it starts
+   ([SUP-D4](named-setups-plan.md#SUP-D4)), so honoring it would silently narrow every `yolo ps`
+   typed inside a jail. `--setup <name>` narrows ([§12.6](#126-narrowing-with---setup)).
+
+> [!WARNING]
+> **A launch record is pruned only on its own technology's answer.** Today's prune keeps only
+> the names the one asked runtime listed and deletes every other file under `containers/`, so
+> on a Mac `YOLO_SETUP=podman-self yolo ps` deletes the records of running Apple Container
+> jails ([`PruneStaleTrackingFiles`](../../internal/runtime/tracking.go) is given only Podman's
+> names). The rule: a record naming its technology goes only when that source is `listed` and
+> did not list it; a record from an older yolo, which names none, goes only when every installed
+> container source is `listed` and none listed it. Session directories are not pruned by
+> `yolo ps`; the launch's own sweep of dead sessions keeps doing that.
+
+### 12.2 What a row knows, and where it reads it
+
+**The launch record carries the row.** The launcher writes it at launch, before the jail starts,
+under yolo's state dir: one JSON document per jail with the jail name, setup name, `confinement`,
+`run_as`, workspace, start time, the selected packs and the yolo version that launched it. The
+container tracking file becomes this document, and the session record gains the same fields.
+A jail started by `yolo` at an attach writes nothing new; its record is the first launch's.
+
+Each field is read in this order, first answer wins:
+
+| Field | 1. Launch record | 2. The runtime | 3. Otherwise |
+| :--- | :--- | :--- | :--- |
+| Setup name | `setup` | Containers: `YOLO_SETUP` in the inspected environment, which every launch since slice 4a sets ([`assemble.go`](../../internal/cli/run/assemble.go)) | Unknown |
+| `confinement` | `confinement` | The source that listed it, which is authoritative when the two disagree | Never unknown |
+| `run_as` | `run_as` | The setup's, when its name is a built-in or defined in your user config | Containers: `self` (no container runs as the yolo account, [OQ-MT7](#OQ-MT7)); Seatbelt: unknown |
+| Workspace | `workspace` | Containers: `YOLO_HOST_DIR` in the inspected environment (today's fallback) | Unknown |
+| Started | `started` | Podman's own start time | Unknown |
+| Packs | `packs` | — | Unknown |
+| Status | — | The source: `running`; a session whose lock cannot be read yet is `starting`, as today's "starting or unknown" | — |
+
+**A jail whose setup is unknown** was launched by a yolo older than its launch record and slice
+4a. It is listed, never dropped, with `?` in the table and `null` in JSON, and one footnote under
+the table: *"? — launched by an older yolo, which did not record its setup. It ends when its agent
+exits; a new launch records it."* It is not a problem: nothing about it needs fixing.
+
+**`yolo host` launches are listed, as setup `host-self` or `host-yolo-account`.** The owner asked
+for every agent with its runtime and config in one list, and a `yolo host` agent is one: it holds
+your workspace and your credentials with no walls at all, which is the row you most want to see.
+Today only a `yolo host` launch that opens a doorway writes a session record
+([`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go)), so a list built on that
+would silently miss the rest. **Every `yolo host -- <command>` therefore opens a session record
+for its lifetime**, with no sockets when it publishes none, and the host source is as complete as
+the Seatbelt one. `yolo host apply` and `yolo host env` start nothing and leave no row.
+
+**Problems** are the rows that need a person, each with one next step:
+
+| Kind | When | Next step printed |
+| :--- | :--- | :--- |
+| `workspace-gone` | The workspace path no longer exists | Containers: `podman stop <name>` or `container stop <name>`; a session: *"it ends when its agent exits; close the terminal running it"* |
+| `stuck-provisioning` | Podman only, as today ([`StuckReasonFromTop`](../../internal/runtime/stuck.go)); Apple Container has no `top` | `yolo doctor`, as today |
+
+A consumer must accept a problem `kind` it does not know: more may be added.
+
+### 12.3 Sort order and the table
+
+Rows sort by workspace, then setup name, then jail name, all byte order, so two setups of one
+project sit next to each other. The workspace is the first column and prints `~` for your home;
+JSON always carries the absolute path. The jail name is in JSON and in problem lines, not in the
+table: the workspace and setup already say which jail it is, and the name is long.
+
+```text
+$ yolo ps
+WORKSPACE           SETUP                  STATUS    AGE  PACKS
+~/code/notes        mac-as-me              running   2d   pi
+~/code/site         seatbelt-yolo-account  starting  4s   claude
+~/code/yolo-jail    podman-self            running   3h   claude, codex
+~/code/yolo-jail    seatbelt-self          running   12m  claude
+~/code/yolo-jail    host-self              running   40m  claude
+~/old-thing         ?                      running   5d   ?
+
+? — launched by an older yolo, which did not record its setup. It ends when its agent exits;
+    a new launch records it.
+
+Apple Container could not be asked (container system is not running); its jails are not listed.
+Start it:
+    container system start
+
+1 problem:
+  ~/old-thing  workspace gone. Stop it:
+    podman stop yolo-old-thing-3f9a2c1d
+```
+
+- **AGE** is the largest whole unit (`4s`, `12m`, `3h`, `2d`), `?` when unknown. **PACKS** is
+  the launch record's selected packs, comma-separated, `?` when unknown.
+- **A source that is not `listed` gets one line under the table**, whatever the rows, naming
+  the technology, the reason, and its next step: `container system start`, `podman machine start`
+  on a Mac, `podman info` on Linux to see why. When an unreachable source has no launch record
+  naming it, the line is dim and says so (*"Podman is installed but not answering; no yolo jail is
+  recorded on it."*), because a Mac with Podman installed and its machine stopped is ordinary.
+  When records name jails on it, the line is red and counts them (*"2 jails recorded on Podman
+  could not be confirmed"*).
+- `not-installed` sources print nothing in the table: a missing technology is not news.
+
+**The empty states**, each ending in a step:
+
+| Situation | What `yolo ps` prints |
+| :--- | :--- |
+| Every source `listed` or `not-installed`, no rows | *"No jails running (asked Podman, Apple Container, Seatbelt and yolo host). Start one in a project: `yolo -- <agent>`."* |
+| No rows, and a source not `listed` | No "no jails" sentence at all: that source's line, above, is the whole answer, and its step |
+| Every source `not-installed` except host, no rows | The same as the first row: host is always asked, so the list is complete |
+| `--setup <name>` and no rows | *"No jails running under setup `<name>`. Every setup's: `yolo ps`."* |
+| Inside a jail | The first line says *"Jails inside this jail:"*; the sources are the ones this jail has (a nested Podman). The host's jails are listed on the host |
+
+### 12.4 The JSON document
+
+`yolo ps --format json` prints one document on every path, including when a source failed:
+
+```json
+{
+  "schema": "yolo.ps/1",
+  "frame": "host",
+  "complete": false,
+  "sources": [
+    {"confinement": "podman", "state": "listed", "jails": 2},
+    {"confinement": "apple-container", "state": "unreachable",
+     "detail": "container system is not running", "next_step": "container system start"},
+    {"confinement": "seatbelt", "state": "listed", "jails": 3},
+    {"confinement": "host", "state": "listed", "jails": 1}
+  ],
+  "jails": [
+    {
+      "name": "yolo-yolo-jail-8c1e04aa-podman-self",
+      "setup": "podman-self",
+      "confinement": "podman",
+      "run_as": "self",
+      "workspace": "/Users/matt/code/yolo-jail",
+      "status": "running",
+      "started": "2026-11-06T14:02:11Z",
+      "packs": ["claude", "codex"],
+      "yolo_version": "0.17.0+12",
+      "problems": []
+    },
+    {
+      "name": "yolo-old-thing-3f9a2c1d",
+      "setup": null,
+      "confinement": "podman",
+      "run_as": "self",
+      "workspace": "/Users/matt/old-thing",
+      "status": "running",
+      "started": "2026-11-01T09:40:00Z",
+      "packs": null,
+      "yolo_version": null,
+      "problems": [
+        {"kind": "workspace-gone", "detail": "/Users/matt/old-thing does not exist",
+         "next_step": "podman stop yolo-old-thing-3f9a2c1d"}
+      ]
+    }
+  ]
+}
+```
+
+- **`schema`** names the document and its version, as the brokers' `yolo.access.prediction/1`
+  does; a change a consumer must notice bumps the number. (The names, paths and version in the
+  example are illustrative.)
+- **`complete`** is true exactly when every source is `listed` or `not-installed`. A consumer
+  checks it before believing that a jail is *not* running; `jails` is never the place that says so.
+- **`sources`** lists every source of this OS in a fixed order (Podman, Apple Container, Seatbelt,
+  host), `not-installed` ones included, so a consumer can tell "not asked" from "asked". `jails`
+  is the count it listed, present only when `listed`; `detail` and `next_step` only when not.
+- **`confinement` and `run_as`** use the setup field values ([§4](#4-the-fields)), never the
+  internal backend strings (`container`, `macos-user`).
+- **Unknown is `null`**, never `"unknown"` and never an empty string. `problems` is always an array.
+- **The exit code is 0** whatever the sources said: `yolo ps` reports, it does not judge, and
+  `complete` carries what an exit code would. Bad flags exit 2, as today.
+
+### 12.5 `yolo stores`, unified the same way
+
+`yolo stores` lists disk stores, not jails, but several of its rows belong to one technology and
+today it reads one runtime for all of them: [`Inventory`](../../internal/cli/stores/inventory.go)
+asks once, and rows such as the image store, the scratch volumes and Apple Container's tool disks
+are about that runtime only. The same ruling applies:
+
+- **One inventory for the whole machine.** Every technology-bound section is collected for every
+  `listed` source and carries that source's `confinement`; its heading names it
+  (*"container image store — Podman"*, *"container image store — Apple Container"*).
+- **Every other row appears exactly once**, with no `confinement`: the state dir, the shared
+  cache, the host caches yolo aliases, the yolo-account rows, and each project's durable row. A
+  durable row is per project, so the projects every source names are merged before the rows are
+  made; a project two technologies both run gets one row.
+- **A judgment that needs to know what is running uses every source.** The unused tool versions,
+  the durable rows' workspaces and Copilot's version keep read the union of all sources' running
+  jails. If any container source is not `listed`, that judgment declines, as its `declined` note
+  does today, naming the source and its next step: a jail yolo could not see may be using the
+  bytes.
+- **A technology-bound row's trigger names the command that reclaims it for that technology**:
+  `YOLO_SETUP=apple-container-self yolo prune --apply`, as the macos-user rows already name the
+  container runtime's prune. `yolo prune` itself still acts for one technology; unifying it is
+  not this design.
+- **The JSON** drops root `runtime` and gains `"schema": "yolo.stores/1"` and the same `sources`
+  array and `complete` flag as `yolo ps`; each store gains `confinement` (absent for a
+  machine-wide row). The rest of the store row is unchanged.
+
+### 12.6 Narrowing with `--setup`
+
+`yolo ps --setup <name>` and `yolo stores --setup <name>` show one setup:
+
+- The name is checked as a launch checks it: a name that is not a built-in or a user setup is
+  refused with the launch's own message (*"setup "fast" is not defined. Defined here: …"*).
+  A setup this machine cannot build is not refused: there is nothing to run, so it lists nothing
+  and says why.
+- Only that setup's technology is asked. Its rows are those whose setup is that name; a row whose
+  setup is unknown is not matched, and when any exist the footnote counts them: *"2 jails whose
+  setup is not recorded are not matched; `yolo ps` lists them."*
+- `stores --setup` keeps the machine-wide rows and only the technology-bound sections of that
+  setup's technology.
+- `--setup` does not prune launch records: a narrowed listing is not an answer about the others.
+
+**`yolo setup list`'s running column** reads the same discovery, narrowed to the current
+workspace, so the two can never disagree about what is running.
+
+## 13. Alternatives considered
 
 | Alternative | Verdict |
 | :--- | :--- |
@@ -489,67 +753,12 @@ own designs build them.
 | The yolo account as a fourth notch | Rejected: no place for the yolo account with no rule list |
 | One value per combination (`sandbox+yolo-account`) | Kept in spirit: a setup is that value, given a name and made definable |
 | Names that resolve per OS (`container` meaning the best container here), or a probing default | Rejected in [§2](#2-the-idea); each OS has one named default setup |
+| Per-backend output for `yolo ps` and `yolo stores`: today's one-runtime-per-call shape, or per-backend sections or envelopes beside the legacy root fields | Rejected by [OQ-SU6](#decision-ledger): a person wants to see every running agent in one list, and a backend split is a fact about yolo's code, not about the jails; one list with a per-row `confinement` and a per-source state carries everything the split did |
 | A user setup that inherits from another (`from = "podman-self"`), or must write every field | Rejected by [OQ-SU1](#OQ-SU1): inheriting makes one setup's meaning depend on another's, and writing every field breaks every user setup when a field is added; per-field defaults do neither |
 
-## 13. Open Questions
+## 14. Open Questions
 
-1. ✅ **OQ-SU5: Should an existing home require an owner-managed move instead of automatic adoption?**
-
-   The accepted first-launch prompt would move an identifiable `.yolo/home` after a yes.
-   [§9](#9-state-per-setup) shows why the current rename can move a different home. This
-   affects only existing-home movement, not fresh per-setup homes.
-
-   - **A — Revise the automatic-move requirement.** Decline automatic adoption and give
-     instructions for an owner-quiesced manual move, after all writers of that workspace state
-     are stopped. Do not present a command that assumes an unchecked destination is safe.
-   - **B — Keep the accepted automatic-move requirement.** Hold that portion unlanded until
-     a source-identity-safe mechanism is demonstrated and reviewed on the relevant platforms.
-
-   <!-- vantage: question id=OQ-SU5 leaning="A — revise only optional automatic legacy-home adoption to require an owner-quiesced manual move; keep the home and fresh per-setup behavior unchanged." -->
-
-   _Leaning:_ A — revise only optional automatic legacy-home adoption to require an
-   owner-quiesced manual move. It avoids a demonstrated wrong-home move; this is a proposal,
-   not a new ruling or an implemented fallback.
-
-   **Answer:** Neither as written — move automatically, without asking (Matt, 2026-11-06):
-
-   > "It kind of seems to me like we shouldn't be bothering users about this. Like it's already
-   > an internal path. It's going to move to a different internal path. […] we just wait for
-   > like all the jails in that workspace to be stopped and then we move it without saying
-   > anything like we can print out a informational logline"
-
-   The race needs a writer of `.yolo` during the move; with every jail of the workspace stopped,
-   the only one left is a same-user host process that already has the same reach. Recorded in
-   [§9](#9-state-per-setup) and [SU-D6](#SU-D6).
-
-2. 💬 **OQ-SU6: What mixed-backend JSON contract should `yolo ps --format json` and `yolo stores --json` expose?**
-
-   [`psReport`](../../internal/cli/ps.go) has root `runtime`, `enumerated`, `jails`.
-   Literal `yolo stores --json` dispatches through [`runStores`](../../internal/cli/commands.go),
-   [`ParseArgs`](../../internal/cli/stores/stores.go) and [`Run`](../../internal/cli/stores/stores.go)
-   to [`Report`](../../internal/cli/stores/inventory.go), with root `runtime` (omitempty) and
-   `stores`, but no `enumerated`.
-
-   - **A — Add per-backend coverage** to both, preserving homogeneous legacy fields. Mixed results
-     must not invent one runtime; root `runtime` omission and `ps` completeness semantics are
-     proposals, not rulings.
-   - **B — Replace both root summaries** with per-backend envelopes, changing or migrating existing
-     consumers.
-
-   Resolve per-row backend provenance and reclaimer routing without duplicating machine, account,
-   cache, or project-durable stores. Query only host-supported backends with configured or tracked
-   setups; an unanswered backend is not empty. Preserve conservative pruning and existing project
-   keys.
-
-   <!-- vantage: question id=OQ-SU6 leaning="A — add per-backend coverage to both commands while preserving homogeneous legacy fields; do not invent one mixed runtime; omission and completeness semantics remain unruled." -->
-
-   _Leaning:_ A — add per-backend coverage to both commands while preserving homogeneous legacy
-   fields. Never invent one mixed runtime; root `runtime` omission and `ps` completeness semantics
-   remain unruled. This proposal is not an owner-approved contract.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
+None open.
 
 ## Decision Ledger
 
@@ -572,10 +781,18 @@ own designs build them.
 | MT-R1 | Superseded by [SU-R1](#SU-R1). It rejected naming by mechanism (a notch `sandboxed`, a runtime `seatbelt`) in a single dial; the owner's later idea names technologies as field values inside a setup, which is a different shape. | 2026-11-03 | — | — |
 | MT-R2 | Every spelling is tested against a future Linux mode that runs the agent as a separate yolo user. The owner: *"what if we add a Linux guest user mode?"* Holds: `landlock-yolo-account` and `run_as = "yolo-account"` on Linux are reserved. | 2026-11-03 | [§5](#5-the-built-in-setups) | — |
 | MT-R3 | **What a rename costs existing configs is not a criterion; current spellings may break.** The owner: *"are these costs migration from current? I don't care. we can break current."* A removed spelling is refused naming its replacement; no aliases. | 2026-11-03 | [§10](#10-what-is-removed) | — |
-| OQ-MT1 | Superseded by [SU-R1](#SU-R1): no plan among the five; the backend is a `confinement` value in a named setup. | 2026-11-03 | [§12](#12-alternatives-considered) | — |
+| OQ-MT1 | Superseded by [SU-R1](#SU-R1): no plan among the five; the backend is a `confinement` value in a named setup. | 2026-11-03 | [§13](#13-alternatives-considered) | — |
 | OQ-MT3 | Superseded by [SU-R1](#SU-R1): `macos-user` is retired; the technology is named `seatbelt`, and `runtime = "macos-user"` is refused naming the two Seatbelt setups. | 2026-11-03 | [§10](#10-what-is-removed) | — |
 | OQ-MT9 | Superseded by [SU-R1](#SU-R1): no value is `container` or `jail` (the technologies are named), and running as you is `self`, the owner's word: *"self spells better in a hyphenated thing."* | 2026-11-03 | [§4](#4-the-fields) | — |
 | <a id="SU-R6"></a>SU-R6 | **`host-yolo-account` is built on macOS by this design**, under that name: no Seatbelt, run as the yolo account, through `yolo host` only ([SU-D5](#SU-D5)). It trades two exposures for fewer refusals: every workspace can read and write every other (all run as the one account), and the account can read whatever on the Mac is world-readable; your keychain and your processes' arguments and environments stay out of reach by the account boundary alone. Linux waits on the yolo account there. The owner: *"yes, let's include it, and host-yolo-account is the right name for it."* | 2026-11-03 | [§5](#5-the-built-in-setups), [§8](#8-the-security-ceiling) | — |
+| <a id="OQ-SU5"></a>[OQ-SU5](#OQ-SU5) | **An existing `.yolo/home` moves to its setup's home silently, once no jail of the project runs**, with one informational line; a source that is not a real directory owned by the user, or not attributable to one setup, is left in place with a printed `mv`. The owner: *"It kind of seems to me like we shouldn't be bothering users about this. Like it's already an internal path. It's going to move to a different internal path. […] we just wait for like all the jails in that workspace to be stopped and then we move it without saying anything like we can print out a informational logline."* The source-swap race needs a writer of `.yolo` during the move; with every jail stopped the only one left is a same-user host process that already has that reach. | 2026-11-06 | [§9](#9-state-per-setup) | — |
+| <a id="OQ-SU6"></a>[OQ-SU6](#OQ-SU6) | **`yolo ps` and `yolo stores` show one machine-wide list across every technology, each row naming its setup, technology, workspace and config; no compatibility with today's table or JSON.** The owner: *"I'm not worried about the existing format, existing scripts. We don't have to preserve anything here. Have the designer design something that looks and works nice for what you would want for a clean design going forward. It seems like we should just list these all with their runtimes and configs and whatever unified list that we can. I don't know that splitting by backend doesn't seem all that useful."* | 2026-11-06 | [§12](#12-listing-what-runs-yolo-ps-and-yolo-stores) | — |
+| <a id="SU-D9"></a>SU-D9 | **Discovery asks every source of this OS concurrently, 10 s each, and keeps a state per source** (`listed`, `not-installed`, `unreachable`, `timed-out`); a source that did not answer is never "no jails", and `complete` says whether every source answered. `YOLO_SETUP` does not narrow the list; `--setup` does. A design decision: D11's tri-state, kept per source so one stuck technology never hides the others. | 2026-11-06 | [§12.1](#121-discovery-every-source-in-parallel-each-with-its-own-answer), [§12.6](#126-narrowing-with---setup) | — |
+| <a id="SU-D10"></a>SU-D10 | **A launch record is pruned only on its own technology's answer**; one from an older yolo, which names no technology, only when every installed container source listed. A design decision fixing a defect: today's prune keeps only the one asked runtime's names, so a Podman-only `yolo ps` on a Mac deletes running Apple Container jails' records. | 2026-11-06 | [§12.1](#121-discovery-every-source-in-parallel-each-with-its-own-answer) | — |
+| <a id="SU-D11"></a>SU-D11 | **The launch record is one host-side JSON shape for containers and sessions**, naming the setup, `confinement`, `run_as`, workspace, start time, selected packs and yolo version; the runtime fills what an older record lacks, and an unknown setup shows as `?` / `null`, listed, never dropped. A design decision. | 2026-11-06 | [§12.2](#122-what-a-row-knows-and-where-it-reads-it) | — |
+| <a id="SU-D12"></a>SU-D12 | **`yolo host` launches are rows**, as `host-self` or `host-yolo-account`, and every `yolo host -- <command>` opens a session record for its lifetime so the host source is complete. A design decision under [OQ-SU6](#decision-ledger)'s *"list these all"*: an agent with no walls is the row most worth seeing, and listing only the launches that opened a doorway would claim a completeness it does not have. | 2026-11-06 | [§12.2](#122-what-a-row-knows-and-where-it-reads-it) | — |
+| <a id="SU-D13"></a>SU-D13 | **The table and JSON shapes are [§12.3](#123-sort-order-and-the-table) and [§12.4](#124-the-json-document)**: rows sorted by workspace, setup, name; `schema: "yolo.ps/1"`; unknown is `null`; field values are the setup vocabulary, never `container` or `macos-user`; exit 0 always. A design decision. | 2026-11-06 | [§12.3](#123-sort-order-and-the-table), [§12.4](#124-the-json-document) | — |
+| <a id="SU-D14"></a>SU-D14 | **`yolo stores` is one inventory**: technology-bound sections per `listed` source, each row tagged with its `confinement`; machine-wide, account, cache and project-durable rows exactly once; liveness judgments use every source and decline when a container source did not answer; root `runtime` is replaced by `sources` and `complete`. A design decision under [OQ-SU6](#decision-ledger). | 2026-11-06 | [§12.5](#125-yolo-stores-unified-the-same-way) | — |
 | <a id="SU-D1"></a>SU-D1 | **The noun is `setup`.** A design decision: the user guide already calls a backend on a host OS a setup, and the other candidates are a field's name, a near-synonym of it, or refused. | 2026-11-03 | [§3](#3-the-noun) | — |
 | <a id="SU-D2"></a>SU-D2 | **No setup name resolves per OS; each OS has one named default setup, with no probing chain**: Linux `podman-self`, macOS `apple-container-self`, then `seatbelt-self` by [OQ-SU4](#OQ-SU4). A default whose technology is missing refuses, naming the install and the built-ins available. A design decision answering the owner's *"I'm not clear that that's hugely important"*, narrowed by [SU-R2](#SU-R2): a committed name must mean one thing on every machine. | 2026-11-03 | [§2](#2-the-idea) | — |
 | <a id="SU-D3"></a>SU-D3 | **The fields are `confinement`, `run_as`, `network`, and `policy` where the technology has a rule-list choice** (Seatbelt; reserved for Landlock). `confinement` decides only which fields exist, so a `policy` written for any other technology is refused. A field joins only if it is a property of the walls; the rest stays out ([§7](#7-what-else-goes-in-and-what-stays-out)). *Its field list is superseded by [SU-R3](#SU-R3): `network` left, so the fields are `confinement`, `run_as` and `policy`.* *Its `policy` part is superseded by [SU-R4](#SU-R4): the fields are `confinement` and `run_as`.* | 2026-11-03 | [§4](#4-the-fields) | — |
