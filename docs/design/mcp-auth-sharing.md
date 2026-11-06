@@ -33,7 +33,7 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-MA9](#oq-ma9-the-source-agents-second-server), a duplicate server in the agent a sign-in is adopted from.
 
 **Reads with:** [`mcp-auth-stores.md`](../research/mcp-auth-stores.md) (the per-agent store research),
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
@@ -805,6 +805,34 @@ changes.
 - With `slack` opted in and Claude Code already signed in to Slack, Codex and pi in any jail list
   Slack's tools with no prompt, Claude's Slack plugin keeps working, and no agent's store holds a
   Slack refresh token.
+
+## Open questions
+
+### OQ-MA9: the source agent's second server
+
+**Context.** §16 item 4's first slice shipped the Claude adoption without the header route. A
+user who declares `[mcp_servers.slack]` with `url = "https://mcp.slack.com/mcp"` and
+`sign_in = "once"` gets that server rendered into Claude as an ordinary remote server, beside
+the Slack plugin's own `plugin:slack:slack`. The broker adopts the plugin's sign-in and keeps it
+fresh, but the plain `slack` entry has a different key in Claude's store (the key hashes the
+name), so Claude lists a second Slack server that shows as needing authentication.
+[§9.3](#93-adopting-a-sign-in-an-agent-already-has) step 7 says the source agent "is not given a
+second Slack server", but which agent is the source is only known at run time, once an entry is
+adopted, while rendering happens at launch.
+
+**Impact.** With **A**, Claude shows one Slack server. A user with no Slack plugin in Claude then
+has no Slack in Claude at all until the header route ships, and the launch line names the
+plugin. With **B**, Claude shows two, one of them unauthenticated; signing in to it is adopted
+too (latest sign-in wins), so nothing breaks, but the list is confusing.
+
+**A.** Withhold a `sign_in = "once"` server from every agent pack that declares a machine-wide
+adoption source (today Claude), until that agent's header route ships; the launch line says
+which plugin or `/mcp` entry carries the sign-in.
+
+**B.** Render it as now, and rely on the header route (phase D) to replace the plain entry.
+
+**Leaning: A.** The owner's case is the Slack plugin, which already is the server in Claude; a
+second, unauthenticated copy is the thing a user would ask about.
 
 ## Decision Ledger
 
