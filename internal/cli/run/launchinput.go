@@ -554,6 +554,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 // own directory directly under the core-owned state root (loopholes.StateDirFor). Any other
 // destination is left alone and must already exist. The leaf is made through an os.Root on the
 // state root, so a link planted at the leaf is never followed: OpenStateSubdirRoot refuses it.
+// The state root itself may be a link, as it may for every other reader of this directory.
 func ensureCoreLaunchInputStateDir(name, stateDir string) error {
 	if name == "" || filepath.Clean(stateDir) != filepath.Clean(loopholes.StateDirFor(name)) {
 		return nil
@@ -565,7 +566,9 @@ func ensureCoreLaunchInputStateDir(name, stateDir string) error {
 	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
 		return err
 	}
-	root, err := paths.OpenStateDirRoot(stateRoot)
+	// The state root is followed, as paths.OpenStateDirRoot follows the components above the
+	// directory it opens: the no-follow point is the loophole's own directory below.
+	root, err := os.OpenRoot(stateRoot)
 	if err != nil {
 		return err
 	}

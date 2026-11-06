@@ -102,3 +102,24 @@ func TestLaunchInputOnAFreshHomeRefusesALinkedStateDir(t *testing.T) {
 		t.Fatalf("refusal does not name the state dir: %s", output.String())
 	}
 }
+
+// TestLaunchInputOnAFreshHomeFollowsALinkedStateRoot: only the loophole's own directory is the
+// no-follow point (paths.OpenStateDirRoot follows the components above it), so a state ROOT that
+// is a link to a real directory, as a relocated ~/.local/share is, still gets its first input.
+func TestLaunchInputOnAFreshHomeFollowsALinkedStateRoot(t *testing.T) {
+	cname := "yolo-fresh-home-linked-root"
+	o, output, stateDir := freshHomeMCPOptions(t, cname)
+	stateRoot := filepath.Dir(stateDir)
+	if err := os.MkdirAll(filepath.Dir(stateRoot), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), stateRoot); err != nil {
+		t.Fatal(err)
+	}
+	if !o.writeLaunchInput(mcpLaunchInputLoophole(), cname) {
+		t.Fatalf("a linked state root refused the first launch input: %s", output.String())
+	}
+	if info, err := os.Lstat(stateDir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("state dir %s = %v, %v; want a real 0700 directory", stateDir, info, err)
+	}
+}

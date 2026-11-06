@@ -244,7 +244,8 @@ func plantMachineLogin(t *testing.T) {
 // privateMachineStoreHome replaces the isolated HOME's $HOME/.local/share/yolo-jail link
 // (seedPackHome's) with a real directory whose every child links to the machine's own,
 // EXCEPT `home` — the machine store, paths.GlobalHome — which becomes a fresh directory of
-// this test's. It returns that directory. Everything a launch shares by design (the image
+// this test's, and `owners` and `state`, a launch's private host state, left for yolo to
+// create. It returns that directory. Everything a launch shares by design (the image
 // sentinel, the flake bundle, the embedded-pack lease, the agents and containers dirs) stays
 // shared; only the machine login is this test's.
 func privateMachineStoreHome(t *testing.T) string {
@@ -276,7 +277,10 @@ func privateMachineStoreHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() == "home" {
+		// `home` is the store this test plants; `owners` and `state` are a launch's private
+		// host state, which yolo opens with paths.OpenStateDirRoot and refuses as a link (a
+		// write below one would land wherever it points). yolo creates both on first use.
+		if e.Name() == "home" || e.Name() == "owners" || e.Name() == "state" {
 			continue
 		}
 		if err := userSymlink(filepath.Join(real, e.Name()), filepath.Join(state, e.Name())); err != nil {
@@ -306,8 +310,12 @@ func TestPlantMachineLoginLeavesTheRealStoreAlone(t *testing.T) {
 	if err := os.WriteFile(realCred, []byte("REAL-TOKEN"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(realState, "build"), 0o755); err != nil {
-		t.Fatal(err)
+	// An earlier launch on the shared store leaves its private owner records and loophole
+	// state behind; a launch refuses a link at either (paths.OpenStateDirRoot).
+	for _, dir := range []string{"build", "owners", "state"} {
+		if err := os.MkdirAll(filepath.Join(realState, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	packHome(t, `{"packs": ["codex"]}`)
@@ -329,5 +337,14 @@ func TestPlantMachineLoginLeavesTheRealStoreAlone(t *testing.T) {
 	// sentinel, the flake bundle and the rest.
 	if got, err := os.Readlink(filepath.Join(isoState, "build")); err != nil || got != filepath.Join(realState, "build") {
 		t.Errorf("the state dir's other children are no longer the machine's: build -> %q, %v", got, err)
+	}
+	// owners and state are a launch's PRIVATE host state: yolo writes them through
+	// OpenStateDirRoot, which refuses a link at the directory itself, so a linked one makes
+	// every launch from this home refuse. They start absent, as on a fresh machine.
+	for _, dir := range []string{"owners", "state"} {
+		if _, err := os.Lstat(filepath.Join(isoState, dir)); !os.IsNotExist(err) {
+			t.Errorf("the private store's %s is carried over from the machine (%v); a launch "+
+				"refuses a linked one, and it must not share the machine's", dir, err)
+		}
 	}
 }
