@@ -3151,6 +3151,17 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		attachPacks, attachTree = nil, ""
 	}
 	privateBindings, privateErr := o.validateAttachedPrivateHTTP(cname, rt, actualSetup.Name, attachTree, attachPacks)
+	if privateErr == nil {
+		// Every private client the jail's keeper recorded as checked must still be bound, or this
+		// attach would run its ordinary launcher.
+		if rec, ok := readKeeperRecord(cname); ok {
+			bound := map[string]bool{}
+			for _, b := range privateBindings {
+				bound[b.Bin] = true
+			}
+			privateErr = missingPrivateClientBindings(rec.PrivateClients, bound)
+		}
+	}
 	if privateErr != nil {
 		releaseLock()
 		o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then repeat the launch so its private HTTP identity can be verified.[/bold red]", richtext.Escape(privateErr.Error()), stopRemedy(rt, cname))

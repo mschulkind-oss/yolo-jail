@@ -674,6 +674,42 @@ func trackPrivateClientBindings(o *Options, r callbrokerinput.PreparedHTTPClient
 	}
 }
 
+// uncommittedPrivateClients is an error naming every private HTTP client the producer checked
+// (privateClientEntrypoints) with no committed binding (privateClientBindings), or nil.
+func (o *Options) uncommittedPrivateClients() error {
+	launchInputMu.Lock()
+	bound := map[string]bool{}
+	for _, b := range o.privateClientBindings {
+		bound[b.Bin] = true
+	}
+	launchInputMu.Unlock()
+	return missingPrivateClientBindings(privateClientBins(o.privateClientEntrypoints), bound)
+}
+
+// privateClientBins is the bins of checked, sorted.
+func privateClientBins(checked []callbrokerinput.PreparedHTTPClientEntrypoint) []string {
+	bins := make([]string, 0, len(checked))
+	for _, c := range checked {
+		bins = append(bins, c.Bin)
+	}
+	slices.Sort(bins)
+	return bins
+}
+
+// missingPrivateClientBindings names each of want with no binding in bound, or is nil.
+func missingPrivateClientBindings(want []string, bound map[string]bool) error {
+	var missing []string
+	for _, bin := range want {
+		if !bound[bin] {
+			missing = append(missing, bin)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("private HTTP client %s was checked for this launch but has no committed binding (its HTTP front's launch input was not published)", strings.Join(missing, ", "))
+}
+
 // insertPrivateClientEnv puts this launch's bound private clients (entrypoint.PrivateHTTPClientsEnv)
 // into the container's argv before the image, as insertHostServiceEnv does a service's endpoint.
 // No binding inserts nothing, so an unactivated launch's argv is unchanged.

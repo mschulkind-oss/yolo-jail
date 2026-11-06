@@ -57,6 +57,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // KeeperVerb is the keeper's member name in the `yolo internal daemon` group.
@@ -398,7 +399,7 @@ func (k *keeper) run() int {
 		Scope: k.scope, Log: keeperLogPath(k.stateKey()), MCPTeardownKnown: true,
 		MCPTeardownRequired: p.MCPTeardownID != "", MCPTeardownID: p.MCPTeardownID,
 		// What the jail is launched with, names only, for every attach to read (ES-D33).
-		Grant: p.Grant}
+		Grant: p.Grant, PrivateClients: privateClientBins(p.PrivateClientEntrypoints)}
 	if p.Notch != "" {
 		k.record.Contract, k.record.Notch, k.record.Build = keeperRosterContract, p.Notch, p.Build
 	}
@@ -410,6 +411,12 @@ func (k *keeper) run() int {
 	}
 	// A selected producer may never run without a durable current start record:
 	// an earlier known-off record would otherwise admit an attach with no outcome ID.
+	// A checked private client the attach could not see is an attach that would run its ordinary
+	// launcher: without a durable start record naming it, the jail does not start.
+	if len(p.PrivateClientEntrypoints) > 0 && err != nil {
+		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: its keeper could not record its private HTTP clients for later sessions (%s). Repair the private state directory, then rerun yolo.[/bold red]", richtext.Escape(err.Error()))
+		return k.unwindUnstarted(1)
+	}
 	if p.MCPTeardownID != "" && (k.record.Birth == "" || err != nil ||
 		p.Notch == "" && !keeperRecordOwnerMatches(p.Cname, k.record)) {
 		reason := "the kernel process birth or owner claim is unavailable"
@@ -494,9 +501,14 @@ func (k *keeper) run() int {
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
-	runCmd, bindErr := o.insertPrivateClientEnv(runCmd, p.ImageRef)
+	// EVERY CHECKED PRIVATE CLIENT IS BOUND, or no container starts: without its binding the jail's
+	// ordinary launcher would run it (the private route never falls back).
+	bindErr := o.uncommittedPrivateClients()
+	if bindErr == nil {
+		runCmd, bindErr = o.insertPrivateClientEnv(runCmd, p.ImageRef)
+	}
 	if bindErr != nil {
-		o.pr(o.Stderr).print("[bold red]Refusing to start jail: its private HTTP clients cannot be bound. Rerun yolo to reprepare them.[/bold red]")
+		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: %s. Repair what the refusal above names, then rerun yolo to reprepare its private HTTP clients.[/bold red]", richtext.Escape(bindErr.Error()))
 		return k.unwindUnstarted(1)
 	}
 	if err := o.checkSpawnLaunchInputMounts(runCmd); err != nil {

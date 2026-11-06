@@ -319,6 +319,29 @@ prefix = "Bearer "
 	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
 		t.Fatalf("keeper spawned the runtime without binding its private clients: %v", err)
 	}
+	// B1: a checked private client whose binding was never committed (its front's launch input was
+	// refused, or never written) stops the keeper before the container, naming the cause and the next
+	// step; the container's ordinary launcher would otherwise run it.
+	uncommitted := dispatchPlan
+	uncommitted.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker, "image:ref"}
+	uncommitted.ImageRef = "image:ref"
+	uncommitted.PrivateClientEntrypoints = plan.PrivateClientEntrypoints
+	if len(uncommitted.PrivateClientEntrypoints) != 1 {
+		t.Fatalf("keeper plan did not carry the checked delivery: %+v", plan.PrivateClientEntrypoints)
+	}
+	var uncommittedOut strings.Builder
+	stopped := newKeeper(&uncommitted, KeeperSeams{}, nil, nil, nil, nil)
+	stopped.o.Stderr = &uncommittedOut
+	stopped.o.LookPath = func(string) (string, bool) { return "", false }
+	if rc := stopped.run(); rc != 1 {
+		t.Fatalf("keeper with a checked but uncommitted private client returned %d, want pre-spawn refusal", rc)
+	}
+	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
+		t.Fatalf("keeper spawned the runtime with an uncommitted private client: %v", err)
+	}
+	if got := uncommittedOut.String(); !strings.Contains(got, "fixture-http-client") || !strings.Contains(got, "no committed binding") || !strings.Contains(got, "rerun") {
+		t.Fatalf("keeper refusal does not name the client, its cause and the next step:\n%s", got)
+	}
 	failedCname := cname + "-producer-failure"
 	failedPlan := *plan
 	failedPlan.Cname = failedCname
@@ -335,6 +358,10 @@ prefix = "Bearer "
 	}}
 	if failed.writeLaunchInput(selected, failedCname) || failedProducerCalls != 1 {
 		t.Fatalf("producer failure did not stop the selected launch input: calls=%d", failedProducerCalls)
+	}
+	failed.privateClientEntrypoints = plan.PrivateClientEntrypoints
+	if err := failed.uncommittedPrivateClients(); err == nil || !strings.Contains(err.Error(), "fixture-http-client") {
+		t.Fatalf("a refused launch input left its checked private client looking committed: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(private, "replicas", failedCname+".json.prepared")); !os.IsNotExist(err) {
 		t.Fatalf("producer failure published a prepared record: %v", err)

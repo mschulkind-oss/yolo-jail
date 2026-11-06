@@ -360,3 +360,39 @@ func TestTheFreshLaunchStartsAPrivateClientThroughItsPublishedBinding(t *testing
 		t.Error("runContainer does not rebuild the first session's exec from the bound command")
 	}
 }
+
+// A running jail whose keeper recorded a checked private client, with no committed binding left
+// for it, refuses the attach: its ordinary launcher would otherwise run the client.
+func TestAttachRefusesACheckedPrivateClientWithNoCommittedBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		writeInput bool
+		recorded   []string
+		want       bool
+	}{
+		{"recorded client, no launch state", false, []string{"fixture-client"}, false},
+		{"recorded client, binding committed", true, []string{"fixture-client"}, true},
+		{"no recorded client (unselected front)", false, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := attachedPrivateHTTPFixture(t, true, tc.writeInput)
+			rec, ok := readKeeperRecord("yolo-ws-abcd1234")
+			if !ok {
+				rec = keeperRecord{Workspace: f.o.Workspace, Runtime: "podman", PackTree: f.tree, MCPTeardownKnown: true}
+			}
+			rec.PrivateClients = tc.recorded
+			writeCurrentKeeperRecord(t, "yolo-ws-abcd1234", rec)
+			rc, argv := attachRecordingArgs(t, f, "fixture-client --version")
+			if !tc.want {
+				out := f.stderr.String()
+				if rc != 1 || argv != nil || !strings.Contains(out, "fixture-client") || !strings.Contains(out, "no committed binding") || !strings.Contains(out, "repeat the launch") {
+					t.Fatalf("attach ran a checked client with no binding: rc=%d argv=%q\n%s", rc, argv, out)
+				}
+				return
+			}
+			if rc != 0 || argv == nil {
+				t.Fatalf("attach refused: rc=%d\n%s", rc, f.stderr.String())
+			}
+		})
+	}
+}

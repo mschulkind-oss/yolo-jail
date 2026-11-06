@@ -136,6 +136,9 @@ type keeperRecord struct {
 	MCPTeardownKnown    bool   `json:"mcp_teardown_known,omitempty"`
 	MCPTeardownRequired bool   `json:"mcp_teardown_required,omitempty"`
 	MCPTeardownID       string `json:"mcp_teardown_id,omitempty"`
+	// PrivateClients names each private HTTP client bin the launch's producer checked
+	// (Options.privateClientEntrypoints): an attach refuses one with no committed binding.
+	PrivateClients []string `json:"private_clients,omitempty"`
 	// Down is each host service the keeper runs that ended while its jail was up, in the order it
 	// saw them (keeperwatch.go, JL-D19): the keeper rewrites the record as each is seen, and an
 	// arrival prints them (noteServicesDown).
