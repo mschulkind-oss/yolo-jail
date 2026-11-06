@@ -1,11 +1,12 @@
 package packload
 
-// agentaudience_test.go pins P3/OQ-BA3 (docs/reference/agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported): an `agents` selector may
-// name only an agent this pack set HAS, and anything else is a problem with one message.
+// agentaudience_test.go pins FS-D6 (docs/design/pack-files-for-agent-state.md#FS-D6, §4.2): an
+// `agents` selector naming an agent no SELECTED pack provides is SKIPPED, never refused, and
+// each skip is one line naming the pack, the kind and the agent as written, with `yolo pack
+// add <pack>` as the next step when a pack yolo ships provides that agent.
 //
-// The severity is the caller's — every one makes it fatal — so these tests are about the
-// question and the diagnostic. The call sites are pinned where they live
-// (internal/cli/run/packagentname_test.go, internal/cli/applyhostagentname_test.go).
+// The call sites are pinned where they live (internal/cli/run/packagentaudience_test.go,
+// internal/cli/applyhostaudience_test.go, internal/cli/check/packaudiences_test.go).
 
 import (
 	"strings"
@@ -21,99 +22,96 @@ func audiencePack(t *testing.T, name string, agents ...string) *Pack {
 		Kind: packdecl.KindBriefing, From: "prose.md", Agents: agents})
 }
 
-// P3's HEADLINE: a typo and a real name belonging to an unselected pack fail IDENTICALLY,
-// because from the jail's point of view they are the same mistake with the same two remedies.
-func TestAnAgentThisJailDoesNotHaveIsAProblem(t *testing.T) {
-	claude := claimPack(t, "claude",
+func claudeClaimPack(t *testing.T) *Pack {
+	t.Helper()
+	return claimPack(t, "claude",
 		packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "claude", Via: "npm", Package: "x"},
 		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md", Agent: "claude"})
+}
 
-	for _, tc := range []struct{ name, addressed, wantGuess string }{
-		{"a typo", "cloude", "claude"},
-		{"a real agent nobody selected", "codex", ""},
+// FS-D6's HEADLINE: a typo and a real agent nobody selected are skipped IDENTICALLY, because
+// yolo cannot know every pack a user could select. Only the next step differs: a shipped pack
+// that provides the name is named; any other name stands alone, as written.
+func TestAnAgentNoSelectedPackProvidesIsSkipped(t *testing.T) {
+	codex := claimPack(t, "codex",
+		packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "codex", Via: "npm", Package: "x"})
+	shipped := []*Pack{claudeClaimPack(t), codex}
+
+	for _, tc := range []struct{ name, addressed, wantNext string }{
+		{"a real agent nobody selected", "codex", "yolo pack add codex"},
+		{"a misspelled name", "cloude", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := AgentAudienceProblems([]*Pack{claude, audiencePack(t, "house", tc.addressed)})
+			got := AgentAudienceSkips(
+				[]*Pack{claudeClaimPack(t), audiencePack(t, "house", tc.addressed)}, shipped)
 			if len(got) != 1 {
-				t.Fatalf("want one problem, got %d: %v", len(got), got)
+				t.Fatalf("want one skip, got %d: %+v", len(got), got)
 			}
-			for _, want := range []string{
-				tc.addressed,                          // the offending string (R3)
-				"pack house",                          // the declaring pack (R3)
-				"Agents your `packs` provide: claude", // the candidate list (R3)
-				"Fix the name, or add the pack",
-			} {
-				if !strings.Contains(got[0], want) {
-					t.Errorf("message missing %q; got:\n%s", want, got[0])
+			s := got[0]
+			if s.Pack != "house" || s.Kind != packdecl.KindBriefing || s.Agent != tc.addressed {
+				t.Errorf("skip = %+v, want pack house, kind briefing, agent %q", s, tc.addressed)
+			}
+			want := "pack house: briefing for " + tc.addressed + " not delivered — no selected " +
+				"pack provides " + tc.addressed
+			if s.Line() != want {
+				t.Errorf("Line() = %q\nwant      %q", s.Line(), want)
+			}
+			if tc.wantNext == "" {
+				if s.NextStep() != "" {
+					t.Errorf("a name no shipped pack provides must carry no next step (FS-D6: "+
+						"yolo cannot guess the pack); got %q", s.NextStep())
 				}
+				return
 			}
-			if tc.wantGuess != "" && !strings.Contains(got[0], "did you mean \""+tc.wantGuess+"\"") {
-				t.Errorf("a near miss must carry a did-you-mean (R3); got:\n%s", got[0])
+			if !strings.Contains(s.NextStep(), tc.wantNext) {
+				t.Errorf("NextStep() = %q, want it to name %q", s.NextStep(), tc.wantNext)
 			}
 		})
 	}
 }
 
-// The HAPPY PATH, and the one that decides whether the gate is usable at all: a selector
-// naming an agent the set provides is silent.
-func TestAnEnabledAgentIsNoProblem(t *testing.T) {
-	claude := claimPack(t, "claude",
-		packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "claude", Via: "npm", Package: "x"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md", Agent: "claude"})
-	if got := AgentAudienceProblems([]*Pack{claude, audiencePack(t, "house", "claude")}); len(got) != 0 {
-		t.Errorf("addressing an enabled agent must be silent; got %v", got)
+// The HAPPY PATH: a selector naming an agent the selected set provides is no skip.
+func TestAnEnabledAgentIsNotSkipped(t *testing.T) {
+	if got := AgentAudienceSkips(
+		[]*Pack{claudeClaimPack(t), audiencePack(t, "house", "claude")}, nil); len(got) != 0 {
+		t.Errorf("addressing an enabled agent must not be skipped; got %+v", got)
 	}
 }
 
-// P2: NO SELECTOR IS NO PROBLEM. A pack that names no audience — every shipped pack, and the
-// zero-ceremony pack that has no manifest to name one in — cannot fail this gate.
-func TestNoSelectorIsNoProblem(t *testing.T) {
+// A contribution addressed to several agents is skipped only for the names nobody selected:
+// the selected ones still receive it.
+func TestOnlyTheUnselectedNamesOfAnAudienceAreSkipped(t *testing.T) {
+	got := AgentAudienceSkips(
+		[]*Pack{claudeClaimPack(t), audiencePack(t, "house", "claude", "agy")}, nil)
+	if len(got) != 1 || got[0].Agent != "agy" {
+		t.Errorf("want one skip for agy alone; got %+v", got)
+	}
+}
+
+// NO SELECTOR IS NO SKIP. A pack that names no audience — every shipped pack, and the
+// zero-ceremony pack that has no manifest to name one in — has nothing to skip.
+func TestNoSelectorIsNoSkip(t *testing.T) {
 	packs := []*Pack{
 		agentPack(t, "house", packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".x/y.md"}),
 		zeroCeremonyPack(t, "silent", true, true),
 	}
-	if got := AgentAudienceProblems(packs); len(got) != 0 {
-		t.Errorf("a pack naming no audience must never fail the audience gate; got %v", got)
+	if got := AgentAudienceSkips(packs, nil); len(got) != 0 {
+		t.Errorf("a pack naming no audience must never be skipped; got %+v", got)
 	}
 }
 
-// THE SPLIT THAT KEEPS P3 AND R1 ONE RULE. A name whose pack IS here but which declares no
-// destination of THIS kind is NOT a problem for this gate — the remedy is an `agent` on the
-// owning pack's contribution of that kind, so refusing the launch would punish the wrong
-// author (R4). It is reported instead, through the resolution outcome.
-func TestAnEnabledNameWithNoDestinationOfThatKindIsNotRefusedHere(t *testing.T) {
-	// claude is here and owns the name, but declares an identity only on its BRIEFING.
-	claude := claimPack(t, "claude",
-		packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "claude", Via: "npm", Package: "x"},
-		packdecl.Contribution{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md", Agent: "claude"})
+// THE SPLIT THAT KEEPS FS-D6 AND R1 APART. A name whose pack IS selected but which declares no
+// destination of THIS kind is not a skip — the remedy is an `agent` on the owning pack's
+// contribution of that kind, reported through the resolution outcome (R1).
+func TestAnEnabledNameWithNoDestinationOfThatKindIsNotSkipped(t *testing.T) {
 	house := agentPack(t, "house", packdecl.Contribution{
 		Kind: packdecl.KindSkills, From: "skills", Agents: []string{"claude"}})
-
-	if got := AgentAudienceProblems([]*Pack{claude, house}); len(got) != 0 {
-		t.Fatalf("the NAME is enabled, so this gate must stay silent and let the resolution "+
-			"report the missing destination (R1); got %v", got)
+	if got := AgentAudienceSkips([]*Pack{claudeClaimPack(t), house}, nil); len(got) != 0 {
+		t.Fatalf("the NAME is selected, so this is R1's report, not a skip; got %+v", got)
 	}
 }
 
-// A pack set with NO agents at all gets its own sentence, because "Agents your `packs`
-// provide: " followed by nothing sends the reader looking for a list that is not there.
-func TestAPackSetWithNoAgentsSaysSo(t *testing.T) {
-	got := AgentAudienceProblems([]*Pack{audiencePack(t, "house", "claude")})
-	if len(got) != 1 {
-		t.Fatalf("want one problem, got %d: %v", len(got), got)
-	}
-	if !strings.Contains(got[0], "NO agents at all") {
-		t.Errorf("an agentless pack set needs its own wording; got:\n%s", got[0])
-	}
-	if !strings.Contains(got[0], "drop the `agents` selector") {
-		t.Errorf("the message must offer the remedy that does not require another pack; got:\n%s",
-			got[0])
-	}
-}
-
-// AgentNames IS the candidate list, drawn from the SELECTED packs and nothing wider — which is
-// the whole content of P3, and the reason config.UseProfileCLINames is the wrong source (it
-// unions packload.Embedded(), which is deliberately not selection-gated).
+// AgentNames IS the selected vocabulary, drawn from the SELECTED packs and nothing wider.
 func TestAgentNamesIsTheSelectedSetsClaims(t *testing.T) {
 	packs := []*Pack{
 		claimPack(t, "a", packdecl.Contribution{
@@ -132,38 +130,52 @@ func TestAgentNamesIsTheSelectedSetsClaims(t *testing.T) {
 	}
 }
 
-// One message per mistake, deterministically ordered: the refusal is user-visible text.
-func TestAudienceProblemsAreDeterministicAndDeduplicated(t *testing.T) {
+// One skip per (pack, kind, agent), deterministically ordered: the lines are user-visible.
+func TestAudienceSkipsAreDeterministicAndDeduplicated(t *testing.T) {
 	house := agentPack(t, "house",
 		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "a.md", Agents: []string{"zulu"}},
 		packdecl.Contribution{Kind: packdecl.KindBriefing, From: "b.md", Agents: []string{"zulu"}},
 		packdecl.Contribution{Kind: packdecl.KindSkills, From: "s", Agents: []string{"alfa"}})
-	first := AgentAudienceProblems([]*Pack{house})
+	first := AgentAudienceSkips([]*Pack{house}, nil)
 	if len(first) != 2 {
-		t.Fatalf("want 2 problems (one per kind+name, deduplicated), got %d: %v", len(first), first)
+		t.Fatalf("want 2 skips (one per kind+name, deduplicated), got %d: %+v", len(first), first)
 	}
-	if !strings.Contains(first[0], "briefing") || !strings.Contains(first[1], "skills") {
-		t.Errorf("problems must be ordered by pack then kind then name; got:\n%v", first)
+	if first[0].Kind != packdecl.KindBriefing || first[1].Kind != packdecl.KindSkills {
+		t.Errorf("skips must be ordered by pack then kind then name; got %+v", first)
 	}
 	for i := 0; i < 5; i++ {
-		if again := AgentAudienceProblems([]*Pack{house}); strings.Join(again, "\n") !=
-			strings.Join(first, "\n") {
-			t.Fatalf("unstable output across runs:\n%v\nvs\n%v", first, again)
+		again := AgentAudienceSkips([]*Pack{house}, nil)
+		if len(again) != len(first) || again[0] != first[0] || again[1] != first[1] {
+			t.Fatalf("unstable output across runs:\n%+v\nvs\n%+v", first, again)
 		}
 	}
 }
 
-// EVERY SHIPPED PACK together must pass, or the pre-flight refuses every launch of a stock
-// config. None of them addresses an audience today, which is exactly what makes the field safe
-// to have landed ahead of adoption (P2) — so this is a real assertion about the shipped set,
-// not a tautology about an empty list.
-func TestShippedPacksNameNoUnknownAudience(t *testing.T) {
+// The shipped set is read for ADVICE only: a shipped agent pack is named as the next step, and
+// that is the shipped pack's own name, as `yolo pack add` takes it.
+func TestShippedProviderIsNamedFromTheShippedSet(t *testing.T) {
+	shipped := Embedded()
+	if len(shipped) == 0 {
+		t.Fatal("no embedded packs — this test is not testing anything")
+	}
+	got := AgentAudienceSkips([]*Pack{audiencePack(t, "house", "claude")}, shipped)
+	if len(got) != 1 {
+		t.Fatalf("want one skip, got %+v", got)
+	}
+	if got[0].Provider != "claude" || got[0].NextStep() != "If you want it here:  yolo pack add claude" {
+		t.Errorf("the shipped claude pack must be named as the next step; got %+v / %q",
+			got[0], got[0].NextStep())
+	}
+}
+
+// EVERY SHIPPED PACK together addresses no agent outside the shipped set, so a stock config
+// that selects them all skips nothing.
+func TestShippedPacksSkipNothingTogether(t *testing.T) {
 	packs := Embedded()
 	if len(packs) == 0 {
 		t.Fatal("no embedded packs — this test is not testing anything")
 	}
-	if got := AgentAudienceProblems(packs); len(got) != 0 {
-		t.Fatalf("the packs yolo SHIPS fail the audience gate, so the eighth launch pre-flight "+
-			"refuses a stock config: %v", got)
+	if got := AgentAudienceSkips(packs, packs); len(got) != 0 {
+		t.Fatalf("the packs yolo SHIPS address an agent none of them provides: %+v", got)
 	}
 }

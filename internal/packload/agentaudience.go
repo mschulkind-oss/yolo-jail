@@ -1,77 +1,109 @@
 package packload
 
-// agentaudience.go is the P3 refusal: an `agents` selector may name only an agent THIS JAIL
-// HAS, and anything else is fatal (docs/reference/agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported, #oq-ba3).
+// agentaudience.go answers FS-D6 (docs/design/pack-files-for-agent-state.md#FS-D6, §4.2): an
+// `agents` selector naming an agent no SELECTED pack provides is SKIPPED — the contribution
+// delivers nothing for that name and the launch runs. It used to be the P3 refusal; the
+// maintainer ruled it out on 2026-10-31: "There's no way to know what packs could be selected.
+// The premise is false. We just need to skip by default. There's no way to warn about the typo.
+// You can't have both."
 //
 // # The one question this file answers, and the one it does not
 //
-// The design contains two sentences that look like they disagree, and roadmap 💬 20 records
-// them as a live question: P3 makes an unenabled NAME fatal, while risk R1 describes an
-// addressed contribution that matched no destination as REPORTED. Both are kept, because they
-// are answers to two different questions and only one of them is this file's:
-//
-//   - IS THE NAME IN THE VOCABULARY? "Does any enabled pack claim an agent called `claude`?"
-//     Decidable from the claim set alone, and FATAL when the answer is no — this file. It is
-//     the question P3 is about, and it is why `cloude` and `codex`-in-a-jail-without-codex
-//     fail the same way with the same remedy: fix the name, or select the pack.
+//   - IS THE NAME IN THE SELECTED VOCABULARY? "Does any selected pack claim an agent called
+//     `agy`?" Decidable from the claim set alone. When the answer is no, the content addressed to
+//     that name is SKIPPED and the skip is disclosed — this file. A misspelling and a real agent
+//     the user did not select read the same way, because yolo cannot tell them apart: a name
+//     outside the selection may belong to a pack yolo has never seen.
 //   - DID THE NAME REACH A DESTINATION OF THIS KIND? "The pack that owns `claude` is here, but
-//     does it declare a `skills` destination carrying `agent: claude`?" That can be no for a
-//     perfectly good name, and it is R1's question — REPORTED, through
-//     Destinations.Addressed/Orphaned, where the remedy is a line in the owning pack rather
-//     than a line in the addressing one.
-//
-// Read together they are one rule with two severities, split where the user's remedy splits:
-// a name nobody provides is the addressing author's mistake; a destination the owner never
-// declared an identity for is the owning pack's gap (R4), and refusing the launch over it
-// would punish the wrong author.
+//     does it declare a `skills` destination carrying `agent: claude`?" That is R1's question —
+//     REPORTED, through Destinations.Addressed/Orphaned, where the remedy is a line in the owning
+//     pack. It is asked only of names in the vocabulary; a skipped name is not reported twice.
 
 import (
 	"fmt"
 	"sort"
-	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
-// AgentAudienceProblems reports every `agents` selector in `packs` that names an agent this
-// pack set does not have. One message per (pack, kind, offending name), in a deterministic
-// order, each naming the four things a diagnostic owes the reader by R3 of
-// docs/reference/stringly-typed-references-principle.md#r3-rich-diagnostics--the-message-is-most-of-the-value:
-// the offending string, the declaring pack, the candidate list, and a did-you-mean.
-//
-// EMPTY MEANS THE LAUNCH MAY PROCEED. The caller decides the severity — every caller makes it
-// fatal today, and agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported says why the gate lands at the launch pre-flight and `yolo host apply`
-// rather than at `yolo pack lint`: lint takes a single pack root with NO config, so it cannot
-// know the enabled set and must not pretend to (R5 of
-// docs/reference/stringly-typed-references-principle.md#r5-place-the-gate-where-the-reference-is-decidable-and-the-failure-is-actionable:
-// move the gate, do not lower the severity). A fork's or a patched extension's build jail does not
-// ask at all: the seal narrows its selection to the building pack, which is what drops the agent a
-// name belongs to (cli/run's selectionNarrowed, docs/reference/pi-extensions.md PPX-D39).
-func AgentAudienceProblems(packs []*Pack) []string {
-	have := AgentNames(packs)
-	known := map[string]bool{}
-	for _, n := range have {
-		known[n] = true
+// AudienceSkip is one (pack, kind, agent) whose content is not delivered because no selected
+// pack provides the agent (FS-D6).
+type AudienceSkip struct {
+	Pack  string        // the addressing pack
+	Kind  packdecl.Kind // the contribution kind (briefing, skills, files)
+	Agent string        // the agent as the manifest wrote it
+	// Provider is the pack yolo SHIPS that provides Agent, or "" when none does. Read for
+	// advice only: it reserves nothing and refuses nothing (pack-files-for-agent-state.md §6.2).
+	Provider string
+}
+
+// Line is the disclosure: what was skipped and why. `yolo check` prints it as a [SKIP] row and
+// the launch and `yolo host apply` print it beside their pack lines.
+func (s AudienceSkip) Line() string {
+	return fmt.Sprintf("pack %s: %s for %s not delivered — no selected pack provides %s",
+		s.Pack, s.Kind, s.Agent, s.Agent)
+}
+
+// NextStep is the step that makes the content apply, or "" when yolo cannot name one: only a
+// pack yolo ships is known to provide a name, and any other name — a misspelling included —
+// stands alone, as written.
+func (s AudienceSkip) NextStep() string {
+	if s.Provider == "" {
+		return ""
 	}
-	type problem struct{ pack, kind, name string }
-	var found []problem
-	for _, p := range packs {
+	return "If you want it here:  yolo pack add " + s.Provider
+}
+
+// AudienceKnown reports whether any name in `agents` is in `vocab` (AgentNames of the selected
+// set, as a set). A contribution none of whose names is known was skipped whole, so the R1
+// reports ask it before calling an addressed contribution unmatched.
+func AudienceKnown(agents []string, vocab map[string]bool) bool {
+	for _, a := range agents {
+		if vocab[a] {
+			return true
+		}
+	}
+	return false
+}
+
+// AgentVocabulary is AgentNames as a set.
+func AgentVocabulary(packs []*Pack) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range AgentNames(packs) {
+		out[n] = true
+	}
+	return out
+}
+
+// AgentAudienceSkips returns every `agents` name in `selected` that no selected pack provides,
+// one per (pack, kind, name), in a deterministic order. `shipped` is the set yolo ships
+// (packload.Embedded() at every caller), read only to name a provider in the next step.
+//
+// EMPTY MEANS EVERY ADDRESSED NAME IS HERE. Every caller DISCLOSES each skip — the launch in its
+// pack lines, `yolo host apply` in its report, `yolo check` as a [SKIP] row — and none refuses.
+func AgentAudienceSkips(selected, shipped []*Pack) []AudienceSkip {
+	known := AgentVocabulary(selected)
+	providers, _ := agentNameClaims(shipped)
+	type key struct {
+		pack  string
+		kind  packdecl.Kind
+		agent string
+	}
+	var found []key
+	for _, p := range selected {
 		if p == nil || p.Decl == nil {
 			continue
 		}
-		// Over EVERY contribution rather than a kind list, which is what keeps this total:
-		// validateContribution refuses `agents` on anything but `briefing`, `skills` and
-		// `files` (ahead of its kind switch, so a kind added tomorrow inherits the refusal),
-		// so a contribution of any other kind cannot carry one — and if one somehow did,
-		// checking it is the safe direction. That the exempt list has grown once already is
-		// the argument for not restating it as a condition here.
+		// Over EVERY contribution rather than a kind list: validateContribution refuses `agents`
+		// on anything but `briefing`, `skills` and `files`, so a kind added tomorrow inherits
+		// the refusal there, and this reader stays total.
 		for _, c := range p.Decl.Contributions() {
 			for _, a := range c.Agents {
 				if a == "" || known[a] {
-					// Empty is the validator's problem, not this gate's
-					// (validateContribution: "empty agent name"), and reporting it twice
-					// would send the author looking for a pack to select.
+					// Empty is the validator's problem (validateContribution: "empty agent name").
 					continue
 				}
-				found = append(found, problem{p.Name, string(c.Kind), a})
+				found = append(found, key{p.Name, c.Kind, a})
 			}
 		}
 	}
@@ -82,105 +114,20 @@ func AgentAudienceProblems(packs []*Pack) []string {
 		if found[i].kind != found[j].kind {
 			return found[i].kind < found[j].kind
 		}
-		return found[i].name < found[j].name
+		return found[i].agent < found[j].agent
 	})
-	var out []string
-	seen := map[problem]bool{}
+	var out []AudienceSkip
+	seen := map[key]bool{}
 	for _, f := range found {
 		if seen[f] {
-			continue // one message per mistake, even if the manifest repeats it
+			continue // one line per skip, even if the manifest repeats it
 		}
 		seen[f] = true
-		out = append(out, agentAudienceMessage(f.pack, f.kind, f.name, have))
+		s := AudienceSkip{Pack: f.pack, Kind: f.kind, Agent: f.agent}
+		if claims := providers[f.agent]; len(claims) > 0 {
+			s.Provider = claims[0].pack
+		}
+		out = append(out, s)
 	}
 	return out
-}
-
-// agentAudienceMessage is the refusal one bad name earns. It has to work for a user who has
-// never read the design doc, so it names the string, the pack, the whole candidate list and a
-// guess — and it gives BOTH remedies, because "fix the typo" and "select the pack" are the two
-// things that could have gone wrong and the message cannot tell which (P3: they are the same
-// mistake from the jail's point of view).
-//
-// NOTCH-NEUTRAL WORDING, deliberately. Both gates print this string, and one of them is
-// `yolo host apply`, where there is no jail — an earlier draft said "this jail's agents" and
-// was measurably wrong at the host notch. `packs` is the right subject either way: it is the
-// one list the user edits, and it is the same key at both notches.
-func agentAudienceMessage(pack, kind, name string, have []string) string {
-	msg := fmt.Sprintf("pack %s: %s `agents` names %q, which no pack in `packs` provides",
-		pack, kind, name)
-	if guess := nearestAgentName(name, have); guess != "" {
-		msg += fmt.Sprintf(" — did you mean %q?", guess)
-	}
-	if len(have) == 0 {
-		return msg + ". Your `packs` provide NO agents at all, so no audience can be named: " +
-			"add the pack that provides " + fmt.Sprintf("%q", name) + ", or drop the " +
-			"`agents` selector to reach every destination"
-	}
-	return msg + fmt.Sprintf(". Agents your `packs` provide: %s. Fix the name, or add the "+
-		"pack that provides %q", strings.Join(have, ", "), name)
-}
-
-// nearestAgentName is the did-you-mean agent-briefings.md#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported asks for: the closest candidate within an
-// edit-distance budget that scales with the name's length, or "" when nothing is close enough
-// to be worth guessing at.
-//
-// THIS IS THE SECOND LEVENSHTEIN IN THE TREE, and the duplication is stated rather than
-// hidden: internal/loopholes/supersede.go has the first, feeding the same shape of message
-// ("supersedes capability X, which no loophole serves — did you mean Y?"). They are not shared
-// because packload cannot import loopholes (loopholes → config → packload is a cycle), and the
-// right fix is a leaf package both import, which is a change of its own rather than a rider on
-// this one. Budget and tie-breaking are deliberately identical, so the two messages guess the
-// same way.
-func nearestAgentName(want string, candidates []string) string {
-	budget := len(want) / 3
-	if budget > 4 {
-		budget = 4
-	}
-	if budget < 1 {
-		return ""
-	}
-	best, bestDist := "", budget+1
-	for _, c := range candidates {
-		if d := agentNameEditDistance(want, c); d < bestDist {
-			best, bestDist = c, d
-		}
-	}
-	if bestDist > budget {
-		return ""
-	}
-	return best
-}
-
-// agentNameEditDistance is plain Levenshtein over runes, two rows at a time. Agent names are
-// short, so the straightforward version is the right one.
-func agentNameEditDistance(a, b string) int {
-	ar, br := []rune(a), []rune(b)
-	prev := make([]int, len(br)+1)
-	cur := make([]int, len(br)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ar); i++ {
-		cur[0] = i
-		for j := 1; j <= len(br); j++ {
-			cost := 1
-			if ar[i-1] == br[j-1] {
-				cost = 0
-			}
-			cur[j] = minOf3(cur[j-1]+1, prev[j]+1, prev[j-1]+cost)
-		}
-		prev, cur = cur, prev
-	}
-	return prev[len(br)]
-}
-
-func minOf3(a, b, c int) int {
-	if b < a {
-		a = b
-	}
-	if c < a {
-		a = c
-	}
-	return a
 }

@@ -66,10 +66,9 @@ func reportHasAll(t *testing.T, report string, markers []string) {
 // AN UNMATCHED AUDIENCE NAMES THE AUDIENCE AND THE OWNER, not `into`.
 //
 // THE NAME MUST BE ONE THE PACK SET PROVIDES, and this test used to get that wrong: it
-// addressed `codex` with only `claude` selected, which step 6's resolution pass now REFUSES
-// outright (AgentAudienceProblems — a name outside the vocabulary is the addressing pack's
-// typo, and fatal). That is `TestApplyHostRefusesAnAudienceNoPackProvides`' case, not this
-// one. The *reported* case needs a name that exists and simply routes nowhere for this KIND,
+// addressed `codex` with only `claude` selected, which is SKIPPED and disclosed (FS-D6,
+// packload.AgentAudienceSkips — a name outside the vocabulary delivers nothing). That is
+// `TestApplyHostSkipsAnAudienceNoPackProvides`' case, not this one. The *reported* case needs a name that exists and simply routes nowhere for this KIND,
 // so `beta` claims its name on its SKILLS destination and leaves its briefing unclaimed —
 // then a briefing addressed to `beta` is a good name with no matching destination, and the
 // remedy belongs to beta's author (R4), not to house's.

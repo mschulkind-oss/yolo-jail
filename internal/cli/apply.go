@@ -705,30 +705,22 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// holds packs that declare their destinations, whether their author wrote them or the set
 	// did. `active`/`configured` are keyed on NAME, which the resolution preserves, so the
 	// prune passes are unaffected.
-	// REFUSE an `agents` selector naming an agent this pack set does not HAVE, BEFORE the
-	// resolution — the P3 gate at the second of the two points §4.3 selects (the other is the
-	// launch pre-flight; `yolo pack lint` deliberately cannot decide it, having no config).
-	// Prose addressed to nobody is worse than prose addressed to everybody: the author
-	// believes it landed.
-	//
-	// BEFORE, not beside the collision refusals below, and the ordering is the point rather
-	// than tidiness. The resolution report says of an unmatched audience that "the name is
-	// enabled — what is missing is an `agent` on the owning pack" (R1), which is true only
-	// once this gate has passed. Run afterwards, it printed that line about a typo and then
-	// refused the typo two lines later.
-	//
-	// Refused rather than reported because the remedy is the ADDRESSING pack's own line. Its
-	// sibling case — a good name whose owner declares no destination of that kind — is R1 and
-	// stays a report, since that remedy belongs to the owning pack (see
-	// packload/agentaudience.go for why both severities are one rule).
-	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
-		for _, prob := range probs {
-			pr.Printf("  [red]agent      refused[/red] — %s", prob)
+	// An `agents` selector naming an agent this pack set does not HAVE is SKIPPED, never
+	// refused (FS-D6, docs/design/pack-files-for-agent-state.md §4.2): yolo cannot tell a
+	// misspelling from an agent whose pack the user did not select. Each skip is disclosed here,
+	// in the launch's words (run's discloseAudienceSkips), at every verbosity: content that is
+	// not delivered is a tier-3 fact. Its sibling case — a good name whose owner declares no
+	// destination of that kind — is R1 and stays reportInferredDestinations' `no effect` line,
+	// which `vocab` keeps from repeating a skip with the wrong remedy.
+	for _, s := range packload.AgentAudienceSkips(loaded, packload.Embedded()) {
+		next := ""
+		if n := s.NextStep(); n != "" {
+			next = " [dim](" + richtext.Escape(n) + ")[/dim]"
 		}
-		pr.Printf("[bold red]host apply: refused — %d `agents` selector(s) naming an agent "+
-			"your packs do not provide. Nothing was written.[/bold red]", len(probs))
-		return 1
+		pr.Printf("  [yellow]%-10s skipped[/yellow] — %s%s", string(s.Kind),
+			richtext.Escape(s.Line()), next)
 	}
+	vocab := packload.AgentVocabulary(loaded)
 	loaded, destinations := packload.ResolveDestinations(loaded)
 	survey.noteLoaded(loaded)
 	// THE HOST'S DELIVERY CENSUS, once, over the resolved set: per pack, the kinds of its own
@@ -743,7 +735,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	doorways := run.HostDoorwayLoopholes(userCfg, loaded)
 	delivery := hostDelivery(loaded, hostFields, doorways)
 	for _, d := range destinations {
-		if drc, refused := reportInferredDestinations(pr, d, delivery); drc != 0 {
+		if drc, refused := reportInferredDestinations(pr, d, delivery, vocab); drc != 0 {
 			rc = drc
 			// Named in the verdict by the kinds its `<kind> refused` lines lead with.
 			survey.noteStageFailureAs(stageDestinations, refused...)
@@ -1488,8 +1480,12 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 //
 // The second return is the kinds its `<kind> refused` lines named, the words the verdict names
 // this stage's failure by (noteStageFailureAs).
+//
+// vocab is the selected set's agent names (packload.AgentVocabulary). An addressed contribution
+// none of whose names is in it was SKIPPED (FS-D6) and disclosed by applyHost's skip lines, so it
+// earns no `no effect` line here.
 func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
-	delivery entrypoint.HostDelivery) (int, []string) {
+	delivery entrypoint.HostDelivery, vocab map[string]bool) (int, []string) {
 	// withheld reports whether c, one of this pack's briefing contributions, delivers nothing
 	// at the host (see above). Asked only of a delivery that resolved somewhere.
 	withheld := func(c packdecl.Contribution) bool {
@@ -1538,7 +1534,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
 	// R1, AND THE PART Orphaned CANNOT SAY. An audience that matched nothing is reported by
 	// NAME, before the kind-level orphan line below, because the two have different remedies
 	// and only one of them is legible from the kind: the addressing pack's `agents` is FINE
-	// (the launch pre-flight would have refused an agent this jail does not have — P3), so
+	// (a name no selected pack provides was skipped above, FS-D6, and is not reported here), so
 	// what is missing is an `agent` on the OWNING pack's destination of this kind. Telling
 	// that author to "declare `into`" is the one thing they must not do (P4), which is why
 	// this line comes first and says something else.
@@ -1548,6 +1544,9 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
 			continue
 		}
 		unmatched[a.Kind] = true
+		if !packload.AudienceKnown(a.Agents, vocab) {
+			continue // skipped (FS-D6), and already said so in applyHost's skip line
+		}
 		// THE AUDIENCE IS UNMATCHED, NOT MISSING, and the kind-level line below is not true of
 		// it: destinations for this kind may well exist and be receiving other packs' content.
 		// So the remedy is the owner of the NAME — one name, one owning pack (P5) — or the

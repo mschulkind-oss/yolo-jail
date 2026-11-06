@@ -3,7 +3,7 @@ title: "A pack's files inside another pack's state folder — why agent-addresse
 date: 2026-10-30
 status: in-review
 stage: DESIGN
-next: "Run the agy layout check in §5.2 and rule OQ-FS1; rule OQ-FS2 to OQ-FS5; OQ-FS6 is ruled (FS-D6), so the addressing amendment of §4.2 is buildable"
+next: "Run the agy layout check in §5.2 and rule OQ-FS1; rule OQ-FS2 to OQ-FS5; the addressing amendment of §4.2 (FS-D6) is built"
 tags: [packs, files, slots, state, macos-user, darwin-home-layout, agy, parity, happy-path]
 summary: "The maintainer's matt-agentwork pack delivers an Antigravity subagent definition by path into ~/.gemini/config/agents, a folder the agy pack owns as state. On macos-user that creates a real ~/.gemini in the shared account home, locks every later agy launch out, and the refusal says to wipe the whole account. The fix on the pack side is agent-addressed files through a slot the agy pack declares; on the yolo side, a warning for the shape, a refusal that names only what is in the way, a boot that stops once the layout fails, and housekeeping for dangling layout links."
 vantage:
@@ -12,7 +12,10 @@ vantage:
 
 # A pack's files inside another pack's state folder — why agent-addressed delivery is the fix, and what yolo owes the case it cannot address
 
-**Status:** 2026-10-30. Nothing built. Every code claim was read against the tree at `e4345e69d`
+**Status:** 2026-10-30. Built 2026-11-06: the addressing amendment of
+[§4.2](#42-addressing-an-agent-that-is-not-here-deliver-nothing-by-default) ([FS-D6](#FS-D6)) —
+the launch, `yolo host apply` and `yolo check` skip and disclose instead of refusing. Nothing else
+is built. Every code claim was read against the tree at `e4345e69d`
 on 2026-10-30; the Antigravity discovery layout is read from Google's own CLI documentation the same
 day ([§5.1](#51-what-agy-reads-and-what-nobody-has-measured)) and is **unmeasured**. Every
 leaning in this document is the design author's (Fable, the model that wrote it), not the
@@ -548,14 +551,11 @@ the launch prints the first line in its pack disclosure):
 The `->` line appears only when a shipped pack provides the agent; for any other name the `[SKIP]`
 line stands alone, and a misspelled name reads there as written.
 
-**`yolo check` and the launch — a name no pack declares.** Today's refusal, as
-`agentAudienceMessage` ([`agentaudience.go`](../../internal/packload/agentaudience.go)) prints it:
-
-```text
-Error: packs: pack matt-agentwork: files `agents` names "agyy", which no pack in `packs` provides — did you mean "agy"?. Agents your `packs` provide: claude, pi. Fix the name, or add the pack that provides "agyy"
-```
-
-Under the amendment it is gone: the name is skipped with the line above ([FS-D6](#FS-D6)).
+**`yolo check` and the launch — a name no pack declares.** The refusal that used to stop the
+launch here (`agentAudienceMessage`, with a did-you-mean) is gone: the name is skipped with the
+line above ([FS-D6](#FS-D6), built). The launch prints it in its pack lines as
+`packs: skipped — pack matt-agentwork: files for agyy not delivered — no selected pack provides agyy`,
+and `yolo host apply` as a `skipped` line in its report.
 
 **`yolo pack lint`** (a note, exit 0):
 
@@ -803,7 +803,7 @@ the ledger.
 | FS-D3 | The agy `[[files]]` slot at `.gemini/config/agents` is a change to a pack yolo ships, so it is a yolo change, with `expects = ["agent.md"]`. Designer's decision. | 2026-10-30 | [§5.3](#53-the-slot-in-each-branch) | — |
 | FS-D4 | `occupiedLayoutError` names each occupying account-home path with its own removal and its maker when known; the whole-account reset survives only when no path can be attributed and there are several. Designer's decision. | 2026-10-30 | [§7.1](#71-name-the-path) | — |
 | FS-D5 | No new refusal of the foreign-parent shape on any backend; the same warning on all of them, only where a known pack keeps state in the folder, and the macos-user overlay records what it creates. Designer's decision, confirmed by [OQ-FS2](#OQ-FS2). | 2026-10-30 | [§6](#6-the-foreign-parent-shape-warn-where-a-pack-is-known-to-keep-state-and-nowhere-else), [§9](#9-parity-across-backends-and-notches) | — |
-| <a id="FS-D6"></a><a id="OQ-FS6"></a>FS-D6 | **Maintainer ruling** on [OQ-FS6](#OQ-FS6): content addressed to an agent no selected pack provides is skipped by default, and the launch runs; there is no `if` key and no typo refusal, because yolo cannot know every pack a user could select. Their words: *"There's no way to know what packs could be selected. The premise is false. We just need to skip by default. There's no way to warn about the typo. You can't have both."* | 2026-10-31 | [§4.2](#42-addressing-an-agent-that-is-not-here-deliver-nothing-by-default) | — |
+| <a id="FS-D6"></a><a id="OQ-FS6"></a>FS-D6 | **Maintainer ruling** on [OQ-FS6](#OQ-FS6): content addressed to an agent no selected pack provides is skipped by default, and the launch runs; there is no `if` key and no typo refusal, because yolo cannot know every pack a user could select. Their words: *"There's no way to know what packs could be selected. The premise is false. We just need to skip by default. There's no way to warn about the typo. You can't have both."* | 2026-10-31 | [§4.2](#42-addressing-an-agent-that-is-not-here-deliver-nothing-by-default) | 2026-11-06: `packload.AgentAudienceSkips`; disclosed by the launch (`discloseAudienceSkips`), `yolo host apply` (a `skipped` line) and `yolo check` (Pack audiences `[SKIP]` rows) |
 
 ## Appendix: evidence, by symbol
 
@@ -823,7 +823,8 @@ Symbols rather than lines, so a move does not make this false.
   `validateAddressedFiles`).
 - Landing: `packload.SlotLanding` joins `<slot>/<pack>` for `files` only; `Registrations` and
   `ExpectsNotes` read it ([`registration.go`](../../internal/packload/registration.go)).
-- Fatal unknown audience: `packload.AgentAudienceProblems`
+- Fatal unknown audience, as read at `a078c5999` (since replaced by FS-D6's skip,
+  `packload.AgentAudienceSkips`): `packload.AgentAudienceProblems`
   ([`agentaudience.go`](../../internal/packload/agentaudience.go)), called from `stagePacks` and
   `yolo host apply`, not from `yolo check`; skipped under a narrowed build-jail selection
   ([`seal.go`](../../internal/cli/run/seal.go), which names the `matt` pack's `agents: ["pi"]`

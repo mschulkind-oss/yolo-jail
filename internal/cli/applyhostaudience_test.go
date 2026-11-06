@@ -106,32 +106,35 @@ func TestApplyHostReportNamesAnAddressedContributionsAudience(t *testing.T) {
 	}
 }
 
-// P3 AT THE HOST NOTCH: an `agents` selector naming an agent this machine's packs do not
-// provide REFUSES the apply, and writes nothing. The second of the two gates §4.3 selects.
-func TestApplyHostRefusesAnAudienceNoPackProvides(t *testing.T) {
-	home := audienceFixture(t, `"alphaclu"`) // a typo for alphacli
-	before := treeHashes(t, home)
+// FS-D6 AT THE HOST NOTCH (docs/design/pack-files-for-agent-state.md#FS-D6): an `agents`
+// selector naming an agent this machine's packs do not provide is SKIPPED, the apply runs, and
+// the report says what was skipped and why — parity with the launch's disclosure.
+func TestApplyHostSkipsAnAudienceNoPackProvides(t *testing.T) {
+	home := audienceFixture(t, `"alphaclu"`) // a typo for alphacli, read as written
 
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
-	if rc == 0 {
-		t.Fatalf("host apply --assert accepted prose addressed to nobody:\n%s", report)
+	if rc != 0 {
+		t.Fatalf("host apply --assert refused prose addressed to an agent no selected pack "+
+			"provides; FS-D6 rules it skipped, and the apply runs (rc=%d):\n%s", rc, report)
 	}
-	for _, want := range []string{
-		"alphaclu",
-		"pack house",
-		`did you mean "alphacli"`,
-		"Agents your `packs` provide",
-	} {
-		if !strings.Contains(report, want) {
-			t.Errorf("report missing %q; got:\n%s", want, report)
+	if n := countLines(report, "skipped", "pack house: briefing for alphaclu not delivered — "+
+		"no selected pack provides alphaclu"); n != 1 {
+		t.Errorf("want one skip line naming the pack, the kind and the agent as written, got %d:\n%s",
+			n, report)
+	}
+	// No shipped pack provides "alphaclu", so there is no pack to name: the line stands alone.
+	if strings.Contains(report, "yolo pack add") {
+		t.Errorf("a name no shipped pack provides must carry no `yolo pack add`:\n%s", report)
+	}
+	// ONE VOICE: the R1 `no effect` line is for a name the selection HAS.
+	if strings.Contains(report, "declares a matching `agent`") {
+		t.Errorf("the skipped name was also reported as an unmatched audience:\n%s", report)
+	}
+	for _, f := range []string{".alpha/AGENTS.md", ".beta/AGENTS.md"} {
+		if b, err := os.ReadFile(filepath.Join(home, f)); err == nil &&
+			strings.Contains(string(b), "Alpha-only rule.") {
+			t.Errorf("prose addressed to alphaclu reached %s:\n%s", f, b)
 		}
-	}
-	if after := treeHashes(t, home); len(after) != len(before) {
-		t.Errorf("the refused apply changed the home: %d files before, %d after",
-			len(before), len(after))
-	}
-	if _, err := os.Stat(filepath.Join(home, ".alpha", "AGENTS.md")); err == nil {
-		t.Error("the refused apply generated a briefing anyway")
 	}
 }
 
