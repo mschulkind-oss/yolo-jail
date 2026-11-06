@@ -66,7 +66,7 @@ func (b *Broker) exactGrantGate(ctx context.Context, invocation brokerstore.Requ
 	}
 }
 
-func (b *Broker) window(ctx context.Context, req Request, jail string, d Decision, stdout, stderr func([]byte), ev *brokeraudit.Event) (int, string) {
+func (b *Broker) window(ctx context.Context, req Request, jail string, stdout, stderr func([]byte), ev *brokeraudit.Event) (int, string) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if b.delivery == nil || !b.delivery.Ready() {

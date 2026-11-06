@@ -623,7 +623,7 @@ func (b *Broker) ServeContext(ctx context.Context, req Request, jail string, std
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		ctx = bounded
-		code, msg := b.window(ctx, req, b.holder(jail), d, stdout, stderr, &ev)
+		code, msg := b.window(ctx, req, b.holder(jail), stdout, stderr, &ev)
 		if ev.Set == "" {
 			// A write a user grant, working-set entry or timed grant covered names that set.
 			ev.Set = d.Set

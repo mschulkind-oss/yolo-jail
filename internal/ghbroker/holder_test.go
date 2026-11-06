@@ -178,7 +178,7 @@ func TestStandingBranchAcceptsTheProductionHolder(t *testing.T) {
 			t.Fatalf("fixture read is not standing: %+v %v", d, err)
 		}
 		var ev brokeraudit.Event
-		code, msg := b.window(context.Background(), read, b.holder(tc.crossing), d, func([]byte) {}, func([]byte) {}, &ev)
+		code, msg := b.window(context.Background(), read, b.holder(tc.crossing), func([]byte) {}, func([]byte) {}, &ev)
 		if ran := n.Load() == 1; ran != tc.ok || (code == 0) != tc.ok {
 			t.Fatalf("%s: exit %d %q, ran %v, want ran %v", tc.crossing, code, msg, ran, tc.ok)
 		}
