@@ -392,6 +392,9 @@ type Options struct {
 	// The inode this launch published at each destination; old exit must not
 	// remove a later atomic replacement of the same share-file name.
 	launchInputOwners map[string]os.FileInfo
+	// Prepared HTTP identities remain owned until the container is known gone; unlike a daemon
+	// input they are not retired when the current host-service process exits.
+	preparedHTTPGenerationOwners map[string]preparedHTTPGenerationOwner
 	// Deferred disclosure runs only after this launch's selected daemon is ready.
 	launchInputReports map[string]func()
 	// launchInputProducers is a closed core registry; non-nil only in synthetic runtime fixtures.

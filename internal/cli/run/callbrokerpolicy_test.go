@@ -153,6 +153,7 @@ func TestGatePolicySurvivesBothKeeperPlansWithoutReloading(t *testing.T) {
 
 func TestCallBrokerHTTPApprovedBinding(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TASKS_TOKEN", "synthetic-only-host-secret")
 	writeRawUserConfig(t, "config.jsonc", `{"allow":{"tasks":{"on_request":["all.update"]}}}`)
 	workspace := t.TempDir()
 	configJSON := `{"brokered":{"tasks":{"roots":["team:alpha"]}},"requests":{"tasks":{"all":{"update":"ask"}}}}`
@@ -299,6 +300,15 @@ prefix = "Bearer "
 		}
 		if published.HTTPBinding == nil || published.HTTPBinding.Pack != "fixture" || published.HTTPBinding.HTTP.Credential.Key != "TASKS_TOKEN" {
 			t.Fatalf("keeper publisher lost HTTP binding: %+v", published.HTTPBinding)
+		}
+		if published.HTTPFrontGeneration != "" {
+			t.Fatalf("HTTP launch with no selected private client published generation %q", published.HTTPFrontGeneration)
+		}
+		if _, err := os.Lstat(k.o.launchInputFiles[lp.Name] + ".prepared"); !os.IsNotExist(err) {
+			t.Fatalf("HTTP launch with no selected private client wrote a prepared identity: %v", err)
+		}
+		if strings.Contains(string(raw), "synthetic-only-host-secret") {
+			t.Fatal("private host input contains the host-only synthetic token")
 		}
 	}
 	gateAgain := func(pack string, accept bool) (*Options, bool) {

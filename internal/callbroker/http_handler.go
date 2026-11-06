@@ -3,6 +3,7 @@ package callbroker
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -30,15 +32,49 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 	if err != nil {
 		return nil, err
 	}
+	if err := callbrokerinput.RejectDuplicateLaunchHTTPFrontGeneration(data); err != nil {
+		return nil, errors.New("selected HTTP call broker input has an invalid prepared-generation reference")
+	}
 	var in callbrokerinput.Launch
 	if err := json.Unmarshal(data, &in); err != nil || in.Version != "yolo.call-broker-launch/2" || !loopholedecl.ValidBrokerSourceName(in.Source) || in.Front != "http" || in.HTTPBinding == nil || in.HTTPBinding.Pack != in.Pack || in.HTTPBinding.Source != in.Source || in.DeclarationHash == "" || in.HTTPBinding.DeclarationHash != in.DeclarationHash || store == nil || store.SourceName() != in.Source || audit == nil || workspace == "" {
 		return nil, errors.New("selected HTTP call broker binding is invalid; relaunch with the pack selected")
+	}
+	if in.HTTPFrontGeneration != "" {
+		if err := validatePreparedHTTPGeneration(inputFile, in); err != nil {
+			return nil, err
+		}
 	}
 	c := Classifier{Source: in.Source, Argv: in.Classifier, Identities: in.ProgramIdentities,
 		Roots: in.Roots, Resources: in.Resources, Cells: in.Cells, Lookups: in.Lookups,
 		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost)}
 	return &HTTPHandler{CLIHandler: &CLIHandler{inputFile: inputFile, original: bytes.Clone(data), input: in,
 		workspace: workspace, shutdown: context.Background(), classifier: c, store: store, audit: audit}}, nil
+}
+
+func validatePreparedHTTPGeneration(inputFile string, in callbrokerinput.Launch) error {
+	if len(in.HTTPFrontGeneration) != 32 {
+		return errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
+	}
+	if _, err := hex.DecodeString(in.HTTPFrontGeneration); err != nil {
+		return errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
+	}
+	preparedPath := inputFile + ".prepared"
+	data, err := readPrivateInput(preparedPath)
+	if err != nil {
+		return errors.New("selected HTTP prepared identity is missing or unsafe; relaunch the selected pack")
+	}
+	prepared, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data)
+	if err != nil {
+		return errors.New("selected HTTP prepared identity is invalid; relaunch the selected pack")
+	}
+	scope, err := brokerscope.ReadFile(in.ScopeFile)
+	if err != nil {
+		return errors.New("selected HTTP scope identity is unavailable; relaunch the selected pack")
+	}
+	if err := callbrokerinput.ValidatePreparedHTTPClientLaunch(prepared, in, scope.Container, scope.LaunchID, scope.Source, scope.Repos); err != nil {
+		return errors.New("selected HTTP prepared identity does not match the selected launch scope; relaunch the selected pack")
+	}
+	return nil
 }
 
 // serveHTTP is reached only from the host-authenticated operation handler. A

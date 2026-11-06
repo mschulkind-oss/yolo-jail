@@ -287,6 +287,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o.Stderr = keeperStream{k.sink, frameStderr}
 	fillDefaults(&o)
 	o.runtime = plan.Runtime
+	o.SetupName = plan.Setup
 	o.approvedScopes = plan.ApprovedScopes
 	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
 	o.approvedHTTPBindings = cloneHTTPBindings(plan.ApprovedHTTPBindings)

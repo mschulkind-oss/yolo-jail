@@ -90,6 +90,7 @@ func (o *Options) forgetGone(cname, rt, skeleton, tree string) {
 		return
 	}
 	runtime.CleanupContainerTracking(cname)
+	o.removePreparedHTTPGenerations(cname)
 	// The skeleton, the pack tree and the tree's per-launch copies are MOVED aside and deleted
 	// by a detached remover, never here: the copies alone can be thousands of files, and this
 	// is the teardown the user's prompt waits on (discardremoval.go). The path guards are the

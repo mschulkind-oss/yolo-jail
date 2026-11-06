@@ -253,7 +253,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		teardownID = hex.EncodeToString(nonce[:])
 	}
 	return &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt,
+		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name,
 		Network: o.Network, Color: o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
@@ -1295,7 +1295,7 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		names = append(names, p.Name)
 	}
 	plan := &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Network: o.Network,
+		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Network: o.Network,
 		MacosUserMode: o.MacosUserMode,
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
 		Payload: payload, ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), ApprovedHTTPBindings: cloneHTTPBindings(o.approvedHTTPBindings), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,

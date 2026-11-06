@@ -48,7 +48,7 @@ type Contribution struct {
 	// satisfied by another selected pack's recipe for the same bin or else asserted present on
 	// PATH (KindProgram's doc, Provides, IsNeed; provisioner-sets.md OQ-PS11, OQ-PS5). A need
 	// takes `bin` and `install_hints` and nothing else (needFieldProblems).
-	Bin     string   `json:"bin,omitempty"`     // program: the binary name; mcp: the program the server runs
+	Bin     string   `json:"bin,omitempty"`     // program: binary name; mcp: server program; private env: selected client bin
 	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer" | "source" | "pack", or absent for a need; profile: a service pack name (OQ-WG6)
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
@@ -2607,6 +2607,8 @@ func (m *Manifest) HostMountContributions() []HostFile {
 // vars it sets and, when it is gated, the one gate — a profile name or a provider platform.
 type EnvContribution struct {
 	Vars map[string]string
+	// Bin marks a private client-specific projection, excluded from ordinary env folds.
+	Bin string
 	// Profile is the NAME gate, "" when the contribution carries none. MANDATORY to be
 	// resolvable: the name is a reference into the declared profile set (§5.2 property
 	// 3), so an unmatched name is inert rather than an error — the same skip the
@@ -2653,6 +2655,9 @@ func (m *Manifest) EnvServedBy() map[string]string {
 			continue
 		}
 		for k := range c.Vars {
+			if c.Bin != "" {
+				continue
+			}
 			if c.ServedBy == "" {
 				if out != nil {
 					delete(out, k)
@@ -2684,6 +2689,9 @@ func (m *Manifest) EnvContributions() map[string]string {
 		if c.Kind != KindEnv || c.Profile != "" || c.Platform != "" {
 			continue
 		}
+		if c.Bin != "" {
+			continue
+		}
 		if out == nil {
 			out = map[string]string{}
 		}
@@ -2701,11 +2709,28 @@ func (m *Manifest) EnvContributions() map[string]string {
 func (m *Manifest) GatedEnvContributions() []EnvContribution {
 	var out []EnvContribution
 	for _, c := range m.Contributions() {
-		if c.Kind != KindEnv || (c.Profile == "" && c.Platform == "") {
+		if c.Kind != KindEnv || c.Bin != "" || (c.Profile == "" && c.Platform == "") {
 			continue
 		}
 		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile, Platform: c.Platform,
 			ServedBy: c.ServedBy, RegionProfileSetting: c.RegionProfileSetting})
+	}
+	return out
+}
+
+// PrivateProgramEnvContributions returns client-specific env declarations separately from the
+// ordinary jail-wide and profile/platform projections.
+func (m *Manifest) PrivateProgramEnvContributions() []EnvContribution {
+	var out []EnvContribution
+	for _, c := range m.Contributions() {
+		if c.Kind != KindEnv || c.Bin == "" {
+			continue
+		}
+		vars := make(map[string]string, len(c.Vars))
+		for key, value := range c.Vars {
+			vars[key] = value
+		}
+		out = append(out, EnvContribution{Vars: vars, Bin: c.Bin, ServedBy: c.ServedBy})
 	}
 	return out
 }
@@ -4720,12 +4745,42 @@ func validateContribution(label string, c Contribution) []string {
 		problems = appendPathProblems(problems, label+".host", c.Host)
 		problems = appendPathProblems(problems, label+".into", c.Into)
 	case KindEnv:
+		if c.Bin != "" {
+			req("served_by", c.ServedBy)
+			problems = append(problems, binProblem(nil, label+".bin", c.Bin)...)
+			if c.Profile != "" || c.Platform != "" {
+				problems = append(problems, label+": private program env takes neither a profile nor a platform gate")
+			}
+		}
 		if len(c.Vars) == 0 {
 			problems = append(problems, label+": env needs a non-empty \"vars\" map")
 		}
 		for k, v := range c.Vars {
 			if k == "" {
 				problems = append(problems, label+": env has an empty variable name")
+			}
+			if c.Bin != "" {
+				for rest := v; ; {
+					start := strings.IndexByte(rest, '{')
+					if start < 0 {
+						break
+					}
+					tail := rest[start:]
+					end := strings.IndexByte(tail, '}')
+					if end < 0 {
+						problems = append(problems, fmt.Sprintf("%s: private client env var %q has an incomplete substitution", label, k))
+						break
+					}
+					token := tail[:end+1]
+					if token != "{caller_token}" && token != "{listen}" && token != "{client_trust}" {
+						problems = append(problems, fmt.Sprintf("%s: private client env var %q has unknown substitution %s", label, k, token))
+					}
+					if (token == "{caller_token}" || token == "{client_trust}") && v != token {
+						problems = append(problems, fmt.Sprintf("%s: private client env var %q must use %s as its whole value", label, k, token))
+					}
+					rest = tail[end+1:]
+				}
+				continue
 			}
 			// {listen} is the one token an env value takes, and only beside `served_by`:
 			// it resolves to where the named daemon serves at this launch, so without a

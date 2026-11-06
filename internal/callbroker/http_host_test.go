@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -92,6 +93,71 @@ func selectedHTTPReadFixtureWithNative(t *testing.T, origin string, executor htt
 		t.Fatalf("selected HTTP fixture is not live: %v", err)
 	}
 	return h, f
+}
+
+func TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState(t *testing.T) {
+	h, f := selectedHTTPReadFixture(t, "https://fixture.example", httpExecutor{})
+	in := h.input
+	if in.FrontJailID == "" {
+		in.FrontJailID = "fixture-front-id"
+	}
+	scope, err := brokerscope.ReadFile(in.ScopeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := strings.Repeat("a", 32)
+	in.HTTPFrontGeneration = generation
+	prepared := callbrokerinput.PreparedHTTPClientGeneration{
+		Version: callbrokerinput.PreparedHTTPClientGenerationVersion, Phase: "prepared", Generation: generation,
+		Container: scope.Container, FrontJailID: in.FrontJailID, Runtime: "podman", Setup: "podman-self",
+		PackTree: "/host/selected-pack-tree", LaunchID: scope.LaunchID, Loophole: in.Loophole, Front: "http",
+		Pack: in.Pack, Source: in.Source, DeclarationHash: in.DeclarationHash,
+		Roots: append([]string{}, in.Roots...), ProgramIdentities: in.ProgramIdentities,
+		Clients: []callbrokerinput.PreparedHTTPClientPlan{{Bin: "fixture-http-client", Pack: "client-pack", Front: in.Loophole,
+			RecipePack: "client-pack", RecipeIdentity: "sha256:fixture", TokenVariable: "FIXTURE_API_TOKEN",
+			URLVariable: "FIXTURE_BASE_URL", TrustVariable: "SSL_CERT_FILE"}},
+	}
+	body, err := json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.inputPath+".prepared", body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	launch, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
+		t.Fatal(err)
+	}
+	constructed, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit)
+	if err != nil {
+		t.Fatalf("valid pre-lease identity should construct without listener, certificate, trust or live start: %v", err)
+	}
+	if constructed.start != "" {
+		t.Fatalf("constructor unexpectedly established live front state: start=%q", constructed.start)
+	}
+
+	in.HTTPFrontGeneration = strings.Repeat("b", 32)
+	launch, _ = json.Marshal(in)
+	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit); err == nil {
+		t.Fatal("mismatched generation reference was accepted")
+	}
+	in.HTTPFrontGeneration = ""
+	launch, _ = json.Marshal(in)
+	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(f.inputPath + ".prepared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit); err != nil {
+		t.Fatalf("legacy G3 launch with omitted prepared-generation reference was refused: %v", err)
+	}
 }
 
 func selectedHTTPHostFrame(t *testing.T, h *HTTPHandler) func(string, HTTPCall) (int, string) {

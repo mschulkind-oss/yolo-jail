@@ -273,6 +273,8 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no verified private launch-input destination and complete jail mount argv; it was not started. Wire the core producer and full assembled mount topology before retrying.[/red]")
 		return false
 	}
+	deferPreparedHTTPProducer := frozen.CallBroker != nil && frozen.CallBroker.Front == "http" && frozen.CallBroker.HTTPBinding != nil
+	var data []byte
 	stateDir := producer.StateDir(frozen)
 	if stateDir == "" || !filepath.IsAbs(stateDir) || filepath.Base(cname) != cname || cname == "." || cname == ".." {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no valid core-owned private destination; it was not started. Fix the core producer and retry.[/red]")
@@ -283,14 +285,17 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot prove its launch input is outside every jail mount; it was not started. Remove the overlapping mount and retry.[/red]")
 		return false
 	}
-	data, err := producer.Produce(frozen)
-	if err != nil {
-		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not build its approved launch input; it was not started. Retry the launch after resolving the core input producer failure.[/red]")
-		return false
-	}
-	if len(data) == 0 {
-		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' produced an empty launch input; it was not started. Fix the producer and retry.[/red]")
-		return false
+	if !deferPreparedHTTPProducer {
+		var produceErr error
+		data, produceErr = producer.Produce(frozen)
+		if produceErr != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not build its approved launch input; it was not started. Retry the launch after resolving the core input producer failure.[/red]")
+			return false
+		}
+		if len(data) == 0 {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' produced an empty launch input; it was not started. Fix the producer and retry.[/red]")
+			return false
+		}
 	}
 	root, err := paths.OpenStateDirRoot(stateDir)
 	if err == nil {
@@ -324,7 +329,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		if replicas != nil {
 			_ = replicas.Close()
 		}
-		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not open its private host state; it was not started. Fix host state-directory permissions and retry.[/red]")
+		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not open its private host state: " + err.Error() + "; it was not started. Fix host state-directory permissions and retry.[/red]")
 		return false
 	}
 	defer replicas.Close()
@@ -349,6 +354,38 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	}
 	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); _ = lock.Close() }()
 	leaf := cname + ".json"
+	var preparedOwner preparedHTTPGenerationOwner
+	preparedCreated, preparedCommitted := false, false
+	defer func() {
+		if preparedCreated && !preparedCommitted {
+			removePreparedHTTPGenerationFile(preparedOwner)
+		}
+	}()
+	if frozen.CallBroker != nil {
+		reference, owner, created, prepareErr := o.prepareHTTPClientGeneration(lp, frozen, frozen.CallBroker, replicas, stateDir, leaf)
+		if prepareErr != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not stage its selected private HTTP identity; it was not started. Repair the selected pack declaration and retry.[/red]")
+			return false
+		}
+		preparedOwner, preparedCreated = owner, created
+		frozen.CallBroker.HTTPFrontGeneration = reference
+	}
+	if deferPreparedHTTPProducer {
+		var produceErr error
+		data, produceErr = producer.Produce(frozen)
+		if produceErr != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not build its approved launch input; it was not started. Retry the launch after resolving the core input producer failure.[/red]")
+			return false
+		}
+		if len(data) == 0 {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' produced an empty launch input; it was not started. Fix the producer and retry.[/red]")
+			return false
+		}
+	}
+	if err := publishPreparedHTTPGeneration(replicas, &preparedOwner); err != nil {
+		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not publish its prepared HTTP identity; it was not started. Repair private host state and retry.[/red]")
+		return false
+	}
 	// A fresh temp inode and rename replace a predecessor atomically; no in-place truncation.
 	var nonce [16]byte
 	if _, err = rand.Read(nonce[:]); err != nil {
@@ -398,6 +435,10 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			return false
 		}
 	}
+	if preparedOwner.file != nil {
+		trackPreparedHTTPGeneration(o, preparedOwner)
+	}
+	preparedCommitted = true
 	if producer.Report != nil {
 		launchInputMu.Lock()
 		if o.launchInputReports == nil {

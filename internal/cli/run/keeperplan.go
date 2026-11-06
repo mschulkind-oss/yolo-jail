@@ -44,6 +44,8 @@ type keeperPlan struct {
 	Workspace string `json:"workspace"`
 	Cname     string `json:"cname"`
 	Runtime   string `json:"runtime"`
+	// Setup is the selected launch setup, frozen so host service input producers do not infer it.
+	Setup string `json:"setup,omitempty"`
 	// MacosUserMode is the resolved mode of a macos-user launch. The keeper carries the launch's
 	// decision rather than re-reading config, which may no longer describe the resolved launch.
 	MacosUserMode macosuser.Mode `json:"macos_user_mode,omitempty"`
