@@ -84,13 +84,14 @@ import (
 // launchCheckBudget, and the launch stops reading launchCheckMargin after that.
 
 // launchCheckMargin is how long past the budget the launch keeps reading: the dial, the TLS
-// handshake and the framing on a loaded host, never the daemon's own work.
-const launchCheckMargin = time.Second
+// handshake and the framing on a loaded host, never the daemon's own work. It is a var only for
+// the reason launchCheckBudget is (generousLaunchCheckBudget in the tests).
+var launchCheckMargin = time.Second
 
 // launchCheckBudget is the budget runLaunchChecks sends each daemon, hostservice.LaunchCheckBudget.
 // It is a var only so a test whose daemon does real local work (a canned mint still takes the
-// state lock and fsyncs the state file) can raise it to the daemon's cap and assert the daemon's
-// answer rather than how fast a loaded test machine reached it.
+// state lock and fsyncs the state file) can raise it to a generous failure guard and assert the
+// daemon's answer rather than how fast a loaded test machine reached it.
 var launchCheckBudget = hostservice.LaunchCheckBudget
 
 // launchCheckTextMax caps one printed line from a daemon, in runes.

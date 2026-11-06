@@ -109,7 +109,9 @@ func (m *mintTracker) previous() *mintAttempt {
 }
 
 // launchCheck answers the launch check within budget; see the file comment for the order.
-func launchCheck(broker awsauth.Broker, mints *mintTracker, budget time.Duration) hostservice.LaunchCheckReport {
+// elapsed, when non-nil, stands in for the budget's timer (HandlerConfig.LaunchCheckBudgetElapsed).
+func launchCheck(broker awsauth.Broker, mints *mintTracker, budget time.Duration,
+	elapsed func(time.Duration) <-chan time.Time) hostservice.LaunchCheckReport {
 	if broker.Config.Profile == "" {
 		// A selected pack nobody configured: the launch proceeds and says what to set.
 		return hostservice.LaunchCheckReport{Warnings: []string{unconfiguredMessage()}}
@@ -121,15 +123,21 @@ func launchCheck(broker awsauth.Broker, mints *mintTracker, budget time.Duration
 	// never the attempt it is waiting on.
 	before := mints.previous()
 	attempt := mints.begin(broker, hostservice.LaunchCheckAction)
-	timer := time.NewTimer(budget)
-	defer timer.Stop()
+	var budgetElapsed <-chan time.Time
+	if elapsed != nil {
+		budgetElapsed = elapsed(budget)
+	} else {
+		timer := time.NewTimer(budget)
+		defer timer.Stop()
+		budgetElapsed = timer.C
+	}
 	select {
 	case <-attempt.done:
 		if attempt.err == nil {
 			return hostservice.LaunchCheckReport{}
 		}
 		return hostservice.LaunchCheckReport{Warnings: []string{mintWarning(attempt.err)}}
-	case <-timer.C:
+	case <-budgetElapsed:
 	}
 	if before != nil && before.err != nil {
 		age := mints.now().Sub(before.at).Round(time.Second)

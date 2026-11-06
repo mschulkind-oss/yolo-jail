@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -187,10 +188,20 @@ func TestCanonicalCLIExecutorStopsOwnedDescendantAfterSuccessfulWrapperExit(t *t
 	}
 }
 
+// TestCanonicalCLIExecutorCancelsLiveLeaderAfterClosingOutput: a leader that closed its output
+// and stays live, with a live descendant, is ended by cancellation, descendant and all. Every
+// step waits on an event: the descendant saying it is live, the call returning after the
+// cancel, and the descendant's exit closing the one write end of the alive FIFO it holds. The
+// leader and descendant block on hold, which nothing writes, so neither ends by itself.
 func TestCanonicalCLIExecutorCancelsLiveLeaderAfterClosingOutput(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "survived")
+	hold := fixtureFIFO(t, "hold")
+	ready := fixtureFIFO(t, "ready")
+	alive := fixtureFIFO(t, "alive")
+	descendantGone := awaitFIFO(alive)
+	descendantLive := awaitFIFO(ready)
 	binary := filepath.Join(t.TempDir(), "fixture")
-	body := fmt.Sprintf("#!/bin/sh\nexec 1>&- 2>&-\n(sleep 0.4; printf alive > %q) &\nsleep 3\n", marker)
+	body := fmt.Sprintf("#!/bin/sh\nexec 1>&- 2>&-\n(exec 3>%q; printf live > %q; read x < %q) &\nread x < %q\n",
+		alive, ready, hold, hold)
 	if err := os.WriteFile(binary, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -198,15 +209,74 @@ func TestCanonicalCLIExecutorCancelsLiveLeaderAfterClosingOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	start := time.Now()
-	result, err := p.run(ctx, Classification{Argv: []string{"read"}, StdinSHA256: fmt.Sprintf("%x", sha256.Sum256(nil))}, nil)
-	if err == nil || !strings.Contains(err.Error(), "cancelled") || len(result.Stdout) != 0 || time.Since(start) > time.Second {
-		t.Fatalf("live closed-pipe leader was not cancelled: output=%d duration=%s err=%v", len(result.Stdout), time.Since(start), err)
+	type outcome struct {
+		result CLIResult
+		err    error
 	}
-	time.Sleep(600 * time.Millisecond)
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("owned child survived cancellation: %v", err)
+	finished := make(chan outcome, 1)
+	go func() {
+		result, err := p.run(ctx, Classification{Argv: []string{"read"}, StdinSHA256: fmt.Sprintf("%x", sha256.Sum256(nil))}, nil)
+		finished <- outcome{result, err}
+	}()
+	select {
+	case <-descendantLive:
+	case got := <-finished:
+		t.Fatalf("the call ended before its descendant was live: %v", got.err)
+	case <-time.After(testEventGuard):
+		t.Fatal("the fixture's descendant never reported live")
 	}
+	cancel()
+	var got outcome
+	select {
+	case got = <-finished:
+	case <-time.After(testEventGuard):
+		t.Fatal("cancellation did not end the call while its leader was live")
+	}
+	if err := got.err; err == nil || !strings.Contains(err.Error(), "cancelled") || len(got.result.Stdout) != 0 {
+		t.Fatalf("live closed-pipe leader was not cancelled: output=%d err=%v", len(got.result.Stdout), err)
+	}
+	// Only the descendant holds the alive FIFO open for writing, so its EOF is that exit.
+	select {
+	case <-descendantGone:
+	case <-time.After(testEventGuard):
+		t.Fatal("owned child survived cancellation")
+	}
+}
+
+// testEventGuard is a failure guard only: it turns a hang into a red test, and no assertion
+// depends on beating it.
+const testEventGuard = time.Minute
+
+// fixtureFIFO makes a named pipe a fixture script and its test meet at. It is released at
+// cleanup (releaseFIFO), so a fixture or a reader still blocked on it ends.
+func fixtureFIFO(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { releaseFIFO(path) })
+	return path
+}
+
+// releaseFIFO ends, with EOF, every reader of path still waiting for a writer. None waiting is
+// not an error.
+func releaseFIFO(path string) {
+	if f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+		_ = f.Close()
+	}
+}
+
+// awaitFIFO opens path for reading and returns a channel closed once every writer has opened and
+// closed it again: the event of a fixture writing to it, or of the last process holding it open
+// for writing exiting.
+func awaitFIFO(path string) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = os.ReadFile(path)
+	}()
+	return done
 }

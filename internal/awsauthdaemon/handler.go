@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -20,6 +21,12 @@ type HandlerConfig struct {
 	// ModelLists is what the `bedrock-models` action answers from (modellists.go). Its zero
 	// value answers that there is no profile to fetch as.
 	ModelLists ModelListSource
+	// LaunchCheckBudgetElapsed, when set, replaces the launch check's budget timer: it is
+	// handed the budget, and the check stops waiting for its mint when the returned channel
+	// receives. nil is a real timer for the budget, which is what the daemon runs. A test
+	// asserting what the check answers AFTER a mint hands one that never fires, so the answer
+	// is the mint's and never a race between the mint and a loaded machine's clock.
+	LaunchCheckBudgetElapsed func(budget time.Duration) <-chan time.Time
 }
 
 // BuildHandler serves the action protocol the jail-side adapter speaks.
@@ -79,7 +86,8 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 			// The launch's question (launchcheck.go): will this launch's first Bedrock request
 			// be served, and if not, why? As credential-free as `status`: a warning carries a
 			// classifier Message, never a credential field.
-			_ = session.AnswerLaunchCheck(launchCheck(config.Broker, mints, hostservice.LaunchCheckBudgetOf(session)))
+			_ = session.AnswerLaunchCheck(launchCheck(config.Broker, mints, hostservice.LaunchCheckBudgetOf(session),
+				config.LaunchCheckBudgetElapsed))
 		case ModelListAction:
 			// The launch's Bedrock model list (modellists.go): on the host socket alone, since it
 			// is fetched with the profile's own credential, before any narrowing.
