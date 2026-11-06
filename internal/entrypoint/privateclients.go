@@ -303,3 +303,21 @@ func privateClientBindings(e *Env) (map[string]PrivateClientBinding, error) {
 	}
 	return out, nil
 }
+
+// privateLaunchersWritten is nil when every bound bin's launcher is exactly its bootstrap, and
+// otherwise the boot's refusal naming each bin that is not: a bound client whose name no selected
+// program wrote would run whatever else provides that name, an ordinary unverified copy.
+func privateLaunchersWritten(launcherDir string, bound map[string]PrivateClientBinding) error {
+	var missing []string
+	for bin, b := range bound {
+		got, err := os.ReadFile(filepath.Join(launcherDir, bin))
+		if err != nil || string(got) != privateClientLauncher(b) {
+			missing = append(missing, bin)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	slices.Sort(missing)
+	return fmt.Errorf("yolo-entrypoint: private HTTP client %s is bound for this jail, but no selected pack's program wrote its private launcher, so it would run an ordinary copy; stop the jail and rerun yolo to reprepare its private clients (drop the client's env contribution naming the front if its pack no longer declares the program)", strings.Join(missing, ", "))
+}

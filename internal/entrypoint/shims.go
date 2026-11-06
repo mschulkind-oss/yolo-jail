@@ -553,6 +553,26 @@ func GenerateAgentLaunchers(e *Env) error {
 			if err != nil {
 				return err
 			}
+			// A BOUND PRIVATE CLIENT IS DECIDED FIRST, before the shadow and platform declines
+			// below: a bound bin is written as its bootstrap or fails the boot, and is never left
+			// to a mise tool or image binary of the same name (the private route never falls back).
+			if binding, bound := privateClients[inst.Bin]; bound {
+				launcherPath := filepath.Join(launcherDir, inst.Bin)
+				if pathExists(launcherPath) {
+					continue
+				}
+				// The bootstrap starts the verified entrypoint with the caller's arguments only: a
+				// bin with launch flags is refused rather than started without them.
+				for _, autonomy := range []bool{true, false} {
+					if flags := packload.LaunchFlagsFor(packs, autonomy)[inst.Bin]; len(flags) > 0 {
+						return fmt.Errorf("private HTTP client %s: its packs declare launch flags for it (%s), which its private bootstrap does not carry; remove them or the client's env contribution naming the front, then stop the jail and rerun yolo", inst.Bin, strings.Join(flags, " "))
+					}
+				}
+				if err := writeExecutable(launcherPath, privateClientLauncher(binding)); err != nil {
+					return err
+				}
+				continue
+			}
 			// B2: no launcher for a name the image (or a declared mise tool) already
 			// provides. Under the pre-B2 PATH this was unrepresentable — the launch dir
 			// sat after /bin — and this check is what replaces that position with a
@@ -583,19 +603,6 @@ func GenerateAgentLaunchers(e *Env) error {
 				// host (`program` is CombineExclusive by bin); first-writer-wins keeps the
 				// jail deterministic if it ever gets here anyway. It also covers a pack
 				// that repeats one bin across two of its OWN contributions.
-				continue
-			}
-			if binding, bound := privateClients[inst.Bin]; bound {
-				// The bootstrap starts the verified entrypoint with the caller's arguments only: a
-				// bin with launch flags is refused rather than started without them.
-				for _, autonomy := range []bool{true, false} {
-					if flags := packload.LaunchFlagsFor(packs, autonomy)[inst.Bin]; len(flags) > 0 {
-						return fmt.Errorf("private HTTP client %s: its packs declare launch flags for it (%s), which its private bootstrap does not carry; remove them or the client's env contribution naming the front, then stop the jail and rerun yolo", inst.Bin, strings.Join(flags, " "))
-					}
-				}
-				if err := writeExecutable(launcherPath, privateClientLauncher(binding)); err != nil {
-					return err
-				}
 				continue
 			}
 			updates, launcherSet := agentUpdatesAllows(e, p.Name), servers
@@ -661,7 +668,7 @@ func GenerateAgentLaunchers(e *Env) error {
 			}
 		}
 	}
-	return nil
+	return privateLaunchersWritten(launcherDir, privateClients)
 }
 
 // npmAgentLauncher renders the npm lazy-install launcher for one `program via npm`

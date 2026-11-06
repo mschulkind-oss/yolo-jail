@@ -201,3 +201,41 @@ func TestGeneratedLaunchersRefuseABoundBinWithLaunchFlags(t *testing.T) {
 		t.Fatalf("a bound launcher that drops launch flags was written:\n%s", got)
 	}
 }
+
+// A bound bin a declared mise tool also names is still written as the bootstrap: the shadow
+// decline that keeps a lazy installer from hiding mise's copy must never leave a bound client
+// to run that unaudited copy instead.
+func TestABoundBinAMiseToolNamesStillGetsItsBootstrapLauncher(t *testing.T) {
+	home, packRoot := t.TempDir(), writeSemverPack(t)
+	b := fixturePrivateBinding()
+	value, err := MarshalPrivateClients([]PrivateClientBinding{b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, PrivateHTTPClientsEnv: value,
+		"YOLO_MISE_TOOLS": `{"npm:semver":"7.0.0"}`})
+	if err := GenerateAgentLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(e.LaunchDir(), "semver"))
+	if err != nil || !strings.HasSuffix(string(got), "exec "+shquote.Join(PrivateClientArgv(b))+" \"$@\"\n") {
+		t.Fatalf("a mise-named bound bin did not get its bootstrap launcher (%v):\n%s", err, got)
+	}
+}
+
+// A bound bin no selected pack's program writes a launcher for fails the boot with its next
+// step, rather than leaving the name to whatever else provides it.
+func TestABoundBinWithNoLauncherFailsTheBoot(t *testing.T) {
+	home, packRoot := t.TempDir(), writeSemverPack(t)
+	b := fixturePrivateBinding()
+	b.Bin = "not-a-selected-program"
+	value, err := MarshalPrivateClients([]PrivateClientBinding{fixturePrivateBinding(), b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot, PrivateHTTPClientsEnv: value})
+	err = GenerateAgentLaunchers(e)
+	if err == nil || !strings.Contains(err.Error(), "not-a-selected-program") || !strings.Contains(err.Error(), "rerun yolo") {
+		t.Fatalf("a bound bin with no launcher did not fail the boot: %v", err)
+	}
+}
