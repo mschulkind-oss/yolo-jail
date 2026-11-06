@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and seeded here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a), not built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, none built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -104,6 +104,13 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D19"></a>SUP-D19 | **Slice 6a lands in two parts.** **6a-i** lands now: `runtime.JailName`, the pure path helpers `paths.SetupsDir`/`SetupStateDir`/`SetupHomeState`, `paths.EnsureSetupStateDir` (creates `.yolo/setups/<name>` through a no-link descriptor chain and returns the open directory), and the [SUP-D9](#SUP-D9) move as a function, `adoptLegacyHome`, with its unit tests. **6a-ii** is everything that changes what a launch binds or names: minting the qualified `cname`, the home, baseline and prism-store callers, deleting `WorkspaceHomeState`, the call site of `adoptLegacyHome`, the [SUP-D10](#SUP-D10) refusal and the integration red. 6a-ii waits on the custody proof and unchanged W-SU1/W-SU4, as before. | Nothing in 6a-i binds a path into a guest or changes a launch, so it never reaches the held-bind boundary. The move cannot be wired before the switch: a launch that moved `.yolo/home` and still bound `.yolo/home` would start on an empty home. Until 6a-ii, `adoptLegacyHome` has no production caller, and its tests pin only the callee. The test that fails when the call site is deleted is the legacy variant of `TestNamedSetupsHaveDistinctHomes`, and it lands with 6a-ii. |
 | <a id="SUP-D20"></a>SUP-D20 | **How the move attributes a legacy home and answers each case.** The home is attributed to the **selected** setup when that setup's technology could have laid it: on Linux only `podman` ever did; on macOS `apple-container` and `seatbelt` share the layout since slice 12a. On macOS the Apple Container layout signal (`isAppleContainerInheritedCopy` on a generated user-config copy) attributes the home to Apple Container only. A host setup never adopts one. The caller supplies one tri-state answer about every jail of the project: the legacy name and each setup's `JailName`. The checks run in this order: the source's type, its owner, then attribution (the layout signal reads files beneath the home, so it is asked only about a real directory of the user's), then liveness. Outcomes: (a) no legacy home: nothing, no line; (b) movable, but a jail runs or the runtime could not be asked: left in place, with one line saying that this setup keeps using it ([SUP-D21](#SUP-D21)) and that `yolo stop` and a new launch move it; (c) quiesced, a real directory owned by the invoking user, attributable, and the destination absent or an empty directory: moved with the destination-exclusive rename (`renameat2(RENAME_NOREPLACE)`, `renameatx_np(RENAME_EXCL)` on macOS) after a kernel-checked `rmdir` of an empty destination, with one informational line naming both paths; (d) anything else, whatever runs: left in place, with one line naming the condition and the one step that clears it, after which the next quiesced launch does the move. The steps: a link at `.yolo/home` gets `rm` of the link only; another file type gets `mv -n` aside; another owner gets `sudo chown -R`; a home laid by an Apple Container setup gets "launch an Apple Container setup"; a destination that holds something (a link included) gets `mv -n` of it aside; a linked `setups` gets `rm` of the link; a linked `.yolo` gets "replace the link with the directory it points at". The line prints a manual `mkdir -p … && mv -n …` only where the rename itself is ruled out: `EXDEV` (the home is its own mount) or `EINVAL`/`ENOTSUP` (a filesystem without a no-replace rename, named as such). By [SUP-D21](#SUP-D21) the destination is absent then, so the manual move lands at the setup's home and not inside it. The move never refuses the launch and never deletes anything but an empty directory. | These are implementation answers inside [OQ-SU5](named-setups.md#OQ-SU5)'s ruling. "Attributed to one setup" is read as the setup that launches first. Today both Mac backends read the shared home as their own, so moving it to whichever one runs first keeps today's behavior, and the Apple Container signal keeps an Apple Container home away from Seatbelt (MMP-D32). A raw `mv src dest` was dropped (6a-i review, major 1): it fails while the parent is missing, and it nests the home inside a destination that already exists. A step that clears the condition leaves the rename to yolo, which is never wrong about the destination. |
 | <a id="SUP-D21"></a>SUP-D21 | **Until the legacy home has moved, the setup it belongs to keeps using it.** A launch whose selected setup the legacy `<ws>/.yolo/home` is attributed to ([SUP-D20](#SUP-D20)), where the home is still in place (deferred or left), binds `.yolo/home` as its home for that run and creates no `.yolo/setups/<name>/home`. Every other setup uses its own setup home. As a second guard, the quiesced move replaces an empty directory at the destination. **This is a 6a-ii entry condition:** the switch that binds `SetupHomeState` must read `adoptLegacyHome`'s result first. | A deferred move was otherwise stranded for good (6a-i review, major 2): the deferring launch would create an empty setup home, and every later move would then find the destination taken. Using the old home for that run is also today's behavior, so a deferral costs nothing. A recorded fresh-home marker was rejected as a second state to keep true. The kernel's `rmdir` emptiness check needs none. |
+| <a id="SUP-D22"></a>SUP-D22 | **A source's answer is `runtime.SourceAnswer{Confinement, State, Names}`, and which container sources exist is `setup.Buildable` of each technology's built-in.** A container source is installed when `setup.Buildable(podman-self or apple-container-self, goos, LookPath)` returns nil, `not-installed` on a `*setup.MissingTechnologyError`, and not a source of this OS on any other error. `Confinement` holds the setup vocabulary (`podman`, `apple-container`, `seatbelt`, `host`). | One answer to "is this technology here" already exists for the launch and `yolo setup list`; a second `LookPath` table in `ps` would disagree with it. |
+| <a id="SUP-D23"></a>SUP-D23 | **The container launch record stays at `paths.ContainerDir()/<name>`, as JSON, and the session record keeps `notch` beside the same fields.** A file whose first byte is not `{` is a legacy record: its trimmed text is the workspace and every other field is unknown. `SessionRecord` gains the launch-record fields and keeps `notch`, which `MacosUserSessions` and prune's session reads key on. | `prune.TrackedContainerNames`, `forkbuild`'s artifact check, `forgetGoneContainer` and the orphan reapers key on that path by name; moving it would change every one for no gain. Running jails launched before the change keep one-line records, and owner's "no compatibility" covers output, not the records of jails still running. |
+| <a id="SUP-D24"></a>SUP-D24 | **Each source runs under its own `context.WithTimeout`, and `timed-out` is the context's deadline, not a slow exit.** The runner gets the context and kills the child on expiry; a source whose context expired is `timed-out` whatever the child's exit status. The budgets (10 s per source, 5 s per row) are `psDeps` fields so a test can shrink them. | [§12.1](named-setups.md#121-discovery-every-source-in-parallel-each-with-its-own-answer) fixes the budgets; the mechanism is the one Go has, and a dep is the only way a unit test can reach the `timed-out` state without waiting 10 s. |
+| <a id="SUP-D25"></a>SUP-D25 | **Podman's start time is `{{.StartedAt}}` in the listing's own Go template; Apple Container's comes only from the launch record until a Mac measures `startedDate`.** The listing argv becomes `podman ps --filter name=^yolo- --format '{{.Names}}\t{{.Status}}\t{{.StartedAt}}'`; a missing or non-positive value is unknown (`?`), never an error. | `prune.RunningJailStarts` already parses that field as unix seconds and its test pins the argv; `--format json` would add a second parser for one field. Reading an encoding nobody has measured would print a wrong age with confidence. |
+| <a id="SUP-D26"></a>SUP-D26 | **Until slice 11d, a single-runtime `yolo ps` on a Mac with both runtimes installed prunes no tracking file.** Slice 11a ships SU-D10's legacy half alone; the other installed runtime was not asked, so it is `unreachable` for the prune. | The alternative, asking the second runtime only for the prune, is 11d's discovery built twice. A record left behind protects only its own name, and the launch's `forgetGoneContainer` still removes every record whose jail ended normally. |
+| <a id="SUP-D27"></a>SUP-D27 | **`--setup` is resolved by `setup.Lookup` over the built-ins and the user config's `[setups]`**, the same lookup a launch's `--setup` uses, so the refusal text is the launch's. | [§12.6](named-setups.md#126-narrowing-with---setup) requires the launch's message; one lookup cannot drift from it. |
+| <a id="SUP-D28"></a>SUP-D28 | **The host source is `runtime.ListSessions` narrowed to `notch: host`, and the Seatbelt source the rest.** A session with no record (an older yolo's) stays in the Seatbelt source, as `MacosUserSessions` places it today; on Linux the host source is the only session source. | One directory listing serves both; splitting by the record's notch is what `MacosUserSessions` already does. |
 
 ## Map
 
@@ -1066,57 +1073,158 @@ launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
 
 ### Slice 11 — `yolo ps` and `yolo stores` list every technology (after 4a; independent of 6a)
 
-**Seed, designer-written 2026-11-06; incomplete.** The design is
+**Build contract, planner-grounded 2026-11-06 against the tree at `3f131dfe2`.** The design is
 [§12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and its ledger rows
-[SU-D9](named-setups.md#SU-D9) to [SU-D14](named-setups.md#SU-D14). A planner completes this
-against the tree before anyone builds from it; nothing below was surveyed for completeness.
+[SU-D9](named-setups.md#SU-D9) to [SU-D14](named-setups.md#SU-D14), under
+[OQ-SU6](named-setups.md#OQ-SU6). The mechanism choices it leaves open are
+[SUP-D22](#SUP-D22) to [SUP-D28](#SUP-D28). Six sub-slices, smallest first; each lands alone,
+with its tests, and leaves `yolo ps` and `yolo stores` working.
 
 - **Settled:** one list across every source of the OS, a state per source, `complete`,
   `schema: "yolo.ps/1"` and `"yolo.stores/1"`, `null` for unknown, setup vocabulary for
   `confinement`/`run_as`, exit 0, `YOLO_SETUP` ignored and `--setup` narrowing, pruning per
   technology, every `yolo host --` launch holding a session record. No compatibility with
   today's `psReport` or `Report.Runtime`.
-- **Files the design work touched** (starting points, not a map):
-  - `internal/cli/ps.go`: `psRun`'s single `DetectRuntime` branch and `psMacosUser` become one
-    collector per source run concurrently; `psReport`/`psJail` replaced by the [§12.4](named-setups.md#124-the-json-document) shape;
-    `psFinish` keeps "one document on every path".
-  - `internal/cli/commands.go` `runPs`: drop `listingDetect` (its absent-runtime note becomes the
-    source line); accept `--setup`. `internal/cli/absentruntime.go` then has `stores` and `prune`
-    as callers; check whether `stores` still needs it.
-  - `internal/runtime/tracking.go`: the tracking file becomes the JSON launch record (read the
-    one-line legacy form too); `PruneStaleTrackingFiles` takes the per-source answers, not one
-    name set ([SU-D10](named-setups.md#SU-D10)). `WriteContainerTracking`'s caller is
-    `internal/cli/run/sliceutil.go`.
-  - `internal/runtime/macosusersessions.go`: `SessionRecord` gains the launch-record fields;
-    `MacosUserSessions` stops being the only listing, since host sessions become a source.
-  - `internal/cli/run/loopholesruntime.go`, `servicessession.go`: a `yolo host` launch opens its
-    session whether or not it publishes a doorway ([SU-D12](named-setups.md#SU-D12)). Check what
-    else keys off a host session existing (the dead-session sweep, `yolo prune`'s session reads)
-    before relying on it.
-  - `internal/runtime/display.go` `RenderPsTable`: the five-column table of [§12.3](named-setups.md#123-sort-order-and-the-table).
-  - `internal/cli/stores/inventory.go`: `Inventory`'s one `rt` becomes the per-source set;
-    `imageStores`, `scratchStores`, `toolDiskStores`, `nixStores` run per `listed` source;
-    `durableStores` merges projects across sources; the `onMacosUserContainerPass` trigger
-    rewriting generalizes to "the prune of this row's technology". `prune.LiveYoloContainers`
-    is per runtime; the union and its decline live in the caller.
-- **Check before relying on it:** that Apple Container's `container ls` has a machine-readable
-  form with a start time (else the launch record is the only start time there); that
-  `podman ps --format json` gives a start time on the Podman versions CI runs.
-- **Tests to add:** `internal/cli/ps_test.go`: a Mac fixture with three stubbed sources (one
-  `unreachable`) lists the other two's rows, prints the unreachable line with its step, and
-  `complete: false`; a `timed-out` source; an unknown-setup row (`?`/`null`, footnote);
-  `YOLO_SETUP` set does not narrow; `--setup` narrows and counts unmatched unknown rows; sort
-  order. `internal/runtime/tracking_test.go`: a Podman-only answer leaves an Apple Container
-  record (the [SU-D10](named-setups.md#SU-D10) defect, red first); a legacy record survives
-  unless every container source listed. `internal/cli/stores/`: a two-technology fixture shows
-  each image section once per technology, one durable row per project, and a declined liveness
-  note when a container source did not answer. `integration/macosuserps_test.go` reads today's
-  JSON shape and is rewritten to [§12.4](named-setups.md#124-the-json-document).
-- **Gates:** `go test -short ./internal/cli/... ./internal/runtime/...`; `just check-ci`; the
-  integration tests that read `yolo ps` or `yolo stores` output (`rg -l 'yolo ps|yolo stores'
-  integration/`). The Mac "what done looks like" bullet of
-  [§11](named-setups.md#11-what-done-looks-like) is a witness for the owner's Mac agent.
-- **Commit:** `feat(cli): yolo ps and yolo stores list every technology in one list`
+- **The two unknowns, settled from the tree:**
+  - **Podman reports a start time yolo already reads.** `prune.RunningJailStarts`
+    (`internal/prune/copilotpkg.go`) asks `podman ps --format '{{.Names}} {{.StartedAt}}'` and
+    parses unix seconds; its unit test pins that argv. `yolo ps` takes the same field
+    ([SUP-D25](#SUP-D25)); `--format json` is not needed.
+  - **Apple Container's start time is not one yolo can read yet.** `container ls --all --format
+    json` exists and is parsed today (`appleImagesInUse`, `internal/prune/appleimages.go`), but
+    only for `configuration.image`; `prune.RunningJailStarts`'s comment records that
+    `status.startedDate` in `container inspect` has an encoding nobody has measured. So an Apple
+    Container row's age comes from its launch record and is `?` without one. Nothing blocks on
+    it; reading `startedDate` is a later change once a Mac measures it (witness W-SU11, under
+    [Mac checks](#mac-checks)).
+- **A source's answer is one type** ([SUP-D22](#SUP-D22)), in `internal/runtime/tracking.go`:
+  `SourceState` (`listed`, `not-installed`, `unreachable`, `timed-out`) and `SourceAnswer
+  {Confinement, State, Names}`. `internal/cli` decides which container sources this OS has and
+  whether each is installed, through `setup.Buildable` of each technology's built-in
+  (`podman-self`, `apple-container-self`) for `platformGOOS()`.
+
+#### 11a — prune a launch record only on its technology's answer ([SU-D10](named-setups.md#SU-D10))
+
+The defect fix, alone. Today every tracking file names no technology, so this sub-slice ships the
+rule's legacy half, which is the half that protects every record that exists.
+
+- **Tests first (red):** `internal/runtime/tracking_test.go`
+  `TestPruneKeepsRecordsUntilEveryContainerSourceListed`: records for an Apple Container jail and
+  a dead Podman jail; Podman `listed` with no names and Apple Container `unreachable`: nothing is
+  removed; Apple Container `not-installed`: both go; both `listed` with Apple Container listing its
+  jail: only the Podman record goes. `internal/cli/ps_test.go`
+  `TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords`: GOOS darwin, `podman` and `container` both
+  installed, the asked runtime `podman`, Podman lists nothing; the Apple Container jail's record
+  survives. On Linux Podman is every container source, so `TestPsPrunesStaleTracking` stays green.
+- **Change:** `runtime.PruneStaleTrackingFiles(answers []SourceAnswer) []string` replaces the
+  one-set signature: a record goes when every answer is `listed` or `not-installed` and no
+  `listed` answer names it. `internal/cli/ps.go`: `psDeps` gains `GOOS string` and
+  `HasBinary func(string) bool` (real: `platformGOOS()`, `exec.LookPath`); `psContainerAnswers`
+  builds one answer per container source of the GOOS: the asked one `listed` with its names, every
+  other installed one `unreachable` (it was not asked), every missing one `not-installed`. Both
+  prune call sites in `psRun` pass it.
+- **Interim cost, accepted ([SUP-D26](#SUP-D26)):** on a Mac with both runtimes installed, `yolo ps`
+  prunes no record until 11d asks every source. A record whose jail ended normally is still
+  removed by the launch's own `forgetGoneContainer`; only a crash leaves one behind.
+- **Gates:** `go test -short -run 'Prune|Ps|Tracking' ./internal/runtime/ ./internal/cli/`;
+  `just check-ci`. No integration test reads `PruneStaleTrackingFiles`.
+- **Commit:** `fix(ps): ...` (the SU-D10 defect).
+
+#### 11b — the container launch record ([SU-D11](named-setups.md#SU-D11), container half)
+
+- **Tests first:** `tracking_test.go`: `WriteLaunchRecord`/`ReadLaunchRecord` round-trip every
+  field; a legacy one-line file reads as a workspace with every other field unknown; a record
+  naming `podman` is pruned on Podman's `listed` answer alone while Apple Container is
+  `unreachable` (the rule's technology half). `internal/cli/run`: the launch guard's record call
+  writes a record whose `setup`, `confinement` and `packs` are the launch's, pinning the call site
+  and not only the callee.
+- **Change:** `internal/runtime/tracking.go`: `LaunchRecord{Name, Setup, Confinement, RunAs,
+  Workspace, Started, Packs, YoloVersion}`, JSON keys as in
+  [§12.4](named-setups.md#124-the-json-document); `WriteLaunchRecord` replaces
+  `WriteContainerTracking` at the same path, `paths.ContainerDir()/<name>` ([SUP-D23](#SUP-D23));
+  `ReadContainerWorkspace` reads through `ReadLaunchRecord`; the prune applies the technology
+  half. Callers: `internal/cli/run/run.go` `runtimeWriteTracking` and `sliceutil.go`
+  `writeTracking` (shared with slice 6a: one call-site edit carrying `o.Setup` and the staged
+  packs' names), and the test helpers that write tracking files (`forkbuild*_test.go`,
+  `stopruntime_test.go`, `ps_test.go`), which pass a workspace only.
+- **Gates:** `go test -short ./internal/runtime/ ./internal/cli/...`; `just check-ci`; this is the
+  launch path, so the full integration suite at landing.
+- **Commit:** `feat(run): the tracking file becomes the launch record`
+
+#### 11c — every `yolo host --` launch holds a session, and sessions carry the record ([SU-D12](named-setups.md#SU-D12))
+
+- **Tests first:** `internal/cli/run`: a `yolo host -- true` that publishes no doorway opens a
+  session dir whose record names `host`, its setup and its workspace, and the dir goes at exit;
+  `macosusersessions_test.go`: the record's new fields round-trip, and an older record (notch,
+  workspace, name only) still reads.
+- **Change:** `runtime.SessionRecord` gains the `LaunchRecord` fields beside `notch`
+  ([SUP-D23](#SUP-D23)); `servicessession.go` `openServicesSession` writes them;
+  `loopholesruntime.go`'s host path opens the session whether or not a doorway is published.
+  Before relying on it, read every reader of a host session's existence:
+  `collectDeadServicesSessions`, `prune.MacosUserJailStarts`, `runtime.MacosUserSessions` and
+  `yolo prune`'s guest pack-tree sweep; none may start acting on a doorway-less host session as
+  a jail.
+- **Gates:** `go test -short ./internal/runtime/ ./internal/cli/run/`; `just check-ci`; the
+  integration tests that read host-services sessions (`rg -l HostServices integration/`).
+- **Commit:** `feat(host): every yolo host launch holds a session record`
+
+#### 11d — `yolo ps` is one list ([SU-D9](named-setups.md#SU-D9), [SU-D13](named-setups.md#SU-D13))
+
+- **Tests first** (`internal/cli/ps_test.go`, rewritten): a darwin fixture with four stubbed
+  sources, Apple Container `unreachable`, lists the other three's rows, prints that source's line
+  with `container system start`, and JSON has `complete: false`; a source that sleeps past its
+  budget is `timed-out` while the others list (the budget is a dep, milliseconds in the test); an
+  unknown-setup row prints `?` and the footnote, `null` in JSON; `YOLO_SETUP` set changes nothing;
+  sort order workspace, setup, name; `~` for home; every empty state of
+  [§12.3](named-setups.md#123-sort-order-and-the-table); exit 0 with an unreachable source; the
+  prune passes every source's answer, so a Mac where both runtimes listed prunes again.
+- **Change:** `internal/cli/ps.go` rewritten: one collector per source, run concurrently, each
+  under its own 10 s `context.WithTimeout` ([SUP-D24](#SUP-D24)); `psDeps.RunCmd` takes a
+  context; rows filled from the launch record, then the runtime, in
+  [§12.2](named-setups.md#122-what-a-row-knows-and-where-it-reads-it)'s order, with per-row calls
+  under 5 s; `psReport`/`psJail` replaced by the [§12.4](named-setups.md#124-the-json-document)
+  document; `psMacosUser` folds into the Seatbelt collector, and a host collector reads
+  `runtime.ListSessions` narrowed to `notch: host` ([SUP-D28](#SUP-D28)).
+  `internal/runtime/display.go` `RenderPsTable` becomes the five-column table; Podman's listing
+  argv gains `{{.StartedAt}}` ([SUP-D25](#SUP-D25)). `internal/cli/commands.go` `runPs` drops
+  `listingDetect`; its note becomes the source line.
+- **Integration:** `integration/macosuserps_test.go` reads the old JSON and is rewritten to
+  [§12.4](named-setups.md#124-the-json-document) in this commit (coordinate with whoever holds
+  `integration/macosuser*`); it runs only on a Mac, so its run is a witness for the owner's Mac
+  agent.
+- **Gates:** `go test -short ./internal/cli/ ./internal/runtime/`; `just check-ci`.
+- **Commit:** `feat(ps): yolo ps lists every technology in one list`
+
+#### 11e — `--setup` narrows `yolo ps` ([§12.6](named-setups.md#126-narrowing-with---setup))
+
+- **Tests first:** `--setup podman-self` asks Podman alone and lists only that setup's rows; an
+  undefined name is refused with the launch's message, exit 2; a setup this machine cannot build
+  lists nothing and says why; unknown-setup rows are counted in the footnote; no prune runs.
+- **Change:** `runPs` accepts `--setup`, resolved through `setup.Lookup` with the user's setups
+  ([SUP-D27](#SUP-D27)); the collectors are filtered by technology before any is asked.
+- **Commit:** `feat(ps): --setup narrows the list to one setup`
+
+#### 11f — `yolo stores` is one inventory ([SU-D14](named-setups.md#SU-D14))
+
+- **Tests first** (`internal/cli/stores/`): a two-technology fixture shows each image section once
+  per technology, with its `confinement` and heading; one durable row per project across sources;
+  a liveness judgment declines, naming the source, when a container source is not `listed`; JSON
+  has `schema`, `sources` and `complete` and no `runtime`; `--setup` keeps the machine-wide rows
+  and only that technology's sections.
+- **Change:** `stores.Options.DetectRuntime` is replaced by 11d's source discovery, passed in as
+  answers so `stores` execs nothing new; `Inventory` runs `imageStores`, `scratchStores`,
+  `toolDiskStores` and `nixStores` once per `listed` source; `durableStores` merges projects
+  across sources; `onMacosUserContainerPass` generalizes to naming the row's own technology's
+  prune (`YOLO_SETUP=<setup> yolo prune --apply`); the union of `prune.LiveYoloContainers` over
+  sources, and its decline, live in the caller. `absentruntime.go` is then `prune`'s alone.
+- **Integration:** `integration/macosuserstores_test.go` reads only `stores[]`, which keeps its
+  shape; it reruns on the Mac witness.
+- **Commit:** `feat(stores): yolo stores inventories every technology once`
+
+**Fences, every sub-slice:** `internal/callbroker`; `internal/cli/run` beyond the call sites 11b
+and 11c name; `integration/macosuser*` beyond the two rewrites named. **The Mac "what done looks
+like" bullet** of [§11](named-setups.md#11-what-done-looks-like) is a witness for the owner's Mac
+agent after 11d.
 
 ## Ships with
 
@@ -1233,7 +1341,13 @@ into the slice's report (see the macos-user plan's
   all as expected except `create` with the account present. It asks sudo for a password to
   re-check `/etc/sudoers.d/yolo-jail`, and without one exits 1, exactly as the old
   `yolo macos-setup` does.
-
+- **W-SU11 (slice 11d):** on a Mac with Podman and Apple Container both installed, one jail
+  running in each: `yolo ps` lists both rows with their setups, `yolo ps --format json` has
+  `"complete": true`; then `container system stop` and `yolo ps` again: the Podman row is listed,
+  the Apple Container line names `container system start`, JSON has `"complete": false`, and
+  `ls ~/.local/share/yolo-jail/containers/` still holds the Apple Container jail's record. Also
+  paste `container inspect <name> | jq '.[0].status'` from the running jail, which settles how
+  `startedDate` is encoded ([SUP-D25](#SUP-D25)).
 ## Blockers
 
 [OQ-SU5](named-setups.md#OQ-SU5) is ruled
