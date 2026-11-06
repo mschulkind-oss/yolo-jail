@@ -123,6 +123,8 @@ would print it again.
 **Decision needed:** none if the move prints "Moved this project's home". On `EACCES`, the move
 needs a step the account can take, and its "left" line needs a remedy that works.
 
+**Mac run, 2026-11-06 at `9e1e9d8d3`** ([report](2026-11-06-mac-ci-triage-witnesses-run.md)): W1's build passes natively, so the failure is not reproduced. W2 passes under `podman-self` with no image build, but both tests fail under `apple-container-self` on the second launch. W3 and W4 pass. W5 and W6 cannot run yet.
+
 ## Evidence
 
 - Run logs and job annotations: `gh run view -R mschulkind-oss/yolo-jail <id> --log-failed`,
