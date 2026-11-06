@@ -2,8 +2,8 @@
 title: "Plan: host-run's first build slice"
 date: 2026-10-23
 status: accepted
-stage: DECIDED
-next: "Task 1: the shared grammar and checks in internal/hostrun, tests first"
+stage: BUILT
+next: "Every task is built; retire this plan when host-run-mailbox.md graduates"
 tags: [plan, host, mailbox, stopgap]
 ---
 

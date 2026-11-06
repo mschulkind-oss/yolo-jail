@@ -3,7 +3,7 @@ title: "Plan: the broker core, and git as its second source (step 1)"
 date: 2026-10-23
 status: accepted
 stage: DECIDED
-next: "Task 1: factor the broker core out of internal/ghbroker, tests first, with no behavior change"
+next: "Every task is built except GB-D28's removal of --add and --remember; retire this plan when the design graduates into docs/reference/git-broker.md"
 depends-on: []
 tags: [plan, broker, git, credentials, approvals, loopholes]
 ---

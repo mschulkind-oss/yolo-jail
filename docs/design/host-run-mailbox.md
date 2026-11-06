@@ -2,18 +2,21 @@
 title: "One paste, no copy-back: a host command anyone can write runs once, and its output comes back to the jail"
 date: 2026-10-09
 status: accepted
-stage: DECIDED
-next: "Build slice 1 (§12) from host-run-mailbox-plan.md"
+stage: BUILT
+next: "Graduate into a system doc under docs/reference/ and retire host-run-mailbox-plan.md; slice 1 (§12) is built"
 tags: [design, host, approvals, broker, mailbox, stopgap, security]
 summary: "A stopgap for the copy-paste loop until the boundary broker's request store and doorbell exist. An agent, or a human, writes one ordinary line by hand, `yolo host-run -C <workspace> -- <argv>`, with no jail-side command run first. The human runs it in a host terminal, and running it is the approval. The host resolves the workspace from `-C` or the terminal's cwd through the existing marker walk, prints what it will run and where, runs it with the human's terminal as stdin, shows the output live, and only after the command exits writes stdout, stderr and the exit status into a run directory it mints under the workspace's `.yolo/host-run/`, which the jail reads through the live workspace bind on every backend. A refusal is delivered the same way. `yolo host-run wait`, run as a background task, wakes the agent on the next result, or on the one carrying the agent's optional `--name` label. Every run leaves an audit line."
 ---
 
 # One paste, no copy-back: a host command anyone can write runs once, and its output comes back to the jail
 
-**Status:** 2026-10-23. Nothing built. [OQ-HX1](#14-decision-ledger) was ruled A that day, and the
+**Status:** 2026-11-06. Slice 1 ([§12](#12-first-build-slice)) is built (`internal/hostrun`,
+`yolo host-run` and `yolo wait`, with `integration/hostrun_test.go`), and the user guide's
+[host-commands guide](../../userguide/guides/host-commands.md) covers it; graduation to a system doc
+is next. [OQ-HX1](#14-decision-ledger) was ruled A on 2026-10-23, and the
 same session's requirement removed the jail-side `ask` step, so the line is now one any agent or
 human writes by hand ([HX-D35](#HX-D35)). Every helper and line cited here was re-read at
-`64ac4af1b`.
+`64ac4af1b`, before the build.
 
 > **In short.** The human's paste is already full host authority, so the stopgap adds no gate,
 > and nothing needs minting first: **the host works out where the result goes from the line

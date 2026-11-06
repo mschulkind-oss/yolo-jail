@@ -1,15 +1,15 @@
 ---
 title: "Explicit jail inheritance exclusions keep user host bytes separate from managed state"
 status: accepted
-stage: DECIDED
-next: "Build the completed plan's user-scope validation and exact-member filter, then wire launch and preview"
+stage: BUILT
+next: "Graduate into a system doc under docs/reference/ and retire jail-inheritance-exclusions-plan.md; validation, the exact-member filter, launch and preview are built"
 tags: [config, inheritance, host, packs]
 summary: "A user-only, subtractive control over exact members of imported host config bytes, without changing pack, computed, captured, or managed layers."
 ---
 
 # Explicit jail inheritance exclusions keep user host bytes separate from managed state
 
-**Status:** 2026-10-21. Owner rulings recorded; nothing built. Existing-code claims checked at `e7b52b944d369432a4a19aff303b0b8dd68860dd`.
+**Status:** 2026-11-06. Built: user-scope validation, the exact-member filter (`internal/agentcfg/hostimportexclusions.go`), launch and macos-user delivery, and the preview, with `integration/hostimportexclusions_test.go`; graduation to a system doc is next. The design's existing-code claims were checked at `e7b52b944d369432a4a19aff303b0b8dd68860dd`.
 
 > **In short.** A user may omit exact members of a host config file from a jail's imported host layer without changing the host file. The filter runs on that input alone; composition and capture continue to own every other layer.
 

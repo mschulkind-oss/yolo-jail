@@ -1,8 +1,8 @@
 ---
 title: "Plan: filter exact members from imported user host configuration"
 status: accepted
-stage: DECIDED
-next: "Implement strict user-scope policy validation and inheritance first"
+stage: BUILT
+next: "Every task is built; retire this plan when jail-inheritance-exclusions.md graduates"
 depends-on:
   - jail-inheritance-exclusions.md
 summary: "Tree-grounded build hand-off for user-only JSON Pointer exclusions at the imported host-layer boundary."
