@@ -457,10 +457,16 @@ func TestADryRunNamesTheSessionDirsShapeAndItsGrant(t *testing.T) {
 // for TestOnlyTheSpawnCreatesTheHostServicesDir's reason — every path out of that call reaches the
 // arm's teardown. And the arm's teardown must be endServicesSession, the one that removes this
 // session's own dir and releases its lock: the teardown it replaced passed the per-workspace dir.
+// The one other creator is OpenHostSession, a `yolo host` launch's doorway-less session
+// (named-setups.md SU-D12), which hands its caller a HostSession whose End is that teardown: it
+// must release the lock, after removing the dir.
 func TestOnlyTheSpawnOpensAServicesSession(t *testing.T) {
 	callers := funcsCalling(t, "openServicesSession")
-	if !callers["startLoopholesMatching"] || len(callers) != 1 {
-		t.Errorf("openServicesSession is called from %v; only startLoopholesMatching may call it", callers)
+	if !callers["startLoopholesMatching"] || !callers["OpenHostSession"] || len(callers) != 2 {
+		t.Errorf("openServicesSession is called from %v; only startLoopholesMatching and OpenHostSession may call it", callers)
+	}
+	if releasers := funcsCalling(t, "release"); !releasers["End"] {
+		t.Errorf("HostSession.End no longer releases its session's lock (callers of release: %v)", releasers)
 	}
 	if enders := funcsCalling(t, "endServicesSession"); !enders["Run"] {
 		t.Errorf("the macos-user arm (in Run) no longer ends its services session (callers: %v), "+

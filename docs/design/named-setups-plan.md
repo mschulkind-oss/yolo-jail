@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) is built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -111,6 +111,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D26"></a>SUP-D26 | **Until slice 11d, a single-runtime `yolo ps` on a Mac with both runtimes installed prunes no tracking file.** Slice 11a ships SU-D10's legacy half alone; the other installed runtime was not asked, so it is `unreachable` for the prune. | The alternative, asking the second runtime only for the prune, is 11d's discovery built twice. A record left behind protects only its own name, and the launch's `forgetGoneContainer` still removes every record whose jail ended normally. |
 | <a id="SUP-D27"></a>SUP-D27 | **`--setup` is resolved by `setup.Lookup` over the built-ins and the user config's `[setups]`**, the same lookup a launch's `--setup` uses, so the refusal text is the launch's. | [§12.6](named-setups.md#126-narrowing-with---setup) requires the launch's message; one lookup cannot drift from it. |
 | <a id="SUP-D28"></a>SUP-D28 | **The host source is `runtime.ListSessions` narrowed to `notch: host`, and the Seatbelt source the rest.** A session with no record (an older yolo's) stays in the Seatbelt source, as `MacosUserSessions` places it today; on Linux the host source is the only session source. | One directory listing serves both; splitting by the record's notch is what `MacosUserSessions` already does. |
+| <a id="SUP-D29"></a>SUP-D29 | **A `yolo host` launch that execs its program hands the session lock across the exec, and a session it cannot open is a warning.** `HostSession.KeepAcrossExec` clears close-on-exec on the lock, so the program holds it for its life; its dir is collected by the next session open that finds the lock free. A failed open prints that `yolo ps` will not list this launch and goes on. | The program replaces yolo, so nothing of yolo's survives to hold the lock or remove the dir; the menu's lock and the session homes' leases already cross the exec the same way (MM-D27). A listing record is never a reason to refuse an agent: `openServicesSession`'s record write is not fatal either. |
 
 ## Map
 
@@ -1077,7 +1078,7 @@ launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
 [§12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and its ledger rows
 [SU-D9](named-setups.md#SU-D9) to [SU-D14](named-setups.md#SU-D14), under
 [OQ-SU6](named-setups.md#OQ-SU6). The mechanism choices it leaves open are
-[SUP-D22](#SUP-D22) to [SUP-D28](#SUP-D28). Six sub-slices, smallest first; each lands alone,
+[SUP-D22](#SUP-D22) to [SUP-D29](#SUP-D29). Six sub-slices, smallest first; each lands alone,
 with its tests, and leaves `yolo ps` and `yolo stores` working.
 
 - **Settled:** one list across every source of the OS, a state per source, `complete`,
@@ -1151,21 +1152,28 @@ rule's legacy half, which is the half that protects every record that exists.
   launch path, so the full integration suite at landing.
 - **Commit:** `feat(run): the tracking file becomes the launch record`
 
-#### 11c — every `yolo host --` launch holds a session, and sessions carry the record ([SU-D12](named-setups.md#SU-D12))
+#### 11c — every `yolo host --` launch holds a session ([SU-D12](named-setups.md#SU-D12))
 
-- **Tests first:** `internal/cli/run`: a `yolo host -- true` that publishes no doorway opens a
-  session dir whose record names `host`, its setup and its workspace, and the dir goes at exit;
-  `macosusersessions_test.go`: the record's new fields round-trip, and an older record (notch,
-  workspace, name only) still reads.
-- **Change:** `runtime.SessionRecord` gains the `LaunchRecord` fields beside `notch`
-  ([SUP-D23](#SUP-D23)); `servicessession.go` `openServicesSession` writes them;
-  `loopholesruntime.go`'s host path opens the session whether or not a doorway is published.
-  Before relying on it, read every reader of a host session's existence:
-  `collectDeadServicesSessions`, `prune.MacosUserJailStarts`, `runtime.MacosUserSessions` and
-  `yolo prune`'s guest pack-tree sweep; none may start acting on a doorway-less host session as
-  a jail.
-- **Gates:** `go test -short ./internal/runtime/ ./internal/cli/run/`; `just check-ci`; the
-  integration tests that read host-services sessions (`rg -l HostServices integration/`).
+**Built** as the session alone; the record's new fields moved to 11b, which defines them once
+for both records ([SUP-D23](#SUP-D23)).
+
+- **Tests:** `internal/cli/hostsession_test.go`
+  `TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec`: at the exec of a `yolo host -- claude`
+  that opens no doorway, exactly one session exists, its record names `host` and the workspace, a
+  listing reads it live, and its lock descriptor is not close-on-exec; when the launch returns
+  instead, the dir is gone. `macosusersessions_test.go` `TestOnlyTheSpawnOpensAServicesSession`
+  now admits `OpenHostSession` as the second creator and requires `HostSession.End` to release
+  the lock.
+- **Change:** `internal/cli/run/servicessession.go`: `OpenHostSession`, `HostSession.End`,
+  `HostSession.KeepAcrossExec` ([SUP-D29](#SUP-D29)). `internal/cli/host.go` `hostLaunch`: a
+  launch with no doorway plans opens the session before its services and ends it on return; the
+  exec path hands the lock to the program beside the menu's and the session homes' leases.
+  `run.HostDoorways.Start` still opens the doorway launch's session; `run.go` is untouched.
+- **Readers of a host session,** read before relying on it: `runtime.MacosUserSessions` (so
+  `yolo ps` on macos-user, `prune.MacosUserJailStarts` and prune's guest pack-tree pass) leaves
+  `notch: host` out; `prune.SessionStagingNames` and `prune.LiveSessionKeys` now keep a
+  doorway-less `yolo host` launch's workspace names while it runs, the safe direction;
+  `collectDeadServicesSessions` collects its dir once the program has exited.
 - **Commit:** `feat(host): every yolo host launch holds a session record`
 
 #### 11d — `yolo ps` is one list ([SU-D9](named-setups.md#SU-D9), [SU-D13](named-setups.md#SU-D13))
