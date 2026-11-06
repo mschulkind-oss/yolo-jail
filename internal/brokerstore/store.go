@@ -1134,7 +1134,25 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			} else {
 				q.Answer, q.Until = AnswerFor, expires
 			}
-			return s.write("requests", q.ID, q)
+			if err := s.write("requests", q.ID, q); err != nil {
+				return err
+			}
+			// The request record above is the answer's commit. A running host broker may be
+			// older than this yolo and read coverage from working/ records alone; without a
+			// record there, it sees the request allowed and nothing covering its command. So
+			// each entry the answer committed is also written as its own record, one revision
+			// BELOW the committed one: a current reader still takes the committed copy
+			// (overlayCommittedWorking) and still retains the request that holds it, exactly
+			// as before, while an older broker reads the same entry from working/.
+			for _, e := range q.workingEntries {
+				e.Revision--
+				if err := s.write("working", e.ID, e); err != nil {
+					return fmt.Errorf("request %s is allowed, but its entry %s could not be written for a running "+
+						"broker older than this yolo (%w); a current broker honors it: relaunch the jail if its "+
+						"command still asks", q.ID, e.ID, err)
+				}
+			}
+			return nil
 		}
 		return refusal(ErrUnknownID, "request %q not found", id)
 	})
