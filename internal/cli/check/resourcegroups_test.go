@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -224,6 +225,18 @@ func TestCheckResourceGroupsFiniteAssignedPlan(t *testing.T) {
 		t.Fatalf("selected unsupported Check() = %d, want 1", rc)
 	}
 	got := out.String()
+	if runtime.GOOS != "linux" {
+		// The cgroup-v2 observation is Linux's alone: elsewhere the check says so and asks no
+		// service manager, rather than reading the fixture's mount table (CI run 42284867904).
+		want := "read-only cgroup-v2 policy observation is unsupported on " + runtime.GOOS
+		if !strings.Contains(got, want) || !strings.Contains(got, "placement unsupported/unknown") {
+			t.Errorf("on %s the resource-group check does not say %q:\n%s", runtime.GOOS, want, got)
+		}
+		if len(queried) != 0 {
+			t.Errorf("on %s the check queried the service manager: %v", runtime.GOOS, queried)
+		}
+		return
+	}
 	for _, want := range []string{"rbps: finite assigned 101 agent=5 batch=96", "wbps: finite assigned 20 agent=1 batch=19", "placement unsupported/unknown"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("production resource-group check missing %q:\n%s", want, got)
