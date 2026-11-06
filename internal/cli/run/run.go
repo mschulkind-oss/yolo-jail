@@ -1846,6 +1846,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// shared staging tree a jail launched before per-launch pack trees bound can go, once the
 	// runtime answers that no container of the name exists (packtree.go).
 	o.retireLegacyPackStaging(cname, rt)
+	// The same known-gone evidence retires the prepared-HTTP ownership record an earlier launch of
+	// this container left when it ended uncleanly, which would otherwise refuse this launch's HTTP
+	// front (privatehttpownership.go).
+	o.retireStalePreparedHTTPOwnership(cname, rt)
 
 	// Settings checks are pure launch preflight. Run them after the attach decision, but before
 	// auto-capture, fork builds, image work or any shared service publication. The exact frozen

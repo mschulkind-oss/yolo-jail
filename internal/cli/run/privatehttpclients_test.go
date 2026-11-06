@@ -312,6 +312,198 @@ prefix = "Bearer "
 			t.Fatalf("producer failure left unpublished identity temp %q", entry.Name())
 		}
 	}
+
+	ownerPath := preparedHTTPOwnershipPath(cname)
+	preparedPath := filepath.Join(private, "replicas", cname+".json.prepared")
+	succeed := map[string]LaunchInputProducer{"call-broker-scope": selectedProducer}
+	knownGone := func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if isExistingProbe(argv, cname) {
+			return ExecResult{Ran: true, RC: 0}
+		}
+		return ExecResult{Ran: false}
+	}
+	couldNotAsk := func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+	// Each successful publication binds the scope it was given once; a later one needs a new scope.
+	rescope := func() { producer.writeScopeFiles(cname, []*loopholes.Loophole{selected}) }
+	referenced := func() (preparedHTTPOwnershipRecord, bool) {
+		rec, _, present, err := readPreparedHTTPOwnership(cname)
+		return rec, err == nil && present && len(rec.Generations) == 1 && rec.Generations[0].Path == preparedPath
+	}
+
+	// The keeper dispatch above ended its jail, and its teardown retired cname's record: publish
+	// this launch's generation again before the reuse below.
+	producer.Exec = couldNotAsk
+	output.Reset()
+	producer.Stderr = &output
+	producer.launchInputMountArgv = argv
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("the selected producer refused a republication:\n%s", output.String())
+	}
+	if _, ok := referenced(); !ok {
+		t.Fatal("a republished generation is not referenced by its ownership record")
+	}
+
+	// m1: a later failure of a launch that REUSED its published generation keeps the reference;
+	// the generation is still the running launch's.
+	producer.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": {StateDir: selectedProducer.StateDir,
+		Produce: func(LaunchInputContext) ([]byte, error) { return nil, errors.New("synthetic producer error") }}}
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a failing producer published a launch input")
+	}
+	if _, ok := referenced(); !ok {
+		t.Fatal("a failed launch that reused its prepared generation dropped that generation's ownership reference")
+	}
+	if _, err := os.Lstat(preparedPath); err != nil {
+		t.Fatalf("a failed reuse removed the referenced prepared generation: %v", err)
+	}
+	producer.launchInputProducers = succeed
+
+	// M1: an earlier launch's record (an unclean end) refuses while that launch's container is not
+	// known gone, naming the file and the next step; the fresh path's known-gone retirement clears it.
+	removePreparedHTTPOwnership(cname)
+	if _, err := writePreparedHTTPOwnership(preparedHTTPOwnershipRecord{Version: preparedHTTPOwnershipVersion, Container: cname,
+		Runtime: "podman", Setup: "podman-self", PackTree: "/host/earlier-launch-tree", Generations: []preparedHTTPGenerationRef{}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a launch adopted an earlier launch's prepared-HTTP ownership record")
+	}
+	if got := output.String(); !strings.Contains(got, ownerPath) || !strings.Contains(got, "ps -a --filter name="+cname) {
+		t.Fatalf("the stale-record refusal does not name the record and the next step:\n%s", got)
+	}
+	producer.Exec = couldNotAsk
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	if _, err := os.Lstat(ownerPath); err != nil {
+		t.Fatalf("a launch that could not ask the runtime retired the earlier record: %v", err)
+	}
+	producer.Exec = knownGone
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	if _, err := os.Lstat(ownerPath); !os.IsNotExist(err) {
+		t.Fatalf("a known-gone container's earlier record survived: %v", err)
+	}
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a launch after the earlier record's retirement refused:\n%s", output.String())
+	}
+
+	// M2: the generation is referenced BEFORE it is published, so the state a kill just before
+	// publication leaves is one the next launch reclaims.
+	removePreparedHTTPOwnership(cname)
+	var crashRecord, crashTemp []byte
+	var crashTempLeaf string
+	publishPreparedHTTP = func(replicas *os.Root, owner *preparedHTTPGenerationOwner) error {
+		rec, ok := referenced()
+		if !ok || rec.Generations[0].Generation != owner.generation {
+			t.Errorf("the generation was about to be published with no ownership reference: %+v", rec)
+		}
+		if _, err := os.Lstat(preparedPath); !os.IsNotExist(err) {
+			t.Errorf("the prepared generation was at its final path before publication: %v", err)
+		}
+		var err error
+		if crashRecord, err = os.ReadFile(ownerPath); err != nil {
+			t.Error(err)
+		}
+		crashTempLeaf = owner.temp
+		if crashTemp, err = os.ReadFile(filepath.Join(private, "replicas", owner.temp)); err != nil {
+			t.Error(err)
+		}
+		return errors.New("synthetic kill before publication")
+	}
+	t.Cleanup(func() { publishPreparedHTTP = publishPreparedHTTPGeneration })
+	rescope()
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a failed publication published a launch input")
+	}
+	publishPreparedHTTP = publishPreparedHTTPGeneration
+	if _, err := os.Lstat(ownerPath); !os.IsNotExist(err) {
+		t.Fatalf("a failed publication left the ownership record it created: %v", err)
+	}
+	if crashTempLeaf == "" || len(crashRecord) == 0 || len(crashTemp) == 0 {
+		t.Fatal("the publication seam never ran")
+	}
+	if err := os.WriteFile(ownerPath, crashRecord, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(private, "replicas", crashTempLeaf), crashTemp, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	if _, err := os.Lstat(ownerPath); !os.IsNotExist(err) {
+		t.Fatalf("the killed launch's record survived a known-gone retirement: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(private, "replicas", crashTempLeaf)); !os.IsNotExist(err) {
+		t.Fatalf("the killed launch's unpublished generation survived a known-gone retirement: %v", err)
+	}
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a launch after a killed publication refused:\n%s", output.String())
+	}
+
+	// M2: a published generation an earlier launch left that no record names (staged from another
+	// pack tree) is reclaimed under the launch-input lock, not mistaken for a pack defect.
+	current, err := os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	earlier, err := callbrokerinput.DecodePreparedHTTPClientGeneration(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	earlier.PackTree = "/host/earlier-launch-tree"
+	removePreparedHTTPOwnership(cname)
+	writePreparedTestFile(t, preparedPath, &earlier)
+	output.Reset()
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("an unreferenced earlier-launch generation refused the launch:\n%s", output.String())
+	}
+	if data, err := os.ReadFile(preparedPath); err != nil {
+		t.Fatal(err)
+	} else if now, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data); err != nil || now.PackTree != packTree {
+		t.Fatalf("the earlier launch's generation was not replaced by this launch's: %+v %v", now, err)
+	}
+	if _, ok := referenced(); !ok {
+		t.Fatal("the replacement generation is not referenced by this launch's record")
+	}
+}
+
+// TestRetireStalePreparedHTTPOwnershipNeedsAKnownGoneContainer: an earlier launch's ownership
+// record, and the prepared generation it names, go only when the runtime ANSWERS that no
+// container of the name exists; "could not ask" and "still there" keep both.
+func TestRetireStalePreparedHTTPOwnershipNeedsAKnownGoneContainer(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
+	for _, c := range []struct {
+		name   string
+		answer ExecResult
+		gone   bool
+	}{
+		{"no container of the name", ExecResult{Ran: true, RC: 0}, true},
+		{"the probe did not run", ExecResult{Ran: false}, false},
+		{"the probe failed", ExecResult{Ran: true, RC: 125}, false},
+		{"a container is there", ExecResult{Ran: true, RC: 0, Stdout: "abcd1234\n"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := attachedPrivateHTTPFixture(t, true, true)
+			f.o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				if isExistingProbe(argv, cname) {
+					return c.answer
+				}
+				return ExecResult{Ran: false}
+			}
+			f.o.retireStalePreparedHTTPOwnership(cname, "podman")
+			for _, path := range []string{preparedHTTPOwnershipPath(cname), f.preparedPath} {
+				_, err := os.Lstat(path)
+				if c.gone && !os.IsNotExist(err) {
+					t.Errorf("%s survived %q (%v)", path, c.name, err)
+				}
+				if !c.gone && err != nil {
+					t.Errorf("%s went on %q: %v", path, c.name, err)
+				}
+			}
+		})
+	}
 }
 
 func TestSelectedPrivateProgramPacksUsesRecordedForkProjection(t *testing.T) {
@@ -526,7 +718,7 @@ func TestAttachUsesAffirmativeEmptyOwnerWithoutScopeOrInput(t *testing.T) {
 	f.o.launchInputMountArgv = assembledPrivateFixtureMounts(t, f.o.Workspace, cname)
 	f.o.preparedHTTPOwnershipFile = preparedHTTPOwnershipPath(cname)
 	writeCurrentKeeperRecord(t, cname, keeperRecord{Workspace: f.o.Workspace, Runtime: "podman", PackTree: f.tree, MCPTeardownKnown: true})
-	if err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
+	if _, err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
 		t.Fatalf("cannot create the frozen empty HTTP owner: %v", err)
 	}
 	_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
@@ -791,7 +983,7 @@ prefix = "Bearer "
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
+			if _, err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -817,7 +1009,7 @@ prefix = "Bearer "
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
+			if _, err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
 				t.Fatal(err)
 			}
 			if err := writeLivePackTree(cname, root); err != nil {
@@ -889,7 +1081,7 @@ func TestForgetGoneRemovesPersistentPreparedHTTPOwnershipOnlyAfterKnownAbsence(t
 	if _, err := os.Lstat(f.preparedPath); !os.IsNotExist(err) {
 		t.Fatalf("known-absent container retained its prepared generation: %v", err)
 	}
-	if err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
+	if _, err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
 		t.Fatalf("cannot establish an empty owner for cleanup control: %v", err)
 	}
 	f.o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }

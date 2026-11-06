@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -121,7 +122,7 @@ func (o *Options) prepareHTTPClientGeneration(lp *loopholes.Loophole, frozen Lau
 	if err != nil {
 		return "", owner, false, err
 	}
-	temp := ".prepared-http-client-" + prepared.Generation
+	temp := preparedHTTPTempLeaf(prepared.Generation)
 	file, err := replicas.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return "", owner, false, err
@@ -147,6 +148,49 @@ func (o *Options) prepareHTTPClientGeneration(lp *loopholes.Loophole, frozen Lau
 	owner.generation = prepared.Generation
 	return prepared.Generation, owner, true, nil
 }
+
+// preparedHTTPTempLeaf is the unpublished name of a prepared generation, in its replicas directory.
+func preparedHTTPTempLeaf(generation string) string { return ".prepared-http-client-" + generation }
+
+// sweepDeadLaunchPreparedHTTP removes the prepared generations of cname that an earlier launch
+// left in replicas when it was killed mid-publication: an unpublished temp, from any launch, and
+// a published file staged from a pack tree other than tree, this launch's own. The caller holds
+// the replicas directory's exclusive .launch-input.lock, under which alone such files are written,
+// and has just ensured that the ownership record is this launch's, so an earlier launch's record
+// no longer names them; the workspace lock keeps a second launch of cname out. Bytes that do not
+// decode as cname's prepared generation are left alone.
+func sweepDeadLaunchPreparedHTTP(replicas *os.Root, cname, tree string) {
+	dir, err := replicas.Open(".")
+	if err != nil {
+		return
+	}
+	names, err := dir.Readdirnames(-1)
+	_ = dir.Close()
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		generation, temp := strings.CutPrefix(name, preparedHTTPTempLeaf(""))
+		if temp && !validPreparedHTTPGeneration(generation) || !temp && name != cname+".json.prepared" {
+			continue
+		}
+		data, opened, err := readPrivateHTTPFile(replicas, name)
+		if err != nil {
+			continue
+		}
+		prepared, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data)
+		if err != nil || prepared.Container != cname || temp && prepared.Generation != generation || !temp && prepared.PackTree == tree {
+			continue
+		}
+		if current, err := replicas.Lstat(name); err == nil && os.SameFile(opened, current) {
+			_ = replicas.Remove(name)
+		}
+	}
+}
+
+// publishPreparedHTTP is publishPreparedHTTPGeneration, a seam so a test can observe the state a
+// kill just before publication would leave.
+var publishPreparedHTTP = publishPreparedHTTPGeneration
 
 func publishPreparedHTTPGeneration(replicas *os.Root, owner *preparedHTTPGenerationOwner) error {
 	if owner == nil || owner.temp == "" {

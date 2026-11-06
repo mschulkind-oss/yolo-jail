@@ -114,6 +114,15 @@ func (o *Options) probeRunningContainer(cname, rt string, timeout time.Duration)
 	return strings.TrimSpace(res.Stdout), true
 }
 
+// existingContainerListCommand is the command that lists every container of cname on rt, running
+// or stopped: the one a user runs to see whether a container the launch could not ask about exists.
+func existingContainerListCommand(rt, cname string) string {
+	if rt == "container" { // parity: HonoredBy — Apple's CLI lists stopped containers too with `container ls --all`
+		return "`container ls --all`"
+	}
+	return "`" + rt + " ps -a --filter name=" + cname + "`"
+}
+
 // runningListCommand is the command that lists rt's running containers, the question the
 // attach decision asks: the one a user runs to see why it could not be asked.
 func runningListCommand(rt string) string {

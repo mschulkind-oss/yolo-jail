@@ -293,7 +293,7 @@ func TestRetireLegacyPackStagingNeedsAKnownGoneContainer(t *testing.T) {
 // attachExisting, and a refresh above the attach decision is the re-stage the ruling removed.
 func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
-	var lastAttach, record, held, retire, refresh, start, lockPos token.Pos
+	var lastAttach, record, held, retire, retireHTTP, refresh, start, lockPos token.Pos
 	refreshes := 0
 	ast.Inspect(fd, func(n ast.Node) bool {
 		switch st := n.(type) {
@@ -307,6 +307,8 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 				record = st.Pos()
 			case "retireLegacyPackStaging":
 				retire = st.Pos()
+			case "retireStalePreparedHTTPOwnership":
+				retireHTTP = st.Pos()
 			case "refreshJailBriefings":
 				refresh = st.Pos()
 				refreshes++
@@ -329,7 +331,7 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 	})
 	for name, pos := range map[string]token.Pos{"attachExisting": lastAttach, "writeLivePackTree": record,
 		"packTreeHeld = true": held, "retireLegacyPackStaging": retire, "refreshJailBriefings": refresh,
-		"startKeeper": start, "holdLaunchLock": lockPos} {
+		"startKeeper": start, "holdLaunchLock": lockPos, "retireStalePreparedHTTPOwnership": retireHTTP} {
 		if pos == token.NoPos {
 			t.Fatalf("runContainer no longer has %s; re-anchor this pin, do not delete it", name)
 		}
@@ -341,7 +343,7 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 		t.Error("the launch lock is taken after an attach decision")
 	}
 	for name, pos := range map[string]token.Pos{"writeLivePackTree": record, "packTreeHeld = true": held,
-		"retireLegacyPackStaging": retire, "refreshJailBriefings": refresh} {
+		"retireLegacyPackStaging": retire, "refreshJailBriefings": refresh, "retireStalePreparedHTTPOwnership": retireHTTP} {
 		if !(lastAttach < pos) {
 			t.Errorf("%s runs before runContainer's last attach decision, so a launch that ends up "+
 				"attaching runs it too", name)
@@ -349,6 +351,9 @@ func TestTheFreshPathHandsItsPackTreeToTheContainer(t *testing.T) {
 	}
 	if !(record < start && held < start) {
 		t.Error("the container starts before this launch's pack tree is recorded and marked held")
+	}
+	if !(retireHTTP < start) {
+		t.Error("an earlier launch's prepared-HTTP ownership record is retired after the keeper starts, so its host services refuse it")
 	}
 	if !(retire < refresh) {
 		t.Error("the shared tree is retired after the refresh; retire it first, with the other fresh-path housekeeping")

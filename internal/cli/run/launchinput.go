@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // LaunchInputContext contains gate-approved in-memory values; it exposes no config path to reload.
@@ -372,50 +373,70 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	leaf := cname + ".json"
 	var preparedOwner preparedHTTPGenerationOwner
 	preparedCreated, preparedCommitted := false, false
-	preparedOwnershipEnsured, preparedOwnerRecorded, preparedExpected := false, false, false
+	ownershipCreated, preparedOwnerRecorded := false, false
+	setupName := o.Setup.Name
+	if setupName == "" {
+		setupName = o.SetupName
+	}
+	// ROLLBACK, in the reverse of the order below: the reference this launch added, then the
+	// generation file it created (at its temp name or its final one, by inode), then the empty
+	// ownership record it created. A reused generation (created=false, already referenced) and a
+	// record an earlier service of this launch wrote are not this call's to remove.
 	defer func() {
 		if preparedCommitted {
 			return
 		}
 		if preparedOwnerRecorded {
 			removePreparedHTTPGenerationOwnership(preparedOwner, preparedCreated)
-		} else if preparedCreated {
+		}
+		if preparedCreated {
 			removePreparedHTTPGenerationFile(preparedOwner)
 		}
-		if preparedOwnershipEnsured && preparedExpected && !preparedOwnerRecorded {
-			setupName := o.Setup.Name
-			if setupName == "" {
-				setupName = o.SetupName
-			}
+		if ownershipCreated {
 			removeEmptyPreparedHTTPOwnership(cname, o.runtime, setupName, o.packTree)
 		}
 	}()
+	// OWNERSHIP FIRST: the record exists before any prepared generation does, and names a
+	// generation before it is published at its final path, so a kill at any point leaves nothing
+	// published that no record names (retireStalePreparedHTTPOwnership reclaims what it does name).
+	if deferPreparedHTTPProducer {
+		created, err := o.ensurePreparedHTTPOwnership(cname)
+		if err != nil {
+			var stale *stalePreparedHTTPOwnershipError
+			if errors.As(err, &stale) {
+				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' found the prepared HTTP ownership record " + richtext.Escape(stale.path) +
+					" left by an earlier launch of " + cname + ", and that launch's container was not confirmed gone; it was not started. " +
+					"Check that no container named " + cname + " exists (" + richtext.Escape(existingContainerListCommand(o.runtime, cname)) + "), remove one with " +
+					richtext.Escape(containerRemoveCommand(o.runtime, cname)) + " if it does, then launch again: a launch that sees the container gone retires the record.[/red]")
+			} else {
+				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot establish its prepared HTTP ownership record " +
+					richtext.Escape(preparedHTTPOwnershipPath(cname)) + ": " + richtext.Escape(err.Error()) + "; it was not started. Repair or remove that file and retry.[/red]")
+			}
+			return false
+		}
+		ownershipCreated = created
+		sweepDeadLaunchPreparedHTTP(replicas, cname, o.packTree)
+	}
 	if frozen.CallBroker != nil {
 		reference, owner, created, prepareErr := o.prepareHTTPClientGeneration(lp, frozen, frozen.CallBroker, replicas, stateDir, leaf)
 		if prepareErr != nil {
-			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not stage its selected private HTTP identity; it was not started. Repair the selected pack declaration and retry.[/red]")
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not stage its selected private HTTP identity: " + richtext.Escape(prepareErr.Error()) + "; it was not started. Repair the selected pack declaration and retry.[/red]")
 			return false
 		}
 		preparedOwner, preparedCreated = owner, created
-		preparedExpected = owner.file != nil || owner.temp != ""
 		frozen.CallBroker.HTTPFrontGeneration = reference
 	}
-	if deferPreparedHTTPProducer {
-		if err := o.ensurePreparedHTTPOwnership(cname); err != nil {
-			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot establish its prepared HTTP ownership before input production; it was not started. Repair the host state directory and retry.[/red]")
+	if deferPreparedHTTPProducer && preparedOwner.file != nil {
+		added, err := o.recordPreparedHTTPGeneration(preparedOwner)
+		if err != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not retain its prepared HTTP ownership in " +
+				richtext.Escape(preparedHTTPOwnershipPath(cname)) + " before input production; it was not started. Repair the host state directory and retry.[/red]")
 			return false
 		}
-		preparedOwnershipEnsured = true
-		if err := publishPreparedHTTPGeneration(replicas, &preparedOwner); err != nil {
+		preparedOwnerRecorded = added
+		if err := publishPreparedHTTP(replicas, &preparedOwner); err != nil {
 			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not publish its prepared HTTP identity; it was not started. Repair private host state and retry.[/red]")
 			return false
-		}
-		if preparedOwner.file != nil {
-			if err := o.recordPreparedHTTPGeneration(preparedOwner); err != nil {
-				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not retain its prepared HTTP ownership before input production; it was not started. Repair the host state directory and retry.[/red]")
-				return false
-			}
-			preparedOwnerRecorded = true
 		}
 	}
 	if deferPreparedHTTPProducer {
