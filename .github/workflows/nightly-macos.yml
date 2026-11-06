@@ -9,6 +9,17 @@ on:
 permissions:
   contents: read
 
+# ONE SCHEDULED macOS WORKFLOW AT A TIME, so scheduled work never holds more than two of the
+# account's five hosted macOS runners and every push's three check-macos jobs find theirs free
+# (the comment above `integration-macos`'s strategy has the measurement).
+# macos-user.yml and tap-install.yml's weekly run share this group; macos-user.yml starts when
+# this workflow finishes rather than on a cron of its own, so the group never holds more than
+# one waiting run and GitHub never cancels a waiting run to queue a newer one.
+# tools/release-gate/macosbudget_test.go pins the group and the budget.
+concurrency:
+  group: scheduled-macos
+  cancel-in-progress: false
+
 # Opt every JavaScript action into Node.js 24 ahead of GitHub's
 # 2026-06-02 default switch.  See ci.yml for full rationale.
 env:
@@ -353,10 +364,34 @@ jobs:
     # fourteen, against the 60-minute step cap; the round-robin cut it replaced reached 41-70
     # in the same replay. Like the doubling to eight, this divides the work rather than
     # raising the cap, which stays a bound on hangs.
+    #
+    # EIGHTEEN SINCE 2026-11-06, because fourteen did not hold: across the five runs from
+    # 41524784268 to 42041252889 the busiest test step ran 48-60 minutes, and shards hit the
+    # 60-minute cap on 41710801947 and 42041252889. The same leave-one-out replay over those
+    # five runs' shard logs (each run partitioned by the other four's medians) puts the
+    # busiest shard at 46-56 minutes of tests at fourteen and 33-40 at eighteen. More shards
+    # buy nothing: from about eighteen on, the busiest shard is
+    # TestPackRendersConfigAndLauncher alone (median 31 minutes, 40 at its slowest), which no
+    # shard count can split, and every extra shard pays its setup again (Install Podman
+    # plus Load jail image, about 20 minutes).
+    #
+    # TWO AT A TIME (`max-parallel`), and that is not about this job's own speed. This
+    # account gets FIVE hosted macOS runners at once, Intel and Apple silicon together:
+    # measured, no run of this workflow and macos-user.yml together ever had more than five
+    # macOS jobs running while more sat queued. ci.yml's check-macos needs three of them for
+    # every push, and the release gate (tools/release-gate) waits on exactly those. Queued
+    # jobs took runners roughly in the order they were queued, so before this cap the
+    # fifteen jobs then here plus macos-user.yml's ten sat in front of every later push's
+    # check-macos for hours (2026-11-06: push run 42244051090 waited over an hour behind
+    # run 42228358413, and a release request timed out on it). The scheduled macOS workflows share the
+    # `scheduled-macos` concurrency group above, so they run one at a time, and each holds
+    # at most two macOS runners — five minus check-macos's three.
+    # tools/release-gate/macosbudget_test.go recomputes that sum from these files.
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     # A CAP, so a wedged shard fails with its log instead of losing the runner.
     # The suite itself still runs with `-timeout 0` — its own per-command
     # deadlines (YOLO_TEST_JAIL_TIMEOUT) are the inner bound; this is the outer
@@ -903,7 +938,7 @@ jobs:
         if: always()
         run: sudo tail -n 200 /var/log/nix-daemon.log || true
 
-  # THE DELTA ARCHIVE, DELIVERED FOR REAL ON A PODMAN MACHINE — one job, not a fifteenth shard.
+  # THE DELTA ARCHIVE, DELIVERED FOR REAL ON A PODMAN MACHINE — one job, not another shard.
   #
   # Since 52b29e87 a podman-on-macOS launch hands the VM an oci-archive that leaves out the
   # layers the machine already holds (internal/image deliverViaArchive, deltaarchive.go). The
@@ -934,9 +969,15 @@ jobs:
   # NO CACHIX, NO RUN. This runner cannot build x86_64-linux, so without `build-image`'s push
   # every step would fail on a missing derivation rather than say anything about delivery. A
   # fork without CACHIX_AUTH_TOKEN skips every step after the check, and says so.
+  #
+  # AFTER THE SHARDS, NOT BESIDE THEM: the shards already hold this workflow's two macOS
+  # runners (see `max-parallel` above), and a third here would take one a push's check-macos
+  # needs. `!cancelled()` runs it whatever the shards concluded, so a red shard still never
+  # hides the delivery result; it needs build-image to have succeeded, as before.
   archive-delivery-macos:
     runs-on: macos-26-intel
-    needs: build-image
+    needs: [build-image, integration-macos]
+    if: ${{ !cancelled() && needs.build-image.result == 'success' }}
     # The outer bound only; each expensive step carries its own. 35 (machine) + 90 (the two
     # deliveries) + 190 (OQ-LR2: the two loads plus the in-VM copy) plus checkout, Nix and Go,
     # about 4 minutes at the slowest measured. Inside the 6 hours GitHub allows a hosted job.

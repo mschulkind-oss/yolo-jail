@@ -25,11 +25,24 @@ name: macos-user backend
 # being fixed.
 
 on:
-  # Nightly, an hour after `nightly-macos.yml`, so the two runs are adjacent in the
-  # log without contending for macOS runners at the same minute.
-  schedule:
-    - cron: "0 7 * * *"
+  # Nightly, WHEN `nightly-macos.yml` FINISHES, whatever it concluded — not on a cron of its
+  # own. The two share the `scheduled-macos` concurrency group below, which keeps scheduled
+  # macOS work to two of the account's five macOS runners so a push's three check-macos jobs
+  # always find theirs (nightly-macos.yml's comment above `integration-macos`'s strategy has
+  # the measurement). A cron of its own would queue this run behind the nightly in that group,
+  # where a third waiting run (tap-install.yml's weekly one) would make GitHub cancel it.
+  # Chained, nothing of this workflow is waiting while the nightly runs. The jobs below run
+  # for the nightly's FIRST attempt only, so rerun-unacquired.yml re-running a nightly job no
+  # runner took does not start this workflow a second time.
+  workflow_run:
+    workflows: ["Nightly macOS Integration"]
+    types: [completed]
   workflow_dispatch:
+
+# See nightly-macos.yml's `concurrency` for why every scheduled macOS workflow shares this.
+concurrency:
+  group: scheduled-macos
+  cancel-in-progress: false
 
 # DELIBERATELY NOT ON push/pull_request, and this is a cost decision rather than a
 # policy one: nobody has measured what a first macos-user launch costs.
@@ -65,6 +78,8 @@ jobs:
     # facts step below records which OS a given run actually measured.
     runs-on: macos-latest
     name: macos-user (native darwin, no image)
+    # The nightly's first attempt only; the `on:` comment says why.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.run_attempt == 1
     # A CEILING ON WASTE, not an estimate — the same stance as the suite's per-launch
     # deadline. Sized so that ONE launch hitting its 30-minute deadline still leaves room
     # for the remaining tests to report their own diagnoses, because a cap that fires
@@ -598,8 +613,13 @@ jobs:
   # cost one at the top of this file, never to put this workflow on push or
   # pull_request without first moving this job out of it.
   install:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.run_attempt == 1
     strategy:
       fail-fast: false
+      # ONE AT A TIME, beside the job above: two macOS runners for the workflow, the
+      # scheduled-macos budget (see `concurrency` at the top). Serial cells also start in
+      # the listed order, which keeps the npm packs first.
+      max-parallel: 1
       matrix:
         # THE `via: npm` PACKS FIRST, as ruled: they are listed, and so queued, ahead
         # of the installer packs, because the npm half is the one never measured on a
