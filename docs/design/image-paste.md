@@ -43,7 +43,7 @@ beats an armed clipboard channel. The rest follows from it.
 
 **Reads with:** [`ctrl-z-and-the-tty-proxy.md`](../reference/ctrl-z-and-the-tty-proxy.md) (the
 proxy this extends), [`loophole-transport.md`](../reference/loophole-transport.md) (the channel this
-deliberately does not use), [`host-run-mailbox.md`](host-run-mailbox.md) (the same
+deliberately does not use), [`host-run-mailbox.md`](../reference/host-run-mailbox.md) (the same
 "host writes into `.yolo/`, jail reads the workspace bind" pattern).
 
 ---
@@ -326,7 +326,7 @@ Step 4 is what makes it usable without retyping a path, and it is said in the co
 ("the clipboard now holds the path; paste it into the agent"). It costs the clipboard's image,
 which is saved in the store. A clipboard with no image refuses with the next step ("copy an image,
 then run `yolo paste` again"). It works on every backend because it needs no proxy, only the
-workspace bind, the same channel [`host-run-mailbox.md`](host-run-mailbox.md) uses. It resolves the
+workspace bind, the same channel [`host-run-mailbox.md`](../reference/host-run-mailbox.md) uses. It resolves the
 workspace the way `yolo config` verbs do, upward from the working directory, and refuses outside
 one with "run it from inside the workspace the jail has open".
 

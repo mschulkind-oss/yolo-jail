@@ -651,7 +651,7 @@ v1 is items 1 to 3 ([OQ-LA1](#decision-ledger)); item 4 is staged on the
    - <a id="LA-S4d"></a>**`network.forward_host_ports` live**: a new socat and in-jail forwarder.
 5. <a id="LA-S5"></a>**Iced: an in-jail agent's apply request**, riding the boundary broker's
    request store and doorbell ([`boundary-broker.md`](boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification);
-   the stopgap is [`host-run-mailbox.md`](host-run-mailbox.md)). It waits for that mechanism to be
+   the stopgap is [`host-run-mailbox.md`](../reference/host-run-mailbox.md)). It waits for that mechanism to be
    ready, by [OQ-LA6](#decision-ledger).
 
 ## 14. Open question
@@ -709,4 +709,4 @@ The `OQ-LA` rows are the maintainer's rulings of 2026-10-18, quoted in the secti
 | <a id="LA-D20"></a>LA-D20 | Every session of a hold-main jail that did not provision compares its mise inputs with the record provisioning (or the last session install) left in `/run/yolo/main/mise-tools`, and on a difference runs `mise install` on its own terminal, under a lock, before its command. A failure is said, names the next step and never ends the session | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
 | <a id="LA-D21"></a>LA-D21 | The `install` and `machine` roots of the effective-config record are planned per child: `install.mise.*` classifies as `mise_tools`, `install.nix` as `packages`, `machine.ports` and `machine.forward` as `network`, so a mise change folds while a package change in the same root waits | 2026-11-06 | [§6](#6-outcomes-and-what-each-party-sees) | ✅ |
 | <a id="LA-D22"></a>LA-D22 | Parity: podman and Apple Container share the mechanism (the channel file and the hold main). macos-user already composes every invocation afresh, so its rows were *next* and its code is unchanged. The host branch is unchanged: `mcp`/`lsp` apply now, `security` and `mise_tools` do not apply | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
-| <a id="OQ-LA7"></a>OQ-LA7 | Open: which config an attach delivers the session inputs from. See [§14](#14-open-question) | — | [§14](#14-open-question) | built as **A** |
+| <a id="OQ-LA7"></a>[OQ-LA7](#OQ-LA7-question) | Open: which config an attach delivers the session inputs from. See [§14](#14-open-question) | — | [§14](#14-open-question) | built as **A** |

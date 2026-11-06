@@ -894,7 +894,7 @@ expensive with every change to `internal/ghbroker`; land it first.
   nested jail without a trust hatch, and none is added.
 - **Tests that will break, and should:** none expected. If one does, it asserted the old
   behavior: rewrite it to the new behavior; never loosen an assertion until it passes.
-- **User docs** (required by roadmap item 30's *"proper evergreen documents and a user guide
+- **User docs** (required by the roadmap's git broker entry, *"proper evergreen documents and a user guide
   section"*): `userguide/guides/git.md` (new: enabling, what fetch and push do, granting
   `create-branch` in both configs, the working set, `yolo approve --revoke`, what is not
   rewritten); `userguide/guides/loopholes.md` (the `git-broker` row);
