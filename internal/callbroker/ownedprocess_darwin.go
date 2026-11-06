@@ -24,7 +24,28 @@ func ownedLeaderExited(pid int) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return rows[0].Proc.P_stat == 5 || rows[0].Proc.P_stat == 6, nil
+	return darwinProcExited(rows[0]), nil
+}
+
+func darwinProcExited(row unix.KinfoProc) bool {
+	return row.Proc.P_stat == 5 || row.Proc.P_stat == 6
+}
+
+// ownedGroupHasNoLiveMemberOS lists process group pgid and reports whether
+// every member has exited. kill(-pgid) answers EPERM on darwin when the group
+// holds only zombies, so this listing is what tells that apart from a live
+// member the signal could not reach.
+func ownedGroupHasNoLiveMemberOS(pgid int) (bool, error) {
+	rows, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if int(row.Eproc.Pgid) == pgid && !darwinProcExited(row) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func ownedLeaderIdentity(pid int) (string, error) {

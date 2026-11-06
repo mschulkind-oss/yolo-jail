@@ -121,7 +121,7 @@ func fixtureHTTPAnswer(present bool, bodySHA, body64 string, mode string) string
 
 func fixtureHTTPClassifier(t *testing.T, script string) Classifier {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "classifier")
+	path := filepath.Join(canonicalTempDir(t), "classifier")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func scriptAnswer(t *testing.T, answer string, inputPath string) string {
 func TestHTTPClassifierBodyBudgetsAndCanonicalDigest(t *testing.T) {
 	body := bytesOf('x', httpBodyLimit)
 	bodySHA := digestHTTPBody(true, body)
-	inputFile := filepath.Join(t.TempDir(), "classifier-input")
+	inputFile := filepath.Join(canonicalTempDir(t), "classifier-input")
 	answer := fixtureHTTPAnswer(true, bodySHA, "", "original")
 	script := "test -z \"$HTTP_CLASSIFIER_MUST_NOT_INHERIT\" || exit 15\n" + scriptAnswer(t, answer, inputFile) + "\ntest \"$(wc -c < " + inputFile + ")\" -gt 4194304"
 	classifier := fixtureHTTPClassifier(t, script)
@@ -175,7 +175,7 @@ func TestHTTPClassifierBodyBudgetsAndCanonicalDigest(t *testing.T) {
 }
 
 func TestHTTPClassifierRejectsBodyOverThreeMiBBeforeStartingClassifier(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
+	marker := filepath.Join(canonicalTempDir(t), "started")
 	classifier := fixtureHTTPClassifier(t, fmt.Sprintf("touch %q\nprintf '%%s' '{}'", marker))
 	_, err := classifier.ClassifyHTTP(context.Background(), fixtureHTTPCall(bytesOf('x', httpBodyLimit+1), true), nil)
 	if err == nil || !strings.Contains(err.Error(), "3 MiB") {
@@ -187,7 +187,7 @@ func TestHTTPClassifierRejectsBodyOverThreeMiBBeforeStartingClassifier(t *testin
 }
 
 func TestHTTPClassifierFiltersUnapprovedAndAuthorityHeaders(t *testing.T) {
-	inputPath := filepath.Join(t.TempDir(), "input")
+	inputPath := filepath.Join(canonicalTempDir(t), "input")
 	body := []byte("payload")
 	answer := fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original")
 	classifier := fixtureHTTPClassifier(t, scriptAnswer(t, answer, inputPath))
@@ -237,7 +237,7 @@ func TestHTTPClassifierValidatesOriginalBodyReferenceAndPresence(t *testing.T) {
 		{"unexpected reference inline bytes", fixtureHTTPCall(body, true), strings.Replace(fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original"), `"sha256"`, `"base64":"eA==","sha256"`, 1), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			classifier := fixtureHTTPClassifier(t, scriptAnswer(t, tc.answer, filepath.Join(t.TempDir(), "input")))
+			classifier := fixtureHTTPClassifier(t, scriptAnswer(t, tc.answer, filepath.Join(canonicalTempDir(t), "input")))
 			_, err := classifier.ClassifyHTTP(context.Background(), tc.call, []string{"Content-Type"})
 			if (err == nil) != tc.accepted {
 				t.Fatalf("accepted=%v err=%v", tc.accepted, err)
@@ -252,7 +252,7 @@ func TestHTTPClassifierValidatesOriginalBodyReferenceAndPresence(t *testing.T) {
 func TestHTTPClassifierAcceptsCompleteInlineRewriteAndRejectsMalformed(t *testing.T) {
 	original := fixtureHTTPCall([]byte("old"), true)
 	good := fixtureHTTPAnswer(true, "", base64.StdEncoding.EncodeToString([]byte("new")), "inline_base64")
-	classifier := fixtureHTTPClassifier(t, scriptAnswer(t, good, filepath.Join(t.TempDir(), "input")))
+	classifier := fixtureHTTPClassifier(t, scriptAnswer(t, good, filepath.Join(canonicalTempDir(t), "input")))
 	result, err := classifier.ClassifyHTTP(context.Background(), original, []string{"Content-Type"})
 	if err != nil || string(result.Canonical.Body) != "new" || !result.Canonical.BodyPresent {
 		t.Fatalf("rewrite=%q present=%v err=%v", result.Canonical.Body, result.Canonical.BodyPresent, err)
@@ -262,7 +262,7 @@ func TestHTTPClassifierAcceptsCompleteInlineRewriteAndRejectsMalformed(t *testin
 		strings.Replace(good, `"base64":"bmV3"`, `"base64":"bmV3","sha256":"`+strings.Repeat("0", 64)+`"`, 1),
 		strings.Replace(good, `"mode":"inline_base64"`, `"mode":"original"`, 1),
 	} {
-		bad := fixtureHTTPClassifier(t, scriptAnswer(t, answer, filepath.Join(t.TempDir(), "input")))
+		bad := fixtureHTTPClassifier(t, scriptAnswer(t, answer, filepath.Join(canonicalTempDir(t), "input")))
 		if _, err := bad.ClassifyHTTP(context.Background(), original, []string{"Content-Type"}); err == nil {
 			t.Fatalf("invalid rewrite accepted: %s", answer)
 		}
@@ -277,7 +277,7 @@ func TestHTTPClassifierStrictAnswerRejectsDuplicateUnknownAndTrailingFields(t *t
 		`{"version":"yolo.call-broker-classifier/1","local":true} {}`,
 	}
 	for _, answer := range cases {
-		classifier := fixtureHTTPClassifier(t, scriptAnswer(t, answer, filepath.Join(t.TempDir(), "input")))
+		classifier := fixtureHTTPClassifier(t, scriptAnswer(t, answer, filepath.Join(canonicalTempDir(t), "input")))
 		if _, err := classifier.ClassifyHTTP(context.Background(), fixtureHTTPCall(nil, false), nil); err == nil {
 			t.Errorf("strict HTTP answer accepted: %s", answer)
 		}
@@ -285,7 +285,7 @@ func TestHTTPClassifierStrictAnswerRejectsDuplicateUnknownAndTrailingFields(t *t
 }
 
 func TestHTTPClassifierRejectsMetadataBudgetsBeforeStartingClassifier(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
+	marker := filepath.Join(canonicalTempDir(t), "started")
 	classifier := fixtureHTTPClassifier(t, fmt.Sprintf("touch %q\nprintf '%%s' '{}'", marker))
 	cases := []struct {
 		name string

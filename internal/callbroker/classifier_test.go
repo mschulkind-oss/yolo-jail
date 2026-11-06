@@ -16,9 +16,21 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
+// canonicalTempDir mints t.TempDir() with its symlinks resolved. A selected
+// classifier's identity path must equal its EvalSymlinks form, and on macOS
+// the temp root is under /var, a link to /private/var.
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func fixtureClassifier(t *testing.T, body string) Classifier {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "classifier")
+	path := filepath.Join(canonicalTempDir(t), "classifier")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +51,7 @@ func fixtureAnswer(stdin []byte, resource string) string {
 }
 
 func TestPackCLIClassifierNeverStartsPreCancelledCall(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
+	marker := filepath.Join(canonicalTempDir(t), "started")
 	classifier := fixtureClassifier(t, fmt.Sprintf("printf started > %q", marker))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -61,8 +73,8 @@ func TestPackCLIClassifierNeverStartsPreCancelledCall(t *testing.T) {
 
 func TestPackCLIClassifierValidatesCanonicalResourceAndDoesNotExecute(t *testing.T) {
 	stdin := []byte("request input")
-	calls := filepath.Join(t.TempDir(), "calls")
-	inputFile := filepath.Join(t.TempDir(), "classifier-input")
+	calls := filepath.Join(canonicalTempDir(t), "calls")
+	inputFile := filepath.Join(canonicalTempDir(t), "classifier-input")
 	body := fmt.Sprintf("test -z \"$TOKEN_SHOULD_NOT_REACH_CLASSIFIER\" || exit 9\ncat > %q\nprintf '%%s' '%s'\n", inputFile, fixtureAnswer(stdin, "team:alpha"))
 	classifier := fixtureClassifier(t, body)
 	t.Setenv("TOKEN_SHOULD_NOT_REACH_CLASSIFIER", "secret")
@@ -95,7 +107,7 @@ func TestPackCLIClassifierValidatesCanonicalResourceAndDoesNotExecute(t *testing
 }
 
 func TestPackCLIClassifierInputRemainsBoundedTo64KiB(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
+	marker := filepath.Join(canonicalTempDir(t), "started")
 	classifier := fixtureClassifier(t, fmt.Sprintf("touch %q; printf '%%s' '{}'", marker))
 	_, err := classifier.ClassifyCLI(context.Background(), []string{strings.Repeat("x", classifierLimit)}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "input exceeds 64 KiB") {
@@ -173,7 +185,7 @@ func TestPackCLIClassifierLookupRoundsAreBoundedAndFactsStayUncredentialed(t *te
 }
 
 func TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "survived")
+	marker := filepath.Join(canonicalTempDir(t), "survived")
 	body := fmt.Sprintf("(sleep 0.4; printf alive > %q) &\nprintf '%%s' '%s'", marker,
 		`{"version":"yolo.call-broker-classifier/1","local":true}`)
 	classifier := fixtureClassifier(t, body)

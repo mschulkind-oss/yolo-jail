@@ -16,8 +16,8 @@ import (
 )
 
 func TestCanonicalCLIExecutorNeverStartsPreCancelledCall(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
-	binary := filepath.Join(t.TempDir(), "fixture")
+	marker := filepath.Join(canonicalTempDir(t), "started")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	if err := os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf started > %q\n", marker)), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestCanonicalCLIExecutorNeverStartsPreCancelledCall(t *testing.T) {
 }
 
 func TestCanonicalCLIExecutorPinsHostProgramAndRedactsResponse(t *testing.T) {
-	dir := t.TempDir()
+	dir := canonicalTempDir(t)
 	log := filepath.Join(dir, "calls")
 	stdinLog := filepath.Join(dir, "stdin")
 	binary := filepath.Join(dir, "fixture")
@@ -93,7 +93,7 @@ printf 'err:%%s' "$HOST_TOKEN" >&2
 }
 
 func TestCanonicalCLIExecutorRedactsAndBoundsCompletedExitError(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "fixture")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf 'out:%s' \"$HOST_TOKEN\"\nprintf 'err:%s' \"$HOST_TOKEN\" >&2\nexit 7\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestCanonicalCLIExecutorRedactsAndBoundsCompletedExitError(t *testing.T) {
 }
 
 func TestCanonicalCLIExecutorBoundsResponse(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "fixture")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nhead -c 33554433 /dev/zero | tr '\\000' x\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestCanonicalCLIExecutorBoundsResponse(t *testing.T) {
 }
 
 func TestCanonicalCLIExecutorBoundsRedactedResponseWithoutReturningPartialSecrets(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "fixture")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	// Exactly 32 MiB pre-redaction. The one-byte declared synthetic value would
 	// expand the result beyond the cap; no prefix may be returned to the caller.
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nhead -c 33554432 /dev/zero | tr '\\000' x\n"), 0o700); err != nil {
@@ -168,8 +168,8 @@ func TestCanonicalCLIExecutorBoundsRedactedResponseWithoutReturningPartialSecret
 }
 
 func TestCanonicalCLIExecutorStopsOwnedDescendantAfterSuccessfulWrapperExit(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "survived")
-	binary := filepath.Join(t.TempDir(), "fixture")
+	marker := filepath.Join(canonicalTempDir(t), "survived")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	body := fmt.Sprintf("#!/bin/sh\n(sleep 0.4; printf alive > %q) &\nprintf ok\n", marker)
 	if err := os.WriteFile(binary, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestCanonicalCLIExecutorCancelsLiveLeaderAfterClosingOutput(t *testing.T) {
 	alive := fixtureFIFO(t, "alive")
 	descendantGone := awaitFIFO(alive)
 	descendantLive := awaitFIFO(ready)
-	binary := filepath.Join(t.TempDir(), "fixture")
+	binary := filepath.Join(canonicalTempDir(t), "fixture")
 	body := fmt.Sprintf("#!/bin/sh\nexec 1>&- 2>&-\n(exec 3>%q; printf live > %q; read x < %q) &\nread x < %q\n",
 		alive, ready, hold, hold)
 	if err := os.WriteFile(binary, []byte(body), 0o700); err != nil {
@@ -253,7 +253,7 @@ const testEventGuard = time.Minute
 // cleanup (releaseFIFO), so a fixture or a reader still blocked on it ends.
 func fixtureFIFO(t *testing.T, name string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	path := filepath.Join(canonicalTempDir(t), name)
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
