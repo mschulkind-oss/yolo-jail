@@ -48,6 +48,7 @@ func attachExecArgv(t *testing.T, invocation map[string]string, frozenEnv string
 
 	cfg := newConfig()
 	channel := channelFor(t, o, cfg, nil, nil)
+	writeAttachFixtureLegacyHTTPEvidence(t, o, attachNoColorCname)
 	if rc, _ := o.attachExisting(attachNoColorCname, "podman", "true", cfg, stagedPacks{}, channel, false, nil); rc != 0 {
 		t.Fatalf("the attach arm did not run through to its exec (rc=%d):\n%s", rc, o.Stdout)
 	}

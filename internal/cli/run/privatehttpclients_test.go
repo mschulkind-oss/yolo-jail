@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
@@ -125,24 +126,31 @@ prefix = "Bearer "
 	selectedProducer := registry["call-broker-scope"]
 	produce := selectedProducer.Produce
 	producerCalls := 0
+	ownershipSeenBeforeProduce := false
 	selectedProducer.Produce = func(ctx LaunchInputContext) ([]byte, error) {
 		producerCalls++
+		owner, _, present, ownerErr := readPreparedHTTPOwnership(cname)
+		if ownerErr == nil && present && owner.Container == cname && owner.Runtime == "podman" && owner.Setup == "podman-self" && owner.PackTree == packTree && len(owner.Generations) == 1 {
+			ownershipSeenBeforeProduce = true
+		} else {
+			t.Errorf("prepared HTTP ownership was not durable before input production: present=%v err=%v record=%+v", present, ownerErr, owner)
+		}
 		return produce(ctx)
 	}
 	producer.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": selectedProducer}
 	producer.writeScopeFiles(cname, []*loopholes.Loophole{selected})
+	producer.launchInputMountArgv = argv
 	for _, tc := range []struct {
 		name   string
 		source string
 	}{
-		{name: "parent", source: private},
-		{name: "alias", source: func() string {
+		{"parent", private}, {"alias", func() string {
 			alias := filepath.Join(t.TempDir(), "prepared-state-alias")
 			if err := os.Symlink(private, alias); err != nil {
 				t.Fatal(err)
 			}
 			return alias
-		}()},
+		}()}, {"ownership record", preparedHTTPOwnershipPath(cname)},
 	} {
 		t.Run("mount-alias-"+tc.name, func(t *testing.T) {
 			producer.launchInputMountArgv = append(append([]string(nil), argv...), "--volume", tc.source+":/shadow:ro")
@@ -161,8 +169,8 @@ prefix = "Bearer "
 	if producer.scopeFiles[selected.Name] == "" || !producer.writeLaunchInput(selected, cname) {
 		t.Fatalf("selected keeper producer refused: %s", output.String())
 	}
-	if producerCalls != 1 {
-		t.Fatalf("actual selected producer called %d times, want once", producerCalls)
+	if producerCalls != 1 || !ownershipSeenBeforeProduce {
+		t.Fatalf("actual selected producer called %d times with ownershipSeen=%v, want once after owner publication", producerCalls, ownershipSeenBeforeProduce)
 	}
 	inputPath := producer.launchInputFiles[selected.Name]
 	inputBytes, err := os.ReadFile(inputPath)
@@ -244,12 +252,16 @@ prefix = "Bearer "
 			t.Fatalf("%s mount replaced the prepared sidecar inode: err=%v", tc.name, err)
 		}
 	}
+	producer.launchInputMountArgv = append(append([]string(nil), argv...), "--volume", producer.preparedHTTPOwnershipFile+":/identity:ro")
+	if err := producer.checkSpawnLaunchInputMounts(producer.launchInputMountArgv); err == nil {
+		t.Fatal("final spawn topology allowed a mounted prepared-HTTP ownership record")
+	}
 	producer.launchInputMountArgv = append(append([]string(nil), argv...), "--volume", inputPath+".prepared:/prepared:ro")
 	if err := producer.checkSpawnLaunchInputMounts(producer.launchInputMountArgv); err == nil {
 		t.Fatal("final spawn topology allowed a mounted prepared sidecar")
 	}
 	launchInputMu.Lock()
-	preparedOwner, tracked := producer.preparedHTTPGenerationOwners[inputPath+".prepared"]
+	_, tracked := producer.preparedHTTPGenerationOwners[inputPath+".prepared"]
 	launchInputMu.Unlock()
 	if !tracked {
 		t.Fatal("actual producer did not transfer sidecar ownership to the keeper")
@@ -261,15 +273,15 @@ prefix = "Bearer "
 	dispatchPlan.PackTree, dispatchPlan.Packs = "", nil
 	dispatchPlan.Config = json.RawMessage(`{}`)
 	dispatchPlan.Uncounted = true
-	dispatchPlan.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker, "--volume", inputPath + ".prepared:/prepared:ro"}
+	dispatchPlan.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker, "--volume", producer.preparedHTTPOwnershipFile + ":/identity:ro"}
 	dispatch := newKeeper(&dispatchPlan, KeeperSeams{}, nil, nil, nil, nil)
+	dispatch.o.preparedHTTPOwnershipFile = producer.preparedHTTPOwnershipFile
 	dispatch.o.LookPath = func(string) (string, bool) { return "", false }
-	trackPreparedHTTPGeneration(dispatch.o, preparedOwner)
 	if rc := dispatch.run(); rc != 1 {
-		t.Fatalf("keeper dispatch with a prepared-sidecar bind returned %d, want pre-spawn refusal", rc)
+		t.Fatalf("keeper dispatch with a prepared-ownership bind returned %d, want pre-spawn refusal", rc)
 	}
 	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
-		t.Fatalf("keeper dispatch spawned the runtime with a mounted prepared sidecar: %v", err)
+		t.Fatalf("keeper dispatch spawned the runtime with a mounted prepared-ownership record: %v", err)
 	}
 	failedCname := cname + "-producer-failure"
 	failedPlan := *plan
@@ -431,11 +443,15 @@ func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T)
 		name          string
 		includeClient bool
 		unreadable    bool
+		retireScope   bool
+		retireInput   bool
 		wantRefusal   bool
 	}{
-		{"missing tree with prepared generation", true, false, true},
-		{"unreadable tree with prepared generation", true, true, true},
-		{"missing tree with verified legacy input", false, false, false},
+		{"missing tree with prepared generation", true, false, false, false, true},
+		{"unreadable tree with prepared generation", true, true, false, false, true},
+		{"missing tree after scope retirement", true, false, true, false, true},
+		{"missing tree after scope and input retirement", true, false, true, true, true},
+		{"missing tree with verified legacy input", false, false, false, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := attachedPrivateHTTPFixture(t, tc.includeClient, true)
@@ -454,6 +470,34 @@ func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T)
 			} else if err := os.RemoveAll(f.tree); err != nil {
 				t.Fatal(err)
 			}
+			if tc.retireScope || tc.retireInput {
+				data, err := os.ReadFile(f.inputPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var input callbrokerinput.Launch
+				if err := json.Unmarshal(data, &input); err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Lstat(f.inputPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.o.scopeFiles = map[string]string{"tasks": input.ScopeFile}
+				trackLaunchInput(f.o, "tasks", f.inputPath, info)
+				if tc.retireInput {
+					f.o.removeLaunchInput("tasks", f.inputPath, info)
+				}
+				f.o.removeScopeFile("tasks")
+				if tc.retireInput {
+					if _, err := os.Lstat(f.inputPath); !os.IsNotExist(err) {
+						t.Fatalf("ordinary service cleanup did not retire its input: %v", err)
+					}
+				}
+				if _, err := os.Lstat(f.preparedPath); err != nil {
+					t.Fatalf("service cleanup removed the container-lifetime prepared identity: %v", err)
+				}
+			}
 			producerCalls := 0
 			f.o.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": {
 				StateDir: func(LaunchInputContext) string { return f.stateDir },
@@ -471,6 +515,59 @@ func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T)
 				t.Fatalf("attach invoked producer %d times", producerCalls)
 			}
 		})
+	}
+}
+
+func TestAttachUsesAffirmativeEmptyOwnerWithoutScopeOrInput(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
+	f := attachedPrivateHTTPFixture(t, false, false)
+	f.packs = nil
+	f.o.runtime, f.o.packTree = "podman", f.tree
+	f.o.launchInputMountArgv = assembledPrivateFixtureMounts(t, f.o.Workspace, cname)
+	f.o.preparedHTTPOwnershipFile = preparedHTTPOwnershipPath(cname)
+	writeCurrentKeeperRecord(t, cname, keeperRecord{Workspace: f.o.Workspace, Runtime: "podman", PackTree: f.tree, MCPTeardownKnown: true})
+	if err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
+		t.Fatalf("cannot create the frozen empty HTTP owner: %v", err)
+	}
+	_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
+	_ = os.Remove(filepath.Join(loopholes.StateDirFor("tasks"), "replicas", cname+".json"))
+	if err := os.MkdirAll(paths.PackTreeRoot(cname), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLivePackTree(cname, f.tree); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(f.tree); err != nil {
+		t.Fatal(err)
+	}
+	rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
+	if rc != 0 || restarted || !execed {
+		t.Fatalf("affirmative non-G4 attach without disposable scope/input did not proceed: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+	}
+	owner, _, present, err := readPreparedHTTPOwnership(cname)
+	if err != nil || !present || len(owner.Generations) != 0 {
+		t.Fatalf("empty owner was not retained after the attach: present=%v err=%v record=%+v", present, err, owner)
+	}
+}
+
+func TestAttachRefusesMissingTreeWithoutAffirmativeHTTPOwnerOrLegacyInput(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
+	f := attachedPrivateHTTPFixture(t, false, false)
+	f.packs = nil
+	_ = os.Remove(paths.BrokerScopeFile("tasks", "attachfixture01"))
+	_ = os.Remove(filepath.Join(loopholes.StateDirFor("tasks"), "replicas", cname+".json"))
+	if err := os.MkdirAll(paths.PackTreeRoot(cname), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLivePackTree(cname, f.tree); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(f.tree); err != nil {
+		t.Fatal(err)
+	}
+	rc, restarted, execed := attachToExec(t, f.o, f.cfg, f.packs, f.channel)
+	if rc != 1 || restarted || execed || !strings.Contains(f.stderr.String(), "no host-owned launch evidence verifies its HTTP identity") {
+		t.Fatalf("unknown HTTP identity did not fail closed: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
 	}
 }
 
@@ -547,8 +644,16 @@ prefix = "Bearer "
 	}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
 	const cname = "yolo-ws-abcd1234"
+	_ = os.Remove(paths.BrokerScopeFile("attach-fixture", "attachfixture01"))
+	_ = os.Remove(filepath.Join(loopholes.StateDirFor("attach-fixture-front"), "replicas", cname+".json"))
 	treeSource := root
 	root = filepath.Join(paths.PackTreeRoot(cname), "attach-fixture")
+	homeSuffix := string(os.PathSeparator) + filepath.Join(paths.GlobalStorageRel(), "agents", cname, "pack-trees", "attach-fixture")
+	home := strings.TrimSuffix(root, homeSuffix)
+	if home == root {
+		t.Fatal("could not derive the attached fixture home from its pack tree")
+	}
+	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Dir(root), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -638,6 +743,48 @@ prefix = "Bearer "
 		if err := brokerscope.BindCallInput(scopePath, scope, inputPath); err != nil {
 			t.Fatal(err)
 		}
+		if includeClient {
+			o.launchInputMountArgv = assembledPrivateFixtureMounts(t, o.Workspace, cname)
+			o.runtime, o.packTree = "podman", root
+			writeCurrentKeeperRecord(t, cname, keeperRecord{Workspace: o.Workspace, Runtime: "podman", PackTree: root, MCPTeardownKnown: true})
+			o.preparedHTTPOwnershipFile = preparedHTTPOwnershipPath(cname)
+			info, err := os.Lstat(preparedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if includeClient && writeInput {
+		finalTree := filepath.Join(paths.PackTreeRoot(cname), "attach-fixture")
+		if finalTree != root {
+			if err := os.MkdirAll(filepath.Dir(finalTree), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.CopyFS(finalTree, os.DirFS(root)); err != nil {
+				t.Fatal(err)
+			}
+			root = finalTree
+			prepared.PackTree = root
+			writePreparedTestFile(t, preparedPath, &prepared)
+			o.packTree = root
+			writeCurrentKeeperRecord(t, cname, keeperRecord{Workspace: o.Workspace, Runtime: "podman", PackTree: root, MCPTeardownKnown: true})
+			if err := os.Remove(o.preparedHTTPOwnershipFile); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Lstat(preparedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := o.recordPreparedHTTPGeneration(preparedHTTPGenerationOwner{path: preparedPath, file: info, container: cname, generation: prepared.Generation}); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeLivePackTree(cname, root); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	return attachedPrivateHTTP{o: o, cfg: cfg, channel: channel, stderr: stderr, packs: packs, stateDir: stateDir, inputPath: inputPath, preparedPath: preparedPath, tree: root, prepared: prepared}
 }
@@ -650,6 +797,76 @@ func writePreparedTestFile(t *testing.T, path string, generation *callbrokerinpu
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPreparedHTTPOwnershipRejectsSymlinkAndHardlink(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
+	attachedPrivateHTTPFixture(t, true, true)
+	path := preparedHTTPOwnershipPath(cname)
+	target := path + ".target"
+	if err := os.Rename(path, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, present, err := readPreparedHTTPOwnership(cname); !present || err == nil {
+		t.Fatalf("symlinked prepared owner was accepted: present=%v err=%v", present, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, present, err := readPreparedHTTPOwnership(cname); !present || err == nil {
+		t.Fatalf("multiply-linked prepared owner was accepted: present=%v err=%v", present, err)
+	}
+}
+
+func TestForgetGoneRemovesPersistentPreparedHTTPOwnershipOnlyAfterKnownAbsence(t *testing.T) {
+	const cname = "yolo-ws-abcd1234"
+	f := attachedPrivateHTTPFixture(t, true, true)
+	ownerPath := preparedHTTPOwnershipPath(cname)
+	f.o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+	f.o.forgetGoneContainer(cname, "podman", "")
+	if _, err := os.Stat(ownerPath); err != nil {
+		t.Fatalf("unknown container state retired its expected prepared owner: %v", err)
+	}
+	if _, err := os.Stat(f.preparedPath); err != nil {
+		t.Fatalf("unknown container state retired the prepared generation: %v", err)
+	}
+	f.o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) > 1 && argv[1] == "ps" {
+			return ExecResult{Ran: true, RC: 0, Stdout: ""}
+		}
+		return ExecResult{Ran: false}
+	}
+	f.o.forgetGoneContainer(cname, "podman", "")
+	if _, err := os.Lstat(ownerPath); !os.IsNotExist(err) {
+		t.Fatalf("known-absent container retained its prepared ownership record: %v", err)
+	}
+	if _, err := os.Lstat(f.preparedPath); !os.IsNotExist(err) {
+		t.Fatalf("known-absent container retained its prepared generation: %v", err)
+	}
+	if err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
+		t.Fatalf("cannot establish an empty owner for cleanup control: %v", err)
+	}
+	f.o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+	f.o.forgetGoneContainer(cname, "podman", "")
+	if _, err := os.Stat(ownerPath); err != nil {
+		t.Fatalf("unknown container state retired its affirmative empty owner: %v", err)
+	}
+	f.o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) > 1 && argv[1] == "ps" {
+			return ExecResult{Ran: true, RC: 0, Stdout: ""}
+		}
+		return ExecResult{Ran: false}
+	}
+	f.o.forgetGoneContainer(cname, "podman", "")
+	if _, err := os.Lstat(ownerPath); !os.IsNotExist(err) {
+		t.Fatalf("known-absent container retained its affirmative empty owner: %v", err)
 	}
 }
 

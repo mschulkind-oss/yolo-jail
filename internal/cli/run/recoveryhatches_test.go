@@ -181,6 +181,7 @@ func TestASetHatchSaysItDoesNothingOnAnAttach(t *testing.T) {
 		}
 		withEnv(o, patchrecovery.SkipPatchesEnv, "typo")
 		withEnv(o, patchrecovery.SkipExtensionsEnv, "1")
+		writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 	})
 	if !strings.Contains(printed, "Attaching to existing jail") {
 		t.Fatalf("the fixture did not attach:\n%s", printed)

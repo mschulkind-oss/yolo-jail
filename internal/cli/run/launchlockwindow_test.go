@@ -155,6 +155,7 @@ func TestAnAttachReleasesTheLaunchLockBeforeItsSession(t *testing.T) {
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}
+	writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 
 	_ = Run(*o)
 	if !strings.Contains(stderr.String(), "Attaching to existing jail") || !attachLineSeen {

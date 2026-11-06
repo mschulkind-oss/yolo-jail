@@ -3108,17 +3108,33 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	channel, targetCmd = view.channel, view.targetCmd
 	attachPacks, attachTree := view.staged.packs, view.staged.root
 	if view.unreadable || view.unfound != "" {
-		preparedExpected, err := o.runningHTTPPreparedExpected(cname)
-		if err != nil || preparedExpected {
-			reason := "the running pack tree is unavailable while its HTTP identity is selected"
-			if err != nil {
-				reason = err.Error()
+		owner, _, ownerPresent, ownerErr := readPreparedHTTPOwnership(cname)
+		verifiedLegacy := false
+		preparedExpected := false
+		var identityErr error
+		if ownerErr != nil {
+			identityErr = ownerErr
+		} else if ownerPresent {
+			if !verifiedPreparedHTTPOwnership(owner, cname, rt, actualSetup.Name) {
+				identityErr = errors.New("running prepared-HTTP ownership does not match the frozen container, setup, runtime, or pack tree")
+			} else {
+				preparedExpected = len(owner.Generations) != 0
+				verifiedLegacy = !preparedExpected
+			}
+		} else {
+			preparedExpected, verifiedLegacy, identityErr = o.runningHTTPPreparedExpected(cname)
+		}
+		if identityErr != nil || preparedExpected || !verifiedLegacy {
+			reason := "the running pack tree is unavailable and no host-owned launch evidence verifies its HTTP identity"
+			if identityErr != nil {
+				reason = identityErr.Error()
+			} else if preparedExpected {
+				reason = "the running launch retains a prepared HTTP identity"
 			}
 			releaseLock()
 			o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then relaunch so its running HTTP identity can be verified.[/bold red]", richtext.Escape(reason), stopRemedy(rt, cname))
 			return 1, false
 		}
-		// Only a host-owned running launch scope may verify that the running front was non-G4.
 		// The current configured selection is not evidence about the jail's frozen tree.
 		attachPacks, attachTree = nil, ""
 	}

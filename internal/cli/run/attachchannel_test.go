@@ -17,6 +17,7 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
 	"go/ast"
 	"os"
 	"path/filepath"
@@ -24,8 +25,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
@@ -83,7 +89,48 @@ func attachFixtureWithFrozenFacts(t *testing.T, frozenEnv string, packs []*packl
 		tune(o, cfg)
 	}
 	channel := channelFor(t, o, cfg, packs, userEnv)
+	writeAttachFixtureLegacyHTTPEvidence(t, o, "yolo-ws-abcd1234")
 	return o, cfg, channel, &stderr
+}
+
+func writeAttachFixtureLegacyHTTPEvidence(t *testing.T, o *Options, cname string) {
+	t.Helper()
+	const source, loophole, launchID = "attach-fixture", "attach-fixture-front", "attachfixture01"
+	stateDir := loopholes.StateDirFor(loophole)
+	replicas := filepath.Join(stateDir, "replicas")
+	if err := os.MkdirAll(replicas, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inputPath := filepath.Join(replicas, cname+".json")
+	scopePath, err := brokerscope.Write(brokerscope.File{Source: source, LaunchID: launchID, PID: os.Getpid(),
+		Container: cname, Workspace: o.Workspace, Form: brokerscope.FormCallRoot, Repos: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := callbrokerinput.Launch{Version: "yolo.call-broker-launch/2", ScopeFile: scopePath, FrontJailID: "attach-fixture",
+		Loophole: loophole, Pack: "attach-fixture-pack", Source: source, Front: "http",
+		HTTPBinding: &config.ApprovedCallBrokerHTTP{Pack: "attach-fixture-pack", Source: source, DeclarationHash: strings.Repeat("a", 64),
+			HTTP: loopholedecl.CallBrokerHTTP{Origin: "https://fixture.example", RequestHeaders: []string{"Content-Type"}}},
+		ProgramIdentities: nil, Roots: []string{}}
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(replicas, ".launch-input.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = lock.Close()
+	scope, err := brokerscope.ReadFile(scopePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brokerscope.BindCallInput(scopePath, scope, inputPath); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAttachRefusesWhenRunningSetupFactsAreUnavailable(t *testing.T) {

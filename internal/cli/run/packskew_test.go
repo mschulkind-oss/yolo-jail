@@ -94,6 +94,7 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	if mutate != nil {
 		mutate(o)
 	}
+	writeAttachFixtureLegacyHTTPEvidence(t, o, yoloruntime.FromWorkspace(ws))
 	r.envFile = filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh")
 	r.rc = Run(*o)
 	r.stdout, r.stderr = stdout.String(), stderr.String()

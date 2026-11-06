@@ -280,8 +280,18 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no valid core-owned private destination; it was not started. Fix the core producer and retry.[/red]")
 		return false
 	}
+	if deferPreparedHTTPProducer {
+		if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot retain its prepared HTTP ownership; it was not started. Repair the host state directory and retry.[/red]")
+			return false
+		}
+		o.preparedHTTPOwnershipFile = preparedHTTPOwnershipPath(cname)
+	}
 	dest := filepath.Join(stateDir, "replicas", cname+".json")
 	pathsToProve := []string{dest}
+	if ownership := o.preparedHTTPOwnershipFile; ownership != "" {
+		pathsToProve = append(pathsToProve, ownership)
+	}
 	if deferPreparedHTTPProducer {
 		pathsToProve = append(pathsToProve, dest+".prepared")
 	}
@@ -362,9 +372,22 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	leaf := cname + ".json"
 	var preparedOwner preparedHTTPGenerationOwner
 	preparedCreated, preparedCommitted := false, false
+	preparedOwnershipEnsured, preparedOwnerRecorded, preparedExpected := false, false, false
 	defer func() {
-		if preparedCreated && !preparedCommitted {
+		if preparedCommitted {
+			return
+		}
+		if preparedOwnerRecorded {
+			removePreparedHTTPGenerationOwnership(preparedOwner, preparedCreated)
+		} else if preparedCreated {
 			removePreparedHTTPGenerationFile(preparedOwner)
+		}
+		if preparedOwnershipEnsured && preparedExpected && !preparedOwnerRecorded {
+			setupName := o.Setup.Name
+			if setupName == "" {
+				setupName = o.SetupName
+			}
+			removeEmptyPreparedHTTPOwnership(cname, o.runtime, setupName, o.packTree)
 		}
 	}()
 	if frozen.CallBroker != nil {
@@ -374,7 +397,26 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			return false
 		}
 		preparedOwner, preparedCreated = owner, created
+		preparedExpected = owner.file != nil || owner.temp != ""
 		frozen.CallBroker.HTTPFrontGeneration = reference
+	}
+	if deferPreparedHTTPProducer {
+		if err := o.ensurePreparedHTTPOwnership(cname); err != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot establish its prepared HTTP ownership before input production; it was not started. Repair the host state directory and retry.[/red]")
+			return false
+		}
+		preparedOwnershipEnsured = true
+		if err := publishPreparedHTTPGeneration(replicas, &preparedOwner); err != nil {
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not publish its prepared HTTP identity; it was not started. Repair private host state and retry.[/red]")
+			return false
+		}
+		if preparedOwner.file != nil {
+			if err := o.recordPreparedHTTPGeneration(preparedOwner); err != nil {
+				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not retain its prepared HTTP ownership before input production; it was not started. Repair the host state directory and retry.[/red]")
+				return false
+			}
+			preparedOwnerRecorded = true
+		}
 	}
 	if deferPreparedHTTPProducer {
 		var produceErr error
@@ -387,10 +429,6 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' produced an empty launch input; it was not started. Fix the producer and retry.[/red]")
 			return false
 		}
-	}
-	if err := publishPreparedHTTPGeneration(replicas, &preparedOwner); err != nil {
-		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not publish its prepared HTTP identity; it was not started. Repair private host state and retry.[/red]")
-		return false
 	}
 	// A fresh temp inode and rename replace a predecessor atomically; no in-place truncation.
 	var nonce [16]byte
@@ -477,6 +515,9 @@ func (o *Options) checkSpawnLaunchInputMounts(argv []string) error {
 	}
 	for _, owner := range o.preparedHTTPGenerationOwners {
 		paths = append(paths, owner.path)
+	}
+	if o.preparedHTTPOwnershipFile != "" {
+		paths = append(paths, o.preparedHTTPOwnershipFile)
 	}
 	launchInputMu.Unlock()
 	if len(paths) == 0 {

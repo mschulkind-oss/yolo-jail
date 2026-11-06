@@ -11,6 +11,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 func TestGateFreezesSelectedCallBrokerCellsFromApprovedWorkspaceRead(t *testing.T) {
@@ -249,17 +251,27 @@ prefix = "Bearer "
 	if _, err := selectedCallBrokerLaunchInput(lp, o.approvedScopes, o.callBrokerCells, o.approvedLoopholeGrants); err == nil {
 		t.Fatal("EnvFromHost alone approved HTTP")
 	}
+	o.Setup = setup.MustBuiltIn("podman-self")
 	container, err := o.keeperPlanFor(merged, "podman", "test", stagedPacks{}, nil, nil, nil, "", "", nil, &assembleInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	o.macosUserKey = &macosUserKeying{}
+	o.Setup = setup.MustBuiltIn("seatbelt-self")
 	macos, err := o.macosUserKeeperPlanFor(merged, "macos-user", "test", stagedPacks{}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, plan := range []*keeperPlan{container, macos} {
-		plan.RunCmd = assembledPrivateFixtureMounts(t, workspace, "http-binding")
+	for i, plan := range []*keeperPlan{container, macos} {
+		containerName := "http-binding"
+		if i != 0 {
+			containerName = "macos-http-binding"
+		}
+		plan.PackTree = t.TempDir()
+		if err := packload.WritePackTreeRecord(plan.PackTree, nil); err != nil {
+			t.Fatal(err)
+		}
+		plan.RunCmd = assembledPrivateFixtureMounts(t, workspace, containerName)
 		data, err := json.Marshal(plan)
 		if err != nil {
 			t.Fatal(err)
@@ -272,6 +284,7 @@ prefix = "Bearer "
 			t.Fatalf("keeper lost approved HTTP binding: %+v", restored.ApprovedHTTPBindings)
 		}
 		k := newKeeper(&restored, KeeperSeams{}, nil, nil, nil, nil)
+		k.o.Stderr = &output
 		assertBound(k.o)
 		private := filepath.Join(t.TempDir(), "state")
 		if err := os.Mkdir(private, 0o700); err != nil {
@@ -284,8 +297,8 @@ prefix = "Bearer "
 			}
 			return previous(name)
 		}
-		k.o.writeScopeFiles("http-binding", []*loopholes.Loophole{lp})
-		if k.o.scopeFiles[lp.Name] == "" || !k.o.writeLaunchInput(lp, "http-binding") {
+		k.o.writeScopeFiles(containerName, []*loopholes.Loophole{lp})
+		if k.o.scopeFiles[lp.Name] == "" || !k.o.writeLaunchInput(lp, containerName) {
 			loopholes.StateDirFor = previous
 			t.Fatalf("keeper failed to publish selected HTTP input: %s", output.String())
 		}
@@ -364,8 +377,13 @@ prefix = "Bearer "
 	if _, err := selectedCallBrokerLaunchInput(emptySelected, empty.approvedScopes, empty.callBrokerCells, empty.approvedLoopholeGrants, empty.approvedHTTPBindings); err != nil {
 		t.Fatalf("approved empty allowlists refused by private producer: %v", err)
 	}
+	empty.Setup = setup.MustBuiltIn("podman-self")
 	emptyPlan, err := empty.keeperPlanFor(merged, "podman", "empty-http", stagedPacks{}, nil, nil, nil, "", "", nil, &assembleInput{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	emptyPlan.PackTree = t.TempDir()
+	if err := packload.WritePackTreeRecord(emptyPlan.PackTree, nil); err != nil {
 		t.Fatal(err)
 	}
 	emptyPlan.RunCmd = assembledPrivateFixtureMounts(t, workspace, "empty-http")
@@ -378,6 +396,21 @@ prefix = "Bearer "
 		t.Fatal(err)
 	}
 	keeperOptions := newKeeper(&restoredEmpty, KeeperSeams{}, nil, nil, nil, nil).o
+	keeperOptions.Stderr = &output
+	registry := launchInputProducers()
+	producer := registry["call-broker-scope"]
+	produce := producer.Produce
+	ownerSeenBeforeProduce := false
+	producer.Produce = func(ctx LaunchInputContext) ([]byte, error) {
+		rec, _, present, ownerErr := readPreparedHTTPOwnership("empty-http")
+		if ownerErr == nil && present && rec.Container == "empty-http" && rec.Runtime == "podman" && rec.PackTree == emptyPlan.PackTree && len(rec.Generations) == 0 {
+			ownerSeenBeforeProduce = true
+		} else {
+			t.Errorf("affirmative non-G4 HTTP owner missing before producer: present=%v err=%v record=%+v", present, ownerErr, rec)
+		}
+		return produce(ctx)
+	}
+	keeperOptions.launchInputProducers = map[string]LaunchInputProducer{"call-broker-scope": producer}
 	private := filepath.Join(t.TempDir(), "state")
 	if err := os.Mkdir(private, 0o700); err != nil {
 		t.Fatal(err)
@@ -392,8 +425,12 @@ prefix = "Bearer "
 	keeperOptions.writeScopeFiles("empty-http", []*loopholes.Loophole{emptySelected})
 	published := keeperOptions.scopeFiles[emptySelected.Name] != "" && keeperOptions.writeLaunchInput(emptySelected, "empty-http")
 	loopholes.StateDirFor = previous
-	if !published {
-		t.Fatal("keeper refused approved explicit empty HTTP arrays")
+	if !published || !ownerSeenBeforeProduce {
+		t.Fatal("keeper refused the approved HTTP input or lacked affirmative empty ownership before producing it: " + output.String())
+	}
+	owner, _, present, ownerErr := readPreparedHTTPOwnership("empty-http")
+	if ownerErr != nil || !present || len(owner.Generations) != 0 {
+		t.Fatalf("non-G4 HTTP launch did not retain its affirmative empty owner: present=%v err=%v record=%+v", present, ownerErr, owner)
 	}
 	raw, err := os.ReadFile(keeperOptions.launchInputFiles[emptySelected.Name])
 	if err != nil {

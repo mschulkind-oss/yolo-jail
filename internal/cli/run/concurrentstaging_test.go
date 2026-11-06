@@ -373,6 +373,7 @@ func attachThroughRun(t *testing.T, ws string, mutate func(*Options)) attachRun 
 	if mutate != nil {
 		mutate(o)
 	}
+	writeAttachFixtureLegacyHTTPEvidence(t, o, cname)
 	_ = Run(*o)
 	if !strings.Contains(errOut.String(), "Attaching to existing jail") {
 		t.Fatalf("the launch did not take the attach arm, so this test says nothing about it\n"+
