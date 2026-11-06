@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -29,7 +30,7 @@ func TestCaptureOnTerminateCapturesAListPathPerEntry(t *testing.T) {
 	}
 
 	var warnings []string
-	captureOnTerminate(ws, "podman", func(m string) { warnings = append(warnings, m) })
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(m string) { warnings = append(warnings, m) })
 	if len(warnings) != 0 {
 		t.Fatalf("teardown warned: %v", warnings)
 	}
@@ -49,7 +50,7 @@ func TestCaptureOnTerminateCapturesAListPathPerEntry(t *testing.T) {
 func TestCaptureWritesNoListCaptureWithoutAListPath(t *testing.T) {
 	ws := terminateWorkspace(t, filepath.Join("claude", "settings.json"),
 		`{"model":"base"}`, `{"model":"base","myEdit":"present"}`)
-	captureOnTerminate(ws, "podman", func(string) {})
+	captureOnTerminateIn(ws, paths.LegacyHomeState(ws), "podman", func(string) {})
 	listCapture := filepath.Join(ws, ".yolo", "prism", "claude-settings"+render.ListCaptureSuffix)
 	if _, err := os.Stat(listCapture); !os.IsNotExist(err) {
 		t.Fatalf("a capture created a list-capture sidecar for a surface with no list (err=%v)", err)

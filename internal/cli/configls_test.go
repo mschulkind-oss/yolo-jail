@@ -10,7 +10,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // withSidecarDir mints a temp WORKSPACE, creates its capture store, and returns both the
@@ -85,7 +84,9 @@ func withWorkspaceCwd(t *testing.T) (ws, store string) {
 	// The ruled marker: a workspace config file is enough, and a bare .yolo is not
 	// (docs/reference/config-target-resolution.md [OQ-CR2]).
 	writeFile(t, filepath.Join(ws, config.WorkspaceConfigName), `{}`)
-	store = render.Jail(paths.Home(), ws, nil).SidecarDir()
+	// The store the target names: the one beside the home a launch of the selected setup binds
+	// (named-setups-plan.md SUP-D35).
+	store = jailConfigTarget(ws, "the cwd").sidecarDir()
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		t.Fatalf("create the capture store: %v", err)
 	}

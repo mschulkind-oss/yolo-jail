@@ -195,8 +195,8 @@ func TestConfigRefHomeBlockDoesNotClaimOneSharedHome(t *testing.T) {
 			t.Errorf("config-ref's Home Directory block still claims %q:\n%s", claim, block)
 		}
 	}
-	if !strings.Contains(block, ".yolo/home") {
-		t.Errorf("config-ref's Home Directory block does not say the home is per-workspace "+
-			"(<workspace>/.yolo/home):\n%s", block)
+	if !strings.Contains(block, ".yolo/setups/<setup>/home") {
+		t.Errorf("config-ref's Home Directory block does not say the home is per workspace and "+
+			"setup (<workspace>/.yolo/setups/<setup>/home, SUP-D9):\n%s", block)
 	}
 }

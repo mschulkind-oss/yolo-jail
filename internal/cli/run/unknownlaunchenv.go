@@ -53,6 +53,8 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		patchrecovery.UseInstalledEnv,
 		// The setup selection (named-setups-plan.md SUP-D4); slice 4a reads it at launch.
 		setup.EnvVar,
+		// The home the launch bound, told to the session (named-setups-plan.md SUP-D35).
+		paths.HomeStateEnv,
 		// Contracts a launch writes into the container's environment, so a launch nested in
 		// that container inherits them.
 		paths.HoldExecEnv, ioprio.EnvVar, config.BootBaselineDigestEnv,

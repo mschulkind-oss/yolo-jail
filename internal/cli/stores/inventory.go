@@ -270,7 +270,7 @@ func perWorkspaceStranded(dest string) string {
 	rel := strings.TrimPrefix(dest, "/home/agent/")
 	for _, s := range paths.HomeSurfaces() {
 		if rel == s.HomeRel || strings.HasPrefix(rel, s.HomeRel+"/") {
-			return "each workspace's .yolo/home/" + s.Subtree + strings.TrimPrefix(rel, s.HomeRel)
+			return "each workspace's .yolo/setups/<setup>/home/" + s.Subtree + strings.TrimPrefix(rel, s.HomeRel)
 		}
 	}
 	return "each workspace's own copy of " + dest

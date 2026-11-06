@@ -458,20 +458,33 @@ func TestCaptureJailArgvReachesTheSurfacesThroughTheWorkspaceBind(t *testing.T) 
 // (SUP-D21) or the setup is not named. Red if captureSurfaceRootOf stops naming the setup's home.
 func TestCaptureSurfaceRootOfIsTheSessionsHome(t *testing.T) {
 	ws := t.TempDir()
-	if got, want := captureSurfaceRootOf(ws, "podman-self"), paths.LegacyHomeState(ws); got != want {
+	if got, want := captureSurfaceRootOf(ws, "", "podman-self"), paths.LegacyHomeState(ws); got != want {
 		t.Errorf("with no setup home yet, the door is %q, want the legacy home %q", got, want)
 	}
 	home := paths.SetupHomeState(ws, "podman-self")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := captureSurfaceRootOf(ws, "podman-self"); got != home {
+	if got := captureSurfaceRootOf(ws, "", "podman-self"); got != home {
 		t.Errorf("the door is %q, want the session's setup's home %q", got, home)
 	}
 	for _, name := range []string{"", "../podman-self"} {
-		if got, want := captureSurfaceRootOf(ws, name), paths.LegacyHomeState(ws); got != want {
+		if got, want := captureSurfaceRootOf(ws, "", name), paths.LegacyHomeState(ws); got != want {
 			t.Errorf("setup %q: the door is %q, want the legacy home %q", name, got, want)
 		}
+	}
+	// THE HOME THE LAUNCH BOUND WINS over the guess (review m4): under SUP-D21 a launch binds the
+	// legacy home while the setup's home exists, and the session says so through
+	// paths.HomeStateEnv. Red if the door goes back to guessing from the setup.
+	if got, want := captureSurfaceRootOf(ws, "home", "podman-self"), paths.LegacyHomeState(ws); got != want {
+		t.Errorf("a session that bound the legacy home: the door is %q, want %q", got, want)
+	}
+	if got, want := captureSurfaceRootOf(ws, "setups/lab/home", "podman-self"), paths.SetupHomeState(ws, "lab"); got != want {
+		t.Errorf("a session that bound lab's home: the door is %q, want %q", got, want)
+	}
+	// A home that is not one of the workspace's is not a door: the guess stands.
+	if got := captureSurfaceRootOf(ws, "../../etc", "podman-self"); got != home {
+		t.Errorf("an invalid bound home: the door is %q, want the guess %q", got, home)
 	}
 }
 

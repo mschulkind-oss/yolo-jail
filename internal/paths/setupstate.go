@@ -69,6 +69,60 @@ func OpenWorkspaceHomeRoot(workspace, home string) (*os.Root, error) {
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: home, Err: fs.ErrInvalid}
 	}
+	return openWorkspaceStateRel(workspace, rel)
+}
+
+// HomeStateEnv names, in a jail's environment, the home its launch bound, relative to the
+// workspace's .yolo ("home" or "setups/<name>/home", HomeStateRel). The session's own readers (its
+// capture store, capture-run's surface door) then use the home the launch chose rather than guess
+// it from the setup, which the legacy home's SUP-D21 attribution would get wrong
+// (named-setups-plan.md SUP-D34).
+const HomeStateEnv = "YOLO_HOME_STATE"
+
+// ValidHomeStateRel reports whether rel is a home spelled relative to .yolo: "home" or
+// "setups/<valid name>/home".
+func ValidHomeStateRel(rel string) bool {
+	if rel == "" || filepath.IsAbs(rel) {
+		return false
+	}
+	_, ok := HomeStateRel("/w", filepath.Join(WorkspaceStateDir("/w"), filepath.FromSlash(rel)))
+	return ok
+}
+
+// PrismStateRel is the capture store (the prism sidecars: last_render, overlay, selection) of the
+// home at homeRel, relative to .yolo: the "prism" beside it, `.yolo/prism` for the legacy home and
+// `.yolo/setups/<name>/prism` for a setup's. A baseline belongs to the home it was rendered into,
+// so one setup's boot never diffs its home against another setup's render (named-setups-plan.md
+// SUP-D35). An invalid homeRel names the legacy store.
+func PrismStateRel(homeRel string) string {
+	if !ValidHomeStateRel(homeRel) {
+		return "prism"
+	}
+	return filepath.Join(filepath.Dir(filepath.FromSlash(homeRel)), "prism")
+}
+
+// OpenWorkspacePrismRoot opens the capture store of the home at homeRel (PrismStateRel) as an
+// os.Root, refusing a symbolic link at `.yolo` and at every component below it, as
+// OpenWorkspaceHomeRoot does. It creates nothing.
+func OpenWorkspacePrismRoot(workspace, homeRel string) (*os.Root, error) {
+	return openWorkspaceStateRel(workspace, PrismStateRel(homeRel))
+}
+
+// OpenWorkspaceStateRel opens rel, an existing directory below <workspace>/.yolo spelled
+// relative to it ("prism", "setups/<name>/prism", a home), as an os.Root, refusing a symbolic link
+// at `.yolo` and at every component below it with a *LinkedStateDirError naming the component. A
+// rel that is absolute, empty, or climbs out with ".." is fs.ErrInvalid. It creates nothing.
+func OpenWorkspaceStateRel(workspace, rel string) (*os.Root, error) {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if rel == "" || filepath.IsAbs(rel) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return nil, &fs.PathError{Op: "open", Path: rel, Err: fs.ErrInvalid}
+	}
+	return openWorkspaceStateRel(workspace, clean)
+}
+
+// openWorkspaceStateRel opens rel, a relative path beneath <workspace>/.yolo, one no-link
+// component at a time.
+func openWorkspaceStateRel(workspace, rel string) (*os.Root, error) {
 	dir := WorkspaceStateDir(workspace)
 	cur, err := OpenStateDirRoot(dir)
 	if err != nil {

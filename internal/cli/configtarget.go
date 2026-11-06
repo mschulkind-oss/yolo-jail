@@ -119,8 +119,6 @@ func jailConfigTarget(workspace, chosenBy string) configTarget {
 		workspace: workspace,
 		chosenBy:  chosenBy,
 		local:     processOwnsWorkspace(workspace),
-		store:     render.Jail(paths.Home(), workspace, nil),
-		wsStore:   render.Jail(paths.Home(), workspace, nil),
 		refusals:  &stateRefusals{},
 	}
 	if !t.local {
@@ -130,11 +128,43 @@ func jailConfigTarget(workspace, chosenBy string) configTarget {
 		// workspace a surface resolves through the process home, which needs no backend
 		// knowledge at all.
 		t.runtime = detectListingRuntime(workspace)
-		if choice, err := selectedSetup(nil); err == nil {
-			t.home = run.HomeFor(workspace, choice.Setup)
-		}
+		t.home = selectedHomeFor(workspace)
 	}
+	t.keyStores()
 	return t
+}
+
+// keyStores builds a workspace target's two stores on the capture store of the home it
+// describes (targetHomeRel): a baseline belongs to the home it was rendered into
+// (named-setups-plan.md SUP-D35), so a verb about one setup's home never reads another's.
+func (t *configTarget) keyStores() {
+	t.store = render.Jail(paths.Home(), t.workspace, nil).WithHomeState(targetHomeRel(t.workspace, t.local, t.home))
+	t.wsStore = t.store
+}
+
+// targetHomeRel is the home, relative to .yolo, whose capture store a workspace target reads: in
+// the jail that owns the workspace, the one its launch bound (paths.HomeStateEnv); host-side, home,
+// the one a launch of the selected setup binds now. "" names the legacy home's store.
+func targetHomeRel(workspace string, local bool, home string) string {
+	if local {
+		return os.Getenv(paths.HomeStateEnv)
+	}
+	rel, _ := paths.HomeStateRel(workspace, home)
+	return rel
+}
+
+// prismRel is the target's capture store relative to .yolo, which storeFile roots its reads on.
+func (t configTarget) prismRel() string {
+	return paths.PrismStateRel(targetHomeRel(t.workspace, t.local, t.home))
+}
+
+// selectedHomeFor is the home a launch of the selected setup in workspace binds now
+// (run.HomeFor), or "" when no setup resolves.
+func selectedHomeFor(workspace string) string {
+	if choice, err := selectedSetup(nil); err == nil {
+		return run.HomeFor(workspace, choice.Setup)
+	}
+	return ""
 }
 
 // hostConfigTarget builds the target for the invoking process's real home.
@@ -228,6 +258,7 @@ func resolveConfigTarget(setupName string) (configTarget, string) {
 		t := jailConfigTarget(ws, "--setup "+s.Name)
 		if !t.local {
 			t.home = run.HomeFor(ws, s)
+			t.keyStores()
 		}
 		return t, ""
 	default:
@@ -339,7 +370,17 @@ func workspaceRoot() string {
 // directory is RESOLVED, never hand-built"*. It is deliberately NOT the config target: see
 // workspaceRoot above for why that question is unruled.
 func sealedWorkspaceStore() render.Target {
-	return render.Jail(paths.Home(), workspaceRoot(), nil)
+	ws := workspaceRoot()
+	return render.Jail(paths.Home(), ws, nil).WithHomeState(targetHomeRel(ws, processOwnsWorkspace(ws), sealedHome(ws)))
+}
+
+// sealedHome is the home whose capture store `yolo apply --sealed` reads host-side (SUP-D35): the
+// one a launch of the selected setup binds now, as the config target's.
+func sealedHome(ws string) string {
+	if processOwnsWorkspace(ws) {
+		return ""
+	}
+	return selectedHomeFor(ws)
 }
 
 // sealedConfigTarget is the configTarget `yolo apply --sealed` opens sealedWorkspaceStore's
@@ -355,6 +396,8 @@ func sealedConfigTarget() configTarget {
 		local:     processOwnsWorkspace(ws),
 		store:     sealedWorkspaceStore(),
 		refusals:  &stateRefusals{},
+		// storeFile roots its reads on the store prismRel names from this home (SUP-D35).
+		home: sealedHome(ws),
 	}
 }
 
@@ -438,7 +481,7 @@ func (t configTarget) storeFile(path string) captureFile {
 	if t.notch != render.KindJail || t.local {
 		return captureFile{name: path}
 	}
-	return captureFile{workspace: t.workspace, dir: "prism", name: filepath.Base(path), refusals: t.refusals}
+	return captureFile{workspace: t.workspace, dir: t.prismRel(), name: filepath.Base(path), refusals: t.refusals}
 }
 
 // storeDir is the store itself, as storeFile opens it, for a listing.
@@ -447,7 +490,7 @@ func (t configTarget) storeDir() captureFile {
 	if dir == "" || t.notch != render.KindJail || t.local {
 		return captureFile{name: dir}
 	}
-	return captureFile{workspace: t.workspace, dir: "prism", name: ".", refusals: t.refusals}
+	return captureFile{workspace: t.workspace, dir: t.prismRel(), name: ".", refusals: t.refusals}
 }
 
 func (t configTarget) overlayFile(agent, name string) captureFile {

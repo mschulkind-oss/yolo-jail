@@ -557,6 +557,9 @@ func podmanLinuxGolden(home string) []string {
 		// setup exports YOLO_SETUP instead, after this block; this fixture resolves none.
 		"-e", "YOLO_GPU_ENABLED=0",
 	)
+	// The home this launch bound, relative to .yolo (named-setups-plan.md SUP-D35), on every
+	// launch: this fixture selects no home, so it is the legacy one.
+	add("-e", "YOLO_HOME_STATE=home")
 	// The context dir, on every container launch whether or not a context mount was declared
 	// (context-mounts.md#CX-D4).
 	add("-e", "YOLO_CONTEXT_DIR=/ctx")

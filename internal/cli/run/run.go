@@ -344,6 +344,10 @@ func Run(opts Options) (rc int) {
 	// or prepares a home, so a refused launch moves nothing. A dry run moves nothing either: it
 	// names the home a launch would bind now. Pinned by
 	// TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome.
+	//
+	// selectHome may take the workspace launch lock (its comment says when), so its release is
+	// deferred first, for every return from here on. Idempotent.
+	defer o.releaseLaunchLock()
 	if o.DryRun {
 		o.homeState = o.currentHome()
 	} else {
@@ -754,7 +758,7 @@ func Run(opts Options) (rc int) {
 		launchEnv := channel.launchEnv(launched)
 		// THE SESSION'S --with-credentials GRANT (jailgrant.go, ES-D32): on the launch env, which
 		// this backend writes into the root-owned per-session env file, and never through the
-		// channel, whose per-agent half the arm also writes under <workspace>/.yolo/home below.
+		// channel, whose per-agent half the arm also writes in this launch's home below.
 		o.jailGrant.applyTo(launchEnv)
 		o.heldGrant = o.jailGrant
 		// THE SETUP, told to the session (setup.EnvVar; named-setups-plan.md SUP-D4): YOLO_SETUP
@@ -762,6 +766,9 @@ func Run(opts Options) (rc int) {
 		// selects the same setup. Set after composition so no pack env or env_sources entry can
 		// replace the resolved session fact.
 		launchEnv.Set(setup.EnvVar, o.Setup.Name)
+		// THE HOME THIS LAUNCH BOUND (paths.HomeStateEnv; SUP-D34, SUP-D35), as the container argv
+		// tells it, so the session's render keys its capture store to that home.
+		launchEnv.Set(paths.HomeStateEnv, o.homeRel())
 		// AN INERT GRANT-DECLARING LOOPHOLE IS NAMED in the session's environment, as the
 		// container argv names it (loopholeInertEnv, plan PD-8), so its client says so.
 		for k, v := range o.loopholeInertEnv(rt, cfg) {

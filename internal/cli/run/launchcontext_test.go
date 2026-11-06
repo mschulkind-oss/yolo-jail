@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // A value whose NAME says it may be a secret is redacted from the command; everything else is
@@ -159,7 +160,9 @@ func TestTheLaunchLogRecordsTheLaunchsArchaeology(t *testing.T) {
 	// RESOLVED like the home packHome mints: the record lists config files sorted by path, so a
 	// workspace under a symlinked TMPDIR (darwin's /var) would sort apart from the home.
 	ws := floortest.ResolvedTemp(t)
-	prism := filepath.Join(ws, ".yolo", "prism")
+	// The capture store beside the home this launch binds (named-setups-plan.md SUP-D35): a fresh
+	// workspace's setup home, so the record reads that setup's store, not the legacy .yolo/prism.
+	prism := filepath.Join(filepath.Dir(HomeFor(ws, setup.MustBuiltIn(testSetupForRuntime("macos-user")))), "prism")
 	if err := os.MkdirAll(prism, 0o755); err != nil {
 		t.Fatal(err)
 	}

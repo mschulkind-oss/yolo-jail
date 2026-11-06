@@ -98,13 +98,9 @@ type persistenceSources struct {
 	cacheRelocations []config.CacheRelocation
 	hostCASAliases   []hostcas.Disposition
 	scratchID        string
-	// home is the host directory the launch binds as its home (Options.homeDir); "" names the
-	// legacy <ws>/.yolo/home, which only a unit test that selects no setup means.
+	// home is the host directory the launch binds as its home (Options.homeDir), every caller's
+	// one spelling of it: there is no default, so no second spelling of the bound home can drift.
 	home string
-}
-
-func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string, sealed bool, cname ...string) *jailcontent.PersistenceMap {
-	return persistenceMapForSources(rt, cfg, packs, workspace, sealed, persistenceSources{}, cname...)
 }
 
 func persistenceMapForSources(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string, sealed bool, sources persistenceSources, cname ...string) *jailcontent.PersistenceMap {
@@ -118,9 +114,6 @@ func persistenceMapForSources(rt string, cfg *jsonx.OrderedMap, packs []*packloa
 	}
 	home := func(rel string) string { return jailHome + "/" + rel }
 	wsState := sources.home
-	if wsState == "" {
-		wsState = paths.LegacyHomeState(workspace)
-	}
 	cacheSource := paths.GlobalCache()
 	miseSource := jailMiseStoreDir(false)
 	if sources.cacheSource != "" {

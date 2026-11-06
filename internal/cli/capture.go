@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -75,8 +76,9 @@ func runCaptureRun(args []string) int {
 		case strings.HasPrefix(a, "--surface-root-of="):
 			// The same door, named by the workspace bind it is under: the home is the session's
 			// setup's (docs/design/named-setups.md §9), which the host act does not choose, so it
-			// is resolved here from the session's own YOLO_SETUP (captureSurfaceRootOf).
-			surfaceRoot = captureSurfaceRootOf(strings.TrimPrefix(a, "--surface-root-of="), os.Getenv(setup.EnvVar))
+			// is resolved here from the home the session's launch bound (captureSurfaceRootOf).
+			surfaceRoot = captureSurfaceRootOf(strings.TrimPrefix(a, "--surface-root-of="),
+				os.Getenv(paths.HomeStateEnv), os.Getenv(setup.EnvVar))
 		default:
 			fmt.Fprintf(os.Stderr, "capture-run: unexpected argument %q\n%s\n", a, captureRunUsage)
 			return 2
@@ -115,12 +117,17 @@ func runCaptureRun(args []string) int {
 }
 
 // captureSurfaceRootOf is the capture surfaces' second door under the workspace bind at
-// workspace: the session's setup's home (paths.SetupHomeState of setupName, the session's
-// YOLO_SETUP) when it is a directory, else the legacy home, which a launch still binds while it
-// is attributed to the setup (named-setups-plan.md SUP-D21). The driver checks the door against
-// the home before it uses it (capture.Options.SurfaceRoot), so a wrong answer costs a copy for a
+// workspace: the home the session's launch bound, homeRel (the session's paths.HomeStateEnv),
+// which is the only answer that is right while SUP-D21 keeps the legacy home bound beside a setup
+// home that exists (named-setups-plan.md SUP-D34). A session launched by a yolo that did not say
+// falls back to a guess: the setup's home (paths.SetupHomeState of setupName, the session's
+// YOLO_SETUP) when it is a directory, else the legacy home. The driver checks the door against
+// the home before it uses it (capture.Options.SurfaceRoot), so a wrong guess costs a copy for a
 // rename, never a wrong capture.
-func captureSurfaceRootOf(workspace, setupName string) string {
+func captureSurfaceRootOf(workspace, homeRel, setupName string) string {
+	if paths.ValidHomeStateRel(homeRel) {
+		return filepath.Join(paths.WorkspaceStateDir(workspace), filepath.FromSlash(homeRel))
+	}
 	if setup.ValidName(setupName) {
 		home := paths.SetupHomeState(workspace, setupName)
 		if fi, err := os.Lstat(home); err == nil && fi.IsDir() {

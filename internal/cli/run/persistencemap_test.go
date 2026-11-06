@@ -33,6 +33,14 @@ import (
 //
 // The inputs are the ones refreshJailBriefings hands persistenceMapFor — the config and the
 // selected packs — assembled into the argv the way Run assembles them.
+
+// persistenceMapFor is persistenceMapForSources for a launch that bound the legacy home and set no
+// other source, the shape most of these pins state.
+func persistenceMapFor(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack, workspace string, sealed bool, cname ...string) *jailcontent.PersistenceMap {
+	return persistenceMapForSources(rt, cfg, packs, workspace, sealed,
+		persistenceSources{home: paths.LegacyHomeState(workspace)}, cname...)
+}
+
 func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 	for _, tc := range []struct {
 		name, rt, ephemeral string
@@ -75,6 +83,7 @@ func TestThePersistenceMapIsTheMountPlan(t *testing.T) {
 			m := persistenceMapForSources(tc.rt, cfg, packs, "/ws", tc.sealed, persistenceSources{
 				cacheSource: in.cacheSource(), miseSource: miseSource,
 				cacheRelocations: in.cacheRelocations, hostCASAliases: in.hostCASAlias, scratchID: scratchID,
+				home: "/ws/.yolo/home",
 			}, in.cname)
 			if m == nil {
 				t.Fatalf("no persistence map for %s", tc.rt)
@@ -238,7 +247,7 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 				"- **Per launch** (in RAM): ",
 				"Survives nothing: they are gone when the jail stops, and a restart is a new launch " +
 					"with new, empty ones. Everything you put there uses this jail's memory.",
-				"all of `/home/agent` outside the other classes, writable and kept in this workspace's `.yolo/home`",
+				"all of `/home/agent` outside the other classes, writable and kept in this workspace's home under `.yolo/setups/<setup>/home`",
 				"yolo deletes nothing here but its own files (below) and clean, idle worktrees a pack's tool left in `$YOLO_DURABLE_DIR`.",
 				"- **Rewritten at each launch**: the briefing and skills files, and a few files yolo " +
 					"keeps in the home itself. A write to one may succeed here, and the next launch replaces it.",

@@ -236,6 +236,10 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 		// retire scaffolding the legacy launches left (named-setups-plan.md SUP-D33). Best effort, beneath the same two
 		// descriptors, never replacing; a record that stays behind only leaves those unowned.
 		_ = renameNoReplaceBetween(yolo, packFilesMountpointManifestName, dirfd, packFilesMountpointManifestName)
+		// The capture store (the prism baseline) belongs to the home it was rendered into, so it
+		// goes with it too (SUP-D35): left behind, the setup's first boot would diff the moved
+		// home against no baseline and lose the overlay the user built. Same terms.
+		_ = renameNoReplaceBetween(yolo, "prism", dirfd, "prism")
 		return legacyHomeMoved, fmt.Sprintf("Moved this project's home %s to %s: each setup keeps its own home now.", src, dest)
 	case errors.Is(err, unix.ENOENT):
 		return legacyHomeAbsent, ""
@@ -262,15 +266,23 @@ var legacyHomeAccountUID = macosuser.SandboxUID
 // setup's home when the move is allowed, prints the move's one line, and records which home this
 // launch binds (o.homeState). Run calls it once every launch gate has passed, before anything reads or
 // prepares a home. It never refuses the launch.
+//
+// WHILE A LEGACY HOME IS IN PLACE it decides under the workspace launch lock, which the launch then
+// holds until its arm lets go of it once its jail is up and answers the probe (6a-ii review m2).
+// Without it, a launch could decide to keep the legacy home because a jail ran, the jail could
+// stop, and a second launch could move the home before the first bound it, so the first would
+// recreate an empty .yolo/home and start on it. Once the home has moved this takes no lock, so
+// only the launches that might move it wait.
 func (o *Options) selectHome() {
 	o.homeState = ""
 	legacy := paths.LegacyHomeState(o.Workspace)
 	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
+		o.holdLaunchLock(yoloruntime.FromWorkspace(o.Workspace))
 		r := legacyHomeRequest{
 			Workspace:          o.Workspace,
 			Setup:              o.Setup,
 			UID:                os.Geteuid(),
-			Jails:              projectJailsOf(o.Workspace),
+			Jails:              o.projectJails(),
 			AppleContainerLaid: appleContainerLaidHome,
 		}
 		if o.Setup.Confinement == setup.ConfinementSeatbelt && o.Setup.RunAs != setup.RunAsSelf {
@@ -330,14 +342,23 @@ func HomeFor(workspace string, s setup.Setup) string {
 	return o.currentHome()
 }
 
-// projectJailsOf asks whether any jail of the workspace runs: the keeper of its container and the
-// keys of its macos-user and guest sessions. Any one alive is running; any one that could not be
-// asked is unknown, which the move reads as running.
+// projectJails asks whether any jail of the workspace runs, three ways, because a jail can run
+// with any one of them silent (6a-ii review M1):
+//
+//   - the keeper of its container, and of its macos-user and guest sessions (probeKeeper);
+//   - a live session record under any of those keys, kept or not (liveKeyedSessions): a keeperless
+//     macos-user session (JL-D42) holds no keeper lock, only its record;
+//   - a container of the workspace's name in each container runtime on PATH
+//     (probeExistingContainer, SUP-D10's probe): a jail whose keeper died, or one a yolo from before
+//     keepers started, has neither of the others.
+//
+// Any one found is running; any one that could not be asked is unknown, which the move reads as
+// running. A runtime not on PATH runs no jail, so it is not asked.
 //
 // The names are the workspace's one jail name (runtime.FromWorkspace), because jail names are not
 // setup-qualified yet (named-setups-plan.md SUP-D32): every setup of a project is keyed there.
-func projectJailsOf(workspace string) projectJails {
-	cname := yoloruntime.FromWorkspace(workspace)
+func (o *Options) projectJails() projectJails {
+	cname := yoloruntime.FromWorkspace(o.Workspace)
 	answer := projectJailsStopped
 	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
 		switch probeKeeper(key) {
@@ -346,9 +367,27 @@ func projectJailsOf(workspace string) projectJails {
 		case keeperUnknown:
 			answer = projectJailsUnknown
 		}
+		if len(liveKeyedSessions(key)) > 0 {
+			return projectJailsRunning
+		}
+	}
+	for _, rt := range projectContainerRuntimes {
+		if _, ok := o.LookPath(rt); !ok {
+			continue
+		}
+		switch id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); {
+		case id != "":
+			return projectJailsRunning
+		case !known:
+			answer = projectJailsUnknown
+		}
 	}
 	return answer
 }
+
+// projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's
+// and Apple Container's `container`.
+var projectContainerRuntimes = []string{"podman", "container"}
 
 // appleContainerLaidHome is the Apple Container layout signal (SUP-D20) for home, one of a
 // workspace's homes: a generated user-config copy of the shape an Apple Container launch leaves

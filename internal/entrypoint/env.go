@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
@@ -356,7 +357,7 @@ func (e *Env) renderTarget() render.Target {
 		// which would hand it the container default and make KindOf() call it a jail.
 		return render.Host(e.Home, e.Stderr, e.hostOwnership)
 	}
-	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr).WithSession(e.session)
+	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr).WithHomeState(e.Getenv(paths.HomeStateEnv)).WithSession(e.session)
 }
 
 // sharedRenderTarget is renderTarget without this session's redirect: where the shared copies and
@@ -365,7 +366,7 @@ func (e *Env) sharedRenderTarget() render.Target {
 	if e.hostTarget {
 		return e.renderTarget()
 	}
-	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr)
+	return render.Jail(e.Home, e.WorkspaceDir(), e.Stderr).WithHomeState(e.Getenv(paths.HomeStateEnv))
 }
 
 // ShimBinPath returns the directory a shim exec's the real tool from, defaulting

@@ -660,7 +660,7 @@ func (o *Options) recordLaunchContext(cfg *jsonx.OrderedMap, packs []*packload.P
 			o.logRecord("%s", line)
 		}
 	}
-	prism, err := paths.OpenWorkspaceStateSubdir(o.Workspace, "prism")
+	prism, err := paths.OpenWorkspacePrismRoot(o.Workspace, o.homeRel())
 	if err != nil {
 		prism = nil
 	} else {

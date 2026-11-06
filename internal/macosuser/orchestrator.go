@@ -360,7 +360,7 @@ type Options struct {
 // the agent runs as, and what confines it instead of a second account.
 const SelfModeDisclosure = "[bold]macos-user runs the agent as you[/bold] (the seatbelt-self setup, " +
 	"experimental), with no second account, under the deny-by-default Seatbelt profile: it opens " +
-	"this workspace, the agent's own home in .yolo/home and the tools, and denies the rest of your " +
+	"this workspace, the agent's own home in .yolo/setups/<setup>/home and the tools, and denies the rest of your " +
 	"files, your keychain and your other processes."
 
 // runAs is the launch's one crossing into the sandbox (mode.go, MMP-D4): the preflights the
@@ -373,8 +373,8 @@ func (o Options) runAs() RunAs {
 	return RunAs{Mode: ModeSelf, Homes: o.homes(), User: o.HostUser}
 }
 
-// homes is the launch's Homes (LaunchHomes): HOME is the workspace's .yolo/home in both modes
-// (MMP-D25).
+// homes is the launch's Homes (LaunchHomes): HOME is the workspace's home the launch bound (its
+// setup's, named-setups.md §9) in both modes (MMP-D25).
 func (o Options) homes() Homes {
 	return LaunchHomes(o.Mode, workspaceSidecar(resolvePathAbs(o.Workspace), o.HostHomeOverlay), o.HostHome)
 }
@@ -1031,7 +1031,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
-	// NO HOLD ON ANY HOME (MMP-D25): each workspace's HOME is its own .yolo/home in both modes, so
+	// NO HOLD ON ANY HOME (MMP-D25): each workspace's HOME is its own home in both modes, so
 	// two workspaces launch at once with no HOME in common to hold.
 
 	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;

@@ -201,7 +201,7 @@ func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
 			"Everything you put there uses this jail's memory. A scratchpad a harness hands you under `/tmp` is in " +
 			"this class. Throwaway files only, never a worktree.",
 		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; all of `/home/agent` outside the " +
-			"other classes, writable and kept in this workspace's `.yolo/home` (the agents' and tools' own state and " +
+			"other classes, writable and kept in this workspace's home under `.yolo/setups/<setup>/home` (the agents' and tools' own state and " +
 			"installs: never put your work there); `/workspace/.venv`, `/mise` (this jail's own copies, not the host's). " +
 			"Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes " +
 			"nothing here but its own files (below) and clean, idle worktrees a pack's tool left in `$YOLO_DURABLE_DIR`.",

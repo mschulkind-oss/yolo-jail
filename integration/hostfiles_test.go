@@ -208,7 +208,7 @@ func TestHostFilesSurfaceLsAndReset(t *testing.T) {
 	} else if strings.Contains(string(data), "mine") {
 		t.Errorf("reset discarded the sidecars and left the edit in the jail's file — half an "+
 			"undo, and the next launch adopts it back:\n%s", data)
-	} else if baseline, berr := os.ReadFile(filepath.Join(dir, ".yolo", "prism",
+	} else if baseline, berr := os.ReadFile(filepath.Join(jailPrism(dir),
 		"user-"+userCapSlug+".last_render")); berr != nil {
 		// RE-SEEDED, NOT DELETED (OQ-CO7 D1, reseedResetBaseline): reset has just written
 		// these bytes, so it writes the baseline for them rather than leaving the next render
@@ -252,7 +252,7 @@ const userCapSlug = ".config_2fyolo-it_2fcap.json"
 func captureOverlays(workspaceDir string) []string {
 	var out []string
 	for _, suffix := range []string{"*.overlay.json"} {
-		found, _ := filepath.Glob(filepath.Join(workspaceDir, ".yolo", "prism", "user-"+suffix))
+		found, _ := filepath.Glob(filepath.Join(jailPrism(workspaceDir), "user-"+suffix))
 		out = append(out, found...)
 	}
 	return out

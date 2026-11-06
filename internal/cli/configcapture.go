@@ -57,23 +57,19 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
-// captureOnTerminate folds this session's in-jail edits into the overlay sidecars
-// for the jail launched from workspace, which has just been torn down. runtime is
-// the resolved container runtime, needed because the two container backends back
-// the jail home differently (see jailHomeSurfaceRel).
+// captureOnTerminateIn folds this session's in-jail edits into the overlay sidecars of the jail
+// launched from workspace, which has just been torn down. homeDir is the workspace home that jail
+// bound (the selected setup's, or the legacy one while it was attributed to it;
+// docs/design/named-setups.md §9), which every production hook passes: the launch's, its keeper's
+// and `yolo stop`'s reap of an unkept jail. The capture store is the one beside that home
+// (paths.PrismStateRel; named-setups-plan.md SUP-D35), so a home is only ever diffed against the
+// baseline rendered into it. A homeDir that is none of the workspace's homes captures nothing.
+// runtime is the resolved container runtime, needed because the two container backends back the
+// jail home differently (see jailHomeSurfaceRel).
 //
 // It NEVER returns an error and never panics out: every failure is one warn line
 // and the loop continues. See R7 in the file comment — the teardown this hangs off
 // must not become failable because an audit convenience did.
-func captureOnTerminate(workspace, runtime string, warn func(string)) {
-	captureOnTerminateIn(workspace, paths.LegacyHomeState(workspace), runtime, warn)
-}
-
-// captureOnTerminateIn is captureOnTerminate from homeDir, the workspace home the torn-down jail
-// bound (the selected setup's, or the legacy one while it was attributed to it;
-// docs/design/named-setups.md §9), which every production hook passes: the launch's, its keeper's
-// and `yolo stop`'s reap of an unkept jail. A homeDir that is none of the workspace's homes
-// captures nothing.
 func captureOnTerminateIn(workspace, homeDir, runtime string, warn func(string)) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -85,7 +81,11 @@ func captureOnTerminateIn(workspace, homeDir, runtime string, warn func(string))
 	// the jail left at a surface, at a sidecar, or at a directory above either, had the capture
 	// read a host file into the overlay the jail reads, or truncate the host file the link
 	// named (docs/reference/jail-home.md, "Host code in jail-writable state").
-	prism, ok := openCaptureRoot(workspace, "prism", warn)
+	homeRel, ok := paths.HomeStateRel(workspace, homeDir)
+	if !ok {
+		return
+	}
+	prism, ok := openCaptureRoot(workspace, paths.PrismStateRel(homeRel), warn)
 	if !ok {
 		// No jail has ever rendered into this workspace, so there is no baseline to
 		// diff against and nothing to capture. Silent: this is the ordinary state of
@@ -127,12 +127,13 @@ func captureOnTerminateIn(workspace, homeDir, runtime string, warn func(string))
 	}
 }
 
-// openCaptureRoot opens name under the workspace's `.yolo` as a root for the capture, and
-// reports false when there is none. A missing directory, or something other than one, is
-// silent (nothing was ever rendered here); a symbolic link at `.yolo` or at name is WARNED,
-// naming it, because it is either a jail's plant or a relocation the next launch refuses too.
-func openCaptureRoot(workspace, name string, warn func(string)) (*os.Root, bool) {
-	r, err := paths.OpenWorkspaceStateSubdir(workspace, name)
+// openCaptureRoot opens rel under the workspace's `.yolo` (openCaptureDir) as a root for the
+// capture, and reports false when there is none. A missing directory, or something other than
+// one, is silent (nothing was ever rendered here); a symbolic link at `.yolo` or at any component
+// below it is WARNED, naming it, because it is either a jail's plant or a relocation the next
+// launch refuses too.
+func openCaptureRoot(workspace, rel string, warn func(string)) (*os.Root, bool) {
+	r, err := openCaptureDir(workspace, rel)
 	if err != nil {
 		var linked *paths.LinkedStateDirError
 		if errors.As(err, &linked) {
@@ -144,13 +145,10 @@ func openCaptureRoot(workspace, name string, warn func(string)) (*os.Root, bool)
 }
 
 // openCaptureDir opens <workspace>/.yolo/<dir> refusing a link at `.yolo` and at every component
-// below it: dir is a single name (paths.OpenWorkspaceStateSubdir), or a setup's home,
-// setups/<setup>/home (paths.OpenWorkspaceHomeRoot).
+// below it (paths.OpenWorkspaceStateRel): dir is one name (prism, the legacy home), a setup's home
+// (setups/<setup>/home), or a setup's capture store (setups/<setup>/prism).
 func openCaptureDir(workspace, dir string) (*os.Root, error) {
-	if strings.Contains(filepath.ToSlash(dir), "/") {
-		return paths.OpenWorkspaceHomeRoot(workspace, filepath.Join(paths.WorkspaceStateDir(workspace), dir))
-	}
-	return paths.OpenWorkspaceStateSubdir(workspace, dir)
+	return paths.OpenWorkspaceStateRel(workspace, dir)
 }
 
 // openCaptureHome is openCaptureRoot for home, one of the workspace's homes
