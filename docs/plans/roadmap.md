@@ -244,8 +244,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [approvals](../../userguide/guides/approvals.md)). What remains of the maintainer's 2026-10-23 ask (*"proper
     evergreen documents and a user guide section that's up to date"*) is graduation: [the git broker's
     reference](../reference/git-broker.md) is written, and [its design](../design/git-broker.md) graduates once
-    [GB-D28](../design/git-broker.md#GB-D28)'s removal of `yolo approve --add` and `--remember` is built; [the
-    host-run mailbox](../design/host-run-mailbox.md) still needs its system doc.
+    [GB-D28](../design/git-broker.md#GB-D28)'s removal of `yolo approve --add` and `--remember` is built.
     [Which writes to a PR or issue run unasked](../design/github-write-scopes.md) is ruled, including the same removal
     for GitHub; complete [its plan](../design/github-write-scopes-plan.md) against the tree. [Workspace widening](../design/workspace-widening.md)
     graduates once [OQ-WW1](../design/workspace-widening.md#OQ-WW1) is ruled. Also asked for on 2026-10-09:

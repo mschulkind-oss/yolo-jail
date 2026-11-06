@@ -61,12 +61,12 @@ their own codes:
 | 0 | A result arrived and was printed, whatever the command's own exit |
 | 64 | No project here (add `-C`), or `show` found no runs yet |
 | 69 | The host refused the line, stopped without a result, or the jail cannot read the files |
-| 75 | Nothing arrived within `--timeout` (default 100 minutes); run `wait` again |
+| 75 | Nothing arrived within `--timeout` (default 100 minutes), or `show` found the run still running; run `wait` again |
 
 ## What gets refused
 
-Each refusal runs nothing, exits 64 and says what to do instead. Once yolo knows the project, the
-agent is told too.
+Each refusal runs nothing, exits 64 and says what to do instead. The refusal of a `gh` command
+that prints your token reaches the agent too; every other refusal is printed for you alone.
 
 - **Run inside a jail.** It prints the ready line instead of running.
 - **A redirect or a pipe.** Your terminal must be stdin, stdout and stderr, so nothing hides the
@@ -86,8 +86,8 @@ agent is told too.
 
 Each run gets its own folder in the project, at `.yolo/host-run/<run id>/`, with `stdout`,
 `stderr`, `request.json` and `result.json`, or `refused.json` for a refusal. Inside the jail that
-is `/workspace/.yolo/host-run/`. yolo writes nothing there until the command has finished, so a
-secret on screen does not reach the jail before you can press Ctrl-C. Each stream keeps up to
+is `/workspace/.yolo/host-run/`. yolo writes none of the command's output there until the command
+has finished, so a secret on screen does not reach the jail before you can press Ctrl-C. Each stream keeps up to
 16 MiB; anything beyond that was shown only in your terminal, and the file says so. The next run
 removes folders older than 24 hours. Every run and refusal is also recorded on the host:
 `yolo audit --set human-run` lists the runs, and `yolo audit --set refused` the refusals.

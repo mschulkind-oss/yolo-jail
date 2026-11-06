@@ -1,11 +1,13 @@
 // Package hostrun is `yolo host-run`: a command a human runs on the host, whose stdout, stderr
 // and exit status are delivered to the jail as files in the workspace's mailbox,
-// <workspace>/.yolo/host-run/ (docs/design/host-run-mailbox.md).
+// <workspace>/.yolo/host-run/.
 //
 // The PASTE LINE, `yolo host-run [-C DIR] [--name LABEL] -- ARGV`, is the whole interface: an
 // agent or a human writes it by hand, and running it on the host is the approval (HX-P1,
 // HX-D35). The host form (host.go) is the only thing that runs anything; the jail forms (wait.go)
 // only read. The host never reads a file beneath `.yolo` (HX-P3).
+//
+// Architecture and invariants: docs/reference/host-run-mailbox.md
 package hostrun
 
 import (

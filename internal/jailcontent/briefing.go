@@ -886,7 +886,7 @@ var briefingMenuExample = approvalwait.Menu{
 // hostRunSection teaches the agent what to do when the human must act on the host: the three
 // rules (approvals are not host-run; each human command alone in a fenced block; the waiter
 // started in the background in the same turn), the approval menu a refusal prints, and
-// `yolo host-run` (docs/design/host-run-mailbox.md §4.1, HX-D41), one line a human runs on the
+// `yolo host-run` (docs/reference/host-run-mailbox.md, HX-D41), one line a human runs on the
 // host whose output comes back here. It is a jail section; the host notch's briefing returns
 // before it. It names no harness: a pack that installs one adds how its background task is
 // started.
