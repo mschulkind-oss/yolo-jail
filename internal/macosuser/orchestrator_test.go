@@ -349,6 +349,32 @@ func TestSandboxPlanCarriesNoColor(t *testing.T) {
 	}
 }
 
+// The host's TERM_PROGRAM crosses into the sandbox's session env file beside TERM: under a
+// terminal whose TERM is a generic xterm (herdr's xterm-256color) it is the only signal an
+// agent TUI has, and pi keeps OSC 8 links off without it. Unset, it does not cross.
+func TestSandboxPlanCarriesTermProgram(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{"herdr", true}, {"", false}} {
+		d := mockDeps(nil)
+		d.Getenv = func(k string) string {
+			if k == "TERM_PROGRAM" {
+				return tc.value
+			}
+			return ""
+		}
+		env := buildPlan(d, newOpts("/Users/Shared/proj"), nil).EnvFileContent
+		if got := strings.Contains(env, "TERM_PROGRAM="); got != tc.want {
+			t.Errorf("host TERM_PROGRAM=%q: env file carries TERM_PROGRAM = %v, want %v:\n%s",
+				tc.value, got, tc.want, env)
+		}
+		if tc.want && !strings.Contains(env, "TERM_PROGRAM='herdr'") {
+			t.Errorf("TERM_PROGRAM crossed with the wrong value:\n%s", env)
+		}
+	}
+}
+
 // A user who sets it explicitly wins: it goes in BEFORE env_sources and SandboxEnv precisely so
 // it stays a default rather than an override.
 func TestSandboxTrustPathIsOverridable(t *testing.T) {
