@@ -447,6 +447,15 @@ func prepareOrdinaryForLaunch(req run.ProgramCaptureRequest, w io.Writer) (map[s
 		if err := registerOrdinaryPreparations(ctx, vector, req, w); err != nil {
 			fmt.Fprintf(w, "ordinary timer preparation could not start (%v) — this launch still prepares its required artifacts; run a fresh launch to retry the timer\n", err)
 		}
+		// No unaudited private client is prepared at all: it is refused before its recipe resolves.
+		for _, in := range vector {
+			if cell, isPrivate := private[in.Bin]; isPrivate {
+				if err := refuseUnauditedPrivateClient(cell, in); err != nil {
+					operationErr = err
+					return
+				}
+			}
+		}
 		for _, in := range vector {
 			guard := foregroundOrdinaryGuard(ctx, req, in)
 			record, err := waitOrdinaryPreparation(ctx, in, req.Fingerprint, req.Runtime, req.Platform, req.Fresh, w, guard)

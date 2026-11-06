@@ -47,6 +47,48 @@ func privateClientMismatch(cell packload.PrivateProgramEnvPlan, what, repair str
 	return &privateClientDeliveryRefusal{Cell: cell, Cause: "its checked delivery does not match: " + what, Repair: repair}
 }
 
+// auditedPrivateClient is one private HTTP client delivery whose exact source was audited: the
+// selected npm capture input (pack, bin and exact recipe) and the one registry tarball and SHA-512
+// integrity its resolution may name. Only a delivery listed in auditedPrivateClients takes the
+// private route; any other is refused as unsupported (docs/design/pack-brokers-http-plan.md, "Task 2
+// first slice": the slice authorizes exactly one cell).
+type auditedPrivateClient struct {
+	Owner, Bin, Package        string
+	SourceURL, SourceIntegrity string
+}
+
+// auditedPrivateClients is data, not a branch: the checks below read it the same way for any entry.
+// The one entry is the semver 7.7.2 tarball whose entire 52-file source was audited (local semver
+// mathematics, static relative requires, console/argv only; no runtime, optional or bundled
+// dependencies, install scripts, binding.gyp or native binaries).
+var auditedPrivateClients = []auditedPrivateClient{{
+	Owner: "audited-semver", Bin: "semver", Package: "semver@7.7.2",
+	SourceURL:       "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz",
+	SourceIntegrity: "sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==",
+}}
+
+const auditedPrivateClientRepair = "select this HTTP front only with an audited private client delivery (pack audited-semver, recipe semver@7.7.2), or remove this client's `env` contribution naming the front, then rerun `yolo`"
+
+// auditedPrivateClientFor is the audited delivery of the selected capture input in, if any.
+func auditedPrivateClientFor(in npmCaptureInput) (auditedPrivateClient, bool) {
+	for _, a := range auditedPrivateClients {
+		if a.Owner == in.Owner && a.Bin == in.Bin && a.Package == in.Package {
+			return a, true
+		}
+	}
+	return auditedPrivateClient{}, false
+}
+
+// refuseUnauditedPrivateClient refuses, before anything is prepared, a private client whose
+// selected recipe no audited delivery names.
+func refuseUnauditedPrivateClient(cell packload.PrivateProgramEnvPlan, in npmCaptureInput) error {
+	if _, ok := auditedPrivateClientFor(in); ok {
+		return nil
+	}
+	return &privateClientDeliveryRefusal{Cell: cell, Repair: auditedPrivateClientRepair,
+		Cause: "its delivery is unsupported: no audited private client delivery names " + in.Owner + "/" + in.Bin + " at " + in.Package}
+}
+
 // npmRegistryTarball is the public registry's tarball URL of name at version, the one audited
 // source a private client's npm recipe may resolve to.
 func npmRegistryTarball(name, version string) string {
@@ -99,9 +141,16 @@ func verifyPrivateClientDelivery(cell packload.PrivateProgramEnvPlan, in npmCapt
 		return zero, privateClientMismatch(cell, "its recipe pins no exact audited release (it declares "+in.Package+", which resolved "+record.Resolution.Release+")",
 			"pin the pack's program to the audited exact release, then rerun `yolo` to reprepare it")
 	}
+	audited, ok := auditedPrivateClientFor(in)
+	if !ok {
+		return zero, refuseUnauditedPrivateClient(cell, in)
+	}
 	url, integrity, ok := strings.Cut(record.Resolution.Source, "|")
-	if !ok || url != npmRegistryTarball(name, selector) {
+	if !ok || url != npmRegistryTarball(name, selector) || url != audited.SourceURL {
 		return zero, privateClientMismatch(cell, "its source is not the registry's audited tarball of "+in.Package, privateClientBaselineRepair)
+	}
+	if integrity != audited.SourceIntegrity {
+		return zero, privateClientMismatch(cell, "its source integrity is not the audited SHA-512 of "+in.Package, privateClientBaselineRepair)
 	}
 	entry := callbrokerinput.PreparedHTTPClientEntrypoint{Bin: cell.Bin, Pack: cell.Pack, Front: cell.Front, RecipePack: cell.RecipePack,
 		RecipeIdentity: cell.RecipeIdentity, Declared: delivery.Declared, Platform: delivery.Platform, Runtime: delivery.Runtime,

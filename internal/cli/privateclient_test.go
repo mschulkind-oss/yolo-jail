@@ -20,8 +20,8 @@ import (
 // auditedSemverURL and auditedSemverIntegrity are the audited cell of docs/design/pack-brokers-http-plan.md's
 // Task 2 first slice (programcapturesealedintegration_test.go).
 
-func auditedSemverManifest(pkg string) string {
-	return `{"name":"audited-semver","contributes":[{"kind":"program","bin":"semver","via":"npm","package":"` + pkg + `"},` +
+func auditedSemverManifest(pack, pkg, extra string) string {
+	return `{"name":"` + pack + `","contributes":[` + extra + `{"kind":"program","bin":"semver","via":"npm","package":"` + pkg + `"},` +
 		`{"kind":"env","bin":"semver","served_by":"tasks","vars":{"SEMVER_TOKEN":"{caller_token}","SEMVER_URL":"https://{listen}","SSL_CERT_FILE":"{client_trust}"}}]}`
 }
 
@@ -37,20 +37,30 @@ func auditedSemverRun(t *testing.T, pkg string, overrides map[string]string, cel
 	f.version(t, "7.7.2")
 	files := map[string]string{"resolved": auditedSemverURL, "integrity": auditedSemverIntegrity,
 		"binmap": `{"semver":"bin/semver.js"}`, "binpath": "bin/semver.js"}
+	// "pack" names the selected pack (default audited-semver) and "contribution" adds one manifest
+	// contribution before the program; every other override is a registry fixture file.
+	pack, extra := "audited-semver", ""
 	for k, v := range overrides {
-		files[k] = v
+		switch k {
+		case "pack":
+			pack = v
+		case "contribution":
+			extra = v + ","
+		default:
+			files[k] = v
+		}
 	}
 	for name, content := range files {
 		writeFile(t, filepath.Join(f.root, name), content)
 	}
-	req := selectedNPMUserPack(t, f, false, "audited-semver", auditedSemverManifest(pkg))
-	if f.in.Owner != "audited-semver" || f.in.Bin != "semver" || f.in.Package != pkg {
+	req := selectedNPMUserPack(t, f, false, pack, auditedSemverManifest(pack, pkg, extra))
+	if f.in.Owner != pack || f.in.Bin != "semver" || f.in.Package != pkg {
 		t.Fatalf("selected ordinary input is not the audited cell: %+v", f.in)
 	}
 	selectedNPMSharedWorker(t)
 	var inst *packload.PrivateProgramEnvPlan
 	for _, p := range req.Packs {
-		if p.Name != "audited-semver" {
+		if p.Name != pack {
 			continue
 		}
 		for _, c := range p.Decl.InstallContributions() {
@@ -61,11 +71,11 @@ func auditedSemverRun(t *testing.T, pkg string, overrides map[string]string, cel
 			if err != nil {
 				t.Fatal(err)
 			}
-			inst = &packload.PrivateProgramEnvPlan{Bin: "semver", Pack: "audited-semver", Front: "tasks", RecipePack: "audited-semver", RecipeIdentity: identity}
+			inst = &packload.PrivateProgramEnvPlan{Bin: "semver", Pack: pack, Front: "tasks", RecipePack: pack, RecipeIdentity: identity}
 		}
 	}
 	if inst == nil {
-		t.Fatal("selected audited-semver pack declares no semver program")
+		t.Fatalf("selected %s pack declares no semver program", pack)
 	}
 	if cell != nil {
 		cell(inst)
@@ -144,7 +154,7 @@ func TestAuditedSemverPrivateClientRefusesMismatchedDeliveries(t *testing.T) {
 			cause: "prepared recipe is not the selected one", legacy: true},
 		{name: "unselected recipe pack", pkg: "semver@7.7.2", cell: func(c *packload.PrivateProgramEnvPlan) { c.RecipePack = "other-pack" },
 			cause: "prepared program is audited-semver/semver", legacy: true},
-		{name: "unpinned selector", pkg: "semver", cause: "pins no exact audited release", legacy: true},
+		{name: "unpinned selector", pkg: "semver", cause: "no audited private client delivery", legacy: true},
 		{name: "registry fork tarball", pkg: "semver@7.7.2", overrides: map[string]string{"resolved": "https://registry.npmjs.org/semver-fork/-/semver-fork-7.7.2.tgz"},
 			cause: "not the registry's audited tarball", legacy: true},
 		{name: "weak integrity", pkg: "semver@7.7.2", overrides: map[string]string{"integrity": "sha1-abc"}, cause: "SHA-512", legacy: true},
@@ -270,5 +280,50 @@ func TestPrivateClientBootstrapExecsOnlyTheBoundVerifiedEntrypoint(t *testing.T)
 				t.Fatalf("bootstrap ran an unbound or tampered client: rc=%d exec=%q", rc, execed)
 			}
 		})
+	}
+}
+
+// Only the audited cell takes the private route: any other private client delivery (another pack,
+// another release, another tarball's integrity) refuses as unsupported, naming its repair, and a
+// recipe the audit does not name is never prepared at all.
+func TestOnlyTheAuditedCellTakesThePrivateRoute(t *testing.T) {
+	otherIntegrity := "sha512-" + strings.Repeat("A", 86) + "=="
+	for _, tc := range []struct {
+		name      string
+		pkg       string
+		overrides map[string]string
+		cause     string
+		prepared  bool
+	}{
+		{name: "another pack", pkg: "semver@7.7.2", overrides: map[string]string{"pack": "other-semver"}, cause: "no audited private client delivery"},
+		{name: "another release", pkg: "semver@7.7.1", overrides: map[string]string{"resolved": "https://registry.npmjs.org/semver/-/semver-7.7.1.tgz"}, cause: "no audited private client delivery"},
+		{name: "another integrity", pkg: "semver@7.7.2", overrides: map[string]string{"integrity": otherIntegrity}, cause: "audited SHA-512", prepared: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _, checked, err := auditedSemverRun(t, tc.pkg, tc.overrides, nil, true)
+			var refusal *privateClientDeliveryRefusal
+			if !errors.As(err, &refusal) || len(checked) != 0 {
+				t.Fatalf("an unaudited private client took the private route: %v %+v", err, checked)
+			}
+			out := refusal.Render(false)
+			for _, want := range []string{"semver", tc.cause, "Repair:", "Nothing falls back"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("refusal does not name %q:\n%s", want, out)
+				}
+			}
+			if !tc.prepared && r.f.resolves.Load() != 0 {
+				t.Fatalf("an unaudited recipe was prepared %d times before its refusal", r.f.resolves.Load())
+			}
+		})
+	}
+}
+
+// The production pin is the audited cell the sealed fixture verifies its tarball against, and
+// nothing else.
+func TestAuditedPrivateClientsPinExactlyTheAuditedCell(t *testing.T) {
+	want := []auditedPrivateClient{{Owner: "audited-semver", Bin: "semver", Package: "semver@7.7.2",
+		SourceURL: auditedSemverURL, SourceIntegrity: auditedSemverIntegrity}}
+	if len(auditedPrivateClients) != 1 || auditedPrivateClients[0] != want[0] {
+		t.Fatalf("audited private clients = %+v, want %+v", auditedPrivateClients, want)
 	}
 }
