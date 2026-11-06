@@ -228,26 +228,28 @@ func TestPackAudienceRoutesBriefingFilesPerAgent(t *testing.T) {
 	}
 }
 
-// TestPackAudienceRefusesAnAgentTheJailDoesNotHave is P3 in a real launch: the jail must
-// REFUSE rather than start with prose addressed to nobody.
+// TestPackAudienceSkipsAndDisclosesAnAgentTheJailDoesNotHave is FS-D6 in a real launch
+// (docs/design/pack-files-for-agent-state.md#FS-D6): prose addressed to an agent no selected
+// pack provides is SKIPPED, the launch goes on, and the launch says so, naming the pack, the
+// agent and the `yolo pack add` that would deliver it. Before FS-D6 this case refused.
 //
-// It belongs here because the refusal's whole value is that the launch stops, and "the launch
-// stops" is a container fact. The unit tests assert the message; this asserts the consequence.
-func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
+// It belongs here because "the launch goes on and discloses" is a container fact. The unit
+// tests assert the message; this asserts the consequence.
+func TestPackAudienceSkipsAndDisclosesAnAgentTheJailDoesNotHave(t *testing.T) {
 	requireJail(t)
 
-	// The directory basename, NOT the manifest's `name`, is what the refusal must print —
+	// The directory basename, NOT the manifest's `name`, is what the disclosure must print —
 	// see the file header. `house-rules` is distinctive enough that matching it in the
 	// combined output cannot happen by accident, which a bare t.TempDir() number is not.
 	pack := filepath.Join(t.TempDir(), "house-rules")
 	if err := os.MkdirAll(filepath.Join(pack, "prose"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pack, "prose", "x.md"), []byte("rules\n"), 0o644); err != nil {
+	const codexOnly = "FS-D6 codex-only house rule"
+	if err := os.WriteFile(filepath.Join(pack, "prose", "x.md"), []byte(codexOnly+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// `codex` is a real agent and a real shipped pack — it is simply not selected below, which
-	// under P3 is the same mistake as a typo and earns the same refusal.
+	// `codex` is a real agent and a real shipped pack — it is simply not selected below.
 	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(
 		`{"name":"house","description":"h","contributes":[`+
 			`{"kind":"briefing","from":"prose/x.md","agents":["codex"]}]}`), 0o644); err != nil {
@@ -257,21 +259,22 @@ func TestPackAudienceRefusesAnAgentTheJailDoesNotHave(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["claude", "file://`+pack+`"]}`)
 
-	r := runYolo(t, dir, "true")
-	if r.rc == 0 {
-		t.Fatalf("the launch STARTED with prose addressed to an agent this jail does not have; "+
-			"a silently inert selector is indistinguishable from a working one\n%s", r.combined())
+	r := runYolo(t, dir, "cat /home/agent/.claude/CLAUDE.md")
+	if r.rc != 0 {
+		t.Fatalf("the launch refused prose addressed to an agent this jail does not have; "+
+			"FS-D6 skips it and goes on (rc %d)\n%s", r.rc, r.combined())
 	}
 	// `house-rules` is the SOURCE DIRECTORY's name; the pack.json says `house`. Asserting
 	// the former is what makes this the end-to-end pin of where an effective name comes
-	// from — a launch that printed `house` would mean the manifest had started winning,
-	// and the staging dir, the prune key and the /ctx mount path would each need to move
-	// with it (run.TestConfiguredPackNameComesFromTheAddressNotTheManifest).
-	for _, want := range []string{"codex", "house-rules", "Agents your `packs` provide"} {
+	// from (run.TestConfiguredPackNameComesFromTheAddressNotTheManifest).
+	for _, want := range []string{"skipped", "house-rules", "codex", "yolo pack add codex"} {
 		if !strings.Contains(r.combined(), want) {
-			t.Errorf("refusal missing %q — it has to name the string, the pack and the "+
-				"candidates:\n%s", want, r.combined())
+			t.Errorf("the skip disclosure is missing %q — it has to name the pack, the agent "+
+				"and the next step:\n%s", want, r.combined())
 		}
+	}
+	if strings.Contains(r.stdout, codexOnly) {
+		t.Errorf("claude's briefing carries prose addressed to codex alone:\n%s", r.stdout)
 	}
 }
 
