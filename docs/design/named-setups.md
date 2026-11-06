@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: in-review
 stage: DESIGN
-next: "Build slice 6a with the silent legacy-home move (SUP-D9) and slice 11, the unified yolo ps/stores; no owner question is open"
+next: "Rule OQ-SU7 (bind-source custody: always, only while a jail could write the path, or per backend); then 6a-ii builds to the ruling; slice 11 is independent"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -24,6 +24,9 @@ A self-process `--preserve-fds` countercontrol also shows the raw source descrip
 guest code, so direct pass-through is not an acceptable production fix. Neither probe is accepted
 production source; the outside/foreign-pack path and legacy-home adoption reds remain. See
 [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+[OQ-SU7](#OQ-SU7) is open: it asks whether bind-source custody is needed on every launch or only
+while a running jail could write the source's path. Binding per-setup homes (6a-ii) waits on that
+ruling.
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
@@ -440,6 +443,58 @@ to an untrusted guest. The outside/foreign-pack pathname red is separate from th
 activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
 for the remaining proof boundary.
 
+**What bind-source custody closes, and a proposed revision ([OQ-SU7](#OQ-SU7), open).** Here
+*custody* (a term coined by the plan's evidence) means that the directory the engine mounts is
+the one yolo checked, held as an open descriptor, and not whatever a path names when the engine
+reads it.
+
+- **The writer.** Code in any running jail whose writable binds cover a directory on the bind
+  source's path. For per-setup state, that is every container jail of the same project: each
+  binds the whole workspace read-write at `/workspace`, `.yolo` included, and hides nothing
+  beneath it. A jail whose workspace contains this project's workspace can also write it, and so
+  can a Seatbelt guest of the project, since its rules let it write the workspace.
+- **The swap.** yolo checks a source such as `<ws>/.yolo/setups/<name>/home` (or one of its
+  per-directory children, which podman binds one by one) through a no-link descriptor chain. The
+  engine reads the pathname later, when it starts the container. In between, the writer renames
+  or replaces a component (`.yolo`, `setups`, `<name>`, `home` or a child) with a symbolic link
+  or another directory.
+- **The gain.** The new jail gets a read-write bind of a host directory the writer chose:
+  anything the account resolving the path can reach, such as `~/.ssh`, `~/.config/yolo-jail`,
+  another project, or another setup's home. Under rootful podman that account is root. This
+  breaks the new jail's walls, which is the outcome confinement exists to prevent.
+- **Masking does not stop the writer.** Hiding `.yolo/setups` inside each jail is not enough.
+  A local probe (in the plan's evidence) put a tmpfs over `/workspace/.yolo/setups` in a jail
+  that bound the workspace read-write. The jail could not rename the mountpoint itself (EBUSY),
+  but it renamed the parent `.yolo` aside and planted a link at the host's `.yolo/setups`. So
+  "a running jail's code can reach only its own home" is not true of any container backend
+  today.
+
+**What [OQ-SU5](#OQ-SU5)'s reasoning makes moot.** The ruling on [OQ-SU5](#OQ-SU5) rests on one premise:
+when no jail can write the path, the only writer left is a same-user host process, and it
+already has that reach. The same premise covers bind sources. If no running jail's writable
+binds cover the source's chain at the moment the engine resolves it, a swap gains a same-user
+host process nothing it lacked. This holds when the engine resolves paths with the user's own
+authority (rootless podman), or when the user is root (yolo under rootful podman). Today's
+`<ws>/.yolo/home` binds already rely on that premise, though nothing writes it down: one jail
+runs per project, and a new container is created only once the project's jail is gone.
+
+**What it does not make moot:**
+
+- **Two setups of one project running side by side.** [§9](#9-state-per-setup) promises this, and 6a creates it: one
+  setup's jail is a live writer during the other's launch.
+- **A running jail whose workspace contains this one.** That hazard exists before 6a.
+- **Rootful podman under a non-root user.** There, a same-user host process would gain root's
+  reach.
+
+A local nested rootful Podman/crun probe shows a cheap mechanism for Linux podman. A host process
+holds a no-follow descriptor for the source and hands the engine `/proc/<holder-pid>/fd/<n>`.
+The engine mounted the held directory across a swap, no guest process held a directory
+descriptor, and the mount outlived the holder closing it. A restart re-resolved the string and
+mounted whatever held that descriptor slot by then. So the holder must keep the descriptor for
+the container's whole life, and no path may restart one (yolo runs `--rm` and restarts none).
+The probe is not a witness for rootless podman, macOS podman (a VM), Apple Container or Seatbelt.
+Seatbelt mounts nothing, so this engine question does not arise for it.
+
 **Cost.** Changing setup in a project starts with that setup's own transcripts: `claude --resume`
 under `seatbelt-self` does not see a conversation held under `podman-self`.
 
@@ -758,7 +813,38 @@ workspace, so the two can never disagree about what is running.
 
 ## 14. Open Questions
 
-None open.
+<a id="OQ-SU7"></a>**[OQ-SU7](#OQ-SU7): must every per-setup bind source be held in custody, or only
+when a running jail could be writing its path?**
+
+**Motivation.** 6a-ii, the switch that binds `.yolo/setups/<name>/home`, waits on a custody
+proof the plan requires for every launch. [§9](#9-state-per-setup) shows that the requirement
+only does work while some running jail can write the source's path, which is the same reasoning
+that settled [OQ-SU5](#OQ-SU5). Relaxing it would loosen a boundary that was accepted, so it is
+yours to rule.
+
+**Example.** `podman-self` runs in a project, and you launch `seatbelt-self`. Seatbelt mounts
+nothing. Now launch `podman-self` while a `seatbelt-self` guest of the project runs: that guest
+can rename `.yolo` and plant a link where the podman launch's home path resolves. Without
+custody, the new jail binds whatever the link names.
+
+- **A.** Keep custody required for every bind source whose path crosses a jail-writable
+  directory, on every launch. On Linux podman, a holder that keeps the descriptor for the
+  jail's life meets it. macOS podman and Apple Container cannot run 6a-ii at all until each has
+  a mechanism of its own.
+- **B.** Relax it by [OQ-SU5](#OQ-SU5)'s reasoning, for every backend. A launch holds a project-wide launch
+  lock from its check through the engine's start. Under that lock, if no running jail's
+  writable binds cover the source's path, it binds by pathname after the no-link check, as
+  today. Otherwise it refuses, naming `yolo stop` for the other setup. Two setups of one project
+  never run side by side until a backend gains custody. The nested-workspace hazard is closed by
+  the same check.
+- **C.** Both: held-descriptor custody wherever a backend has it (Linux podman, every launch),
+  and B's check and refusal wherever it does not (macOS podman, Apple Container).
+
+**Leaning: C.** On Linux the mechanism is cheap: one held descriptor per bind source, and no
+privilege or wrapper. It closes the concurrent case and the older nested-workspace case
+uniformly, and it keeps [§9](#9-state-per-setup)'s side-by-side promise where the check would otherwise refuse. B's
+rule is then the honest floor for the backends no probe has reached. Before C can be built on
+Linux, rootless podman still needs a witness, because a nested jail cannot show it.
 
 ## Decision Ledger
 
