@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -162,6 +163,44 @@ func TestListSessionsReadsTheRecord(t *testing.T) {
 			t.Errorf("%s, which has no readable record, lists as %+v; want notch %q and no workspace",
 				d, s, NotchUnknown)
 		}
+	}
+}
+
+// TestASessionWhoseRecordedProcessExitedIsGone is review M1 of slice 11c: a `yolo host` agent's
+// session lock is inherited by everything the agent spawns, so a daemon it left behind (a tmux
+// server, a nohup'd dev server) keeps the lock held after the agent exits. The record names the
+// agent's pid, and a held lock whose recorded process has exited lists as gone. A record naming a
+// running process, or no pid at all (a macos-user session, an older yolo's), is judged by the
+// lock alone.
+func TestASessionWhoseRecordedProcessExitedIsGone(t *testing.T) {
+	exited := exec.Command("true")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	deadPID := exited.Process.Pid
+	base := t.TempDir()
+	agentGone := plantSession(t, base, "yolo-a-1", "live",
+		&SessionRecord{Notch: NotchHost, Workspace: "/ws/a", Name: "yolo-a-1", PID: deadPID})
+	agentRuns := plantSession(t, base, "yolo-b-2", "live",
+		&SessionRecord{Notch: NotchHost, Workspace: "/ws/b", Name: "yolo-b-2", PID: os.Getpid()})
+	noPID := plantSession(t, base, "yolo-c-3", "live",
+		&SessionRecord{Notch: NotchMacosUser, Workspace: "/ws/c", Name: "yolo-c-3"})
+
+	sessions, ok := ListSessions(base)
+	if !ok {
+		t.Fatal("the listing did not run")
+	}
+	got := sessionByDir(sessions)
+	if s := got[agentGone]; s.Liveness != SessionGone || s.PID != deadPID {
+		t.Errorf("a held session whose agent (pid %d) exited lists as %+v; want gone", deadPID, s)
+	}
+	for _, d := range []string{agentRuns, noPID} {
+		if s := got[d]; s.Liveness != SessionLive {
+			t.Errorf("%s lists as %v; want live", d, s.Liveness)
+		}
+	}
+	if _, err := os.Stat(agentGone); err != nil {
+		t.Errorf("the listing removed a dir whose lock is still held: %v", err)
 	}
 }
 

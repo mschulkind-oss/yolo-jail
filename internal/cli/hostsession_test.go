@@ -5,11 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -22,8 +22,8 @@ import (
 // descriptor is not close-on-exec. When the launch returns without exec'ing (the exec failed),
 // the dir is gone.
 func TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec(t *testing.T) {
-	base := redirectSessionBase(t)
 	hostGateHome(t, `{"packs": ["claude"]}`, wcShell(nil))
+	base := paths.HostServicesBase(false)
 	bin := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -54,6 +54,10 @@ func TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec(t *testing.T) {
 	if s.Notch != runtime.NotchHost || s.Workspace == "" || s.Liveness != runtime.SessionLive {
 		t.Errorf("the session = %+v; want a live host session naming its workspace", s)
 	}
+	// The exec keeps the pid, so the agent's life is the recorded process's (SUP-D29).
+	if s.PID != os.Getpid() {
+		t.Errorf("the session records pid %d; want the launch's own, %d", s.PID, os.Getpid())
+	}
 	if !lockInherited {
 		t.Error("the session's lock is close-on-exec: it would be released the moment the agent replaced yolo")
 	}
@@ -62,21 +66,57 @@ func TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec(t *testing.T) {
 	}
 }
 
+// TestHostLaunchWithServicesButNoDoorwayHoldsOneSession: a launch that starts a launch-owned
+// service and opens no doorway stays resident, and holds exactly one session for its run, not one
+// per service; once it returns, none is left.
+func TestHostLaunchWithServicesButNoDoorwayHoldsOneSession(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
+	fakeHostBroker(t)
+	cfg := codexConfig(t, upstream.URL)
+	var base string
+	var during []runtime.Session
+	var listed bool
+	l := runServiceLaunchWith(t, cfg, []string{"-p", "codex"}, "", nil, func(string) {
+		base = paths.HostServicesBase(false)
+		orig := startLaunchService
+		startLaunchService = func(p *launchservice.Plan, env map[string]string) (*launchservice.Running, error) {
+			during, listed = runtime.ListSessions(base)
+			return orig(p, env)
+		}
+		t.Cleanup(func() { startLaunchService = orig })
+	})
+	if l.rc != 0 || len(l.started) == 0 {
+		t.Fatalf("rc = %d, started %d services; want a resident launch with one\n%s", l.rc, len(l.started), l.errs)
+	}
+	if l.execed {
+		t.Fatal("a launch with a service exec'd its agent")
+	}
+	if !listed || len(during) != 1 || during[0].Notch != runtime.NotchHost || during[0].Liveness != runtime.SessionLive {
+		t.Fatalf("while starting its service, sessions under %s = %+v (listed %v); want exactly one live host session\n%s",
+			base, during, listed, l.errs)
+	}
+	if after, _ := runtime.ListSessions(base); len(after) != 0 {
+		t.Errorf("after the launch returned, its session dir is left: %+v", after)
+	}
+}
+
 // lockCrossesExec reports whether this process holds path open on a descriptor that is not
-// close-on-exec.
+// close-on-exec. It finds the descriptor by file identity (fstat's device and inode against the
+// path's), which works the same on Linux and darwin, so it has no /proc to need.
 func lockCrossesExec(t *testing.T, path string) bool {
 	t.Helper()
-	entries, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		t.Skipf("no /proc/self/fd to read descriptors from: %v", err)
+	var want unix.Stat_t
+	if err := unix.Stat(path, &want); err != nil {
+		t.Fatalf("stat %s: %v", path, err)
 	}
-	for _, e := range entries {
-		fd, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		target, err := os.Readlink(filepath.Join("/proc/self/fd", e.Name()))
-		if err != nil || target != path {
+	var lim unix.Rlimit
+	maxFD := 1024
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err == nil && lim.Cur < uint64(maxFD) {
+		maxFD = int(lim.Cur)
+	}
+	for fd := 0; fd < maxFD; fd++ {
+		var st unix.Stat_t
+		if unix.Fstat(fd, &st) != nil || st.Dev != want.Dev || st.Ino != want.Ino {
 			continue
 		}
 		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)

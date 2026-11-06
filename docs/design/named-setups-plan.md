@@ -111,7 +111,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D26"></a>SUP-D26 | **Until slice 11d, a single-runtime `yolo ps` on a Mac with both runtimes installed prunes no tracking file.** Slice 11a ships SU-D10's legacy half alone; the other installed runtime was not asked, so it is `unreachable` for the prune. | The alternative, asking the second runtime only for the prune, is 11d's discovery built twice. A record left behind protects only its own name, and the launch's `forgetGoneContainer` still removes every record whose jail ended normally. |
 | <a id="SUP-D27"></a>SUP-D27 | **`--setup` is resolved by `setup.Lookup` over the built-ins and the user config's `[setups]`**, the same lookup a launch's `--setup` uses, so the refusal text is the launch's. | [§12.6](named-setups.md#126-narrowing-with---setup) requires the launch's message; one lookup cannot drift from it. |
 | <a id="SUP-D28"></a>SUP-D28 | **The host source is `runtime.ListSessions` narrowed to `notch: host`, and the Seatbelt source the rest.** A session with no record (an older yolo's) stays in the Seatbelt source, as `MacosUserSessions` places it today; on Linux the host source is the only session source. | One directory listing serves both; splitting by the record's notch is what `MacosUserSessions` already does. |
-| <a id="SUP-D29"></a>SUP-D29 | **A `yolo host` launch that execs its program hands the session lock across the exec, and a session it cannot open is a warning.** `HostSession.KeepAcrossExec` clears close-on-exec on the lock, so the program holds it for its life; its dir is collected by the next session open that finds the lock free. A failed open prints that `yolo ps` will not list this launch and goes on. | The program replaces yolo, so nothing of yolo's survives to hold the lock or remove the dir; the menu's lock and the session homes' leases already cross the exec the same way (MM-D27). A listing record is never a reason to refuse an agent: `openServicesSession`'s record write is not fatal either. |
+| <a id="SUP-D29"></a>SUP-D29 | **A `yolo host` launch that execs its program hands the session lock across the exec, and a session it cannot open is a warning.** `HostSession.KeepAcrossExec` clears close-on-exec on the lock, so the program holds it, and the session record carries the launch's pid, which the exec keeps. A session is live only while the lock is held AND that pid runs (`runtime.ListSessions`, which 11b and 11d read): every process the program spawns inherits the lock, so a held lock alone outlives the agent. Its dir is collected by the next session open after the last holder exits. A failed open prints that `yolo ps` will not list this launch and goes on. | The program replaces yolo, so nothing of yolo's survives to hold the lock or remove the dir; the menu's lock and the session homes' leases already cross the exec the same way (MM-D27). A listing record is never a reason to refuse an agent: `openServicesSession`'s record write is not fatal either. |
 
 ## Map
 
@@ -1159,9 +1159,13 @@ for both records ([SUP-D23](#SUP-D23)).
 
 - **Tests:** `internal/cli/hostsession_test.go`
   `TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec`: at the exec of a `yolo host -- claude`
-  that opens no doorway, exactly one session exists, its record names `host` and the workspace, a
-  listing reads it live, and its lock descriptor is not close-on-exec; when the launch returns
-  instead, the dir is gone. `macosusersessions_test.go` `TestOnlyTheSpawnOpensAServicesSession`
+  that opens no doorway, exactly one session exists, its record names `host`, the workspace and
+  the launch's pid, a listing reads it live, and its lock descriptor is not close-on-exec; when
+  the launch returns instead, the dir is gone.
+  `TestHostLaunchWithServicesButNoDoorwayHoldsOneSession`: a resident launch with a launch-owned
+  service holds exactly one session while it runs and none after. `macosusersessions_test.go`
+  `TestASessionWhoseRecordedProcessExitedIsGone`: a held lock whose recorded pid has exited lists
+  as gone, and the listing removes nothing. `macosusersessions_test.go` `TestOnlyTheSpawnOpensAServicesSession`
   now admits `OpenHostSession` as the second creator and requires `HostSession.End` to release
   the lock.
 - **Change:** `internal/cli/run/servicessession.go`: `OpenHostSession`, `HostSession.End`,

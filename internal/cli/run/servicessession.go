@@ -81,7 +81,14 @@ func (o *Options) openServicesSession(cname, notch string) (*servicesSession, er
 	if err != nil {
 		return nil, err
 	}
-	_ = runtime.WriteSessionRecord(dir, runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname})
+	rec := runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname}
+	if notch == hostNotchRuntime {
+		// The agent's pid: an exec keeps it, and a resident launch lives as long as its agent.
+		// A listing reads the session as gone once it exits, whatever its descendants still hold
+		// (runtime.SessionRecord.PID). A macos-user session records none: its lock is the answer.
+		rec.PID = os.Getpid()
+	}
+	_ = runtime.WriteSessionRecord(dir, rec)
 	pending := filepath.Join(dir, servicesSessionLockPending)
 	f, err := os.OpenFile(pending, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
@@ -135,9 +142,11 @@ func (h *HostSession) End() {
 }
 
 // KeepAcrossExec clears close-on-exec on the session's lock, so the program `yolo host` execs
-// holds it for its own life and the session reads live exactly as long as it runs. Its dir is
-// then collected by the next session open that finds the lock free (collectDeadServicesSessions),
-// since nothing of yolo's is left to remove it. nil-safe.
+// holds it. The lock alone does not track the program's life: every process the program spawns
+// inherits it, so a daemon it leaves behind keeps it held. The record's pid, which the exec keeps,
+// is the program's, and a listing reads the session as gone once that process exits
+// (runtime.ListSessions). The dir is collected by the next session open after the LAST holder
+// exits (collectDeadServicesSessions), since nothing of yolo's is left to remove it. nil-safe.
 func (h *HostSession) KeepAcrossExec() error {
 	if h == nil || h.s == nil || h.s.lock == nil {
 		return nil
