@@ -15,12 +15,40 @@ func validateHTTPBrokerFrame(data []byte) error {
 	if err := rejectDuplicateJSONFields(data); err != nil {
 		return err
 	}
-	top, err := exactHTTPObject(data, []string{"op", "http"}, "jail_id")
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(data), &probe); err != nil {
+		return err
+	}
+	var op string
+	if raw, ok := probe["op"]; ok && httpJSONString(raw) {
+		if err := json.Unmarshal(raw, &op); err != nil {
+			return err
+		}
+	}
+	if op == httpFrontSealOp {
+		top, err := exactHTTPObject(data, []string{"op", "front_generation", "front"}, "jail_id")
+		if err != nil {
+			return err
+		}
+		if !httpJSONString(top["front_generation"]) || top["jail_id"] != nil && !httpJSONString(top["jail_id"]) {
+			return errors.New("HTTP front seal generation or jail hint has the wrong type")
+		}
+		front, err := exactHTTPObject(top["front"], []string{"address", "certificate_base64"})
+		if err != nil {
+			return err
+		}
+		if !httpJSONString(front["address"]) || !httpJSONString(front["certificate_base64"]) {
+			return errors.New("HTTP front seal address and certificate must be strings")
+		}
+		return nil
+	}
+	top, err := exactHTTPObject(data, []string{"op", "http"}, "jail_id", "front_generation")
 	if err != nil {
 		return err
 	}
-	if !httpJSONString(top["op"]) || top["jail_id"] != nil && !httpJSONString(top["jail_id"]) {
-		return errors.New("HTTP broker operation or jail hint has the wrong type")
+	if !httpJSONString(top["op"]) || top["jail_id"] != nil && !httpJSONString(top["jail_id"]) ||
+		top["front_generation"] != nil && !httpJSONString(top["front_generation"]) {
+		return errors.New("HTTP broker operation, jail hint or front generation has the wrong type")
 	}
 	call, err := exactHTTPObject(top["http"], []string{"method", "path", "query", "headers", "body_present", "body_base64"})
 	if err != nil {

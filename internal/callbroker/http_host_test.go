@@ -112,31 +112,7 @@ func TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState(t *te
 		t.Fatal(err)
 	}
 	generation := strings.Repeat("a", 32)
-	in.HTTPFrontGeneration = generation
-	prepared := callbrokerinput.PreparedHTTPClientGeneration{
-		Version: callbrokerinput.PreparedHTTPClientGenerationVersion, Phase: "prepared", Generation: generation,
-		Container: scope.Container, FrontJailID: in.FrontJailID, Runtime: "podman", Setup: "podman-self",
-		PackTree: "/host/selected-pack-tree", LaunchID: scope.LaunchID, Loophole: in.Loophole, Front: "http",
-		Pack: in.Pack, Source: in.Source, DeclarationHash: in.DeclarationHash,
-		Roots: append([]string{}, in.Roots...), ProgramIdentities: in.ProgramIdentities,
-		Clients: []callbrokerinput.PreparedHTTPClientPlan{{Bin: "fixture-http-client", Pack: "client-pack", Front: in.Loophole,
-			RecipePack: "client-pack", RecipeIdentity: "sha256:fixture", TokenVariable: "FIXTURE_API_TOKEN",
-			URLVariable: "FIXTURE_BASE_URL", TrustVariable: "SSL_CERT_FILE"}},
-	}
-	body, err := json.Marshal(prepared)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(f.inputPath+".prepared", body, 0600); err != nil {
-		t.Fatal(err)
-	}
-	launch, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
-		t.Fatal(err)
-	}
+	launch := writePreparedHTTPGeneration(t, f, &in, scope, generation)
 	constructed, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit)
 	if err != nil {
 		t.Fatalf("valid pre-lease identity should construct without listener, certificate, trust or live start: %v", err)
@@ -193,6 +169,63 @@ func TestHTTPConstructorValidatesPreparedGenerationBeforeAnyLiveFrontState(t *te
 	}
 }
 
+// writePreparedHTTPGeneration writes a Task 1 prepared record for in and the
+// launch input that references it, returning the launch bytes.
+func writePreparedHTTPGeneration(t *testing.T, f *onceFixture, in *callbrokerinput.Launch, scope brokerscope.File, generation string) []byte {
+	t.Helper()
+	in.HTTPFrontGeneration = generation
+	prepared := callbrokerinput.PreparedHTTPClientGeneration{
+		Version: callbrokerinput.PreparedHTTPClientGenerationVersion, Phase: "prepared", Generation: generation,
+		Container: scope.Container, FrontJailID: in.FrontJailID, Runtime: "podman", Setup: "podman-self",
+		PackTree: "/host/selected-pack-tree", LaunchID: scope.LaunchID, Loophole: in.Loophole, Front: "http",
+		Pack: in.Pack, Source: in.Source, DeclarationHash: in.DeclarationHash,
+		Roots: append([]string{}, in.Roots...), ProgramIdentities: in.ProgramIdentities,
+		Clients: []callbrokerinput.PreparedHTTPClientPlan{{Bin: "fixture-http-client", Pack: "client-pack", Front: in.Loophole,
+			RecipePack: "client-pack", RecipeIdentity: "sha256:fixture", TokenVariable: "FIXTURE_API_TOKEN",
+			URLVariable: "FIXTURE_BASE_URL", TrustVariable: "SSL_CERT_FILE"}},
+	}
+	body, err := json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.inputPath+".prepared", body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	launch, err := json.Marshal(*in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.inputPath, launch, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return launch
+}
+
+// selectedPreparedHTTPReadFixture is the selected read fixture rebuilt from a
+// launch input that references a valid prepared generation, still bound to the
+// fixture's live scope and broker start.
+func selectedPreparedHTTPReadFixture(t *testing.T, origin string, executor httpExecutor) (*HTTPHandler, *onceFixture, string) {
+	t.Helper()
+	base, f := selectedHTTPReadFixture(t, origin, executor)
+	in := base.input
+	scope, err := brokerscope.ReadFile(in.ScopeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := strings.Repeat("a", 32)
+	writePreparedHTTPGeneration(t, f, &in, scope, generation)
+	h, err := newHTTPHandler(f.inputPath, f.home, f.store, base.audit)
+	if err != nil {
+		t.Fatalf("prepared selected HTTP fixture did not construct: %v", err)
+	}
+	h.scopePath, h.bound, h.start = f.scopePath, f.scope, f.h.start
+	h.httpClient = executor
+	if _, _, err := h.currentAuthority(); err != nil {
+		t.Fatalf("prepared selected HTTP fixture is not live: %v", err)
+	}
+	return h, f, generation
+}
+
 func selectedHTTPHostFrame(t *testing.T, h *HTTPHandler) func(string, HTTPCall) (int, string) {
 	forward, _ := selectedHTTPHostFrames(t, h)
 	return forward
@@ -203,6 +236,22 @@ func selectedHTTPHostFrames(t *testing.T, h *HTTPHandler) (func(string, HTTPCall
 }
 
 func selectedHTTPHostFramesWithHandler(t *testing.T, handler hostservice.Handler) (func(string, HTTPCall) (int, string), string) {
+	t.Helper()
+	raw, endpoint := selectedHTTPRawFramesAt(t, handler)
+	return func(op string, call HTTPCall) (int, string) {
+		t.Helper()
+		return raw(map[string]any{"op": op, "http": call, "jail_id": "forged"})
+	}, endpoint
+}
+
+// selectedHTTPRawFrames sends arbitrary frame objects through the same
+// authenticated launch front as selectedHTTPHostFramesWithHandler.
+func selectedHTTPRawFrames(t *testing.T, handler hostservice.Handler) func(map[string]any) (int, string) {
+	raw, _ := selectedHTTPRawFramesAt(t, handler)
+	return raw
+}
+
+func selectedHTTPRawFramesAt(t *testing.T, handler hostservice.Handler) (func(map[string]any) (int, string), string) {
 	t.Helper()
 	root := shortCallBrokerTempDir(t)
 	socket := filepath.Join(root, "broker.sock")
@@ -253,14 +302,14 @@ func selectedHTTPHostFramesWithHandler(t *testing.T, handler hostservice.Handler
 		}
 		time.Sleep(time.Millisecond)
 	}
-	return func(op string, call HTTPCall) (int, string) {
+	return func(frame map[string]any) (int, string) {
 		t.Helper()
 		conn, err := svcendpoint.Dial(endpoint, 5*time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer conn.Close()
-		payload, err := json.Marshal(map[string]any{"op": op, "http": call, "jail_id": "forged"})
+		payload, err := json.Marshal(frame)
 		if err != nil {
 			t.Fatal(err)
 		}

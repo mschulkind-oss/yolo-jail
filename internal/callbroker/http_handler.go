@@ -25,6 +25,9 @@ import (
 type HTTPHandler struct {
 	*CLIHandler
 	beforeHTTPCommit func() // deterministic store-boundary test seam; nil in production
+	// front is this broker start's sealed selected front, if any. Only Handle
+	// reads it; approval authority never builds or consults it.
+	front httpFrontState
 }
 
 func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit *brokeraudit.Log) (*HTTPHandler, error) {
@@ -195,7 +198,7 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 		return
 	}
 	for _, key := range s.Request.Keys() {
-		if key != "op" && key != "http" && key != "jail_id" {
+		if key != "op" && key != "http" && key != "jail_id" && key != "front_generation" && key != "front" {
 			s.Stderr("Unsupported HTTP broker field; update the selected client.\n")
 			s.Exit(64)
 			return
@@ -208,6 +211,17 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 		return
 	}
 	op, ok := mode.(string)
+	generationValue, generationPresent := s.Get("front_generation")
+	generation, generationOK := generationValue.(string)
+	if generationPresent && !generationOK {
+		s.Stderr("HTTP broker refused: " + errFrontGenerationWrong.Error() + "\n")
+		s.Exit(64)
+		return
+	}
+	if ok && op == httpFrontSealOp {
+		h.handleSeal(s, generation)
+		return
+	}
 	raw, present := s.Get("http")
 	if !ok || !present {
 		s.Stderr("Invalid HTTP broker operation or request; update the selected client.\n")
@@ -225,6 +239,11 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&original); err != nil {
 		s.Stderr("Invalid HTTP request fields; update the selected client.\n")
+		s.Exit(64)
+		return
+	}
+	if err := h.checkFrontGeneration(generationPresent, generation, []byte(originalFrame), original.Body); err != nil {
+		s.Stderr("HTTP broker refused: " + err.Error() + "\n")
 		s.Exit(64)
 		return
 	}
