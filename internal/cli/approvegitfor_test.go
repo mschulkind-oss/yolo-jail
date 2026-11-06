@@ -43,7 +43,6 @@ func TestApproveGitForCLI(t *testing.T) {
 	}
 	defer brokercore.CloseLease(gitbroker.Source, lease)
 
-	const zero = "0000000000000000000000000000000000000000"
 	const old, updated = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"
 	empty := sha256.Sum256(nil)
 	s := gitbroker.ApprovalStore()
