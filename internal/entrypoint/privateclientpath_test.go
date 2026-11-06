@@ -158,3 +158,16 @@ func TestABoundBinThatIsBlockedFailsTheBoot(t *testing.T) {
 		t.Fatalf("a blocked bound bin was written to the private dir: %v", statErr)
 	}
 }
+
+// Each generation owns the private dir: a bin an earlier boot bound is gone from it once a later
+// boot binds none, so no earlier binding's launcher is left to resolve first.
+func TestThePrivateDirHoldsOnlyThisGenerationsBindings(t *testing.T) {
+	f := newPrivatePathFixture(t, true)
+	again := NewEnv(map[string]string{"JAIL_HOME": f.home, "YOLO_PACK_ROOT": f.e.Getenv("YOLO_PACK_ROOT")})
+	if err := GenerateAgentLaunchers(again); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := os.ReadDir(again.PrivateClientDir()); err != nil || len(entries) != 0 {
+		t.Fatalf("an unbound generation kept the private dir's launchers: %v %v", entries, err)
+	}
+}
