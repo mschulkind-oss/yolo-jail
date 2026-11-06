@@ -2,13 +2,18 @@ package run
 
 // legacyhome.go moves a project's legacy home, <ws>/.yolo/home, to the home of the setup that
 // owns it, <ws>/.yolo/setups/<name>/home (docs/design/named-setups.md §9, OQ-SU5;
-// named-setups-plan.md SUP-D9, SUP-D20).
+// named-setups-plan.md SUP-D9, SUP-D20, SUP-D21).
 //
-// The move is silent: no prompt, one informational line. It runs only once no jail of the
-// project runs, and "could not ask" waits for a later launch, as every reaper here declines
-// when it cannot ask. It moves only a real directory (lstat, never a link) owned by the invoking
-// user, with a rename that never replaces a destination. Anything else stays where it is, with a
-// line giving the `mv` to run. Nothing is ever deleted, and the move never refuses a launch.
+// The move is silent: no prompt, one informational line. It moves only a real directory (lstat,
+// never a link) owned by the invoking user and laid by the selected setup's technology, and only
+// once no jail of the project runs; "could not ask" waits for a later launch, as every reaper
+// here declines when it cannot ask. The rename never replaces anything but an empty directory.
+// Anything else stays where it is, with a line naming why and the one step that clears it.
+// Nothing is ever deleted, and the move never refuses a launch.
+//
+// SUP-D21: until the legacy home has moved, a launch of the setup it belongs to keeps using
+// .yolo/home and creates no .yolo/setups/<name>/home, so a deferred or left home is never
+// stranded behind a fresh one, and a printed manual move never lands inside one.
 //
 // ⚠ NO PRODUCTION CALLER YET (SUP-D19). The call belongs after resolveSetup and before home
 // preparation, and it lands with the switch that makes a launch bind SetupHomeState: wired any
@@ -18,6 +23,8 @@ package run
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 
 	"golang.org/x/sys/unix"
 
@@ -57,7 +64,8 @@ type legacyHomeRequest struct {
 	Jails projectJails
 	// AppleContainerLaid is the Apple Container layout signal (isAppleContainerInheritedCopy on a
 	// generated user-config copy in the home): true attributes the home to Apple Container. nil
-	// is no signal.
+	// is no signal. It reads files beneath home, so it is asked only about a real directory of
+	// the invoking user's.
 	AppleContainerLaid func(home string) bool
 }
 
@@ -69,12 +77,12 @@ const (
 	// legacyHomeNotOurs: the selected setup's technology never read .yolo/home (a host setup),
 	// so the home is left for the setup that did, and this launch says nothing.
 	legacyHomeNotOurs
-	// legacyHomeDeferred: a jail of the project runs, or the runtime could not be asked; the
-	// home moves at a later launch.
+	// legacyHomeDeferred: the home would move, but a jail of the project runs or the runtime
+	// could not be asked; this launch keeps using it (SUP-D21) and a later one moves it.
 	legacyHomeDeferred
 	// legacyHomeMoved: the home is now the setup's home.
 	legacyHomeMoved
-	// legacyHomeLeft: the home cannot be moved by yolo and stays, with the mv to run.
+	// legacyHomeLeft: yolo cannot move the home; it stays, with the step that clears the way.
 	legacyHomeLeft
 )
 
@@ -82,91 +90,146 @@ func (r legacyHomeResult) String() string {
 	return [...]string{"absent", "not ours", "deferred", "moved", "left"}[r]
 }
 
-// legacyHomeOwner is the setup the legacy home belongs to (SUP-D20), or "" when the selected
-// setup's technology never read one. Every container and Seatbelt backend used <ws>/.yolo/home
-// as its home (Apple Container and Seatbelt with one layout since slice 12a), so the selected
-// setup owns it, except that the Apple Container layout signal gives it to Apple Container only.
-// A host setup never read one.
-func legacyHomeOwner(r legacyHomeRequest, home string) string {
-	switch r.Setup.Confinement {
+// legacyHomeRename is the destination-exclusive rename; a test swaps it to reach the failures
+// only another filesystem gives.
+var legacyHomeRename = renameNoReplaceBetween
+
+// readsLegacyHome reports whether the selected setup's technology ever used <ws>/.yolo/home as
+// its home: every container and Seatbelt backend did (Apple Container and Seatbelt with one
+// layout since slice 12a); a host setup never did.
+func readsLegacyHome(s setup.Setup) bool {
+	switch s.Confinement {
 	case setup.ConfinementPodman, setup.ConfinementAppleContainer, setup.ConfinementSeatbelt:
-		if r.Setup.Confinement != setup.ConfinementAppleContainer && r.AppleContainerLaid != nil && r.AppleContainerLaid(home) {
-			return "apple-container-self"
-		}
-		return r.Setup.Name
+		return true
 	}
-	return ""
+	return false
 }
 
 // adoptLegacyHome moves the legacy home to its setup's home when SUP-D9 allows, and returns the
 // one line the launch prints ("" when there is nothing to say).
 func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
+	if !readsLegacyHome(r.Setup) {
+		return legacyHomeNotOurs, ""
+	}
 	stateDir := paths.WorkspaceStateDir(r.Workspace)
 	src := paths.WorkspaceHomeState(r.Workspace)
+	dest := paths.SetupHomeState(r.Workspace, r.Setup.Name)
+	left := func(format string, a ...any) (legacyHomeResult, string) {
+		return legacyHomeLeft, fmt.Sprintf(format, a...)
+	}
+	manual := shquote.JoinDisplay([]string{"mkdir", "-p", paths.SetupStateDir(r.Workspace, r.Setup.Name)}) +
+		" && " + shquote.JoinDisplay([]string{"mv", "-n", src, dest})
 
 	yolo, err := unix.Open(stateDir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if errors.Is(err, unix.ENOENT) {
 			return legacyHomeAbsent, ""
 		}
-		// A linked or unreadable .yolo: whatever is beneath it is not this move's to touch, and
-		// the launch's own state writes refuse it with their own message.
-		return legacyHomeAbsent, ""
+		if fi, lerr := os.Lstat(stateDir); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return left("This project's state directory %s is a symbolic link, which yolo never "+
+				"moves anything beneath, so any home of this project's in it was left in place. "+
+				"Replace the link with the directory it points at and launch again.", stateDir)
+		}
+		return left("This project's state directory %s could not be opened (%v), so any home of "+
+			"this project's in it was left in place. Fix that and launch again.", stateDir, err)
 	}
 	defer unix.Close(yolo)
 
 	var st unix.Stat_t
 	if err := unix.Fstatat(yolo, "home", &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		return legacyHomeAbsent, ""
+		if errors.Is(err, unix.ENOENT) {
+			return legacyHomeAbsent, ""
+		}
+		return left("This project's home %s could not be examined (%v), so it was left in place. "+
+			"Fix that and launch again with no jail of the project running.", src, err)
 	}
 
-	owner := legacyHomeOwner(r, src)
-	if owner == "" {
-		return legacyHomeNotOurs, ""
+	// What a quiesced launch would leave is reported as left whatever runs, so no line promises a
+	// move that will not happen; and the layout signal reads only a real directory of the user's.
+	switch {
+	case st.Mode&unix.S_IFMT == unix.S_IFLNK:
+		return left("This project's home %s is a symbolic link, and yolo moves only a real "+
+			"directory, so it was left in place. If it points at this project's home, put that "+
+			"directory here in its place and launch again; otherwise remove the link, which "+
+			"leaves what it points at untouched: `%s`", src, shquote.JoinDisplay([]string{"rm", src}))
+	case st.Mode&unix.S_IFMT != unix.S_IFDIR:
+		return left("This project's home %s is not a directory, so it was left in place. Move it "+
+			"aside and the next launch starts a fresh home: `%s`", src,
+			shquote.JoinDisplay([]string{"mv", "-n", src, src + ".not-a-home"}))
+	case int(st.Uid) != r.UID:
+		return left("This project's home %s belongs to uid %d, not to you (uid %d), so it was "+
+			"left in place. Give it to you and launch again with no jail of the project "+
+			"running: `%s`", src, st.Uid, r.UID,
+			shquote.JoinDisplay([]string{"sudo", "chown", "-R", fmt.Sprint(r.UID), src}))
 	}
-	dest := paths.SetupHomeState(r.Workspace, owner)
-	mv := shquote.JoinDisplay([]string{"mv", src, dest})
+	// Minor-5 of the 6a-i review: the owner is named as "an Apple Container setup", since a user's
+	// own Apple Container setup may carry any name; the example names the built-in.
+	if r.Setup.Confinement != setup.ConfinementAppleContainer && r.AppleContainerLaid != nil && r.AppleContainerLaid(src) {
+		return left("This project's home %s was laid by an Apple Container setup, so the %s setup "+
+			"starts with its own home and leaves that one in place. To move it to its owner, "+
+			"launch an Apple Container setup with no jail of the project running, for example "+
+			"`yolo run --setup apple-container-self`", src, r.Setup.Name)
+	}
 
 	if r.Jails != projectJailsStopped {
 		why := "a jail of this project is running"
 		if r.Jails == projectJailsUnknown {
 			why = "yolo could not ask the container runtime whether a jail of this project is running"
 		}
-		return legacyHomeDeferred, fmt.Sprintf("This project's home %s moves to %s, the %s setup's own home, "+
-			"once no jail of the project runs; %s, so it stays for now. Run `yolo stop` and launch again to move it.",
-			src, dest, owner, why)
+		return legacyHomeDeferred, fmt.Sprintf("This project's home %s moves to %s once no jail of "+
+			"the project runs; %s, so the %s setup keeps using it until then. Run `yolo stop` "+
+			"and launch again to move it.", src, dest, why, r.Setup.Name)
 	}
 
-	left := func(why string) (legacyHomeResult, string) {
-		return legacyHomeLeft, fmt.Sprintf("This project's home %s was left in place: %s. "+
-			"To give it to the %s setup, run `%s` while no jail of the project runs.", src, why, owner, mv)
-	}
-	if owner != r.Setup.Name {
-		return left(fmt.Sprintf("its layout is the %s setup's, not %s's", owner, r.Setup.Name))
-	}
-	switch {
-	case st.Mode&unix.S_IFMT == unix.S_IFLNK:
-		return left("it is a symbolic link, and yolo moves only a real directory")
-	case st.Mode&unix.S_IFMT != unix.S_IFDIR:
-		return left("it is not a directory")
-	case int(st.Uid) != r.UID:
-		return left(fmt.Sprintf("it belongs to uid %d, not to you (uid %d)", st.Uid, r.UID))
-	}
-
-	setupDir, err := paths.EnsureSetupStateDir(r.Workspace, owner)
+	setupDir, err := paths.EnsureSetupStateDir(r.Workspace, r.Setup.Name)
 	if err != nil {
-		return left(fmt.Sprintf("its setup's directory could not be made (%v)", err))
+		var linked *paths.LinkedStateDirError
+		if errors.As(err, &linked) {
+			return left("%s is a symbolic link, which yolo never writes beneath, so this "+
+				"project's home %s was left in place. Remove the link and launch again with no "+
+				"jail of the project running: `%s`", linked.Path, src,
+				shquote.JoinDisplay([]string{"rm", linked.Path}))
+		}
+		return left("The %s setup's directory could not be made (%v), so this project's home %s "+
+			"was left in place. Fix that and launch again with no jail of the project running.",
+			r.Setup.Name, err, src)
 	}
 	defer setupDir.Close()
+	dirfd := int(setupDir.Fd())
 
-	switch err := renameNoReplaceBetween(yolo, "home", int(setupDir.Fd()), "home"); {
+	// An empty directory at the destination holds nothing to lose, and the kernel checks the
+	// emptiness: rmdir fails on anything else, a link included.
+	destTaken := func() (legacyHomeResult, string) {
+		return left("%s already holds something, so this project's home %s was left in place. "+
+			"To give the %s setup the old home, move what is there aside and launch again with "+
+			"no jail of the project running: `%s`", dest, src, r.Setup.Name,
+			shquote.JoinDisplay([]string{"mv", "-n", dest, dest + ".aside"}))
+	}
+	switch err := unix.Unlinkat(dirfd, "home", unix.AT_REMOVEDIR); {
+	case err == nil, errors.Is(err, unix.ENOENT):
+	case errors.Is(err, unix.ENOTEMPTY), errors.Is(err, unix.EEXIST), errors.Is(err, unix.ENOTDIR):
+		return destTaken()
+	default:
+		return left("%s could not be cleared (%v), so this project's home %s was left in place. "+
+			"Move it yourself while no jail of the project runs: `%s`", dest, err, src, manual)
+	}
+
+	switch err := legacyHomeRename(yolo, "home", dirfd, "home"); {
 	case err == nil:
 		return legacyHomeMoved, fmt.Sprintf("Moved this project's home %s to %s: each setup keeps its own home now.", src, dest)
 	case errors.Is(err, unix.ENOENT):
 		return legacyHomeAbsent, ""
 	case errors.Is(err, unix.EEXIST), errors.Is(err, unix.ENOTEMPTY):
-		return left(fmt.Sprintf("%s already exists; move that aside first", dest))
+		return destTaken()
+	case errors.Is(err, unix.EXDEV):
+		return left("This project's home %s is its own mount, so yolo cannot rename it and left "+
+			"it in place. Move it yourself while no jail of the project runs: `%s`", src, manual)
+	case errors.Is(err, unix.EINVAL), errors.Is(err, unix.ENOTSUP), errors.Is(err, unix.EOPNOTSUPP):
+		return left("The filesystem under %s cannot do a rename that refuses to replace, so yolo "+
+			"left this project's home %s in place. Move it yourself while no jail of the project "+
+			"runs: `%s`", stateDir, src, manual)
 	default:
-		return left(fmt.Sprintf("the move failed (%v)", err))
+		return left("Moving this project's home %s to %s failed (%v), so it was left in place. "+
+			"Move it yourself while no jail of the project runs: `%s`", src, dest, err, manual)
 	}
 }
