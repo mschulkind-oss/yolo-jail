@@ -248,13 +248,13 @@ func TestMacosUserTwoConcurrentLaunchesOfOneWorkspace(t *testing.T) {
 }
 
 // hd10KeeperRole is what one launch's output says it did about the workspace's keeper: "spawned",
-// "joined", or "none". A spawning launch names its key's services at either notch
-// (run.macosUserKeyServices): "this workspace's macos-user host services", or at the guest notch
-// "this workspace's guest-notch macos-user host services".
+// "joined", or "none". A spawning launch names its key's services, for either key
+// (run.macosUserKeyServices): "this workspace's macos-user host services", or for the Seatbelt setups' key
+// "this workspace's Seatbelt host services".
 func hd10KeeperRole(out string) string {
 	switch {
 	case strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services"),
-		strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services"):
+		strings.Contains(out, "keeper: yolo internal daemon jail-keeper will hold this workspace's Seatbelt host services"):
 		return "spawned"
 	case strings.Contains(out, "keeper: joined yolo internal daemon jail-keeper (pid "):
 		return "joined"
@@ -412,13 +412,12 @@ type hd10Result struct {
 
 func (r hd10Result) combined() string { return r.stdout + r.stderr }
 
-// hd10LaunchEnv is runCommand's launcher environment plus macosUserRunEnv's runtime
-// selection, computed once on the test goroutine.
+// hd10LaunchEnv is runCommand's launcher environment (launchEnvironment) plus macosUserRunEnv's
+// setup selection, computed once on the test goroutine. It goes through launchEnvironment, never
+// os.Environ directly, so the suite's own YOLO_TEST_* dials and an older yolo's YOLO_JAIL do not
+// reach the launch and draw yolo's unknown-variable warning (2026-11-06 Mac run, §5).
 func hd10LaunchEnv() []string {
-	env := append(os.Environ(), "TERM=dumb")
-	env = append(env, autoCaptureEnvForSuite()...)
-	env = append(env, readinessEnvForSuite()...)
-	return append(env, "YOLO_SETUP="+macosUserSetupFor("account"))
+	return launchEnvironment(runConfig{env: []string{"YOLO_SETUP=" + macosUserSetupFor("account")}})
 }
 
 // hd10Launch starts one macos-user launch of script in dir and delivers its result. A launch
@@ -768,9 +767,9 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 
 	// The keeper assertion: one spawns and one joins, and the two are told one file and one token.
 	spawned := "keeper: yolo internal daemon jail-keeper will hold this workspace's macos-user host services (x)"
-	// The guest notch's keeper names its own key (run.macosUserKeyServices, JL-D37), and the
+	// A Seatbelt setup's keeper names its own key (run.macosUserKeyServices, JL-D37), and the
 	// 2026-11-05 macos-user run spawned one: a parser reading only the line above called it "none".
-	spawnedGuest := "keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (x)"
+	spawnedSeatbelt := "keeper: yolo internal daemon jail-keeper will hold this workspace's Seatbelt host services (x)"
 	joined := "keeper: joined yolo internal daemon jail-keeper (pid 7), which holds"
 	same := map[string]string{"A_DURING_VAR": "/tmp/s/x.endpoint", "A_DURING_TOKENHASH": "11"}
 	sameB := map[string]string{"B_DURING_VAR": "/tmp/s/x.endpoint", "B_DURING_TOKENHASH": "11"}
@@ -780,7 +779,7 @@ func TestMacosUserHD10VerdictsNameEachCase(t *testing.T) {
 		want       string
 	}{
 		{"one keeper, one file", spawned, joined, sameB, ""},
-		{"one guest-notch keeper, one file", spawnedGuest, joined, sameB, ""},
+		{"one Seatbelt keeper, one file", spawnedSeatbelt, joined, sameB, ""},
 		{"two keepers", spawned, spawned, sameB, "did not share one keeper"},
 		{"no keeper", "", "", sameB, "did not share one keeper"},
 		{"two files", joined, spawned, map[string]string{"B_DURING_VAR": "/tmp/t/x.endpoint", "B_DURING_TOKENHASH": "11"}, "different endpoint files"},

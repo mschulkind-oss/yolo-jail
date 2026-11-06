@@ -630,9 +630,9 @@ func TestAMacosUserDryRunSaysTheKeeperItWouldStartHoldsWhat(t *testing.T) {
 	}
 	for _, want := range []string{
 		`Would start the "wire-bridge" service (pack "wire-bridge") on [`,
-		"] for this launch's keeper to hold, outside the sandbox, until this workspace's last guest-notch macos-user session leaves.",
-		"Would start: keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (",
-		"the wire-bridge service's host half) until its last guest-notch macos-user session leaves; log: ",
+		"] for this launch's keeper to hold, outside the sandbox, until this workspace's last Seatbelt session leaves.",
+		"Would start: keeper: yolo internal daemon jail-keeper will hold this workspace's Seatbelt host services (",
+		"the wire-bridge service's host half) until its last Seatbelt session leaves; log: ",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the dry run must say %q:\n%s", want, out.String())
@@ -737,7 +737,7 @@ func TestAMacosUserDryRunAtAKeeperItCannotJoinSaysSo(t *testing.T) {
 		{"unknown-contract", func(r *keeperRecord) { r.Contract, r.Build = keeperRosterContract+98, "99.0.0@future" }, 1,
 			"held by a keeper (pid 4264) of yolo 99.0.0@future, whose roster (contract 99)"},
 		{"ending", func(r *keeperRecord) { r.Ending = true }, 0,
-			"Would wait for its previous keeper (pid 4264) to finish ending this workspace's guest-notch macos-user host services first."},
+			"Would wait for its previous keeper (pid 4264) to finish ending this workspace's Seatbelt host services first."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)
@@ -765,31 +765,33 @@ func TestAMacosUserDryRunAtAKeeperItCannotJoinSaysSo(t *testing.T) {
 	}
 }
 
-// THE KEEPER'S LINES NAME THE KEY'S NOTCH (JL-D41): a guest-notch launch's key is its own (JL-D37),
-// and its keeper and joined lines say so; a jail-notch launch's say macos-user alone.
+// THE KEEPER'S LINES NAME THE KEY (JL-D41): a Seatbelt setup's launch, at the guest notch, has a key
+// of its own (JL-D37), and its keeper and joined lines name it by its technology, never by the
+// notch, which is no longer a word a user configures; the other key's lines say macos-user alone.
 func TestTheKeeperLinesNameTheNotch(t *testing.T) {
 	packHome(t)
 	for _, tc := range []struct {
-		notch      config.Confinement
-		services   string
-		guestNamed bool
+		notch         config.Confinement
+		services      string
+		seatbeltNamed bool
 	}{
 		{config.ConfinementJail, "this workspace's macos-user host services", false},
-		{config.ConfinementGuest, "this workspace's guest-notch macos-user host services", true},
+		{config.ConfinementGuest, "this workspace's Seatbelt host services", true},
 	} {
 		o := &Options{}
 		fillDefaults(o)
 		o.atNotch = tc.notch
-		key := keeperKey("yolo-notch-0000aaaa", o.macosUserKeeperNotch())
+		key := keeperKey("yolo-keys-0000aaaa", o.macosUserKeeperNotch())
 		start := o.macosUserKeeperLine(key, &keeperPlan{Services: []string{"x"}})
 		joined := o.joinedKeeperLine(key, keeperRecord{PID: 4263})
 		for _, line := range []string{start, joined} {
-			if !strings.Contains(line, tc.services) || strings.Contains(line, "guest") != tc.guestNamed {
+			if !strings.Contains(line, tc.services) || strings.Contains(line, "Seatbelt") != tc.seatbeltNamed ||
+				strings.Contains(line, "notch") {
 				t.Errorf("at the %s notch the keeper line %q does not name %q alone", tc.notch, line, tc.services)
 			}
 		}
-		if tc.guestNamed && !strings.Contains(start, "until its last guest-notch macos-user session leaves") {
-			t.Errorf("the guest notch's keeper line does not name the notch's sessions: %q", start)
+		if tc.seatbeltNamed && !strings.Contains(start, "until its last Seatbelt session leaves") {
+			t.Errorf("the Seatbelt key's keeper line does not name its sessions: %q", start)
 		}
 	}
 }

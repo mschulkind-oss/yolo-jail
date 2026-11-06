@@ -167,8 +167,8 @@ func TestAPlannedHostServiceSpawnsOneMacosUserKeeper(t *testing.T) {
 		t.Errorf("the session's record during the session = %+v, want this launch's, kept", sessions)
 	}
 	for _, want := range []string{
-		"keeper: yolo internal daemon jail-keeper will hold this workspace's guest-notch macos-user host services (the " +
-			keeperProxy + " service) until its last guest-notch macos-user session leaves; log: " + keeperLogPath(key),
+		"keeper: yolo internal daemon jail-keeper will hold this workspace's Seatbelt host services (the " +
+			keeperProxy + " service) until its last Seatbelt session leaves; log: " + keeperLogPath(key),
 		"keeper: started, pid ",
 		"keeper: done",
 	} {

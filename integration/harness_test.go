@@ -312,13 +312,11 @@ func warmJail() {
 	// HOME goes to the SUBPROCESS only — never os.Setenv — because this runs before
 	// m.Run() and a process-wide HOME would silently redirect every test that expects the
 	// ambient one.
-	cmd.Env = append(os.Environ(), "TERM=dumb", "HOME="+home)
-	// Inert for THIS launch — the warmup home carries an empty user config, so it
-	// selects no packs and has nothing to capture — but set anyway, so "every launch
-	// this suite makes" stays one rule with one exception list rather than three sites
-	// that happen to agree.
-	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
-	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
+	// The auto-capture and readiness dials launchEnvironment adds are inert for THIS launch
+	// (the warmup home carries an empty user config, so it selects no packs and has nothing
+	// to capture), but it takes them anyway, so "every launch this suite makes" stays one
+	// rule with one exception list rather than several sites that happen to agree.
+	cmd.Env = launchEnvironment(runConfig{env: []string{"HOME=" + home}})
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()

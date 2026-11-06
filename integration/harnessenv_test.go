@@ -150,6 +150,24 @@ func TestLaunchEnvironmentDropsAnOlderYolosExports(t *testing.T) {
 	}
 }
 
+// The macos-user pair's launches (hd10LaunchEnv, which TestMacosUserTwoConcurrentLaunchesOfOneWorkspace
+// and the other held-session tests start yolo with) drop the same names: before, they took
+// os.Environ whole, and a 2026-11-06 Mac run warned that YOLO_JAIL and YOLO_TEST_MACOS_USER are not
+// recognized launch settings. The setup selection still reaches the launch.
+func TestTheMacosUserPairsEnvironmentDropsTheSuitesOwnDials(t *testing.T) {
+	t.Setenv("YOLO_TEST_MACOS_USER", "1")
+	t.Setenv("YOLO_JAIL", "1")
+	env := hd10LaunchEnv()
+	for _, name := range []string{"YOLO_TEST_MACOS_USER", "YOLO_JAIL"} {
+		if got := launchEnvValue(env, name); got != "<unset>" {
+			t.Errorf("the macos-user pair's launch environment inherits %s=%s", name, got)
+		}
+	}
+	if got := launchEnvValue(env, "YOLO_SETUP"); got != macosUserSetupFor("account") {
+		t.Errorf("the macos-user pair's launch environment selects setup %q, want %q", got, macosUserSetupFor("account"))
+	}
+}
+
 func TestMatchedHarnessUsesAdjacentBundleAndScrubsObsoleteSelector(t *testing.T) {
 	launcher := filepath.Join("/tmp", "dev generation", "bin", "yolo")
 	wantBundle := filepath.Join("/tmp", "dev generation", "share", "yolo-jail")
