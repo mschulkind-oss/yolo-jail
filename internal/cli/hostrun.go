@@ -42,8 +42,9 @@ Start the line with bare ` + "`yolo host-run`" + `: nothing before it, and no ;,
 or $( anywhere, since your shell acts on those before yolo sees them. The
 command's output is a pipe, not a terminal: no color, no pager, and no
 full-screen program. Its input is this terminal, so a password prompt works.
-A refusal runs nothing, exits 64 and says why; when the workspace is known,
-the agent is told too.
+A refusal runs nothing, exits 64 and says why. Only the refusal of a gh
+command that prints your GitHub credential is also sent to the agent; every
+other refusal shows here only, so tell the agent yourself.
 
 In a jail: the first form runs nothing and prints the line, with -C filled
 from YOLO_HOST_DIR, for a human to run on the host. ` + "`wait`" + ` waits for the next
