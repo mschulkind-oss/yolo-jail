@@ -11,7 +11,14 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
+
+// declParityMacSetup is the setup the Mac test's launch runs under: macosUserRunProbe launches
+// through runMacosUser, whose default mode is the yolo account (integration/macosusergate_test.go,
+// macosUserSetupFor). The composition below must be that launch's, or a row naming the setup
+// passes here and fails on the Mac, as DP-B19 did when this composed seatbelt-self.
+const declParityMacSetup = "seatbelt-yolo-account"
 
 // THE MAC CHECK'S BRIEFING ROWS, HELD AGAINST THE LINUX COMPOSITION.
 //
@@ -49,7 +56,10 @@ func TestMacosUserDeclParityBriefingRowsHoldForTheComposedBriefing(t *testing.T)
 	}
 
 	var ws string
-	got := macosUserBriefingWith(t, cfg, func(o *Options) { ws = o.Workspace })
+	got := macosUserBriefingWith(t, cfg, func(o *Options) {
+		ws = o.Workspace
+		o.Setup = setup.MustBuiltIn(declParityMacSetup)
+	})
 	t.Logf("holding %d wanted and %d unwanted rows against the composed macos-user briefing",
 		len(src.want), len(src.unwanted))
 
