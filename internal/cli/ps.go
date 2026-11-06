@@ -282,6 +282,7 @@ func psContainerAnswers(deps psDeps, rt string, running map[string]struct{}) []r
 		hasBinary = func(string) bool { return false }
 	}
 	var answers []runtime.SourceAnswer
+	asked := false
 	for _, name := range []string{"podman-self", "apple-container-self"} {
 		s := setup.MustBuiltIn(name)
 		a := runtime.SourceAnswer{Confinement: string(s.Confinement)}
@@ -289,6 +290,7 @@ func psContainerAnswers(deps psDeps, rt string, running map[string]struct{}) []r
 		var missing *setup.MissingTechnologyError
 		switch {
 		case s.Backend() == rt:
+			asked = true
 			a.State, a.Names = runtime.SourceListed, running
 		case err == nil:
 			a.State = runtime.SourceUnreachable
@@ -298,6 +300,11 @@ func psContainerAnswers(deps psDeps, rt string, running map[string]struct{}) []r
 			continue
 		}
 		answers = append(answers, a)
+	}
+	if !asked {
+		// A runtime no built-in runs on: its jails' records cannot be told from the others',
+		// so its answer keeps them all rather than being dropped.
+		answers = append(answers, runtime.SourceAnswer{Confinement: rt, State: runtime.SourceUnreachable})
 	}
 	return answers
 }
