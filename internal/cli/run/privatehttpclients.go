@@ -158,16 +158,18 @@ func preparedHTTPTempLeaf(generation string) string { return ".prepared-http-cli
 // the replicas directory's exclusive .launch-input.lock, under which alone such files are written,
 // and has just ensured that the ownership record is this launch's, so an earlier launch's record
 // no longer names them; the workspace lock keeps a second launch of cname out. Bytes that do not
-// decode as cname's prepared generation are left alone.
-func sweepDeadLaunchPreparedHTTP(replicas *os.Root, cname, tree string) {
+// decode as cname's prepared generation are left alone, and so is a generation staged under a
+// runtime other than rt, whose container this launch's runtime cannot see: a published one of
+// those is returned as foreign, with its runtime, for the caller to refuse naming it.
+func sweepDeadLaunchPreparedHTTP(replicas *os.Root, cname, rt, tree string) (foreign, foreignRuntime string) {
 	dir, err := replicas.Open(".")
 	if err != nil {
-		return
+		return "", ""
 	}
 	names, err := dir.Readdirnames(-1)
 	_ = dir.Close()
 	if err != nil {
-		return
+		return "", ""
 	}
 	for _, name := range names {
 		generation, temp := strings.CutPrefix(name, preparedHTTPTempLeaf(""))
@@ -182,10 +184,17 @@ func sweepDeadLaunchPreparedHTTP(replicas *os.Root, cname, tree string) {
 		if err != nil || prepared.Container != cname || temp && prepared.Generation != generation || !temp && prepared.PackTree == tree {
 			continue
 		}
+		if prepared.Runtime != rt {
+			if !temp && foreign == "" {
+				foreign, foreignRuntime = name, prepared.Runtime
+			}
+			continue
+		}
 		if current, err := replicas.Lstat(name); err == nil && os.SameFile(opened, current) {
 			_ = replicas.Remove(name)
 		}
 	}
+	return foreign, foreignRuntime
 }
 
 // publishPreparedHTTP is publishPreparedHTTPGeneration, a seam so a test can observe the state a

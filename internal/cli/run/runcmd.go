@@ -396,6 +396,9 @@ type Options struct {
 	// input they are not retired when the current host-service process exits.
 	preparedHTTPGenerationOwners map[string]preparedHTTPGenerationOwner
 	preparedHTTPOwnershipFile    string
+	// preparedHTTPRetireUnverified is what retireStalePreparedHTTPOwnership kept after the runtime
+	// answered that the container is gone: generation files that no longer match the record.
+	preparedHTTPRetireUnverified []string
 	// Deferred disclosure runs only after this launch's selected daemon is ready.
 	launchInputReports map[string]func()
 	// launchInputProducers is a closed core registry; non-nil only in synthetic runtime fixtures.

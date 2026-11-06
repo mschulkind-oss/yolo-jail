@@ -403,7 +403,23 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		created, err := o.ensurePreparedHTTPOwnership(cname)
 		if err != nil {
 			var stale *stalePreparedHTTPOwnershipError
-			if errors.As(err, &stale) {
+			if errors.As(err, &stale) && len(stale.unverified) != 0 {
+				// The container is KNOWN gone, and retirement still kept these files because their
+				// bytes or permissions no longer match the record: every later launch would keep
+				// them too, so the next step is removing them by hand, never launching again.
+				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' found the prepared HTTP ownership record " + richtext.Escape(stale.path) +
+					" left by an earlier launch of " + cname + ". That launch's container is gone, but yolo did not delete these files the record names, " +
+					"because their bytes or permissions no longer match it and yolo deletes only what it can verify: " + richtext.Escape(strings.Join(stale.unverified, ", ")) +
+					". It was not started. Check that nothing else uses them, remove them and the record by hand (" +
+					richtext.Escape(manualRemoveCommand(append([]string{stale.path}, stale.unverified...))) + "), then launch again.[/red]")
+			} else if errors.As(err, &stale) && stale.runtime != o.runtime {
+				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' found the prepared HTTP ownership record " + richtext.Escape(stale.path) +
+					" left by a launch of " + cname + " under the " + richtext.Escape(stale.runtime) + " runtime; this launch uses " + richtext.Escape(o.runtime) +
+					", which cannot tell whether that container is still running, so the record was kept and the service was not started. " +
+					"Check that no container named " + cname + " exists (" + richtext.Escape(existingContainerListCommand(stale.runtime, cname)) + "), remove one with " +
+					richtext.Escape(containerRemoveCommand(stale.runtime, cname)) + " if it does, then remove the record and the files it names (" +
+					richtext.Escape(manualRemoveCommand(stale.files)) + ") and launch again.[/red]")
+			} else if errors.As(err, &stale) {
 				o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' found the prepared HTTP ownership record " + richtext.Escape(stale.path) +
 					" left by an earlier launch of " + cname + ", and that launch's container was not confirmed gone; it was not started. " +
 					"Check that no container named " + cname + " exists (" + richtext.Escape(existingContainerListCommand(o.runtime, cname)) + "), remove one with " +
@@ -415,7 +431,16 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			return false
 		}
 		ownershipCreated = created
-		sweepDeadLaunchPreparedHTTP(replicas, cname, o.packTree)
+		if foreign, foreignRuntime := sweepDeadLaunchPreparedHTTP(replicas, cname, o.runtime, o.packTree); foreign != "" {
+			foreignPath := filepath.Join(stateDir, "replicas", foreign)
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' found the prepared HTTP identity " + richtext.Escape(foreignPath) +
+				", staged by a launch of " + cname + " under the " + richtext.Escape(foreignRuntime) + " runtime; this launch uses " + richtext.Escape(o.runtime) +
+				", which cannot tell whether that container is still running, so the file was kept and the service was not started. " +
+				"Check that no container named " + cname + " exists (" + richtext.Escape(existingContainerListCommand(foreignRuntime, cname)) + "), remove one with " +
+				richtext.Escape(containerRemoveCommand(foreignRuntime, cname)) + " if it does, then remove the file (" +
+				richtext.Escape(manualRemoveCommand([]string{foreignPath})) + ") and launch again.[/red]")
+			return false
+		}
 	}
 	if frozen.CallBroker != nil {
 		reference, owner, created, prepareErr := o.prepareHTTPClientGeneration(lp, frozen, frozen.CallBroker, replicas, stateDir, leaf)

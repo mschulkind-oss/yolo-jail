@@ -467,6 +467,103 @@ prefix = "Bearer "
 	if _, ok := referenced(); !ok {
 		t.Fatal("the replacement generation is not referenced by this launch's record")
 	}
+
+	// A record, and the generation it names, that a launch of cname under ANOTHER runtime left
+	// (an Apple Container jail of this workspace) are not this runtime's to retire: podman's
+	// "no such container" says nothing about it. Both are kept, and the launch refuses naming that
+	// runtime's commands and the files to remove by hand.
+	other := earlier
+	other.Runtime, other.Setup, other.PackTree = "container", "apple-container-self", "/host/container-launch-tree"
+	other.Generation = "0123456789abcdef0123456789abcdef"
+	removePreparedHTTPOwnership(cname)
+	writePreparedTestFile(t, preparedPath, &other)
+	if _, err := writePreparedHTTPOwnership(preparedHTTPOwnershipRecord{Version: preparedHTTPOwnershipVersion, Container: cname,
+		Runtime: other.Runtime, Setup: other.Setup, PackTree: other.PackTree, Generations: []preparedHTTPGenerationRef{{
+			Path: preparedPath, Generation: other.Generation, Loophole: other.Loophole, LaunchID: other.LaunchID,
+			Source: other.Source, DeclarationHash: other.DeclarationHash}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	producer.Exec = knownGone
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	for _, path := range []string{ownerPath, preparedPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("a podman launch retired another runtime's prepared-HTTP file %s: %v", path, err)
+		}
+	}
+	output.Reset()
+	rescope()
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a podman launch adopted another runtime's prepared-HTTP ownership record")
+	}
+	if got := output.String(); !strings.Contains(got, "container ls --all") || !strings.Contains(got, "container rm --force "+cname) ||
+		!strings.Contains(got, "rm -f -- "+ownerPath+" "+preparedPath) {
+		t.Fatalf("the other-runtime refusal does not name that runtime's commands and the files to remove:\n%s", got)
+	}
+	// With the record lost, the sweep must not take the other runtime's published generation for a
+	// dead launch of this one either: the launch refuses naming it, and it stays.
+	if err := os.Remove(ownerPath); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	rescope()
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a podman launch swept another runtime's published prepared generation")
+	}
+	if got := output.String(); !strings.Contains(got, "container rm --force "+cname) || !strings.Contains(got, "rm -f -- "+preparedPath) {
+		t.Fatalf("the other-runtime generation refusal does not name the next step:\n%s", got)
+	}
+	if data, err := os.ReadFile(preparedPath); err != nil {
+		t.Fatalf("the sweep removed another runtime's published generation: %v", err)
+	} else if now, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data); err != nil || now.Runtime != "container" {
+		t.Fatalf("another runtime's published generation was replaced: %+v %v", now, err)
+	}
+	if err := os.Remove(preparedPath); err != nil {
+		t.Fatal(err)
+	}
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a launch after the other runtime's files were removed refused:\n%s", output.String())
+	}
+
+	// A KNOWN-GONE container whose record names a generation whose bytes no longer decode: retire
+	// keeps both, since it deletes only what it can verify, and so would every later launch. The
+	// refusal therefore names the exact files to remove by hand and why, never "launch again".
+	removePreparedHTTPOwnership(cname)
+	if err := os.WriteFile(preparedPath, []byte("not a prepared identity"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writePreparedHTTPOwnership(preparedHTTPOwnershipRecord{Version: preparedHTTPOwnershipVersion, Container: cname,
+		Runtime: "podman", Setup: "podman-self", PackTree: "/host/earlier-launch-tree", Generations: []preparedHTTPGenerationRef{{
+			Path: preparedPath, Generation: other.Generation, Loophole: other.Loophole, LaunchID: other.LaunchID,
+			Source: other.Source, DeclarationHash: other.DeclarationHash}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	producer.Exec = knownGone
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	for _, path := range []string{ownerPath, preparedPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("retirement deleted the unverifiable file %s: %v", path, err)
+		}
+	}
+	output.Reset()
+	rescope()
+	if producer.writeLaunchInput(selected, cname) {
+		t.Fatal("a launch adopted a record naming an unverifiable generation")
+	}
+	if got := output.String(); !strings.Contains(got, "container is gone") || !strings.Contains(got, "deletes only what it can verify") ||
+		!strings.Contains(got, "rm -f -- "+ownerPath+" "+preparedPath) || strings.Contains(got, "not confirmed gone") {
+		t.Fatalf("the unverifiable-file refusal does not name the files to remove by hand and why:\n%s", got)
+	}
+	if err := os.Remove(ownerPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(preparedPath); err != nil {
+		t.Fatal(err)
+	}
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a launch after the unverifiable files were removed by hand refused:\n%s", output.String())
+	}
 }
 
 // TestRetireStalePreparedHTTPOwnershipNeedsAKnownGoneContainer: an earlier launch's ownership
@@ -644,10 +741,19 @@ func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T)
 		{"missing tree after scope retirement", true, false, true, false, true},
 		{"missing tree after scope and input retirement", true, false, true, true, true},
 		{"missing tree with verified legacy input", false, false, false, false, false},
+		// The record lost while the scope runs: the scope's input names a prepared generation,
+		// and that alone must refuse.
+		{"missing tree with no ownership record and a running prepared scope", true, false, false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := attachedPrivateHTTPFixture(t, tc.includeClient, true)
 			f.packs = nil // current staging no longer selects any HTTP pack.
+			lostRecord := strings.Contains(tc.name, "no ownership record")
+			if lostRecord {
+				if err := os.Remove(preparedHTTPOwnershipPath("yolo-ws-abcd1234")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.unreadable {
 				if err := os.WriteFile(filepath.Join(f.tree, packload.PackTreeRecordName), []byte("{"), 0600); err != nil {
 					t.Fatal(err)
@@ -699,6 +805,9 @@ func TestAttachUsesHostRunningScopeWhenTheRunningTreeIsUnavailable(t *testing.T)
 			if tc.wantRefusal {
 				if rc != 1 || restarted || execed {
 					t.Fatalf("unverifiable G4 attach was not refused: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
+				}
+				if lostRecord && !strings.Contains(f.stderr.String(), "retains a prepared HTTP identity") {
+					t.Fatalf("the lost-record refusal did not come from the running scope's prepared identity:\n%s", f.stderr.String())
 				}
 			} else if rc != 0 || restarted || !execed {
 				t.Fatalf("verified legacy attach changed behavior: rc=%d restarted=%v execed=%v\n%s", rc, restarted, execed, f.stderr.String())
@@ -926,6 +1035,12 @@ prefix = "Bearer "
 	}
 	declHash := loopholedecl.CallBrokerDeclarationHash(call.CallBroker)
 	launchID := "attachfixture01"
+	var mountArgv []string
+	if includeClient {
+		// assembledPrivateFixtureMounts moves HOME: take it BEFORE the scope is written, so the
+		// running call-root scope lives under the HOME the attach scans (runningHTTPPreparedExpected).
+		mountArgv = assembledPrivateFixtureMounts(t, o.Workspace, cname)
+	}
 	scopePath, err := brokerscope.Write(brokerscope.File{Source: "tasks", LaunchID: launchID, PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Form: brokerscope.FormCallRoot, Repos: []string{}})
 	if err != nil {
 		t.Fatal(err)
@@ -975,7 +1090,7 @@ prefix = "Bearer "
 			t.Fatal(err)
 		}
 		if includeClient {
-			o.launchInputMountArgv = assembledPrivateFixtureMounts(t, o.Workspace, cname)
+			o.launchInputMountArgv = mountArgv
 			o.runtime, o.packTree = "podman", root
 			writeCurrentKeeperRecord(t, cname, keeperRecord{Workspace: o.Workspace, Runtime: "podman", PackTree: root, MCPTeardownKnown: true})
 			o.preparedHTTPOwnershipFile = preparedHTTPOwnershipPath(cname)

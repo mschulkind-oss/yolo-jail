@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Teardown timing.
@@ -514,4 +515,10 @@ func (o *Options) waitForRunningContainer(cname, rt string) string {
 		}
 		o.Sleep(100 * time.Millisecond)
 	}
+}
+
+// manualRemoveCommand is the command that removes files yolo would not delete itself, for a
+// refusal whose next step is the user's own removal of them.
+func manualRemoveCommand(files []string) string {
+	return "`" + shquote.JoinDisplay(append([]string{"rm", "-f", "--"}, files...)) + "`"
 }

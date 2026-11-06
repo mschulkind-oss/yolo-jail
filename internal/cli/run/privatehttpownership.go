@@ -47,9 +47,33 @@ func preparedHTTPOwnershipPath(cname string) string {
 
 // stalePreparedHTTPOwnershipError is ensurePreparedHTTPOwnership's refusal of a record an earlier
 // launch of the same container left behind (a killed keeper, a reboot, a teardown that could not
-// ask the runtime). Only a fresh launch that has seen that container gone may retire it
-// (retireStalePreparedHTTPOwnership); this launch could not, so it names the file.
-type stalePreparedHTTPOwnershipError struct{ path string }
+// ask the runtime). Only a fresh launch of the record's own runtime that has seen that container
+// gone may retire it (retireStalePreparedHTTPOwnership); this launch did not, so it names the file.
+// runtime is the record's. files are the record and the prepared generations it names that exist,
+// for a refusal whose next step is removing them by hand. unverified is set only when this
+// launch's runtime ANSWERED that the container is gone and retirement still kept those files
+// because they no longer match the record: a later launch would keep them too.
+type stalePreparedHTTPOwnershipError struct {
+	path       string
+	runtime    string
+	files      []string
+	unverified []string
+}
+
+func (o *Options) staleOwnershipError(path string, rec preparedHTTPOwnershipRecord) *stalePreparedHTTPOwnershipError {
+	e := &stalePreparedHTTPOwnershipError{path: path, runtime: rec.Runtime, files: []string{path}}
+	for _, ref := range rec.Generations {
+		for _, leaf := range []string{ref.Path, filepath.Join(filepath.Dir(ref.Path), preparedHTTPTempLeaf(ref.Generation))} {
+			if _, err := os.Lstat(leaf); err == nil {
+				e.files = append(e.files, leaf)
+			}
+		}
+	}
+	if rec.Runtime == o.runtime {
+		e.unverified = append([]string(nil), o.preparedHTTPRetireUnverified...)
+	}
+	return e
+}
 
 func (e *stalePreparedHTTPOwnershipError) Error() string {
 	return "prepared HTTP ownership record " + e.path + " belongs to an earlier launch"
@@ -78,7 +102,7 @@ func (o *Options) ensurePreparedHTTPOwnership(cname string) (created bool, err e
 	}
 	if present {
 		if rec.Runtime != o.runtime || rec.Setup != setupName || rec.PackTree != o.packTree {
-			return false, &stalePreparedHTTPOwnershipError{path: path}
+			return false, o.staleOwnershipError(path, rec)
 		}
 		return false, nil
 	}
@@ -95,16 +119,22 @@ func (o *Options) ensurePreparedHTTPOwnership(cname string) (created bool, err e
 // path calls it after its stale-container removal and under the workspace launch lock, so no other
 // launch of the workspace is creating the container. It acts only when the runtime ANSWERS that no
 // container of cname exists: "could not ask" and "still there" keep everything, and this launch's
-// ensurePreparedHTTPOwnership then refuses naming the file. A referenced generation that no longer
-// matches its record is kept, and with it the record (removePreparedHTTPOwnership).
+// ensurePreparedHTTPOwnership then refuses naming the file. It asks only the runtime the record
+// names: another runtime's answer says nothing about that container (a podman jail is invisible to
+// Apple's `container ls`), so a record of another runtime is kept, and the refusal names that
+// runtime's commands. A referenced generation that no longer matches its record is kept, and with
+// it the record (removePreparedHTTPOwnership); those files are kept on o for the refusal, which
+// names them for removal by hand, since no later launch can verify them either.
 func (o *Options) retireStalePreparedHTTPOwnership(cname, rt string) {
-	if _, _, present, err := readPreparedHTTPOwnership(cname); !present || err != nil {
+	o.preparedHTTPRetireUnverified = nil
+	rec, _, present, err := readPreparedHTTPOwnership(cname)
+	if !present || err != nil || rec.Runtime != rt {
 		return
 	}
 	if id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); !known || id != "" {
 		return
 	}
-	removePreparedHTTPOwnership(cname)
+	o.preparedHTTPRetireUnverified = removePreparedHTTPOwnership(cname)
 }
 
 // recordPreparedHTTPGeneration adds owner's generation to this launch's ownership record BEFORE
@@ -141,7 +171,7 @@ func (o *Options) recordPreparedHTTPGeneration(owner preparedHTTPGenerationOwner
 		rec = preparedHTTPOwnershipRecord{Version: preparedHTTPOwnershipVersion, Container: owner.container,
 			Runtime: o.runtime, Setup: setupName, PackTree: o.packTree}
 	} else if rec.Runtime != o.runtime || rec.PackTree != o.packTree || rec.Setup != setupName {
-		return false, &stalePreparedHTTPOwnershipError{path: path}
+		return false, o.staleOwnershipError(path, rec)
 	}
 	for _, existing := range rec.Generations {
 		if existing.Path == ref.Path || existing.Generation == ref.Generation {
@@ -373,7 +403,7 @@ func removePreparedHTTPGenerationOwnership(owner preparedHTTPGenerationOwner, re
 	if index < 0 {
 		return false
 	}
-	if removeFile && !removePreparedHTTPGenerationReference(owner.container, rec, rec.Generations[index]) {
+	if removeFile && len(removePreparedHTTPGenerationReference(owner.container, rec, rec.Generations[index])) != 0 {
 		return false
 	}
 	if len(rec.Generations) == 1 {
@@ -391,19 +421,23 @@ func removePreparedHTTPGenerationOwnership(owner preparedHTTPGenerationOwner, re
 	return err == nil
 }
 
-func removePreparedHTTPOwnership(cname string) {
+// removePreparedHTTPOwnership removes cname's ownership record and every prepared generation it
+// names whose bytes still match it. unverified lists the generation files that did not match and
+// so were kept, and with them the record.
+func removePreparedHTTPOwnership(cname string) (unverified []string) {
 	rec, marker, present, err := readPreparedHTTPOwnership(cname)
 	if err != nil || !present {
-		return
+		return nil
 	}
 	for _, generation := range rec.Generations {
-		if !removePreparedHTTPGenerationReference(cname, rec, generation) {
-			return
-		}
+		unverified = append(unverified, removePreparedHTTPGenerationReference(cname, rec, generation)...)
+	}
+	if len(unverified) != 0 {
+		return unverified
 	}
 	root, err := paths.OpenStateDirRoot(ownerPIDDir())
 	if err != nil {
-		return
+		return nil
 	}
 	defer root.Close()
 	name := filepath.Base(preparedHTTPOwnershipPath(cname))
@@ -411,23 +445,28 @@ func removePreparedHTTPOwnership(cname string) {
 	if err == nil && os.SameFile(marker, current) && privateHTTPFileOwned(current, 0o600) {
 		_ = root.Remove(name)
 	}
+	return nil
 }
 
 // removePreparedHTTPGenerationReference removes ref's prepared generation, at its final path and
 // at the unpublished temp name a launch killed between recording and publishing it left
 // (preparedHTTPTempLeaf), each only while its bytes still match ref and rec. A leaf that is
-// already gone counts as removed.
-func removePreparedHTTPGenerationReference(cname string, rec preparedHTTPOwnershipRecord, ref preparedHTTPGenerationRef) bool {
+// already gone counts as removed. kept lists the paths it could not verify, and so left.
+func removePreparedHTTPGenerationReference(cname string, rec preparedHTTPOwnershipRecord, ref preparedHTTPGenerationRef) (kept []string) {
 	root, err := paths.OpenStateDirRoot(filepath.Dir(ref.Path))
 	if errors.Is(err, os.ErrNotExist) {
-		return true
+		return nil
 	}
 	if err != nil {
-		return false
+		return []string{ref.Path}
 	}
 	defer root.Close()
-	return removeMatchingPreparedHTTPLeaf(root, filepath.Base(ref.Path), cname, rec, ref) &&
-		removeMatchingPreparedHTTPLeaf(root, preparedHTTPTempLeaf(ref.Generation), cname, rec, ref)
+	for _, leaf := range []string{filepath.Base(ref.Path), preparedHTTPTempLeaf(ref.Generation)} {
+		if !removeMatchingPreparedHTTPLeaf(root, leaf, cname, rec, ref) {
+			kept = append(kept, filepath.Join(filepath.Dir(ref.Path), leaf))
+		}
+	}
+	return kept
 }
 
 func removeMatchingPreparedHTTPLeaf(root *os.Root, leaf, cname string, rec preparedHTTPOwnershipRecord, ref preparedHTTPGenerationRef) bool {
