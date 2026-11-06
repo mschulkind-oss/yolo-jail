@@ -887,7 +887,9 @@ func envFold(packs []*Pack, sel GateSelection, agent string, atHost bool) []EnvF
 		servedBy := map[string]string{}
 		var gated []packdecl.Contribution
 		for _, c := range p.Decl.Contributions() {
-			if c.Kind != packdecl.KindEnv || (atHost && c.JailOnly) {
+			// c.Bin: a private client's env is never the ordinary fold's
+			// (packdecl.PrivateProgramEnvContributions), as EnvContributions skips it.
+			if c.Kind != packdecl.KindEnv || c.Bin != "" || (atHost && c.JailOnly) {
 				continue
 			}
 			if c.Profile != "" || c.Platform != "" {
