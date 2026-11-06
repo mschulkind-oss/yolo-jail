@@ -212,6 +212,11 @@ The mechanics behind each of these are in
 - **A test that pins the CALLEE while the CALL SITE is unpinned is not a test** — nothing fails when the
   production caller is deleted. Nor is one asserting the SENTENCE a comment makes rather than the system.
   When adding one, ask: **does it fail if I delete the call site?**
+- **Tests are event-driven, not timed** (the owner, 2026-11-06: *"let's make tests event drive, not
+  based on fragile timeouts. whenever possible."*). Wait on the event itself: a readiness line, a
+  channel, a closed connection, an injected clock or deadline. Never use a sleep, or an elapsed-time
+  bound, as the pass condition. A timeout may only be a generous failure guard that turns a hang
+  into a red test. It must never be a short budget the code has to beat on a loaded machine.
 - **The darwin PATH-RESOLUTION class is reproducible on Linux.** On macOS `t.TempDir()` is under a
   symlink (`/var` → `/private/var`), so a fixture path compared against code that resolves symlinks
   passes on Linux and fails on darwin. Reproduce with
