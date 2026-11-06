@@ -604,6 +604,13 @@ directory, so a module directory in an agent-writable tree means every host-side
 an agent-writable target — including the ones no rule can see, like a Python daemon's imports
 — and checking the directory says that about all of them at once.
 
+**`yolo host` mounts no workspace, so it judges the jail-home tree alone.** Its working
+directory is not a tree it hands an agent: judged as one, a run from `$HOME` refused `aws-auth`
+for living under `~/.local/share/yolo-jail`. And a doorway whose host service the rule refuses
+there refuses the launch before it opens, naming the file and the tree, rather than opening
+pointed at a service that never started (`run.Options.placementWorkspace`,
+`refusePlacementOfDoorways`).
+
 > [!WARNING]
 > **The rule cannot be complete, and it has two edges.** yolo knows the workspace it is
 > launching and the homes it manages, not that some other checkout is agent-writable in a

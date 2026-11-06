@@ -333,6 +333,20 @@ func (o *Options) unreachableBy() string {
 	return "the jail"
 }
 
+// placementWorkspace is the workspace the placement rule judges this launch's host code against
+// (docs/reference/loophole-system.md#the-placement-rule): the one a jail or a macos-user session
+// hands its agent read-write, and "" at the host notch, which mounts nothing. Its Workspace there
+// is only the cwd `yolo host` ran in, and judged as a mounted tree from $HOME it refused aws-auth
+// for living under ~/.local/share/yolo-jail, the store kept out of every agent's reach (the Mac
+// lab report of 2026-10-19, §4). "" is the rule's own no-workspace-in-hand path: it still judges
+// the jail home tree.
+func (o *Options) placementWorkspace() string {
+	if o.mountsNoWorkspace {
+		return ""
+	}
+	return o.Workspace
+}
+
 // startLoopholesMatching is the shared lifecycle for backends that can carry only a
 // subset of host services. Apple Container admits the OpenAI credential endpoint file,
 // while macos-user starts that same one service without activating unrelated loopholes.
@@ -360,7 +374,7 @@ func (o *Options) prepareLoopholeSettingsForStart(set loopholes.Set, cfg *jsonx.
 	discovered = kept
 	placements := map[string]bool{}
 	for _, lp := range discovered {
-		if len(lp.PlacementProblems(o.Workspace)) != 0 {
+		if len(lp.PlacementProblems(o.placementWorkspace())) != 0 {
 			placements[lp.Name] = true
 		}
 	}
@@ -512,7 +526,7 @@ func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cf
 	// face that executes.
 	placementRefused := map[string]bool{}
 	for _, lp := range discovered {
-		for _, problem := range lp.PlacementProblems(o.Workspace) {
+		for _, problem := range lp.PlacementProblems(o.placementWorkspace()) {
 			placementRefused[lp.Name] = true
 			o.pr(o.Stderr).print("[red]Refusing to start loophole " + lp.Name + ": " + problem + "[/red]")
 		}
@@ -1309,7 +1323,7 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 	// argv[0] is yolo's own path, which during nested-jail verification legitimately
 	// lives in the workspace.
 	if probs := config.LoopholePlacementProblems(
-		"loopholes."+name+".command", cmdArgs, o.Workspace); len(probs) > 0 {
+		"loopholes."+name+".command", cmdArgs, o.placementWorkspace()); len(probs) > 0 {
 		p := o.pr(o.Stderr)
 		for _, prob := range probs {
 			p.print("[red]Refusing to start host service '" + name + "': " + prob + "[/red]")

@@ -614,3 +614,18 @@ func TestHostPiWithABedrockEntryAfterTheFirstGetsTheDoorway(t *testing.T) {
 		t.Errorf("pi's AWS_REGION = %q, want the Bedrock entry's eu-west-1", got)
 	}
 }
+
+// RUN FROM THE HOME, THE HOST NOTCH STILL SERVES aws-auth (docs/plans/roadmap.md, the item on
+// `yolo host --` calling its cwd a bind-mounted workspace; measured on a Mac 2026-10-19). The host
+// notch mounts nothing, so its cwd is not a tree it hands an agent: the placement rule judges it
+// with no workspace in hand. Judged against the cwd, a `yolo host` run from $HOME refused aws-auth
+// for living in ~/.local/share/yolo-jail/embedded-packs, the tree kept out of cache/ so no agent
+// writes it.
+func TestHostRunFromTheHomeDoesNotRefuseAWSAuthsPlacement(t *testing.T) {
+	l := runDoorwayLaunchAfter(t, bedrockDoorwayConfig("pi", true), map[string]string{"AWS_REGION": ""},
+		nil, "pi", func() { t.Chdir(os.Getenv("HOME")) })
+	if strings.Contains(l.errs, "Refusing to start loophole") || strings.Contains(l.errs, "the placement rule") {
+		t.Errorf("a host launch from $HOME refused a loophole by its placement:\n%s", l.errs)
+	}
+	assertDoorwayServed(t, l)
+}
