@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Owner rules OQ-SU7 (bind-source custody; leaning C: a held /proc fd on Linux podman, local rootful probe green, with a refusal where no mechanism exists); then a rootless witness for that fd, and unchanged W-SU1/W-SU4, before 6a-ii/6b land; 6a-ii wires the move under SUP-D21 after the seatbelt-yolo-account home-owner check"
+next: "Build 6a-ii: bind per-setup homes by pathname after the no-link check (SUP-D30, OQ-SU7 ruled), wire the move under SUP-D21 after the seatbelt-yolo-account home-owner check; unchanged W-SU1/W-SU4 before 6a-ii/6b land"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -112,6 +112,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D27"></a>SUP-D27 | **`--setup` is resolved by `setup.Lookup` over the built-ins and the user config's `[setups]`**, the same lookup a launch's `--setup` uses, so the refusal text is the launch's. | [§12.6](named-setups.md#126-narrowing-with---setup) requires the launch's message; one lookup cannot drift from it. |
 | <a id="SUP-D28"></a>SUP-D28 | **The host source is `runtime.ListSessions` narrowed to `notch: host`, and the Seatbelt source the rest.** A session with no record (an older yolo's) stays in the Seatbelt source, as `MacosUserSessions` places it today; on Linux the host source is the only session source. | One directory listing serves both; splitting by the record's notch is what `MacosUserSessions` already does. |
 | <a id="SUP-D29"></a>SUP-D29 | **A `yolo host` launch that execs its program hands the session lock across the exec, and a session it cannot open is a warning.** `HostSession.KeepAcrossExec` clears close-on-exec on the lock, so the program holds it, and the session record carries the launch's pid, which the exec keeps. A session is live only while the lock is held AND that pid runs (`runtime.ListSessions`, which 11b and 11d read): every process the program spawns inherits the lock, so a held lock alone outlives the agent. Its dir is collected by the next session open after the last holder exits. A failed open prints that `yolo ps` will not list this launch and goes on. | The program replaces yolo, so nothing of yolo's survives to hold the lock or remove the dir; the menu's lock and the session homes' leases already cross the exec the same way (MM-D27). A listing record is never a reason to refuse an agent: `openServicesSession`'s record write is not fatal either. |
+| <a id="SUP-D30"></a>SUP-D30 | **No bind-source custody on any backend.** 6a-ii binds per-setup homes by pathname after the existing no-link check, as `.yolo/home` is bound today: no held `/proc/<pid>/fd/<n>` source, no project-wide refusal of side-by-side setups, no mask over `.yolo/setups`. The custody entry condition and the rootless held-descriptor witness are dropped from 6a-ii, and the outside/foreign-pack pathname red, the same swap on a pack's shared-directory bind source, stops gating landing. Supersedes [SUP-D19](#SUP-D19)'s wait on the custody proof. | The owner's ruling on [OQ-SU7](named-setups.md#OQ-SU7) (2026-11-06) makes the swap race an accepted risk under the [misguided-agent principle](../reference/misguided-agent-principle.md); the design's [§9](named-setups.md#9-state-per-setup) records it, and the two mounts that would close it on podman (`.yolo` bound onto itself, an empty read-only bind over `.yolo/setups`) as available, not adopted. |
 
 ## Map
 
@@ -740,7 +741,7 @@ are below).
 
 ### Slice 6a — one home and run state per setup (after 4b, 5 and 9; launch-path)
 
-**Focused source review (2026-11-06; not acceptance).** The private prototype's focused review closes three synthetic-only findings: strict phases bind the complete selection and actual spawned PID; the synthetic receiver validates singleton roles and descriptor kinds before taking ownership, requiring the lock at file descriptor (FD) 5 while valid reserved sockets at FDs 6/7 remain unchanged; and withdrawal waits for operations holding real duplicated FDs before `WITHDRAWN`. An FD here is an open kernel handle, not a pathname. This is not a whole-source verdict: the native outside/foreign-pack pathname semantic RED and the separate SU5 legacy-home adoption RED remain. The only complete `go test -count=1 ./internal/cli/run` run was 340.601s, RC 1; the focused race run (21.535s), scoped vet and Darwin/arm64 compile passed.
+**Focused source review (2026-11-06; not acceptance).** The private prototype's focused review closes three synthetic-only findings: strict phases bind the complete selection and actual spawned PID; the synthetic receiver validates singleton roles and descriptor kinds before taking ownership, requiring the lock at file descriptor (FD) 5 while valid reserved sockets at FDs 6/7 remain unchanged; and withdrawal waits for operations holding real duplicated FDs before `WITHDRAWN`. An FD here is an open kernel handle, not a pathname. This is not a whole-source verdict: the separate SU5 legacy-home adoption RED remains. The native outside/foreign-pack pathname semantic RED (a selected pack's shared-directory bind source swapped after validation, before the engine reads it) rests on the same custody requirement as per-setup homes, so [SUP-D30](#SUP-D30) covers it: it is an accepted risk, and the test that pins it red is not a landing gate. The only complete `go test -count=1 ./internal/cli/run` run was 340.601s, RC 1; the focused race run (21.535s), scoped vet and Darwin/arm64 compile passed.
 
 **Local Podman bind-mount and holder evidence (one cell; not production integration).** In one local
 nested Linux 7.2.9 cell using Podman 6.1.4/crun (`rootless=false`, `remote=false`), owned dummy
@@ -756,11 +757,11 @@ the original writable bind. A separate object created before holder death but st
 FD disappeared failed at START; this does not determine what happens to an already-started
 container's bind after holder death.
 
-This supports only those local rootful cells. Production integration still needs actual selected-directory-FD custody across every admission path, object identity from that open FD, and a real operation-FD lifetime through engine lookup; a PID/FD-slot path or `fstat` before parsing alone is not custody.
+This supports only those local rootful cells. Production does not use descriptor custody ([SUP-D30](#SUP-D30)); this and the evidence below are kept as the record of what custody would need, should the threat model ever change.
 
 A separate one-command local `podman run --preserve-fds=1` countercontrol passed the raw original directory FD into guest code. The guest verified that FD3 matched the mounted source and used FD-relative parent traversal to read an owned sibling outside the mounted leaf. No unrelated host path or credential was tested. This is a negative isolation result: direct raw-FD pass-through is not a production fix. The run had no detached create/start phase, and the engine process resolving `/proc/self` was not identified. Local `create --help` did not advertise this option; these observations do not establish what a detached creation path accepts.
 
-The next engineering proof must identify a supported engine consume-before-guest path that preserves verified host-side FD custody through every admission and operation, while keeping the raw directory FD out of guest code. The source FD must be consumed and closed before untrusted guest code starts; do not substitute file modes (including `0700`), a token, pathname/PID/FD-slot identity, effective UID, or guest bootstrap ordering for that boundary. Verify the engine resolver and lifetime directly, and check guest descriptor absence plus lack of parent-relative access. Do not infer this from a PID/FD-slot path or pre-parse `fstat`. No new runtime wrapper, custom namespace, public flag, privilege change, or backend exclusion is settled here; the raw-FD pass-through result is not activation authority. The synthetic prototype still conservatively retains uncertain-COMMIT FD copies in-process; neither that closure nor the local probes prove a production release operation. No lease or queued-lookup protocol, native activation, rootless/remote Podman, Apple Container, macOS or Seatbelt behavior is established. No backend fallback or source activation follows from it.
+Had custody been required, the next engineering proof would have had to identify a supported engine consume-before-guest path that preserves verified host-side FD custody through every admission and operation, while keeping the raw directory FD out of guest code. The source FD must be consumed and closed before untrusted guest code starts; do not substitute file modes (including `0700`), a token, pathname/PID/FD-slot identity, effective UID, or guest bootstrap ordering for that boundary. Verify the engine resolver and lifetime directly, and check guest descriptor absence plus lack of parent-relative access. Do not infer this from a PID/FD-slot path or pre-parse `fstat`. No new runtime wrapper, custom namespace, public flag, privilege change, or backend exclusion is settled here; the raw-FD pass-through result is not activation authority. The synthetic prototype still conservatively retains uncertain-COMMIT FD copies in-process; neither that closure nor the local probes prove a production release operation. No lease or queued-lookup protocol, native activation, rootless/remote Podman, Apple Container, macOS or Seatbelt behavior is established. No backend fallback or source activation follows from it.
 
 **Held `/proc/<holder>/fd/<n>` probe (2026-11-06; rootful nested Podman 6.1.4 with crun, Linux;
 scripts and logs under `$YOLO_DURABLE_DIR/slice6a/probes/`, outside the repository).** A host
@@ -794,8 +795,10 @@ slot. A holder that lives as long as the container closes that gap.
 mounted a tmpfs at `/workspace/.yolo/setups` (`mask_rename.py`; `mask.log`). Renaming the masked
 mount point failed with EBUSY. But the jail renamed the parent `.yolo` aside, recreated it, and
 planted `.yolo/setups -> ../.yolo-aside/setups`, and that link was visible on the host. Hiding
-part of the path cannot replace custody, because jails share the workspace and a jail can still
-rewrite a directory above the hidden part.
+part of the path alone does not stop the writer, because jails share the workspace and a jail can still
+rewrite a directory above the hidden part. A second probe that also bound `.yolo` onto itself,
+so that renaming it failed with EBUSY, closed the race on podman; that pair is recorded as available,
+not adopted ([SUP-D30](#SUP-D30)).
 
 **Assessed but not probed:**
 
@@ -810,9 +813,8 @@ rewrite a directory above the hidden part.
 `--userns=host`. Reading another process's `/proc/<pid>/fd` needs a ptrace read-mode check against
 the same user, which rootless podman's runtime should pass, but no probe has run it. macOS podman
 runs its engine in a VM, which cannot open the host's `/proc`, and Apple Container has no `/proc`
-at all, so neither is covered. Seatbelt mounts nothing. This evidence supports option **C** of
-[OQ-SU7](named-setups.md#OQ-SU7) on Linux podman only. It is not activation authority until the
-owner rules [OQ-SU7](named-setups.md#OQ-SU7).
+at all, so neither is covered. Seatbelt mounts nothing. [OQ-SU7](named-setups.md#OQ-SU7) is ruled against custody on every backend, so
+none of this is built ([SUP-D30](#SUP-D30)).
 
 **Landing split ([SUP-D19](#SUP-D19), 2026-11-06).** *6a-i, which lands now*, covers the
 `internal/runtime/naming.go` `JailName` row of **Tests first**, the `internal/paths/setupstate_test.go`
@@ -822,6 +824,8 @@ adds no production caller. Its gates are `just check-ci` plus a nested launch, w
 launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
 
 **6a-ii entry conditions added by the 6a-i review (2026-11-06):**
+
+- **No custody ([SUP-D30](#SUP-D30)).** The switch binds `.yolo/setups/<name>/home` (and each per-directory child) by pathname after the existing no-link check, as `.yolo/home` is bound today. Add no held descriptor, no refusal of a second setup while another jail of the project runs, and no mount over `.yolo` or `.yolo/setups`. The restart rule from the held-descriptor probe does not carry over: it guarded a reused descriptor slot, and a pathname bind that restarts re-resolves the same path, which is the accepted race. yolo still runs `--rm` and restarts none.
 
 - **[SUP-D21](#SUP-D21).** The home switch reads `adoptLegacyHome`'s result first. While a legacy home attributed to the selected setup is in place, that launch binds `.yolo/home` and creates no setup home. Add a test that fails if the switch creates the setup home beside an unmoved legacy home.
 - **Who owns a `seatbelt-yolo-account` home.** Check on the Mac whether a `seatbelt-yolo-account` launch leaves `<ws>/.yolo/home` owned by the invoking user or by the sandbox account; `macosuser.LaunchHomes` uses `WorkspaceHomeState` in both modes. If the sandbox account owns it, SUP-D20's owner rule leaves every such home in place with a `sudo chown` step. Then rule, before wiring, whether the yolo account counts as an owner the move may take a home from (a design question for the owner, with this witness attached).
@@ -1419,10 +1423,9 @@ into the slice's report (see the macos-user plan's
 
 [OQ-SU5](named-setups.md#OQ-SU5) is ruled
 ([SUP-D9](#SUP-D9)), so no owner question blocks the legacy-home move.
-[OQ-SU7](named-setups.md#OQ-SU7) (open) blocks 6a-ii. It asks whether bind-source custody is
-needed on every launch, only while a running jail could write the source's path, or per backend.
-Under its leaning, C, Linux podman would also need a rootless witness for the held-`/proc`
-descriptor mechanism. Slices 6a/6b still need independent review and
+[OQ-SU7](named-setups.md#OQ-SU7) is ruled ([SUP-D30](#SUP-D30)), so no custody mechanism and no
+rootless witness for one block 6a-ii; its entry conditions are [SUP-D21](#SUP-D21) and the
+`seatbelt-yolo-account` home-owner check. Slices 6a/6b still need independent review and
 **unchanged W-SU1/W-SU4** on the combined candidate before primary landing; W-SU4's yes
 expectation cannot be quietly revised. Slice 8 separately needs W-SU3. No native Mac or
 rootless-host witness is established by the private Linux fixture.

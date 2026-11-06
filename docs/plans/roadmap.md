@@ -491,8 +491,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     determine already-started bind behavior after holder death. A one-command self-process
     `--preserve-fds` countercontrol exposed the original raw directory FD to guest code, which
     traversed to an owned sibling outside the bind leaf; direct pass-through is not a production fix.
-    This does not establish detached create/start or full keeper-protocol behavior. The
-    outside/foreign-pack pathname semantic RED remains; the legacy-home move is ruled ([OQ-SU5](../design/named-setups.md#OQ-SU5)). The [refreshed build hand-off](../design/named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
+    This does not establish detached create/start or full keeper-protocol behavior.
+    [OQ-SU7](../design/named-setups.md#OQ-SU7) is ruled (2026-11-06): no backend needs bind-source custody, so
+    6a-ii binds per-setup homes by pathname and is ready to build; the swap race, including the
+    outside/foreign-pack pathname RED, is a documented accepted risk. The legacy-home move is ruled ([OQ-SU5](../design/named-setups.md#OQ-SU5)). The [refreshed build hand-off](../design/named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
     records the proof boundary and remaining native/rootless/remote/backend gaps. The combined
     candidate still needs review and unchanged W-SU1/W-SU4 on the owner's Mac before primary
     landing. The Mac default moves to `seatbelt-self` only with slice 11's default flip, when the

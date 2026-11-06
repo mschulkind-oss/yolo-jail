@@ -1,9 +1,9 @@
 ---
 title: "Named setups: one name chooses every wall, and nothing follows from your OS"
 date: 2026-11-03
-status: in-review
-stage: DESIGN
-next: "Rule OQ-SU7 (bind-source custody: always, only while a jail could write the path, or per backend); then 6a-ii builds to the ruling; slice 11 is independent"
+status: accepted
+stage: DECIDED
+next: "Build 6a-ii: per-setup homes bound by pathname after the no-link check (OQ-SU7 ruled); slice 11 is independent"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -22,11 +22,11 @@ A private 6a/6b prototype has focused synthetic-only closure of three held-bind 
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
 A self-process `--preserve-fds` countercontrol also shows the raw source descriptor available to
 guest code, so direct pass-through is not an acceptable production fix. Neither probe is accepted
-production source; the outside/foreign-pack path and legacy-home adoption reds remain. See
+production source, and the legacy-home adoption red remains. See
 [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
-[OQ-SU7](#OQ-SU7) is open: it asks whether bind-source custody is needed on every launch or only
-while a running jail could write the source's path. Binding per-setup homes (6a-ii) waits on that
-ruling.
+[OQ-SU7](#OQ-SU7) is ruled (2026-11-06): bind-source custody is required on no backend, and the
+swap race it would close is an accepted risk ([§9](#9-state-per-setup)). Binding per-setup homes
+(6a-ii) builds to that ruling.
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
@@ -438,15 +438,20 @@ then used FD-relative parent traversal to read an owned sibling outside the moun
 negative isolation result for direct FD pass-through, not proof of access to unrelated host paths or
 credentials; none were tested. The engine process resolving `/proc/self` was not identified, and
 this was not a detached create/start or keeper-protocol test. Do not pass the raw host directory FD
-to an untrusted guest. The outside/foreign-pack pathname red is separate from the legacy-home move, which
-[OQ-SU5](#OQ-SU5) settles. Neither source prototype nor local probe authorizes
-activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
+to an untrusted guest. The outside/foreign-pack pathname red is the same check-then-start swap
+on a pack's shared-directory bind source, so it falls under the accepted risk below
+([OQ-SU7](#OQ-SU7)); the legacy-home move is separate, and [OQ-SU5](#OQ-SU5) settles it. Neither
+source prototype nor local probe authorizes activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
 for the remaining proof boundary.
 
-**What bind-source custody closes, and a proposed revision ([OQ-SU7](#OQ-SU7), open).** Here
-*custody* (a term coined by the plan's evidence) means that the directory the engine mounts is
-the one yolo checked, held as an open descriptor, and not whatever a path names when the engine
-reads it.
+**Bind-source swaps are an accepted risk ([OQ-SU7](#OQ-SU7)).** yolo binds each per-setup home
+by pathname, after the same no-link check today's `<ws>/.yolo/home` gets. It does not hold the
+source in *custody* (a term coined by the plan's evidence: the directory the engine mounts is the
+one yolo checked, held as an open descriptor, and not whatever the path names when the engine
+reads it). That leaves one race, and it is accepted under the
+[misguided-agent principle](../reference/misguided-agent-principle.md): yolo defends against an
+over-helpful agent, not a malicious one, and this race needs a deliberate watcher timed to another
+setup's launch.
 
 - **The writer.** Code in any running jail whose writable binds cover a directory on the bind
   source's path. For per-setup state, that is every container jail of the same project: each
@@ -455,45 +460,41 @@ reads it.
   can a Seatbelt guest of the project, since its rules let it write the workspace.
 - **The swap.** yolo checks a source such as `<ws>/.yolo/setups/<name>/home` (or one of its
   per-directory children, which podman binds one by one) through a no-link descriptor chain. The
-  engine reads the pathname later, when it starts the container. In between, the writer renames
-  or replaces a component (`.yolo`, `setups`, `<name>`, `home` or a child) with a symbolic link
-  or another directory.
+  engine reads the pathname later, when it starts the container, and podman follows symbolic links
+  in a bind source (re-verified 2026-11-06). In between, the writer renames or replaces a
+  component (`.yolo`, `setups`, `<name>`, `home` or a child) with a symbolic link or another
+  directory.
 - **The gain.** The new jail gets a read-write bind of a host directory the writer chose:
   anything the account resolving the path can reach, such as `~/.ssh`, `~/.config/yolo-jail`,
-  another project, or another setup's home. Under rootful podman that account is root. This
-  breaks the new jail's walls, which is the outcome confinement exists to prevent.
-- **Masking does not stop the writer.** Hiding `.yolo/setups` inside each jail is not enough.
-  A local probe (in the plan's evidence) put a tmpfs over `/workspace/.yolo/setups` in a jail
-  that bound the workspace read-write. The jail could not rename the mountpoint itself (EBUSY),
-  but it renamed the parent `.yolo` aside and planted a link at the host's `.yolo/setups`. So
-  "a running jail's code can reach only its own home" is not true of any container backend
-  today.
+  another project, or another setup's home. Under rootful podman that account is root.
+- **Other setups' homes are open too.** For the same reason, every jail of a project can read the
+  homes of the project's other setups under `.yolo/setups`, and change them, since the workspace
+  bind is read-write. This is part of the same accepted risk.
 
-**What [OQ-SU5](#OQ-SU5)'s reasoning makes moot.** The ruling on [OQ-SU5](#OQ-SU5) rests on one premise:
-when no jail can write the path, the only writer left is a same-user host process, and it
-already has that reach. The same premise covers bind sources. If no running jail's writable
-binds cover the source's chain at the moment the engine resolves it, a swap gains a same-user
-host process nothing it lacked. This holds when the engine resolves paths with the user's own
-authority (rootless podman), or when the user is root (yolo under rootful podman). Today's
-`<ws>/.yolo/home` binds already rely on that premise, though nothing writes it down: one jail
-runs per project, and a new container is created only once the project's jail is gone.
+**What closes the race when no jail runs.** [OQ-SU5](#OQ-SU5)'s premise covers bind sources:
+with no running jail whose writable binds cover the source's chain, the only writer left is a
+same-user host process, and a swap gains it nothing it lacked. This holds when the engine resolves
+paths with the user's own authority (rootless podman), or when the user is root (yolo under
+rootful podman). The race is open only while another jail of the project runs, while a jail whose
+workspace contains this one runs (a hazard older than this design), or under rootful podman run by
+a non-root user; today's `<ws>/.yolo/home` binds carry the same race in those cases.
 
-**What it does not make moot:**
+**What yolo does not do about it.** There is no held descriptor, no project-wide refusal of
+side-by-side setups, and no mask over `.yolo/setups`.
 
-- **Two setups of one project running side by side.** [§9](#9-state-per-setup) promises this, and 6a creates it: one
-  setup's jail is a live writer during the other's launch.
-- **A running jail whose workspace contains this one.** That hazard exists before 6a.
-- **Rootful podman under a non-root user.** There, a same-user host process would gain root's
-  reach.
+> [!WARNING]
+> **Masking `.yolo/setups` alone does not stop the writer.** A local probe put a tmpfs over
+> `/workspace/.yolo/setups` in a jail that bound the workspace read-write. The jail could not
+> rename the mount point itself (EBUSY), but it renamed the parent `.yolo` aside and planted a
+> link at the host's `.yolo/setups`.
 
-A local nested rootful Podman/crun probe shows a cheap mechanism for Linux podman. A host process
-holds a no-follow descriptor for the source and hands the engine `/proc/<holder-pid>/fd/<n>`.
-The engine mounted the held directory across a swap, no guest process held a directory
-descriptor, and the mount outlived the holder closing it. A restart re-resolved the string and
-mounted whatever held that descriptor slot by then. So the holder must keep the descriptor for
-the container's whole life, and no path may restart one (yolo runs `--rm` and restarts none).
-The probe is not a witness for rootless podman, macOS podman (a VM), Apple Container or Seatbelt.
-Seatbelt mounts nothing, so this engine question does not arise for it.
+**Available if the threat model changes, not adopted.** Two mounts per container jail make the
+race impossible on podman: `.yolo` bound onto itself, so that renaming it fails with EBUSY, and an
+empty read-only bind over `.yolo/setups`, so that no jail reaches another setup's home. A local
+probe on 2026-11-06 confirmed both on podman. A Seatbelt guest mounts nothing, so these mounts do
+not reach it. A held `/proc/<holder-pid>/fd/<n>` source, probed on rootful Linux podman
+([plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)),
+is also not adopted.
 
 **Cost.** Changing setup in a project starts with that setup's own transcripts: `claude --resume`
 under `seatbelt-self` does not see a conversation held under `podman-self`.
@@ -809,42 +810,12 @@ workspace, so the two can never disagree about what is running.
 | One value per combination (`sandbox+yolo-account`) | Kept in spirit: a setup is that value, given a name and made definable |
 | Names that resolve per OS (`container` meaning the best container here), or a probing default | Rejected in [§2](#2-the-idea); each OS has one named default setup |
 | Per-backend output for `yolo ps` and `yolo stores`: today's one-runtime-per-call shape, or per-backend sections or envelopes beside the legacy root fields | Rejected by [OQ-SU6](#decision-ledger): a person wants to see every running agent in one list, and a backend split is a fact about yolo's code, not about the jails; one list with a per-row `confinement` and a per-source state carries everything the split did |
+| Bind-source custody for per-setup homes: a held descriptor on every launch, a project-wide refusal of side-by-side setups while another jail could write the path, or each where a backend has it | Rejected by [OQ-SU7](#OQ-SU7): yolo's threat model is a misguided agent, and the race needs a deliberate watcher in another jail; the swap stays a documented accepted risk ([§9](#9-state-per-setup)) |
 | A user setup that inherits from another (`from = "podman-self"`), or must write every field | Rejected by [OQ-SU1](#OQ-SU1): inheriting makes one setup's meaning depend on another's, and writing every field breaks every user setup when a field is added; per-field defaults do neither |
 
 ## 14. Open Questions
 
-<a id="OQ-SU7"></a>**[OQ-SU7](#OQ-SU7): must every per-setup bind source be held in custody, or only
-when a running jail could be writing its path?**
-
-**Motivation.** 6a-ii, the switch that binds `.yolo/setups/<name>/home`, waits on a custody
-proof the plan requires for every launch. [§9](#9-state-per-setup) shows that the requirement
-only does work while some running jail can write the source's path, which is the same reasoning
-that settled [OQ-SU5](#OQ-SU5). Relaxing it would loosen a boundary that was accepted, so it is
-yours to rule.
-
-**Example.** `podman-self` runs in a project, and you launch `seatbelt-self`. Seatbelt mounts
-nothing. Now launch `podman-self` while a `seatbelt-self` guest of the project runs: that guest
-can rename `.yolo` and plant a link where the podman launch's home path resolves. Without
-custody, the new jail binds whatever the link names.
-
-- **A.** Keep custody required for every bind source whose path crosses a jail-writable
-  directory, on every launch. On Linux podman, a holder that keeps the descriptor for the
-  jail's life meets it. macOS podman and Apple Container cannot run 6a-ii at all until each has
-  a mechanism of its own.
-- **B.** Relax it by [OQ-SU5](#OQ-SU5)'s reasoning, for every backend. A launch holds a project-wide launch
-  lock from its check through the engine's start. Under that lock, if no running jail's
-  writable binds cover the source's path, it binds by pathname after the no-link check, as
-  today. Otherwise it refuses, naming `yolo stop` for the other setup. Two setups of one project
-  never run side by side until a backend gains custody. The nested-workspace hazard is closed by
-  the same check.
-- **C.** Both: held-descriptor custody wherever a backend has it (Linux podman, every launch),
-  and B's check and refusal wherever it does not (macOS podman, Apple Container).
-
-**Leaning: C.** On Linux the mechanism is cheap: one held descriptor per bind source, and no
-privilege or wrapper. It closes the concurrent case and the older nested-workspace case
-uniformly, and it keeps [§9](#9-state-per-setup)'s side-by-side promise where the check would otherwise refuse. B's
-rule is then the honest floor for the backends no probe has reached. Before C can be built on
-Linux, rootless podman still needs a witness, because a nested jail cannot show it.
+None are open.
 
 ## Decision Ledger
 
@@ -873,6 +844,7 @@ Linux, rootless podman still needs a witness, because a nested jail cannot show 
 | <a id="SU-R6"></a>SU-R6 | **`host-yolo-account` is built on macOS by this design**, under that name: no Seatbelt, run as the yolo account, through `yolo host` only ([SU-D5](#SU-D5)). It trades two exposures for fewer refusals: every workspace can read and write every other (all run as the one account), and the account can read whatever on the Mac is world-readable; your keychain and your processes' arguments and environments stay out of reach by the account boundary alone. Linux waits on the yolo account there. The owner: *"yes, let's include it, and host-yolo-account is the right name for it."* | 2026-11-03 | [§5](#5-the-built-in-setups), [§8](#8-the-security-ceiling) | — |
 | <a id="OQ-SU5"></a>[OQ-SU5](#OQ-SU5) | **An existing `.yolo/home` moves to its setup's home silently, once no jail of the project runs**, with one informational line; a source that is not a real directory owned by the user, or not attributable to one setup, is left in place with a printed `mv`. The owner: *"It kind of seems to me like we shouldn't be bothering users about this. Like it's already an internal path. It's going to move to a different internal path. […] we just wait for like all the jails in that workspace to be stopped and then we move it without saying anything like we can print out a informational logline."* The source-swap race needs a writer of `.yolo` during the move; with every jail stopped the only one left is a same-user host process that already has that reach. | 2026-11-06 | [§9](#9-state-per-setup) | — |
 | <a id="OQ-SU6"></a>[OQ-SU6](#OQ-SU6) | **`yolo ps` and `yolo stores` show one machine-wide list across every technology, each row naming its setup, technology, workspace and config; no compatibility with today's table or JSON.** The owner: *"I'm not worried about the existing format, existing scripts. We don't have to preserve anything here. Have the designer design something that looks and works nice for what you would want for a clean design going forward. It seems like we should just list these all with their runtimes and configs and whatever unified list that we can. I don't know that splitting by backend doesn't seem all that useful."* | 2026-11-06 | [§12](#12-listing-what-runs-yolo-ps-and-yolo-stores) | — |
+| <a id="OQ-SU7"></a>[OQ-SU7](#OQ-SU7) | **Bind-source custody is not required on any backend; per-setup homes are bound by pathname after the no-link check, as `.yolo/home` is today.** No held `/proc` descriptor, no project-wide refusal of side-by-side setups, no mask over `.yolo/setups`; options A, B and C are all rejected. The race (a jail of the project swaps a component of another setup's bind-source path for a symbolic link between yolo's check and podman's start, so the new jail binds a host directory of its choosing read-write), and every jail's read of other setups' homes, stay documented as an accepted risk under the [misguided-agent principle](../reference/misguided-agent-principle.md). Two mounts that would close it on podman are recorded, not adopted. The owner: *"I think this is probably going to be an acceptable risk. Like, we already have the well-intentioned idiot principle for, like, instead of malicious... agents inside, and this is just like having a Watcher in one jail while the other one starts up, just to ask some files, and I don't know, this is just way too far-fetched, and I think we should just ignore this. It's a risk, we can document it, but it's just such a small risk compared to the 7,000 other holes that we have."* | 2026-11-06 | [§9](#9-state-per-setup) | — |
 | <a id="SU-D9"></a>SU-D9 | **Discovery asks every source of this OS concurrently, 10 s each, and keeps a state per source** (`listed`, `not-installed`, `unreachable`, `timed-out`); a source that did not answer is never "no jails", and `complete` says whether every source answered. `YOLO_SETUP` does not narrow the list; `--setup` does. A design decision: D11's tri-state, kept per source so one stuck technology never hides the others. | 2026-11-06 | [§12.1](#121-discovery-every-source-in-parallel-each-with-its-own-answer), [§12.6](#126-narrowing-with---setup) | — |
 | <a id="SU-D10"></a>SU-D10 | **A launch record is pruned only on its own technology's answer**; one from an older yolo, which names no technology, only when every installed container source listed. A design decision fixing a defect: today's prune keeps only the one asked runtime's names, so a Podman-only `yolo ps` on a Mac deletes running Apple Container jails' records. | 2026-11-06 | [§12.1](#121-discovery-every-source-in-parallel-each-with-its-own-answer) | — |
 | <a id="SU-D11"></a>SU-D11 | **The launch record is one host-side JSON shape for containers and sessions**, naming the setup, `confinement`, `run_as`, workspace, start time, selected packs and yolo version; the runtime fills what an older record lacks, and an unknown setup shows as `?` / `null`, listed, never dropped. A design decision. | 2026-11-06 | [§12.2](#122-what-a-row-knows-and-where-it-reads-it) | — |
