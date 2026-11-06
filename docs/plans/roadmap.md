@@ -71,7 +71,8 @@ and a pi-subagents registry several extensions can share stays in item 28.
    [the design's status block](../design/live-config-apply.md). **All five pass on a Mac at
    `94989f129`** (2026-10-20, unresolved `TMPDIR`), so the repairs are verified natively. Covers: read-only and read-write mounts, their removal,
    GitHub scope, and the same gate at an interactive attach. Its later slices are staged here,
-   each built on its own after v1: [the next-session moves](../design/live-config-apply.md#LA-S4a),
+   each built on its own after v1: [the next-session moves](../design/live-config-apply.md#LA-S4a)
+   (built 2026-11-06; [OQ-LA7](../design/live-config-apply.md#OQ-LA7) open),
    [Apple Container's briefing re-copy](../design/live-config-apply.md#LA-S4b),
    [resources through `podman update`](../design/live-config-apply.md#LA-S4c) and
    [live host-port forwards](../design/live-config-apply.md#LA-S4d).
