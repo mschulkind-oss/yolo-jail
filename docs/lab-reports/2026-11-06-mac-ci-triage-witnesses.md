@@ -129,7 +129,30 @@ Renaming a directory needs write access only to the directory that holds it, `.y
 **Decision needed:** none if the move prints "Moved this project's home". On `EACCES`, the move
 needs a step the account can take, and its "left" line needs a remedy that works.
 
-**Mac run, 2026-11-06 at `9e1e9d8d3`** ([report](2026-11-06-mac-ci-triage-witnesses-run.md)): W1's build passes natively, so the failure is not reproduced. W2 passes under `podman-self` with no image build, but both tests fail under `apple-container-self` on the second launch. W3 and W4 pass. W5 and W6 cannot run yet. The `apple-container-self` refusal and the `yolo ps` row finding the run reported: fix in progress, 2026-11-06.
+**Mac run, 2026-11-06 at `9e1e9d8d3`** ([report](2026-11-06-mac-ci-triage-witnesses-run.md)): W1's build passes natively, so the failure is not reproduced. W2 passes under `podman-self` with no image build, but both tests fail under `apple-container-self` on the second launch. W3 and W4 pass. W5 and W6 cannot run yet. The `apple-container-self` refusal and the `yolo ps` row finding the run reported are fixed on main, unverified on a Mac; W8 and W9 below are the checks.
+
+### 6. The two fixes from the Mac run
+
+**Apple Container relaunch.** A relaunch now replaces the user-config copy yolo itself left in
+the home on the previous launch. A copy the user edited, hard-linked or placed there still
+refuses. The run's guess that a JSONC user config was the trigger was wrong: any user config with
+keys that cross into the jail hit it.
+
+- W8. With no `YOLO_SETUP`, so under `apple-container-self`, run
+  `TestOfferAnsweredNoLaunchesOnTheOldFiles` and `TestConvertLaterSilencesTheOffer`; both should
+  pass. Then relaunch a workspace laid by a yolo from before the fix: it should launch. Edit
+  `.yolo/setups/apple-container-self/home/.config/yolo-jail/config.toml` and relaunch: it should
+  refuse and name the `mv` step. Record `ls -l` of that file after a launch: the fix accepts it
+  only when it is yours with one link.
+
+**`yolo ps` on Apple Container.** It now reads `container ls --format json`, and STATUS is the
+state and start time, such as `running since 2026-11-06T19:57:12Z`. `yolo-ac-builder` stays listed
+with workspace `unknown`, as podman lists its own builder.
+
+- W9. With a jail and `yolo-ac-builder` running, record `container ls --format json` (without
+  `--all`, which the run did not measure), `yolo ps` and `yolo ps --format json`. Each jail row
+  should read `running since <time>` with its workspace, and the JSON report should say
+  `"enumerated": true`.
 
 ## Evidence
 
