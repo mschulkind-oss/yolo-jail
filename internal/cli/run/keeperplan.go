@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
@@ -83,6 +84,9 @@ type keeperPlan struct {
 	// CallBrokerCells is the gate-time effective request/default and user ceiling snapshot.
 	CallBrokerCells      map[string]map[string]config.CallBrokerCellPolicy `json:"call_broker_cells,omitempty"`
 	ApprovedHTTPBindings map[string]config.ApprovedCallBrokerHTTP          `json:"approved_http_bindings,omitempty"`
+	// PrivateClientEntrypoints is the producer's checked entrypoint of each selected private HTTP
+	// client, which writeLaunchInput binds to the generation it mints.
+	PrivateClientEntrypoints []callbrokerinput.PreparedHTTPClientEntrypoint `json:"private_client_entrypoints,omitempty"`
 	// ApprovedGrants are the user grants the same gate approved, per brokered loophole
 	// (Options.approvedGrants), which the keeper writes into the same scope files.
 	ApprovedGrants map[string][]brokerscope.Grant `json:"approved_grants,omitempty"`

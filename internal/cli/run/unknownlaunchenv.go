@@ -34,7 +34,7 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 	}
 	for _, name := range []string{
 		"YOLO_RUNTIME", "YOLO_SVC_ADVERTISE_HOST", "YOLO_EXTRA_PACKAGES",
-		entrypoint.GraphicsGPUEnabledEnv,
+		entrypoint.GraphicsGPUEnabledEnv, entrypoint.PrivateHTTPClientsEnv,
 		"YOLO_PACK_ROOT", "YOLO_CTX_ROOT", "YOLO_MCP_SERVERS", durable.EnvVar,
 		"YOLO_NIX_HOST_DAEMON", nixHostStoreLinuxEnv, StorePackagesOptInEnv,
 		"YOLO_NO_HOST_LOOPBACK", "YOLO_ALLOW_STALE_IMAGE", AllowSourceSkewEnv,

@@ -2727,6 +2727,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// from the frame's own place in it, which the keeper took (JL-D78), never from a stat taken
 	// here, which a line logged since the frame would already be behind.
 	logFrom := kp.sessionLogFrom(cname)
+	// A SELECTED PRIVATE HTTP CLIENT'S COMMAND starts its bound bootstrap, from the entrypoints
+	// record the keeper just published (freshPrivateClientCommand).
+	if bound := o.freshPrivateClientCommand(cname, rt, staged, targetCmd); bound != targetCmd {
+		firstExec = o.firstSessionExecCmd(rt, cname, o.sessionCmd(bound), sessionID)
+	}
 	rc, execErr := runArmedSession(firstExec, arm, o)
 	if !arm.detach() {
 		select {} // the signal arm is ending this launch; never race it
@@ -3145,10 +3150,21 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// The current configured selection is not evidence about the jail's frozen tree.
 		attachPacks, attachTree = nil, ""
 	}
-	if err := o.validateAttachedPrivateHTTP(cname, rt, actualSetup.Name, attachTree, attachPacks); err != nil {
+	privateBindings, privateErr := o.validateAttachedPrivateHTTP(cname, rt, actualSetup.Name, attachTree, attachPacks)
+	if privateErr != nil {
 		releaseLock()
-		o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then repeat the launch so its private HTTP identity can be verified.[/bold red]", richtext.Escape(err.Error()), stopRemedy(rt, cname))
+		o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then repeat the launch so its private HTTP identity can be verified.[/bold red]", richtext.Escape(privateErr.Error()), stopRemedy(rt, cname))
 		return 1, false
+	}
+	// A SELECTED PRIVATE HTTP CLIENT'S COMMAND starts its bound bootstrap, from the running jail's
+	// own entrypoints record (validateAttachedPrivateHTTP, above): an attach mints, installs and
+	// refreshes nothing.
+	if bound, bindErr := bindPrivateClientCommand(targetCmd, privateBindings, nil); bindErr != nil {
+		releaseLock()
+		o.pr(o.Stderr).printf("[bold red]Refusing to attach: %s. Stop this jail with %s, then repeat the launch to reprepare it.[/bold red]", richtext.Escape(bindErr.Error()), stopRemedy(rt, cname))
+		return 1, false
+	} else {
+		targetCmd = bound
 	}
 	// A PROFILE-SERVED DAEMON this entry's selection needs and the running jail never started
 	// (OQ-CN7 (b)): its launch selected no profile it serves, and an attach starts no daemon, so

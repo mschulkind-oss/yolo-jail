@@ -63,7 +63,9 @@ type stalePreparedHTTPOwnershipError struct {
 func (o *Options) staleOwnershipError(path string, rec preparedHTTPOwnershipRecord) *stalePreparedHTTPOwnershipError {
 	e := &stalePreparedHTTPOwnershipError{path: path, runtime: rec.Runtime, files: []string{path}}
 	for _, ref := range rec.Generations {
-		for _, leaf := range []string{ref.Path, filepath.Join(filepath.Dir(ref.Path), preparedHTTPTempLeaf(ref.Generation))} {
+		dir := filepath.Dir(ref.Path)
+		for _, leaf := range []string{ref.Path, filepath.Join(dir, preparedHTTPTempLeaf(ref.Generation)),
+			filepath.Join(dir, preparedHTTPEntrypointsLeaf(filepath.Base(ref.Path))), filepath.Join(dir, preparedHTTPEntrypointsTempLeaf(ref.Generation))} {
 			if _, err := os.Lstat(leaf); err == nil {
 				e.files = append(e.files, leaf)
 			}
@@ -461,12 +463,41 @@ func removePreparedHTTPGenerationReference(cname string, rec preparedHTTPOwnersh
 		return []string{ref.Path}
 	}
 	defer root.Close()
+	for _, leaf := range []string{preparedHTTPEntrypointsLeaf(filepath.Base(ref.Path)), preparedHTTPEntrypointsTempLeaf(ref.Generation)} {
+		if !removeMatchingPreparedHTTPEntrypointsLeaf(root, leaf, cname, ref) {
+			kept = append(kept, filepath.Join(filepath.Dir(ref.Path), leaf))
+		}
+	}
 	for _, leaf := range []string{filepath.Base(ref.Path), preparedHTTPTempLeaf(ref.Generation)} {
 		if !removeMatchingPreparedHTTPLeaf(root, leaf, cname, rec, ref) {
 			kept = append(kept, filepath.Join(filepath.Dir(ref.Path), leaf))
 		}
 	}
 	return kept
+}
+
+// removeMatchingPreparedHTTPEntrypointsLeaf removes the entrypoints record of ref's generation,
+// only while its bytes still name cname, ref's front and ref's generation, at ref's own path. A
+// leaf already gone counts as removed.
+func removeMatchingPreparedHTTPEntrypointsLeaf(root *os.Root, leaf, cname string, ref preparedHTTPGenerationRef) bool {
+	before, err := root.Lstat(leaf)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil || !privateHTTPFileOwned(before, 0o600) {
+		return false
+	}
+	data, opened, err := readPrivateHTTPFile(root, leaf)
+	if err != nil || !os.SameFile(before, opened) {
+		return false
+	}
+	r, err := callbrokerinput.DecodePreparedHTTPClientEntrypoints(data)
+	if err != nil || r.Container != cname || r.Generation != ref.Generation || r.Loophole != ref.Loophole ||
+		filepath.Clean(ref.Path) != filepath.Join(loopholes.StateDirFor(r.Loophole), "replicas", cname+".json.prepared") {
+		return false
+	}
+	current, err := root.Lstat(leaf)
+	return err == nil && os.SameFile(opened, current) && root.Remove(leaf) == nil
 }
 
 func removeMatchingPreparedHTTPLeaf(root *os.Root, leaf, cname string, rec preparedHTTPOwnershipRecord, ref preparedHTTPGenerationRef) bool {

@@ -291,6 +291,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o.approvedScopes = plan.ApprovedScopes
 	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
 	o.approvedHTTPBindings = cloneHTTPBindings(plan.ApprovedHTTPBindings)
+	o.privateClientEntrypoints = slices.Clone(plan.PrivateClientEntrypoints)
 	o.approvedGrants = plan.ApprovedGrants
 	o.approvedLoopholeGrants = plan.ApprovedLoopholeGrants
 	o.readWithoutScope = plan.ReadWithoutScope
@@ -493,6 +494,11 @@ func (k *keeper) run() int {
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
+	runCmd, bindErr := o.insertPrivateClientEnv(runCmd, p.ImageRef)
+	if bindErr != nil {
+		o.pr(o.Stderr).print("[bold red]Refusing to start jail: its private HTTP clients cannot be bound. Rerun yolo to reprepare them.[/bold red]")
+		return k.unwindUnstarted(1)
+	}
 	if err := o.checkSpawnLaunchInputMounts(runCmd); err != nil {
 		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: %s. Remove the overlapping mount and retry.[/bold red]", err)
 		return k.unwindUnstarted(1)

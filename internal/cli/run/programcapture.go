@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -37,6 +38,11 @@ type ProgramCaptureRequest struct {
 	// kept "the image already provides it" verdict can answer without a producer jail. nil, or
 	// ok=false, means unknown: every selected program then asks its producer.
 	ImageIdentity func() (string, bool)
+	// PrivateClients is every selected private HTTP client cell of an approved front
+	// (selectedPrivateClientCells). The producer checks each one's delivery and records the
+	// checked entrypoint in PrivateClientEntrypoints, by bin; a cell it cannot check it refuses.
+	PrivateClients           []packload.PrivateProgramEnvPlan
+	PrivateClientEntrypoints map[string]callbrokerinput.PreparedHTTPClientEntrypoint
 }
 
 // NodeFloorUnavailable is an observed provider result, not an installation/network failure.
@@ -81,11 +87,41 @@ func ProgramRuntimeFingerprint(repoRoot string, cfg *jsonx.OrderedMap) (string, 
 }
 
 func (o *Options) prepareOrdinaryPrograms(cfg *jsonx.OrderedMap, rt, repoRoot string, packs []*packload.Pack, channel *packChannel) int {
-	if o.PreparePrograms == nil || o.captureJail() || o.roBindsUnsupported(rt) != "" {
+	if o.captureJail() {
+		return 0
+	}
+	// A SELECTED PRIVATE HTTP CLIENT is bound to a checked delivery or the launch stops here, before
+	// any consumer runs; the ordinary program fallbacks below never apply to it.
+	cells, err := o.selectedPrivateClientCells(packs)
+	refuse := func(r privateClientRefusal) int {
+		out := o.pr(o.Stderr)
+		_, _ = io.WriteString(out.rt.W, r.Render(out.rt.Color))
+		return 1
+	}
+	if err != nil {
+		return refuse(privateClientRefusal{cause: "its selected recipe cannot be resolved: " + err.Error(),
+			repair: "repair the selected pack's program and env declarations, then rerun `yolo`"})
+	}
+	if len(cells) > 0 {
+		cause := privateClientCellUnsupported(rt)
+		if cause == "" && o.PreparePrograms == nil {
+			cause = "this launch has no selected producer to prepare it"
+		}
+		if cause == "" && o.roBindsUnsupported(rt) != "" {
+			cause = "the capture store cannot be mounted read-only here: " + o.roBindsUnsupported(rt)
+		}
+		if cause != "" {
+			return refuse(privateClientRefusal{cell: cells[0], cause: cause, repair: privateClientBaselineRepair})
+		}
+	}
+	if o.PreparePrograms == nil || o.roBindsUnsupported(rt) != "" {
 		return 0
 	}
 	fingerprint, err := ProgramRuntimeFingerprint(repoRoot, cfg)
 	if err != nil {
+		if len(cells) > 0 {
+			return refuse(privateClientRefusal{cell: cells[0], cause: "its runtime could not be resolved: " + err.Error(), repair: privateClientBaselineRepair})
+		}
 		if o.Update {
 			o.pr(o.Stderr).print("ordinary program runtime could not be resolved — repair the flake source, then retry --update: " + err.Error())
 			return 1
@@ -113,7 +149,12 @@ func (o *Options) prepareOrdinaryPrograms(cfg *jsonx.OrderedMap, rt, repoRoot st
 			}
 		}
 	}
-	deliveries, err := o.PreparePrograms(ProgramCaptureRequest{Packs: packs, Env: e, Runtime: rt, Platform: containerJailPlatform(), Fingerprint: fingerprint, RepoRoot: repoRoot, Workspace: o.Workspace, Fresh: o.Update, Act: o.actInterrupt(), Stderr: o.Stderr, UnsupportedRuntime: reason, ImageIdentity: o.launchImageIdentity(repoRoot)})
+	if reason != "" && len(cells) > 0 {
+		return refuse(privateClientRefusal{cell: cells[0], cause: "its delivery is unsupported here: " + reason, repair: privateClientBaselineRepair})
+	}
+	verified := map[string]callbrokerinput.PreparedHTTPClientEntrypoint{}
+	deliveries, err := o.PreparePrograms(ProgramCaptureRequest{Packs: packs, Env: e, Runtime: rt, Platform: containerJailPlatform(), Fingerprint: fingerprint, RepoRoot: repoRoot, Workspace: o.Workspace, Fresh: o.Update, Act: o.actInterrupt(), Stderr: o.Stderr, UnsupportedRuntime: reason, ImageIdentity: o.launchImageIdentity(repoRoot),
+		PrivateClients: cells, PrivateClientEntrypoints: verified})
 	if o.actInterrupt().Interrupted() {
 		err = context.Canceled
 	}
@@ -134,7 +175,12 @@ func (o *Options) prepareOrdinaryPrograms(cfg *jsonx.OrderedMap, rt, repoRoot st
 		_, _ = io.WriteString(out.rt.W, refusal.Render(out.rt.Color))
 		return 1
 	}
+	bound, refusal := checkPrivateClientDeliveries(cells, verified)
+	if refusal != nil {
+		return refuse(*refusal)
+	}
 	o.programCaptures = deliveries
+	o.privateClientEntrypoints = bound
 	return 0
 }
 

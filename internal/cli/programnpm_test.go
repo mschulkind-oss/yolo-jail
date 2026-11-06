@@ -183,8 +183,11 @@ if [ "$phase" = install ]; then
  package=$(jq -r '.dependencies | keys[0]' "$prefix/package.json")
  selector=$(jq -r --arg pkg "$package" '.dependencies[$pkg]' "$prefix/package.json")
  if [ "$selector" != latest ]; then version=$selector; fi
+ resolved="https://synthetic.invalid/probe-$version.tgz"; [ ! -f "$ROOT/resolved" ] || resolved=$(cat "$ROOT/resolved")
+ integrity="sha512-synthetic-$version"; [ ! -f "$ROOT/integrity" ] || integrity=$(cat "$ROOT/integrity")
+ binmap='{"probe":"bin/probe","mcp-server-sequential-thinking":"bin/probe"}'; [ ! -f "$ROOT/binmap" ] || binmap=$(cat "$ROOT/binmap")
  cat > "$prefix/package-lock.json" <<EOF
-{"lockfileVersion":3,"packages":{"":{"dependencies":{"$package":"$selector"}},"node_modules/$package":{"version":"$version","resolved":"https://synthetic.invalid/probe-$version.tgz","integrity":"sha512-synthetic-$version","bin":{"probe":"bin/probe","mcp-server-sequential-thinking":"bin/probe"}}}}
+{"lockfileVersion":3,"packages":{"":{"dependencies":{"$package":"$selector"}},"node_modules/$package":{"version":"$version","resolved":"$resolved","integrity":"$integrity","bin":$binmap}}}
 EOF
  if [ -f "$ROOT/unsupported-lock" ]; then
   jq '.packages["node_modules/synthetic-git-dependency"]={"version":"1.0.0","resolved":"git+https://synthetic.invalid/dep.git#fixed"}' "$prefix/package-lock.json" > "$prefix/unsupported.json"
@@ -197,8 +200,10 @@ elif [ "$phase" = ci ]; then
  mkdir -p "$prefix/node_modules/$package/bin" "$HOME/.config/login"
  printf secret > "$HOME/.config/login/token"
  printf '{"version":"%s"}\n' "$version" > "$prefix/node_modules/$package/package.json"
- printf '#!/usr/bin/env node\nconsole.log("%s");\n' "$version" > "$prefix/node_modules/$package/bin/probe"
- chmod 755 "$prefix/node_modules/$package/bin/probe"
+ binpath=bin/probe; [ ! -f "$ROOT/binpath" ] || binpath=$(cat "$ROOT/binpath")
+ mkdir -p "$(dirname "$prefix/node_modules/$package/$binpath")"
+ printf '#!/usr/bin/env node\nconsole.log("%s");\n' "$version" > "$prefix/node_modules/$package/$binpath"
+ chmod 755 "$prefix/node_modules/$package/$binpath"
 else exit 36; fi
 `
 	if err = os.WriteFile(filepath.Join(f.tools, "npm"), []byte(script), 0755); err != nil {

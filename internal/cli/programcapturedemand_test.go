@@ -20,6 +20,18 @@ import (
 
 func selectedNPMUser(t *testing.T, f *selectedNPMFixture, updates bool) run.ProgramCaptureRequest {
 	t.Helper()
+	manifest := `{"name":"fixture","contributes":[{"kind":"program","bin":"probe","via":"npm","package":"probe-pkg"}]}`
+	if f.in.NodeFloor != "" {
+		floor, _ := json.Marshal(f.in.NodeFloor)
+		manifest = strings.Replace(manifest, `"package":"probe-pkg"`, `"package":"probe-pkg","node_floor":`+string(floor), 1)
+	}
+	return selectedNPMUserPack(t, f, updates, "fixture", manifest)
+}
+
+// selectedNPMUserPack selects the one pack name, whose manifest declares one npm program, through
+// the user's config, as selectedNPMUser does the probe fixture.
+func selectedNPMUserPack(t *testing.T, f *selectedNPMFixture, updates bool, name, manifest string) run.ProgramCaptureRequest {
+	t.Helper()
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_SETUP", "podman-self")
 	oldResolver := resolvePreparationBundle
@@ -30,14 +42,9 @@ func selectedNPMUser(t *testing.T, f *selectedNPMFixture, updates bool) run.Prog
 	writeFile(t, filepath.Join(f.root, "flake.nix"), "{}")
 	writeFile(t, filepath.Join(f.root, "flake.lock"), "{}")
 	pack := t.TempDir()
-	manifest := `{"name":"fixture","contributes":[{"kind":"program","bin":"probe","via":"npm","package":"probe-pkg"}]}`
-	if f.in.NodeFloor != "" {
-		floor, _ := json.Marshal(f.in.NodeFloor)
-		manifest = strings.Replace(manifest, `"package":"probe-pkg"`, `"package":"probe-pkg","node_floor":`+string(floor), 1)
-	}
 	writeFile(t, filepath.Join(pack, "pack.json"), manifest)
 	cfgJSON, _ := json.Marshal(map[string]any{"host_management": "own", "host_apply_on_launch": false,
-		"packs": []any{map[string]string{"source": pack, "name": "fixture"}}, "agent_updates": updates, "host_floor": true})
+		"packs": []any{map[string]string{"source": pack, "name": name}}, "agent_updates": updates, "host_floor": true})
 	writeFile(t, paths.UserConfigPath(), string(cfgJSON))
 	f.store.Dir = paths.CapturesDir()
 	selected := selectConfiguredHostPacks()

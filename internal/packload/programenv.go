@@ -87,13 +87,12 @@ func ResolvePrivateProgramEnv(packs []*Pack, front, frontPack string, enabledAnd
 				}
 			}
 			if len(recipes) == 1 {
-				encoded, err := json.Marshal(recipes[0].inst)
+				identity, err := ProgramRecipeIdentity(recipes[0].inst)
 				if err != nil {
 					return nil, err
 				}
-				sum := sha256.Sum256(encoded)
 				plan.RecipePack = recipes[0].pack
-				plan.RecipeIdentity = "sha256:" + hex.EncodeToString(sum[:])
+				plan.RecipeIdentity = identity
 			} else if len(recipes) > 1 {
 				return nil, fmt.Errorf("selected private client %q has colliding program recipes", env.Bin)
 			} else {
@@ -121,4 +120,15 @@ func ResolvePrivateProgramEnv(packs []*Pack, front, frontPack string, enabledAnd
 		return plans[i].Bin < plans[j].Bin
 	})
 	return plans, nil
+}
+
+// ProgramRecipeIdentity is a selected `program` contribution's recipe identity, the one a
+// private client plan carries (PrivateProgramEnvPlan.RecipeIdentity) and its producer checks.
+func ProgramRecipeIdentity(inst packdecl.Install) (string, error) {
+	encoded, err := json.Marshal(inst)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }

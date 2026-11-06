@@ -412,6 +412,13 @@ func ordinaryLaunchFailure(in npmCaptureInput, err error) error {
 }
 
 func prepareOrdinaryForLaunch(req run.ProgramCaptureRequest, w io.Writer) (map[string]entrypoint.ProgramCaptureDelivery, error) {
+	if len(req.PrivateClients) > 0 && (req.UnsupportedRuntime != "" || req.PrivateClientEntrypoints == nil) {
+		cause := "its delivery is unsupported here: " + req.UnsupportedRuntime
+		if req.UnsupportedRuntime == "" {
+			cause = "this launch passed no place for its checked delivery"
+		}
+		return nil, &privateClientDeliveryRefusal{Cell: req.PrivateClients[0], Cause: cause, Repair: privateClientBaselineRepair}
+	}
 	if req.UnsupportedRuntime != "" {
 		fmt.Fprintf(w, "ordinary artifact reuse is unsupported here: %s; retaining the authorized bounded installers — use a baseline runtime without that customization for sealed reuse\n", req.UnsupportedRuntime)
 		return map[string]entrypoint.ProgramCaptureDelivery{}, nil
@@ -425,6 +432,12 @@ func prepareOrdinaryForLaunch(req run.ProgramCaptureRequest, w io.Writer) (map[s
 		return nil, err
 	}
 	deliveries := map[string]entrypoint.ProgramCaptureDelivery{}
+	// A selected private HTTP client's delivery is checked here, and its unsupported or
+	// image-provided outcomes refuse rather than fall back (verifyPrivateClientDelivery).
+	private := map[string]packload.PrivateProgramEnvPlan{}
+	for _, cell := range req.PrivateClients {
+		private[cell.Bin] = cell
+	}
 	vector = skipImageProvidedPrograms(vector, req.ImageIdentity, &capture.Store{Dir: paths.CapturesDir()}, w)
 	if len(vector) == 0 {
 		return deliveries, nil
@@ -437,6 +450,10 @@ func prepareOrdinaryForLaunch(req run.ProgramCaptureRequest, w io.Writer) (map[s
 		for _, in := range vector {
 			guard := foregroundOrdinaryGuard(ctx, req, in)
 			record, err := waitOrdinaryPreparation(ctx, in, req.Fingerprint, req.Runtime, req.Platform, req.Fresh, w, guard)
+			if cell, isPrivate := private[in.Bin]; isPrivate && (npmCaptureImageProvided(err) || errors.Is(err, errNPMCaptureUnsupported)) {
+				operationErr = &privateClientDeliveryRefusal{Cell: cell, Cause: "its delivery is unsupported: " + err.Error(), Repair: privateClientBaselineRepair}
+				return
+			}
 			if npmCaptureImageProvided(err) {
 				fmt.Fprintf(w, "%s: the jail image already provides it, so nothing is prepared and the image's copy runs — drop the pack's `program %s` declaration to skip this check\n", in.Bin, in.Bin)
 				continue
@@ -453,6 +470,14 @@ func prepareOrdinaryForLaunch(req run.ProgramCaptureRequest, w io.Writer) (map[s
 			if err != nil {
 				operationErr = err
 				return
+			}
+			if cell, isPrivate := private[in.Bin]; isPrivate {
+				checked, err := verifyPrivateClientDelivery(cell, in, record, delivery, req.Platform, req.Packs)
+				if err != nil {
+					operationErr = err
+					return
+				}
+				req.PrivateClientEntrypoints[in.Bin] = checked
 			}
 			deliveries[in.Bin] = delivery
 		}

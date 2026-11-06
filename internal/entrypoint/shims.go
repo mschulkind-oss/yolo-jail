@@ -494,6 +494,13 @@ func GenerateAgentLaunchers(e *Env) error {
 	// tree with nothing to serve stop before exec (PPX-D18).
 	trees := patchedTrees(e)
 
+	// The keeper's bound private HTTP clients (PrivateHTTPClientsEnv), read ONCE: a bound bin's
+	// launcher starts only the shipped bootstrap, never its ordinary installer.
+	privateClients, err := privateClientBindings(e)
+	if err != nil {
+		return err
+	}
+
 	packs, err := LoadJailPacks(e)
 	if err != nil {
 		return err
@@ -576,6 +583,12 @@ func GenerateAgentLaunchers(e *Env) error {
 				// host (`program` is CombineExclusive by bin); first-writer-wins keeps the
 				// jail deterministic if it ever gets here anyway. It also covers a pack
 				// that repeats one bin across two of its OWN contributions.
+				continue
+			}
+			if binding, bound := privateClients[inst.Bin]; bound {
+				if err := writeExecutable(launcherPath, privateClientLauncher(binding)); err != nil {
+					return err
+				}
 				continue
 			}
 			updates, launcherSet := agentUpdatesAllows(e, p.Name), servers

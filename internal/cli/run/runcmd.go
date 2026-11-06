@@ -19,6 +19,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
@@ -748,6 +749,12 @@ type Options struct {
 	// container starts. Capture jails and attaches never call it.
 	PreparePrograms func(ProgramCaptureRequest) (map[string]entrypoint.ProgramCaptureDelivery, error)
 	programCaptures map[string]entrypoint.ProgramCaptureDelivery
+	// privateClientEntrypoints is the producer's checked entrypoint of each selected private HTTP
+	// client (prepareOrdinaryPrograms), which the keeper binds to its prepared generation.
+	privateClientEntrypoints []callbrokerinput.PreparedHTTPClientEntrypoint
+	// privateClientBindings is the keeper's bindings of the entrypoints records it committed
+	// (writeLaunchInput), which insertPrivateClientEnv hands the container.
+	privateClientBindings []entrypoint.PrivateClientBinding
 	// MacosUserCaptures picks, from the install-capture store at dir (CapturesDir's answer), the
 	// entry the materialize path's own resolver chooses for each of bins at platform, and names
 	// the store's other current entries there (kept) — the macos-user launch's half of hand-off

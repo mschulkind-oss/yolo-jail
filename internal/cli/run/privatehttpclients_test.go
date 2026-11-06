@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -103,6 +104,11 @@ prefix = "Bearer "
 	t.Cleanup(func() { loopholes.StateDirFor = oldStateDir })
 	cname := "private-http-selected-fixture"
 	argv := assembledPrivateFixtureMounts(t, workspace, cname)
+	cells, err := packload.ResolvePrivateProgramEnv([]*packload.Pack{selectedPack}, selected.Name, selected.Pack, true)
+	if err != nil || len(cells) != 1 {
+		t.Fatalf("selected private client cells: %+v %v", cells, err)
+	}
+	o.privateClientEntrypoints = checkedPrivateClientsForCells(cells)
 	plan, err := o.keeperPlanFor(merged, "podman", cname, stagedPacks{root: packTree, packs: []*packload.Pack{selectedPack}},
 		[]string{selected.Name}, nil, nil, "", "", argv, &assembleInput{})
 	if err != nil {
@@ -216,6 +222,22 @@ prefix = "Bearer "
 	if mode := mustFileMode(t, inputPath+".prepared"); mode != 0600 {
 		t.Errorf("prepared identity mode=%o, want 0600", mode)
 	}
+	entrypointsBytes, err := os.ReadFile(inputPath + ".prepared.entrypoints")
+	if err != nil {
+		t.Fatalf("producer did not publish the entrypoints record beside the prepared generation: %v", err)
+	}
+	entrypoints, err := callbrokerinput.DecodePreparedHTTPClientEntrypoints(entrypointsBytes)
+	if err == nil {
+		err = callbrokerinput.ValidatePreparedHTTPClientEntrypoints(entrypoints, prepared)
+	}
+	if err != nil || entrypoints.Clients[0].Binding.Generation != prepared.Generation {
+		t.Fatalf("published entrypoints do not join the prepared generation: %+v %v", entrypoints, err)
+	}
+	withEnv, err := producer.insertPrivateClientEnv([]string{"podman", "run", "--rm", "image:ref", "cmd"}, "image:ref")
+	wantEnv, _ := entrypoint.MarshalPrivateClients([]entrypoint.PrivateClientBinding{entrypoints.Clients[0].Binding})
+	if err != nil || strings.Join(withEnv, " ") != "podman run --rm -e "+entrypoint.PrivateHTTPClientsEnv+"="+wantEnv+" image:ref cmd" {
+		t.Fatalf("keeper did not hand the container its published binding: %q %v", withEnv, err)
+	}
 	beforeInput, err := os.ReadFile(inputPath)
 	if err != nil {
 		t.Fatal(err)
@@ -282,6 +304,20 @@ prefix = "Bearer "
 	}
 	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
 		t.Fatalf("keeper dispatch spawned the runtime with a mounted prepared-ownership record: %v", err)
+	}
+	// The keeper hands the container its bound clients, or starts none: bindings it cannot place
+	// before the image refuse before the runtime is spawned.
+	unbindable := dispatchPlan
+	unbindable.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker}
+	unbindable.ImageRef = "image-not-in-argv"
+	unbound := newKeeper(&unbindable, KeeperSeams{}, nil, nil, nil, nil)
+	unbound.o.LookPath = func(string) (string, bool) { return "", false }
+	unbound.o.privateClientBindings = []entrypoint.PrivateClientBinding{entrypoints.Clients[0].Binding}
+	if rc := unbound.run(); rc != 1 {
+		t.Fatalf("keeper with unplaceable private client bindings returned %d, want pre-spawn refusal", rc)
+	}
+	if _, err := os.Stat(spawnMarker); !os.IsNotExist(err) {
+		t.Fatalf("keeper spawned the runtime without binding its private clients: %v", err)
 	}
 	failedCname := cname + "-producer-failure"
 	failedPlan := *plan
@@ -563,6 +599,21 @@ prefix = "Bearer "
 	rescope()
 	if !producer.writeLaunchInput(selected, cname) {
 		t.Fatalf("a launch after the unverifiable files were removed by hand refused:\n%s", output.String())
+	}
+	unchecked := newKeeper(plan, KeeperSeams{}, nil, nil, nil, nil).o
+	unchecked.privateClientEntrypoints = nil
+	uncheckedCname := cname + "-unchecked"
+	unchecked.writeScopeFiles(uncheckedCname, []*loopholes.Loophole{selected})
+	unchecked.launchInputMountArgv = assembledPrivateFixtureMounts(t, workspace, uncheckedCname)
+	unchecked.launchInputProducers = producer.launchInputProducers
+	callsBefore := producerCalls
+	if unchecked.writeLaunchInput(selected, uncheckedCname) || producerCalls != callsBefore {
+		t.Fatal("a selected client with no checked delivery reached the launch input producer")
+	}
+	for _, leaf := range []string{".prepared", ".prepared.entrypoints"} {
+		if _, err := os.Lstat(filepath.Join(private, "replicas", uncheckedCname+".json"+leaf)); !os.IsNotExist(err) {
+			t.Fatalf("an unchecked client left %s: %v", leaf, err)
+		}
 	}
 }
 
@@ -1144,6 +1195,9 @@ func writePreparedTestFile(t *testing.T, path string, generation *callbrokerinpu
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if strings.HasSuffix(path, ".prepared") && len(generation.Clients) > 0 {
+		writePreparedEntrypointsTestFile(t, path, generation)
+	}
 }
 
 func TestPreparedHTTPOwnershipRejectsSymlinkAndHardlink(t *testing.T) {
@@ -1183,6 +1237,9 @@ func TestForgetGoneRemovesPersistentPreparedHTTPOwnershipOnlyAfterKnownAbsence(t
 	if _, err := os.Stat(f.preparedPath); err != nil {
 		t.Fatalf("unknown container state retired the prepared generation: %v", err)
 	}
+	if _, err := os.Stat(f.preparedPath + ".entrypoints"); err != nil {
+		t.Fatalf("unknown container state retired the entrypoints record: %v", err)
+	}
 	f.o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "ps" {
 			return ExecResult{Ran: true, RC: 0, Stdout: ""}
@@ -1195,6 +1252,9 @@ func TestForgetGoneRemovesPersistentPreparedHTTPOwnershipOnlyAfterKnownAbsence(t
 	}
 	if _, err := os.Lstat(f.preparedPath); !os.IsNotExist(err) {
 		t.Fatalf("known-absent container retained its prepared generation: %v", err)
+	}
+	if _, err := os.Lstat(f.preparedPath + ".entrypoints"); !os.IsNotExist(err) {
+		t.Fatalf("known-absent container retained its entrypoints record: %v", err)
 	}
 	if _, err := f.o.ensurePreparedHTTPOwnership(cname); err != nil {
 		t.Fatalf("cannot establish an empty owner for cleanup control: %v", err)
@@ -1260,6 +1320,47 @@ func TestPreparedHTTPGenerationCleanupPreservesAtomicReplacement(t *testing.T) {
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "new generation" {
 		t.Fatalf("cleanup removed a replacement generation: %q %v", data, err)
+	}
+}
+
+func TestPreparedHTTPEntrypointsCleanupPreservesAtomicReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json.prepared")
+	entrypoints := path + ".entrypoints"
+	for _, p := range []string{path, entrypoints} {
+		if err := os.WriteFile(p, []byte("owned"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owned, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedEntrypoints, err := os.Lstat(entrypoints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(dir, "replacement")
+	if err := os.WriteFile(replacement, []byte("new entrypoints"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, entrypoints); err != nil {
+		t.Fatal(err)
+	}
+	owner := preparedHTTPGenerationOwner{path: path, file: owned, entrypointsFile: ownedEntrypoints}
+	if removePreparedHTTPGenerationFile(owner) {
+		t.Fatal("cleanup reported removing a replaced entrypoints record")
+	}
+	for p, want := range map[string]string{entrypoints: "new entrypoints", path: "owned"} {
+		if data, err := os.ReadFile(p); err != nil || string(data) != want {
+			t.Fatalf("cleanup removed a replacement generation's file %s: %q %v", p, data, err)
+		}
+	}
+	if err := os.Remove(entrypoints); err != nil {
+		t.Fatal(err)
+	}
+	if !removePreparedHTTPGenerationFile(owner) {
+		t.Fatal("cleanup did not remove its own generation")
 	}
 }
 

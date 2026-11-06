@@ -79,6 +79,10 @@ func runInternal(args []string) int {
 		// hostFooterTables is the host notch's profile read (OQ-FT6): outside a jail, with
 		// no selection in the agent's env, the tables come from the user config.
 		return footer.Main(args[1:], os.Stdin, os.Stdout, hostFooterTables)
+	case entrypoint.PrivateClientExecVerb:
+		// The shipped bootstrap of a bound private HTTP client (privateclient.go): the generated
+		// launcher, the top-level fresh argv and the attach argv all start it.
+		return runPrivateClientExec(args[1:], os.Getenv)
 	case programCaptureJailVerb:
 		return runProgramCaptureJail(args[1:], os.Stdout, os.Stderr)
 	case "program-npm":

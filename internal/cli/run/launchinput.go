@@ -537,6 +537,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	}
 	if preparedOwner.file != nil {
 		trackPreparedHTTPGeneration(o, preparedOwner)
+		trackPrivateClientBindings(o, preparedOwner.entrypoints)
 	}
 	preparedCommitted = true
 	if producer.Report != nil {
