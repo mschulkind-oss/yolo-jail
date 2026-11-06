@@ -98,10 +98,18 @@ waitForOverflow:
 	}
 }
 
+// TestCanonicalCLIExecutorDoesNotReadOutputWhenLeaderObservationAndSignalFail: when the
+// leader's exit cannot be observed and its group cannot be signalled, the call fails closed
+// without waiting on the leader or reading its output. The leader blocks on hold, which
+// nothing writes, so a call that waited for it would never return: returning at all is the
+// proof, and the guard only turns that hang into a red test. Observation fails only once the
+// fixture has written its secret output, the started FIFO's event.
 func TestCanonicalCLIExecutorDoesNotReadOutputWhenLeaderObservationAndSignalFail(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "started")
+	started := fixtureFIFO(t, "started")
+	hold := fixtureFIFO(t, "hold")
+	fixtureStarted := awaitFIFO(started)
 	binary := filepath.Join(t.TempDir(), "fixture")
-	if err := os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf synthetic-secret\nprintf started > %q\nsleep 3\n", marker)), 0o700); err != nil {
+	if err := os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf synthetic-secret\nprintf started > %q\nread x < %q\n", started, hold)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	p, err := pinCLI(binary, nil)
@@ -112,23 +120,33 @@ func TestCanonicalCLIExecutorDoesNotReadOutputWhenLeaderObservationAndSignalFail
 	defer stop()
 	originalObserve := observeOwnedLeader
 	observeOwnedLeader = func(pid int) (bool, error) {
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(marker); err == nil {
-				return false, errors.New("malformed process observation")
-			}
-			time.Sleep(5 * time.Millisecond)
+		select {
+		case <-fixtureStarted:
+		case <-time.After(testEventGuard):
+			t.Error("fixture did not write before malformed process observation")
 		}
-		t.Error("fixture did not write before malformed process observation")
 		return false, errors.New("malformed process observation")
 	}
 	defer func() { observeOwnedLeader = originalObserve }()
-	start := time.Now()
-	result, err := p.run(context.Background(), Classification{Argv: []string{"write"}, StdinSHA256: fmt.Sprintf("%x", sha256.Sum256(nil))}, nil)
-	if err == nil || !strings.Contains(err.Error(), "leader exit could not be observed; process handle released") ||
+	type outcome struct {
+		result CLIResult
+		err    error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		result, err := p.run(context.Background(), Classification{Argv: []string{"write"}, StdinSHA256: fmt.Sprintf("%x", sha256.Sum256(nil))}, nil)
+		finished <- outcome{result, err}
+	}()
+	var got outcome
+	select {
+	case got = <-finished:
+	case <-time.After(testEventGuard):
+		t.Fatal("malformed observation did not fail closed: the call waited on its live leader")
+	}
+	if err := got.err; err == nil || !strings.Contains(err.Error(), "leader exit could not be observed; process handle released") ||
 		!strings.Contains(err.Error(), "group signal failed (operation not permitted)") ||
-		strings.Contains(err.Error(), "synthetic-secret") || len(result.Stdout) != 0 || len(result.Stderr) != 0 || time.Since(start) > 2*time.Second {
-		t.Fatalf("malformed observation did not fail closed promptly: stdout=%d stderr=%d duration=%s err=%v", len(result.Stdout), len(result.Stderr), time.Since(start), err)
+		strings.Contains(err.Error(), "synthetic-secret") || len(got.result.Stdout) != 0 || len(got.result.Stderr) != 0 {
+		t.Fatalf("malformed observation did not fail closed: stdout=%d stderr=%d err=%v", len(got.result.Stdout), len(got.result.Stderr), err)
 	}
 }
 

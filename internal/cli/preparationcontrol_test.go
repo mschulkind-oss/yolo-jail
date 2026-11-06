@@ -276,23 +276,74 @@ func TestPreparationStatusReadOnlyStaleOwner(t *testing.T) {
 	}
 }
 
-func TestPreparationNewLeaseRejectsPriorIdentity(t *testing.T) {
-	root, exe := preparationFixture(t)
-	start := func() (preparationWorker, chan error, context.CancelFunc) {
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
-		go func() {
-			defer close(done)
-			done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
-		}()
-		return awaitPreparationOwner(t, root, done, cancel), done, cancel
+// preparationTestGuard is a failure guard only: it turns a hung worker into a red test, and
+// no assertion depends on beating it.
+const preparationTestGuard = time.Minute
+
+// generousPreparationControl raises the control exchange's bound to preparationTestGuard for
+// the rest of the test, so an answer asserted on is the owner's and never the clock's.
+func generousPreparationControl(t *testing.T) {
+	t.Helper()
+	saved := preparationControlTimeout
+	preparationControlTimeout = preparationTestGuard
+	t.Cleanup(func() { preparationControlTimeout = saved })
+}
+
+// awaitPreparationExit is the worker's exit, guarded against a hang.
+func awaitPreparationExit(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(preparationTestGuard):
+		t.Fatal("preparation worker did not exit")
+		return nil
 	}
-	first, done, cancel := start()
+}
+
+// startReadyPreparationOwner runs a worker and returns once the worker itself says it is
+// ready (runPreparationWorkerReady), not once a probe polled against a clock happens to see it.
+func startReadyPreparationOwner(t *testing.T, root, exe string) (preparationWorker, <-chan error, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan preparationWorker, 1)
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		done <- runPreparationWorkerReady(ctx, root, exe, nil, func(context.Context) error { return nil },
+			func(r preparationWorker) { ready <- r })
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err, ok := <-done:
+			if ok && err != nil && !errors.Is(err, context.Canceled) {
+				t.Errorf("preparation worker cleanup: %v", err)
+			}
+		case <-time.After(preparationTestGuard):
+			t.Error("preparation worker did not exit after cancellation")
+		}
+	})
+	select {
+	case r := <-ready:
+		return r, done, cancel
+	case err := <-done:
+		t.Fatalf("worker exited before readiness: %v", err)
+	case <-time.After(preparationTestGuard):
+		t.Fatal("worker never reported ready")
+	}
+	return preparationWorker{}, nil, nil
+}
+
+func TestPreparationNewLeaseRejectsPriorIdentity(t *testing.T) {
+	generousPreparationControl(t)
+	root, exe := preparationFixture(t)
+	first, done, cancel := startReadyPreparationOwner(t, root, exe)
 	cancel()
-	if err := <-done; err != nil {
+	if err := awaitPreparationExit(t, done); err != nil {
 		t.Fatal(err)
 	}
-	second, done, cancel := start()
+	second, done, cancel := startReadyPreparationOwner(t, root, exe)
 	defer cancel()
 	if first.Identity == second.Identity {
 		t.Fatal("lease incarnation reused")
@@ -306,7 +357,7 @@ func TestPreparationNewLeaseRejectsPriorIdentity(t *testing.T) {
 	if err := controlPreparationWorker(context.Background(), root, second.Identity, "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
+	if err := awaitPreparationExit(t, done); err != nil {
 		t.Fatal(err)
 	}
 }

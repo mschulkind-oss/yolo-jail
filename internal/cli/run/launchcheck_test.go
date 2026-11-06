@@ -242,7 +242,7 @@ func awsHandler(t *testing.T, out awsauth.Output, calls *atomic.Int32) hostservi
 			}
 			return out
 		}},
-	}})
+	}, LaunchCheckBudgetElapsed: neverElapses})
 }
 
 // launchWithCheckedService runs the production boundary for rt against the fixture loophole
@@ -298,17 +298,27 @@ func launchCheckIsolation(t *testing.T) {
 	emptyLoopholeDirs(t)
 }
 
-// generousLaunchCheckBudget raises the launch check's budget to the daemon's cap
-// (hostservice.LaunchCheckBudgetCap) for the rest of the test. A test asserting what the daemon
-// ANSWERS after a mint uses it, so the answer is the mint's and not the timer's: even a canned
-// mint takes the state lock and fsyncs the state file, which under a loaded `just check-ci` once
-// outlasted the product's two seconds and turned a healthy mint into the "had not finished" note.
+// launchCheckTestGuard is a failure guard only: it turns a hung exchange into a red test, and no
+// assertion depends on beating it.
+const launchCheckTestGuard = time.Minute
+
+// generousLaunchCheckBudget makes the launch's side of the check wait for the daemon's answer
+// for the rest of the test: the budget it sends and its read margin (dial included) become
+// launchCheckTestGuard. Paired with awsHandler, whose daemon never stops waiting for its mint
+// (neverElapses), a test asserting what the daemon ANSWERS after a mint asserts the mint's
+// answer, never the clock's: even a canned mint takes the state lock and fsyncs the state file,
+// which under a loaded `just check-ci` outlasted the product's two seconds, and later its cap of
+// five, and turned a healthy mint into the "had not finished" note.
 func generousLaunchCheckBudget(t *testing.T) {
 	t.Helper()
-	saved := launchCheckBudget
-	launchCheckBudget = hostservice.LaunchCheckBudgetCap
-	t.Cleanup(func() { launchCheckBudget = saved })
+	savedBudget, savedMargin := launchCheckBudget, launchCheckMargin
+	launchCheckBudget, launchCheckMargin = launchCheckTestGuard, launchCheckTestGuard
+	t.Cleanup(func() { launchCheckBudget, launchCheckMargin = savedBudget, savedMargin })
 }
+
+// neverElapses is a launch-check budget that never runs out (HandlerConfig.LaunchCheckBudgetElapsed):
+// the check's answer waits for the mint it started, the event the test asserts on.
+func neverElapses(time.Duration) <-chan time.Time { return nil }
 
 func failedAWS(stderr string) awsauth.Output {
 	return awsauth.Output{Spawned: true, Code: 255, Stderr: stderr}

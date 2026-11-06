@@ -47,7 +47,14 @@ func preparationBinaryDigest(path string) (string, error) {
 // guard admission; it receives the cancellation context used by existing owned
 // build-child/jail cleanup. No autonomous adapter may bypass that prerequisite.
 // Replace drains; stop cancels. The lease remains held through either teardown.
-func runPreparationWorker(ctx context.Context, root, selectedExecutable string, ticks <-chan time.Time, dispatch func(context.Context) error, controls ...preparationWorkerControl) (resultErr error) {
+func runPreparationWorker(ctx context.Context, root, selectedExecutable string, ticks <-chan time.Time, dispatch func(context.Context) error, controls ...preparationWorkerControl) error {
+	return runPreparationWorkerReady(ctx, root, selectedExecutable, ticks, dispatch, nil, controls...)
+}
+
+// runPreparationWorkerReady is runPreparationWorker with ready, when non-nil, called once
+// with this incarnation's record after the record is written and its control endpoint is
+// served: the event a test waits on instead of polling the probe against a clock.
+func runPreparationWorkerReady(ctx context.Context, root, selectedExecutable string, ticks <-chan time.Time, dispatch func(context.Context) error, ready func(preparationWorker), controls ...preparationWorkerControl) (resultErr error) {
 	if dispatch == nil {
 		return errors.New("preparation dispatcher missing; wire generation-guarded admission before starting")
 	}
@@ -98,6 +105,9 @@ func runPreparationWorker(ctx context.Context, root, selectedExecutable string, 
 	defer ownerCancel()
 	calls := make(chan preparationControlCall)
 	go servePreparationControl(ownerCtx, listener, calls)
+	if ready != nil {
+		ready(record)
+	}
 	phase := "idle"
 	var active <-chan error
 	var result error
@@ -231,7 +241,7 @@ func servePreparationControl(ctx context.Context, listener *svcendpoint.Listener
 			defer handlers.Done()
 			defer func() { <-slots }()
 			defer conn.Close()
-			deadline := time.Now().Add(preparationControlBound)
+			deadline := time.Now().Add(preparationControlTimeout)
 			conn.SetDeadline(deadline)
 			var cmd preparationCommand
 			_, err := svcendpoint.ReadPreamble(conn)
@@ -269,6 +279,11 @@ const (
 	preparationUnknown      preparationLiveness = "unknown"
 	preparationControlBound                     = time.Second
 )
+
+// preparationControlTimeout bounds one control exchange, on both ends. It is
+// preparationControlBound, and a var only so a test asserting what the owner ANSWERS can
+// raise it to a generous failure guard rather than race a loaded machine against a second.
+var preparationControlTimeout = preparationControlBound
 
 type preparationCommand struct{ Identity, Operation string }
 type preparationResponse struct{ Identity, Phase, Error string }
@@ -310,7 +325,7 @@ func controlPreparationWorker(ctx context.Context, root, expectedIdentity, op st
 	if expectedIdentity == "" {
 		return errors.New("preparation identity missing; read status before control")
 	}
-	deadline := time.Now().Add(preparationControlBound)
+	deadline := time.Now().Add(preparationControlTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
