@@ -67,8 +67,9 @@ Ask for a grant this project needs with `yolo request <pack> <kind>` (for
 example `yolo request journal read`); the human approves it with
 `yolo config apply` on the host, in this workspace. A kind their config does
 not allow on request is theirs to allow for every project: give them
-`yolo host-run -C <value of $YOLO_HOST_DIR> -- yolo allow <pack> <kind>` to run
-there, so its output comes back to you (`yolo host-run wait`). A brokered
+`yolo allow <pack> on_request <kind>`, alone on its own line, to run directly in
+a host terminal. An allow is their own answer, so never wrap it in a
+`yolo host-run` line. A brokered
 loophole's read (the github pack's `github-broker`) is always the human's:
 `yolo allow github read`. Don't write `loopholes.<name>.enabled` in the
 workspace config; it is only a `[WARN]` in here but refuses the next host

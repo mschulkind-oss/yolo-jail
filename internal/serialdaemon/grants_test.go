@@ -105,7 +105,7 @@ func askAt(t *testing.T, ep string, req map[string]any) session {
 func requestableText() string {
 	return loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
-		ValueNoun: "device globs", Dir: "/home/u/proj", Standing: loopholegrant.Requestable,
+		ValueNoun: "device globs", Standing: loopholegrant.Requestable,
 	}.Text()
 }
 
@@ -168,7 +168,7 @@ func TestOpenSeesOnlyTheGrantedGlobs(t *testing.T) {
 
 	want := loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
-		ValueNoun: "device globs", Dir: "/home/u/proj", Standing: loopholegrant.Granted,
+		ValueNoun: "device globs", Standing: loopholegrant.Granted,
 		Values: []string{"/dev/zero"},
 	}.Text()
 	for _, mode := range []string{"read", "write", "monitor"} {
@@ -191,7 +191,7 @@ func TestEveryUngrantedStandingRefuses(t *testing.T) {
 	isolateConfig(t)
 	base := loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
-		ValueNoun: "device globs", Dir: "/home/u/proj",
+		ValueNoun: "device globs",
 	}
 	pending := base
 	pending.Standing, pending.Values = loopholegrant.Pending, []string{"/dev/ttyUSB*"}
@@ -210,8 +210,6 @@ func TestEveryUngrantedStandingRefuses(t *testing.T) {
 	if err := os.WriteFile(broken, []byte(`{"grants":{"pack":"serial","kinds":{"devices":{"standing":"maybe"}}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	notAllowedNoDir := notAllowed
-	notAllowedNoDir.Dir = ""
 
 	for name, c := range map[string]struct {
 		path, want string
@@ -219,7 +217,7 @@ func TestEveryUngrantedStandingRefuses(t *testing.T) {
 		"pending":     {grantFile(t, "", loopholegrant.Pending, "/dev/ttyUSB*"), pending.Text()},
 		"not_allowed": {grantFile(t, "", loopholegrant.NotAllowed), notAllowed.Text()},
 		"no kind":     {noKind, notAllowed.Text()},
-		"unreadable":  {broken, notAllowedNoDir.Text()},
+		"unreadable":  {broken, notAllowed.Text()},
 	} {
 		got := ask(t, LoadSettings(c.path), map[string]any{"mode": "list"})
 		if got.exit != 64 || got.stderr != c.want {
@@ -245,7 +243,7 @@ func TestTheRefusalSpeaksTheGrantFilesWords(t *testing.T) {
 	}
 	want := loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: "serial", Access: "drive the bench rig", Kind: "devices",
-		ValueNoun: "rig ports", Dir: "/home/u/proj", Standing: loopholegrant.Requestable,
+		ValueNoun: "rig ports", Standing: loopholegrant.Requestable,
 	}.Text()
 	if got := ask(t, LoadSettings(path), map[string]any{"mode": "list"}); got.exit != 64 || got.stderr != want {
 		t.Errorf("exit %d, stderr:\n%s\nwant 64 and:\n%s", got.exit, got.stderr, want)

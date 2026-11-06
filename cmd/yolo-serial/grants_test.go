@@ -57,7 +57,7 @@ func TestTheClientPrintsTheDaemonsGrantRefusal(t *testing.T) {
 
 	want := loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
-		ValueNoun: "device globs", Dir: "/home/u/proj", Standing: loopholegrant.Requestable,
+		ValueNoun: "device globs", Standing: loopholegrant.Requestable,
 	}.Text()
 	var rc int
 	_, stderr := captureStdio(t, func() { rc = run([]string{"list", "--endpoint", endpoint}) })

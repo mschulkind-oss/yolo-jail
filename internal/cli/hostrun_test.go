@@ -76,6 +76,13 @@ func TestHostRunHelp(t *testing.T) {
 			t.Errorf("usage lacks %q", want)
 		}
 	}
+	// Only step 8's refusal (a gh credential form) is delivered to the agent (HX-D39); a
+	// refusal at the mailbox step or after it is the human's alone, and the help says so.
+	flat := strings.Join(strings.Fields(out), " ")
+	if !strings.Contains(flat, "Only the refusal of a gh command that prints your GitHub credential is also sent to the agent; every other refusal shows here only, so tell the agent yourself.") ||
+		strings.Contains(flat, "when the workspace is known") {
+		t.Errorf("the help misstates which refusals reach the agent:\n%s", out)
+	}
 	// After `--`, --help is the command's.
 	t.Setenv("YOLO_VERSION", "test")
 	t.Setenv("YOLO_HOST_DIR", "/h")

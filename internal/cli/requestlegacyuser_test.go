@@ -68,3 +68,21 @@ func TestRequestOutsideATOMLUsersCeilingIsReportedSkipped(t *testing.T) {
 		}
 	}
 }
+
+// In a jail, the skipped report's `yolo allow` is the human's own answer, run directly in a host
+// terminal: the report says so and never wraps it in a `yolo host-run` line (the jail briefing's
+// "Approvals are not host-run").
+func TestRequestSkippedInAJailNeverRoutesTheAllowThroughHostRun(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "test")
+	t.Setenv("YOLO_HOST_DIR", "/home/someone/code/proj")
+	var out strings.Builder
+	reportRequestSkipped(&out, "host-processes", "view", "view postgres")
+	got := out.String()
+	if !strings.Contains(got, "\n    yolo allow host-processes on_request view\n") ||
+		!strings.Contains(got, "directly in a host terminal, not through `yolo host-run`") {
+		t.Fatalf("the in-jail report does not hand the allow over to run directly: %q", got)
+	}
+	if strings.Contains(got, "yolo host-run -C") {
+		t.Fatalf("the in-jail report routes the allow through host-run: %q", got)
+	}
+}

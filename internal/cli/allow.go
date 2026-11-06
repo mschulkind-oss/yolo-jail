@@ -120,13 +120,13 @@ func allowRunW(args []string, out, errw io.Writer) int {
 	// A former spelling (`dispatch_workflows`) allows the capability that replaced it.
 	capability = config.CanonicalCapability(source, capability)
 
-	// The user config is the host's: a jail cannot write it, and asking from inside one is
-	// exactly what the host-run line is for.
+	// The user config is the host's: a jail cannot write it. An allow is the human's own
+	// answer, so the command is handed over to run directly in a host terminal, never as a
+	// `yolo host-run` line (the jail briefing's "Approvals are not host-run").
 	if config.InJail() {
 		argv := append([]string{"yolo", "allow"}, positionals...)
-		fmt.Fprintf(errw, "yolo allow writes your user config, which only the host can edit.\n"+
-			"  Ask the human to run, on the host:  %s\n  (or:  %s)\n",
-			strings.Join(argv, " "), hostRunLineFor(argv))
+		fmt.Fprint(errw, "yolo allow writes your user config, which only the host can edit, and it is the human's own answer.\n"+
+			hostApprovalStep(strings.Join(argv, " ")))
 		return 1
 	}
 
@@ -342,7 +342,17 @@ func configKeyComponent(name string) string {
 
 var hostRunLabelBad = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// hostRunLineFor is the paste line that runs argv on the host for this jail's workspace.
+// hostApprovalStep is the next step for an approval command (`yolo allow`, `yolo approve`,
+// `yolo config apply`) refused in a jail: the command alone on its own line, for the human to
+// run directly in a host terminal. Never a `yolo host-run` line: an approval is the human's own
+// answer, which the jail briefing's "Approvals are not host-run" rule keeps out of the mailbox.
+func hostApprovalStep(command string) string {
+	return "  Ask the human to run this directly in a host terminal, not through `yolo host-run`:\n\n" +
+		"    " + command + "\n\n"
+}
+
+// hostRunLineFor is the paste line that runs argv on the host for this jail's workspace. It is
+// for a command that is not an approval; hostApprovalStep is for those.
 func hostRunLineFor(argv []string) string {
 	dir := os.Getenv("YOLO_HOST_DIR")
 	if dir == "" {

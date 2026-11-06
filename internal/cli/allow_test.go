@@ -138,7 +138,10 @@ func TestAllowUnknownCapabilityListsDeclared(t *testing.T) {
 	}
 }
 
-func TestAllowInJailPrintsHostRun(t *testing.T) {
+// An allow is the human's own answer (the jail briefing's "Approvals are not host-run"): in a
+// jail the refusal prints the command alone on its own line, to run directly in a host
+// terminal, and never a `yolo host-run` line that would route it through the mailbox.
+func TestAllowInJailPrintsTheCommandToRunDirectlyNeverAHostRunLine(t *testing.T) {
 	fx := newNamedVerbFixture(t, "", "")
 	t.Setenv("YOLO_VERSION", "test")
 	t.Setenv("YOLO_HOST_DIR", "/home/someone/code/proj")
@@ -147,9 +150,11 @@ func TestAllowInJailPrintsHostRun(t *testing.T) {
 	if rc != 1 {
 		t.Fatalf("rc=%d, want 1; stdout=%q stderr=%q", rc, out, errs)
 	}
-	want := "yolo host-run -C /home/someone/code/proj --name allow-git-fetch -- yolo allow git fetch"
-	if !strings.Contains(errs, want) || !strings.Contains(errs, "on the host:  yolo allow git fetch") {
-		t.Fatalf("in-jail refusal does not print %q: %q", want, errs)
+	if !strings.Contains(errs, "\n\n    yolo allow git fetch\n\n") || !strings.Contains(errs, "directly in a host terminal") {
+		t.Fatalf("in-jail refusal does not print the command alone on its own line, to run directly: %q", errs)
+	}
+	if strings.Contains(errs, "yolo host-run -C") || strings.Contains(errs, "-- yolo allow") {
+		t.Fatalf("in-jail refusal routes the allow through host-run: %q", errs)
 	}
 	if got := readFile(t, fx.fragment); got != "" || rec.calls != 0 {
 		t.Fatalf("an in-jail allow wrote %q or ran the gate (%d)", got, rec.calls)

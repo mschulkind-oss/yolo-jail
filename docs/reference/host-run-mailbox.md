@@ -422,12 +422,15 @@ one warning, never a block. No launch mounts the audit log's directory.
   line-writing guidance, and the fallback when the host's yolo has no `host-run`. The same
   section says approvals (`yolo approve`, `yolo config apply`, `yolo allow`) are run directly on
   the host, never through host-run.
-- **Refusals that print a ready line**, built with `FormatLine`: `yolo allow` and
-  `yolo active-provider` typed in a jail, `yolo request` when the user's ceiling skips the request
-  (each through `hostRunLineFor` in `internal/cli`), and a loophole-grant refusal naming
-  `yolo allow` (`internal/loopholegrant`).
-- **The configuring-the-jail skill**, for the `yolo allow` a request outside the user's ceiling
-  needs, and the git remote helper's refusal of a git service the git broker does not carry.
+- **Refusals that print a ready line** for a user-scope edit typed in a jail: `yolo active-provider`
+  (built with `FormatLine`, through `hostRunLineFor` in `internal/cli`), and `yolo pack add` and
+  `remove`, a user-scope `yolo config` edit and `yolo setup new`, which spell the line themselves.
+  The git remote helper's refusal of a git service the git broker does not carry names host-run
+  without a ready line.
+- **Never for an approval.** `yolo allow` typed in a jail, `yolo request` when the user's ceiling
+  skips the request, a loophole-grant refusal naming `yolo allow` (`internal/loopholegrant`) and
+  the configuring-the-jail skill print the `yolo allow` command alone, to be run directly in a
+  host terminal, and say it is not run through host-run.
 
 A `gh` write that needs approval is the approval flow's, not host-run's: its refusal prints the
 `yolo approve` menu ([`approvals.md`](../../userguide/guides/approvals.md)), and the github
@@ -570,3 +573,4 @@ in the retired `docs/design/host-run-mailbox.md`.
 | <a id="HX-D37"></a>HX-D37 | With no workspace found, refuse before anything is created, naming `-C` and `$YOLO_HOST_DIR`. Never guess among running jails: a guess sends one command's output into a jail the human did not name |
 | <a id="HX-D40"></a>HX-D40 | No integrity digest, no expiry, no single use, no "a mailbox must exist first": the paste is the authority whoever wrote the line, and re-running a line is a fresh run under a new id |
 | HX-D41 | The rune check is the host's only line check, because the disclosure must show what runs. Length, fish backslashes and quoting a leading `=` or `%` are briefing guidance: the host cannot tell a pasted line from a typed one, and a long typed line is fine |
+| <a id="HX-D48"></a>HX-D48 | **Superseded 2026-10-28.** The `gh` write refusal (exit 77) once printed a ready line, `yolo host-run -C <workspace> -- gh <argv>`, because no write could run from a jail. [`github-write-approval.md`](../design/github-write-approval.md) replaced that refusal with the exact Allow-once request (commit `a71c83693`), and ruled that no pasted host-run fallback is added. A write now prints the `yolo approve` menu ([Where agents learn the line](#where-agents-learn-the-line)), and `TestServeRefusesWriteWithoutDeliveryRatherThanOfferingHostRun` pins that its refusal offers no host-run line |

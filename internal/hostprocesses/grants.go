@@ -93,7 +93,7 @@ func refusal(b loopholegrant.Block, k loopholegrant.Kind, standing loopholegrant
 	}
 	return loopholegrant.Refusal{
 		Client: grantClient, Pack: pack, Access: access, Kind: grantKind,
-		ValueNoun: noun, Dir: b.Workspace, Values: values, Standing: standing,
+		ValueNoun: noun, Values: values, Standing: standing,
 	}.Text()
 }
 

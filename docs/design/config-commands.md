@@ -74,8 +74,9 @@ The same agent touching a user-scope key:
 ```console
 $ git fetch
 fatal: no read grant: the host has not allowed git fetch for jails.
-  Ask the human to run, on the host:  yolo allow git fetch
-  (or:  yolo host-run -C /home/matt/code/yolo-jail --name allow-git-fetch -- yolo allow git fetch)
+  Ask the human to run this directly in a host terminal, not through `yolo host-run`:
+
+    yolo allow git fetch
 ```
 
 Granting a read on the host, and the approval that follows, which today is two steps:

@@ -182,7 +182,7 @@ func TestJournaldReadsOnlyItsGrantFile(t *testing.T) {
 	out, errText, rc := ask(t, endpoint, `{"args":["-n","1"]}`)
 	want := loopholegrant.Refusal{
 		Client: "yolo-journalctl", Pack: "journal", Access: "read the host's journal",
-		Kind: "read", Dir: "/home/u/proj", Standing: loopholegrant.Requestable,
+		Kind: "read", Standing: loopholegrant.Requestable,
 	}.Text()
 	if rc != 64 || errText != want || out != "" {
 		t.Fatalf("with read requestable: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, want)
@@ -205,11 +205,13 @@ func TestJournaldReadsOnlyItsGrantFile(t *testing.T) {
 		t.Fatalf("with read_all granted: rc %d stdout %q stderr %q, want the args unchanged", rc, out, errText)
 	}
 
-	// A kind the block does not list is outside the ceiling: not_allowed, naming `yolo allow`.
+	// A kind the block does not list is outside the ceiling: not_allowed, naming `yolo allow`
+	// alone, to run directly on the host, never as a `yolo host-run` line (an allow is the
+	// human's own answer).
 	writeGrantFile(t, grantFile, "journal", `{}`, map[string]loopholegrant.Standing{})
 	_, errText, rc = ask(t, endpoint, `{"args":["-n","1"]}`)
-	if rc != 64 || !strings.Contains(errText, "yolo allow journal on_request read") ||
-		!strings.Contains(errText, "yolo host-run -C /home/u/proj") {
+	if rc != 64 || !strings.Contains(errText, "\n    yolo allow journal on_request read\n") ||
+		strings.Contains(errText, "yolo host-run -C") {
 		t.Fatalf("with no kind listed: rc %d stderr\n%s", rc, errText)
 	}
 
@@ -302,7 +304,7 @@ func TestMacosLogReadsOnlyItsGrantFile(t *testing.T) {
 	out, errText, rc := ask(t, endpoint, `{"args":["show","--last","1m"]}`)
 	want := loopholegrant.Refusal{
 		Client: "yolo-log", Pack: "macos-log", Access: "read the Mac's unified log",
-		Kind: "read", Dir: "/home/u/proj", Standing: loopholegrant.Pending,
+		Kind: "read", Standing: loopholegrant.Pending,
 	}.Text()
 	if rc != 64 || errText != want || out != "" {
 		t.Fatalf("with read pending: rc %d stdout %q stderr\n%s\nwant rc 64 and\n%s", rc, out, errText, want)

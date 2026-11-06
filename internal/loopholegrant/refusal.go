@@ -11,7 +11,6 @@ type Refusal struct {
 	Access    string // the manifest's `access`, "read the host's journal"
 	Kind      string // the grant kind the call needed, "read"
 	ValueNoun string // a valued kind's noun, "device globs"; the placeholder when Values is empty
-	Dir       string // the host path of the workspace, for the host-run line
 	Values    []string
 	Standing  Standing
 	// Inert is the inert note's reason; when set, the loophole does nothing on this setup and
@@ -53,10 +52,10 @@ func (r Refusal) Text() string {
 	var b strings.Builder
 	b.WriteString(r.Client + ": this project holds no grant to " + r.Access + ", so nothing ran.\n")
 	b.WriteString("  Your user config does not allow " + r.Pack + " " + r.Kind + " on request, so a request would be skipped.\n")
-	b.WriteString("  The human allows it, on the host:   " + allow + "\n")
-	if r.Dir != "" {
-		b.WriteString("    (or:  yolo host-run -C " + r.Dir + " --name allow-" + r.Pack + " -- " + allow + ")\n")
-	}
+	// An allow is the human's own answer, run directly in a host terminal: never a
+	// `yolo host-run` line (the jail briefing's "Approvals are not host-run").
+	b.WriteString("  The human allows it, directly in a host terminal (not through `yolo host-run`):\n")
+	b.WriteString("    " + allow + "\n")
 	b.WriteString("  then this project asks:             " + request + "\n")
 	b.WriteString("  then the human runs `yolo config apply` on the host, in this workspace, and answers y.\n")
 	return b.String()

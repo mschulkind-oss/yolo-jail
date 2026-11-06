@@ -19,11 +19,11 @@ func TestRefusalTextRequestable(t *testing.T) {
 
 func TestRefusalTextNotAllowed(t *testing.T) {
 	got := Refusal{Client: "yolo-ps", Pack: "host-processes", Access: "see host processes", Kind: "view",
-		Values: []string{"postgres", "redis-server"}, Dir: "/home/u/proj", Standing: NotAllowed}.Text()
+		Values: []string{"postgres", "redis-server"}, Standing: NotAllowed}.Text()
 	want := "yolo-ps: this project holds no grant to see host processes, so nothing ran.\n" +
 		"  Your user config does not allow host-processes view on request, so a request would be skipped.\n" +
-		"  The human allows it, on the host:   yolo allow host-processes on_request view\n" +
-		"    (or:  yolo host-run -C /home/u/proj --name allow-host-processes -- yolo allow host-processes on_request view)\n" +
+		"  The human allows it, directly in a host terminal (not through `yolo host-run`):\n" +
+		"    yolo allow host-processes on_request view\n" +
 		"  then this project asks:             yolo request host-processes view postgres redis-server\n" +
 		"  then the human runs `yolo config apply` on the host, in this workspace, and answers y.\n"
 	if got != want {
@@ -35,11 +35,11 @@ func TestRefusalTextNotAllowed(t *testing.T) {
 // request line still names what to fill in.
 func TestRefusalTextNotAllowedValuedWithoutValuesPrintsTheNoun(t *testing.T) {
 	got := Refusal{Client: "yolo-serial", Pack: "serial", Access: "open host serial devices", Kind: "devices",
-		ValueNoun: "device globs", Dir: "/home/u/proj", Standing: NotAllowed}.Text()
+		ValueNoun: "device globs", Standing: NotAllowed}.Text()
 	want := "yolo-serial: this project holds no grant to open host serial devices, so nothing ran.\n" +
 		"  Your user config does not allow serial devices on request, so a request would be skipped.\n" +
-		"  The human allows it, on the host:   yolo allow serial on_request devices\n" +
-		"    (or:  yolo host-run -C /home/u/proj --name allow-serial -- yolo allow serial on_request devices)\n" +
+		"  The human allows it, directly in a host terminal (not through `yolo host-run`):\n" +
+		"    yolo allow serial on_request devices\n" +
 		"  then this project asks:             yolo request serial devices <device globs>\n" +
 		"  then the human runs `yolo config apply` on the host, in this workspace, and answers y.\n"
 	if got != want {
@@ -51,7 +51,7 @@ func TestRefusalTextNotAllowedValuedWithoutValuesPrintsTheNoun(t *testing.T) {
 // not_allowed text (plan PD-12).
 func TestRefusalTextWithoutAStandingIsNotAllowed(t *testing.T) {
 	r := Refusal{Client: "yolo-ps", Pack: "host-processes", Access: "see host processes", Kind: "view",
-		Values: []string{"postgres"}, Dir: "/d"}
+		Values: []string{"postgres"}}
 	n := r
 	n.Standing = NotAllowed
 	if r.Text() != n.Text() {
