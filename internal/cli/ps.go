@@ -96,10 +96,10 @@ func psRun(deps psDeps) int {
 	var rows []runtime.PsRow
 	var enumerated bool
 	if rt == "container" {
-		out, ok := deps.RunCmd([]string{"container", "ls"})
-		enumerated = ok
-		if ok {
-			rows = runtime.ParseContainerLsRows(out)
+		// The JSON listing, not the table: the table parser put the whole row in STATUS (lab
+		// report 2026-11-04 §7). Output that does not parse is "could not enumerate" (D11).
+		if out, ok := deps.RunCmd(runtime.ContainerLsJSONArgv); ok {
+			rows, enumerated = runtime.ParseContainerLsRows(out)
 		}
 	} else {
 		out, ok := deps.RunCmd([]string{rt, "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"})
