@@ -108,8 +108,10 @@ func TestEveryShippedPackDeriveStillRuns(t *testing.T) {
 					if !ok {
 						t.Fatalf("MCPAuthKeys returned no key for %q: %v", server.Name, keys)
 					}
+					// The entry spells the server URL the way each agent's store does: Codex's
+					// server_url, Claude Code's serverUrl.
 					match, err := MCPAuthMatch(string(src), agent, key,
-						map[string]any{"server_url": server.URL})
+						map[string]any{"server_url": server.URL, "serverUrl": server.URL})
 					if err != nil || match == nil || match.Name != server.Name || match.URL != server.URL {
 						t.Fatalf("match(key(server), entry_for(server)) = %+v, %v", match, err)
 					}

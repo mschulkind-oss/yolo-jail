@@ -1117,6 +1117,12 @@ func TestOnlyTheListedFunctionsNameTheMachineStore(t *testing.T) {
 		"noteBrokenSharedClaudeLogin": "reads the shared Claude credentials file's condition to " +
 			"name a broken one, and writes nothing " +
 			"(TestAContainerLaunchSaysTheSharedClaudeLoginDoesNotParse checks the bytes are unchanged)",
+		"freezeLaunchMCP": "passes paths.GlobalHome() to claudeSecureStorageDir only to name " +
+			"Claude's machine-wide credential directory in the frozen launch input, and writes nothing " +
+			"(TestMCPAuthShareCarriesTheOneSignInServerAndClaudesMachineStore)",
+		"onceShare": "compares each pack's shared credential store under paths.GlobalHome() with " +
+			"the launch's shared credential directory, and writes nothing; the broker, a host " +
+			"daemon, writes Claude's entry under Claude's own lock (ID-12)",
 		"persistenceMapForSources": "reads paths.GlobalHome() only to describe the source paths for selected machine-scope shared dirs; it does not create, modify, or delete the machine store (the snapshot writer allowlist remains unchanged)",
 	}
 	files, err := filepath.Glob("*.go")

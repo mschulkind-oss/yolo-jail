@@ -25,8 +25,8 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	// claude's needs: claude-auth and wire-bridge (packs/claude/pack.json).
-	if len(chosenPacks(loaded)) != 3 || chosenPacks(loaded)[0].Name != "claude" {
+	// claude's needs: claude-auth, wire-bridge and mcp-auth (packs/claude/pack.toml).
+	if len(chosenPacks(loaded)) != 4 || chosenPacks(loaded)[0].Name != "claude" {
 		var names []string
 		for _, p := range chosenPacks(loaded) {
 			names = append(names, p.Name)
@@ -39,7 +39,7 @@ func TestOnlySelectedEmbeddedPacksAreStaged(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Plus cgroup-delegate, which every launch selects by default (PD-13).
-	if len(entries) != 4 {
+	if len(entries) != 5 {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
@@ -81,7 +81,7 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	if _, loaded, _, err := o.stagePacks("yolo-test-drop"); err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	} else if len(chosenPacks(loaded)) != 6 {
-		t.Fatalf("first pass: want claude, codex, their auth packs, Codex's MCP sign-in pack and Claude's wire bridge; got %d packs", len(chosenPacks(loaded)))
+		t.Fatalf("first pass: want claude, codex, their auth packs, the MCP sign-in pack they share and Claude's wire bridge; got %d packs", len(chosenPacks(loaded)))
 	}
 
 	writeUserPacks(t, home, `["claude"]`)
@@ -89,7 +89,7 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stagePacks after drop: %v", err)
 	}
-	if len(chosenPacks(loaded)) != 3 || chosenPacks(loaded)[0].Name != "claude" {
+	if len(chosenPacks(loaded)) != 4 || chosenPacks(loaded)[0].Name != "claude" {
 		t.Fatalf("after dropping codex: want claude and its dependencies, got %d packs", len(chosenPacks(loaded)))
 	}
 	entries, err := os.ReadDir(filepath.Dir(loaded[0].Root))

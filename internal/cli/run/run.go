@@ -1749,7 +1749,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		}
 	}
 
-	o.freezeLaunchMCP(cfg, loadedPacks, o.launchMCPSelection)
+	o.freezeLaunchMCP(rt, cfg, loadedPacks, o.launchMCPSelection)
 
 	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
 	o.writeLaunchConfigArtifacts(cfg)

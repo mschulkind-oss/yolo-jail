@@ -80,6 +80,18 @@ func Main(args []string) int {
 			}
 			recordCount += len(file.Records)
 		}
+		if fi, err := os.Lstat(filepath.Join(*state, "once")); err == nil && fi.IsDir() {
+			store, err := mcpauth.NewOnceStore(filepath.Join(*state, "once"))
+			var file mcpauth.CanonicalFile
+			if err == nil {
+				file, err = store.Read()
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stdout, "FAIL: mcp-auth one-sign-in state cannot be read; restore a private backup of %s and rerun yolo check: %v\n", filepath.Join(*state, "once", "records.json"), err)
+				return 1
+			}
+			recordCount += len(file.Records)
+		}
 		if recordCount == 0 {
 			fmt.Fprintln(os.Stdout, "NOTE: no MCP sign-ins have been shared yet; sign in to a user-level server with your selected agent, then relaunch its jail")
 			return 0
@@ -176,7 +188,7 @@ func Main(args []string) int {
 		case <-finished:
 		}
 	}()
-	err = hostservice.ServeFrontedUnix(b.handleStatus, *socket, stop)
+	err = b.serve(*socket, stop)
 	close(finished)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcp-auth-broker: fronted socket stopped; retry the launch:", err)
@@ -191,6 +203,18 @@ func Main(args []string) int {
 	return 0
 }
 
+// serve answers status on socket until stop closes, with the one-sign-in poll running beside
+// it after readiness; the poll is stopped and waited for before serve returns, so the final
+// harvest never races it (MA-D17).
+func (b *broker) serve(socket string, stop <-chan struct{}) error {
+	onceStop, onceDone := make(chan struct{}), make(chan struct{})
+	go func() { b.runOnce(onceStop); close(onceDone) }()
+	err := hostservice.ServeFrontedUnix(b.handleStatus, socket, stop)
+	close(onceStop)
+	<-onceDone
+	return err
+}
+
 func (b *broker) handleStatus(s *hostservice.Session) {
 	op, _ := s.Get("op")
 	if op != "status" || s.JailID != b.share.Jail {
@@ -198,7 +222,7 @@ func (b *broker) handleStatus(s *hostservice.Session) {
 		s.Exit(2)
 		return
 	}
-	agents := make([]map[string]any, 0, len(b.share.Replicas))
+	agents := make([]any, 0, len(b.share.Replicas))
 	for _, replica := range b.share.Replicas {
 		file, readErr := b.canonicalFor(replica).ReadStatus()
 		if readErr != nil {
@@ -206,12 +230,12 @@ func (b *broker) handleStatus(s *hostservice.Session) {
 			s.Exit(1)
 			return
 		}
-		servers := make([]map[string]any, 0, len(replica.Shared))
+		servers := make([]any, 0, len(replica.Shared))
 		for _, shared := range replica.Shared {
 			row := map[string]any{"name": shared.Name, "scope": "user", "state": "not-signed-in", "next_step": strings.ReplaceAll(replica.Decl.LoginHint, "{name}", shared.Name)}
 			for _, record := range file.Records {
 				if record.Server == shared.Name && record.Identity == shared.Identity {
-					row["state"], row["generation"], row["expires_at_ms"] = record.State, record.Generation, record.ExpiresAtMS
+					row["state"], row["generation"], row["expires_at_ms"] = record.State, int64(record.Generation), record.ExpiresAtMS
 					if record.State == "live" {
 						row["next_step"] = ""
 					}
@@ -222,7 +246,13 @@ func (b *broker) handleStatus(s *hostservice.Session) {
 		}
 		agents = append(agents, map[string]any{"pack": replica.Pack, "sharing": "launch-boundary", "servers": servers})
 	}
-	_ = s.JSON(map[string]any{"schema": "yolo.mcp-auth.status/1", "agents": agents})
+	once, err := b.onceStatus()
+	if err != nil {
+		s.Stderr("mcp-auth: one-sign-in state unavailable; repair host state and retry\n")
+		s.Exit(1)
+		return
+	}
+	_ = s.JSON(map[string]any{"schema": "yolo.mcp-auth.status/1", "agents": agents, "once": anyRows(once)})
 	s.Exit(0)
 }
 
@@ -284,6 +314,16 @@ func (b *broker) loadScripts() error {
 			return fmt.Errorf("%s: cannot read selected pack derive", replica.Pack)
 		}
 		b.scripts[replica.Pack] = string(script)
+	}
+	if len(b.share.Once) == 0 {
+		return nil
+	}
+	for _, source := range b.share.Sources {
+		script, err := os.ReadFile(source.DeriveFile)
+		if err != nil {
+			return fmt.Errorf("%s: cannot read selected pack derive", source.Pack)
+		}
+		b.scripts[source.Pack] = string(script)
 	}
 	return nil
 }

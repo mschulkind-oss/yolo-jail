@@ -426,6 +426,8 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "mcp_servers.*.oauth.scopes", Scope: both, Type: SchemaTypeList},
 		{Path: "mcp_servers.*.oauth.scopes.*", Scope: both, Type: SchemaTypeString},
 		{Path: "mcp_servers.*.oauth.callback_port", Scope: both, Type: SchemaTypeNumber},
+		// User scope only (MA-D11): it moves the server's sign-in into the machine-wide tier.
+		{Path: "mcp_servers.*.sign_in", Scope: user, Type: SchemaTypeString},
 	}
 	for _, key := range entries {
 		add(key.Path, key.Scope, key.Type)

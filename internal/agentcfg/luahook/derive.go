@@ -1073,6 +1073,10 @@ func WithheldMCPServers(ctx *DeriveCtx) map[string]string {
 //
 // Entries are COPIED rather than edited: the map handed in is the live config table the
 // caller reuses across every surface it renders.
+//
+// `sign_in` (MA-D11, docs/design/mcp-auth-sharing.md) is stripped here for the same reason
+// and at the same seat: it is the user's sharing decision, read by the launcher from the
+// user-only composition, and no agent's config has a field for it.
 func withoutProvidesKey(servers map[string]any) map[string]any {
 	out := make(map[string]any, len(servers))
 	for name, v := range servers {
@@ -1081,13 +1085,15 @@ func withoutProvidesKey(servers map[string]any) map[string]any {
 			out[name] = v
 			continue
 		}
-		if _, has := cfg["provides"]; !has {
+		_, hasProvides := cfg["provides"]
+		_, hasSignIn := cfg["sign_in"]
+		if !hasProvides && !hasSignIn {
 			out[name] = v
 			continue
 		}
-		stripped := make(map[string]any, len(cfg)-1)
+		stripped := make(map[string]any, len(cfg))
 		for k, kv := range cfg {
-			if k == "provides" {
+			if k == "provides" || k == "sign_in" {
 				continue
 			}
 			stripped[k] = kv

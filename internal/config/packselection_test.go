@@ -36,16 +36,17 @@ func TestSelectPacksClosesTheSelectionAndJoinsEachAddition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"claude", "claude-auth", "wire-bridge"}
+	want := []string{"claude", "claude-auth", "wire-bridge", "mcp-auth"}
 	if got := selectionNames(sel.Packs()); !slices.Equal(got, want) {
 		t.Fatalf("Packs() = %v, want %v", got, want)
 	}
-	if len(sel.Causes) != 2 || !sel.Complete() {
+	if len(sel.Causes) != 3 || !sel.Complete() {
 		t.Errorf("causes = %v, complete = %v", sel.Causes, sel.Complete())
 	}
 	wantEvents := []string{
 		"announce + claude-auth (needed by claude)", "join claude-auth",
 		"announce + wire-bridge (needed by claude)", "join wire-bridge",
+		"announce + mcp-auth (needed by claude)", "join mcp-auth",
 	}
 	if !slices.Equal(events, wantEvents) {
 		t.Errorf("events = %v, want %v", events, wantEvents)
@@ -70,7 +71,7 @@ func TestSelectPacksFailFastIsTheCallersChoice(t *testing.T) {
 	if len(sel.Unresolved) != 1 || !errors.Is(sel.Unresolved[0].Err, boom) || sel.Complete() {
 		t.Errorf("unresolved = %+v", sel.Unresolved)
 	}
-	if got := selectionNames(sel.Packs()); !slices.Equal(got, []string{"claude", "claude-auth", "wire-bridge"}) {
+	if got := selectionNames(sel.Packs()); !slices.Equal(got, []string{"claude", "claude-auth", "wire-bridge", "mcp-auth"}) {
 		t.Errorf("the resolvable part = %v, want claude and its needs' closure", got)
 	}
 

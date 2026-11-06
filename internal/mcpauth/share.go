@@ -24,6 +24,38 @@ type Share struct {
 	Home      string    `json:"home,omitempty"`
 	WrittenAt time.Time `json:"written_at"`
 	Replicas  []Replica `json:"replicas"`
+	// Once lists the user's `sign_in = "once"` servers, and Sources the machine-wide agent
+	// stores their sign-ins are adopted from and written back to (MA-D17).
+	Once    []OnceServer `json:"once,omitempty"`
+	Sources []Source     `json:"sources,omitempty"`
+}
+
+// Source is an agent's sign-in store that every jail on the machine reads, named by its host
+// directory: Claude Code's credential file in the machine-scope shared directory.
+type Source struct {
+	Pack       string           `json:"pack"`
+	DeriveFile string           `json:"derive_file"`
+	Dir        string           `json:"dir"`
+	Store      string           `json:"store"`
+	LockDir    string           `json:"lock_dir"`
+	Decl       packdecl.MCPAuth `json:"decl"`
+}
+
+func (s Source) validate() error {
+	if s.Pack == "" || filepath.Base(s.Pack) != s.Pack || s.Pack == "." || s.Pack == ".." ||
+		!filepath.IsAbs(s.DeriveFile) || filepath.Base(s.DeriveFile) != "derive.lua" ||
+		!filepath.IsAbs(s.Dir) || filepath.Clean(s.Dir) != s.Dir || !validLeaf(s.Store) || !validLeaf(s.LockDir) ||
+		s.Decl.Format != "json" || s.Decl.Lock == nil || s.Decl.Lock.Protocol != "proper-lockfile" || s.Decl.Lock.StaleSeconds <= 0 ||
+		s.Decl.Fields.AccessToken == "" || s.Decl.Fields.RefreshToken == "" {
+		return errors.New("mcp-auth: unsupported one-sign-in source; retry with a supported pack")
+	}
+	return nil
+}
+
+// SourceStore is the source's store with the lock wait the broker uses.
+func (s Source) SourceStore(wait time.Duration) SourceStore {
+	return SourceStore{Dir: s.Dir, File: s.Store, LockDir: s.LockDir, Stale: time.Duration(s.Decl.Lock.StaleSeconds) * time.Second,
+		Wait: wait, EntriesAt: append([]string(nil), s.Decl.EntriesAt...)}
 }
 
 // HomeRel is the share's workspace home relative to <workspace>/.yolo: Home, or the legacy
@@ -78,6 +110,16 @@ func (s Share) Validate() error {
 			if entry.Name == "" || entry.URL == "" || entry.Key == "" || !validDigest(entry.Identity) {
 				return errors.New("mcp-auth: invalid shared server; retry the launch")
 			}
+		}
+	}
+	for _, server := range s.Once {
+		if server.Name == "" || server.URL == "" || !validDigest(server.Identity) {
+			return errors.New("mcp-auth: invalid one-sign-in server; retry the launch")
+		}
+	}
+	for _, source := range s.Sources {
+		if err := source.validate(); err != nil {
+			return err
 		}
 	}
 	return nil

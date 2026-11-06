@@ -17,6 +17,12 @@ func mcpUnavailableLines(packs []*packload.Pack, backend string) []string {
 			continue
 		}
 		decl := pack.Decl.MCPAuth
+		if sharedStoreDir(pack, decl.Store) != "" {
+			// The store itself is machine-wide (CL-D22), so its sign-ins already reach every jail;
+			// what this backend lacks is the broker that holds their refresh tokens.
+			lines = append(lines, "MCP sign-ins for "+pack.Name+" are refreshed by "+pack.Name+" itself on "+backend+"; a sign_in = \"once\" server is held by the host broker only in a Linux podman jail.")
+			continue
+		}
 		lines = append(lines, "MCP sign-ins for "+pack.Name+" are not shared on "+backend+" in this yolo yet; each workspace signs in once ("+decl.LoginHint+"). To share them, use a Linux podman jail.")
 	}
 	return lines
@@ -34,6 +40,19 @@ func (o *Options) noteMCPAuthShare(in LaunchInputContext, data []byte) {
 		}
 		if len(shared) > 0 {
 			o.pr(o.Stderr).print("MCP sign-ins (" + replica.Pack + "): " + strings.Join(shared, ", ") + " eligible for a verified canonical copy at launch. A new native sign-in whose original headers cannot be proved stays in this workspace and is not harvested into user scope; use " + strings.ReplaceAll(replica.Decl.LoginHint, "{name}", "<name>") + " in each workspace until origin can be verified.")
+		}
+	}
+	if len(share.Once) > 0 {
+		names := make([]string, 0, len(share.Once))
+		for _, server := range share.Once {
+			names = append(names, server.Name)
+		}
+		for _, source := range share.Sources {
+			hint := strings.ReplaceAll(source.Decl.LoginHint, "{name}", "<name>")
+			o.pr(o.Stderr).print("MCP one sign-in: " + strings.Join(names, ", ") + " signs in once for every jail on this machine (" + hint +
+				" in any jail); the host broker then holds its refresh token and keeps " + source.Pack + "'s copy fresh. " +
+				source.Pack + " keeps all its MCP sign-ins in one machine-wide file, so every jail on this machine shares them. " +
+				"Follow adoptions and refreshes with yolo audit --service mcp-auth.")
 		}
 	}
 	if in.Runtime != "podman" || runtime.GOOS != "linux" || !in.MCPProven {

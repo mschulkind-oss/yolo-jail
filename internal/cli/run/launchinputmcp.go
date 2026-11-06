@@ -7,6 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // frozenLaunchMCP is the launch's approved composition, carried through the keeper
@@ -15,6 +16,8 @@ type frozenLaunchMCP struct {
 	EffectiveJSON string `json:"effective,omitempty"`
 	UserOnlyJSON  string `json:"user_only,omitempty"`
 	Proven        bool   `json:"proven,omitempty"`
+	// SharedCredentialDir is LaunchInputContext.SharedCredentialDir, decided at launch.
+	SharedCredentialDir string `json:"shared_credential_dir,omitempty"`
 }
 
 // launchMCPSelection holds the user layer as it stood before this launch staged
@@ -92,7 +95,16 @@ func frozenMCPForLaunch(cfg, user *jsonx.OrderedMap, selected, staged []*packloa
 	return frozenLaunchMCP{EffectiveJSON: jsonx.MustDumpsCompact(effective), UserOnlyJSON: jsonx.MustDumpsCompact(userOnly), Proven: true}
 }
 
-func (o *Options) freezeLaunchMCP(cfg *jsonx.OrderedMap, staged []*packload.Pack, before launchMCPSelection) {
+func (o *Options) freezeLaunchMCP(rt string, cfg *jsonx.OrderedMap, staged []*packload.Pack, before launchMCPSelection) {
+	o.freezeLaunchMCPComposition(cfg, staged, before)
+	if o.launchInputMCP.Proven {
+		// The machine-wide Claude store this launch bridges (CL-D22), on the host: the one place
+		// a one-sign-in server's sign-in is adopted from and written back to (MA-D17).
+		o.launchInputMCP.SharedCredentialDir = o.claudeSecureStorageDir(rt, cfg, staged, paths.GlobalHome())
+	}
+}
+
+func (o *Options) freezeLaunchMCPComposition(cfg *jsonx.OrderedMap, staged []*packload.Pack, before launchMCPSelection) {
 	if !before.valid {
 		return
 	}

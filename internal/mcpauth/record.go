@@ -30,6 +30,14 @@ type Record struct {
 	ClientID      string                     `json:"client_id,omitempty"`
 	TokenEndpoint string                     `json:"token_endpoint,omitempty"`
 	RefreshedAt   string                     `json:"refreshed_at,omitempty"`
+	// The fields below are a one-sign-in record's (MA-D17): the source entry's key in the agent's
+	// machine-wide store, the issuer discovery confirmed, the last token lifetime, and the
+	// SHA-256 of the refresh token adoption took from the source, so every broker can tell that
+	// spent token from a new sign-in without holding it.
+	SourceKey       string `json:"source_key,omitempty"`
+	Issuer          string `json:"issuer,omitempty"`
+	LifetimeMS      int64  `json:"lifetime_ms,omitempty"`
+	AdoptedRefreshH string `json:"adopted_refresh_sha256,omitempty"`
 }
 
 // CanonicalFile is the versioned on-disk representation.

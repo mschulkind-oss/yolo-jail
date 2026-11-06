@@ -180,6 +180,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateShareHostFonts(config, workspace, errs, edit)
 	validateLocalClones(config, workspace, errs, edit)
 	validateHostApplyOnLaunch(config, workspace, errs, edit)
+	validateMCPSignInScope(config, workspace, errs, edit)
 	validateHostManagement(config, workspace, errs, edit)
 	validateHostImportExclusions(config, workspace, errs, edit)
 	validateAgentUpdates(config, workspace, errs, edit)
@@ -582,6 +583,51 @@ func validateHostWrappers(config *jsonx.OrderedMap, workspace string, errs *[]st
 // larger: the key licenses a WRITE into the real $HOME as a side effect of launching an agent,
 // so a workspace value that merely looked accepted would be a silent no-op on the one class of
 // key where a silent no-op is indistinguishable from a working exploit.
+// The values of `mcp_servers.<name>.sign_in` (MA-D11, docs/design/mcp-auth-sharing.md):
+// per_agent, the default, leaves each agent to its own sign-in; once shares one sign-in, which
+// the host broker refreshes, with every jail on the machine.
+const (
+	MCPSignInPerAgent = "per_agent"
+	MCPSignInOnce     = "once"
+)
+
+// mcpSignInProjectRefusal is the refusal a project's `sign_in` gets, naming the verb that
+// writes it where it is read.
+func mcpSignInProjectRefusal(name string) string {
+	return "user-scope only — it shares this server's sign-in with every jail on the machine, " +
+		"so a project cannot set it. Set it in your own config:\n" +
+		"    yolo config set mcp_servers." + name + ".sign_in " + MCPSignInOnce + " --user"
+}
+
+// validateMCPSignInScope refuses `sign_in` in a workspace config (the legacy JSONC path; a
+// TOML file is refused at load by the readable walk with the same text). Only the user's own
+// layer is read for it (the launch's user-only composition), so a workspace value would be
+// inert; saying so is what keeps it from looking accepted.
+func validateMCPSignInScope(config *jsonx.OrderedMap, workspace string, errs *[]string, edit ...*editValidationContext) {
+	if _, present := config.Get("mcp_servers"); !present {
+		return
+	}
+	wsCfg, err := loadValidationWorkspaceConfig(workspace, edit...)
+	if err != nil || wsCfg == nil {
+		return
+	}
+	raw, _ := wsCfg.Get("mcp_servers")
+	servers, ok := asMap(raw)
+	if !ok {
+		return
+	}
+	for _, name := range servers.Keys() {
+		v, _ := servers.Get(name)
+		server, ok := asMap(v)
+		if !ok {
+			continue
+		}
+		if _, set := server.Get("sign_in"); set {
+			add(errs, "config.mcp_servers."+name+".sign_in: "+mcpSignInProjectRefusal(name))
+		}
+	}
+}
+
 func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs *[]string, edit ...*editValidationContext) {
 	v, present := config.Get(hostApplyOnLaunchKey)
 	if !present {
@@ -1271,7 +1317,7 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 			if !isStr(command) {
 				add(errs, path+".command: expected a string")
 			}
-			for _, key := range []string{"transport", "headers", "oauth"} {
+			for _, key := range []string{"transport", "headers", "oauth", "sign_in"} {
 				if _, present := cfg.Get(key); present {
 					add(errs, path+"."+key+": applies only to a remote server (url); remove it, or replace command with url")
 				}
@@ -1367,6 +1413,11 @@ func validateRemoteMCPServer(cfg *jsonx.OrderedMap, rawURL any, path string, err
 					add(errs, path+".headers."+name+": expected a string")
 				}
 			}
+		}
+	}
+	if value, present := cfg.Get("sign_in"); present {
+		if v, ok := asStr(value); !ok || (v != MCPSignInPerAgent && v != MCPSignInOnce) {
+			add(errs, path+`.sign_in: must be "per_agent" or "once", got `+pyReprValue(value))
 		}
 	}
 	if rawOAuth, present := cfg.Get("oauth"); present {
