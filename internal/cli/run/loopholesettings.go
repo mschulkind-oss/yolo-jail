@@ -179,7 +179,7 @@ func (o *Options) discloseSettingsCheckHostExec(packs []*packload.Pack, set loop
 	discovered := set.Enabled()
 	kept := discovered[:0]
 	for _, lp := range discovered {
-		if allow(lp.Name) && len(lp.PlacementProblems(o.Workspace)) == 0 && lp.HostDaemon != nil &&
+		if allow(lp.Name) && len(lp.PlacementProblems(o.placementWorkspace())) == 0 && lp.HostDaemon != nil &&
 			len(lp.HostDaemon.SettingsCheck) > 0 {
 			kept = append(kept, lp)
 		}

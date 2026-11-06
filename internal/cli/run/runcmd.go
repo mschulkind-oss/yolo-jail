@@ -281,6 +281,11 @@ type Options struct {
 	// that say so (unreachableBy): "" for a jail launch, which says "the jail", and the agent's
 	// name for a `yolo host` launch opening a doorway (HostDoorways.Start), which runs no jail.
 	reachSubject string
+	// mountsNoWorkspace is set by a `yolo host` launch opening a doorway (HostDoorways.Start).
+	// That notch mounts nothing, so its Workspace (the cwd) names the spawn guard's identity and
+	// no tree it hands an agent; the placement rule judges it with no workspace in hand
+	// (placementWorkspace).
+	mountsNoWorkspace bool
 	// launchLockWaited records that taking launchLock meant waiting for another launch of
 	// this workspace to finish its window — so a jail found running afterwards is the one
 	// THAT launch started, and the attach says so.

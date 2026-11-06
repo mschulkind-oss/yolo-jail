@@ -614,6 +614,13 @@ func Run(opts Options) (rc int) {
 			o.printProviderRefusal([]string{"Refusing to launch: " + err.Error()})
 			return 1
 		}
+		// A DOORWAY WHOSE HOST SERVICE THE PLACEMENT RULE REFUSES refuses the launch here, before the
+		// keeper's spawn, a join or any host service (doorwayplacement.go, HS-D34): opened, it would
+		// answer every request ServiceUnreachable. A dry run is refused too, as the launch would be.
+		if err := o.refusePlacementOfJailDoorways(rt, cfg, staged.packs, jailDaemons); err != nil {
+			o.pr(o.Stderr).printf("[bold red]Refusing the macos-user launch: %s[/bold red]", err.Error())
+			return 1
+		}
 		if !o.DryRun && !sameWorkspaceMounts(plannedWritable, o.workspaceMounts) {
 			o.pr(o.Stderr).print("[bold red]The workspace config's mounts changed while yolo " +
 				"was reading it, so the mounts planned for this launch are not the ones just approved. " +
@@ -1740,6 +1747,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	var recomposeErr error
 	if channel, jailDaemons, recomposeErr = o.recomposeForApprovedGrants(cfg, rt, loadedPacks, channel, jailDaemons); recomposeErr != nil {
 		o.printProviderRefusal([]string{"Refusing to launch: " + recomposeErr.Error()})
+		return 1
+	}
+	// A DOORWAY WHOSE HOST SERVICE THE PLACEMENT RULE REFUSES refuses the launch here, before the
+	// keeper's spawn and the jail's start (doorwayplacement.go, HS-D34): the jail's adapter would run
+	// with no endpoint and answer every request ServiceUnreachable.
+	if err := o.refusePlacementOfJailDoorways(rt, cfg, loadedPacks, jailDaemons); err != nil {
+		o.pr(o.Stderr).printf("[bold red]Refusing to launch: %s[/bold red]", err.Error())
 		return 1
 	}
 	if o.Update && config.InJail() {

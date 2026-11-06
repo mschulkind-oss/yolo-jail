@@ -37,15 +37,9 @@ carries its read grant ([OQ-LC2](../design/legacy-config-compat.md#OQ-LC2)), and
 security refusals are outside it ([OQ-LC3](../design/legacy-config-compat.md#OQ-LC3)); no ruling is
 owed. That document owns its remaining build.
 
-1. **`yolo host --` calls its cwd a bind-mounted workspace, so it refuses `aws-auth` in the home**
-   — measured 2026-10-19, and no ruling is needed. As
-   [the lab report](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md) traces it, the host
-   notch passes its cwd (`os.Getwd()` in `internal/cli/host.go`) to the loophole placement rule as
-   a workspace, a branch worded for a jail (*"the workspace this launch bind-mounts :rw"*), though
-   the host notch mounts nothing. Run from `$HOME`, that tree contains `~/.local/share/yolo-jail`,
-   so the rule refuses the loophole serving Bedrock credentials. The rule's empty-workspace path
-   already exists for a caller with no workspace in hand; this notch does not use it. The report
-   also gives the workaround.
+1. **`yolo host --` judged its cwd as a bind-mounted workspace** — done 2026-11-06: the host notch judges the
+   [placement rule](../reference/loophole-system.md#the-placement-rule) with no workspace, and every backend
+   refuses a doorway whose host service the rule refuses ([HS-D34](../design/host-notch-services.md#HS-D34)).
 
 2. [Finish the readable-config redesign](../design/readable-config.md) — the maintainer,
    2026-10-24: *"this is important"*. The approved [RC-D68](../design/readable-config.md#RC-D68)

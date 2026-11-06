@@ -445,7 +445,9 @@ type HostDoorwayStart func(*launchservice.Plan, map[string]string) (*launchservi
 // agent runs (§4.5), with the ones already open stopped. Output of the host-service start
 // itself (a daemon that refused at spawn, a front that did not publish) goes to stderr as it
 // happens, and the doorway still opens: with no endpoint it answers each request with the
-// reason, as the jail's copy does (HS-D19).
+// reason, as the jail's copy does (HS-D19). A service the placement rule refuses is not that
+// case: the rule's answer is known before anything starts, and it refuses the launch
+// (refusePlacementOfDoorways).
 func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, stderr io.Writer,
 	start HostDoorwayStart) (running []*launchservice.Running, stop func(), lines []string, err error) {
 	stop = func() {}
@@ -453,9 +455,12 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 		return nil, stop, nil, nil
 	}
 	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
-		reachSubject: agent}
+		reachSubject: agent, mountsNoWorkspace: true}
 	fillDefaults(o)
 	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
+	if err := o.refusePlacementOfDoorways(d.set, doorwayRefsOf(d.plans)); err != nil {
+		return nil, func() {}, nil, err
+	}
 	o.discloseSettingsCheckHostExec(d.packs, d.set, cfg, allow)
 	if !o.prepareLoopholeSettingsForStart(d.set, cfg, allow) {
 		return nil, func() {}, nil, o.startupRefusal
