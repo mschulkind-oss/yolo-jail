@@ -15,6 +15,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
+// hostGetwd is os.Getwd, a variable so a test can give the answer darwin gives for a removed
+// working directory on a Linux runner.
+var hostGetwd = os.Getwd
+
 // resourceGroupIOPaths is called only for a selected mapping. It observes the named unit
 // and its mapped cgroup-v2 ancestors; it never discovers devices outside that group.
 func (o *Options) resourceGroupIOPaths(selection config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
@@ -90,7 +94,12 @@ func RefuseHostResourceGroup(errw io.Writer, cfg *jsonx.OrderedMap) bool {
 	if !config.ResourceGroupMaySelect(cfg) {
 		return false
 	}
-	workspace, err := os.Getwd()
+	workspace, err := hostGetwd()
+	if err == nil {
+		// darwin's getcwd answers a removed directory's former path where Linux fails ENOENT, so
+		// a path that no longer exists is the same "no workspace" answer on both.
+		_, err = os.Stat(workspace)
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: cannot resolve workspace for resource-group selection: %s\n", termsafe.Visible(err.Error()))
 		fmt.Fprintln(errw, "Change to an existing workspace directory and retry, or run `yolo check --no-build` to inspect the selection.")

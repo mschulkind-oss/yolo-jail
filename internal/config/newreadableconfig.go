@@ -260,7 +260,7 @@ func readableSiblingCollisionError(files []string) error {
 		}
 	} else {
 		fact = filepath.Dir(files[0]) + " has both " + joinNames(names) + ", and yolo reads only one config format"
-		lines = []string{"Move aside the files you do not want to keep (mv -n never overwrites)."}
+		lines = []string{"Move aside the files you do not want to keep (mv -n never replaces an existing file)."}
 		for i, keep := range names {
 			lines = append(lines, "To keep "+keep+":")
 			for j, other := range files {

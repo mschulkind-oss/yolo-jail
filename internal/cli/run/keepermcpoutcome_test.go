@@ -206,7 +206,7 @@ func readySelectedMCPKeeper(t *testing.T, id string) (*keeper, *fakeJail) {
 	// start flag or an outcome ID, enters the keeper's teardown chain. This
 	// synthetic process binds a Unix socket and exits cleanly on SIGTERM.
 	spec := jsonx.NewOrderedMap()
-	spec.Set("command", []any{"/bin/python3", "-c", `import signal, socket, sys, time
+	spec.Set("command", []any{"python3", "-c", `import signal, socket, sys, time
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 s = socket.socket(socket.AF_UNIX)
 s.bind(sys.argv[1])

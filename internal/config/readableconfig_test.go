@@ -1559,14 +1559,31 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 			t.Fatal(err)
 		}
 		runReadableRecoveryCommand(t, otherCWD, strings.SplitN(keepTOML, "\n", 2)[0], false)
-		if target, err := os.Readlink(jsoncBackup); err != nil || target != filepath.Join(dir, "missing backup target") {
-			t.Fatalf("dangling-symlink backup was changed: %q, %v", target, err)
-		}
-		if got, err := os.ReadFile(files[1]); err != nil || string(got) != contents[1] {
-			t.Fatalf("source with dangling-symlink backup was changed: %q, %v", got, err)
-		}
-		if err := os.Remove(jsoncBackup); err != nil {
-			t.Fatal(err)
+		// A link that appeared at the backup name after the refusal chose it (freeBackupName
+		// skips a name that is taken when the message is written). GNU mv -n keeps the link; BSD
+		// mv -n, the macOS one, tests the name with access(2), which follows the link, so it
+		// replaces a DANGLING link with the moved file. Either way no content is lost: the source
+		// is untouched, or it is the backup and only the empty link is gone.
+		if target, err := os.Readlink(jsoncBackup); err == nil {
+			if target != filepath.Join(dir, "missing backup target") {
+				t.Fatalf("dangling-symlink backup was retargeted: %q", target)
+			}
+			if got, err := os.ReadFile(files[1]); err != nil || string(got) != contents[1] {
+				t.Fatalf("source with dangling-symlink backup was changed: %q, %v", got, err)
+			}
+			if err := os.Remove(jsoncBackup); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if got, err := os.ReadFile(jsoncBackup); err != nil || string(got) != contents[1] {
+				t.Fatalf("dangling-symlink backup was replaced by something other than the source: %q, %v", got, err)
+			}
+			if _, err := os.Lstat(files[1]); !os.IsNotExist(err) {
+				t.Fatalf("source still present after its move over a dangling link (Lstat error %v)", err)
+			}
+			if err := os.Rename(jsoncBackup, files[1]); err != nil {
+				t.Fatal(err)
+			}
 		}
 		runReadableRecoveryCommand(t, otherCWD, keepTOML, true)
 		for i, source := range files[1:] {

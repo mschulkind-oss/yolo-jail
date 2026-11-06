@@ -316,6 +316,15 @@ prefix = "Bearer "
 	dispatchPlan.Uncounted = true
 	dispatchPlan.RunCmd = []string{"/bin/sh", "-c", "touch " + spawnMarker, "--volume", producer.preparedHTTPOwnershipFile + ":/identity:ro"}
 	dispatch := newKeeper(&dispatchPlan, KeeperSeams{}, nil, nil, nil, nil)
+	// The runtime ANSWERS that cname is gone, so this keeper's teardown retires cname's prepared
+	// record, which the republication below depends on. Without the answer the keeper may only
+	// decline (a host with no podman, such as the macOS runner, could not ask) and keep it.
+	dispatch.o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if isExistingProbe(argv, cname) {
+			return ExecResult{Ran: true, RC: 0}
+		}
+		return ExecResult{Ran: false}
+	}
 	dispatch.o.preparedHTTPOwnershipFile = producer.preparedHTTPOwnershipFile
 	dispatch.o.LookPath = func(string) (string, bool) { return "", false }
 	if rc := dispatch.run(); rc != 1 {

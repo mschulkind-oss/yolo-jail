@@ -175,14 +175,31 @@ func TestEveryShippedDetachedLoopholeGetsItsEndpointVariable(t *testing.T) {
 	o.PathExists = func(string) bool { return false }
 	o.Getenv = func(string) string { return "" }
 
+	// A loophole whose `platforms` excludes this machine (mcp-auth-broker is linux-only)
+	// exists nowhere here and is owed nothing; the census drops it by the loader's own
+	// answer, never by name. A census entry the loader did not produce at all stays
+	// expected, so a manifest that fails to load still fails this test.
+	unsupported := map[string]bool{}
+	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).All() {
+		if !lp.SupportedHere() {
+			unsupported[lp.Name] = true
+		}
+	}
+	want := make([]string, 0, len(names))
+	for _, n := range names {
+		if !unsupported[n] {
+			want = append(want, n)
+		}
+	}
+
 	got := endpointVarsIn(o.hostServicesMountArgs("podman", "yolo-ws-abcd1234", cfg))
-	if strings.Join(got, ",") != strings.Join(names, ",") {
+	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("the argv wires %v; the shipped detaching census is %v.\n"+
 			"Every `host_daemon.detach: true` loophole that is Active and whose pack may "+
 			"run host code is owed YOLO_SERVICE_<NAME>_ENDPOINT. A name missing here is a "+
 			"jail whose adapter answers ServiceUnreachable for every request while the "+
 			"launch reports success — the witness walks the variable, so the fault IS "+
-			"invisible to it.", got, names)
+			"invisible to it.", got, want)
 	}
 }
 

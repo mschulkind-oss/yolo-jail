@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -45,25 +46,42 @@ func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 }
 
 func TestHostResourceGroupGetwdFailureHasNextStep(t *testing.T) {
-	parent := canonicalTempDir(t)
-	workspace := filepath.Join(parent, "removed")
-	if err := os.Mkdir(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(workspace)
-	if err := os.Remove(workspace); err != nil {
-		t.Fatal(err)
-	}
-	group := jsonx.NewOrderedMap()
-	group.Set("default", "work.slice")
-	cfg := jsonx.NewOrderedMap()
-	cfg.Set("resource_groups", group)
-	var stderr bytes.Buffer
-	if !RefuseHostResourceGroup(&stderr, cfg) {
-		t.Fatal("selected resource group did not refuse after cwd was removed")
-	}
-	if !strings.Contains(stderr.String(), "Change to an existing workspace directory and retry") {
-		t.Fatalf("host getwd refusal has no actionable next step: %q", stderr.String())
+	// Linux's getcwd fails ENOENT for a removed working directory; darwin's answers the
+	// directory's former path. Both must reach the same refusal and next step.
+	for _, tc := range []struct {
+		name         string
+		formerAnswer bool
+	}{
+		{name: "getcwd fails"},
+		{name: "getcwd answers the former path", formerAnswer: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := canonicalTempDir(t)
+			workspace := filepath.Join(parent, "removed")
+			if err := os.Mkdir(workspace, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(workspace)
+			if err := os.Remove(workspace); err != nil {
+				t.Fatal(err)
+			}
+			if tc.formerAnswer {
+				saved := hostGetwd
+				hostGetwd = func() (string, error) { return workspace, nil }
+				t.Cleanup(func() { hostGetwd = saved })
+			}
+			group := jsonx.NewOrderedMap()
+			group.Set("default", "work.slice")
+			cfg := jsonx.NewOrderedMap()
+			cfg.Set("resource_groups", group)
+			var stderr bytes.Buffer
+			if !RefuseHostResourceGroup(&stderr, cfg) {
+				t.Fatal("selected resource group did not refuse after cwd was removed")
+			}
+			if !strings.Contains(stderr.String(), "Change to an existing workspace directory and retry") {
+				t.Fatalf("host getwd refusal has no actionable next step: %q", stderr.String())
+			}
+		})
 	}
 }
 
@@ -240,7 +258,14 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 	if !strings.Contains(stderr.String(), `Read-only I/O child plan (not applied or enforced)`) || !strings.Contains(stderr.String(), `8:0 rbps: finite assigned 101`) {
 		t.Fatalf("selected launch did not consume its finite read-only plan:\n%s", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), `controller visible; child write authority and placement unverified`) {
+	// The delegation preflight is the build's own: only linux compiles the cgroup-v2 checker
+	// (internal/resourcegroups/authority_other.go answers unsupported everywhere else), so a
+	// macOS runner's host reports that rather than the Linux answer the fixture describes.
+	wantPreflight := `controller visible; child write authority and placement unverified`
+	if runtime.GOOS != "linux" {
+		wantPreflight = `Resource-group I/O delegation: unsupported/unknown: delegated cgroup-v2 I/O is unsupported on this platform`
+	}
+	if !strings.Contains(stderr.String(), wantPreflight) {
 		t.Fatalf("mapped Run omitted read-only delegation preflight while refusing startup:\n%s", stderr.String())
 	}
 	if planObserved != 1 {
