@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: in-review
 stage: DESIGN
-next: "Rule OQ-SU5 on safe handling of the existing legacy home; independent setup work can continue"
+next: "Rule OQ-SU6 (the unified yolo ps/stores listing); independent setup work can continue"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -15,7 +15,8 @@ vantage:
 # Named setups: one name chooses every wall
 
 **Status:** 2026-11-06. Setup naming and per-setup state remain the accepted direction, while
-[OQ-SU5](#OQ-SU5) leaves legacy-home automatic adoption unresolved and [OQ-SU6](#OQ-SU6) leaves
+[OQ-SU5](#OQ-SU5) is ruled (an existing home moves silently once no jail of the workspace runs)
+and [OQ-SU6](#OQ-SU6) leaves
 the mixed-backend JSON contracts for both `yolo ps --format json` and `yolo stores --json` open.
 A private 6a/6b prototype has focused synthetic-only closure of three held-bind findings; a separate
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
@@ -42,8 +43,7 @@ technology is missing.
 
 **Start at [§4](#4-the-fields)**, the fields; everything else falls out of them.
 
-**Needs your ruling:** [OQ-SU5](#OQ-SU5) — existing-home automatic movement only;
-[OQ-SU6](#OQ-SU6) — mixed-backend JSON contracts for `yolo ps --format json` and
+**Needs your ruling:** [OQ-SU6](#OQ-SU6) — mixed-backend JSON contracts for `yolo ps --format json` and
 `yolo stores --json`.
 
 **Reads with:** [the macos-user model](macos-user-model.md) (the two ways of running Seatbelt this
@@ -397,21 +397,21 @@ belongs to the project, the agent or you.
   another session.
 - **Machine-wide state is unchanged.** Shared login directories and caches are keyed by
   technology and account as today, so one login serves every setup that shares them.
-- **Existing homes.** [SU-D6](#SU-D6) accepted asking on a first launch to move an identifiable
-  `.yolo/home` to the selected setup's home, and printing a manual move otherwise. The
-  automatic yes branch is **not safe to land as currently implemented**: another writer of
-  the workspace's writable `.yolo` can replace the source name after identification but before
-  the rename. The Linux source-swap regression reaches the real destination-exclusive rename:
-  it moves the replacement home while the identified home stays behind. Destination exclusion
-  does not check the source identity. An open source directory handle or a yolo-only lock does
-  not stop another writer changing the name; checking after the rename does not undo a transient
-  move of the wrong private data or guarantee safe restoration. The analogous Darwin rename is
-  destination-exclusive too, but has **not** been exercised on a Mac for this race. This is a
-  demonstrated failure of the candidate, not proof that no safe kernel mechanism can exist.
-  [OQ-SU5](#OQ-SU5) asks whether to revise only this accepted automatic-move requirement or
-  retain it until an identity-safe mechanism is vetted. Until then, preserve the legacy home;
-  do not silently turn the automatic yes into a manual-only flow. The source candidate is not
-  landed, and the ordinary per-setup home split remains the direction.
+- **Existing homes.** An identifiable `<project>/.yolo/home` moves to its setup's home
+  **automatically and without asking**, the first time a launch finds it **and no jail of that
+  project is running** ([SU-D6](#SU-D6), ruled in [OQ-SU5](#OQ-SU5)). While one runs, the launch
+  leaves the old home where it is and moves it at a later launch once all have stopped, the way
+  other changes wait for `yolo stop`. The move prints one informational line naming both paths;
+  it is never a prompt. The source must be a real directory owned by the invoking user, never a
+  symbolic link or other file type; anything else is left in place and the line says so with
+  the `mv` to run. A home that cannot be attributed to one setup is left in place, never
+  deleted, with the same line.
+
+  **Why no prompt.** Both paths are yolo's own internal state, and the earlier
+  source-swap race gains a writer nothing: it needs a writer of the project's `.yolo` during
+  the move. With no jail running, the only such writer is a same-user host process, which can
+  already rewrite those files directly. The symbolic-link case exists with or without a move,
+  and the real-directory check closes it for the move itself.
 
 **Implementation evidence is separate from this design.** Main still lacks slices 6a/6b. A
 private prototype's focused review closes only three synthetic-source findings: strict phases bind
@@ -493,7 +493,7 @@ own designs build them.
 
 ## 13. Open Questions
 
-1. 💬 **OQ-SU5: Should an existing home require an owner-managed move instead of automatic adoption?**
+1. ✅ **OQ-SU5: Should an existing home require an owner-managed move instead of automatic adoption?**
 
    The accepted first-launch prompt would move an identifiable `.yolo/home` after a yes.
    [§9](#9-state-per-setup) shows why the current rename can move a different home. This
@@ -511,9 +511,16 @@ own designs build them.
    owner-quiesced manual move. It avoids a demonstrated wrong-home move; this is a proposal,
    not a new ruling or an implemented fallback.
 
-   **Answer:**
+   **Answer:** Neither as written — move automatically, without asking (Matt, 2026-11-06):
 
-   > _(empty — fill in when decided)_
+   > "It kind of seems to me like we shouldn't be bothering users about this. Like it's already
+   > an internal path. It's going to move to a different internal path. […] we just wait for
+   > like all the jails in that workspace to be stopped and then we move it without saying
+   > anything like we can print out a informational logline"
+
+   The race needs a writer of `.yolo` during the move; with every jail of the workspace stopped,
+   the only one left is a same-user host process that already has the same reach. Recorded in
+   [§9](#9-state-per-setup) and [SU-D6](#SU-D6).
 
 2. 💬 **OQ-SU6: What mixed-backend JSON contract should `yolo ps --format json` and `yolo stores --json` expose?**
 
@@ -576,7 +583,7 @@ own designs build them.
 | <a id="SU-D7"></a>SU-D7 | **The rule-list field is `policy = "deny-default" \| "allow-default"`.** A design decision: `deny-default` is already the profile's name in the code and its tests, and each value says what the rule list does with whatever it does not mention. `allow-default` keeps the `(allow default)` profile the model plan's slice 13 would delete. *Superseded by [SU-R4](#SU-R4): there is no `policy` field.* | 2026-11-03 | [§4](#4-the-fields) | — |
 | <a id="SU-D8"></a>SU-D8 | **A written `network.mode` the setup's technology cannot hold is refused, naming a setup that can and the `unset` for the key**: `host` under Apple Container, `bridge` under Seatbelt or host. An unwritten one is the technology's network. A design decision: today Apple Container warns and Seatbelt is silent ([`assemble.go`](../../internal/cli/run/assemble.go), [`backendcaps.go`](../../internal/cli/run/backendcaps.go)), so a project could start an agent believing it has a network it does not. *Confirmed by the owner as [SU-R5](#SU-R5).* | 2026-11-03 | [§4](#4-the-fields), [§6](#6-config-by-example) | — |
 | <a id="SU-D5"></a>SU-D5 | **Definitions are user scope only; `host` setups only through `yolo host`**; the command line needs no approval. Choosing is user scope only too, by [OQ-MT5](#OQ-MT5). | 2026-11-03 | [§8](#8-the-security-ceiling) | — |
-| <a id="SU-D6"></a>SU-D6 | **One home and run state per setup**, under `<project>/.yolo/setups/<name>/`; approvals, grants and durable state stay per project; an existing `.yolo/home` is adopted on a yes or by a printed `mv`, never deleted. | 2026-11-03 | [§9](#9-state-per-setup) | — |
+| <a id="SU-D6"></a>SU-D6 | **One home and run state per setup**, under `<project>/.yolo/setups/<name>/`; approvals, grants and durable state stay per project; an existing identifiable `.yolo/home` that is a real directory moves to its setup's home automatically, with one informational line and no prompt, once no jail of the project runs ([OQ-SU5](#OQ-SU5), 2026-11-06); anything else is left in place with a printed `mv`, never deleted. | 2026-11-03 | [§9](#9-state-per-setup) | — |
 
 ## Appendix A: where today's words came from
 

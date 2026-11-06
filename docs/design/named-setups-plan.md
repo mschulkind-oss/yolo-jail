@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Find and prove an engine consume-before-guest custody path without raw directory-FD exposure; resolve OQ-SU5 and unchanged W-SU1/W-SU4 before primary 6a/6b landing"
+next: "Find and prove an engine consume-before-guest custody path without raw directory-FD exposure; and unchanged W-SU1/W-SU4 before primary 6a/6b landing; build the silent legacy-home move per SUP-D9"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red and SU5 legacy-adoption source-swap red remain. The unchanged W-SU1/W-SU4 and [OQ-SU5](named-setups.md#OQ-SU5) still gate primary landing; [OQ-SU6](named-setups.md#OQ-SU6) remains open for both JSON contracts. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main still contains slices 4b, 5 and 9, not 6a/6b. A private, unlanded 6a/6b prototype has focused review closure for three synthetic held-bind findings; separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol. Neither is accepted production source or whole-slice verification. The independent outside/foreign-pack pathname red remains. The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#OQ-SU6) remains open for both JSON contracts. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -91,7 +91,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D6"></a>SUP-D6 | **`YOLO_RUNTIME` refuses on the host and warns in a launched session.** On the host a set `YOLO_RUNTIME` refuses the launch and `yolo check` with the [§10](named-setups.md#10-what-is-removed) text, naming the `YOLO_SETUP` value the old one meant (`podman` → `podman-self`, `container` → `apple-container-self`, `macos-user` → `seatbelt-yolo-account` or `seatbelt-self`). In a launched session (`banner.Side()` says in-jail) it is ignored with one warning line naming `YOLO_SETUP`. The same host-error, in-jail-warning split applies to the removed config keys, which is the tree's retired-key pattern (`validateAgentsRetired`, `internal/config/validate.go:283-296`). | Every jail the shipped launcher started exports `YOLO_RUNTIME=podman` (`assemble.go:1358`), and this project is developed from inside its own jail: a refusal there would stop every nested verification launch until the host launcher is reinstalled. A warning is not silence. |
 | <a id="SUP-D7"></a>SUP-D7 | **The `just load` input is renamed `YOLO_LOAD_RUNTIME`**; the integration harness's `detectRuntime` reads `YOLO_SETUP` (decoding a built-in name to its technology) before its platform fallback; the CI workflows set `YOLO_SETUP` where they set `YOLO_RUNTIME` today. | `Justfile:1` reads `YOLO_RUNTIME` for the image copy, and `ci.yml:490`, `packs.yml:226,271` and `nightly-macos.yml:828,1023,1053` set it job-wide, so after [SUP-D6](#SUP-D6) every launch in those jobs would refuse. The load path needs a container runtime, not a setup, so it keeps a variable of its own under a name yolo never reads. |
 | <a id="SUP-D8"></a>SUP-D8 | **The setup census keeps four columns, renamed to built-in setups:** `podman-self / Linux`, `podman-self / macOS`, `apple-container-self`, and `seatbelt-*` covering both Seatbelt setups; a cell that differs by `run_as` is an aspect (`setupcensus` already has them). `host-self` and `host-yolo-account` stay `render.hostConfigKeys`'s. | `internal/setupcensus` coined "setup" for a backend on an OS (`census.go:6-9`), and `guide_test.go` ties `userguide/reference/settings-per-setup.md`'s columns to `Setup.String()`; renaming the strings moves the page and the code together. Splitting Seatbelt into two columns would duplicate every cell. |
-| <a id="SUP-D9"></a>SUP-D9 | **Accepted behavior, blocked automatic mechanism.** [SU-D6](named-setups.md#SU-D6) calls for asking on first launch to adopt an identifiable legacy home; otherwise the old home is retained and guidance printed. The proposed terminal yes → `os.Rename` path **must not land**: the private regression replaces the source entry after identity check and the real Linux destination-exclusive rename moves the replacement. The destination-only exclusion on Darwin has not been natively tested for this race. [OQ-SU5](named-setups.md#OQ-SU5) asks the owner whether to revise the automatic branch to owner-quiesced manual handling or keep it pending a vetted source-identity-safe mechanism. Until ruled, neither branch is an implementer decision. | The checked inode is not compared by the rename; a writer with ordinary `.yolo` write access can replace the name. Retain the accepted requirement in the design until the owner rules. |
+| <a id="SUP-D9"></a>SUP-D9 | **Silent automatic move, gated on no running jail** ([OQ-SU5](named-setups.md#OQ-SU5), ruled 2026-11-06). A launch that finds an identifiable legacy `.yolo/home` moves it to the setup's home with the existing destination-exclusive rename, only when no jail of the project is running (the same liveness the per-project state already asks; "could not ask" declines and retries at a later launch), only when the source is a real directory (`Lstat`, not a symbolic link) owned by the invoking user, and prints one informational line naming both paths. No prompt. Any other source is left in place with a printed `mv`. | The source-swap race needs a concurrent writer of `.yolo`; with no jail running the only one is a same-user host process with the same reach already. The `Lstat` check closes the symbolic-link substitution for the move. |
 | <a id="SUP-D10"></a>SUP-D10 | **A running container under the legacy name refuses the launch.** Before adoption, `probeJailPresence(runtime.FromWorkspace(ws))` (`stop.go:399`) finds a container from before this change; the launch refuses naming `podman stop <name>` (or `container stop`) and that `yolo stop` from the previous yolo also stops it. | The legacy container holds `.yolo/home` bind-mounted; adopting that home under it, or running a second agent beside it on the same bind, is a mess with no next step. One probe is cheap. |
 | <a id="SUP-D11"></a>SUP-D11 | **Verbs without `--setup` act on every setup directory under `<ws>/.yolo/setups/`:** `yolo stop` stops each, naming each; `yolo ps` lists each; `yolo config drift` and `yolo describe` with none use the *selected* setup (the same resolution as a launch) and say which. | [§6](named-setups.md#6-config-by-example): *"`yolo stop` stops both, naming each; `yolo stop --setup seatbelt-self` stops one."* Drift and describe answer for one jail, and the selection already names one. |
 | <a id="SUP-D12"></a>SUP-D12 | **Inside a launched session, a `YOLO_SETUP` naming a setup this machine cannot run is ignored, with one disclosure line.** When `YOLO_VERSION` is set and no `--setup` is typed, a `YOLO_SETUP` that names no setup this machine defines, or one `setup.Buildable` refuses for this OS, is dropped; the selection goes on to the user config's `setup`, then the OS default, and the line names the value, why it cannot run, and the setup chosen instead. So a nested launch inside an Apple Container jail runs `podman-self`. Outside a session it stays a refusal. | Ruled in the slice 4a review: the inherited value describes the outer session, not a choice made for this machine. The launch exports `YOLO_SETUP` into every session it starts ([SUP-D4](#SUP-D4)), so without this rule every nested launch inside an `apple-container-self` jail would refuse. |
@@ -750,24 +750,23 @@ A separate one-command local `podman run --preserve-fds=1` countercontrol passed
 
 The next engineering proof must identify a supported engine consume-before-guest path that preserves verified host-side FD custody through every admission and operation, while keeping the raw directory FD out of guest code. The source FD must be consumed and closed before untrusted guest code starts; do not substitute file modes (including `0700`), a token, pathname/PID/FD-slot identity, effective UID, or guest bootstrap ordering for that boundary. Verify the engine resolver and lifetime directly, and check guest descriptor absence plus lack of parent-relative access. Do not infer this from a PID/FD-slot path or pre-parse `fstat`. No new runtime wrapper, custom namespace, public flag, privilege change, or backend exclusion is settled here; the raw-FD pass-through result is not activation authority. The synthetic prototype still conservatively retains uncertain-COMMIT FD copies in-process; neither that closure nor the local probes prove a production release operation. No lease or queued-lookup protocol, native activation, rootless/remote Podman, Apple Container, macOS or Seatbelt behavior is established. No backend fallback or source activation follows from it.
 
-- **Settled except [OQ-SU5](named-setups.md#OQ-SU5):** *"Each setup in a project has its own home and run state, under
+- **Settled:** *"Each setup in a project has its own home and run state, under
   `<project>/.yolo/setups/<name>/`"*; per setup: the home, the `per_side_paths` copies, the
   staged pack tree, the boot-time baseline; per project: approvals, grants, `.yolo/durable`,
   `handover.md`, `launch.log` (*"whose every line names its setup"*); the same setup twice
-  behaves as today; an existing `.yolo/home` is adopted on a yes or by a printed `mv`, never
+  behaves as today; an existing identifiable `.yolo/home` that is a real directory moves
+  silently once no jail of the project runs, otherwise it stays with a printed `mv`, never
   deleted ([§9](named-setups.md#9-state-per-setup)). [SUP-D2](#SUP-D2), [SUP-D9](#SUP-D9),
-  [SUP-D10](#SUP-D10). Do not reopen the accepted per-setup split. The previously accepted
-  automatic adoption behavior is now the owner's open decision; neither an unsafe yes path
-  nor a silent manual-only replacement may be treated as settled.
+  [SUP-D10](#SUP-D10). Do not reopen the accepted per-setup split. The legacy-home move is
+  [SUP-D9](#SUP-D9): silent, gated on no running jail and a real-directory source.
 - **Preconditions:** slices 4b, 5 and 9 landed (so `run.go` is quiet);
   `rg -n 'WorkspaceHomeState\(|FromWorkspace\(' internal --glob '*.go' | rg -v '_test.go'`
   is the call-site inventory. Classify each use by lifetime: per-setup home or running-jail
   identity versus per-project approval/grant identity; follow the actual bind, capture and
   discovery paths too, since a search count is not a complete map. Stop on a missing caller,
   unexpected dirty file, or a behavior conflict with the accepted design. `runtime.JailName`
-  and the setup-path helpers are absent in primary. [OQ-SU5](named-setups.md#OQ-SU5)
-  blocks **only the optional automatic move of an existing legacy home** and any claim that
-  the whole 6a slice is accepted. Continue independent caller, path and fixture work without
+  and the setup-path helpers are absent in primary. The legacy-home move follows
+  [SUP-D9](#SUP-D9) ([OQ-SU5](named-setups.md#OQ-SU5) is ruled). Continue independent caller, path and fixture work without
   reinterpreting the accepted adoption behavior.
 - **Tests first:**
   - **Behavioral red first:** `integration/setups_test.go`, `TestNamedSetupsHaveDistinctHomes` (new): in one workspace, run `yolo run --setup podman-self -- true` and `yolo host --setup host-self -- true`; assert both `.yolo/setups/<name>/home` directories exist and differ. Red: `go test -count=1 -run '^TestNamedSetupsHaveDistinctHomes$' ./integration`; it must fail because the current launch reuses `.yolo/home`. A compile error or an assertion that a future helper is absent is not the behavioral red.
@@ -781,11 +780,11 @@ The next engineering proof must identify a supported engine consume-before-guest
   - `internal/config/drift_test.go`: the baseline path is `SetupStateDir(ws, os.Getenv("YOLO_SETUP"))/config-boot.json`;
     with `YOLO_SETUP` unset in-jail, `ReadWorkspaceBootBaseline` returns a named error (no silent
     `.yolo/config-boot.json`).
-  - `internal/cli/run/legacyhome_test.go`: retain the source-swap regression exercising the
-    **real** Linux destination-exclusive rename after the source-identity check; it must not
-    become green by weakening the assertion or mocking the rename. The originally specified
-    yes-branch first-launch and W-SU4 expectations are blocked by
-    [OQ-SU5](named-setups.md#OQ-SU5), not silently replaced. Keep decline and nonterminal
+  - `internal/cli/run/legacyhome_test.go`: per [SUP-D9](#SUP-D9): a quiesced
+    first launch moves the home with no prompt and one informational line; a running jail of
+    the project leaves it in place; a symbolic-link or foreign-owned source is left in place
+    with the printed `mv`. The source-swap regression is retired: the ruling accepts that race
+    once no jail runs. Keep decline and nonterminal
     preservation/refusal tests independent where they do not move a legacy home. A running
     legacy container under `runtime.FromWorkspace(ws)` must still refuse before any move
     or other state effect.
@@ -848,16 +847,13 @@ The next engineering proof must identify a supported engine consume-before-guest
     extension remains unlanded. Make no fresh-origin, grant-file or resource-policy change in
     6a. If G1 lands first, re-read its keeper and selected-service callers and compose only the
     setup-qualified lifetime/identity wiring.
-  - `internal/cli/run/legacyhome.go` (proposed, **automatic move blocked**):
+  - `internal/cli/run/legacyhome.go` (proposed, [SUP-D9](#SUP-D9)):
     `adoptLegacyHome(o)` and `refuseLegacyContainer(o)` would run after `resolveSetup` but
     before home preparation. Check the **old** `runtime.FromWorkspace` container name before
-    any move; an uncooperative writer can still replace `.yolo/home` after identification.
-    The candidate's `Lstat` plus real `renameat2(RENAME_NOREPLACE)` does not provide a
-    source-identity guarantee. Do not land the automatic yes path, switch to an unruled
-    manual-only flow, or suggest copy/delete or rollback as a substitute. Retain
-    `isAppleContainerInheritedCopy` as a layout signal, not `.claude.json`. Resume this
-    portion only after [OQ-SU5](named-setups.md#OQ-SU5) is ruled and the chosen path is
-    independently reviewed.
+    any move, and move only when no jail of the project runs, with `Lstat` (real directory,
+    owned by the invoking user) and the destination-exclusive rename; no prompt. Retain
+    `isAppleContainerInheritedCopy` as a layout signal, not `.claude.json`. The built move gets
+    the slice's independent review.
   - `launch.log`: retain the existing setup-prefix behavior in `attachLaunchLog` (`launchlog.go`);
     do not duplicate or rename the project-wide file.
 - **Gates:** `just test-fast`; `GOOS=darwin go vet ./internal/macosuser/... ./internal/cli/...`;
@@ -1177,10 +1173,8 @@ into the slice's report (see the macos-user plan's
 
 ## Blockers
 
-Only [OQ-SU5](named-setups.md#OQ-SU5) blocks the optional automatic legacy-home move and
-acceptance of whole 6a/6b; it does **not** block independent per-setup identity, lifecycle,
-fixture or 6b candidate work. The existing source-swap red must be resolved by the owner's
-ruling and verified safety, not suppressed. Slices 6a/6b still need independent review and
+[OQ-SU5](named-setups.md#OQ-SU5) is ruled
+([SUP-D9](#SUP-D9)), so no owner question blocks the legacy-home move. Slices 6a/6b still need independent review and
 **unchanged W-SU1/W-SU4** on the combined candidate before primary landing; W-SU4's yes
 expectation cannot be quietly revised. Slice 8 separately needs W-SU3. No native Mac or
 rootless-host witness is established by the private Linux fixture.
