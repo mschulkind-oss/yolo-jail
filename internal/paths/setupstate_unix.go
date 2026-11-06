@@ -25,6 +25,12 @@ func EnsureSetupStateDir(workspace, name string) (*os.File, error) {
 	if !setup.ValidName(name) {
 		return nil, &fs.PathError{Op: "mkdir", Path: full, Err: fs.ErrInvalid}
 	}
+	// A link at `.yolo`, dangling ones included, is named as one here: EnsureWorkspaceStateDir's
+	// MkdirAll would report a dangling link as a bare "file exists". The openat below still
+	// refuses a link swapped in after this check.
+	if fi, err := os.Lstat(WorkspaceStateDir(workspace)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return nil, &LinkedStateDirError{Path: WorkspaceStateDir(workspace)}
+	}
 	dir, err := EnsureWorkspaceStateDir(workspace)
 	if err != nil {
 		return nil, err

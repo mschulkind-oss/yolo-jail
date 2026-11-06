@@ -62,12 +62,27 @@ func TestEnsureSetupStateDirRefusesBadNames(t *testing.T) {
 }
 
 // TestEnsureSetupStateDirRefusesLinks: `.yolo` is jail-writable, so a link the last jail left at
-// `.yolo`, `setups` or the setup's own directory is refused before any write beneath it.
+// `.yolo`, `setups` or the setup's own directory is refused before any write beneath it, whether
+// the link resolves or dangles.
 func TestEnsureSetupStateDirRefusesLinks(t *testing.T) {
-	for _, at := range []string{".yolo", ".yolo/setups", ".yolo/setups/podman-self"} {
-		t.Run(at, func(t *testing.T) {
+	for _, c := range []struct {
+		at       string
+		dangling bool
+	}{
+		{".yolo", false}, {".yolo/setups", false}, {".yolo/setups/podman-self", false},
+		{".yolo", true}, {".yolo/setups", true}, {".yolo/setups/podman-self", true},
+	} {
+		at := c.at
+		name := at
+		if c.dangling {
+			name += " dangling"
+		}
+		t.Run(name, func(t *testing.T) {
 			ws := t.TempDir()
 			target := t.TempDir()
+			if c.dangling {
+				target = filepath.Join(target, "absent")
+			}
 			link := filepath.Join(ws, at)
 			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 				t.Fatal(err)
