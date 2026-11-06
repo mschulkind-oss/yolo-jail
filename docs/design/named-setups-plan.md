@@ -829,7 +829,7 @@ launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
 - **No custody ([SUP-D30](#SUP-D30)).** The switch binds `.yolo/setups/<name>/home` (and each per-directory child) by pathname after the existing no-link check, as `.yolo/home` is bound today. Add no held descriptor, no refusal of a second setup while another jail of the project runs, and no mount over `.yolo` or `.yolo/setups`. The restart rule from the held-descriptor probe does not carry over: it guarded a reused descriptor slot, and a pathname bind that restarts re-resolves the same path, which is the accepted race. yolo still runs `--rm` and restarts none.
 
 - **[SUP-D21](#SUP-D21).** The home switch reads `adoptLegacyHome`'s result first. While a legacy home attributed to the selected setup is in place, that launch binds `.yolo/home` and creates no setup home. Add a test that fails if the switch creates the setup home beside an unmoved legacy home.
-- **Who owns a `seatbelt-yolo-account` home.** Check on the Mac whether a `seatbelt-yolo-account` launch leaves `<ws>/.yolo/home` owned by the invoking user or by the sandbox account; `macosuser.LaunchHomes` uses `WorkspaceHomeState` in both modes. If the sandbox account owns it, SUP-D20's owner rule leaves every such home in place with a `sudo chown` step. Then rule, before wiring, whether the yolo account counts as an owner the move may take a home from (a design question for the owner, with this witness attached).
+- **Who owns a `seatbelt-yolo-account` home.** Check on the Mac whether a `seatbelt-yolo-account` launch leaves `<ws>/.yolo/home` owned by the invoking user or by the sandbox account; `macosuser.LaunchHomes` uses `WorkspaceHomeState` in both modes. If the sandbox account owns it, SUP-D20's owner rule leaves every such home in place with a `sudo chown` step. Then rule, before wiring, whether the yolo account counts as an owner the move may take a home from (a design question for the owner, with this witness attached). *Measured 2026-11-06* ([lab report](../lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md#4-who-owns-a-seatbelt-yolo-account-home)): `.yolo/home` itself is the invoking user's (`matt:_yolojail`, with inherited `_yolojail` ACLs), and nearly every entry in it is `_yolojail`'s.
 
 - **Settled:** *"Each setup in a project has its own home and run state, under
   `<project>/.yolo/setups/<name>/`"*; per setup: the home, the `per_side_paths` copies, the
@@ -1420,6 +1420,7 @@ into the slice's report (see the macos-user plan's
   `ls ~/.local/share/yolo-jail/containers/` still holds the Apple Container jail's record. Also
   paste `container inspect <name> | jq '.[0].status'` from the running jail, which settles how
   `startedDate` is encoded ([SUP-D25](#SUP-D25)).
+  *`startedDate` measured 2026-11-06* ([lab report](../lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md#3-apple-containers-starteddate-for-w-su11)): `status` is an object, and `startedDate` is an RFC 3339 UTC string, e.g. `"2026-11-06T19:57:12Z"`. The rest of W-SU11 waits on 11d.
 ## Blockers
 
 [OQ-SU5](named-setups.md#OQ-SU5) is ruled
