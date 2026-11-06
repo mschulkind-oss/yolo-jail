@@ -61,7 +61,7 @@ and, under [OQ-6](#OQ-6)'s leaning, the held in-jail store not landing.
 **Start at [§2](#2-the-verdict-and-five-principles)**: the comparison that decides [OQ-6](#OQ-6). Everything
 after it holds under either answer unless it says otherwise.
 
-**Needs your ruling:** None in this document. The ordinary warm-program capture architecture is
+**Needs your ruling:** [OQ-XB2](#OQ-XB2), whether yolo's own image builder blocks Apple Container builds. The ordinary warm-program capture architecture is
 settled by [OQ-PD23](program-delivery.md#decision-ledger). The extension/capture timing rulings and build evidence
 remain in this document's ledger.
 
@@ -584,7 +584,8 @@ host build nothing, so they start none.
 >    `${YOLO_AC_BUILDER_NAME:-yolo-ac-builder}` and is not a jail; nothing excludes it, in either
 >    parser. **So a Mac that builds yolo's own image the supported way can never build a patched
 >    fork on Apple Container**, whatever the listing parses to. Whether the builder is exempt by
->    name, by label, or by being asked a different question is a ruling, not a repair.
+>    name, by label, or by being asked a different question is a ruling, not a repair:
+>    [OQ-XB2](#OQ-XB2).
 >
 > The gate is `if a.o.runtime == "container"`
 > ([`patchedadvance.go`](../../internal/cli/patchedadvance.go)), so **podman is unaffected** and
@@ -593,7 +594,7 @@ host build nothing, so they start none.
 > **Re-measured 2026-10-20 at `94989f129`**, after the parse fix: the same host's real listing
 > (Apple Container 1.1.0, with the `yolo-ac-builder` row and its `12288 MB`) now returns
 > `valid=true`, and the decision is *"Apple Container has running yolo jail(s):
-> yolo-ac-builder"*. Cause 1 is closed. Cause 2 is unchanged and still needs its ruling.
+> yolo-ac-builder"*. Cause 1 is closed. Cause 2 is unchanged and waits on [OQ-XB2](#OQ-XB2).
 
 Under (a) or (b), the same option is the held store's prefetch: a detached in-jail run that fetches,
 resolves and builds trees but never repoints, so the next pi exec repoints with no network
@@ -825,6 +826,41 @@ anything rewrites pi's list, is restated in the store's design.
    > whatever yolo builds or captures (extension trees, patched forks and extensions, captured programs)
    > is updated in the background; only pi's refresh of hand-installed extensions, and anything not yet
    > delivered by a build or capture, stays in front.
+
+2. 💬 **OQ-XB2: Should yolo's own image builder stop a patched fork from building on Apple Container?**
+
+   Matt builds yolo's image on his Mac the supported way, with
+   [`scripts/mac-ac-linux-builder.sh`](../../scripts/mac-ac-linux-builder.sh), which leaves a
+   long-lived Apple Container named `yolo-ac-builder` running. He then launches a jail whose pack
+   declares a patched fork. The launch checks that no yolo jail is running before it starts a build
+   jail, counts every running container whose name starts `yolo-`, and stops: *"Apple Container has
+   running yolo jail(s): yolo-ac-builder"*. The builder is not a jail; `yolo ps` already lists it
+   with workspace `unknown`, as it does podman's `yolo-linux-builder`. So on every Mac that builds
+   yolo's image this way, no patched fork or extension builds on Apple Container
+   ([§7.4](#74-for-the-next-launch-the-option), cause 2).
+
+   - **A — By name.** The check skips `yolo-ac-builder` and `yolo-linux-builder`. Matt's launch
+     builds. A builder started under another name (the script reads `YOLO_AC_BUILDER_NAME`) still
+     stops it, and each new helper container needs its name added.
+   - **B — By label.** The builder script and yolo's own builder start their containers with a
+     yolo label, and the check skips labeled containers. A builder already running from an older
+     script still stops the build until it is restarted, and whether `container run` on the
+     installed Apple Container takes a label needs a Mac to check.
+   - **C — Ask whether it is a jail.** The check counts a `yolo-` container only when it binds
+     yolo's mounted prefix, which every jail launch binds and neither builder does; the store
+     reapers already tell a jail from `yolo-linux-builder` this way. Matt's launch builds whatever
+     the builder is called, and a jail an old yolo started before the prefix was mounted would not
+     count. A container whose inspect fails still counts as unknown, so the
+     launch still refuses rather than guessing.
+
+   <!-- vantage: question id=OQ-XB2 leaning="C — ask whether the container is a jail. It needs no list of names or labels to keep current, and it is the same question the store reapers already ask to tell a jail from yolo's builder." -->
+
+   _Leaning:_ C — ask whether the container is a jail. It needs no list of names or labels to keep
+   current, and it is the same question the store reapers already ask to tell a jail from yolo's
+   builder.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## The held store
 
