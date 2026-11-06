@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -281,6 +282,14 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no valid core-owned private destination; it was not started. Fix the core producer and retry.[/red]")
 		return false
 	}
+	// FRESH HOME: the daemon creates its own state directory, but only after this input is
+	// proven and published, so the first launch on a machine finds none. Create the core-owned
+	// directory, and only that one, privately before the proof resolves it.
+	if err := ensureCoreLaunchInputStateDir(lp.Name, stateDir); err != nil {
+		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' could not create its private host state " + richtext.Escape(stateDir) +
+			": " + richtext.Escape(err.Error()) + "; it was not started. Fix host state-directory permissions and retry.[/red]")
+		return false
+	}
 	if deferPreparedHTTPProducer {
 		if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
 			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot retain its prepared HTTP ownership; it was not started. Repair the host state directory and retry.[/red]")
@@ -298,7 +307,8 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	}
 	for _, privatePath := range pathsToProve {
 		if err := launchInputOutsideJail(privatePath, o.launchInputMountArgv); err != nil {
-			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot prove its private launch input is outside every jail mount; it was not started. Remove the overlapping mount and retry.[/red]")
+			o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' cannot prove its private launch input " + richtext.Escape(privatePath) +
+				" is outside every jail mount (" + richtext.Escape(err.Error()) + "); it was not started. Remove the overlapping mount, or create the missing path, and retry.[/red]")
 			return false
 		}
 	}
@@ -540,6 +550,50 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	return true
 }
 
+// ensureCoreLaunchInputStateDir creates stateDir 0700 when, and only when, it is the loophole's
+// own directory directly under the core-owned state root (loopholes.StateDirFor). Any other
+// destination is left alone and must already exist. The leaf is made through an os.Root on the
+// state root, so a link planted at the leaf is never followed: OpenStateSubdirRoot refuses it.
+func ensureCoreLaunchInputStateDir(name, stateDir string) error {
+	if name == "" || filepath.Clean(stateDir) != filepath.Clean(loopholes.StateDirFor(name)) {
+		return nil
+	}
+	stateRoot, leaf := filepath.Dir(stateDir), filepath.Base(stateDir)
+	if leaf != name {
+		return nil
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		return err
+	}
+	root, err := paths.OpenStateDirRoot(stateRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	created := true
+	if err := root.Mkdir(leaf, 0o700); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		created = false
+	}
+	dir, err := paths.OpenStateSubdirRoot(root, leaf, stateDir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if created {
+		// The umask cannot widen 0700, but pin it so the later privacy check never depends on it.
+		f, err := dir.Open(".")
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return f.Chmod(0o700)
+	}
+	return nil
+}
+
 func trackLaunchInput(o *Options, name, path string, published os.FileInfo) {
 	launchInputMu.Lock()
 	defer launchInputMu.Unlock()
@@ -610,7 +664,7 @@ func launchInputOutsideJail(dest string, argv []string) error {
 		// replicas need not exist yet, but the state directory must be real.
 		state, e := filepath.EvalSymlinks(filepath.Dir(parent))
 		if e != nil {
-			return e
+			return fmt.Errorf("cannot resolve its private state directory: %w", e)
 		}
 		resolvedParent = filepath.Join(state, "replicas")
 	}
@@ -684,11 +738,11 @@ func launchInputOutsideJail(dest string, argv []string) error {
 		}
 		resolved, e := filepath.EvalSymlinks(source)
 		if e != nil {
-			return e
+			return fmt.Errorf("cannot resolve jail mount source %s: %w", source, e)
 		}
 		rel, e := filepath.Rel(resolved, dest)
 		if e != nil || rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))) {
-			return errors.New("mounted input")
+			return fmt.Errorf("%s is inside jail mount source %s", dest, source)
 		}
 	}
 	return nil
