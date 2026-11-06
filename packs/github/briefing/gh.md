@@ -38,8 +38,8 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   that login triggered whose head is the repository itself. A fork's run always asks.
 - Every other in-scope write files a pending request, waits briefly for the host, and is
   refused with a menu of every answer, each command on its own line: `yolo approve <id>` once,
-  `--for 15m` for that kind of write on it for a time, `--add` to add the PR or issue it writes
-  to the working set, and, for a creation, the project request then `yolo config apply`. The
+  `--for 15m` for that kind of write on it for a time, and, for a creation, the project request
+  then `yolo config apply`. The
   human runs these directly on the host, not through `yolo host-run`. Relay the whole menu as
   **Running a command on the host** says, recommend one path, and start `yolo wait <id>` in the
   background; on exit 0, run the same command again, once. An Allow once binds command,

@@ -16,11 +16,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// TestApproveGitForAndAddCLI drives `yolo approve <id> --for <duration>` and `--add` over the
-// git store (GB-D26): each records working-set entries on the refs that needed approval and no
-// command grant, lists them (a timed one with its expiry), and refuses what cannot apply with
-// the answer that does. GitHub's per-resource answers are TestApproveGitHubForAndAddCLI's.
-func TestApproveGitForAndAddCLI(t *testing.T) {
+// TestApproveGitForCLI drives `yolo approve <id> --for <duration>` over the git store (GB-D26):
+// it records working-set entries on the refs that needed approval and no command grant, lists
+// them with their expiry, and refuses what cannot apply with the answer that does. A lasting
+// branch a human added with the removed `--add` (GB-D28) still covers and is still listed.
+// GitHub's per-resource answers are TestApproveGitHubForCLI's.
+func TestApproveGitForCLI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -85,10 +86,13 @@ func TestApproveGitForAndAddCLI(t *testing.T) {
 		t.Fatalf("--for 25h: rc %d %q", rc, errs)
 	}
 
-	// --add: the branch joins the working set for good (no expiry).
-	rc, out, errs = run(tooLong.ID, "--add")
-	if rc != 0 || !strings.Contains(out, "refs/heads/dev joined this workspace's working set") {
-		t.Fatalf("--add: rc %d\n%s%s", rc, out, errs)
+	// A branch a human added for good before --add was removed (GB-D28): the store keeps the
+	// lasting entry, and the listing still shows it.
+	if _, err := s.DecideWorking(tooLong.ID, brokerstore.Decision{Add: true}); err != nil {
+		t.Fatal(err)
+	}
+	if rc, out, _ = run(); rc != 0 || !strings.Contains(out, "branch refs/heads/dev") {
+		t.Fatalf("listing of the legacy lasting entry: rc %d\n%s", rc, out)
 	}
 	ws, err := s.Working()
 	if err != nil {
@@ -104,15 +108,8 @@ func TestApproveGitForAndAddCLI(t *testing.T) {
 		t.Fatalf("working set %+v", ws)
 	}
 
-	// --add on a tag and on a creation refuses, names --for, and files nothing.
+	// A tag takes --for, but not a session.
 	tag := file("refs/tags/v1", old+" "+updated+" refs/tags/v1")
-	created := file("refs/heads/agent/new", zero+" "+updated+" refs/heads/agent/new")
-	for _, q := range []brokerstore.Request{tag, created} {
-		rc, _, errs = run(q.ID, "--add")
-		if rc != approveExitPolicy || !strings.Contains(errs, "--for 15m") || strings.Count(errs, "Next:") != 1 {
-			t.Fatalf("--add on %v: rc %d %q", q.Argv, rc, errs)
-		}
-	}
 	if rc, _, errs = run(tag.ID, "--for", "session"); rc != approveExitPolicy || !strings.Contains(errs, "--for 15m") {
 		t.Fatalf("--for session: rc %d %q", rc, errs)
 	}

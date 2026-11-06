@@ -16,13 +16,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// TestApproveGitHubForAndAddCLI drives `yolo approve <id> --add` and `--for <duration>` over the
-// GitHub store as the CLI opens it (docs/design/boundary-broker.md §6.4, BB-D79, BB-D80,
-// BB-D92): --add puts the PR a write targets in the workspace's working set, --for records a
-// timed entry on the request's resource, the listing shows both as w- entries, --revoke ends
-// one, and the answers that cannot apply (--add on a merge, --for session, either on a write
-// naming no PR number) are refused naming the one that does.
-func TestApproveGitHubForAndAddCLI(t *testing.T) {
+// TestApproveGitHubForCLI drives `yolo approve <id> --for <duration>` over the GitHub store as
+// the CLI opens it (docs/design/boundary-broker.md §6.4, BB-D79, BB-D80, BB-D92): --for records
+// a timed entry on the request's resource, a lasting entry a human added with the removed
+// `--add` (github-write-scopes.md OQ-GW2, GW-D34) is still listed beside it and ended by
+// --revoke, and the answers that cannot apply (--for session, --for on a write naming no PR
+// number) are refused naming the one that does.
+func TestApproveGitHubForCLI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -67,24 +67,21 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 		return captureStd(t, func() int { return registry["approve"](append([]string{"approve"}, args...)) })
 	}
 
-	// --add: the PR joins the working set for good.
-	add := file("pr", "comment", "12", "--body", "x")
-	rc, out, errs := run(add.ID, "--add")
-	if rc != 0 || !strings.Contains(out, "Allowed "+add.ID+": PR o/r#12 joined this workspace's working set.\n") ||
-		!strings.Contains(out, "every write to it but a merge") || !strings.Contains(out, "until the PR is merged, or revoked") ||
-		!strings.Contains(out, "\n      yolo approve --revoke w-") {
-		t.Fatalf("--add: rc %d\n%s%s", rc, out, errs)
+	// A lasting entry a human added before --add was removed: the store keeps it, as it kept
+	// every such answer, and the CLI still lists and revokes it.
+	legacy := file("pr", "comment", "12", "--body", "x")
+	if _, err := s.DecideWorking(legacy.ID, brokerstore.Decision{Add: true}); err != nil {
+		t.Fatal(err)
 	}
 	e, ok, err := s.LiveWorkingKind("/fixture", "github.com/o/r", "#12", brokerstore.WorkingPR)
 	if err != nil || !ok || e.Timed() || e.By != "human" {
-		t.Fatalf("--add entry %+v %v %v", e, ok, err)
+		t.Fatalf("legacy --add entry %+v %v %v", e, ok, err)
 	}
 
-	// --for: a timed merge grant; --add and session are refused for a merge.
+	// --for: a timed merge grant; session is refused for a merge.
 	merge := file("pr", "merge", "12", "--squash")
-	if rc, _, errs = run(merge.ID, "--add"); rc != approveExitPolicy || !strings.Contains(errs, "a merge asks per PR") {
-		t.Fatalf("--add on a merge: rc %d %q", rc, errs)
-	}
+	var rc int
+	var out, errs string
 	if rc, _, errs = run(merge.ID, "--for", "session"); rc != approveExitPolicy || !strings.Contains(errs, "--for 15m") {
 		t.Fatalf("--for session: rc %d %q", rc, errs)
 	}
@@ -93,13 +90,13 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 		t.Fatalf("--for on a merge: rc %d\n%s%s", rc, out, errs)
 	}
 	if _, gs, err := s.List(); err != nil || len(gs) != 0 {
-		t.Fatalf("--add or --for recorded a command grant: %+v %v", gs, err)
+		t.Fatalf("--for recorded a command grant: %+v %v", gs, err)
 	}
 
 	// A write naming no PR number takes Allow once alone.
 	branchSel := file("pr", "comment", "agent/x", "--body", "x")
-	if rc, _, errs = run(branchSel.ID, "--add"); rc != approveExitPolicy || !strings.Contains(errs, "names no PR or issue by number") {
-		t.Fatalf("--add on an unresolved write: rc %d %q", rc, errs)
+	if rc, _, errs = run(branchSel.ID, "--for", "15m"); rc != approveExitPolicy || !strings.Contains(errs, "names no PR or issue by number") {
+		t.Fatalf("--for on an unresolved write: rc %d %q", rc, errs)
 	}
 
 	// The listing shows both entries as the git source's do.
@@ -119,7 +116,7 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 
 	// A still-live broker lease cannot restore a removed pack's approval authority.
 	writeApprovePackFile(t, selectConfig, `{"packs":[]}`)
-	for _, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}} {
+	for _, flags := range [][]string{{}, {"--for", "15m"}} {
 		q := file("pr", "comment", "13", "--body", "x")
 		args := append([]string{q.ID}, flags...)
 		if rc, _, errs := run(args...); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
@@ -155,7 +152,7 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 		if rc, _, errs := run(q.ID, "--deny"); rc != 0 {
 			t.Fatalf("deny alias request %s: rc=%d stderr=%s", q.ID, rc, errs)
 		}
-		for i, flags := range [][]string{{"--for", "15m"}, {"--add"}} {
+		for i, flags := range [][]string{{"--for", "15m"}} {
 			q = file("pr", "merge", prNumbers[i+1])
 			args := append([]string{q.ID}, flags...)
 			if rc, _, errs := run(args...); rc != approveExitNotConfirmed || !strings.Contains(errs, "no active core approval authority") {
@@ -168,10 +165,10 @@ func TestApproveGitHubForAndAddCLI(t *testing.T) {
 	}
 }
 
-// TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd pins the fence in approveAll: a
-// GitHub store with no per-resource hook refuses --for and --add, naming Allow once, and never
-// falls through to a whole-set grant.
-func TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd(t *testing.T) {
+// TestApproveGitHubWithoutTheEntriesHookRefusesFor pins the fence in approveAll: a GitHub
+// store with no per-resource hook refuses --for, naming Allow once, and never falls through to
+// a whole-set grant.
+func TestApproveGitHubWithoutTheEntriesHookRefusesFor(t *testing.T) {
 	s := &brokerstore.Store{Dir: t.TempDir(), Source: ghbroker.Source,
 		Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil }}
 	q, err := s.File(brokerstore.Request{Jail: "j", Start: "s", Workspace: "/code/app", Argv: []string{"pr", "comment", "1", "--body", "x"},
@@ -179,7 +176,7 @@ func TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for flag, args := range map[string][]string{"--for": {q.ID, "--for", "15m"}, "--add": {q.ID, "--add"}} {
+	for flag, args := range map[string][]string{"--for": {q.ID, "--for", "15m"}} {
 		var out, errs bytes.Buffer
 		rc := approveAll(context.Background(), args, false, []*brokerstore.Store{s}, &out, &errs)
 		want := "yolo approve: " + flag + " is not available for GitHub writes. Next: run `yolo approve " + q.ID + "` with no flags to Allow once."

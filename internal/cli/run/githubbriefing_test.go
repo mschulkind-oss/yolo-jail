@@ -30,7 +30,7 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		"exact host approval",
 		"joins this workspace's **working set**",
 		"A merge always asks.",
-		"`--add` to add the PR or issue it writes to the working set",
+		"`--for 15m` for that kind of write on it for a time, and, for a creation, the project request then `yolo config apply`.",
 		"The human runs these directly on the host, not through `yolo host-run`.",
 		"start `yolo wait <id>` in the background",
 		"A configured `on_request` hook is optional; its output is never consent.",

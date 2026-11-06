@@ -81,17 +81,6 @@ func githubEntryName(e brokerstore.WorkingEntry) string {
 	return termsafe.Visible(ghbroker.DescribeEntry(e))
 }
 
-// approveGitHubAddOutcome is a GitHub request answered with --add: its PR or issue joined
-// the working set. An issue is never merged, so only a PR's entry ends by itself.
-func approveGitHubAddOutcome(out io.Writer, id string, e brokerstore.WorkingEntry) {
-	covers, lasts := "every write to it, unasked", "until revoked"
-	if e.Kind == brokerstore.WorkingPR {
-		covers, lasts = "every write to it but a merge, unasked", "until the PR is merged, or revoked"
-	}
-	writeApproveOutcome(out, "Allowed "+termsafe.Visible(id)+": "+githubEntryName(e)+" joined this workspace's working set.",
-		[]approveFact{{"Covers", covers}, {"For", whoFor(e.Workspace)}, {"Lasts", lasts}}, e.ID)
-}
-
 // approveTimedOutcome is a request answered with --for: what (already made safe for the
 // terminal) is allowed until e expires.
 func approveTimedOutcome(out io.Writer, id, what string, entries []brokerstore.WorkingEntry) {
@@ -108,13 +97,4 @@ func entryIDs(entries []brokerstore.WorkingEntry) []string {
 		ids = append(ids, e.ID)
 	}
 	return ids
-}
-
-// approveGitAddOutcome is a git push request answered with --add: its branches joined the
-// working set.
-func approveGitAddOutcome(out io.Writer, id string, refs []string, entries []brokerstore.WorkingEntry) {
-	e := entries[0]
-	writeApproveOutcome(out, "Allowed "+termsafe.Visible(id)+": "+strings.Join(refs, ", ")+" joined this workspace's working set.",
-		[]approveFact{{"Covers", "every push to them, unasked: update, force-push and delete"}, {"For", whoFor(e.Workspace)},
-			{"Lasts", "until the branch is deleted, or revoked"}}, entryIDs(entries)...)
 }

@@ -122,7 +122,7 @@ func storeFailure(what string, err error) refusal {
 // for a sample request, so the CLI's tests can check that each command they name exists.
 func RefusalNextSteps() []string {
 	const id = "r-00000000000000000000000000000000"
-	rs := []refusal{pendingRefusal((&pushMenu{project: []string{"yolo request git push main"}, ceiling: []string{AllowOnRequestCommand(grantBranch)}}).menu(id, []string{"refs/heads/main"})), lapsedRefusal(id), filingRefusal(&brokerstore.PendingLimitError{Requests: []string{id}}),
+	rs := []refusal{pendingRefusal((&pushMenu{project: []string{"yolo request git push main"}, ceiling: []string{AllowOnRequestCommand(grantBranch)}}).menu(id)), lapsedRefusal(id), filingRefusal(&brokerstore.PendingLimitError{Requests: []string{id}}),
 		filingRefusal(&brokerstore.DenialCooldownError{Request: id}), filingRefusal(errors.New("e")), storeRefusal(errors.New("e"))}
 	for _, s := range []string{"allowed", "denied", "refused", "expired", "other"} {
 		rs = append(rs, answeredRefusal(id, s))
@@ -219,7 +219,7 @@ func (b *Broker) askForPush(ctx context.Context, repo string, cmds []gitproto.Co
 	case err != nil || status.State == "pending":
 		m := pushMenuFrom(ctx)
 		m.markListed()
-		return brokerstore.Grant{}, pendingRefusal(m.menu(filed.ID, needs)), false
+		return brokerstore.Grant{}, pendingRefusal(m.menu(filed.ID)), false
 	case status.State != "allowed":
 		return brokerstore.Grant{}, answeredRefusal(filed.ID, status.State), false
 	}

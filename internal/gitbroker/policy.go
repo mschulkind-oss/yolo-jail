@@ -206,7 +206,7 @@ func (b *Broker) coverForSnapshot(f brokerscope.File, repo string, say func(stri
 			// A tag a tag grant covers, its kind allowed, is pushed unasked: creation, update,
 			// force and delete alike (GB-D25). It never joins the working set.
 			g, declared := declaredBy(f.Grants, grantTag, repo, c.Ref)
-			const asks = "so this push asks for approval (`yolo approve` on the host answers it: Allow once, `--for 15m`, or `--add` for a branch)"
+			const asks = "so this push asks for approval (`yolo approve` on the host answers it: Allow once, or `--for 15m`)"
 			switch {
 			case declared && tagAllowed:
 				return setTag, grantTag + ":" + g.Name(), true

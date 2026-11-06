@@ -52,7 +52,7 @@ func requestRunW(args []string, out, errw io.Writer) int {
 }
 
 // requestRunIn is the verb against a named workspace; "" is the one the verb resolves from where
-// it runs. `yolo approve --remember` names the request's own workspace.
+// it runs.
 func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 	dryRun := false
 	var positionals []string

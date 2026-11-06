@@ -349,7 +349,7 @@ func (b *Broker) afterWrite(t writeTarget, argv []string, code int, out []byte, 
 		n := createdNumber(t, argv, out)
 		if n == 0 {
 			say("could not read the new " + what + "'s number from gh's output, so it was not added to this workspace's " +
-				"working set; the next write to it asks (`yolo approve <id> --add` on the host adds it)")
+				"working set; the next write to it asks, and `yolo approve <id>` (once) or `yolo approve <id> --for 15m` on the host answers it")
 			return
 		}
 		e, _, err := b.store.AddWorking(brokerstore.WorkingEntry{Workspace: b.workspace, Repo: t.storeRepo(), Kind: kind,

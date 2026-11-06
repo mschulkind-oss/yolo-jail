@@ -112,7 +112,7 @@ func TestApproveGitRequestAllowOnceAndRefusesFor(t *testing.T) {
 	// Removing git revokes CLI approval authority even while this launch lease stays alive.
 	writeApprovePackFile(t, selectConfig, `{"packs":[]}`)
 	removed := s
-	for _, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}, {"--remember"}} {
+	for _, flags := range [][]string{{}, {"--for", "15m"}} {
 		q, err := removed.File(brokerstore.Request{Jail: paths.JailShortHash(sf.Container), Start: start, Workspace: sf.Workspace,
 			LaunchID: sf.LaunchID, Argv: []string{"git-receive-pack", old + " " + updated + " refs/heads/agent/removed"},
 			Repo: "fixture.test/o/r", Set: "push", StdinDigest: hex.EncodeToString(empty[:]),
@@ -163,8 +163,8 @@ func TestApproveGitRequestAllowOnceAndRefusesFor(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { brokercore.CloseLease(gitbroker.Source, aliasLease) })
-		for i, flags := range [][]string{{}, {"--for", "15m"}, {"--add"}, {"--remember"}} {
-			ref := "refs/heads/agent/alias-" + aliasName + "-" + []string{"once", "for", "add", "remember"}[i]
+		for i, flags := range [][]string{{}, {"--for", "15m"}} {
+			ref := "refs/heads/agent/alias-" + aliasName + "-" + []string{"once", "for"}[i]
 			q, err := removed.File(brokerstore.Request{Jail: paths.JailShortHash(aliasSF.Container), Start: aliasStart, Workspace: workspace,
 				LaunchID: aliasSF.LaunchID, Argv: []string{"git-receive-pack", old + " " + updated + " " + ref},
 				Repo: "fixture.test/o/r", Set: "push", StdinDigest: hex.EncodeToString(empty[:]),

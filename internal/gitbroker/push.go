@@ -281,7 +281,7 @@ func refusalMessage(p pushRead, dest string) string {
 	// The lasting paths the refused refs collected, when no pending request's menu listed them.
 	paths := ""
 	if p.menu.hasPaths() {
-		paths = "\n\n" + p.menu.menu("", nil).Render()
+		paths = "\n\n" + p.menu.menu("").Render()
 	}
 	if p.next != "" {
 		return lead + p.next + paths

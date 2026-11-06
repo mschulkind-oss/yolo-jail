@@ -9,8 +9,9 @@ Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md), and for th
 project lists, [`workspace-widening.md`](../../docs/design/workspace-widening.md). See
 [§11](../../docs/design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) for its read and
 write paths, including exact host approval. A write files a pending request; `yolo approve <id>` on the host allows
-that canonical command, repository and stdin digest once, for up to 15 minutes. `--for` and `--add`
-are refused for GitHub writes, and legacy set-wide grants do not authorize them. The broker waits
+that canonical command, repository and stdin digest once, for up to 15 minutes, and
+`yolo approve <id> --for <duration>` allows that kind of write on its PR, issue or repository for
+that long. Legacy set-wide grants do not authorize a write. The broker waits
 briefly; without a host decision nothing runs and the agent can retry after approval. Pending
 requests are visible in the host broker log and `yolo approve`, whether or not `on_request` is
 configured.

@@ -219,11 +219,9 @@ host-side request and grant view.
 
 A refused write names its request, and `yolo approve` on your machine lists it. Allow once,
 `yolo approve <id>`, is the exact command, its repository and its standard input, one use within
-15 minutes. Two answers give more: `yolo approve <id> --add` adds the PR or issue the write targets
-to the project's working set, and `yolo approve <id> --for 15m` allows that kind of write on it
-(or, for a creation or a repository-level write, in its repository) for that long, at most 12
-hours. A merge takes Allow once or `--for`, never `--add`. A write that names a PR by branch rather
-than number takes Allow once only. [Getting notified](approvals.md#getting-notified) says how to
+15 minutes. `yolo approve <id> --for 15m` gives more: that kind of write on it (or, for a creation
+or a repository-level write, in its repository) for that long, at most 12 hours. A write that names
+a PR by branch rather than number takes Allow once only. [Getting notified](approvals.md#getting-notified) says how to
 have a request pop up on your desktop.
 
 A standing `read-write` entry under `allow.github.sets` in your user config (a legacy permission
@@ -233,8 +231,8 @@ grant as above. Standing reads are unaffected.
 ### The working set
 
 The working set is the PRs and issues the agent may write to without asking. One joins when the
-agent creates it under a grant or an approval, or when you run `yolo approve <id> --add` on a
-request that writes to it. A PR leaves when it is merged (the broker checks before each write) or
+agent creates it under a grant or an approval. A PR or issue you added with the old
+`yolo approve <id> --add`, now removed, stays in it until you revoke it. A PR leaves when it is merged (the broker checks before each write) or
 when you revoke its entry. To let the agent open PRs without asking in one project, allow the
 capability on request in your user config and request it in the project:
 
@@ -326,8 +324,8 @@ whatever the ceiling says) or `false` (refused here, with nothing to approve). C
 editing what the agent created would be on by default. Beside them, opt-in grants for the repository itself: starting a workflow on other
 branches, approving a fork's held run, re-running and cancelling runs, drafting and publishing
 releases, labels, and project boards. The agent would ask for a PR or issue it did not create to
-join its working set with one request you answer with `yolo approve`, and `yolo approve --add`
-would go away in its favor.
+join its working set with one request you answer with `yolo approve`, in place of the removed
+`yolo approve --add`.
 
 The agent would ask with `yolo request github working-set <number>`, and an item would leave the
 working set when it is merged or closed, or when you remove it; nothing expires. These are decided

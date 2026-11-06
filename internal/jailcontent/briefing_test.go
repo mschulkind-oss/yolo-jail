@@ -307,10 +307,17 @@ func TestTheJailBriefingCarriesTheHandOffRules(t *testing.T) {
 	if !strings.Contains(jail, example) {
 		t.Errorf("the jail briefing's example is not the renderer's output:\n%s", example)
 	}
-	for _, line := range []string{"    yolo approve r-<id>\n", "    yolo approve r-<id> --for 15m\n", "    yolo approve r-<id> --remember\n",
-		"    yolo approve r-<id> --add\n", "    yolo wait r-<id>\n"} {
+	for _, line := range []string{"    yolo approve r-<id>\n", "    yolo approve r-<id> --for 15m\n",
+		"    yolo request git push <branch>\n", "    yolo config apply\n", "    yolo wait r-<id>\n"} {
 		if !strings.Contains(example, line) {
 			t.Errorf("the example menu does not put %q on its own line", line)
+		}
+	}
+	// `yolo approve --add` and `--remember` are removed (GB-D28, OQ-GW2): the briefing offers
+	// neither, in its example menu or in its prose.
+	for _, removed := range []string{"--add", "--remember"} {
+		if strings.Contains(hostRunSectionText(), removed) {
+			t.Errorf("the briefing still offers the removed %s", removed)
 		}
 	}
 	for _, harness := range []string{"run_in_background", "background_task", "Claude Code", "completionPolicy"} {
