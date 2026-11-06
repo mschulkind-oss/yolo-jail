@@ -13,6 +13,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
+// Architecture and invariants: docs/reference/host-import-exclusions.md
+
 const hostImportExclusionsKey = "host_import_exclusions"
 
 // LoadHostImportExclusions strictly reads the user-scope exclusions, including config

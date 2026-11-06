@@ -347,7 +347,7 @@ a container, because in there the referent rebinds to the container's disposable
 
 | What the bytes are | What the launch says | What the jail does with them |
 | :--- | :--- | :--- |
-| the user's own, which yolo has never written | delivered, unlabelled | composes them as the **host layer** — the path [P7](#principles) keeps frictionless |
+| the user's own, which yolo has never written | delivered, unlabelled | composes them as the **host layer** — the path [P7](#principles) keeps frictionless — less any exact members the user's [`host_import_exclusions`](host-import-exclusions.md) name |
 | yolo's own render, over what was the user's | delivered, labelled a **render** | **never a layer.** They are the **baseline** the jail reports divergence against; the surface composes from its packs and its capture alone |
 
 A **baseline** is not a layer: nothing composes from it, so no key yolo wrote can re-enter as
