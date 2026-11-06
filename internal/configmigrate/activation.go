@@ -27,8 +27,16 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 //
 // project is the side's workspace config as written and switches the workspace's switch file, so a
 // grant-declaring loophole this workspace withdraws is known (withdrawnHere).
+//
+// packs is the shipped set; the configured packs the user selects (a path or fetched pack, whose
+// legacy manifest the window reads, docs/design/legacy-config-compat.md LC-D10) are added here,
+// through the resolver the launch's validator uses, so every read of this layer, the plan's and
+// the read-back after Apply alike, sees the same loopholes.
 func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string]bool, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
-	selected := newUserView(composed).packs
+	view := newUserView(composed)
+	configured, _ := config.UserScopeSelectedPacks()
+	packs = view.addConfiguredPacks(packs, configured, readable)
+	selected := view.packs
 	var modules []loopholes.PackModule
 	// unselected is each loophole a pack this side does not select ships. A legacy entry naming
 	// one, with no command of its own, is that pack's config and runs nothing, on either side

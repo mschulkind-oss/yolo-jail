@@ -592,7 +592,7 @@ func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string
 			}
 		}
 		if len(legacySettings) > 0 {
-			values, _ := loopholes.ResolveSettings(lp, loopholes.WithProjectRequestSettings(cfg, lp, suppliedSettings(loopholes.ConfigBlock(cfg), name)))
+			values, _ := loopholes.ResolveSettings(lp, loopholes.WithProjectRequestSettings(cfg, lp, loopholes.SuppliedSettings(loopholes.ConfigBlock(cfg), lp)))
 			keys := make([]string, 0, len(legacySettings))
 			for k := range legacySettings {
 				keys = append(keys, k)

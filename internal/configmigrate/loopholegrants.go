@@ -640,6 +640,12 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 			ctx.drop([]string{"loopholes", name, "enabled"}, v, name+" runs whenever its pack is selected, so the key turns nothing on")
 			continue
 		}
+		if c, ok := ctx.view().configured[name]; ok && isMap && !declared && c.grantless {
+			if left := lowerConfiguredProjectLoophole(name, c, entry, ctx, place, skip); left != nil {
+				rest.Set(name, left)
+			}
+			continue
+		}
 		if !declared || !isMap {
 			rest.Set(name, entryValue)
 			continue
@@ -871,4 +877,51 @@ func sortedDeclNames(gv *loopholeGrantView) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// lowerConfiguredProjectLoophole converts a project file's block for a grantless loophole of a
+// configured pack the user selects (a legacy manifest read through the window, LC-D10): it runs
+// whenever its pack is selected, so `enabled: true` says nothing the packs list does not, and a
+// request-scope setting (a legacy `"scope": "workspace"` one) is the project's
+// `[requests.<pack>] <setting>`, which replaces the user's value for this project (LG-D15,
+// LC-D17). What does not convert is returned for the generic lowering to report; nil for none.
+func lowerConfiguredProjectLoophole(name string, c configuredLoophole, entry *jsonx.OrderedMap, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) any {
+	left := jsonx.NewOrderedMap()
+	path := []string{"loopholes", name}
+	for _, key := range entry.Keys() {
+		v, _ := entry.Get(key)
+		at := append(append([]string(nil), path...), key)
+		switch key {
+		case "enabled":
+			if v != true {
+				left.Set(key, v)
+				continue
+			}
+			ctx.drop(at, v, name+" runs whenever its pack is selected, so the key turns nothing on")
+		case "settings":
+			settings, ok := v.(*jsonx.OrderedMap)
+			if !ok {
+				skip(at, v, "settings must be an object")
+				continue
+			}
+			for _, sk := range settings.Keys() {
+				sv, _ := settings.Get(sk)
+				skAt := append(append([]string(nil), at...), sk)
+				decl, ok := loopholedecl.SettingByKey(c.settings, sk)
+				if !ok || decl.Scope != loopholedecl.SettingScopeRequest {
+					skip(skAt, sv, "a project cannot set "+name+"'s "+sk+"; it is the user's setting, allow."+c.pack+"."+sk+" in the user config. Move it there (`yolo config set allow."+c.pack+"."+sk+" …` on the host), then run `yolo config migrate` again")
+					continue
+				}
+				if !place([]string{"requests", c.pack, sk}, sv, skAt) {
+					skip(skAt, sv, "requests."+c.pack+"."+sk+" is already written in this file")
+				}
+			}
+		default:
+			left.Set(key, v)
+		}
+	}
+	if left.Len() == 0 {
+		return nil
+	}
+	return left
 }

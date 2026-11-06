@@ -1,0 +1,10 @@
+// A third-party loophole written for v0.15.1: on by default, with a setting either config may set.
+{
+  "name": "note-relay",
+  "description": "Relay notes from the host into the jail.",
+  "transport": "none",
+  "default_enabled": true,
+  "settings": {
+    "greeting": {"type": "string", "scope": "workspace", "default": "hello"}
+  }
+}

@@ -1,0 +1,3 @@
+{
+  "about": "A user path pack whose legacy loophole manifest says default_enabled: true and declares a workspace-scope setting, which the user config and the workspace both set (LC-D10)."
+}

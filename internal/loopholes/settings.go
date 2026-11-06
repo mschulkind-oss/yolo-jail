@@ -84,6 +84,50 @@ func SettingsFromConfig(block *jsonx.OrderedMap, name string) *jsonx.OrderedMap 
 	return settings
 }
 
+// SuppliedSettings is lp's settings as block supplies them: its own `<name>.settings`, and, where
+// lp's pack is named otherwise (a configured pack, named by where it comes from), each key lp
+// declares that the pack's entry holds and its own does not. Under a TOML user config
+// ConfigBlock lays the `[allow.<pack>]` table at the pack's name, so without the second read a
+// path pack's loophole is handed none of the settings its user wrote
+// (docs/design/legacy-config-compat.md LC-D10). Every reader of a loophole's supplied settings
+// (the launch, `yolo check`, `yolo loopholes`, `yolo config migrate`'s proof) goes through it.
+func SuppliedSettings(block *jsonx.OrderedMap, lp *Loophole) *jsonx.OrderedMap {
+	if lp == nil {
+		return nil
+	}
+	own := SettingsFromConfig(block, lp.Name)
+	if lp.Pack == "" || lp.Pack == lp.Name {
+		return own
+	}
+	packs := SettingsFromConfig(block, lp.Pack)
+	if packs == nil {
+		return own
+	}
+	var out *jsonx.OrderedMap
+	for _, decl := range lp.Settings {
+		v, ok := packs.Get(decl.Key)
+		if !ok {
+			continue
+		}
+		if own != nil {
+			if _, set := own.Get(decl.Key); set {
+				continue
+			}
+		}
+		if out == nil {
+			out = jsonx.NewOrderedMap()
+			if own != nil {
+				out = jsonx.DeepCopyMap(own)
+			}
+		}
+		out.Set(decl.Key, v)
+	}
+	if out == nil {
+		return own
+	}
+	return out
+}
+
 // ResolveSettings folds one loophole's config-supplied values over its manifest
 // declarations and returns the flat map to write.
 //

@@ -206,7 +206,10 @@ func SettingKeys(settings []Setting) []string {
 // loadModuleDirs warns and the loophole VANISHES. No loophole means no daemon and no
 // values — fail-closed in every direction, which is what makes a refusal affordable
 // here.
-func parseSettings(manifestPath string, raw any) ([]Setting, error) {
+//
+// legacy says the manifest is the legacy form, whose `scope: "workspace"` the legacy window reads
+// as request scope rather than refusing it (docs/design/legacy-config-compat.md LC-D10).
+func parseSettings(manifestPath string, raw any, legacy bool) ([]Setting, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -275,7 +278,15 @@ func parseSettings(manifestPath string, raw any) ([]Setting, error) {
 		}
 		// The workspace scope let an agent-writable project file widen what a loophole
 		// grants; LG-D5 retired it (docs/reference/loophole-grants.md §4.3). Refused
-		// by name, in both decoders, so a fetched pack cannot reintroduce the shape.
+		// by name, in both decoders, so a fetched pack cannot reintroduce the shape in a
+		// loophole.toml. A LEGACY manifest's is read as what it meant (LC-D10): either config
+		// supplied the value and the workspace's won, which a request-scope setting says (the
+		// user's value is every project's default, a project's replaces it there, and the
+		// project's reaches the loophole only through the config-change gate), as LC-D17 read
+		// serial's `default_baud`.
+		if scope == SettingScopeWorkspace && legacy {
+			scope = SettingScopeRequest
+		}
 		if scope == SettingScopeWorkspace {
 			return nil, Errorf(
 				"%s: '%s.scope' = %s is gone: a project can no longer widen access by editing a"+

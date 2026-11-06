@@ -138,6 +138,11 @@ type Loophole struct {
 	// loophole reaches, which the grant file hands its daemon for every refusal. Set exactly when
 	// Grants is.
 	Access string
+	// LegacyDefaultOff is the manifest's LegacyDefaultOff (loopholedecl): a legacy manifest's
+	// `default_enabled: false`, read through the legacy window (docs/design/legacy-config-compat.md
+	// LC-D10). Nothing of the loophole starts or crosses until the launch holds its grant
+	// (gateAdmitsCrossing, runtime.go).
+	LegacyDefaultOff bool
 	// Binaries and BinaryRefs carry the manifest's `binaries` declarations and which of them
 	// its argvs name, verbatim (loopholedecl/binaries.go). The argvs themselves are resolved
 	// at load (resolve, load.go); BinaryNeeds (binaries.go) is where the two meet this

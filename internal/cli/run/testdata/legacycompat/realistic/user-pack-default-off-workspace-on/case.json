@@ -1,0 +1,3 @@
+{
+  "about": "A user path pack whose legacy loophole manifest says default_enabled: false, switched on by the workspace's loopholes.<name>.enabled: true (LC-D10)."
+}

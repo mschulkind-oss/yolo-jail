@@ -1,0 +1,3 @@
+{
+  "about": "A user path pack whose legacy loophole manifest says default_enabled: false, and no config switches it on, so it stays off (LC-D10)."
+}

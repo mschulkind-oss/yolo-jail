@@ -117,9 +117,15 @@ func TestRetiredEnabledKeyIsRefusedAndNamesTheGrants(t *testing.T) {
 // TestAWorkspaceScopeSettingIsRefusedAtLoad: `scope = "workspace"` on a declared setting let an
 // agent-writable project file widen what a loophole grants. It has no shipped user and is refused
 // at load in both decoders, naming the valued grant that replaces it (LG-D5).
+//
+// A loophole.toml only: a legacy manifest's is read through the legacy window
+// (TestALegacyManifestsWorkspaceScopeSettingIsARequestScopeSetting, LC-D10).
 func TestAWorkspaceScopeSettingIsRefusedAtLoad(t *testing.T) {
-	fragment := `"settings": {"visible": {"type": "string_list", "scope": "workspace"}}`
-	for name, err := range map[string]error{"strict": decodeErr(t, fragment, false), "tolerant": decodeErr(t, fragment, true)} {
+	const dir = "packs/probe/loopholes/probe"
+	body := []byte("name = \"probe\"\ntransport = \"none\"\n[settings.visible]\ntype = \"string_list\"\nscope = \"workspace\"\n")
+	_, strictErr := loopholedecl.Decode(body, dir)
+	_, _, tolerantErr := loopholedecl.DecodeTolerant(body, dir)
+	for name, err := range map[string]error{"strict": strictErr, "tolerant": tolerantErr} {
 		if err == nil {
 			t.Fatalf("%s: a workspace-scope setting decoded without error", name)
 		}

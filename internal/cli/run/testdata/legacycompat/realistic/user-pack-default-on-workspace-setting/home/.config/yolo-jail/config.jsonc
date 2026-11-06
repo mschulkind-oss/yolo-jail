@@ -1,0 +1,6 @@
+{
+  "packs": ["~/sample-packs/note-relay"],
+  "loopholes": {
+    "note-relay": {"settings": {"greeting": "from-the-user"}}
+  }
+}

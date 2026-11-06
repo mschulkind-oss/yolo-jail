@@ -264,6 +264,21 @@ func (p *Pack) LoopholeDeclProblems() []string {
 	return problems
 }
 
+// LoopholeLegacyNotes is what each legacy loophole manifest this pack ships says through the
+// legacy window (docs/design/legacy-config-compat.md LC-D10): a `default_enabled` key or a
+// workspace-scope setting, which still read with v0.15.1 meaning and so are not problems.
+// `yolo pack lint` prints them as notes, one per key, naming what `yolo pack migrate` does.
+func (p *Pack) LoopholeLegacyNotes() []string {
+	mods, _, _ := p.LoopholeModules()
+	var notes []string
+	for _, mod := range mods {
+		for _, note := range loopholedecl.LegacyNotesDir(mod.Dir) {
+			notes = append(notes, fmt.Sprintf("pack %s: loophole %q: %s", p.Name, mod.Name, note))
+		}
+	}
+	return notes
+}
+
 // loopholeClaim is one crossing a loophole declares, rendered for the footprint.
 //
 // IT USED TO CARRY A SECOND RENDERING — a raw `approval` string the install prompt showed

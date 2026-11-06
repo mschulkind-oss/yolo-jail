@@ -1,0 +1,7 @@
+// A third-party loophole written for v0.15.1: off unless a config switches it on.
+{
+  "name": "note-relay",
+  "description": "Relay notes from the host into the jail.",
+  "transport": "none",
+  "default_enabled": false
+}
