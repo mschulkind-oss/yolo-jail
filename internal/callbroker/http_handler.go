@@ -25,6 +25,7 @@ import (
 type HTTPHandler struct {
 	*CLIHandler
 	beforeHTTPCommit func() // deterministic store-boundary test seam; nil in production
+	beforeSealWrite  func() // between the token and seal leaf writes; test seam, nil in production
 	// front is this broker start's sealed selected front, if any. Only Handle
 	// reads it; approval authority never builds or consults it.
 	front httpFrontState

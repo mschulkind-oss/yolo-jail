@@ -3,12 +3,10 @@ package callbroker
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"os"
 	"sync"
 	"syscall"
@@ -112,16 +110,15 @@ func (h *HTTPHandler) seal(jail, generation string, req httpFrontSealRequest) (h
 			return reply, errFrontAlreadySealed
 		}
 	}
-	addr, ok := callbrokerinput.ValidHTTPFrontAddress(req.Address)
-	if !ok {
+	if _, ok := callbrokerinput.ValidHTTPFrontAddress(req.Address); !ok {
 		return reply, errors.New("HTTP front address must be a literal loopback IP with a nonzero port; stop the jail and relaunch")
 	}
 	der, err := base64.StdEncoding.Strict().DecodeString(req.CertificateBase64)
 	if err != nil || len(der) == 0 {
 		return reply, errors.New("HTTP front certificate is not valid base64; stop the jail and relaunch")
 	}
-	if err := checkFrontCertificate(der, net.IP(addr.Addr().AsSlice())); err != nil {
-		return reply, err
+	if err := callbrokerinput.CheckHTTPFrontCertificate(der, req.Address); err != nil {
+		return reply, errors.New(err.Error() + "; stop the jail and relaunch")
 	}
 	sum := sha256.Sum256(der)
 	record := callbrokerinput.PreparedHTTPFrontSeal{Version: callbrokerinput.PreparedHTTPFrontSealVersion,
@@ -141,6 +138,9 @@ func (h *HTTPHandler) seal(jail, generation string, req httpFrontSealRequest) (h
 	}
 	if err := writeExclusivePrivateLeaf(tokenPath, []byte(token)); err != nil {
 		return reply, errors.New("HTTP front token could not be recorded; stop the jail and relaunch")
+	}
+	if h.beforeSealWrite != nil {
+		h.beforeSealWrite()
 	}
 	if err := writeExclusivePrivateLeaf(sealPath, encoded); err != nil {
 		_ = os.Remove(tokenPath)
@@ -178,28 +178,6 @@ func (h *HTTPHandler) handleSeal(s *hostservice.Session, generation string) {
 	}
 	s.StdoutBytes(answer)
 	s.Exit(0)
-}
-
-func checkFrontCertificate(der []byte, ip net.IP) error {
-	certificate, err := x509.ParseCertificate(der)
-	if err != nil {
-		return errors.New("HTTP front certificate does not parse; stop the jail and relaunch")
-	}
-	matched := false
-	for _, san := range certificate.IPAddresses {
-		if san.Equal(ip) {
-			matched = true
-		}
-	}
-	if !matched {
-		return errors.New("HTTP front certificate does not name its loopback address; stop the jail and relaunch")
-	}
-	for _, usage := range certificate.ExtKeyUsage {
-		if usage == x509.ExtKeyUsageServerAuth {
-			return nil
-		}
-	}
-	return errors.New("HTTP front certificate is not for server authentication; stop the jail and relaunch")
 }
 
 // writeExclusivePrivateLeaf creates path 0600 and refuses an existing file or link.

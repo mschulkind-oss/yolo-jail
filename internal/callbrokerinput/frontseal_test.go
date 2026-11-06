@@ -1,16 +1,44 @@
 package callbrokerinput
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
+	"net"
 	"strings"
 	"testing"
+	"time"
 )
+
+func frontSealCertificate(t *testing.T, ip string, usage x509.ExtKeyUsage) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "fixture-front"},
+		IPAddresses: []net.IP{net.ParseIP(ip)}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
 
 func validFrontSealFixture(t *testing.T) []byte {
 	t.Helper()
-	der := []byte("fixture-der-bytes")
+	return frontSealWithCertificate(t, frontSealCertificate(t, "127.0.0.1", x509.ExtKeyUsageServerAuth))
+}
+
+func frontSealWithCertificate(t *testing.T, der []byte) []byte {
+	t.Helper()
 	sum := sha256.Sum256(der)
 	seal := PreparedHTTPFrontSeal{Version: PreparedHTTPFrontSealVersion, Generation: strings.Repeat("a", 32),
 		Container: "fixture-container", FrontJailID: "fixture-front", LaunchID: "fixture-launch",
@@ -44,6 +72,12 @@ func TestPreparedHTTPFrontSealDecodesStrictly(t *testing.T) {
 		"non-object":           `[]`,
 		"non-string loophole":  strings.Replace(valid, `"loophole":"tasks"`, `"loophole":7`, 1),
 		"port zero":            strings.Replace(valid, "127.0.0.1:41000", "127.0.0.1:0", 1),
+		// The DER hash matches in each of these; only the certificate itself is wrong.
+		"not a certificate": string(frontSealWithCertificate(t, []byte("fixture-der-bytes"))),
+		"SAN names another IP": string(frontSealWithCertificate(t,
+			frontSealCertificate(t, "127.0.0.2", x509.ExtKeyUsageServerAuth))),
+		"no ServerAuth": string(frontSealWithCertificate(t,
+			frontSealCertificate(t, "127.0.0.1", x509.ExtKeyUsageClientAuth))),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodePreparedHTTPFrontSeal([]byte(raw)); err == nil {

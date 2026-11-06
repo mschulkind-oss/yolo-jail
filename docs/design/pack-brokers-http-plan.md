@@ -230,6 +230,7 @@ The sketch above assumed things the tree does not support. Each is ruled here, i
 - **Map types, helper factoring and error wording** beyond the strings quoted below are the builder's choice.
 - **Seal decoding (3.1, as built):** `rejectDuplicateObjectKeys` in `privateclient.go` is hard-wired to the prepared record's own key set, so it would refuse every seal key. Rather than widen a fenced file, `frontseal.go` carries a flat strict scanner with the same refusals: exact keys only (a case-folded alias or duplicate is an unknown key), no duplicate, every value a string, no trailing JSON.
 - **Handler state (3.1, as built):** `HTTPHandler` already reaches `inputFile` through its embedded `CLIHandler`, so only the in-memory `front` state is new. Seal routing (`handleSeal`) lives in `http_seal.go`. The token gate checks the compact frame and the decoded body bytes, since a base64 body would hide the token from a frame-only search.
+- **Seal validation (3.1 fix-forward):** `PreparedHTTPFrontSeal.Validate` checks more than the schema. It also requires the pinned certificate to parse, to name the sealed address as an IP SAN, and to allow `ServerAuth`, through `callbrokerinput.CheckHTTPFrontCertificate`. The host's `seal` calls the same function. A reader that trusts `DecodePreparedHTTPFrontSeal` alone, such as Task 4's publisher, therefore gets a self-consistent seal. `HTTPHandler.beforeSealWrite` is a test-only seam, nil in production, placed between the token and seal leaf writes so the token removal on a failed seal write is pinned.
 
 #### Slice 3.1 (FIRST): host generation seal and request-frame `front_generation`
 
@@ -406,13 +407,15 @@ Red: `go test -short -run 'TestHTTPFront' ./internal/callbroker` fails on the pl
 
 **Preconditions:** 3.1 to 3.3 have landed. `prepareOrdinaryPrograms` still sets `o.privateClientEntrypoints` before `assembleInput` inside `runContainer`.
 
+**Stale leaves block a same-name relaunch.** The launch input is `<stateDir>/replicas/<container>.json`, and as of 3.1 nothing removes `<container>.json.prepared.seal` or `<container>.json.prepared.token`. Once 3.4 starts a front, a jail that sealed and stopped leaves both behind. A relaunch under the same container name then rewrites the input and the prepared record, but its new broker's `seal` refuses with "already exists … relaunch" every time. 3.4 must therefore retire both leaves for a container name: at teardown, after confirmed container absence, and on relaunch, before it writes the replacement prepared record. Unknown liveness still retains them. The cleanup test below covers both paths, including a relaunch under the same name.
+
 **Tests first:**
 
 - `internal/cli/run`: extend `TestPrepareOrdinaryProgramsBindsSelectedPrivateClientsOrRefuses`'s fixture (`attachedPrivateHTTPFixture`) so that a bound private client naming front `L` yields one `JailDaemonSpec{Name: "http-front-L", Cmd: [yolo-jaild call-broker-http-front --endpoint /run/yolo-services/<host service>.endpoint --loophole L], Restart: "no", RequiredReady: true}`. No private client yields none.
 - A test on `serviceEndpointEnvArgs` that the wire bridge plus one front give exactly one `-e YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge,http-front-L` (two `-e` flags for the same variable is the trap).
 - A keeper test that the generation is inserted as `-e YOLO_HTTP_FRONT_GENERATIONS=L=<generation>` before the image, beside `insertPrivateClientEnv`.
 - An AST pin in the style of `TestTheFreshLaunchStartsAPrivateClientThroughItsPublishedBinding`: `runContainer` calls the front-spec composer after `prepareOrdinaryPrograms`.
-- A cleanup test: after confirmed container absence, `sweepDeadLaunchPreparedHTTP` and `removePreparedHTTPOwnership` remove `.seal` and `.token` leaves whose generation matches, keep a replacement's, and retain everything on unknown liveness.
+- A cleanup test: after confirmed container absence, `sweepDeadLaunchPreparedHTTP` and `removePreparedHTTPOwnership` remove `.seal` and `.token` leaves whose generation matches, keep a replacement's, and retain everything on unknown liveness. A relaunch under the same container name, after a sealed launch stopped, seals successfully.
 
 **Change:**
 

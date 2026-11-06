@@ -3,6 +3,7 @@ package callbrokerinput
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -64,7 +65,9 @@ func ValidHTTPFrontAddress(address string) (netip.AddrPort, bool) {
 	return netip.AddrPortFrom(ip, uint16(n)), true
 }
 
-// Validate checks the exact v1 seal schema.
+// Validate checks the exact v1 seal schema and that the pinned certificate
+// parses, names the sealed address and allows server authentication, so a reader
+// that trusts DecodePreparedHTTPFrontSeal alone gets a self-consistent seal.
 func (s PreparedHTTPFrontSeal) Validate() error {
 	if s.Version != PreparedHTTPFrontSealVersion {
 		return errors.New("HTTP front seal version is invalid")
@@ -87,7 +90,37 @@ func (s PreparedHTTPFrontSeal) Validate() error {
 	if len(s.CertificateDER) == 0 || s.CertificateSHA256 != hex.EncodeToString(sum[:]) {
 		return errors.New("HTTP front seal certificate digest does not match its certificate")
 	}
-	return nil
+	return CheckHTTPFrontCertificate(s.CertificateDER, s.Address)
+}
+
+// CheckHTTPFrontCertificate requires der to parse as a certificate that names
+// address's loopback IP as an IP SAN and allows server authentication. The host
+// runs it before writing a seal, and Validate runs it again for every reader.
+func CheckHTTPFrontCertificate(der []byte, address string) error {
+	addr, ok := ValidHTTPFrontAddress(address)
+	if !ok {
+		return errors.New("HTTP front address is not a literal loopback IP with a nonzero port")
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		return errors.New("HTTP front certificate does not parse")
+	}
+	ip := net.IP(addr.Addr().AsSlice())
+	named := false
+	for _, san := range certificate.IPAddresses {
+		if san.Equal(ip) {
+			named = true
+		}
+	}
+	if !named {
+		return errors.New("HTTP front certificate does not name its loopback address")
+	}
+	for _, usage := range certificate.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageServerAuth {
+			return nil
+		}
+	}
+	return errors.New("HTTP front certificate is not for server authentication")
 }
 
 // DecodePreparedHTTPFrontSeal decodes a seal record strictly: one flat object of

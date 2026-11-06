@@ -132,6 +132,17 @@ func TestSelectedHTTPFrontSealGatesOrdinaryFrames(t *testing.T) {
 	if rc, _ := frame(map[string]any{"op": "act", "http": smuggled, "front_generation": generation}); rc != 64 || requests.Load() != 0 {
 		t.Fatalf("frame carrying the sealed token was classified: rc=%d", rc)
 	}
+	// base64 hides the raw token from a search of the frame alone.
+	inBody := call
+	inBody.BodyPresent, inBody.Body = true, append(append([]byte(`{"note":"`), token...), `"}`...)
+	if rc, out := frame(map[string]any{"op": "act", "http": inBody, "front_generation": generation}); rc != 64 || !strings.Contains(out, "outside its field") || requests.Load() != 0 {
+		t.Fatalf("body carrying the sealed token was classified: rc=%d out=%q requests=%d", rc, out, requests.Load())
+	}
+	for _, leaf := range []string{".prepared.token", ".prepared.seal"} {
+		if info, err := os.Lstat(f.inputPath + leaf); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s is not a private regular file: %v %v", leaf, info, err)
+		}
+	}
 	if rc, out := act(generation); rc != 0 || requests.Load() != 1 {
 		t.Fatalf("sealed generation did not send exactly once: rc=%d out=%q requests=%d", rc, out, requests.Load())
 	}
@@ -161,4 +172,81 @@ func TestLegacyHTTPInputRefusesGenerationAndSeal(t *testing.T) {
 	if rc, out := frame(map[string]any{"op": "act", "http": call}); rc != 0 || requests.Load() != 1 {
 		t.Fatalf("legacy frame without front_generation was refused: rc=%d out=%q requests=%d", rc, out, requests.Load())
 	}
+}
+
+// TestHTTPFrontSealRefusesLeftoverLeavesOnDisk pins the on-disk guards with no
+// in-memory seal to answer first: a leftover token, seal or link at either leaf
+// refuses, and a seal write that fails after the token removes the token.
+func TestHTTPFrontSealRefusesLeftoverLeavesOnDisk(t *testing.T) {
+	good := frontFixtureCertificate(t, "127.0.0.1", true)
+	request := httpFrontSealRequest{Address: "127.0.0.1:41000", CertificateBase64: base64.StdEncoding.EncodeToString(good)}
+	noLeaves := func(t *testing.T, f *onceFixture, leaves ...string) {
+		t.Helper()
+		for _, leaf := range leaves {
+			if _, err := os.Lstat(f.inputPath + leaf); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused seal left %s: %v", leaf, err)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name, leaf string
+		link       bool
+	}{
+		{"leftover token", ".prepared.token", false},
+		{"leftover seal", ".prepared.seal", false},
+		{"dangling link at token", ".prepared.token", true},
+		{"dangling link at seal", ".prepared.seal", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, f, generation := selectedPreparedHTTPReadFixture(t, "https://fixture.example", httpExecutor{})
+			path := f.inputPath + tc.leaf
+			if tc.link {
+				if err := os.Symlink(f.inputPath+".missing-target", path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, []byte("leftover"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.seal(h.input.FrontJailID, generation, request); !errors.Is(err, errFrontAlreadySealed) {
+				t.Fatalf("seal over a leftover %s was not refused as existing: %v", tc.leaf, err)
+			}
+			other := ".prepared.seal"
+			if tc.leaf == other {
+				other = ".prepared.token"
+			}
+			noLeaves(t, f, other, ".missing-target")
+			if after, err := os.Lstat(path); err != nil || (after.Mode()&os.ModeSymlink != 0) != tc.link {
+				t.Fatalf("the leftover %s was replaced: %v", tc.leaf, err)
+			}
+		})
+	}
+	t.Run("seal write fails after the token", func(t *testing.T) {
+		h, f, generation := selectedPreparedHTTPReadFixture(t, "https://fixture.example", httpExecutor{})
+		h.beforeSealWrite = func() {
+			if err := os.WriteFile(f.inputPath+".prepared.seal", []byte("raced"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := h.seal(h.input.FrontJailID, generation, request); err == nil {
+			t.Fatal("seal succeeded over a raced seal leaf")
+		}
+		noLeaves(t, f, ".prepared.token")
+		if h.front.seal != nil || h.front.token != "" {
+			t.Fatal("failed seal left in-memory front state")
+		}
+	})
+	t.Run("fresh handler after a seal", func(t *testing.T) {
+		h, f, generation := selectedPreparedHTTPReadFixture(t, "https://fixture.example", httpExecutor{})
+		if _, err := h.seal(h.input.FrontJailID, generation, request); err != nil {
+			t.Fatalf("first seal refused: %v", err)
+		}
+		fresh, err := newHTTPHandler(f.inputPath, f.home, f.store, h.audit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh.scopePath, fresh.bound, fresh.start = h.scopePath, h.bound, h.start
+		if _, err := fresh.seal(fresh.input.FrontJailID, generation, request); !errors.Is(err, errFrontAlreadySealed) {
+			t.Fatalf("a handler with no in-memory seal resealed over the leaves: %v", err)
+		}
+	})
 }
