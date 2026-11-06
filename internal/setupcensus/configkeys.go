@@ -236,6 +236,15 @@ var configKeys = map[string]Entry{
 	},
 
 	// ---- Resources, devices and networking ---------------------------------------------
+	// A matching owner mapping is a required-placement request, not an enforced resource limit.
+	"resource_groups": everywhere(refused("run.Run calls refuseUnsupportedResourceGroup (resourcegroups.go) "+
+		"after config validation and before setup dispatch: a selected mapping gets a read-only, "+
+		"finite I/O policy observation where available, then always refuses because placement "+
+		"is unsupported/unknown. SelectResourceGroup returns without host-policy probes when "+
+		"unselected; config.Load refuses workspace-scope mappings before merge. "+
+		"check.sectionResourceGroups reports disabled or selected-but-unsupported, and "+
+		"run.RefuseHostResourceGroup separately refuses selected yolo host launches"),
+		"`resource_groups` — owner-only placement selection"),
 	"resources": {
 		PodmanLinux: honored("appliedResourceLimits (backendcaps.go) → resourceArgs " +
 			"(assemble_parts.go) passes --memory, --cpus and --pids-limit"),
