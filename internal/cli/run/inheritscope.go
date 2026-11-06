@@ -314,13 +314,20 @@ func inheritScopeDestinations(scope config.InheritScope) []string {
 }
 
 func refuseExistingScopeDestination(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, backend, overwriteRisk, emptyNote string) (bool, error) {
-	legacyRel, tomlRel := inheritScopeFamily(scope)
-	legacyPaths := []string{legacyRel, strings.TrimSuffix(legacyRel, ".jsonc") + ".json", tomlRel}
+	return refuseExistingScopeDestinationSkipping(wsState, mapDestination, scope, backend, overwriteRisk, emptyNote, nil)
+}
+
+// refuseExistingScopeDestinationSkipping is refuseExistingScopeDestination judging every
+// storage-relative path in skip absent: a file yolo proved its own (appleContainerOwnCopies).
+func refuseExistingScopeDestinationSkipping(wsState string, mapDestination func(string) (string, error), scope config.InheritScope, backend, overwriteRisk, emptyNote string, skip map[string]bool) (bool, error) {
 	var existing []string
-	for _, rel := range legacyPaths {
+	for _, rel := range inheritScopeDestinations(scope) {
 		storageRel, err := mapDestination(rel)
 		if err != nil {
 			return false, err
+		}
+		if skip[storageRel] {
+			continue
 		}
 		path := filepath.Join(wsState, storageRel)
 		_, exists, err := lstatHomeFile(wsState, storageRel)
@@ -508,8 +515,17 @@ func (o *Options) userConfigMountArgsForAssembly(in *assembleInput, assembled []
 	}
 	selectLegacy := func(scope config.InheritScope, format configdoc.Format) (bool, error) {
 		if in.rt == "container" { // parity: Refused — Apple Container cannot cover an existing HOME file without overwriting it.
-			return refuseExistingScopeDestination(in.wsState, mapDestination, scope,
-				"Apple Container", "the whole HOME bind would overwrite it", "Reviewing it is quick.")
+			// Its own previous copy, unchanged, is not in the way (appleContainerOwnCopies); anything
+			// else at a destination is the user's and still refuses.
+			own, err := o.appleContainerOwnCopies(in.wsState, mapDestination, scope)
+			if err != nil {
+				return false, err
+			}
+			if _, err := refuseExistingScopeDestinationSkipping(in.wsState, mapDestination, scope,
+				"Apple Container", "the whole HOME bind would overwrite it", "Reviewing it is quick.", own); err != nil {
+				return false, err
+			}
+			return false, o.clearAppleContainerOwnCopies(in.wsState, mapDestination, scope, format, own)
 		}
 		// An earlier launch's single-file bind left an empty file at the destination it used. It
 		// holds no data, so one of the other format is moved aside rather than read as a legacy
@@ -539,7 +555,7 @@ func (o *Options) userConfigMountArgsForHome(rt, wsState string, selectLegacy fu
 		// Both writes are BENEATH wsState (writeFileBeneath, wsstatebeneath.go): the jail can
 		// leave a link at either destination, or above the Apple Container one, for a plain
 		// write to follow onto a host file, and podman would then bind the link's target.
-		stagedName := "inherit-" + f.scope.String() + filepath.Ext(f.rel)
+		stagedName := inheritStageName(f.scope, f.rel)
 		staged := filepath.Join(wsState, stagedName)
 		if err := writeFileBeneath(wsState, stagedName, []byte(f.body), 0o644); err != nil {
 			out.print("[yellow]Warning: could not stage the " + f.scope.String() +
