@@ -649,6 +649,11 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 func configReadFailure(err error) (msg, note string) {
 	var ce *config.ConfigError
 	if errors.As(err, &ce) && ce.Fact != "" && ce.Step != "" {
+		// A step of several lines (commands alone on their own lines) takes the re-check as a
+		// line of its own, not glued to its last sentence.
+		if strings.Contains(ce.Step, "\n") {
+			return ce.Fact, ce.Step + "\n" + recheck
+		}
 		return ce.Fact, strings.TrimSuffix(ce.Step, ".") + "; " + recheck
 	}
 	return err.Error(), "Fix it in the file this names, " + recheck

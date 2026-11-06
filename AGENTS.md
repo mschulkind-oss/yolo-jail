@@ -255,6 +255,10 @@ The mechanics behind each of these are in
   outranks PATH: Claude Code's Bash tool defines `grep`/`find` as functions, so Claude's own commands
   never meet those blocks ([HE-D11](docs/reference/host-agent-environment.md#he-d11)).
 - **Use `shquote.Join`** (`internal/shquote`) for anything crossing into the container's `bash -c`.
+- **No symlink guessing.** Moving, converting or writing a user's file acts on the name: a link moves
+  as a link, the new file is regular, and the target is never touched or interpreted
+  ([`no-symlink-guessing-principle.md`](docs/reference/no-symlink-guessing-principle.md);
+  `TestALinkedConfigIsMovedAndItsTargetIsNeverTouched`).
 - **A LAUNCH HAS NO QUIET MODE, by ruling** ([`OQ-RO3`](docs/reference/report-tiers.md#why-its-this-way)).
   Progress may be compressed; a **disclosure is never suppressible** — the pack read/exec banners are the
   trust boundary. `YOLO_NO_BANNER` hides the version line and nothing else, and

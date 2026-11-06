@@ -63,3 +63,18 @@ func TestFromResolvedTruncatesByRune(t *testing.T) {
 		t.Errorf("safe segment = %d runes, want 40", len([]rune(seg)))
 	}
 }
+
+// TestJailNameAppendsTheSetup pins SUP-D2: the setup-qualified jail name is the frozen
+// project key with the setup appended, so two setups of one project never share a name.
+func TestJailNameAppendsTheSetup(t *testing.T) {
+	ws := t.TempDir()
+	if got, want := JailName(ws, "seatbelt-self"), FromWorkspace(ws)+"-seatbelt-self"; got != want {
+		t.Errorf("JailName = %q, want %q", got, want)
+	}
+	if got, want := JailName("/w/alpha", "seatbelt-self"), FromWorkspace("/w/alpha")+"-seatbelt-self"; got != want {
+		t.Errorf("JailName = %q, want %q", got, want)
+	}
+	if JailName(ws, "podman-self") == JailName(ws, "seatbelt-self") {
+		t.Error("two setups of one workspace share a jail name")
+	}
+}

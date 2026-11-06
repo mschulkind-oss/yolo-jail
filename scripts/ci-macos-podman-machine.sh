@@ -25,7 +25,9 @@
 set -euo pipefail
 
 # The last line with an x86_64 macOS installer (podman v6 dropped Intel macOS builds).
-curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+# --retry is set high enough that --retry-max-time, not the count, ends a long CDN outage
+# (nightly-macos.yml's inline copy says what --retry 5 cost).
+curl -fsSL --retry 40 --retry-delay 5 --retry-all-errors \
   --retry-max-time 180 -o /tmp/podman.pkg \
   "https://github.com/containers/podman/releases/download/v5.8.4/podman-installer-macos-amd64.pkg"
 sudo installer -pkg /tmp/podman.pkg -target /

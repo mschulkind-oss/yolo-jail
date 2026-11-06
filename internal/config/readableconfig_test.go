@@ -1384,7 +1384,7 @@ func TestReadableWorkspaceConfigCollisionOffersSafeManualResolution(t *testing.T
 	if _, err := LoadReadableWorkspaceConfig(dir, true, nil); err == nil {
 		t.Fatal("readable workspace loader accepted colliding files")
 	} else {
-		for _, want := range []string{paths.WorkspaceConfigTOMLName, paths.WorkspaceConfigLegacyJSONCName, "never merged", "backup path does not already exist", "then rerun the command", "mv ", paths.WorkspaceConfigLegacyJSONCName + ".backup", paths.WorkspaceConfigTOMLName + ".backup", "neither file is converted"} {
+		for _, want := range []string{paths.WorkspaceConfigTOMLName, paths.WorkspaceConfigLegacyJSONCName, "reads only one config format", "Then rerun the command", "mv -n ", paths.WorkspaceConfigLegacyJSONCName + ".backup", paths.WorkspaceConfigTOMLName + ".backup"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("collision error %q does not contain safe-resolution guidance %q", err, want)
 			}
@@ -1427,7 +1427,7 @@ func TestReadableUserScopeCollisionOffersSafeManualResolution(t *testing.T) {
 	if _, err := LoadReadableUserScopeConfig(true, nil); err == nil {
 		t.Fatal("readable user loader accepted colliding files")
 	} else {
-		for _, want := range []string{paths.UserConfigTOMLName, paths.UserConfigLegacyJSONCName, "never merged", "backup path does not already exist", "then rerun the command", "mv ", paths.UserConfigLegacyJSONCName + ".backup", paths.UserConfigTOMLName + ".backup", "neither file is converted"} {
+		for _, want := range []string{paths.UserConfigTOMLName, paths.UserConfigLegacyJSONCName, "reads only one config format", "Then rerun the command", "mv -n ", paths.UserConfigLegacyJSONCName + ".backup", paths.UserConfigTOMLName + ".backup"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("collision error %q does not contain safe-resolution guidance %q", err, want)
 			}
@@ -1511,7 +1511,7 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 		t.Fatal("readable reader accepted TOML, JSONC, and JSON siblings")
 	} else {
 		for _, file := range files {
-			if !strings.Contains(err.Error(), file) {
+			if !strings.Contains(err.Error(), shquote.Quote(file)) {
 				t.Errorf("collision error %q omits supplied full path %q", err, file)
 			}
 		}
@@ -1545,7 +1545,7 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 		otherCWD := t.TempDir()
 		jsoncBackup := files[1] + ".backup"
 		write(t, jsoncBackup, "do not overwrite\n")
-		runReadableRecoveryCommand(t, otherCWD, keepTOML, false)
+		runReadableRecoveryCommand(t, otherCWD, strings.SplitN(keepTOML, "\n", 2)[0], false)
 		if got, err := os.ReadFile(jsoncBackup); err != nil || string(got) != "do not overwrite\n" {
 			t.Fatalf("existing backup was changed: %q, %v", got, err)
 		}
@@ -1558,7 +1558,7 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 		if err := os.Symlink(filepath.Join(dir, "missing backup target"), jsoncBackup); err != nil {
 			t.Fatal(err)
 		}
-		runReadableRecoveryCommand(t, otherCWD, keepTOML, false)
+		runReadableRecoveryCommand(t, otherCWD, strings.SplitN(keepTOML, "\n", 2)[0], false)
 		if target, err := os.Readlink(jsoncBackup); err != nil || target != filepath.Join(dir, "missing backup target") {
 			t.Fatalf("dangling-symlink backup was changed: %q, %v", target, err)
 		}
@@ -1596,35 +1596,41 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 	}
 }
 
+// readableCollisionRecoveryCommands reads the refusal's choices: each "To keep <name>:" line and
+// the indented command lines under it, keyed by the full path of the file kept.
 func readableCollisionRecoveryCommands(t *testing.T, err error, files []string) map[string]string {
 	t.Helper()
 	commands := make(map[string]string, len(files))
+	lines := strings.Split(err.Error(), "\n")
 	for _, keep := range files {
-		marker := "To keep " + keep + " active: `"
-		start := strings.Index(err.Error(), marker)
-		if start < 0 {
-			continue
+		marker := "To keep " + filepath.Base(keep) + ":"
+		for i, line := range lines {
+			if line != marker {
+				continue
+			}
+			var body []string
+			for _, next := range lines[i+1:] {
+				if !strings.HasPrefix(next, "    ") {
+					break
+				}
+				body = append(body, strings.TrimPrefix(next, "    "))
+			}
+			commands[keep] = strings.Join(body, "\n")
 		}
-		start += len(marker)
-		end := strings.Index(err.Error()[start:], "`")
-		if end < 0 {
-			t.Fatalf("unterminated recovery command for %q in %v", keep, err)
-		}
-		commands[keep] = err.Error()[start : start+end]
 	}
 	return commands
 }
 
+// runReadableRecoveryCommand runs a choice's commands from another directory. With an occupied
+// backup the commands may exit either way (mv -n's status for a skipped move differs between
+// implementations); what the caller checks is that nothing was overwritten or moved.
 func runReadableRecoveryCommand(t *testing.T, cwd, command string, wantSuccess bool) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.Command("sh", "-e", "-c", command)
 	cmd.Dir = cwd
 	output, err := cmd.CombinedOutput()
 	if wantSuccess && err != nil {
 		t.Fatalf("recovery command failed from different CWD: %v\n%s\ncommand: %s", err, output, command)
-	}
-	if !wantSuccess && err == nil {
-		t.Fatalf("recovery command unexpectedly succeeded with occupied backup: %s", command)
 	}
 }
 

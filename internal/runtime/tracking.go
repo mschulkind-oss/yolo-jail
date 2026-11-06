@@ -42,11 +42,54 @@ func ReadContainerWorkspace(name string) (string, bool) {
 	return ws, true
 }
 
-// PruneStaleTrackingFiles removes every tracking file under CONTAINER_DIR whose
-// name is not in runningNames: iterate CONTAINER_DIR, unlink any entry not
-// currently running. A missing CONTAINER_DIR is a no-op. Returns the names
-// removed (in directory order).
-func PruneStaleTrackingFiles(runningNames map[string]struct{}) []string {
+// SourceState is how one source of running jails answered "what is running"
+// (named-setups.md §12.1): a technology's listing, kept per source so one that did not
+// answer is never read as "no jails" (D11).
+type SourceState string
+
+const (
+	// SourceListed: asked, and it answered; its Names are every yolo jail it runs.
+	SourceListed SourceState = "listed"
+	// SourceNotInstalled: its binary is not on this machine, so it runs nothing.
+	SourceNotInstalled SourceState = "not-installed"
+	// SourceUnreachable: installed, and the ask failed or was never made. Its jails are unknown.
+	SourceUnreachable SourceState = "unreachable"
+	// SourceTimedOut: installed, asked, and no answer came within its budget. Unknown too.
+	SourceTimedOut SourceState = "timed-out"
+)
+
+// SourceAnswer is one source's answer. Confinement is the setup vocabulary
+// ("podman", "apple-container"); Names holds the jails it listed, meaningful only when
+// State is SourceListed.
+type SourceAnswer struct {
+	Confinement string
+	State       SourceState
+	Names       map[string]struct{}
+}
+
+// PruneStaleTrackingFiles removes the tracking files under CONTAINER_DIR that the
+// answers prove belong to no running jail, and returns the names removed (in
+// directory order). A missing CONTAINER_DIR is a no-op.
+//
+// answers must hold one entry per container source of this OS (named-setups-plan.md
+// SUP-D22): a tracking file names no technology, so it can be judged gone only when
+// EVERY container source answered, each either listed or not installed, and none
+// listed it (SU-D10). One source that did not answer keeps every file: its jails are
+// unknown, and a file pruned here is a live jail's record lost — the Mac defect where
+// a Podman-only `yolo ps` deleted every running Apple Container jail's file.
+func PruneStaleTrackingFiles(answers []SourceAnswer) []string {
+	running := map[string]struct{}{}
+	for _, a := range answers {
+		switch a.State {
+		case SourceListed:
+			for n := range a.Names {
+				running[n] = struct{}{}
+			}
+		case SourceNotInstalled:
+		default:
+			return nil
+		}
+	}
 	dir := paths.ContainerDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -54,7 +97,7 @@ func PruneStaleTrackingFiles(runningNames map[string]struct{}) []string {
 	}
 	var removed []string
 	for _, e := range entries {
-		if _, live := runningNames[e.Name()]; live {
+		if _, live := running[e.Name()]; live {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {

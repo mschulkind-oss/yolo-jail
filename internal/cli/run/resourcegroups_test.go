@@ -16,7 +16,7 @@ import (
 )
 
 func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "[bold red]project\x1b[31m[/bold red]")
+	root := filepath.Join(canonicalTempDir(t), "[bold red]project\x1b[31m[/bold red]")
 	workspace := filepath.Join(root, "child")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 }
 
 func TestHostResourceGroupGetwdFailureHasNextStep(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTempDir(t)
 	workspace := filepath.Join(parent, "removed")
 	if err := os.Mkdir(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -68,8 +68,8 @@ func TestHostResourceGroupGetwdFailureHasNextStep(t *testing.T) {
 }
 
 func TestMappedLaunchInJailDoesNotProbeHostPolicy(t *testing.T) {
-	workspace := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	workspace := canonicalTempDir(t)
+	t.Setenv("HOME", canonicalTempDir(t))
 	userConfig, _ := config.UserConfigFile()
 	if err := os.MkdirAll(filepath.Dir(userConfig), 0o755); err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestMappedLaunchInJailDoesNotProbeHostPolicy(t *testing.T) {
 	o.Now = func() time.Time { return time.Unix(0, 0) }
 	o.Getpid = func() int { return 1 }
 	o.LookPath = func(string) (string, bool) { return "", false }
-	assigned := filepath.Join(t.TempDir(), "io.max")
+	assigned := filepath.Join(canonicalTempDir(t), "io.max")
 	if err := os.WriteFile(assigned, []byte("8:0 rbps=101\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestMappedLaunchInJailDoesNotProbeHostPolicy(t *testing.T) {
 }
 
 func TestRunResourceGroupDiagnosticsEscapeDynamicTerminalText(t *testing.T) {
-	workspace := filepath.Join(t.TempDir(), "[bold red]project\x1b[31m[/bold red]", "child")
+	workspace := filepath.Join(canonicalTempDir(t), "[bold red]project\x1b[31m[/bold red]", "child")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestRunResourceGroupDiagnosticsEscapeDynamicTerminalText(t *testing.T) {
 
 func TestRunResourceGroupsOffInJailDoesNotProbeOrRefuse(t *testing.T) {
 	var stderr bytes.Buffer
-	o := &Options{Workspace: t.TempDir(), Stderr: &stderr}
+	o := &Options{Workspace: canonicalTempDir(t), Stderr: &stderr}
 	fillDefaults(o)
 	o.Stderr = &stderr
 	o.Getenv = func(key string) string {
@@ -186,8 +186,8 @@ func TestRunResourceGroupsOffInJailDoesNotProbeOrRefuse(t *testing.T) {
 }
 
 func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
-	workspace := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	workspace := canonicalTempDir(t)
+	t.Setenv("HOME", canonicalTempDir(t))
 	userConfig, _ := config.UserConfigFile()
 	if err := os.MkdirAll(filepath.Dir(userConfig), 0o755); err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 	o.Now = func() time.Time { return time.Unix(0, 0) }
 	o.Getpid = func() int { return 1 }
 	o.LookPath = func(string) (string, bool) { return "", false }
-	planFile := filepath.Join(t.TempDir(), "io.max")
+	planFile := filepath.Join(canonicalTempDir(t), "io.max")
 	if err := os.WriteFile(planFile, []byte("8:0 rbps=101\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -252,8 +252,8 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 }
 
 func TestRunRefusesTypoedOwnerJSONCResourceGroupsBeforeExecution(t *testing.T) {
-	workspace := t.TempDir()
-	home := t.TempDir()
+	workspace := canonicalTempDir(t)
+	home := canonicalTempDir(t)
 	t.Setenv("HOME", home)
 	userConfig := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigLegacyJSONCName)
 	if err := os.MkdirAll(filepath.Dir(userConfig), 0o755); err != nil {
@@ -312,8 +312,8 @@ func TestRunRejectsWorkspaceResourceGroupsFromJSONCFiles(t *testing.T) {
 		{name: "TOML parity", files: map[string]string{"yolo-jail.toml": "[resource_groups]\ndefault = 'work.slice'\n"}, scope: "this project file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			workspace := t.TempDir()
-			t.Setenv("HOME", t.TempDir())
+			workspace := canonicalTempDir(t)
+			t.Setenv("HOME", canonicalTempDir(t))
 			for name, body := range tc.files {
 				if err := os.MkdirAll(filepath.Dir(filepath.Join(workspace, name)), 0o755); err != nil {
 					t.Fatal(err)
@@ -361,8 +361,21 @@ func TestRunRejectsWorkspaceResourceGroupsFromJSONCFiles(t *testing.T) {
 
 func TestResourceGroupsOffSelectionIsEmptyWithoutPathResolution(t *testing.T) {
 	cfg := jsonx.NewOrderedMap()
-	selection, err := config.SelectResourceGroup(cfg, filepath.Join(t.TempDir(), "missing"))
+	selection, err := config.SelectResourceGroup(cfg, filepath.Join(canonicalTempDir(t), "missing"))
 	if err != nil || selection.Unit != "" {
 		t.Fatalf("off selection = %#v, %v", selection, err)
 	}
+}
+
+// canonicalTempDir mints a temp dir by its resolved path. resource_groups
+// mappings must name canonical paths, and on macOS t.TempDir() sits under a
+// symlink (/var -> /private/var), so an unresolved fixture would be refused
+// for the wrong reason.
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

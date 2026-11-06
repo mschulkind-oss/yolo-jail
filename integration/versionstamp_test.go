@@ -60,7 +60,7 @@ func TestTheJailsYoloCarriesItsMatchedBundleStamp(t *testing.T) {
 	if guestVersion != hostVersion {
 		t.Errorf("the jail's matched yolo version = %q, want host bundle version %q", guestVersion, hostVersion)
 	}
-	if !strings.Contains(hostVersion, "+") || !strings.HasSuffix(hostVersion, ".g"+wantCommit) {
+	if !versionEncodesCommit(hostVersion, wantCommit) {
 		t.Errorf("matched version %q does not encode stamped commit %q in its build metadata", hostVersion, wantCommit)
 	}
 	hostHash := versionField(t, hostOutput, "binary sha256: ")
@@ -222,4 +222,43 @@ func versionToken(t *testing.T, output string) string {
 	}
 	t.Fatalf("version output has no yolo-jail version line:\n%s", output)
 	return ""
+}
+
+// versionEncodesCommit reports whether version's build metadata (after "+") names commit as one
+// of its dot-separated fields, "g<commit>". version.Normalize writes it in every stamped form:
+// <tag>+g<hash> on the tag itself, <tag>+<n>.g<hash> after it, either with ".dirty" appended.
+func versionEncodesCommit(version, commit string) bool {
+	_, meta, ok := strings.Cut(version, "+")
+	if !ok || commit == "" {
+		return false
+	}
+	for _, field := range strings.Split(meta, ".") {
+		if field == "g"+commit {
+			return true
+		}
+	}
+	return false
+}
+
+// TestVersionEncodesCommitAcceptsTheOnTagForm pins versionEncodesCommit against
+// version.Normalize's three stamped forms. The on-tag form is the one the
+// 2026-11-04 macOS nightly met: it ran on the v0.16.1 commit, the matched version
+// was 0.16.1+g3ccc28def766, and a suffix check for ".g<hash>" refused it.
+func TestVersionEncodesCommitAcceptsTheOnTagForm(t *testing.T) {
+	for _, tc := range []struct {
+		version, commit string
+		want            bool
+	}{
+		{"0.16.1+g3ccc28def766", "3ccc28def766", true},
+		{"0.16.1+55.g163fd8fb34ff", "163fd8fb34ff", true},
+		{"0.16.1+55.g163fd8fb34ff.dirty", "163fd8fb34ff", true},
+		{"0.16.1", "3ccc28def766", false},
+		{"0.16.1+g3ccc28def766", "163fd8fb34ff", false},
+		{"0.16.1+55.g163fd8fb34ff", "163fd8fb", false},
+		{"0.16.1+gx3ccc28def766", "3ccc28def766", false},
+	} {
+		if got := versionEncodesCommit(tc.version, tc.commit); got != tc.want {
+			t.Errorf("versionEncodesCommit(%q, %q) = %v, want %v", tc.version, tc.commit, got, tc.want)
+		}
+	}
 }

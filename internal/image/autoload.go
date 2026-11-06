@@ -592,7 +592,7 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 			if off != "" {
 				currentPath, buildTail = off, offTail
 			} else if len(offTail) > 0 {
-				buildTail = offTail
+				buildTail = offloadFailureTail(buildTail, offTail)
 			}
 		}
 		buildFailed = currentPath == ""
@@ -1442,6 +1442,29 @@ func runNixBuildContext(ctx context.Context, argv []string, repoRoot string, bui
 	return outLink, tail
 }
 
+// offloadFailureTail is the failure report's tail when the plain build failed and the offload
+// after it failed too: the plain build's newest lines, then the offload's own. Both are needed.
+// The plain build's words say what nix had to build because no cache served it, the reason an
+// offload ran at all; the offload's say why it did not rescue the build. Until 2026-11-06 the
+// offload's replaced the plain build's, and the macOS nightly's report read only "container
+// builder did not start". The offload's lines are kept whole and the plain build's oldest are
+// trimmed, so the whole fits buildFailureReport's buildTailTextLimit.
+func offloadFailureTail(plain, offload []string) []string {
+	if len(plain) == 0 {
+		return offload
+	}
+	const between = "…then the Linux builder container, tried because that build failed:"
+	room := buildTailTextLimit - len(offload) - 1
+	if room <= 0 {
+		return offload
+	}
+	if len(plain) > room {
+		plain = plain[len(plain)-room:]
+	}
+	tail := append(append([]string{}, plain...), between)
+	return append(tail, offload...)
+}
+
 // buildImageWithContainerBuilder is the macOS build-offload (J3): start a Linux
 // builder container and retry the nix build with a --builders line pointing at
 // it over ssh-ng. Returns (storePath, stderrTail); "" if the builder couldn't be
@@ -1465,7 +1488,11 @@ func buildImageWithContainerBuilder(runtime, attr, repoRoot string, extra []any,
 	fmt.Fprintln(out, "Starting the Linux builder container for the from-source build…")
 	host, port, ok := sess.Start()
 	if !ok {
-		return "", []string{"container builder did not start"}
+		reason := "container builder did not start"
+		if why := sess.Failure(); why != "" {
+			reason += ": " + why
+		}
+		return "", []string{reason}
 	}
 	defer sess.Stop()
 
