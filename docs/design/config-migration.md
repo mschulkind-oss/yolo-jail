@@ -326,7 +326,10 @@ that deletes a file it does not convert is code written for nobody.
 ## 5. Every case
 
 - **Both `config.toml` and `config.jsonc` in one place:** refused, naming both and the command.
-  Formats are never merged.
+  Formats are never merged. When the JSONC is the file a migration already converted (a
+  dotfiles manager re-created the link the migration moved to `.pre-migrate`), the refusal says
+  it came back and gives the one `rm`; otherwise it offers each file to keep, each command on
+  its own line ([RC-D70](readable-config.md#RC-D70)).
 - **A config name that is a link to nothing** (`yolo-jail.jsonc -> swarf/.links/yolo-jail.jsonc`
   with no such target, in any scope, an `include_if_found` entry or a `config.d` fragment
   included): refused, naming the link, its target, and the two ways out — restore the target

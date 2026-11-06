@@ -569,10 +569,12 @@ func LinkWarning(links []LinkedFile) string {
 		fmt.Fprintf(&b, "%s is a link to %s. The converted file is written as a regular file at %s, and %s is not changed.\n",
 			l.Link, l.Target, l.New, l.Target)
 	}
+	// A manager that restores the old link puts both formats in one place, which every launch
+	// refuses (RC-D70), so the warning says to stop it as well.
 	if len(links) == 1 {
-		b.WriteString("If a dotfiles manager keeps this file, copy the new file into it yourself.")
+		b.WriteString("If a dotfiles manager keeps this file, copy the new file into it yourself, and stop it restoring the old link: a launch refuses while both names are here.")
 	} else {
-		b.WriteString("If a dotfiles manager keeps these files, copy the new files into it yourself.")
+		b.WriteString("If a dotfiles manager keeps these files, copy the new files into it yourself, and stop it restoring the old links: a launch refuses while both names are here.")
 	}
 	return b.String()
 }
@@ -580,7 +582,7 @@ func LinkWarning(links []LinkedFile) string {
 // LinkReport is the closing report's line for one moved link.
 func LinkReport(l LinkedFile) string {
 	return fmt.Sprintf("%s was a link to %s and is kept as %s. The converted file is the regular file %s, and %s was not changed; "+
-		"if a dotfiles manager keeps it, copy the new file into it yourself.", l.Link, l.Target, l.Backup, l.New, l.Target)
+		"if a dotfiles manager keeps it, copy the new file into it yourself, and stop it restoring %s.", l.Link, l.Target, l.Backup, l.New, l.Target, l.Link)
 }
 
 // resolvedDir is path's directory with every symlink in it resolved.

@@ -299,12 +299,12 @@ func TestLaunchOfferWarnsAboutASymlinkBeforeTheQuestion(t *testing.T) {
 	link = resolved(link)
 	target, toml := resolved(filepath.Join(dir, "config.jsonc")), resolved(filepath.Join(l.userDir, "config.toml"))
 	warning := link + " is a link to " + target + ". The converted file is written as a regular file at " + toml + ", and " + target + " is not changed.\n" +
-		"If a dotfiles manager keeps this file, copy the new file into it yourself.\n\nConvert to TOML now?"
+		"If a dotfiles manager keeps this file, copy the new file into it yourself, and stop it restoring the old link: a launch refuses while both names are here.\n\nConvert to TOML now?"
 	if !strings.Contains(s, warning) || !strings.Contains(s, "Stop asking:") || strings.Index(s, "Stop asking:") > strings.Index(s, warning) {
 		t.Fatalf("the warning is not after Stop asking and a blank line before the question:\n%s", s)
 	}
 	if !strings.Contains(s, link+" was a link to "+target+" and is kept as "+link+".pre-migrate. The converted file is the regular file "+toml+
-		", and "+target+" was not changed; if a dotfiles manager keeps it, copy the new file into it yourself.") {
+		", and "+target+" was not changed; if a dotfiles manager keeps it, copy the new file into it yourself, and stop it restoring "+link+".") {
 		t.Errorf("the closing report does not name the moved link:\n%s", s)
 	}
 	if info, err := os.Lstat(toml); err != nil || !info.Mode().IsRegular() || l.exists("config.jsonc") {

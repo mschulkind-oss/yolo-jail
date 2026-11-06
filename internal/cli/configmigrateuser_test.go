@@ -185,12 +185,12 @@ func TestConfigMigrateMovesALinkAndLeavesItsTarget(t *testing.T) {
 	}
 	toml := filepath.Join(e.userDir, "config.toml")
 	before := link + " is a link to " + target + ". The converted file is written as a regular file at " + toml + ", and " + target + " is not changed.\n" +
-		"If a dotfiles manager keeps this file, copy the new file into it yourself.\n"
+		"If a dotfiles manager keeps this file, copy the new file into it yourself, and stop it restoring the old link: a launch refuses while both names are here.\n"
 	if !strings.Contains(stdout, before) {
 		t.Fatalf("the plan does not warn about the link:\n%s", stdout)
 	}
 	after := link + " was a link to " + target + " and is kept as " + link + ".pre-migrate. The converted file is the regular file " + toml +
-		", and " + target + " was not changed; if a dotfiles manager keeps it, copy the new file into it yourself.\n"
+		", and " + target + " was not changed; if a dotfiles manager keeps it, copy the new file into it yourself, and stop it restoring " + link + ".\n"
 	if !strings.Contains(stdout, after) {
 		t.Fatalf("the report does not name the moved link:\n%s", stdout)
 	}
