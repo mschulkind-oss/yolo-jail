@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -442,5 +443,38 @@ func TestPrepareOrdinaryProgramsRefusesAPrivateClientWithLaunchFlags(t *testing.
 		if !strings.Contains(out, want) {
 			t.Errorf("refusal does not name %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestTheKeepersStartRecordNamesItsCheckedPrivateClients: the start record a later attach reads
+// (TestAttachRefusesACheckedPrivateClientWithNoCommittedBinding) names every private client the
+// launch checked, so an attach can tell a checked client from none.
+func TestTheKeepersStartRecordNamesItsCheckedPrivateClients(t *testing.T) {
+	checked := checkedPrivateClientFixture("semver", "audited-semver", "http", "audited-semver", strings.Repeat("a", 64))
+	var first *sessionLock
+	f := startKeeperFixtureWith(t, true, func(p *keeperPlan) {
+		p.PrivateClientEntrypoints = []callbrokerinput.PreparedHTTPClientEntrypoint{checked}
+		// sh -c takes the binding pair inserted before the image as positional words it ignores.
+		p.RunCmd = append(p.RunCmd, p.ImageRef)
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first = lock
+	}, func(o *Options) {
+		b := checked.Binding
+		b.Generation = strings.Repeat("a", 32)
+		o.privateClientBindings = []entrypoint.PrivateClientBinding{b}
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	rec, ok := readKeeperRecord(f.cname)
+	if !ok || !slices.Equal(rec.PrivateClients, []string{"semver"}) {
+		t.Errorf("the start record names private clients %v (%v), want [semver]", rec.PrivateClients, ok)
+	}
+	first.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
 	}
 }
