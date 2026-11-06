@@ -2,6 +2,7 @@ package run
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -193,6 +194,43 @@ func TestRetirementRefusesForeignResultInodeAndLinkedMetadata(t *testing.T) {
 	}
 	if o.retireMCPOutcome(cname, "podman", id) {
 		t.Fatal("accepted a hard-linked ownership claim")
+	}
+}
+
+// A RESULT WHOSE INODE NUMBER MATCHES BUT WHOSE GENERATION DOES NOT IS NOT OURS. ext4 and XFS
+// hand a freed inode number straight to the next new file, so the test above only meets that
+// replacement on such a filesystem (CI's, not this jail's btrfs). This one forges the
+// mismatch on any filesystem that reports a generation: delete the generation comparison
+// and retirement removes a file the claim never named.
+func TestRetirementRefusesAResultWhoseInodeGenerationDiffers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const cname = "yolo-mcp-reused-inode-number"
+	id := strings.Repeat("3", 32)
+	o := retirementOptions(t)
+	writeRetirementOutcome(t, cname, id, "ok", o)
+	claimPath := filepath.Join(ownerPIDDir(), mcpOutcomeClaimName(cname, id))
+	raw, err := os.ReadFile(claimPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claim mcpOutcomeClaim
+	if err := json.Unmarshal(raw, &claim); err != nil {
+		t.Fatal(err)
+	}
+	if claim.Generation == nil {
+		t.Skip("this filesystem reports no inode generation; its inode numbers are not reused")
+	}
+	other := *claim.Generation + 1
+	claim.Generation = &other
+	forged, _ := json.Marshal(claim)
+	if err := os.WriteFile(claimPath, forged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if o.retireMCPOutcome(cname, "podman", id) {
+		t.Fatal("retired a result whose inode generation is not the claimed one")
+	}
+	if _, err := os.Lstat(mcpTeardownOutcomePath(cname, id)); err != nil {
+		t.Fatalf("result at a reused inode number was deleted: %v", err)
 	}
 }
 

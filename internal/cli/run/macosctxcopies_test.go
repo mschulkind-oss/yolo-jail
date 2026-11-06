@@ -183,7 +183,7 @@ func TestMacosUserRefusesAPackFileMountItCannotRead(t *testing.T) {
 	out := runMacosUserExpectingRefusal(t, t.TempDir(), homeSiting(t, home))
 
 	for _, want := range []string{"pack acme's `mount` ~/notes.txt → /ctx/acme/notes.txt could not be copied",
-		"Privacy & Security", "remove the pack for this workspace", "container runtime"} {
+		"Privacy & Security", "remove the pack for this workspace", "use a container setup (`--setup podman-self`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal did not say %q:\n%s", want, out)
 		}

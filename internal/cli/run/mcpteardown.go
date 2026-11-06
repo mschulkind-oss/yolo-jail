@@ -22,14 +22,21 @@ type mcpTeardownOutcome struct {
 
 // A claim binds the exclusively published result's inode to this launch's
 // random ID. Neither this bookkeeping nor the outcome conveys an auth grant.
+//
+// Device and inode NUMBERS do not name one file over time: ext4 and XFS hand a
+// freed inode number straight to the next file created, so a file put at the
+// result path after ours was removed can carry our numbers. Generation is the
+// inode's generation number where the filesystem reports one (absent where it
+// does not), and it differs between two files that shared an inode number.
 type mcpOutcomeClaim struct {
-	ID        string `json:"id"`
-	Cname     string `json:"cname"`
-	Workspace string `json:"workspace"`
-	Runtime   string `json:"runtime"`
-	Device    uint64 `json:"device"`
-	Inode     uint64 `json:"inode"`
-	Temp      string `json:"temp"`
+	ID         string  `json:"id"`
+	Cname      string  `json:"cname"`
+	Workspace  string  `json:"workspace"`
+	Runtime    string  `json:"runtime"`
+	Device     uint64  `json:"device"`
+	Inode      uint64  `json:"inode"`
+	Generation *uint64 `json:"generation,omitempty"`
+	Temp       string  `json:"temp"`
 }
 
 func mcpOutcomeClaimName(cname, id string) string {
@@ -120,11 +127,15 @@ func writeMCPTeardownOutcomeFor(cname, id, result, workspace, runtime string) er
 		_ = file.Close()
 		return err
 	}
+	gen, genOK := mcpOutcomeInodeGeneration(file)
 	if err := closeMCPTeardownTemp(file); err != nil {
 		return err
 	}
 	stat := info.Sys().(*syscall.Stat_t)
 	claim := mcpOutcomeClaim{ID: id, Cname: cname, Workspace: workspace, Runtime: runtime, Device: uint64(stat.Dev), Inode: stat.Ino, Temp: tmp}
+	if genOK {
+		claim.Generation = &gen
+	}
 	claimName := mcpOutcomeClaimName(cname, id)
 	claimFile, err := root.OpenFile(claimName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

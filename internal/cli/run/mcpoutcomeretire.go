@@ -202,16 +202,27 @@ func validMCPOutcomeTemp(name, resultName string) bool {
 	return true
 }
 
-func mcpOutcomeInode(info os.FileInfo, claim mcpOutcomeClaim, links uint64) bool {
+// mcpOutcomeInode says whether file is the very inode the claim recorded. The
+// generation must agree in presence and value: a file whose filesystem reports
+// one that the claim lacks, or the reverse, is not proven ours.
+func mcpOutcomeInode(file *os.File, info os.FileInfo, claim mcpOutcomeClaim, links uint64) bool {
 	st, ok := info.Sys().(*syscall.Stat_t)
-	return ok && info.Mode().IsRegular() && info.Mode().Perm() == 0o600 &&
-		uint64(st.Dev) == claim.Device && st.Ino == claim.Inode && uint64(st.Nlink) == links
+	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 ||
+		uint64(st.Dev) != claim.Device || st.Ino != claim.Inode || uint64(st.Nlink) != links {
+		return false
+	}
+	gen, genOK := mcpOutcomeInodeGeneration(file)
+	if claim.Generation == nil {
+		return !genOK
+	}
+	return genOK && gen == *claim.Generation
 }
 
 // retireMCPOutcome does not infer death from a PID, elapsed time, or a failed
 // runtime query. It needs BOTH kernel locks (no ending readers or sessions),
 // the gone keeper, and a successful runtime answer for this workspace's name.
-// Claim + inode + exact outcome identify ONLY the result this generation wrote.
+// Claim + inode + inode generation + exact outcome identify ONLY the result
+// this generation wrote.
 func (o *Options) retireMCPOutcome(cname, rt, id string) bool {
 	if mcpTeardownOutcomePath(cname, id) == "" || probeKeeper(cname) != keeperGone {
 		return false
@@ -305,24 +316,24 @@ func (o *Options) retireMCPOutcome(cname, rt, id string) bool {
 		}
 		if temp != nil {
 			info, statErr := temp.Stat()
-			if statErr != nil || !mcpOutcomeInode(info, claim, 1) || root.Remove(claim.Temp) != nil {
+			if statErr != nil || !mcpOutcomeInode(temp, info, claim, 1) || root.Remove(claim.Temp) != nil {
 				return false
 			}
 		}
 	} else {
 		resultInfo, statErr := result.Stat()
 		if statErr != nil || resultInfo.Size() > 256 ||
-			!mcpOutcomeInode(resultInfo, claim, 1) && !mcpOutcomeInode(resultInfo, claim, 2) {
+			!mcpOutcomeInode(result, resultInfo, claim, 1) && !mcpOutcomeInode(result, resultInfo, claim, 2) {
 			result.Close()
 			return false
 		}
 		if temp != nil {
 			tempInfo, tempStatErr := temp.Stat()
-			if tempStatErr != nil || !mcpOutcomeInode(tempInfo, claim, 2) || !mcpOutcomeInode(resultInfo, claim, 2) {
+			if tempStatErr != nil || !mcpOutcomeInode(temp, tempInfo, claim, 2) || !mcpOutcomeInode(result, resultInfo, claim, 2) {
 				result.Close()
 				return false
 			}
-		} else if !mcpOutcomeInode(resultInfo, claim, 1) {
+		} else if !mcpOutcomeInode(result, resultInfo, claim, 1) {
 			result.Close()
 			return false
 		}
