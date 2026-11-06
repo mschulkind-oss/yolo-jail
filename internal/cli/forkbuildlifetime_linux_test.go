@@ -287,7 +287,7 @@ func TestForkBuildDoesNotAdmitMutableOutputOrDeleteWorkspaceAfterUnknownKeeperWa
 							if err := o.OnRuntimeResolved("podman"); err != nil {
 								t.Fatalf("persist direct runtime: %v", err)
 							}
-							if err := runtime.WriteContainerTracking(cname, o.Workspace); err != nil {
+							if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: o.Workspace}); err != nil {
 								t.Fatal(err)
 							}
 							if err := os.MkdirAll(filepath.Join(paths.AgentsDir(), cname), 0o755); err != nil {
@@ -354,7 +354,7 @@ func TestNativeBuildUnknownKeeperRefusesAdmissionAndRetainsOriginalState(t *test
 		if err := o.OnRuntimeResolved("macos-user"); err != nil {
 			t.Fatalf("persist actual native backend: %v", err)
 		}
-		if err := runtime.WriteContainerTracking(cname, o.Workspace); err != nil {
+		if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: o.Workspace}); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(filepath.Join(paths.AgentsDir(), cname), 0o755); err != nil {
@@ -485,7 +485,7 @@ func runNativeForkBuildForOwnershipTest(t *testing.T, setup func(string)) native
 		if err := o.OnRuntimeResolved("macos-user"); err != nil {
 			t.Fatalf("persist native runtime: %v", err)
 		}
-		if err := runtime.WriteContainerTracking(cname, o.Workspace); err != nil {
+		if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: o.Workspace}); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(filepath.Join(paths.AgentsDir(), cname), 0o755); err != nil {

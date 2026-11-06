@@ -2548,7 +2548,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// known gone. The live-tree record names it for a later attach, which takes the launch lock this
 	// launch hands its keeper, so no attach can find the container without the record.
 	if !o.launchGuard.record(func() {
-		_ = runtimeWriteTracking(cname, o.Workspace)
+		_ = runtimeWriteTracking(o.containerLaunchRecord(cname, loadedPacks))
 		if err := writeLivePackTree(cname, packStaging); err != nil {
 			out.printf("[yellow]Warning: could not record the pack tree this jail boots from (%s); "+
 				"an attach to it will compose from the configured packs instead[/yellow]", err.Error())
@@ -3730,11 +3730,37 @@ func detectHostTZ() string {
 	return ""
 }
 
-// runtimeWriteTracking wraps runtime.WriteContainerTracking with the resolved
-// workspace path.
-func runtimeWriteTracking(cname, workspace string) error {
-	resolved := resolvePath(workspace)
-	return writeTracking(cname, resolved)
+// runtimeWriteTracking writes a container jail's launch record (runtime.WriteLaunchRecord) with
+// its workspace resolved.
+func runtimeWriteTracking(rec runtime.LaunchRecord) error {
+	rec.Workspace = resolvePath(rec.Workspace)
+	return writeTracking(rec)
+}
+
+// containerLaunchRecord is the launch record of this launch's container jail, cname, which booted
+// from packs (named-setups.md SU-D11 and §12.4; named-setups-plan.md slice 11b): the setup, its
+// confinement and account, the workspace, the start, the packs the launch staged and the yolo
+// that launched it. A launch that staged no pack records an empty list, not an unknown one; a yolo
+// that cannot name its own version records it unknown.
+func (o *Options) containerLaunchRecord(cname string, packs []*packload.Pack) runtime.LaunchRecord {
+	now := time.Now
+	if o.Now != nil {
+		now = o.Now
+	}
+	names := make([]string, 0, len(packs))
+	for _, p := range packs {
+		if p != nil {
+			names = append(names, p.Name)
+		}
+	}
+	v := version.Binary("")
+	if v == "unknown" {
+		v = ""
+	}
+	return runtime.LaunchRecord{
+		Name: cname, Setup: o.Setup.Name, Confinement: o.Setup.Confinement, RunAs: o.Setup.RunAs,
+		Workspace: resolvePath(o.Workspace), Started: now(), Packs: names, YoloVersion: v,
+	}
 }
 
 // emitLaunchBanner writes the launch line to stderr (audit §B#4), continuing the

@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-06):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). Slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree) is built on a branch and held: it waits on W-SU1/W-SU4 and [W-SU12](#mac-checks). 6b is not built. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-06):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). Slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree) is built on a branch and held: it waits on W-SU1/W-SU4 and [W-SU12](#mac-checks). 6b is not built. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). The unchanged W-SU1/W-SU4 still gate primary landing; [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built, and 11b (the container launch record) is built on a branch. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -1258,6 +1258,17 @@ rule's legacy half, which is the half that protects every record that exists.
 - **Gates:** `go test -short ./internal/runtime/ ./internal/cli/...`; `just check-ci`; this is the
   launch path, so the full integration suite at landing.
 - **Commit:** `feat(run): the tracking file becomes the launch record`
+
+**Built on a branch, not landed (2026-11-06).** The record is JSON with null for an unknown, and
+it is written through a temporary file and a rename, so `yolo ps` never reads half of one. A
+record that names its technology is judged by that technology's answer alone. A `not-installed`
+answer keeps it, which closes 11a's PATH-miss gap for every record written since. The call site
+is `runtimeWriteTracking(o.containerLaunchRecord(cname, loadedPacks))`. The record's version is
+the launcher's own (`version.Binary`), never a `YOLO_VERSION` override. Tests:
+`TestALaunchRecordRoundTripsEveryField`, `TestALegacyTrackingFileReadsAsTheWorkspaceAlone`,
+`TestARecordNamingItsTechnologyIsJudgedByThatTechnology` and
+`TestTheLaunchRecordCarriesTheLaunchsSetupAndPacks` (the call-site pin). Its landing still needs
+the full integration suite.
 
 #### 11c — every `yolo host --` launch holds a session ([SU-D12](named-setups.md#SU-D12))
 

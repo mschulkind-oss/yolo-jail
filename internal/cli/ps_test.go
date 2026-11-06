@@ -34,8 +34,8 @@ func TestPsTableAndProblems(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// Seed a tracking file so workspace resolves without an inspect call.
-	must(t, runtime.WriteContainerTracking("yolo-a-1111", "/exists"))
-	must(t, runtime.WriteContainerTracking("yolo-b-2222", "/gone"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-a-1111", Workspace: "/exists"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
 
 	psOut := "yolo-a-1111\tUp 2 hours\t2 hours ago\n" +
 		"yolo-b-2222\tUp 5 minutes\t5 minutes ago\n"
@@ -75,8 +75,8 @@ func TestPsTableAndProblems(t *testing.T) {
 func TestPsPrunesStaleTracking(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
-	must(t, runtime.WriteContainerTracking("yolo-dead", "/ws2"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-dead", Workspace: "/ws2"}))
 
 	deps := psDeps{
 		DetectRuntime: func() string { return "podman" },
@@ -122,8 +122,8 @@ func TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			must(t, runtime.WriteContainerTracking("yolo-ac-1234", "/ac-workspace"))
-			must(t, runtime.WriteContainerTracking("yolo-pd-5678", "/pd-workspace"))
+			must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-ac-1234", Workspace: "/ac-workspace"}))
+			must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-pd-5678", Workspace: "/pd-workspace"}))
 			psRun(psDeps{
 				DetectRuntime: func() string { return "podman" },
 				GOOS:          "darwin",
@@ -168,7 +168,7 @@ func TestPsContainerAnswersKeepEverythingForAnUnknownRuntime(t *testing.T) {
 		t.Errorf("answers = %+v; want the unknown runtime answering unreachable", answers)
 	}
 	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteContainerTracking("yolo-x-2", "/ws"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-x-2", Workspace: "/ws"}))
 	if removed := runtime.PruneStaleTrackingFiles(answers); len(removed) != 0 {
 		t.Errorf("the prune removed %v on an unknown runtime's answer", removed)
 	}
@@ -181,8 +181,8 @@ func TestPsContainerAnswersKeepEverythingForAnUnknownRuntime(t *testing.T) {
 // rather than the old config-blind "podman" pick that saw nothing and wiped both.
 func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
-	must(t, runtime.WriteContainerTracking("yolo-dead", "/ws2"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-dead", Workspace: "/ws2"}))
 
 	deps := psDeps{
 		DetectRuntime: func() string { return "container" },
@@ -212,7 +212,7 @@ func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
 // `yolo-linux-builder`. Removing psRun's container branch, or its JSON argv, fails this.
 func TestPsAppleContainerStatusIsTheState(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteContainerTracking("yolo-su11-ac-f113f9bc", "/Users/Shared/yolo/su11-ac"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-su11-ac-f113f9bc", Workspace: "/Users/Shared/yolo/su11-ac"}))
 	var asked []string
 	var buf bytes.Buffer
 	psRun(psDeps{
@@ -260,7 +260,7 @@ func TestPsAppleContainerStatusIsTheState(t *testing.T) {
 // it as empty would prune live jails' tracking files (D11).
 func TestPsAppleContainerUnparseableListingDoesNotPrune(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
 	var buf bytes.Buffer
 	psRun(psDeps{
 		DetectRuntime: func() string { return "container" },
@@ -286,8 +286,8 @@ func TestPsAppleContainerUnparseableListingDoesNotPrune(t *testing.T) {
 func TestPsEnumerationFailureDoesNotPrune(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	must(t, runtime.WriteContainerTracking("yolo-live-1", "/ws1"))
-	must(t, runtime.WriteContainerTracking("yolo-live-2", "/ws2"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live-1", Workspace: "/ws1"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live-2", Workspace: "/ws2"}))
 
 	var buf bytes.Buffer
 	psRun(psDeps{
@@ -422,7 +422,7 @@ func TestPsColorParity(t *testing.T) {
 
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		must(t, runtime.WriteContainerTracking("yolo-b-2222", "/gone"))
+		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
 		var plain bytes.Buffer
 		psRun(mkDeps(&plain, false))
 		if strings.Contains(plain.String(), "\x1b[") {
@@ -438,7 +438,7 @@ func TestPsColorParity(t *testing.T) {
 
 		home2 := t.TempDir()
 		t.Setenv("HOME", home2)
-		must(t, runtime.WriteContainerTracking("yolo-b-2222", "/gone"))
+		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
 		var col bytes.Buffer
 		psRun(mkDeps(&col, true))
 		if !strings.Contains(col.String(), "\x1b[") {
@@ -533,7 +533,7 @@ func noExecDeps(t *testing.T, out *bytes.Buffer, format string) psDeps {
 func TestPsOnMacosUserListsItsLiveSessions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	base := redirectSessionBase(t)
-	must(t, runtime.WriteContainerTracking("yolo-ac-1234", "/ac-workspace"))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-ac-1234", Workspace: "/ac-workspace"}))
 
 	plantPsSession(t, base, "yolo-live-1", "live",
 		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/Shared/yolo/live", Name: "yolo-live-1"})

@@ -1,45 +1,161 @@
 package runtime
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
-// WriteContainerTracking writes a tracking file under CONTAINER_DIR named for
-// the container, holding the resolved workspace path + a trailing newline, so
-// `yolo ps` can map containers→workspaces.
-// workspaceResolved must already be the resolved (absolute, symlinks-followed)
-// path — the caller resolves it; the FS side (mkdir of CONTAINER_DIR) is
-// ensured here.
-func WriteContainerTracking(name, workspaceResolved string) error {
+// LaunchRecord is the host-side record a container launch leaves under CONTAINER_DIR, named for
+// its jail (named-setups.md SU-D11, the container half; named-setups-plan.md slice 11b). It is
+// what `yolo ps` reads to map a container to its workspace, and it names what the runtime cannot
+// tell: the setup, the selected packs and the yolo that launched it.
+//
+// Every field but Name and Workspace may be UNKNOWN: a record an older yolo wrote held the
+// workspace alone. An unknown string is "", an unknown Started is the zero time, and unknown Packs
+// is nil; a launch that selected no pack records an empty, non-nil list. On disk an unknown is
+// JSON null (named-setups.md §12.4).
+type LaunchRecord struct {
+	Name        string
+	Setup       string
+	Confinement setup.Confinement
+	RunAs       setup.RunAs
+	Workspace   string
+	Started     time.Time
+	Packs       []string
+	YoloVersion string
+}
+
+// launchRecordJSON is the record's file shape: the keys of named-setups.md §12.4, null for unknown.
+type launchRecordJSON struct {
+	Name        string   `json:"name"`
+	Setup       *string  `json:"setup"`
+	Confinement *string  `json:"confinement"`
+	RunAs       *string  `json:"run_as"`
+	Workspace   string   `json:"workspace"`
+	Started     *string  `json:"started"`
+	Packs       []string `json:"packs"`
+	YoloVersion *string  `json:"yolo_version"`
+}
+
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// WriteLaunchRecord writes rec to CONTAINER_DIR/<rec.Name>, replacing any record of that name.
+// rec.Workspace must already be the resolved (absolute, symlinks-followed) path. The write goes
+// through a temporary file and a rename, so a reader never sees half a record.
+func WriteLaunchRecord(rec LaunchRecord) error {
 	dir := paths.ContainerDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, name), []byte(workspaceResolved+"\n"), 0o644)
+	wire := launchRecordJSON{
+		Name:        rec.Name,
+		Setup:       nullable(rec.Setup),
+		Confinement: nullable(string(rec.Confinement)),
+		RunAs:       nullable(string(rec.RunAs)),
+		Workspace:   rec.Workspace,
+		Packs:       rec.Packs,
+		YoloVersion: nullable(rec.YoloVersion),
+	}
+	if !rec.Started.IsZero() {
+		wire.Started = nullable(rec.Started.UTC().Format(time.RFC3339))
+	}
+	data, err := json.MarshalIndent(wire, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+rec.Name+".tmp-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, rec.Name)); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
-// CleanupContainerTracking removes a container's tracking file (missing_ok).
+// ReadLaunchRecord reads the record of the jail name, or false when there is none, it is empty,
+// or it is a JSON document that does not parse. A file an older yolo wrote, the workspace path on
+// one line, reads as a record of that workspace with every other field unknown.
+func ReadLaunchRecord(name string) (LaunchRecord, bool) {
+	data, err := os.ReadFile(filepath.Join(paths.ContainerDir(), name))
+	if err != nil {
+		return LaunchRecord{}, false
+	}
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return LaunchRecord{}, false
+	}
+	if trimmed[0] != '{' {
+		return LaunchRecord{Name: name, Workspace: trimTrailingSpace(string(data))}, true
+	}
+	var wire launchRecordJSON
+	if err := json.Unmarshal(trimmed, &wire); err != nil || wire.Workspace == "" {
+		return LaunchRecord{}, false
+	}
+	rec := LaunchRecord{
+		Name:        name,
+		Setup:       deref(wire.Setup),
+		Confinement: setup.Confinement(deref(wire.Confinement)),
+		RunAs:       setup.RunAs(deref(wire.RunAs)),
+		Workspace:   wire.Workspace,
+		Packs:       wire.Packs,
+		YoloVersion: deref(wire.YoloVersion),
+	}
+	if s := deref(wire.Started); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			rec.Started = t.UTC()
+		}
+	}
+	return rec, true
+}
+
+// CleanupContainerTracking removes a container's launch record (missing_ok).
 func CleanupContainerTracking(name string) {
 	_ = os.Remove(filepath.Join(paths.ContainerDir(), name))
 }
 
-// ReadContainerWorkspace returns the workspace recorded in a container's
-// tracking file (trailing whitespace trimmed), or ("", false) when the file is
-// absent/empty. The inspect fallback stays in the caller since it execs the
-// runtime.
+// ReadContainerWorkspace returns the workspace a container's launch record names, or ("", false)
+// when it has none. The inspect fallback stays in the caller since it execs the runtime.
 func ReadContainerWorkspace(name string) (string, bool) {
-	data, err := os.ReadFile(filepath.Join(paths.ContainerDir(), name))
-	if err != nil {
+	rec, ok := ReadLaunchRecord(name)
+	if !ok {
 		return "", false
 	}
-	ws := trimTrailingSpace(string(data))
-	if ws == "" {
-		return "", false
-	}
-	return ws, true
+	return rec.Workspace, true
 }
 
 // SourceState is how one source of running jails answered "what is running"
@@ -67,19 +183,28 @@ type SourceAnswer struct {
 	Names       map[string]struct{}
 }
 
-// PruneStaleTrackingFiles removes the tracking files under CONTAINER_DIR that the
-// answers prove belong to no running jail, and returns the names removed (in
-// directory order). A missing CONTAINER_DIR is a no-op.
+// PruneStaleTrackingFiles removes the launch records under CONTAINER_DIR that the answers prove
+// belong to no running jail, and returns the names removed (in directory order). A missing
+// CONTAINER_DIR is a no-op. answers must hold one entry per container source of this OS
+// (named-setups-plan.md SUP-D22). The rule has two halves (SU-D10):
 //
-// answers must hold one entry per container source of this OS (named-setups-plan.md
-// SUP-D22): a tracking file names no technology, so it can be judged gone only when
-// EVERY container source answered, each either listed or not installed, and none
-// listed it (SU-D10). One source that did not answer keeps every file: its jails are
-// unknown, and a file pruned here is a live jail's record lost — the Mac defect where
-// a Podman-only `yolo ps` deleted every running Apple Container jail's file.
+//   - A record that names its technology (Confinement, written since slice 11b) is judged by that
+//     technology alone: it goes when that source is `listed` and did not list it. Any other answer
+//     keeps it, `not-installed` included: that is a PATH miss, and a runtime installed off this
+//     PATH still runs its jails, so a miss alone never authorizes deleting a record that names it.
+//   - A record that names none (an older yolo's, or one that does not parse) goes only when EVERY
+//     container source answered, each either listed or not installed, and none listed it. One
+//     source that did not answer keeps every such record: its jails are unknown, and a record
+//     pruned here is a live jail's record lost — the Mac defect where a Podman-only `yolo ps`
+//     deleted every running Apple Container jail's file.
+//
+// A name any listed source runs is never removed, whatever its record says.
 func PruneStaleTrackingFiles(answers []SourceAnswer) []string {
 	running := map[string]struct{}{}
+	byTech := map[string]SourceAnswer{}
+	everyAnswered := true
 	for _, a := range answers {
+		byTech[a.Confinement] = a
 		switch a.State {
 		case SourceListed:
 			for n := range a.Names {
@@ -87,7 +212,7 @@ func PruneStaleTrackingFiles(answers []SourceAnswer) []string {
 			}
 		case SourceNotInstalled:
 		default:
-			return nil
+			everyAnswered = false
 		}
 	}
 	dir := paths.ContainerDir()
@@ -97,11 +222,21 @@ func PruneStaleTrackingFiles(answers []SourceAnswer) []string {
 	}
 	var removed []string
 	for _, e := range entries {
-		if _, live := running[e.Name()]; live {
+		name := e.Name()
+		if _, live := running[name]; live || strings.HasPrefix(name, ".") {
+			continue // running, or a record WriteLaunchRecord is still writing
+		}
+		rec, _ := ReadLaunchRecord(name)
+		if rec.Confinement != "" {
+			a, asked := byTech[string(rec.Confinement)]
+			if !asked || a.State != SourceListed {
+				continue
+			}
+		} else if !everyAnswered {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err == nil {
-			removed = append(removed, e.Name())
+		if err := os.Remove(filepath.Join(dir, name)); err == nil {
+			removed = append(removed, name)
 		}
 	}
 	return removed

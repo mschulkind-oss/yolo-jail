@@ -9,9 +9,9 @@ func shquoteJoin(args []string) string { return shquote.Join(args) }
 
 func shquoteJoinDebug(args []string) string { return shquote.Join(args) }
 
-// writeTracking wraps runtime.WriteContainerTracking.
-func writeTracking(cname, workspaceResolved string) error {
-	return runtime.WriteContainerTracking(cname, workspaceResolved)
+// writeTracking wraps runtime.WriteLaunchRecord.
+func writeTracking(rec runtime.LaunchRecord) error {
+	return runtime.WriteLaunchRecord(rec)
 }
 
 // indexOfSlice returns the index of the first occurrence of target in s, or -1.

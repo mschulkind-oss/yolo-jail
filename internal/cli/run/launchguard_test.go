@@ -224,7 +224,7 @@ func TestASignalAfterTheLaunchsRecordsTakesThemBackWithItsTree(t *testing.T) {
 	}
 	var writeErr error
 	if !f.o.launchGuard.record(func() {
-		if writeErr = runtimeWriteTracking(cname, f.o.Workspace); writeErr == nil {
+		if writeErr = runtimeWriteTracking(runtime.LaunchRecord{Name: cname, Workspace: f.o.Workspace}); writeErr == nil {
 			writeErr = writeLivePackTree(cname, f.tree)
 		}
 	}) {
@@ -431,7 +431,7 @@ func TestWhatTheLaunchMakesWhileTheGuardTearsDownIsNotLeftBehind(t *testing.T) {
 		discardUnheldSkeleton(cname, skeleton)
 	}
 	if f.o.launchGuard.record(func() {
-		_ = runtimeWriteTracking(cname, f.o.Workspace)
+		_ = runtimeWriteTracking(runtime.LaunchRecord{Name: cname, Workspace: f.o.Workspace})
 		_ = writeLivePackTree(cname, f.tree)
 	}) {
 		t.Error("the guard let a launch its teardown had already ended write its records")

@@ -1,6 +1,6 @@
 package run
 
-// trackingcleanup.go drops a jail's TRACKING FILE (runtime.WriteContainerTracking:
+// trackingcleanup.go drops a jail's TRACKING FILE (its launch record, runtime.WriteLaunchRecord:
 // CONTAINER_DIR/<cname>, the container → workspace map `yolo ps` reads) once the launch that
 // wrote it has observed the container gone.
 //

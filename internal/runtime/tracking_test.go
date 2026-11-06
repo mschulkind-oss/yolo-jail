@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,16 +16,22 @@ func TestTrackingRoundTrip(t *testing.T) {
 
 	// Write → read round-trips the resolved workspace.
 	ws := "/home/matt/code/thing"
-	if err := WriteContainerTracking("yolo-thing-abcd1234", ws); err != nil {
+	if err := WriteLaunchRecord(LaunchRecord{Name: "yolo-thing-abcd1234", Workspace: ws}); err != nil {
 		t.Fatal(err)
 	}
-	// The file lives under CONTAINER_DIR with a trailing newline.
+	// The file lives under CONTAINER_DIR as the launch record's JSON, every unknown field null.
 	raw, err := os.ReadFile(filepath.Join(paths.ContainerDir(), "yolo-thing-abcd1234"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != ws+"\n" {
-		t.Errorf("tracking file = %q, want %q", raw, ws+"\n")
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil || doc["workspace"] != ws || doc["name"] != "yolo-thing-abcd1234" {
+		t.Errorf("tracking file = %q (%v), want the launch record of %s", raw, err, ws)
+	}
+	for _, k := range []string{"setup", "confinement", "run_as", "started", "packs", "yolo_version"} {
+		if v, ok := doc[k]; !ok || v != nil {
+			t.Errorf("tracking file key %q = %v (present %v), want null for an unknown", k, v, ok)
+		}
 	}
 	got, ok := ReadContainerWorkspace("yolo-thing-abcd1234")
 	if !ok || got != ws {
@@ -49,7 +56,7 @@ func TestPruneStaleTrackingFiles(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	for _, n := range []string{"yolo-live-1", "yolo-dead-1", "yolo-dead-2"} {
-		if err := WriteContainerTracking(n, "/ws/"+n); err != nil {
+		if err := WriteLaunchRecord(LaunchRecord{Name: n, Workspace: "/ws/" + n}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -82,7 +89,7 @@ func TestPruneKeepsRecordsUntilEveryContainerSourceListed(t *testing.T) {
 		t.Helper()
 		t.Setenv("HOME", t.TempDir())
 		for _, n := range []string{ac, deadPodman} {
-			if err := WriteContainerTracking(n, "/ws/"+n); err != nil {
+			if err := WriteLaunchRecord(LaunchRecord{Name: n, Workspace: "/ws/" + n}); err != nil {
 				t.Fatal(err)
 			}
 		}

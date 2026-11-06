@@ -155,7 +155,7 @@ func forkBuildLifecycleDispatch(t *testing.T, workspace, cname string) {
 	if err := writeForkBuildRuntime(workspace, "podman", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: workspace}); err != nil {
 		t.Fatal(err)
 	}
 }

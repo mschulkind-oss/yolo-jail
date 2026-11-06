@@ -314,7 +314,7 @@ func TestForkBuildResultChildFixture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentState, "result-fixture"), []byte(mode), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.WriteContainerTracking(cname, workspace); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: workspace}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeForkBuildRuntime(workspace, "podman", cname); err != nil {

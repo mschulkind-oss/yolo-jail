@@ -239,7 +239,7 @@ func TestANoOpStopNamesTheOtherRuntimeWhenItCannotKnow(t *testing.T) {
 				}
 			}
 			if tc.tracked {
-				if err := runtime.WriteContainerTracking(cname, "/ws"); err != nil {
+				if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: "/ws"}); err != nil {
 					t.Fatal(err)
 				}
 			}

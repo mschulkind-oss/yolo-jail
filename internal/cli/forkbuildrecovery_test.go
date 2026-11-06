@@ -160,7 +160,7 @@ func TestForkBuildRetryJoinsPersistedRuntimeEvidenceBeforeReuse(t *testing.T) {
 			f := forkBuildHome(t)
 			b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 			staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-			if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+			if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 				t.Fatal(err)
 			}
 			sidecarPath := forkBuildRuntimeRecordPath(staging)
@@ -251,7 +251,7 @@ func TestForkBuildRetryRuntimeCommandErrorIsUnknownThroughProductionProbe(t *tes
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 		t.Fatal(err)
 	}
 	keeperPath := forkBuildKeeperRecordPath(cname)
@@ -300,7 +300,7 @@ func TestForkBuildRetryWorkspaceLockOpenFailureRetainsEvidence(t *testing.T) {
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 		t.Fatal(err)
 	}
 	lockPath := filepath.Join(paths.GlobalStorage(), "locks", cname+".lock")
@@ -336,7 +336,7 @@ func TestForkBuildRetryUncheckableKeeperLockRetainsEvidence(t *testing.T) {
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 		t.Fatal(err)
 	}
 	keeperLock := filepath.Join(paths.GlobalStorage(), "locks", cname+".keeper")
@@ -509,7 +509,7 @@ func TestAMacosUserBuildThatReturnedIsReusedOnRetry(t *testing.T) {
 			f := forkBuildHome(t)
 			b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 			staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-			if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+			if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 				t.Fatal(err)
 			}
 			if err := writeForkBuildRuntime(staging, "macos-user", ""); err != nil {
@@ -576,7 +576,7 @@ func TestARetainedContainerBuildThatReturnedIsStillProbed(t *testing.T) {
 	f := forkBuildHome(t)
 	b := forkBuild{Fork: f, Commit: forkTestCommit, Platform: captureJailPlatform()}
 	staging, cname, marker := seedRetainedForkBuildWorkspace(t, b, "podman")
-	if err := runtime.WriteContainerTracking(cname, staging); err != nil {
+	if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: staging}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeForkBuildRuntime(staging, "podman", ""); err != nil {

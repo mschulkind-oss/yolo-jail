@@ -9,6 +9,7 @@ package run
 // gained one skeleton per fresh launch until someone ran `yolo ps`.
 
 import (
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"go/ast"
 	"go/token"
 	"os"
@@ -46,7 +47,7 @@ func trackingFixture(t *testing.T, cname string, answer ExecResult) (*Options, s
 		}
 		return ExecResult{Ran: false}
 	}
-	if err := runtimeWriteTracking(cname, ws); err != nil {
+	if err := runtimeWriteTracking(yoloruntime.LaunchRecord{Name: cname, Workspace: ws}); err != nil {
 		t.Fatalf("writing the tracking file: %v", err)
 	}
 	tracking := filepath.Join(paths.ContainerDir(), cname)
