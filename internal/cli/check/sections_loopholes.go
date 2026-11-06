@@ -187,7 +187,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 				continue
 			}
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name)))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SuppliedSettings(settingsBlock, lp)))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": settings validation failed",
 					"Could not resolve the declared settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))
@@ -225,7 +225,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 		}
 		if len(lp.Settings) > 0 && frozen == nil {
 			var err error
-			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SettingsFromConfig(settingsBlock, lp.Name)))
+			frozen, _, err = loopholes.FrozenSettingsBytes(lp, loopholes.WithProjectRequestSettings(settingsCfg, lp, loopholes.SuppliedSettings(settingsBlock, lp)))
 			if err != nil {
 				r.fail("loophole "+lp.Name+": self-check settings could not be resolved",
 					"Could not resolve the current settings snapshot: "+err.Error()+"\n"+run.LoopholeSettingsFixStep(lp))

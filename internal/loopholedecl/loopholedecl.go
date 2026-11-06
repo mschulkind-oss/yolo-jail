@@ -368,6 +368,12 @@ type Manifest struct {
 	// Access is the top-level `access` line, what the loophole reaches ("read the host's
 	// journal"), which every grant refusal prints. Set exactly when Grants is.
 	Access string
+	// LegacyDefaultOff is a LEGACY manifest's `default_enabled: false` (keys.go, the legacy
+	// window; docs/design/legacy-config-compat.md LC-D10): the loophole crosses nothing and starts
+	// nothing until its launch holds one of its grant kinds, as v0.15.1 ran it only where a config
+	// switched it on. Grants then holds LegacyRunGrantKind when the manifest declared none. Never
+	// set by a loophole.toml, which refuses the key.
+	LegacyDefaultOff bool
 	// InheritFromParentJail is the `inherit_from_parent_jail` block (parentjail.go), or nil: a
 	// nested launch sharing the launching jail's loopback may take this loophole's credential
 	// pointer from the launching jail instead of starting its daemons.
@@ -587,7 +593,7 @@ func decodeAt(data []byte, dir, manifestPath string, strict, readRetiredScope bo
 			notes = append(notes, note)
 		}
 	}
-	m, err := walk(data0, manifestPath, filepath.Base(dir))
+	m, err := walk(data0, manifestPath, filepath.Base(dir), !looksLikeTOML(data))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -626,7 +632,10 @@ func readRetiredScopeAsJail(data *jsonx.OrderedMap, manifestPath string) string 
 // walk validates and lowers the decoded object. Every check here is STATIC: type
 // checks, enum membership, the name/directory agreement, the control-character
 // refusal, the wrong-half token refusals, and the state_files containment rule.
-func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, error) {
+//
+// legacy says data is the legacy form (manifest.jsonc, manifest.json), which the legacy window
+// reads (keys.go, docs/design/legacy-config-compat.md LC-D10).
+func walk(data *jsonx.OrderedMap, manifestPath, dirName string, legacy bool) (*Manifest, error) {
 	nameV, _ := data.Get(keyName)
 	name, nameIsStr := nameV.(string)
 	if !nameIsStr || name == "" {
@@ -661,9 +670,20 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	// false` wanted off and gets off — which is what makes a refusal affordable here
 	// where R3's `requires` deletion could not have one.
 	for _, k := range data.Keys() {
-		if msg := retiredTopKeyRefusal(k); msg != "" {
+		if msg := retiredTopKeyRefusal(k, legacy); msg != "" {
 			return nil, Errorf("%s: %s", manifestPath, msg)
 		}
+	}
+	// The legacy window reads `default_enabled` (keys.go). Taken out of data once read, so the
+	// unknown-key census, which runs over the same copy after the walk, never reports it.
+	legacyDefaultOff := false
+	if legacy {
+		off, err := readLegacyDefaultEnabled(data, manifestPath)
+		if err != nil {
+			return nil, err
+		}
+		legacyDefaultOff = off
+		data.Delete(RetiredKeyDefaultEnabled)
 	}
 
 	description := ""
@@ -784,7 +804,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
-	settings, err := parseSettings(manifestPath, getOrNil(data, keySettings))
+	settings, err := parseSettings(manifestPath, getOrNil(data, keySettings), legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -819,6 +839,11 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	access, err := parseAccess(manifestPath, getOrNil(data, keyAccess), grants)
 	if err != nil {
 		return nil, err
+	}
+	// A broker or a call broker answers every call against its own grants, so its legacy
+	// `default_enabled: false` asks nothing the grant model does not already: it reads as nothing.
+	if brokered != nil || callBroker != nil {
+		legacyDefaultOff = false
 	}
 	binaries, err := parseBinaries(manifestPath, getOrNil(data, keyBinaries))
 	if err != nil {
@@ -875,6 +900,14 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		return nil, err
 	}
 
+	// The window's grant kind is declared after the {settings} placement checks above, which
+	// count the AUTHOR's declarations: a manifest written for v0.15.1 declared none, and a token
+	// rule it met then must not refuse it now for a kind it never wrote.
+	if legacyDefaultOff && len(grants) == 0 {
+		grants = []Grant{legacyRunGrant(name)}
+		access = legacyRunAccess(name, description)
+	}
+
 	brokerIP := DefaultBrokerIP
 	if bv, ok := data.Get(keyBrokerIP); ok && Truthy(bv) {
 		brokerIP = Str(bv)
@@ -908,6 +941,7 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		CallBroker:            callBroker,
 		Grants:                grants,
 		Access:                access,
+		LegacyDefaultOff:      legacyDefaultOff,
 		Binaries:              binaries,
 		BinaryRefs:            binaryRefs,
 		InheritFromParentJail: inherit,

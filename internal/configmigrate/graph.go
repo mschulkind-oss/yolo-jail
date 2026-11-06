@@ -81,6 +81,9 @@ type File struct {
 	// removedKeys marks a TOML file rewritten in place for a removed setup key it holds
 	// (markRemovedSetupKeys).
 	removedKeys bool
+	// packRenames are the `[requests.<pack>]` tables a TOML project file names a renamed
+	// configured pack by, respelled to the converted name (withRenamedPackRequests).
+	packRenames map[string]string
 }
 
 type includeEdge struct {

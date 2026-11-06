@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -111,13 +112,134 @@ const (
 // tree still declares `default_enabled`, loses those records at an attach by this yolo
 // until it is relaunched; relaunching stages the current manifests.
 
+// # The legacy window (docs/design/legacy-config-compat.md LC-D10)
+//
+// A LEGACY manifest (manifest.jsonc or manifest.json, the form v0.15.1 read) that declares
+// `default_enabled` is read as what the key meant there, never refused: v0.15.1 ran a loophole on
+// `default_enabled: true` unless a config switched it off, and on `false` only where a config's
+// `loopholes.<name>.enabled: true` switched it on. `true` is what selection means now, so it reads
+// as nothing. `false` reads as a loophole off until its launch holds a grant
+// (Manifest.LegacyDefaultOff), and a manifest that declares no grant kinds of its own gets the one
+// kind a legacy switch becomes (LegacyRunGrantKind), so the old switch, its TOML conversion and
+// `yolo request` all spell it. A loophole.toml declaring the key is refused as LG-D3 rules: the
+// window is for a manifest written before that form existed. The older `enabled` key stays refused
+// in both forms; v0.15.1 refused it too.
+
+// LegacyRunGrantKind is the grant kind a legacy manifest's `default_enabled: false` declares when
+// the manifest declares none of its own: the kind a `loopholes.<name>.enabled: true` becomes
+// (Grant.LegacyEnable), and the one a project asks for with `yolo request <pack> run`.
+const LegacyRunGrantKind = "run"
+
+// readLegacyDefaultEnabled reads a legacy manifest's `default_enabled`: off is true when it says
+// false. A non-boolean is refused, as v0.15.1 refused it ("Type-checked, not coerced").
+func readLegacyDefaultEnabled(data *jsonx.OrderedMap, manifestPath string) (off bool, err error) {
+	v, ok := data.Get(RetiredKeyDefaultEnabled)
+	if !ok {
+		return false, nil
+	}
+	b, isBool := v.(bool)
+	if !isBool {
+		return false, Errorf("%s: 'default_enabled' must be true or false", manifestPath)
+	}
+	return !b, nil
+}
+
+// legacyRunGrant is the grant kind legacyDefaultOff declares for a manifest with none.
+func legacyRunGrant(name string) Grant {
+	return Grant{
+		Kind:         LegacyRunGrantKind,
+		Text:         "run the " + name + " loophole",
+		LegacyEnable: true,
+	}
+}
+
+// legacyRunAccess is the access line of a manifest given legacyRunGrant: its description, or a
+// line naming the loophole when it has none.
+func legacyRunAccess(name, description string) string {
+	if strings.TrimSpace(description) != "" {
+		return description
+	}
+	return "what the " + name + " loophole serves"
+}
+
+// LegacyNotesDir is what the legacy window read in the module's manifest, one note per key, for
+// `yolo pack lint` to print beside its pass: what each key reads as, and what `yolo pack migrate`
+// asks the author to restate. nil for a loophole.toml, for a manifest the window reads nothing of,
+// and for one that does not decode (lint reports that as a problem).
+func LegacyNotesDir(dir string) []string {
+	var out []string
+	for _, n := range LegacyNotes(dir) {
+		out = append(out, n.Text)
+	}
+	return out
+}
+
+// LegacyNote is one thing a legacy manifest says through the window (LC-D10). Restate is
+// true when loophole.toml has no spelling for it, so `yolo pack migrate` refuses until the
+// author restates it, and false when the migration can drop it as meaning nothing.
+type LegacyNote struct {
+	Text    string
+	Restate bool
+}
+
+// LegacyNotes is LegacyNotesDir with each note's kind, for `yolo pack migrate`.
+func LegacyNotes(dir string) []LegacyNote {
+	raw, err := readManifest(dir)
+	if err != nil || looksLikeTOML(raw) {
+		return nil
+	}
+	if _, err := Decode(raw, dir); err != nil {
+		return nil
+	}
+	decoded, err := json5.Decode(raw)
+	if err != nil {
+		return nil
+	}
+	data, ok := decoded.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	manifestPath := ManifestPath(dir)
+	var out []LegacyNote
+	if v, ok := data.Get(RetiredKeyDefaultEnabled); ok {
+		if v == true {
+			out = append(out, LegacyNote{Text: fmt.Sprintf("%s: default_enabled: true reads as nothing: a loophole runs whenever its pack "+
+				"is selected. `yolo pack migrate` drops the key.", manifestPath)})
+		} else {
+			out = append(out, LegacyNote{Restate: true, Text: fmt.Sprintf("%s: default_enabled: false reads as a loophole that runs only where a config "+
+				"grants its %q kind (a legacy `loopholes.<name>.enabled: true` does). loophole.toml has no such key: "+
+				"before `yolo pack migrate`, declare what a project may be granted under [[grants]], with 'access', "+
+				"and have the daemon read the grant file, or delete the key if the loophole should run whenever its "+
+				"pack is selected.", manifestPath, LegacyRunGrantKind)})
+		}
+	}
+	if block, ok := getOrNil(data, keySettings).(*jsonx.OrderedMap); ok {
+		for _, key := range block.Keys() {
+			decl, _ := getOrNil(block, key).(*jsonx.OrderedMap)
+			if decl == nil || getOrNil(decl, keyScope) != SettingScopeWorkspace {
+				continue
+			}
+			out = append(out, LegacyNote{Restate: true, Text: fmt.Sprintf("%s: settings.%s.scope = %q reads as %q: the user's value is every project's "+
+				"default, and a project's replaces it there. Write scope = %q before `yolo pack migrate`.",
+				manifestPath, key, SettingScopeWorkspace, SettingScopeRequest, SettingScopeRequest)})
+		}
+	}
+	return out
+}
+
 // retiredTopKeyRefusal returns the refusal text for a retired TOP-LEVEL key, or ""
 // when the key is not retired. Written as a lookup over all keys rather than an `if`
 // per key so retiring the next one is a single entry, not a second call site to
 // forget. The text follows "<manifest path>: ".
-func retiredTopKeyRefusal(key string) string {
+//
+// legacy says the manifest is the legacy form, where the window reads `default_enabled`
+// (readLegacyDefaultEnabled) rather than refusing it.
+func retiredTopKeyRefusal(key string, legacy bool) string {
 	switch key {
 	case RetiredKeyDefaultEnabled:
+		if legacy {
+			return ""
+		}
 		return "default_enabled is gone. A loophole runs whenever its pack\n" +
 			"  is selected and grants nothing until a grant covers the project; declare what can be granted under\n" +
 			"  [[grants]] instead, and remove the key."

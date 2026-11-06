@@ -304,7 +304,7 @@ func loopholesWithConfigAndBlock(deps Deps, includeDisabled bool) (Set, *jsonx.O
 	// A TOML project's request-scope setting replaces both (LG-D15, LC-D17), as at the launch.
 	if ws := loadWS(deps.LoadWorkspaceConfig); ws != nil {
 		for _, lp := range set.All() {
-			previous := SettingsFromConfig(mergedSettings, lp.Name)
+			previous := SuppliedSettings(mergedSettings, lp)
 			if supplied := WithProjectRequestSettings(ws, lp, previous); supplied != previous {
 				entry := jsonx.NewOrderedMap()
 				entry.Set("settings", supplied)
@@ -490,7 +490,7 @@ func runStatusDoctorChecks(set Set, all []*Loophole, settingsBlock *jsonx.Ordere
 		if len(lp.PlacementProblems("")) > 0 {
 			continue
 		}
-		frozen, _, err := FrozenSettingsBytes(lp, SettingsFromConfig(settingsBlock, lp.Name))
+		frozen, _, err := FrozenSettingsBytes(lp, SuppliedSettings(settingsBlock, lp))
 		if err != nil {
 			rc := 1
 			rejected[lp.Name] = DoctorResult{Loophole: lp, RC: &rc, Output: "Current settings could not be resolved: " + err.Error() +

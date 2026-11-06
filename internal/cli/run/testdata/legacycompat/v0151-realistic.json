@@ -45,6 +45,30 @@
       "enabled": []
     }
   },
+  "user-pack-default-off-no-switch": {
+    "v0151": {
+      "enabled": []
+    }
+  },
+  "user-pack-default-off-workspace-on": {
+    "v0151": {
+      "enabled": [
+        "note-relay"
+      ]
+    }
+  },
+  "user-pack-default-on-workspace-setting": {
+    "v0151": {
+      "enabled": [
+        "note-relay"
+      ],
+      "settings": {
+        "note-relay": {
+          "greeting": "from-the-workspace"
+        }
+      }
+    }
+  },
   "user-values-workspace-values": {
     "v0151": {
       "enabled": [

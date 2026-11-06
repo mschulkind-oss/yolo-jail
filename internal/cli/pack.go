@@ -852,6 +852,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		// The not-shipped lines print on failure too: a pack failing "does nothing" because its
 		// prose is a root AGENTS.md needs exactly that line to know why.
 		printUnshippedNotes(pr, notes)
+		printLegacyLoopholeNotes(pr, pack)
 		// And what the online checks found, which took the network to learn.
 		printLines(pr, onlineLines)
 		return 1
@@ -860,6 +861,7 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
 	printPackDeliveries(pr, pack, skillSources, briefingSources)
 	printUnshippedNotes(pr, notes)
+	printLegacyLoopholeNotes(pr, pack)
 	// A PATCHED EXTENSION NO LIST ENTRY NAMES (docs/reference/pi-extensions.md §8.2, PPX-D10): a
 	// warning, not a failure — the tree is built and mounted, and no agent loads it. And one a list
 	// loads twice, from its tree and from a remote entry of the same name (PPX-D34): a warning too,
@@ -1252,6 +1254,15 @@ func unshippedNotes(staged, delivered []string) []deliveryNote {
 func printUnshippedNotes(pr richtext.Printer, notes []deliveryNote) {
 	for _, n := range notes {
 		pr.Printf("[yellow]ℹ[/yellow] %s: %s", n.rel, n.why)
+	}
+}
+
+// printLegacyLoopholeNotes prints, one info line each, what a legacy loophole manifest says
+// through the legacy window (LC-D10): keys that still read, so lint passes them, but that
+// loophole.toml spells differently or not at all.
+func printLegacyLoopholeNotes(pr richtext.Printer, p *packload.Pack) {
+	for _, n := range p.LoopholeLegacyNotes() {
+		pr.Printf("[yellow]ℹ[/yellow] %s", richtext.Escape(n))
 	}
 }
 

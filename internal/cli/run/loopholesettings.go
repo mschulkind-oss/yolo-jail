@@ -41,7 +41,7 @@ func (o *Options) prepareLoopholeSettings(discovered []*loopholes.Loophole, cfg 
 			continue
 		}
 		// A project's request-scope setting replaces the user's (LG-D15, LC-D17).
-		supplied := loopholes.WithProjectRequestSettings(cfg, lp, suppliedSettings(loopCfg, lp.Name))
+		supplied := loopholes.WithProjectRequestSettings(cfg, lp, loopholes.SuppliedSettings(loopCfg, lp))
 		frozen, problems, err := loopholes.FrozenSettingsBytes(lp, supplied)
 		if err != nil {
 			o.pr(o.Stderr).print("[red]Could not resolve settings for loophole " + richtext.Escape(lp.Name) +
@@ -249,17 +249,4 @@ func (o *Options) discloseLoopholeSettingsResolved(lp *loopholes.Loophole, value
 			out.print("[bold yellow]loophole " + lp.Name + ": " + decl.Disclose + "[/bold yellow]")
 		}
 	}
-}
-
-// suppliedSettings returns the `loopholes.<name>.settings` object from the merged config,
-// or nil when nothing supplied any.
-func suppliedSettings(loopCfg *jsonx.OrderedMap, name string) *jsonx.OrderedMap {
-	if loopCfg == nil {
-		return nil
-	}
-	entry := cfgMap(loopCfg, name)
-	if entry == nil {
-		return nil
-	}
-	return cfgMap(entry, "settings")
 }

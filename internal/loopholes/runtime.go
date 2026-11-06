@@ -389,7 +389,18 @@ func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
 	// withheld. `HostExecApproved` is now always true from production, and its false arm
 	// means "the caller assembled a []*Loophole without resolving packs" — API misuse,
 	// not consent. This gate still refuses that, which is why it stays.
-	return gate.MayRunHostCode(m)
+	if !gate.MayRunHostCode(m) {
+		return false
+	}
+	// The legacy manifest window (docs/design/legacy-config-compat.md LC-D10): a legacy
+	// manifest's `default_enabled: false` ran its loophole in v0.15.1 only where a config
+	// switched it on. Its daemon reads no grant file, so a mediated shape is no reason to
+	// start it: nothing of it starts or crosses until the launch holds the grant the legacy
+	// switch projects to (LG-D16).
+	if m.LegacyDefaultOff && !gate.holdsGrant(m) {
+		return false
+	}
+	return true
 }
 
 // admitsJailSideEffects is the per-record skip the two loops below share: what this record

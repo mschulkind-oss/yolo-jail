@@ -276,9 +276,28 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	view := userViewOf(g)
 	view.setupFile = g.UserSetupFile()
 	view.needed = neededPacks(view.packs, packs)
-	view.loopholePacks = shippedLoopholePacks(packs)
-	planLoopholeGrants(g, view, packs)
+	// The loophole rows read what the launch's validator reads (config.UserScopeSelectedPacks):
+	// the shipped packs, and every configured pack the user selects, whose legacy manifest the
+	// window reads (docs/design/legacy-config-compat.md LC-D10). A --user-layer reads the shipped
+	// set alone, as planLoopholeGrants projects nothing for one.
+	loopholeSource := packs
+	if g.layer == nil {
+		configured, _ := config.UserScopeSelectedPacks()
+		loopholeSource = view.addConfiguredPacks(packs, configured, g.userTop != nil && g.userTop.Role == RoleConvert)
+	}
+	view.loopholePacks = shippedLoopholePacks(loopholeSource)
+	planLoopholeGrants(g, view, loopholeSource)
 	p.Carries = view.grants.carries
+	// A TOML project file written under the legacy user config names a configured pack by its
+	// legacy name; the converted user config names it by where it comes from, so the file is
+	// respelled with it (LC-D10's corpus: a workspace converted alone first, LC-D13).
+	if len(view.renamedPacks) > 0 {
+		for _, f := range g.Files {
+			if f.Role == RoleRead && f.Scope == ScopeProject && f.doc != nil && len(renamedRequests(f.doc.Values, view.renamedPacks)) > 0 {
+				f.Role, f.packRenames = RoleRespell, view.renamedPacks
+			}
+		}
+	}
 	if len(view.grants.tomlCeiling) > 0 && g.userTop.Role == RoleRead {
 		// The TOML user config gains the ceiling lines the converted workspace needs (LG-D16),
 		// rewritten in place as a respelled file is.
@@ -319,6 +338,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 				}
 				p.NotConverted = append(p.NotConverted, skipped...)
 				setupLeft += len(skipped)
+			}
+			if len(f.packRenames) > 0 {
+				if t.Bytes, err = withRenamedPackRequests(t.Bytes, f.packRenames); err != nil {
+					return nil, fmt.Errorf("%s: respell the renamed packs' requests: %w", f.Logical, err)
+				}
 			}
 			if f == g.userTop && len(view.grants.tomlCeiling) > 0 {
 				if t.Bytes, t.Ceiling, err = withCeilingLines(t.Bytes, view.grants.tomlCeiling); err != nil {
@@ -901,6 +925,10 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		twins := fileTwins(map[string]bool{}, read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
 		twins = fileTwins(twins, read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
 		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, twinOf: opts.twinOf, twinsOnly: twins})
+		if view != nil {
+			renamePackRequests(s.project, view.renamedPacks)
+			renamePackRequests(s.composed, view.renamedPacks)
+		}
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
 		s.env = launchEnv(read.Composed)
@@ -936,6 +964,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	}
 	if lowerOld {
 		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(read.User), jsonx.DeepCopyMap(read.Workspace)
+		if view != nil {
+			// The project file the plan respells for a renamed configured pack reads respelled here
+			// too (withRenamedPackRequests), as the after side reads it.
+			renamePackRequests(s.grantWorkspace, view.renamedPacks)
+		}
 	} else {
 		s.grantUser, s.grantWorkspace = jsonx.DeepCopyMap(s.user), jsonx.DeepCopyMap(s.project)
 		if legacyBase {
@@ -1125,3 +1158,62 @@ func decideRecord(r Record, read func(string) (string, bool, error), current fun
 }
 
 var errNotEqual = errors.New("this plan did not prove the converted config equal to the old one, so it writes nothing; run `yolo config migrate` again to see why")
+
+// renamedRequests is, sorted, each legacy pack name in renames that values' `requests` table
+// names.
+func renamedRequests(values *jsonx.OrderedMap, renames map[string]string) []string {
+	requests, ok := mapAt(values, "requests")
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, old := range requests.Keys() {
+		if renames[old] != "" {
+			out = append(out, old)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// withRenamedPackRequests moves each `[requests.<old>]` entry data writes to the converted name
+// renames gives the pack, its value unchanged.
+func withRenamedPackRequests(data []byte, renames map[string]string) ([]byte, error) {
+	doc, err := configdoc.Parse(data, configdoc.TOML)
+	if err != nil {
+		return nil, err
+	}
+	for _, old := range renamedRequests(doc.Values, renames) {
+		requests, _ := mapAt(doc.Values, "requests")
+		value, _ := requests.Get(old)
+		for _, m := range []configedit.Mutation{
+			{Action: configedit.Add, Path: []configdoc.Step{{Key: "requests"}, {Key: renames[old]}}, Value: value},
+			{Action: configedit.Remove, Path: []configdoc.Step{{Key: "requests"}, {Key: old}}},
+		} {
+			edit, err := configedit.PlanEdit(data, configdoc.TOML, m)
+			if err != nil {
+				return nil, err
+			}
+			data = edit.Updated
+		}
+	}
+	return data, nil
+}
+
+// renamePackRequests respells m's `requests.<old>` keys to the converted names, in place: the
+// before side of the proof reads a TOML project file the plan respells as the after side does,
+// as normalizeLegacyPacks reads a packs list.
+func renamePackRequests(m *jsonx.OrderedMap, renames map[string]string) {
+	if m == nil || len(renames) == 0 {
+		return
+	}
+	requests, ok := mapAt(m, "requests")
+	if !ok {
+		return
+	}
+	for _, old := range renamedRequests(m, renames) {
+		value, _ := requests.Get(old)
+		requests.Delete(old)
+		requests.Set(renames[old], value)
+	}
+}

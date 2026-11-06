@@ -67,9 +67,24 @@ func PlanLoophole(root, rel string) (*LoopholeMigration, error) {
 		return nil, fmt.Errorf("%s: %s does not read cleanly, so it cannot be proven equal after migration:\n  %s\nFix those, check with `yolo pack lint`, then migrate",
 			rel, legacy, strings.Join(problemsOf(err), "\n  "))
 	}
+	// The legacy window (LC-D10): what loophole.toml cannot say is the author's to restate,
+	// so it is refused naming the restatement; what reads as nothing is dropped.
+	var restate []string
+	for _, note := range loopholedecl.LegacyNotes(moduleDir) {
+		if note.Restate {
+			restate = append(restate, note.Text)
+		}
+	}
+	if len(restate) > 0 {
+		return nil, fmt.Errorf("%s: %s says what %s cannot, so it is not converted:\n  %s",
+			rel, legacy, loopholedecl.ManifestTOMLName, strings.Join(restate, "\n  "))
+	}
 	doc, err := configdoc.Parse(data, configdoc.JSONC)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", rel, legacy, err)
+	}
+	if v, ok := doc.Values.Get(loopholedecl.RetiredKeyDefaultEnabled); ok && v == true {
+		doc.Values.Delete(loopholedecl.RetiredKeyDefaultEnabled)
 	}
 	lines, err := packdecl.EncodeLoopholeTOMLLines(doc.Values)
 	if err != nil {

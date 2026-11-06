@@ -1,0 +1,5 @@
+{
+  "name": "note-relay",
+  "description": "A sample user pack shipping one loophole.",
+  "contributes": [{"kind": "loophole", "from": "loopholes/note-relay"}]
+}

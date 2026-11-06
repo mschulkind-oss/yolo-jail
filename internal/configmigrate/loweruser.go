@@ -50,6 +50,123 @@ type userView struct {
 	// loopholePacks is the shipped pack that ships each loophole, by loophole name
 	// (shippedLoopholePacks): `github-broker` is the github pack's, not a pack of its own.
 	loopholePacks map[string]string
+	// configured is each loophole of a configured (non-shipped) pack the user selects, by
+	// loophole name (addConfiguredPacks).
+	configured map[string]configuredLoophole
+	// renamedPacks is, by its legacy name, the name the converted user config gives each
+	// configured pack whose name changes (addConfiguredPacks, renamed): a TOML workspace written
+	// under the legacy user config names it the old way in `[requests.<pack>]`, which the plan
+	// respells (withRenamedPackRequests).
+	renamedPacks map[string]string
+}
+
+// configuredLoophole is what the lowering needs of a configured pack's loophole: its pack, its
+// declared settings, and whether it runs whenever its pack is selected (a grantless loophole;
+// a legacy manifest's `default_enabled: false` reads as a grant, so it is not one, LC-D10).
+type configuredLoophole struct {
+	pack      string
+	settings  []loopholedecl.Setting
+	grantless bool
+}
+
+// addConfiguredPacks returns shipped with each configured pack the user selects added; it records
+// each one's name as selected and each of its loopholes in v.configured. configured is
+// config.UserScopeSelectedPacks, which resolves the shipped packs a bare name selects too: a pack
+// of a shipped pack's name is read as the shipped one, as every other loophole row here reads it.
+//
+// renamed is whether the read is of the converted user config: a pack then takes the name the
+// converted `packs` list gives it (convertedPackNames); a legacy user config, kept or read as the
+// old side, names it as before.
+func (v *userView) addConfiguredPacks(shipped, configured []*packload.Pack, renamed bool) []*packload.Pack {
+	shippedNames := map[string]bool{}
+	for _, p := range shipped {
+		if p != nil {
+			shippedNames[p.Name] = true
+		}
+	}
+	var names map[string]string
+	if renamed {
+		names = convertedPackNames()
+	}
+	var own []*packload.Pack
+	for _, p := range configured {
+		if p == nil || p.Decl == nil || shippedNames[p.Name] {
+			continue
+		}
+		if to := names[p.Name]; to != "" && to != p.Name {
+			// The converted `packs` list names the pack by where it comes from (lowerPacks), and
+			// its `[allow.<pack>]` and `[requests.<pack>]` tables are keyed by that name: both
+			// sides of the proof read it so, as the read-back after Apply does.
+			if v.renamedPacks == nil {
+				v.renamedPacks = map[string]string{}
+			}
+			v.renamedPacks[p.Name] = to
+			cp := *p
+			cp.Name = to
+			p = &cp
+		}
+		own = append(own, p)
+	}
+	if len(own) == 0 {
+		return shipped
+	}
+	for _, p := range own {
+		v.packs[p.Name] = true
+		modules, _, _, err := packload.ReadableLoopholeModules(p)
+		if err != nil {
+			continue
+		}
+		for _, m := range modules {
+			if m.Decl == nil {
+				continue
+			}
+			if v.configured == nil {
+				v.configured = map[string]configuredLoophole{}
+			}
+			v.configured[m.Name] = configuredLoophole{pack: p.Name,
+				settings: append([]loopholedecl.Setting(nil), m.Decl.Settings...), grantless: len(m.Decl.Grants) == 0}
+		}
+	}
+	return append(append([]*packload.Pack(nil), shipped...), own...)
+}
+
+// convertedPackNames is, by the name a legacy `packs` entry gives its pack, the name the
+// converted list gives it: `<source>/<directory>` for a directory, as lowerPacks writes it, with
+// the source named by sourceNames over the same list. An entry already in its TOML spelling (a
+// handle, which holds a `/`) keeps its name, so a read of the converted files renames nothing.
+func convertedPackNames() map[string]string {
+	entries, err := config.LoadPacks(nil)
+	if err != nil {
+		return nil
+	}
+	var items []any
+	for _, e := range entries {
+		if !e.IsEmbedded && !strings.Contains(e.Name, "/") && strings.HasPrefix(e.Source, "file://") {
+			items = append(items, e.Source)
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	names := sourceNames(items)
+	out := map[string]string{}
+	for _, e := range entries {
+		if e.IsEmbedded || strings.Contains(e.Name, "/") || !strings.HasPrefix(e.Source, "file://") {
+			continue
+		}
+		c := classifyPack(e.Source)
+		switch h := c.handle.(type) {
+		case string:
+			if c.source != nil && names[c.source.key] != "" {
+				out[e.Name] = names[c.source.key] + "/" + h
+			}
+		case *jsonx.OrderedMap:
+			if handle, _ := h.Get("pack"); handle != nil {
+				out[e.Name], _ = handle.(string)
+			}
+		}
+	}
+	return out
 }
 
 // loopholePack is the pack that ships the loophole name: the shipped pack whose manifest
@@ -217,6 +334,12 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 			continue
 		}
 		enabled := view.enabled[name] == true || view.selectionSwitch
+		// A configured pack's grantless loophole ran whenever its pack was selected, so the
+		// settings written for it were live, not dormant (LC-D10: a legacy manifest's
+		// `default_enabled: true` reads as nothing).
+		if c, ok := view.configured[name]; ok && c.grantless && view.enabled[name] != false {
+			enabled = true
+		}
 		// LC-D3: an off-switch loophole's `enabled: false` is honored, so it converts to its
 		// pack's `off = true`, and the settings written beside it are configured-and-off, never
 		// dormant: they convert too, so turning the loophole back on finds them.
@@ -267,7 +390,12 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 					skip(oldPath, v, "a user config cannot turn a listed pack's service off; remove \""+name+"\" from packs to stop it, then run `yolo config migrate` again")
 				}
 			case "settings":
-				lowerLoopholeSettings(name, v, oldPath, selected, enabled, place, skip)
+				table := name
+				if c, ok := view.configured[name]; ok {
+					// A configured pack's table is keyed by its converted name (convertedPackNames).
+					table = c.pack
+				}
+				lowerLoopholeSettings(table, v, oldPath, selected, enabled, place, skip)
 			default:
 				skip(oldPath, v, "only a loophole's `enabled` and `settings` convert; a loophole declared here (`"+key+"`) belongs in a pack: move it into one (`yolo pack init` starts one), then run `yolo config migrate` again")
 			}

@@ -218,7 +218,7 @@ func PackSwitchActivation(cfg *jsonx.OrderedMap, readable bool, modules []PackMo
 	out := map[string]Activation{}
 	for _, lp := range Discover(DiscoverOptions{IncludeDisabled: true, LoopholesConfig: loopholesBlock,
 		PackModules: modules}) {
-		out[lp.Name] = Activation{Enabled: lp.Enabled, Settings: withoutGrantKinds(lp, WithProjectRequestSettings(cfg, lp, SettingsFromConfig(block, lp.Name)))}
+		out[lp.Name] = Activation{Enabled: lp.Enabled, Settings: withoutGrantKinds(lp, WithProjectRequestSettings(cfg, lp, SuppliedSettings(block, lp)))}
 	}
 	return out
 }
