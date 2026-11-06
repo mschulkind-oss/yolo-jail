@@ -419,7 +419,7 @@ func (p printer) commands(lines ...string) {
 }
 
 // MacosSandboxEnv returns the extra env layered into the sandbox launch (git
-// identity + TERM/COLORTERM/NO_COLOR, and the reachability hatch). Host credentials never
+// identity + TERM/TERM_PROGRAM/COLORTERM/NO_COLOR, and the reachability hatch). Host credentials never
 // cross.
 //
 // NO_COLOR crosses for the container's reason (run.Options.noColorEnvArgs): a user
@@ -438,6 +438,13 @@ func MacosSandboxEnv(deps Deps, cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
 	}
 	if ct := deps.Getenv("COLORTERM"); ct != "" {
 		env.Set("COLORTERM", ct)
+	}
+	// TERM_PROGRAM crosses for the container's reason (run's termProgramVar): it is the only
+	// signal an agent TUI has for a terminal whose TERM is a generic xterm, and pi keeps OSC 8
+	// links off without it. Each session writes its own env file, so it is the attaching
+	// terminal's, as on a container attach.
+	if tp := deps.Getenv("TERM_PROGRAM"); tp != "" {
+		env.Set("TERM_PROGRAM", tp)
 	}
 	if tty.NoColor(deps.Getenv) {
 		env.Set(tty.NoColorVar, deps.Getenv(tty.NoColorVar))

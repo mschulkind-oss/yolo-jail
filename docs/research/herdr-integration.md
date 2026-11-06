@@ -486,8 +486,8 @@ This is what happens today when you type `yolo -- claude` in a herdr pane on pod
 3. **Claude runs outside that group.** It runs inside the container, under conmon. herdr's
    foreground job is `{yolo, podman}`, and neither is an agent. INFERRED.
 4. **No herdr handle reaches the jail.** From the host terminal's environment the launcher
-   forwards only `TERM`, `COLORTERM` and `NO_COLOR`
-   ([`assemble.go`](../../internal/cli/run/assemble.go#L932-L938)). So the jail has no `HERDR_*`
+   forwarded only `TERM`, `COLORTERM` and `NO_COLOR` when this was written, and adds
+   `TERM_PROGRAM` since 2026-11-06 (`termprogram.go` in `internal/cli/run`), never `HERDR_*`. So the jail has no `HERDR_*`
    variable, no herdr binary and no socket. herdr's skill stops at its first check, and herdr's
    hooks would do nothing even if they were present. SOURCED. **One herdr artifact does cross
    today:** the `SessionStart` hook entry that `herdr integration install claude` writes into the

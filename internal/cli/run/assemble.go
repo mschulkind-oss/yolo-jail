@@ -1084,10 +1084,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// why the source is the STAGED tree.
 	runCmd = append(runCmd, o.packFilesMountArgs(in)...)
 
-	// --- TERM, the color environment (COLORTERM, NO_COLOR) + timing ---
+	// --- TERM, TERM_PROGRAM, the color environment (COLORTERM, NO_COLOR) + timing ---
 	if term := o.Getenv("TERM"); term != "" {
 		runCmd = append(runCmd, "-e", "TERM="+term)
 	}
+	runCmd = append(runCmd, o.termProgramEnvArgs()...)
 	if ct := o.Getenv("COLORTERM"); ct != "" {
 		runCmd = append(runCmd, "-e", "COLORTERM="+ct)
 	}

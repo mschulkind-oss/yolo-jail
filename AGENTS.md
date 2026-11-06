@@ -334,7 +334,8 @@ The mechanics behind each of these are in
 - **Env hygiene** (agents can't handle interactive UI): `PAGER`/`GIT_PAGER`=`cat`, `BAT_PAGER=""`,
   `EDITOR=cat` but `VISUAL=nvim`, npm's update notifier and funding lines off, the host's `TERM` and
   `NO_COLOR` forwarded — every color decision goes through `tty.Color`
-  ([`cli-color.md`](docs/reference/cli-color.md)) — and `OVERMIND_SOCKET=/tmp/overmind.sock`.
+  ([`cli-color.md`](docs/reference/cli-color.md)) — the ATTACHING terminal's `TERM_PROGRAM`
+  forwarded (pi enables OSC 8 links only for a terminal it identifies; `termprogram.go`), and `OVERMIND_SOCKET=/tmp/overmind.sock`.
   ⚠ **`LD_LIBRARY_PATH` never names `/lib` or `/usr/lib`** (their glibc crashes older nix binaries with
   `GLIBC_PRIVATE`); FHS libraries reach binaries through nix-ld's path instead
   ([`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md)).
