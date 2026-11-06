@@ -81,14 +81,54 @@ func TestParsePodmanPsRows(t *testing.T) {
 	}
 }
 
+// containerLsJSONMeasured is the shape `container ls --format json` printed on the Mac
+// (docs/lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md §3): top-level keys
+// `configuration`, `id` and `status`, with `status` an OBJECT {networks, startedDate, state}
+// and startedDate RFC 3339 UTC. Only those keys are measured; nothing else is assumed.
+const containerLsJSONMeasured = `[
+  {"configuration": {"id": "yolo-su11-ac-f113f9bc"}, "id": "yolo-su11-ac-f113f9bc",
+   "status": {"networks": [], "startedDate": "2026-11-06T19:57:12Z", "state": "running"}},
+  {"configuration": {"id": "yolo-ac-builder"}, "id": "yolo-ac-builder",
+   "status": {"networks": [], "startedDate": "2026-10-09T22:39:57Z", "state": "running"}},
+  {"configuration": {"id": "buildkit"}, "id": "buildkit",
+   "status": {"networks": [], "startedDate": "2026-10-01T00:00:00Z", "state": "running"}}
+]`
+
+// TestParseContainerLsRows: STATUS is the container's state and start time, never the rest
+// of the row (lab report 2026-11-04 §7: the table parser joined image, OS, arch, state, IP,
+// CPUs, memory and start time into it). Every yolo-* container is listed, as podman's
+// `ps --filter name=^yolo-` lists every one, the builder included.
 func TestParseContainerLsRows(t *testing.T) {
-	stdout := "ID  IMAGE  STATE\n" +
-		"yolo-x-1 img running foo\n" +
-		"other img running\n"
-	got := ParseContainerLsRows(stdout)
-	want := []PsRow{{Name: "yolo-x-1", Status: "img running foo", RunningFor: ""}}
+	got, ok := ParseContainerLsRows(containerLsJSONMeasured)
+	if !ok {
+		t.Fatal("the measured `container ls --format json` shape did not parse")
+	}
+	want := []PsRow{
+		{Name: "yolo-su11-ac-f113f9bc", Status: "running since 2026-11-06T19:57:12Z"},
+		{Name: "yolo-ac-builder", Status: "running since 2026-10-09T22:39:57Z"},
+	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("container rows = %v, want %v", got, want)
+		t.Errorf("rows = %+v, want %+v", got, want)
+	}
+}
+
+// TestParseContainerLsRowsEdges: an empty list is a complete answer (ok, no rows); an output
+// that is not the measured JSON is NOT — ps must not read it as "no jails" and prune live
+// tracking files (D11). A missing startedDate leaves the bare state; a missing top-level id
+// falls back to configuration.id.
+func TestParseContainerLsRowsEdges(t *testing.T) {
+	if rows, ok := ParseContainerLsRows("[]\n"); !ok || len(rows) != 0 {
+		t.Errorf("empty list = %v, %v; want no rows, ok", rows, ok)
+	}
+	for _, bad := range []string{"", "ID IMAGE OS ARCH STATE\nyolo-x img linux arm64 running\n", "{}"} {
+		if _, ok := ParseContainerLsRows(bad); ok {
+			t.Errorf("unparseable listing %q read as a complete answer", bad)
+		}
+	}
+	got, ok := ParseContainerLsRows(`[{"configuration": {"id": "yolo-c"}, "status": {"state": "stopped"}}]`)
+	want := []PsRow{{Name: "yolo-c", Status: "stopped"}}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %+v, %v; want %+v", got, ok, want)
 	}
 }
 

@@ -5,6 +5,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -178,24 +179,54 @@ func ParsePodmanPsRows(stdout string) []PsRow {
 	return rows
 }
 
-// ParseContainerLsRows parses Apple Container `container ls` stdout into ps
-// rows: skip header, first field is the name, the remaining fields joined by a
-// single space are the status, and RunningFor is always empty (Apple Container
-// does not report an uptime column).
-func ParseContainerLsRows(stdout string) []PsRow {
-	var rows []PsRow
-	for _, line := range tableRows(stdout) {
-		parts := strings.Fields(line)
-		if len(parts) == 0 || !strings.HasPrefix(parts[0], "yolo-") {
+// ContainerLsJSONArgv is the Apple Container listing ParseContainerLsRows reads: running
+// containers only, as `podman ps` lists, in the JSON form rather than the table, whose columns
+// (`ID IMAGE OS ARCH STATE IP CPUS MEMORY STARTED`, MEMORY two tokens) changed under the old
+// whitespace parser.
+var ContainerLsJSONArgv = []string{"container", "ls", "--format", "json"}
+
+// containerLsEntry is the part of one `container ls --format json` element ps reads. The
+// shape is MEASURED (docs/lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md §3): top-level
+// `configuration`, `id` and `status`, where `status` is an object {networks, startedDate,
+// state} and startedDate an RFC 3339 UTC string.
+type containerLsEntry struct {
+	ID            string `json:"id"`
+	Configuration struct {
+		ID string `json:"id"`
+	} `json:"configuration"`
+	Status struct {
+		State       string `json:"state"`
+		StartedDate string `json:"startedDate"`
+	} `json:"status"`
+}
+
+// ParseContainerLsRows parses `container ls --format json` stdout (ContainerLsJSONArgv) into
+// ps rows: every yolo-* container, named by its `id` (else `configuration.id`), with Status
+// "<state> since <startedDate>" (the bare state when no start time is given). RunningFor stays
+// empty. ok=false means the output is not a JSON list: the caller must treat that as "could
+// not enumerate", never as "no jails" (D11), since an empty answer authorizes the tracking
+// prune.
+func ParseContainerLsRows(stdout string) ([]PsRow, bool) {
+	var entries []containerLsEntry
+	if err := json.Unmarshal([]byte(stdout), &entries); err != nil {
+		return nil, false
+	}
+	rows := []PsRow{}
+	for _, e := range entries {
+		name := e.ID
+		if name == "" {
+			name = e.Configuration.ID
+		}
+		if !strings.HasPrefix(name, "yolo-") {
 			continue
 		}
-		status := ""
-		if len(parts) > 1 {
-			status = strings.Join(parts[1:], " ")
+		status := e.Status.State
+		if e.Status.StartedDate != "" {
+			status += " since " + e.Status.StartedDate
 		}
-		rows = append(rows, PsRow{Name: parts[0], Status: status})
+		rows = append(rows, PsRow{Name: name, Status: strings.TrimSpace(status)})
 	}
-	return rows
+	return rows, true
 }
 
 // tableRows returns the data rows of a fixed-table CLI output: strip the whole

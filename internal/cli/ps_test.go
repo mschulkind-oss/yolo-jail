@@ -187,8 +187,9 @@ func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
 	deps := psDeps{
 		DetectRuntime: func() string { return "container" },
 		RunCmd: func(argv []string) (string, bool) {
-			if len(argv) >= 2 && argv[0] == "container" && argv[1] == "ls" {
-				return "ID  IMAGE  STATE\nyolo-live img running\n", true
+			if strings.Join(argv, " ") == "container ls --format json" {
+				return `[{"configuration": {"id": "yolo-live"}, "id": "yolo-live",
+				  "status": {"networks": [], "startedDate": "2026-11-06T19:57:12Z", "state": "running"}}]`, true
 			}
 			return "", true
 		},
@@ -201,6 +202,79 @@ func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
 	}
 	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
 		t.Error("live AC jail's tracking file must survive")
+	}
+}
+
+// TestPsAppleContainerStatusIsTheState is lab report 2026-11-04 §7 / 2026-11-06 §3 through the
+// production call site: on Apple Container, `yolo ps` asks `container ls --format json` and
+// prints each container's state and start time as STATUS, not the whole table row. The
+// builder is listed with workspace "unknown", as podman's `ps --filter name=^yolo-` lists
+// `yolo-linux-builder`. Removing psRun's container branch, or its JSON argv, fails this.
+func TestPsAppleContainerStatusIsTheState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	must(t, runtime.WriteContainerTracking("yolo-su11-ac-f113f9bc", "/Users/Shared/yolo/su11-ac"))
+	var asked []string
+	var buf bytes.Buffer
+	psRun(psDeps{
+		DetectRuntime: func() string { return "container" },
+		RunCmd: func(argv []string) (string, bool) {
+			asked = append(asked, strings.Join(argv, " "))
+			switch strings.Join(argv, " ") {
+			case "container ls --format json":
+				return `[
+  {"configuration": {"id": "yolo-su11-ac-f113f9bc"}, "id": "yolo-su11-ac-f113f9bc",
+   "status": {"networks": [], "startedDate": "2026-11-06T19:57:12Z", "state": "running"}},
+  {"configuration": {"id": "yolo-ac-builder"}, "id": "yolo-ac-builder",
+   "status": {"networks": [], "startedDate": "2026-10-09T22:39:57Z", "state": "running"}}
+]`, true
+			case "container ls":
+				return "ID IMAGE OS ARCH STATE IP CPUS MEMORY STARTED\n" +
+					"yolo-ac-builder ghcr.io/mschulkind-oss/yolo-jail-builder:latest linux arm64 running 192.168.64.2/24 8 12288 MB 2026-10-09T22:39:57Z\n", true
+			}
+			return "", true
+		},
+		PathIsDir: func(string) bool { return true },
+		Out:       &buf,
+		Format:    "json",
+	})
+	var rep psReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("not a JSON report (asked %v): %v\n%s", asked, err, buf.String())
+	}
+	want := []psJail{
+		{Name: "yolo-su11-ac-f113f9bc", Status: "running since 2026-11-06T19:57:12Z", Workspace: "/Users/Shared/yolo/su11-ac"},
+		{Name: "yolo-ac-builder", Status: "running since 2026-10-09T22:39:57Z", Workspace: "unknown"},
+	}
+	if !rep.Enumerated || len(rep.Jails) != len(want) {
+		t.Fatalf("report = %+v (asked %v); want %+v", rep, asked, want)
+	}
+	for i := range want {
+		if rep.Jails[i] != want[i] {
+			t.Errorf("jail %d = %+v, want %+v", i, rep.Jails[i], want[i])
+		}
+	}
+}
+
+// TestPsAppleContainerUnparseableListingDoesNotPrune: a `container ls --format json` that
+// exits 0 but is not the measured JSON is an enumeration failure, never "no jails" — reading
+// it as empty would prune live jails' tracking files (D11).
+func TestPsAppleContainerUnparseableListingDoesNotPrune(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	must(t, runtime.WriteContainerTracking("yolo-live", "/ws"))
+	var buf bytes.Buffer
+	psRun(psDeps{
+		DetectRuntime: func() string { return "container" },
+		RunCmd: func(argv []string) (string, bool) {
+			return "ID IMAGE STATE\nyolo-live img running\n", true
+		},
+		PathIsDir: func(string) bool { return true },
+		Out:       &buf,
+	})
+	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
+		t.Error("an unparseable listing pruned a live jail's tracking file")
+	}
+	if !strings.Contains(buf.String(), "Could not query the container runtime") {
+		t.Errorf("an unparseable listing must say the runtime could not be queried: %q", buf.String())
 	}
 }
 
