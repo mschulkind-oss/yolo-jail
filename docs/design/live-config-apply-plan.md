@@ -325,4 +325,6 @@ restart" is now false), `docs/reference/context-mounts.md`, the design's Built c
 
 - Don't add a second approval path or a second consent store. The record is the approval snapshot.
 - Don't read anything from inside the jail to decide a source (design P5).
-- Don't build the later slices (`LA-S4a` to `LA-S4d`) or the macOS Podman Machine injector.
+- Don't build the later slices (`LA-S4b` to `LA-S4d`) or the macOS Podman Machine injector in this
+  plan's scope. `LA-S4a` was built on its own, 2026-11-06 (design [LA-D18](live-config-apply.md#LA-D18)
+  to [LA-D22](live-config-apply.md#LA-D22)).

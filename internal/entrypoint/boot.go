@@ -864,6 +864,12 @@ func Main(args []string) error {
 		if rc := provisionThisSession(e, gate, runProvisionStage); rc != 0 {
 			return &ExitStatus{Code: rc}
 		}
+	} else if gate != nil {
+		// EVERY OTHER SESSION installs the mise tools its own entry carries when they are not
+		// the ones this jail last installed (misereprovision.go, LA-D20): the tools are a
+		// session input, so a config change reaches the next session. Its failure is said and
+		// never ends the session.
+		reprovisionMise(e, runProvisionStage, os.Stderr)
 	}
 	return execBash(e, command, mode != modeFirstSession)
 }

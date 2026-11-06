@@ -5,15 +5,15 @@ package run
 // OQ-PD12a ruling that "a `mise_tools` pnpm keeps its name").
 //
 // TWO HALVES DECIDE WHO DELIVERS PNPM, AND THEY LIVE ON OPPOSITE SIDES OF THE CONTAINER.
-// The HOST writes MISE_DISABLE_TOOLS onto the argv (assembleRunCmd), and mise neither lists,
+// The HOST writes MISE_DISABLE_TOOLS into the channel (composeSessionInputs), and mise neither lists,
 // installs nor shims a tool named there. The JAIL decides whether to write yolo's lazy
 // `pnpm@latest` launcher (entrypoint.GeneratePackageManagerLaunchers), and withholds it for a
 // declared mise tool. Each half was right on its own and the pair was wrong: the host hid
 // pnpm from mise on every launch while the jail stood its launcher down, so a workspace that
 // declared `mise_tools` pnpm got no pnpm at all.
 //
-// So each cell drives BOTH production call sites, the argv's own values crossing to the jail
-// half the way the container env carries them, and asserts on the outcome neither half sees
+// So each cell drives BOTH production call sites, the channel's own values crossing to the jail
+// half the way the boot hydrates them, and asserts on the outcome neither half sees
 // alone.
 
 import (
@@ -28,19 +28,20 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// pnpmDoors launches cfg and reports the two halves' answers: the tool keys the argv's
+// pnpmDoors launches cfg and reports the two halves' answers: the tool keys the channel's
 // MISE_DISABLE_TOOLS hides from mise, and whether the jail wrote yolo's pnpm launcher from
-// the env that argv carries.
+// the env that channel carries.
 func pnpmDoors(t *testing.T, cfg *jsonx.OrderedMap) (miseHides []string, launcherWritten bool) {
 	t.Helper()
-	argv := assembleWithConfig(t, cfg)
-	disabled, ok := envValue(argv, "MISE_DISABLE_TOOLS")
+	a := assembleWithConfigAssembled(t, cfg)
+	jail := assembledJailEnv(t, a.o, a.in, a.argv)
+	disabled, ok := jail["MISE_DISABLE_TOOLS"]
 	if !ok {
-		t.Fatal("the launch argv carries no MISE_DISABLE_TOOLS")
+		t.Fatal("the launch hands its jail no MISE_DISABLE_TOOLS")
 	}
-	miseTools, ok := envValue(argv, "YOLO_MISE_TOOLS")
+	miseTools, ok := jail["YOLO_MISE_TOOLS"]
 	if !ok {
-		t.Fatal("the launch argv carries no YOLO_MISE_TOOLS")
+		t.Fatal("the launch hands its jail no YOLO_MISE_TOOLS")
 	}
 
 	home := t.TempDir()

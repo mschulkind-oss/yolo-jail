@@ -533,6 +533,11 @@ func provisionThisSession(e *Env, gate *sessionGate, run func(*Env, string) int)
 	if ran {
 		appendProvisionPerf(e.Home, ms, rc)
 	}
+	// The stage's mise install ran from this session's mise inputs, so a later session with the
+	// same ones installs nothing (reprovisionMise, LA-D20).
+	if rc == 0 {
+		recordMiseInstalled(e)
+	}
 	return rc
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ctxinject"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
@@ -58,10 +59,11 @@ func (a applyOutcome) String() string {
 func (a applyOutcome) pending() bool { return a == outcomeNextRestart || a == outcomeNextLaunch }
 
 // keyOutcome delegates the stable backend/key matrix to the shared mechanics contract.
-// Runtime observations remain inputs to Classify and can narrow its expectation.
-func keyOutcome(rt, key string) (applyOutcome, string) {
+// Runtime observations remain inputs to Classify and can narrow its expectation: sessionInputs
+// is the jail's `session-inputs` contract tag (jailTakesSessionInputs).
+func keyOutcome(rt, key string, sessionInputs bool) (applyOutcome, string) {
 	row, err := changetiming.Classify(key, changetiming.Context{Backend: timingBackend(rt),
-		PackageDelivery: changetiming.BakedImage})
+		PackageDelivery: changetiming.BakedImage, SessionInputs: sessionInputs})
 	if err != nil {
 		return outcomeNextRestart, "no change-timing row is available for this key"
 	}
@@ -310,6 +312,10 @@ type applyPlanInput struct {
 	// grants are the selected grant-declaring loopholes, each with its running daemon's live
 	// grant files (liveapplygrants.go).
 	grants []grantDelta
+	// sessionInputs: the jail reads its MCP, LSP, blocked-tool and mise inputs from the per-entry
+	// channel and installs a changed mise table on a session's pass (jailTakesSessionInputs,
+	// docs/design/live-config-apply.md LA-S4a), so a change to one reaches its next session.
+	sessionInputs bool
 }
 
 // liveMountRefusal is why the injector cannot reach the mount at dest from source, "" when it
@@ -477,7 +483,11 @@ func buildApplyPlan(in applyPlanInput) []applyChange {
 		if k == "mounts" || k == "brokered" || k == "requests" {
 			continue
 		}
-		o, why := keyOutcome(in.rt, k)
+		if projectedRoots[k] {
+			plan = append(plan, projectedChanges(in, k)...)
+			continue
+		}
+		o, why := keyOutcome(in.rt, k, in.sessionInputs)
 		plan = append(plan, applyChange{kind: changeKey, sign: keySign(in.boot, in.current, k),
 			label: strings.Join(changedPaths(in.boot, in.current, k), ", "), key: k, outcome: o, reason: why})
 	}
@@ -488,6 +498,45 @@ func buildApplyPlan(in applyPlanInput) []applyChange {
 		}
 	}
 	return plan
+}
+
+// projectedRoots are the readable roots the canonical snapshot gathers legacy keys under
+// (config.LegacyKeyForReadablePath): `install` holds `packages` and `mise_tools`, `machine`
+// holds `gpu`, `resources` and the network port lists. Their children differ in timing, so
+// each changed child is its own change, classified by the key it was projected from, and
+// folded alone (config.FoldBootBaselineKey takes the path): a `mise_tools` change reaching
+// the next session must not fold a `packages` change still owed to a restart.
+var projectedRoots = map[string]bool{"install": true, "machine": true}
+
+// projectedChanges is one change per changed child of the projected root k. A child no
+// projection names has no timing row and waits for the restart, as any such key does.
+func projectedChanges(in applyPlanInput, k string) []applyChange {
+	bv, _ := applyMapGet(in.boot, k)
+	cv, _ := applyMapGet(in.current, k)
+	bm, bok := bv.(*jsonx.OrderedMap)
+	cm, cok := cv.(*jsonx.OrderedMap)
+	if (bv != nil && !bok) || (cv != nil && !cok) {
+		// Not an object on one side: no child to speak for, so the root is one change.
+		o, why := keyOutcome(in.rt, k, in.sessionInputs)
+		return []applyChange{{kind: changeKey, sign: keySign(in.boot, in.current, k), label: k, key: k,
+			outcome: o, reason: why}}
+	}
+	var out []applyChange
+	for _, sub := range changedKeys(bm, cm) {
+		path := k + "." + sub
+		timingKey := config.LegacyKeyForReadablePath(path)
+		if timingKey == "" {
+			timingKey = path
+		}
+		o, why := keyOutcome(in.rt, timingKey, in.sessionInputs)
+		labels := changedPaths(bm, cm, sub)
+		for i := range labels {
+			labels[i] = k + "." + labels[i]
+		}
+		out = append(out, applyChange{kind: changeKey, sign: keySign(bm, cm, sub),
+			label: strings.Join(labels, ", "), key: path, outcome: o, reason: why})
+	}
+	return out
 }
 
 // mountLabel is a mount element as its line names it: `/ctx/datasets (read-only)`.

@@ -51,7 +51,7 @@ const channelSectionHeader = entrypoint.EntryChannelSectionHeader
 // running jail, which is how an attach delivers (write, then `podman exec`; the
 // exec'd entrypoint re-runs the boot and hydrates the fresh file). The line
 // order is frozen to match the argv spelling this replaced: tables (in wire
-// order), then the shared pack env fold (sorted), then the pack services' caller
+// order), then the session inputs (sessionInputNames' order, LA-D18), then the shared pack env fold (sorted), then the pack services' caller
 // tokens (sorted; callertokens.go), which no argv ever carried.
 // The three tables are written even when empty — `{}` crosses "none" and
 // revokes what a previous entry selected.
@@ -126,6 +126,13 @@ func userEnvFileBody(userEnv *jsonx.OrderedMap, channel *packChannel) []byte {
 		wire := channel.wireTableValues()
 		for _, k := range entrypoint.WireTables() {
 			b.WriteString(exportPlain(k, wire[k]))
+		}
+		// The SESSION INPUTS (sessioninputs.go, LA-D18): what every session's boot renders its
+		// shims, mise config and MCP/LSP config from, here so an attach's rewrite reaches the next
+		// session. Before the shared pack env, so a pack env of the same name still wins, as it
+		// did over the argv copy these lines replaced.
+		for _, in := range channel.sessionInputs {
+			b.WriteString(exportPlain(in.name, in.value))
 		}
 		// The shared pack env, ONE LINE PER KEY (packload's envcompose.go): only the names whose
 		// winner in the shared composition is the fold. A name env_sources assigns is its

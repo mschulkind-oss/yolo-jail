@@ -43,7 +43,7 @@ func TestSelectedOrdinaryEmptyPackSealActualRuntimeInputs(t *testing.T) {
 	if raw, err := os.ReadFile(config.WorkspaceAssembledConfigPath(ws)); err != nil || strings.TrimSpace(string(raw)) != "{}" {
 		t.Fatalf("assembled config %q: %v", raw, err)
 	}
-	if got, _ := envValue(argv, "YOLO_MCP_SERVERS"); got != "{}" {
+	if got := launchedJailEnv(t, argv, ws)["YOLO_MCP_SERVERS"]; got != "{}" {
 		t.Fatalf("MCP table crossed: %s", got)
 	}
 	if got, _ := envValue(argv, entrypoint.SealedBuildEnv); got != "1" {

@@ -12,15 +12,7 @@ import (
 // values until their E/F/G owners provide projections; in particular this does not infer pack,
 // provider, or authority meaning from their old representations.
 func projectLegacyB2Config(values *jsonx.OrderedMap, source *srcNode) (*jsonx.OrderedMap, *srcNode) {
-	for _, projection := range []struct {
-		old  string
-		path []string
-	}{
-		{old: "packages", path: []string{"install", "nix"}},
-		{old: "mise_tools", path: []string{"install", "mise"}},
-		{old: "gpu", path: []string{"machine", "gpu"}},
-		{old: "resources", path: []string{"machine", "resources"}},
-	} {
+	for _, projection := range legacyKeyProjections {
 		value, present := values.Get(projection.old)
 		if !present {
 			continue
@@ -48,9 +40,49 @@ func projectLegacyB2Config(values *jsonx.OrderedMap, source *srcNode) (*jsonx.Or
 	return values, source
 }
 
+// legacyKeyProjections are the legacy top-level keys projectLegacyB2Config moves whole under a
+// readable root.
+var legacyKeyProjections = []struct {
+	old  string
+	path []string
+}{
+	{old: "packages", path: []string{"install", "nix"}},
+	{old: "mise_tools", path: []string{"install", "mise"}},
+	{old: "gpu", path: []string{"machine", "gpu"}},
+	{old: "resources", path: []string{"machine", "resources"}},
+}
+
+// legacyNetworkProjections are the `network` lists projectLegacyReadableNetwork moves under
+// `machine`: the old list key and its readable path.
+var legacyNetworkProjections = []struct {
+	old  string
+	path []string
+}{
+	{old: "ports", path: []string{"machine", "ports"}},
+	{old: "forward_host_ports", path: []string{"machine", "forward"}},
+}
+
+// LegacyKeyForReadablePath is the legacy top-level key a readable config path was projected
+// from, "" for a path no projection makes: `install.mise` is `mise_tools`, `machine.ports` is
+// `network`. A reader keyed on the legacy schema (internal/changetiming's rows) asks it about a
+// change the canonical snapshot spells under `install` or `machine`.
+func LegacyKeyForReadablePath(path string) string {
+	for _, p := range legacyKeyProjections {
+		if strings.Join(p.path, ".") == path {
+			return p.old
+		}
+	}
+	for _, p := range legacyNetworkProjections {
+		if strings.Join(p.path, ".") == path {
+			return "network"
+		}
+	}
+	return ""
+}
+
 func projectLegacyReadableNetwork(values *jsonx.OrderedMap, source *srcNode) (*jsonx.OrderedMap, *srcNode) {
-	values, source = projectLegacyNetworkList(values, source, "ports", []string{"machine", "ports"}, LowerLegacyPublishPorts)
-	return projectLegacyNetworkList(values, source, "forward_host_ports", []string{"machine", "forward"}, parseLegacyForwardPorts)
+	values, source = projectLegacyNetworkList(values, source, legacyNetworkProjections[0].old, legacyNetworkProjections[0].path, LowerLegacyPublishPorts)
+	return projectLegacyNetworkList(values, source, legacyNetworkProjections[1].old, legacyNetworkProjections[1].path, parseLegacyForwardPorts)
 }
 
 func projectLegacyNetworkList(values *jsonx.OrderedMap, source *srcNode, oldKey string, target []string, convert func([]any) ([]any, bool)) (*jsonx.OrderedMap, *srcNode) {

@@ -1,8 +1,8 @@
 package run
 
 // mcpservers_test.go pins the container launch's delivery of the `mcp` contribution kind
-// (docs/design/mcp-presets-removal.md OQ-MP4: composed host-side, like providers): the argv's
-// YOLO_MCP_SERVERS is the selected packs' entries joined to the jail's home under the config's own
+// (docs/design/mcp-presets-removal.md OQ-MP4: composed host-side, like providers): the launch's
+// YOLO_MCP_SERVERS (a session input on its channel) is the selected packs' entries joined to the jail's home under the config's own
 // mcp_servers, which is what every agent's derive in the jail renders.
 
 import (
@@ -31,15 +31,15 @@ func chromeDevtoolsFixture(t *testing.T) *packload.Pack {
 	return nil
 }
 
-func argvMCPServers(t *testing.T, argv []string) string {
+// assembledMCPServers is the YOLO_MCP_SERVERS the jail assembled from in reads: a session input,
+// on the launch's channel (sessioninputs.go, LA-D18).
+func assembledMCPServers(t *testing.T, o *Options, in *assembleInput) string {
 	t.Helper()
-	for _, a := range argv {
-		if v, ok := strings.CutPrefix(a, "YOLO_MCP_SERVERS="); ok {
-			return v
-		}
+	v, ok := assembledJailEnv(t, o, in, o.assembleRunCmd(in))["YOLO_MCP_SERVERS"]
+	if !ok {
+		t.Fatal("the launch hands its jail no YOLO_MCP_SERVERS")
 	}
-	t.Fatalf("no YOLO_MCP_SERVERS on the argv: %v", argv)
-	return ""
+	return v
 }
 
 func TestTheLaunchArgvDoesNotSendPackHeadersToAnOverriddenDestination(t *testing.T) {
@@ -65,7 +65,7 @@ func TestTheLaunchArgvDoesNotSendPackHeadersToAnOverriddenDestination(t *testing
 	servers := jsonx.NewOrderedMap()
 	servers.Set("linear", linear)
 	in.cfg.Set("mcp_servers", servers)
-	got := argvMCPServers(t, o.assembleRunCmd(in))
+	got := assembledMCPServers(t, o, in)
 	if strings.Contains(got, secret) || strings.Contains(got, "Authorization") {
 		t.Fatalf("launch argv delivered a pack header to the overridden endpoint: %s", got)
 	}
@@ -123,7 +123,7 @@ func TestTheLaunchArgvBindsPackHeadersToTheEffectiveTransport(t *testing.T) {
 			servers := jsonx.NewOrderedMap()
 			servers.Set("linear", override)
 			in.cfg.Set("mcp_servers", servers)
-			got := argvMCPServers(t, o.assembleRunCmd(in))
+			got := assembledMCPServers(t, o, in)
 			for _, want := range []string{`"transport": "sse"`, `"url": "https://mcp.example/mcp"`} {
 				if strings.Contains(tc.override, `"transport"`) || strings.Contains(tc.manifestConfig, `"transport"`) {
 					if !strings.Contains(got, want) {
@@ -156,7 +156,7 @@ func TestTheLaunchArgvCarriesTheSelectedPacksMCPEntry(t *testing.T) {
 	servers.Set("mine", mine)
 	in.cfg.Set("mcp_servers", servers)
 
-	got := argvMCPServers(t, o.assembleRunCmd(in))
+	got := assembledMCPServers(t, o, in)
 	for _, want := range []string{`"chrome-devtools"`, `"/bin/sh"`,
 		"/home/agent/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper", `"mine"`} {
 		if !strings.Contains(got, want) {

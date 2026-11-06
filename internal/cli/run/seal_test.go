@@ -39,15 +39,15 @@ import (
 var sealedEnvAllowlist = map[string]bool{
 	"CARGO_HOME": true, "COPILOT_ALLOW_ALL": true, "EDITOR": true, "GIT_PAGER": true, "GOPATH": true,
 	"HOME": true, "IS_SANDBOX": true, "JAIL_HOME": true, "LD_LIBRARY_PATH": true, "MISE_CACHE_DIR": true,
-	"MISE_DATA_DIR": true, "MISE_DISABLE_TOOLS": true, "MISE_ENV": true,
+	"MISE_DATA_DIR": true, "MISE_ENV": true,
 	"MISE_PYTHON_GITHUB_ATTESTATIONS": true, "MISE_PYTHON_PRECOMPILED_FLAVOR": true,
 	"MISE_TRUSTED_CONFIG_PATHS": true, "MISE_YES": true, "NPM_CONFIG_CACHE": true, "NPM_CONFIG_PREFIX": true, "YARN_CACHE_FOLDER": true,
 	"NPM_CONFIG_FUND": true, "NPM_CONFIG_UPDATE_NOTIFIER": true,
 	"OVERMIND_SOCKET": true, "PAGER": true, "RUSTUP_HOME": true, "TZ": true,
-	"VISUAL": true, "YOLO_AGENT_UPDATES": true, "YOLO_BLOCK_CONFIG": true, "YOLO_CONTEXT_DIR": true,
+	"VISUAL": true, "YOLO_AGENT_UPDATES": true, "YOLO_CONTEXT_DIR": true,
 	"YOLO_CONTRACT_TAGS": true, "YOLO_DURABLE_DIR": true, "YOLO_HOST_CA_FILE": true, "YOLO_HOME_STATE": true, "YOLO_HOST_DIR": true, "YOLO_HOST_LAYERS": true,
-	"YOLO_HOST_LOOPBACK": true, "YOLO_JAIL_BACKEND": true, "YOLO_JAIL_MAIN": true, "YOLO_LSP_SERVERS": true,
-	"YOLO_MCP_SERVERS": true, "YOLO_MISE_TOOLS": true, "YOLO_PACK_ROOT": true, "YOLO_GPU_ENABLED": true, "YOLO_SETUP": true,
+	"YOLO_HOST_LOOPBACK": true, "YOLO_JAIL_BACKEND": true, "YOLO_JAIL_MAIN": true,
+	"YOLO_PACK_ROOT": true, "YOLO_GPU_ENABLED": true, "YOLO_SETUP": true,
 	"YOLO_SEALED_BUILD": true, "YOLO_VERSION": true,
 }
 
@@ -450,8 +450,9 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 		t.Errorf("a sealed launch's assembled config copy (err %v) is not the empty object:\n%s", err, body)
 	}
 	// No MCP or LSP server (agentServerTables): a build runs no agent.
+	jail := launchedJailEnv(t, argv, ws)
 	for name, want := range map[string]string{"YOLO_MCP_SERVERS": "{}", "YOLO_LSP_SERVERS": "{}"} {
-		if v, _ := envValue(argv, name); v != want {
+		if v := jail[name]; v != want {
 			t.Errorf("a sealed launch hands the jail %s=%s, want %s", name, v, want)
 		}
 	}
@@ -529,8 +530,9 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	if body, _ := os.ReadFile(config.WorkspaceAssembledConfigPath(ws)); !strings.Contains(string(body), "sealtest-secret-value") {
 		t.Errorf("the unsealed fixture's assembled config copy carries no env_sources value:\n%s", body)
 	}
+	jail := launchedJailEnv(t, argv, ws)
 	for name, secret := range map[string]string{"YOLO_MCP_SERVERS": "sealtest-mcp-secret", "YOLO_LSP_SERVERS": "sealtest-lsp-secret"} {
-		if v, _ := envValue(argv, name); !strings.Contains(v, secret) {
+		if v := jail[name]; !strings.Contains(v, secret) {
 			t.Errorf("the unsealed fixture's %s=%s carries no %q, so that site is unexercised", name, v, secret)
 		}
 	}

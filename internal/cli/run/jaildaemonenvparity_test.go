@@ -3,6 +3,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -36,9 +37,12 @@ func TestTheGuestDaemonEnvCarriesTheContainersChannelSection(t *testing.T) {
 		t.Fatalf("the shared file has no complete channel section:\n%s", body)
 	}
 	env := channel.jailDaemonEnv(nil, jsonx.NewOrderedMap())
+	// The session inputs (LA-D18) are the entry's, read by the provisioner and the shim
+	// generator, never by a daemon; the guest's bootstrap env carries its own
+	// (macosuser.buildBootstrapEnv).
 	skip := func(k string) bool {
 		_, token := channel.callerTokens[k]
-		return token || k == paths.ServedAddressesEnv || k == "YOLO_JAIL_DAEMONS"
+		return token || k == paths.ServedAddressesEnv || k == "YOLO_JAIL_DAEMONS" || slices.Contains(sessionInputNames, k)
 	}
 	for k, want := range section {
 		if skip(k) {

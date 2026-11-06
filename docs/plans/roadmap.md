@@ -67,7 +67,8 @@ owed. That document owns its remaining build.
 5. [Apply config changes to a running jail](../design/live-config-apply.md) — v1 is landed, and its
    Mac-only `-short` failures are repaired and verified natively; rootless CI evidence is still owed
    ([item 43](#external-waits)). Its later slices are each built on their own after v1:
-   [the next-session moves](../design/live-config-apply.md#LA-S4a),
+   [the next-session moves](../design/live-config-apply.md#LA-S4a)
+   (built 2026-11-06; [OQ-LA7](../design/live-config-apply.md#OQ-LA7) open),
    [Apple Container's briefing re-copy](../design/live-config-apply.md#LA-S4b),
    [resources through `podman update`](../design/live-config-apply.md#LA-S4c) and
    [live host-port forwards](../design/live-config-apply.md#LA-S4d).

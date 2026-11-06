@@ -373,9 +373,6 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		publishArgs, forwardHostPorts = nil, nil
 	}
 
-	normalizedBlocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(in.packs))
-	blockedConfigJSON := jsonDumps(normalizedBlocked)
-
 	// --- Extra mounts (config.mounts → -v host:container[:ro]) ---
 	//
 	// configCtxMounts is the one reading of the key (ctxmounts.go): read-only elements from
@@ -481,7 +478,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	}
 
 	// --- Common env block (frozen order) ---
-	runCmd = append(runCmd, o.commonEnvBlock(in, blockedConfigJSON, netMode)...)
+	runCmd = append(runCmd, o.commonEnvBlock(in, netMode)...)
 	// THE JAIL'S --with-credentials GRANT (jailgrant.go, ES-D37): on podman a `:ro` bind of the
 	// per-launch grant file the launch staged outside the workspace (stageJailGrant), which every
 	// boot and session reads into its environment; on Apple Container nothing here, the copy being
@@ -892,20 +889,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		}
 	}
 
-	// --- MISE_DISABLE_TOOLS env ---
-	// A sealed build hydrates no env_sources to read it from: hydrating one runs the commands and
-	// reads the files it names on the host (seal.go).
-	userEnv := jsonx.NewOrderedMap()
-	if !in.sealed {
-		userEnv = config.ResolveEnvSources(o.Workspace, cfg, nil)
-	}
-	// The merged mise_tools go in beside the user's list because the jail withholds yolo's
-	// pnpm launcher for a declared mise pnpm, and mise must then be free to deliver it
-	// (MergeMiseDisabledTools; misepnpm_test.go drives both halves). The table YOLO_MISE_TOOLS
-	// carries, so a capture jail's is none of the user's either (jailMiseTools, FP-D19).
-	miseTools, _ := in.jailMiseTools()
-	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"), miseTools)
-	runCmd = append(runCmd, "-e", "MISE_DISABLE_TOOLS="+miseDisabled)
+	// MISE_DISABLE_TOOLS, YOLO_MISE_TOOLS, YOLO_BLOCK_CONFIG and the LSP and MCP tables are not on
+	// the argv: they are SESSION INPUTS, which ride the per-entry channel so an attach reaches the
+	// next session (sessioninputs.go, LA-D18).
 
 	// --- store-prune gate (host-only) --- handled by the lifecycle phase
 	// (needs live-container enumeration); the -e is inserted there. Placeholder
@@ -1229,7 +1215,7 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 
 // commonEnvBlock builds the big -e env block. Frozen contract (order and
 // content must not drift — yolo-entrypoint reads these exact vars).
-func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode string) []string {
+func (o *Options) commonEnvBlock(in *assembleInput, netMode string) []string {
 	cfg := in.cfg
 	graphicsEnabled := "0"
 	if !in.sealed {
@@ -1237,11 +1223,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 			graphicsEnabled = "1"
 		}
 	}
-	// None under the seal (seal.go): a server's literal env is a credential, and a build runs no
-	// agent to start one.
-	lspServers, mcpServers := agentServerTables(cfg, in.sealed, in.packs)
-	// None of the user's in any capture jail (seal.go): the jail's mise install installs this.
-	miseTools, _ := in.jailMiseTools()
 	env := []string{
 		"-e", "JAIL_HOME=/home/agent",
 		"-e", "NPM_CONFIG_PREFIX=/home/agent/.npm-global",
@@ -1274,7 +1255,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		// it, and core names no agent (docs/design/agent-directory-map.md Appendix B).
 		"-e", "PAGER=cat",
 		"-e", "GIT_PAGER=cat",
-		"-e", "YOLO_BLOCK_CONFIG=" + blockedConfigJSON,
 	}
 	if in.hostTZ != "" {
 		env = append(env, "-e", "TZ="+in.hostTZ)
@@ -1289,13 +1269,6 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "YOLO_HOST_DIR="+o.Workspace,
 		"-e", "YOLO_VERSION="+in.yoloVersion,
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
-		"-e", "YOLO_MISE_TOOLS="+jsonDumps(miseTools),
-		"-e", "YOLO_LSP_SERVERS="+jsonDumpsOrEmptyObj(lspServers),
-		// THE COMPOSED TABLE (packload.ComposeMCPServers, through agentServerTables): each selected
-		// pack's `mcp` entries joined to the jail's home, your mcp_servers merged over them. Composed
-		// here, on the host, for this backend's home (docs/design/mcp-presets-removal.md OQ-MP4); the
-		// jail reads it as it always read your table. None under the seal.
-		"-e", "YOLO_MCP_SERVERS="+jsonDumpsOrEmptyObj(mcpServers),
 		// The `agent_updates` policy, read from USER scope directly rather than from the
 		// merged config: /workspace is bind-mounted rw, so a workspace value would let an
 		// agent freeze its own updates (config.AgentUpdatesWire). Emitted on EVERY launch,

@@ -11,7 +11,9 @@ summary: "A host command, `yolo config apply`, runs the launch's own config-chan
 # Approve a config change once, on the host, and let the running jail take what it can
 
 **Status:** 2026-10-18. Every question was ruled the same day. The patch-branch code entered the integrated history in merge `08e6566c4`; live-apply code entered in merge `6f7c72a25`, and the inspected-mount-record repair followed in `388ea8a1b`. The later `4e7b9b92b` commit is a documentation-only heading repair, not the implementation merge. The final live-closure review accepted the bounded repair. v1 and its review repairs are built; the command's briefing re-render from the effective
-config is not ([LA-D7](#LA-D7)), nor are the later slices of [§13](#13-sequencing).
+config is not ([LA-D7](#LA-D7)), nor are the later slices of [§13](#13-sequencing) other than
+[LA-S4a](#LA-S4a), the next-session moves, built 2026-11-06 ([LA-D18](#LA-D18) to
+[LA-D22](#LA-D22)); [OQ-LA7](#OQ-LA7) is open on it, and the build follows its leaning.
 MEASURED in the nested rootful Podman path only (`--userns host`): the command and interactive
 attach added, removed and moved read-only mounts in a running jail, refused writes, kept `/ctx`
 read-only, and left `yolo config drift` at exit 0. A nested rootful Linux/amd64 probe also found
@@ -297,9 +299,9 @@ Classes:
 | `brokered.github.repos`, and remotes changing scope | **B** | B | n/a: the broker never starts | **B**, for every live session's broker | Rewrite the scope file. The broker classifies against its re-read ([§7](#7-github-scope-live)). |
 | `env_sources`, `providers`, `profiles`, `profile`, `model_facts`, `adapters`; pack `env`, `profile`, `provider`, `models`, `adapter` | A, next | A, next | A, next | next | An attach already recomposes the channel (`run.go:2852`). A process keeps its environment. |
 | `agents_md_extra`, `briefing_provenance`; built-in, user and workspace skills | A | A | B, because the briefing is copied once (`attachskewbriefing.go:64-66`) | next | Bind-mounted staging, which every attach re-renders ([LA-D7](#LA-D7)). |
-| `mcp_servers`, `mcp_presets`, pack `mcp`, `lsp_servers` | B, next | B, next | B, next | next | Boot regenerates them every session, but the input is frozen launch argv `-e`. Moving it into the per-entry channel makes the next session pick it up. |
-| `security.blocked_tools`, pack `blocked-tool`, `intercept` | B, next | B, next | B, next | next | Same: `YOLO_BLOCK_CONFIG` is argv. Shims regenerate per session. |
-| `mise_tools` | B, next | B, next | B, next | next | Channel input, plus a re-run of provisioning. |
+| `mcp_servers`, `mcp_presets`, pack `mcp`, `lsp_servers` | **B**, next, built ([LA-S4a](#LA-S4a)) | **B**, next, built | **B**, next, built | next | Boot regenerates them every session. The input used to be frozen launch argv `-e`; it now rides the per-entry channel, so the next session picks it up ([LA-D18](#LA-D18)). Pack `mcp` changes the pack tree, which stays restart-only. |
+| `security.blocked_tools`, pack `blocked-tool`, `intercept` | **B**, next, built | **B**, next, built | **B**, next, built | next | Same: `YOLO_BLOCK_CONFIG` is a channel input ([LA-D18](#LA-D18)). Shims regenerate per session. Pack kinds change the pack tree, which stays restart-only. |
+| `mise_tools` (`install.mise`) | **B**, next, built | **B**, next, built | **B**, next, built | next | Channel input, plus the session's own mise install when its tools are not the ones the jail last installed ([LA-D20](#LA-D20)). |
 | `resources.cpus`, `.memory`, `.pids_limit` | B | B, within the VM | C | next | `podman update` changes cgroup limits live. Rootless needs cgroup v2 controller delegation (unmeasured). Apple Container has no known update verb. |
 | `resources.io` | C | C | C | next | Frozen on purpose: an attach reads the launched value (`prepare.go:34-39`). |
 | `network.forward_host_ports` | B | B | C | n/a | The socket dir is a live bind, so it needs a new socat and an in-jail forwarder. Apple Container uses `--publish-socket` in argv. |
@@ -641,7 +643,8 @@ v1 is items 1 to 3 ([OQ-LA1](#decision-ledger)); item 4 is staged on the
 4. <a id="LA-S4"></a>**Later slices**, each its own build:
    - <a id="LA-S4a"></a>**Next-session moves** (the B option of [OQ-LA1](#decision-ledger)):
      `mcp_servers`, `lsp_servers` and `security.blocked_tools` into the per-entry channel, and
-     `mise_tools` with its provisioning re-run.
+     `mise_tools` with its provisioning re-run. **Built 2026-11-06** ([LA-D18](#LA-D18) to
+     [LA-D22](#LA-D22)); [OQ-LA7](#OQ-LA7) is open.
    - <a id="LA-S4b"></a>**Apple Container's briefing re-copy**, so skills and briefings reach its
      next session.
    - <a id="LA-S4c"></a>**Resources live** through `podman update` (the C option), after M6.
@@ -650,6 +653,26 @@ v1 is items 1 to 3 ([OQ-LA1](#decision-ledger)); item 4 is staged on the
    request store and doorbell ([`boundary-broker.md`](boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification);
    the stopgap is [`host-run-mailbox.md`](host-run-mailbox.md)). It waits for that mechanism to be
    ready, by [OQ-LA6](#decision-ledger).
+
+## 14. Open question
+
+<a id="OQ-LA7-question"></a>**[OQ-LA7](#OQ-LA7): an attach that does not approve a change still
+delivers it to the session's inputs.**
+Motivation: an attach composes the per-entry channel from the config as it is now. That is true of
+`env_sources` and providers today, and since [LA-D18](#LA-D18) of the MCP and LSP tables, the
+blocked tools and the mise tools too. A non-interactive attach asks nothing, and an interactive one
+answered N ([LA-D14](#LA-D14)) records nothing, yet its session renders, and installs, from the
+unapproved values. Impact: the approval record and `yolo config drift` still say the change is
+pending while the session already has it. For example, a workspace edit adding an MCP server is
+started in the next `yolo` session in that jail before anyone answers y.
+
+- **A.** Keep delivering from the current config, as the channel already does for `env_sources`
+  and providers. The record stays the approval of record, and the session's inputs follow the file.
+- **B.** Deliver the session inputs from the approved, effective config (`.yolo/config-boot.json`)
+  whenever the change is not approved, and from the current config once it is.
+
+Leaning: **A**. It is the rule the channel already follows, and B would split one channel into two
+sources of truth. The build follows A; B would change which config `composeSessionInputs` is handed on an attach.
 
 ## Decision Ledger
 
@@ -681,3 +704,9 @@ The `OQ-LA` rows are the maintainer's rulings of 2026-10-18, quoted in the secti
 | <a id="LA-D15"></a>LA-D15 | What config mounts a jail has comes from a host-side record (`paths.AgentsDir()/<cname>/ctx-mounts/`), tied to the jail by a token frozen in its env; read-write mounts are user scope and absent from `.yolo/config-boot.json` | 2026-10-18 | [§5.5](#55-old-jails) | ✅ |
 | <a id="LA-D16"></a>LA-D16 | A rootful podman reached by a yolo that is not root reports mounts *at next restart*; the injector never asks for `sudo` | 2026-10-18 | [§5.3](#53-verdict-per-backend) | ✅ |
 | <a id="LA-D17"></a>LA-D17 | In a jail, the command refuses only the jail's own workspace; a nested workspace's apply runs, as its launch's gate does | 2026-10-18 | [§3.1](#31-surface) | ✅ |
+| <a id="LA-D18"></a>LA-D18 | The session inputs (`YOLO_BLOCK_CONFIG`, `YOLO_MISE_TOOLS`, `MISE_DISABLE_TOOLS`, `YOLO_LSP_SERVERS`, `YOLO_MCP_SERVERS`) leave the argv and ride the per-entry channel alone, written after the wire tables and before the shared pack env, so a pack env of the same name still wins as it did over `-e`. One source, not two, and an MCP server's literal `env` is no longer in `podman inspect` | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D19"></a>LA-D19 | A `session-inputs` contract tag. A jail without it, or whose tags cannot be read as proving anything else, reports these keys *at next restart*: its entrypoint does read the channel's plain lines, but its first session's stage is the only mise install it runs | 2026-11-06 | [§5.5](#55-old-jails) | ✅ |
+| <a id="LA-D20"></a>LA-D20 | Every session of a hold-main jail that did not provision compares its mise inputs with the record provisioning (or the last session install) left in `/run/yolo/main/mise-tools`, and on a difference runs `mise install` on its own terminal, under a lock, before its command. A failure is said, names the next step and never ends the session | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D21"></a>LA-D21 | The `install` and `machine` roots of the effective-config record are planned per child: `install.mise.*` classifies as `mise_tools`, `install.nix` as `packages`, `machine.ports` and `machine.forward` as `network`, so a mise change folds while a package change in the same root waits | 2026-11-06 | [§6](#6-outcomes-and-what-each-party-sees) | ✅ |
+| <a id="LA-D22"></a>LA-D22 | Parity: podman and Apple Container share the mechanism (the channel file and the hold main). macos-user already composes every invocation afresh, so its rows were *next* and its code is unchanged. The host branch is unchanged: `mcp`/`lsp` apply now, `security` and `mise_tools` do not apply | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="OQ-LA7"></a>OQ-LA7 | Open: which config an attach delivers the session inputs from. See [§14](#14-open-question) | — | [§14](#14-open-question) | built as **A** |

@@ -82,13 +82,13 @@ type jailMiseView struct {
 	yoloMiseToolsSet bool
 }
 
-// renderJailMise renders argv's jail the way its boot does, against throwaway homes: the pack
+// renderJailMise renders the jail launched in launchWS with argv the way its boot does (its channel over its argv), against throwaway homes: the pack
 // tree is read from the host directory the argv binds at YOLO_PACK_ROOT, as snap holds it — a copy
 // of the agents dir taken while the runtime ran, since the launch removes the tree once its
 // container is gone.
-func renderJailMise(t *testing.T, argv []string, snap string) jailMiseView {
+func renderJailMise(t *testing.T, argv []string, launchWS, snap string) jailMiseView {
 	t.Helper()
-	vars := envPairs(argv)
+	vars := launchedJailEnv(t, argv, launchWS)
 	var v jailMiseView
 	v.yoloMiseTools, v.yoloMiseToolsSet = vars["YOLO_MISE_TOOLS"]
 	v.miseHides = strings.Split(vars["MISE_DISABLE_TOOLS"], ",")
@@ -148,8 +148,9 @@ func captureMiseLaunch(t *testing.T, kind string) (jailMiseView, string) {
 	t.Helper()
 	captureMiseHome(t)
 	snap := filepath.Join(t.TempDir(), "agents")
+	workspace := t.TempDir()
 	onRun := "cp -a " + shquote.Quote(paths.AgentsDir()) + " " + shquote.Quote(snap)
-	argv, printed := fakePodmanLaunchIn(t, t.TempDir(), onRun, func(o *Options) {
+	argv, printed := fakePodmanLaunchIn(t, workspace, onRun, func(o *Options) {
 		o.NeverAttach, o.AcceptConfigChanges = true, true
 		switch kind {
 		case "sealed":
@@ -162,7 +163,7 @@ func captureMiseLaunch(t *testing.T, kind string) (jailMiseView, string) {
 	if argv == nil {
 		t.Fatalf("the %s launch never reached the runtime:\\n%s", kind, printed)
 	}
-	return renderJailMise(t, argv, snap), printed
+	return renderJailMise(t, argv, workspace, snap), printed
 }
 
 func captureMiseLaunchFormat(t *testing.T, kind string, readableTOML bool) (jailMiseView, string) {
@@ -195,7 +196,7 @@ func captureMiseLaunchFormat(t *testing.T, kind string, readableTOML bool) (jail
 	if argv == nil {
 		t.Fatalf("the %s launch never reached the runtime:\n%s", kind, printed)
 	}
-	return renderJailMise(t, argv, snap), printed
+	return renderJailMise(t, argv, workspace, snap), printed
 }
 
 // THE CONTROL: an ordinary launch with readable TOML must deliver its project mise tools to the jail.
@@ -224,7 +225,7 @@ func captureMiseLaunchWithLocal(t *testing.T) jailMiseView {
 	if argv == nil {
 		t.Fatalf("the local TOML launch never reached the runtime:\\n%s", printed)
 	}
-	return renderJailMise(t, argv, snap)
+	return renderJailMise(t, argv, workspace, snap)
 }
 
 func assertMisePins(t *testing.T, body string, pins map[string]string) {

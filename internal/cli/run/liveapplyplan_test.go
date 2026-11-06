@@ -35,11 +35,11 @@ func TestTheKeyOutcomeTable(t *testing.T) {
 		{"macos-user", "packages", outcomeNextSession},
 		{"macos-user", "agents_md_extra", outcomeNextSession},
 	} {
-		if got, _ := keyOutcome(c.rt, c.key); got != c.want {
+		if got, _ := keyOutcome(c.rt, c.key, false); got != c.want {
 			t.Errorf("keyOutcome(%s, %s) = %v, want %v", c.rt, c.key, got, c.want)
 		}
 	}
-	if _, why := keyOutcome("container", "agents_md_extra"); why == "" {
+	if _, why := keyOutcome("container", "agents_md_extra", false); why == "" {
 		t.Error("Apple Container's restart-only briefing keys must say why")
 	}
 }

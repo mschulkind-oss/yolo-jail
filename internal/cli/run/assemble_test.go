@@ -524,24 +524,18 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "VISUAL=nvim",
 		"-e", "PAGER=cat",
 		"-e", "GIT_PAGER=cat",
-		"-e", "YOLO_BLOCK_CONFIG=[]",
 		// no TZ (DetectHostTimezone off in fixture? env TZ unset, /etc probed by
 		// real fs — see note in the test body).
 		"-e", "YOLO_HOST_DIR="+ws,
 		"-e", "YOLO_VERSION=9.9.9-test",
 		"-e", "OVERMIND_SOCKET=/tmp/overmind.sock",
-		// yolo ships no default mise tool — every default runtime is a baked nix
-		// package instead (config.go defaultMiseToolsKeys is deliberately empty).
-		"-e", "YOLO_MISE_TOOLS={}",
-		"-e", "YOLO_LSP_SERVERS={}",
-		"-e", "YOLO_MCP_SERVERS={}",
 		// Empty because no user config declares `agent_updates`; the jail defaults OPEN.
 		"-e", "YOLO_AGENT_UPDATES=",
 		// The contract tags a later attach reads to know what this jail can receive
 		// (contracttags.go). Spelled out, not read from launchContractTags: a tag dropped
 		// from the launch must fail here, since an attach from this build would then refuse
 		// a jail this build launched.
-		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files,profile-sets,session-hangup,session-homes,live-ctx-mounts",
+		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files,profile-sets,session-hangup,session-homes,live-ctx-mounts,session-inputs",
 		"-e", "YOLO_JAIL_MAIN=hold",
 		// The three provider/profile wire tables are NOT on the argv: they cross in
 		// yolo-user-env.sh's channel section with the pack env fold and the shape
@@ -605,9 +599,8 @@ func podmanLinuxGolden(home string) []string {
 	// one.
 	add("-v", wsState+"/venv-shadows/.venv:/workspace/.venv")
 	add("-v", wsState+"/venv-shadows/node_modules:/workspace/node_modules")
-	// user config mount: none (no ~/.config/yolo-jail/config.jsonc). MISE_DISABLE
-	// defaults to "pnpm".
-	add("-e", "MISE_DISABLE_TOOLS=pnpm")
+	// user config mount: none (no ~/.config/yolo-jail/config.jsonc). MISE_DISABLE_TOOLS is a
+	// session input on the channel, not the argv (sessioninputs.go).
 	// skills mount (claude has .claude/skills).
 	add("-v", agentsPath+"/skills-claude:/home/agent/.claude/skills:ro")
 	// The host-layer report, on EVERY launch (OQ-CO10) — the same always-emit rule the
