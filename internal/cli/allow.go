@@ -117,6 +117,8 @@ func allowRunW(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, allowUsage)
 		return 2
 	}
+	// A former spelling (`dispatch_workflows`) allows the capability that replaced it.
+	capability = config.CanonicalCapability(source, capability)
 
 	// The user config is the host's: a jail cannot write it, and asking from inside one is
 	// exactly what the host-run line is for.

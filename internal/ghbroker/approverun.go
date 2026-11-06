@@ -10,18 +10,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 )
 
-// approverun.go is the `approve-run` user grant, modeled on the `dispatch-workflow` grant
-// (dispatch.go): a grant naming a GitHub login, or `*`, on a repository lets the broker approve
+// approverun.go is the `approve-run` user grant, modeled on the `runs` grant
+// (runs.go): a grant naming a GitHub login, or `*`, on a repository lets the broker approve
 // a workflow run held at action_required unasked, but only when one host read of the run shows
 // that actor triggered it and that its head is the repository itself. A run whose head is a fork
 // is never covered, whatever the actor: approving it runs code from outside the repository with
 // the workflow's permissions. The one covered command is `gh api -X POST
-// repos/{o}/{r}/actions/runs/{id}/approve`, with a numeric id and no body; a rerun, a cancel, an
-// approval of a deployment (pending_deployments) and every other workflow command are not
-// covered, and fall through to a timed grant or Allow once, as any repository-level write does.
+// repos/{o}/{r}/actions/runs/{id}/approve`, with a numeric id and no body; an approval of a
+// deployment (pending_deployments) and every workflow command a runs grant does not cover fall
+// through to a timed grant or Allow once, as any repository-level write does.
 
 // GrantApproveRun is the user grant kind for approving a workflow run, as packs/github declares
-// it; a covered approval is audited under the set of the same name, as a dispatch is under its.
+// it; a covered approval is audited under the set of the same name, as a run is under its.
 const GrantApproveRun = brokerscope.KindApproveRun
 
 // runApproval is one run approval a canonical argv asks for.

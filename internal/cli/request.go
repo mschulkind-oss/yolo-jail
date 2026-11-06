@@ -32,7 +32,8 @@ Examples:
   yolo request git push main            a branch the jail may push
   yolo request git new_branches         the jail may create branches
   yolo request github create_pr
-  yolo request github dispatch_workflows nightly.yml  a workflow the jail may run on the default branch
+  yolo request github runs nightly.yml  a workflow the jail may run and re-run on the default branch,
+                                       and cancel any run
   yolo request github approve_runs 'github-actions[bot]'  an actor whose held runs the jail may approve
   yolo request github repos acme/other  a repository beyond this one's own remotes
   yolo request journal read             the jail may read your user journal
@@ -74,6 +75,8 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 		return 2
 	}
 	source, capability := positionals[0], positionals[1]
+	// A former spelling (`dispatch_workflows`) requests the capability that replaced it.
+	capability = config.CanonicalCapability(source, capability)
 
 	brokers, packSettings, err := allowSelectedBrokers()
 	if err != nil {
@@ -123,7 +126,7 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo request: %s %s is not requested by a project; your user config allows it for every project.\n"+
 			"  On the host:  yolo allow %s %s\n", source, capability, source, capability)
 		return 1
-	case requestGrantKind(decl, capability) == brokerscope.KindDispatchWorkflow:
+	case requestGrantKind(decl, capability) == brokerscope.KindRuns:
 		if resource == "" || !brokerscope.ValidGrantWorkflow(resource) {
 			fmt.Fprintf(errw, "yolo request: %s %s takes one workflow file name, such as nightly.yml, or * for every workflow; got %q.\n"+
 				"  For example:  yolo request %s %s nightly.yml\n", source, capability, resource, source, capability)

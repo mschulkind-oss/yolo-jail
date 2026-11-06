@@ -22,7 +22,7 @@ func hostOnlyPackFixture(t *testing.T, inJail, staged bool) namedVerbFixture {
 	// Legacy JSONC, as the reporter's user config is: its bare-path spelling of a local pack.
 	user := testconfig.UserFormat(t, configdoc.JSONC, `{
   "packs": ["git", "github", "~/.dotfiles/yolo-packs/hostonly", "git+https://example.invalid/acme/craft?ref=main"],
-  "allow": {"github": {"always": ["read"], "on_request": ["dispatch_workflows"]}}
+  "allow": {"github": {"always": ["read"], "on_request": ["runs"]}}
 }
 `)
 	if _, err := os.Stat(filepath.Join(user.Root, ".dotfiles", "yolo-packs", "hostonly")); !os.IsNotExist(err) {
@@ -67,7 +67,7 @@ func hostOnlyPackFixture(t *testing.T, inJail, staged bool) namedVerbFixture {
 func requestDispatch(t *testing.T) (int, string, string) {
 	t.Helper()
 	return captureStd(t, func() int {
-		return registry["request"]([]string{"request", "github", "dispatch_workflows", "x.yml"})
+		return registry["request"]([]string{"request", "github", "runs", "x.yml"})
 	})
 }
 
@@ -81,7 +81,7 @@ func TestRequestInJailToleratesHostOnlyLocalPackWithDeliveredCopy(t *testing.T) 
 		t.Fatalf("in-jail request refused over a host-only pack: rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	if got := readFile(t, fx.project); !strings.Contains(got, `dispatch_workflows = ["x.yml"]`) {
+	if got := readFile(t, fx.project); !strings.Contains(got, `runs = ["x.yml"]`) {
 		t.Fatalf("project file lacks the grant:\n%s\nstdout=%q stderr=%q", got, out, errs)
 	}
 	// The delivered copies were read and checked, not stepped around.
@@ -98,7 +98,7 @@ func TestRequestInJailToleratesHostOnlyLocalPackWithNoCopy(t *testing.T) {
 	if strings.Contains(errs, "config edit refused") {
 		t.Fatalf("in-jail request refused over a host-only pack: rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}
-	if got := readFile(t, fx.project); !strings.Contains(got, `dispatch_workflows = ["x.yml"]`) {
+	if got := readFile(t, fx.project); !strings.Contains(got, `runs = ["x.yml"]`) {
 		t.Fatalf("project file lacks the grant:\n%s\nstdout=%q stderr=%q", got, out, errs)
 	}
 	if !strings.Contains(errs, "pack hostonly was not checked") || !strings.Contains(errs, "pack craft was not checked") ||

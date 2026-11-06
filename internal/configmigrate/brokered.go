@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -227,7 +228,7 @@ func userGrantKindsProblem(v any, declaration config.ReadableBrokerDeclaration) 
 		if !ok {
 			return "grant_kinds must be a list of grant kinds"
 		}
-		capability := declaration.KindCapabilities[kind]
+		capability := declaration.KindCapabilities[brokerscope.CanonicalGrantKind(kind)]
 		switch {
 		case capability == "":
 			return describe(kind) + " is not a grant kind the " + declaration.Pack + " pack maps to a capability (it maps " + strings.Join(maps, ", ") + "); " + noSpellingYet

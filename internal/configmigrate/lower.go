@@ -610,7 +610,7 @@ func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx l
 	for _, c := range declaration.PendingCapabilities {
 		pending[c] = true
 	}
-	capability := declaration.KindCapabilities[kindText]
+	capability := declaration.KindCapabilities[brokerscope.CanonicalGrantKind(kindText)]
 	switch {
 	case capability == "":
 		var maps []string
@@ -623,7 +623,7 @@ func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx l
 	case pending[capability]:
 		return describe(kindText) + " maps to " + capability + ", which the " + declaration.Pack + " pack has not built yet; " + noSpellingYet
 	}
-	field := brokerscope.GrantNameKey(kindText)
+	field := brokerscope.GrantNameKey(brokerscope.CanonicalGrantKind(kindText))
 	want, keys := 2, "kind and repo"
 	refText := ""
 	if field != "" {

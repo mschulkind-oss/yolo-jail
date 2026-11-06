@@ -15,14 +15,14 @@ import (
 // config apply`'s, which runs both: liveapply.go), that a project broker request outside the
 // user's ceiling is said, with `yolo allow <source> on_request <capability>` alone on its line
 // and `yolo config apply` after it (docs/design/config-user.md §6). Before the fix the owner of
-// this repository approved `requests.github.dispatch_workflows` at the gate, was told nothing,
+// this repository approved `requests.github.runs` at the gate, was told nothing,
 // and a later dispatch from the jail still asked.
 
 func skippedBrokerOptions(t *testing.T) (*Options, *bytes.Buffer) {
 	t.Helper()
 	user := testconfig.User(t, "packs = [\"git\", \"github\"]\n\n[allow.github]\nalways = [\"read\"]\n")
 	ws := testconfig.Workspace(t, "[requests.github]\n"+
-		"dispatch_workflows = [\"release-request.yml\", \"nightly-macos.yml\"]\n"+
+		"runs = [\"release-request.yml\", \"nightly-macos.yml\"]\n"+
 		"approve_runs = [\"github-actions[bot]\"]\n")
 	if err := os.MkdirAll(filepath.Join(ws.Root, ".git"), 0o700); err != nil {
 		t.Fatal(err)
@@ -60,12 +60,12 @@ func TestTheLaunchSaysABrokerRequestOutsideTheCeilingIsSkipped(t *testing.T) {
 		t.Fatalf("a skipped request refused the launch:\n%s", buf.String())
 	}
 	got := buf.String()
-	for _, want := range []string{"yolo allow github on_request dispatch_workflows", "yolo allow github on_request approve_runs", "yolo config apply"} {
+	for _, want := range []string{"yolo allow github on_request runs", "yolo allow github on_request approve_runs", "yolo config apply"} {
 		if !lineIs(got, want) {
 			t.Fatalf("the launch's config read lacks the line %q:\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "this project requests github dispatch_workflows release-request.yml, nightly-macos.yml.") {
+	if !strings.Contains(got, "this project requests github runs release-request.yml, nightly-macos.yml.") {
 		t.Fatalf("the launch does not name the request:\n%s", got)
 	}
 
@@ -76,7 +76,7 @@ func TestTheLaunchSaysABrokerRequestOutsideTheCeilingIsSkipped(t *testing.T) {
 	}
 	got = buf.String()
 	for _, want := range []string{"Broker requests this project makes that your config skips:",
-		"yolo allow github on_request dispatch_workflows", "yolo allow github on_request approve_runs", "yolo config apply"} {
+		"yolo allow github on_request runs", "yolo allow github on_request approve_runs", "yolo config apply"} {
 		if !lineIs(got, want) {
 			t.Fatalf("the gate's refusal lacks the line %q:\n%s", want, got)
 		}

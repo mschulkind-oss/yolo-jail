@@ -15,7 +15,7 @@ import (
 // `requests.<source>.<capability>` a selected broker pack declares, with no `allow.<source>`
 // list naming the capability. Before the fix `yolo check`, every launch and `yolo config apply`
 // said nothing about it, and the jail ran without the grant: the owner of this repository
-// approved `requests.github.dispatch_workflows` at the gate and a later dispatch still asked.
+// approved `requests.github.runs` at the gate and a later dispatch still asked.
 
 // skippedBrokerFixture is a user config selecting the git and github packs with the ceiling
 // given, and a project whose yolo-jail.toml holds the requests given. HOME is the fixture's.
@@ -31,7 +31,7 @@ func skippedBrokerFixture(t *testing.T, allow, requests string) string {
 }
 
 const skippedGitHubRequests = "[requests.github]\n" +
-	"dispatch_workflows = [\"release-request.yml\", \"nightly-macos.yml\"]\n" +
+	"runs = [\"release-request.yml\", \"nightly-macos.yml\"]\n" +
 	"approve_runs = [\"github-actions[bot]\"]\n"
 
 func TestABrokerRequestOutsideTheCeilingWarnsNamingTheAllowCommand(t *testing.T) {
@@ -45,10 +45,10 @@ func TestABrokerRequestOutsideTheCeilingWarnsNamingTheAllowCommand(t *testing.T)
 		t.Fatalf("a skipped request is not an error: %q", errs)
 	}
 	for _, want := range []string{
-		paths.WorkspaceConfigTOMLName + ":2: this project requests github dispatch_workflows release-request.yml, nightly-macos.yml.\n" +
-			"  Your config does not allow dispatch_workflows on request, so this project runs without it.\n" +
+		paths.WorkspaceConfigTOMLName + ":2: this project requests github runs release-request.yml, nightly-macos.yml.\n" +
+			"  Your config does not allow runs on request, so this project runs without it.\n" +
 			"  To allow it for every project you work on (in your config, not this file), run on the host:\n" +
-			"    yolo allow github on_request dispatch_workflows\n" +
+			"    yolo allow github on_request runs\n" +
 			"  then approve it for this workspace, if that command did not already ask:\n" +
 			"    yolo config apply",
 		paths.WorkspaceConfigTOMLName + ":3: this project requests github approve_runs github-actions[bot].\n" +
@@ -65,7 +65,7 @@ func TestABrokerRequestOutsideTheCeilingWarnsNamingTheAllowCommand(t *testing.T)
 }
 
 func TestABrokerRequestWithinTheCeilingIsNotReportedSkipped(t *testing.T) {
-	ws := skippedBrokerFixture(t, "[allow.github]\nalways = [\"read\"]\non_request = [\"dispatch_workflows\", \"approve_runs\"]\n\n"+
+	ws := skippedBrokerFixture(t, "[allow.github]\nalways = [\"read\"]\non_request = [\"runs\", \"approve_runs\"]\n\n"+
 		"[allow.git]\nalways = [\"fetch\"]\n", skippedGitHubRequests+"\n[requests.git]\npush = [\"main\"]\n")
 	merged, err := LoadConfig(ws, true, discard)
 	if err != nil {
@@ -112,8 +112,8 @@ func skippedGateScope(t *testing.T, ws string) (*WorkspaceRead, *ScopeCheck) {
 		t.Fatal(err)
 	}
 	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read",
-		[]string{"create-pr", "dispatch-workflow", "approve-run"},
-		map[string]string{"create-pr": "create_pr", "dispatch-workflow": "dispatch_workflows", "approve-run": "approve_runs"})
+		[]string{"create-pr", "runs", "approve-run"},
+		map[string]string{"create-pr": "create_pr", "runs": "runs", "approve-run": "approve_runs"})
 	return read, NewScopeCheck(ws, []ScopeBroker{broker}, read)
 }
 
@@ -133,7 +133,7 @@ func TestTheGateShowsABrokerRequestOutsideTheCeilingWithItsAllowCommand(t *testi
 	block := p.got.ScopeBlock
 	for _, want := range []string{
 		brokeredSkippedHeading,
-		"      yolo allow github on_request dispatch_workflows",
+		"      yolo allow github on_request runs",
 		"      yolo allow github on_request approve_runs",
 		"      yolo config apply",
 	} {
@@ -141,7 +141,7 @@ func TestTheGateShowsABrokerRequestOutsideTheCeilingWithItsAllowCommand(t *testi
 			t.Fatalf("the gate's block lacks the line %q:\n%s", want, strings.Join(block, "\n"))
 		}
 	}
-	if !strings.Contains(strings.Join(block, "\n"), "– github dispatch_workflows release-request.yml, nightly-macos.yml (not allowed on request by your config") {
+	if !strings.Contains(strings.Join(block, "\n"), "– github runs release-request.yml, nightly-macos.yml (not allowed on request by your config") {
 		t.Fatalf("the gate's block does not name the request:\n%s", strings.Join(block, "\n"))
 	}
 
@@ -153,14 +153,14 @@ func TestTheGateShowsABrokerRequestOutsideTheCeilingWithItsAllowCommand(t *testi
 	if !errors.As(err, &changed) {
 		t.Fatalf("err = %v, want the non-interactive refusal", err)
 	}
-	if !slices.Contains(changed.ScopeBlock, "      yolo allow github on_request dispatch_workflows") {
+	if !slices.Contains(changed.ScopeBlock, "      yolo allow github on_request runs") {
 		t.Fatalf("the refusal's block lacks the allow line:\n%s", strings.Join(changed.ScopeBlock, "\n"))
 	}
 }
 
 // Within the ceiling the gate shows no skipped block.
 func TestTheGateShowsNoSkippedBlockWithinTheCeiling(t *testing.T) {
-	ws := skippedBrokerFixture(t, "[allow.github]\nalways = [\"read\"]\non_request = [\"dispatch_workflows\", \"approve_runs\"]\n", skippedGitHubRequests)
+	ws := skippedBrokerFixture(t, "[allow.github]\nalways = [\"read\"]\non_request = [\"runs\", \"approve_runs\"]\n", skippedGitHubRequests)
 	read, scope := skippedGateScope(t, ws)
 	p := &reportPrompter{accept: true}
 	if _, err := CheckConfigAndScopeChanges(ws, read.Config, scope, true, false, p); err != nil {

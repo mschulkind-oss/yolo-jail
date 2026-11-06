@@ -82,7 +82,7 @@ type ScopeSource struct {
 	UserGrants []brokerscope.Grant
 	// GrantOrigins is, by grant (brokerscope.Grant.String), the file and key its gate line ends
 	// with (docs/design/github-write-scopes.md GW-D68): `yolo-jail.toml:
-	// requests.github.dispatch_workflows` for a grant the workspace asked for, `~/.config/yolo-jail/
+	// requests.github.runs` for a grant the workspace asked for, `~/.config/yolo-jail/
 	// config.toml: allow.github.always, for every workspace` for one the user config holds. A grant
 	// it does not name falls back to the UserGrants mark.
 	GrantOrigins map[string]string
