@@ -17,9 +17,9 @@ vantage:
 **Status:** 2026-11-05. Setup naming and per-setup state remain the accepted direction, but
 [OQ-SU5](#OQ-SU5) asks whether to change the previously accepted automatic move of an existing
 home. The source-swap regression in an unlanded slice 6a candidate prevents claiming that move
-safe or built. [OQ-SU6](#OQ-SU6) leaves both legacy root fields in mixed-backend `yolo ps` JSON
-unresolved; the additive proposal is not an owner ruling. Independent work can proceed;
-the implementation hand-off is
+safe or built. [OQ-SU6](#OQ-SU6) leaves the mixed-backend JSON contracts for `yolo ps` and
+`yolo stores --json` unresolved; the additive proposal is not an owner ruling. Independent work can
+proceed; the implementation hand-off is
 [`named-setups-plan.md`](named-setups-plan.md). Earlier rulings remain in
 [the ledger](#decision-ledger).
 
@@ -42,7 +42,8 @@ technology is missing.
 **Start at [§4](#4-the-fields)**, the fields; everything else falls out of them.
 
 **Needs your ruling:** [OQ-SU5](#OQ-SU5) — existing-home automatic movement only;
-[OQ-SU6](#OQ-SU6) — the mixed-backend `yolo ps --format json` root-field contract.
+[OQ-SU6](#OQ-SU6) — mixed-backend JSON contracts for `yolo ps --format json` and
+`yolo stores --json`.
 
 **Reads with:** [the macos-user model](macos-user-model.md) (the two ways of running Seatbelt this
 names), [its plan](macos-user-model-plan.md#MMP-D25) (slice 12a's per-project home), [the
@@ -485,28 +486,30 @@ own designs build them.
 
    > _(empty — fill in when decided)_
 
-2. 💬 **OQ-SU6: What should both root fields mean in mixed-backend `yolo ps --format json`?**
+2. 💬 **OQ-SU6: What mixed-backend JSON contract should `yolo ps --format json` and `yolo stores --json` expose?**
 
-   [`psReport`](../../internal/cli/ps.go) emits `runtime`, `enumerated`, `jails`; the
-   [macOS-user integration test](../../integration/macosuserps_test.go) asserts `Runtime` is
-   `macos-user` and `Enumerated` is true. Mixed output leaves both root meanings unresolved; no
-   owner ruling exists.
+   [`psReport`](../../internal/cli/ps.go) has root `runtime`, `enumerated`, `jails`.
+   Literal `yolo stores --json` dispatches through [`runStores`](../../internal/cli/commands.go),
+   [`ParseArgs`](../../internal/cli/stores/stores.go) and [`Run`](../../internal/cli/stores/stores.go)
+   to [`Report`](../../internal/cli/stores/inventory.go), with root `runtime` (omitempty) and
+   `stores`, but no `enumerated`.
 
-   - **A — Add per-backend coverage.** Add `backends: [{runtime, enumerated}]`; keep root fields
-     for homogeneous output. In mixed output omit `runtime` and set `enumerated` true only if all
-     required backends answer.
-   - **B — Replace both root summaries** with a multi-backend envelope, migrating existing
+   - **A — Add per-backend coverage** to both, preserving homogeneous legacy fields. Mixed results
+     must not invent one runtime; root `runtime` omission and `ps` completeness semantics are
+     proposals, not rulings.
+   - **B — Replace both root summaries** with per-backend envelopes, changing or migrating existing
      consumers.
 
-   Query only host-supported backends with configured or tracked setups. Unknown is not empty;
-   retain conservative pruning and existing project keys. The owner's question whether additive
-   coverage can retain both root fields remains unanswered.
+   Resolve per-row backend provenance and reclaimer routing without duplicating machine, account,
+   cache, or project-durable stores. Query only host-supported backends with configured or tracked
+   setups; an unanswered backend is not empty. Preserve conservative pruning and existing project
+   keys.
 
-   <!-- vantage: question id=OQ-SU6 leaning="A — add per-backend coverage metadata while preserving homogeneous root fields; omit root runtime and report complete coverage only when every required backend answered." -->
+   <!-- vantage: question id=OQ-SU6 leaning="A — add per-backend coverage to both commands while preserving homogeneous legacy fields; do not invent one mixed runtime; omission and completeness semantics remain unruled." -->
 
-   _Leaning:_ A — add per-backend coverage metadata while preserving homogeneous root fields;
-   omit root `runtime` and report complete coverage only when every required backend answered.
-   This is a compatibility proposal, not an approved API contract.
+   _Leaning:_ A — add per-backend coverage to both commands while preserving homogeneous legacy
+   fields. Never invent one mixed runtime; root `runtime` omission and `ps` completeness semantics
+   remain unruled. This proposal is not an owner-approved contract.
 
    **Answer:**
 

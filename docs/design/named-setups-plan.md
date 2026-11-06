@@ -860,16 +860,19 @@ are below).
   one"*; `yolo setup list` shows which setups are running in this project
   ([§6](named-setups.md#6-config-by-example), [§11](named-setups.md#11-what-done-looks-like));
   [SUP-D11](#SUP-D11).
-- **Open API decision:** mixed-backend JSON root fields wait on
-  [OQ-SU6](named-setups.md#OQ-SU6); neither the proposed additive `backends` metadata nor its
-  homogeneous/mixed root-field semantics are approved. At primary source baseline,
-  [`psReport`](../../internal/cli/ps.go) emits root `runtime`, `enumerated` and `jails`; the
-  existing [macOS-user integration test](../../integration/macosuserps_test.go) asserts
-  `Runtime == "macos-user"` and `Enumerated == true`. This records the current single-backend
-  compatibility surface only. The owner's question about whether an additive approach can retain
-  both root fields (and what each means in mixed output) remains unanswered. It blocks only the
-  mixed-backend JSON root contract, not text listing, stop/setup-list work, or settled backend
-  enumeration. This does not reopen conservative unknown pruning or existing project keys.
+- **Open API decision:** the mixed-backend public JSON contracts of `yolo ps --format json` and
+  `yolo stores --json` wait on [OQ-SU6](named-setups.md#OQ-SU6). At primary source baseline,
+  [`psReport`](../../internal/cli/ps.go) has scalar root `runtime`, `enumerated`, `jails`;
+  [`runStores`](../../internal/cli/commands.go) routes stores through [`ParseArgs`](../../internal/cli/stores/stores.go)
+  and [`Run`](../../internal/cli/stores/stores.go), which marshal
+  [`Report`](../../internal/cli/stores/inventory.go) with root `runtime` (omitempty) and `stores`,
+  but no `enumerated`. Additive per-backend coverage preserving homogeneous legacy
+  fields is only a leaning. Mixed output must not synthesize one runtime; root-runtime omission
+  and `ps` completeness semantics remain unruled. Stores row backend provenance, reclaimer routing,
+  and representing machine/account/cache/project-durable inventory exactly once are also part of
+  the unresolved API contract. This holds only the mixed-backend public JSON contracts—not text
+  inventory, all-stop operations, setup-list, internal collection work, or settled backend
+  enumeration. Preserve conservative unknown pruning and existing project keys.
 - **Preconditions:** slice 6a committed and its applicable tests green in the same
   isolated candidate (not yet primary-landed); `go doc ./internal/paths SetupsDir` prints.
   Do not make 6b a primary-tree change while 6a waits on W-SU1: that exact
