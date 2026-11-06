@@ -131,16 +131,27 @@ func declaredMiseBins(e *Env) map[string]struct{} {
 	out := map[string]struct{}{}
 	tools := loadInjectedTools(e)
 	for _, key := range tools.Keys() {
-		name := key
-		if i := strings.LastIndex(name, ":"); i >= 0 {
-			name = name[i+1:]
-		}
-		name = filepath.Base(name)
-		if name != "" && name != "." && name != "/" {
+		if name := MiseToolBin(key); name != "" {
 			out[name] = struct{}{}
 		}
 	}
 	return out
+}
+
+// MiseToolBin is the binary name a declared mise tool key provides, its last segment after any
+// backend prefix ("npm:semver" and "aqua:owner/semver" are both semver), or "" for none. The
+// jail's launcher collision check and the host's private-client refusal both ask it, so the two
+// sides agree on which names a mise tool takes.
+func MiseToolBin(key string) string {
+	name := key
+	if i := strings.LastIndex(name, ":"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == "/" {
+		return ""
+	}
+	return name
 }
 
 // A LAUNCHER FOR A PROGRAM ITS VENDOR DOES NOT PUBLISH HERE is declined too, by the one

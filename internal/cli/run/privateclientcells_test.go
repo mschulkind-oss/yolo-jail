@@ -478,3 +478,50 @@ func TestTheKeepersStartRecordNamesItsCheckedPrivateClients(t *testing.T) {
 		t.Errorf("the keeper ended %d", rc)
 	}
 }
+
+// TestPrepareOrdinaryProgramsRefusesAPrivateClientAMiseToolNames: a declared mise tool whose
+// binary is a selected private client's bin would hand that name to mise's ordinary copy, so the
+// launch refuses before preparation and names the repair, whatever backend prefix the key has.
+func TestPrepareOrdinaryProgramsRefusesAPrivateClientAMiseToolNames(t *testing.T) {
+	oldHost := hostPlatform
+	t.Cleanup(func() { hostPlatform = oldHost })
+	hostPlatform = privateClientPlatform
+	if containerJailPlatform() != privateClientPlatform {
+		t.Skip("the private client cell is linux/amd64 only")
+	}
+	for _, key := range []string{"npm:fixture-client", "fixture-client", "aqua:owner/fixture-client"} {
+		t.Run(key, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			for _, name := range []string{"flake.nix", "flake.lock"} {
+				if err := os.WriteFile(filepath.Join(repoRoot, name), []byte("{}"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f := attachedPrivateHTTPFixture(t, true, false)
+			o := f.o
+			var stderr strings.Builder
+			o.Stderr = &stderr
+			o.approvedHTTPBindings = map[string]config.ApprovedCallBrokerHTTP{"tasks": {Pack: "front-pack"}}
+			calls := 0
+			o.PreparePrograms = func(ProgramCaptureRequest) (map[string]entrypoint.ProgramCaptureDelivery, error) {
+				calls++
+				return nil, nil
+			}
+			cfg := jsonx.NewOrderedMap()
+			install, tools := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+			tools.Set(key, "1.0.0")
+			install.Set("mise", tools)
+			cfg.Set("install", install)
+			rc := o.prepareOrdinaryPrograms(cfg, "podman", repoRoot, f.packs, nil)
+			out := stderr.String()
+			if rc != 1 || calls != 0 {
+				t.Fatalf("a private client a mise tool names was prepared: rc=%d calls=%d\n%s", rc, calls, out)
+			}
+			for _, want := range []string{"fixture-client", key, "mise", "Repair:"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("refusal does not name %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}

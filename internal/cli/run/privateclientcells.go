@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -89,6 +90,25 @@ func privateClientLaunchFlagsRefusal(cells []packload.PrivateProgramEnvPlan, pac
 				return &privateClientRefusal{cell: cell,
 					cause:  "its packs declare launch flags for it (" + strings.Join(flags, " ") + "), which its private bootstrap does not carry",
 					repair: "remove the launch flags for " + cell.Bin + " from the selected packs, or remove this client's `env` contribution naming the front, then rerun `yolo`"}
+			}
+		}
+	}
+	return nil
+}
+
+// privateClientMiseRefusal refuses a cell whose bin a declared mise tool provides (tools is the
+// table the jail is handed, config.JailMiseTools): the jail's PATH would otherwise offer that
+// name to mise's ordinary copy beside the private bootstrap, and the private route never falls back.
+func privateClientMiseRefusal(cells []packload.PrivateProgramEnvPlan, tools *jsonx.OrderedMap) *privateClientRefusal {
+	if tools == nil {
+		return nil
+	}
+	for _, cell := range cells {
+		for _, key := range tools.Keys() {
+			if entrypoint.MiseToolBin(key) == cell.Bin {
+				return &privateClientRefusal{cell: cell,
+					cause:  "the declared mise tool " + key + " also provides " + cell.Bin + ", an ordinary copy outside its private route",
+					repair: "remove or rename the mise tool " + key + " (`yolo config unset` names its key), or remove this client's `env` contribution naming the front, then rerun `yolo`"}
 			}
 		}
 	}

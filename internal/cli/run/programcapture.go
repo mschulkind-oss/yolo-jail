@@ -116,6 +116,10 @@ func (o *Options) prepareOrdinaryPrograms(cfg *jsonx.OrderedMap, rt, repoRoot st
 		if r := privateClientLaunchFlagsRefusal(cells, packs); r != nil {
 			return refuse(*r)
 		}
+		tools, _ := config.JailMiseTools(cfg, false)
+		if r := privateClientMiseRefusal(cells, tools); r != nil {
+			return refuse(*r)
+		}
 	}
 	if o.PreparePrograms == nil || o.roBindsUnsupported(rt) != "" {
 		return 0
