@@ -573,3 +573,32 @@ func TestWindowWaitReturnsAnAnswerAlreadyRecordedPastItsLimit(t *testing.T) {
 		t.Fatalf("an allowed request read past the wait limit: exit %d, ran %d times", got, n.Load())
 	}
 }
+
+// The host allows the request, but nothing the answer recorded covers the command by the time
+// the broker looks: here the Allow once is revoked first; on 2026-11-06 a `--for 1h` answer
+// was recorded by a yolo newer than the running broker, which could not read it. The refusal
+// names the request, so the agent can relay which answer did not take, and the next step.
+func TestWindowAllowedButUncoveredNamesTheRequestAndTheNextStep(t *testing.T) {
+	b, n := windowFixture(t)
+	var filed string
+	b.delivery = &fakeDelivery{ready: true, request: func(q brokerstore.Request) error {
+		filed = q.ID
+		g, err := b.store.Decide(q.ID, "pending", brokerstore.Decision{})
+		if err != nil {
+			return err
+		}
+		return b.store.Revoke(g.ID)
+	}}
+	var msg []byte
+	req := Request{Argv: []string{"run", "cancel", "42228358413"}, Repo: "o/r"}
+	got := b.ServeContext(context.Background(), req, paths.JailShortHash(b.authority.scope.Container), func([]byte) {},
+		func(p []byte) { msg = append(msg, p...) })
+	if got != ExitNoPerm || n.Load() != 0 || filed == "" {
+		t.Fatalf("exit %d, ran %d times, filed %q: %s", got, n.Load(), filed, msg)
+	}
+	for _, want := range []string{filed, "nothing ran", "Next: run the same command again", "yolo approve"} {
+		if !strings.Contains(string(msg), want) {
+			t.Fatalf("the refusal does not say %q: %s", want, msg)
+		}
+	}
+}

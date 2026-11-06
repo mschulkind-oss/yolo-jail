@@ -56,7 +56,7 @@ var configRenames = []RenameDescriptor{
 	{OldPath: "brokered.*.grants.*.repo", Replacements: []string{"requests.github.repos"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameMove},
 	{OldPath: "brokered.*.grants.*.branch", Replacements: []string{"requests.git.push"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grants.*.tag", Replacements: []string{"requests.git.push_tags"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
-	{OldPath: "brokered.*.grants.*.workflow", Replacements: []string{"requests.github.dispatch_workflows"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
+	{OldPath: "brokered.*.grants.*.workflow", Replacements: []string{"requests.github.runs"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	{OldPath: "brokered.*.grants.*.actor", Replacements: []string{"requests.github.approve_runs"}, Scope: SchemaScopeWorkspaceOnly, Transform: RenameValueRewrite},
 	// A source's permission sets keep their list under its allow table (RC-D54).
 	{OldPath: "brokered.*.sets", Replacements: []string{"allow.*.sets"}, Scope: SchemaScopeUserOnly, Transform: RenameMove},

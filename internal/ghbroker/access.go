@@ -210,13 +210,12 @@ func (b *Broker) fileAsk(ctx context.Context, req Request, jail string, d Decisi
 		issue, err = b.readIssue(ctx, target)
 		issueRead = err == nil
 	}
-	workflow, isDispatch := dispatchOf(current.Argv, target)
-	defaultBranch, onDefault := "", false
-	if isDispatch {
-		defaultBranch, onDefault, err = b.onDefaultBranch(ctx, target.Repo, workflow)
-		if err != nil {
-			onDefault = false
-		}
+	// A command a runs grant could cover is checked by the same reads coveredWrite makes
+	// (runsCovered), once, before the transaction; the transaction re-reads the grant.
+	_, isRuns := runsOf(current.Argv, target)
+	runsWorkflow, runsOK := "", false
+	if kind, held := b.userGrantCovers(target, current.Argv, ""); isRuns && held && kind == GrantRuns {
+		_, runsWorkflow, runsOK = b.runsCovered(ctx, target, current.Argv, func([]byte) {})
 	}
 	var actor string
 	actorRead := false
@@ -239,13 +238,16 @@ func (b *Broker) fileAsk(ctx context.Context, req Request, jail string, d Decisi
 				!slices.Equal(fresh.Argv, current.Argv) || !slices.Equal(fresh.Repos, current.Repos) {
 				return false, errors.New("current classification changed; run `yolo access` again")
 			}
-			kind, userGrant := b.userGrantCovers(target, current.Argv, actor)
+			named := actor
+			if isRuns {
+				named = runsWorkflow
+			}
+			kind, userGrant := b.userGrantCovers(target, current.Argv, named)
 			if userGrant && kind == GrantApproveRun && !actorRead {
 				userGrant = false
 			}
-			if userGrant && kind == GrantDispatchWorkflow {
-				_, userGrant = pinnedDispatchArgv(current.Argv, target, defaultBranch)
-				userGrant = userGrant && onDefault
+			if userGrant && kind == GrantRuns {
+				userGrant = runsOK
 			}
 			if userGrant {
 				standing = askCoverage{By: kind}

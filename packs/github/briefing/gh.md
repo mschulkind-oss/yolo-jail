@@ -24,11 +24,14 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   working set runs too (comment, edit, review, ready, close, reopen, and `gh api` writes under
   its `pulls/{n}` or `issues/{n}`), until the PR is merged. A merge always asks. Name a PR or
   issue by its number, not a branch: a write without a number always asks.
-- With a `dispatch-workflow` grant naming a workflow file (or `*`), which the user adds with
-  `yolo request github dispatch_workflows <file>` and approves the same way,
-  `gh workflow run <file>` runs unasked on the repository's **default branch** only: omit `--ref`
-  or pass the default branch's name. Name the workflow by its file name (`nightly.yml`), not its
-  id or display name. A run on any other ref asks.
+- With a `runs` grant naming a workflow file (or `*`), which the user adds with
+  `yolo request github runs <file>` and approves the same way, three things run unasked:
+  `gh workflow run <file>` on the repository's **default branch** only (omit `--ref` or pass the
+  default branch's name; name the workflow by its file name, `nightly.yml`, not its id or display
+  name); `gh run rerun <run-id>` (with `--failed`, `--debug`, or `--job <job-id>` in place of the
+  run id) of a run of that workflow on the default branch of the repository itself; and
+  `gh run cancel <run-id>` of any run in the repository. A run or re-run on any other branch, of a
+  fork, or without a numeric id asks.
 - With an `approve-run` grant naming a GitHub login (or `*`), which the user adds with
   `yolo request github approve_runs <login>` (such as `'github-actions[bot]'`) and approves the
   same way, `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` runs unasked for a run

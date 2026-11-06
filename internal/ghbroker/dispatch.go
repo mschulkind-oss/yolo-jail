@@ -13,18 +13,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 )
 
-// dispatch.go is the `dispatch-workflow` user grant (docs/design/github-write-scopes.md GW-D14):
-// a grant naming a workflow file, or `*`, on a repository lets the broker run that workflow
-// unasked, but only on the repository's DEFAULT branch. A dispatch runs the workflow file as it
-// exists on the ref it names, with the repository's secrets, so a jail able to push a branch
-// could otherwise push a changed workflow and dispatch it there. Any other ref, a workflow named
-// by id or display name, and every other workflow command (run rerun, run cancel, workflow
-// enable) are not covered: they fall through to a timed grant or Allow once, as any
-// repository-level write does. The workflow's inputs pass through unchanged.
-
-// GrantDispatchWorkflow is the user grant kind for running a workflow, as packs/github declares
-// it; a covered run is audited under the set of the same name, as a creation is under its kind.
-const GrantDispatchWorkflow = brokerscope.KindDispatchWorkflow
+// dispatch.go is the dispatch half of the `runs` user grant (docs/design/github-write-scopes.md
+// GW-D14, GW-D78; runs.go is the rest): a grant naming a workflow file, or `*`, on a repository
+// lets the broker run that workflow unasked, but only on the repository's DEFAULT branch. A
+// dispatch runs the workflow file as it exists on the ref it names, with the repository's
+// secrets, so a jail able to push a branch could otherwise push a changed workflow and dispatch
+// it there. Any other ref and a workflow named by id or display name are not covered: they fall
+// through to a timed grant or Allow once, as any repository-level write does. The workflow's
+// inputs pass through unchanged.
 
 // workflowDispatch is one workflow run a canonical argv asks for.
 type workflowDispatch struct {
@@ -178,18 +174,6 @@ func pinnedDispatchArgv(argv []string, t writeTarget, def string) ([]string, boo
 	return p.canonical(), true
 }
 
-// dispatchGrantHeld reports whether grants hold a dispatch-workflow grant covering w on repo:
-// on the repository or `*`, naming w's file or `*`.
-func dispatchGrantHeld(grants []brokerscope.Grant, repo string, w workflowDispatch) bool {
-	for _, g := range grants {
-		if g.Kind == GrantDispatchWorkflow && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, repo)) &&
-			(g.Workflow == brokerscope.AnyWorkflow || g.Workflow == w.Workflow) {
-			return true
-		}
-	}
-	return false
-}
-
 // onDefaultBranch reports whether the dispatch w runs on repo's default branch, read by the
 // broker's own host read of `repos/{o}/{r}`, and returns that branch's name. A ref is the
 // default branch when it is omitted (gh would send the default branch), is its name, or is
@@ -197,15 +181,9 @@ func dispatchGrantHeld(grants []brokerscope.Grant, repo string, w workflowDispat
 // tag of the same name cannot shadow the branch the broker checked. Any failed or unreadable
 // read is an error, and the dispatch is not covered.
 func (b *Broker) onDefaultBranch(ctx context.Context, repo string, w workflowDispatch) (string, bool, error) {
-	var repoObj struct {
-		DefaultBranch string `json:"default_branch"`
-	}
-	if err := b.hostRead(ctx, "repos/"+repo, &repoObj); err != nil {
+	def, err := b.defaultBranch(ctx, repo)
+	if err != nil {
 		return "", false, err
-	}
-	def := repoObj.DefaultBranch
-	if !plainBranchName(def) {
-		return "", false, fmt.Errorf("the default branch's name %q is not one the broker reads plainly", def)
 	}
 	switch w.Ref {
 	case "", def, "refs/heads/" + def:

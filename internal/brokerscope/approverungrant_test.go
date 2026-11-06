@@ -25,7 +25,7 @@ func TestApproveRunGrantShape(t *testing.T) {
 		{Grant{Kind: KindApproveRun, Repo: "github.com/o/r", Actor: "[bot]"}, false},
 		{Grant{Kind: KindApproveRun, Repo: "github.com/o/r", Actor: "dependabot*"}, false},
 		{Grant{Kind: KindApproveRun, Repo: "github.com/o/r", Actor: "octocat", Workflow: "ci.yml"}, false},
-		{Grant{Kind: KindDispatchWorkflow, Repo: "github.com/o/r", Workflow: "ci.yml", Actor: "octocat"}, false},
+		{Grant{Kind: KindRuns, Repo: "github.com/o/r", Workflow: "ci.yml", Actor: "octocat"}, false},
 		{Grant{Kind: "create-pr", Repo: "github.com/o/r", Actor: "octocat"}, false},
 	} {
 		if got := ValidGrant(c.g); got != c.ok {

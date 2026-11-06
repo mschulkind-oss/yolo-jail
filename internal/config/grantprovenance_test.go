@@ -16,11 +16,11 @@ func TestAWorkspaceRequestedGrantIsNotLabeledAsUserConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
-	writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\non_request = [\"dispatch_workflows\"]\n")
+	writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\non_request = [\"runs\"]\n")
 	workspace := t.TempDir()
 	writeReadableScopeRemote(t, workspace, "[remote \"origin\"]\nurl = git@github.com:acme/repo.git\n")
 	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName),
-		[]byte("[requests.github]\ndispatch_workflows = [\"release-request.yml\"]\n"), 0o600); err != nil {
+		[]byte("[requests.github]\nruns = [\"release-request.yml\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -28,7 +28,7 @@ func TestAWorkspaceRequestedGrantIsNotLabeledAsUserConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read",
-		[]string{"dispatch-workflow"}, map[string]string{"dispatch-workflow": "dispatch_workflows"})
+		[]string{"runs"}, map[string]string{"runs": "runs"})
 	report, err := ScopeChanges(workspace, NewScopeCheck(workspace, []ScopeBroker{broker}, read))
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestAWorkspaceRequestedGrantIsNotLabeledAsUserConfig(t *testing.T) {
 	var dispatch, readLine string
 	for _, line := range report.ScopeBlock {
 		switch {
-		case strings.Contains(line, "grant dispatch-workflow"):
+		case strings.Contains(line, "grant runs"):
 			dispatch = line
 		case strings.Contains(line, "grant read "):
 			readLine = line
@@ -48,7 +48,7 @@ func TestAWorkspaceRequestedGrantIsNotLabeledAsUserConfig(t *testing.T) {
 	if strings.Contains(dispatch, "user config") || strings.Contains(dispatch, "for every workspace") {
 		t.Errorf("a workspace-requested grant is labeled as the user config's: %q", dispatch)
 	}
-	if want := "(" + WorkspaceTOMLConfigName + ": requests.github.dispatch_workflows)"; !strings.HasSuffix(dispatch, want) {
+	if want := "(" + WorkspaceTOMLConfigName + ": requests.github.runs)"; !strings.HasSuffix(dispatch, want) {
 		t.Errorf("the workspace-requested grant line %q does not end with %q", dispatch, want)
 	}
 	if want := "(~/.config/yolo-jail/config.toml: allow.github.always, for every workspace)"; !strings.HasSuffix(readLine, want) {

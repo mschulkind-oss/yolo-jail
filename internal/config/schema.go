@@ -255,6 +255,9 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "requests.github.repos.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.create_pr", Scope: workspace, Type: SchemaTypeBoolean},
 		{Path: "requests.github.create_issue", Scope: workspace, Type: SchemaTypeBoolean},
+		{Path: "requests.github.runs", Scope: workspace, Type: SchemaTypeList},
+		{Path: "requests.github.runs.*", Scope: workspace, Type: SchemaTypeString},
+		// The former spelling of requests.github.runs, read as it (formerspellings.go, GW-D78).
 		{Path: "requests.github.dispatch_workflows", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.github.dispatch_workflows.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.approve_runs", Scope: workspace, Type: SchemaTypeList},

@@ -26,8 +26,8 @@ func pendingMenu(t writeTarget, argv []string, id string) approvalwait.Menu {
 	case targetCreatePR, targetCreateIssue:
 		m.Project = []approvalwait.ProjectStep{{Command: requestCreateCommand(t)}}
 	}
-	if w, ok := dispatchOf(argv, t); ok {
-		m.Project = append(m.Project, approvalwait.ProjectStep{Command: "yolo request " + Source + " dispatch_workflows " + w.Workflow})
+	if a, ok := runsOf(argv, t); ok && a.Op == runsDispatch {
+		m.Project = append(m.Project, approvalwait.ProjectStep{Command: "yolo request " + Source + " runs " + a.Dispatch.Workflow})
 	}
 	return m
 }
@@ -39,8 +39,18 @@ func pendingMessage(t writeTarget, argv []string, id, note string) string {
 	if t.Kind == targetMerge {
 		lead += " A merge always asks, per PR."
 	}
-	if _, ok := dispatchOf(argv, t); ok {
-		lead += " A dispatch-workflow grant covers a run on the default branch only; a run on any other ref still asks."
+	if a, ok := runsOf(argv, t); ok {
+		switch a.Op {
+		case runsDispatch:
+			lead += " A runs grant covers a run on the default branch only; a run on any other ref still asks."
+		case runsRerun:
+			lead += " A runs grant naming the run's workflow file (`yolo request " + Source + " runs <workflow file>`, then " +
+				"`yolo config apply` on the host) covers re-running a run of the default branch of " + t.Repo + " itself; " +
+				"a run of any other branch, or of a fork, still asks."
+		case runsCancel:
+			lead += " Any runs grant on " + t.Repo + " (`yolo request " + Source + " runs <workflow file>`, then " +
+				"`yolo config apply` on the host) covers cancelling its runs."
+		}
 	}
 	return lead + approveRunHint(argv, t) + note + "\n\n" + strings.TrimRight(pendingMenu(t, argv, id).Render(), "\n")
 }

@@ -73,6 +73,7 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "allow.*.on_request", Policy: RemovalEmptyList},
 		{Path: "requests.git.push", Policy: RemovalEmptyList},
 		{Path: "requests.git.push_tags", Policy: RemovalEmptyList},
+		{Path: "requests.github.runs", Policy: RemovalEmptyList},
 		{Path: "requests.github.dispatch_workflows", Policy: RemovalEmptyList},
 		{Path: "requests.github.approve_runs", Policy: RemovalEmptyList},
 		{Path: "requests.*.repos", Policy: RemovalEmptyList},

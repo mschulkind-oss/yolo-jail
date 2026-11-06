@@ -15,7 +15,7 @@ import (
 
 var githubApproveResolver = fenceResolver{known: map[string]LoopholeInfo{
 	"github-broker": {Name: "github-broker", HasHostDaemon: true, Brokered: &loopholedecl.Brokered{
-		Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "dispatch-workflow", "approve-run"}}},
+		Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs", "approve-run"}}},
 }}
 
 func TestApproveRunGrantPassesAndReachesTheGate(t *testing.T) {

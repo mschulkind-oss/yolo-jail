@@ -42,7 +42,7 @@ type writeDecisionFacts struct {
 	userKind      string
 	userGrant     bool
 	actor         string
-	dispatchTried bool
+	runsTried     bool
 	workingFound  bool
 	workingEntry  brokerstore.WorkingEntry
 	reliesOnUntil time.Time
@@ -103,24 +103,17 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 					facts.userGrant = grant
 				}
 			}
-			if grant && kind == GrantDispatchWorkflow {
-				facts.dispatchTried = true
-				w, _ := dispatchOf(d.Argv, t)
-				def, onDefault, readErr := b.onDefaultBranch(ctx, t.Repo, w)
-				switch {
-				case readErr != nil:
-					facts.failed = "could not read repository default branch: " + readErr.Error()
-					facts.message = "github-broker: could not read " + t.Repo + "'s default branch (" + readErr.Error() + "), so this workspace's dispatch-workflow grant does not cover this run, which asks\n"
-					grant = false
-				case !onDefault:
-					facts.message = "github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow + " on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"
-					grant = false
-				default:
-					facts.pinned, grant = pinnedDispatchArgv(d.Argv, t, def)
-					if !grant {
-						facts.message = "github-broker: could not pin this run to the checked default branch, so this workspace's dispatch-workflow grant does not cover this run, which asks\n"
-					}
+			if grant && kind == GrantRuns {
+				facts.runsTried = true
+				var message bytes.Buffer
+				argv, named, covered := b.runsCovered(ctx, t, d.Argv, func(p []byte) { message.Write(p) })
+				facts.message = message.String()
+				if covered {
+					// actor carries what the transaction re-checks the grant against: for a
+					// runs grant, the workflow a re-run's run was read to be.
+					facts.pinned, facts.actor = argv, named
 				}
+				grant = covered
 				facts.userGrant = grant
 			}
 			if grant {

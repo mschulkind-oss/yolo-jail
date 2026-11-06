@@ -95,8 +95,9 @@
   [bold]requests[/bold] — (table, [bold]WORKSPACE SCOPE[/bold]): what this project asks for within your
     `allow` ceiling: `[requests.git]` `push = ["main"]`, `push_tags`,
     `new_branches = true`; `[requests.github]` `repos = ["acme/other"]`,
-    `create_pr`, `create_issue`, `dispatch_workflows = ["nightly.yml"]` (run
-    that workflow on the default branch only; `"*"` for every workflow),
+    `create_pr`, `create_issue`, `runs = ["nightly.yml"]` (run and re-run
+    that workflow on the default branch only, and cancel any run; `"*"` for
+    every workflow),
     `approve_runs = ["github-actions[bot]"]` (approve a held workflow run that
     login triggered from this repository itself, never a fork's; `"*"` for
     every actor); for a

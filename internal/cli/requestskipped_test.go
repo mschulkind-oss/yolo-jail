@@ -13,7 +13,7 @@ import (
 )
 
 const skippedGitHubRequestsTOML = "[requests.github]\n" +
-	"dispatch_workflows = [\"release-request.yml\", \"nightly-macos.yml\"]\n" +
+	"runs = [\"release-request.yml\", \"nightly-macos.yml\"]\n" +
 	"approve_runs = [\"github-actions[bot]\"]\n"
 
 // lineAlone reports whether some line of out is want and nothing else, its indent aside.
@@ -31,7 +31,7 @@ func TestCheckNamesTheAllowCommandForABrokerRequestOutsideTheCeiling(t *testing.
 	_, out, errs := captureStd(t, func() int { return registry["check"]([]string{"check", "--no-build"}) })
 	all := out + errs
 	for _, want := range []string{
-		"yolo allow github on_request dispatch_workflows",
+		"yolo allow github on_request runs",
 		"yolo allow github on_request approve_runs",
 		"yolo config apply",
 	} {
@@ -39,14 +39,14 @@ func TestCheckNamesTheAllowCommandForABrokerRequestOutsideTheCeiling(t *testing.
 			t.Fatalf("yolo check lacks the line %q:\n%s", want, all)
 		}
 	}
-	if !strings.Contains(all, "this project requests github dispatch_workflows release-request.yml, nightly-macos.yml.") {
+	if !strings.Contains(all, "this project requests github runs release-request.yml, nightly-macos.yml.") {
 		t.Fatalf("yolo check does not name the request:\n%s", all)
 	}
 }
 
 // The command the report names is one `yolo allow` takes, for each capability with a value.
 func TestTheNamedAllowCommandIsAccepted(t *testing.T) {
-	for _, capability := range []string{"dispatch_workflows", "approve_runs"} {
+	for _, capability := range []string{"runs", "approve_runs"} {
 		t.Run(capability, func(t *testing.T) {
 			fx := newNamedVerbFixture(t, skippedGitHubRequestsTOML, "[allow.github]\nalways = [\"read\"]\n")
 			rec := recordAllowGate(t, false)

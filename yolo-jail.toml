@@ -20,5 +20,5 @@ lua = "5.4.9"
 push = ["main"]
 
 [requests.github]
-dispatch_workflows = ["release-request.yml", "nightly-macos.yml", "macos-user.yml", "apple-container.yml"]
+runs = ["release-request.yml", "nightly-macos.yml", "macos-user.yml", "apple-container.yml"]
 approve_runs = ["github-actions[bot]"]

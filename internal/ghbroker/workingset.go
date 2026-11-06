@@ -25,8 +25,9 @@ import (
 //
 //  1. a user grant: a `create-pr` or `create-issue` grant the live scope file holds on the
 //     repository (or on `*`), while the user's own config still allows its kind, covers that
-//     creation; a `dispatch-workflow` grant naming the workflow's file (or `*`) covers its run
-//     on the repository's default branch, and on no other ref (dispatch.go); an `approve-run`
+//     creation; a `runs` grant naming the workflow's file (or `*`) covers its run on the
+//     repository's default branch and on no other ref, a re-run of a run of that branch, and
+//     the cancel of any run (runs.go); an `approve-run`
 //     grant naming the run's triggering actor (or `*`) covers approving a run whose head is the
 //     repository itself, never a fork's (approverun.go);
 //  2. a working-set entry: a PR or issue in the workspace's working set covers every
@@ -64,17 +65,19 @@ func createGrantKind(t writeTarget) string {
 }
 
 // userGrantCovers reports whether a user grant covers the write now: for a creation target t,
-// the live scope file holds a grant of its kind on the repository or on `*`; for a workflow run
-// the canonical argv asks for (dispatchOf), a dispatch-workflow grant naming its workflow or
-// `*`; for a run approval (approveRunOf), an approve-run grant naming actor or `*` (any
-// approve-run grant on the repository when actor is "", before the run is read); and the host
-// user's own config still allows that kind (BB-D96). Every failure to read either covers
-// nothing. A dispatch's ref and a run's head are not read here: coveredWrite checks them.
-func (b *Broker) userGrantCovers(t writeTarget, argv []string, actor string) (string, bool) {
+// the live scope file holds a grant of its kind on the repository or on `*`; for a command a runs
+// grant can cover (runsOf), a runs grant naming its workflow or `*` (a dispatch's workflow from
+// the argv; named, the workflow read from a re-run's run, or any runs grant on the repository
+// for a cancel and for a re-run before its run is read); for a run approval (approveRunOf), an
+// approve-run grant naming the actor named or `*` (any approve-run grant on the repository when
+// named is "", before the run is read); and the host user's own config still allows that kind
+// (BB-D96). Every failure to read either covers nothing. A dispatch's ref and a run's head are
+// not read here: coveredWrite checks them (runsCovered, approveRunCovered).
+func (b *Broker) userGrantCovers(t writeTarget, argv []string, named string) (string, bool) {
 	kind := createGrantKind(t)
-	w, dispatch := dispatchOf(argv, t)
-	if kind == "" && dispatch {
-		kind = GrantDispatchWorkflow
+	a, isRuns := runsOf(argv, t)
+	if kind == "" && isRuns {
+		kind = GrantRuns
 	}
 	if _, approve := approveRunOf(argv, t); kind == "" && approve {
 		kind = GrantApproveRun
@@ -88,13 +91,20 @@ func (b *Broker) userGrantCovers(t writeTarget, argv []string, actor string) (st
 	}
 	held := false
 	switch kind {
-	case GrantDispatchWorkflow:
-		held = dispatchGrantHeld(f.Grants, t.Repo, w)
+	case GrantRuns:
+		workflow := named
+		switch a.Op {
+		case runsDispatch:
+			workflow = a.Dispatch.Workflow
+		case runsCancel:
+			workflow = ""
+		}
+		held = runsGrantHeld(f.Grants, t.Repo, workflow)
 	case GrantApproveRun:
-		held = approveRunGrantHeld(f.Grants, t.Repo, actor)
+		held = approveRunGrantHeld(f.Grants, t.Repo, named)
 	}
 	for _, g := range f.Grants {
-		if kind != GrantDispatchWorkflow && kind != GrantApproveRun && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
+		if kind != GrantRuns && kind != GrantApproveRun && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
 			held = true
 		}
 	}
@@ -182,8 +192,7 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	}
 	code := ExitTempFail
 	var captured bytes.Buffer
-	// runs is the decision that runs: d itself, except for a dispatch a dispatch-workflow grant
-	// covers, whose ref is pinned to the full default branch ref the broker checked.
+	// runs is the decision that runs: d itself, except for a dispatch a runs grant covers, whose ref is pinned to the full default branch ref the broker checked.
 	runs := d
 	run := func(set, by string) error {
 		if err := b.audit.RequiredContext(ctx, brokeraudit.Event{Event: "covered-authorized", Service: Source, Jail: jail,
@@ -209,9 +218,10 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 		return code, "", true
 	}
 
-	// 1. A user grant. A dispatch-workflow grant covers a run on the default branch alone, read
-	// by the broker's own host read; on any other ref the run asks like any repository write. A
-	// covered run is sent as refs/heads/<default>, so what runs is the branch that was checked.
+	// 1. A user grant. A runs grant covers a dispatch on the default branch alone, read by the
+	// broker's own host read, and a re-run of a run whose head is that branch of the repository
+	// itself; anything else asks like any repository write (runsCovered). A covered dispatch is
+	// sent as refs/heads/<default>, so what runs is the branch that was checked.
 	// An approve-run grant covers approving a run only once the broker's own read of the run
 	// shows a granted actor triggered it from the repository itself (approveRunCovered).
 	kind, ok := "", false
@@ -224,34 +234,18 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	if ok && kind == GrantApproveRun && facts == nil {
 		actor, ok = b.approveRunCovered(ctx, t, d.Argv, stderr)
 	}
-	if ok && kind == GrantDispatchWorkflow {
-		if facts != nil && facts.dispatchTried {
+	if ok && kind == GrantRuns {
+		if facts != nil && facts.runsTried {
 			if facts.pinned == nil {
 				ok = false
 			} else {
 				runs.Argv = facts.pinned
 			}
 		} else {
-			w, _ := dispatchOf(d.Argv, t)
-			def, onDefault, err := b.onDefaultBranch(ctx, t.Repo, w)
-			switch {
-			case err != nil:
-				stderr([]byte("github-broker: could not read " + t.Repo + "'s default branch (" + err.Error() +
-					"), so this workspace's dispatch-workflow grant does not cover this run, which asks\n"))
-				ok = false
-			case !onDefault:
-				stderr([]byte("github-broker: this workspace's dispatch-workflow grant covers a run of " + w.Workflow +
-					" on " + t.Repo + "'s default branch (" + def + ") only; this run on " + w.Ref + " asks\n"))
-				ok = false
-			default:
-				pinned, pinOK := pinnedDispatchArgv(d.Argv, t, def)
-				if !pinOK {
-					stderr([]byte("github-broker: could not pin this run of " + w.Workflow + " to refs/heads/" + def +
-						", so this workspace's dispatch-workflow grant does not cover it, which asks\n"))
-					ok = false
-				} else {
-					runs.Argv = pinned
-				}
+			var argv []string
+			argv, actor, ok = b.runsCovered(ctx, t, d.Argv, stderr)
+			if ok {
+				runs.Argv = argv
 			}
 		}
 	}
