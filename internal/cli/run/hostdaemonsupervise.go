@@ -93,7 +93,8 @@ type daemonSupervisor struct {
 	// stop either comes first (and nothing spawns) or sees the process it spawned.
 	start func() (*exec.Cmd, <-chan struct{}, error)
 	// ready is the first spawn's readiness wait for a restarted process: "" once it serves, a
-	// failure clause otherwise.
+	// failure clause otherwise. It ends early when stopCh closes, and restart then reports the
+	// stop, not the clause.
 	ready func(cmd *exec.Cmd, exited <-chan struct{}) string
 	// abandon ends a restarted process that failed its readiness wait, as the first spawn's
 	// failure path does (detach or kill).
