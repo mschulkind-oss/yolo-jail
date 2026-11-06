@@ -40,6 +40,11 @@ type LaunchInputContext struct {
 	UserOnlyMCPServers  *jsonx.OrderedMap
 	MCPScopes           map[string]packload.Scope
 	MCPProven           bool
+	// SharedCredentialDir is the absolute host directory this launch bridges Claude's credential
+	// store into (CL-D22, claudeSecureStorageDir), or "" when it does not (the credential view,
+	// or no selected pack links it): the machine-wide store a one-sign-in server's sign-in is
+	// adopted from (MA-D17).
+	SharedCredentialDir string
 	CallBroker          *CallBrokerLaunchInput
 }
 
@@ -272,6 +277,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		}
 		frozen.MCPProven = true
 		frozen.MCPScopes = packload.MCPServerScopes(frozen.EffectiveMCPServers, frozen.UserOnlyMCPServers)
+		frozen.SharedCredentialDir = o.launchInputMCP.SharedCredentialDir
 	}
 	if producer.Produce == nil || producer.StateDir == nil || len(o.launchInputMountArgv) == 0 {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no verified private launch-input destination and complete jail mount argv; it was not started. Wire the core producer and full assembled mount topology before retrying.[/red]")

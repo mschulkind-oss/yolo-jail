@@ -185,9 +185,13 @@ var (
 	knownBlockedToolKeys = set("name", "message", "suggestion", "block_flags")
 	knownPackageKeys     = set("name", "nixpkgs", "version", "url", "hash", "outputs", "platforms")
 	knownLSPServerKeys   = set("command", "args", "fileExtensions")
-	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides", "url", "transport", "headers", "oauth")
-	knownMCPOAuthKeys    = set("client_id", "scopes", "callback_port")
-	knownDeviceKeys      = set("usb", "description", "cgroup_rule")
+	knownMCPServerKeys   = set("command", "args", "env", "requires_env", "provides", "url", "transport", "headers", "oauth", "sign_in")
+	// userOnlyMCPServerKeys are the mcp_servers keys only the user's own config may set:
+	// `sign_in` moves a sign-in into the machine-wide tier (MA-D11,
+	// docs/design/mcp-auth-sharing.md), so neither a project nor a pack carries it.
+	userOnlyMCPServerKeys = set("sign_in")
+	knownMCPOAuthKeys     = set("client_id", "scopes", "callback_port")
+	knownDeviceKeys       = set("usb", "description", "cgroup_rule")
 	// `io` is the disk I/O priority, read by internal/ioprio's Parse in validation and by
 	// every reader after it (docs/design/io-priority.md §4).
 	knownResourcesKeys      = set("memory", "cpus", "pids_limit", "io")

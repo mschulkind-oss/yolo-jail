@@ -105,7 +105,8 @@ func (s *CanonicalStore) LockRefresh(server, identity string) (func() error, err
 	if server == "" || !validDigest(identity) {
 		return nil, fmt.Errorf("mcp-auth: invalid record refresh-lock key")
 	}
-	name := "codex." + identity + ".refresh.lock"
+	// Named after the store's own file, so two stores in one directory never share a lock.
+	name := strings.TrimSuffix(s.Filename, ".json") + "." + identity + ".refresh.lock"
 	root, err := paths.OpenStateDirRoot(s.Dir)
 	if err != nil {
 		return nil, err

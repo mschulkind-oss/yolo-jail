@@ -711,6 +711,33 @@ local function savedModelFor(ctx)
   return default
 end
 
+--- MCP sign-in store key (docs/design/mcp-auth-sharing.md §9.3). Claude Code keys its
+--- `mcpOAuth` entries by `<server name>|` and the first 16 hex of SHA-256 over its
+--- JSON.stringify({type, url, headers}) in THAT member order: MEASURED 2026-11-06 against a real
+--- plugin entry (insertion order matched, sorted order did not). Headers are written here in
+--- sorted order, which equals Claude's for zero or one header. Match reads only the entry's own
+--- serverName, serverUrl and issuer, never a credential; the broker matches a one-sign-in
+--- server by URL, so a plugin's server (`plugin:slack:slack`) matches the user's `slack`.
+yolo.mcp_auth("claude", {
+  key = function(server)
+    local transport = server.transport
+    if transport == nil or transport == "" then transport = "http" end
+    local descriptor = '{"type":' .. yolo.canonical_json(transport)
+      .. ',"url":' .. yolo.canonical_json(server.url)
+      .. ',"headers":' .. yolo.canonical_json(server.headers or {}) .. '}'
+    return server.name .. "|" .. string.sub(yolo.sha256(descriptor), 1, 16)
+  end,
+  match = function(key, entry)
+    if type(entry.serverUrl) ~= "string" then return nil end
+    local name = entry.serverName
+    if type(name) ~= "string" then name = string.match(key, "^(.*)|%x+$") end
+    if name == nil then return nil end
+    local issuer = nil
+    if type(entry.issuer) == "string" then issuer = entry.issuer end
+    return { name = name, url = entry.serverUrl, issuer = issuer }
+  end,
+})
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --

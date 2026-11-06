@@ -20,10 +20,10 @@ import (
 // claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, cgroup-delegate
 // (selected by default, an entry after the configured ones: docs/reference/loophole-grants.md
 // PD-13), claude-auth (docs/design/provider-enablement.md OQ-PE2) and wire-bridge.
-var claudeAndItsNeeds = []string{"claude", "cgroup-delegate", "claude-auth", "wire-bridge"}
+var claudeAndItsNeeds = []string{"claude", "cgroup-delegate", "claude-auth", "wire-bridge", "mcp-auth"}
 
 // claudeDirectNeeds says which pack's need joins claude, the pack a cause line names.
-var claudeDirectNeeds = []string{"claude-auth", "wire-bridge"}
+var claudeDirectNeeds = []string{"claude-auth", "wire-bridge", "mcp-auth"}
 
 func packNames(packs []*packload.Pack) []string {
 	out := make([]string, 0, len(packs))

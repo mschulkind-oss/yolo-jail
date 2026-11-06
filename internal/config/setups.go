@@ -125,6 +125,9 @@ func setupsProjectRefusal(name string, table any) string {
 // It returns the path the refusal names (a `[setups.*]` refusal names the table, not the
 // root) and the message, given the file's own scope flag for an unset.
 func readableUserOnlyAdvice(path []string, value any) ([]string, func(unsetFlag string) string) {
+	if len(path) == 3 && path[0] == "mcp_servers" && path[2] == "sign_in" {
+		return path, func(string) string { return mcpSignInProjectRefusal(path[1]) }
+	}
 	if len(path) != 1 {
 		return nil, nil
 	}

@@ -199,6 +199,7 @@ func TestSelectedDaemonReceivesItsGateFrozenLaunchInput(t *testing.T) {
 		{Kind: packdecl.KindMCP, Name: "packed", Raw: json.RawMessage(`{"url":"https://pack.example/mcp"}`)},
 	}}}
 	frozen := frozenMCPForLaunch(effective, user, []*packload.Pack{selectedPack}, []*packload.Pack{selectedPack})
+	frozen.SharedCredentialDir = "/host/shared-credentials"
 	plan := &keeperPlan{Workspace: workspace, Cname: "yolo-launch-input-test", Runtime: "podman", RunCmd: argv, LaunchInputMCP: &frozen,
 		ApprovedScopes: map[string][]config.ScopeRepo{"scope-source": {{Repo: "approved/repo"}}}}
 	encoded, err := json.Marshal(plan)
@@ -221,6 +222,10 @@ func TestSelectedDaemonReceivesItsGateFrozenLaunchInput(t *testing.T) {
 				in.MCPScopes["packed"].Level != "user" ||
 				in.EffectiveMCPServers == nil || in.UserOnlyMCPServers == nil {
 				return nil, fmt.Errorf("missing frozen MCP composition")
+			}
+			// The bridged machine store reaches the producer through the keeper plan.
+			if in.SharedCredentialDir != "/host/shared-credentials" {
+				return nil, fmt.Errorf("the launch's shared credential directory did not reach the producer")
 			}
 			return []byte("approved-input-bytes"), nil
 		}},

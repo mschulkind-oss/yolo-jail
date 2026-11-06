@@ -57,7 +57,24 @@ mcp_remote_transports = ["http", "sse"]
 # claude-oauth-broker loophole, so selecting claude makes `-p pi=claude` and an active set
 # holding the subscription nameable, binds the platform to Claude Code's own client, and keeps
 # the broker running whenever Claude Code can be.
-needs = [{ pack = "claude-auth" }, { pack = "wire-bridge" }]
+needs = [{ pack = "claude-auth" }, { pack = "wire-bridge" }, { pack = "mcp-auth" }]
+
+# Claude Code's MCP sign-in store (docs/design/mcp-auth-sharing.md §6, MEASURED 2026-11-06 in a
+# real store; key names only): the `mcpOAuth` map in its credential file, each entry carrying
+# accessToken, refreshToken, expiresAt (epoch ms), clientId, issuer, serverName and serverUrl,
+# written under proper-lockfile's `.storage-write.lock` (stale 15 s) beside the file
+# (claudeview.StorageLockDir). With CL-D22's bridge every jail's Claude reads one copy of that file
+# in the machine-scope directory, which is where the broker adopts a `sign_in = "once"` server's
+# sign-in and writes its refreshed access token back (MA-D17).
+[[mcp_auth]]
+store = ".claude/.credentials.json"
+format = "json"
+entries_at = ["mcpOAuth"]
+companions = [["mcpOAuthClientConfig"]]
+empty_store = "{}"
+lock = { protocol = "proper-lockfile", path = ".claude/.storage-write.lock", stale_seconds = 15 }
+fields = { access_token = "accessToken", refresh_token = "refreshToken", expires_at = { path = "expiresAt", unit = "ms" }, client_id = "clientId" }
+login_hint = "run /mcp in claude and authenticate {name}"
 
 # Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
 #   brew-cask: https://formulae.brew.sh/api/cask/claude-code.json (binary artifact `claude`)

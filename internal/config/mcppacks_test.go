@@ -2,33 +2,16 @@ package config
 
 // mcppacks_test.go pins the config side of the `mcp` contribution kind
 // (docs/design/mcp-presets-removal.md OQ-MP3): the kind's entry carries exactly the fields a user's
-// own mcp_servers entry takes (risk R2), and a server name two selected packs ship is refused by
-// validation — the call both `yolo check` and the launch preflight make.
+// own mcp_servers entry takes (risk R2) less the user-only ones (mcpsignin_test.go), and a server
+// name two selected packs ship is refused by validation — the call both `yolo check` and the
+// launch preflight make.
 
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
-
-// packdecl may not import this package, so its copy of the entry field set is pinned here,
-// where both are in reach. A field added to knownMCPServerKeys and not to the kind would make a
-// pack's server second-class to a hand-written one; the reverse would let a pack say what a user
-// cannot.
-func TestTheMCPKindCarriesEveryMCPServerKey(t *testing.T) {
-	var want []string
-	for k := range knownMCPServerKeys {
-		want = append(want, k)
-	}
-	sort.Strings(want)
-	if got := packdecl.MCPEntryKeys(); strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("packdecl's mcp entry keys %v differ from mcp_servers' %v", got, want)
-	}
-}
 
 // mcpLocalPack writes a local pack at dir/name shipping one MCP server named server.
 func mcpLocalPack(t *testing.T, dir, name, server string) string {

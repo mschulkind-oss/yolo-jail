@@ -3,10 +3,10 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Resolve the Codex native-origin proof gap before supporting fresh native sign-in harvest; run the matched-source combined gates; Tasks 13–15 and native runtime witnesses remain separate"
+next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); rule OQ-MA9; resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
-summary: "Phase A and the reviewed Task 12 launch-boundary foundations are integrated. Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
+summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built. Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
 ---
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
@@ -333,6 +333,44 @@ reverse it.
 - <a id="id-11"></a>**ID-11. `transport` defaults to `"http"`; `url` must be `https://`, or
   `http://` with a loopback host** (`localhost`, `127.0.0.1`, `[::1]`). The MCP authorization
   specification requires this.
+- <a id="id-12"></a>**ID-12. A write into an adoption source takes the agent's own lock or does
+  not happen.** Claude's `proper-lockfile` directory (`.storage-write.lock`, stale after 15 s) is
+  taken by `mkdir` with a bounded wait; a stale empty directory is broken, anything else at the
+  name is refused. The write is an exclusive temp file, `fsync`, then `rename`, opened beneath
+  the store's directory so a link at the name is refused. A store that does not parse is never
+  written and never read as a sign-out ([OQ-MA4](mcp-auth-sharing.md#decision-ledger)).
+  (`internal/mcpauth/source.go`.)
+- <a id="id-13"></a>**ID-13. Adoption is a successful first refresh.** The broker redeems the
+  source entry's refresh token once; only then does it commit the canonical record, and only
+  after that does it strip the refresh token from the source entry
+  ([MA-D17](mcp-auth-sharing.md#decision-ledger)). A definitive refusal leaves the source
+  untouched and the token is remembered in memory by its SHA-256 only, so no pass redeems it
+  again; a transient failure backs off 30 s, 1, 2, 5 min (§8.4). The record keeps the SHA-256 of
+  the token it adopted, so a source entry still holding a spent token is written over, never
+  redeemed.
+- <a id="id-14"></a>**ID-14. Matching is by URL and issuer through the pack's `match`, and the
+  latest expiry wins.** The Claude match returns `serverName` (or the name in the key),
+  `serverUrl` and `issuer`, so `plugin:slack:slack` matches `[mcp_servers.slack]`. The issuer is
+  taken from discovery of the CONFIGURED URL (RFC 9728, then RFC 8414 and OpenID discovery),
+  never the entry's `discoveryState`; discovery and refresh follow no redirect and use `http://`
+  only to loopback ([ID-11](#id-11)). Write-back goes to the adopted entry's key only.
+- <a id="id-15"></a>**ID-15. The one-sign-in records live in `<state>/once/records.json`**, a
+  canonical store of their own beside the replica store, with the same lock, generations and
+  per-record refresh lock ([ID-6](#id-6)); the refresh-lock name derives from the store's
+  filename. A response with no `expires_in` is taken as one hour. A dead record clears its
+  tokens and removes the source entry only when that entry still holds the record's own access
+  token.
+- <a id="id-16"></a>**ID-16. The one-sign-in tier is on only where Claude's store is the
+  machine-wide bridge file** (CL-D22): the launch hands the broker the source when the shared
+  credential directory the launch resolved equals the pack's `shared_credentials` store. In
+  credential-view mode, on Apple Container and on macos-user it is off, and the launch line says
+  so. The broker polls every 30 s after readiness, so an unreachable authorization server never
+  delays a launch. `packs/claude` now `needs` `mcp-auth`, as `packs/codex` does, so every Claude
+  launch selects the broker; with no `sign_in = "once"` server its share names nothing and it
+  does no work.
+- <a id="id-17"></a>**ID-17. The [OQ-MA3](mcp-auth-sharing.md#decision-ledger) disclosure is
+  printed with the one-sign-in line**, the one launch where Claude's machine-wide MCP store is
+  being acted on; a launch with no `sign_in = "once"` server prints nothing new.
 
 ## Tasks
 
@@ -1301,6 +1339,28 @@ the design's; what is recorded here is what that pass must start from.
 
   It is gated on the measurements in
   [§9.3](mcp-auth-sharing.md#93-adopting-a-sign-in-an-agent-already-has) and item 4.
+
+  **Status (2026-11-06):** the first slice is built: `sign_in` (user scope only), the Claude
+  adapter (`[[mcp_auth]]` in `packs/claude/pack.toml`, `key` and `match` in its `derive.lua`),
+  adoption, refresh, write-back and sign-out ([ID-12](#id-12) to [ID-17](#id-17)), the launch
+  line, and the `once` rows of the broker's status. Not built, and still open: `mcp_sign_in`
+  (the user-wide half of [OQ-MA5](mcp-auth-sharing.md#decision-ledger)),
+  `oauth.client_secret_command`, `yolo mcp-auth header`, `login`, `logout` and `status`, the
+  header-route renders for Codex and pi, and
+  [OQ-MA9](mcp-auth-sharing.md#oq-ma9-the-source-agents-second-server). The §9.3 measurements
+  (Claude keeps working with no `refreshToken`; Slack refreshes with the client id alone) are
+  the owner's end-to-end check of this slice, not yet taken.
+
+  **Parity follow-ups for this slice:**
+
+  - *Apple Container:* no broker runs there; its Claude reads the same machine file only on a
+    host where a podman jail's broker keeps it fresh. Needs the launch-boundary mode of phase C.
+  - *macos-user:* Claude's store is the Keychain or the sandbox home, not the bridge file;
+    needs its own source adapter behind a Mac witness.
+  - *`yolo host`:* the user's own Claude store is not the bridge
+    file; the tier is off there. Needs a host source adapter beside [Task 15](#task-15)'s
+    Codex one.
+  - *Credential-view mode:* each workspace has its own Claude store; slice 2's view adapter.
 - **Phase E, slice 3** (item 5): the store route, then Copilot, agy, Muse and omp as their
   facts arrive.
 - **The brokercore and framework migration.** When

@@ -20,6 +20,9 @@ type MCPServerRef struct {
 	Transport string
 	Headers   map[string]string
 	ClientID  string
+	// Issuer is the authorization server a match function says the entry was issued by, or
+	// "" when it names none. Only a match result carries it.
+	Issuer string
 }
 
 type mcpAuthFunctions struct {
@@ -124,7 +127,15 @@ func MCPAuthMatch(script, agent, key string, entry map[string]any) (*MCPServerRe
 	if !nameOK || !urlOK {
 		return nil, fmt.Errorf("luahook: mcp_auth match for %s must return string name and url fields", agent)
 	}
-	return &MCPServerRef{Name: name, URL: url}, nil
+	ref := &MCPServerRef{Name: name, URL: url}
+	switch issuer := matched.RawGetString("issuer").(type) {
+	case lua.LString:
+		ref.Issuer = string(issuer)
+	case *lua.LNilType:
+	default:
+		return nil, fmt.Errorf("luahook: mcp_auth match for %s returned a non-string issuer", agent)
+	}
+	return ref, nil
 }
 
 func mcpAuthSession(script, agent string) (*deriveSession, mcpAuthFunctions, error) {
