@@ -19,8 +19,10 @@ vantage:
 the mixed-backend JSON contracts for both `yolo ps --format json` and `yolo stores --json` open.
 A private 6a/6b prototype has focused synthetic-only closure of three held-bind findings; a separate
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
-Neither is accepted production source; the outside/foreign-pack path and legacy-home adoption reds
-remain. See [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+A self-process `--preserve-fds` countercontrol also shows the raw source descriptor available to
+guest code, so direct pass-through is not an acceptable production fix. Neither probe is accepted
+production source; the outside/foreign-pack path and legacy-home adoption reds remain. See
+[plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.
@@ -426,9 +428,17 @@ absent descriptor made START fail. A real Go `ExtraFiles` holder kept the origin
 usable after its producer exited; after holder death, a separate created-but-not-started container
 failed at START. This does not determine what happens to an already-started bind after holder
 death or prove production keeper/lease integration, all admission paths, rootless or remote Podman,
-Apple Container, macOS or Seatbelt behavior. The outside/foreign-pack pathname red is separate from the
-legacy-home source-swap red governed by [OQ-SU5](#OQ-SU5). Neither the source prototype nor this
-probe authorizes activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
+Apple Container, macOS or Seatbelt behavior.
+
+A separate one-command local `podman run --preserve-fds=1` countercontrol passed the raw original
+directory FD into guest code. The guest verified that FD3 was the same directory backing the mount,
+then used FD-relative parent traversal to read an owned sibling outside the mounted leaf. This is a
+negative isolation result for direct FD pass-through, not proof of access to unrelated host paths or
+credentials; none were tested. The engine process resolving `/proc/self` was not identified, and
+this was not a detached create/start or keeper-protocol test. Do not pass the raw host directory FD
+to an untrusted guest. The outside/foreign-pack pathname red is separate from the legacy-home
+source-swap red governed by [OQ-SU5](#OQ-SU5). Neither source prototype nor local probe authorizes
+activation; see [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
 for the remaining proof boundary.
 
 **Cost.** Changing setup in a project starts with that setup's own transcripts: `claude --resume`

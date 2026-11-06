@@ -492,8 +492,11 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     findings, not whole-source acceptance. A separate local nested rootful Linux Podman/crun `-v`
     probe establishes START-time source-path resolution and the effect of an actual open-directory
     handle held by a live process in narrow cells; it does not establish production keeper custody or
-    determine already-started bind behavior after holder death. The outside/foreign-pack pathname
-    semantic RED and separate [OQ-SU5](../design/named-setups.md#OQ-SU5) legacy-home adoption RED
+    determine already-started bind behavior after holder death. A one-command self-process
+    `--preserve-fds` countercontrol exposed the original raw directory FD to guest code, which
+    traversed to an owned sibling outside the bind leaf; direct pass-through is not a production fix.
+    This does not establish detached create/start or full keeper-protocol behavior. The
+    outside/foreign-pack pathname semantic RED and separate [OQ-SU5](../design/named-setups.md#OQ-SU5) legacy-home adoption RED
     remain. The [refreshed build hand-off](../design/named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path)
     records the proof boundary and remaining native/rootless/remote/backend gaps. The combined
     candidate still needs review and unchanged W-SU1/W-SU4 on the owner's Mac before primary
