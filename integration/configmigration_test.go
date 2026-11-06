@@ -29,11 +29,25 @@ import (
 const offerPrompt = "[y/N]"
 
 // oldFormatUser and oldFormatWorkspace are the old-format graph every test starts from: a user
-// config selecting a pack and a project asking for a package. Both are plain JSONC the
-// conversion folds to TOML under its byte-equality rule.
+// config selecting a pack and a project setting an environment variable. Both are plain JSONC
+// the conversion folds to TOML under its byte-equality rule.
+//
+// The project's witness is an env.set entry, not a package. A package made every launch here
+// build a non-stock image, which these tests do not test, and on the macOS nightly that cold
+// build (a darwin copier from source, then the Linux builder container) failed or ran past the
+// 20-minute launch budget: TestOfferAnsweredNoLaunchesOnTheOldFiles on 2026-11-03,
+// TestConvertLaterSilencesTheOffer on 2026-11-05. TestAnAttachIsNotOfferedTheConversion dropped
+// its package for the same reason (5342558ff). The env entry proves the same thing, that the
+// jail started on this file: witnessCheck holds only when the launch read it.
 const (
 	oldFormatUser      = "{\n  \"packs\": [\"guardrails\"]\n}\n"
-	oldFormatWorkspace = "{\n  \"packages\": [\"hello\"]\n}\n"
+	oldFormatWorkspace = "{\n  \"env\": {\"set\": {\"OLD_FORMAT_WITNESS\": \"from-jsonc\"}}\n}\n"
+
+	// witnessCheck succeeds in a jail whose project config set the witness; witnessProbe also
+	// prints witnessMark when it does.
+	witnessCheck = `[ "${OLD_FORMAT_WITNESS-}" = from-jsonc ]`
+	witnessProbe = witnessCheck + ` && echo ` + witnessMark
+	witnessMark  = "OLD-FORMAT-WITNESS-SET"
 )
 
 // oldGraph is a workspace and an isolated home holding the old-format graph, with the paths the
@@ -238,7 +252,7 @@ func names(m map[string]string) []string {
 }
 
 // Answering `n` at the offer launches the jail on the OLD files, and writes nothing: the project's
-// package is on the jail's PATH (read from yolo-jail.jsonc), the user's pack is selected (read
+// witness variable is set in the jail (read from yolo-jail.jsonc), the user's pack is selected (read
 // from config.jsonc), and no TOML or .pre-migrate file appears on disk (RC-D19).
 func TestOfferAnsweredNoLaunchesOnTheOldFiles(t *testing.T) {
 	requireJail(t)
@@ -246,19 +260,19 @@ func TestOfferAnsweredNoLaunchesOnTheOldFiles(t *testing.T) {
 
 	// A first launch records the old files' approval, so the only question the second one can
 	// put is the offer.
-	if first := runYolo(t, g.dir, `command -v hello`, withHostSemantics()); first.rc != 0 {
+	if first := runYolo(t, g.dir, witnessCheck, withHostSemantics()); first.rc != 0 {
 		t.Fatalf("the first launch on the old files: rc %d\n%s", first.rc, first.combined())
 	}
 	r := launchAtTerminal(t, g.dir, []string{"run", "--", "bash", "-lc",
-		`command -v hello && echo HELLO-ON-PATH; grep -r x /etc/hostname; true`}, "n", withHostSemantics())
+		witnessProbe + `; grep -r x /etc/hostname; true`}, "n", withHostSemantics())
 	if !r.asked {
 		t.Fatalf("a launch at a terminal on an old-format config must ask to convert it:\n%s", r.out)
 	}
 	if r.rc != 0 {
 		t.Fatalf("answering n must still launch: rc %d\n%s", r.rc, r.out)
 	}
-	if !strings.Contains(r.out, "HELLO-ON-PATH") {
-		t.Errorf("the jail did not start on the old yolo-jail.jsonc (hello missing):\n%s", r.out)
+	if !strings.Contains(r.out, witnessMark) {
+		t.Errorf("the jail did not start on the old yolo-jail.jsonc (witness variable unset):\n%s", r.out)
 	}
 	if !strings.Contains(r.out, "recursive mode is blocked") {
 		t.Errorf("the jail did not start on the old config.jsonc (guardrails not selected):\n%s", r.out)
@@ -274,7 +288,7 @@ func TestOfferAnsweredNoLaunchesOnTheOldFiles(t *testing.T) {
 }
 
 // Answering `y` converts both files in place, keeps each original as <name>.pre-migrate, and
-// launches on the converted files: the same package and pack are in effect, and the launch asks
+// launches on the converted files: the same witness variable and pack are in effect, and the launch asks
 // nothing more, because the conversion respelled the approval records (the launch carries no
 // --accept-config-changes, so a record that no longer matched would put a second question to the
 // terminal and the launch would not finish).
@@ -284,21 +298,21 @@ func TestOfferAnsweredYesConvertsThenLaunches(t *testing.T) {
 
 	// A first launch on the old files records their approval and boot baseline, the state a
 	// real user has when the conversion is first offered.
-	first := runYolo(t, g.dir, `command -v hello`, withHostSemantics())
+	first := runYolo(t, g.dir, witnessCheck, withHostSemantics())
 	if first.rc != 0 {
 		t.Fatalf("the first launch on the old files: rc %d\n%s", first.rc, first.combined())
 	}
 
 	r := launchAtTerminal(t, g.dir, []string{"run", "--", "bash", "-lc",
-		`command -v hello && echo HELLO-ON-PATH; grep -r x /etc/hostname; true`}, "y", withHostSemantics())
+		witnessProbe + `; grep -r x /etc/hostname; true`}, "y", withHostSemantics())
 	if !r.asked || r.rc != 0 {
 		t.Fatalf("offer asked=%v, rc %d\n%s", r.asked, r.rc, r.out)
 	}
 	if strings.Count(r.out, offerPrompt) != 1 {
 		t.Errorf("exactly one question was expected after the conversion:\n%s", r.out)
 	}
-	if !strings.Contains(r.out, "HELLO-ON-PATH") || !strings.Contains(r.out, "recursive mode is blocked") {
-		t.Errorf("the jail launched on the converted files lost the package or the pack:\n%s", r.out)
+	if !strings.Contains(r.out, witnessMark) || !strings.Contains(r.out, "recursive mode is blocked") {
+		t.Errorf("the jail launched on the converted files lost the witness variable or the pack:\n%s", r.out)
 	}
 	if !exists(g.userNew) || !exists(g.workspNew) {
 		t.Fatalf("the conversion wrote no TOML (user %v, project %v):\n%s",
@@ -316,7 +330,7 @@ func TestOfferAnsweredYesConvertsThenLaunches(t *testing.T) {
 
 	// The next launch, with no terminal and no --accept-config-changes, is neither refused for
 	// a changed config nor offered anything.
-	next := runCommand(t, g.dir, []string{"run", "--", "bash", "-lc", `command -v hello`}, withHostSemantics())
+	next := runCommand(t, g.dir, []string{"run", "--", "bash", "-lc", witnessCheck}, withHostSemantics())
 	if next.rc != 0 {
 		t.Errorf("the launch after the conversion was refused (records not respelled?): rc %d\n%s",
 			next.rc, next.combined())
@@ -341,15 +355,15 @@ func TestConvertLaterSilencesTheOffer(t *testing.T) {
 
 	g := newOldGraph(t, `"convert_later": true`)
 	before := treeBytes(t, g.dir)
-	quiet := runCommand(t, g.dir, append(jailRunArgs(), "--", "bash", "-lc", `command -v hello`), withHostSemantics())
+	quiet := runCommand(t, g.dir, append(jailRunArgs(), "--", "bash", "-lc", witnessCheck), withHostSemantics())
 	if quiet.rc != 0 || strings.Contains(quiet.combined(), "Deprecated config format") {
 		t.Errorf("convert_later did not silence the line without a terminal: rc %d\n%s", quiet.rc, quiet.combined())
 	}
-	r := launchAtTerminal(t, g.dir, append(jailRunArgs(), "--", "bash", "-lc", `command -v hello && echo HELLO-ON-PATH`), "", withHostSemantics())
+	r := launchAtTerminal(t, g.dir, append(jailRunArgs(), "--", "bash", "-lc", witnessProbe), "", withHostSemantics())
 	if r.asked {
 		t.Fatalf("convert_later did not silence the question at a terminal:\n%s", r.out)
 	}
-	if r.rc != 0 || !strings.Contains(r.out, "HELLO-ON-PATH") {
+	if r.rc != 0 || !strings.Contains(r.out, witnessMark) {
 		t.Errorf("the silenced launch should run on the old files: rc %d\n%s", r.rc, r.out)
 	}
 	if !sameTree(before, treeBytes(t, g.dir)) || exists(g.userNew) || exists(g.workspNew) {
@@ -384,7 +398,7 @@ func TestConfigMigrateKeepsPreMigrateCopiesAndRespellsRecords(t *testing.T) {
 	requireJail(t)
 	g := newOldGraph(t, "")
 
-	first := runYolo(t, g.dir, `command -v hello`, withHostSemantics())
+	first := runYolo(t, g.dir, witnessCheck, withHostSemantics())
 	if first.rc != 0 {
 		t.Fatalf("the first launch on the old files: rc %d\n%s", first.rc, first.combined())
 	}
@@ -404,9 +418,9 @@ func TestConfigMigrateKeepsPreMigrateCopiesAndRespellsRecords(t *testing.T) {
 		t.Fatalf("migrate wrote no TOML:\n%s", r.combined())
 	}
 
-	next := runCommand(t, g.dir, []string{"run", "--", "bash", "-lc", `command -v hello && echo HELLO-ON-PATH`}, withHostSemantics())
-	if next.rc != 0 || !strings.Contains(next.stdout, "HELLO-ON-PATH") {
-		t.Fatalf("the launch on the converted files was refused or lost the package (records not respelled?): rc %d\n%s",
+	next := runCommand(t, g.dir, []string{"run", "--", "bash", "-lc", witnessProbe}, withHostSemantics())
+	if next.rc != 0 || !strings.Contains(next.stdout, witnessMark) {
+		t.Fatalf("the launch on the converted files was refused or lost the witness variable (records not respelled?): rc %d\n%s",
 			next.rc, next.combined())
 	}
 
