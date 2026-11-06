@@ -59,7 +59,7 @@ func TestQuietContractStillCatchesAPrintedReport(t *testing.T) {
 			"    1.234s    +0.100s    0.050s  shutdown.stop_loopholes\n" +
 			"  Total: 1.234s\n" +
 			"  host file: /w/.yolo/host-perf.log\n" +
-			"  jail half: /w/.yolo/home/yolo-perf.log\n"},
+			"  jail half: /w/.yolo/setups/podman-self/home/yolo-perf.log\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if len(quietLaunchProblems(tc.stderr)) == 0 {

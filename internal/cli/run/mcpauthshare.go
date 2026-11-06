@@ -16,13 +16,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func produceMCPAuthShare(in LaunchInputContext) ([]byte, error) {
 	// This slice has one kernel and Codex's flock. A different backend must never
 	// receive an access-token replica as if its lock or credential store were known.
 	if in.Runtime != "podman" || runtime.GOOS != "linux" || !in.MCPProven {
-		return json.Marshal(mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}})
+		return json.Marshal(mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, Home: shareHomeRel(in), WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}})
 	}
 	if in.PackTree == "" {
 		return nil, fmt.Errorf("mcp-auth: selected staged pack tree is absent; retry the launch")
@@ -35,7 +36,7 @@ func produceMCPAuthShare(in LaunchInputContext) ([]byte, error) {
 }
 
 func mcpShareFromPacks(in LaunchInputContext, packs []*packload.Pack) ([]byte, error) {
-	share := mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}}
+	share := mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, Home: shareHomeRel(in), WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}}
 	names := in.EffectiveMCPServers.Keys()
 	sort.Strings(names)
 	for _, pack := range packs {
@@ -159,4 +160,15 @@ func mcpIdentity(url, transport string, headers map[string]string, clientID stri
 	}
 	sum := sha256.Sum256(bytes.TrimSuffix(body.Bytes(), []byte("\n")))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// shareHomeRel is the share's Home: the launch's workspace home relative to <workspace>/.yolo, ""
+// for the legacy home, so the broker reconciles the replicas of the home this launch binds
+// (docs/design/named-setups.md §9; TestMCPAuthShareNamesTheLaunchsHome).
+func shareHomeRel(in LaunchInputContext) string {
+	rel, ok := paths.HomeStateRel(in.Workspace, in.Home)
+	if !ok || rel == "home" {
+		return ""
+	}
+	return rel
 }

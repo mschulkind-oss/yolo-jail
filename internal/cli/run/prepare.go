@@ -89,7 +89,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	blocked := blockedToolRecords(config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"),
 		packload.BlockedTools(staged.packs)))
 
-	persistence := persistenceMapFor(rt, cfg, staged.packs, o.Workspace, o.Sealed, cname)
+	persistence := persistenceMapForSources(rt, cfg, staged.packs, o.Workspace, o.Sealed, persistenceSources{home: o.homeDir()}, cname)
 	if facts != nil && facts.Persistence != nil {
 		persistence = facts.Persistence
 	}
@@ -318,7 +318,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 			}
 			pathHome := jailHome
 			if rt == "macos-user" { // parity: HonoredBy — native home paths use the selected account's launch home
-				pathHome = macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Home
+				pathHome = macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome()).Home
 			}
 			for _, target := range packSkillTargets(loadedPacks) {
 				path := filepath.Join(paths.AgentsDir(), cname, target.Staging)
@@ -607,9 +607,9 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 // is the same check where the writes are), a podman bind source that is a link is replaced by
 // a real one and the launch says so, and the migrations and the seed sync never follow one.
 func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.Pack, rt string) string {
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := o.homeDir()
 	out := o.pr(o.Stderr)
-	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
+	if linked := linkedWorkspaceState(o.Workspace, wsState); linked != "" {
 		out.print("[yellow]Warning: " + (&linkedStateRootError{Path: linked}).Error() +
 			"; nothing was prepared in this workspace's jail state[/yellow]")
 		return wsState
@@ -974,7 +974,7 @@ func (o *Options) noteHandoffConsumed() {
 // modes (MMP-D5, MMP-D25), so the briefing never names the account's machine root as the home.
 func (o *Options) nativeHomeFor(rt string) string {
 	if slices.Contains(paths.NativeRuntimes, rt) {
-		return macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Home
+		return macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome()).Home
 	}
 	return ""
 }

@@ -30,7 +30,7 @@ func TestAStopWaitsForTheJailsKeeper(t *testing.T) {
 	t.Cleanup(func() { finishStop = saved })
 	var got []string
 	finishRC := 0
-	finishStop = func(stdout, _ io.Writer, ws, rt string, _ int64, capture func(string, string), _ bool) int {
+	finishStop = func(stdout, _ io.Writer, ws, rt string, _ int64, capture func(string, string, string), _ bool) int {
 		got = append(got, ws+" "+rt)
 		if capture == nil {
 			t.Error("the stop hands the reap no config capture")

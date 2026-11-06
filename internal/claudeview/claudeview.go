@@ -186,7 +186,12 @@ const maxViewBytes = 1 << 20
 // and Subdir alone, and reads exactly as it did.
 type Location struct {
 	Workspace string `json:"workspace,omitempty"`
-	Subdir    string `json:"subdir,omitempty"`
+	// Home is the workspace home the view's Subdir is under, relative to <Workspace>/.yolo
+	// (paths.HomeStateRel): "setups/<setup>/home" for the launch's setup, or "" for the legacy
+	// "home", which every registration written before setups had homes of their own names
+	// (docs/design/named-setups.md §9).
+	Home   string `json:"home,omitempty"`
+	Subdir string `json:"subdir,omitempty"`
 	// Dir is the absolute directory of a host-notch view, which Claude reads through
 	// CLAUDE_SECURESTORAGE_CONFIG_DIR. Empty for a workspace's view.
 	Dir string `json:"dir,omitempty"`
@@ -205,9 +210,27 @@ func (l Location) IsHost() bool { return l.Dir != "" }
 // a Subdir. A registration file that is neither is skipped by the broker.
 func (l Location) Valid() bool {
 	if l.Dir != "" {
-		return filepath.IsAbs(l.Dir) && l.Workspace == "" && l.Subdir == ""
+		return filepath.IsAbs(l.Dir) && l.Workspace == "" && l.Subdir == "" && l.Home == ""
+	}
+	if l.Home != "" {
+		if rel, ok := paths.HomeStateRel(l.Workspace, l.homeDir()); !ok || rel != l.Home {
+			return false
+		}
 	}
 	return l.Workspace != "" && l.Subdir != ""
+}
+
+// homeRel is l's workspace home relative to <Workspace>/.yolo: Home, or the legacy "home".
+func (l Location) homeRel() string {
+	if l.Home == "" {
+		return "home"
+	}
+	return l.Home
+}
+
+// homeDir is l's workspace home: <Workspace>/.yolo/<homeRel>.
+func (l Location) homeDir() string {
+	return filepath.Join(paths.WorkspaceStateDir(l.Workspace), l.homeRel())
 }
 
 // Path is the view's host path, for messages only. Nothing opens by it.
@@ -215,11 +238,12 @@ func (l Location) Path() string {
 	if l.IsHost() {
 		return filepath.Join(l.Dir, ViewFile)
 	}
-	return filepath.Join(paths.WorkspaceHomeState(l.Workspace), l.Subdir, ViewFile)
+	return filepath.Join(l.homeDir(), l.Subdir, ViewFile)
 }
 
-// openDir opens the view's directory beneath <workspace>/.yolo/home, refusing a symbolic link at
-// `.yolo`, at `home` and at the subdir: every one of the three is jail-writable (the workspace is
+// openDir opens the view's directory beneath the location's home (homeDir), refusing a symbolic
+// link at `.yolo`, at every component down to the home and at the subdir: every one is
+// jail-writable (the workspace is
 // bound whole on both container backends, and macos-user's sandbox writes the workspace). It
 // creates nothing; a missing directory is ErrDirGone, which is how a registration for a
 // workspace that has gone is recognized.
@@ -241,12 +265,15 @@ func (l Location) openDir() (*os.Root, error) {
 	if l.Subdir == "" || filepath.Base(l.Subdir) != l.Subdir || l.Subdir == "." || l.Subdir == ".." {
 		return nil, &fs.PathError{Op: "open", Path: l.Subdir, Err: fs.ErrInvalid}
 	}
-	home, err := paths.OpenWorkspaceStateSubdir(l.Workspace, "home")
+	if !l.Valid() {
+		return nil, &fs.PathError{Op: "open", Path: l.homeDir(), Err: fs.ErrInvalid}
+	}
+	home, err := paths.OpenWorkspaceHomeRoot(l.Workspace, l.homeDir())
 	if err != nil {
 		return nil, l.dirError(err)
 	}
 	defer home.Close()
-	r, err := paths.OpenStateSubdirRoot(home, l.Subdir, filepath.Join(paths.WorkspaceHomeState(l.Workspace), l.Subdir))
+	r, err := paths.OpenStateSubdirRoot(home, l.Subdir, filepath.Join(l.homeDir(), l.Subdir))
 	if err != nil {
 		return nil, l.dirError(err)
 	}
@@ -298,17 +325,28 @@ func (l Location) EnsureDir() error {
 	if _, err := paths.EnsureWorkspaceStateDir(l.Workspace); err != nil {
 		return err
 	}
-	state, err := paths.OpenStateDirRoot(paths.WorkspaceStateDir(l.Workspace))
+	if !l.Valid() {
+		return &fs.PathError{Op: "mkdir", Path: l.homeDir(), Err: fs.ErrInvalid}
+	}
+	// Each component from `.yolo` down to the home (one for the legacy home, three for a setup's)
+	// is made beneath its parent and opened refusing a link before the next is made in it.
+	dir := paths.WorkspaceStateDir(l.Workspace)
+	home, err := paths.OpenStateDirRoot(dir)
 	if err != nil {
 		return l.dirError(err)
 	}
-	defer state.Close()
-	if err := state.Mkdir("home", 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-		return err
-	}
-	home, err := paths.OpenStateSubdirRoot(state, "home", paths.WorkspaceHomeState(l.Workspace))
-	if err != nil {
-		return l.dirError(err)
+	for _, seg := range strings.Split(l.homeRel(), "/") {
+		if err := home.Mkdir(seg, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+			home.Close()
+			return err
+		}
+		dir = filepath.Join(dir, seg)
+		next, err := paths.OpenStateSubdirRoot(home, seg, dir)
+		home.Close()
+		if err != nil {
+			return l.dirError(err)
+		}
+		home = next
 	}
 	defer home.Close()
 	if err := home.Mkdir(l.Subdir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {

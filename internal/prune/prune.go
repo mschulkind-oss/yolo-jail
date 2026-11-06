@@ -58,7 +58,8 @@ type Entry struct {
 
 // dedupRoot is a tree dedup walks and links beneath: a workspace's overlay, or a directory.
 type dedupRoot struct {
-	workspace string // <workspace>/.yolo/home, refusing a link at `.yolo` or at `home`
+	workspace string // a workspace whose home (below) is walked, refusing a link at `.yolo` or below it
+	home      string // one of workspace's homes (paths.WorkspaceHomeStates)
 	dir       string // else this directory, refusing a link at it
 }
 
@@ -66,7 +67,7 @@ type dedupRoot struct {
 // (docs/reference/jail-home.md, "Host code in jail-writable state").
 func (d dedupRoot) open() (*os.Root, error) {
 	if d.workspace != "" {
-		return paths.OpenWorkspaceStateSubdir(d.workspace, "home")
+		return paths.OpenWorkspaceHomeRoot(d.workspace, d.home)
 	}
 	return paths.OpenStateDirRoot(d.dir)
 }
@@ -78,7 +79,7 @@ func (e Entry) beneath() (dedupRoot, string, error) {
 	}
 	dir := e.root.dir
 	if e.root.workspace != "" {
-		dir = paths.WorkspaceHomeState(e.root.workspace)
+		dir = e.root.home
 	}
 	rel, err := filepath.Rel(dir, e.Path)
 	return e.root, rel, err
@@ -132,27 +133,29 @@ func walkDedupBeneath(r *os.Root, root dedupRoot, dir, rel string) []Entry {
 	return out
 }
 
-// WalkDedupableWorkspaces yields entries under each workspace's
-// .yolo/home/{npm-global,local,go,codex/packages/standalone}, minus dedupExcludedSubtrees.
-// The overlay is opened refusing a link at `.yolo` or at `.yolo/home`, and walked beneath
-// that root: both are jail-writable, through the workspace bind.
+// WalkDedupableWorkspaces yields entries under each home of each workspace (the legacy
+// .yolo/home and every .yolo/setups/<setup>/home, paths.WorkspaceHomeStates), in
+// {npm-global,local,go,codex/packages/standalone}, minus dedupExcludedSubtrees. Each home is
+// opened refusing a link at `.yolo` and at every component below it, and walked beneath that
+// root: all are jail-writable, through the workspace bind.
 func WalkDedupableWorkspaces(workspaces []string) []Entry {
 	var out []Entry
 	for _, ws := range workspaces {
-		r, err := paths.OpenWorkspaceStateSubdir(ws, "home")
-		if err != nil {
-			continue
-		}
-		home := paths.WorkspaceHomeState(ws)
-		for _, sub := range dedupeSubtrees {
-			root := filepath.Join(home, sub)
-			var skip []string
-			for _, rel := range dedupExcludedSubtrees[sub] {
-				skip = append(skip, filepath.Join(root, rel))
+		for _, home := range paths.WorkspaceHomeStates(ws) {
+			r, err := paths.OpenWorkspaceHomeRoot(ws, home)
+			if err != nil {
+				continue
 			}
-			out = append(out, excludeUnder(walkDedupBeneath(r, dedupRoot{workspace: ws}, home, sub), skip)...)
+			for _, sub := range dedupeSubtrees {
+				root := filepath.Join(home, sub)
+				var skip []string
+				for _, rel := range dedupExcludedSubtrees[sub] {
+					skip = append(skip, filepath.Join(root, rel))
+				}
+				out = append(out, excludeUnder(walkDedupBeneath(r, dedupRoot{workspace: ws, home: home}, home, sub), skip)...)
+			}
+			r.Close()
 		}
-		r.Close()
 	}
 	return out
 }

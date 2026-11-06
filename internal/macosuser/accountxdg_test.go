@@ -16,7 +16,7 @@ import (
 // set it does not), so the account mode names all four at their default spellings under HOME. A
 // value an env layer composed wins, and the run-as-you mode, whose HOME is its own, sets none.
 func TestAccountModeNamesTheXDGBaseDirsUnderTheWorkspaceHome(t *testing.T) {
-	home := paths.WorkspaceHomeState("/Users/you/code/alpha")
+	home := paths.LegacyHomeState("/Users/you/code/alpha")
 	want := map[string]string{
 		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
 		"XDG_CACHE_HOME":  filepath.Join(home, ".cache"),

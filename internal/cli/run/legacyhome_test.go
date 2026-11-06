@@ -18,7 +18,7 @@ import (
 func legacyHomeWorkspace(t *testing.T) (ws, src string) {
 	t.Helper()
 	ws = t.TempDir()
-	src = paths.WorkspaceHomeState(ws)
+	src = paths.LegacyHomeState(ws)
 	writeTranscript(t, src)
 	return ws, src
 }
@@ -165,8 +165,12 @@ func TestLegacyHomeDefersOnlyWhatItWouldMove(t *testing.T) {
 			ws, src := legacyHomeWorkspace(t)
 			r := legacyRequest(ws, "podman-self", projectJailsRunning)
 			arrange(t, ws, src, &r)
-			if got, line := adoptLegacyHome(r); got != legacyHomeLeft {
-				t.Errorf("result = %v (%s), want left", got, line)
+			want := legacyHomeLeft
+			if name == "another setup's" {
+				want = legacyHomeOthers
+			}
+			if got, line := adoptLegacyHome(r); got != want {
+				t.Errorf("result = %v (%s), want %v", got, line, want)
 			}
 		})
 	}
@@ -254,8 +258,8 @@ func TestLegacyHomeLeavesWhatItCannotMove(t *testing.T) {
 			r := legacyRequest(ws, "podman-self", projectJailsStopped)
 			c.arrange(t, ws, src, &r)
 			got, line := adoptLegacyHome(r)
-			if got != legacyHomeLeft {
-				t.Fatalf("result = %v (%s), want left in place", got, line)
+			if want := map[bool]legacyHomeResult{false: legacyHomeLeft, true: legacyHomeOthers}[c.name == "another setup's layout"]; got != want {
+				t.Fatalf("result = %v (%s), want %v (left in place)", got, line, want)
 			}
 			assertLegacyHomeStays(t, src)
 			assertOneLine(t, line)
@@ -399,8 +403,8 @@ func TestLegacyHomeAttribution(t *testing.T) {
 		{name: "seatbelt adopts the shared layout", setup: "seatbelt-yolo-account", want: legacyHomeMoved},
 		{name: "apple container adopts the shared layout", setup: "apple-container-self", want: legacyHomeMoved},
 		{name: "apple container adopts its own copy", setup: "apple-container-self", signal: acLaid, want: legacyHomeMoved},
-		{name: "seatbelt leaves an apple container home", setup: "seatbelt-self", signal: acLaid, want: legacyHomeLeft},
-		{name: "podman leaves an apple container home", setup: "podman-self", signal: acLaid, want: legacyHomeLeft},
+		{name: "seatbelt leaves an apple container home", setup: "seatbelt-self", signal: acLaid, want: legacyHomeOthers},
+		{name: "podman leaves an apple container home", setup: "podman-self", signal: acLaid, want: legacyHomeOthers},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ws, src := legacyHomeWorkspace(t)
@@ -418,7 +422,7 @@ func TestLegacyHomeAttribution(t *testing.T) {
 				assertLegacyHomeStays(t, src)
 			case legacyHomeMoved:
 				assertHoldsTranscript(t, paths.SetupHomeState(ws, c.setup))
-			case legacyHomeLeft:
+			case legacyHomeOthers:
 				assertLegacyHomeStays(t, src)
 				if !strings.Contains(line, "an Apple Container setup") {
 					t.Errorf("the line must name an Apple Container setup: %q", line)
@@ -426,4 +430,31 @@ func TestLegacyHomeAttribution(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLegacyHomeAcceptsTheYoloAccountsHome is SUP-D31: for seatbelt-yolo-account the yolo account
+// (the request's AccountUID) owns the home it ran in, and that home moves like the user's own; any
+// other owner is still left in place. The account is stood in for by this process's uid, with the
+// invoking user made someone else, since a test cannot chown.
+func TestLegacyHomeAcceptsTheYoloAccountsHome(t *testing.T) {
+	euid := os.Geteuid()
+	t.Run("the account's home moves", func(t *testing.T) {
+		ws, _ := legacyHomeWorkspace(t)
+		r := legacyRequest(ws, "seatbelt-yolo-account", projectJailsStopped)
+		r.UID, r.AccountUID = euid+1, &euid
+		if got, line := adoptLegacyHome(r); got != legacyHomeMoved {
+			t.Fatalf("result = %v (%s), want moved", got, line)
+		}
+		assertHoldsTranscript(t, paths.SetupHomeState(ws, "seatbelt-yolo-account"))
+	})
+	t.Run("a third owner stays", func(t *testing.T) {
+		ws, src := legacyHomeWorkspace(t)
+		other := euid + 2
+		r := legacyRequest(ws, "seatbelt-yolo-account", projectJailsStopped)
+		r.UID, r.AccountUID = euid+1, &other
+		if got, line := adoptLegacyHome(r); got != legacyHomeLeft {
+			t.Fatalf("result = %v (%s), want left", got, line)
+		}
+		assertLegacyHomeStays(t, src)
+	})
 }

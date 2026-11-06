@@ -38,17 +38,17 @@ var piBuiltinApis = map[string]bool{
 var wireAPIAssign = regexp.MustCompile(`wire_api\s*=\s*"([^"]*)"`)
 
 // renderedSurface reads a rendered agent surface back from the HOST-side copy of the
-// jail's per-workspace home overlay — under `<workspace>/.yolo/home`, the same tree the
+// jail's per-workspace home overlay — under `<workspace>/.yolo/setups/<setup>/home` (jailHome), the same tree the
 // jail bind-mounts at /home/agent (jail-home.md §2), addressed exactly as it lands on
 // disk: a top-level dotdir maps to its own subdir (`~/.codex/config.toml` →
-// .yolo/home/codex/config.toml) and anything under `~/.config` runs through the shared
+// .yolo/setups/<setup>/home/codex/config.toml) and anything under `~/.config` runs through the shared
 // config/ overlay (`~/.config/opencode/opencode.json` →
-// .yolo/home/config/opencode/opencode.json). No exec into the container:
+// .yolo/setups/<setup>/home/config/opencode/opencode.json). No exec into the container:
 // mcp_test.go's hasChromeDevtools is the pattern, and reading the host copy is what lets
 // one launch feed assertions on three agents' files.
 func renderedSurface(t *testing.T, dir string, rel ...string) []byte {
 	t.Helper()
-	p := filepath.Join(append([]string{dir, ".yolo", "home"}, rel...)...)
+	p := filepath.Join(append([]string{jailHome(dir)}, rel...)...)
 	data, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatalf("reading the rendered surface %s: %v", p, err)

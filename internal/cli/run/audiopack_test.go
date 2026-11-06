@@ -27,7 +27,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -675,7 +674,7 @@ func podmanLaunchIn(t *testing.T, ws string) (string, string, string) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(yoloruntime.FromWorkspace(ws), false)) })
 	Run(*o)
-	raw, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh"))
+	raw, err := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh"))
 	if err != nil {
 		t.Fatalf("the launch wrote no channel file: %v\n%s", err, stdout.String()+stderr.String())
 	}

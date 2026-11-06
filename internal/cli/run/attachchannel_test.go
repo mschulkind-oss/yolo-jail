@@ -172,7 +172,7 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("delivery refused a healthy attach: rc=%d\n%s", rc, stderr.String())
 	}
-	file := filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")
+	file := filepath.Join(launchHome(t, o), "yolo-user-env.sh")
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("the attach never wrote the channel file: %v", err)
@@ -188,7 +188,7 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 			t.Errorf("the shared channel file carries %s — every process would see it:\n%s", gone, s)
 		}
 	}
-	ab, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(o.Workspace), agentEnvStateDir, "claude.sh"))
+	ab, err := os.ReadFile(filepath.Join(launchHome(t, o), agentEnvStateDir, "claude.sh"))
 	if err != nil {
 		t.Fatalf("the attach never wrote claude's own env file: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestAttachDeliversWhenNothingItNeedsIsMissing(t *testing.T) {
 			if out := stderr.String(); strings.Contains(out, "Refusing") || strings.Contains(out, "lacks") {
 				t.Errorf("nothing this attach needs is missing, so nothing is refused or disclosed:\n%s", out)
 			}
-			if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); err != nil {
+			if _, err := os.Stat(filepath.Join(launchHome(t, o), "yolo-user-env.sh")); err != nil {
 				t.Errorf("the channel must still be delivered: %v", err)
 			}
 		})
@@ -409,7 +409,7 @@ func TestAttachRefusesADifferingSelectionOnAPreChangeJail(t *testing.T) {
 				t.Errorf("the remedy must not name the removed --new flag:\n%s", out)
 			}
 			// And it refuses BEFORE delivering: nothing was written into the workspace.
-			if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(launchHome(t, o), "yolo-user-env.sh")); !os.IsNotExist(err) {
 				t.Errorf("a refused attach must not write the channel file")
 			}
 		})
@@ -447,7 +447,7 @@ func TestAttachToAPreChangeJailWithMatchingSelectionIsSilent(t *testing.T) {
 			if out := stderr.String(); strings.Contains(out, "Refusing") || strings.Contains(out, "lacks") {
 				t.Errorf("a plain re-entry must be silent:\n%s", out)
 			}
-			if _, err := os.Stat(filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(launchHome(t, o), "yolo-user-env.sh")); !os.IsNotExist(err) {
 				t.Errorf("a plain re-entry into an old jail must not write the channel file")
 			}
 		})

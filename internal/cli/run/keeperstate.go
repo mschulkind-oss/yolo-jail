@@ -122,6 +122,9 @@ type keeperRecord struct {
 	Started   time.Time `json:"started"`
 	Workspace string    `json:"workspace"`
 	Runtime   string    `json:"runtime"`
+	// Home is the workspace home the jail binds (Options.homeDir; docs/design/named-setups.md §9),
+	// which the reap of an unkept jail captures its config edits from.
+	Home string `json:"home,omitempty"`
 	// What the reap of an unkept jail removes, which only the launch and its keeper knew the names of.
 	Skeleton       string   `json:"skeleton,omitempty"`
 	PackTree       string   `json:"pack_tree,omitempty"`

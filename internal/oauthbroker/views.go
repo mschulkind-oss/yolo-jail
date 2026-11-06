@@ -59,6 +59,12 @@ type viewRegistration struct {
 // digest of its directory under a prefix no workspace's input can produce (it begins with NUL).
 func registrationFile(loc claudeview.Location) string {
 	key := loc.Workspace + "\x00" + loc.Subdir
+	if loc.Home != "" {
+		// A setup's own home (docs/design/named-setups.md §9) is its own view: two setups of one
+		// workspace run with one subdir each and must not overwrite each other's registration. The
+		// legacy home keeps the key every registration before it was written under.
+		key += "\x00" + loc.Home
+	}
 	if loc.IsHost() {
 		key = "\x00dir\x00" + loc.Dir
 	}

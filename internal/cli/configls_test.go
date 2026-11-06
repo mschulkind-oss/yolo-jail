@@ -399,7 +399,7 @@ func TestUnslugHostFilePath(t *testing.T) {
 // an in-jail run for a DIFFERENT workspace (a nested jail, and every integration test) did
 // the same. The fix was to DECLINE — never claim absence — which cost the existence filter
 // (§2.3 F2). With a home root on the resolved target the question is answerable: a workspace
-// target's files live at <workspace>/.yolo/home/…, which is reachable from the host.
+// target's files live in its setup's home, <workspace>/.yolo/setups/<setup>/home/…, which is reachable from the host.
 //
 // Both directions are asserted, because a test for the positive alone would still pass if
 // presence had simply gone back to reading the invoking user's own home.
@@ -415,12 +415,12 @@ func TestSurfacePresenceReadsTheTargetsOwnHome(t *testing.T) {
 	}
 	// The jail's own copy, where the launch backs it: the leading dot of the first segment is
 	// the overlay's name and is stripped (run/prepare.go's prepareWsState).
-	writeFile(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude", "settings.json"),
+	writeFile(t, filepath.Join(paths.SetupHomeState(tgt.workspace, "podman-self"), "claude", "settings.json"),
 		`{"theme":"the jail's"}`)
 	if !tgt.surfaceFileExists(s.Path) {
 		t.Errorf("a file the jail DID render read as absent host-side. Presence is the "+
 			"target's, and a workspace target's home is reachable from the host at %s",
-			paths.WorkspaceHomeState(tgt.workspace))
+			paths.SetupHomeState(tgt.workspace, "podman-self"))
 	}
 
 	// And a surface present ONLY in the invoking human's real home must read as absent: that
@@ -446,7 +446,7 @@ func TestConfigLsSaysNotResolvableRatherThanAbsent(t *testing.T) {
 	t.Setenv("YOLO_SETUP", "podman-self")
 	tgt, _ := withSidecarDir(t)
 	// The workspace backs ~/.claude — the directory IS the mount source — and nothing else.
-	mkdirAllT(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude"))
+	mkdirAllT(t, filepath.Join(paths.SetupHomeState(tgt.workspace, "podman-self"), "claude"))
 
 	var out, errw bytes.Buffer
 	if rc := configLs(tgt, []string{"--all"}, &out, &errw, false); rc != 0 {
@@ -476,7 +476,7 @@ func TestConfigLsDoesNotInflateRowsHostSide(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_SETUP", "podman-self")
 	tgt, _ := withSidecarDir(t)
-	writeFile(t, filepath.Join(paths.WorkspaceHomeState(tgt.workspace), "claude", "settings.json"), `{}`)
+	writeFile(t, filepath.Join(paths.SetupHomeState(tgt.workspace, "podman-self"), "claude", "settings.json"), `{}`)
 
 	var filtered, all bytes.Buffer
 	if rc := configLs(tgt, nil, &filtered, &filtered, false); rc != 0 {

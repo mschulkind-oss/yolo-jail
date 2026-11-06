@@ -432,6 +432,6 @@ func (o *Options) runSealedMacosUser(cfg *jsonx.OrderedMap, rt, repoRoot string,
 		o.recordLaunchOutcome(launchStarted, -1)
 	}
 	return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), args, repoRoot, staged.root,
-		macosuser.HomeOverlay{}, macosuser.HostContext{}, o.DryRun, channel.launchEnv(launched),
+		macosuser.HomeOverlay{Sidecar: o.homeDir()}, macosuser.HostContext{}, o.DryRun, channel.launchEnv(launched),
 		packload.BlockedTools(staged.packs), macosuser.JailDaemons{})
 }

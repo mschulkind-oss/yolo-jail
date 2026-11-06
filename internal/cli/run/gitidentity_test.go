@@ -152,7 +152,7 @@ func TestRunRefusesFailedGitIdentityStaging(t *testing.T) {
 			writeUserPacks(t, home, `[]`)
 			ws := t.TempDir()
 			cname := yoloruntime.FromWorkspace(ws)
-			wsState := paths.WorkspaceHomeState(ws)
+			wsState := runtimeHome(ws, rt)
 			staged := "yolo-gitconfig"
 			if rt == "container" {
 				staged = filepath.Join(".config", "git", "config")

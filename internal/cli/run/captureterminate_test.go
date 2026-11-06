@@ -10,7 +10,7 @@ func TestCaptureConfigOnTerminateIsInvokedWithTheJailsIdentity(t *testing.T) {
 	calls := 0
 	o := &Options{
 		Workspace: "/some/workspace",
-		CaptureOnTerminate: func(ws, rt string) {
+		CaptureOnTerminate: func(ws, _, rt string) {
 			calls++
 			gotWS, gotRT = ws, rt
 		},
@@ -38,7 +38,7 @@ func TestCaptureConfigOnTerminateNilIsANoOp(t *testing.T) {
 func TestCaptureConfigOnTerminateSwallowsAPanic(t *testing.T) {
 	o := &Options{
 		Workspace:          "/ws",
-		CaptureOnTerminate: func(string, string) { panic("capture exploded") },
+		CaptureOnTerminate: func(string, string, string) { panic("capture exploded") },
 	}
 	o.captureConfigOnTerminate("podman")
 	// Reaching here IS the assertion: the teardown statements after this call in

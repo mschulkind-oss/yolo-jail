@@ -554,7 +554,7 @@ func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLin
 // the account home.
 //
 // `<workspace>/.yolo` is checked as the sidecar's parent: the sidecar is always
-// paths.WorkspaceHomeState, and `.yolo` is as writable as the rest of the workspace. The
+// paths.LegacyHomeState, and `.yolo` is as writable as the rest of the workspace. The
 // workspace itself is not: the launcher resolved it, and its parent is outside the writable set.
 func (l DarwinHomeLayout) linkedSidecarPaths() []string {
 	if l.Sidecar == "" {

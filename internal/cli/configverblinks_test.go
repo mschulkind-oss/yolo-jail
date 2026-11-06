@@ -24,12 +24,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // verbLinkWorld is a host-side workspace target: HOME is a scratch dir, the process is not in
-// a jail, the runtime is podman (so ~/.claude/settings.json is backed by
-// <ws>/.yolo/home/claude/settings.json), and no jail is running for the workspace.
+// a jail, the setup is podman-self (so ~/.claude/settings.json is backed by
+// <ws>/.yolo/setups/podman-self/home/claude/settings.json), and no jail is running for the workspace.
 type verbLinkWorld struct{ ws, store string }
 
 func newVerbLinkWorld(t *testing.T) verbLinkWorld {
@@ -43,7 +44,7 @@ func newVerbLinkWorld(t *testing.T) verbLinkWorld {
 }
 
 func (w verbLinkWorld) surface() string {
-	return filepath.Join(w.ws, ".yolo", "home", "claude", "settings.json")
+	return filepath.Join(paths.SetupHomeState(w.ws, "podman-self"), "claude", "settings.json")
 }
 
 func (w verbLinkWorld) sidecar(suffix string) string {
@@ -137,7 +138,12 @@ func assertNamedRefusal(t *testing.T, errw, path string) {
 // The directories above a store file or a surface a jail can replace with a link.
 var (
 	storeDirLinks = []string{".yolo", filepath.Join(".yolo", "prism")}
-	homeDirLinks  = []string{filepath.Join(".yolo", "home"), filepath.Join(".yolo", "home", "claude")}
+	homeDirLinks  = []string{
+		filepath.Join(".yolo", "setups"),
+		filepath.Join(".yolo", "setups", "podman-self"),
+		filepath.Join(".yolo", "setups", "podman-self", "home"),
+		filepath.Join(".yolo", "setups", "podman-self", "home", "claude"),
+	}
 )
 
 // --- diff ---------------------------------------------------------------------------------

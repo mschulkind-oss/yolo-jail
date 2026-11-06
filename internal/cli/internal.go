@@ -497,7 +497,7 @@ func darwinBootstrapBoundaryHome() string {
 }
 
 // darwinBootstrapSelfHomeRefusal is the run-as-you bootstrap's own guard, nil in the account
-// mode: run as you, it may generate only into the workspace's HOME, <workspace>/.yolo/home, which
+// mode: run as you, it may generate only into the workspace's HOME, one of its homes, which
 // the launcher names three ways (HOME, the sidecar, the workspace). A hand-run with HOME at your
 // real home is refused before anything is created, which is what the account mode's identity
 // check promised and the run-as-you identity (you) cannot.
@@ -522,16 +522,19 @@ func darwinBootstrapSelfHomeRefusal() error {
 		}
 		return nil
 	}
+	// The workspace's HOME is the selected setup's (<workspace>/.yolo/setups/<setup>/home), or the
+	// legacy <workspace>/.yolo/home while that is still the setup's (named-setups.md §9, SUP-D21):
+	// either is one of the workspace's homes, and the sidecar must name the same one.
 	want := ""
-	if ws != "" {
-		want = paths.WorkspaceHomeState(ws)
+	if ws != "" && sidecar != "" && paths.IsWorkspaceHomeState(ws, sidecar) {
+		want = filepath.Clean(sidecar)
 	}
-	if home == "" || want == "" || filepath.Clean(home) != want || filepath.Clean(sidecar) != want {
+	if home == "" || want == "" || filepath.Clean(home) != want {
 		if home == "" {
 			home = "an unnamed HOME"
 		}
 		if want == "" {
-			want = "<workspace>/.yolo/home"
+			want = "<workspace>/.yolo/setups/<setup>/home"
 		}
 		return fmt.Errorf("refusing to generate into %s: as you, this command writes only into the "+
 			"workspace's own home (%s), which a macos-user launch names for you — run `yolo` in the "+
@@ -597,7 +600,7 @@ func runInternalDaemon(args []string) int {
 // (internal/cli/run/keeper.go), wired with what this package wires into a launch, since the E3
 // config capture it runs at the jail's end lives here.
 func runJailKeeper(args []string) int {
-	return run.KeeperMain(args, run.KeeperSeams{CaptureOnTerminate: captureOnTerminate})
+	return run.KeeperMain(args, run.KeeperSeams{CaptureOnTerminate: captureOnTerminateIn})
 }
 
 func init() { internaldaemon.JailKeeper = runJailKeeper }

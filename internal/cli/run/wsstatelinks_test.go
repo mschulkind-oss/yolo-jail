@@ -128,7 +128,7 @@ func TestPodmanDirectoryBindSourcesAreNeverLinks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			ws := t.TempDir()
-			wsState := paths.WorkspaceHomeState(ws)
+			wsState := paths.LegacyHomeState(ws)
 			hostDir := t.TempDir()
 			symlinkAt(t, hostDir, filepath.Join(wsState, tc.linked))
 
@@ -150,7 +150,7 @@ const config_writableHome = "writable-home"
 func TestAppleContainerPackDirsAreNeverCreatedThroughALink(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	ws := t.TempDir()
-	wsState := paths.WorkspaceHomeState(ws)
+	wsState := paths.LegacyHomeState(ws)
 	hostDir := t.TempDir()
 	symlinkAt(t, hostDir, filepath.Join(wsState, ".two"))
 	pack := workspaceFilesPack(t, "twoseg", "f.txt", ".two/seg/f.txt", ".two/seg")
@@ -167,7 +167,7 @@ func TestPodmanFileBindSourcesAreNeverLinks(t *testing.T) {
 	t.Run("a dangling link", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ws := t.TempDir()
-		wsState := paths.WorkspaceHomeState(ws)
+		wsState := paths.LegacyHomeState(ws)
 		hostDir := t.TempDir()
 		symlinkAt(t, filepath.Join(hostDir, "created"), filepath.Join(wsState, "bash_history"))
 
@@ -181,7 +181,7 @@ func TestPodmanFileBindSourcesAreNeverLinks(t *testing.T) {
 	t.Run("a link to a host file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ws := t.TempDir()
-		wsState := paths.WorkspaceHomeState(ws)
+		wsState := paths.LegacyHomeState(ws)
 		host := outsideFile(t)
 		symlinkAt(t, host, filepath.Join(wsState, "yolo-perf.log"))
 
@@ -211,7 +211,7 @@ func TestLegacyOverlayMigrationsNeverFollowALink(t *testing.T) {
 			t.Run("a linked legacy directory", func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				ws := t.TempDir()
-				wsState := paths.WorkspaceHomeState(ws)
+				wsState := paths.LegacyHomeState(ws)
 				symlinkAt(t, secretTree(t), filepath.Join(wsState, "claude-projects"))
 				symlinkAt(t, secretTree(t), filepath.Join(wsState, "copilot-sessions"))
 
@@ -223,7 +223,7 @@ func TestLegacyOverlayMigrationsNeverFollowALink(t *testing.T) {
 			t.Run("links inside a legacy directory", func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				ws := t.TempDir()
-				wsState := paths.WorkspaceHomeState(ws)
+				wsState := paths.LegacyHomeState(ws)
 				legacy := filepath.Join(wsState, "claude-projects")
 				writeFixture(t, filepath.Join(legacy, "real.jsonl"), "mine\n")
 				symlinkAt(t, secretFile(t), filepath.Join(legacy, "leak.jsonl"))
@@ -239,7 +239,7 @@ func TestLegacyOverlayMigrationsNeverFollowALink(t *testing.T) {
 			t.Run("a linked target directory", func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				ws := t.TempDir()
-				wsState := paths.WorkspaceHomeState(ws)
+				wsState := paths.LegacyHomeState(ws)
 				writeFixture(t, filepath.Join(wsState, "claude-projects", "x.jsonl"), "mine\n")
 				hostDir := t.TempDir()
 				symlinkAt(t, hostDir, projects(wsState))
@@ -251,7 +251,7 @@ func TestLegacyOverlayMigrationsNeverFollowALink(t *testing.T) {
 			t.Run("a link at a target file", func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				ws := t.TempDir()
-				wsState := paths.WorkspaceHomeState(ws)
+				wsState := paths.LegacyHomeState(ws)
 				writeFixture(t, filepath.Join(wsState, "claude-projects", "x.jsonl"), "mine\n")
 				writeFixture(t, filepath.Join(wsState, "claude-settings.json"), `{"theme":"dark"}`)
 				hostDir := t.TempDir()
@@ -265,7 +265,7 @@ func TestLegacyOverlayMigrationsNeverFollowALink(t *testing.T) {
 			t.Run("a linked legacy settings file", func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				ws := t.TempDir()
-				wsState := paths.WorkspaceHomeState(ws)
+				wsState := paths.LegacyHomeState(ws)
 				symlinkAt(t, secretFile(t), filepath.Join(wsState, "claude-settings.json"))
 
 				prepareOn(t, ws, rt, nil, packs(t))
@@ -307,7 +307,7 @@ func TestSharedDirRescueNeverFollowsALink(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			ws := t.TempDir()
-			wsState := paths.WorkspaceHomeState(ws)
+			wsState := paths.LegacyHomeState(ws)
 			global := filepath.Join(paths.GlobalHome(), shared)
 			hostDir := t.TempDir()
 			tc.plant(t, wsState, global, hostDir)
@@ -328,7 +328,7 @@ func TestSeedSyncWritesNoLoginThroughALinkedClaudeDir(t *testing.T) {
 	writeSeed(t)
 	ws := t.TempDir()
 	hostDir := t.TempDir()
-	symlinkAt(t, hostDir, filepath.Join(paths.WorkspaceHomeState(ws), "claude"))
+	symlinkAt(t, hostDir, filepath.Join(paths.LegacyHomeState(ws), "claude"))
 
 	prepareOn(t, ws, "podman", nil, packsFixture(t, "claude"))
 
@@ -479,7 +479,7 @@ func TestACPackTreeCopyNeverRemovesThroughALink(t *testing.T) {
 		ws := t.TempDir()
 		hostDir := t.TempDir()
 		writeFixture(t, filepath.Join(hostDir, acPackRootRel, "keep.txt"), "keep\n")
-		wsState := paths.WorkspaceHomeState(ws)
+		wsState := paths.LegacyHomeState(ws)
 		symlinkAt(t, hostDir, wsState)
 
 		_ = acMaterializeTree(src, acPackRootRel, wsState)

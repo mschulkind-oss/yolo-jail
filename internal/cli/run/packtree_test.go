@@ -485,7 +485,7 @@ func TestAnAttachRefusesASelectionOnlyTheConfiguredPacksSatisfy(t *testing.T) {
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}
-	envFile := filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh")
+	envFile := filepath.Join(paths.LegacyHomeState(ws), "yolo-user-env.sh")
 	if rc := Run(*o); rc != 1 {
 		t.Fatalf("Run() = %d, want the attach refused\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}

@@ -94,7 +94,7 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 	if mutate != nil {
 		mutate(o)
 	}
-	r.envFile = filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh")
+	r.envFile = filepath.Join(launchHome(t, o), "yolo-user-env.sh")
 	r.rc = Run(*o)
 	r.stdout, r.stderr = stdout.String(), stderr.String()
 	_, err := os.Stat(marker)

@@ -71,18 +71,18 @@ type Homes struct {
 // store podman binds credentials from, both under hostHome's state dir (MMP-D6) — never the
 // shared cache or mise store, which hold Linux files on a Mac that also runs podman; Real is
 // hostHome (MMP-D7).
-func LaunchHomes(mode Mode, workspace, hostHome string) Homes {
+func LaunchHomes(mode Mode, home, hostHome string) Homes {
 	if mode != ModeSelf {
 		account := SandboxHome()
 		return Homes{
-			Home:    paths.WorkspaceHomeState(workspace),
+			Home:    home,
 			Machine: account,
 			Shared:  account,
 			Real:    account,
 		}
 	}
 	return Homes{
-		Home:    paths.WorkspaceHomeState(workspace),
+		Home:    home,
 		Machine: paths.MacosUserMachineRootUnder(hostHome),
 		Shared:  paths.GlobalHomeUnder(hostHome),
 		Real:    hostHome,

@@ -133,7 +133,7 @@ func TestEveryShippedDestinationIsWriteProtectedAndNothingElse(t *testing.T) {
 	}
 	sidecar := filepath.Join(ws, ".yolo", "home")
 	home := macosuser.SandboxHome()
-	rules := macosuser.ResolveHomeReadonly(home, ws, overlay.WorkspaceDirs, overlay.Dests)
+	rules := macosuser.ResolveHomeReadonly(home, sidecar, overlay.WorkspaceDirs, overlay.Dests)
 	profile := macosuser.SeatbeltProfile(ws, "", nil, rules)
 	denied := subpathsIn(t, profile, "home-content-write-deny")
 
@@ -203,7 +203,7 @@ func TestMacosUserLaunchWriteProtectsWhatItDelivers(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := subpathsIn(t, plan.Seatbelt, "home-content-write-deny")
-	if want := filepath.Join(resolved, ".yolo", "home", "claude", "skills"); !covered(denied, want) {
+	if want := filepath.Join(runtimeHome(resolved, "macos-user"), "claude", "skills"); !covered(denied, want) {
 		t.Errorf("the plan built from the delivered overlay does not protect %s:\n%v", want, denied)
 	}
 }

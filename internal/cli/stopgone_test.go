@@ -146,7 +146,7 @@ func TestStopRefusesUnansweredExistenceAcrossPaths(t *testing.T) {
 			t.Run(path+map[bool]string{false: "-exit125", true: "-not-run"}[runtimeFailure], func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				saved := finishStop
-				finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int { return 0 }
+				finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
 				t.Cleanup(func() { finishStop = saved })
 				existsCalls := 0
 				runner := func(argv []string, _ time.Duration) (string, bool, int) {
@@ -218,7 +218,7 @@ func TestStopAlreadyEndingKeeperStillRequiresAbsence(t *testing.T) {
 			}
 			saved := finishStop
 			called := false
-			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), gotForce bool) int {
+			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), gotForce bool) int {
 				called = true
 				if gotForce != force {
 					t.Error("force not forwarded")
@@ -247,7 +247,7 @@ func TestStopAppleContainerRequiresTerminalAbsence(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			shrinkStopGone(t)
 			saved := finishStop
-			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int { return 0 }
+			finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int { return 0 }
 			t.Cleanup(func() { finishStop = saved })
 			cname := runtime.FromWorkspace("/ws")
 			runner := func(argv []string, _ time.Duration) (string, bool, int) {

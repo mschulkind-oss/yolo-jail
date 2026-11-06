@@ -139,8 +139,8 @@ func TestAFreshLaunchsSkeletonHoldsTheDeliveredTreesMountpoint(t *testing.T) {
 func TestADeliveredTreesWorkspaceMountpointIsMadeAndRetired(t *testing.T) {
 	treeLaunchHomeAt(t, true, treeInto, `,{"kind":"state","at":".tool","scope":"workspace"}`)
 	ws := t.TempDir()
-	mountpoint := filepath.Join(paths.WorkspaceHomeState(ws), "tool", "ext", "tree-ext")
-	manifest := filepath.Join(paths.WorkspaceStateDir(ws), packFilesMountpointManifestName)
+	mountpoint := filepath.Join(runtimeHome(ws, "podman"), "tool", "ext", "tree-ext")
+	manifest := filepath.Join(filepath.Dir(runtimeHome(ws, "podman")), packFilesMountpointManifestName)
 	_, printed := fakePodmanLaunchIn(t, ws, "", func(o *Options) { o.BuildTrees = deliverATreeCopy(t) })
 	if info, err := os.Stat(mountpoint); err != nil || !info.IsDir() {
 		t.Fatalf("the delivered tree has no mountpoint in the workspace state (%v):\n%s", err, printed)

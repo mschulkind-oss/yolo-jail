@@ -457,7 +457,7 @@ func TestAppleContainerAttachRevokesADeselectedAgentsFile(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, awsAndZaiKeys(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.UseProfiles = map[string]string{"pi": "zai"} })
-	ws := paths.WorkspaceHomeState(o.Workspace)
+	ws := paths.LegacyHomeState(o.Workspace)
 	deliverChannel(ws, "container", "", channel) // the fresh launch
 	pi := filepath.Join(ws, entrypoint.AgentEnvDirRel, "pi.sh")
 	if _, err := os.Stat(pi); err != nil {

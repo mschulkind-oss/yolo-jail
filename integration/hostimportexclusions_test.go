@@ -59,7 +59,7 @@ func TestHostImportExclusions(t *testing.T) {
 		if !ok || permissions["defaultMode"] != "acceptEdits" {
 			t.Errorf("the matching non-host pack contribution was filtered: permissions=%#v, want managed defaultMode acceptEdits", settings["permissions"])
 		}
-		if _, err := os.Stat(filepath.Join(dir, ".yolo", "home", "pi", "agent", "settings.json")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(jailHome(dir), "pi", "agent", "settings.json")); !os.IsNotExist(err) {
 			t.Errorf("known unselected pi target was not dormant: stat err=%v", err)
 		}
 		hostAfter, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"))

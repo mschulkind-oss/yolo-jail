@@ -37,7 +37,7 @@ type inheritedRelaunchFixture struct {
 func newInheritedRelaunchFixture(t *testing.T, mode macosuser.Mode) *inheritedRelaunchFixture {
 	t.Helper()
 	ws := floortest.ResolvedTemp(t)
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := macosUserModeHome(ws, mode)
 	f := &inheritedRelaunchFixture{sidecar: sidecar, ws: ws}
 	guestHome := sidecar
 	if err := os.MkdirAll(filepath.Join(sidecar, ".config"), 0o755); err != nil {
@@ -210,7 +210,7 @@ func TestMacosUserInheritedStorageFollowsTheModesHomeLayout(t *testing.T) {
 // does not deliver to.
 func TestMacosUserSelfStaleCleanupRemovesOnlyItsOwnDestination(t *testing.T) {
 	ws := floortest.ResolvedTemp(t)
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := paths.LegacyHomeState(ws)
 	o := &Options{Workspace: ws, MacosUserMode: macosuser.ModeSelf}
 	plant := func(dir string) string {
 		p := filepath.Join(sidecar, dir, "yolo-jail", "config.jsonc")

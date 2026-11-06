@@ -51,12 +51,13 @@ type jailPerfReader struct {
 }
 
 // jailPerfRel is the jail half's path under <ws>/.yolo on rt: podman binds the single file
-// home/yolo-perf.log at ~/.yolo-perf.log, and Apple Container binds home/ whole at /home/agent.
-func jailPerfRel(rt string) string {
+// <home>/yolo-perf.log at ~/.yolo-perf.log, and Apple Container binds <home>/ whole at /home/agent;
+// home is the launch's home relative to <ws>/.yolo (Options.homeRel).
+func jailPerfRel(rt, home string) string {
 	if rt == "container" { // parity: Honored — Apple Container binds the whole home overlay, so the file keeps its leading dot
-		return filepath.Join("home", ".yolo-perf.log")
+		return filepath.Join(home, ".yolo-perf.log")
 	}
-	return filepath.Join("home", "yolo-perf.log")
+	return filepath.Join(home, "yolo-perf.log")
 }
 
 // snapshotJailPerf notes the jail half's last block before the boot, or returns nil when the
@@ -65,7 +66,7 @@ func (o *Options) snapshotJailPerf(rt string) *jailPerfReader {
 	if !o.Perf.Enabled() || rt == "macos-user" { // parity: HonoredBy — macos-user records its boot as macos_user.bootstrap.<step> from boot-perf.log (macosuser/bootperf.go)
 		return nil
 	}
-	r := &jailPerfReader{ws: o.Workspace, rel: jailPerfRel(rt)}
+	r := &jailPerfReader{ws: o.Workspace, rel: jailPerfRel(rt, o.homeRel())}
 	header, body := lastJailPerfBlock(r.read())
 	r.before = header + body
 	return r

@@ -82,7 +82,7 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 
 	home := jailHome
 	if rt == "macos-user" { // parity: HonoredBy — the native session's HOME is the actual host home, not the container jailHome
-		home = macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Home
+		home = macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome()).Home
 	}
 	for _, rel := range cfgStrList(cfg, "workspace_readonly") {
 		hostPath := resolvePath(filepath.Join(o.Workspace, rel))
@@ -109,7 +109,7 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 	}
 	workspaceHost := o.Workspace
 	if rt == "macos-user" { // parity: HonoredBy — native HOME, machine and shared tiers are host paths exposed to the sandbox session
-		homes := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome())
+		homes := macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome())
 		facts.Paths = append(facts.Paths, jailcontent.PathFact{Path: facts.WorkspacePath, HostSource: workspaceHost,
 			Mode: "read-write", Lifetime: "host filesystem", Delivery: "native session", Origin: "workspace"})
 		for name, path := range map[string]string{"native HOME": homes.Home, "native machine tier": homes.Machine, "native shared tier": homes.Shared} {
@@ -141,6 +141,7 @@ func (o *Options) mechanicsFactSheet(cname string, cfg *jsonx.OrderedMap, rt str
 	if len(sourceInputs) > 0 {
 		localSources = sourceInputs[0]
 	}
+	localSources.home = o.homeDir()
 	facts.Persistence = persistenceMapForSources(rt, cfg, staged.packs, o.Workspace, o.Sealed, localSources, cname)
 	if facts.Persistence != nil {
 		facts.HomeRestPolicy = "read-only outside listed writable mounts"

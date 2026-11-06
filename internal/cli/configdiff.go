@@ -1420,7 +1420,8 @@ type captureLocation struct {
 type captureFile struct {
 	root *os.Root
 	// workspace and dir name the root to open for each access, when root is nil:
-	// <workspace>/.yolo/<dir>, opened through paths.OpenWorkspaceStateSubdir.
+	// <workspace>/.yolo/<dir>, opened through openCaptureDir: dir is one name (prism, the legacy
+	// home) or a setup's home, setups/<setup>/home.
 	workspace, dir string
 	name           string
 	// refusals, when set, collects every link refusal read() meets, for the verbs whose
@@ -1457,7 +1458,7 @@ func (f captureFile) path() string {
 func (f captureFile) beneath(op string, leaf bool, fn func(r *os.Root) error) error {
 	r := f.root
 	if r == nil {
-		opened, err := paths.OpenWorkspaceStateSubdir(f.workspace, f.dir)
+		opened, err := openCaptureDir(f.workspace, f.dir)
 		if err != nil {
 			var linked *paths.LinkedStateDirError
 			if errors.As(err, &linked) {

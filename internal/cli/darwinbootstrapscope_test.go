@@ -256,11 +256,23 @@ func TestDarwinBootstrapRunsAsYouOnlyIntoTheWorkspaceHome(t *testing.T) {
 	}
 
 	// The launch's own shape: HOME is the sidecar, named as such, under the workspace.
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := paths.LegacyHomeState(ws)
 	t.Setenv("HOME", sidecar)
 	t.Setenv(entrypoint.DarwinHomeSidecarEnv, sidecar)
 	if err := darwinBootstrapSelfHomeRefusal(); err != nil {
 		t.Errorf("the launch's own HOME was refused: %v", err)
+	}
+	// And a setup's home, the one a launch binds once the legacy home has moved (named-setups.md
+	// §9): admitted as the sidecar it is, but not when HOME and the sidecar name different homes.
+	setupHome := paths.SetupHomeState(ws, "seatbelt-self")
+	t.Setenv("HOME", setupHome)
+	t.Setenv(entrypoint.DarwinHomeSidecarEnv, setupHome)
+	if err := darwinBootstrapSelfHomeRefusal(); err != nil {
+		t.Errorf("the launch's own setup HOME was refused: %v", err)
+	}
+	t.Setenv(entrypoint.DarwinHomeSidecarEnv, sidecar)
+	if err := darwinBootstrapSelfHomeRefusal(); err == nil {
+		t.Error("a HOME naming one workspace home and a sidecar naming another was admitted")
 	}
 }
 

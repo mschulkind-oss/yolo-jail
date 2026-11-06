@@ -51,6 +51,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -105,6 +106,10 @@ type configTarget struct {
 	// runtime's and not a filesystem guess. Empty at a local or host target, where the
 	// mapping cannot arise.
 	runtime string
+	// home is the workspace home a non-local workspace target's jail binds (run.HomeFor of the
+	// setup the verb resolved; docs/design/named-setups.md §9), the directory the surfaces are read
+	// from. Empty where runtime is: the legacy home is then named.
+	home string
 }
 
 // jailConfigTarget builds the target for a resolved workspace: that workspace's jail.
@@ -125,6 +130,9 @@ func jailConfigTarget(workspace, chosenBy string) configTarget {
 		// workspace a surface resolves through the process home, which needs no backend
 		// knowledge at all.
 		t.runtime = detectListingRuntime(workspace)
+		if choice, err := selectedSetup(nil); err == nil {
+			t.home = run.HomeFor(workspace, choice.Setup)
+		}
 	}
 	return t
 }
@@ -217,7 +225,11 @@ func resolveConfigTarget(setupName string) (configTarget, string) {
 				config.WorkspaceConfigName + " in it or above it. cd into the project you " +
 				"meant, or pass --setup host-self to ask about your real home."
 		}
-		return jailConfigTarget(ws, "--setup "+s.Name), ""
+		t := jailConfigTarget(ws, "--setup "+s.Name)
+		if !t.local {
+			t.home = run.HomeFor(ws, s)
+		}
+		return t, ""
 	default:
 		// render.NotchUnbuilt is the SENTENCE, not a literal: `yolo apply` at the guest notch and
 		// the launch gate both say it, and three spellings of one notch's status is the drift
@@ -499,7 +511,11 @@ func (t configTarget) surfaceStateFile(surfacePath string) (captureFile, bool) {
 	if !ok {
 		return captureFile{}, false
 	}
-	return captureFile{workspace: t.workspace, dir: "home", name: rel, refusals: t.refusals}, true
+	dir := "home"
+	if r, ok := paths.HomeStateRel(t.workspace, t.home); ok {
+		dir = r
+	}
+	return captureFile{workspace: t.workspace, dir: dir, name: rel, refusals: t.refusals}, true
 }
 
 // surfaceReach is what THIS target can honestly say about a surface's file. THREE answers,

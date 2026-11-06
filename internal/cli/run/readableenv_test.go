@@ -28,7 +28,7 @@ func TestATOMLEnvTableReachesTheJailsEnvFile(t *testing.T) {
 	if argv == nil {
 		t.Fatalf("the launch did not reach podman run:\n%s", printed)
 	}
-	raw, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh"))
+	raw, err := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh"))
 	if err != nil {
 		t.Fatalf("the launch wrote no channel file: %v\n%s", err, printed)
 	}

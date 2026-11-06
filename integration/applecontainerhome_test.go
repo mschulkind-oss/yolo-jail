@@ -28,7 +28,7 @@ import (
 // TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed asks OQ-BH12's fix on the hardware.
 //
 // Apple Container binds the workspace overlay WHOLE at /home/agent, so its ~/.claude.json is
-// <ws>/.yolo/home/.claude.json. Until 2026-09-25 the launch synced the Claude login seed with
+// <ws>/.yolo/setups/apple-container-self/home/.claude.json. Until 2026-09-25 the launch synced the Claude login seed with
 // podman's dot-stripped path instead, so the seed never reached an Apple Container jail, and it
 // created podman's undotted bind sources (`~/claude`, `~/npm-global`) in that home for nothing.
 // The fix is runtime-aware paths in prepareWsState (claudeJSONInWsState, and no
@@ -66,9 +66,9 @@ func TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed(t *testing.T) {
 		t.Fatalf("%s %s: %v, so NOTHING WAS MEASURED:\n%s",
 			acParityTag, fix, err, lastLines(res.stdout, 30))
 	}
-	hostCopy, hostCopyErr := os.ReadFile(filepath.Join(dir, ".yolo", "home", ".claude.json"))
+	hostCopy, hostCopyErr := os.ReadFile(filepath.Join(appleContainerHome(dir), ".claude.json"))
 
-	evidence := fmt.Sprintf("host <ws>/.yolo/home/.claude.json carries the seed's login: %v (read error: %v)\n"+
+	evidence := fmt.Sprintf("host <ws>/.yolo/setups/apple-container-self/home/.claude.json carries the seed's login: %v (read error: %v)\n"+
 		"jail ~/.claude.json:\n%s\ndirs: %v", hostCopyErr == nil && strings.Contains(string(hostCopy), email),
 		hostCopyErr, lastLines(probe.jailSeed, 12), probe.dirs)
 	if err := acLoginSeedFailures(email, probe, string(hostCopy), hostCopyErr); err != nil {

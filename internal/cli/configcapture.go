@@ -66,6 +66,15 @@ import (
 // and the loop continues. See R7 in the file comment — the teardown this hangs off
 // must not become failable because an audit convenience did.
 func captureOnTerminate(workspace, runtime string, warn func(string)) {
+	captureOnTerminateIn(workspace, paths.LegacyHomeState(workspace), runtime, warn)
+}
+
+// captureOnTerminateIn is captureOnTerminate from homeDir, the workspace home the torn-down jail
+// bound (the selected setup's, or the legacy one while it was attributed to it;
+// docs/design/named-setups.md §9), which every production hook passes: the launch's, its keeper's
+// and `yolo stop`'s reap of an unkept jail. A homeDir that is none of the workspace's homes
+// captures nothing.
+func captureOnTerminateIn(workspace, homeDir, runtime string, warn func(string)) {
 	defer func() {
 		if r := recover(); r != nil {
 			warn(fmt.Sprintf("could not capture in-jail config edits: %v", r))
@@ -84,7 +93,7 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 		return
 	}
 	defer prism.Close()
-	home, ok := openCaptureRoot(workspace, "home", warn)
+	home, ok := openCaptureHome(workspace, homeDir, warn)
 	if !ok {
 		return
 	}
@@ -124,6 +133,31 @@ func captureOnTerminate(workspace, runtime string, warn func(string)) {
 // naming it, because it is either a jail's plant or a relocation the next launch refuses too.
 func openCaptureRoot(workspace, name string, warn func(string)) (*os.Root, bool) {
 	r, err := paths.OpenWorkspaceStateSubdir(workspace, name)
+	if err != nil {
+		var linked *paths.LinkedStateDirError
+		if errors.As(err, &linked) {
+			warn(fmt.Sprintf("could not capture in-jail config edits: %v", err))
+		}
+		return nil, false
+	}
+	return r, true
+}
+
+// openCaptureDir opens <workspace>/.yolo/<dir> refusing a link at `.yolo` and at every component
+// below it: dir is a single name (paths.OpenWorkspaceStateSubdir), or a setup's home,
+// setups/<setup>/home (paths.OpenWorkspaceHomeRoot).
+func openCaptureDir(workspace, dir string) (*os.Root, error) {
+	if strings.Contains(filepath.ToSlash(dir), "/") {
+		return paths.OpenWorkspaceHomeRoot(workspace, filepath.Join(paths.WorkspaceStateDir(workspace), dir))
+	}
+	return paths.OpenWorkspaceStateSubdir(workspace, dir)
+}
+
+// openCaptureHome is openCaptureRoot for home, one of the workspace's homes
+// (paths.OpenWorkspaceHomeRoot): a link at `.yolo` or at any component below it is warned, and
+// a missing home or one that is none of the workspace's is silent.
+func openCaptureHome(workspace, home string, warn func(string)) (*os.Root, bool) {
+	r, err := paths.OpenWorkspaceHomeRoot(workspace, home)
 	if err != nil {
 		var linked *paths.LinkedStateDirError
 		if errors.As(err, &linked) {

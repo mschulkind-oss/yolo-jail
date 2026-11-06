@@ -178,7 +178,7 @@ func TestAnAttachSelectingBedrockWithNoRegionRefusesBeforeTheWrite(t *testing.T)
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "bedrock" })
-	file := filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")
+	file := filepath.Join(paths.LegacyHomeState(o.Workspace), "yolo-user-env.sh")
 	if rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", "", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel); rc != 1 {
 		t.Fatalf("an attach selecting bedrock with no region must refuse: rc=%d\n%s", rc, stderr.String())

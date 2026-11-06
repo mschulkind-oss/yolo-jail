@@ -98,7 +98,7 @@ func jailSurfaceFile(t *testing.T, ws, rt, surfacePath string) string {
 		t.Fatalf("the jail home maps no location for %q on %s, so this test would assert "+
 			"about a path production never resolves", surfacePath, rt)
 	}
-	return filepath.Join(paths.WorkspaceHomeState(ws), rel)
+	return filepath.Join(paths.LegacyHomeState(ws), rel)
 }
 
 // A STOPPED JAIL'S CAPTURES ARE DISCARDABLE FROM THE HOST, with no --force. Both halves run:

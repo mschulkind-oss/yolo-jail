@@ -376,7 +376,7 @@ func (o Options) runAs() RunAs {
 // homes is the launch's Homes (LaunchHomes): HOME is the workspace's .yolo/home in both modes
 // (MMP-D25).
 func (o Options) homes() Homes {
-	return LaunchHomes(o.Mode, resolvePathAbs(o.Workspace), o.HostHome)
+	return LaunchHomes(o.Mode, workspaceSidecar(resolvePathAbs(o.Workspace), o.HostHomeOverlay), o.HostHome)
 }
 
 // grantTarget is the path a stage command grants the sandbox account an ACE on (`chmod +a <ace>
@@ -741,7 +741,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	}
 	floors := floorStageFor(opts.HostPackRoot, met)
 	programs := programReadinessStageFor(opts.HostPackRoot, home, opts.Workspace,
-		paths.WorkspaceHomeState(opts.Workspace), loginPath, config.MergeMiseTools(opts.Config), env)
+		homes.Home, loginPath, config.MergeMiseTools(opts.Config), env)
 	// THE STAGED OVERLAY'S CURRENCY, asked here for floorStageFor's reason: it reads the staging
 	// root, and the plan builder below is pure. The plan keys the staged copy on the same
 	// spelling (cnameFor of the resolved workspace).

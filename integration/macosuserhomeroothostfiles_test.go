@@ -99,7 +99,7 @@ func TestMacosUserHomeRootHostFilesArePerWorkspace(t *testing.T) {
 
 	// SEPARATED, NOT ERASED: A's file is still in A's home after B ran, read on the host, at the
 	// path A's own link names relative to that home (MMP-D25: HOME is <ws>/.yolo/home).
-	inA := filepath.Join(wsA, ".yolo", "home", filepath.FromSlash(wantLink))
+	inA := filepath.Join(macosUserHome(wsA, "account"), filepath.FromSlash(wantLink))
 	if got, err := os.ReadFile(inA); err != nil || string(got) != bodyA {
 		t.Errorf("after workspace B's launch, %s holds %q (err %v), want A's own %q. `no such "+
 			"file` means the layout separated the workspaces by losing one; `permission denied` "+

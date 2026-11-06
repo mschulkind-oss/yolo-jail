@@ -638,7 +638,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	if self && hostHome != "" {
 		hostHome = resolvePathAbs(hostHome)
 	}
-	homes := LaunchHomes(session.Mode, workspace, hostHome)
+	homes := LaunchHomes(session.Mode, workspaceSidecar(workspace, hostHomeOverlay), hostHome)
 	runAs.Homes = homes
 	if self {
 		runAs.User = session.HostUser
@@ -731,7 +731,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	var homeReadonly HomeReadonly
 	if hostHomeOverlay.Tree != "" {
 		homeOverlay = StagedHomeOverlay(cname, "")
-		homeReadonly = ResolveHomeReadonly(sandboxHome, workspace,
+		homeReadonly = ResolveHomeReadonly(sandboxHome, homes.Home,
 			hostHomeOverlay.WorkspaceDirs, hostHomeOverlay.Dests)
 	}
 	// AND THE THIRD, on the same rule: the CONTEXT tree (DP-L1). The host CLI composed it
@@ -852,13 +852,13 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		}
 	}
 	// THE WORKSPACE SIDECAR — <workspace>/.yolo/home, the same directory the podman argv
-	// binds the jail home's per-workspace dirs from (paths.WorkspaceHomeState, one spelling
+	// binds the jail home's per-workspace dirs from (paths.LegacyHomeState, one spelling
 	// for both backends). It is HOME itself in both modes, so the bootstrap lays the workspace-home
 	// layout in it (entrypoint.InstallDarwinHomeLayout, DeriveDarwinWorkspaceHome). A capture
 	// passes none — see the parameter.
 	launchMiseTools, _ := config.JailMiseTools(cfg, false)
 	bootstrapEnv := buildBootstrapEnv(workspace, cfg, gitIdentity, sandboxEnv, packRoot,
-		homeOverlay, ctxRoot, capturesRoot, hostCtx, paths.WorkspaceHomeState(workspace), sandboxHome,
+		homeOverlay, ctxRoot, capturesRoot, hostCtx, homes.Home, sandboxHome,
 		darwinPrefix, blockedTools, launchMiseTools)
 	bootstrapEnv.Set(entrypoint.DarwinLoginPathEnv, sandboxPathForHomes(homes, darwinPrefix, sessionGuestBinDir))
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
@@ -990,7 +990,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	var provisionArgv []string
 	provisionScriptPath := ""
 	if ProvisionNeeded(cfg, floors) || programs.Needed() {
-		provisionScriptPath = ProvisionBootstrapScript(workspace)
+		provisionScriptPath = ProvisionBootstrapScript(homes.Home)
 		// The console line's color is the NO_COLOR half of the one gate (tty.NoColor), read
 		// from the env this stage will run in — the forwarded host value (MacosSandboxEnv), or
 		// one the user's own env layers set — because the stage prints from the sandbox, a
@@ -1051,7 +1051,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	if len(daemonNames) > 0 {
 		daemonEnvFile = SandboxDaemonEnvFile(sessionKey, "")
 		daemonEnvContent = SandboxEnvFileContent(jailDaemons.Env)
-		supervisorLog = SupervisorLogPath(workspace)
+		supervisorLog = SupervisorLogPath(homes.Home)
 		jailDaemonArgv = JailDaemonArgv(runAs, profilePath, daemonEnvFile, supervisorLog, "", "", darwinPrefix, stagedYolo)
 		// Every endpoint the DAEMONS dial is granted too — the same grant the agent's
 		// endpoints get, read off the daemon env for endpointGrantCommands' reason (the env
@@ -1832,8 +1832,15 @@ func PlanInvariants(plan RunPlan) []string {
 	// is the defect docs/reference/macos-user-home-tiers.md exists to end, reachable again by
 	// deleting one line in BuildRunPlan. Checked against the workspace's own sidecar path
 	// rather than "some value", because a layout pointed at another workspace's sidecar is
-	// the collapse with extra steps.
-	if want := entrypoint.DarwinHomeSidecarEnv + "=" + paths.WorkspaceHomeState(plan.Workspace); !containsArg(plan.BootstrapArgv, want) {
+	// the collapse with extra steps. The sidecar is the plan's HOME (homes.Home), which must
+	// be one of THIS workspace's homes (paths.IsWorkspaceHomeState): the selected setup's, or the
+	// legacy one while it is still attributed to it (docs/design/named-setups.md §9, SUP-D21).
+	if !paths.IsWorkspaceHomeState(plan.Workspace, plan.RunAs.Homes.Home) {
+		problems = append(problems, "the plan's workspace home "+quoteOrNone(plan.RunAs.Homes.Home)+
+			" is none of "+plan.Workspace+"'s homes (.yolo/home or .yolo/setups/<setup>/home); "+
+			"the agent's state would land outside its workspace")
+	}
+	if want := entrypoint.DarwinHomeSidecarEnv + "=" + plan.RunAs.Homes.Home; !containsArg(plan.BootstrapArgv, want) {
 		problems = append(problems,
 			want+" is not baked into the bootstrap env; the sandbox home would keep every "+
 				"workspace's agent state in one place (/Users/_yolojail)")
@@ -2038,7 +2045,7 @@ func PlanInvariants(plan RunPlan) []string {
 		// line, and a script generated somewhere the stage never looks is a file nobody
 		// runs. Both sides resolve through ProvisionBootstrapScript, so this is what
 		// fails if one of them starts spelling the path itself.
-		if want := ProvisionBootstrapScript(plan.Workspace); plan.ProvisionScriptPath != want {
+		if want := ProvisionBootstrapScript(plan.RunAs.Homes.Home); plan.ProvisionScriptPath != want {
 			problems = append(problems,
 				"the provisioning stage execs "+plan.ProvisionScriptPath+", but the bootstrap "+
 					"generates the script at "+want)
@@ -2226,7 +2233,7 @@ func selfModeProblems(plan RunPlan) []string {
 // docs/design/macos-user-model-plan.md, MMP-D25), silent for a run-as-you plan. Each rule is the
 // mode's promise read back off the plan:
 //
-//   - HOME is the workspace's own .yolo/home, never the account's home, so two workspaces run at
+//   - HOME is one of the workspace's own homes, never the account's home, so two workspaces run at
 //     once with no HOME in common, and the agent is told it on its crossing;
 //   - the profile is the deny-by-default one, never the `(allow default)` one;
 //   - the bootstrap runs under the session's profile (MMP-D9);
@@ -2237,10 +2244,11 @@ func accountModeProblems(plan RunPlan) []string {
 		return nil
 	}
 	var problems []string
-	want := paths.WorkspaceHomeState(plan.Workspace)
-	if plan.RunAs.Homes.Home != want {
+	want := plan.RunAs.Homes.Home
+	if !paths.IsWorkspaceHomeState(plan.Workspace, want) {
 		problems = append(problems, "the account-mode plan's HOME is "+quoteOrNone(plan.RunAs.Homes.Home)+
-			", not the workspace's own "+want+"; two workspaces would share one home (MMP-D25)")
+			", not one of the workspace's own homes under "+paths.WorkspaceStateDir(plan.Workspace)+
+			"; two workspaces would share one home (MMP-D25)")
 	} else if len(plan.LaunchArgv) > 0 && !containsArg(plan.LaunchArgv, "HOME="+want) {
 		problems = append(problems, "the account-mode launch argv does not set HOME="+want+
 			"; the agent would run in the account's shared home (MMP-D25)")
@@ -2503,9 +2511,9 @@ func jailDaemonInvariants(plan RunPlan) []string {
 		}
 	}
 	switch {
-	case plan.SupervisorLog == "" || plan.SupervisorLog != SupervisorLogPath(plan.Workspace):
+	case plan.SupervisorLog == "" || plan.SupervisorLog != SupervisorLogPath(plan.RunAs.Homes.Home):
 		problems = append(problems, "the jail-daemon supervisor's log is \""+plan.SupervisorLog+
-			"\", not "+SupervisorLogPath(plan.Workspace)+" beside the daemons' own logs")
+			"\", not "+SupervisorLogPath(plan.RunAs.Homes.Home)+" beside the daemons' own logs")
 	case loggedAt < 0:
 		problems = append(problems, "the jail-daemon supervisor's stdout and stderr do not go to "+
 			plan.SupervisorLog+"; a refusal of it would leave no trace, and the launch could not "+

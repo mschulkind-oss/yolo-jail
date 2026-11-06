@@ -1369,8 +1369,8 @@ func runRun(args []string) int {
 	// capture engine lives in THIS package, which imports run, so run cannot call it
 	// directly. Warnings go to stderr — the capture is an observability aid, and its
 	// failures must not pollute a command's contract-stable stdout.
-	opts.CaptureOnTerminate = func(workspace, rt string) {
-		captureOnTerminate(workspace, rt, func(msg string) {
+	opts.CaptureOnTerminate = func(workspace, home, rt string) {
+		captureOnTerminateIn(workspace, home, rt, func(msg string) {
 			fmt.Fprintln(os.Stderr, "Warning: "+msg)
 		})
 	}

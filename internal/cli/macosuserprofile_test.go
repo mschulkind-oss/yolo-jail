@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The inputs are paths that exist on no machine running this test, so physicalPath keeps them
@@ -39,7 +40,7 @@ func runProfileVerb(t *testing.T, args ...string) (string, string, int) {
 func profileTestParams() macosuser.ProfileParams {
 	return macosuser.ProfileParams{
 		Workspace:         profileTestWS,
-		Home:              profileTestWS + "/.yolo/home",
+		Home:              paths.SetupHomeState(profileTestWS, "seatbelt-self"),
 		HostHome:          profileTestHost,
 		SandboxTmp:        profileTestTmp,
 		DarwinUserTempDir: profileTestDarwin,
@@ -74,8 +75,10 @@ func TestMacosUserProfileVerbAccountModeNamesTheAccountOnly(t *testing.T) {
 	}
 	pp := profileTestParams()
 	pp.RunAsUser = macosuser.SandboxUser
+	// And --home's default is the account setup's home, not the self setup's.
+	pp.Home = paths.SetupHomeState(profileTestWS, "seatbelt-yolo-account")
 	if want := macosuser.DenyDefaultProfile(pp); out != want {
-		t.Errorf("account mode must change only the header's user.\n--- got\n%s\n--- want\n%s", out, want)
+		t.Errorf("account mode must change only the header's user and the default home.\n--- got\n%s\n--- want\n%s", out, want)
 	}
 }
 
@@ -153,6 +156,8 @@ func TestMacosUserProfileVerbIsDispatchedByRunInternal(t *testing.T) {
 	}
 	pp := profileTestParams()
 	pp.RunAsUser = macosuser.SandboxUser
+	// And --home's default is the account setup's home, not the self setup's.
+	pp.Home = paths.SetupHomeState(profileTestWS, "seatbelt-yolo-account")
 	if want := macosuser.DenyDefaultProfile(pp); string(out) != want {
 		t.Errorf("runInternal did not print the generated profile.\n--- got\n%s", out)
 	}

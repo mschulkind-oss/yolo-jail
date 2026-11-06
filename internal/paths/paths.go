@@ -748,19 +748,20 @@ func EnsureWorkspaceStateDir(workspace string) (string, error) {
 	return dir, nil
 }
 
-// WorkspaceHomeState returns <workspace>/.yolo/home — the HOST side of the jail home's
-// per-workspace binds. Its children are the HomeSurface.Subtree names, bound into the jail
-// at the matching HomeSurface.HomeRel.
+// LegacyHomeState returns <workspace>/.yolo/home, the one home every setup of a project shared
+// before each setup got its own (docs/design/named-setups.md §9; SetupHomeState is the
+// successor). A launch binds it only while it is still in place and attributed to the selected
+// setup (named-setups-plan.md SUP-D21); internal/cli/run's adoptLegacyHome moves it, and
+// WorkspaceHomeStates still lists it. No launch creates it.
 //
-// It is spelled here rather than at its two call sites because those two are the halves of
-// one fact and only agree by construction: the run pipeline binds `<this>/local` at
-// `$HOME/.local` and also binds the WORKSPACE at /workspace, so inside a jail the same
-// directory has two paths — and only the workspace-side one shares a MOUNT with anything
+// Whichever of the two a launch binds is the HOST side of the jail home's per-workspace binds:
+// its children are the HomeSurface.Subtree names, bound into the jail at the matching
+// HomeSurface.HomeRel. The run pipeline also binds the WORKSPACE at /workspace, so inside a jail
+// the same directory has two paths, and only the workspace-side one shares a MOUNT with anything
 // else under /workspace. That is what lets `yolo capture` move a gigabyte-scale delta with
 // rename(2) instead of copying it (program-delivery.md §6.3; MEASURED 2026-09-04, both
-// directions). A second spelling of ".yolo/home" would be a capture that silently started
-// copying the moment the layout moved.
-func WorkspaceHomeState(workspace string) string {
+// directions).
+func LegacyHomeState(workspace string) string {
 	return filepath.Join(WorkspaceStateDir(workspace), "home")
 }
 

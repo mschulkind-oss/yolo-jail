@@ -374,7 +374,7 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 	if _, ok := sealedBindSources(argv)["/home/agent/.config/git/ignore"]; ok {
 		t.Error("a sealed launch binds the host's global gitignore")
 	}
-	if body, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-gitconfig")); strings.Contains(string(body), "excludesFile") {
+	if body, _ := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-gitconfig")); strings.Contains(string(body), "excludesFile") {
 		t.Errorf("a sealed launch's git config names the host's gitignore:\n%s", body)
 	}
 	// No host layer crossed, and the jail is told so rather than that the user has none.
@@ -397,7 +397,7 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 		t.Errorf("a sealed launch publishes a port: %q", argv)
 	}
 	// The channel's one crossing is the env file, and it carries no env_sources.
-	if body, err := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh")); err != nil ||
+	if body, err := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh")); err != nil ||
 		strings.Contains(string(body), "sealtest-secret-value") {
 		t.Errorf("the sealed channel file (err %v) carries the user's env_sources", err)
 	}
@@ -497,7 +497,7 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	if !slices.Contains(argv, "-p") {
 		t.Error("the unsealed fixture publishes no port, so the publish site is unexercised")
 	}
-	body, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-user-env.sh"))
+	body, _ := os.ReadFile(filepath.Join(runtimeHome(ws, "podman"), "yolo-user-env.sh"))
 	if !strings.Contains(string(body), "sealtest-secret-value") {
 		t.Error("the unsealed fixture's env_sources never reach the channel file")
 	}

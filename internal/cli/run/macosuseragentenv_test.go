@@ -17,7 +17,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The ACTIVE SET at the macos-user notch (docs/design/active-provider-sets.md §4.9), through Run:
@@ -79,7 +78,7 @@ func TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile(t *testing.T) {
 	// WHERE the sandbox reads it: HOME is the sidecar in both modes (MMP-D5, MMP-D25), with a
 	// real ~/.config in it (entrypoint.DeriveDarwinWorkspaceHome), and the launchers source
 	// ~/.config/yolo-agent-env/<bin>.sh (entrypoint.AgentEnvFile).
-	sidecar := paths.WorkspaceHomeState(ws)
+	sidecar := runtimeHome(ws, "macos-user")
 	piFile := entrypoint.AgentEnvFile(sidecar, "pi")
 	st, err := os.Stat(piFile)
 	if err != nil {

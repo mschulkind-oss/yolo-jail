@@ -246,7 +246,7 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 	if picked == "" {
 		t.Fatalf("fixture: the shared-namespace composition moved nothing: %v", channel.servedAddresses)
 	}
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := paths.LegacyHomeState(o.Workspace)
 	running := map[string]string{
 		"127.0.0.1:1460": "127.0.0.1:41460", "127.0.0.1:8214": "127.0.0.1:48214",
 		"127.0.0.1:8215": "127.0.0.1:48215", "127.0.0.1:8216": "127.0.0.1:48216",
@@ -288,7 +288,7 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 	// A jail that recorded nothing (bridged, or launched before served addresses) serves the
 	// declared ports; the attach never picks its own, even on a shared namespace.
 	o2, cfg2, channel2, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), tune)
-	wsState2 := paths.WorkspaceHomeState(o2.Workspace)
+	wsState2 := paths.LegacyHomeState(o2.Workspace)
 	writeRunningChannel(t, wsState2, nil)
 	rekeyed2, err := o2.rekeyChannelForAttach(wsState2, packs, channel2, compose(o2, cfg2))
 	if err != nil {

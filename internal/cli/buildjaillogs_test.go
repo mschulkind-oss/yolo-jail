@@ -24,10 +24,36 @@ import (
 // buildJailDiagnostics are the files a jail's launch leaves in its workspace, by path under it, and
 // the body the fake launch writes to each.
 var buildJailDiagnostics = map[string]string{
-	".yolo/host-perf.log":      "=== YOLO Host Perf the build's spans\n",
-	".yolo/boot.log":           "entrypoint: the build's boot\n",
-	".yolo/launch.log":         "the build's launch stream\n",
-	".yolo/home/yolo-perf.log": "the build's jail half\n",
+	".yolo/host-perf.log":                         "=== YOLO Host Perf the build's spans\n",
+	".yolo/boot.log":                              "entrypoint: the build's boot\n",
+	".yolo/launch.log":                            "the build's launch stream\n",
+	".yolo/setups/podman-self/home/yolo-perf.log": "the build's jail half\n",
+}
+
+// THE JAIL HALF IS READ FROM THE HOME THE BUILD JAIL RAN WITH (named-setups.md §9): every built-in
+// setup's home and the legacy one before the jail has made any, and a user-defined setup's home
+// once the workspace holds it. Red if buildJailPerfLogSources stops naming a setup's home.
+func TestTheBuildJailsPerfLogIsReadFromEveryHome(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(paths.SetupHomeState(ws, "lab"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var rels []string
+	seen := map[string]bool{}
+	for _, src := range buildJailPerfLogSources(ws) {
+		rel := filepath.ToSlash(src.rel)
+		if seen[rel] {
+			t.Errorf("the home of %s is read twice", rel)
+		}
+		seen[rel] = true
+		rels = append(rels, rel)
+	}
+	for _, want := range []string{".yolo/home/yolo-perf.log", ".yolo/setups/podman-self/home/yolo-perf.log",
+		".yolo/setups/apple-container-self/home/yolo-perf.log", ".yolo/setups/lab/home/yolo-perf.log"} {
+		if !seen[want] {
+			t.Errorf("the jail half is not read from %s: %v", want, rels)
+		}
+	}
 }
 
 // leaveBuildJailDiagnostics is a fake launch's part: it writes buildJailDiagnostics into o's

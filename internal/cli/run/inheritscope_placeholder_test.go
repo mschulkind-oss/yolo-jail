@@ -10,7 +10,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // ISSUE #66, AFTER SLICE 12a: a workspace that once ran under podman keeps, in its sidecar, the
@@ -37,7 +36,7 @@ func TestMacosUserLaunchLeavesAPodmanPlaceholderOutOfItsWay(t *testing.T) {
 				t.Fatal(err)
 			}
 			ws := floortest.ResolvedTemp(t)
-			podmanDir := filepath.Join(paths.WorkspaceHomeState(ws), "config", "yolo-jail")
+			podmanDir := filepath.Join(runtimeHome(ws, "macos-user"), "config", "yolo-jail")
 			placeholder := plantPodmanPlaceholder(t, podmanDir, "config.jsonc")
 			before, err := os.Lstat(placeholder)
 			if err != nil {
@@ -111,7 +110,7 @@ func TestMacosUserKeepsRefusingAnythingButAnUnsharedEmptyFile(t *testing.T) {
 			home := packHome(t)
 			writeUserPacks(t, home, `["claude"]`)
 			ws := floortest.ResolvedTemp(t)
-			configDir := filepath.Join(paths.WorkspaceHomeState(ws), ".config", "yolo-jail")
+			configDir := filepath.Join(runtimeHome(ws, "macos-user"), ".config", "yolo-jail")
 			if err := os.MkdirAll(configDir, 0o755); err != nil {
 				t.Fatal(err)
 			}

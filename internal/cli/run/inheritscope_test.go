@@ -11,7 +11,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // inheritHome sets up a scratch HOME with a user config, and returns (home, wsState).
@@ -769,7 +768,7 @@ func TestRunPreservesLegacyFGPayloadAsJSONCFallback(t *testing.T) {
 func TestRunRefusesMixedInheritedUserConfigBeforeRuntime(t *testing.T) {
 	_, _ = inheritHome(t, `{"packs": ["claude"]}`)
 	workspace := t.TempDir()
-	wsState := paths.WorkspaceHomeState(workspace)
+	wsState := runtimeHome(workspace, "podman")
 	configDir := filepath.Join(wsState, "config", "yolo-jail")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)

@@ -20,7 +20,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -72,7 +71,7 @@ func macosUserKeychainLaunchEnv(t *testing.T, packsJSON string, env map[string]s
 }
 
 func copilotEnvFile(ws string) string {
-	return filepath.Join(paths.WorkspaceHomeState(ws), entrypoint.AgentEnvDirRel, "copilot.sh")
+	return filepath.Join(runtimeHome(ws, "macos-user"), entrypoint.AgentEnvDirRel, "copilot.sh")
 }
 
 func TestMacosUserLaunchPassesTheHostCopilotLoginAsCOPILOT_GITHUB_TOKEN(t *testing.T) {

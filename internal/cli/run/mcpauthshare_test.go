@@ -9,8 +9,44 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
+
+// TestMCPAuthShareNamesTheLaunchsHome: the share tells the broker which of the workspace's homes
+// holds the replicas (named-setups.md §9): a setup's home by its path under .yolo, the legacy home
+// by omission, which older brokers read as before. Red if a share literal drops shareHomeRel.
+func TestMCPAuthShareNamesTheLaunchsHome(t *testing.T) {
+	ws := t.TempDir()
+	for _, c := range []struct{ home, want string }{
+		{paths.SetupHomeState(ws, "podman-self"), "setups/podman-self/home"},
+		{paths.LegacyHomeState(ws), ""},
+	} {
+		in := LaunchInputContext{Container: "jail-synthetic", Workspace: ws, Home: c.home, Runtime: "container", EffectiveMCPServers: jsonx.NewOrderedMap()}
+		data, err := produceMCPAuthShare(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		share, err := mcpauth.DecodeShare(data)
+		if err != nil {
+			t.Fatalf("home %s: the share does not validate: %v", c.home, err)
+		}
+		if share.Home != c.want {
+			t.Errorf("home %s: share.Home = %q, want %q", c.home, share.Home, c.want)
+		}
+		if got := filepath.Join(paths.WorkspaceStateDir(ws), share.HomeRel()); got != c.home {
+			t.Errorf("home %s: the broker would read %s", c.home, got)
+		}
+		data, err = mcpShareFromPacks(in, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if share, err = mcpauth.DecodeShare(data); err != nil || share.Home != c.want {
+			t.Errorf("home %s: the pack-built share names home %q (%v), want %q", c.home, share.Home, err, c.want)
+		}
+	}
+}
 
 func TestMCPAuthNativeKeyCannotProveHeaderIdentity(t *testing.T) {
 	url := "https://mcp.example/linear"

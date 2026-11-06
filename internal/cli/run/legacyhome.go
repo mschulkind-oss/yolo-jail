@@ -5,7 +5,8 @@ package run
 // named-setups-plan.md SUP-D9, SUP-D20, SUP-D21).
 //
 // The move is silent: no prompt, one informational line. It moves only a real directory (lstat,
-// never a link) owned by the invoking user and laid by the selected setup's technology, and only
+// never a link) owned by the invoking user (or, for seatbelt-yolo-account, by the yolo account,
+// SUP-D31) and laid by the selected setup's technology, and only
 // once no jail of the project runs; "could not ask" waits for a later launch, as every reaper
 // here declines when it cannot ask. The rename never replaces anything but an empty directory.
 // Anything else stays where it is, with a line naming why and the one step that clears it.
@@ -15,20 +16,26 @@ package run
 // .yolo/home and creates no .yolo/setups/<name>/home, so a deferred or left home is never
 // stranded behind a fresh one, and a printed manual move never lands inside one.
 //
-// ⚠ NO PRODUCTION CALLER YET (SUP-D19). The call belongs after resolveSetup and before home
-// preparation, and it lands with the switch that makes a launch bind SetupHomeState: wired any
-// earlier, a launch would move .yolo/home away and then start on a fresh, empty .yolo/home. The
-// test that fails if that call site is deleted lands with the switch.
+// THE CALL SITE is Run, right after resolveSetup and before anything reads or prepares a home
+// (selectHome below; slice 6a-ii). selectHome also decides which home the launch binds, and every
+// reader of this launch's home asks o.homeDir() rather than spelling a path, so the move and the
+// switch cannot drift apart: a launch that moved .yolo/home and still bound it would start on an
+// empty home. TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome fails if the call is deleted.
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -58,8 +65,12 @@ type legacyHomeRequest struct {
 	Workspace string
 	// Setup is the setup this launch selected.
 	Setup setup.Setup
-	// UID is the invoking user: the only owner whose home the move takes.
+	// UID is the invoking user, an owner whose home the move takes.
 	UID int
+	// AccountUID is the yolo account's uid when the selected setup runs as it under Seatbelt
+	// (seatbelt-yolo-account, which lays its home as that account), and nil otherwise: the one
+	// other owner whose home the move takes (SUP-D31).
+	AccountUID *int
 	// Jails is the answer about every jail of the project.
 	Jails projectJails
 	// AppleContainerLaid is the Apple Container layout signal (isAppleContainerInheritedCopy on a
@@ -84,10 +95,14 @@ const (
 	legacyHomeMoved
 	// legacyHomeLeft: yolo cannot move the home; it stays, with the step that clears the way.
 	legacyHomeLeft
+	// legacyHomeOthers: the home stays because it is not the selected setup's to take: an Apple
+	// Container setup laid it and this setup is not one. This setup starts its own home, and the
+	// line names the setup that moves it.
+	legacyHomeOthers
 )
 
 func (r legacyHomeResult) String() string {
-	return [...]string{"absent", "not ours", "deferred", "moved", "left"}[r]
+	return [...]string{"absent", "not ours", "deferred", "moved", "left", "another setup's"}[r]
 }
 
 // legacyHomeRename is the destination-exclusive rename; a test swaps it to reach the failures
@@ -112,7 +127,7 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 		return legacyHomeNotOurs, ""
 	}
 	stateDir := paths.WorkspaceStateDir(r.Workspace)
-	src := paths.WorkspaceHomeState(r.Workspace)
+	src := paths.LegacyHomeState(r.Workspace)
 	dest := paths.SetupHomeState(r.Workspace, r.Setup.Name)
 	left := func(format string, a ...any) (legacyHomeResult, string) {
 		return legacyHomeLeft, fmt.Sprintf(format, a...)
@@ -156,7 +171,7 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 		return left("This project's home %s is not a directory, so it was left in place. Move it "+
 			"aside and the next launch starts a fresh home: `%s`", src,
 			shquote.JoinDisplay([]string{"mv", "-n", src, src + ".not-a-home"}))
-	case int(st.Uid) != r.UID:
+	case int(st.Uid) != r.UID && (r.AccountUID == nil || int(st.Uid) != *r.AccountUID):
 		return left("This project's home %s belongs to uid %d, not to you (uid %d), so it was "+
 			"left in place. Give it to you and launch again with no jail of the project "+
 			"running: `%s`", src, st.Uid, r.UID,
@@ -165,10 +180,10 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 	// Minor-5 of the 6a-i review: the owner is named as "an Apple Container setup", since a user's
 	// own Apple Container setup may carry any name; the example names the built-in.
 	if r.Setup.Confinement != setup.ConfinementAppleContainer && r.AppleContainerLaid != nil && r.AppleContainerLaid(src) {
-		return left("This project's home %s was laid by an Apple Container setup, so the %s setup "+
-			"starts with its own home and leaves that one in place. To move it to its owner, "+
-			"launch an Apple Container setup with no jail of the project running, for example "+
-			"`yolo run --setup apple-container-self`", src, r.Setup.Name)
+		return legacyHomeOthers, fmt.Sprintf("This project's home %s was laid by an Apple Container "+
+			"setup, so the %s setup starts with its own home and leaves that one in place. To move "+
+			"it to its owner, launch an Apple Container setup with no jail of the project running, "+
+			"for example `yolo run --setup apple-container-self`", src, r.Setup.Name)
 	}
 
 	if r.Jails != projectJailsStopped {
@@ -216,6 +231,11 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 
 	switch err := legacyHomeRename(yolo, "home", dirfd, "home"); {
 	case err == nil:
+		// The record of the mountpoints yolo made in that home lives beside it (preparePackFiles,
+		// filepath.Dir of the home), so it goes with it: without it the setup's launches could not
+		// retire scaffolding the legacy launches left (named-setups-plan.md SUP-D33). Best effort, beneath the same two
+		// descriptors, never replacing; a record that stays behind only leaves those unowned.
+		_ = renameNoReplaceBetween(yolo, packFilesMountpointManifestName, dirfd, packFilesMountpointManifestName)
 		return legacyHomeMoved, fmt.Sprintf("Moved this project's home %s to %s: each setup keeps its own home now.", src, dest)
 	case errors.Is(err, unix.ENOENT):
 		return legacyHomeAbsent, ""
@@ -232,4 +252,123 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 		return left("Moving this project's home %s to %s failed (%v), so it was left in place. "+
 			"Move it yourself while no jail of the project runs: `%s`", src, dest, err, manual)
 	}
+}
+
+// legacyHomeAccountUID is the yolo account's uid (macosuser.SandboxUID), which owns the home a
+// seatbelt-yolo-account launch ran in (SUP-D31). A var so a test off macOS can stand it in.
+var legacyHomeAccountUID = macosuser.SandboxUID
+
+// selectHome is the launch's half of SUP-D9 and SUP-D21: it moves the legacy home to the selected
+// setup's home when the move is allowed, prints the move's one line, and records which home this
+// launch binds (o.homeState). Run calls it once every launch gate has passed, before anything reads or
+// prepares a home. It never refuses the launch.
+func (o *Options) selectHome() {
+	o.homeState = ""
+	legacy := paths.LegacyHomeState(o.Workspace)
+	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
+		r := legacyHomeRequest{
+			Workspace:          o.Workspace,
+			Setup:              o.Setup,
+			UID:                os.Geteuid(),
+			Jails:              projectJailsOf(o.Workspace),
+			AppleContainerLaid: appleContainerLaidHome,
+		}
+		if o.Setup.Confinement == setup.ConfinementSeatbelt && o.Setup.RunAs != setup.RunAsSelf {
+			if uid, err := legacyHomeAccountUID(); err == nil {
+				account := int(uid)
+				r.AccountUID = &account
+			}
+		}
+		if _, line := adoptLegacyHome(r); line != "" {
+			o.pr(o.Stderr).print(richtext.Escape(line))
+		}
+	}
+	o.homeState = o.currentHome()
+}
+
+// homeDir is the host directory this launch binds as its home: the one selectHome chose, or, for a
+// caller that resolved a setup without Run (`yolo config apply`'s preflight), the one a launch of
+// that setup would bind now (currentHome). An Options with no setup at all, which only a unit test
+// builds, names the legacy home.
+func (o *Options) homeDir() string {
+	switch {
+	case o.homeState != "":
+		return o.homeState
+	case o.Setup.Name == "":
+		return paths.LegacyHomeState(o.Workspace)
+	}
+	return o.currentHome()
+}
+
+// currentHome is the home a launch of the selected setup binds now, which is what the move left
+// (SUP-D21): the legacy home while it is still in place as a real directory and attributed to this
+// setup, the setup's own home otherwise. It moves nothing and creates nothing.
+func (o *Options) currentHome() string {
+	legacy := paths.LegacyHomeState(o.Workspace)
+	if readsLegacyHome(o.Setup) {
+		if fi, err := os.Lstat(legacy); err == nil && fi.IsDir() &&
+			(o.Setup.Confinement == setup.ConfinementAppleContainer || !appleContainerLaidHome(legacy)) {
+			return legacy
+		}
+	}
+	return paths.SetupHomeState(o.Workspace, o.Setup.Name)
+}
+
+// homeRel is homeDir relative to <workspace>/.yolo ("home" or "setups/<setup>/home").
+func (o *Options) homeRel() string {
+	if rel, ok := paths.HomeStateRel(o.Workspace, o.homeDir()); ok {
+		return rel
+	}
+	return "home"
+}
+
+// HomeFor is the home a launch of s in workspace binds now (currentHome), for a reader outside the
+// launch that must look where the launch put its state: `yolo config`'s jail target. It moves
+// nothing and creates nothing.
+func HomeFor(workspace string, s setup.Setup) string {
+	o := Options{Workspace: workspace, Setup: s}
+	return o.currentHome()
+}
+
+// projectJailsOf asks whether any jail of the workspace runs: the keeper of its container and the
+// keys of its macos-user and guest sessions. Any one alive is running; any one that could not be
+// asked is unknown, which the move reads as running.
+//
+// The names are the workspace's one jail name (runtime.FromWorkspace), because jail names are not
+// setup-qualified yet (named-setups-plan.md SUP-D32): every setup of a project is keyed there.
+func projectJailsOf(workspace string) projectJails {
+	cname := yoloruntime.FromWorkspace(workspace)
+	answer := projectJailsStopped
+	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+		switch probeKeeper(key) {
+		case keeperAlive:
+			return projectJailsRunning
+		case keeperUnknown:
+			answer = projectJailsUnknown
+		}
+	}
+	return answer
+}
+
+// appleContainerLaidHome is the Apple Container layout signal (SUP-D20) for home, one of a
+// workspace's homes: a generated user-config copy of the shape an Apple Container launch leaves
+// (isAppleContainerInheritedCopy) at any inherited destination, where that backend keeps it (home is
+// HOME there, so a home-relative destination is its path beneath home). It reads beneath a root on
+// home that refuses a link at `.yolo` and below (paths.OpenWorkspaceHomeRoot), so it reads nothing a
+// jail pointed elsewhere.
+func appleContainerLaidHome(home string) bool {
+	r, err := paths.OpenWorkspaceHomeRoot(filepath.Dir(filepath.Dir(home)), home)
+	if err != nil {
+		return false
+	}
+	defer r.Close()
+	uid := os.Geteuid()
+	for _, scope := range []config.InheritScope{config.InheritPreflight, config.InheritNested} {
+		for _, rel := range inheritScopeDestinations(scope) {
+			if isAppleContainerInheritedCopyBeneath(r, filepath.FromSlash(rel), uid) {
+				return true
+			}
+		}
+	}
+	return false
 }

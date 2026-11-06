@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // G14's macos-user half: the staged skills and briefings are write-protected by the session
@@ -28,7 +29,7 @@ const (
 // match nothing. The physical spelling is the one that must be there; the account-home one
 // rides along for the case where no link stands.
 func TestResolveHomeReadonlyNamesThePhysicalPathThroughTheLayout(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, []string{".claude"},
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), []string{".claude"},
 		[]string{".claude/skills", ".claude/CLAUDE.md"})
 	want := HomeReadonly{
 		Paths: []string{
@@ -55,7 +56,7 @@ func TestResolveHomeReadonlyNamesThePhysicalPathThroughTheLayout(t *testing.T) {
 // sidecar, so the intermediate directory is a physical anchor — and the account-home spelling
 // of it is not, because while the link stands nothing can ever resolve to it.
 func TestResolveHomeReadonlyWalksPastTheLinkInTheSidecar(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, []string{".pi"},
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), []string{".pi"},
 		[]string{".pi/agent/skills", ".pi/agent/AGENTS.md"})
 	for _, want := range []string{hrSC + "/pi/agent/skills", hrSC + "/pi/agent/AGENTS.md"} {
 		if !hasEntry(got.Paths, want) {
@@ -78,7 +79,7 @@ func TestResolveHomeReadonlyWalksPastTheLinkInTheSidecar(t *testing.T) {
 // A resolver that consulted only the WorkspaceDirs list would name the account-home path and
 // protect nothing.
 func TestResolveHomeReadonlyHonorsTheLayoutsOwnLinks(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, nil, []string{".config/opencode/skills"})
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), nil, []string{".config/opencode/skills"})
 	if !hasEntry(got.Paths, hrSC+"/config/opencode/skills") {
 		t.Errorf("Paths %v does not follow the core .config link into the sidecar", got.Paths)
 	}
@@ -92,7 +93,7 @@ func TestResolveHomeReadonlyHonorsTheLayoutsOwnLinks(t *testing.T) {
 // A destination no link covers is a real path in the account home, so that spelling is the
 // physical one and the chain is the account home's own directories.
 func TestResolveHomeReadonlyKeepsAnUnlinkedDestInTheAccountHome(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, nil, []string{".acme/skills"})
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), nil, []string{".acme/skills"})
 	want := HomeReadonly{Paths: []string{hrHome + "/.acme/skills"}, Anchors: []string{hrHome + "/.acme"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ResolveHomeReadonly = %#v, want %#v", got, want)
@@ -101,7 +102,7 @@ func TestResolveHomeReadonlyKeepsAnUnlinkedDestInTheAccountHome(t *testing.T) {
 
 // A destination that IS a layout link is written THROUGH it, so its target is the path.
 func TestResolveHomeReadonlyFollowsADestThatIsALink(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, []string{".claude"}, []string{".claude"})
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), []string{".claude"}, []string{".claude"})
 	if !hasEntry(got.Paths, hrSC+"/claude") {
 		t.Errorf("Paths %v does not name the link's target", got.Paths)
 	}
@@ -113,7 +114,7 @@ func TestResolveHomeReadonlyFollowsADestThatIsALink(t *testing.T) {
 // Pack declarations are validated upstream; one that is not must narrow nothing it was not
 // asked to, which means emitting nothing at all rather than a deny somewhere outside the home.
 func TestResolveHomeReadonlyDropsDestsThatAreNotHomeRelative(t *testing.T) {
-	got := ResolveHomeReadonly(hrHome, hrWS, []string{".claude"},
+	got := ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), []string{".claude"},
 		[]string{"", "  ", "/etc/passwd", "..", "../escape", "a/../../b", "."})
 	if !got.Empty() {
 		t.Errorf("unusable destinations produced rules: %#v", got)
@@ -130,7 +131,7 @@ func TestResolveHomeReadonlyResolvesASymlinkedBase(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(real, "ws"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := ResolveHomeReadonly(filepath.Join(link, "home"), filepath.Join(link, "ws"),
+	got := ResolveHomeReadonly(filepath.Join(link, "home"), paths.LegacyHomeState(filepath.Join(link, "ws")),
 		[]string{".claude"}, []string{".claude/skills", ".acme/AGENTS.md"})
 	all := append(append([]string{}, got.Paths...), got.Anchors...)
 	if len(all) == 0 {
@@ -181,7 +182,7 @@ func hasEntry(list []string, s string) bool {
 // --- the rendered SBPL ---
 
 func sampleHomeReadonly() HomeReadonly {
-	return ResolveHomeReadonly(hrHome, hrWS, []string{".claude"},
+	return ResolveHomeReadonly(hrHome, paths.LegacyHomeState(hrWS), []string{".claude"},
 		[]string{".claude/skills", ".claude/CLAUDE.md"})
 }
 

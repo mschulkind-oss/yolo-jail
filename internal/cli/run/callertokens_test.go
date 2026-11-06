@@ -112,7 +112,7 @@ func TestAnAttachDeliversTheRunningJailsCallerToken(t *testing.T) {
 	running := strings.Repeat("12", 32)
 	launcher := *o
 	launcher.callerTokens = map[string]string{bridgeTokenVar: running}
-	wsState := paths.WorkspaceHomeState(o.Workspace)
+	wsState := paths.LegacyHomeState(o.Workspace)
 	prior := channelFor(t, &launcher, cfg, packs, cerebrasKey())
 	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), prior.scope.SharedEnvSources(), prior)
 	if _, err := os.Stat(filepath.Join(wsState, agentEnvStateDir, "claude.sh")); !os.IsNotExist(err) {

@@ -116,7 +116,7 @@ func stopWorkspace(t *testing.T, setupName string) (cname string, finished *[]st
 	var got []string
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
-	finishStop = func(_, _ io.Writer, _, rt string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, rt string, _ int64, _ func(string, string, string), _ bool) int {
 		got = append(got, rt)
 		return 0
 	}
@@ -315,7 +315,7 @@ func TestAStopWhoseNonZeroExitLeavesNoContainerStillEndsTheJail(t *testing.T) {
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
 	finished := false
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
 		finished = true
 		return 0
 	}
@@ -358,7 +358,7 @@ func TestAStopWhoseContainerIsStillRunningFails(t *testing.T) {
 	cname := runtime.FromWorkspace("/ws")
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
 		t.Error("the stop ran the keeper's teardown with the container still running")
 		return 0
 	}
@@ -392,7 +392,7 @@ func TestAnAppleContainerStopThatCannotListAfterwardsFails(t *testing.T) {
 	cname := runtime.FromWorkspace("/ws")
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
-	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, _ string, _ int64, _ func(string, string, string), _ bool) int {
 		t.Error("the stop ran the keeper's teardown after a re-probe that could not answer")
 		return 0
 	}
@@ -422,7 +422,7 @@ func TestAnAppleContainerStopWaitsOutTheListingBeforeCallingItGone(t *testing.T)
 	saved := finishStop
 	t.Cleanup(func() { finishStop = saved })
 	finished := false
-	finishStop = func(_, _ io.Writer, _, rt string, _ int64, _ func(string, string), _ bool) int {
+	finishStop = func(_, _ io.Writer, _, rt string, _ int64, _ func(string, string, string), _ bool) int {
 		finished = rt == "container"
 		return 0
 	}

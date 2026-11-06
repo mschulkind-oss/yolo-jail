@@ -32,7 +32,7 @@ func macosUserCaptureRun(t *testing.T, dryRun bool, during func(ws string)) (cal
 		returned = true
 		return 0
 	})
-	o.CaptureOnTerminate = func(w, r string) {
+	o.CaptureOnTerminate = func(w, _, r string) {
 		calls++
 		gotWS, gotRT, afterSession = w, r, returned
 	}

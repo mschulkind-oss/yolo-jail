@@ -613,7 +613,7 @@ func TestAttachCredentialRefusalLeavesTheLiveFileAlone(t *testing.T) {
 // and returns its path and bytes.
 func seedLiveChannelFile(t *testing.T, o *Options) (string, []byte) {
 	t.Helper()
-	envFile := filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")
+	envFile := filepath.Join(paths.LegacyHomeState(o.Workspace), "yolo-user-env.sh")
 	if err := os.MkdirAll(filepath.Dir(envFile), 0o755); err != nil {
 		t.Fatal(err)
 	}

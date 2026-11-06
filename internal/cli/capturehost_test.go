@@ -412,15 +412,15 @@ func TestRunCaptureDropsTheSubcommandToken(t *testing.T) {
 // time: the workspace bind's container path, the surface root's position UNDER it, and the
 // env var that stops the launcher exec'ing the tool.
 //
-// Derived here rather than re-typed, so the assertion fails when the SOURCE of a fact moves
-// — paths.WorkspaceHomeState is the same function the run pipeline's prepareWsState uses to
-// decide where those directories actually are.
+// Derived here rather than re-typed, so the assertion fails when the SOURCE of a fact moves:
+// the surface root is named by the workspace bind (--surface-root-of), and resolved in the jail by
+// captureSurfaceRootOf to the session's setup's home under it (named-setups-plan.md Slice 6a-ii).
 func TestCaptureJailArgvReachesTheSurfacesThroughTheWorkspaceBind(t *testing.T) {
 	argv := captureJailArgv("probetool")
 	joined := strings.Join(argv, " ")
 
 	wantOut := "--out=" + path.Join(containerWorkspace, captureOutLeaf)
-	wantRoot := "--surface-root=" + paths.WorkspaceHomeState(containerWorkspace)
+	wantRoot := "--surface-root-of=" + containerWorkspace
 	for _, want := range []string{
 		"yolo", "internal", "capture-run", wantOut, wantRoot,
 		// The full reference scan: without it the entry may only be materialized into the jail
@@ -433,20 +433,44 @@ func TestCaptureJailArgvReachesTheSurfacesThroughTheWorkspaceBind(t *testing.T) 
 		}
 	}
 	// THE MOUNT IS THE PREDICATE. rename(2) compares the mount, not the device, so the
-	// scratch dir and the surfaces must be reachable under ONE bind — the workspace's —
-	// or the driver copies the whole delta instead of moving it.
-	if !strings.HasPrefix(paths.WorkspaceHomeState(containerWorkspace), containerWorkspace+"/") {
-		t.Errorf("the surface root %q is not under the workspace bind %q; the delta would "+
-			"take the copy path", paths.WorkspaceHomeState(containerWorkspace), containerWorkspace)
+	// scratch dir and the surfaces must be reachable under ONE bind, the workspace's, or the
+	// driver copies the whole delta instead of moving it. Both homes the door can name are.
+	for _, home := range []string{paths.SetupHomeState(containerWorkspace, "podman-self"), paths.LegacyHomeState(containerWorkspace)} {
+		if !strings.HasPrefix(home, containerWorkspace+"/") {
+			t.Errorf("the surface root %q is not under the workspace bind %q; the delta would "+
+				"take the copy path", home, containerWorkspace)
+		}
+		// And the out dir must not be inside a surface, or the capture would capture itself.
+		for _, s := range paths.HomeSurfaces() {
+			surface := path.Join(home, s.Subtree)
+			if strings.HasPrefix(path.Join(containerWorkspace, captureOutLeaf)+"/", surface+"/") {
+				t.Errorf("the out dir is inside the capture surface %s", surface)
+			}
+		}
 	}
 	if !strings.HasPrefix(path.Join(containerWorkspace, captureOutLeaf), containerWorkspace+"/") {
 		t.Error("the out dir must be inside the workspace bind for the same reason")
 	}
-	// And it must not be inside a surface, or the capture would capture itself.
-	for _, s := range paths.HomeSurfaces() {
-		surface := path.Join(paths.WorkspaceHomeState(containerWorkspace), s.Subtree)
-		if strings.HasPrefix(path.Join(containerWorkspace, captureOutLeaf)+"/", surface+"/") {
-			t.Errorf("the out dir is inside the capture surface %s", surface)
+}
+
+// TestCaptureSurfaceRootOfIsTheSessionsHome: capture-run --surface-root-of resolves to the home the
+// session's setup binds (its YOLO_SETUP), and to the legacy home while that is still the one bound
+// (SUP-D21) or the setup is not named. Red if captureSurfaceRootOf stops naming the setup's home.
+func TestCaptureSurfaceRootOfIsTheSessionsHome(t *testing.T) {
+	ws := t.TempDir()
+	if got, want := captureSurfaceRootOf(ws, "podman-self"), paths.LegacyHomeState(ws); got != want {
+		t.Errorf("with no setup home yet, the door is %q, want the legacy home %q", got, want)
+	}
+	home := paths.SetupHomeState(ws, "podman-self")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := captureSurfaceRootOf(ws, "podman-self"); got != home {
+		t.Errorf("the door is %q, want the session's setup's home %q", got, home)
+	}
+	for _, name := range []string{"", "../podman-self"} {
+		if got, want := captureSurfaceRootOf(ws, name), paths.LegacyHomeState(ws); got != want {
+			t.Errorf("setup %q: the door is %q, want the legacy home %q", name, got, want)
 		}
 	}
 }

@@ -47,7 +47,7 @@ func bootstrapMCPServers(t *testing.T, cfg *jsonx.OrderedMap, hostPackRoot strin
 func TestTheMacosUserBootstrapCarriesThePacksMCPEntry(t *testing.T) {
 	root := stagedShippedTree(t)
 	// The agent's HOME is the workspace's own home in every mode (MMP-D25).
-	home := paths.WorkspaceHomeState("/Users/Shared/proj")
+	home := paths.LegacyHomeState("/Users/Shared/proj")
 	wrapper := home + "/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"
 
 	got := bootstrapMCPServers(t, jsonx.NewOrderedMap(), root)

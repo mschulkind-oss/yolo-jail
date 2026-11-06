@@ -236,12 +236,15 @@ func (b *broker) auditEvents(events []mcpauth.Event) {
 }
 
 func (b *broker) root(replica mcpauth.Replica) (*os.Root, error) {
-	home, err := paths.OpenWorkspaceStateSubdir(b.share.Workspace, replica.Root[0])
+	// The launch's home (Share.HomeRel: the selected setup's, or the legacy one), opened refusing a
+	// link at every component below .yolo (docs/design/named-setups.md §9).
+	homePath := filepath.Join(paths.WorkspaceStateDir(b.share.Workspace), b.share.HomeRel())
+	home, err := paths.OpenWorkspaceHomeRoot(b.share.Workspace, homePath)
 	if err != nil {
 		return nil, err
 	}
 	defer home.Close()
-	return paths.OpenStateSubdirRoot(home, replica.Root[1], filepath.Join(paths.WorkspaceStateDir(b.share.Workspace), replica.Root[0], replica.Root[1]))
+	return paths.OpenStateSubdirRoot(home, replica.Root[1], filepath.Join(homePath, replica.Root[1]))
 }
 
 func (b *broker) prepareLockParent(root *os.Root, replica mcpauth.Replica) error {
@@ -260,7 +263,7 @@ func (b *broker) prepareLockParent(root *os.Root, replica mcpauth.Replica) error
 		if err := parent.Mkdir(component, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 			return err
 		}
-		next, err := paths.OpenStateSubdirRoot(parent, component, filepath.Join(b.share.Workspace, ".yolo", "home", replica.Root[1], component))
+		next, err := paths.OpenStateSubdirRoot(parent, component, filepath.Join(paths.WorkspaceStateDir(b.share.Workspace), b.share.HomeRel(), replica.Root[1], component))
 		if err != nil {
 			return err
 		}

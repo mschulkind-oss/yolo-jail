@@ -6,7 +6,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
@@ -186,8 +185,8 @@ func provisionInWorkspace(workspace, script string) string {
 // ProvisionBootstrapScript is where this workspace's generated bootstrap script lives —
 // the value both the generator (entrypoint.GenerateDarwinBootstrapScript, through the
 // sidecar it is handed) and the stage argv resolve to.
-func ProvisionBootstrapScript(workspace string) string {
-	return entrypoint.DarwinBootstrapScriptPath(paths.WorkspaceHomeState(workspace))
+func ProvisionBootstrapScript(home string) string {
+	return entrypoint.DarwinBootstrapScriptPath(home)
 }
 
 // ProvisionNeeded reports whether this config gives the stage anything to do.

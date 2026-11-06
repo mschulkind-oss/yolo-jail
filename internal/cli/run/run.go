@@ -26,7 +26,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
-	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/ttyproxy"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -109,25 +108,8 @@ func Run(opts Options) (rc int) {
 	// `rm` is right for a link the jail left, and wrong for a directory the user moved on
 	// purpose, whose next launch would start from an empty one and strand the moved state. So
 	// the refusal names where the link points and the move that brings it back.
-	if linked := linkedWorkspaceState(o.Workspace); linked != "" {
-		target := linkedStateTarget(linked)
-		to := ""
-		if target != "" {
-			to = " to " + richtext.Escape(target)
-		}
-		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + richtext.Escape(linked) +
-			" is a symbolic link" + to + ". The jail can write this workspace's .yolo, so a " +
-			"link there would carry the launcher's writes, and the container's binds, to " +
-			"wherever it points.[/bold red]")
-		remedy := "If the jail left that link, remove it (rm " + richtext.Escape(shquote.Quote(linked)) +
-			"); yolo recreates the directory on the next launch."
-		if target != "" {
-			remedy += " If you moved the directory to " + richtext.Escape(target) + " yourself, " +
-				"move it back instead, so its contents come with it: rm " +
-				richtext.Escape(shquote.Quote(linked)) + " && mv " +
-				richtext.Escape(shquote.Quote(target)) + " " + richtext.Escape(shquote.Quote(linked)) + "."
-		}
-		o.pr(o.Stderr).print("[dim]" + remedy + " There is no override for this one.[/dim]")
+	if linked := linkedWorkspaceState(o.Workspace, ""); linked != "" {
+		o.refuseLinkedState(linked)
 		return 1
 	}
 
@@ -355,6 +337,24 @@ func Run(opts Options) (rc int) {
 	// renders pack surfaces now gets the same staged set from the same call, which is
 	// what makes "a pack works on macos-user" a property of the pipeline instead of a
 	// second implementation. Pinned by TestPacksAreStagedBeforeBackendDispatch.
+	//
+	// THE HOME FIRST (legacyhome.go, named-setups-plan.md SUP-D9/SUP-D21): every setup has its own
+	// home under .yolo/setups/<name>, and a legacy .yolo/home moves there once no jail of the
+	// project runs. Here, after every gate that can refuse the launch and before anything reads
+	// or prepares a home, so a refused launch moves nothing. A dry run moves nothing either: it
+	// names the home a launch would bind now. Pinned by
+	// TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome.
+	if o.DryRun {
+		o.homeState = o.currentHome()
+	} else {
+		o.selectHome()
+	}
+	// The no-link check the chosen home is bound by pathname after (SUP-D30): a link the jail left
+	// at `.yolo/setups`, the setup's directory or its home is refused as one at `.yolo` is above.
+	if linked := linkedWorkspaceState(o.Workspace, o.homeDir()); linked != "" {
+		o.refuseLinkedState(linked)
+		return 1
+	}
 	cname := runtime.FromWorkspace(o.Workspace)
 	o.stagingCfg = cfg
 	// Each arm takes the workspace launch lock where it first touches what the workspace's
@@ -1129,7 +1129,7 @@ func Run(opts Options) (rc int) {
 		// with no readable login and nowhere to save one. Through the launch env, so the session
 		// env file carries it to every process of the session, as the container argv carries it to
 		// every exec. A --dry-run plan shows it.
-		sharedHome := macosuser.LaunchHomes(o.MacosUserMode, o.Workspace, o.macosUserHostHome()).Shared
+		sharedHome := macosuser.LaunchHomes(o.MacosUserMode, o.homeDir(), o.macosUserHostHome()).Shared
 		if dir := o.claudeSecureStorageDir(rt, cfg, staged.packs, sharedHome); dir != "" {
 			launchEnv.Set(claudeview.SecureStorageEnv, dir)
 		}
@@ -1240,7 +1240,7 @@ func Run(opts Options) (rc int) {
 			if channel != nil {
 				channel.hostKeychainEnv = o.readHostKeychainEnv(staged.packs)
 			}
-			writeMacosUserAgentEnvFiles(paths.WorkspaceHomeState(o.Workspace), channel)
+			writeMacosUserAgentEnvFiles(o.homeDir(), channel)
 		}
 		// The launch's fate is known: this backend runs it from here (launchrecord.go). A dry
 		// run starts nothing, and Run's deferred record says so.
@@ -1282,6 +1282,10 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun {
 			guest.OnLaunch = o.macosUserRelaysAt(portPlan.relays)
 		}
+		// The selected setup's home (docs/design/named-setups.md §9) is HOME in both modes and
+		// where the layout links land; it crosses with the overlay that lays them
+		// (TestMacosUserLaunchCarriesTheSetupsHome).
+		homeOverlay.Sidecar = o.homeDir()
 		sp = o.Perf.Span("launch.macos_user")
 		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
@@ -2886,7 +2890,7 @@ func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
 		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
 	if rt != "macos-user" { // parity: NotApplicable — the macos-user bootstrap keeps no jail perf log, so there is no jail half to name
 		o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
-			filepath.Join(paths.WorkspaceStateDir(o.Workspace), jailPerfRel(rt)))
+			filepath.Join(paths.WorkspaceStateDir(o.Workspace), jailPerfRel(rt, o.homeRel())))
 	}
 }
 
@@ -3206,7 +3210,7 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// read them once at boot. So the attach delivers those, recomposing when they differ, and a
 	// jail launched before caller tokens keeps delivering none it could check.
 	if deliver && channel != nil {
-		rekeyed, err := o.rekeyChannelForAttach(paths.WorkspaceHomeState(o.Workspace),
+		rekeyed, err := o.rekeyChannelForAttach(o.homeDir(),
 			view.staged.packs, channel, func(packs []*packload.Pack) (*packChannel, error) {
 				return o.composePackChannel(cfg, packs, channel.userEnv)
 			})
@@ -3555,7 +3559,7 @@ func (o *Options) deliverChannelOnAttach(cname, rt, sessionID string, cfg *jsonx
 	// channel would have left behind. Both binds are live; no argv changes.
 	// With this session's entry snapshot, under sessionID; a snapshot that cannot be written
 	// refuses the entry (refuseSnapshotWrite).
-	if err := deliverChannel(paths.WorkspaceHomeState(o.Workspace), rt, sessionID, channel); err != nil {
+	if err := deliverChannel(o.homeDir(), rt, sessionID, channel); err != nil {
 		o.refuseSnapshotWrite(err)
 		return 1
 	}

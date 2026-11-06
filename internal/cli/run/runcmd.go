@@ -80,6 +80,11 @@ type Options struct {
 	// all derive from it: Backend() is the runtime, RunAs the mode, Kind() the notch.
 	Setup       setup.Setup
 	setupChoice config.SetupChoice
+	// homeState is the host directory this launch binds as its home, chosen by selectHome right
+	// after resolveSetup (legacyhome.go): the setup's <ws>/.yolo/setups/<name>/home, or the legacy
+	// <ws>/.yolo/home while it is still the setup's (named-setups-plan.md SUP-D21). Read through
+	// homeDir(), never directly, so a caller outside Run still gets the setup's answer.
+	homeState string
 	// SetupRef carries the resolved setup back across the by-value Options seam to the front
 	// door's macos-user handler (cli.runRun), which reads who the sandbox runs as from it. nil
 	// outside the front door.
@@ -866,7 +871,7 @@ type Options struct {
 	// A seam because the capture engine lives in internal/cli (the parent package),
 	// which imports this one — the front door injects it, exactly as it does
 	// MacosUserRun.
-	CaptureOnTerminate func(workspace, runtime string)
+	CaptureOnTerminate func(workspace, home, runtime string)
 	// RestoreTerminal undoes whatever the front door did to the terminal for the
 	// duration of the launch — the kitty tab's jail icon and colour, or the tmux
 	// pane's. nil is legitimate: a launch not attached to a kitty or tmux terminal
@@ -968,7 +973,7 @@ func (o *Options) captureConfigOnTerminate(rt string) {
 		return
 	}
 	defer func() { _ = recover() }()
-	o.CaptureOnTerminate(o.Workspace, rt)
+	o.CaptureOnTerminate(o.Workspace, o.homeDir(), rt)
 }
 
 // timingRecording is the RECORDING gate: does this launch collect spans and
