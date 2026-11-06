@@ -307,6 +307,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     Beside it, [what just happened in this jail](../design/jail-history.md): its first slice is built; the rest waits on [OQ-JH1](../design/jail-history.md#OQ-JH1), [OQ-JH2](../design/jail-history.md#OQ-JH2) and [OQ-JH4](../design/jail-history.md#OQ-JH4).
 23. [Rule the add-only model lists](../design/model-lists-and-pickers.md) and [web search on Bedrock](../design/bedrock-web-search.md)
     — what most agents' menus show turns on the first, and no agent gets search from Bedrock on runtime.
+    Beside them, [make the narrowed list the only models a Bedrock credential can call](../design/model-allowlist.md)
+    — a pi subagent called a model its menu no longer offered, and only the credential refuses every path.
 24. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
 25. [Measure the in-jail nix root watcher end to end](../reference/in-jail-nix-roots.md) — the running jail observed a tiny build through the watcher, but host root resolution remains unverified; the attempted shared-store root query pruned stale entries, so finish with a safe host-side observation.
@@ -609,7 +611,7 @@ and the credential store are items 11 and 20, and storage relocation and OrbStac
 | 20 — the keychain from a jail | D | Keychain scope, unlock and migration, which settles Copilot's machine-wide login. **Maintainer**. |
 | 21 — the starting tab's Ctrl-C in a shared jail | D | [OQ-JL10](../design/jail-lifetime-last-session-wins.md#OQ-JL10); its build then waits on the sidecars and doorbell. **Maintainer**. |
 | 22 — boot snapshot and diagnostic dial | D | [OQ-DB2](../design/diagnostics-past-the-boundary.md#oq-db2): is the boot snapshot always-on (leaning: on give-up paths only)? **Maintainer**. The [§4.6](../design/diagnostics-past-the-boundary.md#46-retention-and-size-decided) byte-cap adoption on the eight unbounded sinks is a separate A fragment. |
-| 23 — add-only model lists and Bedrock web search | D | Rule the model lists and web search on Bedrock. **Maintainer**. |
+| 23 — add-only model lists, Bedrock web search, the model allowlist | D | Rule the model lists and web search on Bedrock, then [OQ-MA1](../design/model-allowlist.md#OQ-MA1)–[OQ-MA3](../design/model-allowlist.md#OQ-MA3) (how a user marks the allowed set, and the two launches the credential cannot narrow alone). **Maintainer**. |
 | 24 — pack-declared traps vs the agent directory map | D | Does the map supersede the traps design? Rule before building either. **Maintainer**. |
 | 25 — in-jail nix root watcher measurement | A | Running-jail watcher observation is recorded; host resolution remains open. Use a safe host-side observation: the attempted shared-store `nix-store --query --roots` pruned stale entries, so do not repeat without isolation. |
 | 26 — H4, suite levers, the forked program, completion | D | Name the real forked program (source, build line and `produces`) for step 7, and rule whether integration sharding unparks. **Maintainer**. The H4 review of the root-owned capture store is X (a Mac); the native-addon measurement is recorded as blocked on a build line (`2f7e7d5ff`). |
