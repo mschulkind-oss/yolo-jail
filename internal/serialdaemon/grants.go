@@ -76,7 +76,7 @@ func (a access) devices() []string {
 func (a access) refusal(device string) (loopholegrant.Refusal, bool) {
 	r := loopholegrant.Refusal{
 		Client: "yolo-serial", Pack: a.block.Pack, Access: a.block.Access, Kind: devicesKind,
-		ValueNoun: a.kind.ValueNoun, Dir: a.block.Workspace, Standing: loopholegrant.NotAllowed,
+		ValueNoun: a.kind.ValueNoun, Standing: loopholegrant.NotAllowed,
 	}
 	if r.Pack == "" {
 		r.Pack = grantPack

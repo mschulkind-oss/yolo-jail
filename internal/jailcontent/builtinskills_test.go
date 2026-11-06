@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -267,5 +268,34 @@ func TestTheJailSkillTellsTheTruthAboutTheBrokeredKeysAndTheLocalFile(t *testing
 	}
 	if strings.Contains(flat, "gitignored per-machine") {
 		t.Error("the configuring-the-jail skill still calls the local file gitignored")
+	}
+}
+
+// An approval (`yolo allow`, `yolo approve`, `yolo config apply`) is the human's own answer, run
+// directly in a host terminal (the jail briefing's "Approvals are not host-run"): no built-in
+// skill hands one over as a `yolo host-run` line, and configuring-the-jail hands the allow a
+// request outside the ceiling needs over as the bare command.
+func TestNoBuiltinSkillRoutesAnApprovalThroughHostRun(t *testing.T) {
+	routed := regexp.MustCompile("yolo host-run[^`\n]*--\\s+yolo\\s+(allow|approve|config\\s+apply)")
+	err := fs.WalkDir(builtinskills.FS, ".", func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		b, err := builtinskills.FS.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if m := routed.Find(b); m != nil {
+			t.Errorf("%s routes an approval through host-run: %q", p, m)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, _ := builtinskills.FS.ReadFile("configuring-the-jail/SKILL.md")
+	flat := strings.Join(strings.Fields(string(skill)), " ")
+	if !strings.Contains(flat, "`yolo allow <pack> on_request <kind>`, alone on its own line, to run directly in a host terminal") {
+		t.Error("configuring-the-jail does not hand the out-of-ceiling allow over as the bare command to run directly on the host")
 	}
 }

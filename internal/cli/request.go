@@ -187,7 +187,8 @@ func reportRequestSkipped(out io.Writer, source, capability, description string)
 		"so this project runs without it.\n  To allow it for every project you work on (in your config, not this file):\n    %s\n",
 		source, description, capability, strings.Join(allowArgv, " "))
 	if config.InJail() {
-		fmt.Fprintf(out, "  (from this jail:  %s)\n", hostRunLineFor(allowArgv))
+		// An allow is the human's own answer: never a `yolo host-run` line.
+		fmt.Fprintln(out, "  (From this jail: the human runs it directly in a host terminal, not through `yolo host-run`.)")
 	}
 }
 

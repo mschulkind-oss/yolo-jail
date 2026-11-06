@@ -94,6 +94,6 @@ func (p Policy) decide(br bridge) (mode, refusal string, rc int) {
 	logf("[%s] refused: %s is %s", br.pack, kindRead, standing)
 	return "", loopholegrant.Refusal{
 		Client: br.client, Pack: pack, Access: access, Kind: kindRead,
-		Dir: block.Workspace, Standing: standing,
+		Standing: standing,
 	}.Text(), refusalExit
 }

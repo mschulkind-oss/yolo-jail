@@ -62,7 +62,7 @@ func TestHostprocessesReadsOnlyItsGrantFile(t *testing.T) {
 	}
 	want := loopholegrant.Refusal{Client: "yolo-ps", Pack: "host-processes",
 		Access: "see host processes", Kind: "view", ValueNoun: "process names",
-		Dir: "/home/u/proj", Standing: loopholegrant.Requestable}.Text()
+		Standing: loopholegrant.Requestable}.Text()
 	if string(stderr) != want {
 		t.Errorf("requestable stderr:\n%s\nwant:\n%s", stderr, want)
 	}

@@ -264,7 +264,8 @@ live ([§4.6](#46-how-a-grant-reaches-the-machinery)).
 
 Every refusal names the problem, then the step
 ([`happy-path-principle.md`](happy-path-principle.md#the-next-step-ladder)). The standing decides
-which step; each client fills its noun. `<dir>` is the host path of the workspace. The texts are
+which step; each client fills its noun. An allow is the human's own answer, so it is printed
+alone, to run directly in a host terminal, never as a `yolo host-run` line. The texts are
 rendered by `internal/loopholegrant`, and a refused call exits 64.
 
 **Standing `requestable`:**
@@ -281,8 +282,8 @@ yolo-journalctl: this project holds no grant to read the host's journal, so noth
 ```text
 yolo-ps: this project holds no grant to see host processes, so nothing ran.
   Your user config does not allow host-processes view on request, so a request would be skipped.
-  The human allows it, on the host:   yolo allow host-processes on_request view
-    (or:  yolo host-run -C <dir> --name allow-host-processes -- yolo allow host-processes on_request view)
+  The human allows it, directly in a host terminal (not through `yolo host-run`):
+    yolo allow host-processes on_request view
   then this project asks:             yolo request host-processes view <process names>
   then the human runs `yolo config apply` on the host, in this workspace, and answers y.
 ```
