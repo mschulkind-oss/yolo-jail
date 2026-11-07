@@ -373,9 +373,10 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     [let the agent read and predict its own access](../design/access-introspection.md) — G3 core is partly integrated,
     and G4's HTTP front is integrated but not activated. The next G4 candidate is blocked on one ownership-lifetime
     gap pending repair and a new review; [Task 3](../design/pack-brokers-http-plan.md#g4-task-3-local-tls-authentication-and-the-host-generation-seal)
-    has nothing built, and publication stays off. [OQ-HTTP2](../design/pack-brokers-http.md#OQ-HTTP2) holds only a
-    selected client shown incompatible, [OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1) gates only custom
-    executor/signing, and `ForAddRemember` stays off under [OQ-BX7](../design/pack-brokers.md#OQ-BX7).
+    has nothing built, and publication stays off. A custom signer returns only a header
+    ([OQ-HTTP1](../design/pack-brokers-http.md#OQ-HTTP1), ruled 2026-11-06), a pack gets no permanent Add
+    ([OQ-BX7](../design/pack-brokers.md#OQ-BX7), ruled), and timed multiwrite answers wait on
+    [BX-D17](../design/pack-brokers.md#BX-D17) and [BX-D18](../design/pack-brokers.md#BX-D18).
     [The HTTP plan](../design/pack-brokers-http-plan.md) and [the broader seed](../design/pack-brokers-plan.md) record
     the boundaries.
 55. [Bound Yolo workspace work in owner-managed resource groups](../design/resource-groups.md) — the default-off

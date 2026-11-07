@@ -10,7 +10,7 @@ summary: "G3 core is partially integrated; private delivery is proposed and unve
 
 # Pack broker HTTP calls stay within the selected host decision
 
-**Status:** 2026-11-06. G3 core remains partial; closure of four findings is not full G3 acceptance. Primary `7e587d200af37d654582303af5c1be0136432be2` adds a six-file G4 front that is manually dispatchable but lacks selected-pack launch, local authentication, private custody and publication. Focused package/race and cross-platform checks, matched bundle, host preflight, rootful empty-pack smoke and selective `just done` passed; these prove neither HTTP activation, native/rootless isolation, full CI nor full G4, and independent primary review is pending. Private ordinary-client delivery remains proposed. Focused HIGH reviews closed exactly the three Task 1 contract findings (`G4_PRIVATE_PAYLOAD_TASK1_THREE_FINDINGS_CLOSURE: OK`) and the exact Task 2 semver-fixture first-slice finding (`TASK2_EXACT_FIXTURE_CLOSURE: OK`). READY+HIGH review of Task 1 source candidate `439baecc7639177b5d0e5a6c42261f000c4bc33b` (tree `b77aecdc70e3e6153eca6d681592a75b34614552`) returned BLOCK on one P1 ownership-lifetime gap: absent service-scope evidence can be mistaken for affirmative non-G4 state while a prepared pair remains owned until container absence, allowing attach to skip adoption when the running tree is unavailable. The missing-lock and captured lost-tree branches are closed, as are the five earlier findings. The candidate remains unaccepted and unintegrated pending repair of the ownership-lifetime gap and a new READY+HIGH review. Task 1 remains DECIDED/BUILD-scoped; the Task 2 slice is DECIDED/conditional BUILD only after Task 1 source acceptance. The rest of Task 2 remains a sketch; Task 3 is a [sliced build contract](pack-brokers-http-plan.md#g4-task-3-local-tls-authentication-and-the-host-generation-seal) with nothing built. These closures are not an architecture-owner ruling or approval of the G4 design, wire, publication, private delivery, or native/whole-G4 acceptance. Compatible cells remain separately gated. [OQ-HTTP2](#OQ-HTTP2) is fallback-only after demonstrated incompatibility; [OQ-HTTP1](#OQ-HTTP1) gates only custom executor/signing. No host sandbox, live grants or proposed custom-executor wire is accepted. This does not accept the broader [pack broker design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add and mixed-cell timed answers.
+**Status:** 2026-11-06. G3 core remains partial; closure of four findings is not full G3 acceptance. Primary `7e587d200af37d654582303af5c1be0136432be2` adds a six-file G4 front that is manually dispatchable but lacks selected-pack launch, local authentication, private custody and publication. Focused package/race and cross-platform checks, matched bundle, host preflight, rootful empty-pack smoke and selective `just done` passed; these prove neither HTTP activation, native/rootless isolation, full CI nor full G4, and independent primary review is pending. Private ordinary-client delivery remains proposed. Focused HIGH reviews closed exactly the three Task 1 contract findings (`G4_PRIVATE_PAYLOAD_TASK1_THREE_FINDINGS_CLOSURE: OK`) and the exact Task 2 semver-fixture first-slice finding (`TASK2_EXACT_FIXTURE_CLOSURE: OK`). READY+HIGH review of Task 1 source candidate `439baecc7639177b5d0e5a6c42261f000c4bc33b` (tree `b77aecdc70e3e6153eca6d681592a75b34614552`) returned BLOCK on one P1 ownership-lifetime gap: absent service-scope evidence can be mistaken for affirmative non-G4 state while a prepared pair remains owned until container absence, allowing attach to skip adoption when the running tree is unavailable. The missing-lock and captured lost-tree branches are closed, as are the five earlier findings. The candidate remains unaccepted and unintegrated pending repair of the ownership-lifetime gap and a new READY+HIGH review. Task 1 remains DECIDED/BUILD-scoped; the Task 2 slice is DECIDED/conditional BUILD only after Task 1 source acceptance. The rest of Task 2 remains a sketch; Task 3 is a [sliced build contract](pack-brokers-http-plan.md#g4-task-3-local-tls-authentication-and-the-host-generation-seal) with nothing built. These closures are not an architecture-owner ruling or approval of the G4 design, wire, publication, private delivery, or native/whole-G4 acceptance. Compatible cells remain separately gated. [OQ-HTTP2](#OQ-HTTP2) is withdrawn until a client is shown incompatible; [OQ-HTTP1](#OQ-HTTP1) is ruled: a custom signer returns only header material, and its wire is not designed. No host sandbox, live grants or proposed custom-executor wire is accepted. This does not accept the broader [pack broker design](pack-brokers.md), whose [OQ-BX7](pack-brokers.md#OQ-BX7) still governs permanent Add and mixed-cell timed answers.
 
 > **In short.** An HTTP front carries a call, not authority: only the selected host broker binds its destination and credential, classifies exact bytes and fresh facts, decides, audits and executes once.
 
@@ -21,11 +21,11 @@ hand-off); [`pack-brokers.md`](pack-brokers.md) (shared terms, decisions, classi
 executor rules); [`access-introspection.md`](access-introspection.md) (the shared decision
 pipeline).
 
-This scope excludes For/Add/Remember and mixed-cell timed approvals pending
-[OQ-BX7](pack-brokers.md#OQ-BX7), MCP sign-in, actual CircleCI/cloud auth, and publication.
+This scope excludes mixed-cell timed approvals until
+[BX-D17](pack-brokers.md#BX-D17) and [BX-D18](pack-brokers.md#BX-D18) are built (there is no Add, per [OQ-BX7](pack-brokers.md#OQ-BX7)), MCP sign-in, actual CircleCI/cloud auth, and publication.
 No new credential channel, grant, approval RPC or relaxed CLI limit is authorized.
 
-**Needs your ruling:** [OQ-HTTP1](#OQ-HTTP1), [OQ-HTTP2](#OQ-HTTP2).
+**Needs your ruling:** nothing. [OQ-HTTP1](#OQ-HTTP1) is ruled (a pack signer returns only a header; core sends the request), and [OQ-HTTP2](#OQ-HTTP2) is withdrawn until a client is shown incompatible.
 
 ## HTTP pending custody and revalidation
 
@@ -131,9 +131,9 @@ sandbox or a restriction on independent host-program network activity.
 
 The HTTP contract specifies a core-owned pinned transport path and requires custom signing
 to occur only after decision. It does not say whether an HTTP pack executor only supplies
-authentication material or conducts the request. That distinction is open in
-[OQ-HTTP1](#OQ-HTTP1); no signer wire or expansion of credential channels, grants, or
-approval behavior is accepted here.
+authentication material or conducts the request. [OQ-HTTP1](#OQ-HTTP1) rules it: the
+program returns only header material and core sends the request. The signer's wire is not
+designed yet, and no expansion of credential channels, grants, or approval behavior is accepted here.
 
 ## HTTP front, refusal and retries
 
@@ -146,7 +146,7 @@ approval behavior is accepted here.
 | What the classifier reads | argv and the stdin digest | method, path, query, allowlisted headers, body |
 | Canonical form | argv | request bytes |
 | Lookups | argv templates | request templates |
-| Credential | The host program's own login | The core-owned transport path builds a header from a declared source; custom executor authority is [open](#OQ-HTTP1) |
+| Credential | The host program's own login | The core-owned transport path builds a header from a declared source; a custom signer returns only header material ([OQ-HTTP1](#OQ-HTTP1)) |
 | Executor hazards | Host file writes by flag, a server or token flag, spawned helper programs, git pushes | Redirects, cookies, credentials in URLs, response size, non-safe methods that read |
 | A refusal reaches the agent as | Exit 64 and the refusal text on stderr, as `gh`'s | Status 403 with headers `Yolo-Verdict` and `Yolo-Request`, and a body in the error shape the block declares (GraphQL's `errors` array for the local HTTP proof), whose message is the refusal text |
 | An ask reaches the agent as | Exit 75 and the menu | Status 403, `Yolo-Verdict: asks`, the menu in the message |
@@ -181,9 +181,8 @@ implemented.
 **Design proposal only.** The owner prefers a fresh jail-scoped replacement token in the
 selected client's ordinary API-token field, consumed by the front while the host independently
 injects the real origin credential. That preference does not settle custody, local wire,
-client compatibility or backend support. A demonstrated incompatible client remains an
-[OQ-HTTP2](#OQ-HTTP2) fallback question; it does not hold compatible cells whose own gates
-pass.
+client compatibility or backend support. A client shown incompatible holds only its own cell, and its fallback is asked
+then ([OQ-HTTP2](#OQ-HTTP2)); it does not hold compatible cells whose own gates pass.
 
 #### Private payload and consumer integrity
 
@@ -308,41 +307,9 @@ separate; not every HTTP transport error proves transmission.
 
 The selected in-jail front and launch publication are not wired in the checked primary tree; these requirements are not runtime proof. No token store, keychain, privilege, global mount, parallel approval RPC, channel, grant, or source-specific registry is added.
 
-## Open Questions
+## Decision Ledger
 
-1. 💬 **OQ-HTTP1: Should an HTTP pack executor sign a request or conduct it?**
-
-   Priya selects an HTTP pack that needs a body signature or per-call token, then approves
-   a request. The parent design allows a pack executor after that decision; HTTP specifies
-   core's pinned transport and a post-decision signer, but not whether the signer can send the
-   request.
-
-   - **A — Header-only signer.** The program returns authentication-header material; core
-     sends the canonical request and enforces its origin, redirect and response rules.
-   - **B — Full HTTP executor.** The program conducts the approved canonical request; core
-     audits its result but cannot claim its own transport checks.
-
-   <!-- vantage: question id=OQ-HTTP1 leaning="A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established." -->
-
-   _Leaning:_ A — header-only signer. Keep broker-mediated transport checks in core; no HTTP pack requirement for executor-owned transport is established.
-
-2. 💬 **OQ-HTTP2: What fallback applies if a selected client is demonstrated incompatible with the ordinary token field?**
-
-   The preferred direction is a fresh jail-scoped token in the client's ordinary API field,
-   consumed by the front while the host injects the origin credential. No client incompatibility
-   is demonstrated. Rule this only if a selected client/setup fails verification; compatible
-   cells may proceed when their gates pass.
-
-   - **A — Hold only the incompatible cell** and preserve its backend intent; proceed with
-     compatible cells.
-   - **B — Build another verified path** for that cell; do not exclude the client or backend.
-
-   <!-- vantage: question id=OQ-HTTP2 leaning="Continue the ordinary-field path; hold only a demonstrated incompatible cell for its concrete fallback ruling. Compatible cells have no blanket delay." -->
-
-   _Leaning:_ Keep ordinary-field engineering moving. If evidence identifies an incompatible
-   cell, hold only that cell and ask for its concrete fallback; do not delay compatible cells or
-   pre-emptively exclude any client/backend.
-
-   **Answer:**
-
-   > _(empty — fill in when decided)_
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-HTTP1"></a>[OQ-HTTP1](#OQ-HTTP1) | **A pack's program that signs HTTP requests only returns the authentication header; core sends the request.** Core keeps enforcing the pinned origin, the redirect refusal and its response rules. The other option, a pack program that sends the request itself, is rejected: it would hold the credential and the network at once with core only auditing, which defeats the broker. The owner (2026-11-06): *"how is B even an option? you're just saying give them everything? then what's the point of the loophole?"* | 2026-11-06 | the owner's answer in chat; [custom-executor boundary](#http-custom-executor-boundary) | — |
+| <a id="OQ-HTTP2"></a>[OQ-HTTP2](#OQ-HTTP2) | **Withdrawn: there is no question until an agent is shown unable to use its ordinary token field.** Until then the ordinary-field path proceeds. If one fails verification, only that client and setup is held, and its fallback is asked then, with the evidence. The owner agreed (2026-11-06) | 2026-11-06 | the owner's answer in chat | — |

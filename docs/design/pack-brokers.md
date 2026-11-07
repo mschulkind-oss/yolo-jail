@@ -3,7 +3,7 @@ title: "Pack brokers: a third-party pack brokers its own service through core's 
 date: 2026-11-04
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BX7 before enabling permanent Add and mixed-cell timed pack approvals"
+next: "Build BX-D17 and BX-D18 (timed multiwrite answers capped by the smallest max_for, stored all-or-none); no permanent Add, per OQ-BX7"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
@@ -15,7 +15,7 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
 
-**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and full nested conformance remain. The separate [HTTP contract](pack-brokers-http.md) is accepted and has a completed build plan; its runtime front/executor remain unimplemented. Neither live authentication nor positive real grants are established. Timed/Add multiwrite approvals remain disabled while [OQ-BX7](#OQ-BX7) is open.
+**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and full nested conformance remain. The separate [HTTP contract](pack-brokers-http.md) is accepted and has a completed build plan; its runtime front/executor remain unimplemented. Neither live authentication nor positive real grants are established. Timed multiwrite approvals stay disabled until [BX-D17](#BX-D17) and [BX-D18](#BX-D18) are built; [OQ-BX7](#OQ-BX7) ruled out permanent Add.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
@@ -38,7 +38,7 @@ HTTP front, and a conformance kit.
 
 **Start at [§5](#5-two-layers)**, then [§6](#6-the-decision-is-cores).
 
-**Needs your ruling:** [OQ-BX7](#OQ-BX7) for a pack cell's `max_for` and permanent Add.
+**Needs your ruling:** nothing. [OQ-BX7](#OQ-BX7) is ruled (2026-11-06): a pack gets the same approval answers as yolo's own packs, so no permanent Add.
 
 **Reads with:** [`access-introspection.md`](access-introspection.md) (the readout and the dry run;
 its decision function is the one every call broker uses),
@@ -639,7 +639,7 @@ its tool name. Nothing here builds it.
 
 ## Decision Ledger
 
-### Open approval-policy question
+### Approval answers a pack gets
 
 The common approval model already settles Allow once (one exact use within 15 minutes),
 a 15-minute timed offer, Add, Deny and user-selected buttons ([BB-D77](boundary-broker.md#BB-D77),
@@ -647,26 +647,6 @@ a 15-minute timed offer, Add, Deny and user-selected buttons ([BB-D77](boundary-
 are per-resource, with no use cap or session ceiling ([BB-D79](boundary-broker.md#BB-D79),
 [BB-D83](boundary-broker.md#BB-D83), [BB-D89](boundary-broker.md#BB-D89)). The old
 `brokerstore.Policy` window fields do not supersede these rulings.
-
-1. 💬 **OQ-BX7: Does a pack cell's `max_for` constrain a permanent Add answer?**
-
-   <!-- vantage: question id=OQ-BX7 leaning="Keep Add separate from the timed max_for cap, but offer it only when every write can be covered by a gate-approved working-set cell; a multiwrite approval must cover all resources atomically or refuse." -->
-
-   A call may change two resources in different cells, one with `max_for = "1h"`, and the
-   human answers once for the whole call. `max_for` caps *timed* pack approvals, but does
-   it remove permanent Add too? If one write lacks a working-set cell, Add for only the
-   other write cannot allow the whole call. Core must revalidate every resource and
-   commit an allowed multiwrite answer atomically; today's per-entry store loop can leave
-   partial entries if a later write fails.
-
-   _Leaning:_ A: timed `--for` is refused if it exceeds **any** affected cell's `max_for`;
-   Add remains independent of that duration cap but is available only when **every** write
-   has a gate-approved working-set cell and current host coverage. Otherwise Add refuses
-   without changing any resource. B: a cell with `max_for` cannot receive an Add answer at
-   all, so even a working-set-eligible cell must use timed approval. Which boundary should
-   apply? Existing `brokerstore.DecideWorking`'s per-entry writes under one lock do not
-   themselves establish an all-or-none multi-resource commit; that is an implementation
-   repair, not a new default duration or use-count choice.
 
 Owner rulings and designer decisions are recorded below. A settled decision is not evidence
 that its implementation is built.
@@ -685,7 +665,7 @@ that its implementation is built.
 | BX-D4 | Lookups run through core's executor and must classify as reads | 2026-11-04 | [§7.3](#73-lookups) | — |
 | BX-D5 | Scope roots are the workspace's remotes or roots declared in the workspace config, both through the gate | 2026-11-04 | [§7.1](#71-the-block) | — |
 | BX-D6 | A resource may join a source's working set by following another source's working set, as declared | 2026-11-04 | [§7.4](#74-working-set-rules) | — |
-| BX-D7 | A call with several writes is decided per write; it asks once for the whole call | 2026-11-04 | [§6](#6-the-decision-is-cores) | — |
+| <a id="BX-D7"></a>BX-D7 | A call with several writes is decided per write; it asks once for the whole call | 2026-11-04 | [§6](#6-the-decision-is-cores) | — |
 | BX-D8 | The HTTP executor follows no redirect; only POST reads on a declared, gate-shown path, checked against original and canonical requests | 2026-11-05 | [§8.2](#82-the-http-executor) | — |
 | BX-D9 | The MCP sign-in broker uses the framework and not the call layer | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
 | BX-D10 | CircleCI's `api` passthrough is refused; the CLI's shortfalls are stated and not filled from the HTTP API | 2026-11-04 | [§11.4](#114-where-the-cli-falls-short) | — |
@@ -695,3 +675,6 @@ that its implementation is built.
 | BX-D14 | `server` and `generation` are framework audit fields, optional per daemon | 2026-11-04 | [§5.1](#51-the-host-broker-framework) | — |
 | BX-D15 | On Apple Container the MCP sign-in broker's readout line is the framework's unreachable line until the MCP plan's phase C admits it | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
 | BX-D16 | Names are the MCP design's (`mcp-auth`, `mcp-auth-broker`, `yolo mcp-auth`); its records are never listed by `yolo approve`, `yolo wait` or `yolo history` | 2026-11-04 | [§13](#13-coherence-with-the-mcp-sign-in-broker) | — |
+| <a id="OQ-BX7"></a>[OQ-BX7](#OQ-BX7) | **A pack gets exactly the approval answers yolo's own packs get, so no permanent Add.** The owner (2026-11-06): *"3rd party packs should have all the same options as packs we build."* `yolo approve --add` and `--remember` are removed for git ([GB-D28](git-broker.md#GB-D28)) and refused for GitHub, so a pack cell offers Allow once, a timed `--for` where the shipped packs offer one, and Deny. The question asked whether a cell's `max_for` also limits Add; with no Add, it does not arise. | 2026-11-06 | the owner's answer in chat | — |
+| <a id="BX-D17"></a>BX-D17 | A timed answer to a call that changes several resources may last no longer than the smallest `max_for` among them, and is refused otherwise. An implementation decision following [BX-D7](#BX-D7) and [OQ-BX7](#OQ-BX7) | 2026-11-06 | [§6](#6-the-decision-is-cores) | — |
+| <a id="BX-D18"></a>BX-D18 | An answer to a call that changes several resources is stored for every resource or for none; a failure partway leaves no entry. `brokerstore.DecideWorking`'s per-entry writes do not yet do this, so the build repairs them before timed multiwrite answers are enabled. An implementation decision | 2026-11-06 | [§6](#6-the-decision-is-cores) | — |
