@@ -1214,7 +1214,9 @@ base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `pl
 
 A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)
 entry does, with a cause line (`+ pi (forked by pi-matt)`), when the base is a pack yolo ships. A
-base yolo does not ship must be in `packs` by name. The selection refuses a fork whose base is
+base yolo does not ship must be in `packs`; `fork_of` names it by its own name, the last segment
+of its `<source>/<pack>` handle, so `fork_of = "board"` finds `local/board`, and two selected packs
+with that own name are refused, naming both. The selection refuses a fork whose base is
 absent, a base that declares no program by the fork's bin, a pack forking itself, and two forks of
 one program.
 

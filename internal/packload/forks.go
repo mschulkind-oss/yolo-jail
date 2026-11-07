@@ -360,15 +360,16 @@ func Forks(packs []*Pack) []Fork {
 			if !c.IsFork() {
 				continue
 			}
+			base := resolveForkBase(packs, c.ForkOf)
 			out = append(out, Fork{
-				Pack: p.Name, Base: c.ForkOf, Bin: c.Bin, Source: c.Source, Build: c.Build,
+				Pack: p.Name, Base: base, Bin: c.Bin, Source: c.Source, Build: c.Build,
 				Produces:  append([]string(nil), c.Produces...),
 				Platforms: append([]string(nil), c.Platforms...),
 				Root:      p.Root, Patches: c.Patches, Follow: c.Follow, PatchBranch: c.PatchBranch,
 				PatchBranchDir:          patchBranchDirOf(p, c.ExtensionName()),
 				PatchBranchRepoIdentity: patchBranchRepositoryOf(p, c.ExtensionName()),
 				PackBases:               slices.Clone(bases),
-				NodeFloor:               baseProgramNodeFloor(packs, c.ForkOf, c.Bin),
+				NodeFloor:               baseProgramNodeFloor(packs, base, c.Bin),
 			})
 		}
 	}
@@ -387,6 +388,46 @@ func baseProgramNodeFloor(packs []*Pack, base, bin string) string {
 		}
 	}
 	return ""
+}
+
+// resolveForkBase is the selected pack a fork's `fork_of` names. `fork_of` is a bare pack name
+// (packdecl refuses a "/"), while a configured pack's Name is its handle, `<source>/<pack>` —
+// so a base is matched first by its whole Name (a shipped pack's, which is bare), then by its own
+// word, the handle's last segment, which is the author's name for the pack (packsrc's handleScope)
+// and the only spelling a fork author can write, since the source is the user's choice. A word two
+// selected packs share resolves to neither, and is returned as written; ApplyForks names the
+// packs that share it.
+func resolveForkBase(packs []*Pack, base string) string {
+	matches := forkBaseCandidates(packs, base)
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return base
+}
+
+// forkBaseCandidates is the distinct Names of the selected packs base can name: the one whose Name
+// is base, else every pack whose own word is base.
+func forkBaseCandidates(packs []*Pack, base string) []string {
+	var own []string
+	seen := map[string]bool{}
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		if p.Name == base {
+			return []string{base}
+		}
+		if packOwnWord(p.Name) == base && !seen[p.Name] {
+			seen[p.Name] = true
+			own = append(own, p.Name)
+		}
+	}
+	return own
+}
+
+// packOwnWord is a pack Name's last "/" segment: a handle's own word, a bare name itself.
+func packOwnWord(name string) string {
+	return name[strings.LastIndex(name, "/")+1:]
 }
 
 // forkBases is the distinct base pack names p's forks name, in declaration order: the packs a
@@ -424,7 +465,8 @@ func forkBaseClosure(packs []*Pack, p *Pack) []string {
 	var out []string
 	seen := map[string]bool{p.Name: true}
 	for queue := []*Pack{p}; len(queue) > 0; queue = queue[1:] {
-		for _, base := range forkBases(queue[0]) {
+		for _, declared := range forkBases(queue[0]) {
+			base := resolveForkBase(packs, declared)
 			if seen[base] {
 				continue
 			}
@@ -473,9 +515,16 @@ func ApplyForks(packs []*Pack) ([]*Pack, error) {
 		}
 		i, ok := index[f.Base]
 		if !ok {
+			if shared := forkBaseCandidates(packs, f.Base); len(shared) > 1 {
+				problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q, and %d selected packs "+
+					"are named %s: %s — keep one of them in packs", f.Pack, f.Base, f.Bin, len(shared), f.Base,
+					strings.Join(shared, ", ")))
+				continue
+			}
 			problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q, and %s is not in "+
 				"this selection — a pack yolo ships joins by itself, and any other base must be in "+
-				"your config's packs list by that name", f.Pack, f.Base, f.Bin, f.Base))
+				"your config's packs list as a pack named %s (such as local/%s)", f.Pack, f.Base, f.Bin, f.Base,
+				f.Base, f.Base))
 			continue
 		}
 		key := f.Base + "/" + f.Bin
@@ -554,7 +603,7 @@ func forkContributionOf(packs []*Pack, f Fork) packdecl.Contribution {
 			continue
 		}
 		for _, c := range p.Decl.Contributions() {
-			if c.IsFork() && c.Bin == f.Bin && c.ForkOf == f.Base {
+			if c.IsFork() && c.Bin == f.Bin && resolveForkBase(packs, c.ForkOf) == f.Base {
 				return c
 			}
 		}
