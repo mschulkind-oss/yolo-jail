@@ -1,7 +1,7 @@
 description = "GitHub Copilot as one provider and profile: the Copilot CLI's own login, and the GitHub Copilot client pi, opencode and oh-omp have built in. It installs nothing; the copilot pack brings it, and you may select it without copilot."
 # The names this pack and its profile had before OQ-PE3 (docs/design/provider-enablement.md
 # PE-D7): a config still naming either is refused naming the new one.
-formerly = { packs = ["github-copilot"], profiles = { github-copilot = "copilot" } }
+formerly = { packs = ["github-copilot"], providers = { github-copilot = "copilot" } }
 name = "copilot-auth"
 
 # GITHUB COPILOT AS A PROVIDER, SELECTABLE WITH NO DECLARATION (providers.md, "A provider the
@@ -19,11 +19,7 @@ name = "copilot-auth"
 # itself, so an agent with no GitHub Copilot client of its own (claude, codex) is told a bare
 # `-p copilot` reaches nothing for it. `-p copilot` (a bare profile for every agent) and
 # `-p copilot=<profile>` (the Copilot CLI's selection) are told apart by the `=`.
-[[provider]]
-name = "github-copilot"
+[providers.github-copilot]
+alias = "copilot"
 pinned_endpoint = true
 platform = "github-copilot"
-
-[[profile]]
-name = "copilot"
-provider = "github-copilot"

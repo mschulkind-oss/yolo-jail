@@ -164,7 +164,7 @@ context = 32000
 		t.Fatalf("grouped Providers() = %#v", newProviders)
 	}
 	new := newProviders[0]
-	if new.Alias != "muse" || new.Model != "wire-main" || len(new.ModelOrder) != 2 || new.ModelOrder[0] != "wire-main" || new.ModelOrder[1] != "wire-fast" {
+	if !reflect.DeepEqual(new.Aliases, []string{"muse"}) || new.Model != "wire-main" || len(new.ModelOrder) != 2 || new.ModelOrder[0] != "wire-main" || new.ModelOrder[1] != "wire-fast" {
 		t.Errorf("grouped provider identity/order = %#v", new)
 	}
 	if main := new.ModelRows["wire-main"]; main.WireID != "wire-main" || main.Context != 64000 || main.Name != "Main" {

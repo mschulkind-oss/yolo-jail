@@ -170,34 +170,9 @@ func selectsNative(set []string) bool { return len(set) == 1 && set[0] == Native
 // (LegacyProfileVariant), since RC-D32 converted the profile of that name to it.
 func SelectableProfiles(user map[string]packload.UserProfile, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack) (map[string]packload.UserProfile, error) {
-	var authored *jsonx.OrderedMap
-	legacyKey := false
-	if cfg != nil && selectsThroughActiveProvider(cfg) {
-		if raw, present := cfg.Get(providersKey); present && raw != nil {
-			table, ok := raw.(*jsonx.OrderedMap)
-			if !ok {
-				return nil, fmt.Errorf("config.%s: expected a table of provider declarations", providersKey)
-			}
-			authored = table
-		}
-	} else if cfg != nil {
-		_, legacyKey = cfg.Get(ProfileKey)
-		authored = TOMLWrittenProviders(cfg)
-	}
-	declarations, err := packload.ComposeProviderDeclarations(authored, packs)
-	if err != nil && authored != nil && !selectsThroughActiveProvider(cfg) {
-		// A TOML entry that the legacy entries merged into it leave unreadable as a declaration
-		// keeps the legacy namespace as it read before RC-D57, rather than refusing a launch that
-		// read before it.
-		authored = nil
-		declarations, err = packload.ComposeProviderDeclarations(nil, packs)
-	}
+	declarations, authored, legacyKey, err := selectionDeclarations(cfg, packs)
 	if err != nil {
 		return nil, err
-	}
-	if _, err := ResolveActiveProviders(declarations, ActiveProviderSelection{}, nil); err != nil {
-		return nil, fmt.Errorf("config.%s: %w. Rename it in your config's `%s` table, or deselect "+
-			"the pack that declares it", providersKey, err, providersKey)
 	}
 	out, err := withImpliedProfiles(user, declarations, packs)
 	if err != nil || !legacyKey || authored == nil {
@@ -222,6 +197,74 @@ func SelectableProfiles(user map[string]packload.UserProfile, cfg *jsonx.Ordered
 		}
 	}
 	return out, nil
+}
+
+// selectionDeclarations is the provider declarations SelectableProfiles resolves names against,
+// composed as the launch composes them and checked as one namespace (RC-D68), with the TOML-written
+// entries of a legacy-key config (authored, nil otherwise) and whether cfg selects through the
+// legacy `profile` key.
+func selectionDeclarations(cfg *jsonx.OrderedMap, packs []*packload.Pack) ([]packdecl.ProviderContribution,
+	*jsonx.OrderedMap, bool, error) {
+	var authored *jsonx.OrderedMap
+	legacyKey := false
+	if cfg != nil && selectsThroughActiveProvider(cfg) {
+		if raw, present := cfg.Get(providersKey); present && raw != nil {
+			table, ok := raw.(*jsonx.OrderedMap)
+			if !ok {
+				return nil, nil, false, fmt.Errorf("config.%s: expected a table of provider declarations", providersKey)
+			}
+			authored = table
+		}
+	} else if cfg != nil {
+		_, legacyKey = cfg.Get(ProfileKey)
+		authored = TOMLWrittenProviders(cfg)
+	}
+	declarations, err := packload.ComposeProviderDeclarations(authored, packs)
+	if err != nil && authored != nil && !selectsThroughActiveProvider(cfg) {
+		// A TOML entry that the legacy entries merged into it leave unreadable as a declaration
+		// keeps the legacy namespace as it read before RC-D57, rather than refusing a launch that
+		// read before it.
+		authored = nil
+		declarations, err = packload.ComposeProviderDeclarations(nil, packs)
+	}
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if _, err := buildProviderNamespace(declarations); err != nil {
+		return nil, nil, false, fmt.Errorf("config.%s: %w. Rename it in your config's `%s` table, or deselect "+
+			"the pack that declares it", providersKey, err, providersKey)
+	}
+	return declarations, authored, legacyKey, nil
+}
+
+// ReplacedNameRefusals is, for each name a `name` replaced in the provider declarations cfg's
+// `providers` table and packs compose to, the refusal of selecting it (RC-D68): `openrouter is
+// named "or" in your config (providers.openrouter.name): -p or`. A name a profile or another
+// declaration holds is not in it, since that holder selects it. Nil when there are none or the
+// declarations do not compose, which SelectableProfiles refuses in its own words.
+func ReplacedNameRefusals(cfg *jsonx.OrderedMap, packs []*packload.Pack, user map[string]packload.UserProfile) map[string]string {
+	declarations, _, _, err := selectionDeclarations(cfg, packs)
+	if err != nil {
+		return nil
+	}
+	ns, err := buildProviderNamespace(declarations)
+	if err != nil || len(ns.replaced) == 0 {
+		return nil
+	}
+	held := map[string]bool{}
+	for _, name := range packload.DeclaredProfileNames(packs, user) {
+		held[name] = true
+	}
+	out := map[string]string{}
+	for name, refusal := range ns.replaced {
+		if !held[name] {
+			out[name] = refusal
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // TOMLWrittenProviders is the entries of cfg's `providers` table a TOML file wrote: those holding a
@@ -273,20 +316,47 @@ func LegacyProfileVariant(providers *jsonx.OrderedMap, name string) (string, boo
 		if entry == nil {
 			continue
 		}
-		if provider == name {
+		own := provider
+		if written, ok := entry.Get("name"); ok {
+			if text, isString := written.(string); isString && text != "" {
+				own = text
+			}
+		}
+		if provider == name || own == name || writtenNamesHold(entry, "alias", name) {
 			return "", false
 		}
-		if alias, _ := entry.Get("alias"); alias == name {
-			return "", false
-		}
-		if _, declared := entryMap(entry, "variants").Get(name); declared {
+		if raw, declared := entryMap(entry, "variants").Get(name); declared {
 			if found != "" {
 				return "", false
 			}
-			found = provider + "/" + name
+			found = own + "/" + name
+			if variant, ok := raw.(*jsonx.OrderedMap); ok {
+				if written, ok := variant.Get("name"); ok {
+					if text, isString := written.(string); isString && text != "" {
+						found = text
+					}
+				}
+			}
 		}
 	}
 	return found, found != ""
+}
+
+// writtenNamesHold reports whether m[key], a name or a list of names (an `alias`, RC-D68), holds
+// name.
+func writtenNamesHold(m *jsonx.OrderedMap, key, name string) bool {
+	raw, _ := m.Get(key)
+	switch value := raw.(type) {
+	case string:
+		return value == name
+	case []any:
+		for _, item := range value {
+			if item == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // entryMap is m[key] as a table, an empty one when m or the value is not a table.
@@ -311,67 +381,83 @@ func packProfileDeclared(packs []*packload.Pack, name string) bool {
 	return false
 }
 
-// withImpliedProfiles is SelectableProfiles over declarations already composed and checked.
+// withImpliedProfiles is SelectableProfiles over declarations already composed and checked: an
+// implied profile for every name the namespace holds (buildProviderNamespace).
+//
+// A name a profile already holds: the user's legacy `profiles` entry keeps it (RC-D68 leaves the
+// legacy JSONC path alone), and so does a pack's legacy `[[profile]]` over the same provider; a
+// pack's `[[profile]]` over another provider is a collision, fatal like every other (RC-D68). A
+// former name a selected pack records (`formerly`, PE-D7) selects nothing, and is refused naming
+// its new name (OQ-PE3), even where a provider of that name is declared (copilot-auth's
+// `github-copilot`).
 func withImpliedProfiles(user map[string]packload.UserProfile, declarations []packdecl.ProviderContribution,
 	packs []*packload.Pack) (map[string]packload.UserProfile, error) {
-	taken := map[string]bool{}
-	for _, name := range packload.DeclaredProfileNames(packs, user) {
-		taken[name] = true
+	ns, err := buildProviderNamespace(declarations)
+	if err != nil {
+		return nil, err
 	}
-	// A former profile name a selected pack records (`formerly.profiles`, PE-D7) is refused naming
-	// its new name, and nothing is aliased (OQ-PE3): a provider sharing that name (copilot-auth's
-	// `github-copilot`) does not make it selectable again.
+	packProfiles := map[string]string{}
+	former := map[string]bool{}
 	for _, p := range packs {
-		if p == nil || p.Decl == nil || p.Decl.FormerNames() == nil {
+		if p == nil || p.Decl == nil {
 			continue
 		}
-		for old := range p.Decl.FormerNames().Profiles {
-			taken[old] = true
+		for _, prof := range p.Decl.Profiles() {
+			packProfiles[prof.Name] = prof.Provider
+		}
+		for old := range p.Decl.FormerNames().FormerSelectionNames() {
+			former[old] = true
 		}
 	}
-	out := make(map[string]packload.UserProfile, len(user)+len(declarations))
+	out := make(map[string]packload.UserProfile, len(user)+len(ns.order))
 	for name, profile := range user {
 		out[name] = profile
 	}
-	add := func(name string, profile packload.UserProfile) {
-		if name == "" || name == NativeProvider || taken[name] {
-			return
+	for _, name := range ns.order {
+		target := ns.names[name]
+		if _, held := user[name]; held || former[name] {
+			continue
 		}
-		taken[name] = true
+		if provider, held := packProfiles[name]; held {
+			if provider == target.provider {
+				continue
+			}
+			return nil, fmt.Errorf("config.%s: provider namespace collision %q between a pack's profile over "+
+				"provider %s and %s; every name selects one configuration, so rename one in your config's `%s` "+
+				"table, or deselect the pack that declares it", providersKey, name, provider, target.what, providersKey)
+		}
+		d := ns.byName[target.provider]
+		if target.variant == "" {
+			base := packload.UserProfile{Provider: d.Name, Via: d.Via}
+			if model := impliedModel(d, d.Model); model != "" {
+				base.Options = map[string]string{"model": model}
+			}
+			out[name] = base
+			continue
+		}
+		v := d.Variants[target.variant]
+		subagents, err := selectedSubagents(v.Subagents)
+		if err != nil {
+			return nil, fmt.Errorf("providers.%s.variants.%s: %w", d.Name, target.variant, err)
+		}
+		profile := packload.UserProfile{Provider: d.Name, Via: firstString(v.Via, d.Via),
+			EnforceModels: v.EnforceModels, Subagents: subagents}
+		for option, value := range v.Options {
+			if !value.Defaulted {
+				continue
+			}
+			if profile.Options == nil {
+				profile.Options = map[string]string{}
+			}
+			profile.Options[option] = value.Value
+		}
+		if model := impliedModel(d, firstString(v.Model, d.Model)); model != "" {
+			if profile.Options == nil {
+				profile.Options = map[string]string{}
+			}
+			profile.Options["model"] = model
+		}
 		out[name] = profile
-	}
-	for _, d := range declarations {
-		base := packload.UserProfile{Provider: d.Name, Via: d.Via}
-		if model := impliedModel(d, d.Model); model != "" {
-			base.Options = map[string]string{"model": model}
-		}
-		add(d.Name, base)
-		add(d.Alias, base)
-		for _, name := range sortedVariantNames(d.Variants) {
-			v := d.Variants[name]
-			subagents, err := selectedSubagents(v.Subagents)
-			if err != nil {
-				return nil, fmt.Errorf("providers.%s.variants.%s: %w", d.Name, name, err)
-			}
-			profile := packload.UserProfile{Provider: d.Name, Via: firstString(v.Via, d.Via),
-				EnforceModels: v.EnforceModels, Subagents: subagents}
-			for option, value := range v.Options {
-				if !value.Defaulted {
-					continue
-				}
-				if profile.Options == nil {
-					profile.Options = map[string]string{}
-				}
-				profile.Options[option] = value.Value
-			}
-			if model := impliedModel(d, firstString(v.Model, d.Model)); model != "" {
-				if profile.Options == nil {
-					profile.Options = map[string]string{}
-				}
-				profile.Options["model"] = model
-			}
-			add(d.Name+"/"+name, profile)
-		}
 	}
 	return out, nil
 }
@@ -389,16 +475,6 @@ func impliedModel(d packdecl.ProviderContribution, model string) string {
 		return model
 	}
 	return ""
-}
-
-// sortedVariantNames is a provider's variant names in a stable order.
-func sortedVariantNames(variants map[string]packdecl.ProviderVariant) []string {
-	names := make([]string, 0, len(variants))
-	for name := range variants {
-		names = append(names, name)
-	}
-	sortStrings(names)
-	return names
 }
 
 // LoadSelectableProfiles is LoadProfiles (the user's `profiles`, at user scope) with

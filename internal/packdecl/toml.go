@@ -36,6 +36,13 @@ type ManifestLocation struct {
 
 // ProviderVariant is one named provider configuration in grouped TOML.
 type ProviderVariant struct {
+	// Name, when set, is the variant's one selection spelling, a top-level name in place of the
+	// default `<provider name>/<variant>` (RC-D68). A pack may write it, unlike a provider's:
+	// packs/bedrock's `[providers.bedrock.variants.bridge]` is `name = "bedrock-bridge"`.
+	// Selecting the default spelling it replaced is refused naming it.
+	Name string `json:"name,omitempty"`
+	// Alias adds selection names for exactly this variant's configuration (RC-D68).
+	Alias         NameList                 `json:"alias,omitempty"`
 	Model         string                   `json:"model,omitempty"`
 	Via           string                   `json:"via,omitempty"`
 	Options       map[string]OptionDefault `json:"options,omitempty"`
@@ -114,7 +121,8 @@ type groupedLaunch struct {
 }
 
 type providerShape struct {
-	alias        string
+	aliases      []string
+	selectName   string
 	model        string
 	variants     map[string]ProviderVariant
 	variantOrder []string
@@ -148,7 +156,9 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 	if !ok {
 		return nil, []string{ManifestTOMLName + ": expected a TOML table at the root"}, nil
 	}
+	legacySpellings, bothWays := legacyProviderSpellings(root)
 	normalized, groups, problems, preSkipped := normalizeGrouped(root, doc, mode)
+	problems = append(bothWays, problems...)
 	if len(problems) > 0 {
 		return nil, problems, preSkipped
 	}
@@ -176,7 +186,12 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 	if m == nil {
 		return nil, locateTOMLProblems(problems, groups, root, doc), append(preSkipped, locateTOMLProblems(skipped, groups, root, doc)...)
 	}
+	// formerly.providers is checked against the names the providers answer to, and a keyed
+	// provider's aliases and variants reach the manifest only below: the JSON decode's verdict
+	// on it is dropped and the check runs again once they are attached.
+	problems = withoutFormerProviderProblems(problems)
 	m.Origin = ManifestOrigin{Format: ManifestFormatTOML, File: ManifestTOMLName}
+	m.LegacySpellings = legacySpellings
 	for i, groupIndex := range retainedIndexes {
 		if i >= len(m.Contributes) || groupIndex < 0 || groupIndex >= len(groups) {
 			continue
@@ -186,7 +201,7 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 		m.Contributes[i].Location = entry.location
 		m.Contributes[i].Replace = entry.replace
 		if entry.provider != nil {
-			m.Contributes[i].ProviderAlias = entry.provider.alias
+			m.Contributes[i].ProviderAliases = entry.provider.aliases
 			m.Contributes[i].ProviderModel = entry.provider.model
 			m.Contributes[i].ProviderVariants = entry.provider.variants
 			m.Contributes[i].ProviderVariantOrder = append([]string(nil), entry.provider.variantOrder...)
@@ -214,7 +229,20 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 			}
 		}
 	}
+	if m.Formerly != nil {
+		problems = append(problems, m.validateFormerProviders()...)
+	}
 	return m, locateTOMLProblems(problems, groups, root, doc), append(preSkipped, locateTOMLProblems(skipped, groups, root, doc)...)
+}
+
+func withoutFormerProviderProblems(problems []string) []string {
+	var out []string
+	for _, p := range problems {
+		if !strings.HasPrefix(p, formerProvidersLabel) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func normalizeGrouped(root map[string]any, doc *configdoc.Document, mode manifestReadMode) (map[string]any, []groupedContribution, []string, []string) {
@@ -250,6 +278,10 @@ func normalizeGrouped(root map[string]any, doc *configdoc.Document, mode manifes
 				}
 				loc := locationForProvider(doc, name)
 				copyFields := cloneMap(fields)
+				if _, named := copyFields["name"]; named {
+					problems = append(problems, formatManifestLocation(locationFor(doc, []configdoc.Step{{Key: "providers"}, {Key: name}, {Key: "name"}}, "providers."+name+".name"), ProviderNameKeyRefusal(name)))
+					continue
+				}
 				replace, err := takeReplace(copyFields)
 				if err != nil {
 					problems = append(problems, formatManifestLocation(loc, "replace: "+err.Error()))
@@ -988,7 +1020,7 @@ func providerShapeUnknownField(fields map[string]any) string {
 		if variants, ok := raw.(map[string]any); ok {
 			for _, name := range sortedKeys(variants) {
 				if variant, ok := variants[name].(map[string]any); ok {
-					if key := firstUnknownKey(variant, "model", "via", "options", "subagents", "enforce_models", "capabilities", "protocols"); key != "" {
+					if key := firstUnknownKey(variant, "name", "alias", "model", "via", "options", "subagents", "enforce_models", "capabilities", "protocols"); key != "" {
 						return "variants." + name + "." + key
 					}
 				}
@@ -1145,6 +1177,18 @@ func DecodeProviderTable(root *jsonx.OrderedMap) (ProviderTable, error) {
 			}
 		}
 		fields, _ := orderedProviderMap(value)
+		selectName := ""
+		if raw, present := fields["name"]; present {
+			text, isString := raw.(string)
+			if !isString {
+				return ProviderTable{}, fmt.Errorf("providers.%s.name must be a name", name)
+			}
+			if problem := SelectionNameProblem(text); problem != "" {
+				return ProviderTable{}, fmt.Errorf("providers.%s.name %q %s", name, text, problem)
+			}
+			selectName = text
+			delete(fields, "name")
+		}
 		if unknown := providerShapeUnknownField(fields); unknown != "" {
 			return ProviderTable{}, fmt.Errorf("unknown provider model field %q", "providers."+name+"."+unknown)
 		}
@@ -1155,6 +1199,7 @@ func DecodeProviderTable(root *jsonx.OrderedMap) (ProviderTable, error) {
 		if err != nil {
 			return ProviderTable{}, fmt.Errorf("providers.%s: %w", name, err)
 		}
+		shape.selectName = selectName
 		encoded, err := json.Marshal(normalized)
 		if err != nil {
 			return ProviderTable{}, fmt.Errorf("providers.%s: %w", name, err)
@@ -1165,7 +1210,8 @@ func DecodeProviderTable(root *jsonx.OrderedMap) (ProviderTable, error) {
 		if err := decoder.Decode(&contribution); err != nil {
 			return ProviderTable{}, fmt.Errorf("providers.%s: %w", name, err)
 		}
-		contribution.ProviderAlias = shape.alias
+		contribution.ProviderAliases = shape.aliases
+		contribution.ProviderSelectName = shape.selectName
 		contribution.ProviderModel = shape.model
 		contribution.ProviderVariants = shape.variants
 		contribution.ProviderVariantOrder = append([]string(nil), shape.variantOrder...)
@@ -1245,12 +1291,36 @@ func normalizeProvider(name string, fields map[string]any, doc *configdoc.Docume
 		return nil, nil, err
 	}
 	if raw, ok := fields["alias"]; ok {
-		value, ok := raw.(string)
-		if !ok || value == "" || strings.ContainsAny(value, " \t\r\n") {
-			return nil, nil, fmt.Errorf("alias must be a non-empty name without whitespace")
+		aliases, err := decodeNameList("alias", raw)
+		if err != nil {
+			return nil, nil, err
 		}
-		shape.alias = value
+		shape.aliases = aliases
 		delete(fields, "alias")
+	}
+	// A legacy flat `models` map (alias to wire id), which a `[[provider]]` entry wrote, keeps
+	// its meaning in the keyed table (RC-D69): its string values are the legacy map, its tables
+	// the readable rows.
+	var legacyModels map[string]any
+	if rows, ok := fields["models"].(map[string]any); ok {
+		kept := map[string]any{}
+		for id, value := range rows {
+			if text, isString := value.(string); isString {
+				if legacyModels == nil {
+					legacyModels = map[string]any{}
+				}
+				legacyModels[id] = text
+				continue
+			}
+			kept[id] = value
+		}
+		if legacyModels != nil {
+			if len(kept) == 0 {
+				delete(fields, "models")
+			} else {
+				fields["models"] = kept
+			}
+		}
 	}
 	if raw, ok := fields["model"]; ok {
 		value, ok := raw.(string)
@@ -1312,10 +1382,33 @@ func normalizeProvider(name string, fields map[string]any, doc *configdoc.Docume
 				}
 				value = table
 			}
+			var aliases NameList
+			if table, ok := value.(map[string]any); ok {
+				if raw, present := table["alias"]; present {
+					decoded, err := decodeNameList("variants."+name+".alias", raw)
+					if err != nil {
+						return nil, nil, err
+					}
+					aliases = decoded
+					table = cloneMap(table)
+					delete(table, "alias")
+					value = table
+				}
+				if raw, present := table["name"]; present {
+					text, isString := raw.(string)
+					if !isString {
+						return nil, nil, fmt.Errorf("variants.%s.name must be a name", name)
+					}
+					if problem := SelectionNameProblem(text); problem != "" {
+						return nil, nil, fmt.Errorf("variants.%s.name %q %s", name, text, problem)
+					}
+				}
+			}
 			var variant ProviderVariant
 			if err := decodeStrictValue(value, &variant); err != nil {
 				return nil, nil, fmt.Errorf("variants.%s: %w", name, err)
 			}
+			variant.Alias = aliases
 			if variant.Model == "" && variant.Via == "" {
 				return nil, nil, fmt.Errorf("variants.%s must set model or via", name)
 			}
@@ -1343,6 +1436,9 @@ func normalizeProvider(name string, fields map[string]any, doc *configdoc.Docume
 			shape.variantOrder = append(shape.variantOrder, name)
 		}
 		delete(fields, "variants")
+	}
+	if legacyModels != nil {
+		fields["models"] = legacyModels
 	}
 	fields["kind"] = string(KindProvider)
 	fields["name"] = name

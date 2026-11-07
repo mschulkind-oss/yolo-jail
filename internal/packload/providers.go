@@ -278,8 +278,10 @@ func PinnedEndpointRefusal(name, pack string) error {
 
 func canonicalProviderEntry(provider packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
-	if provider.Alias != "" {
-		entry.Set("alias", provider.Alias)
+	if len(provider.Aliases) == 1 {
+		entry.Set("alias", provider.Aliases[0])
+	} else if len(provider.Aliases) > 1 {
+		entry.Set("alias", stringSliceAny(provider.Aliases))
 	}
 	if provider.Model != "" {
 		entry.Set("model", provider.Model)
@@ -391,6 +393,14 @@ func canonicalProviderEntry(provider packdecl.ProviderContribution) *jsonx.Order
 
 func canonicalProviderVariant(variant packdecl.ProviderVariant) *jsonx.OrderedMap {
 	value := jsonx.NewOrderedMap()
+	if variant.Name != "" {
+		value.Set("name", variant.Name)
+	}
+	if len(variant.Alias) == 1 {
+		value.Set("alias", variant.Alias[0])
+	} else if len(variant.Alias) > 1 {
+		value.Set("alias", stringSliceAny(variant.Alias))
+	}
 	if variant.Model != "" {
 		value.Set("model", variant.Model)
 	}

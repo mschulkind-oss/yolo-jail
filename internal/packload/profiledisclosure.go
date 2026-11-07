@@ -479,10 +479,5 @@ func ActiveSetLines(sets map[string][]string) []string {
 // selectable by its own name (OQ-RC3), so the shipped packs declare no profile of the same name,
 // and the pack that declares the provider is the one the disclosure names.
 func declaresProviderNamed(p *Pack, name string) bool {
-	for _, provider := range p.Decl.Providers() {
-		if provider.Name == name {
-			return true
-		}
-	}
-	return false
+	return p.Decl.DeclaresSelectionName(name)
 }

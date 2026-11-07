@@ -17,11 +17,7 @@ name = "claude-auth"
 [[loophole]]
 from = "loopholes/claude-oauth-broker"
 
-[[provider]]
-name = "anthropic"
+[providers.anthropic]
+alias = "claude"
 pinned_endpoint = true
 platform = "anthropic"
-
-[[profile]]
-name = "claude"
-provider = "anthropic"

@@ -26,7 +26,7 @@ func TestConfiguredProviderSemanticsConsumesReadableSelectionAtOwnedBoundary(t *
 	selection.Set("codex", "native")
 	cfg.Set("active_provider", selection)
 	declarations := []packdecl.ProviderContribution{{
-		Name: "bedrock", Alias: "br", Model: "sonnet",
+		Name: "bedrock", Aliases: []string{"br"}, Model: "sonnet",
 		Variants: map[string]packdecl.ProviderVariant{"opus": {Model: "opus"}},
 	}}
 

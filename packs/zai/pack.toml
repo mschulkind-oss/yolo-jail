@@ -1,13 +1,12 @@
 name = "zai"
 
-[[provider]]
+[providers.zai]
 api_key_env_name = "ZAI_API_KEY"
 capabilities = ["web_search"]
 endpoints.anthropic = { base_url = "https://api.z.ai/api/anthropic" }
 endpoints.openai.base_url = "https://api.z.ai/api/coding/paas/v4"
 endpoints.openai.wire_api = "openai-chat-completions"
 models = { "glm-4.6" = "glm-4.6", "glm-5.3" = "glm-5.3", "glm-5.3-flash" = "glm-5.3-flash" }
-name = "zai"
 model_options = { "glm-5.3-flash" = { input = "text,image" } }
 options.api_timeout_ms = "3000000"
 options.context_window = "1000000"

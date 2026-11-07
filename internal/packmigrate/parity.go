@@ -154,7 +154,8 @@ func inferredCodec(path string) string {
 }
 
 type providerFacts struct {
-	Alias, Model string
+	Aliases      []string
+	Model        string
 	Every        *packdecl.ProviderModel
 	Models       map[string]packdecl.ProviderModel
 	ModelOrder   []string
@@ -163,7 +164,7 @@ type providerFacts struct {
 }
 
 func groupedProviderFacts(c packdecl.Contribution) providerFacts {
-	return providerFacts{Alias: c.ProviderAlias, Model: c.ProviderModel, Every: c.EveryProviderModel,
+	return providerFacts{Aliases: c.ProviderAliases, Model: c.ProviderModel, Every: c.EveryProviderModel,
 		Models: c.ProviderModels, ModelOrder: c.ProviderModelOrder, Variants: c.ProviderVariants, VariantOrder: c.ProviderVariantOrder}
 }
 

@@ -159,7 +159,7 @@ func TestDecodeTOMLGroupedManifestNormalizesAccessorsAndMetadata(t *testing.T) {
 		t.Fatalf("providers = %#v", providers)
 	}
 	p := providers[0]
-	if p.Name != "meta" || p.Alias != "muse" || p.Model != "muse-spark-1.3-contributor" {
+	if p.Name != "meta" || len(p.Aliases) != 1 || p.Aliases[0] != "muse" || p.Model != "muse-spark-1.3-contributor" {
 		t.Fatalf("provider identity/default = %#v", p)
 	}
 	if p.EveryModel == nil || p.EveryModel.API != "openai-responses" || p.EveryModel.Context != 128_000 || p.EveryModel.MaxTokens != 128_000 || p.EveryModel.Reasoning == nil || !*p.EveryModel.Reasoning {

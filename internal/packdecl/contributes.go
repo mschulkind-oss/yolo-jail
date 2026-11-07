@@ -783,11 +783,23 @@ type Contribution struct {
 	// and what the derives emit as the provider/model id. Sole-owned across packs
 	// (kinds.go), so two packs shipping one name is a collision — while one pack shipping
 	// two names is two contributions, which is the ordinary multi-provider pack.
+	//
+	// A pack.toml writes it as the TABLE KEY, `[providers.<id>]`, the same shape as a user's
+	// config (docs/design/readable-config.md RC-D69); a `name` key in that table is refused,
+	// since there `name` is the user's selection name (RC-D68). `[[provider]] name = "<id>"`
+	// is the legacy spelling, read for a few releases (Manifest.LegacySpellings, noted by
+	// `yolo check`); one id declared both ways is refused naming `yolo pack migrate <path>`,
+	// which writes it once. In the keyed table, `alias` is a string or a list of names for
+	// exactly the provider's own configuration, and a variant may carry a `name`, its one
+	// top-level spelling, and an `alias` (ProviderVariant). No written name contains `/`.
 	Name string `json:"name,omitempty"`
-	// ProviderAlias, ProviderModel, ProviderVariants, EveryProviderModel, ProviderModels,
+	// ProviderAliases, ProviderModel, ProviderVariants, EveryProviderModel, ProviderModels,
 	// and the order slices are populated only by the grouped TOML codec. They are
 	// normalized provider facts, not legacy pack.json fields.
-	ProviderAlias        string                     `json:"-"`
+	ProviderAliases []string `json:"-"`
+	// ProviderSelectName is a user's `name` for the provider (RC-D68), read only from a
+	// config's providers table (DecodeProviderTable); a pack may not write one.
+	ProviderSelectName   string                     `json:"-"`
 	ProviderModel        string                     `json:"-"`
 	ProviderVariants     map[string]ProviderVariant `json:"-"`
 	ProviderVariantOrder []string                   `json:"-"`
@@ -2043,9 +2055,14 @@ type ProviderEndpoint struct {
 // go with it. The credential is deliberately absent — the only key-shaped field is the
 // NAME of the variable the user hydrates.
 type ProviderContribution struct {
-	Name  string
-	Alias string
-	Model string
+	Name string
+	// SelectName is the user's `name` for the provider (RC-D68): when set, the only name the
+	// provider's own configuration answers to in a selection, in place of Name. Agent configs,
+	// environment variables and config paths keep Name.
+	SelectName string
+	// Aliases are names for exactly the provider's own configuration (RC-D68).
+	Aliases []string
+	Model   string
 	// Via is the optional service pack that carries this provider's traffic.
 	Via           string
 	Variants      map[string]ProviderVariant
@@ -2096,7 +2113,8 @@ func (m *Manifest) Providers() []ProviderContribution {
 		}
 		out = append(out, ProviderContribution{
 			Name:           c.Name,
-			Alias:          c.ProviderAlias,
+			SelectName:     c.ProviderSelectName,
+			Aliases:        append([]string(nil), c.ProviderAliases...),
 			Model:          c.ProviderModel,
 			Via:            c.Via,
 			Variants:       c.ProviderVariants,

@@ -67,7 +67,8 @@ func RunMigrationGate(userConfigDir, workspace string, resolver LoopholeResolver
 	if err != nil {
 		errs = append(errs, err.Error())
 	} else {
-		for _, p := range UndeclaredProfileProblems(ConfigProfileFold(cfg, selected), 0, declared, selected, packload.Embedded()) {
+		for _, p := range UndeclaredProfileProblems(ConfigProfileFold(cfg, selected), 0, declared,
+			ReplacedNameRefusals(cfg, selected, declared), selected, packload.Embedded()) {
 			errs = append(errs, "packs: "+p)
 		}
 	}

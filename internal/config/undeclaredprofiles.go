@@ -19,9 +19,16 @@ import (
 // every entry of a bare list some receiver took (OQ-AP3 read with AP-D3), each name once.
 // keyFrom is the fold's selection index of the config `profile` key, which words a bare list's
 // source; universe is the shipped set the refusal names packs from (packload.Embedded()).
-// Nil when every name is declared.
+// replaced is ReplacedNameRefusals: a name a provider's or variant's `name` replaced is refused in
+// those words, naming the name that selects it now (RC-D68). Nil when every name is declared.
 func UndeclaredProfileProblems(fold ProfileFold, keyFrom int, userProfiles map[string]packload.UserProfile,
-	packs, universe []*packload.Pack) []string {
+	replaced map[string]string, packs, universe []*packload.Pack) []string {
+	help := func(name string, declared []string) string {
+		if refusal, ok := replaced[name]; ok {
+			return refusal
+		}
+		return packload.UndeclaredProfileHelp(name, declared, packs, universe)
+	}
 	if fold.Table == nil || fold.Table.Len() == 0 {
 		return nil
 	}
@@ -40,7 +47,7 @@ func UndeclaredProfileProblems(fold ProfileFold, keyFrom int, userProfiles map[s
 			}
 			reported[name] = true
 			problems = append(problems, fmt.Sprintf("profile %q selected for %s: %s",
-				name, agent, packload.UndeclaredProfileHelp(name, declared, packs, universe)))
+				name, agent, help(name, declared)))
 		}
 	}
 	if bare := fold.BareList; len(bare) > 1 {
@@ -54,7 +61,7 @@ func UndeclaredProfileProblems(fold ProfileFold, keyFrom int, userProfiles map[s
 			}
 			reported[name] = true
 			problems = append(problems, fmt.Sprintf("profile %q (entry %d of %s): %s",
-				name, i+1, spelled, packload.UndeclaredProfileHelp(name, declared, packs, universe)))
+				name, i+1, spelled, help(name, declared)))
 		}
 	}
 	return problems

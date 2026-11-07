@@ -1,11 +1,10 @@
 name = "kilo"
 needs = [{ pack = "wire-bridge", when_bins = ["claude", "copilot"] }]
 
-[[provider]]
+[providers.kilo]
 api_key_env_name = "KILO_API_KEY"
 endpoints.openai.base_url = "https://api.kilo.ai/api/gateway"
 endpoints.openai.wire_api = "openai-chat-completions"
-name = "kilo"
 options.api_timeout_ms = false
 options.context_window = false
 options.max_tokens = false

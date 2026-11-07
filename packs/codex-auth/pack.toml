@@ -8,7 +8,8 @@ name = "codex-auth"
 [[loophole]]
 from = "loopholes/openai-auth-broker"
 
-[[provider]]
+[providers.openai-codex]
+alias = "codex"
 capabilities = ["web_search"]
 endpoints.openai-responses.base_url = "https://chatgpt.com/backend-api/codex"
 endpoints.openai-responses.wire_api = "openai-responses"
@@ -29,8 +30,3 @@ model_options."gpt-6.1-sol".long_context_window = "1000000"
 model_options."gpt-6.1-sol".name = "GPT-6.1 Sol"
 model_options."gpt-6.1-sol".order = "1"
 models = { gpt-6-astra = "gpt-6-astra", gpt-6-luna = "gpt-6-luna", "gpt-6.1-sol" = "gpt-6.1-sol" }
-name = "openai-codex"
-
-[[profile]]
-name = "codex"
-provider = "openai-codex"

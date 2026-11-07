@@ -36,5 +36,4 @@ description = "Puts Meta's pi-BUILT-IN `meta` provider into yolo's provider tabl
 # should feed the provider table as well as the derive's row decision. Until it does,
 # this contribution is the workaround. A provider is selectable by its own name
 # (`-p meta`, the `profile` key), so the pack ships no same-named profile (OQ-RC3).
-[[provider]]
-name = "meta"
+[providers.meta]

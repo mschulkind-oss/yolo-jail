@@ -92,6 +92,11 @@ func (p *MigrationPlan) Transcript() string {
 	for _, u := range p.Unchecked {
 		fmt.Fprintf(&b, "  Not checked: %s.\n", u)
 	}
+	// Said once, however many patterns (RC-D60): a pattern is accepted in both spellings
+	// (GB-D25), and the names listed one by one are never collapsed into one.
+	if len(p.Patterns) > 0 {
+		fmt.Fprintf(&b, "A pattern converts as written, since a request accepts one just as a grant did: %s. Names listed one by one stay listed one by one.\n", strings.Join(p.Patterns, ", "))
+	}
 	if len(p.Renames) > 0 {
 		b.WriteString(RenamesHeading + "\n")
 		for _, row := range RenameRows(p.Renames) {

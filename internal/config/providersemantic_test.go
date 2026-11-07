@@ -18,7 +18,7 @@ func TestResolveActiveProvidersLeavesDeclarationsInactiveAndLimitsDefaultToRecei
 				Subagents:    map[string]any{"default": "cheap", "roles": map[string]any{"worker": "cheap"}},
 				Capabilities: []string{"messages"}, Protocols: []string{"anthropic"}},
 		}},
-		{Name: "openai-codex", Alias: "codex", Model: "gpt-6"},
+		{Name: "openai-codex", Aliases: []string{"codex"}, Model: "gpt-6"},
 	}
 	inactive, err := ResolveActiveProviders(providers, ActiveProviderSelection{}, []ProviderReceiver{{Bin: "claude"}, {Bin: "pi"}})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestProviderReceiversRequireSpellingCompatibleNames(t *testing.T) {
 		{"empty provider", packdecl.ProviderContribution{}, ""},
 		{"provider whitespace", packdecl.ProviderContribution{Name: "p q"}, "p"},
 		{"provider comma", packdecl.ProviderContribution{Name: "p,q"}, "p"},
-		{"alias equals", packdecl.ProviderContribution{Name: "p", Alias: "a=b"}, "p"},
+		{"alias equals", packdecl.ProviderContribution{Name: "p", Aliases: []string{"a=b"}}, "p"},
 		{"variant whitespace", packdecl.ProviderContribution{Name: "p", Variants: map[string]packdecl.ProviderVariant{"a b": {}}}, "p"},
 		{"unspellable selector", packdecl.ProviderContribution{Name: "p"}, "p,q"},
 		{"equals selector", packdecl.ProviderContribution{Name: "p"}, "p=q"},
@@ -167,7 +167,7 @@ func TestComposeProviderSemanticsIsTheTypedPublicCompositionEntryPoint(t *testin
 	}
 	price := completePrice(1, 2, .1, .2)
 	input := ProviderSemanticInput{
-		Declarations: []packdecl.ProviderContribution{{Name: "bedrock", Alias: "br", Model: "opus", ModelOrder: []string{"opus"}, ModelRows: map[string]packdecl.ProviderModel{"opus": {Name: "Opus", Vendor: "anthropic", Price: price}}}},
+		Declarations: []packdecl.ProviderContribution{{Name: "bedrock", Aliases: []string{"br"}, Model: "opus", ModelOrder: []string{"opus"}, ModelRows: map[string]packdecl.ProviderModel{"opus": {Name: "Opus", Vendor: "anthropic", Price: price}}}},
 		Selection:    ActiveProviderSelection{Named: map[string][]string{"assistant": {"br"}}},
 		Receivers:    []ProviderReceiver{{Bin: "assistant"}},
 		Catalog:      map[string]map[string]packdecl.ProviderModel{"bedrock": {"opus": {Context: 100000}}},
@@ -185,9 +185,9 @@ func TestComposeProviderSemanticsIsTheTypedPublicCompositionEntryPoint(t *testin
 }
 
 func TestResolveActiveProvidersValidatesSharedNameNamespaceAndActionableSelections(t *testing.T) {
-	providers := []packdecl.ProviderContribution{{Name: "bedrock", Alias: "br", Variants: map[string]packdecl.ProviderVariant{"opus": {}}}}
+	providers := []packdecl.ProviderContribution{{Name: "bedrock", Aliases: []string{"br"}, Variants: map[string]packdecl.ProviderVariant{"opus": {}}}}
 	for _, p := range [][]packdecl.ProviderContribution{
-		{{Name: "native"}}, {{Name: "p", Alias: "native"}}, {{Name: "same"}, {Name: "other", Alias: "same"}}, {{Name: "p", Alias: "q"}, {Name: "q"}},
+		{{Name: "native"}}, {{Name: "p", Aliases: []string{"native"}}}, {{Name: "same"}, {Name: "other", Aliases: []string{"same"}}}, {{Name: "p", Aliases: []string{"q"}}, {Name: "q"}},
 	} {
 		if _, err := ResolveActiveProviders(p, ActiveProviderSelection{}, nil); err == nil || !strings.Contains(err.Error(), "collision") && !strings.Contains(err.Error(), "reserved") {
 			t.Errorf("declarations %#v: expected reserved/collision error, got %v", p, err)
@@ -208,7 +208,7 @@ func TestResolveActiveProvidersValidatesSharedNameNamespaceAndActionableSelectio
 		t.Fatalf("qualified variants should coexist: %#v, %v", both, err)
 	}
 	for _, selectors := range [][]string{{"p", "p/opus"}, {"p", "alias-p"}} {
-		duplicates := []packdecl.ProviderContribution{{Name: "p", Alias: "alias-p", Variants: map[string]packdecl.ProviderVariant{"opus": {}}}, {Name: "q", Variants: map[string]packdecl.ProviderVariant{"opus": {}}}}
+		duplicates := []packdecl.ProviderContribution{{Name: "p", Aliases: []string{"alias-p"}, Variants: map[string]packdecl.ProviderVariant{"opus": {}}}, {Name: "q", Variants: map[string]packdecl.ProviderVariant{"opus": {}}}}
 		if _, err := ResolveActiveProviders(duplicates, ActiveProviderSelection{Default: selectors}, []ProviderReceiver{{Bin: "assistant", HoldsProviderSets: true}}); err == nil || !strings.Contains(err.Error(), "keep one") {
 			t.Errorf("selectors %v resolving to duplicate provider should refuse actionably: %v", selectors, err)
 		}

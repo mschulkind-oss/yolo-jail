@@ -268,7 +268,7 @@ func TestNormalizeLegacyProviderModelsDeeplyOwnsBothReturnedDeclarations(t *test
 	opaque := 7
 	channel := make(chan int)
 	input := packdecl.ProviderContribution{
-		Name: "p", Alias: "alias", Model: "m", Variants: map[string]packdecl.ProviderVariant{"v": {
+		Name: "p", Aliases: []string{"alias"}, Model: "m", Variants: map[string]packdecl.ProviderVariant{"v": {
 			Model: "m", Options: map[string]packdecl.OptionDefault{"temperature": {Defaulted: true, Value: "0.2"}},
 			Subagents:     map[string]any{"roles": map[string]any{"worker": "m"}, "opaque": &opaque, "channel": channel, "nil": nil},
 			EnforceModels: &enforce, Capabilities: []string{"variant-capability"}, Protocols: []string{"openai"},

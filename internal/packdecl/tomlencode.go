@@ -128,7 +128,7 @@ func JoinTOMLLines(lines []TOMLLine) []byte {
 type contributionMeta struct {
 	grouped         bool // the manifest came from grouped TOML: Replace is authored
 	replace         bool
-	groupedProvider bool // a [providers.<name>] table rather than a legacy [[provider]] row
+	groupedProvider bool // the grouped provider facts are in the tree (alias, model rows, variants)
 }
 
 // manifestTree renders m as the legacy JSON document tree the encoder reads. json.Marshal is
@@ -162,7 +162,7 @@ func manifestTree(m *Manifest) (*jsonx.OrderedMap, []contributionMeta, error) {
 		if c.Options != nil {
 			fields.Set("options", optionTree(c.Options))
 		}
-		if c.Kind == KindProvider && (c.ProviderAlias != "" || c.ProviderModel != "" || c.EveryProviderModel != nil || c.ProviderModels != nil || c.ProviderVariants != nil) {
+		if c.Kind == KindProvider {
 			meta[i].groupedProvider = true
 			if err := addGroupedProviderFields(fields, c); err != nil {
 				return nil, nil, fmt.Errorf("contributes[%d]: %w", i, err)
@@ -188,8 +188,14 @@ func addGroupedProviderFields(fields *jsonx.OrderedMap, c *Contribution) error {
 	if _, legacyModels := fields.Get("models"); legacyModels && c.ProviderModels != nil {
 		return fmt.Errorf("provider %q carries both legacy flat models and grouped model rows", c.Name)
 	}
-	if c.ProviderAlias != "" {
-		fields.Set("alias", c.ProviderAlias)
+	if len(c.ProviderAliases) == 1 {
+		fields.Set("alias", c.ProviderAliases[0])
+	} else if len(c.ProviderAliases) > 1 {
+		names := make([]any, len(c.ProviderAliases))
+		for i, name := range c.ProviderAliases {
+			names[i] = name
+		}
+		fields.Set("alias", names)
 	}
 	if c.ProviderModel != "" {
 		fields.Set("model", c.ProviderModel)
@@ -368,7 +374,9 @@ func encodeContribution(index int, original *jsonx.OrderedMap, meta contribution
 	}
 
 	var lines []TOMLLine
-	if kind == KindProvider && meta.groupedProvider {
+	// Every provider is written keyed, `[providers.<id>]`: `[[provider]] name =` is the legacy
+	// spelling (RC-D69), read but never written.
+	if kind == KindProvider {
 		nameValue, _ := fields.Get("name")
 		name, _ := nameValue.(string)
 		if name == "" {

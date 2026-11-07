@@ -45,7 +45,17 @@ func Apply(m *Migration) error {
 		}
 		done = append(done, s)
 	}
-	if m.Manifest != nil {
+	if m.Manifest != nil && m.inPlace {
+		info, err := os.Stat(filepath.Join(m.Dir, m.Legacy))
+		if err != nil {
+			return undo(fmt.Errorf("%s: %w", m.Dir, err))
+		}
+		s := step{from: m.Legacy, to: m.Legacy, manifest: true, legacyBytes: m.legacyBytes}
+		if err := os.WriteFile(filepath.Join(m.Dir, m.Legacy), m.Manifest, info.Mode().Perm()); err != nil {
+			return undo(fmt.Errorf("%s: writing %s: %w", m.Dir, m.Legacy, err))
+		}
+		done = append(done, s)
+	} else if m.Manifest != nil {
 		manifestStep, err := writeManifest(m.Dir, m.Legacy, packdecl.ManifestTOMLName, m.Manifest, m.legacyBytes, git)
 		if err != nil {
 			return undo(fmt.Errorf("%s: writing %s: %w", m.Dir, packdecl.ManifestTOMLName, err))
@@ -73,7 +83,9 @@ func Apply(m *Migration) error {
 			return undo(fmt.Errorf("%s: %s: %w", m.Dir, l.Dir, err))
 		}
 	}
-	if m.Manifest != nil {
+	// A pack that declared a provider both ways did not load before, so there is no delivery to
+	// compare; a provider declaration delivers no file.
+	if m.Manifest != nil && (m.delivery != nil || !m.inPlace) {
 		delivery, err := Delivery(pack)
 		if err != nil {
 			return undo(fmt.Errorf("%s: reading what the migrated pack delivers: %w", m.Dir, err))
@@ -93,7 +105,7 @@ func recheck(m *Migration) error {
 		if err != nil || !bytes.Equal(current, m.legacyBytes) {
 			return fmt.Errorf("%s: %s changed since the migration was planned; nothing was changed — run `yolo pack migrate %s` again", m.Dir, m.Legacy, m.Dir)
 		}
-		if _, err := os.Lstat(filepath.Join(m.Dir, packdecl.ManifestTOMLName)); err == nil {
+		if _, err := os.Lstat(filepath.Join(m.Dir, packdecl.ManifestTOMLName)); err == nil && !m.inPlace {
 			collisions = append(collisions, Collision{Path: packdecl.ManifestTOMLName, Reason: "already exists"})
 		}
 	}
@@ -196,6 +208,9 @@ func rollback(m *Migration, done []step) error {
 				failures = append(failures, err.Error())
 				continue
 			}
+		}
+		if s.from == s.to {
+			continue
 		}
 		var err error
 		if s.git {

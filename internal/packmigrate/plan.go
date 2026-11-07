@@ -55,7 +55,14 @@ type Migration struct {
 	// Loopholes are the pack's loophole modules rewritten from manifest.jsonc to loophole.toml
 	// (RC-D28). A pack that already holds pack.toml still migrates these: Manifest is then nil.
 	Loopholes []LoopholeMigration
+	// ProfileFolds are the legacy `[[profile]]` entries folded into their providers, as an alias
+	// or a variant (RC-D69); KeptProfiles the ones left legacy, each with why.
+	ProfileFolds []packdecl.ProfileFold
+	KeptProfiles []packdecl.KeptProfile
 
+	// inPlace: the manifest is pack.toml itself, rewritten where it is (a legacy provider
+	// spelling, RC-D69), rather than a legacy pack.json replaced by a new pack.toml.
+	inPlace     bool
 	legacyBytes []byte
 	delivery    map[string]DeliveredFile
 }
@@ -92,6 +99,9 @@ var conventionalDirs = []string{"home", "skills", "briefing", "overlays", "patch
 // cannot say (packdecl.UnrepresentableError), or whose destinations are taken (CollisionError).
 func Plan(dir string, opts Options) (*Migration, error) {
 	if _, err := os.Lstat(filepath.Join(dir, packdecl.ManifestTOMLName)); err == nil {
+		if data, pending := providerSpellingsPending(dir); pending {
+			return planProviderSpellings(dir, data)
+		}
 		return planLoopholesOnly(dir)
 	}
 	legacyName, legacyBytes, err := legacyManifest(dir)
@@ -189,6 +199,15 @@ func Plan(dir string, opts Options) (*Migration, error) {
 	}
 	if diffs := ManifestDifferences(&want, got); len(diffs) != 0 {
 		return nil, fmt.Errorf("%s: the encoded pack.toml would change what the pack does, so nothing was changed:\n  %s", dir, strings.Join(diffs, "\n  "))
+	}
+	// The encoder writes every provider keyed; a legacy profile then folds into its provider,
+	// the same rewrite a pack.toml still writing one takes (RC-D69), proven by the rewrite itself.
+	rewrite, err := RewriteProviderSpellings(m.Manifest)
+	if err != nil {
+		return nil, fmt.Errorf("%s: folding %s's profiles into their providers (a yolo bug; nothing was changed): %w", dir, legacyName, err)
+	}
+	if rewrite != nil {
+		m.Manifest, m.ProfileFolds, m.KeptProfiles = rewrite.Manifest, rewrite.Folds, rewrite.Kept
 	}
 	if m.Loopholes, err = planLoopholes(dir, oldPack.Decl.LoopholeSources()); err != nil {
 		return nil, err

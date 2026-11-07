@@ -105,6 +105,8 @@ func packMigrate(args []string, in io.Reader, interactive bool, out, errw io.Wri
 			len(m.Moves), plural(len(m.Moves), "file", "files"))
 		if m.Manifest == nil {
 			question = fmt.Sprintf("Write %d %s? [y/N] ", len(m.Loopholes), loopholeTOMLName(len(m.Loopholes)))
+		} else if m.Legacy == packdecl.ManifestTOMLName {
+			question = fmt.Sprintf("Rewrite %s? [y/N] ", packdecl.ManifestTOMLName)
 		}
 		if !tty.Confirm(errw, in, question, false) {
 			fmt.Fprintln(errw, "Nothing was changed.")
@@ -129,8 +131,13 @@ func writePackMigrationPlan(out io.Writer, m *packmigrate.Migration) {
 			oldLines = lineCount(data)
 		}
 		fmt.Fprintf(out, "--- %s\n+++ %s\n", legacy, filepath.Join(m.Dir, packdecl.ManifestTOMLName))
-		fmt.Fprintf(out, "  (%d lines → %d; %d %s kept, in order)\n", oldLines, lineCount(m.Manifest),
-			len(m.Comments), plural(len(m.Comments), "comment", "comments"))
+		if m.Legacy == packdecl.ManifestTOMLName {
+			fmt.Fprintf(out, "  (%d lines → %d, rewritten in place; every comment and every line not named below kept)\n",
+				oldLines, lineCount(m.Manifest))
+		} else {
+			fmt.Fprintf(out, "  (%d lines → %d; %d %s kept, in order)\n", oldLines, lineCount(m.Manifest),
+				len(m.Comments), plural(len(m.Comments), "comment", "comments"))
+		}
 	}
 	if len(m.Moves) > 0 {
 		fmt.Fprintf(out, "Moved into home/ (%d %s):\n", len(m.Moves), plural(len(m.Moves), "file", "files"))
@@ -140,6 +147,16 @@ func writePackMigrationPlan(out io.Writer, m *packmigrate.Migration) {
 	}
 	for _, k := range m.Kept {
 		fmt.Fprintf(out, "Left declared: files entry %d (from %q): %s.\n", k.Index, k.From, k.Reason)
+	}
+	for _, f := range m.ProfileFolds {
+		if f.Variant == "" {
+			fmt.Fprintf(out, "Folded: [[profile]] %q is now an alias of [providers.%s].\n", f.Profile, f.Provider)
+		} else {
+			fmt.Fprintf(out, "Folded: [[profile]] %q is now [providers.%s.variants.%s], named %q.\n", f.Profile, f.Provider, f.Variant, f.Profile)
+		}
+	}
+	for _, k := range m.KeptProfiles {
+		fmt.Fprintf(out, "Left legacy: [[profile]] %q: %s.\n", k.Profile, k.Reason)
 	}
 	for _, l := range m.Loopholes {
 		fmt.Fprintf(out, "--- %s\n+++ %s\n", filepath.Join(m.Dir, l.Dir, l.Legacy), filepath.Join(m.Dir, l.Dir, loopholedecl.ManifestTOMLName))
