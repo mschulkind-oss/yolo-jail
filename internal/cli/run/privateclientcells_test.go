@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -295,6 +297,20 @@ func TestPrepareOrdinaryProgramsBindsSelectedPrivateClientsOrRefuses(t *testing.
 				if tc.approved && (len(o.privateClientEntrypoints) != 1 || o.privateClientEntrypoints[0].Bin != "fixture-client") {
 					t.Fatalf("checked delivery not kept for the keeper: %+v", o.privateClientEntrypoints)
 				}
+				// Slice 3.4: each bound client's front joins the launch's jail daemons, once.
+				fronts := privateHTTPFrontDaemons(o.privateClientEntrypoints)
+				if !tc.approved {
+					if len(fronts) != 0 {
+						t.Fatalf("an unselected front started: %+v", fronts)
+					}
+					return
+				}
+				want := loopholes.JailDaemonSpec{Name: "http-front-tasks",
+					Cmd:     []string{"yolo-jaild", "call-broker-http-front", "--endpoint", "/run/yolo-services/tasks.endpoint", "--loophole", "tasks"},
+					Restart: "no", RequiredReady: true}
+				if len(fronts) != 1 || !reflect.DeepEqual(fronts[0], want) {
+					t.Fatalf("front daemons = %+v, want exactly %+v", fronts, want)
+				}
 				return
 			}
 			out := stderr.String()
@@ -359,6 +375,47 @@ func TestTheFreshLaunchStartsAPrivateClientThroughItsPublishedBinding(t *testing
 	}
 	if !rebuilt {
 		t.Error("runContainer does not rebuild the first session's exec from the bound command")
+	}
+}
+
+// TestTheFreshLaunchStartsEachCheckedPrivateClientsFront pins runContainer's call site for the
+// front daemons (slice 3.4), which no unit test can drive: after prepareOrdinaryPrograms has kept
+// the checked deliveries, privateHTTPFrontDaemons of them is appended to the jailDaemons the run
+// command is assembled from. Deleting the append fails here.
+func TestTheFreshLaunchStartsEachCheckedPrivateClientsFront(t *testing.T) {
+	fd := funcDecl(t, "run.go", "runContainer")
+	prepare, front := token.NoPos, token.NoPos
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "prepareOrdinaryPrograms" && prepare == token.NoPos {
+			prepare = call.Pos()
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || skelIdent(assign.Lhs[0]) != "jailDaemons" || len(assign.Rhs) != 1 {
+			return true
+		}
+		ast.Inspect(assign.Rhs[0], func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok || skelCallee(call) != "privateHTTPFrontDaemons" || len(call.Args) != 1 {
+				return true
+			}
+			if sel, ok := call.Args[0].(*ast.SelectorExpr); ok && sel.Sel.Name == "privateClientEntrypoints" {
+				front = call.Pos()
+			}
+			return true
+		})
+		return true
+	})
+	if prepare == token.NoPos {
+		t.Fatal("runContainer no longer calls prepareOrdinaryPrograms")
+	}
+	if front == token.NoPos {
+		t.Fatal("runContainer does not append privateHTTPFrontDaemons(o.privateClientEntrypoints) to jailDaemons")
+	}
+	if front < prepare {
+		t.Error("the front daemons are composed before prepareOrdinaryPrograms keeps the checked deliveries")
 	}
 }
 
@@ -465,6 +522,14 @@ func TestTheKeepersStartRecordNamesItsCheckedPrivateClients(t *testing.T) {
 		b := checked.Binding
 		b.Generation = strings.Repeat("a", 32)
 		o.privateClientBindings = []entrypoint.PrivateClientBinding{b}
+		// The owner that published the generation's entrypoints record names its front, whose
+		// generation the keeper hands the container beside the binding (slice 3.4).
+		published, err := os.Stat(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.preparedHTTPGenerationOwners = map[string]preparedHTTPGenerationOwner{"fixture": {path: "fixture", generation: b.Generation,
+			entrypointsFile: published, entrypoints: callbrokerinput.PreparedHTTPClientEntrypoints{Loophole: "http"}}}
 	})
 	if !f.relay() {
 		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())

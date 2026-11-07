@@ -52,8 +52,21 @@ func decideCall(call Classification, cells map[string]config.CallBrokerCellPolic
 			return Verdict{Verdict: "refused", Rule: "undeclared write cell or resource", Next: "Check the selected pack and retry"}
 		}
 		table := "all"
+		timed := false
+		chain := make([]brokerstore.CallResource, len(write.Chain))
+		for i, resource := range write.Chain {
+			chain[i] = brokerstore.CallResource{Type: resource.Type, ID: resource.ID}
+		}
 		for _, entry := range working {
 			if !entry.LiveAt(now) || !brokerstore.SameWorkspace(entry.Workspace, workspace) || entry.Repo != source {
+				continue
+			}
+			// A human's timed answer (BX-D17) covers exactly its cell on its whole chain; it
+			// answers an ask and never overrides a table that refuses.
+			if brokerstore.IsCallKind(entry.Kind) {
+				if entry.Timed() && entry.Kind == brokerstore.WorkingCallPrefix+write.Cell && entry.Resource == brokerstore.CallResourceKey(chain) {
+					timed = true
+				}
 				continue
 			}
 			for _, resource := range write.Chain {
@@ -66,7 +79,7 @@ func decideCall(call Classification, cells map[string]config.CallBrokerCellPolic
 		if !ok || setting.Decision == "refuse" || setting.Request == "false" {
 			return Verdict{Verdict: "refused", Rule: "write is not permitted by its declared table", Next: "Change the request with `yolo request` and approve its scope at the gate"}
 		}
-		if setting.Decision != "run" || setting.Request == "ask" {
+		if (setting.Decision != "run" || setting.Request == "ask") && !timed {
 			out = Verdict{Verdict: "asks", Rule: "a write needs approval", Next: "Ask a human on the host to review pack broker access after its approval policy is settled"}
 		}
 	}

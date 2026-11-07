@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -328,5 +329,92 @@ func TestRequestWireCannotFileCommittedWorkingEntries(t *testing.T) {
 	fresh := &Store{Dir: s.Dir, Now: s.Now}
 	if _, ok, err := fresh.LiveWorking("/ws", "github.com/o/r", "refs/heads/forged"); err != nil || ok {
 		t.Fatalf("caller created coverage: %v %v", ok, err)
+	}
+}
+
+// TestDecideWorkingFailedEntryRecordStoresNoResource is BX-D18 (pack-brokers.md): an answer
+// that changes several resources is stored for every resource or for none. Beside the request
+// record that commits it, an answer writes each entry as its own working/ record, the copy a
+// running broker older than committed answers reads. A failure on the second of those writes
+// must leave no resource stored: not the request's commit (a current reader's view), not the
+// first entry's record (an older broker's view), and the prior timed entry the answer would
+// have extended keeps its old bytes.
+func TestDecideWorkingFailedEntryRecordStoresNoResource(t *testing.T) {
+	s, now := workingFixture(t)
+	prior, _, err := s.AddWorking(WorkingEntry{Workspace: "/ws", Repo: "github.com/o/r", Kind: WorkingBranch,
+		Resource: "refs/heads/one", By: "human", Expires: now.Add(30 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	priorPath := filepath.Join(s.Dir, "working", prior.ID+".json")
+	priorBytes, err := os.ReadFile(priorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+		return []WorkingEntry{
+			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
+			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},
+		}, nil
+	}
+	q, err := s.File(Request{Jail: "j", Start: "start", Workspace: "/ws", Argv: []string{"push"}, Repo: "github.com/o/r", StdinDigest: "digest", Set: "push", Policy: Policy{Window: 15 * time.Minute, MaxWindow: time.Hour, Uses: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("injected working record write failure")
+	workingWrites := 0
+	s.beforeWrite = func(kind, _ string) error {
+		if kind == "working" {
+			workingWrites++
+			if workingWrites == 2 {
+				return failure
+			}
+		}
+		return nil
+	}
+	var audited []string
+	s.Audit = func(_ context.Context, kind string, _ Request, _ Grant) error {
+		audited = append(audited, kind)
+		return nil
+	}
+	if _, err := s.DecideWorking(q.ID, Decision{For: time.Hour}); !errors.Is(err, failure) || !strings.Contains(err.Error(), "still pending") {
+		t.Fatalf("answer with a failed entry record: %v; want the injected failure, naming the request still pending", err)
+	}
+	if workingWrites < 2 {
+		t.Fatalf("the injected failure never ran: %d working writes", workingWrites)
+	}
+	if strings.Join(audited, ",") != "decision,decision-withdrawn" {
+		t.Fatalf("audit of an undone answer: %v; want the decision followed by its withdrawal", audited)
+	}
+	s.beforeWrite = nil
+	fresh := &Store{Dir: s.Dir, Now: s.Now}
+	if _, ok, err := fresh.LiveWorking("/ws", q.Repo, "refs/heads/two"); err != nil || ok {
+		t.Fatalf("a failed answer stored its second resource for a current reader: %v %v", ok, err)
+	}
+	if held, ok, err := fresh.LiveWorking("/ws", q.Repo, "refs/heads/one"); err != nil || !ok || held.ID != prior.ID || !held.Expires.Equal(prior.Expires) {
+		t.Fatalf("a failed answer changed the prior entry for a current reader: %+v %v %v", held, ok, err)
+	}
+	if got, err := fresh.Status(q.Jail, q.Start, q.ID); err != nil || got.State != "pending" {
+		t.Fatalf("a failed answer left the request %+v (%v); want it pending", got, err)
+	}
+	// An older broker reads working/ alone: it must see exactly the prior record, unchanged.
+	files, err := os.ReadDir(filepath.Join(s.Dir, "working"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range files {
+		names = append(names, f.Name())
+	}
+	if len(names) != 1 || names[0] != prior.ID+".json" {
+		t.Fatalf("a failed answer left working records %v; want only the prior %s", names, prior.ID)
+	}
+	if after, err := os.ReadFile(priorPath); err != nil || !bytes.Equal(after, priorBytes) {
+		t.Fatalf("a failed answer rewrote the prior entry's record: %s (%v)", after, err)
+	}
+	// The same answer, retried once the store writes again, stores both resources.
+	entries, err := s.DecideWorking(q.ID, Decision{For: time.Hour})
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("retried answer: %+v %v", entries, err)
 	}
 }

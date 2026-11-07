@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1932,6 +1933,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// this call — every bit of it between two spans, pointing at nothing.
 	if status := o.prepareOrdinaryPrograms(cfg, rt, repoRoot, staged.packs, channel); status != 0 {
 		return status
+	}
+	// EACH CHECKED PRIVATE CLIENT'S HTTP FRONT joins this launch's jail daemons (slice 3.4): the
+	// front serves the client and seals its generation, which the keeper hands the container
+	// beside the client's binding (insertPrivateClientEnv). It requires readiness, so a front
+	// that cannot seal stops the boot (serviceEndpointEnvArgs names it). None under the seal.
+	if !o.Sealed {
+		jailDaemons = append(slices.Clone(jailDaemons), privateHTTPFrontDaemons(o.privateClientEntrypoints)...)
 	}
 	captureSpan := o.Perf.Span("launch.auto_capture")
 	o.autoCaptureInstallerPrograms(staged.packs, containerJailPlatform())

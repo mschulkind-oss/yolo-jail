@@ -190,6 +190,25 @@ type JailDaemonSpec struct {
 	// copies the module dir somewhere else places it there (InGuest). NOT on the wire.
 	ModuleDir string
 	ModuleCmd []string
+	// RequiredReady says the boot waits for this daemon's readiness line and refuses without it:
+	// internal/cli/run names every such daemon in paths.JailDaemonReadyNamesEnv. Set only for a
+	// selected HTTP front (CoreCallBrokerHTTPFrontDaemon); the wire bridge is named by its own
+	// serve decision. NOT on the wire.
+	RequiredReady bool
+}
+
+// HTTPFrontDaemonPrefix names a selected HTTP front's jail daemon: http-front-<loophole>,
+// which is also the name its readiness line reports.
+const HTTPFrontDaemonPrefix = "http-front-"
+
+// CoreCallBrokerHTTPFrontDaemon is the jail daemon of a selected HTTP loophole's front, the core
+// program that serves the loophole's client over its own TLS and seals its generation with the
+// host broker behind endpoint (plan pack-brokers-http-plan.md, slice 3.4). It never restarts: a
+// restarted front would need a new seal, and a broker start seals once.
+func CoreCallBrokerHTTPFrontDaemon(loophole, endpoint string) JailDaemonSpec {
+	return JailDaemonSpec{Name: HTTPFrontDaemonPrefix + loophole,
+		Cmd:     []string{"yolo-jaild", "call-broker-http-front", "--endpoint", endpoint, "--loophole", loophole},
+		Restart: "no", RequiredReady: true}
 }
 
 // NamesModuleDir reports whether the daemon's argv names its loophole's module directory

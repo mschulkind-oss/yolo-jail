@@ -26,6 +26,7 @@ var (
 	errFrontGenerationWrong  = errors.New("HTTP front generation does not match this launch; stop the jail and relaunch")
 	errFrontAlreadySealed    = errors.New("HTTP front seal already exists for this generation; stop the jail and relaunch")
 	errFrontTokenOutsideSlot = errors.New("the request carries the local front token outside its field; remove it and retry")
+	errFrontWithdrawn        = errors.New("the selected HTTP front was withdrawn before sending; nothing was sent or spent; relaunch the jail")
 )
 
 // httpFrontState is the broker's in-memory view of its one sealed front. It is
@@ -35,6 +36,53 @@ type httpFrontState struct {
 	mu    sync.Mutex
 	seal  *callbrokerinput.PreparedHTTPFrontSeal
 	token string
+	// withdrawn is set once, by withdrawFront; inflight counts the calls past begin, each of
+	// which may already have sent.
+	withdrawn bool
+	inflight  int
+}
+
+// begin is the last step before a selected front's call sends: it refuses once the front is
+// withdrawn or while this start has not sealed it, and otherwise counts one call in flight,
+// which the caller ends with end. Withdrawal and begin share one lock, so a call either begins
+// before the withdrawal, and may send, or is refused with nothing sent or spent. A legacy input
+// has no front to withdraw, and begin is a no-op for it.
+func (h *HTTPHandler) begin() error {
+	if h.input.HTTPFrontGeneration == "" {
+		return nil
+	}
+	h.front.mu.Lock()
+	defer h.front.mu.Unlock()
+	if h.front.withdrawn {
+		return errFrontWithdrawn
+	}
+	if h.front.seal == nil || h.start == "" || h.front.seal.BrokerStart != h.start {
+		return errFrontNotSealed
+	}
+	h.front.inflight++
+	return nil
+}
+
+// end closes one call that begin admitted.
+func (h *HTTPHandler) end() {
+	if h.input.HTTPFrontGeneration == "" {
+		return
+	}
+	h.front.mu.Lock()
+	defer h.front.mu.Unlock()
+	if h.front.inflight > 0 {
+		h.front.inflight--
+	}
+}
+
+// withdrawFront stops every later begin and returns how many calls had already begun. It never
+// waits for them: one may be blocked on the origin, and after a possible send there is no
+// refund and no retry.
+func (h *HTTPHandler) withdrawFront() int {
+	h.front.mu.Lock()
+	defer h.front.mu.Unlock()
+	h.front.withdrawn = true
+	return h.front.inflight
 }
 
 type httpFrontSealRequest struct {

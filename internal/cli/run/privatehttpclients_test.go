@@ -2,8 +2,17 @@ package run
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,9 +254,19 @@ prefix = "Bearer "
 	}
 	withEnv, err := producer.insertPrivateClientEnv([]string{"podman", "run", "--rm", "image:ref", "cmd"}, "image:ref")
 	wantEnv, _ := entrypoint.MarshalPrivateClients([]entrypoint.PrivateClientBinding{entrypoints.Clients[0].Binding})
-	if err != nil || strings.Join(withEnv, " ") != "podman run --rm -e "+entrypoint.PrivateHTTPClientsEnv+"="+wantEnv+" image:ref cmd" {
-		t.Fatalf("keeper did not hand the container its published binding: %q %v", withEnv, err)
+	// Beside the binding, the front's generation (slice 3.4): the front reads it to seal.
+	wantGenerations := paths.HTTPFrontGenerationsEnv + "=" + selected.Name + "=" + prepared.Generation
+	if err != nil || strings.Join(withEnv, " ") != "podman run --rm -e "+entrypoint.PrivateHTTPClientsEnv+"="+wantEnv+" -e "+wantGenerations+" image:ref cmd" {
+		t.Fatalf("keeper did not hand the container its published binding and front generation: %q %v", withEnv, err)
 	}
+	// A binding whose generation no published owner names gives its front nothing to seal: the
+	// keeper refuses rather than start a container whose front cannot seal.
+	producer.privateClientBindings[0].Generation = strings.Repeat("e", 32)
+	if _, err := producer.insertPrivateClientEnv([]string{"podman", "run", "image:ref"}, "image:ref"); err == nil ||
+		!strings.Contains(err.Error(), "no published prepared generation") {
+		t.Fatalf("a binding with no published generation was handed to the container: %v", err)
+	}
+	producer.privateClientBindings[0].Generation = prepared.Generation
 	unchecked := newKeeper(plan, KeeperSeams{}, nil, nil, nil, nil).o
 	unchecked.privateClientEntrypoints = nil
 	uncheckedCname := cname + "-unchecked"
@@ -664,6 +683,134 @@ prefix = "Bearer "
 	rescope()
 	if !producer.writeLaunchInput(selected, cname) {
 		t.Fatalf("a launch after the unverifiable files were removed by hand refused:\n%s", output.String())
+	}
+
+	// Slice 3.4: a sealed launch that stopped leaves its front's seal and token beside the prepared
+	// generation, and the broker refuses to seal while either exists. Both go after a known-gone
+	// teardown, never on unknown liveness, so a relaunch under the same name can seal.
+	sealPath, tokenPath := preparedPath+".seal", preparedPath+".token"
+	sealed := func() callbrokerinput.PreparedHTTPClientGeneration {
+		t.Helper()
+		data, err := os.ReadFile(preparedPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFrontSealTestFiles(t, preparedPath, g, g.Generation)
+		return g
+	}
+	leavesGone := func(why string) {
+		t.Helper()
+		for _, path := range []string{sealPath, tokenPath} {
+			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+				t.Fatalf("%s: %s survived, so a relaunch under the same name cannot seal: %v", why, path, err)
+			}
+		}
+	}
+	sealed()
+	producer.Exec = couldNotAsk
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	for _, path := range []string{ownerPath, preparedPath, sealPath, tokenPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("unknown liveness retired %s: %v", path, err)
+		}
+	}
+	producer.Exec = knownGone
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	if len(producer.preparedHTTPRetireUnverified) != 0 {
+		t.Fatalf("a matching seal was reported unverifiable: %v", producer.preparedHTTPRetireUnverified)
+	}
+	leavesGone("known-gone teardown")
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a relaunch after a sealed launch stopped refused:\n%s", output.String())
+	}
+	leavesGone("the relaunch")
+
+	// The relaunch sweep: a sealed launch from another pack tree whose record was lost. Its
+	// prepared generation, seal and token all go before this launch writes its own.
+	dead := sealed()
+	dead.PackTree = "/host/earlier-launch-tree"
+	removePreparedHTTPOwnership(cname)
+	writePreparedTestFile(t, preparedPath, &dead)
+	writeFrontSealTestFiles(t, preparedPath, dead, dead.Generation)
+	rescope()
+	if !producer.writeLaunchInput(selected, cname) {
+		t.Fatalf("a relaunch over a dead sealed launch refused:\n%s", output.String())
+	}
+	leavesGone("the relaunch sweep")
+
+	// A seal of ANOTHER generation of cname is a replacement's: teardown of this record keeps it
+	// and its token, and does not report it as unverifiable.
+	current2 := sealed()
+	if err := os.Remove(sealPath); err != nil {
+		t.Fatal(err)
+	}
+	writeFrontSealTestFiles(t, preparedPath, current2, "fedcba9876543210fedcba9876543210")
+	producer.Exec = knownGone
+	producer.retireStalePreparedHTTPOwnership(cname, "podman")
+	if len(producer.preparedHTTPRetireUnverified) != 0 {
+		t.Fatalf("a replacement's seal was reported unverifiable: %v", producer.preparedHTTPRetireUnverified)
+	}
+	for _, path := range []string{sealPath, tokenPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("teardown removed a replacement's %s: %v", path, err)
+		}
+	}
+	// And the sweep keeps a kept generation's seal: here the replacement's own prepared generation.
+	replacement := current2
+	replacement.Generation = "fedcba9876543210fedcba9876543210"
+	replacement.Runtime, replacement.Setup, replacement.PackTree = "container", "apple-container-self", "/host/container-launch-tree"
+	writePreparedTestFile(t, preparedPath, &replacement)
+	replicasRoot, err := os.OpenRoot(filepath.Join(private, "replicas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replicasRoot.Close()
+	if foreign, _ := sweepDeadLaunchPreparedHTTP(replicasRoot, cname, "podman", packTree); foreign == "" {
+		t.Fatal("the sweep did not report another runtime's published generation")
+	}
+	for _, path := range []string{sealPath, tokenPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("the sweep removed a kept generation's %s: %v", path, err)
+		}
+	}
+}
+
+// writeFrontSealTestFiles writes the seal and token a selected front's broker leaves beside the
+// prepared generation at prepared, the seal naming generation and g's launch.
+func writeFrontSealTestFiles(t *testing.T, prepared string, g callbrokerinput.PreparedHTTPClientGeneration, generation string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "fixture-front"},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(der)
+	seal := callbrokerinput.PreparedHTTPFrontSeal{Version: callbrokerinput.PreparedHTTPFrontSealVersion, Generation: generation,
+		Container: g.Container, FrontJailID: g.FrontJailID, LaunchID: g.LaunchID, BrokerStart: "fixture-start", Loophole: g.Loophole,
+		DeclarationHash: g.DeclarationHash, Address: "127.0.0.1:41000", CertificateSHA256: hex.EncodeToString(sum[:]), CertificateDER: der}
+	if err := seal.Validate(); err != nil {
+		t.Fatalf("fixture seal: %v", err)
+	}
+	data, err := json.Marshal(seal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prepared+".seal", data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prepared+".token", []byte("fixture-token"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

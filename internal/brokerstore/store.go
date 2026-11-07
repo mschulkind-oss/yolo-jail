@@ -236,6 +236,11 @@ type Store struct {
 	// Resource and By, and returns an error naming the next step when add cannot apply to the
 	// request. Nil for a source whose requests take Allow once and Deny alone.
 	Entries func(q Request, add bool) ([]WorkingEntry, error)
+	// TimedLimit, when set, is the longest timed answer DecideWorking may record for q, in place
+	// of the request's policy window: a pack call's smallest cell max_for (pack-brokers.md
+	// BX-D17). It runs inside the decision's transaction, after Revalidate. Nil keeps the
+	// policy window, as git and GitHub use.
+	TimedLimit func(q Request) (time.Duration, error)
 	// AfterTransaction, when set, runs after each transaction on this Store value releases
 	// the store's lock, with that transaction's error. It is a test seam: a test lands
 	// another process's write (a host decision) exactly between two transactions of a caller,
@@ -251,6 +256,9 @@ type Store struct {
 	// syncDir is the real directory-sync operation used by retention; tests inject
 	// failures at that transaction callsite.
 	syncDir func(string) error
+	// beforeWrite, when set, runs before each record write and fails it with its error: a
+	// test seam for a write that fails partway through a transaction. Nil in production.
+	beforeWrite func(kind, id string) error
 }
 
 // Revalidate must re-read approved scope, current host policy, and live jail/start
@@ -576,6 +584,11 @@ func recordPrefix(kind string) string {
 func (s *Store) write(kind, id string, v any) error {
 	if !validID(id, recordPrefix(kind)) {
 		return errors.New("invalid record identity")
+	}
+	if s.beforeWrite != nil {
+		if err := s.beforeWrite(kind, id); err != nil {
+			return err
+		}
 	}
 	q, isRequest := requestOf(v)
 	if isRequest && kind == "requests" {
@@ -1062,6 +1075,18 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 	return out, err
 }
 
+// shortDuration is d as `yolo approve --for` takes it: 1h, not 1h0m0s.
+func shortDuration(d time.Duration) string {
+	out := d.String()
+	if strings.HasSuffix(out, "m0s") {
+		out = strings.TrimSuffix(out, "0s")
+	}
+	if strings.HasSuffix(out, "h0m") {
+		out = strings.TrimSuffix(out, "0m")
+	}
+	return out
+}
+
 // TimedGrantDefault is how long an Allow push to <ref> for a time lasts when the host gives no
 // duration (boundary-broker.md §6.4).
 const TimedGrantDefault = 15 * time.Minute
@@ -1105,7 +1130,17 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if duration == 0 {
 				duration = TimedGrantDefault
 			}
-			if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
+			if !d.Add && s.TimedLimit != nil {
+				limit, err := s.TimedLimit(*q)
+				if err != nil {
+					return refusal(ErrNotConfirmed, "%v", err)
+				}
+				if duration > limit {
+					return refusal(ErrRefusedByPolicy, "duration exceeds %s, the longest timed answer every cell this call writes allows "+
+						"(the smallest max_for among them). Next: run `yolo approve %s --for %s`, or `yolo approve %s` to Allow once",
+						shortDuration(limit), id, shortDuration(limit), id)
+				}
+			} else if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
 				return refusal(ErrRefusedByPolicy, "duration exceeds this set's policy ceiling of %s", min(q.Policy.MaxWindow, current.MaxWindow))
 			}
 			entries, err := s.Entries(*q, d.Add)
@@ -1126,6 +1161,8 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if err := s.audit(context.Background(), "decision", *q, Grant{ID: out[0].ID, Request: q.ID, Jail: q.Jail, Start: q.Start, Workspace: ResolveWorkspace(q.Workspace), Set: q.Set, Expires: expires}); err != nil {
 				return err
 			}
+			pending := *q
+			pending.workingEntries = nil
 			q.State = "allowed"
 			q.Decided = now
 			q.Via = d.Via
@@ -1144,12 +1181,21 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			// BELOW the committed one: a current reader still takes the committed copy
 			// (overlayCommittedWorking) and still retains the request that holds it, exactly
 			// as before, while an older broker reads the same entry from working/.
+			//
+			// The answer is stored for every resource or for none (pack-brokers.md BX-D18):
+			// every reader takes the store's lock, so a failure on any of these records is
+			// undone inside this transaction, the records already written restored and the
+			// request put back to pending, before any reader sees the store.
+			var written []priorRecord
 			for _, e := range q.workingEntries {
 				e.Revision--
-				if err := s.write("working", e.ID, e); err != nil {
-					return fmt.Errorf("request %s is allowed, but its entry %s could not be written for a running "+
-						"broker older than this yolo (%w); a current broker honors it: relaunch the jail if its "+
-						"command still asks", q.ID, e.ID, err)
+				prior, err := s.readPriorRecord("working", e.ID)
+				if err == nil {
+					written = append(written, prior)
+					err = s.write("working", e.ID, e)
+				}
+				if err != nil {
+					return s.undoWorkingAnswer(*q, pending, written, err)
 				}
 			}
 			return nil

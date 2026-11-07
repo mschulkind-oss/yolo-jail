@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type input struct {
@@ -75,6 +76,9 @@ func main() {
 				project, cell := "team:alpha", "change"
 				if item == "b1" {
 					project, cell = "team:beta", "blocked"
+				}
+				if strings.HasPrefix(item, "r") {
+					cell = "rename"
 				}
 				writes = append(writes, writeRequest{Cell: cell, Chain: []resource{{Type: "task", ID: item}, {Type: "project", ID: project}}, Description: "update task"})
 			}

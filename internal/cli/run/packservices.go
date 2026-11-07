@@ -24,6 +24,7 @@ package run
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -180,26 +181,36 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 // publisher; if the two ever name different files, the variable points at a
 // file nothing writes and the witness says so loudly, which is the failure
 // mode a silent reconstruction would hide.
+//
+// THE READY NAMES ARE ONE VALUE: the serving bridge, then every daemon of the payload that
+// requires readiness (loopholes.JailDaemonSpec.RequiredReady, a selected HTTP front), joined
+// with commas in one `-e`. Two `-e` flags for the same variable would leave the runtime to keep
+// one of them, and the boot would wait for the other's daemon never.
 func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
+	var out, ready []string
 	// The name is sole-owned across packs; a second declarer is not refused at launch, so it
 	// is held by the LATER one in the pack order, the one rule for a duplicated sole-owned
 	// claim (packload.ServiceNamed, notch-convergence NC-D59). This took the first hit.
-	bridge, ok := packload.ServiceNamed(in.packs, wirebridged.ServiceName)
-	if !ok || bridge.Endpoint == "" {
-		return nil
+	if bridge, ok := packload.ServiceNamed(in.packs, wirebridged.ServiceName); ok && bridge.Endpoint != "" {
+		channel := in.envChannel(o)
+		// The use-profiles table goes in as composed, never lowered here: WillServe lowers it
+		// with the daemon's own lowering, which reads an active set's list as its first entry,
+		// so the two ends cannot read one selection differently.
+		if wirebridged.WillServe(channel.providers, channel.profiles, channel.resolvedProfiles) {
+			out = append(out, "-e", hostServiceEnvVar(bridge.Name)+"="+
+				paths.JailHostServicesDir+"/"+bridge.Endpoint)
+			ready = append(ready, bridge.Name)
+		}
 	}
-	channel := in.envChannel(o)
-	// The use-profiles table goes in as composed, never lowered here: WillServe lowers it with
-	// the daemon's own lowering, which reads an active set's list as its first entry, so the
-	// two ends cannot read one selection differently.
-	if !wirebridged.WillServe(channel.providers, channel.profiles, channel.resolvedProfiles) {
-		return nil
+	for _, spec := range in.jailDaemons {
+		if spec.RequiredReady && !slices.Contains(ready, spec.Name) {
+			ready = append(ready, spec.Name)
+		}
 	}
-	return []string{
-		"-e", hostServiceEnvVar(bridge.Name) + "=" +
-			paths.JailHostServicesDir + "/" + bridge.Endpoint,
-		"-e", paths.JailDaemonReadyNamesEnv + "=" + bridge.Name,
+	if len(ready) > 0 {
+		out = append(out, "-e", paths.JailDaemonReadyNamesEnv+"="+strings.Join(ready, ","))
 	}
+	return out
 }
 
 // withoutUnselectedProfileDaemons drops from specs every PROFILE-SERVED daemon (a jail daemon

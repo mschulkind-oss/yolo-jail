@@ -24,8 +24,8 @@ import (
 func sameRoots(a, b []string) bool { return slices.Equal(a, b) }
 
 // Main is the core-owned host daemon's hidden entry. The selected pack's
-// launch orders it with a private input and a live host scope. Pack writes
-// require exact-once approval; timed and permanent answers remain unavailable.
+// launch orders it with a private input and a live host scope. A pack write
+// takes Allow once or a timed answer (BX-D17); there is no permanent answer.
 func Main(args []string) int {
 	defer packload.ReleaseEmbedded()
 	fs := flag.NewFlagSet("call-broker", flag.ContinueOnError)
@@ -126,6 +126,11 @@ func Main(args []string) int {
 	go func() {
 		select {
 		case <-signals:
+			// WITHDRAW BEFORE CANCEL: no selected-front call begins a send after this, and one
+			// that already began is neither refunded nor retried (slice 3.3).
+			if httpHandler != nil {
+				httpHandler.withdrawFront()
+			}
 			cancel()
 			close(stop)
 		case <-ctx.Done():

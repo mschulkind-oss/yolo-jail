@@ -266,38 +266,79 @@ func sweepDeadLaunchPreparedHTTP(replicas *os.Root, cname, rt, tree string) (for
 		}
 	}
 	sweepDeadLaunchPreparedHTTPEntrypoints(replicas, cname)
+	sweepDeadLaunchPreparedHTTPFront(replicas, cname)
 	return foreign, foreignRuntime
 }
 
-// sweepDeadLaunchPreparedHTTPEntrypoints removes cname's entrypoints records (published or not)
-// whose generation is not that of a prepared generation the prepared sweep kept for cname, so
-// what that sweep retains keeps its record. A record that does not decode as cname's is left alone.
-func sweepDeadLaunchPreparedHTTPEntrypoints(replicas *os.Root, cname string) {
+// sweepDeadLaunchPreparedHTTPFront removes the seal and token an earlier launch's front left for
+// cname (slice 3.4), before this launch writes its replacement prepared record: left behind, they
+// make this launch's broker refuse to seal ("already exists"). A seal that decodes as cname's goes
+// with its token unless its generation is one the prepared sweep kept for cname, whose front it
+// still is. A token with no seal goes only when no prepared generation of cname was kept, since a
+// kept one's front may be between writing the two. A seal that does not decode as cname's is left
+// alone, and with it the token.
+func sweepDeadLaunchPreparedHTTPFront(replicas *os.Root, cname string) {
+	kept, _, known := keptPreparedHTTPGenerations(replicas, cname)
+	if !known {
+		return
+	}
+	leaf := cname + ".json.prepared"
+	sealLeaf, tokenLeaf := preparedHTTPFrontSealLeaf(leaf), preparedHTTPFrontTokenLeaf(leaf)
+	seal, opened, present, err := readPreparedHTTPFrontSeal(replicas, sealLeaf)
+	switch {
+	case !present && len(kept) != 0:
+		return
+	case !present:
+	case err != nil || seal.Container != cname || kept[seal.Generation]:
+		return
+	default:
+		if current, err := replicas.Lstat(sealLeaf); err != nil || !os.SameFile(opened, current) || replicas.Remove(sealLeaf) != nil {
+			return
+		}
+	}
+	removePrivateHTTPLeaf(replicas, tokenLeaf)
+}
+
+// keptPreparedHTTPGenerations is the set of cname's prepared generations still in replicas,
+// published or not, with the directory's names. known is false when the directory cannot be
+// listed, or when cname's published prepared leaf is there but does not decode as cname's: what
+// it holds is then unknown, and a caller retiring what no kept generation owns must not.
+func keptPreparedHTTPGenerations(replicas *os.Root, cname string) (kept map[string]bool, names []string, known bool) {
+	kept = map[string]bool{}
 	dir, err := replicas.Open(".")
 	if err != nil {
-		return
+		return kept, nil, false
 	}
-	names, err := dir.Readdirnames(-1)
+	names, err = dir.Readdirnames(-1)
 	_ = dir.Close()
 	if err != nil {
-		return
+		return kept, nil, false
 	}
-	kept := map[string]bool{}
+	known = true
 	for _, name := range names {
 		generation, temp := strings.CutPrefix(name, preparedHTTPTempLeaf(""))
 		if !temp && name != cname+".json.prepared" {
 			continue
 		}
 		data, _, err := readPrivateHTTPFile(replicas, name)
-		if err != nil {
-			continue
+		var prepared callbrokerinput.PreparedHTTPClientGeneration
+		if err == nil {
+			prepared, err = callbrokerinput.DecodePreparedHTTPClientGeneration(data)
 		}
-		prepared, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data)
 		if err != nil || prepared.Container != cname || temp && prepared.Generation != generation {
+			known = known && temp
 			continue
 		}
 		kept[prepared.Generation] = true
 	}
+	return kept, names, known
+}
+
+// sweepDeadLaunchPreparedHTTPEntrypoints removes cname's entrypoints records (published or not)
+// whose generation is not that of a prepared generation the prepared sweep kept for cname, so
+// what that sweep retains keeps its record. A record that does not decode as cname's is left alone.
+func sweepDeadLaunchPreparedHTTPEntrypoints(replicas *os.Root, cname string) {
+	kept, names, _ := keptPreparedHTTPGenerations(replicas, cname)
 	for _, name := range names {
 		generation, temp := strings.CutPrefix(name, preparedHTTPEntrypointsTempLeaf(""))
 		if temp && !validPreparedHTTPGeneration(generation) || !temp && name != preparedHTTPEntrypointsLeaf(cname+".json.prepared") {
@@ -711,11 +752,20 @@ func missingPrivateClientBindings(want []string, bound map[string]bool) error {
 }
 
 // insertPrivateClientEnv puts this launch's bound private clients (entrypoint.PrivateHTTPClientsEnv)
-// into the container's argv before the image, as insertHostServiceEnv does a service's endpoint.
-// No binding inserts nothing, so an unactivated launch's argv is unchanged.
+// into the container's argv before the image, as insertHostServiceEnv does a service's endpoint,
+// and beside them each bound front's prepared generation (paths.HTTPFrontGenerationsEnv), which
+// its front (privateHTTPFrontDaemons) seals. No binding inserts nothing, so an unactivated
+// launch's argv is unchanged.
 func (o *Options) insertPrivateClientEnv(runCmd []string, imageRef string) ([]string, error) {
 	launchInputMu.Lock()
 	bindings := slices.Clone(o.privateClientBindings)
+	// Each committed generation's loophole, from the owner that published its entrypoints record.
+	loopholeOf := map[string]string{}
+	for _, owner := range o.preparedHTTPGenerationOwners {
+		if owner.entrypointsFile != nil && owner.entrypoints.Loophole != "" {
+			loopholeOf[owner.generation] = owner.entrypoints.Loophole
+		}
+	}
 	launchInputMu.Unlock()
 	if len(bindings) == 0 {
 		return runCmd, nil
@@ -724,11 +774,46 @@ func (o *Options) insertPrivateClientEnv(runCmd []string, imageRef string) ([]st
 	if err != nil {
 		return nil, err
 	}
+	generations := map[string]string{} // loophole -> generation
+	for _, b := range bindings {
+		loophole := loopholeOf[b.Generation]
+		if loophole == "" || !callbrokerinput.ValidHTTPFrontGeneration(b.Generation) {
+			return nil, fmt.Errorf("private HTTP client %s has no published prepared generation for its front to seal", b.Bin)
+		}
+		if prior, seen := generations[loophole]; seen && prior != b.Generation {
+			return nil, fmt.Errorf("private HTTP front %s has two prepared generations in this launch", loophole)
+		}
+		generations[loophole] = b.Generation
+	}
+	pairs := make([]string, 0, len(generations))
+	for _, loophole := range slices.Sorted(maps.Keys(generations)) {
+		pairs = append(pairs, loophole+"="+generations[loophole])
+	}
 	idx := indexOfSlice(runCmd, imageRef)
 	if idx < 0 {
 		return nil, errors.New("the container argv has no image to bind private clients before")
 	}
-	return insertStrsAt(runCmd, idx, []string{"-e", entrypoint.PrivateHTTPClientsEnv + "=" + value}), nil
+	return insertStrsAt(runCmd, idx, []string{"-e", entrypoint.PrivateHTTPClientsEnv + "=" + value,
+		"-e", paths.HTTPFrontGenerationsEnv + "=" + strings.Join(pairs, ",")}), nil
+}
+
+// privateHTTPFrontDaemons is one jail daemon per HTTP front a checked private client names
+// (Options.privateClientEntrypoints), sorted by loophole: the front that serves the client and
+// seals its generation (loopholes.CoreCallBrokerHTTPFrontDaemon) through the loophole's host
+// service endpoint. No checked client starts no front. Only the local Podman cell checks a
+// client (privateClientCellUnsupported refuses the others), so no other backend reaches one.
+func privateHTTPFrontDaemons(checked []callbrokerinput.PreparedHTTPClientEntrypoint) []loopholes.JailDaemonSpec {
+	fronts := map[string]bool{}
+	for _, c := range checked {
+		if c.Front != "" {
+			fronts[c.Front] = true
+		}
+	}
+	var out []loopholes.JailDaemonSpec
+	for _, loophole := range slices.Sorted(maps.Keys(fronts)) {
+		out = append(out, loopholes.CoreCallBrokerHTTPFrontDaemon(loophole, hostServiceEndpointPath(loophole)))
+	}
+	return out
 }
 
 func trackPreparedHTTPGeneration(o *Options, owner preparedHTTPGenerationOwner) {
