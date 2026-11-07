@@ -184,16 +184,21 @@ func TestPackCLIClassifierLookupRoundsAreBoundedAndFactsStayUncredentialed(t *te
 	}
 }
 
+// The descendant keeps the classifier's stdout and blocks reading hold, so a runner that leaves it
+// alive either fails the call or leaves a reader on hold; nothing waits on a clock.
 func TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit(t *testing.T) {
+	hold := fixtureFIFO(t, "hold")
 	marker := filepath.Join(canonicalTempDir(t), "survived")
-	body := fmt.Sprintf("(sleep 0.4; printf alive > %q) &\nprintf '%%s' '%s'", marker,
+	body := fmt.Sprintf("(read x < %q; printf alive > %q) &\nprintf '%%s' '%s'", hold, marker,
 		`{"version":"yolo.call-broker-classifier/1","local":true}`)
 	classifier := fixtureClassifier(t, body)
 	answer, err := classifier.ClassifyCLI(context.Background(), []string{"--help"}, nil, nil)
 	if err != nil || !answer.Local {
 		t.Fatalf("normal wrapper exit: answer=%+v err=%v", answer, err)
 	}
-	time.Sleep(600 * time.Millisecond)
+	if fifoHasReader(t, hold) {
+		t.Fatal("owned child survived normal exit: it still reads hold")
+	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("owned child survived normal exit: %v", err)
 	}

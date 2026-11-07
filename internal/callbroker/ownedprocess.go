@@ -14,6 +14,12 @@ var observeOwnedLeader = ownedLeaderExited
 var signalOwnedGroup = syscall.Kill
 var ownedGroupHasNoLiveMember = ownedGroupHasNoLiveMemberOS
 
+// ownedGroupDrainGuard bounds how long runOwnedGroup waits, after the group
+// signal, for the group to have no live member. It is a failure guard, not a
+// budget: a SIGKILLed member normally exits within milliseconds, and the wait
+// ends on that event. Only a member still live this long fails the call.
+var ownedGroupDrainGuard = 10 * time.Second
+
 // runOwnedGroup keeps the leader unreaped while it observes exit and terminates
 // its process group. Cmd.Wait would release the PID/PGID before a successful
 // wrapper's background children were stopped, allowing a reused PGID to be hit.
@@ -62,7 +68,40 @@ func runOwnedGroup(ctx context.Context, cmd *exec.Cmd) error {
 			return failedOwnedGroupSignal(cmd, err)
 		}
 	}
+	// A member SIGKILLed above holds its copy of the output pipes until it has
+	// actually exited, which on a loaded machine can take longer than
+	// WaitDelay. Wait for that event before Wait relies on the pipes reaching
+	// EOF, so WaitDelay bounds only a pipe held from outside the group.
+	if err := awaitOwnedGroupDrained(pid); err != nil {
+		return failedOwnedGroupSignal(cmd, err)
+	}
 	return cmd.Wait()
+}
+
+// awaitOwnedGroupDrained waits, with the leader still unreaped so pgid cannot
+// be reused, until group pgid has no live member. It signals the group again
+// on each look, so a member forked while the first signal was being delivered
+// is stopped too. An error means a member was still live after
+// ownedGroupDrainGuard, or the signal itself failed: the caller fails closed.
+// A listing error confirms nothing either way, so it leaves Wait's WaitDelay
+// as the backstop, as it was before this wait existed.
+func awaitOwnedGroupDrained(pgid int) error {
+	deadline := time.Now().Add(ownedGroupDrainGuard)
+	for {
+		empty, err := ownedGroupHasNoLiveMember(pgid)
+		if err != nil || empty {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("a group member was still live %s after SIGKILL", ownedGroupDrainGuard)
+		}
+		// ESRCH, and darwin's EPERM for a group of zombies, leave nothing to
+		// stop; the next listing tells a live member that refused it apart.
+		if err := signalOwnedGroup(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EPERM) {
+			return err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // ownedGroupConfirmedEmpty reports whether process group pgid was listed and

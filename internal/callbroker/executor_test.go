@@ -167,10 +167,13 @@ func TestCanonicalCLIExecutorBoundsRedactedResponseWithoutReturningPartialSecret
 	}
 }
 
+// The descendant keeps the leader's stdout and blocks reading hold, so a runner that leaves it
+// alive either fails the call or leaves a reader on hold; nothing waits on a clock.
 func TestCanonicalCLIExecutorStopsOwnedDescendantAfterSuccessfulWrapperExit(t *testing.T) {
+	hold := fixtureFIFO(t, "hold")
 	marker := filepath.Join(canonicalTempDir(t), "survived")
 	binary := filepath.Join(canonicalTempDir(t), "fixture")
-	body := fmt.Sprintf("#!/bin/sh\n(sleep 0.4; printf alive > %q) &\nprintf ok\n", marker)
+	body := fmt.Sprintf("#!/bin/sh\n(read x < %q; printf alive > %q) &\nprintf ok\n", hold, marker)
 	if err := os.WriteFile(binary, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +185,9 @@ func TestCanonicalCLIExecutorStopsOwnedDescendantAfterSuccessfulWrapperExit(t *t
 	if err != nil || string(result.Stdout) != "ok" {
 		t.Fatalf("normal wrapper exit: output=%q err=%v", result.Stdout, err)
 	}
-	time.Sleep(600 * time.Millisecond)
+	if fifoHasReader(t, hold) {
+		t.Fatal("owned child survived normal exit: it still reads hold")
+	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("owned child survived normal exit: %v", err)
 	}
