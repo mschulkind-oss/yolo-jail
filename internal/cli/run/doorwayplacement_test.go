@@ -28,7 +28,9 @@ import (
 func writePlacedDoorwayPack(t *testing.T, home, ws string) string {
 	t.Helper()
 	program := filepath.Join(ws, "acme-daemon")
-	if err := os.WriteFile(program, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	// It exits non-zero at once: a crash ends the readiness wait when the process exits, where a
+	// clean exit would be taken for a daemonizing wrapper and waited on for the whole window.
+	if err := os.WriteFile(program, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
@@ -100,7 +102,7 @@ func TestMacosUserDryRunRefusesADoorwayWhoseServiceThePlacementRuleRefuses(t *te
 }
 
 // THE SAME DOORWAY OUTSIDE THE WORKSPACE OPENS: the refusal is the placement rule's, not every
-// doorway's. Its host service is a program that exits at once and publishes nothing, so this is
+// doorway's. Its host service is a program that crashes at once and publishes nothing, so this is
 // also HS-D19's case, a service that fails at spawn for another reason, whose doorway still opens.
 func TestMacosUserOpensADoorwayWhoseServiceThePlacementRuleAdmits(t *testing.T) {
 	home := packHome(t)
@@ -115,7 +117,7 @@ func TestMacosUserOpensADoorwayWhoseServiceThePlacementRuleAdmits(t *testing.T) 
 	if got.rc != 0 {
 		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
 	}
-	if !strings.Contains(got.out, "host service 'acme-proxy' exited") {
+	if !strings.Contains(got.out, "host service 'acme-proxy' exited at startup") {
 		t.Fatalf("the host service did not fail at its spawn, so this is not HS-D19's case:\n%s", got.out)
 	}
 	if plan, _ := doors.only(t, "acme-proxy"); plan.Pack != "local" {
