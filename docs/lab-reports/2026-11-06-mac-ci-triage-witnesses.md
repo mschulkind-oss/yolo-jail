@@ -154,6 +154,8 @@ with workspace `unknown`, as podman lists its own builder.
   should read `running since <time>` with its workspace, and the JSON report should say
   `"enumerated": true`.
 
+**Mac run of W7–W9, 2026-11-06 at `c5990cf51`** ([run report §6](2026-11-06-mac-ci-triage-witnesses-run.md#6-later-the-same-day-w7w9-at-c5990cf51)): all three pass. W7 prints "Moved this project's home" with no `EACCES`. W8's tests pass under `apple-container-self`, an edited copy is refused with the `mv` step, and that step clears it. W9's rows read `running since <time>`, with `"enumerated": true`.
+
 ## Evidence
 
 - Run logs and job annotations: `gh run view -R mschulkind-oss/yolo-jail <id> --log-failed`,
