@@ -196,6 +196,42 @@ type hostSessionDecl struct {
 	// rendered the files they land on, relative to the directory and slash-separated.
 	surfaces map[*packload.Pack][]manifest.Surface
 	rendered []string
+	// bins are the declaring pack's program binaries (oneHostHomePerVariable).
+	bins []string
+}
+
+// oneHostHomePerVariable keeps one declaration per variable (SP-D36): a host launch execs ONE
+// program with one environment, so of two packs declaring one variable (pi and oh-omp both read
+// PI_CODING_AGENT_DIR) only one home can be the program's, and the other would be a directory
+// nothing reads. The launched program's own pack wins; when neither declares it, the first in
+// pack order does. Each dropped declaration gets one line, since a launch has no quiet mode.
+func oneHostHomePerVariable(decls []hostSessionDecl, agent string, errw io.Writer) []hostSessionDecl {
+	owns := func(d hostSessionDecl) bool {
+		for _, b := range d.bins {
+			if b == agent {
+				return true
+			}
+		}
+		return false
+	}
+	keep := map[string]int{} // variable -> index in decls of the one kept
+	for i, d := range decls {
+		j, seen := keep[d.env]
+		if !seen || (owns(d) && !owns(decls[j])) {
+			keep[d.env] = i
+		}
+	}
+	var out []hostSessionDecl
+	for i, d := range decls {
+		if keep[d.env] == i {
+			out = append(out, d)
+			continue
+		}
+		fmt.Fprintf(errw, "yolo host: pack %s: %s is pack %s's for this launch of %s, so pack %s gets "+
+			"no config directory of its own in it; launch %s's own program for that.\n",
+			d.pack, d.env, decls[keep[d.env]].pack, agent, d.pack, d.pack)
+	}
+	return out
 }
 
 // hostSessionDecls resolves every selected pack's session-home declaration at home, with the
@@ -222,6 +258,11 @@ func hostSessionDecls(packs []*packload.Pack, home string) []hostSessionDecl {
 			rel := filepath.FromSlash(strings.TrimSuffix(decl.Dir, "/"))
 			d := hostSessionDecl{pack: p.Name, env: decl.Env, rel: rel, names: decl.Shared,
 				shared: filepath.Join(home, rel), surfaces: map[*packload.Pack][]manifest.Surface{}}
+			for _, c := range p.Decl.Contributions() {
+				if c.Kind == packdecl.KindProgram && c.Bin != "" {
+					d.bins = append(d.bins, c.Bin)
+				}
+			}
 			if len(decl.Prefer) > 0 {
 				d.prefer = map[string]string{}
 				for name, target := range decl.Prefer {
@@ -323,7 +364,7 @@ func prepareHostSessionHomes(launch *hostComposition, environ []string, errw io.
 		}
 	}
 	packs, _ := packload.ResolveDestinations(launch.packs)
-	decls := hostSessionDecls(packs, home)
+	decls := oneHostHomePerVariable(hostSessionDecls(packs, home), launch.agent, errw)
 	if len(decls) == 0 {
 		return nil, environ, nil
 	}

@@ -126,6 +126,23 @@ case "${` + SessionIDEnv + `-}" in
 esac
 `
 
+// sessionHomeBindShell exports, from the session's SessionHomesEnv, each variable a line names
+// for THIS launcher's program, pointing at that program's own session home
+// (per-session-profiles.md SP-D36): two packs may declare one variable, and the session-wide
+// value is only the last declaration's. Ahead of the agent's own env files, so a value a launch
+// scoped to this agent still wins, as a user's own value does at the session pass (SP-D5). A
+// session with no homes, or none for this program, changes nothing. A here-string and IFS read,
+// both in bash 3.2; the subshell a pipe would make would lose the exports.
+const sessionHomeBindShell = `if [ -n "${` + SessionHomesEnv + `:-}" ]; then
+    while IFS="$(printf '\t')" read -r _yolo_sh_bin _yolo_sh_var _yolo_sh_dir; do
+        [ "$_yolo_sh_bin" = "$BIN" ] || continue
+        case "$_yolo_sh_var" in ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*) continue ;; esac
+        [ -n "$_yolo_sh_dir" ] && export "$_yolo_sh_var=$_yolo_sh_dir"
+    done <<< "$` + SessionHomesEnv + `"
+    unset _yolo_sh_bin _yolo_sh_var _yolo_sh_dir
+fi
+`
+
 // agentEnvShellFn is spliced into the npm and native agent launchers immediately ahead of the
 // pre-launch authentication step and the exec, and into the wrapper ahead of its exec. Ahead
 // of the authentication step because that step reads its own switches from the environment,
@@ -147,7 +164,7 @@ const agentEnvShellFn = `# --- this agent's own environment (providers.md, OQ-CN
 # per entry by yolo from its one credential gate. Absent when the launch scoped nothing here.
 # Read from this session's entry snapshot when it has one (per-session-profiles.md), so a
 # later attach's profile never reaches this session's agents.
-` + sessionSnapshotShellFn + `if [ -r "$_yolo_entry_dir/$BIN.sh" ]; then
+` + sessionHomeBindShell + sessionSnapshotShellFn + `if [ -r "$_yolo_entry_dir/$BIN.sh" ]; then
     . "$_yolo_entry_dir/$BIN.sh"
 fi
 # Its PROVIDER variables, last, exactly as its profile selection says whatever this process

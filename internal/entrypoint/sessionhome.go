@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/nativehome"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/sessionhome"
@@ -37,6 +38,47 @@ const sessionRenderLockName = ".session-render.lock"
 // sessionSidecarsDir is the directory under the shared sidecar store holding each session's own
 // baseline sidecars, one directory per session id (SP-D14).
 const sessionSidecarsDir = "sessions"
+
+// SessionHomesEnv carries a session's SESSION-HOME BINDINGS (a term coined here and in
+// docs/design/per-session-profiles.md SP-D36): one line per program of every pack that got a
+// session home, `<program bin>\t<declared variable>\t<session home>`. The session pass exports
+// it beside each declared variable; every agent launcher (agentEnvShellFn) exports the variables
+// its own program's lines name before it execs the program.
+//
+// Why both: two packs may declare ONE variable (pi and oh-omp both read stock pi's
+// PI_CODING_AGENT_DIR), and a session-wide variable holds one value, so without the binding the
+// last declaration's home is every program's, and one agent reads, and writes its state into,
+// another agent's config directory. The session-wide export stays (SP-D4): it is what a process
+// that runs no launcher inherits, and with one declaration per variable it is already right.
+const SessionHomesEnv = "YOLO_SESSION_HOMES"
+
+// sessionHomeBindings is SessionHomesEnv's value for plans: each plan's programs in declaration
+// order, a pack with no program contributing nothing. A field holding a tab or a newline would
+// break the line format and is skipped; none can (a bin and a variable are validated names, a
+// home path is built from them under the jail's home).
+func sessionHomeBindings(plans []sessionHomePlan) string {
+	var lines []string
+	for _, pl := range plans {
+		for _, bin := range pl.bins {
+			if strings.ContainsAny(bin+pl.env+pl.spec.Home, "\t\n") {
+				continue
+			}
+			lines = append(lines, bin+"\t"+pl.env+"\t"+pl.spec.Home)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// programBins is p's program binaries, in declaration order.
+func programBins(p *packload.Pack) []string {
+	var out []string
+	for _, c := range p.Decl.Contributions() {
+		if c.Kind == packdecl.KindProgram && c.Bin != "" {
+			out = append(out, c.Bin)
+		}
+	}
+	return out
+}
 
 // seededBaselineSuffix marks a session baseline seeded from the shared one (seedSessionBaselines)
 // that no render of the session has replaced yet. Capture skips such a home: its file, if any, is
@@ -87,6 +129,9 @@ func prepareSessionHomesStep(b *bootRun) {
 type sessionDecl struct {
 	pack string
 	env  string
+	// bins are the declaring pack's program binaries, whose launchers bind env to this
+	// declaration's home (SessionHomesEnv).
+	bins []string
 	// shared is the declared directory, absolute.
 	shared string
 	// nativeRoot is workspace-qualified; empty keeps the container layout.
@@ -147,7 +192,7 @@ func declaredSessionHomes(e *Env, packs []*packload.Pack) []sessionDecl {
 	var out []sessionDecl
 	for _, p := range packs {
 		for _, decl := range p.Decl.SessionHomes() {
-			d := sessionDecl{pack: p.Name, env: decl.Env, names: decl.Shared,
+			d := sessionDecl{pack: p.Name, env: decl.Env, names: decl.Shared, bins: programBins(p),
 				shared: filepath.Join(e.Home, filepath.FromSlash(strings.TrimSuffix(decl.Dir, "/")))}
 			if len(decl.Prefer) > 0 {
 				d.prefer = map[string]string{}
@@ -269,6 +314,11 @@ func prepareSessionHomes(e *Env, packs []*packload.Pack, id string) error {
 	e.session = sess
 	for _, pl := range plans {
 		setEnvBoth(e, pl.env, pl.spec.Home)
+	}
+	// SP-D36: each launcher rebinds its own program's variables, since two declarations may
+	// name one variable and the session-wide value above is then only the last one's.
+	if b := sessionHomeBindings(plans); b != "" {
+		setEnvBoth(e, SessionHomesEnv, b)
 	}
 	return nil
 }

@@ -1224,3 +1224,27 @@ func TestHostSessionHomesCloseRemovesUnlessHandedOver(t *testing.T) {
 	}
 	execd.remove()
 }
+
+// SP-D36 AT THE HOST: pi and omp both declare stock pi's variable, and a host launch execs one
+// program with one environment, so the launched program's own pack gets the home and the other
+// pack's declaration is dropped with one line naming it. Launching each in turn hands each its
+// own pack's directory. Fails if prepareHostSessionHomes stops calling oneHostHomePerVariable.
+func TestHostLaunchKeepsTheLaunchedPacksHomeWhenTwoDeclareOneVariable(t *testing.T) {
+	env := piSessionHomeEnv(t)
+	home := hostGateHome(t, ownedSessionHomeConfig(`{"packs": ["claude", "omp", "pi"]}`), nil)
+	root := filepath.Join(paths.GlobalStorageUnder(home), prune.HostSessionHomesLeaf)
+	for _, tc := range []struct{ agent, pack, other, rel string }{
+		{"pi", "pi", "omp", filepath.Join(".pi", "agent")},
+		{"oh-omp", "omp", "pi", filepath.Join(".oh-omp", "agent")},
+	} {
+		run := hostSelectionRun(t, home, nil, tc.agent)
+		dir := run.env[env]
+		if !strings.HasPrefix(dir, filepath.Join(root, tc.pack+"-")) || !strings.HasSuffix(dir, string(filepath.Separator)+tc.rel) {
+			t.Errorf("%s got %s=%q, want its own pack %s's home under %s\n%s", tc.agent, env, dir, tc.pack, root, run.errs)
+		}
+		want := "pack " + tc.other + ": " + env + " is pack " + tc.pack + "'s for this launch of " + tc.agent
+		if strings.Count(run.errs, want) != 1 {
+			t.Errorf("launching %s printed no single line for the dropped %s declaration %q:\n%s", tc.agent, tc.other, want, run.errs)
+		}
+	}
+}

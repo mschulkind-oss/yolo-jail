@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -259,6 +260,15 @@ func TestARetiredMCPPresetsWireFromAnOlderOuterJailIsRecognized(t *testing.T) {
 	if !slices.Contains(knownLaunchYOLOEnvNames(nil, nil), "YOLO_MCP_PRESETS") {
 		t.Fatal("YOLO_MCP_PRESETS is not a recognized launch name, so every launch from a jail an " +
 			"older yolo started warns about a variable its user cannot act on")
+	}
+}
+
+// The session-home bindings (per-session-profiles.md SP-D36) are exported session-wide in a jail,
+// so a launch nested in one inherits them and must not warn about a name its user cannot unset.
+func TestTheSessionHomeBindingsAreARecognizedLaunchName(t *testing.T) {
+	if !slices.Contains(knownLaunchYOLOEnvNames(nil, nil), entrypoint.SessionHomesEnv) {
+		t.Fatalf("%s is not a recognized launch name, so every launch nested in a jail with a "+
+			"session home warns about it", entrypoint.SessionHomesEnv)
 	}
 }
 

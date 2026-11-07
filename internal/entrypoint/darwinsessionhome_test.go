@@ -417,3 +417,35 @@ func TestDarwinSessionRefusesAnUnavailableCaptureLock(t *testing.T) {
 		t.Fatal("lock refusal captured without serialization")
 	}
 }
+
+// SP-D36 on macos-user: a native launch with two packs on one variable gives each its own home
+// under the native namespace, and the session metadata native-session-exec restores carries the
+// per-program bindings, so a command started after the bootstrap still binds each program to its
+// own home.
+func TestDarwinSessionHomeBindingsReachTheNativeCommandEnvironment(t *testing.T) {
+	j := newSessionHomeJail(t)
+	omp, err := embeddedPack("omp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.packs = append(j.packs, omp)
+	nativeIdle(t, false, nil)
+	t.Setenv(SessionHomesEnv, "")
+	_ = os.Unsetenv(SessionHomesEnv)
+	if _, err := j.nativePass(t, nativeA, "acme", nil); err != nil {
+		t.Fatal(err)
+	}
+	dir := j.nativeDir(t, nativeA)
+	// Pack order, which the native loader takes sorted by name.
+	want := "oh-omp\t" + j.env + "\t" + filepath.Join(dir, ".oh-omp", "agent") + "\n" +
+		"pi\t" + j.env + "\t" + filepath.Join(dir, ".pi", "agent")
+	_ = os.Unsetenv(SessionHomesEnv)
+	f := nativeLaunch(t, dir)
+	defer f.Close()
+	if got := os.Getenv(SessionHomesEnv); got != want {
+		t.Fatalf("native-session-exec restored %s=%q, want %q", SessionHomesEnv, got, want)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, ".oh-omp", "agent", "config.yml")); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("omp's native session config is not its own file: %v", err)
+	}
+}
