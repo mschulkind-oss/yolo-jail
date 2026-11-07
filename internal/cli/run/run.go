@@ -1300,11 +1300,18 @@ func Run(opts Options) (rc int) {
 		// where the layout links land; it crosses with the overlay that lays them
 		// (TestMacosUserLaunchCarriesTheSetupsHome).
 		homeOverlay.Sidecar = o.homeDir()
+		// THE ONE-SIGN-IN TIER FOR THIS SESSION (mcpauthboundary.go, ID-20): no broker runs on this
+		// backend, so this process, which lives exactly as long as the session, keeps a sign_in =
+		// "once" server's sign-in in the session's Claude store, the bridged one above, and takes a
+		// last pass when the session ends.
+		o.freezeLaunchMCP(rt, cfg, staged.packs, o.launchMCPSelection, sharedHome)
+		stopOnce := o.startOnceSession(rt, cname, staged.packs)
 		sp = o.Perf.Span("launch.macos_user")
 		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
 			repoRoot, staged.root, homeOverlay, ctxDelivery.ctx, o.DryRun,
 			launchEnv, packload.BlockedTools(staged.packs), guest)
 		sp.End()
+		stopOnce()
 		// E3 ON THIS ARM (macosusercapture.go): the session is over, so fold its edits to
 		// capture-mode surfaces into their sidecars from the host side, as a container's teardown
 		// does, before anyone asks `yolo config diff`. A dry run started no session.
@@ -1763,7 +1770,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		}
 	}
 
-	o.freezeLaunchMCP(rt, cfg, loadedPacks, o.launchMCPSelection)
+	o.freezeLaunchMCP(rt, cfg, loadedPacks, o.launchMCPSelection, "")
+	// THE ONE-SIGN-IN TIER WHERE NO BROKER RUNS (mcpauthboundary.go, ID-19): Apple Container and
+	// podman on macOS take a sign_in = "once" server's sign-in over here, before the container
+	// starts, and again in the keeper once it is gone. A no-op on Linux podman, whose broker does.
+	o.runOnceBoundary(rt, cname, onceAtStart, loadedPacks)
 
 	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
 	o.writeLaunchConfigArtifacts(cfg)

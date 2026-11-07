@@ -161,6 +161,10 @@ func onceShare(in LaunchInputContext, packs []*packload.Pack) ([]mcpauth.OnceSer
 	if in.SharedCredentialDir == "" || in.UserOnlyMCPServers == nil || in.EffectiveMCPServers == nil {
 		return nil, nil, nil
 	}
+	home := in.SharedCredentialHome
+	if home == "" {
+		home = paths.GlobalHome()
+	}
 	var sources []mcpauth.Source
 	for _, pack := range packs {
 		if pack == nil || pack.Decl == nil || pack.Decl.MCPAuth == nil {
@@ -172,7 +176,7 @@ func onceShare(in LaunchInputContext, packs []*packload.Pack) ([]mcpauth.OnceSer
 			continue
 		}
 		dir := sharedStoreDir(pack, decl.Store)
-		if dir == "" || filepath.Join(paths.GlobalHome(), filepath.FromSlash(dir)) != in.SharedCredentialDir {
+		if dir == "" || filepath.Join(home, filepath.FromSlash(dir)) != in.SharedCredentialDir {
 			continue
 		}
 		sources = append(sources, mcpauth.Source{Pack: pack.Name, DeriveFile: filepath.Join(pack.Root, "derive.lua"),

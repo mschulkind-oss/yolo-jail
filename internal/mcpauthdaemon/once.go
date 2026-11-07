@@ -3,6 +3,7 @@ package mcpauthdaemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // The one-sign-in tier's poll (MA-D10, MA-D17, docs/design/mcp-auth-sharing.md §8.4): every
@@ -65,15 +68,46 @@ func (b *broker) onceSources() []mcpauth.OnceSource {
 	return sources
 }
 
+// onceWarn is where the one-sign-in tier's token-free lines go: the daemon's stderr, which is
+// its log, or the sink of the launcher that runs the tier itself (BoundaryPass, ServeOnce).
+func (b *broker) onceWarn(line string) {
+	if b.warn != nil {
+		b.warn(line)
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mcp-auth-broker:", line)
+}
+
+func (b *broker) newOnceBroker() (*mcpauth.OnceBroker, error) {
+	store, err := b.onceStore()
+	if err != nil {
+		return nil, err
+	}
+	return &mcpauth.OnceBroker{Canonical: store,
+		Audit: func(e mcpauth.Event) { b.auditEvents([]mcpauth.Event{e}) },
+		Warn:  b.onceWarn}, nil
+}
+
+// passAll is one pass over every source, each source's problems joined.
+func (b *broker) passAll(ctx context.Context, once *mcpauth.OnceBroker, sources []mcpauth.OnceSource) error {
+	var problems []error
+	for _, source := range sources {
+		if err := once.Pass(ctx, source, b.share.Once); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	return errors.Join(problems...)
+}
+
 // runOnce passes once at start and on every tick until stop closes. It runs after readiness,
 // so a slow or unreachable authorization server never delays a launch.
 func (b *broker) runOnce(stop <-chan struct{}) {
 	if len(b.share.Once) == 0 || len(b.share.Sources) == 0 {
 		return
 	}
-	store, err := b.onceStore()
+	once, err := b.newOnceBroker()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcp-auth-broker: one-sign-in state is unavailable; repair host state permissions and relaunch:", err)
+		b.onceWarn("one-sign-in state is unavailable; repair host state permissions and relaunch: " + err.Error())
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,17 +116,12 @@ func (b *broker) runOnce(stop <-chan struct{}) {
 		<-stop
 		cancel()
 	}()
-	once := &mcpauth.OnceBroker{Canonical: store,
-		Audit: func(e mcpauth.Event) { b.auditEvents([]mcpauth.Event{e}) },
-		Warn:  func(line string) { fmt.Fprintln(os.Stderr, "mcp-auth-broker:", line) }}
 	sources := b.onceSources()
 	ticks, stopTicks := newOnceTicks()
 	defer stopTicks()
 	for {
-		for _, source := range sources {
-			if err := once.Pass(ctx, source, b.share.Once); err != nil {
-				fmt.Fprintln(os.Stderr, "mcp-auth-broker: one-sign-in pass:", err)
-			}
+		if err := b.passAll(ctx, once, sources); err != nil {
+			b.onceWarn("one-sign-in pass: " + err.Error())
 		}
 		afterOncePass()
 		select {
@@ -101,6 +130,67 @@ func (b *broker) runOnce(stop <-chan struct{}) {
 		case <-ticks:
 		}
 	}
+}
+
+// launcherBroker is the one-sign-in tier's broker for a launcher that runs the tier itself,
+// where no mcp-auth-broker daemon runs for the launch (ID-19): the same canonical store, audit
+// log and pinned pack scripts the daemon uses, with its lines going to warn.
+func launcherBroker(stateDir string, share mcpauth.Share, warn func(string)) (*broker, error) {
+	if err := share.Validate(); err != nil {
+		return nil, err
+	}
+	if len(share.Replicas) != 0 {
+		return nil, errors.New("mcp-auth: a launcher runs only the one-sign-in tier; its share names no replica")
+	}
+	canonical, err := mcpauth.NewCanonicalStore(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	b := &broker{share: share, canonical: canonical, warn: warn, seeded: map[string]uint64{},
+		audit: brokeraudit.Open(filepath.Join(paths.BrokerDir(), "audit.jsonl"), func(message string) {
+			if warn != nil {
+				warn("audit warning: " + message)
+			}
+		})}
+	if err := b.loadScripts(); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// BoundaryPass is the one-sign-in tier at a launch boundary (docs/design/mcp-auth-sharing.md
+// §8.5, ID-19): ONE pass over the share's sources, run by the launcher before the agent starts
+// and after it has ended, on a backend where no broker runs while the jail does. It adopts a
+// sign-in the agent left with its refresh token, refreshes a record that is due and writes the
+// access token back, exactly as the daemon's poll does; ctx bounds it.
+func BoundaryPass(ctx context.Context, stateDir string, share mcpauth.Share, warn func(string)) error {
+	if len(share.Once) == 0 || len(share.Sources) == 0 {
+		return nil
+	}
+	b, err := launcherBroker(stateDir, share, warn)
+	if err != nil {
+		return err
+	}
+	once, err := b.newOnceBroker()
+	if err != nil {
+		return err
+	}
+	return b.passAll(ctx, once, b.onceSources())
+}
+
+// ServeOnce is the daemon's poll, run by a launcher that lives exactly as long as its session
+// (a macos-user session, ID-20): a pass at once and on every tick until stop closes. It returns
+// once the poll has stopped, so nothing of it outlives the session.
+func ServeOnce(stateDir string, share mcpauth.Share, warn func(string), stop <-chan struct{}) error {
+	if len(share.Once) == 0 || len(share.Sources) == 0 {
+		return nil
+	}
+	b, err := launcherBroker(stateDir, share, warn)
+	if err != nil {
+		return err
+	}
+	b.runOnce(stop)
+	return nil
 }
 
 // onceStatus is the status rows for the one-sign-in servers: never a token.

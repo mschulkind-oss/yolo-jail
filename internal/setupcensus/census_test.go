@@ -65,16 +65,22 @@ func TestEveryPackKindHasACellOnEverySetup(t *testing.T) {
 	}
 }
 
-func TestMCPAuthDeclarationIsNotYetConsumed(t *testing.T) {
+// The broker runs on Linux podman alone; on every other setup the launcher keeps Claude's one
+// sign-in itself, a different mechanism, and says the rest is not shared (docs/design/mcp-auth-sharing-plan.md
+// ID-19, ID-20).
+func TestMCPAuthDeclarationPerSetup(t *testing.T) {
 	e, ok := Kind(packdecl.KindMCPAuth)
 	if !ok {
 		t.Fatal("mcp-auth is not classified in the setup census")
 	}
 	for _, setup := range Setups() {
 		cell := e.Cell(setup)
-		if cell.Disposition != Dropped || !strings.Contains(cell.Reason, "broker consumer is not implemented") ||
-			!strings.Contains(cell.Reason, "auth-store behavior is absent") || !strings.Contains(cell.Reason, "no launch notice exists") {
-			t.Errorf("mcp-auth on %s = %s (%s), want retained metadata with no auth-store behavior or launch notice", setup, cell.Disposition, cell.Reason)
+		want := HonoredBy
+		if setup == PodmanLinux {
+			want = Honored
+		}
+		if cell.Disposition != want || !strings.Contains(cell.Reason, "sign_in = \"once\"") {
+			t.Errorf("mcp-auth on %s = %s (%s), want %s naming the one-sign-in tier", setup, cell.Disposition, cell.Reason, want)
 		}
 	}
 	if len(e.Guide) != 1 || e.Guide[0] != "`mcp-auth` — an MCP sign-in store declaration" {

@@ -39,6 +39,8 @@ type broker struct {
 	// Immutable selected pack scripts are read before the jail/pack tree can retire.
 	scripts         map[string]string
 	startupDeadline time.Time
+	// warn, when set, takes the one-sign-in tier's lines instead of stderr (onceWarn).
+	warn func(string)
 }
 
 func Main(args []string) int {

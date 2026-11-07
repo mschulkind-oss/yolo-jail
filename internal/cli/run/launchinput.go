@@ -45,7 +45,11 @@ type LaunchInputContext struct {
 	// or no selected pack links it): the machine-wide store a one-sign-in server's sign-in is
 	// adopted from (MA-D17).
 	SharedCredentialDir string
-	CallBroker          *CallBrokerLaunchInput
+	// SharedCredentialHome is the home SharedCredentialDir sits under, on the host: "" for the
+	// machine store every container jail binds (paths.GlobalHome), or a macos-user session's
+	// shared home, which in the account mode is the sandbox account's (ID-20).
+	SharedCredentialHome string
+	CallBroker           *CallBrokerLaunchInput
 }
 
 // CallBrokerLaunchInput is the shared private launch-input contract consumed
@@ -278,6 +282,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		frozen.MCPProven = true
 		frozen.MCPScopes = packload.MCPServerScopes(frozen.EffectiveMCPServers, frozen.UserOnlyMCPServers)
 		frozen.SharedCredentialDir = o.launchInputMCP.SharedCredentialDir
+		frozen.SharedCredentialHome = o.launchInputMCP.SharedCredentialHome
 	}
 	if producer.Produce == nil || producer.StateDir == nil || len(o.launchInputMountArgv) == 0 {
 		o.pr(o.Stderr).print("[red]Host service '" + lp.Name + "' has no verified private launch-input destination and complete jail mount argv; it was not started. Wire the core producer and full assembled mount topology before retrying.[/red]")
