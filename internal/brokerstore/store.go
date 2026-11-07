@@ -236,6 +236,11 @@ type Store struct {
 	// Resource and By, and returns an error naming the next step when add cannot apply to the
 	// request. Nil for a source whose requests take Allow once and Deny alone.
 	Entries func(q Request, add bool) ([]WorkingEntry, error)
+	// TimedLimit, when set, is the longest timed answer DecideWorking may record for q, in place
+	// of the request's policy window: a pack call's smallest cell max_for (pack-brokers.md
+	// BX-D17). It runs inside the decision's transaction, after Revalidate. Nil keeps the
+	// policy window, as git and GitHub use.
+	TimedLimit func(q Request) (time.Duration, error)
 	// AfterTransaction, when set, runs after each transaction on this Store value releases
 	// the store's lock, with that transaction's error. It is a test seam: a test lands
 	// another process's write (a host decision) exactly between two transactions of a caller,
@@ -1070,6 +1075,18 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 	return out, err
 }
 
+// shortDuration is d as `yolo approve --for` takes it: 1h, not 1h0m0s.
+func shortDuration(d time.Duration) string {
+	out := d.String()
+	if strings.HasSuffix(out, "m0s") {
+		out = strings.TrimSuffix(out, "0s")
+	}
+	if strings.HasSuffix(out, "h0m") {
+		out = strings.TrimSuffix(out, "0m")
+	}
+	return out
+}
+
 // TimedGrantDefault is how long an Allow push to <ref> for a time lasts when the host gives no
 // duration (boundary-broker.md §6.4).
 const TimedGrantDefault = 15 * time.Minute
@@ -1113,7 +1130,17 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if duration == 0 {
 				duration = TimedGrantDefault
 			}
-			if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
+			if !d.Add && s.TimedLimit != nil {
+				limit, err := s.TimedLimit(*q)
+				if err != nil {
+					return refusal(ErrNotConfirmed, "%v", err)
+				}
+				if duration > limit {
+					return refusal(ErrRefusedByPolicy, "duration exceeds %s, the longest timed answer every cell this call writes allows "+
+						"(the smallest max_for among them). Next: run `yolo approve %s --for %s`, or `yolo approve %s` to Allow once",
+						shortDuration(limit), id, shortDuration(limit), id)
+				}
+			} else if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
 				return refusal(ErrRefusedByPolicy, "duration exceeds this set's policy ceiling of %s", min(q.Policy.MaxWindow, current.MaxWindow))
 			}
 			entries, err := s.Entries(*q, d.Add)

@@ -69,6 +69,9 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 			} else if module.Decl.CallBroker != nil && source != gitbroker.Source && source != ghbroker.Source {
 				store := genericApprovalStore(source)
 				store.Revalidate = callbroker.ApprovalAuthority
+				// A timed answer (BX-D17), one entry per write, stored all-or-none (BX-D18);
+				// RequestEntries refuses Add, which no pack answer offers (OQ-BX7).
+				store.Entries, store.TimedLimit = callbroker.RequestEntries, callbroker.ApprovalTimedLimit
 				store.Audit = callbroker.StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil), source)
 				selected[source] = store
 			} else {
@@ -91,7 +94,7 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 		}
 		store.ApprovalStatus = status
 		if status == "unknown" {
-			store.Revalidate, store.Entries = nil, nil
+			store.Revalidate, store.Entries, store.TimedLimit = nil, nil, nil
 			store.ApprovalDiagnostic = strings.Join(diagnostics, " ")
 		}
 		bySource[source] = store

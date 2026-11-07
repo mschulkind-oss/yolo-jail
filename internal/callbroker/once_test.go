@@ -44,6 +44,18 @@ func selectedOnceFixtureWithStanding(t *testing.T, standing bool) *onceFixture {
 
 func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onceFixture {
 	t.Helper()
+	return selectedOnceFixtureWith(t, standing, initialRead, false)
+}
+
+// selectedTimedOnceFixture declares max_for on its cells: change 8h, and a second asking cell
+// rename 1h, which the fixture classifier gives a task whose id starts with r.
+func selectedTimedOnceFixture(t *testing.T) *onceFixture {
+	t.Helper()
+	return selectedOnceFixtureWith(t, false, true, true)
+}
+
+func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *onceFixture {
+	t.Helper()
 	old, inputPath, marker, _ := testCallHandler(t)
 	home := filepath.Dir(marker)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -54,6 +66,12 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 		t.Fatal(err)
 	}
 	manifest := `{"name":"tasks","access":"read fixture tasks","transport":"loopback-tls","grants":[{"kind":"read","text":"read tasks"}],"call_broker":{"source":"local-tasks","front":"cli","program":"tasks","classifier":["{program:classifier}"],"env_from_host":["SYNTHETIC_HOST_TOKEN"],"scope":{"roots":"declared"},"resource":[{"type":"project"},{"type":"task","parent":"project"},{"type":"pr","parent":"project"}],"cell":[{"name":"change","tables":["working_set","all"]},{"name":"blocked","tables":["all"]}],"lookup":[{"name":"task-project","cli":["lookup","{id}"]}]}}`
+	allowCells := `"all.change"`
+	if timed {
+		manifest = strings.Replace(manifest, `{"name":"change","tables":["working_set","all"]}`,
+			`{"name":"change","tables":["working_set","all"],"max_for":"8h"},{"name":"rename","tables":["all"],"max_for":"1h"}`, 1)
+		allowCells = `"all.change", "all.rename"`
+	}
 	if err := os.WriteFile(filepath.Join(moduleDir, "manifest.jsonc"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +84,7 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 		t.Fatal(err)
 	}
 	userPath := filepath.Join(configDir, "config.toml")
-	user := fmt.Sprintf("packs = ['src/test-pack']\n[pack_sources]\nsrc = %q\n[allow.local-tasks]\non_request = [\"all.change\"]\n[allow.\"src/test-pack\"]\non_request = [\"read\"]\n", home)
+	user := fmt.Sprintf("packs = ['src/test-pack']\n[pack_sources]\nsrc = %q\n[allow.local-tasks]\non_request = [%s]\n[allow.\"src/test-pack\"]\non_request = [\"read\"]\n", home, allowCells)
 	if err := os.WriteFile(userPath, []byte(user), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +119,10 @@ func selectedOnceFixtureWithGrant(t *testing.T, standing, initialRead bool) *onc
 	old.input.Resources = declared.CallBroker.Resources
 	old.input.EffectiveCells["change"] = config.CallBrokerCellPolicy{Tables: map[string]config.CallBrokerTablePolicy{
 		"all": {Request: "ask", Ceiling: "on_request", Decision: "ask"}, "working_set": {Request: "ask", Ceiling: "on_request", Decision: "ask"}}}
+	if timed {
+		old.input.EffectiveCells["rename"] = config.CallBrokerCellPolicy{Tables: map[string]config.CallBrokerTablePolicy{
+			"all": {Request: "ask", Ceiling: "on_request", Decision: "ask"}}}
+	}
 	if standing {
 		p := old.input.EffectiveCells["change"]
 		p.Tables["working_set"] = config.CallBrokerTablePolicy{Request: "true", Ceiling: "on_request", Decision: "run"}
@@ -489,14 +511,20 @@ func TestSelectedCLIForwarderHostApproveOnceReportsCompletedOversizedWrite(t *te
 		t.Fatalf("ACT filed %d requests", len(requests))
 	}
 	hostEnv := []string{"HOME=" + f.home, "XDG_CONFIG_HOME=", "PATH=" + filepath.Dir(binary) + ":" + os.Getenv("PATH"), "USER=fixture"}
-	for _, extra := range [][]string{{"--for", "15m"}} {
-		args := append([]string{"approve", requests[0].ID}, extra...)
+	// The change cell declares no max_for, so a timed answer is capped at 15m (BX-D17); a
+	// permanent answer is removed for every source (GB-D28, OQ-BX7).
+	for _, refused := range []struct {
+		extra []string
+		exit  int
+		says  string
+	}{{[]string{"--for", "1h"}, 5, "--for 15m"}, {[]string{"--add"}, 2, "removed"}, {[]string{"--remember"}, 2, "removed"}} {
+		args := append([]string{"approve", requests[0].ID}, refused.extra...)
 		blocked := exec.Command(binary, args...)
 		blocked.Dir, blocked.Env = f.home, hostEnv
 		output, err := blocked.CombinedOutput()
 		exit, ok := err.(*exec.ExitError)
-		if !ok || exit.ExitCode() != 5 || !strings.Contains(string(output), "once") {
-			t.Fatalf("unsettled pack answer %v accepted: %v %s", extra, err, output)
+		if !ok || exit.ExitCode() != refused.exit || !strings.Contains(string(output), refused.says) {
+			t.Fatalf("pack answer %v was not refused as expected: %v %s", refused.extra, err, output)
 		}
 	}
 	host := exec.Command(binary, "approve", requests[0].ID)
@@ -585,6 +613,28 @@ func TestSelectedCLIForwarderHostApproveOnceReportsCompletedOversizedWrite(t *te
 	for _, grant := range got.Grants {
 		if grant.Request == oversizedRequest.ID && grant.Uses != 0 {
 			t.Fatalf("retry reused the spent grant: %+v", grant)
+		}
+	}
+
+	// A timed answer from the host CLI covers the same call for its window, more than once.
+	timedStdin := "timed\n"
+	if rc, out := invoke(timedStdin); rc != 75 || !strings.Contains(out, "--for 15m") {
+		t.Fatalf("timed ACT request rc=%d output=%q", rc, out)
+	}
+	var timedRequest brokerstore.Request
+	for _, request := range f.pending(t) {
+		if request.State == "pending" && request.Digest != requests[0].Digest && request.Digest != oversizedRequest.Digest {
+			timedRequest = request
+		}
+	}
+	timed := exec.Command(binary, "approve", timedRequest.ID, "--for", "15m")
+	timed.Dir, timed.Env = f.home, hostEnv
+	if output, err := timed.CombinedOutput(); err != nil || !strings.Contains(string(output), "pack writes change on task:") {
+		t.Fatalf("timed host approve: %v %s", err, output)
+	}
+	for i := 0; i < 2; i++ {
+		if rc, out := invoke(timedStdin); rc != 0 || f.effects(t) != 3+i {
+			t.Fatalf("timed ACT %d rc=%d %q effects=%d", i, rc, out, f.effects(t))
 		}
 	}
 }

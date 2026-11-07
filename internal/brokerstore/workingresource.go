@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -49,11 +51,43 @@ var (
 )
 
 // checkWorkingKind reports why e's kind cannot be recorded as it is, or nil.
+// WorkingCallPrefix starts the kind of a pack call broker's timed entry: "call:<cell>", a
+// human's `yolo approve <id> --for` on one classified write, letting that cell write that
+// resource unasked until the entry expires (pack-brokers.md BX-D17). Its Resource is the
+// write's whole chain, CallResourceKey's form. It is always timed: a pack call never joins
+// the working set by an answer (OQ-BX7).
+const WorkingCallPrefix = "call:"
+
+// IsCallKind reports whether kind is a pack call broker's timed kind with a valid cell name.
+func IsCallKind(kind string) bool {
+	cell, ok := strings.CutPrefix(kind, WorkingCallPrefix)
+	if !ok || cell == "" || len(cell) > 64 || cell[0] < 'a' || cell[0] > 'z' {
+		return false
+	}
+	for _, r := range cell {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// CallResourceKey is a classified write's chain, leaf first, as one Resource string:
+// `type:"id"` per resource joined by " < ". Each id is Go-quoted, so any id the classifier may
+// return (no NUL, CR or LF) keeps the key unambiguous.
+func CallResourceKey(chain []CallResource) string {
+	parts := make([]string, len(chain))
+	for i, r := range chain {
+		parts[i] = r.Type + ":" + strconv.Quote(r.ID)
+	}
+	return strings.Join(parts, " < ")
+}
+
 func checkWorkingKind(e WorkingEntry) error {
 	switch {
 	case slices.Contains(lastingKinds, e.Kind):
 		return nil
-	case slices.Contains(timedKinds, e.Kind):
+	case slices.Contains(timedKinds, e.Kind) || IsCallKind(e.Kind):
 		if !e.Timed() {
 			return fmt.Errorf("a %s entry never joins the working set for good: it needs an expiry", e.Kind)
 		}

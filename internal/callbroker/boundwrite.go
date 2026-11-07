@@ -108,5 +108,6 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		return refused(errors.New("call broker neither filed nor covered the call; retry"))
 	}
 	return Verdict{Verdict: "asks", Rule: "host approval required", Digest: q.Digest,
-		Next: "Ask the human to run `yolo approve " + filed.ID + "` on the host, then retry the same call"}, CLIResult{}, nil
+		Next: "Ask the human to run `yolo approve " + filed.ID + "` (Allow once) or `yolo approve " + filed.ID +
+			" --for 15m` (a while, up to the smallest max_for of its cells) on the host, then retry the same call"}, CLIResult{}, nil
 }

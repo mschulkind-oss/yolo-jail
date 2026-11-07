@@ -402,7 +402,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 		fmt.Fprintln(out, "Requests are source-labeled: only sources with active core authority can be granted; pack sources without a core adapter and removed or unknown sources are deny/revoke only. Run `yolo check` to resolve incomplete selection, or use `yolo approve <id> --deny` for a refusal.")
 		fmt.Fprintln(out, "Revoke a listed `w-` recorded working-set entry with `yolo approve --revoke <w-id>`. A listed `c-` entry is declared in config; run `yolo approve --revoke <c-id>` for the exact config change that removes it.")
 	} else {
-		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource; a git push takes `--for <duration>` to allow its refs for that long, and a branch the agent pushes again lasts through its `yolo request git push <branch>` and `yolo config apply`; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
+		fmt.Fprintln(out, "Decide pending requests with `yolo approve <id>` (a GitHub write takes `--for <duration>` for its resource; a selected pack's write takes `--for <duration>` up to the smallest max_for of the cells it writes; a git push takes `--for <duration>` to allow its refs for that long, and a branch the agent pushes again lasts through its `yolo request git push <branch>` and `yolo config apply`; `--for <duration>` grants a whole set only where supported), or `--deny`; revoke with `yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]` (a c- entry is a working-set branch declared in config and is removed there).")
 	}
 	return 0
 }
@@ -426,7 +426,7 @@ func approvalDescriptorForStore(s *brokerstore.Store) approvalDescriptor {
 		return approvalDescriptor{perResource: s.Entries != nil}
 	default:
 		if s.Revalidate != nil && s.ApprovalStatus == "selected" {
-			return approvalDescriptor{allowOnceOnly: "selected pack calls"}
+			return approvalDescriptor{allowOnceOnly: "selected pack calls", perResource: s.Entries != nil}
 		}
 		return approvalDescriptor{}
 	}
@@ -458,6 +458,9 @@ func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore
 	if source == ghbroker.Source {
 		return approveGitHubPerResource(perRefStore(stores, source), id, d, out, errs)
 	}
+	if descriptor, _ := descriptorForSource(stores, source); descriptor.allowOnceOnly == "selected pack calls" {
+		return approvePackPerResource(perRefStore(stores, source), id, d, out, errs)
+	}
 	if d.Session {
 		fmt.Fprintf(errs, "yolo approve: --for session is not available for git pushes, which allow a duration of at most 24h. Next: run `yolo approve %s --for 15m`.\n", termsafe.Visible(id))
 		return approveExitPolicy
@@ -471,6 +474,28 @@ func approvePerRef(stores []*brokerstore.Store, source, id string, d brokerstore
 		refs = append(refs, termsafe.Visible(e.Resource))
 	}
 	approveTimedOutcome(out, id, "pushes to "+strings.Join(refs, ", "), entries)
+	return 0
+}
+
+// approvePackPerResource answers a selected pack call's request id with --for: one timed entry
+// per classified write, kind call:<cell> on the write's chain, for at most the smallest max_for
+// among its cells (pack-brokers.md BX-D17), stored for every write or none (BX-D18). A pack
+// gets the answers yolo's own packs get, so no permanent Add (OQ-BX7).
+func approvePackPerResource(s *brokerstore.Store, id string, d brokerstore.Decision, out, errs io.Writer) int {
+	if d.Session {
+		fmt.Fprintf(errs, "yolo approve: --for session is not available for pack calls: no grant is scoped to a session. "+
+			"Next: run `yolo approve %s --for 15m`.\n", termsafe.Visible(id))
+		return approveExitPolicy
+	}
+	entries, err := s.DecideWorking(id, d)
+	if err != nil {
+		return approveFailure(err, errs)
+	}
+	var writes []string
+	for _, e := range entries {
+		writes = append(writes, termsafe.Visible(strings.TrimPrefix(e.Kind, brokerstore.WorkingCallPrefix)+" on "+e.Resource))
+	}
+	approveTimedOutcome(out, id, "pack writes "+strings.Join(writes, "; "), entries)
 	return 0
 }
 
