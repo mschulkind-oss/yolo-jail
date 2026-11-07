@@ -160,6 +160,12 @@ func (o *Options) checkLoopholes(r *reporter) {
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
+		// HS-D34: a doorway whose host service the placement rule refuses refuses the launch, on
+		// every backend. The prediction says so as a [FAIL], before the validator and self-check,
+		// which the same rule would only skip.
+		if o.reportPlacementRefusedDoorway(r, set, lp, admitRuntime) {
+			continue
+		}
 		validates := lp.HostDaemon != nil && len(lp.HostDaemon.SettingsCheck) > 0
 		if validates && !set.MayRunHostCode(lp) {
 			// A settings_check is host execution just like doctor_cmd, so an ungated record's
@@ -301,6 +307,37 @@ func (o *Options) checkLoopholes(r *reporter) {
 			}
 		}
 	}
+}
+
+// reportPlacementRefusedDoorway reports, as a [FAIL], a loophole whose host service the placement
+// rule (docs/reference/loophole-system.md#the-placement-rule) refuses while a doorway the next
+// launch on rt serves forwards to it, and reports whether it did. That launch refuses on every
+// backend (docs/design/host-notch-services.md#HS-D34, run's refusePlacementOfDoorways), so the row
+// says so and names the fix. Only where the backend's spawn would start the service
+// (run.HostServiceAdmittedOn), as the launch judges it; a loophole with no served doorway keeps
+// the rows below, since its launch only skips the service.
+func (o *Options) reportPlacementRefusedDoorway(r *reporter, set loopholes.Set, lp *loopholes.Loophole, rt string) bool {
+	if rt != "" && !run.HostServiceAdmittedOn(rt, lp.Name, claudeview.Selected(rt, o.Getenv)) {
+		return false
+	}
+	served := loopholes.ServedJailDaemons(rt, set.JailDaemons([]*loopholes.Loophole{lp}, rt, nil))
+	if len(loopholes.Doorways(served)) == 0 {
+		return false
+	}
+	problems := lp.PlacementProblems(o.Workspace)
+	if len(problems) == 0 {
+		return false
+	}
+	pack := "its pack"
+	if name := settingsValidatorPackName(o.selectedPacks, lp); name != "" {
+		pack = fmt.Sprintf("pack %q", name)
+	}
+	r.fail("loophole "+lp.Name+": the launch will refuse its doorway",
+		strings.Join(problems, "\n")+"\n"+fmt.Sprintf("The next launch refuses: the %q doorway "+
+			"forwards to this host service, which the placement rule refuses to start, so no backend "+
+			"opens the doorway (docs/design/host-notch-services.md#HS-D34). Move %s's files out of "+
+			"that tree, then run `yolo check --no-build` again.", lp.Name, pack))
+	return true
 }
 
 func settingsValidatorPackName(packs []*packload.Pack, lp *loopholes.Loophole) string {
