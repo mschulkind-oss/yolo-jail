@@ -507,3 +507,5 @@ under the macos-user setup. Neither check starts an agent session or calls a mod
 
    Witness: `models.yml` and `config.yml` are regular files, and `agent.db` is a link to
    `~/.oh-omp/agent/agent.db`. pi's home has neither `models.yml` nor `config.yml`.
+
+*Run 2026-11-07 at `4b26d1dfc` under `seatbelt-self`* ([lab report](../lab-reports/2026-11-07-mac-session-homes-and-nightly-42372802408.md#1-the-per-session-profiles-checks)): all three pass, except that check 1 lists `pi` before `oh-omp`.
