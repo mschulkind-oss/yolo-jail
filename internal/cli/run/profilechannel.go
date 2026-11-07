@@ -184,7 +184,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// buys: declaration is MANDATORY, so a selected name nothing declares refuses here
 	// rather than silently doing nothing. Before the resolution below, because an
 	// undeclared name has no resolution to argue about.
-	if err := o.checkProfileDeclarations(fold, userProfiles, packs); err != nil {
+	if err := o.checkProfileDeclarations(fold, userProfiles, config.ReplacedNameRefusals(cfg, packs, userProfiles), packs); err != nil {
 		return nil, err
 	}
 	// The provider table composes BEFORE the profiles resolve, because the resolution
@@ -410,12 +410,12 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 // design makes a profile name answer to; a second list here would be a second idea of
 // "declared".
 func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
-	userProfiles map[string]packload.UserProfile, packs []*packload.Pack) error {
+	userProfiles map[string]packload.UserProfile, replaced map[string]string, packs []*packload.Pack) error {
 	// EVERY ENTRY of each agent's active set (docs/design/active-provider-sets.md AP-D3), and
 	// every entry of a bare list whichever agents took it (OQ-AP3 read with AP-D3): one
 	// undeclared entry refuses the launch, and yolo never runs the declared rest. The one check
 	// `yolo check` predicts this refusal through (config.UndeclaredProfileProblems).
-	problems := config.UndeclaredProfileProblems(fold, profileFoldFromKey, userProfiles, packs, packload.Embedded())
+	problems := config.UndeclaredProfileProblems(fold, profileFoldFromKey, userProfiles, replaced, packs, packload.Embedded())
 	if len(problems) == 0 {
 		return nil
 	}

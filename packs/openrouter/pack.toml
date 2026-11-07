@@ -1,8 +1,7 @@
 name = "openrouter"
 
-[[provider]]
+[providers.openrouter]
 api_key_env_name = "OPENROUTER_API_KEY"
 endpoints.anthropic = { base_url = "https://openrouter.ai/api" }
 endpoints.openai = { base_url = "https://openrouter.ai/api/v1", wire_api = "openai-responses" }
-name = "openrouter"
 options = { model = false, pin_model = false }

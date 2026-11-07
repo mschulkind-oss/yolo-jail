@@ -2,12 +2,14 @@ package check
 
 // packmigrateadvice_test.go pins the Packs section's advice for a local pack on its legacy
 // manifest: one line naming `yolo pack migrate <dir>`, never a failure or a warning, and none for a
-// pack already on pack.toml. Through sectionPacks, the call site.
+// pack already on pack.toml unless it still writes a legacy provider spelling. Through
+// sectionPacks, the call site.
 
 import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,7 +17,7 @@ import (
 )
 
 func TestCheckAdvisesMigratingALegacyLocalPack(t *testing.T) {
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		file, body string
 		advised    bool
 	}{
@@ -23,8 +25,10 @@ func TestCheckAdvisesMigratingALegacyLocalPack(t *testing.T) {
 		{"pack.jsonc", `{"name": "oldpack", // note
  "contributes": [{"kind": "env", "vars": {"OLDPACK": "1"}}]}`, true},
 		{"pack.toml", "name = \"oldpack\"\n", false},
+		// A pack.toml still writing a legacy provider spelling (RC-D69).
+		{"pack.toml", "name = \"oldpack\"\n\n[[provider]]\nname = \"zai\"\nplatform = \"zai\"\n", true},
 	} {
-		t.Run(tc.file, func(t *testing.T) {
+		t.Run(tc.file+"_"+strconv.Itoa(i), func(t *testing.T) {
 			dir, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
 				t.Fatal(err)

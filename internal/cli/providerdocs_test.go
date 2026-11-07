@@ -57,7 +57,7 @@ var legacyProviderDocFields = map[string]string{
 // retained with json:"-" on Contribution. Their provenance is also exercised through DecodeTOML
 // and Providers() below; they are not legacy pack.json keys.
 var groupedProviderFields = map[string]string{
-	"Alias": "ProviderAlias", "Model": "ProviderModel", "Variants": "ProviderVariants",
+	"Aliases": "ProviderAliases", "SelectName": "ProviderSelectName", "Model": "ProviderModel", "Variants": "ProviderVariants",
 	"VariantOrder": "ProviderVariantOrder", "EveryModel": "EveryProviderModel",
 	"ModelRows": "ProviderModels", "ModelOrder": "ProviderModelOrder",
 }
@@ -163,12 +163,12 @@ func TestProviderContributionDocGateRejectsFormatDrift(t *testing.T) {
 	contributionFields := make([]reflect.StructField, contribution.NumField())
 	for i := 0; i < contribution.NumField(); i++ {
 		contributionFields[i] = contribution.Field(i)
-		if contributionFields[i].Name == "ProviderAlias" {
+		if contributionFields[i].Name == "ProviderAliases" {
 			contributionFields[i].Tag = `json:"alias,omitempty"`
 		}
 	}
 	withGroupedJSONTag := reflect.StructOf(contributionFields)
-	if problems := providerContributionDocProblems(entry, projection, withGroupedJSONTag); !containsProblem(problems, `Alias is backed by Contribution.ProviderAlias with JSON tag "alias", want "-"`) {
+	if problems := providerContributionDocProblems(entry, projection, withGroupedJSONTag); !containsProblem(problems, `Aliases is backed by Contribution.ProviderAliases with JSON tag "alias", want "-"`) {
 		t.Fatalf("grouped-only field accepted a legacy JSON tag: %v", problems)
 	}
 }
@@ -204,7 +204,7 @@ model = "fast-model"
 		t.Fatalf("grouped providers = %#v, want one", providers)
 	}
 	provider := providers[0]
-	if provider.Alias != "fast" || provider.Model != "fast-model" || provider.Via != "wire-bridge" ||
+	if !reflect.DeepEqual(provider.Aliases, []string{"fast"}) || provider.Model != "fast-model" || provider.Via != "wire-bridge" ||
 		provider.EveryModel == nil || provider.EveryModel.API != "openai-responses" ||
 		provider.ModelRows["fast-model"].Name != "Fast" || provider.Variants["quick"].Model != "fast-model" ||
 		!reflect.DeepEqual(provider.ModelOrder, []string{"fast-model"}) ||

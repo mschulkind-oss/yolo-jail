@@ -40,9 +40,10 @@ func TestNoShippedPackHasAJSONManifest(t *testing.T) {
 }
 
 // TestShippedProfilesAreNotProviderNames pins OQ-RC3: a provider is selectable by its own name
-// (config.LoadSelectableProfiles), so a shipped profile named for the provider it selects is a
-// second spelling of the same selection and is deleted. A profile with a different name is a
-// variant (bedrock-bridge adds a via) and stays.
+// (config.LoadSelectableProfiles), so a shipped name for the provider it selects is a second
+// spelling of the same selection and is deleted. Since RC-D69 a shipped pack writes no legacy
+// `[[profile]]`: the names it adds are its providers' aliases (claude, codex, copilot) and
+// variant names (bedrock-bridge adds a via), read through SelectionProfiles.
 func TestShippedProfilesAreNotProviderNames(t *testing.T) {
 	entries, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {
@@ -53,7 +54,11 @@ func TestShippedProfilesAreNotProviderNames(t *testing.T) {
 		if !entry.IsDir() {
 			continue
 		}
-		for _, profile := range shippedManifest(t, entry.Name()).Profiles() {
+		manifest := shippedManifest(t, entry.Name())
+		if legacy := manifest.Profiles(); len(legacy) != 0 {
+			t.Errorf("packs/%s writes a legacy [[profile]] %v: run `yolo pack migrate packs/%s`", entry.Name(), legacy, entry.Name())
+		}
+		for _, profile := range manifest.SelectionProfiles() {
 			profiles++
 			if profile.Name == profile.Provider {
 				t.Errorf("packs/%s ships profile %q over provider %q: delete it, the provider is "+

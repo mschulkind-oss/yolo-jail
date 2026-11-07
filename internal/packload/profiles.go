@@ -356,7 +356,7 @@ func ProviderFor(resolved map[string]ResolvedProfile, profile string) string {
 func packShippedProfiles(packs []*Pack) map[string]packdecl.ProfileContribution {
 	var all []packdecl.ProfileContribution
 	for _, p := range packs {
-		all = append(all, p.Decl.Profiles()...)
+		all = append(all, p.Decl.SelectionProfiles()...)
 	}
 	holds := laterWins(len(all), func(i int) string { return all[i].Name })
 	out := map[string]packdecl.ProfileContribution{}
@@ -449,7 +449,9 @@ func DeclaredProfileNames(packs []*Pack, user map[string]UserProfile) []string {
 }
 
 // ShippedProfileDeclarers returns, sorted, the names of the packs in universe (the caller passes
-// the shipped set, Embedded()) whose manifest declares a profile named name. It is the hint
+// the shipped set, Embedded()) whose manifest declares a profile named name, or a provider with an
+// alias or a variant named name (packdecl.Manifest.SelectionProfiles, RC-D69): not a bare
+// provider id, which a built-in name answers better (`-p pi=anthropic` names `claude`). It is the hint
 // UndeclaredProfileMessage gives when a name is undeclared only because the pack shipping it is
 // not selected: `-p pi=copilot` with pi alone (BI-D14). It reads manifests only, and
 // reserves nothing.
@@ -459,7 +461,7 @@ func ShippedProfileDeclarers(name string, universe []*Pack) []string {
 		if p == nil || p.Decl == nil {
 			continue
 		}
-		for _, prof := range p.Decl.Profiles() {
+		for _, prof := range p.Decl.SelectionProfiles() {
 			if prof.Name == name {
 				out = append(out, p.Name)
 				break
@@ -560,7 +562,7 @@ func RenamedProfile(old string, universe []*Pack) (now, pack string, ok bool) {
 		if p == nil || p.Decl == nil || p.Decl.FormerNames() == nil {
 			continue
 		}
-		if n, has := p.Decl.FormerNames().Profiles[old]; has && n != "" {
+		if n, has := p.Decl.FormerNames().FormerSelectionNames()[old]; has && n != "" {
 			return n, p.Name, true
 		}
 	}
@@ -622,6 +624,12 @@ func shippedProfileOver(provider string, universe []*Pack) (profile, pack string
 		for _, prof := range p.Decl.Profiles() {
 			if prof.Provider == provider {
 				return prof.Name, p.Name, true
+			}
+		}
+		// The provider's own alias: what a profile that only renamed it became (RC-D69).
+		for _, prov := range p.Decl.Providers() {
+			if prov.Name == provider && len(prov.Aliases) != 0 {
+				return prov.Aliases[0], p.Name, true
 			}
 		}
 	}

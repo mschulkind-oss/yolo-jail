@@ -60,6 +60,20 @@ var activeProviderSelectable = func() ([]string, error) {
 	return names, nil
 }
 
+// activeProviderReplaced is the refusal of selecting name when a provider's or variant's `name`
+// replaced it (config.ReplacedNameRefusals, RC-D68), "" otherwise; a variable so a test can supply
+// one.
+var activeProviderReplaced = func(name string) string {
+	packs, _ := config.UserScopeSelectedPacks()
+	packs = nonNilPacks(packs)
+	cfg := config.UserScopeConfigOrEmpty()
+	profiles, err := config.LoadSelectableProfiles(func(string) {}, cfg, packs)
+	if err != nil {
+		return ""
+	}
+	return config.ReplacedNameRefusals(cfg, packs, profiles)[name]
+}
+
 func runActiveProvider(args []string) int {
 	rest := args
 	if len(rest) > 0 {
@@ -118,6 +132,11 @@ func activeProviderRunW(args []string, out, errw io.Writer) int {
 			}
 		}
 		if !found {
+			if refusal := activeProviderReplaced(name); refusal != "" {
+				fmt.Fprintf(errw, "yolo active-provider: %s\n  Select it by the name it is given there:  "+
+					"yolo active-provider %s <that name>\n", refusal, agent)
+				return 1
+			}
 			listed := "none"
 			if len(declared) > 0 {
 				listed = strings.Join(declared, ", ")

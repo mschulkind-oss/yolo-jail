@@ -271,7 +271,31 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.16.0", pack: "copilot", problem: `unknown field "host_keychain_env"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("host_keychain_env")},
+	// Measured against v0.17.0 on 2026-11-06: the provider packs write every provider keyed,
+	// `[providers.<id>]` (docs/design/readable-config.md RC-D69). That reader reads a keyed
+	// table's `models` as model rows, so a pack still listing its models as the legacy flat map
+	// stops its decode; it does not know a variant's `name` (bedrock-bridge, now a variant of
+	// bedrock), so it skips the bedrock provider; and it does not know `formerly.providers`. The
+	// repairs' own pack.json conversion writes each provider back as the legacy contribution that
+	// reader reads; copilot-auth's also drops the former provider name.
+	{release: "v0.17.0", pack: "cerebras", problem: "cannot unmarshal string into Go value of type packdecl.ProviderModel",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
+	{release: "v0.17.0", pack: "codex-auth", problem: "cannot unmarshal string into Go value of type packdecl.ProviderModel",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
+	{release: "v0.17.0", pack: "llamacpp", problem: "cannot unmarshal string into Go value of type packdecl.ProviderModel",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
+	{release: "v0.17.0", pack: "zai", problem: "cannot unmarshal string into Go value of type packdecl.ProviderModel",
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
+	{release: "v0.17.0", pack: "bedrock", problem: `unknown provider model field "variants.bridge.name"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
+	{release: "v0.17.0", pack: "copilot-auth", problem: `"formerly" is read without its unknown field "providers"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("providers")},
 }
+
+// asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a
+// pack.toml with the pack.json the same manifest means, which writes each keyed provider as the
+// legacy provider contribution every release reads.
+func asLegacyJSON(v any) any { return v }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's
 // reader, called the way its jail boot calls it — LoadDir under TolerateSkew, then each pack's
@@ -683,12 +707,14 @@ func knownBreakFor(release, pack, problem string) int {
 }
 
 // knownSkippedBreakFor recognizes only a listed unknown-field or unknown-kind diagnostic for the exact released
-// yolo and pack. It covers skipped program/provider contributions, pack-wide fields it ignores, and unknown grouped
-// kinds. Every such entry carries a repair, so the rest of what the skip hid is decoded again without it. Other
+// yolo and pack. It covers skipped program/provider contributions (a keyed provider table's unknown model field
+// among them), pack-wide fields it ignores or reads without an unknown member, and unknown grouped kinds. Every such entry carries a repair, so the rest of what the skip hid is decoded again without it. Other
 // skips remain failures in the release-compatibility test.
 func knownSkippedBreakFor(release, pack, skipped string) int {
 	fieldSkip := strings.Contains(skipped, "skipping the program contribution") ||
-		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`)
+		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`) ||
+		strings.Contains(skipped, "skipping provider declaration with unknown provider model field") ||
+		strings.Contains(skipped, "is read without its unknown field")
 	kindSkip := strings.Contains(skipped, "skipping unknown kind")
 	if !fieldSkip && !kindSkip {
 		return -1
@@ -697,7 +723,9 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 		if b.release != release || b.pack != pack || !strings.Contains(skipped, b.problem) {
 			continue
 		}
-		if (fieldSkip && strings.HasPrefix(b.problem, `unknown field "`)) ||
+		if (fieldSkip && (strings.HasPrefix(b.problem, `unknown field "`) ||
+			strings.HasPrefix(b.problem, `unknown provider model field "`) ||
+			strings.Contains(b.problem, `is read without its unknown field "`))) ||
 			(kindSkip && strings.HasPrefix(b.problem, `unknown kind "`)) {
 			return i
 		}

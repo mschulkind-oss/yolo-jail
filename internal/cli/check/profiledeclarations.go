@@ -34,7 +34,8 @@ func profileDeclarationGap(cfg *jsonx.OrderedMap, packs func() ([]*packload.Pack
 		return nil
 	}
 	fold := config.ConfigProfileFold(cfg, selected)
-	problems := config.UndeclaredProfileProblems(fold, 0, declared, selected, packload.Embedded())
+	problems := config.UndeclaredProfileProblems(fold, 0, declared, config.ReplacedNameRefusals(cfg, selected, declared),
+		selected, packload.Embedded())
 	out := make([]string, len(problems))
 	for i, p := range problems {
 		out[i] = "packs: " + p

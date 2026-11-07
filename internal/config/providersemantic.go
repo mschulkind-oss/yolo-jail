@@ -203,68 +203,10 @@ func ProviderReceivers(packs []*packload.Pack) []ProviderReceiver {
 // declarations (ProviderReceivers), not installed bins. Provider declarations never select.
 func ResolveActiveProviders(declarations []packdecl.ProviderContribution, selection ActiveProviderSelection,
 	receivers []ProviderReceiver) (ProviderSelectionResult, error) {
-	byName := make(map[string]packdecl.ProviderContribution, len(declarations))
-	aliases := map[string]string{}
-	reserved := map[string]string{}
-	variants := map[string]struct{ provider, variant string }{}
-	for _, declaration := range declarations {
-		if problem := providerNameProblem(declaration.Name); problem != "" {
-			return ProviderSelectionResult{}, fmt.Errorf("provider declaration %s: %s", declaration.Name, problem)
-		}
-		if declaration.Name == "native" {
-			return ProviderSelectionResult{}, fmt.Errorf("provider name %q is reserved; it means an agent is left to its own login", declaration.Name)
-		}
-		if strings.Contains(declaration.Name, "/") {
-			return ProviderSelectionResult{}, fmt.Errorf("provider name %q cannot contain '/'; use provider/variant for a variant", declaration.Name)
-		}
-		if prior, exists := reserved[declaration.Name]; exists {
-			return ProviderSelectionResult{}, fmt.Errorf("provider namespace collision %q between %s and provider %s", declaration.Name, prior, declaration.Name)
-		}
-		reserved[declaration.Name] = "provider"
-		byName[declaration.Name] = declaration
-		if declaration.Alias != "" {
-			if problem := providerNameProblem(declaration.Alias); problem != "" {
-				return ProviderSelectionResult{}, fmt.Errorf("provider %s alias %q: %s", declaration.Name, declaration.Alias, problem)
-			}
-			if declaration.Alias == "native" {
-				return ProviderSelectionResult{}, fmt.Errorf("provider alias %q is reserved; it means an agent is left to its own login", declaration.Alias)
-			}
-			if strings.Contains(declaration.Alias, "/") {
-				return ProviderSelectionResult{}, fmt.Errorf("provider alias %q cannot contain '/'; use provider/variant for a variant", declaration.Alias)
-			}
-			if prior, exists := reserved[declaration.Alias]; exists {
-				return ProviderSelectionResult{}, fmt.Errorf("provider namespace collision %q between %s and alias of %s", declaration.Alias, prior, declaration.Name)
-			}
-			reserved[declaration.Alias] = "alias of " + declaration.Name
-			aliases[declaration.Alias] = declaration.Name
-		}
-		for name := range declaration.Variants {
-			if problem := providerNameProblem(name); problem != "" {
-				return ProviderSelectionResult{}, fmt.Errorf("provider %s variant %q: %s", declaration.Name, name, problem)
-			}
-			if strings.Contains(name, "/") {
-				return ProviderSelectionResult{}, fmt.Errorf("provider %s has invalid variant name %q", declaration.Name, name)
-			}
-			variants[declaration.Name+"/"+name] = struct{ provider, variant string }{declaration.Name, name}
-			variant := declaration.Variants[name]
-			for option := range variant.Options {
-				if _, declared := declaration.Options[option]; !declared {
-					return ProviderSelectionResult{}, fmt.Errorf("provider %s variant %s: option %q is not declared by the provider", declaration.Name, name, option)
-				}
-			}
-		}
+	ns, err := buildProviderNamespace(declarations)
+	if err != nil {
+		return ProviderSelectionResult{}, err
 	}
-	declared := make([]string, 0, len(byName)+len(aliases)+len(variants))
-	for name, d := range byName {
-		declared = append(declared, name)
-		if d.Alias != "" {
-			declared = append(declared, name+" ("+d.Alias+")")
-		}
-	}
-	for name := range variants {
-		declared = append(declared, name)
-	}
-	sort.Strings(declared)
 	resolve := func(name string) (SelectedProvider, error) {
 		if problem := providerSelectorProblem(name); problem != "" {
 			return SelectedProvider{}, fmt.Errorf("selector %q: %s", name, problem)
@@ -272,38 +214,38 @@ func ResolveActiveProviders(declarations []packdecl.ProviderContribution, select
 		if name == "native" {
 			return SelectedProvider{Target: ProviderTarget{Native: true}}, nil
 		}
-		if selected, ok := variants[name]; ok {
-			declaration := byName[selected.provider]
-			variant := declaration.Variants[selected.variant]
-			subagents, err := selectedSubagents(variant.Subagents)
-			if err != nil {
-				return SelectedProvider{}, fmt.Errorf("provider %s variant %s: %w", selected.provider, selected.variant, err)
+		target, ok := ns.names[name]
+		if !ok {
+			if refusal, replaced := ns.replaced[name]; replaced {
+				return SelectedProvider{}, fmt.Errorf("%s", refusal)
 			}
-			options := cloneOptionDefaults(declaration.Options)
-			for key, value := range variant.Options {
-				if options == nil {
-					options = map[string]packdecl.OptionDefault{}
-				}
-				options[key] = value
-			}
-			capabilities := declaration.Capabilities
-			if variant.Capabilities != nil {
-				capabilities = variant.Capabilities
-			}
-			return SelectedProvider{Target: ProviderTarget{Provider: selected.provider, Variant: selected.variant}, Provider: selected.provider,
-				Model: firstString(variant.Model, declaration.Model), Via: firstString(variant.Via, declaration.Via),
-				Options: options, Subagents: subagents, EnforceModels: variant.EnforceModels,
-				Capabilities: cloneStrings(capabilities), Protocols: cloneStrings(variant.Protocols)}, nil
+			return SelectedProvider{}, fmt.Errorf("unknown active provider %q. Declared: %s", name, strings.Join(ns.display, ", "))
 		}
-		providerName := name
-		if resolved, ok := aliases[name]; ok {
-			providerName = resolved
-		}
-		if declaration, ok := byName[providerName]; ok {
-			return SelectedProvider{Target: ProviderTarget{Provider: providerName}, Provider: providerName, Model: declaration.Model,
+		declaration := ns.byName[target.provider]
+		if target.variant == "" {
+			return SelectedProvider{Target: ProviderTarget{Provider: target.provider}, Provider: target.provider, Model: declaration.Model,
 				Via: declaration.Via, Options: cloneOptionDefaults(declaration.Options), Capabilities: cloneStrings(declaration.Capabilities)}, nil
 		}
-		return SelectedProvider{}, fmt.Errorf("unknown active provider %q. Declared: %s", name, strings.Join(declared, ", "))
+		variant := declaration.Variants[target.variant]
+		subagents, err := selectedSubagents(variant.Subagents)
+		if err != nil {
+			return SelectedProvider{}, fmt.Errorf("provider %s variant %s: %w", target.provider, target.variant, err)
+		}
+		options := cloneOptionDefaults(declaration.Options)
+		for key, value := range variant.Options {
+			if options == nil {
+				options = map[string]packdecl.OptionDefault{}
+			}
+			options[key] = value
+		}
+		capabilities := declaration.Capabilities
+		if variant.Capabilities != nil {
+			capabilities = variant.Capabilities
+		}
+		return SelectedProvider{Target: ProviderTarget{Provider: target.provider, Variant: target.variant}, Provider: target.provider,
+			Model: firstString(variant.Model, declaration.Model), Via: firstString(variant.Via, declaration.Via),
+			Options: options, Subagents: subagents, EnforceModels: variant.EnforceModels,
+			Capabilities: cloneStrings(capabilities), Protocols: cloneStrings(variant.Protocols)}, nil
 	}
 	result := ProviderSelectionResult{ByReceiver: map[string][]SelectedProvider{}, NativeReceivers: map[string]bool{}}
 	receiverSet := map[string]ProviderReceiver{}

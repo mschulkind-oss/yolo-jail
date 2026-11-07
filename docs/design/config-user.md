@@ -203,23 +203,40 @@ model = "global.anthropic.claude-opus-5-5"
 [providers.bedrock.variants.bridge]            # or a different route to it
 via = "wire-bridge"
 
-[providers.openai-codex]                       # the ChatGPT login, declared by the openai-auth pack; alias lets -p codex work
-alias = "codex"
+[providers.openrouter]                         # your entry for the provider the openrouter pack declares
+name = "or"                                    # selected as "or", and only as "or"
+model = "anthropic/claude-opus-5-5"
+alias = ["router"]                             # another name for exactly these settings
 
 [active_provider]                              # the provider each agent runs on
 default = "bedrock"                            # a provider, by name; -p bedrock
 claude = "bedrock/opus"                        # a variant, as provider/variant; -p bedrock/opus
 pi = ["bedrock", "codex"]                      # several, switchable inside the agent, as today's list is
+helper = "or"                                  # the provider you named; -p or
 codex = "native"                               # left to itself: yolo configures nothing for it
 ```
 
-A variant is selected as `provider/variant` and nothing shorter; the one short name a provider
-offers is its `alias`, which selects the provider's own configuration and so starts on its
-`model`. A converted profile that was the way you selected a provider under a short name
-(`profiles.or` on openrouter) comes out as `openrouter/or`; to have `or` back, make it the
-provider's alias and put the starting model on the provider
-([RC-D62](readable-config.md#RC-D62)), and the conversion's report names that command when it
-writes a variant for a provider with no alias.
+**Approved 2026-11-03 ([RC-D68](readable-config.md#RC-D68)):** your `[providers.<id>]` table is
+your entry for that provider, and the selected pack's declaration fills in every key you do not
+write. `name` defaults to the id; setting it makes that name the only one the provider's own
+configuration answers to, and its variants follow as `<name>/<variant>`. `alias`, a string or a
+list, adds names for exactly the configuration it sits on, so an alias is another name for the
+same settings and a variant is a version with different settings. A variant may carry a `name`
+too, which makes that its one spelling, at the top level: the bedrock pack's `bridge` variant is
+`name = "bedrock-bridge"`. No written name contains `/`, and only you may name a provider; a pack
+may name a variant, and gives its provider an alias instead (the codex-auth pack's `openai-codex`
+answers to `codex`). Every collision is fatal, except an alias equal to its own configuration's
+name. Selecting a name you replaced is refused, naming yours:
+
+```console
+$ yolo active-provider helper openrouter
+yolo active-provider: openrouter is named "or" in your config (providers.openrouter.name): -p or
+```
+
+A converted profile that was the way you selected a provider under a short name (`profiles.or`
+on openrouter) comes out as `openrouter/or`; to have `or` back, write `name = "or"` on the
+provider and put the starting model there ([RC-D62](readable-config.md#RC-D62)), and the
+conversion's report names that command when it writes a variant for a provider with no alias.
 
 A name is refused with the list of providers the selected packs declare, so the names are
 discoverable at the point of use:
@@ -227,7 +244,7 @@ discoverable at the point of use:
 ```console
 $ yolo check
 config.toml:19: active_provider.claude = "bedrok": no such provider. Declared: bedrock, bedrock/opus,
-  bedrock/bridge, openai-codex (codex), openrouter.
+  bedrock-bridge, openai-codex (codex), or, router.
 ```
 
 `-p` and the selection key name the same things, as today. **Approved 2026-10-25:** the selection

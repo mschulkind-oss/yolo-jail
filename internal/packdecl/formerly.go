@@ -28,7 +28,31 @@ type Formerly struct {
 	Packs []string `json:"packs,omitempty"`
 	// Profiles maps a former profile name to the profile this pack declares now. A selection
 	// naming the former one, which nothing declares, is refused naming the new one.
+	//
+	// The legacy spelling of Providers, from before `[[profile]]` was retired (RC-D69).
 	Profiles map[string]string `json:"profiles,omitempty"`
+	// Providers maps a former selection name to the name one of this pack's providers answers to
+	// now: its id, an alias, or a variant's name (RC-D69). A selection naming the former one is
+	// refused naming the new one, and the former name selects nothing, even where it is the id
+	// of a provider this pack ships (copilot-auth's `github-copilot`, renamed `copilot`, an
+	// alias of the provider `github-copilot`, OQ-PE3).
+	Providers map[string]string `json:"providers,omitempty"`
+}
+
+// FormerSelectionNames is every former selection name the record maps to its new name: Providers
+// and its legacy spelling, Profiles. Nil when there are none.
+func (f *Formerly) FormerSelectionNames() map[string]string {
+	if f == nil || (len(f.Profiles) == 0 && len(f.Providers) == 0) {
+		return nil
+	}
+	out := make(map[string]string, len(f.Profiles)+len(f.Providers))
+	for old, now := range f.Profiles {
+		out[old] = now
+	}
+	for old, now := range f.Providers {
+		out[old] = now
+	}
+	return out
 }
 
 // FormerNames returns the pack's Formerly record, nil when it declares none. THE accessor.
@@ -69,5 +93,44 @@ func (m *Manifest) validateFormerly() []string {
 				"pack declares, so the refusal would name a profile that is refused in turn", old, now))
 		}
 	}
+	problems = append(problems, m.validateFormerProviders()...)
 	return problems
 }
+
+// validateFormerProviders refuses a `formerly.providers` entry no refusal could use: an empty or
+// unwritable former name, one an alias or variant of this pack still answers to, or one mapped to
+// a name none of this pack's providers answers to.
+func (m *Manifest) validateFormerProviders() []string {
+	ids := map[string]bool{}
+	answers := map[string]bool{}
+	for _, p := range m.Providers() {
+		ids[p.Name] = true
+		for _, name := range p.SelectionNames() {
+			answers[name] = true
+		}
+	}
+	olds := make([]string, 0, len(m.Formerly.Providers))
+	for old := range m.Formerly.Providers {
+		olds = append(olds, old)
+	}
+	sort.Strings(olds)
+	var problems []string
+	for _, old := range olds {
+		now := m.Formerly.Providers[old]
+		switch {
+		case SelectionNameProblem(old) != "":
+			problems = append(problems, fmt.Sprintf(formerProvidersLabel+": the former name %q %s", old, SelectionNameProblem(old)))
+		case answers[old] && !ids[old]:
+			problems = append(problems, fmt.Sprintf(formerProvidersLabel+".%s: a provider of this pack still "+
+				"answers to %q, so it is not a former name", old, old))
+		case !answers[now]:
+			problems = append(problems, fmt.Sprintf(formerProvidersLabel+".%s: no provider of this pack answers "+
+				"to %q, so the refusal would name a name that is refused in turn", old, now))
+		}
+	}
+	return problems
+}
+
+// formerProvidersLabel heads every formerly.providers problem, so the TOML decode can re-run the
+// check once a keyed provider's aliases and variants are attached.
+const formerProvidersLabel = "formerly.providers"

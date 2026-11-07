@@ -160,7 +160,13 @@ const (
 	KindAutonomy Kind = "autonomy"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
 	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and
-	// `provider` is what it selects. THAT IS THE WHOLE BODY, since OQ-PT8 shrank the kind
+	// `provider` is what it selects.
+	//
+	// RETIRED IN A pack.toml (docs/design/readable-config.md RC-D69): `[[profile]]` is read there as
+	// a legacy spelling for a few releases, noted by `yolo check`, and `yolo pack migrate <path>`
+	// folds it into its provider (Manifest.FoldProfiles): a profile that only renames the provider
+	// becomes its `alias`, one with a `via` or `enforce_models` a variant with that `name`. A pack
+	// writes those in `[providers.<id>]` instead; SelectionProfiles reads them back as profiles. THAT IS THE WHOLE BODY, since OQ-PT8 shrank the kind
 	// (providers.md#oq-pt8 is the ruling): everything a `kind: "profile"` used to
 	// carry besides — a config patch, launch flags, a static env map — was never a profile
 	// at all, but a contribution GATED ON a profile name, and it now lives that way in the

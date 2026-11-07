@@ -1,9 +1,8 @@
 name = "cerebras"
 needs = [{ pack = "wire-bridge", when_bins = ["claude", "copilot"] }]
 
-[[provider]]
+[providers.cerebras]
 api_key_env_name = "CEREBRAS_API_KEY"
 endpoints.openai = { base_url = "https://api.cerebras.ai/v1", wire_api = "openai-chat-completions" }
 models = { default = "qwen-3.8-27b" }
-name = "cerebras"
 options = { context_window = "65536", model = "default", pin_model = false }

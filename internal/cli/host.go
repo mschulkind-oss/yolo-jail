@@ -612,10 +612,15 @@ func hostBareListUndeclared(agent string, entries []string) error {
 		return nil
 	}
 	declared := packload.DeclaredProfileNames(sel.packs, userProfiles)
+	replaced := config.ReplacedNameRefusals(config.UserScopeConfigOrEmpty(), sel.packs, userProfiles)
 	for i, name := range entries {
 		if !slices.Contains(declared, name) {
+			help := replaced[name]
+			if help == "" {
+				help = packload.UndeclaredProfileHelp(name, declared, sel.packs, packload.Embedded())
+			}
 			return fmt.Errorf("packs: profile %q (entry %d of the bare -p list %s): %s", name, i+1,
-				strings.Join(entries, ","), packload.UndeclaredProfileHelp(name, declared, sel.packs, packload.Embedded()))
+				strings.Join(entries, ","), help)
 		}
 	}
 	return nil
@@ -2722,10 +2727,16 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// EVERY ENTRY of the set must be declared (AP-D3): one undeclared entry refuses the launch,
 		// and the declared rest never runs alone.
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
+		replaced := config.ReplacedNameRefusals(cfg, packs, userProfiles)
+		undeclaredHelp := func(name string) string {
+			if refusal, ok := replaced[name]; ok {
+				return refusal
+			}
+			return packload.UndeclaredProfileHelp(name, declared, packs, packload.Embedded())
+		}
 		for _, name := range set {
 			if i := sort.SearchStrings(declared, name); i >= len(declared) || declared[i] != name {
-				c.err = fmt.Errorf("packs: profile %q selected for %s: %s", name, agent,
-					packload.UndeclaredProfileHelp(name, declared, packs, packload.Embedded()))
+				c.err = fmt.Errorf("packs: profile %q selected for %s: %s", name, agent, undeclaredHelp(name))
 				return c
 			}
 		}
@@ -2735,7 +2746,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		for i, name := range c.bareList {
 			if j := sort.SearchStrings(declared, name); j >= len(declared) || declared[j] != name {
 				c.err = fmt.Errorf("packs: profile %q (entry %d of the profile key's list %s): %s",
-					name, i+1, strings.Join(c.bareList, ","), packload.UndeclaredProfileHelp(name, declared, packs, packload.Embedded()))
+					name, i+1, strings.Join(c.bareList, ","), undeclaredHelp(name))
 				return c
 			}
 		}

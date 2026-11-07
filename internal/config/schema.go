@@ -269,12 +269,19 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "active_provider.*.*", Scope: user, Type: SchemaTypeString},
 		{Path: "providers", Scope: mixed, Type: SchemaTypeObject},
 		{Path: "providers.*", Scope: mixed, Type: SchemaTypeMixed},
-		{Path: "providers.*.alias", Scope: user, Type: SchemaTypeString},
+		// A provider's `name` and `alias`, a variant's `name` and `alias` (RC-D68): a name
+		// replaces the default selection spelling, and an alias is a name or a list of them.
+		{Path: "providers.*.name", Scope: user, Type: SchemaTypeString},
+		{Path: "providers.*.alias", Scope: user, Type: SchemaTypeMixed},
+		{Path: "providers.*.alias.*", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.region", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.model", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.via", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.variants", Scope: user, Type: SchemaTypeObject},
 		{Path: "providers.*.variants.*", Scope: user, Type: SchemaTypeMixed},
+		{Path: "providers.*.variants.*.name", Scope: user, Type: SchemaTypeString},
+		{Path: "providers.*.variants.*.alias", Scope: user, Type: SchemaTypeMixed},
+		{Path: "providers.*.variants.*.alias.*", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.variants.*.model", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.variants.*.via", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.variants.*.capabilities", Scope: user, Type: SchemaTypeList},
@@ -446,7 +453,7 @@ func readableProviderScope(path string) SchemaScope {
 		return SchemaScopeFieldSensitive
 	}
 	for _, prefix := range []string{
-		"providers.*.alias", "providers.*.model", "providers.*.via",
+		"providers.*.name", "providers.*.alias", "providers.*.model", "providers.*.via",
 		"providers.*.base_url", "providers.*.wire_api", "providers.*.api_key_env_name",
 		"providers.*.platform", "providers.*.endpoints", "providers.*.variants",
 	} {

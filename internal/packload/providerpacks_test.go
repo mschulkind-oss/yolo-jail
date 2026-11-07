@@ -54,8 +54,9 @@ func TestEachVendorAgentBringsItsOwnProviderPack(t *testing.T) {
 	}
 }
 
-// THE NAMES (OQ-PE3, PE-D6): the pack is `<agent>-auth`, the profile the bare agent name, and the
-// provider keeps the id the agents' own clients key it by.
+// THE NAMES (OQ-PE3, PE-D6): the pack is `<agent>-auth`, the selection name the bare agent name
+// (the provider's alias since RC-D69), and the provider keeps the id the agents' own clients key
+// it by.
 func TestTheProviderPacksDeclareAProfileNamedForTheAgent(t *testing.T) {
 	for pack, want := range map[string][2]string{
 		"claude-auth":  {"claude", "anthropic"},
@@ -64,11 +65,14 @@ func TestTheProviderPacksDeclareAProfileNamedForTheAgent(t *testing.T) {
 	} {
 		p := embeddedNamed(t, pack)[0]
 		var got [][2]string
-		for _, prof := range p.Decl.Profiles() {
+		if len(p.Decl.Profiles()) != 0 {
+			t.Errorf("%s still declares a legacy [[profile]]: %v", pack, p.Decl.Profiles())
+		}
+		for _, prof := range p.Decl.SelectionProfiles() {
 			got = append(got, [2]string{prof.Name, prof.Provider})
 		}
 		if len(got) != 1 || got[0] != want {
-			t.Errorf("%s declares profiles %v, want exactly %v", pack, got, want)
+			t.Errorf("%s answers to %v, want exactly %v", pack, got, want)
 		}
 		if got := ShippedProfileDeclarers(want[0], Embedded()); !slices.Equal(got, []string{pack}) {
 			t.Errorf("shipped packs declaring %s = %v, want %s alone", want[0], got, pack)

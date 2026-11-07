@@ -187,7 +187,7 @@ func TestActiveProviderSelectsProviderVariantAndAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	fold := FoldProfiles(ReceiversOf(packs), ConfigActiveSelection(cfg))
-	if problems := UndeclaredProfileProblems(fold, 0, profiles, packs, nil); len(problems) != 0 {
+	if problems := UndeclaredProfileProblems(fold, 0, profiles, nil, packs, nil); len(problems) != 0 {
 		t.Fatalf("a provider, alias or variant name was refused as undeclared: %v", problems)
 	}
 	sets := packload.ProfileSets(fold.Table)
@@ -208,7 +208,7 @@ func TestActiveProviderSelectsProviderVariantAndAlias(t *testing.T) {
 	// A name no profile, provider, alias or variant holds is still refused, and the refusal lists
 	// the implied names among the declared ones.
 	bad := FoldProfiles(ReceiversOf(packs), ConfigActiveSelection(decode(t, `{"active_provider": {"default": "bedrok"}}`)))
-	problems := UndeclaredProfileProblems(bad, 0, profiles, packs, nil)
+	problems := UndeclaredProfileProblems(bad, 0, profiles, nil, packs, nil)
 	if len(problems) == 0 || !strings.Contains(problems[0], "bedrock/opus") {
 		t.Fatalf("an unknown name was not refused naming the declared ones: %v", problems)
 	}

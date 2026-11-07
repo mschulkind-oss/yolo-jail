@@ -57,6 +57,10 @@ func cleanJSON5(data []byte) ([]byte, error) {
 type Manifest struct {
 	// Origin identifies the manifest syntax that produced this normalized view.
 	Origin ManifestOrigin `json:"-"`
+	// LegacySpellings lists each legacy provider or profile spelling a pack.toml still writes
+	// (RC-D69): `[[provider]] name = "<id>"` and `[[profile]]`, read for a few releases, which
+	// `yolo check` notes naming `yolo pack migrate <path>`. Nil for a pack.json.
+	LegacySpellings []string `json:"-"`
 	// Name is the pack's own name for itself, and it is INFORMATIONAL — nothing derives
 	// the pack's effective name from it.
 	//
