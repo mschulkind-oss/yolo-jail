@@ -25,10 +25,12 @@ func TestASessionInputChangeReachesTheNextSessionOfARunningJail(t *testing.T) {
 	cname := naming.FromWorkspace(workspace)
 	const release = "release-session-inputs"
 	holder := startYoloBackground(t, "session-inputs-holder", workspace,
-		`yolosessiona; printf '\nHOLDER-READY\n'; `+
+		`yolosessiona; printf '\nHOLDER-READY-%s\n' $((40+2)); `+
 			`for _ in $(seq 1 1200); do [ -f /workspace/`+release+` ] && break; sleep 0.5; done`)
 	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(workspace, release), []byte("release\n"), 0o644) })
-	awaitOutput(t, holder, regexp.MustCompile("HOLDER-READY"))
+	// The launch echoes the command line before the session runs it, so the marker the
+	// wait matches is computed in the session: the echo carries `$((40+2))`, never 42.
+	awaitOutput(t, holder, regexp.MustCompile("HOLDER-READY-42"))
 	awaitLaunchLockReleased(t, workspace, holder)
 	if !strings.Contains(holder.combined(), "SESSION-BLOCK-A") {
 		t.Fatalf("the first session did not run the launch's blocked-tool shim:\n%s", holder.combined())
