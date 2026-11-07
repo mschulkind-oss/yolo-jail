@@ -69,6 +69,15 @@ func packAliases(e *Env) string {
 			if inj == nil {
 				continue
 			}
+			// NO ALIAS for a bin a row exempts subcommands for (AutonomyLaunch.Subcommands):
+			// an alias is a fixed prefix that cannot see the words after it, so `muse exec`
+			// at the prompt would become `muse --yolo exec`, which Muse refuses. The
+			// launcher in ~/.yolo/bin/launch — on PATH ahead of every install prefix, and
+			// written for EVERY flagged bin (DeliverLaunchFlags) — reads argv[1] and decides
+			// per invocation, and DeliverLaunchFlags discloses it.
+			if len(inj.Subcommands) > 0 {
+				continue
+			}
 			argv := inj.After
 			// Quoted, not interpolated into a '…' pair. The alias line is shell source the
 			// jail sources on every interactive shell, so a pack-declared flag is code this

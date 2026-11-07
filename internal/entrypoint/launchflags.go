@@ -33,6 +33,7 @@ package entrypoint
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -101,15 +102,38 @@ func launchFlagBins(e *Env, packs []*packload.Pack) []string {
 // HAS_UPDATE_VERB's reason, stated in both templates: bash before 4.4 treats an empty
 // array's expansion as unbound under `set -u`, and macos-user runs these launchers against
 // a stock /bin/bash 3.2.
+//
+// __YOLO_LAUNCH_SUBCOMMAND_CASES__ is the third: the `case` arms that swap in the flags a
+// launch gets when its argv[1] is a word some row exempts (packload.LaunchInjection's
+// Subcommands, folded by the same injector call). Each arm's pattern is a shquote'd word —
+// a literal, never a glob — and its body sets the function-local `flags` or clears `has`.
 func launchFlagSplices(inj *packload.LaunchInjection) []string {
 	var flags []string
+	var subs []packload.SubcommandFlags
 	if inj != nil {
 		flags = inj.Flags
+		subs = inj.Subcommands
 	}
 	return []string{
 		"__YOLO_HAS_LAUNCH_FLAGS__", shquote.Quote(boolFlag(len(flags) > 0)),
 		"__YOLO_LAUNCH_FLAGS__", shquote.Join(flags),
+		"__YOLO_LAUNCH_SUBCOMMAND_CASES__", launchSubcommandCases(subs),
 	}
+}
+
+// launchSubcommandCases renders the `case` arms for launchFlagSplices, one per exempt word.
+// An empty table renders nothing, which leaves `case … in esac` — valid in every bash this
+// runs under, 3.2 included.
+func launchSubcommandCases(subs []packload.SubcommandFlags) string {
+	var arms []string
+	for _, sub := range subs {
+		body := "has=0"
+		if len(sub.Flags) > 0 {
+			body = "flags=(" + shquote.Join(sub.Flags) + ")"
+		}
+		arms = append(arms, "        "+shquote.Quote(sub.Word)+") "+body+" ;;")
+	}
+	return strings.Join(arms, "\n")
 }
 
 // launchFlagsShellFn is the shell half of packload.InjectLaunchFlags, embedded by every
@@ -133,18 +157,29 @@ const launchFlagsShellFn = `
 # The flags are BAKED (folded once, in Go, by packload.InjectLaunchFlags). What is decided
 # here is only what generation time cannot know: whether this invocation's own argv already
 # carries one — which is how a "yolo -- <bin>" launch, whose flags the HOST already
-# injected, arrives here and does not get them twice.
+# injected, arrives here and does not get them twice. And which flags apply when argv[1] is
+# a subcommand a pack exempts (autonomy launch "subcommands"): that table is baked too, one
+# arm per word, from the same Go fold.
 _yolo_launch_argv() {
     YOLO_ARGV=("$@")
     if [ "$HAS_LAUNCH_FLAGS" != "1" ] || [ "${` + NoLaunchFlagsEnv + `:-}" = "1" ]; then
         return 0
     fi
-    local i f a present
+    local i f a present has=1
+    local -a flags
+    # Non-empty here (HAS_LAUNCH_FLAGS is 1), so the expansion is safe under bash 3.2's set -u.
+    flags=("${LAUNCH_FLAGS[@]}")
+    case "${1-}" in
+__YOLO_LAUNCH_SUBCOMMAND_CASES__
+    esac
+    if [ "$has" != "1" ]; then
+        return 0
+    fi
     # Reverse, prepending each: the declared ORDER is preserved, and each flag is compared
     # against the argv as it stands, so a flag declared twice is added once. Same walk as
     # the Go injector's.
-    for (( i=${#LAUNCH_FLAGS[@]} - 1; i >= 0; i-- )); do
-        f=${LAUNCH_FLAGS[$i]}
+    for (( i=${#flags[@]} - 1; i >= 0; i-- )); do
+        f=${flags[$i]}
         present=0
         for a in ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}; do
             # The quoted halves are LITERAL even when a flag carries a glob character; the

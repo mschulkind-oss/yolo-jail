@@ -1460,11 +1460,13 @@ func LaunchFlagsFor(packs []*Pack, autonomy bool) map[string][]string {
 
 // launchFlagClaimRow retains a selected manifest row alongside its actual flags.
 type launchFlagClaimRow struct {
-	pack   string
-	flags  []string
-	origin packdecl.ManifestOrigin
-	loc    packdecl.ManifestLocation
-	path   string
+	pack  string
+	flags []string
+	// subcommands are the row's exempt argv[1] words (packdecl.AutonomyLaunch.Subcommands).
+	subcommands []string
+	origin      packdecl.ManifestOrigin
+	loc         packdecl.ManifestLocation
+	path        string
 }
 
 type launchFlagClaim struct {
@@ -1504,7 +1506,8 @@ func launchFlagClaims(packs []*Pack, autonomy bool) map[string]launchFlagClaim {
 				file = origin.File
 			}
 			row := launchFlagClaimRow{pack: p.Name, flags: append([]string(nil), launch.Flags...),
-				origin: origin, loc: launch.Location}
+				subcommands: append([]string(nil), launch.Subcommands...),
+				origin:      origin, loc: launch.Location}
 			if p.Root != "" && file != "" {
 				row.path = filepath.Join(p.Root, file)
 			}
@@ -1516,6 +1519,25 @@ func launchFlagClaims(packs []*Pack, autonomy bool) map[string]launchFlagClaim {
 			out[launch.Bin] = claim
 		}
 	}
+	return out
+}
+
+// LaunchSubcommandWords returns, sorted and once each, every argv[1] word a selected posture
+// row for bin exempts from its flags (packdecl.AutonomyLaunch.Subcommands) — the words a
+// generated carrier has to ask InjectLaunchFlags about one by one, because it bakes the flags
+// before the user's argv exists. Empty for a bin no row exempts anything for.
+func LaunchSubcommandWords(packs []*Pack, autonomy bool, bin string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, row := range launchFlagClaims(packs, autonomy)[bin].rows {
+		for _, w := range row.subcommands {
+			if !seen[w] {
+				seen[w] = true
+				out = append(out, w)
+			}
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -1576,6 +1598,18 @@ type LaunchInjection struct {
 	Before  []string
 	After   []string
 	Why     string
+	// Subcommands is set only for a BARE argv (`<bin>` alone, the one argv a generated carrier
+	// has): for each argv[1] word a row exempts (LaunchSubcommandWords), the flags a launch
+	// starting with that word gets instead of Flags — none, when every row exempts it. A
+	// carrier bakes the table so the shell decides per invocation with no second fold.
+	Subcommands []SubcommandFlags
+}
+
+// SubcommandFlags is one row of LaunchInjection.Subcommands: the flags InjectLaunchFlags adds
+// to `<bin> <Word>`.
+type SubcommandFlags struct {
+	Word  string
+	Flags []string
 }
 
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary
@@ -1626,6 +1660,11 @@ func InjectLaunchFlags(packs []*Pack, autonomy bool, fullCommand []string) ([]st
 	var added []string
 	var sources []LaunchFlagSource
 	for _, row := range claim.rows {
+		if len(fullCommand) > 1 && slices.Contains(row.subcommands, fullCommand[1]) {
+			// argv[1] is a subcommand this row exempts: its flags would land in front of a
+			// word the program does not read root options before (AutonomyLaunch.Subcommands).
+			continue
+		}
 		var sourceFlags []string
 		for _, flag := range row.flags {
 			if hasFlag(fullCommand, flag) || hasFlag(added, flag) {
@@ -1653,8 +1692,18 @@ func InjectLaunchFlags(packs []*Pack, autonomy bool, fullCommand []string) ([]st
 			break
 		}
 	}
-	return out, &LaunchInjection{Pack: pack, Flags: added, Sources: sources,
+	inj := &LaunchInjection{Pack: pack, Flags: added, Sources: sources,
 		Before: append([]string{}, fullCommand...), After: append([]string{}, out...)}
+	if len(fullCommand) == 1 {
+		for _, w := range LaunchSubcommandWords(packs, autonomy, filepath.Base(fullCommand[0])) {
+			var flags []string
+			if _, sub := InjectLaunchFlags(packs, autonomy, []string{fullCommand[0], w}); sub != nil {
+				flags = sub.Flags
+			}
+			inj.Subcommands = append(inj.Subcommands, SubcommandFlags{Word: w, Flags: flags})
+		}
+	}
+	return out, inj
 }
 
 // DisclosureLines is the one wording of an argv rewrite, for every notch that performs one:

@@ -290,6 +290,13 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: asLegacyJSON},
 	{release: "v0.17.0", pack: "copilot-auth", problem: `"formerly" is read without its unknown field "providers"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("providers")},
+	// Measured against v0.17.0 on 2026-11-07: muse-code's autonomy launch rows declare
+	// `subcommands` (packdecl.AutonomyLaunch.Subcommands), which that reader keeps the autonomy
+	// contribution without. An old jail handed the tree prefixes `--yolo` to every `muse`
+	// invocation, subcommands included — the prefix behavior this field exists to end, and the
+	// one every release before it already had.
+	{release: "v0.17.0", pack: "muse-code", problem: `unknown field "subcommands"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("subcommands")},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a
@@ -714,7 +721,8 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 	fieldSkip := strings.Contains(skipped, "skipping the program contribution") ||
 		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`) ||
 		strings.Contains(skipped, "skipping provider declaration with unknown provider model field") ||
-		strings.Contains(skipped, "is read without its unknown field")
+		strings.Contains(skipped, "is read without its unknown field") ||
+		strings.Contains(skipped, "keeping the autonomy contribution without its unknown field")
 	kindSkip := strings.Contains(skipped, "skipping unknown kind")
 	if !fieldSkip && !kindSkip {
 		return -1

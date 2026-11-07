@@ -1,21 +1,23 @@
 package entrypoint
 
 // muse_code_test.go pins the two declarations that make Meta's Muse Code usable in a jail:
-// the workspace-trust store it reads before the model runs, and the §4.2 autonomy flags that
-// clear its tool-approval prompts.
+// the workspace-trust store it reads before the model runs, and the §4.2 autonomy posture —
+// Muse's own `--yolo` on its interactive TUI, and nothing in front of its subcommands.
 //
-// BOTH ASSERTIONS ARE ON THE RENDERED RESULT OR THE DISPATCHED ARGV, not on a manifest field,
-// so deleting either declaration from packs/muse-code/pack.json turns them red:
+// EVERY ASSERTION IS ON THE RENDERED RESULT OR THE DISPATCHED ARGV, not on a manifest field,
+// so deleting either declaration from packs/muse-code/pack.toml turns them red:
 //
 //   - the trust test renders the shipped pack through the boot's own loop
 //     (ConfigurePackByName → renderPackSet) into a real home and reads the file Muse reads;
-//   - the autonomy test drives packload.InjectLaunchFlags, the same function the launcher
-//     uses to put flags on the agent's command line, at the jail AND host notches.
+//   - the autonomy tests drive packload.InjectLaunchFlags, the function every carrier folds
+//     through, at the jail AND host notches, and run the GENERATED launcher against a fake
+//     `muse` to read the argv its exec line actually passes.
 //
 // Without the trust surface Muse's interactive TUI parks on "Do you trust this workspace?"
 // (measured: the dialog opens and `muse exec` prints `workspace is untrusted`); without the
-// autonomy flags it stalls on the first tool-approval prompt. Both are the observed "the
-// Muse agent does not start" symptom.
+// autonomy posture it stalls on the first tool-approval prompt; and with the posture prefixed
+// to a subcommand Muse refuses the whole command (`invalid TUI options: unknown argument
+// 'exec'`, measured against 1.4.14).
 
 import (
 	"encoding/json"
@@ -25,8 +27,6 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
-	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
 
 // TestMuseCodeTrustStoreRendersTheWorkspaceTrusted renders the shipped muse-code pack at the
@@ -74,49 +74,5 @@ func TestMuseCodeTrustStoreRendersTheWorkspaceTrusted(t *testing.T) {
 	if entry["decision"] != "trusted" {
 		t.Errorf("projects[%q].decision = %v, want %q — Muse refuses the exact shape otherwise\nfile: %s",
 			ws, entry["decision"], "trusted", data)
-	}
-}
-
-// TestMuseCodeAutonomyDispatchesNoPromptFlagsAtJailAndPromptsAtHost drives the launcher's own
-// argv builder: the jail notch must inject the approval/sandbox bypass flags, the host notch
-// must not (it injects the guarded posture's prompts-on flag instead).
-func TestMuseCodeAutonomyDispatchesNoPromptFlagsAtJailAndPromptsAtHost(t *testing.T) {
-	p, err := embeddedPack("muse-code")
-	if err != nil {
-		t.Fatal(err)
-	}
-	packs := []*packload.Pack{p}
-
-	jailAutonomy := render.ProfileFor(render.KindJail).AgentAutonomy
-	jail, inj := packload.InjectLaunchFlags(packs, jailAutonomy, []string{"muse"})
-	jailLine := strings.Join(jail, " ")
-	for _, flag := range []string{"--disable-approval", "--disable-sandbox"} {
-		if !strings.Contains(jailLine, flag) {
-			t.Errorf("the jail launch of `muse` is missing %q, so the agent stalls on approval "+
-				"prompts:\n  dispatched: %s", flag, jailLine)
-		}
-	}
-	if inj == nil {
-		t.Errorf("the jail launch rewrote argv with no injection record, so nothing is disclosed")
-	}
-	// Trust is NOT a launch flag: it belongs to the persisted store. `--yolo` would also trust
-	// for the run, which is redundant at best and not what this pack declares.
-	for _, flag := range []string{"--yolo", "--trust-workspace"} {
-		if strings.Contains(jailLine, flag) {
-			t.Errorf("the jail launch passes %q; trust is answered by the rendered store, not a "+
-				"per-run flag:\n  dispatched: %s", flag, jailLine)
-		}
-	}
-
-	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
-	host, _ := packload.InjectLaunchFlags(packs, hostAutonomy, []string{"muse"})
-	hostLine := strings.Join(host, " ")
-	if strings.Contains(hostLine, "--disable-approval") || strings.Contains(hostLine, "--disable-sandbox") {
-		t.Errorf("the HOST launch carries the jail's bypass flags, which nothing contains on a "+
-			"real machine:\n  dispatched: %s", hostLine)
-	}
-	if !strings.Contains(hostLine, "--approval-mode on-request") {
-		t.Errorf("the HOST launch does not assert prompts-on (%q), so the guarded posture "+
-			"renders nothing:\n  dispatched: %s", "--approval-mode on-request", hostLine)
 	}
 }

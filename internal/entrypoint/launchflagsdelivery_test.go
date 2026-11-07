@@ -275,6 +275,77 @@ func TestTheGeneratedCarrierInjectsWhatTheInjectorWould(t *testing.T) {
 	}
 }
 
+// TestTheGeneratedCarrierExemptsSubcommandsAsTheInjectorWould is the same differential for a
+// row's `subcommands` (packdecl.AutonomyLaunch.Subcommands): the shell half picks the flag set
+// by argv[1] from a table the Go injector baked, and the two must agree word for word.
+//
+// TWO APPENDING ROWS with OVERLAPPING lists, because that is the case that needs the table
+// rather than one skip switch: `x` exempts only the first row (so it still gets `--b`), `y`
+// both (nothing), and `z` neither. The fixture is TOML because only grouped TOML rows append;
+// a legacy JSON row replaces the one before it.
+func TestTheGeneratedCarrierExemptsSubcommandsAsTheInjectorWould(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "subpack")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `name = "subpack"
+
+[[autonomy]]
+
+[[autonomy.autonomous.launch]]
+bin = "target"
+flags = ["--a"]
+subcommands = ["x", "y"]
+
+[[autonomy.autonomous.launch]]
+bin = "target"
+flags = ["--b"]
+subcommands = ["y", "it's"]
+`
+	if err := os.WriteFile(filepath.Join(dir, "pack.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": root})
+	runLaunchDirPasses(t, e)
+
+	packs, err := LoadJailPacks(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realDir := filepath.Join(home, "real")
+	logPath := filepath.Join(home, "argv.log")
+	fakeTarget(t, realDir, "target", logPath)
+
+	for _, argv := range [][]string{
+		{},
+		{"x"},
+		{"x", "--b"}, // exempt from one row, and the other row's flag already typed
+		{"y", "more"},
+		{"z"},
+		{"--a", "x"}, // a flag first: argv[1] is not the subcommand word, as in Go
+		{"xx"},       // a word that merely starts like an exempt one
+		{"it's"},
+	} {
+		if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		out, rc := runScript(t, filepath.Join(e.LaunchDir(), "target"), argv,
+			[]string{"HOME=" + home, "PATH=" + realDir + ":/usr/bin:/bin"})
+		if rc != 0 {
+			t.Fatalf("argv %v: the carrier exited %d:\n%s", argv, rc, out)
+		}
+		got := logLines(t, logPath)
+		wantFull, _ := packload.InjectLaunchFlags(packs, true, append([]string{"target"}, argv...))
+		want := wantFull[1:]
+		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+			t.Errorf("argv %v: the generated carrier and packload.InjectLaunchFlags disagree on a "+
+				"subcommand exemption.\n carrier ran: %q\n injector says: %q", argv, got, want)
+		}
+	}
+}
+
 // TestTheInstallerCarrierInjectsToo covers the OTHER carrier with the same instrument: the
 // lazy npm launcher, which is what an ordinary pack (claude, copilot) actually gets. The
 // wrapper cell above cannot stand in for it — they are two templates, and a flag spliced

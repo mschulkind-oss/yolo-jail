@@ -1848,11 +1848,22 @@ func PostureOf(autonomy bool) Posture {
 // AutonomyLaunch is a per-binary launch-flag set within a posture. Grouped launch rows carry
 // their own source and replacement metadata so a consumer can fold them without collapsing rows.
 type AutonomyLaunch struct {
-	Bin      string           `json:"bin"`
-	Flags    []string         `json:"flags,omitempty"`
-	Origin   ManifestOrigin   `json:"-"`
-	Location ManifestLocation `json:"-"`
-	Replace  bool             `json:"-"`
+	Bin   string   `json:"bin"`
+	Flags []string `json:"flags,omitempty"`
+	// Subcommands are the words that, as argv[1], run a subcommand of Bin that does NOT take
+	// these flags in front of it: a launch whose first argument is one of them gets nothing
+	// from this row (packload.InjectLaunchFlags), at every carrier — the host rewrite, the
+	// generated launcher and wrapper, and the interactive alias, which is withheld for such a
+	// bin so the launcher decides per invocation. A program whose root options belong to its
+	// interactive mode only needs it: Muse Code refuses `muse --yolo exec …` with `unknown
+	// argument 'exec'`, so an unconditional prefix broke every `muse <subcommand>` in a jail.
+	// Each word is compared with argv[1] exactly as typed. An older build reading this field
+	// ignores it (DecodeTolerant drops an unknown nested field) and prefixes the flags to
+	// every invocation, which is the behavior before the field existed.
+	Subcommands []string         `json:"subcommands,omitempty"`
+	Origin      ManifestOrigin   `json:"-"`
+	Location    ManifestLocation `json:"-"`
+	Replace     bool             `json:"-"`
 }
 
 // AutonomyContribution is a pack's autonomy declaration: the two postures. Returns nil
@@ -1885,6 +1896,7 @@ func cloneAutonomyPosture(p *AutonomyPosture) *AutonomyPosture {
 	out.Launch = append([]AutonomyLaunch(nil), p.Launch...)
 	for i := range out.Launch {
 		out.Launch[i].Flags = append([]string(nil), p.Launch[i].Flags...)
+		out.Launch[i].Subcommands = append([]string(nil), p.Launch[i].Subcommands...)
 	}
 	out.Lists = append([]PostureList(nil), p.Lists...)
 	for i := range out.Lists {
@@ -5248,9 +5260,41 @@ func validateAutonomyPosture(label string, p *AutonomyPosture) []string {
 			problems = append(problems, fmt.Sprintf("%s.launch[%d]: needs a \"bin\"", label, i))
 		}
 		problems = binProblem(problems, fmt.Sprintf("%s.launch[%d].bin", label, i), l.Bin)
+		problems = append(problems, launchSubcommandProblems(fmt.Sprintf("%s.launch[%d]", label, i), l)...)
 	}
 	for i, l := range p.Lists {
 		problems = append(problems, postureListProblems(fmt.Sprintf("%s.lists[%d]", label, i), l)...)
+	}
+	return problems
+}
+
+// launchSubcommandProblems refuses a launch row's `subcommands` word no argv[1] could be
+// compared with usefully: an empty word, one with whitespace (a launch compares one argv word),
+// a flag (a row exempting a flag would read as "no flags when the user typed a flag", which is
+// the identical-flag skip's job, not this list's), or a word named twice. A list on a row
+// with no flags is refused too: it exempts nothing.
+func launchSubcommandProblems(label string, l AutonomyLaunch) []string {
+	var problems []string
+	if len(l.Subcommands) > 0 && len(l.Flags) == 0 {
+		problems = append(problems, label+": \"subcommands\" exempt words from this row's flags, "+
+			"and it declares none; drop \"subcommands\" or add the flags")
+	}
+	seen := map[string]bool{}
+	for i, w := range l.Subcommands {
+		field := fmt.Sprintf("%s.subcommands[%d]", label, i)
+		switch {
+		case w == "":
+			problems = append(problems, field+": a subcommand word is empty; name it as typed")
+		case strings.ContainsAny(w, " \t\n"):
+			problems = append(problems, fmt.Sprintf("%s: subcommand word %q holds whitespace, and "+
+				"a launch compares each word with ONE argv word, argv[1]", field, w))
+		case strings.HasPrefix(w, "-"):
+			problems = append(problems, fmt.Sprintf("%s: %q is a flag, not a subcommand word; a "+
+				"launch compares each word with argv[1] as typed", field, w))
+		case seen[w]:
+			problems = append(problems, fmt.Sprintf("%s: subcommand word %q is named twice", field, w))
+		}
+		seen[w] = true
 	}
 	return problems
 }

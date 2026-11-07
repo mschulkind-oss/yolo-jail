@@ -78,8 +78,12 @@ config = [{ agent = "muse", managed = { permissions = { schema_version = 1 }, sc
 # project-local skills, rules, hooks or plugin config load, so an unanswered one is not a
 # rough edge: the user never reaches a running agent. The answer persists in a USER-GLOBAL
 # store at `$XDG_CONFIG_HOME/muse/trust.json` (default `~/.config/muse/trust.json`; yolo
-# never sets XDG_CONFIG_HOME) keyed by the CANONICAL absolute project root — inside a jail
-# that root is always literally `/workspace`, so one `${workspace}` entry covers every jail.
+# never sets XDG_CONFIG_HOME) keyed by the CANONICAL absolute project root, which Muse takes
+# from the LAUNCH DIRECTORY (`muse: workspace root: <cwd> (cwd default)`) and matches
+# exactly — a trusted parent does not trust a subdirectory (measured, Muse Code 1.4.14). Inside
+# a jail the workspace is literally `/workspace`, so one `${workspace}` entry covers a `muse`
+# started there in every jail; a `muse` started in a subdirectory is trusted by the
+# autonomous posture's `--yolo` below instead.
 #
 # PROVEN AGAINST THE BINARY (Muse Code 1.4.7-R6101.1), both directions. With no file, the
 # interactive TUI opens on `Do you trust this workspace? / Workspace: /workspace / 1 Trust
@@ -151,35 +155,61 @@ into = ".config/muse/skills"
 agent = "muse"
 into = ".config/muse/AGENTS.md"
 
-# AUTONOMY — NO APPROVAL PROMPTS IN A JAIL, PROMPTS AT THE HOST. This is the second half
-# of "the agent does not start": the trust file above clears the workspace dialog, and this
-# clears the tool-approval prompts that otherwise stall the first command. The two postures
-# are the §4.2 notch pair — the confinement notch's AgentAutonomy bit selects `autonomous`
-# at jail/guest/preview and `guarded` at the host (render.ProfileFor).
+# AUTONOMY — MUSE'S OWN YOLO MODE IN A JAIL, PROMPTS AT THE HOST. The two postures are the
+# §4.2 notch pair — the confinement notch's AgentAutonomy bit selects `autonomous` at
+# jail/guest/preview and `guarded` at the host (render.ProfileFor).
 #
-# THE FLAGS ARE THE APPROVAL/SANDBOX AXES ONLY, and trust is left to the persisted file
-# above. `--disable-approval` and `--disable-sandbox` are read off `muse --help` and are
-# exactly `--yolo` minus its per-run trust: `--yolo` is documented "Disable approval and
-# sandboxing and trust this workspace for this run", so the two narrower flags do the same
-# job on the RUN without touching trust. Trust belongs to the store, not to a per-run flag —
-# `--trust-workspace` is documented "does not save trust" and is NOT proven to suppress the
-# dialog, so it is deliberately not used.
+# THE AUTONOMOUS FLAG IS `--yolo`, Muse's documented equivalent of yolo's own mode. Muse Code
+# 1.4.14's `muse --help`: "--yolo  Disable approval and sandbox, trust this workspace, enable
+# async questions (this run)". It is the whole posture in one switch, where the earlier
+# `--disable-approval --disable-sandbox` pair was only two of its four axes: it left trust to
+# the store above and async questions off. Trust on the RUN matters because Muse keys trust
+# by the exact launch directory (`muse: workspace root: <cwd> (cwd default)`; a trusted
+# parent does not cover a child — measured), so the store's `/workspace` entry clears the
+# dialog only for a `muse` started AT /workspace, and `--yolo` clears it from any directory.
+# The store stays: it is what trusts every entry point that does not carry the flag
+# (`muse exec`, below, and whatever an agent spawns). Measured: `muse --yolo resume --last`
+# gets past the trust gate that `muse resume --last` stops at ("workspace trust … is
+# undecided").
+#
+# THE FLAGS SKIP MUSE'S SUBCOMMANDS, and without that every one of them was broken in a jail.
+# Muse reads root options only in front of its interactive TUI: measured against 1.4.14,
+# `muse --yolo exec …` (and the old pair) exits 2 with `invalid TUI options: unknown argument
+# 'exec'`, and `muse --yolo skills list` prints the root help and exits 2 — so the launcher's
+# unconditional prefix broke `muse exec` and the other subcommands, the muse-planner pack's
+# wrapper (which runs `muse exec`) and a Muse built-in skill that probes `muse exec --help`. `subcommands` names every subcommand
+# `muse --help` lists EXCEPT `resume`, whose help says root options "may appear on either
+# side of `resume`" and which is an interactive session that should get the posture; a
+# launch whose argv[1] is a listed word gets no flags (packdecl AutonomyLaunch.Subcommands).
+# A new Muse subcommand missing from the list fails the same loud way, and is added here.
 #
 # THE GUARDED POSTURE IS A FLAG, because Muse has NO settings key for approval or sandbox:
-# `approval`, `approval_mode` and `sandbox` are each rejected as `unknown top-level member`
-# (measured), and the one posture-shaped settings key — `permissions.default_profile` — is
-# the key this pack's settings comment forbids putting in `managed`. So the guarded posture
-# asserts `--approval-mode on-request`, the documented "ask before tool calls" mode, which
-# is a real assertion rather than the autonomous flag's absence restated: it pins prompts
-# ON at the host regardless of any `permissions.default_profile` the user has set. claude,
-# codex and pi carry config keys in `guarded` because their autonomous postures write
-# PERSISTENT keys; a launch flag has no persistence (it is composed per launch), so a flag
-# is the whole of this posture — copilot's flag-only `--yolo` is the same shape, and it
-# declares no guarded posture because it has nothing persistent to undo.
+# `approval`, `approval_mode`, `sandbox` and `yolo` are each refused (`-c approval_mode:
+# refusing run: unknown key: no such setting`, measured), and the one posture-shaped
+# settings key — `permissions.default_profile` — is the key this pack's settings comment
+# forbids putting in `managed`. So the guarded posture asserts `--approval-mode on-request`,
+# the documented "ask before tool calls" mode, which is a real assertion rather than the
+# autonomous flag's absence restated: it pins prompts ON at the host regardless of any
+# `permissions.default_profile` the user has set. It skips the same subcommands for the same
+# reason. claude, codex and pi carry config keys in `guarded` because their autonomous
+# postures write PERSISTENT keys; a launch flag has no persistence (it is composed per
+# launch), so a flag is the whole of this posture — copilot's flag-only `--yolo` is the same
+# shape, and it declares no guarded posture because it has nothing persistent to undo.
+#
+# The rows are spelled as tables rather than the one-line inline form other packs use,
+# because an inline table may not span lines and the subcommand list does not fit on one.
 [[autonomy]]
-autonomous = { launch = [{ bin = "muse", flags = ["--disable-approval", "--disable-sandbox"] }] }
-guarded = { launch = [{ bin = "muse", flags = ["--approval-mode", "on-request"] }] }
 replace = true
+
+[[autonomy.autonomous.launch]]
+bin = "muse"
+flags = ["--yolo"]
+subcommands = ["auth", "config", "exec", "export", "init", "login", "logout", "mcp", "model-profile", "plugins", "sandbox", "schema", "serve", "session-message", "skills", "trace", "usage", "voice"]
+
+[[autonomy.guarded.launch]]
+bin = "muse"
+flags = ["--approval-mode", "on-request"]
+subcommands = ["auth", "config", "exec", "export", "init", "login", "logout", "mcp", "model-profile", "plugins", "sandbox", "schema", "serve", "session-message", "skills", "trace", "usage", "voice"]
 
 # THE LOGIN IS SHARED ACROSS WORKSPACES BY A TOP-LEVEL MACHINE-SCOPE DIR AND A FILE-LEVEL
 # HOOK, NOT BY A `state` AT `.config/muse`, AND THE DISTINCTION IS THE WHOLE POINT.

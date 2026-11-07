@@ -2469,7 +2469,7 @@ posture may be absent. A posture has three halves, and each reaches a different 
 | Half | What it does | Which surfaces |
 | :--- | :--- | :--- |
 | `config` | On the declaring pack's own surface: keys folded into its `managed` layer (`packload.foldPostureManaged`). On another pack's surface: a **posture overlay**, keys contributed as a [`config-overlay`](#overlay-rules) does | The declaring pack's own, and any selected pack's through the `config-overlay` path |
-| `launch` | Flags for one binary. A posture is the only place a launch flag can be declared | — |
+| `launch` | Flags for one binary. A posture is the only place a launch flag can be declared. A row's optional `subcommands` lists the argv[1] words that get none of its flags, for a program that reads root options only before its interactive mode (Muse Code refuses `muse --yolo exec`); such a bin gets no `.bashrc` alias, and its launcher decides per invocation | — |
 | `lists` | **Posture lists**: `config-list` bodies appended only while this posture is selected | Any selected pack's, through the [`config-list`](#adding-entries-to-an-array-config-list) path |
 
 **A posture's `config` key replaces the value it lands on, and an array replaces the whole
