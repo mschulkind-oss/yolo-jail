@@ -1482,16 +1482,21 @@ func testReadableThreeSiblingCollisionRecovery(t *testing.T, userScope bool) {
 		read = func() (*jsonx.OrderedMap, error) { return LoadReadableUserScopeConfig(true, nil) }
 	} else {
 		names = []string{paths.WorkspaceConfigTOMLName, paths.WorkspaceConfigLegacyJSONCName, paths.WorkspaceConfigLegacyJSONName}
-		toml = filepath.Join(dir, names[0])
 		expectedKey, expectedValue = "install", nil
-		cwd, err := os.Getwd()
+		// The workspace is supplied RELATIVE to the cwd, so the refusal must name full paths.
+		// The cwd is the fixture's own parent, not the package directory: a path relative to
+		// the package directory climbs out through the checkout, which the completion census
+		// sees as an open under the machine's /workspace. EvalSymlinks keeps Getwd and the
+		// fixture paths in one spelling where the temp dir is under a symlink (macOS).
+		parent, err := filepath.EvalSymlinks(filepath.Dir(root))
 		if err != nil {
 			t.Fatal(err)
 		}
-		workspace, err := filepath.Rel(cwd, dir)
-		if err != nil {
-			t.Fatal(err)
-		}
+		root = filepath.Join(parent, filepath.Base(root))
+		dir = root
+		toml = filepath.Join(dir, names[0])
+		t.Chdir(parent)
+		workspace := filepath.Base(root)
 		read = func() (*jsonx.OrderedMap, error) { return LoadReadableWorkspaceConfig(workspace, true, nil) }
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
