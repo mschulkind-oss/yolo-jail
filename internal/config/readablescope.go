@@ -324,41 +324,44 @@ func applyLegacyReadableWorkspace(read *WorkspaceRead, user *jsonx.OrderedMap, b
 			if capability == "" || !readableUserAllowsEither(user, broker.Source, capability) {
 				continue
 			}
-			if grant.Repo == brokerscope.AnyRepo {
-				if brokerscope.GrantTakesName(grant.Kind) {
-					gate.Differences = appendReadableDifference(gate.Differences, "legacy "+broker.Source+" "+grant.Kind+" grant cannot be projected across repository scope without widening; preserve the original brokered grant and write no readable request")
-					continue
-				}
-				gate.Differences = appendReadableDifference(gate.Differences, "legacy "+broker.Source+" wildcard repository grant cannot be projected to finite remotes without changing future scope; preserve it as a migration difference and write nothing")
+			placed, difference := legacyWorkspaceGrant(broker.Source, broker.RemoteHost, grant, entries, current.Targets)
+			if difference != "" {
+				gate.Differences = appendReadableDifference(gate.Differences, difference)
 				continue
 			}
-			matched := false
-			for _, entry := range entries {
-				if strings.EqualFold(entry.Repo, grant.Repo) || strings.EqualFold(broker.RemoteHost+"/"+entry.Repo, grant.Repo) {
-					grant.Repo = broker.RemoteHost + "/" + entry.Repo
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				for _, target := range current.Targets {
-					concreteRepo := target.RemoteHost + "/" + target.Repository
-					if strings.EqualFold(concreteRepo, grant.Repo) ||
-						(broker.RemoteHost != brokerscope.AnyRemoteHost && strings.EqualFold(target.Repository, grant.Repo)) {
-						grant.Repo = concreteRepo
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				gate.Differences = appendReadableDifference(gate.Differences, "legacy "+broker.Source+" grant "+grant.String()+" is outside its concrete remote targets; preserve as a migration difference and write nothing")
-				continue
-			}
+			grant = placed
 			current.Grants = appendReadableConcreteGrant(current.Grants, grant)
 			current.Decisions = append(current.Decisions, ReadableGrantDecision{Grant: grant, Origins: []string{"brokered." + broker.Source + ".grants"}, Files: cloneOrigins(files)})
 		}
 	}
+}
+
+// legacyWorkspaceGrant is a workspace's legacy `brokered.<source>.grants` entry placed on the
+// concrete repository the scope serves, as the readable scope projection places it: an entry of
+// `brokered.<source>.repos` first, then a target (a remote, or a requested repository). A grant on
+// every repository ("*"), or on none of them, is not placed, and the second result says why.
+func legacyWorkspaceGrant(source, remoteHost string, grant brokerscope.Grant, entries []EntryRepo, targets []ReadableRepository) (brokerscope.Grant, string) {
+	if grant.Repo == brokerscope.AnyRepo {
+		if brokerscope.GrantTakesName(grant.Kind) {
+			return grant, "legacy " + source + " " + grant.Kind + " grant cannot be projected across repository scope without widening; preserve the original brokered grant and write no readable request"
+		}
+		return grant, "legacy " + source + " wildcard repository grant cannot be projected to finite remotes without changing future scope; preserve it as a migration difference and write nothing"
+	}
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Repo, grant.Repo) || strings.EqualFold(remoteHost+"/"+entry.Repo, grant.Repo) {
+			grant.Repo = remoteHost + "/" + entry.Repo
+			return grant, ""
+		}
+	}
+	for _, target := range targets {
+		concreteRepo := target.RemoteHost + "/" + target.Repository
+		if strings.EqualFold(concreteRepo, grant.Repo) ||
+			(remoteHost != brokerscope.AnyRemoteHost && strings.EqualFold(target.Repository, grant.Repo)) {
+			grant.Repo = concreteRepo
+			return grant, ""
+		}
+	}
+	return grant, "legacy " + source + " grant " + grant.String() + " is outside its concrete remote targets; preserve as a migration difference and write nothing"
 }
 
 func rawWorkspaceReadableGrants(read *WorkspaceRead, source string, defined []string) ([]brokerscope.Grant, []string) {

@@ -79,6 +79,103 @@ func brokerGrants(user *jsonx.OrderedMap, declarations []config.ReadableBrokerDe
 	return out
 }
 
+// addWorkspaceBrokerGrants adds to grants, per source, the concrete grants the scope projection
+// makes from the workspace config ws (config.WorkspaceBrokerGrantsOf), over the remotes of the
+// workspace at remoteWorkspace: the old `brokered.<source>.grants` on one side and the new
+// `requests.<source>.*` on the other, compared as a set of kind, repository and name (RC-D60).
+func addWorkspaceBrokerGrants(grants, ws *jsonx.OrderedMap, remoteWorkspace string, declarations []config.ReadableBrokerDeclaration) {
+	for _, w := range config.WorkspaceBrokerGrantsOf(ws, remoteWorkspace, declarations) {
+		v, _ := grants.Get(w.Source)
+		entry, ok := v.(*jsonx.OrderedMap)
+		if !ok {
+			entry = jsonx.NewOrderedMap()
+			grants.Set(w.Source, entry)
+		}
+		list := make([]any, 0, len(w.Grants))
+		for _, g := range w.Grants {
+			list = append(list, g.String())
+		}
+		entry.Set("workspace_grants", list)
+		if len(w.Unplaced) > 0 {
+			unplaced := make([]any, 0, len(w.Unplaced))
+			for _, u := range w.Unplaced {
+				unplaced = append(unplaced, u)
+			}
+			entry.Set("workspace_unplaced", unplaced)
+		}
+	}
+}
+
+// workspaceGrantNextSteps gives each difference in a workspace's projected grants its next step:
+// the old grant the broker skips (a repository spelled with capitals, a name its kind does not
+// take) is the usual cause, and the converted request would grant it.
+func workspaceGrantNextSteps(diffs []Difference) []Difference {
+	for i, d := range diffs {
+		if _, field, ok := strings.Cut(d.Path, "."); ok && strings.HasPrefix(field, "workspace_") {
+			diffs[i].Next = "the converted requests would grant this workspace other than the old grants do; check each old grant is one its broker reads " +
+				"(its repo a lowercase host/owner/repo of this workspace's remote, its name one the kind takes), fix it in the old file, then run `yolo config migrate` again"
+		}
+	}
+	return diffs
+}
+
+// convertedPatterns are the ref patterns (a branch or tag name with a `*`, GB-D25) the after
+// side's workspace config requests and the before side's did not request already: the patterns
+// the conversion wrote, from grants that held them. Each is `requests.<source>.<capability>
+// "<pattern>"`, in the order written.
+func convertedPatterns(before, after *jsonx.OrderedMap, declarations []config.ReadableBrokerDeclaration) []string {
+	had := map[string]bool{}
+	for _, p := range requestedPatterns(before, declarations) {
+		had[p] = true
+	}
+	var out []string
+	for _, p := range requestedPatterns(after, declarations) {
+		if !had[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// requestedPatterns are the ref patterns ws's `requests.<source>.*` name, for each capability a
+// declared broker maps a ref-naming grant kind to.
+func requestedPatterns(ws *jsonx.OrderedMap, declarations []config.ReadableBrokerDeclaration) []string {
+	requests, ok := mapAt(ws, "requests")
+	if !ok {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range declarations {
+		source := d.Brokered.Source
+		if d.CallBroker != nil || seen[source] {
+			continue
+		}
+		seen[source] = true
+		table, ok := mapAt(requests, source)
+		if !ok {
+			continue
+		}
+		for _, capability := range table.Keys() {
+			refKind := false
+			for kind, mapped := range d.KindCapabilities {
+				refKind = refKind || mapped == capability && brokerscope.GrantTakesRef(kind)
+			}
+			if !refKind {
+				continue
+			}
+			v, _ := table.Get(capability)
+			names, _ := v.([]any)
+			for _, n := range names {
+				if name, ok := n.(string); ok && strings.Contains(name, "*") {
+					out = append(out, fmt.Sprintf("requests.%s.%s %q", source, capability, name))
+				}
+			}
+		}
+	}
+	return out
+}
+
 // lowerUserBrokered converts a user file's brokered table to the ruled `allow.<source>` tables
 // (config-user.md §6 and appendix A.6): the read grant on "*" becomes the source's read
 // capability under `always`, and `grant_kinds` becomes `on_request`, each kind through the
