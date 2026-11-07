@@ -61,8 +61,9 @@ owed. That document owns its remaining build.
 
 4. [Give each session in one jail its own profile](../design/per-session-profiles.md) — the
    maintainer's 2026-10-18 report that one attach re-renders the files a running pi's subagents
-   read. The jail mechanism and the 2026-10-19 host rulings are built; macos-user's per-launch id
-   and the other agents' declarations remain, in [the plan](../design/per-session-profiles-plan.md).
+   read. Built for pi and omp on every backend. Its
+   [Mac checks](../design/per-session-profiles.md#13-mac-checks) remain, and so do the
+   [codex, Claude, Copilot and opencode unlocks](../design/per-session-profiles.md#7-what-this-does-not-cover).
 
 5. [Apply config changes to a running jail](../design/live-config-apply.md) — v1 is landed, and its
    Mac-only `-short` failures are repaired and verified natively; rootless CI evidence is still owed

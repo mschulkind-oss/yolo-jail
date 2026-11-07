@@ -1,8 +1,8 @@
 ---
 title: "Per-session profiles: implementation plan"
 status: accepted
-stage: DECIDED
-next: "Continue with the design's remaining macos-user per-launch id and other-agent declarations (step 4)"
+stage: BUILT
+next: "None here; the design's Mac checks (§13) and per-agent unlocks (§7) carry what remains"
 depends-on: [per-session-profiles.md]
 tags: [plan, profiles, attach, sessions, pi]
 ---
@@ -11,7 +11,10 @@ tags: [plan, profiles, attach, sessions, pi]
 
 **Status:** 2026-10-19. Tasks 1-7 implemented against the tree. The host boundary and capture
 work were grounded against `7941904b6` after checking the settled design and current host launch,
-capture and reap call sites.
+capture and reap call sites. 2026-11-06: the design's step 4 is built. macos-user's id landed in
+`29e298ca5`, and omp's declaration and the session-home bindings landed in `839c23f6f`
+([SP-D36](per-session-profiles.md#SP-D36), [SP-D37](per-session-profiles.md#SP-D37)). No task
+remains in this plan.
 **Design:** [`per-session-profiles.md`](per-session-profiles.md) (all filed rulings settled;
 host boundary and capture are specified).
 
@@ -407,7 +410,7 @@ Ruled by [SP-R1](per-session-profiles.md#SP-R1) and [OQ-SP5](per-session-profile
 
 ## Don't
 
-- Don't add a pi branch anywhere in Go; `PI_CODING_AGENT_DIR` appears only in `packs/pi/`.
+- Don't add a pi branch anywhere in Go; `PI_CODING_AGENT_DIR` appears only in the declaring packs (`packs/pi/`, `packs/omp/`), never in Go outside tests.
 - Don't copy a shared entry into a session home (SP-D3); don't link a `*.lock` (SP-D10).
 - Don't detect the attach's command (P5): every session gets every declared home.
 - Don't reap a session home or snapshot while the jail runs (SP-D7).

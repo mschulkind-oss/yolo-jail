@@ -2,8 +2,8 @@
 title: "One jail, several profiles: each session reads its own agent config"
 date: 2026-10-18
 status: accepted
-stage: DECIDED
-next: "Implement macos-user's per-launch id and other agents' declarations (§9 step 4)"
+stage: BUILT
+next: "Run the Mac checks in §13; declare codex, claude, copilot or opencode once its unlock in §7 lands"
 tags: [design, profiles, attach, sessions, pi, pi-subagents, providers, concurrency]
 summary: "An attach renders the attaching entry's profile into files every running pi session reads later, so a second session on another provider (or a bare attach of an unrelated agent on the default profile) changes what the first session's pi-subagents children run on, while the first session's provider policy still forbids that provider. The fix keys every profile-dependent read on the session: each exec already carries a session id that its whole process tree inherits, so the attach writes its environment into a per-session entry snapshot, and the session's own boot pass renders a pack's profile-dependent files into a per-session copy of the program's config dir, which stock pi follows through PI_CODING_AGENT_DIR. Shared state (logins, session history, packages, caches) stays one copy, linked into every session's dir."
 ---
@@ -19,6 +19,13 @@ named by `PI_CODING_AGENT_DIR`, and creates `auth.json` and `models-store.json` 
 (`pi --list-models`, offline, 2026-10-18). MEASURED in a nested jail (2026-10-18): each session's
 home, links and render. UNMEASURED: a real pi session's subagents on two providers, since no test
 runs an agent.
+
+2026-11-06: step 4 of [§9](#9-sequencing) is built. macos-user's per-launch id shipped with
+[`macos-user-session-profiles.md`](macos-user-session-profiles.md) (`29e298ca5`). The omp pack
+now declares its directory ([SP-D37](#SP-D37)). Because pi and omp read one variable, each
+program's launcher now binds the variable to its own pack's home ([SP-D36](#SP-D36)). Codex,
+Claude, Copilot and opencode stay undeclared, each for a measured reason ([§7](#7-what-this-does-not-cover)).
+UNMEASURED: the bindings on a real Mac ([§13](#13-mac-checks)).
 
 > **In short.** A profile is a property of a session's process tree, not of the jail. A pi session's
 > profile breaks today because every later entry re-renders the files its children read. Key each
@@ -262,9 +269,18 @@ land in the session's copy, merged under pi's own lock. They reach later session
 - **Older jails.** A jail without the new contract tag keeps today's last-writer behavior. An attach
   to one prints one line: a running pi session in it may now read this entry's profile, and
   `yolo stop` then a fresh launch removes the hazard. No restart is forced.
-- **Backends.** Podman and Apple Container exec every session and carry the id today. macos-user
-  launches each session as its own sandbox and does not carry `YOLO_SESSION_ID`; there the launch
-  mints one per invocation and hands it in the session env. UNMEASURED: needs a Mac.
+- **Backends.** Podman and Apple Container exec every session and carry the id. macos-user
+  launches each session as its own sandbox, so its launch mints one id per invocation and hands it
+  in the session env. Built in `29e298ca5`; the native layout is
+  [`macos-user-session-profiles.md`](macos-user-session-profiles.md)'s. UNMEASURED on a Mac.
+- **Two packs, one variable.** pi and omp both read stock pi's `PI_CODING_AGENT_DIR`, so the
+  session-wide value (SP-D4) can name only one pack's home. Each pack still gets its own home. The
+  pass also exports `YOLO_SESSION_HOMES`, one `<program>\t<variable>\t<home>` line per program
+  of each pack with a home. Every agent launcher points the variables on its own program's lines at
+  those homes before it runs the program ([SP-D36](#SP-D36)). This document coins the name
+  **session-home bindings** for those lines. A value the launch scoped to that agent in its env
+  file still wins. The host launches one program, so it makes only the launched program's pack's
+  home for a shared variable and names each dropped declaration in one line.
 
 ### 4.7 The host
 
@@ -326,9 +342,29 @@ introduced.
 
 ## 7. What this does not cover
 
-- **Agents other than pi.** Their packs declare nothing yet, so their profile-dependent files stay
-  last-writer. Codex (`CODEX_HOME`), Claude (`CLAUDE_CONFIG_DIR`) and opencode each need their own
-  check before declaring one. UNMEASURED.
+- **Agents other than pi and omp.** omp declares its directory ([SP-D37](#SP-D37)). The packs
+  below declare nothing, so their profile-dependent files stay last-writer
+  ([SP-D38](#SP-D38)). Each entry gives the reason it is not declared and the smallest unlock:
+  - **Codex** (`CODEX_HOME`):
+    - `~/.codex` is the pack's whole state root, but a declared directory must sit strictly under a
+      state dir. A container home would live beside it in `~`, which is read-only in the jail.
+    - It keeps version-dependent state at its top level, and its locks are files such as
+      `mcp-oauth-locks/file-store.lock` that guard shared files. Linking those locks would break
+      SP-D10, and not linking them would leave a shared login unguarded.
+    - The pack's model menu is written to the fixed path `.codex/yolo-model-menu.json`, which does
+      not follow a session home.
+    - At the host, the managed `CODEX_HOME` would be the user's own value, so SP-D5 would give it
+      no home.
+    - Unlock: a state dir above `~/.codex`, and the menu written under the variable.
+  - **Claude** (`CLAUDE_CONFIG_DIR`): the variable also moves `~/.claude.json`, the login and
+    project file at the home root, into the directory. `~/.claude` is also the state root. Unlock:
+    measure how Claude Code writes `.claude.json` under the variable, then use a state dir above
+    `~/.claude`.
+  - **Copilot**: its relocation variable and its writers are unmeasured, and `~/.copilot` is the
+    state root. Unlock: measure both, as the plan did for pi.
+  - **opencode**: the pack declares no state dir. `OPENCODE_CONFIG_DIR` adds a config directory and
+    does not move `~/.config/opencode`, so it is not a relocation. Unlock: a relocation variable in
+    opencode itself.
 - **`~/.config/mcp/mcp.json`**, the cross-tool file pi-subagents reads, lies outside `~/.pi/agent`;
   it stays last-writer. It varies by profile only through an MCP server's `requires_env`.
 - **An already-serving wire-bridge route** stays its first entry's
@@ -356,6 +392,8 @@ introduced.
    declaration and extension paths. This closes the reported deadlock.
 3. Capture from session homes ([OQ-SP2](#decision-ledger)).
 4. macos-user's per-launch id; then other agents' declarations, one measured agent at a time.
+   **Built:** the id in `29e298ca5`; omp's declaration and the bindings it needs
+   ([SP-D36](#SP-D36), [SP-D37](#SP-D37)). The other agents wait on [§7](#7-what-this-does-not-cover)'s unlocks.
 
 Correct the two stale claims in [§2.1](#21-the-writers-file-by-file) when step 2 lands, since step 2
 changes what a session pass renders.
@@ -413,6 +451,9 @@ The maintainer's rulings, then implementation decisions (reversible, made while 
 | <a id="SP-D33"></a>SP-D33 | A seeded session baseline is marked until the session's own render replaces it, and capture skips a marked home | 2026-10-18 | [§4.5](#45-pis-own-writes) | `54b97baed` |
 | <a id="SP-D34"></a>SP-D34 | A `*.lock` in a session home is the program's own lock, never a stray | 2026-10-18 | [§4.4](#44-what-a-session-home-holds) | `54b97baed` |
 | <a id="SP-D35"></a>SP-D35 | The jail's own boot keeps a leftover home whose file it could not capture | 2026-10-18 | [§4.5](#45-pis-own-writes) | `54b97baed` |
+| <a id="SP-D36"></a>SP-D36 | **Session-home bindings.** When two selected packs declare one variable, each still gets its own home. The pass exports `YOLO_SESSION_HOMES` (one `<program>\t<variable>\t<home>` line per program), and macos-user carries it into the native command environment. Every agent launcher binds the variables on its own program's lines before the agent env file, which still wins. The host keeps one home per variable: the launched program's pack's, else the first in pack order. It names each dropped declaration in one line. Found building SP-D37: with pi and omp selected, oh-omp read pi's home | 2026-11-06 | [§4.6](#46-lifetime-and-failure) | `839c23f6f` |
+| <a id="SP-D37"></a>SP-D37 | omp declares `.oh-omp/agent` on `PI_CODING_AGENT_DIR`. The shared names are every agent-dir entry the oh-omp 0.15.3 linux-x64 binary's text names (read, never run), and no lock. Its SQLite stores are linked: bun:sqlite 3.53.0 opening a database through a dangling link creates the target and puts `-wal`/`-shm` beside the target (measured 2026-11-06) | 2026-11-06 | [§7](#7-what-this-does-not-cover) | `839c23f6f` |
+| <a id="SP-D38"></a>SP-D38 | Codex, Claude, Copilot and opencode declare nothing yet. Each has a measured blocker and a named unlock in [§7](#7-what-this-does-not-cover), and a guessed declaration would break SP-D10 or SP-D5 | 2026-11-06 | [§7](#7-what-this-does-not-cover) | yes (no declaration) |
 
 ## 12. What done looks like
 
@@ -430,3 +471,39 @@ The maintainer's rulings, then implementation decisions (reversible, made while 
    standard host overlay before the ended home is removed; a later `own` launch retains that user
    edit while regenerating its selected profile's provider/model fields, and the real host
    `settings.json` remains untouched.
+
+## 13. Mac checks
+
+These checks are for the maintainer's Mac agent. Linux unit tests and the darwin cross-build cover
+[SP-D36](#SP-D36) on macos-user's native path (the native bootstrap and launch call sites), but not
+a real Seatbelt account. Run them in a throwaway workspace whose config selects both `pi` and `omp`
+under the macos-user setup. Neither check starts an agent session or calls a model.
+
+1. **The bindings reach the native command environment.**
+
+   ```
+   yolo -- bash -lc 'printf "%s\n" "$YOLO_SESSION_HOMES"'
+   ```
+
+   Witness: two tab-separated lines, `oh-omp` first. The third field of each is a directory under
+   `~/.yolo-native-sessions/<workspace hash>/<16-hex id>/`: `…/.oh-omp/agent` for `oh-omp` and
+   `…/.pi/agent` for `pi`. A second `yolo --` launch prints a different 16-hex id.
+
+2. **The oh-omp launcher points the variable at omp's home, not pi's.**
+
+   ```
+   yolo -- bash -lc 'bash -x "$HOME/.yolo/bin/launch/oh-omp" --version 2>&1 | grep PI_CODING_AGENT_DIR='
+   ```
+
+   Witness: an `export PI_CODING_AGENT_DIR=…/.oh-omp/agent` trace line, the same directory as
+   check 1's `oh-omp` line. The same command against `launch/pi` shows `…/.pi/agent`. If the trace
+   line is missing, SP-D36 is not live on the Mac.
+
+3. **omp's home renders its own files and links its login store.**
+
+   ```
+   yolo -- bash -lc 'ls -l "$(printf "%s\n" "$YOLO_SESSION_HOMES" | awk -F "\t" "\$1==\"oh-omp\"{print \$3}")"'
+   ```
+
+   Witness: `models.yml` and `config.yml` are regular files, and `agent.db` is a link to
+   `~/.oh-omp/agent/agent.db`. pi's home has neither `models.yml` nor `config.yml`.
