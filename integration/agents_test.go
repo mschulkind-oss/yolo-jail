@@ -99,7 +99,7 @@ var packMatrix = []packCase{
 	{pack: "agy", binary: "agy", versionArg: "--version",
 		configRel: ".gemini/antigravity-cli/settings.json", marker: "permissionMode"},
 	{pack: "omp", binary: "oh-omp", versionArg: "--version",
-		configRel: ".oh-omp/agent/models.yml", marker: "",
+		configRel: "models.yml", configDirEnv: "PI_CODING_AGENT_DIR", marker: "",
 		vendorSkipArch: "arm64",
 		vendorSkipReason: "the npm package refuses to install: `oh-omp: unsupported " +
 			"platform linux-arm64. Supported: darwin-arm64, linux-x64`. Nothing yolo can " +

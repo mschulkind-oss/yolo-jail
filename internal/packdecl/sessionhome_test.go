@@ -6,6 +6,7 @@ package packdecl
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
@@ -88,5 +89,29 @@ func TestTheShippedPiPackDeclaresOneSessionHome(t *testing.T) {
 	}
 	if h.Prefer["agents/"] != "~/.agents" {
 		t.Errorf("pi's prefer = %v, want agents/ -> ~/.agents", h.Prefer)
+	}
+}
+
+// The shipped omp pack declares one session home on stock pi's variable (SP-D37): its own
+// agent directory, its login store shared, and no lock among the shared names (SP-D10).
+func TestTheShippedOmpPackDeclaresOneSessionHome(t *testing.T) {
+	omp := decodeShippedPack(t, officialpacks.FS, "omp").SessionHomes()
+	pi := decodeShippedPack(t, officialpacks.FS, "pi").SessionHomes()
+	if len(omp) != 1 || len(pi) != 1 {
+		t.Fatalf("omp declares %d session homes and pi %d, want 1 each", len(omp), len(pi))
+	}
+	h := omp[0]
+	if h.Dir != ".oh-omp/agent" || h.Env != pi[0].Env {
+		t.Errorf("omp's session home = %+v, want .oh-omp/agent on pi's %s", h, pi[0].Env)
+	}
+	found := false
+	for _, s := range h.Shared {
+		found = found || s == "agent.db"
+		if strings.HasSuffix(s, ".lock") {
+			t.Errorf("omp shares the lock %q", s)
+		}
+	}
+	if !found {
+		t.Errorf("omp's shared names %v lack its login store agent.db", h.Shared)
 	}
 }

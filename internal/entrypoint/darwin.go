@@ -127,6 +127,11 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 						vars[d.env] = v
 					}
 				}
+				// The launchers' per-program bindings (SP-D36), restored with the variables
+				// for every command native-session-exec starts.
+				if v := e.Getenv(SessionHomesEnv); v != "" {
+					vars[SessionHomesEnv] = v
+				}
 				if len(declaredSessionHomes(e, packs)) > 0 {
 					derr = nativehome.Complete(dir, vars)
 				}

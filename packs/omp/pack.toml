@@ -1,5 +1,12 @@
 model_list_check = { oh-omp = {} }
 name = "omp"
+# EACH SESSION'S OWN CONFIG DIRECTORY (docs/design/per-session-profiles.md §7, SP-D37): oh-omp
+# reads stock pi's PI_CODING_AGENT_DIR (`new DirResolver(process.env.PI_CODING_AGENT_DIR)`) and
+# keeps everything below in that directory. The shared names are every agent-dir entry the
+# 0.15.3 linux-x64 binary's text names (read 2026-11-06, never run): its SQLite stores (logins
+# are agent.db's; SQLite puts a linked database's -wal and -shm beside the target, measured with
+# bun:sqlite 3.53.0), its user files and its state directories.
+session_homes = [{ dir = ".oh-omp/agent", env = "PI_CODING_AGENT_DIR", shared = ["agent.db", "history.db", "models.db", "tool-results.db", "concept-graph.db", "mcp.json", "ssh.json", "secrets.yml", "workspace-trust.yml", "smithery.json", "kimi-device-id", "keybindings.json", "omp-crash.log", "oh-omp-debug.log", "sessions/", "blobs/", "search-db/", "memories/", "terminal-sessions/", "tools/", "prompts/", "modules/", "themes/", "commands/", "cache/", "agents/", "pycache/", "python-gateway/", "webcache/", "tasks.lance/"] }]
 
 [[program]]
 bin = "oh-omp"
