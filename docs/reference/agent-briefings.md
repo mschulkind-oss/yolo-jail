@@ -7,7 +7,6 @@ covers:
   - internal/jailcontent/skills.go
   - internal/jailcontent/workspaceskills.go
   - internal/cli/run/workspaceskills.go
-  - internal/cli/hostworkspaceskills.go
   - internal/jailcontent/write.go
   - internal/cli/run/prepare.go
   - internal/jailcontent/persistence.go
@@ -30,10 +29,11 @@ model runs end to end in a real container in CI's integration jobs, which were g
 commit. [The workspace layer](#the-workspace-layer) was added on 2026-09-27 with the code that
 builds it; its principles and rulings ([`OQ-WS1`](#oq-ws1) to [`OQ-WS7`](#oq-ws7)) moved in on
 2026-10-01, checked against `d4e435a3`, when the workspace skills design graduated. Its
-[host half](#the-host-half-one-link-per-launch) with the open [`OQ-WS6`](#OQ-WS6), the measured
+former host half and [`OQ-WS6`](#OQ-WS6), the measured
 table of [where each agent reads skills](#where-each-agent-reads-skills) and
 [the build record](#the-workspace-layers-build-record) moved in on 2026-10-16, when that design's
-stub was deleted. UNMEASURED: no observed launch is recorded;
+stub was deleted; that host half was removed on 2026-11-07 by the owner's ruling, and
+[the host has no workspace skills layer](#the-host-has-no-workspace-skills-layer). UNMEASURED: no observed launch is recorded;
 `TestWorkspaceSkillsReachAContainerJail` and, on a Mac,
 `TestMacosUserWorkspaceSkillsArriveThroughTheComposedTree` are the instruments. The Storage classes item and part 4's shipped-pack prose were brought up to date on
 2026-09-29 with the code that changed them.
@@ -759,14 +759,10 @@ destination's staging dir, and nothing is ever written into the workspace.
   next `yolo` command against a running jail — the same tree the agent there already reads live.
   Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
 - **The mirror is containers' and `macos-user`'s only.** macos-user receives it through the same
-  composed tree it copies; the host notch never does, by ruling ([`OQ-WS5`](#oq-ws5)). What the
-  host gets instead, since 2026-10-04, is one link: `yolo host -- <agent>` in a repository that
-  has none of the agent's own project skills paths puts a relative symlink at the first of them,
-  pointing at the first skills directory the repository keeps under another agent's path
-  (`.codex/skills -> ../.claude/skills`), after the same reader has checked that directory, and
-  adds the link to the directory's `.gitignore` once
-  ([the host half](#the-host-half-one-link-per-launch), [WS-D19](#ws-d19) to [WS-D23](#ws-d23);
-  [`OQ-WS6`](#OQ-WS6) decided on its leaning (a)).
+  composed tree it copies; the host notch never does, by ruling ([`OQ-WS5`](#oq-ws5)), and
+  `yolo host` writes nothing into the workspace for skills in its place: by the owner's ruling of
+  2026-11-07, [the host has no workspace skills layer](#the-host-has-no-workspace-skills-layer)
+  ([WS-D24](#ws-d24)).
 
 After both layers, yolo writes its **own LSP plugin** into every skills destination, rendered
 from `lsp_servers`, or removes it when that list is empty. This is not a third content layer: it
@@ -797,39 +793,37 @@ because its callers pass them and churning those would be a bigger diff than the
 behavior in it. The launch calls `PrepareSkillsWith`, which is the same composition with the
 workspace layer as an argument.
 
-#### The host half: one link per launch
+#### The host has no workspace skills layer
+
+`yolo host -- <agent>` writes nothing into the workspace for skills, by the owner's ruling of
+2026-11-07 ([WS-D24](#ws-d24)):
+
+> *"maybe the answer is just for yolo host we don't try to help with this I don't see any way
+> around that because everything else is worse."*
+
+> *"this agent skill stuff and the gitignore … those aren't features that were opted in. They
+> create files that are left around that are hard to put in ignore rules"*
 
 The mirror never reaches the host notch ([`OQ-WS5`](#oq-ws5)): a host render's content is a
-function of the user's configuration and installed packs, never of the directory it runs from, so
-the host half is links written into the repository under `yolo host -- <agent>`, or nothing. It
-was taken up after v1 on 2026-10-04, under the maintainer's delegation to build the host gaps that
-were deferred rather than ruled out (*"make a pass for all features that don't yet work on the
-host, and implement the ones that are possible that we've just delayed"*; for each decision,
-*"make them and build it … adjust later"*). It is built behind no switch as one exec-time step,
-[WS-D19](#ws-d19) to [WS-D23](#ws-d23) in [the build record](#the-workspace-layers-build-record),
-each a reversible implementation decision. Unit tests pin its call site; no installed agent has
-been seen loading skills through the link.
+function of the user's configuration and installed packs, never of the directory it runs from. The
+only other mechanism was a link written into the repository, and that is what the ruling removes.
+A link is a surprising file a launch creates in the user's repository, and no ignore rule can
+reliably cover it, because which agent's path is canonical differs per repository and per reader.
+An agent on the host reads the repository's own project skills paths, whatever the repository
+commits there, and nothing more.
 
-- **When it runs.** It is the launch's last write before the hand-over, so a launch refused
-  anywhere earlier writes nothing into the workspace. It is a no-op, and silent, in a jail, in a
-  directory that is or holds the credential boundary, and for a program no selected pack gives a
-  skills destination declaring `project_dirs`. `yolo host apply` and `yolo host env` never write
-  it ([WS-D19](#ws-d19)).
-- **What it writes.** When no path in the agent's `project_dirs` exists in any form, one RELATIVE
-  symlink at the first of them, to the first source present in the jail's own order
-  (`.codex/skills -> ../.claude/skills`). A link points at one directory, so every later source
-  is named as not handed to this agent, which is the host half's stated weakness against the
-  mirror ([WS-D20](#ws-d20)).
-- **What it checks.** The mirror's own reader runs over the source first, and any refusal writes
-  no link ([WS-D21](#ws-d21), [P5](#ws-p5)).
-- **How it stays out of git.** One `/<link>` line in the `.gitignore` of the directory the launch
-  ran in, once, only inside a git work tree, and never added back after the user removes it
-  ([WS-D22](#ws-d22), building [`OQ-WS6`](#OQ-WS6) as decided on its leaning).
-- **Whose link it is.** A link is yolo's only by a record in yolo's state dir; every launch says
-  what it placed, kept, refreshed or removed ([WS-D23](#ws-d23)).
+From 2026-10-04 to 2026-11-07 the host did write such a link: one relative symlink at the
+launched agent's first project skills path, pointing at the first skills directory the repository
+kept under another agent's path (`.codex/skills -> ../.claude/skills`), plus a `/<link>` line
+appended to the tracked `.gitignore`, with records under yolo's state dir. Those were agent
+decisions taken under delegation, [WS-D19](#ws-d19) to [WS-D23](#ws-d23) and
+[`OQ-WS6`](#OQ-WS6)'s "decided on its leaning (a)", not owner rulings; all are superseded.
+**yolo does not clean them up**: a link or `.gitignore` line a past launch left in a repository,
+and the records in `~/.local/share/yolo-jail/host-workspace-skills/`, stay until the user removes
+them, because a silent edit to the user's repository is the very thing the ruling rejects.
 
-<a id="oq-ws6-background"></a>**Background to [`OQ-WS6`](#OQ-WS6), below: the three options in
-full.** The question decides what `git status` shows after a launch under the host half's links,
+<a id="oq-ws6-background"></a>**Background to [`OQ-WS6`](#OQ-WS6), below, kept as the record
+of a superseded question: the three options in full.** The question decided what `git status` shows after a launch under the host half's links,
 and which file yolo becomes a writer of.
 
 - **(a) root `.gitignore` append**, write-once by content check — `yolo init`'s precedent; visible
@@ -852,8 +846,8 @@ once. So "not fought" does not carry over by itself; (a) needs its own record of
 the line once. The leaning itself is unchanged.
 
 - 💬 **[`OQ-WS6`](#OQ-WS6): For the links, root `.gitignore`, `.git/info/exclude`, or a
-  yolo-owned parent's `.gitignore`?** Decided on its leaning (a) for the host half's build and
-  open to the maintainer's revision; it awaits his confirmation. The options in full, and the
+  yolo-owned parent's `.gitignore`?** Superseded on 2026-11-07: the links are gone, so none of
+  the three is written ([WS-D24](#ws-d24)). The options in full, and the
   2026-09-24 note on the leaning's premise, are [in the background above](#oq-ws6-background):
 
   - **(a) root `.gitignore` append.**
@@ -878,6 +872,10 @@ the line once. The leaning itself is unchanged.
   > tree. The 2026-09-24 note's premise is met by a record: yolo remembers that the line stood
   > there, whether it wrote the line or found it, so a line the user removed is not added back
   > ([WS-D22](#ws-d22)).
+  >
+  > **Superseded, 2026-11-07, by the owner's ruling** ([WS-D24](#ws-d24)): the 2026-10-04 decision
+  > was an agent decision under delegation, not an owner ruling. The host writes no link, so it
+  > writes no ignore line in any of the three places.
 
 #### Where each agent reads skills
 
@@ -921,13 +919,13 @@ missed `pi` and, unconfirmed, `codex`, from the two rows corrected above.)
 
 #### The workspace layer's build record
 
-The implementation decisions the layer was built on, `WS-D1` to `WS-D23`, which code comments
+The implementation decisions the layer was built on, `WS-D1` to `WS-D24`, which code comments
 cite by id; moved here on 2026-10-16 from the deleted design, whose argument (the gap, the four
 candidate mechanisms, both notches, its numbered risks R1 to R10 and its list of what done looks
 like) is in git history (`git log --follow -- docs/design/workspace-skills.md`). A row's "risk R*n*"
 or "done criterion" names one of those. [`OQ-WS1`](#oq-ws1) to [`OQ-WS5`](#oq-ws5) and
 [`OQ-WS7`](#oq-ws7) are in [the why-appendix](#why-its-this-way), [`OQ-WS6`](#OQ-WS6) is
-[above](#the-host-half-one-link-per-launch).
+[above](#oq-ws6-background).
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -949,11 +947,12 @@ or "done criterion" names one of those. [`OQ-WS1`](#oq-ws1) to [`OQ-WS5`](#oq-ws
 | <a id="ws-d16"></a>WS-D16 | *Implementation decision.* A refusal's reason is fixed text, and for a system error only the errno's own description — never the error's message, whose path can be a link's target, a newline and a counterfeit disclosure line included. The launch also quotes a reason that is not plain text, as it does a name, because the per-side reason names a path the repo's own `mise.toml` can set | 2026-09-27 | [the workspace layer](#the-workspace-layer) | ✅ `c011321e` |
 | <a id="ws-d17"></a>WS-D17 | *Implementation decision.* A clone cannot fail a launch through the scratch copy either. An entry whose path inside its skill passes 512 bytes is refused: the reader reaches any depth one component at a time, while the copy is written by absolute path under the scratch tree, a compose dir, a staging dir and on `macos-user` the sandbox home, and macOS's `PATH_MAX` is 1024 — a `git clone` of a path past `PATH_MAX` failed every launch and attach of its workspace with `ENAMETOOLONG`. A write into scratch that fails refuses that entry. The one error left is failing to create the scratch root, and nothing the layer made outlives its call | 2026-09-27 | [the workspace layer](#the-workspace-layer) | ✅ `c011321e` |
 | <a id="ws-d18"></a>WS-D18 | *Implementation decision.* [OQ-WS7](#oq-ws7)'s cap is **32 MiB and 4096 files and directories per launch**, counted over everything the layer writes into scratch, and the refusal names the skill, the cap and what the skill would add. The numbers come from the largest real skill sets available on 2026-09-28, counting regular-file bytes with links followed and entries as files plus directories: yolo's built-in skills are 21,770 bytes in 5 entries; two personal skill packs, 217,524 bytes in 29 and 199,410 in 22; one user's composed `~/.claude/skills`, 437,859 in 55; the largest single plugin skills dir in Claude's official plugin marketplace, 488,003 in 76; and all eighteen of that marketplace's plugin skills dirs taken as ONE set, which no repository carries, 1,389,298 bytes in 210 entries. The caps sit about 24× and 19× above that last figure, which leaves room for a vendored tool of a few megabytes. No shipped pack carries skills of its own. Four mechanism choices: (1) **stage, then commit**: each skill is copied into a directory of its own and joins the layer only once the whole of it is there, so a refused skill leaves nothing behind and the skills before it stay; (2) **every write is charged before it is made**, a file its size before a byte of it is read, so a skill refused on one oversized file costs nothing more, and a file that grows past its charge is refused as changed while it was being read; (3) **the walk stops at the crossing**, so what a skill "would add" is a lower bound (what it had copied, plus the write that crossed): counting the rest would cost the reads the cap exists to prevent; (4) **the charge never falls**: a refused skill's partial copy stays spent, so a later skill that still fits is delivered, but a clone of many skills each just past the cap cannot make the host write the cap once per skill. The bound on one launch is therefore the cap into scratch plus the cap into each destination (risk R10). macos-user stages through the same `PrepareSkillsWith` call, so the cap applies there too | 2026-09-28 | [OQ-WS7](#oq-ws7), risk R10 | ✅ `60ceac43` |
-| <a id="ws-d19"></a>WS-D19 | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The host half is B, one step of `yolo host -- <agent>`, and nothing else.** It is the launch's last write, made just before the hand-over on both of its paths: after every pre-flight, the OpenAI prelaunch and every launch-owned service and doorway, so a launch refused at any of them, a bridge that cannot bind included, writes nothing into the workspace. It is a no-op, and silent, in a jail ([OQ-WS4](#oq-ws4): the mirror alone there), in a directory that is or holds the credential boundary (`paths.WorkspaceScopeBreach`: the home itself), and for a program no selected pack gives a skills destination declaring `project_dirs`. `yolo host apply` and `yolo host env` never write it: the cwd selects nothing for a render ([OQ-WS5](#oq-ws5)), and `env` launches nothing | 2026-10-04 | [OQ-WS5](#oq-ws5), [the host half](#the-host-half-one-link-per-launch) | ✅ `hostWorkspaceSkills` (`internal/cli/hostworkspaceskills.go`), called in `hostLaunch` before each hand-over; `TestHostLaunchLinksTheRepositorysSkillsIntoTheAgentsPathAndIgnoresItOnce` (the exec path), `TestAHostLaunchBesideALaunchOwnedServiceLinksTheSkills` (the resident path), `TestARefusedHostLaunchWritesNoWorkspaceSkillsLink`, `TestAHostLaunchRefusedAtServiceStartWritesNoWorkspaceSkillsLink`, `TestHostEnvWritesNoWorkspaceSkillsLink`, `TestHostWorkspaceSkillsWritesNothingInTheHomeOrInAJail`, `TestHostWorkspaceSkillsWritesNothingForAnAgentWithNoProjectDirs` |
-| <a id="ws-d20"></a>WS-D20 | *Implementation decision, under the same delegation; reversible.* **One link, at the agent's first declared path, to the first source present.** When no path in the destination's `project_dirs` exists in any form (a directory, a committed link, a file, a link out of the tree), the launch writes a RELATIVE symlink at the first of them (`.codex/skills -> ../.claude/skills`). Its target is the first source present in the jail's own order ([WS-D2](#ws-d2), through `run.WorkspaceSkillDirs`), less the agent's own paths and less any link yolo itself recorded for another agent; every later source present is named as not handed to this agent, since a link points at one directory (a second spelling of the chosen one, a committed link to it, is not another source), which is the host half's stated weakness of B against the mirror. A missing parent (`.codex/`) is created and recorded, and the link and its parents are written by a walk from the workspace root in which every directory open is `O_NOFOLLOW`, so a parent the repository made a link refuses the write instead of being written through | 2026-10-04 | [the host half](#the-host-half-one-link-per-launch) | ✅ `hostWorkspaceSkillsIn`, `placeLinkNoFollow`; `TestHostLaunchLeavesARepositorysOwnAgentPathAlone`, `TestHostLaunchLeavesAnAgentDirThatLeavesTheWorkspaceAlone`, `TestHostLaunchWritesThroughNoLink`, `TestHostLaunchDoesNotNameASecondSpellingOfItsSourceAsDropped` |
-| <a id="ws-d21"></a>WS-D21 | *Implementation decision, under the same delegation; reversible.* **P5 fails closed: the source is checked by the mirror's own reader before a link names it.** `jailcontent.CheckWorkspaceSkillSource` runs the staging reader over that one directory, and any refusal (a link out of the workspace, a FIFO, the [OQ-WS7](#oq-ws7) cap) writes no link and removes a link yolo wrote before. Each refused entry is named by its workspace path and fixed reason through the jail's `displaySafe`, never by a link's target | 2026-10-04 | [P5](#ws-p5) | ✅ `CheckWorkspaceSkillSource`; `TestCheckWorkspaceSkillSourceRefusesAnEscapingLink`, `TestHostLaunchRefusesASourceWithAnEscapingLinkAndRemovesItsOwnLink` |
-| <a id="ws-d22"></a>WS-D22 | *Implementation decision, building [OQ-WS6](#OQ-WS6) as decided on its leaning (a); open to the maintainer's revision.* **One `.gitignore` line, once, in a git work tree.** Whether the workspace is in one is an `Lstat` of `.git` at the directory and every directory above it: git is never run, since a repository's `.git/config` can name a program git runs. The line is `/<link>`, appended on a line of its own to the `.gitignore` of the directory the launch ran in, which must be a regular file and is opened `O_NOFOLLOW` and `O_NONBLOCK`. A line already there is left alone, and so is its later removal: a line that stood in `.gitignore` at a launch that placed or kept the link, whether yolo wrote it or a teammate's commit or the user's own edit put it there, and that is gone at a later launch, is not added back. The record's `ignore_seen` is the record the 2026-09-24 note asked for, and that launch says `git status` will list the link without saying who wrote the line; so does a launch whose `.gitignore` is a link, not a regular file, or larger than the 1 MiB yolo reads, and one that cannot open it for the append, whose line names the errno. The record outlives the link: a line the user removed stays out when the link goes and comes back | 2026-10-04 | [OQ-WS6](#OQ-WS6) | ✅ `ensureHostSkillsIgnoreLine`, `insideGitWorkTree`; `TestHostLaunchDoesNotAddBackAnIgnoreLineTheUserRemoved`, `TestHostLaunchDoesNotAddBackAnIgnoreLineItFoundAndTheUserRemoved`, `TestHostLaunchKeepsARemovedIgnoreLineOutAfterItsLinkWentAndCameBack`, `TestHostLaunchWritesThroughNoLink`, `TestHostLaunchOutsideAGitWorkTreeWritesNoIgnoreFile`, `TestHostLaunchInASubdirectoryOfAWorkTreeIgnoresTheLinkThere`, `TestHostLaunchDoesNotAppendToAnIgnoreFileLargerThanItReads`, `TestHostLaunchSaysWhenItCannotOpenTheIgnoreFileForTheAppend` (unprivileged only: root opens a read-only file for writing, so it skips as root and runs in CI) |
-| <a id="ws-d23"></a>WS-D23 | *Implementation decision, under the same delegation; reversible.* **A link is yolo's only by a record, and every launch says what it did.** The record is a file under yolo's state dir (`paths.HostWorkspaceSkillsDir`), named by a digest of the workspace's resolved path and the link's path, never in the workspace's `.yolo/`, which the repository's agent can write. A link is refreshed or removed only while its `readlink` equals the record. It is removed, with any parents yolo made that are left empty, when its source vanishes, when another path the agent reads appears, or when the check refuses its source; an unrecorded link at the same path is the repository's and is untouched. Each launch prints, after a `yolo host: workspace skills:` prefix, what it placed, kept, refreshed or removed, the sources it did not hand the agent, every refusal, the ignore line, and each skill name the agent's home-scope directory also has. A line saying yolo could not do something also names the next step: make a linked parent a real directory or create the link by hand, remove a link it could not refresh, fix the temporary folder its check copies into, or add the ignore line by hand. No line claims the agent reads the link: whether `codex`, `copilot`, `opencode` and `agy` follow a symlinked project skills directory is unmeasured ([where each agent reads skills](#where-each-agent-reads-skills)) | 2026-10-04 | [the host half](#the-host-half-one-link-per-launch) | ✅ `loadHostSkillsRecord`, `removeOwnLink`; `TestHostLaunchRemovesItsLinkWhenTheSourceVanishesAndLeavesOthersAlone`, `TestHostLaunchRefreshesItsLinkWhenTheChosenSourceChanges`, `TestHostLaunchNeverTakesAnotherAgentsLinkAsItsSource`, `TestHostLaunchNamesTheSourcesItDropsAndTheHomeSkillsOfTheSameName`, `TestHostLaunchThatCannotCheckASourceSaysWhereTheCheckRuns`, `TestHostWorkspaceSkillsRecordLivesInTheStateDir`, `TestHostLaunchKeysItsLinkByTheWorkspacesResolvedPath`. UNMEASURED: an installed agent loading skills through the link |
+| <a id="ws-d19"></a>WS-D19 | **Superseded by [WS-D24](#ws-d24), 2026-11-07: removed with the host half.** *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* **The host half is B, one step of `yolo host -- <agent>`, and nothing else.** It is the launch's last write, made just before the hand-over on both of its paths: after every pre-flight, the OpenAI prelaunch and every launch-owned service and doorway, so a launch refused at any of them, a bridge that cannot bind included, writes nothing into the workspace. It is a no-op, and silent, in a jail ([OQ-WS4](#oq-ws4): the mirror alone there), in a directory that is or holds the credential boundary (`paths.WorkspaceScopeBreach`: the home itself), and for a program no selected pack gives a skills destination declaring `project_dirs`. `yolo host apply` and `yolo host env` never write it: the cwd selects nothing for a render ([OQ-WS5](#oq-ws5)), and `env` launches nothing | 2026-10-04 | [OQ-WS5](#oq-ws5), [the host half](#the-host-has-no-workspace-skills-layer) | ❌ removed by WS-D24 |
+| <a id="ws-d20"></a>WS-D20 | **Superseded by [WS-D24](#ws-d24), 2026-11-07: removed with the host half.** *Implementation decision, under the same delegation; reversible.* **One link, at the agent's first declared path, to the first source present.** When no path in the destination's `project_dirs` exists in any form (a directory, a committed link, a file, a link out of the tree), the launch writes a RELATIVE symlink at the first of them (`.codex/skills -> ../.claude/skills`). Its target is the first source present in the jail's own order ([WS-D2](#ws-d2), through `run.WorkspaceSkillDirs`), less the agent's own paths and less any link yolo itself recorded for another agent; every later source present is named as not handed to this agent, since a link points at one directory (a second spelling of the chosen one, a committed link to it, is not another source), which is the host half's stated weakness of B against the mirror. A missing parent (`.codex/`) is created and recorded, and the link and its parents are written by a walk from the workspace root in which every directory open is `O_NOFOLLOW`, so a parent the repository made a link refuses the write instead of being written through | 2026-10-04 | [the host half](#the-host-has-no-workspace-skills-layer) | ❌ removed by WS-D24 |
+| <a id="ws-d21"></a>WS-D21 | **Superseded by [WS-D24](#ws-d24), 2026-11-07: removed with the host half.** *Implementation decision, under the same delegation; reversible.* **P5 fails closed: the source is checked by the mirror's own reader before a link names it.** `jailcontent.CheckWorkspaceSkillSource` runs the staging reader over that one directory, and any refusal (a link out of the workspace, a FIFO, the [OQ-WS7](#oq-ws7) cap) writes no link and removes a link yolo wrote before. Each refused entry is named by its workspace path and fixed reason through the jail's `displaySafe`, never by a link's target | 2026-10-04 | [P5](#ws-p5) | ❌ removed by WS-D24 |
+| <a id="ws-d22"></a>WS-D22 | **Superseded by [WS-D24](#ws-d24), 2026-11-07: removed with the host half.** *Implementation decision, building [OQ-WS6](#OQ-WS6) as decided on its leaning (a); open to the maintainer's revision.* **One `.gitignore` line, once, in a git work tree.** Whether the workspace is in one is an `Lstat` of `.git` at the directory and every directory above it: git is never run, since a repository's `.git/config` can name a program git runs. The line is `/<link>`, appended on a line of its own to the `.gitignore` of the directory the launch ran in, which must be a regular file and is opened `O_NOFOLLOW` and `O_NONBLOCK`. A line already there is left alone, and so is its later removal: a line that stood in `.gitignore` at a launch that placed or kept the link, whether yolo wrote it or a teammate's commit or the user's own edit put it there, and that is gone at a later launch, is not added back. The record's `ignore_seen` is the record the 2026-09-24 note asked for, and that launch says `git status` will list the link without saying who wrote the line; so does a launch whose `.gitignore` is a link, not a regular file, or larger than the 1 MiB yolo reads, and one that cannot open it for the append, whose line names the errno. The record outlives the link: a line the user removed stays out when the link goes and comes back | 2026-10-04 | [OQ-WS6](#OQ-WS6) | ❌ removed by WS-D24 |
+| <a id="ws-d23"></a>WS-D23 | **Superseded by [WS-D24](#ws-d24), 2026-11-07: removed with the host half.** *Implementation decision, under the same delegation; reversible.* **A link is yolo's only by a record, and every launch says what it did.** The record is a file under yolo's state dir (`paths.HostWorkspaceSkillsDir`), named by a digest of the workspace's resolved path and the link's path, never in the workspace's `.yolo/`, which the repository's agent can write. A link is refreshed or removed only while its `readlink` equals the record. It is removed, with any parents yolo made that are left empty, when its source vanishes, when another path the agent reads appears, or when the check refuses its source; an unrecorded link at the same path is the repository's and is untouched. Each launch prints, after a `yolo host: workspace skills:` prefix, what it placed, kept, refreshed or removed, the sources it did not hand the agent, every refusal, the ignore line, and each skill name the agent's home-scope directory also has. A line saying yolo could not do something also names the next step: make a linked parent a real directory or create the link by hand, remove a link it could not refresh, fix the temporary folder its check copies into, or add the ignore line by hand. No line claims the agent reads the link: whether `codex`, `copilot`, `opencode` and `agy` follow a symlinked project skills directory is unmeasured ([where each agent reads skills](#where-each-agent-reads-skills)) | 2026-10-04 | [the host half](#the-host-has-no-workspace-skills-layer) | ❌ removed by WS-D24 |
+| <a id="ws-d24"></a>WS-D24 | *Owner's ruling.* **The host has no workspace skills layer.** `yolo host -- <agent>` writes nothing into the workspace for skills: no link, no `.gitignore` line, no record. The owner: *"maybe the answer is just for yolo host we don't try to help with this I don't see any way around that because everything else is worse."* and *"this agent skill stuff and the gitignore … those aren't features that were opted in. They create files that are left around that are hard to put in ignore rules"*. The link was a surprising file a launch created in the user's repository, and it could not be reliably ignored because which agent's path is canonical is not knowable. Supersedes WS-D19 to WS-D23 and [OQ-WS6](#OQ-WS6)'s 2026-10-04 decision, which were agent decisions under delegation. Nothing a past launch wrote is removed: no silent edit to a user's repository | 2026-11-07 | [the host has no workspace skills layer](#the-host-has-no-workspace-skills-layer) | ✅ the host-link code and `paths.HostWorkspaceSkillsDir` deleted; `TestHostLaunchWritesNothingIntoTheWorkspaceForSkills` |
 
 ## Refresh — a live jail sees host edits
 
@@ -1089,7 +1088,7 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | <a id="oq-ws2"></a>[`OQ-WS2`](#oq-ws2) | **The workspace is the lowest layer**: it adds names and never shadows a built-in, shared-pack or local-pack skill, and every shadowed name is disclosed (2026-09-27) | It is the one source a clone populates and an agent edits, so it must never be able to replace a jail-management skill such as `configuring-the-jail`. |
 | <a id="oq-ws3"></a>[`OQ-WS3`](#oq-ws3) | **The source set is every shipped agent pack's declared project-scope path, whether or not the pack is selected**; core names none (2026-09-27) | The maintainer: *"I want it to be from the world of agents. Like if I clone an open source project and I trust that person, like I still want these skills."* Keying on the selected packs would miss a repo whose convention belongs to an agent nobody here runs. |
 | <a id="oq-ws4"></a>[`OQ-WS4`](#oq-ws4) | **The staged mirror alone**, in containers and on macos-user; in-workspace links are a host-notch tool only (2026-09-27) | A mirror writes nothing into the repo ([P4](#ws-p4)). The same ruling closed a question in the deleted `agent-config-packs.md` about opencode's skills gap: yolo does not write into the workspace for skills. |
-| <a id="oq-ws5"></a>[`OQ-WS5`](#oq-ws5) | **The host notch is out of v1** (2026-09-27); its one mechanism, links written into the repo, and how they are kept out of git ([`OQ-WS6`](#OQ-WS6)) were deferred with it, and built after v1 on 2026-10-04 under the maintainer's delegation ([WS-D19](#ws-d19) to [WS-D23](#ws-d23)) | A host render's content is a function of the user's configuration and installed packs, never of the directory it runs from, so a staged mirror into a real home is ruled out; a host half could only write links into the repo under `yolo host --`, which waits on its own ruling. |
+| <a id="oq-ws5"></a>[`OQ-WS5`](#oq-ws5) | **The host notch is out of v1** (2026-09-27); its one mechanism, links written into the repo, and how they are kept out of git ([`OQ-WS6`](#OQ-WS6)) were deferred with it, built after v1 on 2026-10-04 under the maintainer's delegation ([WS-D19](#ws-d19) to [WS-D23](#ws-d23)), and removed on 2026-11-07 by the owner's ruling ([WS-D24](#ws-d24)) | A host render's content is a function of the user's configuration and installed packs, never of the directory it runs from, so a staged mirror into a real home is ruled out; a host half could only write links into the repo under `yolo host --`, which waits on its own ruling. |
 | <a id="oq-ws7"></a>[`OQ-WS7`](#oq-ws7) | **A per-launch cap on what the layer copies**, set where no real skill set meets it; a skill that would cross it is refused whole and named (2026-09-28) | Symlinks cost nothing to commit, so a clone could make a launch write many times its own size into every destination. |
 | <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. Both notches print the report: `yolo host apply` and the jail launch ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
 | <a id="ba-r2"></a>[`R2`](#ba-r2) | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |

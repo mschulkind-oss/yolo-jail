@@ -440,7 +440,7 @@ func readProgramFailureFile(root int, leaf string) ([]byte, error) {
 	if !filepath.IsLocal(leaf) {
 		return nil, fmt.Errorf("failure file path is not confined")
 	}
-	parent, _, err := openParentNoFollow(root, filepath.ToSlash(leaf), false)
+	parent, err := openParentNoFollow(root, filepath.ToSlash(leaf))
 	if err != nil {
 		return nil, err
 	}

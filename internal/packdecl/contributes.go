@@ -402,9 +402,9 @@ type Contribution struct {
 	// Where an agent reads at project scope changes when the agent changes, and only its pack
 	// can keep that current — the rule `into` already follows for the home-scope half (P2 of
 	// the design, docs/reference/extension-point-principle.md). IGNORED BY `yolo host apply`, by
-	// ruling (OQ-WS5): it never writes a workspace's skills into a real home. `yolo host --
-	// <agent>` reads it for one in-workspace link at the agent's first path
-	// (docs/reference/agent-briefings.md WS-D20, internal/cli/hostworkspaceskills.go).
+	// ruling (OQ-WS5): it never writes a workspace's skills into a real home. Nor does `yolo host --
+	// <agent>` read it: the host has no workspace skills layer at all, by the owner's ruling of
+	// 2026-11-07 (docs/reference/agent-briefings.md WS-D24).
 	ProjectDirs []string `json:"project_dirs,omitempty"`
 	// Register makes a `files` SLOT a REGISTERING one: core appends one entry per tree that lands
 	// in the slot to an array in a surface the slot's own pack declares, attributed to the pack

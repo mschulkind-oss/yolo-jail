@@ -79,12 +79,11 @@ On your own machine the agents keep their permission prompts on, and yolo warns 
 setting you made yourself. [Writing your own pack](migrating-to-packs.md#part-2--manage-your-host)
 walks through it.
 
-Two jail habits come along to `yolo host -- <agent>`. Tools the `guardrails` pack (or your own
-`security.blocked_tools`) blocks are blocked for that agent too, and the launch says so. And when
-your repository keeps skills under another agent's folder, such as `.claude/skills`, the launch
-puts one link at the agent's own folder (`.codex/skills`) pointing at those skills, and adds it to
-`.gitignore` once; a repository that already has the agent's folder is left alone. Whether each
-agent follows a linked folder is not yet measured.
+One jail habit comes along to `yolo host -- <agent>`: tools the `guardrails` pack (or your own
+`security.blocked_tools`) blocks are blocked for that agent too, and the launch says so. Skills your
+repository keeps under another agent's folder, such as `.claude/skills`, do not: in a jail every
+agent gets them, but on your own machine yolo writes nothing into your repository, so each agent
+reads only the skills folders it reads by itself.
 
 <a id="yolos-own-copy-of-your-agents"></a>
 

@@ -18,7 +18,7 @@ summary: "yolo host -- claude links .claude/skills to the repository's .pi/skill
   `yolo host -- claude`.
 - The *host workspace skills link* is the one symlink `yolo host -- <agent>` writes into a
   workspace so that the agent reads the repository's project skills
-  ([the host half](../reference/agent-briefings.md#the-host-half-one-link-per-launch),
+  ([the host half](../reference/agent-briefings.md#the-host-has-no-workspace-skills-layer),
   [`OQ-WS6`](../reference/agent-briefings.md#OQ-WS6)). It's the host's counterpart of the mirror a
   jail gets.
 - *Aqua* and *Background* are what `launchctl managername` prints in a shell inside the desktop

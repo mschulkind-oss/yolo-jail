@@ -1,6 +1,6 @@
 package run
 
-// hostexports.go hands `yolo host --` (internal/cli) three of the launcher's own answers, so the
+// hostexports.go hands `yolo host --` (internal/cli) two of the launcher's own answers, so the
 // host notch asks the jail's question rather than writing a second copy of it. Each is a thin
 // wrapper and nothing more: the logic stays where the jail launch reads it, and a change there
 // reaches the host by construction.
@@ -9,20 +9,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
-
-// WorkspaceSkillDirs is the workspace skills layer's SOURCE SET, in the order a jail reads it
-// (workspaceSkillDirs: the selected packs' project_dirs in config order, then every shipped
-// pack's by name). `yolo host -- <agent>`'s in-workspace link picks its source from this list
-// (docs/reference/agent-briefings.md WS-D20).
-func WorkspaceSkillDirs(selected []*packload.Pack) []string {
-	return workspaceSkillDirs(selected)
-}
-
-// DisplaySafe is displaySafe: a workspace-supplied path or name rendered for a disclosure line,
-// verbatim when it is plain printable text and Go-quoted (with `[` escaped) otherwise, so a
-// directory a clone names cannot forge or restyle a line. The host's workspace skills lines go
-// through it as the jail's do.
-func DisplaySafe(s string) string { return displaySafe(s) }
 
 // ClaudeSharedCredentialDir is claudeSharedCredentialDir: the home-relative machine-scope
 // directory a pack in packs links Claude's credential into through its `shared_credentials` hook,

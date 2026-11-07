@@ -10,11 +10,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// TestAssembleNeverMountsTheHostNotchsOwnStores pins the property paths.go claims for the three
-// stores `yolo host --` keeps (HE-D11, WS-D23, CL-D27): the blocked-tool shims it runs with the
-// user's authority, the records that make a workspace link yolo's, and the managed Claude store the
-// host broker writes a login into. A jail that could write any of them could plant a script the
-// host runs, claim a repository's path as yolo's, or hand host Claude a credential of its choosing,
+// TestAssembleNeverMountsTheHostNotchsOwnStores pins the property paths.go claims for the two
+// stores `yolo host --` keeps (HE-D11, CL-D27): the blocked-tool shims it runs with the user's
+// authority, and the managed Claude store the host broker writes a login into. A jail that could
+// write either could plant a script the host runs, or hand host Claude a credential of its choosing,
 // so no launch may bind one, anything under one, or an ancestor carrying one in.
 func TestAssembleNeverMountsTheHostNotchsOwnStores(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
@@ -24,7 +23,6 @@ func TestAssembleNeverMountsTheHostNotchsOwnStores(t *testing.T) {
 	t.Setenv("HOME", home)
 	guarded := map[string]string{
 		paths.HostBlockDir():              "the host launch's blocked-tool shims",
-		paths.HostWorkspaceSkillsDir():    "the host's workspace skills records",
 		paths.HostAgentStoreDir("claude"): "the host's managed Claude store",
 	}
 	for dir := range guarded {

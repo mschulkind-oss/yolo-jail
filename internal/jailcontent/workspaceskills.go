@@ -415,12 +415,11 @@ type WorkspaceSkillSourceCheck struct {
 	Refused []WorkspaceSkillRefusal
 }
 
-// CheckWorkspaceSkillSource is P5's check of ONE source dir, for the host notch's in-workspace
-// link (OQ-WS5's mechanism B, docs/reference/agent-briefings.md WS-D21): the reader this layer
-// stages through, run over dir alone, so the link `yolo host --` writes points only at a tree
-// this reader would deliver whole. Any refusal, the cap's included, is the caller's reason to
-// write no link: a link would hand the agent the escaping entry the mirror skips, through a path
-// yolo made.
+// CheckWorkspaceSkillSource is P5's check of ONE source dir: the reader this layer stages
+// through, run over dir alone, naming every skill it would deliver whole and every entry it
+// refuses. Tests use it to drive the jail's reader without a launch. (It was written for the host
+// notch's in-workspace link, which the owner's ruling of 2026-11-07 removed:
+// docs/reference/agent-briefings.md WS-D24.)
 //
 // Nothing outlives the call: the scratch copy the reader makes is removed before it returns. The
 // one error is the reader's own (its scratch root could not be made); an absent dir is a check

@@ -1404,9 +1404,8 @@ copy of it, because its agent reads it natively — nor a copy of any skill whos
 directory carries, from any other. Each entry must be clean, relative, inside the
 workspace and outside `.git` and `.yolo`; the field is refused on any other kind and on a content
 entry. `yolo host apply` ignores it — it never writes a workspace's skills into a real home
-([`OQ-WS5`](agent-briefings.md#oq-ws5)) — and `yolo host -- <agent>` reads it to place one link
-at the agent's first declared path when the repository has none of them
-([WS-D20](agent-briefings.md#ws-d20)). What each shipped pack declares is
+([`OQ-WS5`](agent-briefings.md#oq-ws5)) — and `yolo host -- <agent>` ignores it too: the host has
+no workspace skills layer, by the owner's ruling ([WS-D24](agent-briefings.md#ws-d24)). What each shipped pack declares is
 pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the installed agent
 by `integration/agents_test.go`'s probe, wherever the agent's bundle names the path at project
 scope as text; the probe lists the rows it cannot witness and where each was measured instead.

@@ -1,8 +1,7 @@
 package jailcontent
 
-// workspaceskills_hostcheck_test.go pins CheckWorkspaceSkillSource, the single-source check the
-// host notch's in-workspace link runs (docs/reference/agent-briefings.md WS-D21): the jail's own
-// reader over one directory, which names every skill it would deliver and every entry it refuses,
+// workspaceskills_hostcheck_test.go pins CheckWorkspaceSkillSource, the single-source check: the
+// jail's own reader over one directory, which names every skill it would deliver and every entry it refuses,
 // and leaves nothing behind.
 
 import (
