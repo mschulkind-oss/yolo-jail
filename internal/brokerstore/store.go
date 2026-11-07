@@ -251,6 +251,9 @@ type Store struct {
 	// syncDir is the real directory-sync operation used by retention; tests inject
 	// failures at that transaction callsite.
 	syncDir func(string) error
+	// beforeWrite, when set, runs before each record write and fails it with its error: a
+	// test seam for a write that fails partway through a transaction. Nil in production.
+	beforeWrite func(kind, id string) error
 }
 
 // Revalidate must re-read approved scope, current host policy, and live jail/start
@@ -576,6 +579,11 @@ func recordPrefix(kind string) string {
 func (s *Store) write(kind, id string, v any) error {
 	if !validID(id, recordPrefix(kind)) {
 		return errors.New("invalid record identity")
+	}
+	if s.beforeWrite != nil {
+		if err := s.beforeWrite(kind, id); err != nil {
+			return err
+		}
 	}
 	q, isRequest := requestOf(v)
 	if isRequest && kind == "requests" {
@@ -1126,6 +1134,8 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if err := s.audit(context.Background(), "decision", *q, Grant{ID: out[0].ID, Request: q.ID, Jail: q.Jail, Start: q.Start, Workspace: ResolveWorkspace(q.Workspace), Set: q.Set, Expires: expires}); err != nil {
 				return err
 			}
+			pending := *q
+			pending.workingEntries = nil
 			q.State = "allowed"
 			q.Decided = now
 			q.Via = d.Via
@@ -1144,12 +1154,21 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			// BELOW the committed one: a current reader still takes the committed copy
 			// (overlayCommittedWorking) and still retains the request that holds it, exactly
 			// as before, while an older broker reads the same entry from working/.
+			//
+			// The answer is stored for every resource or for none (pack-brokers.md BX-D18):
+			// every reader takes the store's lock, so a failure on any of these records is
+			// undone inside this transaction, the records already written restored and the
+			// request put back to pending, before any reader sees the store.
+			var written []priorRecord
 			for _, e := range q.workingEntries {
 				e.Revision--
-				if err := s.write("working", e.ID, e); err != nil {
-					return fmt.Errorf("request %s is allowed, but its entry %s could not be written for a running "+
-						"broker older than this yolo (%w); a current broker honors it: relaunch the jail if its "+
-						"command still asks", q.ID, e.ID, err)
+				prior, err := s.readPriorRecord("working", e.ID)
+				if err == nil {
+					written = append(written, prior)
+					err = s.write("working", e.ID, e)
+				}
+				if err != nil {
+					return s.undoWorkingAnswer(*q, pending, written, err)
 				}
 			}
 			return nil
