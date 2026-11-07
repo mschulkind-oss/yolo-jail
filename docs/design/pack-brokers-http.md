@@ -3,14 +3,14 @@ title: "Pack broker HTTP calls stay within the selected host decision"
 date: 2026-11-06
 status: in-review
 stage: DESIGN
-next: "Build plan Task 3 slice 3.4 (the selected launch starts and seals the front); keep publication off"
+next: "Seal the plan's Task 2 interpreter closure, then Task 4 (publication and native per-cell proof); keep publication off until then"
 tags: [design, broker, packs, http]
 summary: "G3 core is partially integrated; private delivery is proposed and unverified; G4 remains unactivated."
 ---
 
 # Pack broker HTTP calls stay within the selected host decision
 
-**Status:** 2026-11-06. G3 core is partial; the G4 front is built but no launch starts it yet. The [build plan](pack-brokers-http-plan.md) has Task 1 and the Task 2 semver slice built and reviewed, and Task 3 slices 3.1 to 3.3 built (seal, local TLS and authentication, withdrawal before the final send). Nothing publishes a URL, token or trust. [OQ-HTTP1](#OQ-HTTP1) is ruled: a custom signer returns only header material, and its wire is not designed. [OQ-HTTP2](#OQ-HTTP2) is withdrawn until a client is shown incompatible. Live grants, native rootless and macOS proof are not established. The broader [pack broker design](pack-brokers.md) refuses permanent Add ([OQ-BX7](pack-brokers.md#OQ-BX7)) and caps a timed answer by the smallest `max_for` ([BX-D17](pack-brokers.md#BX-D17)).
+**Status:** 2026-11-06. G3 core is partial. The [build plan](pack-brokers-http-plan.md) has Task 1 and the Task 2 semver slice built and reviewed. Task 3 is built: a selected launch starts the G4 front, which seals its generation, serves over local TLS with its own authentication, and is withdrawn before any final send after a stop signal. Nothing publishes a URL, token or trust. [OQ-HTTP1](#OQ-HTTP1) is ruled: a custom signer returns only header material, and its wire is not designed. [OQ-HTTP2](#OQ-HTTP2) is withdrawn until a client is shown incompatible. Live grants, native rootless and macOS proof are not established. The broader [pack broker design](pack-brokers.md) refuses permanent Add ([OQ-BX7](pack-brokers.md#OQ-BX7)) and caps a timed answer by the smallest `max_for` ([BX-D17](pack-brokers.md#BX-D17)).
 
 > **In short.** An HTTP front carries a call, not authority: only the selected host broker binds its destination and credential, classifies exact bytes and fresh facts, decides, audits and executes once.
 

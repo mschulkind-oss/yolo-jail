@@ -468,10 +468,76 @@ func removePreparedHTTPGenerationReference(cname string, rec preparedHTTPOwnersh
 			kept = append(kept, filepath.Join(filepath.Dir(ref.Path), leaf))
 		}
 	}
+	preparedKept := false
 	for _, leaf := range []string{filepath.Base(ref.Path), preparedHTTPTempLeaf(ref.Generation)} {
 		if !removeMatchingPreparedHTTPLeaf(root, leaf, cname, rec, ref) {
 			kept = append(kept, filepath.Join(filepath.Dir(ref.Path), leaf))
+			preparedKept = preparedKept || leaf == filepath.Base(ref.Path)
 		}
+	}
+	return append(kept, removeMatchingPreparedHTTPFrontLeaves(root, cname, ref, preparedKept)...)
+}
+
+// preparedHTTPFrontSealLeaf and preparedHTTPFrontTokenLeaf name the seal and the local token a
+// selected HTTP front's broker writes beside the prepared generation named prepared (the broker's
+// `<launch input>.prepared.seal` and `.prepared.token`, internal/callbroker's seal).
+func preparedHTTPFrontSealLeaf(prepared string) string  { return prepared + ".seal" }
+func preparedHTTPFrontTokenLeaf(prepared string) string { return prepared + ".token" }
+
+// readPreparedHTTPFrontSeal reads and strictly decodes the seal at leaf. present is false only
+// when no leaf is there; a leaf that is unsafe, unreadable or does not decode is present with err.
+func readPreparedHTTPFrontSeal(root *os.Root, leaf string) (seal callbrokerinput.PreparedHTTPFrontSeal, opened os.FileInfo, present bool, err error) {
+	if _, err := root.Lstat(leaf); errors.Is(err, os.ErrNotExist) {
+		return seal, nil, false, nil
+	}
+	data, opened, err := readPrivateHTTPFile(root, leaf)
+	if err != nil {
+		return seal, nil, true, err
+	}
+	seal, err = callbrokerinput.DecodePreparedHTTPFrontSeal(data)
+	return seal, opened, true, err
+}
+
+// removePrivateHTTPLeaf removes leaf while it is a regular 0600 file of this user, the shape the
+// broker writes. A leaf already gone counts as removed.
+func removePrivateHTTPLeaf(root *os.Root, leaf string) bool {
+	before, err := root.Lstat(leaf)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	return err == nil && privateHTTPFileOwned(before, 0o600) && root.Remove(leaf) == nil
+}
+
+// removeMatchingPreparedHTTPFrontLeaves retires the seal and token a selected HTTP front's broker
+// left beside ref's prepared generation (slice 3.4): left behind, they make the next launch of the
+// same container name refuse to seal. The seal goes only while it names cname, ref's front, ref's
+// generation, launch and declaration; a seal of ANOTHER generation of cname is a replacement
+// launch's and is kept with its token, unreported. The token is opaque, so it follows the seal: it
+// goes when the seal was ours, or when there is no seal and the prepared generation beside it was
+// ours or is gone (a broker killed between writing the two). A token with no seal beside a
+// prepared generation that is not ours (preparedKept) may be that generation's front mid-seal, and
+// is kept unreported, as the prepared leaf already is reported. kept lists what it could not verify.
+func removeMatchingPreparedHTTPFrontLeaves(root *os.Root, cname string, ref preparedHTTPGenerationRef, preparedKept bool) (kept []string) {
+	base, dir := filepath.Base(ref.Path), filepath.Dir(ref.Path)
+	sealLeaf, tokenLeaf := preparedHTTPFrontSealLeaf(base), preparedHTTPFrontTokenLeaf(base)
+	seal, opened, present, err := readPreparedHTTPFrontSeal(root, sealLeaf)
+	switch {
+	case !present && preparedKept:
+		return nil
+	case !present:
+	case err != nil || seal.Container != cname || seal.Loophole != ref.Loophole:
+		return []string{filepath.Join(dir, sealLeaf)}
+	case seal.Generation != ref.Generation:
+		return nil
+	case seal.LaunchID != ref.LaunchID || seal.DeclarationHash != ref.DeclarationHash:
+		return []string{filepath.Join(dir, sealLeaf)}
+	default:
+		if current, err := root.Lstat(sealLeaf); err != nil || !os.SameFile(opened, current) || root.Remove(sealLeaf) != nil {
+			return []string{filepath.Join(dir, sealLeaf)}
+		}
+	}
+	if !removePrivateHTTPLeaf(root, tokenLeaf) {
+		kept = append(kept, filepath.Join(dir, tokenLeaf))
 	}
 	return kept
 }

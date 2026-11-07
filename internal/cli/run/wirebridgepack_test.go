@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
@@ -425,5 +426,38 @@ func TestAUserMovesTheBridgesAddress(t *testing.T) {
 	if got != "http://127.0.0.1:9214" {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want the user's moved address — the launch must "+
 			"read `adapters` from the user config, not only the pack's declared default", got)
+	}
+}
+
+// TestASelectedHTTPFrontJoinsTheBootReadinessNamesOnce (slice 3.4): a selected HTTP front is a
+// required readiness dependency beside a serving bridge, and both cross in ONE
+// YOLO_JAIL_DAEMON_READY_NAMES value (a second -e for the same variable would silently replace
+// the first). Beside an idle bridge, the front alone is named. The front's daemon joins the
+// supervisor's payload either way.
+func TestASelectedHTTPFrontJoinsTheBootReadinessNamesOnce(t *testing.T) {
+	front := loopholes.CoreCallBrokerHTTPFrontDaemon("tasks", hostServiceEndpointPath("tasks"))
+	for _, tc := range []struct {
+		name string
+		la   func(t *testing.T) assembled
+		want string
+	}{
+		{"serving bridge", func(t *testing.T) assembled { return bridgedLaunch(t, "cerebras") }, "wire-bridge,http-front-tasks"},
+		{"idle bridge", func(t *testing.T) assembled {
+			packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai"), officialPack(t, "wire-bridge")}
+			return zaiLaunchAssembled(t, packs, bareConfig(), hydratedKey(), func(o *Options) { o.ProfileName = "zai" })
+		}, "http-front-tasks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			la := tc.la(t)
+			la.in.jailDaemons = append(la.in.jailDaemons, front)
+			argv := la.o.assembleRunCmd(la.in)
+			if v := envArgValues(argv, paths.JailDaemonReadyNamesEnv); len(v) != 1 || v[0] != paths.JailDaemonReadyNamesEnv+"="+tc.want {
+				t.Errorf("ready names = %q, want exactly one %s=%s", v, paths.JailDaemonReadyNamesEnv, tc.want)
+			}
+			if v := envArgValues(argv, "YOLO_JAIL_DAEMONS"); len(v) != 1 || !strings.Contains(v[0], `"http-front-tasks"`) ||
+				!strings.Contains(v[0], `"call-broker-http-front"`) {
+				t.Errorf("the front's daemon must join the supervisor's payload: %q", v)
+			}
+		})
 	}
 }
