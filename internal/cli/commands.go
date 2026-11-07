@@ -849,9 +849,8 @@ func hostDaemonLogsFlags(rest []string) (lines int, follow bool) {
 
 const initUsage = `Usage: yolo init [--mount <path>]...
 
-Scaffold this workspace: write a three-line pointer file, yolo-jail.toml, add
-.yolo/ to .git/info/exclude (your .gitignore is left as it is), and print the
-agent briefing. A project needs no file to run, so no settings are written. An
+Scaffold this workspace: write a three-line pointer file, yolo-jail.toml, and
+print the agent briefing. No git ignore file is written: .yolo/ ignores itself. A project needs no file to run, so no settings are written. An
 existing yolo-jail.toml, yolo-jail.jsonc or yolo-jail.json is never overwritten
 or shadowed — re-running init on a configured workspace just reprints the briefing.
 

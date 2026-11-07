@@ -9,20 +9,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// Ignore keeps a converted file out of commits the way git kept its old name out
-// (config-migration.md §4): when git ignored the old name and does not ignore the new one, Apply
-// adds the new name to the clone's own .git/info/exclude, never to the tracked .gitignore. When
-// git cannot be asked about a private file, it carries the one line to add by hand instead.
+// Ignore is one name a migration makes that git would not keep out of commits the way it kept
+// the old name out (config-migration.md §4). The migration never writes an ignore file for the
+// user — not the tracked .gitignore, not the clone's .git/info/exclude (RC-D71): it says the
+// one line to add, and the user decides where.
 type Ignore struct {
 	// Old and New are the old name and its converted twin.
 	Old, New string
-	// Exclude is the info/exclude file Apply appends Line to; "" when only Hint applies.
-	Exclude, Line string
-	// Hint is the one line said instead, when git could not be asked or the line could not be
-	// written.
+	// Hint is the one line the plan and the closing report say.
 	Hint string
-	// Done says Apply added Line to Exclude.
-	Done bool
 }
 
 // planIgnores decides an Ignore for each name a migration makes from an old one: the converted
@@ -50,15 +45,7 @@ func planIgnores(g *Graph, targets []Target) []Ignore {
 				if gitexclude.Check(newPath) != gitexclude.NotIgnored {
 					continue
 				}
-				ig := Ignore{Old: oldPath, New: newPath}
-				line, ok := gitexclude.Line(newPath)
-				exclude := gitexclude.File(filepath.Dir(newPath))
-				if ok && exclude != "" {
-					ig.Exclude, ig.Line = exclude, line
-				} else {
-					ig.Hint = ignoreHint(g.Request.Workspace, newPath)
-				}
-				out = append(out, ig)
+				out = append(out, Ignore{Old: oldPath, New: newPath, Hint: ignoredHint(g.Request.Workspace, oldPath, newPath)})
 			case gitexclude.Unknown:
 				// Without git there is no rule to compare, so only a file private by definition —
 				// the workspace's local file, under the name the workspace reads, and its backup —
@@ -78,6 +65,17 @@ func isLocalFile(f *File) bool {
 			f.topName == paths.WorkspaceLocalConfigTOMLName)
 }
 
+// ignoredHint is the line for a new name git does not ignore although it ignored the old one. The
+// pattern is the new name anchored at its work tree's top when git can say where that is.
+func ignoredHint(workspace, oldPath, newPath string) string {
+	line, ok := gitexclude.Line(newPath)
+	if !ok {
+		line = filepath.ToSlash(shownPath(workspace, newPath))
+	}
+	return fmt.Sprintf("%s is not ignored by git as %s was; nothing was added to any ignore file. To keep it out of commits, add the line `%s` to .gitignore or .git/info/exclude",
+		shownPath(workspace, newPath), shownPath(workspace, oldPath), line)
+}
+
 func ignoreHint(workspace, newPath string) string {
 	name := shownPath(workspace, newPath)
 	return fmt.Sprintf("%s is not ignored by git (git could not be asked here); to keep it out of commits, add the line `%s` to .gitignore", name, filepath.ToSlash(name))
@@ -94,41 +92,7 @@ func shownPath(dir, path string) string {
 }
 
 // Plan is the transcript's line for one Ignore.
-func (ig Ignore) Plan(workspace string) string {
-	if ig.Exclude == "" {
-		return ig.Hint
-	}
-	return fmt.Sprintf("%s is not ignored by git as %s was; adding it to %s",
-		shownPath(workspace, ig.New), shownPath(workspace, ig.Old), shownPath(workspace, ig.Exclude))
-}
+func (ig Ignore) Plan(string) string { return ig.Hint }
 
-// Report is Apply's line for one Ignore, ending in a full stop.
-func (ig Ignore) Report(workspace string) string {
-	if ig.Done {
-		return fmt.Sprintf("Added %s to %s, so %s stays out of commits as %s did.",
-			ig.Line, shownPath(workspace, ig.Exclude), shownPath(workspace, ig.New), shownPath(workspace, ig.Old))
-	}
-	return ig.Hint + "."
-}
-
-// applyIgnores carries out the planned Ignores once the files are in place. A line that cannot
-// be written becomes its hint: the migration itself has already succeeded.
-func applyIgnores(planned []Ignore, workspace string) []Ignore {
-	out := make([]Ignore, 0, len(planned))
-	for _, ig := range planned {
-		if ig.Exclude != "" {
-			if gitexclude.Check(ig.New) != gitexclude.NotIgnored {
-				continue // something else ignores it since the plan
-			}
-			if err := gitexclude.Append(ig.Exclude, ig.Line); err != nil {
-				ig.Hint = fmt.Sprintf("%s is not ignored by git as %s was, and adding it to %s failed (%v); add the line `%s` to %s yourself",
-					shownPath(workspace, ig.New), shownPath(workspace, ig.Old), ig.Exclude, err, ig.Line, ig.Exclude)
-				ig.Exclude = ""
-			} else {
-				ig.Done = true
-			}
-		}
-		out = append(out, ig)
-	}
-	return out
-}
+// Report is the closing report's line for one Ignore, ending in a full stop.
+func (ig Ignore) Report(string) string { return ig.Hint + "." }

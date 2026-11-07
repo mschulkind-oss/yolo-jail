@@ -26,13 +26,17 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
-// `yolo init` writes the pointer file and the clone-local exclude, and nothing else: the
-// project's .gitignore bytes are the same before and after.
-func TestInitWritesPointerAndInfoExcludeOnly(t *testing.T) {
+// `yolo init` writes the pointer file and nothing else: the project's .gitignore and the clone's
+// .git/info/exclude bytes are the same before and after (the owner, 2026-11-07: yolo does not
+// edit your git settings for you; .yolo/ ignores itself).
+func TestInitWritesThePointerFileOnly(t *testing.T) {
 	dir := initRepo(t)
 	gitignore := filepath.Join(dir, ".gitignore")
 	const before = "node_modules/\n"
 	must(t, os.WriteFile(gitignore, []byte(before), 0o644))
+	exclusion := filepath.Join(dir, ".git", "info", "exclude")
+	excludeBytes, _ := os.ReadFile(exclusion)
+	excludeBefore := string(excludeBytes)
 	rc, stdout, _ := captureDispatchRCIn(t, dir, []string{"init"})
 	if rc != 0 || !strings.Contains(stdout, "Created yolo-jail.toml") {
 		t.Fatalf("init rc=%d stdout=%q", rc, stdout)
@@ -58,16 +62,11 @@ func TestInitWritesPointerAndInfoExcludeOnly(t *testing.T) {
 	if got, _ := os.ReadFile(gitignore); string(got) != before {
 		t.Errorf(".gitignore changed: %q", got)
 	}
-	exclusion := filepath.Join(dir, ".git", "info", "exclude")
-	exclude, err := os.ReadFile(exclusion)
-	if err != nil || !strings.Contains(string(exclude), ".yolo/\n") {
-		t.Errorf("info/exclude lacks .yolo/: %q (%v)", exclude, err)
+	if got, _ := os.ReadFile(exclusion); string(got) != excludeBefore {
+		t.Errorf("yolo init wrote .git/info/exclude:\nbefore %q\nafter  %q", excludeBefore, got)
 	}
-	// Re-running finds the file and does not duplicate the exclude line.
-	captureDispatchRCIn(t, dir, []string{"init"})
-	again, _ := os.ReadFile(exclusion)
-	if strings.Count(string(again), ".yolo/") != 1 {
-		t.Errorf("exclude gained a duplicate: %q", again)
+	if strings.Contains(stdout, "info/exclude") {
+		t.Errorf("init still talks about info/exclude:\n%s", stdout)
 	}
 }
 

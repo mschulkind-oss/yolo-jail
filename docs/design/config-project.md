@@ -134,8 +134,10 @@ same key, to the one list above.
 
 Approved 2026-10-25 as convention C5 ([`config-user.md` §8](config-user.md#8-lines-you-never-write)).
 Most projects need nothing. `yolo` in a folder with no `yolo-jail.toml` runs with defaults;
-`yolo init` writes the three-line pointer file only when asked, and `.yolo/` goes into
-`.git/info/exclude` rather than the project's `.gitignore`.
+`yolo init` writes the three-line pointer file only when asked. It writes no git ignore file:
+`.yolo/` keeps itself out of commits with its own `.gitignore`, and neither the project's
+`.gitignore` nor the clone's `.git/info/exclude` is touched (the owner, 2026-11-07: *"it's VERY
+surprising when your own settings get changed for you"*).
 
 ```text
 # before                                   # after

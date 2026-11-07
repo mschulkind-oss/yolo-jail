@@ -28,6 +28,7 @@ package entrypoint
 // layers, re-applied every boot.
 
 import (
+	"fmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"os"
@@ -47,12 +48,12 @@ import (
 //     (mise versions are strings; a JSON number injected as {"node": 20} would
 //     otherwise reach the TOML codec as an int and change the value's shape).
 //
-//  2. WORKSPACE retire surgery (bespoke) — retired agent tokens
-//     (packload.EmbeddedRetireMiseTools()) are stripped from <workspace>/mise.toml in place.
-//     This is a WORKSPACE-file mutation, which the prism must never own
-//     (migration doc §5.3: yolo owns only user-scope config, never /workspace).
-//     The `mise uninstall` subprocess side effect stays in boot.go
-//     (miseUninstallRetired), exactly as it did for the bespoke path.
+//  2. WORKSPACE retired-tool notice — a retired agent token
+//     (packload.EmbeddedRetireMiseTools()) in <workspace>/mise.toml is NAMED, never stripped:
+//     the workspace is the user's project, and yolo does not edit it as a side effect of a
+//     launch (the owner, 2026-11-07: "it's VERY surprising when your own settings get changed
+//     for you"). The `mise uninstall` subprocess side effect stays in boot.go
+//     (miseUninstallRetired).
 func ConfigureMisePrism(e *Env) error {
 	// Computed [tools] table: injected pins only (no baked defaults), versions
 	// coerced to strings for the TOML codec.
@@ -90,33 +91,23 @@ func ConfigureMisePrism(e *Env) error {
 		return err
 	}
 
-	// Bespoke workspace-file side effect: strip retired tokens from the workspace
-	// mise.toml (never owned by the prism).
-	return retireWorkspaceMiseTools(e)
+	noteRetiredWorkspaceMiseTools(e)
+	return nil
 }
 
-// retireWorkspaceMiseTools removes any packload.EmbeddedRetireMiseTools() token line from the
-// workspace mise.toml in place. A missing/unreadable file is a no-op. This is
-// the workspace-scope half of the old GenerateMiseConfig, kept bespoke because
-// the prism never mutates /workspace files (migration doc §5.3).
-func retireWorkspaceMiseTools(e *Env) error {
-	wsMise := filepath.Join(e.WorkspaceDir(), "mise.toml")
-	raw, err := os.ReadFile(wsMise)
+// noteRetiredWorkspaceMiseTools warns, once per boot, for each packload.EmbeddedRetireMiseTools()
+// token line in the workspace mise.toml, naming the line to delete. It reads the file and never
+// writes it: the workspace is the user's. A missing or unreadable file says nothing.
+func noteRetiredWorkspaceMiseTools(e *Env) {
+	raw, err := os.ReadFile(filepath.Join(e.WorkspaceDir(), "mise.toml"))
 	if err != nil {
-		return nil // absent/unreadable workspace mise.toml => nothing to retire
+		return
 	}
-	content := string(raw)
-	changed := false
 	for _, tool := range packload.EmbeddedRetireMiseTools() {
-		pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(tool) + `\s*=\s*"[^"]*"\n?`)
-		newWs := pattern.ReplaceAllString(content, "")
-		if newWs != content {
-			content = newWs
-			changed = true
+		pattern := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(tool) + `\s*=\s*"[^"]*"`)
+		if line := pattern.FindString(string(raw)); line != "" {
+			e.warnOnce(fmt.Sprintf("The workspace mise.toml pins %s, which yolo no longer installs through mise (its pack does). "+
+				"yolo left the file as it is; delete the line `%s` from mise.toml so mise stops installing it.", tool, line))
 		}
 	}
-	if !changed {
-		return nil
-	}
-	return writeInPlaceString(wsMise, content)
 }

@@ -39,7 +39,7 @@ Launch flags, placed before `--`:
 
 ```bash
 yolo init-user-config        # create your user config in ~/.config/yolo-jail/, full of commented examples
-yolo init                    # write this project's yolo-jail.toml pointer file, and exclude .yolo/ from git
+yolo init                    # write this project's yolo-jail.toml pointer file
 yolo check                   # check Nix, the runtime, your config, and build the image
 yolo check --no-build        # the fast version; the one to run inside a jail
 yolo config-ref              # every config key, with types, defaults and examples

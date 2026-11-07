@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/gitexclude"
 	"golang.org/x/sys/unix"
 )
 
@@ -36,7 +35,8 @@ type ApplyResult struct {
 	Records []Record
 	// PackRecords name each record of a renamed pack moved to its new name.
 	PackRecords []string
-	// Ignores are the plan's Ignores, each marked Done or carrying its hint.
+	// Ignores are the plan's Ignores: names git would not keep out of commits, each with the line
+	// the user may add. Nothing is written for them.
 	Ignores []Ignore
 }
 
@@ -89,9 +89,7 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 		return nil, err
 	}
 
-	// Step 1: stage. Nothing a reader reads changes. Each staged name is kept out of git first:
-	// it holds the converted file's bytes, as private as the original's, and a kill can leave it.
-	excludeStaged(p.Targets)
+	// Step 1: stage. Nothing a reader reads changes.
 	for _, t := range p.Targets {
 		info, err := os.Stat(t.Old)
 		if err != nil {
@@ -104,7 +102,7 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 			return nil, fmt.Errorf("stage %s: %w; nothing was changed", t.New, err)
 		}
 	}
-	res.Ignores = applyIgnores(p.Ignores, p.Graph.Request.Workspace)
+	res.Ignores = p.Ignores
 
 	for _, t := range p.Targets {
 		syncDir(filepath.Dir(t.New))
@@ -392,31 +390,3 @@ func RemoveStaleStaged(req Request) []string {
 
 // stagedSuffix ends the hidden name a converted file waits under (stagedPath).
 const stagedSuffix = ".migrate-staged"
-
-// excludeStaged keeps every staged name out of git before anything is staged: one pattern per
-// directory in the clone's info/exclude (never a committed file), matching every staged name
-// there, added only where git does not ignore the name already. Without git there is nothing to
-// keep it out of.
-func excludeStaged(targets []Target) {
-	done := map[string]bool{}
-	for _, t := range targets {
-		staged := stagedPath(t.New)
-		dir := filepath.Dir(staged)
-		if done[dir] {
-			continue
-		}
-		done[dir] = true
-		if gitexclude.Check(staged) != gitexclude.NotIgnored {
-			continue
-		}
-		exclude := gitexclude.File(dir)
-		line, ok := gitexclude.Line(filepath.Join(dir, ".*"+stagedSuffix))
-		if exclude == "" || !ok {
-			continue
-		}
-		if have, err := os.ReadFile(exclude); err == nil && strings.Contains("\n"+string(have)+"\n", "\n"+line+"\n") {
-			continue
-		}
-		_ = gitexclude.Append(exclude, line)
-	}
-}

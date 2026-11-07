@@ -161,34 +161,31 @@ func TestMisePrismUserGlobalToolSurvivesBothBoots(t *testing.T) {
 	}
 }
 
-// TestMisePrismRetiresWorkspaceTool covers the one bespoke side effect the prism
-// does NOT own: stripping a retired agent's token from the WORKSPACE mise.toml
-// (never a prism-owned file — migration doc §5.3). The token used here is
-// claude's npm spec, which is always in agents.AllMiseRetire (the union is
-// unconditional over the registry); an unrelated pin is kept. It was `gemini`
-// before that agent was removed — the retire MECHANISM is unchanged, only the
-// example token.
-func TestMisePrismRetiresWorkspaceTool(t *testing.T) {
+// TestMisePrismNamesARetiredWorkspaceToolAndLeavesTheFile: a retired agent's token in the
+// WORKSPACE mise.toml is named in a warning with the line to delete, and the file — the user's
+// project — is left byte-for-byte as it was (the owner, 2026-11-07). The token is claude's npm
+// spec, which is always in the retired list.
+func TestMisePrismNamesARetiredWorkspaceToolAndLeavesTheFile(t *testing.T) {
 	e := newMiseEnv(t, nil)
-	writeMiseConfig(t, e.Home, "[tools]\n") // global config exists but is empty
+	var stderr strings.Builder
+	e.Stderr = &stderr
+	writeMiseConfig(t, e.Home, "[tools]\n")
 
-	// The fixture workspace mise.toml sits in the Env's own workspace dir, never /workspace. A test
-	// cannot read /workspace/mise.toml (the completion census refuses one that does); the surgery
-	// stripping THIS file shows it did not act on that one.
+	// The fixture workspace mise.toml sits in the Env's own workspace dir, never /workspace.
 	ws := filepath.Join(e.WorkspaceDir(), "mise.toml")
-	if err := os.WriteFile(ws, []byte("[tools]\n\"npm:@anthropic-ai/claude-code\" = \"latest\"\nnode = \"24\"\n"), 0o644); err != nil {
+	const before = "[tools]\n\"npm:@anthropic-ai/claude-code\" = \"latest\"\nnode = \"24\"\n"
+	if err := os.WriteFile(ws, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := ConfigureMisePrism(e); err != nil {
 		t.Fatal(err)
 	}
-	got := string(mustRead(t, ws))
-	if strings.Contains(got, "claude-code\" =") {
-		t.Errorf("retired claude npm token must be stripped from the workspace mise.toml:\n%s", got)
+	if got := string(mustRead(t, ws)); got != before {
+		t.Errorf("the boot edited the workspace mise.toml:\nbefore %q\nafter  %q", before, got)
 	}
-	if !strings.Contains(got, `node = "24"`) {
-		t.Errorf("unrelated workspace pin node must be preserved:\n%s", got)
+	if !strings.Contains(stderr.String(), "delete the line `\"npm:@anthropic-ai/claude-code\" = \"latest\"` from mise.toml") {
+		t.Errorf("no warning naming the line to delete:\n%s", stderr.String())
 	}
 }
 

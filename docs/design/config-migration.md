@@ -193,12 +193,11 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    entries are read beside its target is refused, naming the fix
    ([RC-D41](readable-config.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
    each original kept as `<name>.pre-migrate`, which the output says may be deleted once the new
-   files work. A renamed file whose old name git ignored and whose new name it does not is added
-   to the clone's own `.git/info/exclude`, never to the tracked `.gitignore`, and the plan says
-   so; where git cannot be asked, the plan names the line to add instead
-   ([RC-D33](readable-config.md#RC-D33)). The same rule covers each `<name>.pre-migrate` backup,
-   and no lock file is left beside any config file: the output names every change it made
-   ([RC-D34](readable-config.md#RC-D34)).
+   files work. It writes no ignore file, neither `.gitignore` nor `.git/info/exclude`: a renamed file
+   whose old name git ignored and whose new name it does not, and each such `<name>.pre-migrate`
+   backup, gets one line in the plan and the report naming the line to add
+   ([RC-D71](readable-config.md#RC-D71)). No lock file is left beside any config file, and the
+   output names every change it made ([RC-D34](readable-config.md#RC-D34)).
 3. **Keeps comments, in order.** A comment is never read as belonging to a key; each is written
    back in document order, before whatever key follows it in the new file, and nothing is dropped.
 4. **Drops written defaults and folds repeated facts**, each as its own hunk, only while the

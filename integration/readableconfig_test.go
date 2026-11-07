@@ -161,9 +161,9 @@ func TestPackAddOnTheHostIsSeenByTheNextLaunch(t *testing.T) {
 	}
 }
 
-// `yolo init` in a git checkout writes the pointer file and puts .yolo/ in the clone's
-// .git/info/exclude, and leaves the project's tracked .gitignore byte-for-byte as it was
-// (config-project.md §2, C5). It writes no old-format file.
+// `yolo init` in a git checkout writes the pointer file and leaves the project's tracked
+// .gitignore and the clone's .git/info/exclude byte-for-byte as they were (config-project.md §2,
+// C5; the owner, 2026-11-07). It writes no old-format file.
 func TestInitLeavesTheGitignoreAlone(t *testing.T) {
 	requireJail(t)
 
@@ -177,6 +177,8 @@ func TestInitLeavesTheGitignoreAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	excludePath := filepath.Join(dir, ".git", "info", "exclude")
+	excludeBefore, _ := os.ReadFile(excludePath)
 	r := runCommand(t, dir, []string{"init"}, withHostSemantics())
 	if r.rc != 0 {
 		t.Fatalf("yolo init: rc %d\n%s", r.rc, r.combined())
@@ -194,9 +196,8 @@ func TestInitLeavesTheGitignoreAlone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "yolo-jail.jsonc")); err == nil {
 		t.Errorf("yolo init wrote an old-format yolo-jail.jsonc")
 	}
-	exclude, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
-	if err != nil || !strings.Contains(string(exclude), ".yolo/") {
-		t.Errorf(".yolo/ is not in .git/info/exclude (%v):\n%s", err, exclude)
+	if exclude, _ := os.ReadFile(excludePath); string(exclude) != string(excludeBefore) {
+		t.Errorf("yolo init wrote .git/info/exclude:\nbefore %q\nafter  %q", excludeBefore, exclude)
 	}
 }
 

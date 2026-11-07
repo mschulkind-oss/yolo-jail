@@ -1,6 +1,6 @@
 // init.go implements `yolo init` and `yolo init-user-config` — the config
-// scaffolders. `init` writes a three-line pointer file, yolo-jail.toml, adds .yolo/ to
-// .git/info/exclude and prints an agent briefing; it scaffolds no defaults, because a project
+// scaffolders. `init` writes a three-line pointer file, yolo-jail.toml, and prints an agent
+// briefing; it scaffolds no defaults, because a project
 // with no settings needs none. init-user-config writes the user-level defaults.
 package cli
 
@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/gitexclude"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -63,9 +62,10 @@ func existingWorkspaceConfig(cwd string) string {
 }
 
 // Init runs `yolo init` in cwd. It writes the pointer file yolo-jail.toml (unless the workspace
-// already has a config of either format, which it leaves byte-for-byte alone), adds `.yolo/` to the
-// repository's .git/info/exclude when there is a git directory (the project's own .gitignore is
-// never touched), and prints the briefing to out (color per the caller). Returns the exit code.
+// already has a config of either format, which it leaves byte-for-byte alone) and prints the
+// briefing to out (color per the caller). Returns the exit code. It writes no git ignore file:
+// .yolo/ keeps itself out of commits with its own .gitignore (paths.EnsureWorkspaceStateDir),
+// and the user's .gitignore and .git/info/exclude are theirs (the owner, 2026-11-07).
 func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 	if name := existingWorkspaceConfig(cwd); name != "" {
 		fmt.Fprint(out, name, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
@@ -80,38 +80,8 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 	}
 	printInitStatus(out, color, "green", "Created "+configName)
 
-	if excluded, err := excludeWorkspaceState(cwd); err != nil {
-		fmt.Fprintf(out, "Could not add .yolo/ to the repository's exclude file: %v\n"+
-			"Add the line `.yolo/` to .git/info/exclude yourself, so the jail's state stays out of commits.\n", err)
-	} else if excluded != "" {
-		fmt.Fprintf(out, "Added .yolo/ to %s\n", excluded)
-	}
-
 	printBriefing(out, configPath, color)
 	return 0
-}
-
-// excludeWorkspaceState appends `.yolo/` to the repository's info/exclude and returns the file's
-// path, or "" when cwd is no git work tree or the line is already there. info/exclude is local to
-// the clone, so the project's tracked .gitignore stays the project's.
-func excludeWorkspaceState(cwd string) (string, error) {
-	path := gitexclude.File(cwd)
-	if path == "" {
-		return "", nil // not a work tree, or no git: nothing to exclude from
-	}
-	existing, readErr := os.ReadFile(path)
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return "", readErr
-	}
-	for _, line := range strings.Split(string(existing), "\n") {
-		if t := strings.TrimSpace(line); t == ".yolo/" || t == ".yolo" || t == "/.yolo/" || t == "/.yolo" {
-			return "", nil
-		}
-	}
-	if err := gitexclude.Append(path, ".yolo/"); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at

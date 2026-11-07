@@ -183,23 +183,21 @@ func TestStaleStagedFilesAreRemovedOnlyWithoutAJournal(t *testing.T) {
 	}
 }
 
-// MINOR 5: before anything is staged, the staged names are kept out of git, as the converted
-// files themselves are.
-func TestStagedNamesAreExcludedFromGitBeforeStaging(t *testing.T) {
+// Staging writes nothing to git's ignore files: the staged names are transient, and the user's
+// own .git/info/exclude is theirs (RC-D71).
+func TestStagingWritesNoGitIgnoreFile(t *testing.T) {
 	_, ws, req := commitFixture(t)
 	if out, err := exec.Command("git", "init", "-q", ws).CombinedOutput(); err != nil {
 		t.Skipf("no git here: %v %s", err, out)
 	}
+	exclude := filepath.Join(ws, ".git", "info", "exclude")
+	before, _ := os.ReadFile(exclude)
 	p := plan(t, req)
 	if _, err := Apply(p, ApplyOptions{StopAfter: func(int, string) bool { return true }}); err == nil {
 		t.Fatal("the seam did not stop the migration")
 	}
-	exclude, err := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(exclude), ".*.migrate-staged") {
-		t.Errorf("the staged names are not excluded from git:\n%s", exclude)
+	if after, _ := os.ReadFile(exclude); string(after) != string(before) {
+		t.Errorf("staging wrote .git/info/exclude:\nbefore %q\nafter  %q", before, after)
 	}
 }
 

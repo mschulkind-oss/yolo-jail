@@ -102,9 +102,9 @@ func TestConfigMigrateConvertsUserAndProjectOnTheHost(t *testing.T) {
 	}
 }
 
-// The verb says before writing that a local file git ignored under its old name goes into the
-// clone's info/exclude, writes nothing on --dry-run, and says it did on --yes (RC-D33).
-func TestConfigMigrateKeepsTheLocalFileOutOfCommits(t *testing.T) {
+// The verb says, on --dry-run and on --yes, the line that would keep a renamed local file out of
+// commits, and writes no ignore file either way (RC-D71).
+func TestConfigMigrateNamesTheIgnoreLineAndWritesNoIgnoreFile(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}
@@ -120,21 +120,16 @@ func TestConfigMigrateKeepsTheLocalFileOutOfCommits(t *testing.T) {
 	exclude := filepath.Join(e.ws, ".git", "info", "exclude")
 	before, _ := os.ReadFile(exclude)
 
-	planned := "yolo-jail.local.toml is not ignored by git as yolo-jail.local.jsonc was; adding it to .git/info/exclude."
-	rc, out, errw := runConfigMigrateVerb(t, "--dry-run")
-	if rc != 0 || !strings.Contains(out, planned) {
-		t.Fatalf("--dry-run: rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out, errw)
-	}
-	if after, _ := os.ReadFile(exclude); !bytes.Equal(after, before) {
-		t.Fatalf("--dry-run wrote info/exclude: %q", after)
-	}
-
-	rc, out, errw = runConfigMigrateVerb(t, "--yes")
-	if rc != 0 || !strings.Contains(out, "Added /yolo-jail.local.toml to .git/info/exclude") {
-		t.Fatalf("--yes: rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out, errw)
-	}
-	if err := exec.Command("git", "-C", e.ws, "check-ignore", "-q", "yolo-jail.local.toml").Run(); err != nil {
-		t.Fatalf("yolo-jail.local.toml is not ignored: %v", err)
+	line := "yolo-jail.local.toml is not ignored by git as yolo-jail.local.jsonc was; nothing was added to any ignore file. " +
+		"To keep it out of commits, add the line `/yolo-jail.local.toml` to .gitignore or .git/info/exclude."
+	for _, flag := range []string{"--dry-run", "--yes"} {
+		rc, out, errw := runConfigMigrateVerb(t, flag)
+		if rc != 0 || !strings.Contains(out, line) {
+			t.Fatalf("%s: rc=%d\nstdout:\n%s\nstderr:\n%s", flag, rc, out, errw)
+		}
+		if after, _ := os.ReadFile(exclude); !bytes.Equal(after, before) {
+			t.Fatalf("%s wrote info/exclude: %q", flag, after)
+		}
 	}
 	if data, _ := os.ReadFile(filepath.Join(e.ws, ".gitignore")); string(data) != "yolo-jail.local.jsonc\n" {
 		t.Fatalf(".gitignore changed: %q", data)
@@ -142,10 +137,9 @@ func TestConfigMigrateKeepsTheLocalFileOutOfCommits(t *testing.T) {
 }
 
 // After `yolo config migrate --yes` and a `yolo config set` in a git work tree, `git status`
-// shows only what the migration is for: the tracked old file gone, the new file, and the tracked
-// file's backup. No lock file is left beside any config file, and the backup of a private file git
-// ignored is ignored too, so `git add -A` commits neither (RC-D34). The closing lines name every
-// change and say the backups can go.
+// shows only what the migration is for: the tracked old file gone, the new files and the backups.
+// No lock file is left beside any config file (RC-D34), and no ignore file is written (RC-D71):
+// the closing lines name every change, the ignore line to add, and say the backups can go.
 func TestConfigMigrateAndSetLeaveOnlyTheirChangesInGitStatus(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
@@ -177,7 +171,9 @@ func TestConfigMigrateAndSetLeaveOnlyTheirChangesInGitStatus(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("--yes: rc=%d\nstdout:\n%s\nstderr:\n%s", rc, out, errw)
 	}
-	want := " D yolo-jail.jsonc\n?? yolo-jail.jsonc.pre-migrate\n?? yolo-jail.toml\n"
+	// The private file's new name and backup show as untracked: the migration writes no ignore
+	// file (RC-D71), and names the line to add instead.
+	want := " D yolo-jail.jsonc\n?? yolo-jail.jsonc.pre-migrate\n?? yolo-jail.local.jsonc.pre-migrate\n?? yolo-jail.local.toml\n?? yolo-jail.toml\n"
 	if got := git("status", "--porcelain", "--untracked-files=all"); got != want {
 		t.Fatalf("git status after migrate:\n%s\nwant:\n%s\nstdout:\n%s", got, want, out)
 	}
@@ -186,7 +182,7 @@ func TestConfigMigrateAndSetLeaveOnlyTheirChangesInGitStatus(t *testing.T) {
 	}
 	for _, line := range []string{
 		"Kept the originals as yolo-jail.jsonc.pre-migrate, yolo-jail.local.jsonc.pre-migrate; delete them once the new files work for you.",
-		"Added /yolo-jail.local.jsonc.pre-migrate to .git/info/exclude",
+		"To keep it out of commits, add the line `/yolo-jail.local.jsonc.pre-migrate` to .gitignore or .git/info/exclude.",
 	} {
 		if !strings.Contains(out, line) {
 			t.Errorf("stdout lacks %q:\n%s", line, out)
