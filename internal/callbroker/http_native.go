@@ -108,6 +108,9 @@ func (h *HTTPHandler) readHTTPNativeParentWithFact(ctx context.Context, jail str
 		outcome = "ran"
 	}
 	h.audit.Append(brokeraudit.Event{Event: "lookup", Service: h.input.Source, Jail: jail, Set: "read", Outcome: outcome, CommandDigest: classified.CanonicalSHA256})
+	if errors.Is(err, errFrontWithdrawn) {
+		return "", err
+	}
 	if err != nil || response.Status != 200 {
 		return "", errors.New("HTTP native fact lookup failed or returned no usable response; inspect the host resource before retrying")
 	}
@@ -168,6 +171,10 @@ func (h *HTTPHandler) runStandingHTTP(ctx context.Context, canonical HTTPCall, c
 	if err := ctx.Err(); err != nil {
 		return HTTPExecution{}, err
 	}
+	if err := h.begin(); err != nil {
+		return HTTPExecution{}, err
+	}
+	defer h.end()
 	return prepared.send()
 }
 

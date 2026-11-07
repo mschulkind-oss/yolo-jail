@@ -125,6 +125,14 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 	}()
 	prepared := false
 	preflightFailed := false
+	// Each prepare that passes begin holds one in-flight count until this call returns, whether
+	// or not its dispatch runs (a spend that fails after prepare never dispatches).
+	begun := 0
+	defer func() {
+		for ; begun > 0; begun-- {
+			h.end()
+		}
+	}()
 	prepare := func() (err error) {
 		defer func() {
 			if err != nil {
@@ -154,6 +162,11 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		if _, err := h.revalidateHTTP(q); err != nil {
 			return err
 		}
+		// LAST: a withdrawal before this leaves the spend uncommitted (slice 3.3).
+		if err := h.begin(); err != nil {
+			return err
+		}
+		begun++
 		prepared = true
 		return nil
 	}
@@ -212,6 +225,9 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 func (h *HTTPHandler) httpWriteFailure(digest string, attempted, preflightFailed bool, err error) Verdict {
 	if attempted {
 		return Verdict{Verdict: "refused", Rule: "HTTP transmission may have occurred", Next: "Inspect the remote host state before any new request; a spent Allow once is not refunded", Digest: digest}
+	}
+	if errors.Is(err, errFrontWithdrawn) {
+		return Verdict{Verdict: "refused", Rule: "selected HTTP front withdrawn", Next: errFrontWithdrawn.Error(), Digest: digest}
 	}
 	if preflightFailed {
 		return Verdict{Verdict: "refused", Rule: "HTTP preflight refused before spend", Next: "No HTTP request bytes were transmitted and Allow once was not spent; repair host authority, credential or TLS before resubmitting", Digest: digest}
