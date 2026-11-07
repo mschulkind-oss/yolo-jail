@@ -139,6 +139,9 @@ type MigrationPlan struct {
 	Ignores []Ignore
 	// DerivedVendors are the models whose `vendor` the proof compared as derived (MF-D5).
 	DerivedVendors []DerivedVendor
+	// Patterns are the ref patterns the conversion wrote as requests, each as
+	// `requests.<source>.<capability> "<pattern>"`, which the transcript notes once (RC-D60).
+	Patterns []string
 	// Refused is the launch config gate's refusal of the converted files (RC-D44); Apply
 	// refuses a plan that holds one.
 	Refused error
@@ -192,6 +195,7 @@ type canonicalSet struct {
 	providers string
 	// grants is what the user config grants each broker (brokerGrants): the user layer compares
 	// `brokered` lowered to `allow`, and this is what proves the brokers read the same grants.
+	// It carries what the workspace config asks each broker for too (addWorkspaceBrokerGrants).
 	grants string
 	// activation is which loopholes a launch runs and with which settings (loopholeActivation).
 	activation string
@@ -420,7 +424,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, diffValues("user and project config merged", before.composed, after.composed)...)
 	p.Differences = append(p.Differences, diffValues(envLayer, before.env, after.env)...)
 	p.Differences = append(p.Differences, diffValues(providerTableLayer, before.providers, after.providers)...)
-	p.Differences = append(p.Differences, diffValues(brokerGrantsLayer, before.grants, after.grants)...)
+	p.Differences = append(p.Differences, workspaceGrantNextSteps(diffValues(brokerGrantsLayer, before.grants, after.grants))...)
 	p.Differences = append(p.Differences, activationNextSteps(diffValues(loopholeActivationLayer, before.activation, after.activation), view.loopholePacks)...)
 	beforeStandings, _, _ := loopholeStandings(view.grants, before.grantUser, before.grantWorkspace, before.grantLegacyUser, false)
 	afterStandings, standingTexts, withheld := loopholeStandings(view.grants, after.grantUser, after.grantWorkspace, after.grantLegacyUser, true)
@@ -428,6 +432,9 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	p.Differences = append(p.Differences, standingDiffs...)
 	p.GrantStandings = standingTexts
 	p.DerivedVendors = derivedOnlyBefore(before.derived, after.derived)
+	if declarations, err := shippedBrokers(); err == nil {
+		p.Patterns = convertedPatterns(before.grantWorkspace, after.grantWorkspace, declarations)
+	}
 	p.Equal = before.set == after.set && len(standingDiffs) == 0 && setupLeft == 0
 	if g.Request.Workspace != "" && len(g.project) > 0 {
 		p.Records = planRecords(g.Request.Workspace)
@@ -975,6 +982,14 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 			s.grantUser = jsonx.DeepCopyMap(read.User)
 		}
 	}
+	// What the workspace config asks each broker for, whichever spelling asks (RC-D60): the
+	// project layer compares the lowered spelling, and this compares the grants the scope
+	// projection makes of it. The remotes are the real workspace's: the mirror holds no remotes.
+	remoteWorkspace := workspace
+	if mirror != "" && strings.HasPrefix(workspace, mirror+string(filepath.Separator)) {
+		remoteWorkspace = strings.TrimPrefix(workspace, mirror)
+	}
+	addWorkspaceBrokerGrants(s.grants, s.grantWorkspace, remoteWorkspace, brokers)
 	s.grantLegacyUser = !readable && config.UserConfigIsLegacyAt(userTop)
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)

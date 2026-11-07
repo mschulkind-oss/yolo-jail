@@ -109,8 +109,13 @@ func TestEveryMappedGrantKindOfEveryShippedBrokerConverts(t *testing.T) {
 				gitRemotes(t, ws, "https://github.com/acme/one.git")
 				grant := fmt.Sprintf(`{"kind": %q, "repo": "github.com/acme/one"`, kind)
 				field := brokerscope.GrantNameKey(kind)
+				// A name the kind takes: a workflow is a file name in .github/workflows.
+				name := "x-name"
+				if kind == brokerscope.KindRuns {
+					name = "x-name.yml"
+				}
 				if field != "" {
-					grant += fmt.Sprintf(`, %q: "x-name"`, field)
+					grant += fmt.Sprintf(`, %q: %q`, field, name)
 				}
 				grant += "}"
 				write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"brokered": {"`+source+`": {"grants": [`+grant+`]}}}`+"\n")
@@ -129,8 +134,8 @@ func TestEveryMappedGrantKindOfEveryShippedBrokerConverts(t *testing.T) {
 					}
 					return
 				}
-				if list, _ := v.([]any); len(list) != 1 || list[0] != "x-name" {
-					t.Fatalf("requests.%s.%s = %#v, want [\"x-name\"]", source, capability, v)
+				if list, _ := v.([]any); len(list) != 1 || list[0] != name {
+					t.Fatalf("requests.%s.%s = %#v, want [%q]", source, capability, v, name)
 				}
 			})
 			seen++

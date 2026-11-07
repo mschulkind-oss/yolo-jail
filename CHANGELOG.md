@@ -12,29 +12,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.17.0] - 2026-11-06
 
-Where an agent runs is now one named setup, MCP servers can be remote, and an agent can ask whether a GitHub command would run before it tries.
+You now choose where an agent runs by naming a setup, MCP servers can run remotely, and an agent can check whether a GitHub command would run before it tries.
 
 ### Added
 
-**Named setups.** Choose where an agent runs by name: `--setup <name>` for one launch, `YOLO_SETUP`, or `setup` in your user config. `yolo setup list` shows the built-in setups (`podman-self`, `apple-container-self`, `seatbelt-self`, `seatbelt-yolo-account`), and `yolo setup new` copies one into your user config to change. See [where agents run](userguide/guides/confinement.md#choosing-a-setup).
+**You choose where an agent runs by naming a setup.** A setup names what the agent runs in and the account it runs as, such as `podman-self` (a podman container, as you) or `seatbelt-yolo-account` (the macOS sandbox, as a separate account). Pick one for a single launch with `--setup <name>`, or set a default with `YOLO_SETUP` or `setup` in your user config. `yolo setup list` shows every setup you can pick. See [where agents run](userguide/guides/confinement.md#choosing-a-setup).
 
-**Remote MCP servers.** An `mcp_servers` entry can name a `url` instead of a `command`, over streamable HTTP or SSE, with headers and OAuth client fields. Agents that cannot use a remote server are named at boot. `yolo config why mcp_servers.<name>` says whether a server comes from your user config or the project.
+**MCP servers can run remotely.** An `mcp_servers` entry can give a `url` instead of a `command`, and agents reach the server over streamable HTTP or SSE, with headers and OAuth client settings. When an agent cannot use a remote server, the launch names it.
 
-**`yolo access`.** In a jail, shows the GitHub broker's scope, grants and requests, and predicts whether a `gh` command would run, ask or be refused. `--ask` files the approval request without running the command. See [GitHub](userguide/guides/github.md#inspecting-before-a-write).
+**An agent can check a GitHub command before running it.** In a jail, `yolo access` lists the GitHub repositories and permissions the workspace has. Given a `gh` command, it says whether yolo would run it, ask you first, or refuse it, and `--ask` sends you the approval request without running the command. See [GitHub](userguide/guides/github.md#inspecting-before-a-write).
 
-**CircleCI pack.** `yolo pack add circleci` lets an agent read CircleCI runs through your host's `circleci` login, for this workspace's repositories only.
+**Agents can read CircleCI.** `yolo pack add circleci` lets an agent read CircleCI runs through your host's `circleci` login, for this workspace's repositories only.
 
 ### Changed
 
-- The `confinement`, `runtime` and `macos_user_mode` config keys are refused, each naming the setup it meant. Run `yolo config migrate`, or `yolo config set setup <name> --user`.
-- `--at` is refused: use `--setup <name>`, or `yolo host` for the old `--at host`. `YOLO_RUNTIME` is refused on the host: use `YOLO_SETUP`.
-- A `network.mode` or `--network` the selected setup cannot hold (such as `bridge` under Seatbelt) now refuses the launch, naming a setup that can.
+- yolo now refuses the `confinement`, `runtime` and `macos_user_mode` config keys, and the refusal names the setup each one meant. Run `yolo config migrate`, or `yolo config set setup <name> --user`.
+- yolo refuses the `--at` flag. Use `--setup <name>` instead, or `yolo host` where you passed `--at host`.
+- On the host, yolo refuses `YOLO_RUNTIME`. Set `YOLO_SETUP` instead.
+- When the selected setup cannot give the network you asked for with `network.mode` or `--network`, such as `bridge` in the macOS sandbox, yolo refuses the launch and names a setup that can.
 
 ### Fixed
 
-- `yolo yolo-account create` on a Mac that is already set up no longer asks for a password or fails; `--recheck` forces the full check.
-- `yolo config migrate` keeps a loophole off when the workspace's `enabled: false` and its own requests disagree.
-- The PATH line `yolo host`, `yolo host apply` and `yolo check` print is spelled with `$HOME`, so dotfiles shared across machines keep working.
+- On a Mac that is already set up, `yolo yolo-account create` no longer asks for a password or fails. Pass `--recheck` to run the full check anyway.
+- When a workspace config turns a loophole off with `enabled: false` but also requests it, `yolo config migrate` now keeps it off.
+- The PATH line that `yolo host`, `yolo host apply` and `yolo check` print now starts with `$HOME` instead of your home folder's full path, so the line still works when you copy it into dotfiles you share across machines.
 
 ## [0.16.1] - 2026-11-04
 

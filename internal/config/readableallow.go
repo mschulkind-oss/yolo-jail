@@ -727,28 +727,11 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
-			if brokerscope.GrantTakesName(kind) {
-				for _, target := range targets {
-					for _, name := range stringList(request.Value) {
-						grant := brokerscope.RefGrant(kind, target.RemoteHost+"/"+target.Repository, name)
-						files := append(cloneOrigins(ceilingFiles), request.Files...)
-						files = append(files, target.Files...)
-						decisions = appendReadableGrant(decisions, grant, ceilingOrigin, files)
-						decisions = appendReadableGrant(decisions, grant, request.Path, files)
-					}
-				}
-				continue
-			}
-			requested, ok := request.Value.(bool)
-			if !ok || !requested {
-				continue
-			}
-			for _, target := range targets {
-				grant := brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}
+			for _, placed := range readableRequestGrants(kind, request.Value, targets) {
 				files := append(cloneOrigins(ceilingFiles), request.Files...)
-				files = append(files, target.Files...)
-				decisions = appendReadableGrant(decisions, grant, ceilingOrigin, files)
-				decisions = appendReadableGrant(decisions, grant, request.Path, files)
+				files = append(files, placed.Target.Files...)
+				decisions = appendReadableGrant(decisions, placed.Grant, ceilingOrigin, files)
+				decisions = appendReadableGrant(decisions, placed.Grant, request.Path, files)
 			}
 		}
 
@@ -1708,6 +1691,36 @@ func appendReadableEntry(entries []EntryRepo, entry EntryRepo) []EntryRepo {
 	entry.Files = cloneOrigins(entry.Files)
 	return append(entries, entry)
 }
+
+// readableTargetGrant is one grant a request makes, with the target it is made on.
+type readableTargetGrant struct {
+	Grant  brokerscope.Grant
+	Target ReadableRepository
+}
+
+// readableRequestGrants are the concrete grants a `requests.<source>.<capability>` value makes
+// for the legacy grant kind its capability maps to: a kind that names something makes one grant
+// per target and listed name, in that order; a yes/no kind makes one per target when the value is
+// true, and none otherwise.
+func readableRequestGrants(kind string, value any, targets []ReadableRepository) []readableTargetGrant {
+	var out []readableTargetGrant
+	if brokerscope.GrantTakesName(kind) {
+		for _, target := range targets {
+			for _, name := range stringList(value) {
+				out = append(out, readableTargetGrant{brokerscope.RefGrant(kind, target.RemoteHost+"/"+target.Repository, name), target})
+			}
+		}
+		return out
+	}
+	if requested, ok := value.(bool); !ok || !requested {
+		return nil
+	}
+	for _, target := range targets {
+		out = append(out, readableTargetGrant{brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}, target})
+	}
+	return out
+}
+
 func legacyKind(policy ReadableBrokerPolicy, capability string) string {
 	for kind, mapped := range policy.KindCapabilities {
 		if mapped == capability {
