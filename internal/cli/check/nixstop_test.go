@@ -103,7 +103,9 @@ func TestASignalToCheckStopsItsNix(t *testing.T) {
 		go func() { waited <- cmd.Wait() }()
 		var marks string
 		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-			if b, err := os.ReadFile(ready); err == nil {
+			// The child renames a complete file into place, so a read sees all of it or
+			// nothing; an empty read still waits rather than failing (CI run 42314578948).
+			if b, err := os.ReadFile(ready); err == nil && len(b) > 0 {
 				marks = string(b)
 				break
 			}
@@ -146,7 +148,11 @@ func TestASignalToCheckStopsItsNix(t *testing.T) {
 	}
 	go Check(opts)
 	awaitStarted(t, marks)
-	if err := os.WriteFile(os.Getenv(readyEnv), []byte(marks), 0o600); err != nil {
+	readyTmp := os.Getenv(readyEnv) + ".tmp"
+	if err := os.WriteFile(readyTmp, []byte(marks), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(readyTmp, os.Getenv(readyEnv)); err != nil {
 		t.Fatal(err)
 	}
 	select {}
