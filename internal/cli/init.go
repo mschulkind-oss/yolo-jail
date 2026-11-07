@@ -85,7 +85,7 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 }
 
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at
-// USER_CONFIG_PATH unless it exists.
+// USER_CONFIG_PATH unless a user config of either format exists.
 func InitUserConfig(out io.Writer, color bool) int {
 	// The legacy path on purpose: this writer creates the legacy JSONC defaults file.
 	p := paths.UserConfigPath()
@@ -93,8 +93,10 @@ func InitUserConfig(out io.Writer, color bool) int {
 		printInitStatus(out, color, "bold red", fmt.Sprintf("Error creating config dir: %v", err))
 		return 1
 	}
-	if _, err := os.Stat(p); err == nil {
-		fmt.Fprint(out, p, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
+	// Any existing user config counts, in either format: writing config.jsonc beside a
+	// config.toml makes a pair the reader refuses.
+	if existing := paths.UserConfigDisplayPath(); fileExists(existing) {
+		fmt.Fprint(out, existing, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
 		// The likeliest reason to run this again is a jail with no agent, so an existing
 		// file that selects no pack gets the same steps a new one does. One that cannot
 		// be read says nothing more here: `yolo check` reports that, in its own words.
