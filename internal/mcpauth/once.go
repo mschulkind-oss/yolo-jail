@@ -236,6 +236,12 @@ func (b *OnceBroker) passServer(ctx context.Context, src OnceSource, server Once
 	return nil
 }
 
+// originOf reports whether src is the store record was adopted from: the one store whose
+// losing the entry signs the sign-in out everywhere (OQ-MA4, ID-18).
+func originOf(record *Record, src OnceSource) bool {
+	return record.SourceDir == "" || record.SourceDir == src.Store.Dir
+}
+
 // ours reports whether a source entry is the broker's to write: it holds no refresh token, or
 // only the spent one adoption took.
 func (b *OnceBroker) ours(src OnceSource, raw json.RawMessage, record *Record) bool {
@@ -392,7 +398,8 @@ func (b *OnceBroker) adopt(ctx context.Context, src OnceSource, server OnceServe
 		next := Record{Server: server.Name, Identity: server.Identity, URL: server.URL, Generation: 1, State: "live",
 			AdoptedFrom: src.Pack, Entry: entry, AccessToken: tokens.AccessToken, RefreshToken: newRT, ExpiresAtMS: expires,
 			ClientID: clientID, TokenEndpoint: discovery.TokenEndpoint, RefreshedAt: now.UTC().Format(time.RFC3339),
-			SourceKey: key, Issuer: discovery.Issuer, LifetimeMS: lifetime.Milliseconds(), AdoptedRefreshH: tokenHash(rt)}
+			SourceKey: key, Issuer: discovery.Issuer, LifetimeMS: lifetime.Milliseconds(), AdoptedRefreshH: tokenHash(rt),
+			SourceDir: src.Store.Dir}
 		for i := range file.Records {
 			if file.Records[i].Server == server.Name && file.Records[i].Identity == server.Identity {
 				next.Generation = file.Records[i].Generation + 1
@@ -542,7 +549,10 @@ func (b *OnceBroker) signOut(src OnceSource, server OnceServer) error {
 	if err != nil || !parsed || record == nil || record.State != "live" {
 		return err
 	}
-	if _, present := entries[record.SourceKey]; present {
+	if _, present := entries[record.SourceKey]; present || !originOf(record, src) {
+		// Present, or absent from another store of the agent's that never signed in to it,
+		// which is not a sign-out (ID-18): that store's own sign-in, when it makes one, is
+		// adopted like any other.
 		return nil
 	}
 	var generation uint64

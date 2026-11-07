@@ -1007,6 +1007,8 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// switch and off by default: set in environ here, so the exec and the resident path below
 	// both carry it.
 	environ = hostClaudeView(launch, environ, errw)
+	// THE ONE-SIGN-IN TIER IS NOT KEPT HERE (hostmcponce.go, OQ-MA10), and the launch says so.
+	hostOnceSignInNote(launch, errw)
 	// The launch selection's variables (MM-D30), disclosed above with its argv.
 	environ = selection.applyEnv(environ)
 	// THE SESSION HOMES (docs/design/per-session-profiles.md §4.7, OQ-SP4; hostsessionhome.go): a

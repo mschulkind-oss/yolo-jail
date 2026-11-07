@@ -120,8 +120,13 @@ func TestMCPAuthShareHasNoOneSignInWithoutTheUsersSay(t *testing.T) {
 // so the launch must not claim each workspace signs in on its own.
 func TestMCPUnavailableLineForAMachineWideStore(t *testing.T) {
 	lines := mcpUnavailableLines([]*packload.Pack{shippedPack(t, "claude")}, "Apple Container")
-	if len(lines) != 1 || !strings.Contains(lines[0], "refreshed by claude itself on Apple Container") || strings.Contains(lines[0], "each workspace signs in") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "one machine-wide file on Apple Container") ||
+		!strings.Contains(lines[0], "when a jail starts and again when it ends") || strings.Contains(lines[0], "each workspace signs in") {
 		t.Fatalf("lines = %q", lines)
+	}
+	lines = mcpUnavailableLines([]*packload.Pack{shippedPack(t, "claude")}, "macos-user")
+	if len(lines) != 1 || !strings.Contains(lines[0], "while each session runs") {
+		t.Fatalf("macos-user lines = %q", lines)
 	}
 }
 

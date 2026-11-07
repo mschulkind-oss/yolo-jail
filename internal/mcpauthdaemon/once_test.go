@@ -1,6 +1,7 @@
 package mcpauthdaemon
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -127,6 +129,65 @@ func TestOnceLoopAdoptsClaudesSignInFromTheShare(t *testing.T) {
 	file, err := store.Read()
 	if err != nil || len(file.Records) != 1 || file.Records[0].RefreshToken != "rt-2" {
 		t.Fatalf("canonical once records = %d, err %v", len(file.Records), err)
+	}
+}
+
+// ID-19: a launcher where no broker runs takes the sign-in over itself in one pass, with the
+// daemon's own canonical store and Claude's write-back rule, and its lines go to the caller,
+// never to the daemon's stderr. The audit names the adoption.
+func TestBoundaryPassAdoptsClaudesSignInWithNoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := newOnceDaemonFixture(t)
+	var lines []string
+	if err := BoundaryPass(context.Background(), f.b.canonical.Dir, f.b.share, func(l string) { lines = append(lines, l) }); err != nil {
+		t.Fatal(err)
+	}
+	if rt := <-f.refreshs; rt != "rt-1" {
+		t.Fatalf("redeemed %q, want the source's own token", rt)
+	}
+	e := f.entry(t)
+	if e["accessToken"] != "at-2" || e["refreshToken"] != nil {
+		t.Fatal("the boundary pass did not write the adopted sign-in back without its refresh token")
+	}
+	store, err := mcpauth.NewOnceStore(filepath.Join(f.b.canonical.Dir, "once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file, err := store.Read(); err != nil || len(file.Records) != 1 || file.Records[0].SourceDir != f.storeDir {
+		t.Fatalf("canonical once records = %+v, err %v", file.Records, err)
+	}
+	audit, _ := os.ReadFile(filepath.Join(paths.BrokerDir(), "audit.jsonl"))
+	if !strings.Contains(string(audit), `"adopt"`) || strings.Contains(string(audit), "rt-2") {
+		t.Fatalf("audit = %s", audit)
+	}
+	// A second boundary pass with nothing due redeems nothing.
+	if err := BoundaryPass(context.Background(), f.b.canonical.Dir, f.b.share, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case rt := <-f.refreshs:
+		t.Fatalf("a boundary pass with nothing due redeemed %q", rt)
+	default:
+	}
+}
+
+// ID-20: a session-long launcher runs the daemon's poll and it ends with stop.
+func TestServeOnceRunsThePollUntilStopped(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	f := newOnceDaemonFixture(t)
+	ticks := make(chan time.Time)
+	passes := make(chan struct{}, 4)
+	restore := setOnceSeams(ticks, func() { passes <- struct{}{} })
+	defer restore()
+	stop, done := make(chan struct{}), make(chan error, 1)
+	go func() { done <- ServeOnce(f.b.canonical.Dir, f.b.share, func(string) {}, stop) }()
+	if rt := <-f.refreshs; rt != "rt-1" {
+		t.Fatalf("redeemed %q, want the source's own token", rt)
+	}
+	<-passes
+	close(stop)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

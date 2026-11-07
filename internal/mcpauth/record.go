@@ -38,6 +38,11 @@ type Record struct {
 	Issuer          string `json:"issuer,omitempty"`
 	LifetimeMS      int64  `json:"lifetime_ms,omitempty"`
 	AdoptedRefreshH string `json:"adopted_refresh_sha256,omitempty"`
+	// SourceDir is the directory of the store the sign-in was adopted from. A machine can hold
+	// more than one store of one agent (the jails' machine-wide file, a macos-user account's
+	// own), and only the origin's losing the entry is a sign-out (ID-18). "" on a record written
+	// before it was kept: any source's loss then counts, as it did.
+	SourceDir string `json:"source_dir,omitempty"`
 }
 
 // CanonicalFile is the versioned on-disk representation.

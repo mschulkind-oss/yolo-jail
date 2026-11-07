@@ -36,11 +36,15 @@ var kinds = map[packdecl.Kind]Entry{
 	packdecl.KindIntercept: renderedEverywhere("GenerateIntercepts, called from GenerateShims, " +
 		"writes the forwarder into the block dir (interceptshims.go)"),
 	packdecl.KindMCPAuth: {
-		PodmanLinux:    dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
-		PodmanMac:      dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
-		AppleContainer: dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
-		MacosUser:      dropped("declaration parsed and retained by the host; broker consumer is not implemented, so auth-store behavior is absent and no launch notice exists; this is an interim foundation, not a ruled permanent silence"),
-		Guide:          []string{"`mcp-auth` — an MCP sign-in store declaration"},
+		PodmanLinux: honored("the selected mcp-auth pack's host broker is handed the launch's share " +
+			"(mcpauthshare.go) and keeps a user-level sign_in = \"once\" server's Claude sign-in"),
+		PodmanMac: honoredBy("no broker is admitted; the launcher keeps Claude's sign_in = \"once\" server at " +
+			"each jail's start and end (mcpauthboundary.go), and mcpUnavailableLines says the rest is not shared"),
+		AppleContainer: honoredBy("no broker is admitted; the launcher keeps Claude's sign_in = \"once\" server at " +
+			"each jail's start and end (mcpauthboundary.go), and mcpUnavailableLines says the rest is not shared"),
+		MacosUser: honoredBy("no broker runs; the launcher keeps Claude's sign_in = \"once\" server for the " +
+			"session (mcpauthboundary.go), and mcpUnavailableLines says the rest is not shared"),
+		Guide: []string{"`mcp-auth` — an MCP sign-in store declaration"},
 	},
 	packdecl.KindMCP: {
 		PodmanLinux: honored("jailMCPServers (internal/cli/run assemble.go) composes each " + "selected pack's `mcp` entries under the config's mcp_servers into YOLO_MCP_SERVERS, " +

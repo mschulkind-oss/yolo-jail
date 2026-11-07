@@ -310,6 +310,32 @@ func TestOnceSignOutNeedsACleanlyParsedStore(t *testing.T) {
 	}
 }
 
+// ID-18: a machine can hold two stores of one agent (the jails' machine-wide file and a
+// macos-user account's own). A store that never had the entry is not the origin's sign-out:
+// the record stays, the origin keeps being written back, and a sign-out in the origin still
+// ends it. Deleting the originOf guard in passServer fails the first check.
+func TestOnceASecondStoreWithoutTheEntryIsNotASignOut(t *testing.T) {
+	f := newOnceFixture(t)
+	f.pass(f.broker)
+	if r := f.record(f.broker); r == nil || r.SourceDir != f.dir {
+		t.Fatalf("record = %+v, want its origin %s", r, f.dir)
+	}
+	other := f.src
+	other.Store = f.clock.source(t.TempDir())
+	writeSource(t, other.Store.Dir, `{"claudeAiOauth":{"accessToken":"login"},"mcpOAuth":{}}`)
+	if err := f.broker.Pass(context.Background(), other, []OnceServer{f.server}); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.record(f.broker); r == nil || r.State != "live" {
+		t.Fatalf("a store that never signed in signed the record out: %+v (audit %s)", r, f.actions())
+	}
+	f.writeEntry(nil)
+	f.pass(f.broker)
+	if f.record(f.broker) != nil || !strings.HasSuffix(f.actions(), "sign-out") {
+		t.Fatalf("the origin's sign-out did not end the record: audit %s", f.actions())
+	}
+}
+
 // Latest sign-in wins: a new refresh token in the source after adoption is a new sign-in.
 func TestOnceANewSignInIsAdoptedAgain(t *testing.T) {
 	f := newOnceFixture(t)

@@ -18,6 +18,8 @@ type frozenLaunchMCP struct {
 	Proven        bool   `json:"proven,omitempty"`
 	// SharedCredentialDir is LaunchInputContext.SharedCredentialDir, decided at launch.
 	SharedCredentialDir string `json:"shared_credential_dir,omitempty"`
+	// SharedCredentialHome is LaunchInputContext.SharedCredentialHome: "" for paths.GlobalHome.
+	SharedCredentialHome string `json:"shared_credential_home,omitempty"`
 }
 
 // launchMCPSelection holds the user layer as it stood before this launch staged
@@ -45,6 +47,11 @@ func (o *Options) snapshotLaunchMCPSelection(cfg *jsonx.OrderedMap, rt string) l
 			active = true
 			break
 		}
+	}
+	// Where the launcher keeps a sign_in = "once" server itself (mcpauthboundary.go), it needs
+	// the same proven composition a broker's share is built from.
+	if !active && onceTierMode(rt) != "" && hasOnceServer(cfg) {
+		active = true
 	}
 	if !active {
 		return launchMCPSelection{}
@@ -95,12 +102,22 @@ func frozenMCPForLaunch(cfg, user *jsonx.OrderedMap, selected, staged []*packloa
 	return frozenLaunchMCP{EffectiveJSON: jsonx.MustDumpsCompact(effective), UserOnlyJSON: jsonx.MustDumpsCompact(userOnly), Proven: true}
 }
 
-func (o *Options) freezeLaunchMCP(rt string, cfg *jsonx.OrderedMap, staged []*packload.Pack, before launchMCPSelection) {
+// freezeLaunchMCP freezes the launch's composition, and the Claude store it bridges under the
+// host directory sharedHome: "" for a container jail, whose store is under paths.GlobalHome, or a
+// macos-user session's shared home (macosuser.LaunchHomes) for one.
+func (o *Options) freezeLaunchMCP(rt string, cfg *jsonx.OrderedMap, staged []*packload.Pack, before launchMCPSelection, sharedHome string) {
 	o.freezeLaunchMCPComposition(cfg, staged, before)
 	if o.launchInputMCP.Proven {
+		home := sharedHome
+		if home == "" {
+			home = paths.GlobalHome()
+		}
 		// The machine-wide Claude store this launch bridges (CL-D22), on the host: the one place
 		// a one-sign-in server's sign-in is adopted from and written back to (MA-D17).
-		o.launchInputMCP.SharedCredentialDir = o.claudeSecureStorageDir(rt, cfg, staged, paths.GlobalHome())
+		o.launchInputMCP.SharedCredentialDir = o.claudeSecureStorageDir(rt, cfg, staged, home)
+		if home != paths.GlobalHome() {
+			o.launchInputMCP.SharedCredentialHome = home
+		}
 	}
 }
 

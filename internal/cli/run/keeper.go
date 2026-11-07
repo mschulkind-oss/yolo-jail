@@ -935,6 +935,17 @@ func (k *keeper) endJail(reason string, stop bool) {
 		sp.End()
 	}
 	k.jailLeft = !k.confirmGone()
+	// THE ONE-SIGN-IN TIER'S EXIT PASS (mcpauthboundary.go, ID-19), on a backend whose launch
+	// started no broker: the container is gone, so no agent of this jail writes Claude's store
+	// any more, and a sign-in made in it is taken over now rather than at the next launch. A
+	// jail still there is not ended, so it gets none.
+	if !k.jailLeft && onceTierMode(p.Runtime) == onceModeBoundary && o.launchInputMCP.Proven {
+		if packs, err := loadPackTree(o.packTree); err == nil {
+			o.runOnceBoundary(p.Runtime, p.Cname, onceAtExit, packs)
+		} else {
+			k.sink.logf("keeper: the one-sign-in exit pass did not run: the pack tree could not be read (%v); the next launch takes any new sign-in over", err)
+		}
+	}
 	// The launch lock goes before the chain, whose guarded cleanups take it non-blocking (JL-D31): a
 	// keeper ending its jail before ready kept it through the stop (keepLaunchLockThroughTheStop).
 	k.releaseLaunchLock()

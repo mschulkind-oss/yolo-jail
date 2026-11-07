@@ -3,10 +3,10 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); rule OQ-MA9; resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
+next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); the Mac witnesses for ID-19 and ID-20; rule OQ-MA9 and OQ-MA10; resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
-summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built. Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
+summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (ID-19, ID-20). Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
 ---
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
@@ -363,14 +363,40 @@ reverse it.
 - <a id="id-16"></a>**ID-16. The one-sign-in tier is on only where Claude's store is the
   machine-wide bridge file** (CL-D22): the launch hands the broker the source when the shared
   credential directory the launch resolved equals the pack's `shared_credentials` store. In
-  credential-view mode, on Apple Container and on macos-user it is off, and the launch line says
-  so. The broker polls every 30 s after readiness, so an unreachable authorization server never
+  credential-view mode it is off, and the launch line says so; on Apple Container, podman on
+  macOS and macos-user the launcher runs it instead ([ID-19](#id-19), [ID-20](#id-20)). The broker polls every 30 s after readiness, so an unreachable authorization server never
   delays a launch. `packs/claude` now `needs` `mcp-auth`, as `packs/codex` does, so every Claude
   launch selects the broker; with no `sign_in = "once"` server its share names nothing and it
   does no work.
 - <a id="id-17"></a>**ID-17. The [OQ-MA3](mcp-auth-sharing.md#decision-ledger) disclosure is
   printed with the one-sign-in line**, the one launch where Claude's machine-wide MCP store is
   being acted on; a launch with no `sign_in = "once"` server prints nothing new.
+- <a id="id-18"></a>**ID-18. A one-sign-in record names the store it was adopted from**
+  (`source_dir`), and only that store losing the entry is a sign-out
+  ([OQ-MA4](mcp-auth-sharing.md#decision-ledger)). One machine can hold several Claude stores (the
+  jails' bridge file, a macos-user account's), and a store that never signed in to a server does
+  not hold its entry. A record from before this field carries none, and any source's loss still
+  counts for it. `TestOnceASecondStoreWithoutTheEntryIsNotASignOut`.
+- <a id="id-19"></a>**ID-19. On Apple Container and podman on macOS, the launcher runs the tier at
+  the launch boundary**, not an admitted daemon: one pass before a fresh jail's container starts
+  (`runContainer`), and one in the keeper's `endJail` once the container is confirmed gone. A lock
+  across the VM share is unmeasured ([§8.5](mcp-auth-sharing.md#85-launch-boundary-only)), and the
+  jail could not reach a daemon anyway. Each pass is the daemon's own code
+  (`mcpauthdaemon.BoundaryPass`), with its canonical store, record lock and audit log, bounded by a
+  30 s failure guard. A sign-in made while a jail runs is taken over at the next start or end, and
+  the start line says so. `snapshotLaunchMCPSelection` freezes the proven composition on these
+  backends whenever the config has a `sign_in = "once"` server, as it does for an admitted broker.
+  `TestAppleContainerLaunchRunsTheOneSignInPassAtStart`,
+  `TestKeeperRunsTheOneSignInPassOnceTheJailIsGone`.
+- <a id="id-20"></a>**ID-20. On macos-user the launcher runs the daemon's poll for the session's
+  length**, then one last pass (`startOnceSession` around `MacosUserRun`). One kernel, so Claude's
+  lock directory holds between the host and the sandbox ([§10](mcp-auth-sharing.md#10-parity-every-backend-and-notch),
+  *Live sync*), and the launcher lives exactly as long as the session. The poll's lines go to the
+  launch log while the agent holds the terminal. The source is the session's bridge file under
+  its shared home (`macosuser.LaunchHomes(...).Shared`): the yolo account's home in the account
+  mode, carried as `SharedCredentialHome`. Whether that Claude uses the file and not the Keychain,
+  and whether the host can write the account home, are [Mac witnesses](mcp-auth-sharing.md#mac-checks).
+  `TestMacosUserSessionKeepsTheOneSignInForItsLength`.
 
 ## Tasks
 
@@ -1353,13 +1379,15 @@ the design's; what is recorded here is what that pass must start from.
 
   **Parity follow-ups for this slice:**
 
-  - *Apple Container:* no broker runs there; its Claude reads the same machine file only on a
-    host where a podman jail's broker keeps it fresh. Needs the launch-boundary mode of phase C.
-  - *macos-user:* Claude's store is the Keychain or the sandbox home, not the bridge file;
-    needs its own source adapter behind a Mac witness.
-  - *`yolo host`:* the user's own Claude store is not the bridge
-    file; the tier is off there. Needs a host source adapter beside [Task 15](#task-15)'s
-    Codex one.
+  - *Apple Container and podman on macOS:* built (2026-11-06), the launch-boundary mode
+    ([ID-19](#id-19)); the lock over the VM share and the end-to-end adoption are
+    [Mac witnesses](mcp-auth-sharing.md#mac-checks), not yet taken.
+  - *macos-user:* built (2026-11-06), the session-long poll ([ID-20](#id-20)) on the session's
+    bridge file; whether Claude uses that file and not the Keychain there is a
+    [Mac witness](mcp-auth-sharing.md#mac-checks), not yet taken.
+  - *`yolo host`:* not built, by [OQ-MA10](mcp-auth-sharing.md#oq-ma10-the-one-sign-in-at-yolo-host):
+    the user's own Claude store is `~/.claude`, which OQ-NC7 says yolo never writes. The launch
+    says the tier is not kept there and names `yolo -- claude` (`hostmcponce.go`).
   - *Credential-view mode:* each workspace has its own Claude store; slice 2's view adapter.
 - **Phase E, slice 3** (item 5): the store route, then Copilot, agy, Muse and omp as their
   facts arrive.
@@ -1433,8 +1461,8 @@ the design's; what is recorded here is what that pass must start from.
   ([§7](mcp-auth-sharing.md#7-the-canonical-store)). The key lives in the share file, recomputed
   every launch.
 - **Don't add a `YOLO_*` switch to turn sharing off** ([§12](mcp-auth-sharing.md#12-forbidden-behavior)).
-- **Don't admit the daemon on Apple Container** in phase B. It needs the launch-boundary mode
-  and its witness (phase C).
+- **Don't admit the daemon on Apple Container** in phase B. The one-sign-in tier runs there in the
+  launcher at the launch boundary instead ([ID-19](#id-19)); a live daemon needs the lock witness.
 
 ## Blockers
 

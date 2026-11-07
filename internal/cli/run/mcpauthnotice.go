@@ -19,8 +19,13 @@ func mcpUnavailableLines(packs []*packload.Pack, backend string) []string {
 		decl := pack.Decl.MCPAuth
 		if sharedStoreDir(pack, decl.Store) != "" {
 			// The store itself is machine-wide (CL-D22), so its sign-ins already reach every jail;
-			// what this backend lacks is the broker that holds their refresh tokens.
-			lines = append(lines, "MCP sign-ins for "+pack.Name+" are refreshed by "+pack.Name+" itself on "+backend+"; a sign_in = \"once\" server is held by the host broker only in a Linux podman jail.")
+			// what this backend lacks is a running broker, so the launcher keeps a sign_in = "once"
+			// server itself (mcpauthboundary.go).
+			when := onceTierWhen("container")
+			if backend == "macos-user" {
+				when = onceTierWhen("macos-user")
+			}
+			lines = append(lines, "MCP sign-ins for "+pack.Name+" live in one machine-wide file on "+backend+"; no broker runs here, so yolo itself takes over and refreshes a sign_in = \"once\" server's sign-in "+when+".")
 			continue
 		}
 		lines = append(lines, "MCP sign-ins for "+pack.Name+" are not shared on "+backend+" in this yolo yet; each workspace signs in once ("+decl.LoginHint+"). To share them, use a Linux podman jail.")
