@@ -1,13 +1,13 @@
 ---
 title: "The agent's own session lives in .yolo, and nothing tells it so"
 date: 2026-11-07
-status: in-review
+status: accepted
 stage: DESIGN
-next: "Rule OQ-SD2 (the mask) and OQ-SD4 (the rescue at stop): together they decide whether a repeat of the incident loses anything"
+next: "Build SD-D1–SD-D15 in slices: briefing, README and .gitignore first, then detection and the rescue, the guardrails guard, --fresh-home, and the logs/run move"
 depends-on:
   - named-setups.md
 tags: [design, storage, workspace-state, briefing, guardrails, recovery, setups]
-summary: "An agent moved a workspace's .yolo to /tmp to rule it out while bisecting, and lost every Pi session of that workspace when the jail restarted, because the agents' homes are bind-mounted from .yolo and /tmp dies with the jail. No single guard reaches every setup, so this design layers six: a README and a current .gitignore inside .yolo, three sentences in every briefing, a refusing mv/rm shim, an in-jail mask over the home's workspace-side path, boot-stamped identity checks that notice a vanished .yolo, and an automatic rescue of the still-mounted homes before the jail exits. A --fresh-home launch is the supported way to do what the agent wanted."
+summary: "An agent moved a workspace's .yolo to /tmp to rule it out while bisecting, and lost every Pi session of that workspace when the jail restarted, because the agents' homes are bind-mounted from .yolo and /tmp dies with the jail. No single guard reaches every setup, so this design layers five: a README and a current .gitignore inside .yolo, three sentences in every briefing, a refusing mv/rm guard in the guardrails pack, boot-stamped identity checks that notice a vanished .yolo, and an automatic rescue of the still-mounted homes before the jail exits. A --fresh-home launch is the supported way to do what the agent wanted."
 ---
 
 # The agent's own session lives in `.yolo`, and nothing tells it so
@@ -18,29 +18,28 @@ the owner's review; every ledger row is the seat's.
 > **In short.** The incident was not a careless agent; it was a directory that looks like build
 > output, a briefing that never says the agent's own transcript is in it, and a jail that loses
 > the bytes it is still holding open when it exits. Fix the legibility and the briefing first,
-> make the loss impossible on container setups with one mount, and make it survivable everywhere
-> with a rescue at stop.
+> notice the move while the jail still holds the bytes, and make the loss survivable with a rescue
+> at stop.
 
 **Why it matters.** Every agent's transcripts, logins and installs live under the workspace's
 `.yolo`, beside logs and locks, and the jail shows that directory to the agent at a path it can
 `mv`. The loss this time was a fresh jail's; the same `mv` in a six-month-old workspace takes
 every session every agent ever ran there.
 
-**The shape.** Six layers in two groups. **Unlikely:** a README and a refreshed `.gitignore` in
-`.yolo`, three briefing sentences, a `mv`/`rm` shim, and a read-only empty mask over the home's
-workspace-side path on container setups. **Survivable:** a boot-stamped identity the keeper
+**The shape.** Five layers in two groups. **Unlikely:** a README and a refreshed `.gitignore` in
+`.yolo`, three briefing sentences, and a `mv`/`rm` guard in the guardrails pack. **Survivable:** a boot-stamped identity the keeper
 re-checks on every session event, and a rescue copy of the still-mounted homes when the bind
 source is gone at stop. Plus `--fresh-home`, the supported way to start without the state.
 
-**Cost.** The mask breaks `yolo capture`'s same-mount rename unless capture jails skip it; the shim
-adds two wrappers to every PATH; the rescue can copy gigabytes, once, on an event that should
+**Cost.** The guard adds two wrappers to the PATH of every guardrails jail; the rescue can copy gigabytes, once, on an event that should
 never fire.
 
 **Start at [§3](#3-the-design-one-layer-at-a-time)** — the layers. [§2](#2-the-incident-and-why-each-existing-layer-missed-it)
 says why each existing one missed.
 
-**Needs your ruling:** [OQ-SD1](#OQ-SD1), [OQ-SD2](#OQ-SD2), [OQ-SD3](#OQ-SD3), [OQ-SD4](#OQ-SD4),
-[OQ-SD5](#OQ-SD5), [OQ-SD6](#OQ-SD6).
+**Ruled 2026-11-07:** every open question is settled ([SD-D10](#SD-D10) to [SD-D15](#SD-D15)): no mask,
+the guard ships in the guardrails pack, the rescue runs automatically, `--fresh-home` is the
+supported fresh start, and the logs and locks leave the top level. Nothing is built.
 
 **Reads with:** [`jail-home.md`](../reference/jail-home.md) (the storage classes the briefing
 renders, and [OQ-JH1](../reference/jail-home.md#OQ-JH1) on relocating `.yolo` by a link),
@@ -58,14 +57,13 @@ rescue would be listed).
 | 1 | **Briefing**: the home dirs are stored under `/workspace/.yolo`; your session is in there; never move, rename or delete `.yolo`; `/tmp` holds nothing you mean to keep ([§3.2](#32-the-briefing-and-the-skills)) | every agent, every setup | three sentences in a section every context loads | the one layer that names the agent's own stake |
 | 2 | **`.yolo/README.md`** and a current `.gitignore` ([§3.1](#31-legibility-of-yolo-itself)) | every reader that opens the directory | one generated file; a ruling on the never-touch promise | turns "looks like build artifacts" into "says what it is" |
 | 3 | **Rescue at stop** ([§3.5](#35-recovery-and-survivability)) | container setups | a copy, only when the bind source is gone | the incident loses nothing: the bytes were alive until Ctrl+C |
-| 4 | **The mask** over the home's workspace-side path ([§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)) | podman, Apple Container | one mount; capture jails exempt | the `mv` cannot reach the home at all |
-| 5 | **Detection**: boot-stamped identity, re-checked on session events ([§3.4](#34-detection)) | every setup | a stat per event | the human learns before the restart, with the next step named |
-| 6 | **`mv`/`rm` shim** ([§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)) | every agent that runs the jail's shell | two shims; bypassable by design | a speed bump with the right message on it |
+| 4 | **Detection**: boot-stamped identity, re-checked on session events ([§3.4](#34-detection)) | every setup | a stat per event | the human learns before the restart, with the next step named |
+| 5 | **`mv`/`rm` guard** ([§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)) | every agent that runs the shell of a jail that selects the guardrails pack ([SD-D12](#SD-D12)) | two shims; bypassable by design | a speed bump with the right message on it |
 | — | **`--fresh-home`** ([§3.6](#36-a-supported-way-to-do-what-the-agent-wanted)) | every setup | a flag and a stamped home dir | the agent's goal, without the `mv` |
 
 My read: layers 1 and 2 would have changed the agent's decision and cost almost nothing; layer 3
-would have saved the sessions anyway; the mask is the only true prevention, and only on container
-setups.
+would have saved the sessions anyway. No layer makes the incident impossible: a mask over the
+homes was weighed and rejected ([SD-D11](#SD-D11)).
 
 ## 2. The incident and why each existing layer missed it
 
@@ -123,15 +121,16 @@ hand-written, so a pack that adds a home dir is listed without anyone rememberin
 ([`paths.go:679-686`](../../internal/paths/paths.go)) and must stay. Its comment names `home/`,
 which new workspaces no longer have. The standing promise is that an existing file is never
 touched, whatever it says ([`paths.go:713-714`](../../internal/paths/paths.go)); the promise exists
-for a user who edited it. Whether a file whose bytes are exactly a text yolo itself wrote counts as
-edited is [OQ-SD1](#OQ-SD1). Either way the warning lives in the README, not the `.gitignore`: git
+for a user who edited it. A file whose bytes are exactly a text yolo itself shipped is not an
+edit, so yolo keeps the hash of every version it has shipped and rewrites a matching file to the
+current text; any other content is never touched ([SD-D10](#SD-D10)). Either way the warning lives in the README, not the `.gitignore`: git
 reads one and humans and agents read the other.
 
 **The top level reads as build output because it is half build output.** Twenty-odd logs and
 locks sit beside the five irreplaceable directories. The named-setups work already moves each
-setup's run state under `setups/<name>/` ([§9](named-setups.md#9-state-per-setup)); whether the
-project-level logs and locks move under `logs/` and `run/` in the same slice, leaving a top level
-of `setups/ durable/ approvals/ archive/ README.md`, is [OQ-SD6](#OQ-SD6).
+setup's run state under `setups/<name>/` ([§9](named-setups.md#9-state-per-setup)); in the same slice
+the project-level logs move under `logs/` and the locks and pids under `run/`, leaving a top level
+of `setups/ durable/ approvals/ archive/ README.md` ([SD-D15](#SD-D15)).
 
 ### 3.2 The briefing and the skills
 
@@ -162,35 +161,19 @@ workspace, which has a `.yolo` of its own.
 
 ### 3.3 Mechanical guards where they are cheap and honest
 
-The owner's premise holds: no one guard reaches every setup. Two are worth their cost; two are
+The owner's premise holds: no one guard reaches every setup. One is worth its cost; three are
 not.
 
-**The mask** *(coined here)*: on container setups, the launch mounts an **empty, read-only
-directory over the home's workspace-side path**, `/workspace/.yolo/setups/<setup>/home`. The home
-is still the agent's at `~/.claude`, `~/.pi` and the rest, through the per-surface binds; the path
-under `/workspace` shows an empty directory nothing can write. A `mv /workspace/.yolo /tmp` then
-copies an empty directory, fails to remove the mount point (`EBUSY`), and leaves every home byte
-where it was; `rm -rf .yolo` fails the same way there. The README row for `setups/` says the
-directory reads empty from here. It does not protect `durable/`, `approvals/`, `archive/` or the
-records, which the agent and yolo both write through this path; those are the detection and
-rescue layers' job.
+**The mask: not built** ([SD-D11](#SD-D11)). An empty read-only mount over the home's
+workspace-side path would stop a `mv` of `.yolo` from reaching the homes on container setups. It
+protects the homes only: the same `mv` still deletes `durable/`, `approvals/`, `archive/` and the
+records, which the agent and yolo write through `/workspace`, and leaves a half-moved `.yolo`.
+Inside the jail the home would read as empty, which misleads the very reader the README and the
+briefing address. It reaches no macos-user or host setup, and whether Apple Container can mount
+over a subpath of the workspace bind is unverified. The rescue covers the homes on every
+container setup without it.
 
-| Setup | Mask? | Why |
-| :--- | :--- | :--- |
-| podman | yes | one `--mount` of a read-only empty tmpfs |
-| Apple Container | yes, over `.yolo/setups/<setup>/home` under the workspace bind | the home is bound whole there; the mask covers the same path |
-| macos-user | **no** | there are no mounts; the home *is* that directory, and Seatbelt cannot deny a path the agent must write |
-| `yolo host` | **no** | unconfined |
-
-Its one known cost: `yolo capture` moves a home delta out by `rename(2)` through the
-workspace-side path, because that path shares a mount with the rest of `/workspace`
-([`paths.go:760-762`](../../internal/paths/paths.go), `--surface-root-of` in
-[`capture.go:76`](../../internal/cli/capture.go)). A capture jail is a throwaway whose argv is
-yolo's own, so **capture jails are launched without the mask**, and nothing else is known to read
-the home through `/workspace`. Whether to ship the mask is [OQ-SD2](#OQ-SD2); it is the only
-layer here that makes the incident impossible rather than unlikely, on the setups where it exists.
-
-**The `mv`/`rm` shim.** The guardrails mechanism already generates a blocker on PATH when its
+**The `mv`/`rm` guard.** The guardrails mechanism already generates a blocker on PATH when its
 replacement is present ([`guardrails/pack.toml:5-12`](../../packs/guardrails/pack.toml)); this
 needs a second kind, a **guard** *(coined here)*: a shim that runs the real program unless an
 argument names the workspace's `.yolo`, or something under it that is not under
@@ -209,8 +192,9 @@ never by reading a link's target. It reaches every agent that runs the jail's sh
 jail's PATH, on every setup including `yolo host --`, which the guardrails pack already covers.
 It does not reach a shell function that outranks PATH (Claude Code defines `grep` and `find` as
 functions; whether it defines `mv` or `rm` is unmeasured), `python -c 'shutil.move(...)'`,
-`rsync --delete`, `git clean`, or an agent's own file tool. Whether it ships in the opt-in
-guardrails pack or in core is [OQ-SD3](#OQ-SD3).
+`rsync --delete`, `git clean`, or an agent's own file tool. It ships in the opt-in guardrails pack, so
+"nothing is blocked by default" still holds; a workspace without that pack meets the README and
+the briefing only ([SD-D12](#SD-D12)).
 
 **Claude Code `PreToolUse` hook: not pursued** ([SD-D6](#SD-D6)). yolo renders no such hook
 today (`PreToolUse` appears in no `packs/*/pack.toml` and no non-test file under `internal/`),
@@ -257,8 +241,9 @@ identity stamp mismatches, **copies each mounted home surface** (`~/.claude`, `~
 `HomeSurface` list names them) **into `<workspace>/.yolo/rescue/<stamp>/home/<surface>/`**,
 recreating `.yolo` if it is gone, before it lets the container end. The copy is a plain recursive
 copy of what is mounted; it never reads the old path. Its size is the home's, which can be
-gigabytes with installs, and it runs exactly once, on an event that should never fire. Whether it
-runs automatically or only on `yolo rescue` while the jail is alive is [OQ-SD4](#OQ-SD4).
+gigabytes with installs, and it runs exactly once, on an event that should never fire. It runs
+automatically at stop, and the stop prints one line naming the rescue directory and the `mv` that
+restores it ([SD-D13](#SD-D13)).
 
 **What the rescue cannot do.** `durable/`, `approvals/`, `archive/` and the records are not
 mounted separately; once their path is gone they are gone from the jail's view, and the rescue
@@ -283,8 +268,8 @@ a **new empty directory** at `<workspace>/.yolo/setups/<setup>/home.fresh-<stamp
 setup's home would be. The regular home is untouched. The fresh home is **kept**, not deleted at
 exit: the session in it may have found the answer, and a per-launch home would reproduce the
 incident by design; `yolo stores` lists it with the `rm -r` that removes it ([SD-D9](#SD-D9)).
-The flag is refused while the same setup runs in the workspace, naming `yolo stop`. Whether this
-is the mechanism, or a user-defined setup is enough once built, is [OQ-SD5](#OQ-SD5).
+The flag is refused while the same setup runs in the workspace, naming `yolo stop`. This flag, not a
+user-defined setup, is the supported way to run without the workspace's state ([SD-D14](#SD-D14)).
 
 ### 3.7 What this design does not license
 
@@ -297,153 +282,23 @@ is the mechanism, or a user-defined setup is enough once built, is [OQ-SD5](#OQ-
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **Homes outside the workspace**, under `~/.local/share/yolo-jail/workspaces/<key>/`, with `.yolo` holding a pointer | **Rejected for this design.** It would remove the whole class on every setup, but it touches the storage design across all three backends, `yolo capture`'s rename path, the macos-user ruling that the home is the workspace's own, and portability: a project's agent state would stop traveling with the project. The mask gives the container half of the benefit for one mount. Worth its own design if the incident repeats after these layers |
+| **Homes outside the workspace**, under `~/.local/share/yolo-jail/workspaces/<key>/`, with `.yolo` holding a pointer | **Rejected for this design.** It would remove the whole class on every setup, but it touches the storage design across all three backends, `yolo capture`'s rename path, the macos-user ruling that the home is the workspace's own, and portability: a project's agent state would stop traveling with the project. Worth its own design if the incident repeats after these layers |
 | **Routine snapshots** of the homes | **Rejected.** Disk and I/O on every launch against an event made rare; non-atomic writers (Pi's `settings.json`, `auth.json`) make a timed snapshot a half-state |
 | **A trash instead of a refusal** in the shim | **Rejected.** A move the agent did not ask for is a side effect; refuse and name the step |
 | **Immutable file flags** | **Rejected** ([§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)) |
 | **A Claude Code `PreToolUse` hook rendered by core** | **Rejected** ([§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)): one agent, same command the shim sees |
 | **Refuse to boot on a mismatch** | **Rejected.** Stopping is what loses the bytes; a mismatch is a warning and a rescue, never a refusal |
-| **Rewrite the `.gitignore` unconditionally** | Carried as option C of [OQ-SD1](#OQ-SD1); the seat does not recommend it |
+| **A read-only mask over the homes' workspace-side path** | **Rejected** ([SD-D11](#SD-D11), [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest)) |
+| **Rewrite the `.gitignore` unconditionally** | **Rejected** ([SD-D10](#SD-D10)): a user who un-ignored something would lose it at the next launch |
 
 ## 5. Open Questions
 
-1. 💬 **OQ-SD1: May yolo refresh a `.yolo/.gitignore` it wrote itself?**
-
-   Matt opens a workspace yolo first launched in August. Its `.yolo/.gitignore` says `home/` is
-   the home overlay; the home has since moved to `setups/podman-self/home`. yolo wrote that file
-   once and, by its own doc comment, never touches an existing one, so every older workspace
-   keeps the old text forever. The README now carries the warning, so the question is only
-   whether the `.gitignore`'s comment may be brought current, and the promise was made for a
-   user who edited the file.
-
-   - **A — Never.** The old comment stays; the README beside it is current. Matt sees two files
-     that disagree about the layout.
-   - **B — Refresh when the bytes are a text yolo wrote.** yolo keeps the hash of every version
-     it has shipped; a file matching one is rewritten to the current text, any other content is
-     left alone. Matt's edited file is never touched; an untouched one reads right.
-   - **C — Always rewrite.** The promise is dropped; a user who un-ignored something loses it at
-     the next launch.
-
-   <!-- vantage: question id=OQ-SD1 leaning="B — the promise protects a user's edit, and a byte-identical yolo text is not one; the hash table is a short list." -->
-
-   _Leaning:_ B — the promise protects a user's edit, and a byte-identical yolo text is not one;
-   the hash table is a short list.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-SD2: Should the home be hidden under `/workspace/.yolo` inside container jails?**
-
-   An agent in a podman jail runs `mv /workspace/.yolo /tmp/`. Today the command copies every
-   home byte to a scratch volume and deletes the originals from under the running binds. With
-   an empty read-only directory mounted over `/workspace/.yolo/setups/<setup>/home`, the same
-   command copies an empty directory, fails on the mount point with "Device or resource busy",
-   and the homes are untouched; the agent still has them at `~/.pi` and `~/.claude`. The one
-   thing known to use that path is `yolo capture`, which would run its throwaway jails without
-   the mask.
-
-   - **A — Mask it.** The `mv` cannot reach the homes. Capture jails are launched plain. A tool
-     that read the home through `/workspace` would see an empty directory; none is known to.
-   - **B — Leave it visible.** The briefing, the README and the shim carry the whole load, and
-     the rescue repairs what gets through.
-
-   <!-- vantage: question id=OQ-SD2 leaning="A — it is the only layer that makes the incident impossible rather than unlikely, and it costs one mount." -->
-
-   _Leaning:_ A — it is the only layer that makes the incident impossible rather than unlikely,
-   and it costs one mount.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-SD3: Does the `mv`/`rm` guard ship in the opt-in guardrails pack, or in every jail?**
-
-   A workspace with `packs = ["claude"]` and no guardrails launches. Today nothing is blocked
-   there by default, by a standing rule, and `grep -r` and `find` are refused only where the
-   guardrails pack is selected. The guard refuses `mv` and `rm` of yolo's own state and nothing
-   else, and `YOLO_BYPASS_SHIMS=1` already bypasses any shim.
-
-   - **A — Guardrails only.** Consistent with "nothing is blocked by default". The workspace
-     above gets no guard; its agent meets the README and the briefing only.
-   - **B — Every jail.** The rule gains one exception, for yolo's own directory: there is no
-     user for whom refusing to move it is the wrong default. Every `mv` and `rm` runs through
-     a wrapper that checks its arguments and otherwise execs the real program.
-
-   <!-- vantage: question id=OQ-SD3 leaning="B — the exception is yolo's own state, which every launch has; a guard that reaches only opted-in workspaces misses the fresh jail the incident happened in." -->
-
-   _Leaning:_ B — the exception is yolo's own state, which every launch has; a guard that
-   reaches only opted-in workspaces misses the fresh jail the incident happened in.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-SD4: When the jail stops and `.yolo` is gone, does yolo copy the mounted homes out on its own?**
-
-   The agent has moved `.yolo` away; Matt sees errors and presses Ctrl+C. Today the keeper stops
-   the container and the homes, still mounted until that instant, are gone. With the rescue,
-   the keeper notices the boot stamp no longer matches and copies each mounted home surface
-   into a fresh `.yolo/rescue/<stamp>/` before the container ends. That copy can be gigabytes
-   and takes as long as it takes; Ctrl+C has already been pressed.
-
-   - **A — Automatically, always.** The stop takes longer, once, and prints one line naming the
-     rescue directory and the `mv` that restores it. Nothing is lost.
-   - **B — Only on `yolo rescue` while the jail runs.** The stop is immediate; the warning on
-     attach told Matt to run it first. A Ctrl+C before anyone read the warning loses the homes,
-     as today.
-
-   <!-- vantage: question id=OQ-SD4 leaning="A — the incident's Ctrl+C came before anyone could read a warning; a slow stop beats a lost session every time." -->
-
-   _Leaning:_ A — the incident's Ctrl+C came before anyone could read a warning; a slow stop
-   beats a lost session every time.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-SD5: Is `yolo --fresh-home` the supported way to run without a workspace's state?**
-
-   An agent bisecting wants one run with no history, and asks Matt. Today the answer is to define
-   a new setup in user config and launch with `--setup`, which gives a separate home once
-   per-setup homes are built; a setup is a choice of walls, and its definition is not the jail's
-   to write.
-
-   - **A — A `--fresh-home` flag.** `yolo --fresh-home -- claude` runs the selected setup on a
-     new empty home at `.yolo/setups/<setup>/home.fresh-<stamp>`, kept afterwards and listed by
-     `yolo stores` with the command that removes it.
-   - **B — A user-defined setup is enough.** Matt runs `yolo setup new diag --from podman-self`
-     and `yolo --setup diag`; the home is `.yolo/setups/diag/home`. Nothing new to build, but it
-     waits on the per-setup home slice and leaves a setup behind.
-
-   <!-- vantage: question id=OQ-SD5 leaning="A — the thing wanted is an empty home, not another setup, and the flag is what the briefing and README can name in one word." -->
-
-   _Leaning:_ A — the thing wanted is an empty home, not another setup, and the flag is what the
-   briefing and README can name in one word.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 **OQ-SD6: Should the logs and locks leave `.yolo`'s top level?**
-
-   Anyone running `ls /workspace/.yolo` sees forty entries, most of them `*.log`, `*.lock` and
-   JSON records, beside the five directories that hold everything irreplaceable. The named-setups
-   work is already moving each setup's run state under `setups/<name>/`, touching every reader of
-   those paths once.
-
-   - **A — Move them in that slice.** Project-level logs go under `logs/`, locks and pids under
-     `run/`; the top level becomes `setups/ durable/ approvals/ archive/ README.md`. Every
-     reader of `launch.log`, `boot.log` and the locks changes once, and `.yolo/launch.log` in
-     every doc and message is renamed.
-   - **B — README only.** The listing stays; the README is the map.
-
-   <!-- vantage: question id=OQ-SD6 leaning="A — a directory whose listing is five names needs no README to read as state, and the slice that moves the readers is already open." -->
-
-   _Leaning:_ A — a directory whose listing is five names needs no README to read as state, and
-   the slice that moves the readers is already open.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+None open. The six questions were ruled on 2026-11-07 and are [SD-D10](#SD-D10) to
+[SD-D15](#SD-D15).
 
 ## 6. Decision Ledger
 
-One-answer decisions the seat made, pending the owner's review. None is built.
+SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the owner's rulings of 2026-11-07, compacted from the six open questions. None is built.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -456,6 +311,12 @@ One-answer decisions the seat made, pending the owner's review. None is built.
 | <a id="SD-D7"></a>SD-D7 | No immutable file flags on any setup | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
 | <a id="SD-D8"></a>SD-D8 | `diagnosing-the-jail` gains a "ruling out the workspace's state" recipe: never move or copy `.yolo`; `--fresh-home` or a throwaway workspace | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | — |
 | <a id="SD-D9"></a>SD-D9 | A rescue and a fresh home are listed by `yolo stores` with their size and the command that removes or restores them; no reaper touches either | 2026-11-07 | [§3.5](#35-recovery-and-survivability), [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | — |
+| <a id="SD-D10"></a>SD-D10 | **Question 1, ruled B.** yolo rewrites a `.yolo/.gitignore` whose bytes match a text yolo has shipped (it keeps those hashes) to the current text; any other content is never touched. The promise protects a user's edit, and a byte-identical yolo text is not one | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | — |
+| <a id="SD-D11"></a>SD-D11 | **Question 2, ruled B.** No mask over the homes' workspace-side path. The owner: it protects a small share of the harm (the same `mv` still deletes `durable/`, `approvals/` and `archive/`) and makes the home read empty from inside, a likely source of confusion | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
+| <a id="SD-D12"></a>SD-D12 | **Question 3, ruled A.** The `mv`/`rm` guard ships in the opt-in guardrails pack only; nothing is blocked by default | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
+| <a id="SD-D13"></a>SD-D13 | **Question 4, ruled A.** The rescue runs automatically at keeper stop when the identity stamp mismatches; the stop takes as long as the copy and prints the rescue directory and the restoring `mv`. A slow stop beats a lost session | 2026-11-07 | [§3.5](#35-recovery-and-survivability) | — |
+| <a id="SD-D14"></a>SD-D14 | **Question 5, ruled A.** `yolo --fresh-home` runs the selected setup on a new empty home at `.yolo/setups/<setup>/home.fresh-<stamp>`, kept afterwards and listed by `yolo stores` | 2026-11-07 | [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | — |
+| <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | — |
 
 ## 7. Appendix: evidence
 
