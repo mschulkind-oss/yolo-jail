@@ -3118,6 +3118,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// is visible at a glance (audit §B#4.
 	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
 	o.emitLaunchBannerFacts(rt, cname, actualSetup, actualNetwork, setup.FromRunningJail, nil, baked)
+	// A `.yolo` MOVED UNDER THE RUNNING JAIL is said on this terminal, before the session starts,
+	// while the jail still holds the homes (keeperrescue.go, SD-D5). It refuses nothing.
+	if rec, ok := readKeeperRecord(cname); ok {
+		o.warnStateMoved(rec)
+	}
 	// THE JAIL'S GRANT IS THE ONE IT WAS LAUNCHED WITH (jailgrant.go, ES-D33): this session holds
 	// it, and asks for no other. A request the running jail does not hold is refused before anything
 	// is written, naming the fresh launch; a subset of it, or the same set, or none, goes ahead.

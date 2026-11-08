@@ -281,6 +281,9 @@ func Check(opts Options) int {
 	// --- Durable dir: what accumulates there, which yolo reports and never deletes (OQ-DS2) ---
 	o.sectionDurableDir(r, workspace)
 
+	// --- Workspace state: a running jail's `.yolo` moved or deleted under it (SD-D5) ---
+	o.sectionStateMoved(r, workspace)
+
 	// --- Disk I/O priority: the disk under the workspace (only when one is declared) ---
 	o.sectionIOPriority(r, merged, runtimeSel)
 

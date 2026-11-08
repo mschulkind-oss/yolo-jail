@@ -404,7 +404,9 @@ func (k *keeper) run() int {
 		Scope: k.scope, Log: keeperLogPath(k.stateKey()), MCPTeardownKnown: true,
 		MCPTeardownRequired: p.MCPTeardownID != "", MCPTeardownID: p.MCPTeardownID,
 		// What the jail is launched with, names only, for every attach to read (ES-D33).
-		Grant: p.Grant, PrivateClients: privateClientBins(p.PrivateClientEntrypoints)}
+		Grant: p.Grant, PrivateClients: privateClientBins(p.PrivateClientEntrypoints),
+		// The identity stamp, before the container exists (keeperrescue.go).
+		StateIdentity: k.stampStateIdentity()}
 	if p.Notch != "" {
 		k.record.Contract, k.record.Notch, k.record.Build = keeperRosterContract, p.Notch, p.Build
 	}
@@ -930,6 +932,9 @@ func (k *keeper) endJail(reason string, stop bool) {
 	// From here every service's end is this keeper's own act (keeperwatch.go).
 	k.beginStopping()
 	if stop && k.jm != nil {
+		// THE RESCUE, while the container still holds the homes' binds: a `.yolo` moved under the
+		// running jail leaves them reachable only through it (keeperrescue.go, SD-D13).
+		k.rescueIfMoved()
 		sp := o.Perf.Span("keeper.stop_jail")
 		o.stopJail(p.Cname, p.Runtime, reason)
 		sp.End()
@@ -1336,6 +1341,9 @@ func (k *keeper) endKey() {
 	k.record.Ending = true
 	_ = writeKeeperRecord(k.stateKey(), k.record)
 	k.recMu.Unlock()
+	// Nothing is mounted here, so nothing is copied: a moved `.yolo` took the homes with it, and
+	// the line names the move back (keeperrescue.go).
+	k.noteMovedAtNotch()
 	for i := len(k.launched) - 1; i >= 0; i-- {
 		sp := o.Perf.Span("shutdown.stop_held")
 		k.launched[i].r.Stop()

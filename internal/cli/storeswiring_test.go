@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
@@ -29,6 +30,9 @@ func TestStoresOptionsWiring(t *testing.T) {
 	}
 	if !opts.Color {
 		t.Error("storesOptions did not request color; the printer gates it on the TTY probe anyway")
+	}
+	if wd, _ := os.Getwd(); opts.Workspace != wd {
+		t.Errorf("storesOptions named workspace %q, want the directory it ran in (%q), whose rescues are listed with no jail running", opts.Workspace, wd)
 	}
 }
 

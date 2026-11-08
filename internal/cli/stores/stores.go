@@ -206,6 +206,10 @@ type Options struct {
 	// which). nil => macosUserRoots. Injected by tests, which point every root at temp dirs on
 	// any platform.
 	MacosUser func() MacosUserRoots
+	// Workspace is the workspace the command was run in, "" for none. Its rescued agent homes are
+	// listed even when no jail of it is running, as is every rescue of a workspace a runtime still
+	// lists a jail for (rescueStores).
+	Workspace string
 }
 
 // MacosUserRoots is the macos-user backend's storage outside yolo's state dir.

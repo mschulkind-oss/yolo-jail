@@ -38,7 +38,7 @@ func renderText(rep Report, o Options) {
 	// (docs/reference/disk-footprint.md OQ-BF10). Nothing sums across
 	// sections, which is what keeps a host-owned 27 G store out of yolo's own
 	// footprint.
-	for _, section := range []string{SectionState, SectionCache, SectionAlias, SectionImages, SectionVolumes, SectionToolDisks, SectionDurable, SectionMacosUser, SectionMacosUserLegacy, SectionNix} {
+	for _, section := range []string{SectionState, SectionCache, SectionAlias, SectionImages, SectionVolumes, SectionToolDisks, SectionDurable, SectionRescue, SectionMacosUser, SectionMacosUserLegacy, SectionNix} {
 		rows := rowsIn(rep, section)
 		if len(rows) == 0 {
 			continue

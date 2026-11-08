@@ -548,6 +548,8 @@ func storesOptions(args []string) stores.Options {
 		ws = "."
 	}
 	opts.DetectRuntime = listingDetect("stores", ws, os.Stderr)
+	// The workspace this was run in, whose rescues are listed even with no jail of it running.
+	opts.Workspace = ws
 	return opts
 }
 

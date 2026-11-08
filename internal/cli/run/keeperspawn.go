@@ -1531,6 +1531,8 @@ func (o *Options) joinMacosUserKeeper(rt, cname string, cfg *jsonx.OrderedMap, p
 	rec := *m.joined
 	out := o.pr(o.Stderr)
 	out.print("[dim]" + richtext.Escape(o.joinedKeeperLine(m.key, rec)) + "[/dim]")
+	// A `.yolo` moved since the keeper started took the homes with it (keeperrescue.go, SD-D5).
+	o.warnStateMoved(rec)
 	o.discloseLoopholes(rt, cfg, packs, payload)
 	o.noteHeldByKeeper(rec)
 	// What the keeper recorded down while this launch was not in (JL-D19).

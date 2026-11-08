@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/stateguard"
 )
 
 // livenessLockPath is cname's liveness lock.
@@ -169,6 +170,12 @@ type keeperRecord struct {
 	// none. An attach reads it to say what its session holds and to refuse a request the jail
 	// does not hold (refuseGrantTheJailLacks, ES-D33).
 	Grant *jailGrant `json:"grant,omitempty"`
+	// StateIdentity is the jail's IDENTITY STAMP (internal/stateguard): the device and inode of the
+	// workspace's `.yolo`, its `durable/` and each home bind source, taken before the container
+	// started. Kept here rather than under `.yolo`, which it describes and would move with it. An
+	// attach, the keeper's stop and `yolo check` compare it (docs/design/workspace-state-safety.md
+	// §3.4); nil when it could not be taken, which compares as nothing moved.
+	StateIdentity *stateguard.Stamp `json:"state_identity,omitempty"`
 }
 
 // keeperRecordPath is cname's start record.
