@@ -316,7 +316,7 @@ SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the own
 | <a id="SD-D12"></a>SD-D12 | **Question 3, ruled A.** The `mv`/`rm` guard ships in the opt-in guardrails pack only; nothing is blocked by default | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | `832332b65` |
 | <a id="SD-D13"></a>SD-D13 | **Question 4, ruled A.** The rescue runs automatically at keeper stop when the identity stamp mismatches; the stop takes as long as the copy and prints the rescue directory and the restoring `mv`. A slow stop beats a lost session | 2026-11-07 | [§3.5](#35-recovery-and-survivability) | `6e041847b` |
 | <a id="SD-D14"></a>SD-D14 | **Question 5, ruled A.** `yolo --fresh-home` runs the selected setup on a new empty home at `.yolo/setups/<setup>/home.fresh-<stamp>`, kept afterwards and listed by `yolo stores` | 2026-11-07 | [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | `22da313c7` |
-| <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | — |
+| <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | 499484fd3 (logs; locks stay until no older-yolo jail takes them, and no pid file exists for `run/`) |
 
 ## 7. Appendix: evidence
 
