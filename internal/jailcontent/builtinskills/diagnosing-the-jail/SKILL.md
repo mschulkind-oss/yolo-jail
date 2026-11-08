@@ -155,3 +155,20 @@ entrypoint's `boot.log` beside it.
 - `yolo ps` — list running jails (catches orphaned containers).
 - Agent logs, for debugging a specific agent:
   `~/.copilot/logs/`, `~/.claude/projects/`.
+
+## 8. Ruling out the workspace's state
+
+To test whether something in the workspace's `.yolo` causes a problem, never
+move, rename, delete or copy `.yolo` or anything in it. The agents' homes are
+in there, this session's own files included, and a home moved out from under a
+running jail is lost when the jail stops. A copy rules nothing out: the jail
+keeps running on the original, and `.yolo/durable` is inside it, so the copy
+recurses. The state cannot be ruled out from inside the jail that runs on it.
+Instead:
+
+- ask the human to run `yolo --fresh-home`, which starts the agent on a new,
+  empty home and leaves the regular one untouched; or
+- reproduce from a throwaway workspace (a new empty directory), which gets a
+  `.yolo` of its own.
+
+`<workspace>/.yolo/README.md` says what each part of the directory holds.

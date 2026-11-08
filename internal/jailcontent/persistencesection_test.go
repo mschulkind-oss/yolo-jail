@@ -39,7 +39,7 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 		"Remove one with `git worktree unlock <path> && git worktree remove <path>`, which refuses while it holds uncommitted changes; `git worktree remove -f -f <path>` discards them.",
 		"- **Per launch** (on disk): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives nothing",
 		"yolo deletes these once the jail exits",
-		"Throwaway files only, never a worktree.",
+		"Throwaway files only, never a worktree, and never a holding place: a file moved here is gone at the restart.",
 		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; in home, only `~/.claude`, `~/.config`, `~/go` (the agents' and tools' own state and installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes nothing here but some agents' log files older than 30 days and clean, idle worktrees a pack's tool left in `$YOLO_DURABLE_DIR`.",
 		"- **Every workspace on this machine**: `~/.cache`, `/mise`. Survives restarts and workspace switches, and every jail on this machine shares them",
 		"Tool caches belong here (pip's `~/.cache/pip`, for one), never your work",
@@ -199,7 +199,7 @@ func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
 		"- **Per launch** (in RAM): `/tmp`, `/var/tmp`, `/run`. Shared by every terminal attached to this jail. " +
 			"Survives nothing: they are gone when the jail stops, and a restart is a new launch with new, empty ones. " +
 			"Everything you put there uses this jail's memory. A scratchpad a harness hands you under `/tmp` is in " +
-			"this class. Throwaway files only, never a worktree.",
+			"this class. Throwaway files only, never a worktree, and never a holding place: a file moved here is gone at the restart.",
 		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; all of `/home/agent` outside the " +
 			"other classes, writable and kept in this workspace's home under `.yolo/setups/<setup>/home` (the agents' and tools' own state and " +
 			"installs: never put your work there); `/workspace/.venv`, `/mise` (this jail's own copies, not the host's). " +

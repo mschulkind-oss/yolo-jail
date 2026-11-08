@@ -345,12 +345,14 @@ func MechanismHasNoContainer(mechanism string) bool {
 // account or as you (macos-user-model-plan.md MMP-D5, MMP-D25), so a second workspace has a home
 // of its own; what every workspace shares is the machine-wide state its links reach. Until the
 // Mac run of 2026-11-03 this said the account home was shared by every workspace, which stopped
-// being true with 12a.
+// being true with 12a. The last sentence is SD-D2's stake: a `mv` of `.yolo` moves this home,
+// and the session reading this with it.
 var macosUserHomeLines = []string{
 	"Your home is THIS workspace's own (`.yolo/setups/<setup>/home`) and it PERSISTS between",
 	"launches; another workspace has its own. Only its links to machine-wide state, the",
 	"logins and caches your packs declare at `scope: machine`, reach directories that",
-	"are shared by every workspace on this machine.",
+	"are shared by every workspace on this machine. Your own session is in that home: never",
+	"move, rename or delete `.yolo` or anything in it but your own files in `.yolo/durable`.",
 }
 
 // setupHeader names the selected setup and spells its fields, while deriving the enforcement

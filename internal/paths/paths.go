@@ -680,10 +680,10 @@ const WorkspaceStateIgnoreName = ".gitignore"
 // everything the launcher printed, and a --dry-run's printed argv IS its env list, provider
 // secrets and all (docs/plans/runbooks/macos-user-manual-checks.md, "Credentials moved off the sandbox argvs"). `archive/config/` holds
 // VERBATIM copies of the user's own pre-yolo agent config files — exactly where credentials
-// live — and render.Target.ArchivePath is shaped to keep them forever. `home/` is the jail's
-// entire home overlay. This repo happens to ignore .yolo/ by a hand-written line in its own
-// .gitignore, and until this function existed that accident was the only thing making
-// docs/reference/storage-and-config.md's description of the directory as "gitignored" true.
+// live — and render.Target.ArchivePath is shaped to keep them forever. The agents' homes
+// (`setups/<setup>/home/`, or the legacy `home/`) are the jail's entire home overlay. This
+// repo happens to ignore .yolo/ by a hand-written line in its own .gitignore, and until this
+// function existed that accident was the only thing making docs/reference/storage-and-config.md's description of the directory as "gitignored" true.
 //
 // NOTHING under .yolo is meant to be committed, `handover.md` included — the one file worth
 // asking about, since a human may want to hand one to a teammate. The handoff design already
@@ -692,12 +692,13 @@ const WorkspaceStateIgnoreName = ".gitignore"
 // (docs/reference/host-to-jail-handoff.md). A committed pointer would be a file that is stale
 // by design.
 const WorkspaceStateIgnore = `# yolo-jail's per-workspace state. None of it belongs in version control:
-# home/ is the jail's home overlay, archive/ holds verbatim copies of your own
-# agent config files, and the logs record a launch's full argv.
+# it holds the agents' homes, verbatim copies of your own agent config files,
+# and logs that record a launch's full argv. README.md says what each part is.
 #
 # The bare '*' below ignores this file too, so .yolo/ stays invisible to git
-# however the repo's own .gitignore is written. yolo writes this file once and
-# never overwrites it - edit it, or delete it, if you mean to commit any of this.
+# however the repo's own .gitignore is written. yolo updates this file only
+# while it is exactly a text yolo wrote; once you edit it, it is yours. Edit
+# it, or delete it, if you mean to commit any of this.
 *
 `
 
@@ -710,8 +711,14 @@ const WorkspaceStateIgnore = `# yolo-jail's per-workspace state. None of it belo
 // without the file forever — and those are precisely the ones already holding a launch.log.
 // So: MkdirAll every time, then write when the file is absent, however old the directory is.
 //
-// A .gitignore that is already there is NEVER touched, whatever it says. A user who edited it,
-// emptied it, or deliberately un-ignored something owns it from then on.
+// A .gitignore that is already there is touched ONLY when its bytes are exactly a text yolo
+// itself shipped (shippedWorkspaceStateIgnoreSHA256, SD-D10): that file is yolo's, not an edit,
+// and it is rewritten to the current text. Anything else is never touched, whatever it says: a
+// user who edited it, emptied it, or deliberately un-ignored something owns it from then on.
+//
+// README.md beside it (WorkspaceStateReadme) is rewritten whenever its bytes differ from the
+// current rendering: it is yolo's own text about yolo's own directory, with nothing of the
+// user's to keep, and a stale one is the defect it exists to remove (SD-D1).
 //
 // The write is best-effort and its failure is NOT returned: no launch should die because it
 // could not ignore itself, and a workspace yolo cannot write into is one where the launch is
@@ -731,20 +738,18 @@ func EnsureWorkspaceStateDir(workspace string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
-	// Beneath a root on the directory, created O_EXCL: `.yolo` is jail-writable, so a link the
-	// last jail left at `.yolo` itself, or at the ignore file (a DANGLING one included), would
-	// otherwise have this write create or truncate the file it names. A linked `.yolo` skips
-	// the write here, and the callers that write beneath it refuse it (OpenWorkspaceStateFile).
-	// Anything already at the name is left alone: it is a file the user put there.
+	// Beneath a root on the directory: `.yolo` is jail-writable, so a link the last jail left at
+	// `.yolo` itself, or at either file (a DANGLING one included), would otherwise have this
+	// write create or truncate the file it names. The ignore file is created O_EXCL and replaced
+	// only from a regular file holding a shipped text; both replacements are a rename over the
+	// name, never a write through it. A linked `.yolo` skips both writes here, and the callers
+	// that write beneath it refuse it (OpenWorkspaceStateFile).
 	r, err := OpenStateDirRoot(dir)
 	if err != nil {
 		return dir, nil
 	}
 	defer r.Close()
-	if f, err := r.OpenFile(WorkspaceStateIgnoreName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644); err == nil {
-		_, _ = f.WriteString(WorkspaceStateIgnore)
-		_ = f.Close()
-	}
+	refreshWorkspaceStateFiles(r, workspace)
 	return dir, nil
 }
 

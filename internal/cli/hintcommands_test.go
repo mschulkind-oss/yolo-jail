@@ -173,7 +173,9 @@ func TestEveryHintedYoloCommandExists(t *testing.T) {
 // probe the check must refuse until that slice lands, and the slice. It may not outlive its
 // slice: TestEveryPlannedCommandIsStillUnbuilt fails the moment a probe resolves, and the
 // builder of that slice deletes the entry. Never add an entry for a command no plan builds.
-var plannedCommands = []struct{ prefix, probe, slice string }{}
+var plannedCommands = []struct{ prefix, probe, slice string }{
+	{"yolo --fresh-home", "yolo --fresh-home", "workspace-state-safety.md SD-D14 (--fresh-home)"},
+}
 
 // plannedCommand reports whether hint begins with a plannedCommands prefix, as whole words.
 func plannedCommand(hint string) bool {

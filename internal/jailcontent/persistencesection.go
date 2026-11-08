@@ -1,11 +1,38 @@
 package jailcontent
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
+
+// homeStateShown names the home this launch bound its home dirs from, relative to the
+// workspace's `.yolo`, for the per-workspace bullet: `home` when the launch still binds the
+// legacy home every setup once shared, `setups/<setup>/home` otherwise. It reads the map's host
+// sources (each home dir's is <home>/<name>), so it says what the mount plan did rather than
+// what the layout is meant to be. A source it cannot place, or none, is the current layout.
+//
+// The Apple Container clause ("kept in this workspace's home under …") still names the setup
+// layout unconditionally; a run-package test pins that wording, and it is outside this change.
+func homeStateShown(m *PersistenceMap, hostWorkspace string, homeDirs []string) string {
+	const current = "setups/<setup>/home"
+	for _, p := range homeDirs {
+		src := m.HostSources[p]
+		if src == "" {
+			continue
+		}
+		if rel, ok := paths.HomeStateRel(hostWorkspace, filepath.Dir(src)); ok {
+			if filepath.ToSlash(rel) == "home" {
+				return "home"
+			}
+			return current
+		}
+	}
+	return current
+}
 
 // DurableDir is what the briefing says about the launch's durable dir (a term coined in
 // docs/reference/jail-home.md#storage-class-terms: `<workspace>/.yolo/durable`, exported as
@@ -74,7 +101,8 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 		if workspace != "/workspace" {
 			lines = append(lines, "- **`/tmp`** is this Mac's own: it survives this launch, is shared "+
 				"with every workspace and the host user, and is cleared at reboot. Give anything "+
-				"there a unique name (`mktemp`), and keep nothing there you need later.", "")
+				"there a unique name (`mktemp`), and keep nothing there you need later, this "+
+				"workspace's `.yolo` least of all.", "")
 		}
 		return lines
 	}
@@ -99,7 +127,8 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 		}
 		lines = append(lines, "- **Per launch** ("+backing+"): "+joinTilde(perLaunch, home)+". "+
 			"Shared by every terminal attached to this jail. "+survives+" A scratchpad a harness "+
-			"hands you under `/tmp` is in this class. Throwaway files only, never a worktree.")
+			"hands you under `/tmp` is in this class. Throwaway files only, never a worktree, and "+
+			"never a holding place: a file moved here is gone at the restart.")
 	}
 
 	// What the per-workspace home dirs are FOR, because "survives restarts" alone read as an
@@ -138,20 +167,35 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 		worktrees = " and clean, idle worktrees a pack's tool left in `$" + durable.EnvVar + "`."
 	}
 	deletes := "yolo deletes nothing here but some agents' log files older than 30 days" + worktrees
+	// THE AGENT'S OWN STAKE (SD-D2): the home dirs are stored in the workspace's `.yolo`, and so
+	// is the session reading this. "Per workspace" alone read as a second place beside
+	// `/workspace/.yolo`, and an agent moved `.yolo` aside to rule it out, taking every session of
+	// the workspace with it. The location is the one the launch bound (homeStateShown).
+	stake := ""
+	exceptDurable := ""
+	if hasDurable {
+		exceptDurable = " but your own files in `$" + durable.EnvVar + "`"
+	}
+	yolo := "`" + workspace + "/.yolo`"
 	switch {
 	case homeDurable:
 		where = append(where, "all of `"+home+"` outside the other classes, writable and kept in "+
 			"this workspace's home under `.yolo/setups/<setup>/home`"+toolsOwn)
 		deletes = "yolo deletes nothing here but its own files (below)" + worktrees
+		stake = " That home holds your own session too: never move, rename or delete " + yolo +
+			" or anything in it" + exceptDurable + "."
 	case len(inHome) > 0:
 		where = append(where, "in home, only "+joinTilde(inHome, home)+toolsOwn)
+		stake = " Those home dirs, your own session among them, are stored in `" + workspace + "/.yolo/" +
+			homeStateShown(m, hostWorkspace, inHome) + "`: never move, rename or delete " + yolo +
+			" or anything in it" + exceptDurable + "."
 	}
 	if len(outside) > 0 {
 		where = append(where, joinTilde(outside, home)+" (this jail's own copies, not the host's)")
 	}
 	if len(where) > 0 {
 		lines = append(lines, "- **Per workspace**: "+strings.Join(where, "; ")+". Survives "+
-			"restarts and every new launch of this workspace; another workspace has its own. "+deletes)
+			"restarts and every new launch of this workspace; another workspace has its own. "+deletes+stake)
 	}
 
 	if machine := m.Of(PathMachineDurable); len(machine) > 0 {
@@ -256,6 +300,10 @@ func durableLead(d *DurableDir, workspace, hostWorkspace string) []string {
 		lifetime + " It sits in the workspace's `.yolo`, which git ignores, so a " +
 			durable.CleanCommand + " in the workspace deletes it: never run one there. The rest of `" +
 			workspace + "` is the user's project.",
+		// SD-D2's third sentence: the supported way to do what the agent that moved `.yolo` aside
+		// wanted. The state cannot be ruled out from inside a jail that runs on it.
+		"To rule out this workspace's state in a diagnosis, do not move it: ask the human to run " +
+			"`yolo --fresh-home`, or test from a throwaway workspace.",
 	}
 	worktree := "Make a worktree with `git worktree add --lock \"$" + durable.EnvVar + "/worktrees/<task>\"`"
 	if workspace != hostWorkspace {
