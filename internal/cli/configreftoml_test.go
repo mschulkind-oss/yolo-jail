@@ -53,13 +53,14 @@ func TestConfigRefTOMLSectionNamesOnlyReadableKeys(t *testing.T) {
 			t.Errorf("the TOML section does not mention %q", key)
 		}
 	}
-	// convert_later is the one key that is legacy-only: the section says so, and the readable
+	// convert_later is the one key that is legacy-only: the legacy section says so, and the readable
 	// schema has no such key.
 	if readable[config.ConvertLaterKey] {
 		t.Errorf("%s is a readable key; the section calls it legacy-only", config.ConvertLaterKey)
 	}
-	if !strings.Contains(section, config.ConvertLaterKey) || !strings.Contains(section, "LEGACY USER FILE ONLY") {
-		t.Errorf("the TOML section does not document %s as legacy-user-file-only", config.ConvertLaterKey)
+	legacy := legacySection(t)
+	if !strings.Contains(legacy, config.ConvertLaterKey) || !strings.Contains(legacy, "LEGACY USER FILE ONLY") {
+		t.Errorf("the LEGACY JSONC FORMAT section does not document %s as legacy-user-file-only", config.ConvertLaterKey)
 	}
 }
 
@@ -85,9 +86,9 @@ func TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas(t *testing.T) {
 	}
 }
 
-// Every legacy key the migration moves or splits says where it went.
-func TestConfigRefTOMLSectionCoversEveryMovedLegacyKey(t *testing.T) {
-	section := tomlSection(t)
+// Every legacy key the migration moves or splits says where it went, in the legacy section.
+func TestConfigRefLegacySectionCoversEveryMovedLegacyKey(t *testing.T) {
+	section := legacySection(t)
 	for _, d := range config.RenameDescriptors() {
 		if d.Transform != config.RenameMove && d.Transform != config.RenameSplit {
 			continue
@@ -96,7 +97,7 @@ func TestConfigRefTOMLSectionCoversEveryMovedLegacyKey(t *testing.T) {
 			continue
 		}
 		if !strings.Contains(section, d.OldPath) {
-			t.Errorf("legacy key %q moves to %v but the TOML section does not say so", d.OldPath, d.Replacements)
+			t.Errorf("legacy key %q moves to %v but the LEGACY JSONC FORMAT section does not say so", d.OldPath, d.Replacements)
 		}
 	}
 }

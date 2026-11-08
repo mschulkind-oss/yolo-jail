@@ -73,6 +73,9 @@ func TestConfigRefDocumentsEveryLiveKey(t *testing.T) {
 			}
 		}
 		if !documented {
+			documented = documentedUnderTOMLName(key, titles)
+		}
+		if !documented {
 			t.Errorf("`yolo config-ref` has no section for the accepted config key %q "+
 				"(neither %q nor any %q.<sub> entry). config-ref is the CLI's only concept "+
 				"surface for the schema, so an undocumented key is a key an in-jail agent "+
@@ -150,6 +153,11 @@ func TestConfigRefKeySectionsAreAllKnown(t *testing.T) {
 		t.Fatal("parsed no `[bold]<key>[/bold] (<type>)` sections out of config-ref — " +
 			"the format changed and this whole file has stopped testing anything")
 	}
+	for _, k := range config.ReadableSchemaKeys() {
+		if !strings.Contains(k.Path, ".") {
+			live[k.Path] = true
+		}
+	}
 	for key := range sections {
 		if live[key] || retired[key] {
 			continue
@@ -213,4 +221,29 @@ func sectionTitle(line string) (string, bool) {
 		return "", false
 	}
 	return name, true
+}
+
+// documentedUnderTOMLName reports whether a legacy key the TOML migration moves (packages
+// to install.nix, profiles to providers.<name>.variants, ...) has a section under its TOML
+// name. The reference is TOML first, so a moved key is documented where a TOML reader looks
+// for it, and TestConfigRefDocumentsEveryKeyInBothFormats pins its legacy spelling to the
+// LEGACY JSONC FORMAT section. A key the migration refuses or drops does not qualify.
+func documentedUnderTOMLName(key string, titles []string) bool {
+	for _, d := range config.RenameDescriptors() {
+		if d.OldPath != key && !strings.HasPrefix(d.OldPath, key+".") {
+			continue
+		}
+		if d.TOMLRefusal != "" || d.Transform == config.RenameDrop {
+			continue
+		}
+		for _, r := range d.Replacements {
+			r = strings.ReplaceAll(r, "*", "<name>")
+			for _, title := range titles {
+				if title == r || strings.HasPrefix(title, r+".") || strings.HasPrefix(r, title+".") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

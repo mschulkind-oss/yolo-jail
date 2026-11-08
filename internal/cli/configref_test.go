@@ -13,9 +13,11 @@ func TestNoTagsLeakInColorOrPlain(t *testing.T) {
 			t.Errorf("plain output still contains tag %q", tag)
 		}
 	}
-	// Literal bracketed text (not a tag) is preserved.
-	if !strings.Contains(plain, "[5432]") {
-		t.Error("literal [5432] should be preserved in plain output")
+	// Literal bracketed text (not a tag) is preserved: the TOML examples' table headers.
+	for _, literal := range []string{"[machine.gpu]", "[allow.mounts]", "[install]"} {
+		if !strings.Contains(plain, literal) {
+			t.Errorf("literal %s should be preserved in plain output", literal)
+		}
 	}
 	// Color output has ANSI and no leftover rich tags.
 	color := Render(true)

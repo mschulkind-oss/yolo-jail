@@ -235,7 +235,7 @@ model = "fast-model"
 
 // Every key a user's provider entry accepts has its own row in the `providers` section.
 func TestEveryUserProviderKeyIsDocumented(t *testing.T) {
-	start := strings.Index(configRefContent, "[bold]providers[/bold] (object)")
+	start := strings.Index(configRefContent, "[bold]providers[/bold] (table)")
 	if start < 0 {
 		t.Fatal("config_ref.txt has no `providers` section")
 	}
@@ -271,7 +271,7 @@ func TestConfigRefSaysTheRegionFileIsCounted(t *testing.T) {
 			t.Errorf("config-ref still says %q, which BR-DIR1 made false", stale)
 		}
 	}
-	start := strings.Index(configRefContent, "[bold]providers[/bold] (object)")
+	start := strings.Index(configRefContent, "[bold]providers[/bold] (table)")
 	if start < 0 {
 		t.Fatal("config_ref.txt has no `providers` section")
 	}

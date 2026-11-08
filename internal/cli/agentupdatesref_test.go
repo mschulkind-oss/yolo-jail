@@ -33,7 +33,7 @@ func TestConfigRefDocumentsAgentUpdatesTiming(t *testing.T) {
 		"fails, or does not finish, is reported once",
 		"still finish\n    before the agent starts",
 		"leaves its lock behind: for ten\n    minutes",
-		`"agent_updates": { "pi": "next-launch" }`,
+		`agent_updates = { pi = "next-launch" }`,
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("config-ref's agent_updates entry does not say %q:\n%s", want, block)

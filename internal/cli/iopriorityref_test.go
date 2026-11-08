@@ -15,7 +15,7 @@ func TestConfigRefDocumentsResourcesIo(t *testing.T) {
 	var buf bytes.Buffer
 	configRefRun(&buf, false)
 	text := buf.String()
-	at := strings.Index(text, "resources (object)")
+	at := strings.Index(text, "machine.resources (table)")
 	if at < 0 {
 		t.Fatal("config-ref has no resources block — this test has lost its subject")
 	}

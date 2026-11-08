@@ -14,7 +14,7 @@ import (
 
 func TestConfigRefNamesEveryConventionalTierAlias(t *testing.T) {
 	ref := configRefText(t)
-	start := strings.Index(ref, "      models         {alias: model id}")
+	start := strings.Index(ref, "      models         [providers.<name>.models]")
 	if start < 0 {
 		t.Fatal("config-ref has no providers.models field; this test's anchor moved")
 	}

@@ -1,21 +1,20 @@
 [bold]YOLO Jail Configuration Reference[/bold]
 
-[bold cyan]CONFIG FILE: yolo-jail.toml (TOML), or the legacy yolo-jail.jsonc[/bold cyan]
+[bold cyan]CONFIG FILE: yolo-jail.toml[/bold cyan]
 
-  Two formats are read today.  TOML is the current one: see [bold]THE TOML FORMAT[/bold]
-  below, and `yolo config migrate` to convert.  The rest of this reference
-  documents every key in its legacy JSONC spelling (the `"key": value` examples),
-  which a TOML file spells with the names THE TOML FORMAT lists.  Legacy files
-  are still read for a few releases; `yolo check` and every launch say when a
-  file is in the old format.
+  Config files are TOML.  Every example in this reference is TOML.  yolo still
+  reads the legacy JSONC files for a few releases, until that format is
+  deleted.  [bold]LEGACY JSONC FORMAT[/bold], near the end, gives the old spelling of
+  every key.  `yolo check` and every launch say when a file is in the old
+  format, and `yolo config migrate` converts it.
 
-  Location: Project root (per-workspace)
-  Format:   JSON with comments (JSONC), the legacy spelling
-  User defaults: ~/.config/yolo-jail/config.jsonc
-  Local overrides: yolo-jail.local.jsonc (sibling, auto-merged when present)
-  .json spellings: yolo-jail.json and yolo-jail.local.json are read in place
-    of a missing .jsonc file of the same name.  Never create the .jsonc file
-    beside one: yolo reads it instead, and ignores the .json file.
+  Project file:    yolo-jail.toml in the project root (committed)
+  Local overrides: yolo-jail.local.toml beside it (this machine; merged
+                   automatically when it exists; keep it out of git)
+  Your defaults:   ~/.config/yolo-jail/config.toml, plus every
+                   ~/.config/yolo-jail/config.d/*.toml fragment
+  Legacy names:    yolo-jail.jsonc, yolo-jail.local.jsonc and
+                   ~/.config/yolo-jail/config.jsonc (or .json); see LEGACY JSONC FORMAT.
 
   [bold]THE WORKSPACE IS THE DIRECTORY YOU RUN `yolo` IN[/bold], and it is
   bind-mounted [bold]read-write and LIVE[/bold] at [bold]/workspace[/bold].
@@ -24,18 +23,18 @@
   under /ctx/, and it must NOT be listed in `mounts`: that key is for paths
   OUTSIDE the workspace, and it is read-only unless an entry says otherwise.
   It is literally the cwd — there is no `--workspace` flag and no walk up the
-  tree looking for yolo-jail.jsonc.  Launch from a subdirectory and THAT
+  tree looking for yolo-jail.toml.  Launch from a subdirectory and THAT
   subdirectory is the whole workspace, with its own config and its own jail.
 
   Workspace config merges over user defaults; a sibling
-  `yolo-jail.local.jsonc` merges over the workspace config automatically —
+  `yolo-jail.local.toml` merges over the workspace config automatically —
   no include_if_found entry needed. Keep it out of git (global gitignore)
   for per-machine tweaks that don't belong in the tracked config.
   Lists are merged and deduplicated. Scalars override.
 
   [bold yellow]Rule:[/bold yellow] After [bold]EVERY[/bold] edit to `yolo-jail.toml`,
-  `yolo-jail.local.toml`, `~/.config/yolo-jail/config.toml` (or their legacy
-  `.jsonc` twins), run
+  `yolo-jail.local.toml`, `~/.config/yolo-jail/config.toml` (or a legacy
+  `.jsonc` file), run
   `yolo check` before restarting or asking a human to restart the jail.
   Use `yolo check --no-build` inside a running jail for a faster preflight.
 
@@ -53,29 +52,18 @@
   One format per scope: a TOML file beside a legacy file of the same scope is a
   `yolo check` error, so convert both together with [bold]yolo config migrate[/bold].
 
-  Where a legacy key went (every other key keeps its name):
+  Most keys sit at the top level of the file under their own name.  A few
+  live in tables: [install] (nix packages and mise tools), [machine] (gpu,
+  resources, ports, forward), [env], [allow], [requests] and [active_provider].  Each
+  key's entry under FIELDS shows its TOML spelling.
 
-    packages            -> [install] nix = [...]       mise_tools -> [install] mise = {...}
-    gpu, resources      -> [machine.gpu], [machine.resources]
-    network.ports       -> machine.ports               network.forward_host_ports -> machine.forward
-                           "IP:HOST:JAIL/udp" -> { host = HOST, jail = JAIL,
-                           address = "IP", protocol = "udp" }
-    env_sources         -> [env] sources, entry for entry (an inline object
-                           as { set = {...}, unset = [...] }); a null -> sources = []
-    brokered.*          -> [allow.<source>] (your ceiling) and [requests.<source>]
-                           (a project's request); `repos` -> requests.github.repos;
-                           `sets` -> [[allow.<source>.sets]], entry for entry
-    profile, profiles   -> [active_provider] and providers.<name>.variants.<variant>
-    loopholes.*.enabled -> the grant it gave: [allow.<pack>] (your ceiling) and
-                           [requests.<pack>] (a project's request), approved
-    loopholes.*.settings.* -> [allow.<pack>] settings
-
-  TOML has no null.  A legacy null that drops what a lower file wrote is, in TOML:
-    a list (packages, blocked_tools, env_sources ...) -> an empty list, e.g.
-                           [security] blocked_tools = [] (replaces the lists below)
-    one server or tool  -> "off": mcp_servers.<name>, lsp_servers.<name>,
-                           [install] mise.<tool> = "off"
-    an agent's selection -> active_provider.<agent> = "native"
+  A higher file can drop what a lower file wrote.  TOML has no null, so each
+  kind of value has its own way to say "none":
+    a list (install.nix, security.blocked_tools, env.sources ...) takes an empty
+                           list, e.g. [security] blocked_tools = []
+    one server or tool takes "off": mcp_servers.<name> = "off",
+                           lsp_servers.<name> = "off", [install] mise.<tool> = "off"
+    an agent's provider takes "native": active_provider.<agent> = "native"
   `yolo config migrate` and a jail's inherited config write exactly these.
 
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
@@ -135,12 +123,8 @@
 
   [bold]packs[/bold]: `packs = ["claude", "local/matt", { git = "https://..." }]`, user scope
     only.  Edit with [bold]yolo pack add <name>[/bold] and [bold]yolo pack remove <name>[/bold]
-    (host); `yolo pack ls` lists what is available.
-
-  [bold]convert_later[/bold] — (boolean, [bold]LEGACY USER FILE ONLY[/bold]): `"convert_later": true` in
-    ~/.config/yolo-jail/config.jsonc stops the launch's offer to convert old
-    files to TOML, for every old file this machine reads.  A TOML file refuses
-    it, because it has nothing to say there.  No command writes it.
+    (host); `yolo pack ls` lists what is available.  See `packs` and
+    `pack_sources` under FIELDS.
 
   Pack manifests have a TOML spelling too: a pack directory's `pack.toml`
   (`yolo pack migrate <path>` rewrites a local pack's `pack.json`).  In it,
@@ -160,14 +144,17 @@
 
 [bold cyan]USER SCOPE INSIDE A JAIL[/bold cyan]
 
-  What a jail sees as `~/.config/yolo-jail/config.jsonc` is [bold]GENERATED[/bold] at
+  What a jail sees as `~/.config/yolo-jail/config.toml` is [bold]GENERATED[/bold] at
   launch — not your real file. It is your effective config filtered down to the
   keys the commands in a jail can actually judge, with a header saying so.
+  The launch writes the legacy `config.jsonc` instead, and says why, in two
+  cases: the jail's home already holds a legacy file of that name, or a value
+  in your legacy files has no TOML spelling.
 
   Two consequences worth knowing:
 
   • [bold]Keys are missing on purpose.[/bold] Anything whose referent does not exist in
-    a container (`gpu`, `devices`, `kvm`, `mounts`, `cache_relocations`) or whose
+    a container (`machine.gpu`, `devices`, `kvm`, `mounts`, `cache_relocations`) or whose
     meaning would change (`host_files` — "the host home" is the jail's own home in
     there) is filtered out. Evaluating them in a jail reported problems you do not
     have. Your host config is untouched.
@@ -176,12 +163,14 @@
     config and says so; `yolo config dump` prints the effective config a jail is
     actually running under.
 
-  A jail that can nest also gets `inherited-launch.jsonc` beside it: the keys an
-  inner `yolo` composes a nested jail from (`packages`, `packs`, mise tools,
-  resources). On a backend that cannot nest, that file is simply not written.
+  A jail that can nest also gets `inherited-launch.toml` beside it (or
+  `inherited-launch.jsonc`, in the same two cases): the keys an inner `yolo`
+  composes a nested jail from (`install.nix`, `packs`, mise tools, resources).
+  On a backend that cannot nest, that file is simply not written.
 
-  [bold]--user-layer <file>[/bold] (a global CLI flag, not a config key) layers a JSONC
-  file in at user-level precedence for one invocation. It is inert unless passed,
+  [bold]--user-layer <file>[/bold] (a global CLI flag, not a config key) layers a config
+  file in at user-level precedence for one invocation.  A `.toml` file is read
+  as TOML; any other name is read as legacy JSONC.  It is inert unless passed,
   and a workspace config still wins over it. Inside a jail it is how you grant
   yourself more than you inherited — e.g. add a `packs` entry naming a pack that
   ships a loophole, then `yolo pack install` and launch a nested jail. There is
@@ -190,15 +179,17 @@
 
   Developing a loophole inside a jail, end to end:
 
-    mkdir -p ~/.local/share/mypack/loopholes/mine   # NOT ~/mypack — the home
-                                                    # ROOT is read-only
-    ...write pack.json and loopholes/mine/loophole.toml...
-    cat > ~/.config/yolo-jail/my-layer.jsonc <<'EOF'
-    { "packs": [ { "source": "file:///home/agent/.local/share/mypack" } ] }
+    mkdir -p ~/.local/share/mypacks/mypack/loopholes/mine   # NOT ~/mypacks — the
+                                                            # home ROOT is read-only
+    ...write pack.toml and loopholes/mine/loophole.toml...
+    cat > ~/.config/yolo-jail/my-layer.toml <<'EOF'
+    packs = ["mine/mypack"]
+    [pack_sources.mine]
+    path = "~/.local/share/mypacks"
     EOF
-    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc pack install
-    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc loopholes list
-    yolo --user-layer ~/.config/yolo-jail/my-layer.jsonc -- bash
+    yolo --user-layer ~/.config/yolo-jail/my-layer.toml pack install
+    yolo --user-layer ~/.config/yolo-jail/my-layer.toml loopholes list
+    yolo --user-layer ~/.config/yolo-jail/my-layer.toml -- bash
 
   The layer lands beside the read-only inherited config because ~/.config is the
   jail's own writable dir — that is why the inherited file is delivered as a
@@ -259,7 +250,12 @@
     installs it in [bold]packs[/bold] instead.  A config still carrying `agents` is a
     `yolo check` error.
 
-  [bold]packages[/bold] (array): Extra nix packages baked into the image.
+  [bold]install.nix[/bold] (array): Extra nix packages baked into the image.
+    The legacy JSONC key is `packages`.
+    Example (yolo-jail.toml):
+      [install]
+      nix = ["postgresql", "gtk4.dev", { name = "strace", platforms = ["linux"] }]
+    `yolo config add install.nix '"postgresql"' --project` adds one entry.
     Supports three formats:
     • String: a nixpkgs attribute path (latest from flake's pin).  An entry
       installs what `nix build nixpkgs#<entry>` builds, so a dot reaches into
@@ -268,24 +264,27 @@
                 "rocmPackages.clr" (a member of the rocmPackages collection),
                 "rocmPackages.clr.icd" (that member's icd output)
       A name that is not letters, digits, '_' and '-' is quoted as Nix quotes
-      it: "nerd-fonts.\"m+\"".  A bare collection ("rocmPackages") is refused,
+      it: 'nerd-fonts."m+"'.  A bare collection ("rocmPackages") is refused,
       naming members you could write instead.
-    • Object with nixpkgs: pinned to a specific nixpkgs commit
-      Example: {"name": "freetype", "nixpkgs": "<commit-hash>"}
-    • Object with version override: build from upstream source
+    • Table with nixpkgs: pinned to a specific nixpkgs commit
+      Example: { name = "freetype", nixpkgs = "<commit-hash>" }
+    • Table with version override: build from upstream source
       Uses the existing nix build recipe but swaps version+source.
-      Example: {"name": "freetype", "version": "2.14.1",
-                "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
-                "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
+      Example (yolo-jail.toml):
+        [[install.nix]]
+        name = "freetype"
+        version = "2.14.1"
+        url = "mirror://savannah/freetype/freetype-2.14.1.tar.xz"
+        hash = "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="
       Get the hash: nix-prefetch-url <url>  (then convert with nix hash)
       Or set hash to "" and nix will tell you the correct one on build failure.
-    • Any object form may add [bold]platforms[/bold]: the entry applies only on
+    • Any table form may add [bold]platforms[/bold]: the entry applies only on
       those platforms, and is EXPECTED-absent elsewhere rather than an error.
       Values are Go GOOS spellings — "linux" or "darwin" — not nix system
       doubles ("x86_64-linux"); an unknown value is a config error, because an
       entry that matched nothing would drop the package everywhere in silence.
-      Example: {"name": "strace", "platforms": ["linux"]}
-      A bare string, and an object WITHOUT platforms, apply everywhere.
+      Example: { name = "strace", platforms = ["linux"] }
+      A bare string, and a table WITHOUT platforms, apply everywhere.
       On the macos-user backend a declared package with no native build is a
       FATAL launch error naming every such package at once — marking it
       linux-only is how you say that absence is intended.  It still installs
@@ -295,8 +294,8 @@
     For Mesa graphics libraries in a GPU-enabled Linux container, select
     `mesa`; its resolved profile may also supply the 32-bit tree. The explicit
     nixpkgs attr `pkgsi686Linux.mesa` can be selected where supplied. Pin with
-    the existing object form, for example
-    `{"name": "mesa", "nixpkgs": "fe13242281a67641c0102cdb1087f0ebe586c7df"}`;
+    the existing table form, for example
+    `{ name = "mesa", nixpkgs = "fe13242281a67641c0102cdb1087f0ebe586c7df" }`;
     that revision is this checkout's `.nodes.nixpkgs.locked.rev` in `flake.lock`.
     Image rebuilds only when this list changes.
     Nix caches builds — identical configs across jails share cached results.
@@ -317,23 +316,25 @@
   [bold]include_if_found[/bold] (array of strings): Layer in sibling override files.
     Each entry is a relative path resolved against the including file's
     directory. Missing files are silently skipped — keep entries that may
-    or may not exist on a given machine (an untracked *.local.jsonc, secrets,
+    or may not exist on a given machine (an untracked *.local.toml, secrets,
     machine-specific tweaks). Present files are loaded and merged on top
-    (later wins; lists concatenate-and-dedup; nulls disable). Includes can
-    declare their own `include_if_found`; cycles are detected and broken.
+    (later wins; lists concatenate-and-dedup; a removal spelling such as an
+    empty list drops what came before). Includes can declare their own
+    `include_if_found`; cycles are detected and broken.  A TOML file may
+    include a legacy JSONC file.
 
     Common use: each level (user config, workspace config) references an
     untracked sibling that adds custom MCP servers, agents_md_extra notes,
-    or env_sources entries without committing them.  yolo git-ignores only
+    or env.sources entries without committing them.  yolo git-ignores only
     .yolo/, so add such a file to your .gitignore yourself.
 
-    Note: the workspace-level `yolo-jail.local.jsonc` no longer needs an
-    include entry — it is auto-merged whenever it exists (listing it
+    Note: the workspace-level `yolo-jail.local.toml` needs no include
+    entry — it is auto-merged whenever it exists (listing it
     anyway is harmless; it won't merge twice). include_if_found remains
     for other file names and for the user-level config.
 
-    Example (~/.config/yolo-jail/config.jsonc):
-      "include_if_found": ["overrides.jsonc"]
+    Example (~/.config/yolo-jail/config.toml):
+      include_if_found = ["overrides.toml"]
 
   [bold]~/.config/yolo-jail/config.d/*.toml[/bold] (user config fragments): Read
     automatically, with no include_if_found line, whenever the user config is
@@ -365,15 +366,19 @@
     project-specific quirks, links to the right runbook, etc.
 
     It reaches your real home too: `yolo host apply` writes the USER-scope
-    value (~/.config/yolo-jail/config.jsonc) into every briefing file your
+    value (~/.config/yolo-jail/config.toml) into every briefing file your
     packs name, after the section saying the agent is on your real machine
     and before your packs' prose.  A workspace value never leaves the jail.
 
     Pairs naturally with include_if_found: put it in a local overrides file
     you keep out of git, so the note rides along with custom MCP servers.
 
-    Example:
-      "agents_md_extra": "## Cerebras MCP\\n\\nUse cerebras-mcp for X."
+    Example (yolo-jail.toml):
+      agents_md_extra = """
+      ## Cerebras MCP
+
+      Use cerebras-mcp for X.
+      """
 
   [bold]briefing_provenance[/bold] (boolean, default false): Label each pack's prose in
     a composed briefing with a `<!-- from pack: NAME -->` line.  Off by default:
@@ -385,105 +390,65 @@
     from the user config by `yolo host apply`; set it in the user config to
     change both.
 
-    Example (~/.config/yolo-jail/config.jsonc):
-      "briefing_provenance": true
+    Example (~/.config/yolo-jail/config.toml):
+      briefing_provenance = true
 
-  [bold]loopholes[/bold] (object): Host-side services the jail can reach.
-    ("host_services" is what this block is called in prose and in the code that
-    validates it; the KEY is "loopholes" — config.go's known-key list has no
-    "host_services", so writing that spelling is an unknown-key error.)
-    Each key is a service name (must match ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).
-    NO NAME IS RESERVED any more.  "cgroup-delegate" and "journal" stopped being
-    reserved on 2026-08-18 and "claude-oauth-broker" on 2026-08-19, when the last
-    of yolo's own loopholes became a pack's manifest — writing
-    "packs": ["cgroup-delegate"] is how you run the cgroup delegate, and it
-    does not run until you do.  What refuses a duplicate now
-    is exclusivity ACROSS PACKS (two packs claiming one loophole name refuses the
-    launch), not a list of names yolo holds back.
+  [bold]allow.<pack>[/bold] (table, [bold]USER SCOPE ONLY[/bold]): A loophole's grants, settings and off switch.
+    A loophole is a host-side service the jail can reach.  Every loophole ships
+    in a pack, and it runs whenever its pack is selected.  The legacy JSONC key
+    was `loopholes`; LEGACY JSONC FORMAT lists its old fields.
 
-    "claude-oauth-broker" is still the one name yolo reaches by literal — "yolo
-    broker status", "yolo check"'s broker section, the host-singleton spawn and
-    the in-jail terminator's endpoint variable all name it — so declaring an
-    INLINE service under that name is accepted and is almost certainly not what
-    you want: yolo will ensure its own broker singleton alongside your daemon.
-    Select "packs": ["claude"] to get the real one; to stop it, do not select
-    the pack.
+    GRANTS.  A loophole that declares [[grants]] in its loophole.toml
+    ("journal", "audio", "host-processes" among them) grants nothing until a
+    grant covers the project.  You give a grant to every project with
+    [cyan]yolo allow <pack> <kind>[/cyan] on the host.  You let a project ask for one with
+    [cyan]yolo allow <pack> on_request <kind>[/cyan]; the project then asks with
+    [cyan]yolo request <pack> <kind>[/cyan].  THE TOML FORMAT above describes the
+    `[allow.<pack>]` and `[requests.<pack>]` tables these verbs write.
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["journal", "host-processes"]
+      [allow.journal]
+      always = ["read"]
+      [allow.host-processes]
+      on_request = ["view"]
+    To keep a pack's loophole away from every project, do not select the pack.
 
-    A key here does one of two things, and which one depends on whether a loophole
-    of that name already EXISTS on this machine (shipped by a selected pack).  A
-    new name DECLARES an inline host service; an existing name OVERRIDES that
-    loophole.  The two accept different keys, because you cannot replace a
-    manifest's daemon from config.
+    [cyan]yolo loopholes enable[/cyan] and [cyan]disable[/cyan] are RETIRED: a
+    loophole runs whenever its pack is selected, and a project gets access by
+    a grant, not a switch — [cyan]yolo request <pack> <kind>[/cyan] for one
+    project, [cyan]yolo allow <pack> <kind>[/cyan] for every project.  Both
+    refuse, naming those two.  An older yolo wrote switches into a project's
+    PER-WORKSPACE FILE (~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc,
+    which merges LAST and no jail can read).  yolo still reads such a switch
+    as that project's legacy request for the loophole's grant, until the
+    migration retires that file.  [cyan]yolo loopholes disable <name>[/cyan], run on
+    the host in the project, removes it and exits 0.
 
-    "enabled" (boolean, optional) switches an INLINE service, and nothing else:
+    THE OFF SWITCH.  Five loopholes hand over a login, a credential or the
+    cgroup delegate with no grant at all: claude-oauth-broker (the claude-auth
+    pack), openai-auth-broker (codex-auth), mcp-auth-broker (mcp-auth),
+    aws-auth and cgroup-delegate.  You keep one of them off for every launch
+    with `off = true` in its pack's table:
+    Example (~/.config/yolo-jail/config.toml):
+      [allow.aws-auth]
+      off = true
+    `yolo config set allow.aws-auth.off true --user` writes it.  A project's
+    `[requests.<pack>] off = true` keeps it off for that workspace alone.  A
+    pack that ships no such loophole refuses the key.
 
-      "loopholes": { "my-service": { "enabled": false } }
+    A brokered loophole (the github pack's github-broker, the git pack's
+    git-broker) grants nothing until a read grant does; see BROKERED
+    LOOPHOLES below.
 
-      On an inline service the default is ON — writing the argv out by hand is
-      already the deliberate act — so the key is only ever used to switch one
-      off without deleting it.  A loophole a selected pack ships has NO switch:
-      it runs whenever its pack is selected, and one that declares [[grants]]
-      ("journal", "audio", "host-processes" among them) grants nothing until a
-      grant covers the project.  Give one with [cyan]yolo allow <name> <kind>[/cyan] on
-      the host (every project), or let a project ask with
-      [cyan]yolo request <name> <kind>[/cyan] after [cyan]yolo allow <name> on_request <kind>[/cyan].
-      To keep a pack's loophole off, do not select the pack.  For a pack's
-      loophole this key switches nothing, and "yolo check" says so wherever it
-      is written.  The manifest key "default_enabled" is refused at load: a
-      loophole.toml declares what can be granted under [[grants]] instead.
-
-      [cyan]yolo loopholes enable[/cyan] and [cyan]disable[/cyan] are RETIRED: a
-      loophole runs whenever its pack is selected, and a project gets access by
-      a grant, not a switch — [cyan]yolo request <pack> <kind>[/cyan] for one
-      project, [cyan]yolo allow <pack> <kind>[/cyan] for every project.  Both
-      refuse, naming those two.  A switch an older yolo wrote into a project's
-      PER-WORKSPACE FILE (~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc,
-      which merges LAST and no jail can read) is still read, as that project's
-      legacy request for the loophole's grant, until the migration retires that
-      file; [cyan]yolo loopholes disable <name>[/cyan], run on the host in the
-      project, removes it and exits 0.
-
-      A loophole whose manifest declares "brokered" (the github pack's
-      github-broker, the git pack's git-broker) grants nothing until a grant
-      under "brokered" does (see "brokered" below).  Its "enabled" here, or
-      under "loopholes" in a project's yolo-jail.jsonc or yolo-jail.local.jsonc
-      (or their .json spellings), is an error naming that grant; one an older
-      yolo wrote into a per-workspace file is ignored with a warning, and
-      [cyan]yolo loopholes disable <name>[/cyan] removes it.
-
-    DECLARING an inline service also takes:
-      "command" (array of strings, required): the command to launch on the host
-        when the jail starts.  "{endpoint}" in any arg is substituted with the
-        actual host-side path the service should publish at.  "{socket}" is
-        accepted as an alias for it.
-      "env" (object, optional): extra env vars for the host daemon (NOT the jail).
-      "description" (string, optional), "doctor_cmd" (array of strings, optional),
-      "preamble" (boolean, optional, default false — an inline daemon is a
-        third-party program that never asked for a framing preamble).
-      "jail_endpoint" (string, optional): override the jail-side path.
-        Must start with /run/yolo-services/.
-        Default: /run/yolo-services/<name>.endpoint
-        ("jail_socket" is accepted as an alias.)
-    An inline service runs only beside a jail, its one client: at the host notch no
-    verb starts it, and `yolo host apply` names each enabled one as not applying.
-
-    OVERRIDING an existing loophole takes only "env", "jail_env" and "settings"
-    ("jail_env" being extra env vars set INSIDE the jail, merged over whatever the
-    manifest declared); its "enabled" is accepted and switches nothing.  "command" and "doctor_cmd" are REFUSED there
-    by name: they are fixed by the loophole's manifest, and a config that appeared
-    to change them would change nothing.
-
-    "settings" (object, optional) is THE LOOPHOLE'S OWN CONFIG KEYS.  Unlike every
-    other key here, what may go inside it is not fixed by yolo: the loophole's
-    [cyan]loophole.toml[/cyan] DECLARES its settable keys, each with a type, an
-    optional default and a scope, and yolo validates what you write against that
+    SETTINGS.  The other keys of `[allow.<pack>]` are THE LOOPHOLE'S OWN
+    SETTINGS.  yolo does not fix what may go there: the loophole's
+    [cyan]loophole.toml[/cyan] DECLARES its settable keys, each with a type and an
+    optional default, and yolo validates what you write against that
     declaration.
-
-      "loopholes": {
-        "host-processes": {
-          "settings": { "fields": ["pid", "comm"] }
-        }
-      }
+    Example (~/.config/yolo-jail/config.toml):
+      [allow.host-processes]
+      fields = ["pid", "comm"]
+    `yolo config set allow.host-processes.fields pid comm` writes it.
 
       An undeclared key is an ERROR naming the keys that do exist, and a value of
       the wrong type is an error too — the block is typed, never opaque.  Declared
@@ -491,12 +456,10 @@
       declares with [cyan]yolo loopholes list[/cyan].
 
       EVERY SETTING IS USER SCOPE.  A setting may only be set from your user
-      config — in TOML under [allow.<pack>], written with
-      [cyan]yolo config set allow.<pack>.<key> <value>[/cyan] — and writing it in a
-      workspace file is refused naming both files.  A manifest's
-      `scope = "workspace"` is retired and refused at load: a setting can reach a
-      host daemon, and a project's say over what a loophole may do is a request
-      for one of its grant kinds instead.
+      config, and writing it in a workspace file is refused naming both files.
+      A manifest's `scope = "workspace"` is retired and refused at load: a
+      setting can reach a host daemon, and a project's say over what a
+      loophole may do is a request for one of its grant kinds instead.
 
       RESOLVED ONCE, AT LAUNCH.  yolo merges your values over the declared
       defaults, writes the result to a file it owns in the loophole's state dir,
@@ -505,69 +468,74 @@
       where the config-change approval prompt lives, and a value that could change
       under a running daemon could be changed by the agent inside it.
 
-    Each service gets:
-      • Its published path bind-mounted into the jail under /run/yolo-services/
+    Each loophole gets:
+      • Its endpoint file bind-mounted into the jail under /run/yolo-services/
       • An env var so agents can locate the service without hard-coding paths:
-        YOLO_SERVICE_<NAME>_ENDPOINT for a manifest loophole, or
-        YOLO_SERVICE_<NAME>_SOCKET for a service declared here.  The names differ
-        because the VALUES differ, and a client that dials a regular file as if it
-        were a socket reports something obscure.  An _ENDPOINT value is always a
-        PATH, never an address: the address lives inside the file, so a restarted
-        daemon needs no jail relaunch.
+        YOLO_SERVICE_<NAME>_ENDPOINT.  Its value is always a PATH, never an
+        address: the address lives inside the file, so a restarted daemon
+        needs no jail relaunch.
       • A managed lifecycle: started before container start, SIGTERM + 5s grace +
         SIGKILL after the container exits.
       • stdout/stderr captured to ~/.local/share/yolo-jail/logs/host-service-<name>.log
 
-    A loophole with a [cyan]loophole.toml[/cyan] publishes an ENDPOINT FILE — one
-    line naming a 127.0.0.1 listener, the exact certificate a client must pin, and
-    a per-jail bearer token.  That file IS A CREDENTIAL: it is written 0600 into
-    this jail's own directory and is never shared between jails.  There is
-    deliberately no token env var.  [cyan]loopback-tls[/cyan] is the only manifest
-    transport and the default; [cyan]unix-socket[/cyan] and
-    [cyan]tls-intercept[/cyan] were REMOVED from the manifest vocabulary, not
-    deprecated.
+    The ENDPOINT FILE is one line naming a 127.0.0.1 listener, the exact
+    certificate a client must pin, and a per-jail bearer token.  That file IS
+    A CREDENTIAL: it is written 0600 into this jail's own directory and is
+    never shared between jails.  There is deliberately no token env var.
+    [cyan]loopback-tls[/cyan] is the only manifest transport and the default;
+    [cyan]unix-socket[/cyan] and [cyan]tls-intercept[/cyan] were REMOVED from the
+    manifest vocabulary, not deprecated.  The manifest key "default_enabled"
+    is refused at load: a loophole.toml declares what can be granted under
+    [[grants]] instead.
 
-    A service declared HERE, in yolo-jail.jsonc, still gets a plain Unix socket and
-    a YOLO_SERVICE_<NAME>_SOCKET variable, because its daemon is a program yolo did
-    not write: nothing yolo ships lets an external daemon publish an endpoint file,
-    so flipping this path would kill those daemons rather than migrate them.
+    Use loopholes to split the jail boundary cleanly: a host-side process can
+    hold secrets, credentials, and access-control logic that the agent inside
+    the jail can call but never sees.  A host service of your own belongs in a
+    pack: `yolo pack init` starts one.  (The legacy JSONC `loopholes` key can
+    still declare one inline; LEGACY JSONC FORMAT describes it.)
 
-    Use this to split the jail boundary cleanly: a host-side process can hold
-    secrets, credentials, and access-control logic that the agent inside the
-    jail can call but never sees.
-
-    Example:
-      "loopholes": {
-        "auth-broker": {
-          "command": ["~/code/auth-broker/serve.py", "--socket", "{socket}"],
-          "env": {"KEYS_FILE": "~/secrets/keys.json"}
-        }
-      }
+    "claude-oauth-broker" is the one loophole name yolo reaches by literal:
+    "yolo broker status", "yolo check"'s broker section, the host-singleton
+    spawn and the in-jail terminator's endpoint variable all name it.  Select
+    `packs = ["claude"]` to get it; to stop it, set `off = true` under
+    [allow.claude-auth].  Two packs that claim one loophole name refuse the
+    launch.
 
     Apple Container is unsupported.  The reason USED to be the transport (no
     Unix-socket bind-mount through virtiofs); loopback-tls removes that obstacle,
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
 
-  [bold]brokered[/bold] (object, [bold]repos: WORKSPACE SCOPE; sets, grant_kinds: USER SCOPE; grants: both[/bold]):
-    More repositories for this workspace's brokered loophole, such as the github pack's
-    github-broker, the permission sets a write grant hands over, and user grants in two layers.
-    A brokered loophole runs your host login's commands for the jail, but only
-    against the workspace's repositories: its git remotes, and any it lists
-    here, which every fresh launch reads and asks you to approve.  It runs in
-    every workspace while its pack is selected, and GRANTS NOTHING until a grant
-    here does: with none, it refuses every call, naming the grant.  The usual one
-    is read access for every workspace, in your user config:
-      "brokered": { "github": { "grants": [{"kind": "read", "repo": "*"}] } }
-    It still joins each workspace only at that workspace's config-change prompt,
-    or at [cyan]yolo config apply[/cyan] on the host, as a line of the
-    repository-scope block marked as your user config's.  List a repository the project has no
-    remote for in yolo-jail.jsonc, or in yolo-jail.local.jsonc for what the
-    project should not commit (yolo does not git-ignore that file):
-      "brokered": {
-        "github": { "repos": ["org/lib", "org/docs"] }
-      }
-    • The source key is the one the loophole's manifest declares as
+  [bold cyan]BROKERED LOOPHOLES: requests.github.repos, read grants, sets[/bold cyan]
+    A brokered loophole, such as the github pack's github-broker or the git
+    pack's git-broker, runs your host login's commands for the jail.  It runs
+    them only against the workspace's repositories: its git remotes, and any
+    repositories its config lists, which every fresh launch reads and asks you
+    to approve.  It runs in every workspace while its pack is selected, and
+    GRANTS NOTHING until a read grant does: with none, it refuses every call,
+    naming the grant.  The usual grant gives read access to every workspace,
+    in your user config:
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["git", "github"]
+      [allow.git]
+      always = ["fetch"]
+      [allow.github]
+      always = ["read"]
+    `yolo allow git fetch` and `yolo allow github always read`, run on the
+    host, write these lines.  The grant still joins each workspace only at
+    that workspace's config-change prompt, or at [cyan]yolo config apply[/cyan] on
+    the host, as a line of the repository-scope block marked as your user
+    config's.  Every call through the broker needs a read grant on its
+    repository, a push as well as a fetch.
+    [bold]requests.github.repos[/bold] ([bold]WORKSPACE SCOPE[/bold]): more repositories for this
+    workspace.  List a repository the project has no remote for in
+    yolo-jail.toml, or in yolo-jail.local.toml for what the project should not
+    commit (yolo does not git-ignore that file):
+    Example (yolo-jail.toml):
+      [requests.github]
+      repos = ["org/lib", "org/docs"]
+    `yolo request github repos org/lib` writes it.
+    • The table name is the source the loophole's manifest declares as
       `brokered.source`; the github pack's is "github".  A source no selected
       pack brokers is a host `yolo check` warning; a launch says nothing.
     • Each repos entry is OWNER/REPO, with no host, or a whole-segment
@@ -579,14 +547,22 @@
       admits a command across your whole account, such as a search with no
       repository.
     • Lists merge across the workspace's files, compared without case, and
-      "repos": null in the local file clears the list.  A `brokered` key from a
-      file outside the workspace, reached through an include or a link, is
+      `repos = []` in the local file clears the list.  A repository list from
+      a file outside the workspace, reached through an include or a link, is
       refused, and so is one written twice in one file.
-    • [bold]sets[/bold] (USER SCOPE ONLY): the named permission sets this source's grants hand
-      over.  A standing set runs freely; a windowed set runs only under a grant, for its window
-      and up to its ceiling and use cap.  Each entry is
-        {"name": "review", "mode": "windowed", "window": "1h", "max_window": "session",
-         "uses": 50, "admit": ["pr comment", "pr review"]}
+    • NOT IN THE USER CONFIG.  A user `requests` table is an error: with no
+      workspace to key it, it would widen every workspace.
+    [bold]allow.<source>.sets[/bold] (USER SCOPE ONLY): the named permission sets this source's
+      grants hand over.  A standing set runs freely; a windowed set runs only under a
+      grant, for its window and up to its ceiling and use cap.
+      Example (~/.config/yolo-jail/config.toml):
+        [[allow.github.sets]]
+        name = "review"
+        mode = "windowed"
+        window = "1h"
+        max_window = "session"
+        uses = 50
+        admit = ["pr comment", "pr review"]
       • name (required): lowercase letters, digits and hyphens, unique in the list.
       • mode (required): "standing" or "windowed".
       • window, max_window, uses: a windowed set only.  window is a duration such as "15m" or
@@ -597,52 +573,38 @@
       Every set is definable, "read-only" included, and each launch names what it found, as in
       "github-broker: sets from user config: read-only (+ pr comment), review 1h".  A workspace
       file may NOT name sets: that file is the agent's to edit, so `sets` there is a `yolo check`
-      error.
-      In TOML the list is allow.<source>.sets, each entry the same table:
-        [[allow.github.sets]]
-        name = "review"
-        mode = "windowed"
-        window = "1h"
-        admit = ["pr comment", "pr review"]
-      A config that writes both spellings (a TOML user config including a legacy file) reads
-      both lists, the TOML entries first; a name may appear once across the two.
-    • [bold]grant_kinds[/bold] (USER SCOPE ONLY): the kinds of user grant a workspace may hold
-      for this source, as in "grant_kinds": ["create-branch"].  A kind is one the loophole's
-      manifest defines (`brokered.grants`; the git pack's git-broker defines "create-branch",
-      "branch" and "tag").
-      Listing a kind grants nothing by itself.  A workspace file may NOT name grant_kinds.
-    • [bold]grants[/bold]: in your USER config, only {"kind": "read", "repo": "*"}, read
-      access for every workspace to its own approved repositories (above); any other grant
-      there is an error.  In a WORKSPACE file, the specific grants this workspace holds, each
-      naming the repository it covers:
-        "grants": [{"kind": "create-branch", "repo": "github.com/o/r"}]
-      • kind: "read", which every source defines, or a kind the source's manifest defines;
-        either way your user config's grant_kinds must list it (or, for "read", your user
-        config holds the read grant itself); anything else is a `yolo check` error naming
-        the key that would allow it.  Every call through the broker needs a read grant on
-        its repository, a push as well as a fetch.
-      • repo: the host and path a remote reduces to (host in lower case with a dot or a
-        port, path with no scheme, user or ".git"), or "*" for every repository of the scope.
-      • branch, for a "branch" grant only: the branch it puts in the working set, which the
-        broker may create, update, force-push and delete, as in "branch": "main".  tag, for a
-        "tag" grant only: the tag it covers the same way, as in "tag": "v*".  Either is a
-        short name git accepts, or git's refspec pattern with one "*", which matches any run
-        of characters, "/" included ("patch/*", "v*"); two "*" are an error.  With "repo":
-        "*", the grant covers every remote in scope now and any you approve later, and the
-        prompt says so.
-      A grant joins only when you approve it: each is a line of the repository-scope block at
+      error.  A config that writes both spellings (a TOML user config including a legacy file)
+      reads both lists, the TOML entries first; a name may appear once across the two.
+    [bold]What a workspace may request[/bold]: your `[allow.<source>] on_request` list names
+      the capabilities a project may ask for, and the project's `[requests.<source>]`
+      table asks.  The git pack's capabilities are `new_branches` (create a branch),
+      `push` (a branch the broker may create, update, force-push and delete) and
+      `push_tags` (a tag, handled the same way); the github pack's are `create_pr`,
+      `create_issue`, `runs` and `approve_runs` (THE TOML FORMAT describes each).
+      Example (~/.config/yolo-jail/config.toml):
+        [allow.git]
+        always = ["fetch"]
+        on_request = ["new_branches", "push", "push_tags"]
+      Example (yolo-jail.toml):
+        [requests.git]
+        new_branches = true
+        push = ["main"]
+        push_tags = ["v*"]
+      `yolo allow git on_request push` (host) and `yolo request git push main`
+      (project) write these lines.  A request covers every remote of this
+      workspace.  A branch or tag value is a short name git accepts, or git's
+      refspec pattern with one "*", which matches any run of characters, "/"
+      included ("patch/*", "v*"); two "*" are an error.  A request your allow
+      list does not allow is reported and skipped.
+      A request joins only when you approve it: each is a line of the repository-scope block at
       the next fresh launch, or at `yolo config apply`, which replaces a running jail's grants
       as it replaces its repositories, and each launch names the grants in force.
     It takes effect at the next fresh launch: the config-change prompt shows each
     repository as a row of the repository-scope block, naming the file it came
     from, and asks you to approve it; then the launch names the scope, as in
-    "github-broker: scope for this workspace: you/app (remote "origin"), org/lib (yolo-jail.jsonc)".
+    "github-broker: scope for this workspace: you/app (remote "origin"), org/lib (yolo-jail.toml)".
     An agent may add an entry: a jail refuses a repository outside its scope with
     a message telling it how, and to ask you to restart and approve.
-    NOT IN THE USER CONFIG.  A `repos` list there, with no workspace to key it,
-    would widen every workspace, so it is a `yolo check` error.  The old form,
-    "workspaces" keyed by a workspace's path, is retired: move each entry into
-    its project's yolo-jail.local.jsonc; host `yolo check` prints each edit.
 
   [bold]on_request[/bold] (string, [bold]USER SCOPE ONLY[/bold]): A command yolo runs for each request a
     jail files for your approval, so one line can be your whole approval front
@@ -690,8 +652,9 @@
     required: a pending request is also visible in the background broker log and
     can be answered manually with `yolo approve` on the host.  When configured,
     the hook runs the CLI itself, so its buttons get the same checks, refusals and audit.
-    Example (~/.config/yolo-jail/config.toml, at the top level), a desktop
-    notification with Allow once and Deny buttons:
+    This desktop notification has Allow once and Deny buttons, and it sits at
+    the top level of the file:
+    Example (~/.config/yolo-jail/config.toml):
       on_request = 'a=$(notify-send -u critical -A once="Allow once" -A deny=Deny "yolo: $YOLO_REQUEST_HEADLINE" "$YOLO_REQUEST_DESCRIPTION_MARKUP"); case "$a" in once) yolo approve "$YOLO_REQUEST_ID";; deny) yolo approve "$YOLO_REQUEST_ID" --deny;; esac'
     Allow once is `yolo approve <id>`: the exact command, once.  A GitHub write
     also takes `--for <duration>` on its resource (see `yolo approve --help`).  The same lines can live in a script
@@ -768,30 +731,42 @@
     restarted daemon is picked up without relaunching the jail.  The file also
     carries this jail's bearer token, which is why it is 0600.
 
-  [bold]env_sources[/bold] (array): Environment variables set inside the jail.
-    Ordered list; each entry is either:
-      • a string — path to a KEY=VALUE dotenv file (# comments allowed,
-        quoted values OK, `export` prefix tolerated)
-      • an object — inline {"KEY": "VALUE"} map; a null value
-        ("KEY": null) UNSETS the variable — the spelling
-        `yolo host -- <cmd>` uses to drop e.g. AWS_PROFILE from the
-        invoking shell (a later entry assigning the key cancels it).
-        It removes a pack's `env` value of the name too, in a jail
-        as at the host, but never one the selected profile composes,
-        nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES
-        tables a launch sets
+  [bold]env[/bold] (table): Environment variables set inside the jail.
+    The legacy JSONC key is `env_sources`.
+    Example (~/.config/yolo-jail/config.toml):
+      [env]
+      sources = ["~/.config/yolo-jail/defaults.env",
+                 { set = { DEBUG = "1" }, unset = ["AWS_PROFILE"] },
+                 "secrets/claude.env"]
+      set = { EDITOR_THEME = "dark" }
+      unset = ["HTTP_PROXY"]
+    [env] has four keys:
+      • sources — an ordered list; each entry is either:
+        • a string — path to a KEY=VALUE dotenv file (# comments allowed,
+          quoted values OK, `export` prefix tolerated)
+        • an inline table — `{ set = { KEY = "VALUE" }, unset = ["KEY"] }`.
+          A name in `unset` UNSETS the variable — the spelling
+          `yolo host -- <cmd>` uses to drop e.g. AWS_PROFILE from the
+          invoking shell (a later entry assigning the key cancels it).
+      • files — a list of dotenv paths only.
+      • set and unset — one table of values and one list of names, which
+        apply after every list.
+    `yolo config add env.files '"secrets.env"' --project` adds a file entry.
+    An unset name removes a pack's `env` value of the name too, in a jail
+    as at the host.  It never removes a value the selected provider
+    composes, nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES
+    tables a launch sets.
     Later entries override earlier ones.  A value here beats a
     pack's `env` of the same name and loses to the selected
-    profile's.  User-config list loads first,
+    provider's.  User-config list loads first,
     then workspace-config list.  File paths support ~ expansion and
     absolute paths.  A RELATIVE path resolves beside the file that
     declared it — for the user config that is
     ~/.config/yolo-jail/, for each include the include's own directory,
     and for the workspace config the workspace root (so
     workspace-relative spelling behaves exactly as it reads).  A file
-    entry in the WORKSPACE config (yolo-jail.jsonc or yolo-jail.toml,
-    where the list is [env] files, its local sibling, their includes)
-    must resolve inside the workspace, symlinks
+    entry in the WORKSPACE config (yolo-jail.toml, its local sibling,
+    their includes) must resolve inside the workspace, symlinks
     followed: a workspace config travels with the repository, so `~/…`,
     an absolute path elsewhere, a `../` escape or a link pointing out is
     refused, and the refusal gives the same entry to put in your user
@@ -805,8 +780,8 @@
     (sourced by .bashrc and the entrypoint), so every process sees it; it
     can be overridden by mise .env or by editing that file inside the jail.
     A value a provider CLAIMS (names in its api_key_env_name) is written
-    only to ~/.config/yolo-agent-env/<agent>.sh for each agent whose
-    profile selects that provider, which that agent's launcher sources:
+    only to ~/.config/yolo-agent-env/<agent>.sh for each agent that
+    selected that provider, which that agent's launcher sources:
     no other process, a bare shell included, sees it.  With no agent
     selecting the provider it reaches nothing, and the launch says so.
     At the host, `yolo host --with-credentials <provider[,…]|all> -- <cmd>`
@@ -824,7 +799,7 @@
     that file, truncating it to empty when nothing resolves, so a removed
     credential stops being exported.  Values already live in a RUNNING jail
     persist until it restarts.
-    The same file carries the per-entry provider channel (see `profile`):
+    The same file carries the per-entry provider channel (see `active_provider`):
     the three tables and the ungated pack env land in a marked section as
     unconditional exports, rewritten by every ENTRY — a fresh launch and an
     attach alike — so `-p` reaches a running jail.  Those lines are not
@@ -832,27 +807,14 @@
     profile composes for ONE agent (its provider's settings and token, and
     the pack env its selection gates) goes to that agent's own file instead,
     rewritten by every entry the same way, and beats a value you export.
-    Example: [
-      "~/.config/yolo-jail/defaults.env",
-      {"DEBUG": "1"},
-      ".secrets/claude.env"
-    ]
-    In TOML the list is [env] sources (or [env] files, which takes
-    dotenv paths only), an inline object written as a table:
-      [env]
-      sources = ["~/.config/yolo-jail/defaults.env",
-                 { set = { DEBUG = "1" }, unset = ["AWS_PROFILE"] },
-                 ".secrets/claude.env"]
-    plus [env] set = {...} and unset = [...], which apply after every
-    list.  The lists are walked per config file, in the order the files
+    The lists are walked per config file, in the order the files
     merge (your config, its includes, a --user-layer, the workspace
     config); within a TOML file, sources and then files.  So a project
     may convert to TOML while your config stays legacy, or the other
     way round, and the variables come out the same.  An empty list
-    (sources = [] or files = []) drops every list a lower file wrote, as a legacy
-    "env_sources": null does.
+    (sources = [] or files = []) drops every list a lower file wrote.
 
-  [bold]mounts[/bold] (array of strings and objects): Extra host paths, read-only unless you ask.
+  [bold]mounts[/bold] (array of strings and tables): Extra host paths, read-only unless you ask.
     [bold]For paths OUTSIDE the workspace only.[/bold]  The workspace itself is
     already /workspace, read-write and live (see the top of this reference) —
     listing it here gets you a second view of a tree you can already write,
@@ -863,41 +825,50 @@
     [bold]String entries are READ-ONLY, always[/bold] — every one gets :ro appended:
       Simple path → mounted at /ctx/<basename>
       "host:container" → custom container path
-      Example: ["/path/to/repo", "~/lib:/ctx/lib"]
-    [bold]Object entries[/bold] carry a mode, and are the only way to write a
-    read-write mount:
-      {"host": "~/scratch/datasets", "at": "/ctx/data", "mode": "rw"}
-      {"host": "~/notes", "mode": "ro"}
-      {"host": "~/notes", "mode": "ro", "optional": true}   (see "optional" below)
+      Example (yolo-jail.toml):
+        mounts = ["/path/to/repo", "~/lib:/ctx/lib"]
+    [bold]Table entries[/bold] carry a mode, and are the only way to write a
+    read-write mount.  The "optional" key is described below.
+      Example (~/.config/yolo-jail/config.toml):
+        mounts = [
+          { host = "~/scratch/datasets", at = "/ctx/data", mode = "rw" },
+          { host = "~/notes", mode = "ro" },
+          { host = "~/papers", mode = "ro", optional = true },
+        ]
     `mode` is REQUIRED ("ro" or "rw") — there is no default, so a writable
     mount is never one you did not write.  `at` is optional (default
     /ctx/<basename>); a read-write mount must land UNDER /ctx/, where it can
     shadow nothing of the home or a composed surface.
     [bold yellow]Do NOT write a docker-style ":ro" or ":rw" suffix.[/bold yellow]  ":rw" is a
-    `yolo check` error naming the object form.  ":ro" is worse: the split
+    `yolo check` error naming the table form.  ":ro" is worse: the split
     takes the last colon followed by "/", so "~/x:/ctx/x:ro" parses as ONE
     host path literally named "~/x:/ctx/x:ro".  It does not exist, so the
     mount is SKIPPED with a warning — and `yolo check` only warns too, so a
     config that mounts nothing looks accepted.
     [bold yellow]A read-write mount is user-scope only[/bold yellow] — write it in
-    ~/.config/yolo-jail/config.jsonc (or a --user-layer).  In yolo-jail.jsonc,
-    yolo-jail.local.jsonc or anything they include it is a `yolo check` error
-    and the launch refuses: a workspace config is agent-editable, so it cannot
-    grant a read-write host mount.  Read-only entries may sit at either scope.
-    [bold]One exception: a project's TOML config may REQUEST one[/bold] — a table
-    with `write = true` in yolo-jail.toml or yolo-jail.local.toml, such as
-      mounts = [{ host = "~/scratch", at = "/ctx/scratch", write = true }]
+    ~/.config/yolo-jail/config.toml (or a --user-layer).  A `mode = "rw"`
+    entry in yolo-jail.toml, yolo-jail.local.toml or anything they include is
+    a `yolo check` error and the launch refuses: a workspace config is
+    agent-editable, so it cannot grant a read-write host mount.  Read-only
+    entries may sit at either scope.
+    [bold]A project may REQUEST one instead[/bold] — a table with `write = true`
+    in yolo-jail.toml or yolo-jail.local.toml, such as
+      Example (yolo-jail.toml):
+        mounts = [{ host = "~/scratch", at = "/ctx/scratch", write = true }]
     — once YOUR user config allows requests with these two lines:
-      [allow.mounts]
-      on_request = ["write"]
+      Example (~/.config/yolo-jail/config.toml):
+        [allow.mounts]
+        on_request = ["write"]
+    `yolo config add allow.mounts.on_request '"write"' --user`, run on the
+    host, writes them.
     Without them the request is a `yolo check` error naming them.  With them
     it is approved at the config-change prompt like any change, the writable
     mount printed in red and marked "WRITABLE HOST MOUNT" (color or not), and
     a changed request asks again; --accept-config-changes approves it too,
     after printing the same block.  `allow.mounts` has no `always`: every
     writable mount is approved per project.  `write` and `mode` together are
-    an error.  The JSONC config files are not backported: a read-write entry
-    there keeps the refusal above.  Only yolo-jail.toml and yolo-jail.local.toml
+    an error.  A legacy JSONC project file cannot request one: a read-write
+    entry there keeps the refusal above.  Only yolo-jail.toml and yolo-jail.local.toml
     themselves may request one, never a file they include, and `host` must be
     absolute or start with "~".  A request meets every rule below.
     [bold]A workspace config's mounts, read-only or read-write:[/bold] a source whose
@@ -962,19 +933,21 @@
     Tools that resolve paths print the host path there, and a subfolder the
     sandbox account may not read stays unreadable.  An entry whose source
     does not exist is skipped with a warning, as on every backend.
-    [bold]"optional": true[/bold] (object entries only; default false) marks an entry
+    [bold]optional = true[/bold] (table entries only; default false) marks an entry
     this backend may not be able to deliver.  Where a required entry would
     refuse the launch (macos-user can't reach the folder; the macOS Podman
     Machine doesn't share it) or be skipped with a warning (a read-only entry
     on an Apple Container older than 1.1.0; a source that does not exist), an
     optional one is skipped with one plain line and the launch goes on:
-      {"host": "~/.local/share/yolo-jail/logs", "at": "/ctx/host-yolo-logs",
-       "mode": "ro", "optional": true}
+      Example (~/.config/yolo-jail/config.toml):
+        mounts = [
+          { host = "~/.local/share/yolo-jail/logs", at = "/ctx/host-yolo-logs", mode = "ro", optional = true },
+        ]
       skipped optional mount: ~/.local/share/yolo-jail/logs → /ctx/host-yolo-logs (macos-user can't reach a folder inside a home)
     The agent's briefing marks an optional entry "may be absent".  `yolo
     check` lists what this backend will skip as information.  A string entry
     has no optional form: a ":optional" suffix is a `yolo check` error naming
-    the object form.  Optional never softens a safety refusal: a read-write
+    the table form.  Optional never softens a safety refusal: a read-write
     source in the refused set above, a source the broker mount fence refuses,
     and on macos-user a source containing every home, inside the sandbox
     account's home, or in yolo's own state directory all still refuse, as
@@ -990,9 +963,9 @@
     (model repos), ms-playwright (browser bundles) — that you want on a big
     slow disk.  NOT worth it for uv, go-build or pip: those are hit on every
     build and are latency-sensitive, so a slow disk makes every build worse.
-    [bold yellow]Scope: this key is read from ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow]
+    [bold yellow]Scope: this key is read from ~/.config/yolo-jail/config.toml ONLY[/bold yellow]
     (plus that file's include_if_found files, which are host-side too).  In
-    yolo-jail.jsonc it is a `yolo check` error, not an override — the
+    yolo-jail.toml it is a `yolo check` error, not an override — the
     workspace is bind-mounted read-write into the jail, so a workspace config
     is agent-editable and must never be able to hand out read-write host
     mounts.  The mount is built from the user config alone; the merged config
@@ -1019,10 +992,9 @@
     Moving an EXISTING cache: stop all jails first, copy the bytes, then set
     the key — a running jail keeps its old, now-empty mount until restart.
     Full procedure: userguide/guides/storage.md, "Storage & Persistence".
-    Example (~/.config/yolo-jail/config.jsonc):
-      "cache_relocations": {
-        "huggingface": "/data/relocated/yolo-jail/cache/huggingface"
-      }
+    Example (~/.config/yolo-jail/config.toml):
+      [cache_relocations]
+      huggingface = "/data/relocated/yolo-jail/cache/huggingface"
 
   [bold]writable_home_dirs[/bold] (array of strings): Extra $HOME paths made writable.
     Each entry is a path relative to /home/agent (no leading /, no "..").  The
@@ -1044,7 +1016,8 @@
     /home/agent writable in one bind, and macos-user's Seatbelt profile allows
     writes to the whole sandbox home, so on both of those every home path is
     already writable and the key is a harmless no-op.
-    Example: [".pi-lens", ".config-that-isnt-mine/state"]
+    Example (yolo-jail.toml):
+      writable_home_dirs = [".pi-lens", ".config-that-isnt-mine/state"]
 
   [bold]host_files[/bold] (array): Bring any file into the jail, composed not copied.
     Each entry is either a [bold]string[/bold] (sugar) or an [bold]object[/bold] (rich).  Every entry
@@ -1071,7 +1044,7 @@
                  yaml codec — a .yaml file is handled as raw bytes.
                  [bold yellow]Comments:[/bold yellow] a STRUCTURED codec (json/toml) parses the file
                  into keys and re-emits it, which DISCARDS every comment — so
-                 naming "codec": "json" on a commented .jsonc file silently
+                 naming codec = "json" on a commented .jsonc file silently
                  drops the comments.  "raw" keeps the bytes exactly as they
                  are, comments included, at the cost of key-level merging and
                  the defaults/managed layers.  Pick per file: raw to preserve a
@@ -1119,8 +1092,8 @@
     no other mode writes.
 
     [bold yellow]Scope: an entry that names a `source` is read from
-    ~/.config/yolo-jail/config.jsonc ONLY[/bold yellow] (plus that file's include_if_found
-    files).  In yolo-jail.jsonc such an entry is a `yolo check` error: a
+    ~/.config/yolo-jail/config.toml ONLY[/bold yellow] (plus that file's include_if_found
+    files).  In yolo-jail.toml such an entry is a `yolo check` error: a
     workspace config travels with the repo and is agent-editable, so it must
     never decide which host files cross into the jail.  A SOURCE-LESS entry
     (inline content, or only defaults/managed) copies nothing from the host, so
@@ -1143,22 +1116,24 @@
     from version 1.1.0 (older versions, or one yolo cannot read, skip it with a
     warning naming the reason).  Source-LESS entries are unaffected
     on every backend: they copy nothing from the host to begin with.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_files": [
-        "~/.npmrc",                    // raw, readonly
-        "~/.pi/agent/models.json",     // json, readonly
-        "~/.pi/agent/themes/",         // directory -> recursive copy
-        { "source": "~/.config/starship.toml",  // path + codec both inferred
-          "managed": { "add_newline": true } },
-        { "path": "~/.config/ripgrep/config",
-          "content": "--max-columns=200\n--smart-case\n" },
-        { "path": "~/.config/mytool/settings.json",
-          "mode": "capture",
-          "defaults": { "telemetry": false, "theme": "dark" },
-          "managed":  { "telemetry": false } }
+    Example (~/.config/yolo-jail/config.toml):
+      host_files = [
+        "~/.npmrc",                    # raw, readonly
+        "~/.pi/agent/models.json",     # json, readonly
+        "~/.pi/agent/themes/",         # directory -> recursive copy
+        # path + codec both inferred:
+        { source = "~/.config/starship.toml", managed = { add_newline = true } },
+        { path = "~/.config/ripgrep/config", content = "--max-columns=200\n--smart-case\n" },
       ]
-    In TOML it is the same list, each entry a string or an inline table:
-      host_files = ["~/.npmrc", { path = "~/.config/ripgrep/config", content = "--smart-case\n" }]
+    Each entry is a string or a table.  A long table entry reads better as its
+    own [[host_files]] table.  One file uses one form: TOML refuses an inline
+    list and [[host_files]] tables for the same key.
+    Example (~/.config/yolo-jail/config.toml):
+      [[host_files]]
+      path = "~/.config/mytool/settings.json"
+      mode = "capture"
+      defaults = { telemetry = false, theme = "dark" }
+      managed = { telemetry = false }
 
   [bold]host_import_exclusions[/bold] (map of surface address to JSON Pointer array): Omit exact
     object members from imported user host config bytes for the selected surface. This is a
@@ -1167,10 +1142,9 @@
     host_management is unset or "none". Missing members do nothing. It does not filter pack,
     default, computed, managed, captured, session-home, or yolo-rendered baseline bytes, and
     it never edits the host file. It applies on the next launch that stages and renders the
-    policy. Example (~/.config/yolo-jail/config.jsonc):
-      "host_import_exclusions": {
-        "claude/settings": ["/hooks", "/statusLine"]
-      }
+    policy. Example (~/.config/yolo-jail/config.toml):
+      [host_import_exclusions]
+      "claude/settings" = ["/hooks", "/statusLine"]
 
   [bold]host_wrappers[/bold] (boolean): Generate launch wrappers for host agents.
     [bold]Default: ON when host_management is "own", otherwise off.[/bold]  You usually
@@ -1189,7 +1163,7 @@
     `yolo host -- <program>` that names yolo by its full path.  Put that directory
     FIRST on your PATH and a bare
     `claude` (or `pi`, `codex`, …) composes its environment — Bedrock flags, the
-    credentials from `env_sources`, any unsets — the same way `yolo -- claude`
+    credentials from `env`, any unsets — the same way `yolo -- claude`
     does inside a jail.
 
     [bold]It must be PREPENDED[/bold], ahead of ~/.local/bin: a wrapper only works if
@@ -1217,14 +1191,14 @@
     The real binary is still behind the wrap dir on PATH, and invoking it by
     absolute path still works.
 
-    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.toml).  The key
     puts generated executables at the FRONT of your PATH, and a workspace config
     travels with the repo and is agent-editable, so it must never make that
     claim for you.  A workspace value is a `yolo check` error, and is never read.
     `yolo check` also tells you, every run, when the wrap dir exists but is not
     actually on your PATH.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_wrappers": true
+    Example (~/.config/yolo-jail/config.toml):
+      host_wrappers = true
 
   [bold]host_apply_on_launch[/bold] (boolean): Re-check and synchronize the host render at a wrapped launch.
     Default true when [bold]host_wrappers[/bold] is true; otherwise false.  `yolo host apply`
@@ -1283,12 +1257,12 @@
     observed and runs against whatever the last explicit apply left.  That is the
     same boundary [bold]host_wrappers[/bold] has, and `yolo check` reports both.
 
-    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key lets a
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.toml).  The key lets a
     launch WRITE INTO YOUR REAL HOME, and a workspace config travels with the repo
     and is agent-editable, so it must never make that claim for you.  A workspace
     value is a `yolo check` error, and is never read.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_apply_on_launch": true
+    Example (~/.config/yolo-jail/config.toml):
+      host_apply_on_launch = true
 
   [bold]host_management[/bold] ("none" | "own"): Who owns the config files yolo renders
     into your REAL home.  Default [bold]"none"[/bold] -- yolo writes nothing there until you
@@ -1343,7 +1317,7 @@
     "own", before you switched back) becomes purely yours again.  It is a dry run
     until --assert, and it REMOVES what yolo wrote rather than restoring what was
     there before.  It keeps a default that is an empty object or list, such as
-    pi's `"providers": {}`, since that is the shape the agent's file needs, and
+    pi's empty `providers` object, since that is the shape the agent's file needs, and
     names each one.  Refused under "own" (the next apply would compose those keys
     back -- set "none" first, or delete the file).
 
@@ -1352,14 +1326,15 @@
     inputs it already refuses for.  An environment whose host-ownership contract is
     unstated is not sealed.
 
-    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc).  The key decides
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.toml).  The key decides
     whether yolo may write your real home at all, and a workspace config travels
     with the repo and is agent-editable, so it must never make that claim for you.
     A workspace value is a `yolo check` error, and is never read.  A user config
     that cannot be READ yields "none" -- a declaration nobody could read has granted
     nothing -- as does an absent key.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_management": "own"
+    Example (~/.config/yolo-jail/config.toml):
+      host_management = "own"
+    `yolo config set host_management own --user` writes it.
 
   [bold]promotion_target[/bold] ("local" | "pack:<name>"): Where `yolo config promote`
     writes when you omit `--to`.  Default [bold]"local"[/bold], the conventional personal
@@ -1367,13 +1342,14 @@
 
     Set this when you maintain a named personal pack instead of the conventional
     local one:
-      "promotion_target": "pack:matt"
+      Example (~/.config/yolo-jail/config.toml):
+        promotion_target = "pack:matt"
 
     The named pack must be configured and writable when you promote; yolo checks
     that at the promotion itself.  [bold]--to[/bold] always overrides this default for one
     command.  (`--to host` is retired with host_management "assert", and refused.)
 
-    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.jsonc). Captured
+    [bold yellow]Scope: user config only[/bold yellow] (~/.config/yolo-jail/config.toml). Captured
     settings are personal, and a workspace is writable by the agent running in its
     jail, so a workspace config cannot redirect their destination. A workspace
     value is a `yolo check` error and is never read.
@@ -1396,8 +1372,8 @@
     An AGENT dependency is a program yolo installs so a coding agent can run: the
     agent CLIs themselves, and the MCP servers they drive.  Nobody's build
     reproduces against one, so a six-week-old copy is a defect rather than a
-    guarantee, and yolo keeps them current.  A PROJECT dependency -- `mise_tools`,
-    `packages`, anything the work in /workspace builds against -- is the opposite
+    guarantee, and yolo keeps them current.  A PROJECT dependency -- `install.mise`,
+    `install.nix`, anything the work in /workspace builds against -- is the opposite
     and is never touched by this.
 
     WHEN AN UPDATE HAPPENS: when you type the agent's name.  The generated
@@ -1446,10 +1422,10 @@
     IT GOVERNS YOLO'S UPDATER, NOT THE AGENT'S OWN.  An agent that ships a
     self-updater runs it on its own terms, and yolo does not suppress one.  Claude
     Code, Copilot and agy all do: each comes from its vendor's own installer and
-    updates itself on its own schedule, so `agent_updates: false` does not freeze
+    updates itself on its own schedule, so `agent_updates = false` does not freeze
     them, and yolo cannot say which version of any of them ran -- its install
     record names only what yolo itself installed.  To freeze Copilot too, set
-    COPILOT_AUTO_UPDATE=false in the jail (an `env_sources` entry).  Copilot's own
+    COPILOT_AUTO_UPDATE=false in the jail (an `env` entry).  Copilot's own
     `autoUpdate: false` setting is not enough: it stops only copilot's downloads,
     and copilot still runs the newest copy in its package caches, one of which,
     in a jail, is under the ~/.cache every jail on the machine shares.  For
@@ -1463,10 +1439,12 @@
     USER SCOPE ONLY.  /workspace is writable by whatever runs in the jail, so a
     workspace value would let an agent freeze its own updates.  A workspace value
     is a `yolo check` error, and is never read.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "agent_updates": false
-      "agent_updates": { "*": true, "claude": false }
-      "agent_updates": { "pi": "next-launch" }
+    Example (~/.config/yolo-jail/config.toml):
+      agent_updates = false
+    Example (~/.config/yolo-jail/config.toml):
+      agent_updates = { "*" = true, claude = false }
+    Example (~/.config/yolo-jail/config.toml):
+      agent_updates = { pi = "next-launch" }
 
   [bold]host_floor[/bold] (boolean, or object of pack name -> boolean): Keep your agents
     installed for `yolo host`.  Default TRUE -- absent means on.
@@ -1481,7 +1459,7 @@
     program your selected packs declare that is missing, as a jail does, and
     stops (exit 1) when one cannot install; YOLO_ALLOW_MISSING_PROGRAMS=1 starts
     the command anyway and lists what is missing.  Under
-    `"host_management": "own"` `yolo host apply --assert` installs them too,
+    `host_management = "own"` `yolo host apply --assert` installs them too,
     printing what it does (under "none" that apply writes nothing).  Selecting
     the pack is the consent; nothing asks.  An npm agent runs on the floor's own
     Node, the official release checked against its published checksum; an
@@ -1506,9 +1484,10 @@
     `yolo check` and the launch name the command that removes it by hand.
     USER SCOPE ONLY.  It decides which programs yolo installs on your machine, so
     a workspace value is a `yolo check` error, and is never read.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_floor": false
-      "host_floor": { "*": true, "claude": false }
+    Example (~/.config/yolo-jail/config.toml):
+      host_floor = false
+    Example (~/.config/yolo-jail/config.toml):
+      host_floor = { "*" = true, claude = false }
 
   [bold]host_path[/bold] (list of folders): Folders `yolo host` searches after the PATH it was
     started with.  Default: none.
@@ -1546,9 +1525,7 @@
     USER SCOPE ONLY.  A folder here decides which program `yolo host` runs, and a
     workspace config travels with the repo, so a workspace value is a `yolo check`
     error, and is never read.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "host_path": ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
-    In TOML (~/.config/yolo-jail/config.toml):
+    Example (~/.config/yolo-jail/config.toml):
       host_path = ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
 
   [bold]provisioners[/bold] (object): The order yolo picks a way to install a program in.
@@ -1579,9 +1556,12 @@
     own recipe.
     USER SCOPE ONLY.  It decides what yolo installs on your machine, so a
     workspace value is a `yolo check` error, and is never read.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "provisioners": { "host": ["brew"] }
-      "provisioners": { "per_package": { "claude": { "host": ["brew"] } } }
+    Example (~/.config/yolo-jail/config.toml):
+      [provisioners]
+      host = ["brew"]
+    Example (~/.config/yolo-jail/config.toml):
+      [provisioners.per_package.claude]
+      host = ["brew"]
 
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
@@ -1612,8 +1592,8 @@
     workspace config is loaded, so a workspace value is never consulted -- and
     /workspace is writable by whatever runs in the jail.  A workspace value is a
     `yolo check` error.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "perf_logging": true
+    Example (~/.config/yolo-jail/config.toml):
+      perf_logging = true
 
   [bold]macos_user_mode[/bold]: [bold yellow]REMOVED[/bold yellow] — a config carrying it is REFUSED.  Which
     account a Seatbelt sandbox runs as is its setup's `run_as` now:
@@ -1637,8 +1617,8 @@
     USER SCOPE ONLY.  It is read from your user config alone, so a workspace value is
     a `yolo check` error and is never consulted -- and /workspace is writable by
     whatever runs in the jail.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "macos_user_shared_tmp": true
+    Example (~/.config/yolo-jail/config.toml):
+      macos_user_shared_tmp = true
 
   [bold]share_host_fonts[/bold] (boolean): Share your own font folder, read-only, with a jail that does not run as you.  Default FALSE.
     A container jail gets ~/.local/share/fonts and ~/.fonts from a Linux host, or
@@ -1655,8 +1635,8 @@
     USER SCOPE ONLY.  It is read from your user config alone, so a workspace value is
     a `yolo check` error and is never consulted -- and /workspace is writable by
     whatever runs in the jail.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "share_host_fonts": true
+    Example (~/.config/yolo-jail/config.toml):
+      share_host_fonts = true
 
   [bold]local_clones[/bold] (list of paths): Clones of yours that a published patch branch URL is built from.  Default [].
     A pack names its patch branch by its published URL.  When that URL names the
@@ -1680,8 +1660,8 @@
 
     USER SCOPE ONLY.  A workspace config must not point yolo at host paths, so a
     workspace value is a `yolo check` error.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "local_clones": ["~/src/pi"]
+    Example (~/.config/yolo-jail/config.toml):
+      local_clones = ["~/src/pi"]
 
   [bold]update_check[/bold] (boolean): Enable update checks and notices.  Default TRUE.
     Every ordinary host command reads the cached answer.  For a release-based install,
@@ -1707,8 +1687,8 @@
     USER SCOPE ONLY.  It is read on every host command, before any workspace
     config is loaded, and /workspace is writable by whatever runs in the jail.
     A workspace value is a `yolo check` error.
-    Example (~/.config/yolo-jail/config.jsonc):
-      "update_check": false
+    Example (~/.config/yolo-jail/config.toml):
+      update_check = false
 
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
@@ -1717,8 +1697,10 @@
     workspace repo (e.g. the yolo-jail src/ directory itself), and the git and
     agent control-plane files the host executes but `git diff` never shows you
     (.git/hooks, .git/config, .git/info, .claude, .mcp.json).
-    Example: ["src", "flake.nix", "Justfile"]
-    Example: [".git/hooks", ".git/info", ".claude", ".mcp.json"]
+    Example (yolo-jail.toml):
+      workspace_readonly = ["src", "flake.nix", "Justfile"]
+    Example (yolo-jail.toml):
+      workspace_readonly = [".git/hooks", ".git/info", ".claude", ".mcp.json"]
     Note: locking .git/hooks WITHOUT .git/config is defeated by core.hooksPath,
     which repoints hooks elsewhere -- lock the pair or neither.  Locking
     .git/config costs `git push -u` and branching from a remote-tracking ref
@@ -1744,7 +1726,8 @@
     mise.toml are always shadowed automatically; list extra paths here (e.g. a
     workspace .cargo, or a monorepo's packages/*/node_modules -- the defaults
     are root-level only).
-    Example: [".cargo", "packages/web/node_modules"]
+    Example (yolo-jail.toml):
+      per_side_paths = [".cargo", "packages/web/node_modules"]
     Note: node_modules became a default on 2026-08-23.  A node_modules shared
     between a macOS host and a Linux jail is already broken for any package
     with a native build, so the two sides were never able to share it safely.
@@ -1760,11 +1743,11 @@
     Read this before writing any port key.  There are two directions, one key
     each, and [bold yellow]THE TWO KEYS PUT THE PORTS IN OPPOSITE ORDERS[/bold yellow].
 
-      WHO CONNECTS   WHO LISTENS   Key                          Entry order
-      ------------   -----------   --------------------------   -----------
-      the host       the jail      network.ports                "HOST:JAIL"
+      WHO CONNECTS   WHO LISTENS   Key                          Legacy entry order
+      ------------   -----------   --------------------------   ------------------
+      the host       the jail      machine.ports                "HOST:JAIL"
       the jail       the host      (nothing — dial by name)     n/a
-      the jail       the host      network.forward_host_ports   "JAIL:HOST"
+      the jail       the host      machine.forward              "JAIL:HOST"
         ...same direction as the row above, but arriving on the JAIL's
            own localhost:<port> instead of on a hostname
 
@@ -1772,19 +1755,22 @@
     keys are written in the jail's config and both name two ports; the only
     thing that tells them apart is the direction of the connection.
 
-    Why the orders differ, so you can remember which is which:
-    • `network.ports` is handed to podman's `-p` verbatim, and podman spells
-      that flag HOST-side first.  Not yolo's convention to change.
-    • `forward_host_ports` is yolo's own, and it is JAIL-side first, because the
-      port you write is the one you are going to dial from in here.
-    A transposed entry usually does not error — it publishes or forwards the
-    wrong port, and presents as a broken service.  Check the order first.
+    In TOML each entry names its two ports, `host = …` and `jail = …`, so
+    the order no longer matters there.  The legacy JSONC keys
+    (`network.ports` and `network.forward_host_ports`) wrote them as strings in
+    the opposite orders above:
+    • `network.ports` was handed to podman's `-p` verbatim, and podman spells
+      that flag HOST-side first.
+    • `forward_host_ports` was yolo's own, and it was JAIL-side first, because
+      the port you write is the one you are going to dial from in here.
+    A transposed legacy entry usually does not error — it publishes or forwards
+    the wrong port, and presents as a broken service.  Check the order first.
 
     [bold]There are TWO loopbacks, and that is the whole confusion.[/bold]  In
     bridge mode the jail has its own network namespace, so `localhost` /
     `127.0.0.1` inside the jail is the JAIL's loopback — always, no exceptions.
     The host's loopback is a different interface, reached by NAME:
-    `host.containers.internal`.  `forward_host_ports` is the one thing that
+    `host.containers.internal`.  `machine.forward` is the one thing that
     blurs them, and only for the ports you list: it copies a host port onto the
     jail's own loopback so `localhost:<port>` in here answers.
 
@@ -1798,17 +1784,20 @@
       needed — both are ignored, with a warning from `yolo check`.
     `yolo --network <mode>` overrides this key for one launch.
 
-  [bold]network.ports[/bold] (array of strings): [bold]HOST → JAIL.[/bold] Publish a
+  [bold]machine.ports[/bold] (array of tables): [bold]HOST → JAIL.[/bold] Publish a
     server running INSIDE the jail so the host (and its browser) can reach it.
-    Format: "HOST:JAIL" — host side first, podman's -p order.
-      Also accepted: "IP:HOST:JAIL", and a "/tcp" or "/udp" suffix.
-    Example: ["8000:8000", "3000:3000"]
-    In TOML: [machine] ports = [{ host = 8000, jail = 8000 }], and the other
-      two forms as the optional `address` (the IP: any text with no ':' or
-      '/') and `protocol` ("tcp" or "udp") of an entry:
-      { host = 9000, jail = 90, address = "127.0.0.1", protocol = "udp" }
-      is the same -p as "127.0.0.1:9000:90/udp".
-      → a dev server on the jail's 0.0.0.0:3000 is at localhost:3000 ON THE HOST.
+    The legacy JSONC key is `network.ports`.
+    Each entry names `host` (the port on the host) and `jail` (the port in the
+    jail).  It may also name `address`, the host interface to bind (any text
+    with no ':' or '/'), and `protocol`, "tcp" or "udp".
+    Example (yolo-jail.toml):
+      [machine]
+      ports = [
+        { host = 3000, jail = 3000 },
+        { host = 9000, jail = 90, address = "127.0.0.1", protocol = "udp" },
+      ]
+    A dev server on the jail's 0.0.0.0:3000 is then at localhost:3000 ON THE
+    HOST.  The second entry is podman's -p "127.0.0.1:9000:90/udp".
     A server bound to 127.0.0.1 inside the jail is NOT publishable — bind
     0.0.0.0 in here, which is safe: the published port is the only way in.
     Bridge mode only.
@@ -1816,15 +1805,19 @@
     interfaces; a REMAP is relayed by the launch (TCP only), which publishes
     whatever listens on the Mac's 127.0.0.1:JAIL, the sandbox's or yours.
 
-  [bold]network.forward_host_ports[/bold] (array): [bold]JAIL → HOST[/bold], arriving on
+  [bold]machine.forward[/bold] (array of tables): [bold]JAIL → HOST[/bold], arriving on
     the jail's own localhost.  Makes a host service answer at `localhost:<port>`
     INSIDE the jail, even one bound to the host's 127.0.0.1 (like `ssh -L`).
-    Integer: the same port on both sides (e.g. 5432) — the common case.
-    String "JAIL:HOST": different ports on each side (e.g. "5432:3306" listens
-      on 5432 in the jail and connects to 3306 on the host).  JAIL SIDE FIRST —
-      the reverse of network.ports.
-    Example: [5432, 6379, "8080:9090"]
-      → "8080:9090" makes the host's :9090 answer at localhost:8080 in the jail.
+    The legacy JSONC key is `network.forward_host_ports`.
+    Each entry names `jail` (the port you dial in the jail) and `host` (the port
+    the host service listens on).  They are usually the same port.
+    Example (yolo-jail.toml):
+      [machine]
+      forward = [
+        { jail = 5432, host = 5432 },
+        { jail = 8080, host = 9090 },
+      ]
+    The second entry makes the host's :9090 answer at localhost:8080 in the jail.
     [bold]Usually you do not need this.[/bold]  `host.containers.internal:<port>`
     already reaches the same service with no config and no socat.  Reach for
     this key only when something must literally see `localhost:<port>` — a
@@ -1857,8 +1850,10 @@
 
   [bold]security.blocked_tools[/bold] (array): Tools to block inside the jail,
     and in the program `yolo host --` starts (from your user config only there).
-    Simple: ["curl", "wget"]
-    Detailed: [{"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"}]
+    Each entry is a tool name, or a table that adds a message and conditions.
+    Example (yolo-jail.toml):
+      [security]
+      blocked_tools = ["curl", { name = "grep", message = "Use rg", suggestion = "rg <pattern>" }]
     A tool name is a BARE NAME — a single PATH segment, no "/", "..",
     ":" or absolute path — because it names the FILE yolo generates in
     the block dir; a path-shaped name is refused.
@@ -1874,17 +1869,14 @@
       • find unconditionally blocked.
     Your own entries here are unaffected, and an entry naming the same
     tool as a pack's REPLACES it whole.
-    Lists from several files merge.  In TOML an empty list
-    (blocked_tools = []) drops every entry a lower file wrote, as a legacy
-    "blocked_tools": null does.  A detailed entry is an inline table in TOML,
-    or a [[security.blocked_tools]] table:
-      [security]
-      blocked_tools = ["curl", { name = "grep", message = "Use rg", suggestion = "rg <pattern>" }]
+    Lists from several files merge.  An empty list (blocked_tools = []) drops
+    every entry a lower file wrote.  A long table entry reads better as its own
+    [[security.blocked_tools]] table, as in the flag example below.
     Conditional on the ALTERNATIVE existing: add ``replacement`` (a bare
     binary name) and the tool is blocked only when that binary is on the
     jail's PATH.  The two defaults set it (rg for grep, fd for find), so
     on a backend that bakes no image — macos-user, where tools come from
-    ``packages`` or not at all — a jail without rg keeps working grep
+    ``install.nix`` or not at all — a jail without rg keeps working grep
     instead of losing it and being pointed at nothing.  An entry with no
     ``replacement`` always blocks, which is every custom entry.
     Exemptions: ``allow_flags`` (same pattern syntax) exempts an invocation
@@ -1899,17 +1891,12 @@
     match after any non-matching ``--*`` arg is skipped, so patterns
     like ``-*[rR]*`` catch ``-rn`` / ``-Rn`` without false-positive-ing
     ``--regex``.
-    Example:
-      "security": {
-        "blocked_tools": [
-          {
-            "name": "grep",
-            "message": "grep -r blocked; use rg",
-            "suggestion": "rg <pattern>",
-            "block_flags": ["-r", "-R", "--recursive", "-*[rR]*"]
-          }
-        ]
-      }
+    Example (yolo-jail.toml):
+      [[security.blocked_tools]]
+      name = "grep"
+      message = "grep -r blocked; use rg"
+      suggestion = "rg <pattern>"
+      block_flags = ["-r", "-R", "--recursive", "-*[rR]*"]
     Bypass: Set YOLO_BYPASS_SHIMS=1 in scripts that need blocked tools.
     AT THE HOST: `yolo host -- <program>` renders the same blockers — the
     selected packs' and this list from your USER config, never a workspace's —
@@ -1922,74 +1909,95 @@
     of the same name (Claude Code's Bash tool defines grep and find, in a jail
     too).  `yolo host apply` starts nothing and blocks nothing.
 
-  [bold]mise_tools[/bold] (object): Extra tools installed via mise in the jail.
-    Keys are mise tool names, values are version strings.
+  [bold]install.mise[/bold] (table): Extra tools installed via mise in the jail.
+    Keys are mise tool names, values are version strings.  The legacy JSONC key
+    is `mise_tools`.
     Default: {} — yolo ships no mise tool of its own. Every default runtime is a
     baked nix package instead (self-contained, present at boot, no first-use
     download).  (The `yolo init` template used to claim a `neovim` default here;
     there is none — see internal/config/config.go's defaultMiseToolsVals.)
     These are injected into the jail's global mise config (not workspace mise.toml).
     Deep-merged: user config adds tools, workspace config overrides versions.
-    A tool written "off" (TOML: [install] mise.<tool> = "off"; legacy: null)
-    drops the version a lower file pinned.
+    A tool written "off" (`[install.mise] <tool> = "off"`) drops the version a
+    lower file pinned.
 
     [bold]Which of the three places does your tool belong?[/bold] They are not
     interchangeable, and picking by habit is the common mistake:
       • The PROJECT needs it to build (a language runtime, a linter CI also runs)
         -> [bold]/workspace/mise.toml[/bold]. Committed, so CI and non-jail users get it
         too, and `mise install` applies it with NO restart. Putting a project
-        requirement in mise_tools hides it where nobody outside a jail can see it.
+        requirement in install.mise hides it where nobody outside a jail can see it.
       • YOU want it in every jail, but not on your host (an editor, a personal
-        utility) -> [bold]mise_tools in ~/.config/yolo-jail/config.jsonc[/bold]. This is the
+        utility) -> [bold]install.mise in ~/.config/yolo-jail/config.toml[/bold]. This is the
         one thing no workspace file can express, and the reason this key exists.
-      • It is available in nixpkgs at the version you want -> prefer [bold]packages[/bold].
+      • It is available in nixpkgs at the version you want -> prefer [bold]install.nix[/bold].
         Costs an image rebuild, but the binary is self-contained and present at
-        boot. Reach for mise_tools when nix does not track what you need — a
+        boot. Reach for install.mise when nix does not track what you need — a
         nightly channel, or a PyPI/npm-only tool (e.g. "pipx:some-tool").
-    Once a mise_tools entry stabilizes, consider promoting it to `packages`.
-    Example (user config): {"neovim": "nightly", "pipx:some-tool": "latest"}
+    Once an install.mise entry stabilizes, consider promoting it to `install.nix`.
+    Example (~/.config/yolo-jail/config.toml):
+      [install.mise]
+      neovim = "nightly"
+      "pipx:some-tool" = "latest"
+    `yolo config set install.mise.neovim '"nightly"' --user` writes the first entry.
 
   [bold]packs[/bold] (array): Everything a jail has beyond a bare shell — a coding agent
     and its config, shared skills, briefing prose.  [bold yellow]USER SCOPE ONLY[/bold yellow]: read from
-    ~/.config/yolo-jail/config.jsonc directly, never from a workspace config.  A
-    `packs` key in yolo-jail.jsonc is a `yolo check` error, because a workspace
+    ~/.config/yolo-jail/config.toml directly, never from a workspace config.  A
+    `packs` key in yolo-jail.toml is a `yolo check` error, because a workspace
     config travels with the repo and is agent-editable, so it must not decide what
     content (skills and briefing prose an agent then FOLLOWS) enters the jail.  A
     repo that wants to configure its own agents can just commit the files.
+    `yolo pack add <handle>` and `yolo pack remove <handle>` edit this list.
     [bold]The packs yolo ships are selected by BARE NAME, and none is on by default:[/bold]
-      "packs": ["claude"]     also: copilot, codex, opencode, pi, agy
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["claude"]     # also: copilot, codex, opencode, pi, agy
     With no packs configured a jail has no coding agent, and says so at launch.  That
     is the honest default: activating agents nobody asked for would put six tools and
     their config files in every jail.
-    A pack from ELSEWHERE is named by a PATH — [bold]~/dotfiles/packs/mine[/bold] or
-    [bold]/opt/packs/mine[/bold] — or, for a remote one, a git address
-    [bold]git+ssh://git@host/org/repo//sub?ref=main[/bold].  The "~/" is expanded against your
-    home at load, so ONE config can name one pack tree on machines whose homes differ
-    (/home/you vs /Users/you) — the reason it exists.  A path needs no scheme: a pack
-    NAME can never contain "/", so an entry with a separator is always a path.
-    [bold]file:///abs/path[/bold] still works and means the same thing.  Two refusals, both
-    naming the fix: [bold]file://~/…[/bold] (not a valid URL — the "~" parses as the host;
-    drop the scheme) and relative paths ./x and ../x (no anchor this key can honor).
-    [bold]A pack's NAME comes from your config line, never from its pack.json.[/bold]  An entry
-    may set "name" itself; otherwise it is the last segment of the source
-    ([bold]~/dotfiles/packs/mine[/bold] gives [bold]mine[/bold]; a git address uses its subpath).  That
-    name is the staging directory, the handle `yolo pack ls` prints and `yolo pack
-    explain` takes, and the /ctx dir a reads-host grant with no "into" lands in — all
-    fixed before anything is fetched, which is why the pack's own manifest cannot supply
-    it.  Set "name" when the directory is unhelpful, and note that two entries may not
-    share one:  { "source": "/tmp/build/002", "name": "house" }
+    Each entry is a HANDLE, the name config and yolo's own output use for a pack:
+      claude              a shipped pack ("yolo/claude" means the same)
+      local/<name>        the folder ~/.config/yolo-jail/packs/<name>
+      <source>/<name>     the pack <name> inside a source that `pack_sources` names
+      { git = URL }       a git repository that is one pack, whose handle is
+                          <owner>/<repo>; `ref` picks a branch, tag or commit
+      { pack = HANDLE }   one of the forms above, with `bare` or `namespace` set
+    Only a shipped pack is named without a source.  A path is not a handle: name
+    the folder that holds your packs in `pack_sources` instead.
+    Example (~/.config/yolo-jail/config.toml):
+      packs = [
+        "claude",
+        "local/house",
+        "mine/review",
+        { git = "https://github.com/acme/agent-pack", ref = "v2" },
+      ]
+
+      [pack_sources]
+      mine = "~/dotfiles/packs"
+    The "~/" is expanded against your home at load, so ONE config can name one pack
+    tree on machines whose homes differ (/home/you vs /Users/you).
+    [bold]Every name an agent sees for a pack starts with its NAMESPACE[/bold]: the source key
+    for `<source>/<name>` (skill `review` of "mine/review" reaches agents as
+    `mine-review`), the folder name for `local/<name>`, the repository's last segment
+    for `{ git = URL }`.  A shipped pack has none.  `bare = true` on an entry or a
+    source delivers the pack's names exactly as it wrote them; `namespace = "<word>"`
+    on a `{ pack = … }` or `{ git = … }` entry picks another word.  When two entries
+    would deliver one name, yolo refuses and names both; choose a namespace or set
+    `bare` to fix it.  `yolo pack ls` shows each entry's handle and namespace.
+    The legacy JSONC forms (a path, file://, git+ssh:// and { "source", "name" })
+    are listed in LEGACY JSONC FORMAT.
     [bold]Order is precedence, in a jail and at the host alike:[/bold] where two packs set one
     key, the later wins.  Later means the order this list names them in (a shipped pack included, so list
     your own pack AFTER a shipped one it overrides), then the packs another pack pulled in
     through its `needs`, then ~/.config/yolo-jail/local, which is always last.
-    A pack named by a PATH may be a tree of symlinks, the shape a dotfile manager (rcm,
+    A pack in a folder on this machine may be a tree of symlinks, the shape a dotfile manager (rcm,
     stow, chezmoi) deploys: its links are followed wherever they point and the targets
     delivered as files, in a jail and at the host alike.  A git pack's symlink pointing
     out of the pack is refused, because a repository you do not control must not be able
     to deliver a file from your machine.
     Host access =a reads-host file, a `mount` of a host dir, an installer program, or
     a host-prepending briefing.  EVERY pack's declared claims are honored, whatever its
-    origin — embedded, local (file://) or fetched (git).  There is no approval prompt:
+    origin — shipped, local or fetched (git).  There is no approval prompt:
     selecting the pack in your config is the consent, `yolo pack footprint <ref>` is
     where to review what a pack claims before you select it, and each launch's banner
     lists what every loaded pack reads from the host.  A launch on the host fetches a
@@ -2318,7 +2326,7 @@
                     (claude-auth, codex-auth and copilot-auth set it).  The
                     credential is NEVER
                     here: api_key_env_name is the NAME of a variable you hydrate
-                    (env_sources), and a base_url carrying userinfo is refused.  The
+                    (env), and a base_url carrying userinfo is refused.  The
                     entry carries facts only — WHICH environment variable each fact
                     lands in is stated by the agent pack's own derive.lua (its
                     yolo.env producer), never by provider vocabulary, so a pack cannot
@@ -2499,8 +2507,8 @@
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected
     packs' provider facts), the MCP servers (your `mcp_servers` over the selected
-    packs' `mcp` entries), your `lsp_servers`, and the selection your `profile` key
-    names.  So the provider facts reach `pi/models`, `pi/codex-models`,
+    packs' `mcp` entries), your `lsp_servers`, and the selection your
+    `active_provider` table names.  So the provider facts reach `pi/models`, `pi/codex-models`,
     `codex/config`, `opencode/config` and `oh-omp/models` at the host too, pi
     registers the declared openai-codex list, and every agent's MCP and LSP files
     carry those servers.  Never a fetched pack's `mcp` entry (its command would
@@ -2515,16 +2523,8 @@
     the jail at boot.  (This note also said a jail ignored `briefing.from` and read a
     root AGENTS.md regardless.  Both notches now resolve every pack through one
     predicate, and neither reads a root AGENTS.md at all.)
-    Entry forms — a bare name, a source string, or an object:
-      source      required unless the entry is a bare embedded-pack name.
-                  file:///abs/path (local) or
-                  git+ssh://git@host/org/repo//subdir?ref=branch.
-      name        short name for the staging dir and `yolo pack ls`.  Defaults to
-                  the last path segment; two packs resolving to the same name is an
-                  error (they would share a staging dir).
-      only        globs to include; matches a DIRECTORY prefix, so "skills/rust-*"
-                  takes the whole skill dir.  Default: everything.
-      exclude     globs to drop, applied after `only`.
+    A TOML entry takes the whole pack.  The legacy `only` and `exclude` filters
+    have no TOML spelling; LEGACY JSONC FORMAT describes them.
     A pack SHIPS ITS TOOLS: a file carrying the exec bit stages executable, so a skill
     can ship the script it tells an agent to run.  What a pack may NOT do is land a
     destination on the jail's PATH — that is refused in the manifest, because a name on
@@ -2533,7 +2533,7 @@
     is built-in skills < pack skills < your own ~/.<agent>/skills, so a pack may
     override a yolo built-in but never a skill you wrote.
     Pack prose is appended to each briefing as plain text, one blank line between
-    files and between packs (`briefing_provenance: true` labels each pack's section
+    files and between packs (`briefing_provenance = true` labels each pack's section
     once).  To EACH briefing unless the file's contribution named an audience: prose
     carrying `agents` reaches only the destinations whose owner declared a matching
     `agent`, at both notches.
@@ -2543,17 +2543,40 @@
     first), then prints the pack's footprint.  `footprint <path>` shows what a local
     pack you are authoring claims, and any collision, before you configure it.
     `explain` lists exactly which files stage and which the filters dropped.
-    Example: ["claude", "file:///home/me/code/acme/tools/agent-pack"]
 
-  [bold]providers[/bold] (object): Your own provider entries, composed OVER the ones the
+  [bold]pack_sources[/bold] (table, [bold]USER SCOPE ONLY[/bold]): The places a `<source>/<name>` pack handle reads.
+    Each key is a source name, and `packs` names a pack inside it as
+    "<source>/<name>".  The key is also the namespace of its packs' names (see
+    `packs`), so it must be lowercase letters, digits and single hyphens.  "yolo"
+    and "local" are yolo's own words and are refused as keys.
+    A value is one of:
+      "~/path" or "/abs/path"         a folder on this machine; each pack is a
+                                      folder inside it
+      { path = "~/path", bare = true } the same folder, its packs delivered
+                                      without a namespace
+      { git = URL, ref = "main" }     a git repository holding packs; `ref` is a
+                                      branch, tag or commit, and a tag or commit
+                                      is never re-fetched by a launch
+    A source is a folder or a repository, not both, and a folder takes no ref.
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["mine/review", "acme/tools"]
+
+      [pack_sources]
+      mine = "~/dotfiles/packs"
+      acme = { git = "https://github.com/acme/yolo-packs", ref = "v1" }
+    `yolo config set pack_sources.mine '"~/dotfiles/packs"' --user` writes the
+    first line.  This key has no legacy JSONC spelling: a legacy file names a
+    pack by its path instead.
+
+  [bold]providers[/bold] (table): Your own provider entries, composed OVER the ones the
     selected packs ship, per field — overriding one model alias, one region or one URL
     keeps every other field the pack shipped.  Each key is a provider NAME, and the name
     is sole-owned across packs and config together: two packs shipping one is a launch
     error.
     ⚠ WHERE A CREDENTIAL GOES IS USER-SCOPE ONLY.  `endpoints` in any form (a URL, a
-    protocol, a dialect, or a null removing one), `api_key_env_name` (a value or a null),
-    `platform`, and a null provider or null `providers` are REFUSED in a workspace
-    `yolo-jail.jsonc` or `yolo-jail.local.jsonc`, each naming the field; write them in
+    protocol, a dialect, or a removal of one), `api_key_env_name` (a value or a removal),
+    `platform`, and a removed provider are REFUSED in a workspace
+    `yolo-jail.toml` or `yolo-jail.local.toml`, each naming the field; write them in
     your user config instead.  The workspace file is agent-editable: an agent that can
     repoint its own model endpoint can send everything it reads to a server you did not
     choose, one that can rename the variable a provider claims can send you a different
@@ -2570,7 +2593,8 @@
                      headline case was the trap, because llama.cpp, ollama and vLLM all
                      speak OpenAI, so `claude` plus a bare URL pointed it at a server it
                      could not talk to.  Write `endpoints.<protocol>.base_url`.
-      endpoints      {protocol:{base_url, wire_api}} — where each wire protocol points.
+      endpoints      [providers.<name>.endpoints.<protocol>] with base_url and
+                     wire_api — where each wire protocol points.
                      The KEY is the protocol an agent asks for by name, and an agent
                      that speaks none of them reaches the provider only if some selected
                      pack declares an `adapter` from one of these to one of its own —
@@ -2579,11 +2603,11 @@
                      base_url routes an ADDRESS, never a credential.
       wire_api       the DIALECT an endpoint speaks, when it is not the protocol key's
                      own default; declared inside an `endpoints` entry.
-      api_key_env_name  the NAME of the variable you hydrate (env_sources), or a list of
+      api_key_env_name  the NAME of the variable you hydrate (env), or a list of
                      names for a provider with several credential routes (packs/bedrock's
                      bedrock lists six) — the credential itself is never in this
-                     config.  A named variable reaches only the agents whose profile
-                     selects this provider, and the launch pre-flight refuses a provider
+                     config.  A named variable reaches only the agents that
+                     select this provider, and the launch pre-flight refuses a provider
                      some agent selected whose variable is empty.  A provider that sets
                      no api_key_env_name but a `platform` claims the names every provider
                      of that platform lists, so a Bedrock provider of your own keeps the
@@ -2591,8 +2615,8 @@
       platform       what service this provider is, one token in an open vocabulary
                      ("aws-bedrock" for Amazon Bedrock).  Yours gets exactly the behavior
                      a shipped provider of the same platform gets: a Bedrock provider of
-                     your own, `{"platform": "aws-bedrock", "region": "eu-west-1"}` with a
-                     profile over it, switches claude to its Bedrock client, receives the
+                     your own, `{ platform = "aws-bedrock", region = "eu-west-1" }`
+                     selected in active_provider, switches claude to its Bedrock client, receives the
                      aws-auth credential pointer, claims the AWS credential variables
                      `bedrock` claims (unless it lists its own api_key_env_name) and is
                      required a region.  A value no pack knows changes nothing.
@@ -2601,26 +2625,27 @@
                      so a value with a dot, a slash or a "#" is refused at every scope.
                      For a provider whose platform a selected pack declares region
                      variables for (`bedrock`, and any provider of yours with
-                     "platform": "aws-bedrock"), an agent with no `region` here and none
+                     platform = "aws-bedrock"), an agent with no `region` here and none
                      of the region variables it reads (AWS_REGION or AWS_DEFAULT_REGION;
                      opencode reads AWS_REGION alone) delivered to it is given the
                      region its AWS profile has in ~/.aws/config on the machine yolo
                      launches on, in a jail and at `yolo host` alike, and the launch
                      says so.  When that file gives none either, the launch is REFUSED,
                      naming the three ways to set one: this key, a variable in
-                     env_sources, or the profile's `region` in that file.
+                     env, or the AWS profile's `region` in that file.
                      YOLO_ALLOW_MISSING_PROVIDERS=1 launches anyway.
-      models         {alias: model id} — the aliases a profile's `model` option names.
-                     A value may instead be an object, {id, name, description,
-                     context_window, max_tokens, reasoning, input, cost}: the wire id
-                     plus the facts an agent's menu shows (`description` is the second
-                     line claude's picker gives a model).
+      models         [providers.<name>.models] maps an alias to a model id — the
+                     aliases a variant's `model` names.  A value may instead be a
+                     table, { model, name, description, context, max_tokens,
+                     reasoning, accepts, price }: the wire id plus the facts an
+                     agent's menu shows (`description` is the second line claude's
+                     picker gives a model).
                      The agent pack's own derive.lua decides which alias each of the
-                     agent's keys reads; `default` is the alias used when a profile
-                     states no option, and it is an ordinary name, not a keyword.
+                     agent's keys reads; `default` is the alias used when a variant
+                     states no model, and it is an ordinary name, not a keyword.
                      This map composes LAST, over the provider's own list and every
                      pack's `models` contribution (added entries, or an `only`), so
-                     your aliases, additions and nulls win.
+                     your aliases, additions and removals win.
                      Four names are CONVENTIONAL TIER ALIASES every provider is
                      expected to declare: `default`, `fast` (cheap and quick),
                      `balanced` (the middle tier) and `frontier` (the most capable).
@@ -2634,10 +2659,10 @@
                      `yolo check` warns about an id no installed agent's own model
                      catalog knows, and says when it could read no catalog; it never
                      refuses one, and no launch asks.
-                     A value may be an object instead of an id string: {id, name, vendor,
-                     reasoning, input, cost, context_window, max_tokens, extends, base,
-                     openrouter_routing, wire_id}, where `id` is the wire model id and
-                     the rest are facts an agent's derive reads.
+                     A table value takes { model, name, vendor, reasoning, accepts,
+                     price, context, max_tokens, extends, base, openrouter_routing,
+                     wire_id }, where `model` is the wire model id and the rest are
+                     facts an agent's derive reads.
                      `vendor` is the model's MAKER, one lowercase token such as
                      "anthropic" or "openai": on a provider that serves several makers'
                      models (`bedrock`), each agent is offered only the entries its own
@@ -2645,31 +2670,33 @@
                      entry with no vendor is offered to every agent.
                      A fact you leave out INHERITS: from the pack's facts for the alias,
                      then the shared facts `extends` names, then pi's own catalog entry
-                     for the id.  A fact written as null is a TOMBSTONE: the model has no
-                     such fact, whatever a layer below says, pi's catalog included (so
-                     "reasoning": null over a pack's true removes it; restate the value to
-                     get the catalog's back).  On pi's own Bedrock client, a row naming a
+                     for the id.  A removed fact is a TOMBSTONE: the model has no such
+                     fact, whatever a layer below says, pi's catalog included (THE TOML
+                     FORMAT gives each removal spelling; restate the value to get the
+                     catalog's back).  On pi's own Bedrock client, a row naming a
                      catalog id goes into pi's models.json as a `modelOverrides` entry,
                      which pi merges over its catalog, so its thinking levels survive in
-                     any pi; a row with `base`, `wire_id` or a null is written whole.
+                     any pi; a row with `base`, `wire_id` or a removed fact is written
+                     whole.
                      `extends` names a top-level `model_facts` entry: the facts this
                      model's routes share, laid under this entry's own, so each route can
                      state its own price, context size or output limit.
                      Three keys are pi's alone.  `wire_id` is the id the row SENDS when
-                     its `id` is a client spelling, so one provider carries one model at
-                     two windows: {"floor": {"id": "x:floor"}, "floor-200k": {"id":
-                     "x:floor@200k", "wire_id": "x:floor", "context_window": 204800}}
-                     gives pi two rows, each with its own facts, written with `wireId` in
-                     models.json and the model-lists file.  A pi that does not read
-                     `wireId` sends the row's `id`, and every other agent sends `id`.
+                     its `model` is a client spelling, so one provider carries one model
+                     at two windows: the rows `floor = { model = "x:floor" }` and
+                     `floor-200k = { model = "x:floor@200k", wire_id = "x:floor",
+                     context = 204800 }` give pi two rows, each with its own facts,
+                     written with `wireId` in models.json and the model-lists file.  A
+                     pi that does not read `wireId` sends the row's `model`, and every
+                     other agent sends `model`.
                      There is no `variants` key: declare each variant as its own alias.
                      `base` names the pi CATALOG model id this
                      row INHERITS from, so a variant id such as
                      "deepseek/deepseek-v4.1-flash:floor" keeps the catalog's thinking
                      levels (nulls included), inputs, limits and cost instead of
                      restating them.  `openrouter_routing` is an OBJECT sent verbatim as
-                     OpenRouter's request `provider` field, e.g. {"order": ["streamlake",
-                     "morph"], "allow_fallbacks": false}, so two rows for one model can
+                     OpenRouter's request `provider` field, e.g. { order = ["streamlake",
+                     "morph"], allow_fallbacks = false }, so two rows for one model can
                      name different upstream orders.  A list carrying one (or, on a
                      provider pi ships, a `wire_id` or `base`) is registered
                      with pi as that provider's menu: its declared models are what pi
@@ -2679,18 +2706,22 @@
                      `compat.openRouterRouting`.  `yolo check` warns about a pin no
                      request can carry: on a Bedrock provider, or one with no
                      chat-completions `endpoints.openai` that no agent runs itself.
-                     Example: {"bedrock": {"models": {"kimi":
-                     {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}
-                     In TOML a row is keyed by the model's id, or by a name you choose
-                     when it says which model it is with `model` (TOML refuses `id`):
-                     kimi = { model = "global.moonshotai.kimi-k3" }.  Its facts are
-                     spelled `context`, `accepts` and `price`; `extends` and `wire_id`
-                     keep their names, and a twin that sends another row's id and takes
-                     its facts says `twin_of = "<that row's key>"` instead.  A row
-                     over a pack's alias for another id must say `model`, or it would
-                     send its key as the id.  `yolo config migrate` writes all of these.
-                     A plain string stays a string in TOML, default = "glm-5.3": the
-                     alias's wire id with no facts of its own, as in the old file.
+                     A row is keyed by the model's id, or by a name you choose when it
+                     says which model it is with `model` (`id` is refused).  A twin
+                     that sends another row's id and takes its facts says
+                     `twin_of = "<that row's key>"`.  A row over a pack's alias for
+                     another id must say `model`, or it would send its key as the id.
+                     A plain string, default = "glm-5.3", is the alias's wire id with
+                     no facts of its own.
+                     Example (~/.config/yolo-jail/config.toml):
+                       [providers.bedrock.models.kimi]
+                       model = "global.moonshotai.kimi-k3"
+                       vendor = "moonshotai"
+                     Example (~/.config/yolo-jail/config.toml):
+                       [providers.openrouter.models.flash-floor]
+                       model = "deepseek/deepseek-v4.1-flash:floor"
+                       base = "deepseek/deepseek-v4.1-flash"
+                       openrouter_routing = { order = ["streamlake", "morph"], allow_fallbacks = false }
       capabilities   the named jobs this provider performs for itself, e.g.
                      ["web_search"].  A launch that selects it OMITS every
                      `mcp_servers` entry whose "provides" names one of them — the
@@ -2698,46 +2729,60 @@
                      provider already does.  Same vocabulary `provides` and
                      `required_capabilities` are spelled in; the packs that ship a
                      provider declare it, and an entry here overrides that.
-      options        {option: default} the profile surface this provider DECLARES —
-                     the only schema a `profiles` entry answers to.  A default value
-                     is what a profile inherits when it does not state the option;
-                     `null` declares the option settable but defaultless, so a profile
-                     that says nothing about it delivers nothing.  A profile entry
-                     naming an option this map does not hold is refused — but only
-                     once the provider declares at least one option, since a provider
-                     with no `options` imposes no schema at all.
-    Null removes an entry.  Which environment variable each fact lands in is the agent
-    pack's decision (its yolo.env producer) — this key carries facts, not bindings.
-    Example: {"zai": {"endpoints": {"openai": {"base_url": "https://api.z.ai/api/paas/v4",
-                                               "wire_api": "openai-chat-completions"}},
-              "api_key_env_name": "ZAI_API_KEY",
-              "models": {"default": "glm-5.3[1m]", "fast": "glm-5.3-flash[1m]"},
-              "options": {"model": "default"}}}
+      options        [providers.<name>.options] maps an option to its default — the
+                     settings this provider DECLARES, and the only schema a variant
+                     answers to.  A default value is what a variant inherits when it
+                     does not state the option.  A variant naming an option this
+                     table does not hold is refused — but only once the provider
+                     declares at least one option, since a provider with no
+                     `options` imposes no schema at all.
+      variants       [providers.<name>.variants.<variant>] — your own NAMED SELECTIONS
+                     over this provider; see `providers.<name>.variants` below.
+    Which environment variable each fact lands in is the agent pack's decision (its
+    yolo.env producer) — this key carries facts, not bindings.
+    Example (~/.config/yolo-jail/config.toml):
+      [providers.zai]
+      api_key_env_name = "ZAI_API_KEY"
 
-  [bold]model_facts[/bold] (object): Facts a model keeps on every route, written ONCE and
-    named by each route's `providers.<name>.models.<alias>` object with `extends`.  Each key
-    is a name you choose; each value takes a model entry's facts: {name, description,
-    reasoning, input, cost, context_window, max_tokens, base, openrouter_routing}, a null
-    being a tombstone.  The order is: the route's own value, then these shared facts, then
+      [providers.zai.endpoints.openai]
+      base_url = "https://api.z.ai/api/paas/v4"
+      wire_api = "openai-chat-completions"
+
+      [providers.zai.models]
+      default = "glm-5.3[1m]"
+      fast = "glm-5.3-flash[1m]"
+
+      [providers.zai.options]
+      model = "default"
+
+  [bold]model_facts[/bold] (table): Facts a model keeps on every route, written ONCE and
+    named by each route's `providers.<name>.models.<alias>` table with `extends`.  Each key
+    is a name you choose; each value takes a model row's facts: { name, description,
+    reasoning, accepts, price, context, max_tokens, base, openrouter_routing }, a removed
+    fact being a tombstone.  The order is: the route's own value, then these shared facts, then
     the agent's own catalog, so a route that serves a smaller context or charges a different
-    price states just that.  An object-valued fact is ONE fact: a route's own `cost` or
+    price states just that.  A table-valued fact is ONE fact: a route's own `price` or
     `openrouter_routing` REPLACES the shared object whole, never merging key by key, so a
     1M route and its 200k twin extending one entry send the same OpenRouter `provider`
-    field, and a route stating "openrouter_routing": null sends none.  An `extends` naming
+    field, and a route that removes `openrouter_routing` sends none.  An `extends` naming
     no entry here is refused.  pi gets every row in full,
     unless its pi reads the shared form: then models.json holds the facts once, as
     `sharedModels`, each row saying `extends` and stating only what differs, and the
     model-lists file carries the same `sharedModels` and `extends` beside full rows.  The
-    declaration is `"reads_shared_models": true` on the `program` contribution whose
+    declaration is `reads_shared_models = true` on the `program` contribution whose
     `bin` is "pi" and that supplies pi's bytes: a fork's (`fork_of`, `via: "source"`),
     which replaces the base pack's, or else the pack installing pi.
-    Example: {"opus-5.5": {"reasoning": true, "input": ["text", "image"],
-              "context_window": 1000000, "max_tokens": 128000}}
-    In TOML an entry takes a row's fact spellings, `accepts`, `price` and `context`, and
-    refuses what only a route says: `model`, `wire_id`, `twin_of`, `compact_at`, `extends`.
-    A project config may write it too, in TOML as in the old file.
+    Example (~/.config/yolo-jail/config.toml):
+      [model_facts."opus-5.5"]
+      reasoning = true
+      accepts = ["text", "image"]
+      context = 1000000
+      max_tokens = 128000
+      price = { input = 5, output = 25 }
+    An entry refuses what only a route says: `model`, `wire_id`, `twin_of`,
+    `compact_at`, `extends`.  A project config may write it too.
 
-  [bold]adapters[/bold] (object): Where an ADAPTED provider answers — the one field of an
+  [bold]adapters[/bold] (table): Where an ADAPTED provider answers — the one field of an
     adapter you may set.  [bold yellow]USER SCOPE ONLY[/bold yellow], for the same reason `providers`
     addresses are: this decides where an agent's inference goes, and a workspace config
     travels with the repo and is agent-editable.
@@ -2751,115 +2796,116 @@
     still moves an adapter no pack service serves (a gateway or a proxy you run).
     Each key is the CONVERSION, spelled "<from>-><to>" — the same pair the declaring pack
     claims, which is sole-owned.  The only field is `address`, an http/https URL; a key
-    naming a conversion nothing declares is inert, and a null drops the override.
-    Example: {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}
+    naming a conversion nothing declares is inert.
+    Example (~/.config/yolo-jail/config.toml):
+      [adapters."openai->anthropic"]
+      address = "http://127.0.0.1:9214"
 
-  [bold]profiles[/bold] (object): Your own NAMED SELECTIONS over providers — profile
-    name → {provider, ...option values}.  USER-SCOPE ONLY: the key is read from your
-    user config directly, and a workspace config carrying it is REFUSED, because a
-    workspace file travels with the repo and is agent-editable, and a profile steers
-    WHICH ENDPOINT and WHICH MODEL an agent talks to.  Per entry:
-      provider       REQUIRED — what the name selects.  An entry without one is
-                     refused: a profile is a selection, so the name declares nothing
-                     by itself.
-      enforce_models true (the default) or false — a profile FIELD, not an option.
+  [bold]providers.<name>.variants[/bold] (table, [bold]USER SCOPE ONLY[/bold]): Your own NAMED SELECTIONS over a
+    provider — a variant name and the settings it picks.  The legacy JSONC key is
+    `profiles`, where each entry named its provider.  A workspace config carrying a
+    variant is REFUSED, because a workspace file travels with the repo and is
+    agent-editable, and a variant steers WHICH ENDPOINT and WHICH MODEL an agent
+    talks to.  A variant is selected as "<provider>/<variant>".  Per variant:
+      model          the provider's model alias or id this variant runs.
+      enforce_models true (the default) or false.
                      Where a pack's `models` contribution narrowed the provider's list
                      with an `only`, on means every agent that can refuse a model
                      outside the list does (claude's allowlist, opencode's whitelist,
                      pi's extension), and on `openai-codex` claude and pi refuse outside
                      the subscription's list with no `only`; off means the list only
                      shapes the agents' menus.
-      subagents      {default, roles} — a profile FIELD, not an option.  What this
-                     profile's child agents run on.  `default` is the model a child that
-                     names none of its own starts on, and omitted it is the parent's
-                     model.  `roles` pins one model per subagent role, e.g.
-                     {"worker": "deepseek-floor"}, and a role it omits keeps pi-subagents'
-                     own default.  Each value is an alias or exact model id of the
-                     profile's provider, resolved the way the `model` option is; one that
-                     does not resolve, an unknown key, or an empty declaration is refused.
-                     Only pi reads it: it becomes pi-subagents' defaultModel and role
-                     models.  Example: {"zai-fast": {"provider": "zai", "subagents":
-                     {"default": "fast"}}}
+      subagents      a table with `default` and `roles`: what this variant's child
+                     agents run on.  `default` is the model a child that names none of
+                     its own starts on, and omitted it is the parent's model.  `roles`
+                     pins one model per subagent role, e.g. { worker = "deepseek-floor" },
+                     and a role it omits keeps pi-subagents' own default.  Each value is
+                     an alias or exact model id of the variant's provider, resolved the
+                     way `model` is; one that does not resolve, an unknown key, or an
+                     empty table is refused.  Only pi reads it: it becomes
+                     pi-subagents' defaultModel and role models.
       (any other key)  an OPTION VALUE, and it must be a string.  The option name must
-                     be one the resolved provider's `options` declares; what the value
-                     MEANS is the agent pack's derive.lua's business (for the shipped
-                     packs, `model` names an alias of the provider's `models` table).
-                     Omit a key to leave that option at its declared default; a null
-                     here is refused, not read as a delete.  A provider that declares
-                     NO options imposes no schema at all — an undeclared option name
-                     is refused only once the provider declares at least one.
-    A name both sides declare is yours to customize: your entry wins per option and
-    keeps the pack's provider when it states none.  Declaring a profile does nothing
-    until a launch selects it (the `profile` key, or `-p <name>` before the `--`).
-    Example: {"zai-fast": {"provider": "zai", "model": "fast"}}
+                     be one the provider's `options` declares; what the value MEANS is
+                     the agent pack's derive.lua's business.  Omit a key to leave that
+                     option at its declared default.  A provider that declares NO
+                     options imposes no schema at all — an undeclared option name is
+                     refused only once the provider declares at least one.
+    A variant both a pack and you declare is yours to customize: your entry wins per
+    option.  Declaring a variant does nothing until a launch selects it
+    (`active_provider`, or `-p <provider>/<variant>` before the `--`).
+    Example (~/.config/yolo-jail/config.toml):
+      [providers.zai.variants.zai-fast]
+      model = "fast"
+      subagents = { default = "fast" }
 
-  [bold]profile[/bold] (string, list or object): The profile each agent runs — the
-    persistent spelling of `-p`/`--profile`, form for form:
-      "profile": "bedrock"                             every agent: -p bedrock
-      "profile": {"pi": "codex", "claude": "bedrock"}  per agent: -p pi=codex,claude=bedrock
-      "profile": {"*": "bedrock", "pi": "codex"}       "*" is every agent not named:
-                                                       -p bedrock -p pi=codex
-      "profile": {"pi": ["zai", "openrouter"]}         a list for one agent:
-                                                       -p pi=zai,openrouter
-      "profile": ["zai", "openrouter"]                 a list for every agent:
-                                                       -p zai,openrouter
-    An object key is the BINARY a pack installs (`claude`, `pi`, `codex`) and NOT a pack
-    or agent name; an unknown key is fatal, naming what is installed.  "*" names no
-    CLI, so it cannot collide with one.  The string and list forms and "*" reach every
-    CLI the selected packs install that the object does not name, whether or not a command
-    follows `--` — the command is never a profile target, so `yolo -- sleep 60` launches
-    with the profile active for every CLI the jail installs.  A named agent keeps its
-    own entry beside "*", as `-p pi=codex` keeps pi's beside a bare `-p bedrock`.
-    A null entry selects NO profile for that agent, so "*" does not reach it; a null
-    `profile` selects nothing.  An empty name is refused (null is the spelling of none).
+  [bold]active_provider[/bold] (table, [bold]USER SCOPE ONLY[/bold]): The provider each agent runs on — the
+    persistent spelling of `-p`/`--profile`, form for form.  The legacy JSONC key is
+    `profile`.  Each value is a provider, a "<provider>/<variant>", a list of them,
+    or "native" (the agent's own login, no provider):
+      default = "bedrock"                every agent: -p bedrock
+      pi = "codex"                       one agent: -p pi=codex
+      default = "bedrock"  +  pi = "codex"
+                                         every agent not named, and pi: -p bedrock -p pi=codex
+      pi = ["zai", "openrouter"]         a list for one agent: -p pi=zai,openrouter
+      default = ["zai", "openrouter"]    a list for every agent: -p zai,openrouter
+    Example (~/.config/yolo-jail/config.toml):
+      [active_provider]
+      default = "bedrock"
+      pi = "zai/zai-fast"
+      codex = "native"
+    `yolo active-provider pi zai/zai-fast` writes the `pi` line, and
+    `yolo active-provider default bedrock` the `default` line.
+    A key other than `default` is the BINARY a pack installs (`claude`, `pi`, `codex`)
+    and NOT a pack or agent name; an unknown key is fatal, naming what is installed.
+    `default` reaches every CLI the selected packs install that the table does not
+    name, whether or not a command follows `--` — the command is never a provider
+    target, so `yolo -- sleep 60` launches with the provider active for every CLI the
+    jail installs.  A named agent keeps its own entry beside `default`, as
+    `-p pi=codex` keeps pi's beside a bare `-p bedrock`.
+    "native" selects NO provider for that agent, so `default` does not reach it.  An
+    empty name is refused.
     PRECEDENCE: every `-p` beats this key, form for form — a bare `-p <name>` replaces
     the key's selection for every CLI it reaches, named entries included, and
     `-p <cli>=<name>` replaces that CLI's.
-    A value may also be a LIST of profile names, the agent's ACTIVE SET: every listed
-    provider is live in one session (its models in the picker, its key delivered to that
-    agent alone), and the FIRST entry is where a fresh session starts.  Only an agent whose
+    A value may also be a LIST of names, the agent's ACTIVE SET: every listed provider
+    is live in one session (its models in the picker, its key delivered to that agent
+    alone), and the FIRST entry is where a fresh session starts.  Only an agent whose
     pack declares `provider_sets` holds one (pi, opencode and oh-omp today); a list NAMED at
-    any other agent is REFUSED, naming the one-profile spelling: claude, codex and copilot
-    run one provider per session.  A list naming no agent — the list form, a list under
-    "*", or a bare `-p zai,openrouter` — goes whole to every agent that holds a set and its
-    first entry to every other, and the launch names the agents that ignore the rest.
-    A list of one is the plain name.  An empty list is refused (null means "none"), as is a
-    name listed twice, two entries on one provider, two on one regional platform (two
-    Bedrock providers share the agent's one AWS_REGION), and a via profile anywhere but
-    first.  Every name must be declared, the entries a bare list's narrowed agents ignore
-    included.
+    any other agent is REFUSED, naming the one-name spelling: claude, codex and copilot
+    run one provider per session.  A list under `default`, or a bare
+    `-p zai,openrouter`, goes whole to every agent that holds a set and its first entry
+    to every other, and the launch names the agents that ignore the rest.
+    A list of one is the plain name.  An empty list is refused, as is a name listed
+    twice, two entries on one provider, two on one regional platform (two Bedrock
+    providers share the agent's one AWS_REGION), and a variant that sets `via` anywhere but first.
+    Every name must be declared, the entries a list's narrowed agents ignore included.
     On the command line a comma continues one agent's list: `-p pi=zai,openrouter` (a
-    later `-p pi=…` replaces the whole list, as a `-p` pair replaces the key's).  A profile
-    name may not contain a comma, and in this key a list is a JSON array, never a comma
-    string.
-    USER-SCOPE ONLY, like `profiles`: this key is read from the merged config, so a
-    workspace spelling would TAKE EFFECT rather than sit inert — it is REFUSED there
-    for the same reason `profiles` is (OQ-CS5).
-    At `yolo host` it selects for the one command composed: its own entry, else "*" when
-    a selected pack installs it.  A profile reaches agent CLIs only, so
+    later `-p pi=…` replaces the whole list, as a `-p` pair replaces the key's).  A
+    provider or variant name may not contain a comma, and in this key a list is a TOML
+    array, never a comma string.
+    USER-SCOPE ONLY, like variants: a workspace spelling would TAKE EFFECT rather than
+    sit inert, so it is REFUSED there.
+    At `yolo host` it selects for the one command composed: its own entry, else
+    `default` when a selected pack installs it.  A provider reaches agent CLIs only, so
     `yolo host -p zai -- curl …` is REFUSED, naming the grant that hands an arbitrary
-    command a provider's key, `yolo host --with-credentials zai -- curl …`; an object
-    key naming such a command cannot do it either — it is the unknown key above,
-    refused at `yolo host` too — and "*" simply does not reach it.
-    RENAMED from `use_profiles` (2026-09-29): that key is refused by name, and the
-    refusal respells your entries, which the object form takes unchanged.
-    Selecting a name nothing declares (pack-shipped or yours) refuses the
-    launch rather than selecting nothing — a silently inert selector is
-    indistinguishable from a working one.  A selected profile switches ON; deactivating
-    it does not write the agent's surface back — whatever a selection wrote stays, and
-    the agent's own choice stands.
-    AT THE HOST NOTCH `yolo host apply` (and a wrapped launch's automatic apply) writes
+    command a provider's key, `yolo host --with-credentials zai -- curl …`; a key
+    naming such a command cannot do it either — it is the unknown key above, refused
+    at `yolo host` too — and `default` simply does not reach it.
+    Selecting a name nothing declares (pack-shipped or yours) refuses the launch
+    rather than selecting nothing — a silently inert selector is indistinguishable
+    from a working one.  A selected provider switches ON; deactivating it does not
+    write the agent's surface back — whatever a selection wrote stays, and the
+    agent's own choice stands.
+    AT THE HOST, `yolo host apply` (and a wrapped launch's automatic apply) writes
     this selection into the agents' real files too — pi's defaultProvider and
     defaultModel, codex's and opencode's model, claude's picker — when the chosen
-    profile changes; a later /model pick of yours stands, and deselecting clears only
+    provider changes; a later /model pick of yours stands, and deselecting clears only
     what yolo wrote.  A selection the host cannot run is left out and named.  A
     selection whose pairing runs through a pack service (claude on `codex` or
     `cerebras`, through the wire bridge) writes no address anywhere: the service lives
     only for the command that starts it, so the selection takes effect through
     `yolo host -- <agent>` or the host wrappers, which start it, and `yolo host env`
     refuses it.  An agent started any other way runs without it.
-    Example: {"*": "bedrock", "pi": "zai-fast", "codex": null}
-    Example: {"pi": ["zai", "openrouter"]}
 
   [bold]required_capabilities[/bold] (array of strings): Named capabilities this
     environment DECLARES it needs, e.g. ["web_search"].  Validated as a string list
@@ -2869,16 +2915,16 @@
     (docs/reference/mcp-configuration.md, "The capability gate").  A capability is satisfied by a
     declaration — `providers.<name>.capabilities` naming it, an `mcp_servers.<name>`
     entry whose "provides" is it, or a SELECTED agent whose pack declares it for the
-    source that agent runs on: its own login when no profile points it elsewhere
-    (claude and agy search the web on theirs), or the provider its profile selects
-    (a pack's provider counts only there, so `pi` on no profile gets no web search
+    source that agent runs on: its own login when no provider is active for it
+    (claude and agy search the web on theirs), or the provider active_provider selects
+    (a pack's provider counts only there, so `pi` on no provider gets no web search
     from the `openai-codex` provider its pack brings along; your `providers.<name>`
-    entry overrides a pack's list, and null removes the provider) — or by the
+    entry overrides a pack's list, and removing the provider drops it) — or by the
     baseline every agent meets (code_editing, command_execution), which needs no
-    declaration.  A server set to null satisfies nothing: the jail deletes it.  One
-    agent's source is enough for the whole launch, and so is any profile of an
+    declaration.  A server set to "off" satisfies nothing: the jail deletes it.  One
+    agent's source is enough for the whole launch, and so is any provider of an
     agent's list.  A `providers.<name>.capabilities` YOU write counts whether or not
-    a profile selects that provider.
+    active_provider selects that provider.
     The refusal runs above the backend dispatch, so it fires on every backend, and
     `yolo check` predicts it.  `yolo host -- <cmd>` asks the same gate, over your
     user config alone (a workspace config cannot refuse or satisfy a host launch),
@@ -2890,9 +2936,10 @@
     YOLO_REQUIRED_CAPABILITIES, and the check it stood in for now happens on the host
     before the launch.
     Default: [] (declares nothing).
-    Example: {"required_capabilities": ["web_search"]}
+    Example (yolo-jail.toml):
+      required_capabilities = ["web_search"]
 
-  [bold]prune[/bold] (object): Disk-usage nudge settings for `yolo check`.  ONE key, and
+  [bold]prune[/bold] (table): Disk-usage nudge settings for `yolo check`.  ONE key, and
     the block is host-side only — an in-jail `yolo check` skips the disk section, so a
     threshold written in a jail snapshot does nothing there.
     • [bold]warn_threshold_gb[/bold] (number, [bold]default 15[/bold]): total yolo-jail
@@ -2900,72 +2947,79 @@
       changes WHEN YOU ARE TOLD, never what `yolo prune` reclaims: every reclaim policy
       is a flag (--image-cache-keep, --cache-age, --nix-gc-max), so nothing else belongs
       under this key and any other sub-key is refused as unknown.
-    ⚠ THE BLOCK HAD NO VALIDATOR AT ALL UNTIL 2026-09-16, so `prune: "hello"` and a
+    ⚠ THE BLOCK HAD NO VALIDATOR AT ALL UNTIL 2026-09-16, so `prune = "hello"` and a
     misspelled sub-key were both accepted in silence — and this reference had no section
     for it, which is how it stayed that way: the coverage test that should have caught
     the omission was satisfied by the substring "prune" inside `programs.autoprune`.
     Both halves are fixed; the value is now checked and a typo names itself.
-    Example: {"prune": {"warn_threshold_gb": 40}}
+    Example (~/.config/yolo-jail/config.toml):
+      [prune]
+      warn_threshold_gb = 40
 
-  [bold]lsp_servers[/bold] (object): Language servers to hand to the agents that read them.
+  [bold]lsp_servers[/bold] (table): Language servers to hand to the agents that read them.
     No defaults — declare each server you want. Its binary must be on PATH (via
-    mise_tools, a pack program, or an absolute path).
-    Each key is a server name; value is an object with:
+    install.mise, a pack program, or an absolute path).
+    Each key is a server name; its value is a table with:
       • command (string, required): Binary name (on PATH) or absolute path.
       • args (array of strings): Args passed to the LSP binary. Default: [].
-      • fileExtensions (object): Extension → language ID map (required for Copilot).
+      • fileExtensions (table): Extension → language ID map (required for Copilot).
     The entrypoint translates these for each agent:
       • Copilot: written to ~/.copilot/lsp-config.json as native LSP servers.
       • Claude Code: the launcher renders ONE generated plugin, yolo-lsp, from the
         whole table into the skills tree Claude loads plugins from.
     yolo installs no language server itself, on any backend.
-    At the host notch `yolo host apply` writes the same translation into your real
+    At the host, `yolo host apply` writes the same translation into your real
     home from your USER config, less any server naming a path only a jail has:
     Copilot's file, and the yolo-lsp plugin in the skills dir of every selected
     pack that composes one.
-    Example: {"rust": {"command": "rust-analyzer", "args": [],
-              "fileExtensions": {".rs": "rust"}}}
-    A server written "off" (TOML: lsp_servers.<name> = "off"; legacy: null)
-    drops one a lower file declared.
+    Example (yolo-jail.toml):
+      [lsp_servers.rust]
+      command = "rust-analyzer"
+      args = []
+      fileExtensions = { ".rs" = "rust" }
+    A server written "off" (`lsp_servers.<name> = "off"`) drops one a lower file
+    declared.
 
   [bold]mcp_presets[/bold] (array of strings): REMOVED — a config carrying it is REFUSED,
     in either file.  yolo no longer keeps its own list of MCP servers:
       • chrome-devtools — add "chrome-devtools" to `packs` in
-        ~/.config/yolo-jail/config.jsonc, beside your agents.  The pack gives the
+        ~/.config/yolo-jail/config.toml, beside your agents.  The pack gives the
         server in a jail, on macos-user and at the host.  A workspace file cannot
         select it.
       • sequential-thinking — deleted.  Write it yourself under `mcp_servers`:
-          "sequential-thinking": {"command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]}
+        Example (yolo-jail.toml):
+          [mcp_servers.sequential-thinking]
+          command = "npx"
+          args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
     Delete the key, then run [cyan]yolo check[/cyan].
 
-  [bold]mcp_servers[/bold] (object): Custom local and remote MCP servers.
-    Add custom servers, or set a pack's or inherited server to [bold]null[/bold] (JSONC)
-    or "off" (TOML) to disable it. A selected pack's `mcp` entry composes under this table;
-    your same-name entry merges over it per field, and a removal disables it.
-    Each key is a server name; its object requires exactly one of:
+  [bold]mcp_servers[/bold] (table): Custom local and remote MCP servers.
+    Add custom servers, or set a pack's or inherited server to "off" to disable it.
+    A selected pack's `mcp` entry composes under this table; your same-name entry
+    merges over it per field, and a removal disables it.
+    Each key is a server name; its table requires exactly one of:
       • command (string): local stdio server program, on PATH or an absolute path.
       • url (string): remote endpoint. Must be https://, except http:// for localhost or
         a loopback address. `args` and `env` apply only to `command` entries.
     Local stdio fields:
       • args (array of strings): passed to the server process; default: [].
-      • env (object of string→string): Environment variables passed only to
+      • env (table of string→string): Environment variables passed only to
         this MCP server's process. Use for per-server secrets and config so
         they don't leak into the jail-wide env. Default: {}.
         Values are written LITERALLY: yolo expands no [bold]${VAR}[/bold], so a
         reference reaches the agent's config as written, for the agent to resolve
-        from its own environment (which [bold]env_sources[/bold] hydrates).
+        from its own environment (which [bold]env[/bold] hydrates).
     Remote fields:
       • transport (string): "http" (streamable HTTP; default) or "sse".
-      • headers (object of string→string): remote request headers, written verbatim;
+      • headers (table of string→string): remote request headers, written verbatim;
         [bold]${VAR}[/bold] is not interpolated.
-      • oauth (object): optional static settings: `client_id` (string), `scopes` (array of
+      • oauth (table): optional static settings: `client_id` (string), `scopes` (array of
         strings), `callback_port` (integer 1–65535). A client secret is never rendered.
     Shared fields:
       • provides (string): the named JOB this server implements, e.g.
         "web_search".  Two things read it, and they are different questions.
         DELIVERY: the authentication source your launch resolves to — the
-        provider a profile selects, or the agent's own built-in login — omits
+        provider active_provider selects, or the agent's own built-in login — omits
         this server when it already does that job, so a search MCP is delivered
         on a gateway that has no native search and dropped on one that does.
         REQUIREMENT: it also satisfies a `required_capabilities` entry naming
@@ -2977,21 +3031,21 @@
         (and non-empty) in the jail's startup env. If any is missing,
         the server is skipped with a notice — not an error. Lets a
         dotfiles-shared user config declare machine-dependent servers
-        that activate only where env_sources provides the keys. It is
+        that activate only where `env` provides the keys. It is
         asked per agent: a variable a provider claims (its
-        api_key_env_name) reaches only the agent whose profile selected
+        api_key_env_name) reaches only the agent that selected
         that provider, so the server is configured for that agent only.
-        Example:
-          {"tavily": {
-            "command": "npx", "args": ["-y", "tavily-mcp"],
-            "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
-            "requires_env": ["TAVILY_API_KEY"]
-          }}
+        Example (~/.config/yolo-jail/config.toml):
+          [mcp_servers.tavily]
+          command = "npx"
+          args = ["-y", "tavily-mcp"]
+          env = { TAVILY_API_KEY = "${TAVILY_API_KEY}" }
+          requires_env = ["TAVILY_API_KEY"]
     Every selected agent pack renders the remote transport it declares. Codex renders
     streamable HTTP; Claude and opencode render streamable HTTP and SSE. A remote server
     whose transport is unsupported by an agent is omitted from its config and named at boot.
     Stdio servers continue through each pack's local-server form.
-    AT THE HOST NOTCH the same translation is written into your real home by
+    AT THE HOST, the same translation is written into your real home by
     `yolo host apply` (and a wrapped launch's automatic apply), from this key in your
     USER config: every selected agent's MCP file gets these servers, as in a jail.
     A local server whose command or arguments name a path only a jail has (/workspace,
@@ -2999,25 +3053,35 @@
     environment `yolo host env --agent <agent>` composes for each agent.  To give one
     host agent a server the others should not get, add a `config-overlay` for that
     agent's surface to your local pack (~/.config/yolo-jail/local/pack.json).
-    Example:
-      {"cerebras-mcp": {
-        "command": "npx", "args": ["-y", "cerebras-code-mcp"],
-        "env": {"CEREBRAS_API_KEY": "csk-...", "CEREBRAS_MCP_IDE": "claude"}
-      }}
-    Example remote server:
-      {"linear": {"url": "https://mcp.linear.app/mcp", "transport": "http",
-        "headers": {"X-Org": "acme"}, "oauth": {"client_id": "c1", "scopes": ["read"], "callback_port": 3118}}}
+    Example (~/.config/yolo-jail/config.toml):
+      [mcp_servers.cerebras-mcp]
+      command = "npx"
+      args = ["-y", "cerebras-code-mcp"]
+      env = { CEREBRAS_API_KEY = "csk-...", CEREBRAS_MCP_IDE = "claude" }
+    A remote server:
+    Example (~/.config/yolo-jail/config.toml):
+      [mcp_servers.linear]
+      url = "https://mcp.linear.app/mcp"
+      transport = "http"
+      headers = { X-Org = "acme" }
+      oauth = { client_id = "c1", scopes = ["read"], callback_port = 3118 }
 
   [bold]devices[/bold] (array): Host devices to pass through to the jail.
     Three formats supported:
     • USB by vendor:product ID (preferred — stable across reboots):
-      {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
+      { usb = "0bda:2838", description = "RTL-SDR Blog V4" }
       Resolved to /dev/bus/usb/... at startup via lsusb.
     • Raw device path (fragile — changes on replug):
       "/dev/bus/usb/001/004"
     • Cgroup rule (broad access):
-      {"cgroup_rule": "c 189:* rwm"}
+      { cgroup_rule = "c 189:* rwm" }
       Grants access to all devices matching the major number.
+    Example (yolo-jail.toml):
+      devices = [
+        { usb = "0bda:2838", description = "RTL-SDR Blog V4" },
+        "/dev/bus/usb/001/004",
+        { cgroup_rule = "c 189:* rwm" },
+      ]
     Missing devices produce a warning, not an error — the jail still starts.
     On macos-user nothing is passed through: a raw path under /dev (a serial
     adapter's /dev/cu.* node) has its device control calls allowed by the
@@ -3025,7 +3089,8 @@
     cgroup entries are not read.  Not yet tried on a Mac.
     Subject to config change safety (human approval required).
 
-  [bold]gpu[/bold] (object): GPU passthrough configuration (NVIDIA / AMD ROCm).
+  [bold]machine.gpu[/bold] (table): GPU passthrough configuration (NVIDIA / AMD ROCm).
+    The legacy JSONC key is `gpu`.
     NVIDIA (default) uses the NVIDIA Container Toolkit on the host (podman +
     CDI). AMD ROCm defaults to raw device-node passthrough and needs no host
     toolkit — just the amdgpu kernel driver.
@@ -3082,6 +3147,17 @@
     fine at the common 8 MB rootless cap — no host change needed.
     Run [bold]yolo check[/bold] to verify GPU readiness on a given host.
     Subject to config change safety (human approval required).
+    Example (yolo-jail.toml):
+      [machine.gpu]
+      enabled = true
+      devices = "all"
+      capabilities = "compute,utility"
+    Example (yolo-jail.toml):
+      [machine.gpu]
+      enabled = true
+      vendor = "amd"
+      mode = "devices"
+      devices = "all"
 
   [bold]kvm[/bold] (boolean, default false): Expose /dev/kvm inside the jail.
     When true, yolo adds [cyan]--device /dev/kvm[/cyan] to the container run
@@ -3102,8 +3178,10 @@
     guest-to-host escape bugs requiring attacker code in a KVM guest —
     but it is strictly larger than no-kvm.  Leave this off unless you
     actually need nested virtualization.
+    Example (yolo-jail.toml):
+      kvm = true
 
-  [bold]programs[/bold] (object, [bold]USER SCOPE ONLY[/bold]): What a launch does about
+  [bold]programs[/bold] (table, [bold]USER SCOPE ONLY[/bold]): What a launch does about
     programs nothing declares any more.
     • [bold]autoprune[/bold] (boolean, [bold]default false[/bold]): Remove orphans at boot.
       An ORPHAN is something installed in this jail's per-workspace home that no
@@ -3124,12 +3202,12 @@
       Every backend: on macos-user the launch hands the switch to the sandbox's
       bootstrap, which runs the same boot catalog (notch-convergence.md NC-D71).
       Not yet run on a Mac.
-    • [bold]overrides[/bold] (object, keyed by program name, [bold]default none[/bold]): Build one
+    • [bold]overrides[/bold] (table, keyed by program name, [bold]default none[/bold]): Build one
       program from a checkout you are developing, in place of its pack's own source. The
       name is the program's bin as its pack declares it.
-        "overrides": {
-          "board": { "path": "~/code/board-cli" }
-        }
+      Example (~/.config/yolo-jail/config.toml):
+        [programs.overrides.board]
+        path = "~/code/board-cli"
       Each entry takes [bold]path[/bold] (required): the checkout, an absolute path or one
       starting with ~/. A relative path, ~user/, an empty value, or any other type is a
       validation error naming the key to fix. An unknown key inside an entry is an error, so
@@ -3155,7 +3233,7 @@
       any other program a selected pack declares refuses the launch, naming the way to build
       it from a checkout: a fork pack (via "source", fork_of, and a git+file:// source). An
       override naming a program no selected pack declares does nothing; `yolo check` lists it.
-      An entry may instead be [bold]{ "prebuilt": true }[/bold]: run the pack's verified
+      An entry may instead be [bold]{ prebuilt = true }[/bold]: run the pack's verified
       prebuilt artifact for a program built from its pack's tree (via "pack"), even when the
       pack ships its source. yolo never swaps a prebuilt in on its own: a source that cannot
       be built here (a Mac with no sandbox account, say) is refused, naming the setup step
@@ -3163,9 +3241,11 @@
       the artifact, check its sha256 and print a line naming it. A pack with no prebuilt for
       the platform refuses the program, naming the platforms it does declare. "prebuilt"
       and "path" in one entry is a validation error naming both.
-        "overrides": { "board": { "prebuilt": true } }
+      Example (~/.config/yolo-jail/config.toml):
+        [programs.overrides.board]
+        prebuilt = true
 
-  [bold]resource_groups[/bold] (object): Owner-only selection for host resource groups. No mapping is enabled by default. A selected mapping is intent only: this build cannot verify or enforce host placement, so `yolo` refuses mapped launches and `yolo check --no-build` reports placement as unsupported/unknown. No group manager, controller, device or policy probe runs when there is no matching mapping.
+  [bold]resource_groups[/bold] (table): Owner-only selection for host resource groups. No mapping is enabled by default. A selected mapping is intent only: this build cannot verify or enforce host placement, so `yolo` refuses mapped launches and `yolo check --no-build` reports placement as unsupported/unknown. No group manager, controller, device or policy probe runs when there is no matching mapping.
     • [bold]default[/bold] (string): Explicit fallback owner unit for workspaces without a more-specific mapping. Setting this opts those workspaces in.
     • [bold]maintenance[/bold] (string): Owner unit reserved for explicitly attributed machine-wide maintenance work. It is not inherited from the current directory and is not used by this build.
     • [bold]agent_percent[/bold] (integer): Planned agent share for future finite group budgets. Default: 5; valid range: 1 through 99. This value does not apply a cap in this build.
@@ -3173,7 +3253,8 @@
     • [bold]projects[/bold] (table): Mapping from quoted canonical absolute project roots to owner unit names. The nearest component-bounded root is used after exact workspace mappings.
     Empty or unmatched mappings leave the workspace off. Project configuration cannot set or override this owner-only key. Use `yolo check --no-build` to inspect the selection.
 
-  [bold]resources[/bold] (object): Container resource limits.
+  [bold]machine.resources[/bold] (table): Container resource limits.
+    The legacy JSONC key is `resources`.
     Sets hard cgroup constraints on the jail container via podman flags.
     memory, cpus and pids_limit are enforced by the kernel — the jail cannot exceed them.
     io is not a limit, and is described on its own below.
@@ -3194,9 +3275,9 @@
     • [bold]io[/bold] (string|object): Disk I/O priority for every process in the jail, so a
       build yields the disk to your desktop when both want it. Default: "normal".
       "low" is best effort, level 7; "idle" is the idle class; "normal" sets nothing and
-      keeps the priority the launching process has. "io": "low" is shorthand for
-      "io": {"priority": "low"}, and priority is the only key the object takes.
-      Examples: "io": "low" (the one to start with), "io": "idle" (a build can crawl
+      keeps the priority the launching process has. io = "low" is shorthand for
+      io = { priority = "low" }, and priority is the only key the table takes.
+      Examples: io = "low" (the one to start with), io = "idle" (a build can crawl
       while your desktop reads the disk).
       ADVISORY, NOT A LIMIT: any process can raise its own priority again, and the
       priority reaches reads and synchronous writes but not buffered writeback, which
@@ -3211,6 +3292,12 @@
       Not applied on Apple Container or podman on macOS, where the workspace reaches
       the Mac over VirtioFS, which carries no priority; the launch says so on both.
       Frozen at the fresh launch, like every resources key.
+    Example (yolo-jail.toml):
+      [machine.resources]
+      memory = "8g"
+      cpus = 4
+      pids_limit = 4096
+      io = "low"
 
     [bold]In-jail sub-process limits (cgroup v2 delegation)[/bold]:
     A host-side cgroup delegate runs alongside the container and performs all
@@ -3249,6 +3336,8 @@
     syntax differs and isn't a drop-in replacement). macos-user has no
     container: the sandbox writes the machine's own /tmp and /var/folders, on
     disk, and "tmpfs" is warned as not read there.
+    Example (yolo-jail.toml):
+      ephemeral_storage = "tmpfs"
 
   [bold]macos_log[/bold] (string): REMOVED — a config carrying it is REFUSED.
     It dialled a [cyan]yolo-log[/cyan] wrapper that ran [cyan]/usr/bin/log[/cyan] inside
@@ -3269,58 +3358,373 @@
 
 [bold cyan]EXAMPLE CONFIG[/bold cyan]
 
-  {
-    "mise_tools": {"neovim": "nightly"},
-    "lsp_servers": {
-      "rust": {"command": "rust-analyzer", "args": [],
-               "fileExtensions": {".rs": "rust"}}
-    },
-    "packages": [
+  Example (yolo-jail.toml):
+    mounts = ["/path/to/ref-repo"]
+    devices = [{ usb = "0bda:2838", description = "RTL-SDR Blog V4" }]
+
+    [install]
+    nix = [
       "strace",
       "gtk4", "gtk4.dev",
-      {"name": "gtk4-layer-shell", "outputs": ["out", "dev"]},
-      {"name": "freetype", "nixpkgs": "e6f23dc0..."},
-      {"name": "freetype", "version": "2.14.1",
-       "url": "mirror://savannah/freetype/freetype-2.14.1.tar.xz",
-       "hash": "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw="}
-    ],
-    "env_sources": [{"DEBUG": "1"}, "~/.config/yolo-jail/secrets.env"],
-    "mounts": ["/path/to/ref-repo"],
-    "devices": [
-      {"usb": "0bda:2838", "description": "RTL-SDR Blog V4"}
-    ],
-    "gpu": {
-      "enabled": true,
-      "devices": "all",
-      "capabilities": "compute,utility"
-    },
-    // AMD ROCm variant (vendor "amd", raw device-node mode):
-    //   "gpu": {
-    //     "enabled": true,
-    //     "vendor": "amd",
-    //     "mode": "devices",
-    //     "devices": "all"
-    //   },
-    "resources": {
-      "memory": "8g",
-      "cpus": 4,
-      "pids_limit": 4096
-    },
-    "network": {
-      "mode": "bridge",
-      // HOST -> JAIL, "HOST:JAIL": the host reaches the jail's :8000.
-      "ports": ["8000:8000"],
-      // JAIL -> HOST, "JAIL:HOST": the host's postgres answers at
-      // localhost:5432 inside the jail. Note the reversed order.
-      "forward_host_ports": [5432]
-    },
-    "security": {
-      "blocked_tools": [
-        {"name": "grep", "message": "Use rg", "suggestion": "rg <pattern>"},
-        "wget"
-      ]
-    }
-  }
+      { name = "gtk4-layer-shell", outputs = ["out", "dev"] },
+      { name = "freetype", version = "2.14.1", url = "mirror://savannah/freetype/freetype-2.14.1.tar.xz", hash = "sha256-MkJ+jEcawJWFMhKjeu+BbGC0IFLU2eSCMLqzvfKTbMw=" },
+    ]
+    mise = { neovim = "nightly" }
+
+    [lsp_servers.rust]
+    command = "rust-analyzer"
+    args = []
+    fileExtensions = { ".rs" = "rust" }
+
+    [env]
+    sources = [{ set = { DEBUG = "1" } }, "secrets.env"]
+
+    [machine]
+    # HOST -> JAIL: the host reaches the jail's :8000.
+    ports = [{ host = 8000, jail = 8000 }]
+    # JAIL -> HOST: the host's postgres answers at localhost:5432 inside the jail.
+    forward = [{ jail = 5432, host = 5432 }]
+
+    [machine.gpu]
+    enabled = true
+    devices = "all"
+    capabilities = "compute,utility"
+    # AMD ROCm variant (raw device-node mode):
+    #   vendor = "amd"
+    #   mode = "devices"
+
+    [machine.resources]
+    memory = "8g"
+    cpus = 4
+    pids_limit = 4096
+
+    [network]
+    mode = "bridge"
+
+    [security]
+    blocked_tools = [
+      { name = "grep", message = "Use rg", suggestion = "rg <pattern>" },
+      "wget",
+    ]
+
+[bold cyan]LEGACY JSONC FORMAT[/bold cyan]
+
+  yolo still reads the format it used before TOML, for a few releases.  This
+  section lists every spelling that format accepts, so you can read an old file
+  and know what it does.  [bold]yolo config migrate[/bold] converts old files to TOML
+  once, and it writes nothing unless the new file says exactly what the old one
+  said.  `yolo check` and every launch say when a file is in the old format.
+
+  Files: `yolo-jail.jsonc` (project), `yolo-jail.local.jsonc` (this machine) and
+  `~/.config/yolo-jail/config.jsonc` (yours).  Each is JSON with comments.
+  `yolo-jail.json` and `yolo-jail.local.json` are read in place of a missing
+  .jsonc file of the same name.  Never create the .jsonc file beside one: yolo
+  reads it instead, and ignores the .json file.  A legacy file and a TOML file
+  of the same scope are a `yolo check` error.
+
+  Where a legacy key went (every other key keeps its name):
+
+    packages              -> install.nix, entry for entry
+    mise_tools            -> install.mise
+    gpu                   -> machine.gpu
+    resources             -> machine.resources
+    network.ports         -> machine.ports: "IP:HOST:JAIL/udp" becomes
+                             { host = HOST, jail = JAIL, address = "IP", protocol = "udp" }
+    network.forward_host_ports -> machine.forward: 5432 becomes
+                             { jail = 5432, host = 5432 }, and "JAIL:HOST" names each side
+    env_sources           -> env.sources, entry for entry; an inline object becomes
+                             { set = {...}, unset = [...] }, a null value moving to unset
+    brokered              -> allow.<source> (your user config) and requests.<source>
+                             (a project's file); see "brokered" below
+    profile               -> active_provider; "*" becomes `default`, and a null
+                             becomes "native"
+    profiles              -> providers.<provider>.variants.<name>, selected as
+                             "<provider>/<name>"
+    loopholes             -> allow.<pack> (the grant a switch gave, and the
+                             loophole's settings); see "loopholes" below
+    the inline value of a model row: `id` -> `model`, `context_window` -> `context`,
+                             `input` -> `accepts`, `cost` -> `price`
+
+  A legacy null drops what a lower file wrote.  TOML has no null, so the
+  conversion writes each kind of value's own removal:
+    a list (packages, security.blocked_tools, env_sources ...) -> an empty list
+    one server or tool (mcp_servers.<name>, lsp_servers.<name>, mise_tools.<tool>)
+                          -> "off"
+    an agent under profile -> "native" under active_provider
+
+  [bold]convert_later[/bold] — (boolean, [bold]LEGACY USER FILE ONLY[/bold]): `"convert_later": true` in
+    ~/.config/yolo-jail/config.jsonc stops the launch's offer to convert old
+    files to TOML, for every old file this machine reads.  A TOML file refuses
+    it, because it has nothing to say there.  No command writes it.
+    Legacy only (~/.config/yolo-jail/config.jsonc):
+      { "convert_later": true }
+
+  Each pair below says one thing twice: the TOML a migration writes, then the
+  legacy file it came from.
+
+  The [install], [machine], [network] and [env] tables:
+    Example (yolo-jail.toml):
+      [install]
+      nix = ["postgresql", { name = "strace", platforms = ["linux"] }]
+      mise = { neovim = "nightly" }
+
+      [machine]
+      ports = [{ host = 8000, jail = 8000 }, { host = 9000, jail = 90, address = "127.0.0.1", protocol = "udp" }]
+      forward = [{ jail = 5432, host = 5432 }, { jail = 8080, host = 9090 }]
+
+      [machine.gpu]
+      enabled = true
+      devices = "all"
+      capabilities = "compute,utility"
+
+      [machine.resources]
+      memory = "8g"
+      cpus = 4
+      pids_limit = 4096
+      io = "low"
+
+      [network]
+      mode = "bridge"
+
+      [env]
+      sources = ["defaults.env", { set = { DEBUG = "1" }, unset = ["AWS_PROFILE"] }]
+    Example (yolo-jail.jsonc):
+      {
+        "packages": ["postgresql", {"name": "strace", "platforms": ["linux"]}],
+        "mise_tools": {"neovim": "nightly"},
+        "gpu": {"enabled": true, "devices": "all", "capabilities": "compute,utility"},
+        "resources": {"memory": "8g", "cpus": 4, "pids_limit": 4096, "io": "low"},
+        "network": {
+          "mode": "bridge",
+          // HOST:JAIL, podman's -p order.
+          "ports": ["8000:8000", "127.0.0.1:9000:90/udp"],
+          // JAIL:HOST, the opposite order.
+          "forward_host_ports": [5432, "8080:9090"]
+        },
+        // A null value unsets the variable.
+        "env_sources": ["defaults.env", {"DEBUG": "1", "AWS_PROFILE": null}]
+      }
+
+  Removals:
+    Example (yolo-jail.toml):
+      [install]
+      mise = { node = "off" }
+
+      [security]
+      blocked_tools = []
+
+      [mcp_servers]
+      tavily = "off"
+    Example (yolo-jail.jsonc):
+      {
+        "mise_tools": {"node": null},
+        "security": {"blocked_tools": null},
+        "mcp_servers": {"tavily": null}
+      }
+
+  Provider selection (`profile` and `profiles`):
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["claude", "pi", "bedrock", "zai"]
+
+      [providers.zai.variants.zai-fast]
+      model = "fast"
+
+      [active_provider]
+      default = "bedrock"
+      pi = "zai/zai-fast"
+    Example (~/.config/yolo-jail/config.jsonc):
+      {
+        "packs": ["claude", "pi", "bedrock", "zai"],
+        "profiles": {"zai-fast": {"provider": "zai", "model": "fast"}},
+        "profile": {"*": "bedrock", "pi": "zai-fast"}
+      }
+    `profile` took the same forms `active_provider` does: a string for every
+    agent ("profile": "bedrock"), an object keyed by agent with "*" for every
+    agent not named, a list of names, and a null for no profile.  A `profiles`
+    entry named its provider with "provider" and took the fields a variant
+    takes (see `providers.<name>.variants`).  The key `use_profiles` was
+    renamed to `profile` on 2026-09-29 and is refused by name.
+
+  Model rows and shared facts:
+    Example (~/.config/yolo-jail/config.toml):
+      [providers.bedrock.models.kimi]
+      model = "global.moonshotai.kimi-k3"
+
+      [model_facts."opus-5.5"]
+      reasoning = true
+      accepts = ["text", "image"]
+      context = 1000000
+      max_tokens = 128000
+      price = { input = 5, output = 25 }
+    Example (~/.config/yolo-jail/config.jsonc):
+      {
+        "providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3"}}}},
+        "model_facts": {"opus-5.5": {"reasoning": true, "input": ["text", "image"],
+                                     "context_window": 1000000, "max_tokens": 128000,
+                                     "cost": {"input": 5, "output": 25}}}
+      }
+
+  [bold]brokered[/bold] (object, [bold]repos: WORKSPACE SCOPE; sets, grant_kinds: USER SCOPE; grants: both[/bold]):
+    The legacy spelling of a brokered loophole's grants and repositories (see
+    BROKERED LOOPHOLES under FIELDS).  Each key is the source the loophole's
+    manifest declares as `brokered.source`, such as "github" or "git".
+    • [bold]grants[/bold]: in your USER config, only {"kind": "read", "repo": "*"}, read
+      access for every workspace to its own approved repositories; any other grant
+      there is an error.  In a WORKSPACE file, the specific grants this workspace holds,
+      each naming the repository it covers, as in
+      {"kind": "create-branch", "repo": "github.com/o/r"}.
+      • kind: "read", which every source defines, or a kind the source's manifest
+        defines.  The git pack defines "create-branch", "branch" and "tag"; the
+        github pack defines "create-pr", "create-issue", "runs" and "approve-run".
+        Your user config's grant_kinds must list it (or, for "read", your user config
+        holds the read grant itself); anything else is a `yolo check` error naming the
+        key that would allow it.
+      • repo: the host and path a remote reduces to (host in lower case with a dot or
+        a port, path with no scheme, user or ".git"), or "*" for every repository of
+        the scope.
+      • branch, for a "branch" grant only, and tag, for a "tag" grant only: the
+        branch or tag it covers, as in "branch": "main" or "tag": "v*".
+      • workflow, for a "runs" grant only, and actor, for an "approve-run" grant
+        only: the workflow file or the login it covers.
+    • [bold]grant_kinds[/bold] (USER SCOPE ONLY): the kinds of grant a workspace may hold for
+      this source, as in "grant_kinds": ["create-branch"].  Listing a kind grants
+      nothing by itself.  A workspace file may NOT name grant_kinds.
+    • [bold]repos[/bold] (WORKSPACE SCOPE): more repositories for this workspace, as in
+      "repos": ["org/lib"], with the entry rules `requests.github.repos` has.
+      "repos": null in the local file clears the list.  A `repos` list in the user
+      config is a `yolo check` error.  The old form, "workspaces" keyed by a
+      workspace's path, is retired: move each entry into its project's
+      yolo-jail.local.jsonc; host `yolo check` prints each edit.
+    • [bold]sets[/bold] (USER SCOPE ONLY): the same list `allow.<source>.sets` holds, each
+      entry the same fields.  A config that writes both spellings reads both lists,
+      the TOML entries first; a name may appear once across the two.
+    The conversion maps each grant kind to a capability: for git, "read" is `fetch`,
+    "create-branch" is `new_branches`, "branch" is `push` and "tag" is `push_tags`;
+    for github, "read" is `read`, "create-pr" is `create_pr`, "create-issue" is
+    `create_issue`, "runs" is `runs` and "approve-run" is `approve_runs`.  A
+    workspace grant naming one repository converts only when that repository is a
+    remote of the workspace, and a workspace grant with "repo": "*" does not convert.
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["git", "github"]
+
+      [allow.git]
+      always = ["fetch"]
+      on_request = ["new_branches", "push", "push_tags"]
+
+      [allow.github]
+      always = ["read"]
+      on_request = ["create_pr", "runs"]
+
+      [[allow.github.sets]]
+      name = "review"
+      mode = "windowed"
+      window = "1h"
+      admit = ["pr comment", "pr review"]
+    Example (~/.config/yolo-jail/config.jsonc):
+      {
+        "packs": ["git", "github"],
+        "brokered": {
+          "git": {
+            "grants": [{"kind": "read", "repo": "*"}],
+            "grant_kinds": ["create-branch", "branch", "tag"]
+          },
+          "github": {
+            "grants": [{"kind": "read", "repo": "*"}],
+            "grant_kinds": ["create-pr", "runs"],
+            "sets": [{"name": "review", "mode": "windowed", "window": "1h",
+                      "admit": ["pr comment", "pr review"]}]
+          }
+        }
+      }
+    Example (yolo-jail.toml):
+      [requests.github]
+      repos = ["org/lib", "org/docs"]
+    Example (yolo-jail.jsonc):
+      { "brokered": { "github": { "repos": ["org/lib", "org/docs"] } } }
+
+  [bold]loopholes[/bold] (object): The legacy spelling of loophole settings, and of host
+    services declared inline.  Each key is a loophole name (it must match
+    ^[a-zA-Z][a-zA-Z0-9_-]{0,63}$).  A key does one of two things.  When a selected
+    pack ships a loophole of that name, the key OVERRIDES that loophole.  Any other
+    name DECLARES an inline host service.
+    OVERRIDING a pack's loophole takes only these keys:
+      • "settings" (object): the loophole's own settings, which `allow.<pack>` holds
+        in TOML, typed by its loophole.toml the same way.  Every setting is user scope.
+      • "env" (object): extra environment variables for the host daemon.
+      • "jail_env" (object): extra environment variables set INSIDE the jail, merged
+        over the ones the manifest declares.
+      • "enabled" (boolean): the switch an older yolo read.  It switches nothing now:
+        a pack's loophole runs whenever its pack is selected.  The conversion writes
+        the grant the switch used to give.  On a brokered loophole (github-broker,
+        git-broker) it is an error naming the grant to write instead.
+      "command" and "doctor_cmd" are REFUSED there by name: the loophole's manifest
+      fixes them, and a config that seemed to change them would change nothing.
+    Example (~/.config/yolo-jail/config.toml):
+      packs = ["host-processes"]
+
+      [allow.host-processes]
+      fields = ["pid", "comm"]
+      on_request = ["view"]
+    Example (~/.config/yolo-jail/config.jsonc):
+      {
+        "packs": ["host-processes"],
+        "loopholes": {"host-processes": {"enabled": true, "settings": {"fields": ["pid", "comm"]}}}
+      }
+    A setting under a loophole with no "enabled": true does not convert; `yolo config
+    migrate` names it, and `yolo config set allow.<pack>.<key> <value> --user` writes
+    it by hand.  A loophole switch in a project's legacy file does not convert either:
+    `yolo request <pack> <kind>` asks for the grant in TOML.
+    DECLARING an inline host service takes:
+      • "command" (array of strings, required): the command to launch on the host when
+        the jail starts.  "{endpoint}" in any argument becomes the host-side path the
+        service should listen at; "{socket}" is accepted as an alias.
+      • "env" (object): extra environment variables for the host daemon (NOT the jail).
+      • "description" (string), "doctor_cmd" (array of strings).
+      • "preamble" (boolean, default false): an inline daemon is a program yolo did not
+        write, so it gets no framing preamble unless you ask.
+      • "jail_endpoint" (string): the jail-side path, which must start with
+        /run/yolo-services/.  Default: /run/yolo-services/<name>.endpoint.
+        "jail_socket" is accepted as an alias.
+      • "enabled" (boolean, default true): false switches the service off without
+        deleting it.
+    An inline service listens on a plain Unix socket, and the jail finds it through
+    YOLO_SERVICE_<NAME>_SOCKET.  It runs only beside a jail: at the host no verb starts
+    it, and `yolo host apply` names each one as not applying.  TOML has no spelling
+    for an inline service, so `yolo config migrate` does not convert one.  Move it into
+    a pack instead: `yolo pack init` starts one.
+    Legacy only (~/.config/yolo-jail/config.jsonc):
+      {
+        "loopholes": {
+          "auth-broker": {
+            "command": ["~/code/auth-broker/serve.py", "--socket", "{socket}"],
+            "env": {"KEYS_FILE": "~/secrets/keys.json"}
+          }
+        }
+      }
+
+  [bold]packs[/bold], legacy entries: a legacy file names a pack outside yolo by its path.
+    • A bare name selects a shipped pack, as in TOML.
+    • A PATH names a pack folder: ~/dotfiles/packs/mine or /opt/packs/mine.  The "~/"
+      is expanded against your home at load.  file:///abs/path means the same thing.
+      Two forms are refused, both naming the fix: file://~/… (the "~" parses as the
+      URL's host; drop the scheme) and relative paths ./x and ../x.
+    • A git address names a remote pack:
+      git+ssh://git@host/org/repo//subdir?ref=main.
+    • An object takes:
+      source      required unless the entry is a bare shipped-pack name: a path, a
+                  file:// URL or a git address.
+      name        the name `yolo pack ls` prints and the staging folder.  It defaults
+                  to the last path segment, or a git address's subpath.  Two entries
+                  may not share one.
+      only        globs to include; a glob matches a FOLDER prefix, so "skills/rust-*"
+                  takes the whole skill folder.  Default: everything.
+      exclude     globs to drop, applied after `only`.
+    A path entry converts to a `<source>/<name>` handle, with a `pack_sources`
+    entry for its parent folder marked `bare = true` so the pack's names do not
+    change.  An object with `name`, `only` or `exclude` has no TOML
+    spelling and does not convert.
+    Legacy only (~/.config/yolo-jail/config.jsonc):
+      { "packs": ["claude", "file:///home/me/code/acme/tools/agent-pack"] }
 
 [bold cyan]ENVIRONMENT VARIABLES[/bold cyan]
 
@@ -3329,7 +3733,7 @@
   YOLO_BYPASS_SHIMS     Set to 1 to bypass blocked tool shims
   YOLO_TIMING           Set to 1 to RECORD --timing's spans without the flag, for
                         one shell.  Records only: the table prints when a flag
-                        asks for it (`perf_logging: true` is the same, per user)
+                        asks for it (`perf_logging = true` is the same, per user)
   YOLO_VERBOSE          Set to 1 to enable the global --verbose/-v gate (same
                         spans in v1; the home for future diagnostics).  Also
                         records only -- the TYPED --verbose is what prints
@@ -3337,7 +3741,7 @@
 
 [bold cyan]CONFIG CHANGE SAFETY[/bold cyan]
 
-  When yolo-jail.jsonc changes between jail startups, the CLI shows a
+  When yolo-jail.toml changes between jail startups, the CLI shows a
   diff of the normalized config and asks for y/N confirmation. This
   prevents agents from silently adding packages or mounts without the
   human operator noticing. Agents should still run `yolo check` after
@@ -3359,7 +3763,8 @@
 
   Agents inside the jail can request new packages:
 
-  1. Agent edits /workspace/yolo-jail.jsonc, adds to "packages" array
+  1. Agent adds the package to `install.nix` in /workspace/yolo-jail.toml
+     (`yolo config add install.nix '"<package>"' --project` does it)
   2. Agent ALWAYS runs `yolo check` after the edit (`--no-build` is okay inside a running jail)
   3. If the check passes, agent tells the human: "Please restart the jail for new packages"
   4. On next startup, human sees the config diff and approves (y/N)
@@ -3376,7 +3781,7 @@
   yolo stop                 Stop the jail, so the next launch is a new container
   yolo check                Validate config and preflight the build
   yolo ps                   List running jail containers
-  yolo init                 Create yolo-jail.jsonc in current directory
+  yolo init                 Create yolo-jail.toml in current directory
   yolo init-user-config     Create user-level defaults config
   yolo config-ref           Show this reference
 
@@ -3394,9 +3799,9 @@
     `host.containers.internal` — no config needed, and it covers host services
     bound to the host's own 127.0.0.1.
     To go the other way and let the HOST reach a server running in here, publish
-    it with network.ports ("HOST:JAIL").  To make a host port answer at
-    `localhost:<port>` in here specifically, network.forward_host_ports
-    ("JAIL:HOST" — the opposite order; see "NETWORKING: WHICH WAY IS WHICH").
+    it with machine.ports.  To make a host port answer at `localhost:<port>`
+    in here specifically, use machine.forward (see "NETWORKING: WHICH WAY IS
+    WHICH").
     Host mode shares the host's network stack: the two loopbacks become one and
     neither key is needed.
 
@@ -3418,12 +3823,12 @@
     Git identity (name + email) is injected from the host automatically.
     GitHub CLI (gh) is not signed in: the host's gh token does not cross
     into the jail. Give gh a credential of its own if the work needs it
-    (e.g. GH_TOKEN through env_sources, or `gh auth login` in the jail).
+    (e.g. GH_TOKEN through env, or `gh auth login` in the jail).
     SSH keys are per-workspace — configure in <workspace>/.yolo/setups/<setup>/home/ssh/.
 
   [bold]Tools & Runtimes[/bold]
     Runtimes: Node.js 22, Python 3.13, Go (managed by mise)
-    Editors:  nvim (version configurable via mise_tools config)
+    Editors:  nvim (version configurable via install.mise)
     CLI:      rg, fd, bat, jq, git, gh, curl, strace, uv, tmux
     Agents:   whichever ones your configured `packs` install — each with
               auto-approve/YOLO mode wired up.  With no packs configured a jail
@@ -3441,7 +3846,7 @@
     • pipx — Python CLI tools (isolated envs)
     • ubi — universal binary installer (GitHub releases)
     Run 'mise registry' to browse all available tools. Add tools via:
-    • "mise_tools" in yolo-jail.jsonc (injected into jail global config)
+    • install.mise in yolo-jail.toml (injected into jail global config)
     • /workspace/mise.toml (workspace-specific, checked into git)
     On podman, all jails share one jail-land mise store, mounted at /mise —
     a tool installed in one jail is available in every jail. On Apple
@@ -3453,7 +3858,7 @@
     NOTHING is blocked by default. Blocking is opt-in, two ways:
     • the "guardrails" pack — add it to "packs" and grep -r / find are
       replaced by rg / fd (this is where the old default went, 2026-09-04)
-    • security.blocked_tools in yolo-jail.jsonc — your own list, and an
+    • security.blocked_tools in yolo-jail.toml — your own list, and an
       entry naming the same tool as a pack's REPLACES it whole
     A blocker also declares a replacement, and is generated only when that
     replacement is on the agent's PATH — so a block can never leave a jail
@@ -3485,8 +3890,8 @@
 
   When setting up a new project for jail use:
 
-  1. Run 'yolo init' in the project root to create yolo-jail.jsonc
-  2. Edit the config — add any nix packages or mise_tools needed
+  1. Run 'yolo init' in the project root to create yolo-jail.toml
+  2. Edit the config — add any install.nix packages or install.mise tools needed
   3. Run 'yolo check' after EVERY config edit to validate the config before restarting
   4. Run 'yolo -- bash' to enter the jail interactively
   5. Start your agent: 'yolo -- claude' (or copilot / opencode / pi / codex,
