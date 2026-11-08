@@ -146,7 +146,10 @@ func rescueSources(home string, items []rescueItem) []string {
 // last component from its parent, never descending into the excluded nested binds. The exclusions
 // are anchored and literal, so a name is matched only where it is and as it is spelled.
 func rescueTarArgv(rt, cname string, it rescueItem) []string {
-	argv := []string{rt, "exec", cname, "tar", "-c", "-f", "-", "-C", path.Dir(it.Dest), "--anchored", "--no-wildcards"}
+	// No terminal is attached, but every exec into a jail turns the detach sequence off all the
+	// same, so no byte of the stream can ever be read as one.
+	argv := append([]string{rt, "exec"}, yoloruntime.DetachKeysArgs(rt)...)
+	argv = append(argv, cname, "tar", "-c", "-f", "-", "-C", path.Dir(it.Dest), "--anchored", "--no-wildcards")
 	for _, x := range it.Excludes {
 		argv = append(argv, "--exclude="+x)
 	}
