@@ -14,6 +14,7 @@ package gitremote
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,10 @@ type Env struct {
 	Stderr io.Writer
 	// accessTimeout shortens the client session in caller-level tests only.
 	accessTimeout time.Duration
+	// accessContext, when set, is the parent of the client session's deadline, so a
+	// caller-level test can end the session on an event (a probe was entered) rather
+	// than on a wall-clock budget every earlier probe must beat. Tests only.
+	accessContext context.Context
 }
 
 // request is the one frame the helper sends before git's bytes (ID-5). Agent is left

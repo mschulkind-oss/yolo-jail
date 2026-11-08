@@ -37,7 +37,11 @@ func ForwardAccess(op string, args []string, env Env) ([]byte, int) {
 		}
 		deadline = started.Add(limit)
 	}
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	parent := context.Background()
+	if env.accessContext != nil {
+		parent = env.accessContext
+	}
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	body := []byte(`{"access":{"op":"status","version":1}}`)
 	if op != "status" {

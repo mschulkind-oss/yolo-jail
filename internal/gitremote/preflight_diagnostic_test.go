@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,13 @@ import (
 // Each case enters through the real access producer, not a callee-only assertion.
 // The fake Git progresses through earlier probes before blocking at the selected
 // callsite. A missing typed propagation would replace the diagnostic with refusal.
+//
+// The session ends on an EVENT, not a wall budget: the fake Git announces entry at
+// the selected probe through a FIFO (after its output, just before it blocks), and
+// only then is the session's context
+// canceled. A short accessTimeout covered every earlier probe too, so on a slow
+// runner (macOS CI, run 42423928526) it expired during an earlier probe that had
+// already exited, and the injected EPERM reported that probe instead of this one.
 func TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe(t *testing.T) {
 	const stdoutSentinel = "synthetic-credential-like-stdout-sentinel-never-real"
 	const stderrSentinel = "synthetic-credential-like-stderr-sentinel-never-real"
@@ -38,6 +46,7 @@ if [ "$step" = "$TARGET_STEP" ]; then
   printf '%s\n' "$STDOUT_SENTINEL"
   printf '%s\n' "$STDERR_SENTINEL" >&2
   : > "$OUTPUT_WITNESS"
+  echo entered > "$ENTERED_FIFO"
   exec sleep 30
 fi
 case "$step" in
@@ -60,6 +69,32 @@ esac
 			t.Setenv("STDOUT_SENTINEL", stdoutSentinel)
 			t.Setenv("STDERR_SENTINEL", stderrSentinel)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			enteredFIFO := filepath.Join(bin, "entered.fifo")
+			if err := syscall.Mkfifo(enteredFIFO, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("ENTERED_FIFO", enteredFIFO)
+			session, endSession := context.WithCancel(context.Background())
+			defer endSession()
+			announced := make(chan struct{})
+			go func() {
+				defer close(announced)
+				// Blocks until the selected probe opens the FIFO to write.
+				f, err := os.OpenFile(enteredFIFO, os.O_RDONLY, 0)
+				if err != nil {
+					return
+				}
+				_, _ = io.Copy(io.Discard, f)
+				_ = f.Close()
+				endSession()
+			}()
+			t.Cleanup(func() {
+				// Unblock the reader when the selected probe was never reached.
+				if f, err := os.OpenFile(enteredFIFO, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+					_ = f.Close()
+				}
+				<-announced
+			})
 			oldSignal := gitPreflightGroupSignal
 			pid := 0
 			gitPreflightGroupSignal = func(group int, sig syscall.Signal) error { pid = -group; return syscall.EPERM }
@@ -84,7 +119,7 @@ esac
 					}
 					return ""
 				},
-				Stderr: &stderr, accessTimeout: 120 * time.Millisecond,
+				Stderr: &stderr, accessContext: session,
 			})
 			if _, err := os.Stat(marker); err != nil {
 				t.Fatalf("Git %s was not reached: %v; stderr=%s", target, err, stderr.String())
@@ -96,7 +131,7 @@ esac
 			if strings.Contains(msg, stdoutSentinel) || strings.Contains(msg, stderrSentinel) {
 				t.Fatalf("captured fake Git output leaked to ForwardAccess stderr: %q", msg)
 			}
-			if code != exitUsage || pid == 0 || time.Since(start) > time.Second || !strings.Contains(msg, "group signal failed (operation not permitted)") || !strings.Contains(msg, "birth identity ") || !strings.Contains(msg, "descendants may remain") || !strings.Contains(msg, "before retrying") || strings.Contains(msg, "cannot reach git-broker") || strings.Contains(msg, "example.invalid") {
+			if code != exitUsage || pid == 0 || time.Since(start) > 20*time.Second || !strings.Contains(msg, "group signal failed (operation not permitted)") || !strings.Contains(msg, "birth identity ") || !strings.Contains(msg, "descendants may remain") || !strings.Contains(msg, "before retrying") || strings.Contains(msg, "cannot reach git-broker") || strings.Contains(msg, "example.invalid") {
 				t.Fatalf("denial must refuse before broker contact, without URL or generic refusal: code=%d pid=%d stderr=%q", code, pid, msg)
 			}
 		})
