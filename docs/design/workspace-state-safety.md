@@ -3,7 +3,7 @@ title: "The agent's own session lives in .yolo, and nothing tells it so"
 date: 2026-11-07
 status: accepted
 stage: DESIGN
-next: "Build SD-D1–SD-D15 in slices: briefing, README and .gitignore first, then detection and the rescue, the guardrails guard, --fresh-home, and the logs/run move"
+next: "Build SD-D14 (--fresh-home, with the fresh-home half of SD-D9), then SD-D15 (the logs/ and run/ move)"
 depends-on:
   - named-setups.md
 tags: [design, storage, workspace-state, briefing, guardrails, recovery, setups]
@@ -298,23 +298,23 @@ None open. The six questions were ruled on 2026-11-07 and are [SD-D10](#SD-D10) 
 
 ## 6. Decision Ledger
 
-SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the owner's rulings of 2026-11-07, compacted from the six open questions. None is built.
+SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the owner's rulings of 2026-11-07, compacted from the six open questions. The Built column names the commit that landed each row; SD-D14, SD-D15 and the fresh-home half of SD-D9 are not built yet.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="SD-D1"></a>SD-D1 | `.yolo/README.md` is written by `EnsureWorkspaceStateDir` and rewritten on every launch; its rows for the homes are rendered from the `HomeSurface` list, not hand-written | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | `f5159515d` |
-| <a id="SD-D2"></a>SD-D2 | The per-workspace briefing line says the home dirs are stored under `/workspace/.yolo` and that the agent's own session is among them, rendered from the persistence map | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `f5159515d` |
-| <a id="SD-D3"></a>SD-D3 | The per-launch line says a file *moved* to `/tmp` is lost at the restart; macos-user's `/tmp` line says the same of the workspace's state | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `f5159515d` |
-| <a id="SD-D4"></a>SD-D4 | The guard refuses and names `--fresh-home`; it never redirects to a trash; `$YOLO_DURABLE_DIR` is exempt; paths are resolved by the parent's real path, never a link's target | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | 365379dbd |
-| <a id="SD-D5"></a>SD-D5 | Detection is an identity stamp in the boot record, checked on session attach, at keeper stop and by `yolo check`; never a poll, never a refusal | 2026-11-07 | [§3.4](#34-detection) | — |
+| <a id="SD-D1"></a>SD-D1 | `.yolo/README.md` is written by `EnsureWorkspaceStateDir` and rewritten on every launch; its rows for the homes are rendered from the `HomeSurface` list, not hand-written | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | `5fd9229b5` |
+| <a id="SD-D2"></a>SD-D2 | The per-workspace briefing line says the home dirs are stored under `/workspace/.yolo` and that the agent's own session is among them, rendered from the persistence map | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `5fd9229b5` |
+| <a id="SD-D3"></a>SD-D3 | The per-launch line says a file *moved* to `/tmp` is lost at the restart; macos-user's `/tmp` line says the same of the workspace's state | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `5fd9229b5` |
+| <a id="SD-D4"></a>SD-D4 | The guard refuses and names `--fresh-home`; it never redirects to a trash; `$YOLO_DURABLE_DIR` is exempt; paths are resolved by the parent's real path, never a link's target | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | `832332b65` |
+| <a id="SD-D5"></a>SD-D5 | Detection is an identity stamp in the boot record, checked on session attach, at keeper stop and by `yolo check`; never a poll, never a refusal | 2026-11-07 | [§3.4](#34-detection) | `6e041847b` |
 | <a id="SD-D6"></a>SD-D6 | No Claude Code `PreToolUse` hook from core; a pack may add one for its agent | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
 | <a id="SD-D7"></a>SD-D7 | No immutable file flags on any setup | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
-| <a id="SD-D8"></a>SD-D8 | `diagnosing-the-jail` gains a "ruling out the workspace's state" recipe: never move or copy `.yolo`; `--fresh-home` or a throwaway workspace | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `f5159515d` |
-| <a id="SD-D9"></a>SD-D9 | A rescue and a fresh home are listed by `yolo stores` with their size and the command that removes or restores them; no reaper touches either | 2026-11-07 | [§3.5](#35-recovery-and-survivability), [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | — |
-| <a id="SD-D10"></a>SD-D10 | **Question 1, ruled B.** yolo rewrites a `.yolo/.gitignore` whose bytes match a text yolo has shipped (it keeps those hashes) to the current text; any other content is never touched. The promise protects a user's edit, and a byte-identical yolo text is not one | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | `f5159515d` |
+| <a id="SD-D8"></a>SD-D8 | `diagnosing-the-jail` gains a "ruling out the workspace's state" recipe: never move or copy `.yolo`; `--fresh-home` or a throwaway workspace | 2026-11-07 | [§3.2](#32-the-briefing-and-the-skills) | `5fd9229b5` |
+| <a id="SD-D9"></a>SD-D9 | A rescue and a fresh home are listed by `yolo stores` with their size and the command that removes or restores them; no reaper touches either | 2026-11-07 | [§3.5](#35-recovery-and-survivability), [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | `6e041847b` (rescue half) |
+| <a id="SD-D10"></a>SD-D10 | **Question 1, ruled B.** yolo rewrites a `.yolo/.gitignore` whose bytes match a text yolo has shipped (it keeps those hashes) to the current text; any other content is never touched. The promise protects a user's edit, and a byte-identical yolo text is not one | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | `5fd9229b5` |
 | <a id="SD-D11"></a>SD-D11 | **Question 2, ruled B.** No mask over the homes' workspace-side path. The owner: it protects a small share of the harm (the same `mv` still deletes `durable/`, `approvals/` and `archive/`) and makes the home read empty from inside, a likely source of confusion | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | — |
-| <a id="SD-D12"></a>SD-D12 | **Question 3, ruled A.** The `mv`/`rm` guard ships in the opt-in guardrails pack only; nothing is blocked by default | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | 365379dbd |
-| <a id="SD-D13"></a>SD-D13 | **Question 4, ruled A.** The rescue runs automatically at keeper stop when the identity stamp mismatches; the stop takes as long as the copy and prints the rescue directory and the restoring `mv`. A slow stop beats a lost session | 2026-11-07 | [§3.5](#35-recovery-and-survivability) | — |
+| <a id="SD-D12"></a>SD-D12 | **Question 3, ruled A.** The `mv`/`rm` guard ships in the opt-in guardrails pack only; nothing is blocked by default | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | `832332b65` |
+| <a id="SD-D13"></a>SD-D13 | **Question 4, ruled A.** The rescue runs automatically at keeper stop when the identity stamp mismatches; the stop takes as long as the copy and prints the rescue directory and the restoring `mv`. A slow stop beats a lost session | 2026-11-07 | [§3.5](#35-recovery-and-survivability) | `6e041847b` |
 | <a id="SD-D14"></a>SD-D14 | **Question 5, ruled A.** `yolo --fresh-home` runs the selected setup on a new empty home at `.yolo/setups/<setup>/home.fresh-<stamp>`, kept afterwards and listed by `yolo stores` | 2026-11-07 | [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | — |
 | <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | — |
 
