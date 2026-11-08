@@ -10,7 +10,6 @@ package run
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,7 +79,7 @@ func TestAMacosUserLaunchReportsItsTimingAfterItsTeardown(t *testing.T) {
 	if strings.Index(table, "launch.macos_user") > strings.Index(table, "session.keeper_teardown") {
 		t.Errorf("the teardown's span precedes the backend's:\n%s", table)
 	}
-	file, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName))
+	file, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}

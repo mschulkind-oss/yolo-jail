@@ -113,7 +113,7 @@ func macosUserCATrustLaunch(t *testing.T, mode string, kept []macosuser.TrustedC
 			}
 		}
 	}
-	logBody, _ := os.ReadFile(filepath.Join(ws, ".yolo", "launch.log"))
+	logBody, _ := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "launch.log"))
 	for where, text := range map[string]string{"the launch's output": r.combined(), "launch.log": string(logBody)} {
 		disclosure := catrustDisclosure(text)
 		if disclosure == "" {

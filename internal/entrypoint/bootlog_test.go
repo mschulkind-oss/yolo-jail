@@ -22,7 +22,7 @@ func bootLogEnv(t *testing.T, vars map[string]string) (*Env, string) {
 
 func readBootLog(t *testing.T, ws, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", name))
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", name))
 	if err != nil {
 		t.Fatalf("reading %s: %v", name, err)
 	}

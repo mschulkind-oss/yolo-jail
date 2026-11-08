@@ -6,7 +6,7 @@ package run
 // # The gap it closes
 //
 // A launch prints from two processes and only one half was ever written down. The
-// entrypoint's half is teed into `<workspace>/.yolo/boot.log` (bootlog.go); the host
+// entrypoint's half is teed into `<workspace>/.yolo/logs/boot.log` (bootlog.go); the host
 // launcher's half — the flake source, the nix build, image delivery, the jail line,
 // and every pack disclosure — went to the terminal and to nothing else. Checked
 // 2026-09-10: no log sink held any of those phrases, and `host-perf.log` records the
@@ -74,7 +74,7 @@ import (
 )
 
 // LaunchLogName is the host launcher's half of one launch's record, under
-// <workspace>/.yolo/ beside boot.log (the jail's half) and host-perf.log (the spans).
+// <workspace>/.yolo/logs/ beside boot.log (the jail's half) and host-perf.log (the spans).
 const LaunchLogName = "launch.log"
 
 // launchRunPrefix delimits runs in the file. The trim splits on the same prefix, so the
@@ -138,17 +138,17 @@ func attachLaunchLog(o *Options) *launchLog {
 	if o.Workspace == "" {
 		return nil
 	}
-	// EnsureWorkspaceStateDir (inside OpenWorkspaceStateFile) rather than a bare MkdirAll:
+	// EnsureWorkspaceStateDir (inside OpenWorkspaceLogFile) rather than a bare MkdirAll:
 	// this is the EARLIEST thing in a launch that creates <workspace>/.yolo — before
 	// staging, before the config load, in every backend and on a launch that goes on to
 	// refuse — so it is where the directory gets the .gitignore that keeps the secrets below
 	// out of the user's next commit.
 	//
-	// And it opens the file BENEATH a root on `.yolo` (paths.OpenWorkspaceStateFile), never
+	// And it opens the file BENEATH a root on `.yolo/logs` (paths.OpenWorkspaceLogFile), never
 	// by path: `.yolo` is jail-writable, and a link the last jail left at launch.log took this
 	// launch's every line, which quote the jail-writable workspace config, to the host file it
 	// named.
-	f, err := paths.OpenWorkspaceStateFile(o.Workspace, LaunchLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
+	f, err := paths.OpenWorkspaceLogFile(o.Workspace, LaunchLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil
 	}
@@ -338,7 +338,7 @@ func stripANSI(p []byte) []byte { return ansiEscape.ReplaceAll(p, nil) }
 // to the terminal and nowhere else (report-tiers.md's launch stream, *The launcher persists its
 // half*).
 //
-// NOT <cwd>/.yolo/launch.log, and the difference is the point. A host launch has no workspace: it
+// NOT <cwd>/.yolo/logs/launch.log, and the difference is the point. A host launch has no workspace: it
 // runs wherever its command was typed, the home included, and a wrapper launch from a desktop
 // launcher runs it from wherever that launcher's cwd is. Writing beside the jail's launch.log would
 // mint a .yolo marker in every such directory (paths.WorkspaceScopeBreach's hazard, in the home),

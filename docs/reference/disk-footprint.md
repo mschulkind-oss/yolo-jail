@@ -284,7 +284,7 @@ Three properties anything added must respect:
   restartable and stamps its debounce only on completion, and not while a signal is ending the
   process.
 - **Both streams are the container's.** The slot writes only to
-  `<workspace>/.yolo/housekeeping.log`. It printed on stderr once, which landed on top of a
+  `<workspace>/.yolo/logs/housekeeping.log`. It printed on stderr once, which landed on top of a
   running agent's TUI; `yolo stores` and `yolo prune` are the human-facing surfaces.
 - **Nothing that needs a terminal runs there.** The [offer](#the-offer) happens before the
   container attaches.
@@ -1075,7 +1075,7 @@ only place the values themselves are stated.
 | Build-link retention (image-copier links, package-profile roots) | 7 days, the newest of each kind kept | `prune.BuildLinkRetention` |
 | Orphaned per-jail state age floor | 14 days since the newest file of the name | `prune.OrphanCnameAgeFloor` |
 | Housekeeping locks | `locks/housekeeping.lock` (per deletion), `locks/housekeeping-pass.lock` (per pass) | `HousekeepingLockPath`, `HousekeepingPassLockPath` |
-| Housekeeping record | `<workspace>/.yolo/housekeeping.log` | `housekeepingLogName` |
+| Housekeeping record | `<workspace>/.yolo/logs/housekeeping.log` | `housekeepingLogName` |
 | Aliased host stores | pants `lmdb_store`; npm, pnpm (store and metadata), yarn, pip, uv, Go build and module caches, cargo registry, mise downloads ([paths](#aliased-host-stores)) | `hostcas.Stores` |
 | Mise use window, refresh, record expiry | 30 days, 24 h, window + 7 days | `miseuse.Window`, `miseuse.Refresh`, `expireAfter` |
 | Mise offer threshold | 1 GiB, through the cache's offer | `internal/prune/miseversions.go` |

@@ -96,7 +96,7 @@ func TestTheCacheDebounceWaitsForTheWholeCycle(t *testing.T) {
 	if m := LastOfferMeasurement(cachePurgeClass); !m.Partial {
 		t.Errorf("a cut pass recorded a complete measurement")
 	}
-	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", housekeepingLogName))
+	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", "logs", housekeepingLogName))
 	if !strings.Contains(string(log), "left in this cycle: uv (the rest of it)") ||
 		!strings.Contains(string(log), "nce") {
 		t.Errorf("the log does not say what is left of the cycle:\n%s", log)
@@ -155,7 +155,7 @@ func TestTheCopilotPkgClassIsSkippedOnAppleContainer(t *testing.T) {
 	if due, _ := o.classDebounce(CopilotPkgHousekeepingClass); due {
 		t.Errorf("the skip did not stamp the class, so it would be noted at every launch")
 	}
-	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", housekeepingLogName))
+	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", "logs", housekeepingLogName))
 	if n := strings.Count(string(log), "Parity gap: Apple Container"); n != 1 || strings.Contains(string(log), "declined") {
 		t.Errorf("want the gap named once and no decline, got %d notes:\n%s", n, log)
 	}
@@ -309,7 +309,7 @@ func TestTheCopilotPkgReaperDeclinesWithoutARuntimeAnswer(t *testing.T) {
 	if due, _ := o.classDebounce(CopilotPkgHousekeepingClass); !due {
 		t.Errorf("a declined pass stamped the debounce")
 	}
-	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", housekeepingLogName))
+	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", "logs", housekeepingLogName))
 	if !strings.Contains(string(log), "copilot: declined") || !strings.Contains(string(log), "yolo prune --apply") {
 		t.Errorf("the decline is not noted with a next step:\n%s", log)
 	}
@@ -335,7 +335,7 @@ func TestAFailedRemovalLeavesTheCacheClassDue(t *testing.T) {
 	var c reclaimConsent
 	c.grant(cachePurgeClass, false)
 	o.measureAndPurgeCache(c, nil)
-	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", housekeepingLogName))
+	log, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", "logs", housekeepingLogName))
 	if !strings.Contains(string(log), "could not finish removing") {
 		t.Fatalf("the failure was not noted:\n%s", log)
 	}

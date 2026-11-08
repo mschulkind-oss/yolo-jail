@@ -42,7 +42,7 @@ import (
 // gigabytes are being built from while there is still time to Ctrl-C". A permission bypass
 // the user did not type is exactly what belongs in that window, not thirty seconds later
 // beside a banner they have stopped watching. Everything the launcher prints is teed to
-// <workspace>/.yolo/launch.log either way.
+// <workspace>/.yolo/logs/launch.log either way.
 //
 // THE IN-JAIL PATHS ARE DISCLOSED BY THEIR OWN WRITERS, not here, and the reason is the one
 // this file's wrapper rests on: the producer of a rewrite is the only thing that knows it

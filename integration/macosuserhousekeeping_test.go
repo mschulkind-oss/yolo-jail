@@ -15,7 +15,7 @@ import (
 
 // THE HOUSEKEEPING SLOT ON A MAC (disk-footprint.md, the macos-user slot): a macos-user
 // launch reaps the retired loophole-state generations past the newest three while its session
-// runs, and says so in <workspace>/.yolo/housekeeping.log.
+// runs, and says so in <workspace>/.yolo/logs/housekeeping.log.
 //
 // What the Linux gate cannot reach and this does: the real backend's timing. The slot runs on its
 // own goroutine and dies at the launch's exit, so a pass that only started after the agent exited
@@ -74,7 +74,7 @@ func TestMacosUserHousekeepingReapsRetiredLoopholeStateDuringTheSession(t *testi
 		t.Errorf("after the session the retired generations are %v, want the newest three %v kept "+
 			"and %v reaped: the launch ran no housekeeping slot or its exit cut the pass", left, seeded[2:], seeded[:2])
 	}
-	note, err := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+	note, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "housekeeping.log"))
 	if err != nil || !strings.Contains(string(note), "loophole state: reclaimed ") ||
 		!strings.Contains(string(note), " retired generation(s), keeping the newest 3") {
 		t.Errorf("housekeeping.log does not record the reap (err %v):\n%s", err, note)

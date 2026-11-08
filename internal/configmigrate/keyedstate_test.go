@@ -34,7 +34,9 @@ func TestARenamedPacksBuildLogsMoveToTheNewSlug(t *testing.T) {
 	tree := filepath.Join(logs, paths.TreeBuildLogName(oldBuildKey))
 	rotated := tree + ".1"
 	inWorkspace := filepath.Join(stateDir, paths.BuildLogName(oldBuildKey))
+	inWorkspaceLogs := paths.WorkspaceLogPath(ws, paths.BuildLogName(oldBuildKey))
 	write(t, global, "global build\n")
+	write(t, inWorkspaceLogs, "workspace logs build\n")
 	write(t, tree, "tree build\n")
 	write(t, rotated, "tree build, rotated\n")
 	write(t, inWorkspace, "workspace build\n")
@@ -52,10 +54,11 @@ func TestARenamedPacksBuildLogsMoveToTheNewSlug(t *testing.T) {
 		t.Fatal(err)
 	}
 	for old, want := range map[string]struct{ path, text string }{
-		global:      {filepath.Join(logs, paths.BuildLogName(newBuildKey)), "global build\n"},
-		tree:        {filepath.Join(logs, paths.TreeBuildLogName(newBuildKey)), "tree build\n"},
-		rotated:     {filepath.Join(logs, paths.TreeBuildLogName(newBuildKey)) + ".1", "tree build, rotated\n"},
-		inWorkspace: {filepath.Join(stateDir, paths.BuildLogName(newBuildKey)), "workspace build\n"},
+		global:          {filepath.Join(logs, paths.BuildLogName(newBuildKey)), "global build\n"},
+		tree:            {filepath.Join(logs, paths.TreeBuildLogName(newBuildKey)), "tree build\n"},
+		rotated:         {filepath.Join(logs, paths.TreeBuildLogName(newBuildKey)) + ".1", "tree build, rotated\n"},
+		inWorkspace:     {filepath.Join(stateDir, paths.BuildLogName(newBuildKey)), "workspace build\n"},
+		inWorkspaceLogs: {paths.WorkspaceLogPath(ws, paths.BuildLogName(newBuildKey)), "workspace logs build\n"},
 	} {
 		if got := readFile(t, want.path); got != want.text {
 			t.Errorf("%s holds %q, want %q", want.path, got, want.text)

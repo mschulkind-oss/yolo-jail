@@ -21,7 +21,7 @@ const perfLoggingKey = "perf_logging"
 // The nearest precedent inverts this (`agent_updates` defaults TRUE because it is
 // an opt-OUT of a policy that is on by ruling). This key is an opt-IN to output:
 // an enabled launch prints a span table to stderr and appends to
-// <workspace>/.yolo/host-perf.log. An unreadable config must not silently start
+// <workspace>/.yolo/logs/host-perf.log. An unreadable config must not silently start
 // writing files and printing reports into every jail the user opens, so anything
 // it cannot read is "off" — the same direction HostApplyOnLaunchEnabled takes,
 // and for the same reason.

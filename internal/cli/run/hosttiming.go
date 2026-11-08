@@ -10,7 +10,7 @@ package run
 // from a jail: `--timing` and a typed `--verbose` record and print (D12's explicit flags);
 // `perf_logging: true`, `YOLO_TIMING` and `YOLO_VERBOSE` in the environment record silently.
 //
-// THE FILE IS MACHINE-WIDE, NEVER <cwd>/.yolo/host-perf.log. A host command has no workspace: it
+// THE FILE IS MACHINE-WIDE, NEVER <cwd>/.yolo/logs/host-perf.log. A host command has no workspace: it
 // runs wherever it was typed, the home included, and a `.yolo` minted there hijacks every later
 // `yolo config` verb's workspace walk (paths.WorkspaceScopeBreach). So the spans go to
 // GLOBAL_STORAGE/logs, beside launches.log, under a header naming the directory by its short code

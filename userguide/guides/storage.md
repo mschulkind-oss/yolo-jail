@@ -45,7 +45,7 @@ cannot tell they were ever its own.
 
 yolo also reclaims most stores by itself, at most once a day each, after a jail starts. That work
 never prints to your terminal, which by then belongs to the jail; it is logged in
-`<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off.
+`<project>/.yolo/logs/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off.
 
 Nothing ever deletes a home that `yolo --fresh-home` started a jail on. `yolo stores` lists each
 one, under `<project>/.yolo/setups/<setup>/home.fresh-<stamp>`, with its size and the `rm -r` that

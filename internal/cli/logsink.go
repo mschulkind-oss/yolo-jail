@@ -7,10 +7,12 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
 // runInternalLogAppend is used only by generated in-jail writers. The path is a workspace
-// root plus a fixed .yolo basename, never an arbitrary host-side file path.
+// root plus a fixed basename (startup.log in .yolo/logs, receipts.jsonl in .yolo), never an
+// arbitrary host-side file path.
 func runInternalLogAppend(args []string, input io.Reader) int {
 	tee := len(args) == 3 && args[2] == "--tee"
 	reset := len(args) == 3 && args[2] == "--reset"
@@ -26,8 +28,16 @@ func runInternalLogAppend(args []string, input io.Reader) int {
 	if darwinBootstrapIdentityRefusal() == nil {
 		defer paths.GuardScopeUnder(darwinBootstrapBoundaryHome())()
 	}
+	// receipts.jsonl is a record yolo's cleanup reads, and stays at the top of `.yolo`; the
+	// startup log is a log, and goes in its logs directory with its trim archive and its lock,
+	// which guards that one file (paths/workspacelogs.go states why that lock may move).
 	open := func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		return paths.OpenWorkspaceStateFile(args[0], name, flag, perm)
+	}
+	if args[1] == provision.StartupLogName {
+		open = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+			return paths.OpenWorkspaceLogFile(args[0], name, flag, perm)
+		}
 	}
 	if tee {
 		// Read chunks, not lines: installers may stream progress without a newline.

@@ -112,7 +112,7 @@ func TestTheDarwinBootstrapRotatesItsBootLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prev, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), bootLogPrevName))
+	prev, err := os.ReadFile(filepath.Join(paths.WorkspaceLogsDir(ws), bootLogPrevName))
 	if err != nil {
 		t.Fatalf("the first boot's log was not kept as %s: %v", bootLogPrevName, err)
 	}
@@ -168,7 +168,7 @@ func TestTheDarwinBootLogFollowsNoLinkTheAgentLeft(t *testing.T) {
 	if err := os.WriteFile(target, []byte("keep\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dir := paths.WorkspaceStateDir(ws)
+	dir := paths.WorkspaceLogsDir(ws)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestTheDarwinBootLogWritesNoLinkWhenItsRotationFails(t *testing.T) {
 	if err := os.WriteFile(target, []byte("keep\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dir := paths.WorkspaceStateDir(ws)
+	dir := paths.WorkspaceLogsDir(ws)
 	prev := filepath.Join(dir, bootLogPrevName)
 	if err := os.MkdirAll(filepath.Join(prev, "occupied"), 0o755); err != nil {
 		t.Fatal(err)

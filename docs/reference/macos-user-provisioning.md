@@ -917,7 +917,7 @@ $ nix eval --json '.#yoloNoncontainerFloorNames.aarch64-darwin'
 | Floor build record | `packages.floor.json` beside the GC root | `internal/darwinpkg/floorcache.go` |
 | Stage step set | four of six: announce + `mise install`, announce + the generated script | `internal/macosuser/provision.go` (`ProvisionSetup`); the six in `internal/provision/provision.go` |
 | Stage skip rule | `mise_tools` non-empty, a declared Node floor the host cannot show met, or a selected launcher-backed program absent/unknown to the host | `internal/macosuser` (`ProvisionNeeded`, `programReadinessStageFor`) and `internal/entrypoint` (`MissingProgramReadiness`) |
-| Provisioning log | `<workspace>/.yolo/startup.log` | `internal/provision/provision.go` (`StartupLog`) |
+| Provisioning log | `<workspace>/.yolo/logs/startup.log` | `internal/provision/provision.go` (`StartupLog`) |
 | Failure marker | `PROVISIONING FAILED` | `internal/provision/provision.go` (`FailedMarker`) |
 | Generated bootstrap script | `<workspace>/.yolo/home/yolo-bootstrap.sh` | `internal/entrypoint/darwinstage.go` (`DarwinBootstrapScriptPath`); `macosuser.ProvisionBootstrapScript` |
 | mise data dir | `<account home>/.yolo/mise`, set explicitly as `MISE_DATA_DIR` | `internal/macosuser/macosuser.go` (`SandboxMiseData`, `sandboxEnvPairs`) |

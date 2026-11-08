@@ -66,7 +66,7 @@ import (
 )
 
 // SandboxEnvFileEnv names the session env file on the argv. The value is a PATH, so the
-// word itself is safe to print, log and tee into <workspace>/.yolo/launch.log.
+// word itself is safe to print, log and tee into <workspace>/.yolo/logs/launch.log.
 //
 // It has two consumers. On the sandboxed argvs, the `sh -c` reader ExecWithEnvFile wraps
 // each one in sources the file it is handed as an argument, and the variable is emitted

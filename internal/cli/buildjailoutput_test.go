@@ -111,7 +111,7 @@ func TestTheBuildJailStreamKeepsRedrawsAndLogOnlyWrites(t *testing.T) {
 	if inner.transient.String() != "\r frame" || inner.term.Len() != 0 {
 		t.Errorf("a redraw became a line: transient=%q term=%q", inner.transient.String(), inner.term.String())
 	}
-	old := filepath.Join(paths.WorkspaceStateDir(workspace), run.HostPerfLogName)
+	old := paths.WorkspaceLogPath(workspace, run.HostPerfLogName)
 	_, _ = run.LaunchLogOnly(w).Write([]byte("recorded in " + old + "\n"))
 	if want := "recorded in " + buildJailLogPath(workspace) + "\n"; inner.log.String() != want {
 		t.Errorf("the log-only write = %q, want %q", inner.log.String(), want)

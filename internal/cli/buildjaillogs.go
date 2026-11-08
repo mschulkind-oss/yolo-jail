@@ -8,7 +8,7 @@ package cli
 // launch writes into the workspace's .yolo/: the host half of its timing (host-perf.log), the
 // entrypoint's boot log, the launch's own teed stream (launch.log), and the jail half's checkpoints
 // (home/yolo-perf.log). The workspace is deleted seconds after the build, so all of it went with it,
-// and the launch's last line ("timings recorded in <staging>/.yolo/host-perf.log") named a file that
+// and the launch's last line ("timings recorded in <staging>/.yolo/logs/host-perf.log") named a file that
 // no longer existed. Every path that deletes such a workspace now hands those files to
 // preserveBuildJailLogs first, which appends them to one file per build under yolo's host log
 // directory, and the launch's line names that file instead (buildJailLogRewriter).
@@ -57,14 +57,18 @@ type buildJailLogSource struct{ label, rel string }
 
 // buildJailLogSources are the launch's own diagnostics, in the order a reader wants them: the host
 // half's spans, the entrypoint's boot, the jail half's checkpoints, then the whole teed stream.
+//
+// Each log is taken from the workspace's logs directory and from directly under .yolo, where a
+// build jail started by a yolo older than the logs directory writes it; only the one that exists is
+// read, and a section's label names the log either way.
 func buildJailLogSources(workspace string) []buildJailLogSource {
-	state := paths.WorkspaceStateDir("")
-	out := []buildJailLogSource{
-		{"host-perf.log", filepath.Join(state, run.HostPerfLogName)},
-		{"boot.log", filepath.Join(state, "boot.log")},
+	both := func(name string) []buildJailLogSource {
+		return []buildJailLogSource{{name, paths.WorkspaceLogPath("", name)}, {name, paths.LegacyWorkspaceLogPath("", name)}}
 	}
+	out := both(run.HostPerfLogName)
+	out = append(out, both("boot.log")...)
 	out = append(out, buildJailPerfLogSources(workspace)...)
-	return append(out, buildJailLogSource{"launch.log", filepath.Join(state, run.LaunchLogName)})
+	return append(out, both(run.LaunchLogName)...)
 }
 
 // buildJailPerfLogSources are the jail half's checkpoints, yolo-perf.log at the top of the home the
@@ -103,7 +107,7 @@ func buildJailPerfLogSources(workspace string) []buildJailLogSource {
 // as the cleanup it precedes is: a log that cannot be kept never fails the capture or the build.
 //
 // THE READ IS CONFINED TO THE WORKSPACE (os.Root) and takes regular files only: the workspace is
-// the build jail's to write, and a link it left at .yolo/boot.log must not copy a host file into a
+// the build jail's to write, and a link it left at .yolo/logs/boot.log must not copy a host file into a
 // log directory a jail may be shown (a context mount of it is ordinary).
 func preserveBuildJailLogs(workspace string) {
 	root, err := os.OpenRoot(workspace)
@@ -224,7 +228,7 @@ func pruneBuildJailLogs(dir string, keep int) {
 
 // buildJailLogRewriter is the stream a capture or build jail's launch writes its own lines to, with
 // every path of the diagnostics preserveBuildJailLogs keeps replaced by the file it keeps them in:
-// the launch's "timings recorded in <workspace>/.yolo/host-perf.log" line, and its report's "host
+// the launch's "timings recorded in <workspace>/.yolo/logs/host-perf.log" line, and its report's "host
 // file:" and "jail half:" lines, would otherwise name files deleted seconds later. The launch writes
 // each line in one Write (richtext.Printer), so a write is rewritten whole and never held back.
 type buildJailLogRewriter struct {

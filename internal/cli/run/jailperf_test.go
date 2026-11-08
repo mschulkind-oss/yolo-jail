@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -112,7 +113,7 @@ func launchWithJailPerf(t *testing.T, ws, stale, boot, session string, ready boo
 	case <-time.After(60 * time.Second):
 		t.Fatalf("the launch did not end\nstderr:\n%s", stderr.String())
 	}
-	body, _ := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	body, _ := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	return string(body), stderr.String()
 }
 

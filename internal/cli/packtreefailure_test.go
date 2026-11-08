@@ -66,7 +66,7 @@ func TestAFailedPackTreeBuildIsRefusedWithItsLogAndRetry(t *testing.T) {
 		t.Fatalf("%d build jail runs, want 1", runs)
 	}
 	for _, want := range []string{"pack fx's build of x from tools/x (tree digest " + shortSHA(digest) + ")",
-		"failed on the host", ".yolo/build-", "`yolo pack build fx`"} {
+		"failed on the host", ".yolo/logs/build-", "`yolo pack build fx`"} {
 		if !strings.Contains(reason, want) {
 			t.Errorf("the reason does not name %q:\n%s", want, reason)
 		}

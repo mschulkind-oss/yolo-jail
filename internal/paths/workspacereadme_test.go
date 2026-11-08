@@ -143,11 +143,15 @@ func TestTheStateDirSaysWhatItHolds(t *testing.T) {
 			t.Errorf("the README does not say %q:\n%s", want, got)
 		}
 	}
-	// The logs and locks move under logs/ and run/ in a later slice, which updates this text.
-	for _, gone := range []string{"`logs/`", "`run/`"} {
-		if strings.Contains(got, gone) {
-			t.Errorf("the README names %s, which no launch makes yet:\n%s", gone, got)
+	// SD-D15: the logs are under logs/, and the README says an older jail's are not. The locks
+	// stay at the top level for now (workspacelogs.go says why), so no `run/` is named.
+	for _, want := range []string{"- `logs/`: yolo's logs", "A jail started by an older yolo writes its logs directly"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the README does not say %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "`run/`") {
+		t.Errorf("the README names `run/`, which no launch makes yet:\n%s", got)
 	}
 }
 

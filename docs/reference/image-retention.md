@@ -371,6 +371,6 @@ the values themselves are stated.
 | Automatic-reap debounce | once per day, per machine | `internal/prune` (`DueForAutoImageReap`) |
 | Automatic-reap hatch | `YOLO_NO_AUTO_IMAGE_REAP=1` | `internal/cli/run` |
 | The removed flag | `--keep-images` — **refused**, not ignored | `internal/cli` (`commands.go`, `subhelp.go`) |
-| Housekeeping record | `<workspace>/.yolo/housekeeping.log` | `internal/cli/run` |
+| Housekeeping record | `<workspace>/.yolo/logs/housekeeping.log` | `internal/cli/run` |
 | Image GC roots | `build/roots/<sha16>`, the first 16 hex digits of the store path's SHA-256 | `image.ImageRootsDir`, `image.ImageStoreKey` |
 | Store GC | opt-in `yolo prune --nix-gc`, a bounded `nix store gc`, refused in a jail | `internal/prune` (`RunNixStoreGC`) |

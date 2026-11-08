@@ -372,7 +372,7 @@ func runBundleDir(args []string) int {
 // the variable itself instead of a value baked at generation time. YOLO_DARWIN_ENV_FILE names
 // the session env file, which the bootstrap reads into its Env and never into this process's
 // environment (entrypoint's hydrate_session_env step). The bootstrap writes
-// <workspace>/.yolo/boot.log as the container boot does.
+// <workspace>/.yolo/logs/boot.log as the container boot does.
 func runDarwinBootstrap(args []string) int {
 	sessionID := ""
 	if len(args) == 2 && args[0] == nativehome.SessionFlag {

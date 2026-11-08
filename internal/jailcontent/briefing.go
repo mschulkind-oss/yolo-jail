@@ -77,7 +77,7 @@ type ContextMount struct {
 
 // BriefingInput carries everything the jail-managed briefing content depends
 // on. Workspace is the host workspace path (rendered verbatim);
-// ProvisioningFailed is true when the last boot's .yolo/startup.log contained
+// ProvisioningFailed is true when the last boot's .yolo/logs/startup.log contained
 // "PROVISIONING FAILED" (the caller reads the log — see ReadProvisioningFailed).
 type BriefingInput struct {
 	Workspace    string
@@ -594,7 +594,7 @@ func BriefingContent(in BriefingInput) string {
 			"## ⚠ Provisioning failed",
 			"",
 			"The last boot's provisioning failed — project tools may be missing.",
-			"Read `/workspace/.yolo/startup.log` and self-serve (e.g. run",
+			"Read `/workspace/.yolo/logs/startup.log` and self-serve (e.g. run",
 			"`mise install` in /workspace, then re-run the step that failed).",
 			"",
 		}

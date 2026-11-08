@@ -396,7 +396,7 @@ verdict block, and the report does not get a progress stream.
 The container launcher's stdout carries the jailed command's output (`yolo run -- cmd | jq`) and the
 few outputs that are a verb's payload, which the doc comment on `attachLaunchLog`
 ([`launchlog.go`](../../internal/cli/run/launchlog.go)) lists. The launcher's stdout and stderr
-presentation streams are teed to `.yolo/launch.log`; ordinary container command/session stdout and
+presentation streams are teed to `.yolo/logs/launch.log`; ordinary container command/session stdout and
 stderr use the process's real streams and are outside that tee. Automatic-capture's named
 installer-session stdout/stderr are separately routed through that tee by its caller; that narrower
 routing does not include ordinary session output.
@@ -514,11 +514,11 @@ seal, and the build line whole, before it runs), and its result, the move line, 
 lines in declaration order; the nested launch's warnings and refusals are repeated under it, a
 failed build's as well as an admitted one's; and
 every line of a build jail goes to `launch.log` (the stream's log half alone, `run.LaunchLogOnly`)
-and to the build's own `<workspace>/.yolo/build-<slug>.log`, whose last lines a failed build
+and to the build's own `<workspace>/.yolo/logs/build-<slug>.log`, whose last lines a failed build
 prints.
 
 **The launcher persists its presentation streams.** The launcher's own stdout and stderr, through its
-launch writers, are appended to `<workspace>/.yolo/launch.log` (`launchLog`, `LaunchLogName`),
+launch writers, are appended to `<workspace>/.yolo/logs/launch.log` (`launchLog`, `LaunchLogName`),
 beside the entrypoint's `boot.log`, so both halves of one launch sit in one directory. This is not a
 transcript of ordinary command or session output: container-session processes use the process's real
 stdout and stderr, outside this tee. The installer/session stream for automatic capture is separate
@@ -534,7 +534,7 @@ back to make a decision.
 version, the directory's short code and the program's base name, every line yolo itself printed
 to stderr, ANSI-stripped, and a trailer, `=== handed over (pid <n>): exec ===` or
 `=== launch done (pid <n>), rc=<n> ===`. It keeps the newest 50 blocks, trimmed at open under a
-sibling `.lock`. It is not `<cwd>/.yolo/launch.log`, because a host launch has no workspace and a
+sibling `.lock`. It is not `<cwd>/.yolo/logs/launch.log`, because a host launch has no workspace and a
 `.yolo` minted in the home breaks the workspace walk. The command's own output never passes
 through it: the exec replaces yolo, and an agent yolo stays the parent of (a launch-owned service,
 a managed Codex login) is handed the caller's own stderr, so it keeps its terminal. Like the

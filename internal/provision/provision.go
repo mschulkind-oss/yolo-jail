@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -69,7 +70,13 @@ const (
 	StageLogFailedStatus = 81 // logging failed; permission to continue cannot be inferred
 )
 
-// StartupLog is the provisioning log for one workspace: <workspace>/.yolo/startup.log.
+// StartupLogName is the provisioning log's file name, in the workspace's logs directory, and
+// the name `yolo internal log-append` takes for it.
+const StartupLogName = "startup.log"
+
+// StartupLog is the provisioning log for one workspace: <workspace>/.yolo/logs/startup.log
+// (paths.WorkspaceLogPath). A jail an older yolo started still writes <workspace>/.yolo/startup.log;
+// every reader of this path runs in the jail that wrote it, so none needs the old one.
 //
 // ONE function, and the parameter is why it is one. The container's jail sees the
 // workspace at the fixed /workspace bind and this was a constant rooted there; macos-user
@@ -79,7 +86,13 @@ const (
 // paths name one file. Spelling it as a function of the workspace is what makes that
 // agreement structural instead of coincidental.
 func StartupLog(workspace string) string {
-	return filepath.Join(workspace, ".yolo", "startup.log")
+	return paths.WorkspaceLogPath(workspace, StartupLogName)
+}
+
+// startupLogWorkspace is the workspace StartupLog was given: the log is three levels below it
+// (.yolo/logs/startup.log). TestStartupLogWorkspaceInvertsStartupLog pins the two together.
+func startupLogWorkspace(logPath string) string {
+	return filepath.Dir(filepath.Dir(filepath.Dir(logPath)))
 }
 
 // The STEPS of the stage, each a complete shell command. Setup joins them with `&&`, so
@@ -223,7 +236,7 @@ func StageBypassingShims(steps, bootstrap []string) string {
 // moves with it).
 func Script(logPath, setup string, color bool) string {
 	// Only generated shell opens this in-jail path; the host renderer never does.
-	appendLog := "yolo internal log-append " + shquote.Quote(filepath.Dir(filepath.Dir(logPath))) + " startup.log"
+	appendLog := "yolo internal log-append " + shquote.Quote(startupLogWorkspace(logPath)) + " " + StartupLogName
 	refused := strconv.Itoa(RefusedStatus)
 	red, reset := `\033[1;31m`, `\033[0m`
 	if !color {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
@@ -200,6 +201,47 @@ func TestTheBootstrapsGuestStepsAreRecordedFromItsPerfFile(t *testing.T) {
 				t.Errorf("unexpected bootstrap span %q", name)
 			}
 		}
+	}
+}
+
+// A bootstrap from an older yolo writes its perf file directly in `.yolo`, not in `.yolo/logs`:
+// both places are cleared before the bootstrap runs, and the steps are read from whichever one
+// it wrote.
+func TestTheBootstrapsStepsAreReadFromTheOlderPerfFilePlace(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
+	ws := "/Users/Shared/yolo/proj"
+	legacy := paths.LegacyWorkspaceLogPath(ws, entrypoint.BootPerfName)
+	written, removedLegacy := "", false
+	d.RemoveFile = func(p string) bool {
+		if p == legacy {
+			removedLegacy = true
+		}
+		return true
+	}
+	run := d.Run
+	d.Run = func(argv []string) int {
+		if slices.Contains(argv, "darwin-bootstrap") {
+			if !removedLegacy {
+				t.Error("the bootstrap ran before the older place's stale perf file was removed")
+			}
+			written = "0.500000\thydrate_user_env\n"
+		}
+		return run(argv)
+	}
+	d.ReadFile = func(p string) (string, bool) {
+		if p == legacy && written != "" {
+			return written, true
+		}
+		return "", false
+	}
+	log, events := recordingLog()
+	d.Perf = log
+	if rc := RunMacosUser(d, newOpts(ws)); rc != 42 {
+		t.Fatalf("rc = %d", rc)
+	}
+	if got := durations(*events)["macos_user.bootstrap.hydrate_user_env"]; got != 500*time.Millisecond {
+		t.Errorf("hydrate_user_env = %v, want 500ms (recorded %v)", got, spanEnds(events))
 	}
 }
 

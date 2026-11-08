@@ -154,7 +154,7 @@ func TestPackTreeProgramBuildFailureRefusesOnlyIt(t *testing.T) {
 	}
 	for what, want := range map[string]string{
 		"the program":   "program " + brokenBin + " (pack " + failPack + ")",
-		"the build log": filepath.Join(".yolo", "build-"),
+		"the build log": filepath.Join(".yolo", "logs", "build-"),
 		"the retry":     "yolo pack build " + failPack,
 		"the hatch":     paths.AllowMissingProgramsEnv + "=1",
 	} {

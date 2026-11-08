@@ -90,7 +90,7 @@ func DarwinEnvFrom(vars map[string]string, home string) *Env {
 // caller used to print "bootstrap ok" unconditionally. Every step still runs, so one
 // invocation reports every problem; see genStep.
 //
-// IT KEEPS THE CONTAINER'S BOOT LOG, <workspace>/.yolo/boot.log, rotated to boot.log.prev the
+// IT KEEPS THE CONTAINER'S BOOT LOG, <workspace>/.yolo/logs/boot.log, rotated to boot.log.prev the
 // same way (attachDarwinBootLog): a terminal line lands in both, a log-only note in the log
 // alone, and the log's last line says whether the bootstrap refused. That is also what the
 // orphan catalog's one line points at for the names.
@@ -150,7 +150,7 @@ func RunDarwinBootstrap(e *Env, opts DarwinBootstrapOptions) error {
 }
 
 // attachDarwinBootLog is attachBootLog for the macos-user bootstrap: the same
-// <workspace>/.yolo/boot.log, written by the sandbox account through the workspace grant that
+// <workspace>/.yolo/logs/boot.log, written by the sandbox account through the workspace grant that
 // already lets it create <workspace>/.yolo/prism, plus one header line naming this backend and
 // the binary's version (the container's header reads YOLO_VERSION, which this env lacks).
 //

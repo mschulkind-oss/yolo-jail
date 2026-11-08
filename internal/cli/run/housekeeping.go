@@ -52,7 +52,7 @@ import (
 // already said it: "Nothing that needs a TTY runs there — by then the TTY is
 // the container's." Both streams are the container's, not just stdout.
 //
-// The file is <workspace>/.yolo/housekeeping.log, beside boot.log and
+// The file is <workspace>/.yolo/logs/housekeeping.log, beside boot.log and
 // host-perf.log, so the three things a launch does behind the user's back are
 // greppable in one place. `yolo stores` and `yolo prune` are the human-facing
 // surfaces for this information; a launch is not.
@@ -60,16 +60,16 @@ import (
 // Best-effort: a launch must never fail because housekeeping could not write a
 // note about itself.
 func (o *Options) housekeepingNote(format string, args ...any) {
-	writeHousekeepingNote(paths.OpenWorkspaceStateFile, o.Workspace, o.Now(), fmt.Sprintf(format, args...))
+	writeHousekeepingNote(paths.OpenWorkspaceLogFile, o.Workspace, o.Now(), fmt.Sprintf(format, args...))
 }
 
-// housekeepingLogName is the note file directly under <workspace>/.yolo.
+// housekeepingLogName is the note file in <workspace>/.yolo/logs.
 const housekeepingLogName = "housekeeping.log"
 
 // writeHousekeepingNote appends one timestamped line to workspace's housekeeping.log,
-// opened through open: paths.OpenWorkspaceStateFile for a writer that belongs to a live
-// launch, paths.OpenExistingWorkspaceStateFile for one that may outlive the workspace (the
-// scratch remover). Beneath a root on `.yolo` either way, never by path: the directory is
+// opened through open: paths.OpenWorkspaceLogFile for a writer that belongs to a live
+// launch, paths.OpenExistingWorkspaceLogFile for one that may outlive the workspace (the
+// scratch remover). Beneath a root on `.yolo/logs` either way, never by path: the directory is
 // jail-writable, and a link left at the name would take the note to the file it names.
 //
 // The log is bounded at open (internal/logcap), through THE SAME ROOT-SCOPED OPEN as the note:

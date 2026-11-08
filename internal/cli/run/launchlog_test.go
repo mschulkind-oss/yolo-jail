@@ -40,7 +40,7 @@ func TestTheLogHalfAloneReachesTheLogAndNotTheTerminal(t *testing.T) {
 // readLaunchLog returns the log's content, or fails.
 func readLaunchLog(t *testing.T, ws string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", LaunchLogName))
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", LaunchLogName))
 	if err != nil {
 		t.Fatalf("reading the launch log: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
@@ -126,7 +127,7 @@ func TestScratchRemovalSpawnFailureIsRecorded(t *testing.T) {
 	if !strings.Contains(scratchPerfLog(t, ws), "mark   shutdown.scratch_volumes.rm_not_started") {
 		t.Error("a failed spawn left no mark")
 	}
-	b, _ := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+	b, _ := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "housekeeping.log"))
 	if !strings.Contains(string(b), "could not start the removal of 4 volume(s)") {
 		t.Errorf("housekeeping.log = %q", b)
 	}
@@ -331,7 +332,7 @@ func sortedCopy(s ...string) []string {
 // scratchPerfLog reads the workspace's host perf log ("" when absent).
 func scratchPerfLog(t *testing.T, ws string) string {
 	t.Helper()
-	b, _ := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	b, _ := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	return string(b)
 }
 
@@ -370,7 +371,7 @@ func TestTheRemoverNeverRecreatesAMissingWorkspace(t *testing.T) {
 			t.Fatal(err)
 		}
 		remove(ws)
-		b, _ := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+		b, _ := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "housekeeping.log"))
 		if !strings.Contains(string(b), "scratch: removed 0 volume(s)") || !strings.Contains(string(b), vol) {
 			t.Errorf("housekeeping.log = %q", b)
 		}

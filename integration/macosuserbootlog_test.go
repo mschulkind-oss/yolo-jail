@@ -11,7 +11,7 @@ import (
 // THE macos-user BOOTSTRAP KEEPS THE CONTAINER'S BOOT LOG, asked of a real sandbox.
 //
 // The bootstrap runs as the sandbox account outside Seatbelt and writes
-// <workspace>/.yolo/boot.log through the workspace's inherited grant, beneath a root on `.yolo`
+// <workspace>/.yolo/logs/boot.log through the workspace's inherited grant, beneath a root on `.yolo`
 // (entrypoint.attachDarwinBootLog; the unit tests in internal/entrypoint/darwinbootlog_test.go
 // pin the shape on Linux). What only a Mac can answer: that the account can create the file
 // there, that the host user can read it afterwards, and that it records the whole bootstrap. That

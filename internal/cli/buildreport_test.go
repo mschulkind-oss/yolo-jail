@@ -144,7 +144,7 @@ func TestASuccessfulBuildsTerminalCarriesOnlyItsProgressLines(t *testing.T) {
 	if d.Dir == "" {
 		t.Fatalf("nothing was delivered: %+v\n%s", d, term)
 	}
-	logName := filepath.Join(".yolo", buildLogName(treeKeyCLI))
+	logName := filepath.Join(".yolo", "logs", buildLogName(treeKeyCLI))
 	label := "v1.0.0 (" + shortSHA(fx.base) + ")"
 	wantLines := []string{
 		// The start line: what is built and why, which a line of its own said before, and its log.
@@ -210,13 +210,13 @@ func TestAFailedBuildPrintsItsTailAndItsLog(t *testing.T) {
 	if d.Dir != "" {
 		t.Fatalf("a failed build delivered %+v", d)
 	}
-	own := filepath.Join(ws, ".yolo", buildLogName(treeKeyCLI))
+	own := filepath.Join(ws, ".yolo", "logs", buildLogName(treeKeyCLI))
 	for _, w := range []string{
 		"Building extension " + treeKeyCLI + ": failed (",
 		"  its last 20 lines:",
 		"    build output line 30",
 		"    build output line 11",
-		"  its whole output: " + own + ", and in " + filepath.Join(ws, ".yolo", run.LaunchLogName),
+		"  its whole output: " + own + ", and in " + filepath.Join(ws, ".yolo", "logs", run.LaunchLogName),
 		// The nested launch's warning, which came before the last 20 lines, under the result line.
 		"  its build jail: " + nestedWarning,
 		"  its build jail: " + nestedDetail,
@@ -333,7 +333,7 @@ func TestEveryFailedBuildsHeadlineKeepsItsLog(t *testing.T) {
 			if d.Dir != "" {
 				t.Fatalf("a failed build delivered %+v\n%s", d, stream.terminal())
 			}
-			own := "its log: " + filepath.Join(ws, ".yolo", buildLogName(treeKeyCLI))
+			own := "its log: " + filepath.Join(ws, ".yolo", "logs", buildLogName(treeKeyCLI))
 			head, next, cut := entrypoint.CutReason(d.Reason)
 			if !strings.Contains(head, own) {
 				t.Errorf("the headline lacks %q:\n%s", own, head)
@@ -495,7 +495,7 @@ func TestABuildsSealDisclosureNamesTheNetworkItsLaunchApplies(t *testing.T) {
 		_, stream := fx.deliverWithStream(t, ws)
 		sealSharesNetwork = prev
 		term := stream.terminal()
-		own, _ := os.ReadFile(filepath.Join(ws, ".yolo", buildLogName(treeKeyCLI)))
+		own, _ := os.ReadFile(filepath.Join(ws, ".yolo", "logs", buildLogName(treeKeyCLI)))
 		bridged, nested := "and a bridged network, never the host's", "the network of the jail it is launched from"
 		want, gone := bridged, nested
 		if shared {
@@ -535,7 +535,7 @@ func TestABuildLogKeepsEveryBuildOfItsKeyThisLaunch(t *testing.T) {
 	})
 	pool.run()
 	term := stream.terminal()
-	own := filepath.Join(ws, ".yolo", buildLogName("forkpack/tool"))
+	own := filepath.Join(ws, ".yolo", "logs", buildLogName("forkpack/tool"))
 	if r.delivery.Key == "" || attempts != 2 || !strings.Contains(term, "  its whole output: "+own) {
 		t.Fatalf("handed %+v after %d builds; want the base's after the fit's failure named %s\n%s", r.delivery, attempts, own, term)
 	}

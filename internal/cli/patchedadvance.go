@@ -81,7 +81,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -2279,7 +2278,7 @@ func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult
 	if pf := w.PatchFailure(); pf != nil {
 		pf.Owner, pf.Inputs, pf.Series, pf.Seq = a.f.Key(), a.in, a.series.Digest, snapshot.Seq
 		if pf.Log == "" && a.o.workspace != "" {
-			pf.Log = filepath.Join(a.o.workspace, ".yolo", "launch.log")
+			pf.Log = paths.WorkspaceLogPath(a.o.workspace, run.LaunchLogName)
 		}
 		a.patchFailure = pf
 		// A walk-back's older conflict is recorded, and the newest's block is the one said — and only
@@ -2386,7 +2385,7 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 		// and nothing runs the good build in its place unless one of them is set.
 		a.warn("%s: the build of %s failed: %v", f.Label(), what, err)
 		if !a.printRunFailure() && a.o.workspace != "" {
-			a.dim("  its output is above, and in %s", filepath.Join(a.o.workspace, ".yolo", "launch.log"))
+			a.dim("  its output is above, and in %s", paths.WorkspaceLogPath(a.o.workspace, run.LaunchLogName))
 		}
 		return
 	}
@@ -2400,7 +2399,7 @@ func (a *advance) buildFailedLines(b forkBuild, err error, retryAt time.Time) {
 	}
 	a.warn("%s: the build of %s failed: %v — %s", f.Label(), what, err, tail)
 	if !a.printRunFailure() && a.o.workspace != "" {
-		a.dim("  its output is above, and in %s", filepath.Join(a.o.workspace, ".yolo", "launch.log"))
+		a.dim("  its output is above, and in %s", paths.WorkspaceLogPath(a.o.workspace, run.LaunchLogName))
 	}
 	switch {
 	case a.thenBase:

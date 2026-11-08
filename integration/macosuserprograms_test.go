@@ -230,7 +230,7 @@ func TestMacosUserPackTreeProgramBuildFailureRefusesOnlyIt(t *testing.T) {
 			}
 			for what, want := range map[string]string{
 				"the program":   macosUserPackTreeBin,
-				"the build log": filepath.Join(".yolo", "build-"),
+				"the build log": filepath.Join(".yolo", "logs", "build-"),
 				"the retry":     "yolo pack build " + macosUserPackTreePack,
 				"the hatch":     paths.AllowMissingProgramsEnv + "=1",
 			} {

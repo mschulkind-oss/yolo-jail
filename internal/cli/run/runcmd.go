@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -986,7 +985,7 @@ func (o *Options) captureConfigOnTerminate(rt string) {
 }
 
 // timingRecording is the RECORDING gate: does this launch collect spans and
-// append them to <workspace>/.yolo/host-perf.log as they happen? EVERY opt-in
+// append them to <workspace>/.yolo/logs/host-perf.log as they happen? EVERY opt-in
 // turns it on — the two explicit flags, either host-process env opt-in
 // (YOLO_TIMING for this surface, YOLO_VERBOSE for the global flag's published
 // form, design D1), and the persistent `perf_logging` user config (read once by
@@ -1018,9 +1017,9 @@ func (o *Options) timingReporting() bool {
 	return o.Timing || o.Verbose
 }
 
-// HostPerfLogName is the host half's file, under <workspace>/.yolo/ beside
-// boot.log (design D2). The jail half is yolo-perf.log, bind-mounted from
-// <workspace>/.yolo/home/, so one directory holds both halves of one launch.
+// HostPerfLogName is the host half's file, under <workspace>/.yolo/logs/ beside
+// boot.log (design D2). The jail half is yolo-perf.log, at the top of the setup's home
+// under <workspace>/.yolo, which the jail writes through its home bind.
 const HostPerfLogName = "host-perf.log"
 
 // PerfRef is a one-field holder a caller passes in to be handed the collector
@@ -1065,7 +1064,7 @@ func (o *Options) initPerf(cname string) {
 
 // newTimingLog builds the collector behind every timing gate, wiring two sinks:
 //
-//   - the file sink at <workspace>/.yolo/host-perf.log (design D2) — events
+//   - the file sink at <workspace>/.yolo/logs/host-perf.log (design D2) — events
 //     land there AS THEY HAPPEN, so a hang is diagnosable by tail and the
 //     signal arm's os.Exit still leaves a record;
 //   - the slow-span notice — one line per span past perf.SlowSpanThreshold,
@@ -1109,7 +1108,7 @@ func (o *Options) subLaunch() bool { return o.CapturesDir != nil && o.CapturesDi
 // to the terminal for exactly that reason — but the housekeeping slot is also a
 // SPAN, and the slot's own `housekeeping.slot took 62.891s` went straight to
 // stderr a minute into a live session (measured on the maintainer's host,
-// 2026-09-19: the last line of <ws>/.yolo/launch.log, over a running agent).
+// 2026-09-19: the last line of <ws>/.yolo/logs/launch.log, over a running agent).
 // Nothing is lost by the silence: every event is already in host-perf.log the
 // moment it happens, and --timing's table renders it at the end.
 //
@@ -1157,10 +1156,10 @@ func slowSpanNoticeSink(notice func(string)) perf.Sink {
 	}
 }
 
-// hostPerfFileSink is the <workspace>/.yolo/host-perf.log sink, or a no-op sink when that
+// hostPerfFileSink is the <workspace>/.yolo/logs/host-perf.log sink, or a no-op sink when that
 // directory may not exist.
 //
-// THE DIRECTORY IS THE POINT. paths.OpenWorkspaceStateFile creates its parent (through
+// THE DIRECTORY IS THE POINT. paths.OpenWorkspaceLogFile creates its parent (through
 // paths.EnsureWorkspaceStateDir), so this constructor is a creator of <workspace>/.yolo — and `yolo stop` reaches it (TimingLogFor) with the cwd as
 // the workspace, outside the launch pipeline and therefore behind no launch guard. A
 // `yolo stop` typed in the home, on a machine with `perf_logging: true`, minted a stray
@@ -1180,14 +1179,14 @@ func hostPerfFileSink(ws, cname string, stderr io.Writer, notice func(string)) p
 			" may not exist (this directory is not a workspace)")
 		return func(perf.Event) {}
 	}
-	// Beneath a root on `.yolo`, never by path (paths.OpenWorkspaceStateFile): the directory is
+	// Beneath a root on `.yolo/logs`, never by path (paths.OpenWorkspaceLogFile): the directory is
 	// jail-writable, and a link the last jail left at the name would take the trim's rewrite
 	// and every appended span to the host file it names.
-	f, err := paths.OpenWorkspaceStateFile(ws, HostPerfLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
+	f, err := paths.OpenWorkspaceLogFile(ws, HostPerfLogName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		if stderr != nil {
 			fmt.Fprintf(stderr, "yolo: timing log unavailable at %s: %v (continuing without it)\n",
-				filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName), err)
+				paths.WorkspaceLogPath(ws, HostPerfLogName), err)
 		}
 		return func(perf.Event) {}
 	}

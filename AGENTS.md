@@ -268,7 +268,7 @@ The mechanics behind each of these are in
   Progress may be compressed; a **disclosure is never suppressible** — the pack read/exec banners are the
   trust boundary. `YOLO_NO_BANNER` hides the version line and nothing else, and
   `TestTheLaunchHasNoQuietFlag` fails if another flag appears on `runFlags`. Everything printed is teed to
-  `<workspace>/.yolo/launch.log`, beside the entrypoint's `boot.log`.
+  `<workspace>/.yolo/logs/launch.log`, beside the entrypoint's `boot.log`.
 - **Podman-in-podman**: inside a container the CLI uses `--userns=host` and forces `--net=host`; inner
   containers also need `--cgroups=disabled` — both are image defaults in
   `/etc/containers/containers.conf`.

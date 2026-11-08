@@ -71,7 +71,7 @@ func TestTheHostPerfLogIsStillWrittenForAnOrdinaryWorkspace(t *testing.T) {
 	}
 	log.Record("probe", time.Millisecond)
 
-	path := filepath.Join(paths.WorkspaceStateDir(ws), HostPerfLogName)
+	path := paths.WorkspaceLogPath(ws, HostPerfLogName)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("the host perf log was not written to %s: %v", path, err)

@@ -331,7 +331,7 @@ filesystem half, as the rest of `mounts` validation does.
 Each rw mount gets **one launch line, on every launch**, in bold yellow because it names a
 writable hole in the boundary (`run.rwMountDisclosure`). It is a disclosure in the
 [`OQ-RO3`](report-tiers.md#why-its-this-way) sense: never suppressible, teed to
-`<workspace>/.yolo/launch.log`, and shown under `YOLO_NO_BANNER`. It names the host path and the
+`<workspace>/.yolo/logs/launch.log`, and shown under `YOLO_NO_BANNER`. It names the host path and the
 jail path, and the **injection sentence**: anything on this machine that later reads the source
 reads what the jail wrote there, including a symlink the jail planted. On a rootful podman host it
 adds the ownership consequence ([Ownership](#ownership)), and only when podman answered

@@ -115,7 +115,7 @@ func Run(opts Options) (rc int) {
 	}
 
 	// PERSIST THE LAUNCHER'S HALF (report-tiers.md, the launch stream). Everything this process
-	// prints from here on is teed into <workspace>/.yolo/launch.log, beside the
+	// prints from here on is teed into <workspace>/.yolo/logs/launch.log, beside the
 	// entrypoint's boot.log, so the half of a launch that used to vanish when the
 	// terminal scrolled is readable afterwards — including after a launch that
 	// refused, where there is no jail left to read anything from.
@@ -2911,7 +2911,7 @@ func (o *Options) emitTimingReport(rc int, cname, rt string) {
 // re-reading the config reference.
 func (o *Options) noteTimingLogLocation() {
 	o.pr(o.Stderr).printf("[dim]yolo: timings recorded in %s (--timing prints them)[/dim]",
-		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
+		paths.WorkspaceLogPath(o.Workspace, HostPerfLogName))
 }
 
 func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
@@ -2936,7 +2936,7 @@ func (o *Options) emitTimingReportLocked(rc int, cname, rt string) {
 		o.pr(o.Stderr).printf("[dim]  %s[/dim]", why)
 	}
 	o.pr(o.Stderr).printf("[dim]  host file: %s[/dim]",
-		filepath.Join(paths.WorkspaceStateDir(o.Workspace), HostPerfLogName))
+		paths.WorkspaceLogPath(o.Workspace, HostPerfLogName))
 	if rt != "macos-user" { // parity: NotApplicable — the macos-user bootstrap keeps no jail perf log, so there is no jail half to name
 		o.pr(o.Stderr).printf("[dim]  jail half: %s[/dim]",
 			filepath.Join(paths.WorkspaceStateDir(o.Workspace), jailPerfRel(rt, o.homeRel())))

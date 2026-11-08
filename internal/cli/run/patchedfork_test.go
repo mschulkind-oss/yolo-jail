@@ -106,7 +106,7 @@ func TestALaunchHandsAPatchedForkToItsAdvance(t *testing.T) {
 	if gotReq.Runtime != "podman" || gotReq.Workspace != ws {
 		t.Errorf("the request names runtime %q and workspace %q, want podman and %s", gotReq.Runtime, gotReq.Workspace, ws)
 	}
-	logged, err := os.ReadFile(filepath.Join(ws, ".yolo", LaunchLogName))
+	logged, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", LaunchLogName))
 	if err != nil {
 		t.Fatalf("the launch log: %v", err)
 	}

@@ -26,7 +26,7 @@ import (
 // "  [<key>] ".
 func buildJailLines(t *testing.T, ws, key string) []string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(ws, ".yolo", "launch.log"))
+	data, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "launch.log"))
 	if err != nil {
 		t.Fatalf("launch.log: %v", err)
 	}

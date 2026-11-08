@@ -72,7 +72,7 @@ func TestALaunchAutoCapturesAnUncapturedInstallerProgram(t *testing.T) {
 			}
 		}
 	})
-	launchLogPath := filepath.Join(ws, ".yolo", LaunchLogName)
+	launchLogPath := filepath.Join(ws, ".yolo", "logs", LaunchLogName)
 	logBytes, logErr := os.ReadFile(launchLogPath)
 	if logErr != nil {
 		t.Fatalf("read parent launch log %s: %v", launchLogPath, logErr)

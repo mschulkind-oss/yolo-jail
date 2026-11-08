@@ -46,7 +46,8 @@ func TestCaptureCleanupWaitsForTheBuildJailsScratchRemover(t *testing.T) {
 		defer close(done)
 		// Long enough that a cleanup which does not wait (a directory removal) is long done.
 		time.Sleep(200 * time.Millisecond)
-		_ = os.WriteFile(filepath.Join(ws, ".yolo", "housekeeping.log"), []byte("scratch: removed\n"), 0o644)
+		_ = os.MkdirAll(filepath.Join(ws, ".yolo", "logs"), 0o755)
+		_ = os.WriteFile(filepath.Join(ws, ".yolo", "logs", "housekeeping.log"), []byte("scratch: removed\n"), 0o644)
 		released.Store(true)
 		_ = syscall.Flock(fd, syscall.LOCK_UN)
 	}()

@@ -759,7 +759,7 @@ func nativeSandbox(e *Env) bool { return !e.GNUStat }
 // e.Stderr.
 //
 // IT KEEPS THE CONTAINER'S RECORD, in the same file (attachWitnessLog): the witness's warnings
-// and its log-only verdict, appended to <workspace>/.yolo/boot.log after the bootstrap's own
+// and its log-only verdict, appended to <workspace>/.yolo/logs/boot.log after the bootstrap's own
 // record, then a last line saying whether it refused. The stage's stderr is the launch terminal
 // alone (the child inherits it, past the launcher's launch.log tee), so without this a healthy
 // probe left no trace and a refusal's reasons scrolled away with the terminal. Attached here
@@ -775,13 +775,13 @@ func RunServiceProbe(e *Env) error {
 	return err
 }
 
-// attachWitnessLog opens <workspace>/.yolo/boot.log for APPEND and tees e.Stderr into it, with
+// attachWitnessLog opens <workspace>/.yolo/logs/boot.log for APPEND and tees e.Stderr into it, with
 // the file as e.LogOnly, so the witness's affirmative note lands there too (Env.note). It returns
 // the function that writes the closing line and closes the file.
 //
 // APPEND, never the bootstrap's rotate-and-truncate: the bootstrap wrote this launch's record a
 // stage earlier, and rotating it to boot.log.prev would push the previous launch's out of both.
-// Opened BENEATH A ROOT ON `.yolo` (paths.OpenWorkspaceStateFile), as the bootstrap's is.
+// Opened BENEATH A ROOT ON `.yolo/logs` (paths.OpenWorkspaceLogFile), as the bootstrap's is.
 //
 // ONLY FOR A WORKSPACE THE LAUNCH NAMED, attachDarwinBootLog's rule and for its reason: an Env
 // without YOLO_DARWIN_WORKSPACE is a test or a hand-run whose WorkspaceDir may be the container's
@@ -814,7 +814,7 @@ func attachWitnessLog(e *Env) func(error) {
 	if h := witnessScopeHome(e); h != "" {
 		restore = paths.GuardScopeUnder(h)
 	}
-	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), bootLogName,
+	f, err := paths.OpenWorkspaceLogFile(e.WorkspaceDir(), bootLogName,
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	restore()
 	if err != nil {

@@ -95,7 +95,7 @@ func TestAHostDaemonLaunchCapsItsServiceLog(t *testing.T) {
 
 func TestHousekeepingNoteCapsItsRootScopedLog(t *testing.T) {
 	workspace := t.TempDir()
-	path := filepath.Join(workspace, ".yolo", housekeepingLogName)
+	path := filepath.Join(workspace, ".yolo", "logs", housekeepingLogName)
 	overfullLog(t, path)
 	o := &Options{Workspace: workspace, Now: time.Now}
 	o.housekeepingNote("fresh housekeeping")
@@ -108,7 +108,7 @@ func TestHousekeepingNoteCapsItsRootScopedLog(t *testing.T) {
 
 func TestHousekeepingTrimDoesNotFollowArchiveSymlink(t *testing.T) {
 	workspace := t.TempDir()
-	path := filepath.Join(workspace, ".yolo", housekeepingLogName)
+	path := filepath.Join(workspace, ".yolo", "logs", housekeepingLogName)
 	overfullLog(t, path)
 	victim := filepath.Join(t.TempDir(), "victim")
 	if err := os.WriteFile(victim, []byte("untouched"), 0o600); err != nil {

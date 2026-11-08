@@ -762,7 +762,7 @@ other.
 
 > [!NOTE]
 > **`macos-user` collects it too, since 2026-10-04.** The macos-user bootstrap runs the boot
-> catalog and keeps the same `<workspace>/.yolo/boot.log` the container boot keeps, so the
+> catalog and keeps the same `<workspace>/.yolo/logs/boot.log` the container boot keeps, so the
 > catalog's names land there. The launch relays the user's `programs.autoprune`. The sandbox
 > session names the staged pack tree and the workspace, so `yolo programs ls` and
 > `yolo programs remove` run inside the sandbox

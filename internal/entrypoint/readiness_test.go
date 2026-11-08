@@ -245,7 +245,7 @@ func TestTheRefusalQuotesTheInstallsErrorNotTheLaunchersClosingLine(t *testing.T
 // stage never runs — the shape the entrypoint runs the stage in (jailmain.go).
 func TestARefusedReadinessNeverReachesTheCommand(t *testing.T) {
 	h := newReadyHome(t, map[string]string{readyPack: readyManifest}, nil)
-	logPath := filepath.Join(h.e.WorkspaceDir(), ".yolo", "startup.log")
+	logPath := provision.StartupLog(h.e.WorkspaceDir())
 	stage := provision.Script(logPath, provision.Stage([]string{"true"}, []string{provision.StepRunBootstrapAt(h.scriptP)}), false)
 	cmd := exec.Command("bash", "-c", stage+"\necho THE-COMMAND-RAN")
 	cmd.Env = []string{"HOME=" + h.e.Home, "PATH=" + h.fakeBin + ":" + h.yoloBin + ":/bin:/usr/bin", "FAKE_LOG=" + h.log,

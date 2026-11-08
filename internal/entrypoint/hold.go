@@ -170,7 +170,7 @@ func holdNotice(e *Env) string {
 	rule := strings.Repeat("─", 72)
 	b.WriteString("\n" + rule + "\n")
 	b.WriteString("HOLDING THE CONTAINER OPEN — " + paths.HoldOnRefusalEnv + " is set.\n\n")
-	b.WriteString("This boot REFUSED (the failures are above, and in .yolo/boot.log).\n")
+	b.WriteString("This boot REFUSED (the failures are above, and in .yolo/logs/boot.log).\n")
 	b.WriteString("The container is still running, so the state that failed — the process\n")
 	b.WriteString("table, the listeners, the jail daemons — is still there to look at.\n\n")
 	b.WriteString("From another terminal on the HOST:\n\n")

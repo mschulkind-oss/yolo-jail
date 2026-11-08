@@ -642,10 +642,10 @@ func holdImageCopyLock(t *testing.T, lockPath string) func() {
 }
 
 // spanEnds returns the durations, in seconds, of every `end <name>` line in a launch's
-// <workspace>/.yolo/host-perf.log (perfEndRe is the line shape perf.formatLine writes).
+// <workspace>/.yolo/logs/host-perf.log (perfEndRe is the line shape perf.formatLine writes).
 func spanEnds(t *testing.T, ws, name string) []float64 {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "host-perf.log"))
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "host-perf.log"))
 	if err != nil {
 		t.Errorf("%s: no host-perf.log, although the launch ran with %s=1: %v", ws, paths.TimingEnv, err)
 		return nil
@@ -721,7 +721,7 @@ func TestImageCopyLockSerializesConcurrentLaunches(t *testing.T) {
 	evicted := evictJailImageRefs(t, rt)
 	t.Logf("evicted %d jail image name(s), images kept under %s: %v", len(evicted), copyLockHoldRepo(), evicted)
 
-	// YOLO_TIMING=1 records the spans to <workspace>/.yolo/host-perf.log without printing the
+	// YOLO_TIMING=1 records the spans to <workspace>/.yolo/logs/host-perf.log without printing the
 	// report. YOLO_NO_AUTO_IMAGE_REAP keeps each launch's post-launch reaper out of a store this
 	// test is holding in a deliberately unusual state; it is the hatch autoreapimages.go names
 	// for "a launch against a store with images worth keeping".

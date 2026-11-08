@@ -888,7 +888,7 @@ const inJailSuffix = " (ignored here: this is the host-generated config snapshot
 // shape, and its type checks went with it.
 //
 // THE MESSAGE NAMES THIS PROJECT ALONE. Everything a launch prints is teed into that
-// workspace's .yolo/launch.log, which its jail reads, and this validator has three callers and no
+// workspace's .yolo/logs/launch.log, which its jail reads, and this validator has three callers and no
 // caller mode. So no form of it names another project's path or repositories: it gives the exact
 // edit for the workspace being validated and counts the rest. Host `yolo check` prints every
 // project's edit from a section of its own (RetiredBrokeredMoves).

@@ -123,10 +123,10 @@ func assertParses(t *testing.T, script string) {
 // untouched, which is what lets the container's golden stay byte-identical across the
 // move of these bytes into this package.
 func TestSafePathsAreUnchanged(t *testing.T) {
-	if got := StartupLog("/workspace"); got != "/workspace/.yolo/startup.log" {
+	if got := StartupLog("/workspace"); got != "/workspace/.yolo/logs/startup.log" {
 		t.Fatalf("StartupLog = %q", got)
 	}
-	if got := dquoteEscape("/workspace/.yolo/startup.log"); got != "/workspace/.yolo/startup.log" {
+	if got := dquoteEscape("/workspace/.yolo/logs/startup.log"); got != "/workspace/.yolo/logs/startup.log" {
 		t.Errorf("a safe path was rewritten: %q", got)
 	}
 }
@@ -392,4 +392,18 @@ func TestStageKeepsTheStepsBeforeTheBootstrapJoined(t *testing.T) {
 // tests run it in that shape too.
 func shellWord(path string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(path) + `"`
+}
+
+// The generated shell hands `yolo internal log-append` the workspace, which it recovers from the
+// log's path; a StartupLog that moved the log without startupLogWorkspace following it would
+// send every provisioning line to the wrong directory.
+func TestStartupLogWorkspaceInvertsStartupLog(t *testing.T) {
+	for _, ws := range []string{"/workspace", "/Users/Shared/yolo/proj"} {
+		if got := startupLogWorkspace(StartupLog(ws)); got != ws {
+			t.Errorf("startupLogWorkspace(StartupLog(%q)) = %q", ws, got)
+		}
+		if s := Script(StartupLog(ws), Setup("true"), false); !strings.Contains(s, "yolo internal log-append "+ws+" startup.log") {
+			t.Errorf("the script does not append to %s's log:\n%s", ws, s)
+		}
+	}
 }

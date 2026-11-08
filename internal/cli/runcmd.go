@@ -95,7 +95,7 @@ Flags:
                      child window (including podman's own post-exit cleanup), and
                      the in-container breakdown (entrypoint config generation, mise,
                      the command itself). Spans append to
-                     <workspace>/.yolo/host-perf.log as they happen, and any span
+                     <workspace>/.yolo/logs/host-perf.log as they happen, and any span
                      over a second names itself on stderr. The global --verbose/-v
                      (before the subcommand) prints the same report.
                      ASKING IS WHAT PRINTS: the always-on spellings — YOLO_TIMING=1

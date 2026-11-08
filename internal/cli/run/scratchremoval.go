@@ -26,7 +26,7 @@ package run
 // not empty" because a remover recreated `<workspace>/.yolo/housekeeping.log` mid-RemoveAll).
 // First, the remover never CREATES the workspace or its `.yolo`: a user who deletes a
 // workspace right after quitting must not find it resurrected by a log line
-// (writeHousekeepingNote with paths.OpenExistingWorkspaceStateFile). Second, whoever needs
+// (writeHousekeepingNote with paths.OpenExistingWorkspaceLogFile). Second, whoever needs
 // the workspace quiescent — the suite's cleanup, and a build jail's cleanup before it deletes
 // the staging workspace — can WAIT for every remover started
 // for it: each one holds a shared flock on `<workspace>/.yolo/scratch-rm.lock` for its whole
@@ -68,6 +68,11 @@ const scratchPollInterval = 500 * time.Millisecond
 // ScratchRemoverLockName is the file directly under <workspace>/.yolo on which every
 // in-flight remover for that workspace holds a SHARED flock, for its whole life. It is a
 // marker, not a mutex: two removers share it, and only a waiter takes it exclusively.
+//
+// IT STAYS AT THE TOP OF `.yolo`, not under the logs and locks move of
+// docs/design/workspace-state-safety.md SD-D15: a remover an older yolo spawned holds it here,
+// and a newer waiter that looked anywhere else would find no remover and delete the workspace
+// under it. It moves only in a release after every older remover is gone (paths/workspacelogs.go).
 const ScratchRemoverLockName = "scratch-rm.lock"
 
 // scratchRemoverLockFD is the child's descriptor for the inherited lock: exec.Cmd's
@@ -396,7 +401,7 @@ func ScratchRemoverMain(args []string) int {
 		// Never paths.OpenWorkspaceStateFile, which creates `.yolo` and so the workspace
 		// above it: this runs up to a minute after the jail exited, and the workspace may
 		// be gone by then.
-		writeHousekeepingNote(paths.OpenExistingWorkspaceStateFile, workspace, time.Now(),
+		writeHousekeepingNote(paths.OpenExistingWorkspaceLogFile, workspace, time.Now(),
 			"scratch: "+r.summary(time.Since(start)))
 	}
 	if len(r.failed) > 0 || len(r.pending) > 0 {

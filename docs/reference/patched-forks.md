@@ -857,12 +857,12 @@ start line, printed before the build line runs, names what is built and why, the
 own log, and its disclosures: the seal and the build line, whole. One progress line stands for the
 pool. The result line, among its key's lines in declaration order, is the move line with the store's
 key, path count and size. Every build a jail launch runs is the `yolo internal fork-build-jail`
-child, whose streams go to `.yolo/launch.log` and the build's own log, never the terminal, except its
+child, whose streams go to `.yolo/logs/launch.log` and the build's own log, never the terminal, except its
 launch's warnings and refusals, repeated under the result. Off a terminal, with illustrative names
 and numbers:
 
 ```text
-build extension matt/pi-ext: v1.2.0 (3f2a9c1e) + 1 patch (series 5d1c09ab), the first build of it on this machine; log: .yolo/build-matt--pi-ext-1a2b3c4d.log
+build extension matt/pi-ext: v1.2.0 (3f2a9c1e) + 1 patch (series 5d1c09ab), the first build of it on this machine; log: .yolo/logs/build-matt--pi-ext-1a2b3c4d.log
   sealed: no credential, no host file, no env_sources, and a bridged network, never the host's; it runs, then copies the checkout: npm ci && npm run build
 Waiting for this launch's builds… building extension matt/pi-ext; 0 of 1 done
 built extension matt/pi-ext: v1.2.0 (3f2a9c1e) + 1 patch; this jail runs it — store key 08c4436a41fefb86, 812 paths, 14.2 MB (41.3s)
@@ -1419,7 +1419,7 @@ each of these is for; this table is the only place the numbers themselves are st
 | A series read's size cap | 64 MiB | `packsrc` (`series.go`) |
 | Check record and its lock | `<PacksDir>/checks/<owner slug>.json`, `<PacksDir>/locks/check-<owner slug>.lock` | `packsrc/checkrecord.go` |
 | Delivery record | `<tree>.forks.json` beside the launch's pack tree | `run` (`forkhanded.go`) |
-| A build's own log | `<workspace>/.yolo/build-<slug>.log` | `cli` (`buildreport.go`) |
+| A build's own log | `<workspace>/.yolo/logs/build-<slug>.log` | `cli` (`buildreport.go`) |
 | A refused boot's structured cause | `<workspace>/.yolo/boot-refusal.json` | `entrypoint.BootRefusalName` |
 | The jail's fork decisions | `YOLO_FORK_BUILDS` | `entrypoint.ForkBuildsEnv` |
 | A sealed build jail | `YOLO_SEALED_BUILD=1` | `entrypoint.SealedBuildEnv` |

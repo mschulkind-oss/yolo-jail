@@ -18,7 +18,7 @@
 // The entrypoint keeps its own marks (boot.go's perfLog, always on); this
 // package is the HOST half and deliberately renders in the same
 // elapsed/delta/label register so the two halves of one launch read as
-// siblings — `<ws>/.yolo/host-perf.log` beside the jail's `yolo-perf.log`.
+// siblings — `<ws>/.yolo/logs/host-perf.log` beside the jail's `yolo-perf.log`.
 //
 // # Non-negotiables
 //

@@ -504,6 +504,7 @@ the only place the values themselves are stated.
 | :--- | :--- | :--- |
 | Machine storage root | `~/.local/share/yolo-jail/` | `paths.GlobalStorage`, `paths.GlobalStorageUnder` |
 | Workspace state dir | `<workspace>/.yolo/` | `paths.WorkspaceStateDir` |
+| Workspace logs dir: every log below that names `.yolo/logs/`. A jail started by a yolo older than this directory writes its logs directly in `.yolo/`, and host readers fall back to that path; the locks directly in `.yolo/` stay there | `<workspace>/.yolo/logs/` | `paths.WorkspaceLogsDir`, `paths.OpenWorkspaceLogFile`, `paths.FindWorkspaceLog` |
 | Workspace home overlays | `<workspace>/.yolo/home/` | `paths.WorkspaceHomeState` |
 | User config | `~/.config/yolo-jail/config.toml`, or the legacy `config.jsonc` | `config.UserConfigFile`, `paths.UserConfigPath` (legacy) |
 | Per-workspace files: folder 0700, each file 0600 | `~/.config/yolo-jail/workspaces/<folder>-<12 hex>.jsonc` | `paths.WorkspaceFilesDir`, `config.WorkspaceFilePath` |
@@ -515,15 +516,15 @@ the only place the values themselves are stated.
 | Approval snapshot (host-only, never mounted) | `<machine storage>/approvals/<container-name>.json` | `paths.ApprovalsDir` |
 | Launch lock | `<machine storage>/locks/<container-name>.lock` | `internal/cli/run/flock.go` |
 | Storage layout version | 2 | `storage.StorageLayoutVersion` |
-| Boot log, and its one rotation | `<workspace>/.yolo/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
-| A session's boot pass, and its one rotation | `<workspace>/.yolo/boot.session.log`, `boot.session.log.prev` | `internal/entrypoint/bootlog.go` (`attachPassLog`) |
-| Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
+| Boot log, and its one rotation | `<workspace>/.yolo/logs/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
+| A session's boot pass, and its one rotation | `<workspace>/.yolo/logs/boot.session.log`, `boot.session.log.prev` | `internal/entrypoint/bootlog.go` (`attachPassLog`) |
+| Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/logs/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
 | Host-notch launch log (`yolo host --`), trimmed to the newest 50 runs under a sibling `.lock` | `<machine storage>/logs/host-launch.log` | `internal/cli/run/launchlog.go` (`HostLaunchLogName`), `perf.MaxRuns` |
 | The previous launch's effective config and pack identities, for the launch log's change records | `<workspace>/.yolo/last-launch-config.json`, `last-launch.json` | `internal/cli/run/launchcontext.go` ([archaeology records](report-tiers.md#archaeology-records)) |
 | The same, for `yolo host --`, per directory short code, 0600 | `<machine storage>/host-launches/<code>-last-launch-config.json`, `<code>-last-launch.json` | `internal/cli/run/hostlaunchcontext.go` (`HostLaunchStateDir`) |
 | Host-notch perf log (`yolo host --`, `yolo host apply`) | `<machine storage>/logs/host-notch-perf.log` | `internal/cli/run/hosttiming.go` (`HostNotchPerfLogName`) |
 | Machine-wide launch line, one per launch at either notch | `<machine storage>/logs/launches.log` | `internal/cli/run/launchrecord.go` (`MachineLaunchLogName`) |
-| Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `provision.StartupLog` |
+| Provisioning log (fresh containers only) | `<workspace>/.yolo/logs/startup.log` | `provision.StartupLog` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |
 | mise store, in-jail | `/mise`; the `yolo-mise-data-v2` named volume on a Podman Machine, and on Apple Container a tool disk per workspace, `<container name>.mise` | `internal/cli/run/assemble.go`, `internal/prune/misevolumes.go` |
 | Jail env: the mise block | `MISE_DATA_DIR=/mise`, `MISE_TRUSTED_CONFIG_PATHS=/workspace`, `MISE_ENV=jail`, `RUSTUP_HOME=/mise/rustup`, `CARGO_HOME=/mise/cargo` | `internal/cli/run/assemble.go` |

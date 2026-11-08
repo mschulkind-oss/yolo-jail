@@ -50,10 +50,10 @@ func TestProvisioningFailedBannerBindsItsThreeSites(t *testing.T) {
 	// through the real function on a real file — asserting on the literal alone would
 	// prove nothing about the grep that consumes it.
 	ws := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	log := filepath.Join(ws, ".yolo", "startup.log")
+	log := filepath.Join(ws, ".yolo", "logs", "startup.log")
 	if err := os.WriteFile(log, []byte("=== yolo provisioning 2026-01-01T00:00:00+0000 ===\n"+
 		provisioningFailedBanner+" (exit 1)\n"), 0o644); err != nil {
 		t.Fatal(err)

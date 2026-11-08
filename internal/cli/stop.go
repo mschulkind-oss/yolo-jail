@@ -102,7 +102,7 @@ func runStop(args []string) int {
 	p := run.TimingLogFor(ws, os.Getenv, os.Stderr)
 	rc := stopJail(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), stopExec, p, force)
 	// D12, stop's small case of it: recording and REPORTING are different
-	// questions. The spans are already in <ws>/.yolo/host-perf.log; the table
+	// questions. The spans are already in <ws>/.yolo/logs/host-perf.log; the table
 	// prints only when the user asked for it on THIS invocation, which for stop
 	// means the global --verbose / -v. An inherited YOLO_VERBOSE=1 (a shell
 	// profile's "always on") records in silence — same rule the run pipeline's

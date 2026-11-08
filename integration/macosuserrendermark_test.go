@@ -35,7 +35,7 @@ import (
 // ⚠ NO LINE IS ASSERTED. The handoff row expected the boot log to say "baseline and not a
 // layer". That note is written through Env.note, which writes only to Env.LogOnly, and when
 // this test was written the macos-user bootstrap set no LogOnly, so the note was discarded.
-// The bootstrap now keeps the container's boot log, <workspace>/.yolo/boot.log
+// The bootstrap now keeps the container's boot log, <workspace>/.yolo/logs/boot.log
 // (entrypoint.attachDarwinBootLog; TestMacosUserBootstrapKeepsABootLog), so the note does land
 // there. This test still asks only the bytes, which answer the rule itself; the line is
 // commentary on it.

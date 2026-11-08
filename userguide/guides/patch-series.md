@@ -253,14 +253,14 @@ shows one line while they run, then says what the jail runs, once for each. Befo
 it names what it builds, the exact build command and what the sealed jail is denied:
 
 ```text
-build fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches (series 2544fe91), the first build of it on this machine; log: .yolo/build-pi-mine--pi-5b0e2d1c.log
+build fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches (series 2544fe91), the first build of it on this machine; log: .yolo/logs/build-pi-mine--pi-5b0e2d1c.log
   sealed: no credential, no host file, no env_sources, and a bridged network, never the host's; it runs: npm ci && npm run build && npm install -g "$(npm pack --silent)"
 built fork pi-mine/pi: v1.0.0 (a13d35a7) + 7 patches; this jail runs it — store key 0ef427ce4a347926, 4210 paths, 138 MB (52.0s)
 ```
 
 A later launch that moves to a new version says `updated fork pi-mine/pi: v1.0.0 (a13d35a7) →
 v1.0.2 (cd32f772), 7 patches; this jail runs the new build`. Everything the build printed is in
-the build's own log, named on its first line, and in `.yolo/launch.log`. A build started from inside a
+the build's own log, named on its first line, and in `.yolo/logs/launch.log`. A build started from inside a
 jail says it uses that jail's network rather than a bridged one, since a nested jail cannot have
 its own.
 
@@ -421,7 +421,7 @@ ERROR: 2 patched extensions pack pi loads have no build on this machine
       writing pi's automode file (~/.pi/agent/extensions/automode/settings.json), which pack mine declares, failed:
         ~/.pi is mounted read-only in that jail
     This is a bug in yolo, not in pack mine: the build jail refused a config your own launch accepts.
-    Report it at https://github.com/mschulkind-oss/yolo-jail/issues, with /home/you/project/.yolo/build-mine--ext-a-1a2b3c4d.log; once it is fixed, retry.
+    Report it at https://github.com/mschulkind-oss/yolo-jail/issues, with /home/you/project/.yolo/logs/build-mine--ext-a-1a2b3c4d.log; once it is fixed, retry.
 
 Retry:
   yolo capture mine/ext-a

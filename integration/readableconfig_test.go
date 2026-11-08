@@ -225,7 +225,7 @@ func TestActiveProviderNativeInTOMLLaunches(t *testing.T) {
 		t.Fatalf("a launch on active_provider = native must succeed: rc %d\n%s", r.rc, r.combined())
 	}
 	// The profile record is the launch log's (run.ProfileRecord), not the terminal's.
-	logBody, err := os.ReadFile(filepath.Join(dir, ".yolo", "launch.log"))
+	logBody, err := os.ReadFile(filepath.Join(dir, ".yolo", "logs", "launch.log"))
 	if err != nil {
 		t.Fatalf("read the launch log: %v", err)
 	}

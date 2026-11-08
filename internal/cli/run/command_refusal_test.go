@@ -48,7 +48,7 @@ func newStageFixtureMise(t *testing.T, bootstrapRC, miseInstallRC int) stageFixt
 	f := stageFixture{
 		home:    home,
 		fakeBin: filepath.Join(home, "fake-bin"),
-		log:     filepath.Join(home, "ws", ".yolo", "startup.log"),
+		log:     filepath.Join(home, "ws", ".yolo", "logs", "startup.log"),
 		venvRan: filepath.Join(home, "venv-ran"),
 		bootRan: filepath.Join(home, "bootstrap-ran"),
 	}

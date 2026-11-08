@@ -139,7 +139,7 @@ func TestMacosUserLaunchRunsItsHousekeepingSlot(t *testing.T) {
 		t.Fatalf("after a macos-user launch the retired generations are %v, want the newest %d %v: "+
 			"the arm ran no housekeeping slot", got, hostArchiveKeepInSlot, want)
 	}
-	note, err := os.ReadFile(filepath.Join(ws, ".yolo", housekeepingLogName))
+	note, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", housekeepingLogName))
 	if err != nil || !strings.Contains(string(note), "loophole state: reclaimed 2 retired generation(s)") {
 		t.Errorf("housekeeping.log does not record the reap (err %v):\n%s", err, note)
 	}
@@ -382,7 +382,7 @@ func TestMacosUserOfferConsentReachesTheSlot(t *testing.T) {
 		t.Errorf("%s survived a macos-user launch whose cache class is automatic: the offer's "+
 			"consent did not reach the slot", cached)
 	}
-	note, _ := os.ReadFile(filepath.Join(ws, ".yolo", housekeepingLogName))
+	note, _ := os.ReadFile(filepath.Join(ws, ".yolo", "logs", housekeepingLogName))
 	if !strings.Contains(string(note), "cache: reclaimed") {
 		t.Errorf("housekeeping.log does not record the purge:\n%s", note)
 	}

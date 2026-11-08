@@ -1929,7 +1929,7 @@ func runCacheRelocationProbes(deps Deps, out printer, probes []CacheRelocationPr
 // RETURNCODE CANNOT TELL YOU WHETHER IT FAILED. That is the whole reason this is a
 // function. The script completes with status 0 on every failure it survives — it records
 // the banner, the red console line and the PROVISIONING FAILED marker in
-// <workspace>/.yolo/startup.log that the next launch's briefing reports, and only an
+// <workspace>/.yolo/logs/startup.log that the next launch's briefing reports, and only an
 // explicit `n` at the interactive prompt propagates a non-zero status.
 //
 // But `deps.Run` returns non-zero for a second, entirely different reason: THE STAGE
@@ -2084,7 +2084,7 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	// in this file, so a plan that simply stopped mentioning it would have made the dry run
 	// LESS truthful about the launch, which is the failure this whole change exists to
 	// avoid. Names, not values: a variable's name is a fact about the launch, its value is
-	// the credential, and stdout is teed into <workspace>/.yolo/launch.log.
+	// the credential, and stdout is teed into <workspace>/.yolo/logs/launch.log.
 	if plan.EnvFile == "" {
 		p.print("env file:    [dim]none — this launch composed no environment[/dim]")
 	} else {
@@ -2362,7 +2362,7 @@ func errStr(err error) string {
 // pipeline for the length of one launch and nil everywhere else.
 //
 // WHY IT IS NOT SIMPLY os.Stdout. Everything the launcher prints is teed into
-// <workspace>/.yolo/launch.log, and the tee is installed on the PIPELINE's writers
+// <workspace>/.yolo/logs/launch.log, and the tee is installed on the PIPELINE's writers
 // (internal/cli/run/launchlog.go) — which this backend never took. So its half of the
 // launch stream reached a terminal and nothing else: the dry-run plan, the Seatbelt
 // profile, the three argvs, every `not enforced on macos-user` warning and every setup

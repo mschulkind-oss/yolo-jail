@@ -223,9 +223,9 @@ func TestIOPriorityReachesEveryProcessOfTheJail(t *testing.T) {
 	// pass the session log's previous one (a double rotation, or a session's pass rotating
 	// boot.log, would have lost one of the three).
 	for _, name := range []string{"boot.log", "boot.session.log", "boot.session.log.prev"} {
-		b, err := os.ReadFile(filepath.Join(dir, ".yolo", name))
+		b, err := os.ReadFile(filepath.Join(dir, ".yolo", "logs", name))
 		if err != nil || !strings.Contains(string(b), `resources.io.priority: "low" (be/7) on every thread`) {
-			t.Errorf(".yolo/%s does not record the applied priority (%v):\n%s", name, err, b)
+			t.Errorf(".yolo/logs/%s does not record the applied priority (%v):\n%s", name, err, b)
 		}
 	}
 

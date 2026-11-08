@@ -439,12 +439,12 @@ func printedSizeBytes(s string) int64 {
 var perfEndRe = regexp.MustCompile(`(?m) end +([a-z_]+\.[a-z_.]+) +dur=([0-9.]+)s`)
 
 // launchSpans reads every span duration a YOLO_TIMING launch recorded in
-// <workspace>/.yolo/host-perf.log, by name: image.*, and the launch.* spans around them
+// <workspace>/.yolo/logs/host-perf.log, by name: image.*, and the launch.* spans around them
 // (launch.auto_load_image, launch.run_with_proxy), without which the delivery table cannot show
 // what a skipped build saved of the whole launch.
 func launchSpans(ws string) map[string]string {
 	spans := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "host-perf.log"))
+	b, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "host-perf.log"))
 	if err != nil {
 		return spans
 	}
@@ -460,7 +460,7 @@ func launchSpans(ws string) map[string]string {
 // same expression.
 func TestLaunchSpansReadsEverySpanByName(t *testing.T) {
 	ws := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	log := "2026-10-08T00:00:00.000Z start  launch.auto_load_image\n" +
@@ -468,7 +468,7 @@ func TestLaunchSpansReadsEverySpanByName(t *testing.T) {
 		"2026-10-08T00:00:02.000Z end    launch.auto_load_image  dur=4.100s\n" +
 		"2026-10-08T00:00:03.000Z note   image.copy_lock  waited\n" +
 		"2026-10-08T00:00:09.000Z end    launch.run_with_proxy  dur=6.900s\n"
-	if err := os.WriteFile(filepath.Join(ws, ".yolo", "host-perf.log"), []byte(log), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, ".yolo", "logs", "host-perf.log"), []byte(log), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := launchSpans(ws)

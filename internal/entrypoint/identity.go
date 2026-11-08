@@ -234,7 +234,7 @@ func recordedIdentity(e *Env, git, global, record, key string) (string, bool, er
 // failure is a warning.
 //
 // ⚠ A NOTE IS KEPT ONLY WHERE THE BOOTSTRAP KEEPS A BOOT LOG. Env.note writes to Env.LogOnly
-// alone, which is <workspace>/.yolo/boot.log where a boot log is attached and nil otherwise. A
+// alone, which is <workspace>/.yolo/logs/boot.log where a boot log is attached and nil otherwise. A
 // macos-user bootstrap that keeps no boot log (G20 in docs/plans/setup-support-gaps.md) records
 // these notes nowhere, and the global config itself is the only answer to what happened.
 func clearIdentity(e *Env, git, global, record, key, last string) {

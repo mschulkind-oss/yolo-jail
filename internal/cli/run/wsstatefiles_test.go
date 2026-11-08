@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
@@ -78,7 +79,7 @@ func TestLaunchLogNeverAppendsThroughALink(t *testing.T) {
 	for _, tc := range linkTargets {
 		t.Run(tc.name, func(t *testing.T) {
 			ws := t.TempDir()
-			link := filepath.Join(ws, ".yolo", LaunchLogName)
+			link := filepath.Join(ws, ".yolo", "logs", LaunchLogName)
 			verify := tc.plant(t, link)
 			o := &Options{Workspace: ws, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 				Getenv: func(string) string { return "" }}
@@ -101,7 +102,7 @@ func TestHousekeepingNoteNeverAppendsThroughALink(t *testing.T) {
 	for _, tc := range linkTargets {
 		t.Run(tc.name, func(t *testing.T) {
 			ws := t.TempDir()
-			link := filepath.Join(ws, ".yolo", "housekeeping.log")
+			link := filepath.Join(ws, ".yolo", "logs", "housekeeping.log")
 			verify := tc.plant(t, link)
 			o := &Options{Workspace: ws}
 			fillDefaults(o)
@@ -123,7 +124,7 @@ func TestHostPerfLogNeverAppendsThroughALink(t *testing.T) {
 	for _, tc := range linkTargets {
 		t.Run(tc.name, func(t *testing.T) {
 			ws := t.TempDir()
-			link := filepath.Join(ws, ".yolo", HostPerfLogName)
+			link := paths.WorkspaceLogPath(ws, HostPerfLogName)
 			verify := tc.plant(t, link)
 
 			sink := hostPerfFileSink(ws, "jail-x", &bytes.Buffer{}, func(string) {})

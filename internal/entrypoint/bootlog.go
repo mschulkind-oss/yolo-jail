@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -20,7 +19,7 @@ import (
 // Every warning and notice the boot path emits — the reachability witness, the
 // host-loopback disposition, config-render notices, a generator that failed — goes
 // to e.Stderr, which is os.Stderr, which is the LAUNCH TERMINAL. Nothing captured
-// it. The provisioning log that does exist (`.yolo/startup.log`, written by a shell
+// it. The provisioning log that does exist (`.yolo/logs/startup.log`, written by a shell
 // `tee` in internal/cli/run/command.go) covers a strictly later phase: mise and
 // bootstrap, long after the generators have finished. So an agent inside the jail —
 // the reader most likely to be debugging the jail — could not see a single line of
@@ -55,23 +54,27 @@ import (
 // complete before `startup.log`'s first line exists.
 const bootLogName = "boot.log"
 
-// BootLogPath is <workspace>/.yolo/boot.log, for a host-side message that sends its reader
-// there: the macos-user launcher's "bootstrap failed" line, whose bootstrap writes this log
-// from outside any container.
+// BootLogPath is <workspace>/.yolo/logs/boot.log, for a host-side message that sends its reader
+// there: the macos-user launcher's "bootstrap failed" line, whose bootstrap, this launch's own,
+// writes this log from outside any container. A reader that may meet a jail an older yolo started
+// asks paths.FindWorkspaceLog instead, which also finds the log directly under `.yolo`.
 func BootLogPath(workspace string) string {
-	return filepath.Join(paths.WorkspaceStateDir(workspace), bootLogName)
+	return paths.WorkspaceLogPath(workspace, bootLogName)
 }
 
 // bootPerfName is the macos-user bootstrap's step timings (writeBootPerf), a sibling of the boot
 // log: one line per boot step, the seconds since the bootstrap started and the step's name, which
 // the host launcher reads back into its own perf log as macos_user.bootstrap.<step>
 // (docs/reference/perf-logging.md). The container boot keeps ~/.yolo-perf.log instead.
-const bootPerfName = "boot-perf.log"
+const bootPerfName = BootPerfName
 
-// BootPerfPath is <workspace>/.yolo/boot-perf.log, the file the macos-user bootstrap writes its
-// step timings to and the launcher reads them from.
+// BootPerfName is the boot-perf log's file name, in the workspace's logs directory.
+const BootPerfName = "boot-perf.log"
+
+// BootPerfPath is <workspace>/.yolo/logs/boot-perf.log, the file the macos-user bootstrap writes
+// its step timings to and the launcher reads them from.
 func BootPerfPath(workspace string) string {
-	return filepath.Join(paths.WorkspaceStateDir(workspace), bootPerfName)
+	return paths.WorkspaceLogPath(workspace, bootPerfName)
 }
 
 // writeBootPerf writes p's marks to the workspace's boot-perf.log, beneath a root on `.yolo` like
@@ -81,7 +84,7 @@ func writeBootPerf(e *Env, p *perfLog) {
 	if p == nil || len(p.entries) == 0 {
 		return
 	}
-	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), bootPerfName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := paths.OpenWorkspaceLogFile(e.WorkspaceDir(), bootPerfName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return
 	}
@@ -153,32 +156,29 @@ func attachBootLog(e *Env, stderr io.Writer) *bootLog {
 func attachBootLogAs(e *Env, stderr io.Writer, name, prevName string) *bootLog {
 	e.Stderr = stderr
 
-	// The JAIL half of the same ensure the host launcher does (paths.EnsureWorkspaceStateDir):
-	// the launcher always gets here first, so this matters only when the two halves are skewed
-	// — a host `yolo` older than the mounted entrypoint, which AGENTS.md records as the default
-	// state of a machine between `just install`s. Both spellings of "create <ws>/.yolo" going
-	// through one function is also what keeps the directory's name written down once.
-	dir, err := paths.EnsureWorkspaceStateDir(e.WorkspaceDir())
-	if err != nil {
-		return nil
-	}
-
-	// BENEATH A ROOT ON `.yolo`, never by plain path (paths/statefile.go states the rule).
+	// The JAIL half of the same ensure the host launcher does (paths.EnsureWorkspaceStateDir,
+	// inside paths.OpenWorkspaceLogsRoot): the launcher always gets here first, so this matters
+	// only when the two halves are skewed — a host `yolo` older than the mounted entrypoint, which
+	// AGENTS.md records as the default state of a machine between `just install`s. Both spellings
+	// of "create <ws>/.yolo" going through one function is also what keeps the directory's name
+	// written down once.
+	//
+	// BENEATH A ROOT ON `.yolo/logs`, never by plain path (paths/statefile.go states the rule).
 	// `.yolo` is writable by the agent, and on macos-user this writer is the sandbox account
 	// running OUTSIDE its Seatbelt profile (RunDarwinBootstrap), so a link the agent left at
 	// either name would aim a writer the profile otherwise confines at a file of the agent's
-	// choosing. A linked `.yolo` is refused, and the boot keeps plain stderr; a link at a name
-	// is renamed aside or replaced, never written through.
-	r, err := paths.OpenStateDirRoot(dir)
+	// choosing. A linked `.yolo` or `logs` is refused, and the boot keeps plain stderr; a link at
+	// a name is renamed aside or replaced, never written through.
+	r, err := paths.OpenWorkspaceLogsRoot(e.WorkspaceDir())
 	if err != nil {
 		return nil
 	}
+	defer r.Close()
 	// Rotate rather than truncate. Ignore the error: a missing previous log is the
 	// normal first-boot case, and a rotation that fails must not cost us the new log.
 	_ = r.Rename(name, prevName)
-	r.Close()
 
-	f, err := paths.OpenWorkspaceStateFile(e.WorkspaceDir(), name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := paths.OpenStateFileBeneath(r, name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil
 	}

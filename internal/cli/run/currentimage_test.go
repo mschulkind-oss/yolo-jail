@@ -102,7 +102,7 @@ func TestRecordCurrentImageSurvivesAnUnwritablePointerDir(t *testing.T) {
 
 	o.recordCurrentImage(image.LoadResult{OK: true, StorePath: "/nix/store/aaaa-img"}, "yolo-ws-deadbeef")
 
-	note, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), "housekeeping.log"))
+	note, err := os.ReadFile(paths.WorkspaceLogPath(ws, "housekeeping.log"))
 	if err != nil {
 		t.Fatalf("a failed pointer write said nothing anywhere: %v — silence is the shape of "+
 			"defect this whole effort started from", err)

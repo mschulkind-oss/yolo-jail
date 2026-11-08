@@ -118,6 +118,10 @@ func CountMain(args []string) int {
 }
 
 // sizeLockName serializes the background counts of one workspace.
+//
+// It stays at the top of `.yolo` (docs/design/workspace-state-safety.md SD-D15 moves logs, not
+// this): the counts run in the jails of a workspace, two setups' jails can run at once, and a
+// jail an older yolo started takes the lock here. One resource, one file, across versions.
 const sizeLockName = "durable-size.lock"
 
 // lockCount takes the workspace's count lock without waiting; ok is false when another count

@@ -162,7 +162,7 @@ host that has none. So the replay follows the rule a deselected provider follows
 - **Dropping the record entry is what keeps a later hand-set value safe**, the same value
   included: once yolo removed its value, it claims nothing.
 - **The removal and the keep are log-only notes**, never terminal lines, as a deselection clear
-  is. They reach `<workspace>/.yolo/boot.log` only once `macos-user` keeps a boot log
+  is. They reach `<workspace>/.yolo/logs/boot.log` only once `macos-user` keeps a boot log
   ([G20](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). A bootstrap without one records
   them nowhere, and `git config --global user.email` inside the jail is then the only answer.
 - **The record is `~/.config/git/yolo-forwarded`**, beside the file whose values it claims, in

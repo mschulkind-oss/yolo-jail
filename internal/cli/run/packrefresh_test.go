@@ -93,7 +93,7 @@ func TestLaunchFetchesANeverInstalledGitPack(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Fetched pack gp: main → ") {
 		t.Errorf("the launch did not disclose the fetch:\n%s", stderr.String())
 	}
-	data, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	data, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestTheLaunchPackRefreshIsNarrated(t *testing.T) {
 	if rc := Run(*o); rc != 0 {
 		t.Fatalf("Run() = %d, want 0\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
-	data, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	data, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}

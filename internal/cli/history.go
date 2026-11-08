@@ -105,7 +105,7 @@ func historyMain(args []string) int {
 		}
 		fmt.Fprintf(os.Stderr, "yolo history: this yolo records broker requests only, so it has nothing to report %s yet. "+
 			"Next: run `yolo history requests` for this workspace's requests, or `yolo history r-<id>` for one; "+
-			"for a launch or a config change, read .yolo/launch.log and .yolo/boot.log in the workspace.\n", what)
+			"for a launch or a config change, read .yolo/logs/launch.log and .yolo/logs/boot.log in the workspace (directly in .yolo for a launch by an older yolo).\n", what)
 		return approvalwait.ExitUsage
 	}
 	ws, ok := historyWorkspace(dir)

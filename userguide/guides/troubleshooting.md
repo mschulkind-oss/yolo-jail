@@ -102,7 +102,7 @@ line means the keeper stopped restarting it: it kept dying, its pack was removed
 list while the jail was up, or you stopped it with `yolo host-daemon stop`. A port forward whose
 `socat` exited and the cgroup delegate are never restarted. Until the jail starts again,
 what in the jail uses that service fails. Each death and restart is also a line in the workspace's
-`.yolo/launch.log` and in the service's own log. A terminal that was in the jail is
+`.yolo/logs/launch.log` and in the service's own log. A terminal that was in the jail is
 told as it quits, and one that joins later as it enters; the line names how the service ended and
 its log. Run `yolo stop`, then `yolo`, to start the jail and its services fresh.
 
@@ -167,9 +167,9 @@ services, so keep it to the jails that need the device.
 ## Still stuck
 
 - `yolo check` again, and read every `[FAIL]` and `[WARN]` note.
-- `<project>/.yolo/launch.log` holds everything the last launch printed, and `<project>/.yolo/boot.log`
-  what happened as the jail started. `<project>/.yolo/boot.session.log` holds the same for the
+- `<project>/.yolo/logs/launch.log` holds everything the last launch printed, and `<project>/.yolo/logs/boot.log`
+  what happened as the jail started. `<project>/.yolo/logs/boot.session.log` holds the same for the
   last terminal that entered the jail, and each log keeps the one before it with `.prev` on the
-  end.
+  end. A jail started by an older yolo writes these logs directly in `<project>/.yolo/` instead.
 - [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) says whether a
   feature works on your setup at all.

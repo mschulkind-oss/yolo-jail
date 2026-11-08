@@ -327,7 +327,7 @@ PY
 	if strings.Contains(r.stderr, "chrome-devtools: browser: none found") || strings.Contains(r.stderr, "its boot check") {
 		t.Errorf("the boot warned about the browser with the image's chromium present:\n%s", r.stderr)
 	}
-	if bootLog, err := os.ReadFile(filepath.Join(dir, ".yolo", "boot.log")); err != nil {
+	if bootLog, err := os.ReadFile(filepath.Join(dir, ".yolo", "logs", "boot.log")); err != nil {
 		t.Errorf("reading the boot log: %v", err)
 	} else if !strings.Contains(string(bootLog), "boot check chrome-devtools") {
 		t.Errorf("the boot log does not record the pack's boot check running:\n%s", bootLog)

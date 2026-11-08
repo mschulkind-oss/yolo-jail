@@ -26,13 +26,14 @@ If tools the project expects are missing, the last boot's provisioning may have
 failed. Look for `PROVISIONING FAILED` in the workspace's own `.yolo` directory:
 
 ```
-/workspace/.yolo/startup.log          # container backends
-<your workspace>/.yolo/startup.log    # macos-user, where /workspace does not exist
+/workspace/.yolo/logs/startup.log          # container backends
+<your workspace>/.yolo/logs/startup.log    # macos-user, where /workspace does not exist
 ```
 
 It is one file under two names on the container backends — `/workspace` is where
 the workspace is mounted. On **macos-user** there is no mount and no `/workspace`,
-so use the project's real path.
+so use the project's real path. A jail an older yolo started writes its logs directly
+in `.yolo` instead (`.yolo/startup.log`); look there when `logs/` has no fresh one.
 
 Self-serve from there: e.g. run `mise install` in the workspace, then re-run the
 step that failed. (The briefing shows a `⚠ Provisioning failed` banner on the
@@ -147,8 +148,8 @@ reality. `YOLO_DEBUG=1` is a knob on the **launch**, not on an arbitrary
 command: set on a `yolo` invocation on the host it prints the assembled
 container argv, which is the ground truth for the mounts, limits and env a
 restart would actually apply. From in here, the launch that started this jail
-already wrote its own transcript — read `<workspace>/.yolo/launch.log` and the
-entrypoint's `boot.log` beside it.
+already wrote its own transcript — read `<workspace>/.yolo/logs/launch.log` and the
+entrypoint's `boot.log` beside it (directly in `.yolo` for a launch by an older yolo).
 
 ## 7. Orphans and logs
 

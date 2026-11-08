@@ -2,7 +2,7 @@ package integration
 
 // timing_test.go pins the timing surface END TO END: a real `--timing` launch
 // must print the span report on stderr (launch spans, the child window, the
-// shutdown chain) and leave <workspace>/.yolo/host-perf.log holding the same
+// shutdown chain) and leave <workspace>/.yolo/logs/host-perf.log holding the same
 // events, written as they happened. runContainer is out of unit reach, so
 // these are the CALL-SITE pins for the spans inside it — delete one from
 // run.go and the matching assertion here goes red (the callee pins live in
@@ -50,7 +50,7 @@ func TestTimingReportSpansShutdown(t *testing.T) {
 		}
 	}
 
-	logBytes, err := os.ReadFile(filepath.Join(dir, ".yolo", "host-perf.log"))
+	logBytes, err := os.ReadFile(filepath.Join(dir, ".yolo", "logs", "host-perf.log"))
 	if err != nil {
 		t.Fatalf("host-perf.log: %v", err)
 	}
@@ -148,7 +148,7 @@ func assertRecordedQuietly(t *testing.T, dir, stderr string) {
 		t.Errorf("the quiet launch never named its log file, so the data is undiscoverable;"+
 			"\nstderr:\n%s", stderr)
 	}
-	logBytes, err := os.ReadFile(filepath.Join(dir, ".yolo", "host-perf.log"))
+	logBytes, err := os.ReadFile(filepath.Join(dir, ".yolo", "logs", "host-perf.log"))
 	if err != nil {
 		t.Fatalf("a recording launch wrote no host-perf.log: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestTimingOffByDefault(t *testing.T) {
 	if strings.Contains(res.stderr, "Host-side timing") {
 		t.Errorf("ordinary launch printed a timing report:\n%s", res.stderr)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".yolo", "host-perf.log")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".yolo", "logs", "host-perf.log")); !os.IsNotExist(err) {
 		t.Errorf("ordinary launch wrote host-perf.log (err=%v)", err)
 	}
 }

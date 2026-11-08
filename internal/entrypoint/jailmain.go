@@ -323,12 +323,12 @@ func (g *sessionGate) awaitBoot() error {
 			return nil
 		case bootRefused:
 			return &ExitStatus{Code: 1, Message: "this jail's boot refused, so no session can " +
-				"enter it; the reason is in /workspace/.yolo/boot.log"}
+				"enter it; the reason is in /workspace/.yolo/logs/boot.log"}
 		}
 		waited := time.Since(start)
 		if waited >= bootWaitLimit {
 			return &ExitStatus{Code: 1, Message: fmt.Sprintf("this jail's boot has not finished "+
-				"after %s; its progress is in /workspace/.yolo/boot.log", bootWaitLimit)}
+				"after %s; its progress is in /workspace/.yolo/logs/boot.log", bootWaitLimit)}
 		}
 		g.notice("boot", waited, "waiting for this jail's boot to finish…")
 		time.Sleep(sessionPoll)
@@ -368,7 +368,7 @@ func (g *sessionGate) claim() (provisioner bool, err error) {
 		if waited >= provisionWaitLimit {
 			_ = f.Close()
 			return false, &ExitStatus{Code: 1, Message: fmt.Sprintf("this jail's provisioning "+
-				"has not finished after %s; its log is /workspace/.yolo/startup.log", provisionWaitLimit)}
+				"has not finished after %s; its log is /workspace/.yolo/logs/startup.log", provisionWaitLimit)}
 		}
 		g.notice("provision", waited, "waiting for this jail's provisioning, which another session took over…")
 		time.Sleep(sessionPoll)
@@ -408,7 +408,7 @@ func (g *sessionGate) await() (provisioner bool, err error) {
 			if waited >= provisionWaitLimit {
 				_ = f.Close()
 				return false, &ExitStatus{Code: 1, Message: fmt.Sprintf("this jail's provisioning "+
-					"has not finished after %s; its log is /workspace/.yolo/startup.log", provisionWaitLimit)}
+					"has not finished after %s; its log is /workspace/.yolo/logs/startup.log", provisionWaitLimit)}
 			}
 			g.notice("provision", waited, "waiting for this jail's first session to finish provisioning…")
 			time.Sleep(sessionPoll)
@@ -487,7 +487,7 @@ func outcomeVerdict() (done bool, err error) {
 		}
 	}
 	return true, &ExitStatus{Code: code, Message: fmt.Sprintf("this jail's provisioning refused "+
-		"it (exit %d), so no session can enter it; the reason is in /workspace/.yolo/startup.log",
+		"it (exit %d), so no session can enter it; the reason is in /workspace/.yolo/logs/startup.log",
 		code)}
 }
 

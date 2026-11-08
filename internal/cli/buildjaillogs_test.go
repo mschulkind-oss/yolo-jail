@@ -22,11 +22,12 @@ import (
 )
 
 // buildJailDiagnostics are the files a jail's launch leaves in its workspace, by path under it, and
-// the body the fake launch writes to each.
+// the body the fake launch writes to each. boot.log is directly under .yolo, where a build jail an
+// older yolo started writes it, so the fixture is red if either location stops being read.
 var buildJailDiagnostics = map[string]string{
-	".yolo/host-perf.log":                         "=== YOLO Host Perf the build's spans\n",
+	".yolo/logs/host-perf.log":                    "=== YOLO Host Perf the build's spans\n",
 	".yolo/boot.log":                              "entrypoint: the build's boot\n",
-	".yolo/launch.log":                            "the build's launch stream\n",
+	".yolo/logs/launch.log":                       "the build's launch stream\n",
 	".yolo/setups/podman-self/home/yolo-perf.log": "the build's jail half\n",
 }
 
@@ -64,7 +65,7 @@ func leaveBuildJailDiagnostics(t *testing.T, o run.Options) {
 		writeFile(t, filepath.Join(o.Workspace, filepath.FromSlash(rel)), body)
 	}
 	fmt.Fprintf(o.Stderr, "yolo: timings recorded in %s (--timing prints them)\n",
-		filepath.Join(paths.WorkspaceStateDir(o.Workspace), run.HostPerfLogName))
+		paths.WorkspaceLogPath(o.Workspace, run.HostPerfLogName))
 }
 
 // assertDiagnosticsKept fails unless workspace is gone and its build-jail log holds every body,
@@ -120,7 +121,7 @@ func TestABuildJailsDiagnosticsOutliveItsWorkspace(t *testing.T) {
 	if want := "yolo: timings recorded in " + buildJailLogPath(workspace); !strings.Contains(out, want) {
 		t.Errorf("the build's line does not name the kept file (%q):\n%s", want, out)
 	}
-	if strings.Contains(out, filepath.Join(paths.WorkspaceStateDir(workspace), run.HostPerfLogName)) {
+	if strings.Contains(out, paths.WorkspaceLogPath(workspace, run.HostPerfLogName)) {
 		t.Errorf("the build's line names the deleted workspace's file:\n%s", out)
 	}
 }

@@ -39,7 +39,7 @@ func TestALaunchLeavesTheStateDirUncommittable(t *testing.T) {
 
 	// The launch really did write the dangerous thing — otherwise this test would pass on
 	// a launch that created no state dir at all, and prove nothing.
-	if _, err := os.Stat(filepath.Join(ws, ".yolo", LaunchLogName)); err != nil {
+	if _, err := os.Stat(filepath.Join(ws, ".yolo", "logs", LaunchLogName)); err != nil {
 		t.Fatalf("this launch wrote no %s, so the test cannot tell an ignored state dir "+
 			"from an absent one: %v", LaunchLogName, err)
 	}

@@ -42,7 +42,7 @@ func TestAutoCaptureInstallerStdoutReachesParentLaunchLog(t *testing.T) {
 	if !strings.Contains(r.stderr, "AUTO-CAPTURE-INSTALLER-STDOUT") {
 		t.Fatalf("installer stdout did not reach launcher stderr:\n%s", r.stderr)
 	}
-	launchLog, err := os.ReadFile(filepath.Join(workspace, ".yolo", "launch.log"))
+	launchLog, err := os.ReadFile(filepath.Join(workspace, ".yolo", "logs", "launch.log"))
 	if err != nil {
 		t.Fatalf("read parent launch log: %v", err)
 	}

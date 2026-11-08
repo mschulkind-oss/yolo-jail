@@ -217,7 +217,7 @@ func TestAutoReapOldImagesOptOut(t *testing.T) {
 // Options.housekeepingNote for why nothing there may reach the terminal.
 func readHousekeepingLog(t *testing.T, ws string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(ws, ".yolo", "housekeeping.log"))
+	data, err := os.ReadFile(filepath.Join(ws, ".yolo", "logs", "housekeeping.log"))
 	if err != nil {
 		return ""
 	}

@@ -196,7 +196,7 @@ func TestStopReportsTimingOnlyWhenAskedOnThisInvocation(t *testing.T) {
 				t.Errorf("report printed = %v, want %v; stderr:\n%s", got, tc.typed, stderr)
 			}
 			// The recording half holds in BOTH arms: the file is the point.
-			if _, err := os.Stat(filepath.Join(ws, ".yolo", run.HostPerfLogName)); err != nil {
+			if _, err := os.Stat(filepath.Join(ws, ".yolo", "logs", run.HostPerfLogName)); err != nil {
 				t.Errorf("stop recorded no %s: %v", run.HostPerfLogName, err)
 			}
 		})

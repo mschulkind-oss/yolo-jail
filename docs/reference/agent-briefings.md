@@ -1064,7 +1064,7 @@ only place the values themselves are stated.
 | Skill-name collision gate | fatal at the launch pre-flight (an attach included) and at `yolo host apply`; one message at both | `hostskills.Collisions`, `hostskills.CollisionError`, `run.checkSkillCollisions` |
 | Unmatched-audience report | a `no effect` warning at exit status 0, from `yolo host apply` only | `cli.reportInferredDestinations`, `packload.Destinations` |
 | Footprint target of an addressed or broadcast contribution | `→ <agents>`, or `→ every agent` | `packload.audienceTarget` |
-| Provisioning-failure marker | a known string in `<workspace>/.yolo/startup.log` | `jailcontent.ReadProvisioningFailed` |
+| Provisioning-failure marker | a known string in `<workspace>/.yolo/logs/startup.log` | `jailcontent.ReadProvisioningFailed` |
 
 ## Why it's this way
 

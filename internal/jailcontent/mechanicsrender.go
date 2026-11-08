@@ -122,7 +122,7 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 		text = substituteBuiltinPaths(text, workspace, facts.Briefing.Home)
 		log := facts.LogPath
 		if log == "" {
-			log = "the workspace's .yolo/startup.log"
+			log = "the workspace's .yolo/logs/startup.log"
 		}
 		aclStart := "## 2b. macOS only: `permission denied` writing inside the workspace"
 		keepACL := facts.Briefing.Mechanism == "macos-user" && facts.Briefing.IsMacOS && facts.NativeAccountMode == "account" && facts.NativeAccountUser != ""

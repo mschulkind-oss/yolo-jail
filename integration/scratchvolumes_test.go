@@ -62,7 +62,7 @@ func scratchVolumesOf(ctx context.Context, runtime, cname string) ([]string, err
 const scratchDiagnosticLogTailBytes = 8 * 1024
 
 func scratchRemovalFailureMessage(dir, problem string) string {
-	stateDir := filepath.Join(dir, ".yolo")
+	stateDir := filepath.Join(dir, ".yolo", "logs")
 	return fmt.Sprintf("%s\nworkspace diagnostics (each log capped at the last %d bytes):\n"+
 		"housekeeping.log:\n%s\nlaunch.log:\n%s",
 		problem, scratchDiagnosticLogTailBytes,
@@ -136,7 +136,7 @@ func TestScratchVolumeListFailureIncludesContextError(t *testing.T) {
 
 func TestScratchRemovalFailureIncludesRetainedLogs(t *testing.T) {
 	dir := t.TempDir()
-	state := filepath.Join(dir, ".yolo")
+	state := filepath.Join(dir, ".yolo", "logs")
 	if err := os.MkdirAll(state, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func awaitScratchRemoval(t *testing.T, dir, cname string, runs int) string {
 }
 
 func waitForScratchRemoval(dir, cname string, runs int, runtime string) (string, error) {
-	logPath := filepath.Join(dir, ".yolo", "housekeeping.log")
+	logPath := filepath.Join(dir, ".yolo", "logs", "housekeeping.log")
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -508,7 +508,7 @@ func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 	// (run 37819753351). So the jail waits for the slot's own note that it started the removal,
 	// in the workspace's housekeeping log, bounded so a slot that never notes still ends.
 	res := runYolo(t, dir, `for i in $(seq 1 90); do
-  grep -q 'scratch: removing' /workspace/.yolo/housekeeping.log 2>/dev/null && exit 0
+  grep -q 'scratch: removing' /workspace/.yolo/logs/housekeeping.log 2>/dev/null && exit 0
   sleep 1
 done`, withAutoReapers())
 	if res.rc != 0 {
@@ -517,7 +517,7 @@ done`, withAutoReapers())
 	deadline := time.Now().Add(time.Minute)
 	for exists(leftover) {
 		if time.Now().After(deadline) {
-			log, _ := os.ReadFile(filepath.Join(dir, ".yolo", "housekeeping.log"))
+			log, _ := os.ReadFile(filepath.Join(dir, ".yolo", "logs", "housekeeping.log"))
 			t.Fatalf("the leftover %s was never reaped\nhousekeeping.log:\n%s", leftover, log)
 		}
 		time.Sleep(time.Second)
@@ -526,7 +526,7 @@ done`, withAutoReapers())
 		t.Errorf("a volume that is not a scratch volume was reaped: %s", decoy)
 	}
 	if !exists(young) {
-		checkYoungReapWasPastTheFloor(t, filepath.Join(dir, ".yolo", "housekeeping.log"), young, youngMade)
+		checkYoungReapWasPastTheFloor(t, filepath.Join(dir, ".yolo", "logs", "housekeeping.log"), young, youngMade)
 	}
 }
 

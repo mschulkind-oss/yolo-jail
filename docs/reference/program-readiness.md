@@ -141,7 +141,7 @@ The refusal is `provision.RefusedStatus`, the one status the provisioning stage 
 without asking, so a refused launch ends with that status and the command never runs. The refusal
 quotes the lines of the install's output that say what failed and why (npm's
 *"request to … failed, reason: getaddrinfo EAI_AGAIN"*, an installer's *"download failed: <url>"*);
-the full output is above it and in `.yolo/startup.log`.
+the full output is above it and in `.yolo/logs/startup.log`.
 
 **The bypass is `YOLO_ALLOW_MISSING_PROGRAMS=1`** ([JR-D3](#JR-D3)). Any non-empty value lets the
 launch continue, loudly, listing each program it could not install with its pack and error; each
@@ -300,4 +300,4 @@ place the exact values are stated.
 | Explicit refresh launcher mode (`yolo pack update`) | `YOLO_PACK_UPDATE` | `entrypoint.FreshRefreshEnv` |
 | Refusal status | 78 | `provision.RefusedStatus` |
 | Integration suite opt-in to real installs | `YOLO_TEST_REAL_PACK_INSTALLS` | `integration/harness_test.go` |
-| Install log | `.yolo/startup.log` | the provisioning stage |
+| Install log | `.yolo/logs/startup.log` | the provisioning stage |

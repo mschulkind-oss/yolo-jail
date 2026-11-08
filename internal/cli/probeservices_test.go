@@ -173,10 +173,10 @@ func probeWorkspace(t *testing.T) (ws, bootLog, bootstrapRecord string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	bootLog = filepath.Join(ws, ".yolo", "boot.log")
+	bootLog = filepath.Join(ws, ".yolo", "logs", "boot.log")
 	bootstrapRecord = "=== yolo entrypoint 2026-10-05T00:00:00+0000 ===\n=== boot complete, handing over ===\n"
 	if err := os.WriteFile(bootLog, []byte(bootstrapRecord), 0o644); err != nil {
 		t.Fatal(err)

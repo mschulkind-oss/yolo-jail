@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
@@ -44,7 +45,7 @@ func windowAEventsFixture(end time.Time, ago, teardown time.Duration) string {
 
 func perfFile(t *testing.T, ws string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	b, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func waitBlockedInRead(t *testing.T, pid int) {
 func waitForFile(t *testing.T, ws, want string) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if b, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName)); err == nil &&
+		if b, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName)); err == nil &&
 			strings.Contains(string(b), want) {
 			return
 		}

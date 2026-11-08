@@ -1566,7 +1566,7 @@
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
     the child window, the whole shutdown chain) is appended to
-    <workspace>/.yolo/host-perf.log as it happens (for `yolo host --` and `yolo host
+    <workspace>/.yolo/logs/host-perf.log as it happens (for `yolo host --` and `yolo host
     apply`, to ~/.local/share/yolo-jail/logs/host-notch-perf.log, since a host
     command has no workspace), and NO report is printed at
     exit -- one dim line names the file, and that is all.  Any span over a

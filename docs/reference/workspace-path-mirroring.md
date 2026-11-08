@@ -607,7 +607,7 @@ and `hostrender.go`. What was never parameterized is a short list:
 | `assemble.go` | `/dev/null` shadow-out of `.overmind.sock` (the `.vscode/mcp.json` twin was removed 2026-09-22) |
 | `assemble.go` | `MISE_TRUSTED_CONFIG_PATHS` |
 | `mounts.go` | `workspace_readonly` and per-side shadow joins |
-| `command.go` | `startupLog = "/workspace/.yolo/startup.log"` |
+| `command.go` | `startupLog = "/workspace/.yolo/logs/startup.log"` |
 | `check/sections_misc.go`, `prune/probes.go` | find the bind by **destination** in `podman inspect` |
 | `configls.go` | `workspaceRoot() == "/workspace"` — the `config reset`/`capture` locality guard |
 | `config/load.go` | `jailOwnWorkspace` fallback |

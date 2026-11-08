@@ -158,7 +158,7 @@ func TestDarwinBootstrapKeepsTheBootLogOfARelaunch(t *testing.T) {
 	t.Setenv("YOLO_DARWIN_WORKSPACE", ws)
 
 	runDarwinBootstrap(nil) // the generation's own result does not matter here; the log does
-	if _, err := os.Stat(filepath.Join(paths.WorkspaceStateDir(ws), "boot.log")); err != nil {
+	if _, err := os.Stat(paths.WorkspaceLogPath(ws, "boot.log")); err != nil {
 		t.Errorf("a relaunch's bootstrap wrote no boot.log: %v", err)
 	}
 	if paths.WorkspaceScopeBreach(home) == nil {
@@ -199,7 +199,7 @@ func TestTheDarwinBootstrapTakesTheSealedBuildWordFromItsArgv(t *testing.T) {
 				args = []string{macosuser.DarwinBootstrapSealedFlag}
 			}
 			runDarwinBootstrap(args)
-			log, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), "boot.log"))
+			log, err := os.ReadFile(paths.WorkspaceLogPath(ws, "boot.log"))
 			if err != nil {
 				t.Fatalf("no boot.log: %v", err)
 			}
@@ -306,7 +306,7 @@ func TestDarwinBootstrapAdmitsARunAsYouCaptureStagingHome(t *testing.T) {
 		t.Fatalf("the run-as-you capture's staging home was refused: %v", err)
 	}
 	runDarwinBootstrap(nil) // the generation's own result does not matter here; getting past the guards does
-	if _, err := os.Stat(filepath.Join(paths.WorkspaceStateDir(staging), "boot.log")); err != nil {
+	if _, err := os.Stat(paths.WorkspaceLogPath(staging, "boot.log")); err != nil {
 		t.Errorf("the run-as-you capture's bootstrap wrote no boot.log, so a guard refused it: %v", err)
 	}
 

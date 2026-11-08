@@ -534,7 +534,7 @@ as a launch the witness skips.
   never answered (sudo, `sandbox-exec`, the env file), so the launch warns and goes on.
 - **The hatch crosses.** `YOLO_ALLOW_UNREACHABLE_SERVICES` set on the host is carried into the
   session env, where the stage reads it.
-- **The record lands in the same boot log.** The stage appends to `<workspace>/.yolo/boot.log`,
+- **The record lands in the same boot log.** The stage appends to `<workspace>/.yolo/logs/boot.log`,
   after the bootstrap's own record: a header, the disposition and the hatch, each service's
   warning, the healthy verdict a container keeps there, and a last line saying whether it refused.
   Its terminal output is the stage's own stderr, which the launcher's `launch.log` tee never sees,
@@ -633,6 +633,6 @@ only place the values themselves are stated.
 | The `macos-user` witness stage | `yolo internal probe-services`; status 78 refuses the launch | `macosuser.ProbeServicesVerb`, `provision.RefusedStatus` |
 | Launcher opt-out | `YOLO_NO_HOST_LOOPBACK` | `internal/cli/run/hostloopback.go` |
 | Service endpoint variables | `YOLO_SERVICE_<NAME>_ENDPOINT` | `paths.ServiceEnvVarPrefix` / `ServiceEnvVarSuffix` |
-| Boot log | `<workspace>/.yolo/boot.log`, previous boot kept beside it | `internal/entrypoint` |
-| Launch log — the LAUNCHER's half, which is where the disposition was decided and printed | `<workspace>/.yolo/launch.log`, newest 50 launches | `internal/cli/run/launchlog.go`, bounded by `perf.MaxRuns` |
+| Boot log | `<workspace>/.yolo/logs/boot.log`, previous boot kept beside it | `internal/entrypoint` |
+| Launch log — the LAUNCHER's half, which is where the disposition was decided and printed | `<workspace>/.yolo/logs/launch.log`, newest 50 launches | `internal/cli/run/launchlog.go`, bounded by `perf.MaxRuns` |
 | Fatal switch | one boolean, `true`; the false side is a test seam | `entrypoint.reachabilityFatal` |

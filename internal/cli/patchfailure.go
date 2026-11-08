@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -101,7 +100,7 @@ func buildFailureOf(f packload.Fork, rec *packsrc.CheckRecord, in packsrc.CheckI
 	}
 	pf.Retry = "yolo capture " + shquote.Quote(f.CaptureArg())
 	if workspace != "" {
-		pf.Log = filepath.Join(paths.WorkspaceStateDir(workspace), buildLogName(f.Key()))
+		pf.Log = paths.FindWorkspaceLog(workspace, buildLogName(f.Key()))
 	}
 	return pf
 }

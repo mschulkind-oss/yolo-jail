@@ -2,7 +2,7 @@ package macosuser
 
 // bootperf.go reads the macos-user bootstrap's step timings back into the launch's collector. The
 // bootstrap runs as the sandbox account, in another process, so its steps cannot be spanned here;
-// it writes one line per boot step to <workspace>/.yolo/boot-perf.log (entrypoint.BootPerfPath),
+// it writes one line per boot step to <workspace>/.yolo/logs/boot-perf.log (entrypoint.BootPerfPath),
 // and the launcher records each as a completed interval, macos_user.bootstrap.<step>
 // (docs/reference/perf-logging.md). Timing only: nothing here can refuse or change a launch.
 
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
 
@@ -20,27 +21,36 @@ import (
 const maxBootPerfSteps = perf.MaxForeignSteps
 
 // clearBootPerf removes a previous bootstrap's timings before this one runs, so they are never
-// recorded as this launch's, and returns the path to read afterwards — "" when the collector
-// records nothing or the stale file could not be removed, in which case nothing is read.
-func clearBootPerf(deps Deps, workspace string) string {
+// recorded as this launch's, and returns the paths to read afterwards — none when the collector
+// records nothing or a stale file could not be removed, in which case nothing is read.
+//
+// Both the logs directory's file and the one directly under `.yolo` are cleared and read: a
+// bootstrap from a yolo older than the logs directory (docs/design/workspace-state-safety.md
+// SD-D15) writes the second, and whichever the bootstrap wrote is then the only one there.
+func clearBootPerf(deps Deps, workspace string) []string {
 	if !deps.Perf.Enabled() || deps.RemoveFile == nil || deps.ReadFile == nil {
-		return ""
+		return nil
 	}
-	path := entrypoint.BootPerfPath(workspace)
-	if !deps.RemoveFile(path) {
-		return ""
+	ps := []string{entrypoint.BootPerfPath(workspace), paths.LegacyWorkspaceLogPath(workspace, entrypoint.BootPerfName)}
+	for _, p := range ps {
+		if !deps.RemoveFile(p) {
+			return nil
+		}
 	}
-	return path
+	return ps
 }
 
-// recordBootPerf records each step the bootstrap wrote to path as macos_user.bootstrap.<step>,
-// on success and failure alike: a refused bootstrap's steps up to the refusal are the ones worth
-// reading. Each step is recorded once whatever the file repeats.
-func recordBootPerf(deps Deps, path string) {
-	if path == "" {
-		return
+// recordBootPerf records each step the bootstrap wrote to the first of ps it can read as
+// macos_user.bootstrap.<step>, on success and failure alike: a refused bootstrap's steps up to
+// the refusal are the ones worth reading. Each step is recorded once whatever the file repeats.
+func recordBootPerf(deps Deps, ps []string) {
+	var body string
+	ok := false
+	for _, p := range ps {
+		if body, ok = deps.ReadFile(p); ok {
+			break
+		}
 	}
-	body, ok := deps.ReadFile(path)
 	if !ok {
 		return
 	}

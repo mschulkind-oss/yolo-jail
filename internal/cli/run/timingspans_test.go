@@ -98,7 +98,7 @@ func TestQuietRecordingPrintsOnlyTheFileLine(t *testing.T) {
 				t.Errorf("quiet launch printed %q; stderr:\n%s", unwanted, got)
 			}
 		}
-		if !strings.Contains(got, filepath.Join(ws, ".yolo", HostPerfLogName)) {
+		if !strings.Contains(got, paths.WorkspaceLogPath(ws, HostPerfLogName)) {
 			t.Errorf("quiet launch never named the file it wrote; stderr:\n%s", got)
 		}
 		if strings.Count(got, "\n") != 1 {
@@ -106,7 +106,7 @@ func TestQuietRecordingPrintsOnlyTheFileLine(t *testing.T) {
 				strings.Count(got, "\n"), got)
 		}
 		// The recording half is untouched by the silence.
-		body, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+		body, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 		if err != nil {
 			t.Fatalf("quiet launch wrote no host-perf.log: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestInitPerfConstructsOnlyWhenEnabled(t *testing.T) {
 	if o.Perf != nil {
 		t.Fatal("initPerf constructed a collector while timing is off")
 	}
-	if _, err := os.Stat(filepath.Join(ws, ".yolo", HostPerfLogName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(paths.WorkspaceLogPath(ws, HostPerfLogName)); !os.IsNotExist(err) {
 		t.Fatal("timing-off launch created host-perf.log")
 	}
 
@@ -158,7 +158,7 @@ func TestInitPerfConstructsOnlyWhenEnabled(t *testing.T) {
 	requireWallClockSpans(t, o.Perf)
 	slowSpanEnd(o.Perf, "slow")
 
-	got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	got, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSlowSpanNoticeIsSilentWhileTheContainerHoldsTheTerminal(t *testing.T) {
 	}
 
 	// Silence is never loss: the file has both, as it always did.
-	got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	got, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestASubLaunchNamesNoSlowSpan(t *testing.T) {
 		if named := strings.Contains(errb.String(), "launch.auto_load_image took"); named == sub {
 			t.Errorf("sub-launch %v: the slow-span notice was named %v:\n%s", sub, named, errb.String())
 		}
-		got, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+		got, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 		if err != nil || !strings.Contains(string(got), "end    launch.auto_load_image  dur=") {
 			t.Errorf("sub-launch %v: host-perf.log does not record the span (%v):\n%s", sub, err, got)
 		}
@@ -391,7 +391,7 @@ func TestTeardownChainEmitsShutdownSpans(t *testing.T) {
 		}
 		_ = i
 	}
-	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	fileBytes, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestTeardownChainSilentWhenOff(t *testing.T) {
 	emptyLoopholeDirs(t)
 	o := goldenOptions(ws, home)
 	o.teardownAfterExit(nil, "", nil, "", "yolo-ws-test0000", "podman", "", 0)
-	if _, err := os.Stat(filepath.Join(ws, ".yolo", HostPerfLogName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(paths.WorkspaceLogPath(ws, HostPerfLogName)); !os.IsNotExist(err) {
 		t.Fatal("timing-off teardown created host-perf.log")
 	}
 }
@@ -850,7 +850,7 @@ func TestQuietTeardownRecordsWindowA(t *testing.T) {
 	if ev.Dur != 1500*time.Millisecond {
 		t.Errorf("Window A recorded as %v, want exactly died→child.exited = 1.5s from the fixture", ev.Dur)
 	}
-	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	fileBytes, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -877,7 +877,7 @@ func TestQuietTeardownRecordsWindowAFailureClass(t *testing.T) {
 
 	o.teardownAfterExit(nil, "", nil, t.TempDir(), "yolo-ws-test0000", "podman", "", 0)
 
-	fileBytes, err := os.ReadFile(filepath.Join(ws, ".yolo", HostPerfLogName))
+	fileBytes, err := os.ReadFile(paths.WorkspaceLogPath(ws, HostPerfLogName))
 	if err != nil {
 		t.Fatal(err)
 	}

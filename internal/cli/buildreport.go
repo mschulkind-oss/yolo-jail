@@ -242,12 +242,12 @@ type tailLine struct {
 	build bool
 }
 
-// buildLogName is the name of the build log of fork key under the workspace's .yolo
+// buildLogName is the name of the build log of fork key in the workspace's .yolo/logs
 // (paths.BuildLogName): readable, and unique by a hash of the key.
 func buildLogName(key string) string { return paths.BuildLogName(key) }
 
 // openLog opens the build's own log, beneath a root on the jail-writable .yolo, never by path
-// (paths.OpenWorkspaceStateFile, which launch.log's open states the reason for), with a header naming
+// (paths.OpenWorkspaceLogFile, which launch.log's open states the reason for), with a header naming
 // the build: rewritten by the first build of the key this launch runs, and added to by every later
 // one, whose failure lines would otherwise name a log another build had rewritten.
 func (b *buildRun) openLog(s buildStart) {
@@ -262,14 +262,14 @@ func (b *buildRun) openLog(s buildStart) {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
 	name := buildLogName(b.key)
-	f, err := paths.OpenWorkspaceStateFile(b.r.workspace, name, flags, 0o644)
+	f, err := paths.OpenWorkspaceLogFile(b.r.workspace, name, flags, 0o644)
 	if err != nil {
 		return
 	}
 	b.r.mu.Lock()
 	b.r.opened[b.key] = true
 	b.r.mu.Unlock()
-	b.logf, b.logPath = f, filepath.Join(paths.WorkspaceStateDir(b.r.workspace), name)
+	b.logf, b.logPath = f, paths.WorkspaceLogPath(b.r.workspace, name)
 	if again {
 		fmt.Fprintln(f)
 	}
@@ -282,9 +282,9 @@ func (b *buildRun) openLog(s buildStart) {
 func (b *buildRun) logName() string {
 	switch {
 	case b.logPath != "":
-		return filepath.Join(".yolo", filepath.Base(b.logPath))
+		return paths.WorkspaceLogRel(filepath.Base(b.logPath))
 	case b.r.workspace != "":
-		return filepath.Join(".yolo", run.LaunchLogName)
+		return paths.WorkspaceLogRel(run.LaunchLogName)
 	}
 	return ""
 }
@@ -541,7 +541,7 @@ func (b *buildRun) wholeOutput() string {
 	if b.r.workspace == "" {
 		return ""
 	}
-	launchLog := filepath.Join(paths.WorkspaceStateDir(b.r.workspace), run.LaunchLogName)
+	launchLog := paths.WorkspaceLogPath(b.r.workspace, run.LaunchLogName)
 	if b.logPath != "" {
 		return b.logPath + ", and in " + launchLog
 	}

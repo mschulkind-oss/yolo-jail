@@ -21,7 +21,7 @@ func TestMacosUserTimingRecordsTheBackendsSteps(t *testing.T) {
 	if r.rc != 0 || !strings.Contains(r.stdout, "TIMED") {
 		t.Fatalf("the timed launch failed (rc %d):\n%s", r.rc, r.combined())
 	}
-	logPath := filepath.Join(ws, ".yolo", "host-perf.log")
+	logPath := filepath.Join(ws, ".yolo", "logs", "host-perf.log")
 	b, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("no host perf log at %s: %v\n%s", logPath, err, r.combined())

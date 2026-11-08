@@ -100,7 +100,7 @@ func buildStateOptions(t *testing.T, exec func([]string, string, []string, time.
 
 func housekeepingLog(t *testing.T, o *Options) string {
 	t.Helper()
-	b, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", housekeepingLogName))
+	b, _ := os.ReadFile(filepath.Join(o.Workspace, ".yolo", "logs", housekeepingLogName))
 	return string(b)
 }
 

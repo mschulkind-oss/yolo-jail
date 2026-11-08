@@ -64,12 +64,12 @@ func gitLayoutBoot(t *testing.T, home, ws, packRoot string, identity map[string]
 // ⚠ THE SECOND HALF CHECKS WHAT THE CODE SAID, NOT THAT ANYTHING KEPT IT. A macos-user
 // bootstrap that keeps no boot log (G20 in docs/plans/setup-support-gaps.md) attaches no
 // LogOnly sink of its own, so in production every note is discarded and the injected sink is
-// the only place the test can read one. Once the bootstrap keeps <ws>/.yolo/boot.log it
+// the only place the test can read one. Once the bootstrap keeps <ws>/.yolo/logs/boot.log it
 // replaces the sink with that file for the launch, the injected one receives nothing, and the
 // file is read instead: a note the bootstrap stops sending there then fails the test.
 func launchLogged(t *testing.T, ws, injected string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(ws, ".yolo", bootLogName))
+	b, err := os.ReadFile(BootLogPath(ws))
 	switch {
 	case err == nil:
 		return string(b)

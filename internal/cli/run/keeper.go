@@ -549,7 +549,7 @@ func (k *keeper) run() int {
 	case <-time.After(keeperRunningWait):
 	}
 	k.sink.logOnlyf("keeper: pid %d holds %s until its last session leaves", k.pid, p.Cname)
-	mirror, _ := paths.OpenExistingWorkspaceStateFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
+	mirror, _ := paths.OpenExistingWorkspaceLogFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
 	var mirrorW io.Writer
 	if mirror != nil {
 		defer mirror.Close()
@@ -1263,7 +1263,7 @@ func (k *keeper) holdKey(cfg *jsonx.OrderedMap) int {
 			"reads its host services from (%v)", err))
 	}
 	k.sink.logOnlyf("keeper: pid %d holds %s until its last session leaves", k.pid, k.stateKey())
-	mirror, _ := paths.OpenExistingWorkspaceStateFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
+	mirror, _ := paths.OpenExistingWorkspaceLogFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
 	var mirrorW io.Writer
 	if mirror != nil {
 		defer mirror.Close()

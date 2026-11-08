@@ -768,7 +768,7 @@ func Main(args []string) error {
 		}
 	}
 
-	// Everything the boot says now also lands in <workspace>/.yolo/boot.log, which
+	// Everything the boot says now also lands in <workspace>/.yolo/logs/boot.log, which
 	// outlives the container and is therefore readable after a boot that REFUSED —
 	// the state OQ-R2's flip makes reachable, where there is no jail left to ask.
 	// Never fatal: any failure here yields plain stderr. See bootlog.go.

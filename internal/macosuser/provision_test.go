@@ -1048,16 +1048,16 @@ func TestExecLayerRefusedStatusWithoutWrapperStillNeverRan(t *testing.T) {
 func assertScriptOutcome(t *testing.T, setup, loggerFailure string, stdin *os.File, wantContinue bool, wantStatus int) {
 	t.Helper()
 	ws := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo", "logs"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
 	logger := `#!/bin/bash
 body=$(cat)
 case "$5" in
---reset) [ "$FAIL_LOG" = reset ] && exit 1; printf '%s\n' "$body" > "$3/.yolo/startup.log";;
---tee) printf '%s\n' "$body"; [ "$FAIL_LOG" = tee ] && exit 1; printf '%s\n' "$body" >> "$3/.yolo/startup.log";;
-*) [ "$FAIL_LOG" = marker ] && exit 1; printf '%s\n' "$body" >> "$3/.yolo/startup.log";;
+--reset) [ "$FAIL_LOG" = reset ] && exit 1; printf '%s\n' "$body" > "$3/.yolo/logs/startup.log";;
+--tee) printf '%s\n' "$body"; [ "$FAIL_LOG" = tee ] && exit 1; printf '%s\n' "$body" >> "$3/.yolo/logs/startup.log";;
+*) [ "$FAIL_LOG" = marker ] && exit 1; printf '%s\n' "$body" >> "$3/.yolo/logs/startup.log";;
 esac
 `
 	if err := os.WriteFile(filepath.Join(bin, "yolo"), []byte(logger), 0755); err != nil {

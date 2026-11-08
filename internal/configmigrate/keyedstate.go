@@ -82,8 +82,13 @@ func moveKeyedState(workspace string, names map[string]string) []string {
 	if workspace != "" {
 		// The workspace's .yolo is jail-writable: opened as a root that refuses a linked directory,
 		// and moved by link and remove beneath it, so no planted link reaches a host file.
+		// Its logs directory holds this yolo's build logs, and the top of .yolo an older yolo's.
 		if r, err := paths.OpenStateDirRoot(paths.WorkspaceStateDir(workspace)); err == nil {
 			out = append(out, moveBuildLogs(r, ".yolo/", s, []string{"build-"})...)
+			if lr, err := paths.OpenStateSubdirRoot(r, paths.WorkspaceLogsDirName, paths.WorkspaceLogsDir(workspace)); err == nil {
+				out = append(out, moveBuildLogs(lr, ".yolo/logs/", s, []string{"build-"})...)
+				lr.Close()
+			}
 			r.Close()
 		}
 	}

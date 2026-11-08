@@ -56,7 +56,7 @@ func TestInternalLogAppendAdmitsTheMacosUserSidecarLayout(t *testing.T) {
 	if rc := runInternalLogAppend([]string{ws, "startup.log", "--reset"}, bytes.NewBufferString("boot\n")); rc != 0 {
 		t.Fatalf("log-append as the sandbox account returned %d, want 0", rc)
 	}
-	got, err := os.ReadFile(filepath.Join(paths.WorkspaceStateDir(ws), "startup.log"))
+	got, err := os.ReadFile(paths.WorkspaceLogPath(ws, "startup.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
