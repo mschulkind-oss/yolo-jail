@@ -87,7 +87,18 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
   …so a workspace may not name one (BB-P9). Put it in the user config, …
   ```
 - **After:** delete the parenthetical.
-- **Sites:** `internal/config/brokered.go:1463` (BB-P9), `:1469` (BB-D96); `internal/config/packs.go:979` (LG-D9 plus a doc path); `internal/config/provisioners.go:150` (PS-D2), `:349` (OQ-PS6); `internal/config/profiles.go:136` (OQ-RC20); `internal/configmigrate/packs.go:53` (OQ-RC15); `internal/config/mountsrequest.go:195` (doc path); `internal/config/validateprofiles.go:25` (doc path).
+- **Sites**, each followed by the id or path the message prints:
+  ```text
+  internal/config/brokered.go:1463         BB-P9
+  internal/config/brokered.go:1469         BB-D96
+  internal/config/packs.go:979             LG-D9 plus a doc path
+  internal/config/provisioners.go:150      PS-D2
+  internal/config/provisioners.go:349      OQ-PS6
+  internal/config/profiles.go:136          OQ-RC20
+  internal/configmigrate/packs.go:53       OQ-RC15
+  internal/config/mountsrequest.go:195     doc path
+  internal/config/validateprofiles.go:25   doc path
+  ```
 
 ### P7. Internal failures in `yolo config set|add|unset` name no next step
 
@@ -227,7 +238,7 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
   Anything whose <fact> is already on <src>'s list of things the agent may act on without asking joins this list too.
   What the <source> service lets the agent call:
   ```
-- **Why:** 3, 5, 6 (working set). I settled the meaning in the second pass. `docs/design/pack-brokers.md` §7.4 defines the join rules (rule 1 is "a call in a `joins_working_set` cell creates it"; rule 2 is "a lookup's fact names a resource of another source's working set… a CircleCI pipeline built from a branch the git broker's working set holds"). The rewrite above follows those rules. The rest of this disclosure block is covered under "Second pass: the approval prompt".
+- **Why:** 3, 5, 6 (working set). I settled the meaning in the second pass. [`docs/design/pack-brokers.md` §7.4](../../design/pack-brokers.md#74-working-set-rules) defines the join rules (rule 1 is "a call in a `joins_working_set` cell creates it"; rule 2 is "a lookup's fact names a resource of another source's working set… a CircleCI pipeline built from a branch the git broker's working set holds"). The rewrite above follows those rules. The rest of this disclosure block is covered under "Second pass: the approval prompt".
 
 ## Retired and renamed keys (beyond P2)
 
@@ -629,7 +640,10 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
 
 ### Provisioners in a jail
 - **Where:** `internal/config/provisioners.go:348`.
-- **Before:** `no order is read in a jail: its agents come from the pack's own launcher and capture store, never another provisioner (docs/design/provisioner-sets.md OQ-PS6), so this list would change nothing. "host" is the one environment this yolo resolves; remove it`
+- **Before:**
+  ```text
+  no order is read in a jail: its agents come from the pack's own launcher and capture store, never another provisioner (docs/design/provisioner-sets.md OQ-PS6), so this list would change nothing. "host" is the one environment this yolo resolves; remove it
+  ```
 - **After:** `yolo uses this order only on the host, so it does nothing here. Use "host", or remove this entry.`
 - **Why:** 6, 8.
 
@@ -762,8 +776,11 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
 
 ### Profile name reserved
 - **Where:** `internal/config/profiles.go:136`.
-- **Before:** `… means "no provider: the agent's own login" (OQ-RC20), so a profile by that name could …`
-- **After:** drop "(OQ-RC20)". P6.
+- **Before:**
+  ```text
+  … means "no provider: the agent's own login" (OQ-RC20), so a profile by that name could …
+  ```
+- **After:** drop the parenthesized design id. P6.
 
 ### `profile` with `active_provider`
 - **Where:** `internal/config/validateactiveprovider.go:26`.
@@ -822,7 +839,10 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
 
 ### Pack has no TOML spelling
 - **Where:** `internal/configmigrate/packs.go:53`.
-- **Before:** `a pack entry's `x` has no TOML spelling (a pack is named by its source, OQ-RC15); this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file`
+- **Before:**
+  ```text
+  a pack entry's `x` has no TOML spelling (a pack is named by its source, OQ-RC15); this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file
+  ```
 - **After:** `this yolo cannot write a pack's "x" setting in TOML yet. Keep the old file for now; yolo still reads it.`
 - **Why:** 6, 7. The message also says "no TOML spelling" twice. The same applies to `noSpellingYet` and its users at `internal/configmigrate/packs.go:104, 110` and `internal/configmigrate/brokered.go:196, 277, 331, 333`.
 
@@ -995,7 +1015,7 @@ I read `lower.go`, `loopholegrants.go`, `identities.go`, `models.go`, `inherited
 - **Where:** `internal/config/callbroker.go:~83–135` (`CallBrokerDisclosure`), and `callbroker.go:49` for the "http selected pack=" and "http declaration_sha256=" lines.
 - **Before:** raw key=value lines, such as `call broker: <src> front=… program=… executor=… scope roots=…`, `cell N tables=… default=working_set=true,all=ask max_for=…` and `http origin=… credential_source=… credential_key=… credential_header=…`.
 - **After:** one plain line per fact, keeping the values. For example: `Runs <program> on <executor>, only under <roots>.`, `Sends requests to <origin> with your <credential_source> credential in the <credential_header> header.` and `For <tables>: acts without asking on things it created, asks for everything else, and an approval lasts at most <max_for>.` The two "joins working set" lines are covered in "Brokers, grants and requests" above.
-- **Why:** 5, 6 and 8. This block is where the user decides what to trust, and they cannot read field names. The code comment says the block is "the exact selected call-broker policy", so a rewrite must keep every value, including the program's sha256. A plain sentence can sit in front of each value. If exact field names are needed for audit, `yolo config why` or a `--verbose` view could show them. The meanings of `cell`, `default` and `working_set` come from `docs/design/pack-brokers.md` §7.4. I did not check the rarer fields (`classifier`, `root_template`, `read_over_post`) against a design doc, so their plain wording needs a reviewer.
+- **Why:** 5, 6 and 8. This block is where the user decides what to trust, and they cannot read field names. The code comment says the block is "the exact selected call-broker policy", so a rewrite must keep every value, including the program's sha256. A plain sentence can sit in front of each value. If exact field names are needed for audit, `yolo config why` or a `--verbose` view could show them. The meanings of `cell`, `default` and `working_set` come from [`docs/design/pack-brokers.md` §7.4](../../design/pack-brokers.md#74-working-set-rules). I did not check the rarer fields (`classifier`, `root_template`, `read_over_post`) against a design doc, so their plain wording needs a reviewer.
 
 ## Second pass: provider errors a user can hit
 

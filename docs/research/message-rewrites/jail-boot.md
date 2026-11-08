@@ -6,9 +6,12 @@ Scope: `internal/entrypoint` (the jail's start-up, the "boot"), `internal/jailco
 
 ### P1. Internal decision IDs and design-doc paths in messages a user reads
 
-Messages cite ruling IDs and repository doc paths. A user cannot act on `OQ-R2`. Most users do not have the repository, so a path such as `docs/reference/...` gives them nothing to open. Drop the ID. Replace the doc path with the published user guide when a link helps, or leave it out.
+Messages cite ruling IDs and repository doc paths. A user cannot act on a ruling ID. Most users do not have the repository, so a path such as `docs/reference/...` gives them nothing to open. Drop the ID. Replace the doc path with the published user guide when a link helps, or leave it out.
 
-- **Before:** `There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is copied, renamed or deleted for you.`
+- **Before:**
+  ```text
+  There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is copied, renamed or deleted for you.
+  ```
 - **After:** `yolo does not move these for you.`
 - **Sites:** `internal/entrypoint/darwinhomelayout.go:443`, `internal/entrypoint/darwinhomelayout.go:495`, `internal/entrypoint/darwinhomelayout.go:1385`, `internal/entrypoint/reachability.go:516`, `internal/entrypoint/reachability.go:522`, `internal/entrypoint/requiredservice.go:210`, and the closing `docs/reference/loopback-tls-reachability.md` line of every constant in `internal/entrypoint/reachability.go:637`–`internal/entrypoint/reachability.go:707` and of the override notices (`internal/entrypoint/reachability.go:574`, `internal/entrypoint/requiredservice.go:218`).
 
@@ -204,7 +207,11 @@ Record-keeping failures name an internal record ("selection record", "provenance
         YOLO_ALLOW_UNREACHABLE_SERVICES=1 <your yolo command>
   ```
 - **Why:** 1 ("host-loopback forwarding", "published"), 6 (P1), 8 (it argues fault against limitation), 7. The check step comes from `reachabilityFaultExplanation`, which prints just above this message. The two can merge.
-- **Same rewrite for:** the warn-mode variant in the same function ("(OQ-R2 rules this a failed launch; this witness is running in warn mode …)"). It becomes `Warning: the jail cannot reach the host service 'journal'. The jail starts anyway, and anything that uses the service will fail.` The two other leads in `unusableServicesLead` ("SHARES the network namespace", "the Mac's own network stack") become one sentence each: `This jail uses the network of the program that launched it, so the service itself is the problem.`
+- **Same rewrite for:** the warn-mode variant in the same function, which prints:
+  ```text
+  (OQ-R2 rules this a failed launch; this witness is running in warn mode …)
+  ```
+  It becomes `Warning: the jail cannot reach the host service 'journal'. The jail starts anyway, and anything that uses the service will fail.` The two other leads in `unusableServicesLead` ("SHARES the network namespace", "the Mac's own network stack") become one sentence each: `This jail uses the network of the program that launched it, so the service itself is the problem.`
 
 ### Service unusable: the explanation blocks
 - **Where:** `internal/entrypoint/reachability.go:707`, `internal/entrypoint/reachability.go:637`, `internal/entrypoint/reachability.go:668` — printed under the warning lines when a service is unreachable.
@@ -607,7 +614,11 @@ These messages appear only on a Mac using yolo's macOS sandbox account (`seatbel
 
 ### cache_relocations: real folders in the way
 - **Where:** `internal/entrypoint/darwinhomelayout.go:1380`.
-- **Before (head):** `cache_relocations: 2 paths in the sandbox's cache are real, where the relocation's link belongs.\nThere is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is copied, renamed or deleted for you.`
+- **Before (head):**
+  ```text
+  cache_relocations: 2 paths in the sandbox's cache are real, where the relocation's link belongs.
+  There is no migration (macos-user-home-tiers.md OQ-HT2) — nothing here is copied, renamed or deleted for you.
+  ```
 - **After (head):** `cache_relocations: 2 folders in the sandbox's cache are real folders where yolo needs to put a link. yolo does not move them for you.`
 - **After (new last line):** `Then run yolo again.`
 - **Why:** P1, 5, and the last step.

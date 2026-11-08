@@ -21,8 +21,37 @@ pack %s needs pack %q, but yolo does not ship a pack by that name. A pack can on
 ```
 (The final `%s` is the pack name again. The code would need one more argument for it.)
 
-Sites with the same problem. Drop the ID or path, and keep the sentence that tells the reader what to do:
-`internal/packload/via.go:57` (WB-D9), `internal/packload/served.go:266` (HS-D15, HS-D22), `internal/packload/served.go:621` (notch-convergence.md §2.4), `internal/packload/served.go:872` (HS-D30), `internal/packsrc/naming.go:178` (PN-D11), `internal/packdecl/packdecl.go:757-758` (providers.md §5.2), `internal/packdecl/packdecl.go:770,776` (OQ-PT8), `internal/packdecl/sessionhome.go:104` (SP-D10), `internal/packdecl/fork.go:166` (FP-D6), `internal/packdecl/fork.go:172` (§12), `internal/packdecl/fork.go:246` (FP-D18), `internal/packdecl/contributes.go:4838` (providers.md OQ-CN7), `internal/packdecl/contributes.go:5041,5086` (wire-bridge.md §2.1), `internal/loopholedecl/enums.go:108` (HD-R1), `internal/loopholedecl/enums.go:161`, `internal/loopholedecl/loopholedecl.go:624-625` (HD-R1), `internal/loopholedecl/packshipped.go:141` (OQ-LP5), `internal/loopholedecl/packshipped.go:231` (OQ-LP14), `internal/loopholedecl/packshipped.go:351,398,453,498-499`, `internal/loopholedecl/settings.go:254` (OQ-K1), `internal/agentcfg/selection.go:98,128`, `internal/render/modes.go:117` (pack-config-collaboration.md §8), `internal/render/modes.go:171` (OQ-HC2), `internal/render/fieldset.go:144` (BB-D17), `internal/loopholes/guestrun.go:125` (HS-D15). A link to a user-guide page is fine. A design-doc ID is not.
+Sites with the same problem, each followed by the id or section it prints. Drop the ID or path, and keep the sentence that tells the reader what to do:
+
+```text
+internal/packload/via.go:57                               WB-D9
+internal/packload/served.go:266                           HS-D15, HS-D22
+internal/packload/served.go:621                           notch-convergence.md §2.4
+internal/packload/served.go:872                           HS-D30
+internal/packsrc/naming.go:178                            PN-D11
+internal/packdecl/packdecl.go:757-758                     providers.md §5.2
+internal/packdecl/packdecl.go:770,776                     OQ-PT8
+internal/packdecl/sessionhome.go:104                      SP-D10
+internal/packdecl/fork.go:166                             FP-D6
+internal/packdecl/fork.go:172                             §12
+internal/packdecl/fork.go:246                             FP-D18
+internal/packdecl/contributes.go:4838                     providers.md OQ-CN7
+internal/packdecl/contributes.go:5041,5086                wire-bridge.md §2.1
+internal/loopholedecl/enums.go:108                        HD-R1
+internal/loopholedecl/enums.go:161
+internal/loopholedecl/loopholedecl.go:624-625             HD-R1
+internal/loopholedecl/packshipped.go:141                  OQ-LP5
+internal/loopholedecl/packshipped.go:231                  OQ-LP14
+internal/loopholedecl/packshipped.go:351,398,453,498-499
+internal/loopholedecl/settings.go:254                     OQ-K1
+internal/agentcfg/selection.go:98,128
+internal/render/modes.go:117                              pack-config-collaboration.md §8
+internal/render/modes.go:171                              OQ-HC2
+internal/render/fieldset.go:144                           BB-D17
+internal/loopholes/guestrun.go:125                        HS-D15
+```
+
+A link to a user-guide page is fine. A design-doc ID is not.
 
 ### P2. "notch", "doorway", "floor", "surface", "contribution" and "pack mirror" in user-facing text (rule 6)
 
@@ -961,7 +990,7 @@ The wrappers inside `replay.go` that use `oneLine` (`:458`, `:687`, `:809`, `:83
   ```text
   contributes[%d]: a profile no longer takes "launch". Move the flags to a separate launch entry, and set its "profile" to this profile's name.
   ```
-- **Why:** 1 (OQ-PT8), 7. Apply the same fix to the `env` twin at line 774.
+- **Why:** 1 (the design id), 7. Apply the same fix to the `env` twin at line 774.
 
 ### Retired `tier`
 - **Where:** `internal/packdecl/packdecl.go:748-751` — a skills entry carries `tier`.

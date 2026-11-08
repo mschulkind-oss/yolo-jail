@@ -34,7 +34,15 @@ On the macOS sandbox and `yolo host`, a "doorway" is a small local server that y
 
 ### P3. Decision IDs and design-doc sections are printed to the user
 
-Launch lines end with "(providers.md OQ-CN7)", "(OQ-ED2)", "(FP-D9: …)" and similar. These IDs mean nothing to a user and give no next step. Drop them. Where the user needs to read more, link the user guide.
+Launch lines end with parentheticals such as these:
+
+```text
+(providers.md OQ-CN7)
+(OQ-ED2)
+(FP-D9: …)
+```
+
+These IDs mean nothing to a user and give no next step. Drop them. Where the user needs to read more, link the user guide.
 
 - **Before:**
   ```text
@@ -44,7 +52,21 @@ Launch lines end with "(providers.md OQ-CN7)", "(OQ-ED2)", "(FP-D9: …)" and si
   ```text
   yolo did not start the %s service, because %s. To start it, select a profile it serves (`-p <agent>=%s`).
   ```
-- **Sites:** `internal/cli/run/packservices.go:319` (OQ-CN7), `:333` (NC-D59); `internal/cli/run/credentialnotes.go:105` (OQ-CN9); `internal/cli/run/profiledaemons.go:55` (OQ-CN7); `internal/cli/run/loopholeinert.go:487` (OQ-ED2); `internal/cli/run/jailgrant.go:405` (OQ-ES5); `internal/cli/run/seal.go:315`, `:328` (FP-D9, FP-D19); `internal/cli/check/sections_loopholes.go:338` (HS-D34); `internal/cli/check/section_autogc.go:78` ("storage §1"); `internal/cli/check/section_packageprofile.go:135` (provisioner-evidence.md §3.4), `:165` (HP-DIR3). The housekeeping log lines (`currentimage.go:71`, `autoreapimages.go:61`, `housekeeping.go:693`) carry IDs too, but they go to `.yolo/housekeeping.log`, not the terminal, so they are low priority.
+- **Sites**, each followed by the id or section the message prints:
+  ```text
+  internal/cli/run/packservices.go:319             OQ-CN7
+  internal/cli/run/packservices.go:333             NC-D59
+  internal/cli/run/credentialnotes.go:105          OQ-CN9
+  internal/cli/run/profiledaemons.go:55            OQ-CN7
+  internal/cli/run/loopholeinert.go:487            OQ-ED2
+  internal/cli/run/jailgrant.go:405                OQ-ES5
+  internal/cli/run/seal.go:315, :328               FP-D9, FP-D19
+  internal/cli/check/sections_loopholes.go:338     HS-D34
+  internal/cli/check/section_autogc.go:78          storage §1
+  internal/cli/check/section_packageprofile.go:135 provisioner-evidence.md §3.4
+  internal/cli/check/section_packageprofile.go:165 HP-DIR3
+  ```
+  The housekeeping log lines (`currentimage.go:71`, `autoreapimages.go:61`, `housekeeping.go:693`) carry IDs too, but they go to `.yolo/housekeeping.log`, not the terminal, so they are low priority.
 
 ### P4. A yolo failure tells the user to repair yolo's own internals
 
@@ -501,7 +523,7 @@ Users who install a release do not have the source tree. A path such as `docs/re
   ```text
   The macOS sandbox does not use your nvim config (~/.config/nvim), so nvim starts with its default settings there.
   ```
-- **Why:** 6 (OQ-ED2), 8.
+- **Why:** 6 (the design id), 8.
 
 ### Credential scope on the macOS sandbox
 - **Where:** `internal/cli/run/credentialnotes.go:105`.
@@ -513,7 +535,7 @@ Users who install a release do not have the source tree. A path such as `docs/re
   ```text
   This launch starts claude with its credentials. If you start codex inside the sandbox, it reads its credentials from its own settings file.
   ```
-- **Why:** 3, 5 ("Credential scope"), 6 (OQ-CN9), 8 ("ride the sandbox session").
+- **Why:** 3, 5 ("Credential scope"), 6 (the design id), 8 ("ride the sandbox session").
 
 ### Duplicate service name across packs
 - **Where:** `internal/cli/run/packservices.go:333`.
@@ -537,7 +559,7 @@ Users who install a release do not have the source tree. A path such as `docs/re
   ```text
   The jail started without this service, because no profile chosen at launch needed it. An attach cannot start a service, so the agent would have nothing to connect to.
   ```
-- **Why:** 6 (OQ-CN7), 8 ("pointer this entry would hand").
+- **Why:** 6 (the design id), 8 ("pointer this entry would hand").
 
 ### Grant summary line beyond the grant
 - **Where:** `internal/cli/run/jailgrant.go:405`.
@@ -549,7 +571,7 @@ Users who install a release do not have the source tree. A path such as `docs/re
   ```text
     Also: the %[2]s profile you chose for %[1]s puts %[3]s into %[4]s's settings file, which every process in this jail can read.
   ```
-- **Why:** 6 (OQ-ES5, "as ruled"), 8.
+- **Why:** 6 (the design id, "as ruled"), 8.
 
 ### Sealed build withheld line
 - **Where:** `internal/cli/run/seal.go:330` (reasons at `:315`, `:328`).
@@ -711,7 +733,7 @@ Users who install a release do not have the source tree. A path such as `docs/re
   [WARN] nix never cleans up its store automatically (min-free = 0), so the store keeps growing
   -> Set min-free and max-free so nix frees space when the disk runs low. This never removes the image a running jail uses. Add to …
   ```
-- **Why:** 3, 6 (storage §1), 8.
+- **Why:** 3, 6 (the storage section number), 8.
 
 ### Resource group finding
 - **Where:** `internal/cli/check/resourcegroups.go:74`.

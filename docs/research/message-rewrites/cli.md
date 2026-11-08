@@ -21,9 +21,12 @@ The second pass added the background build, saved-copy and `yolo host apply` rep
 
 ### P1. Design-doc IDs and file paths inside user messages
 
-A user cannot act on `OQ-HS3` or `docs/design/host-notch-services.md`. Neither of those files ships with a release. (Rules 1, 6, 8.)
+A user cannot act on the design id or on `docs/design/host-notch-services.md`. Neither of those files ships with a release. (Rules 1, 6, 8.)
 
-- **Before:** `… a host service lives only for the command that starts it (docs/design/host-notch-services.md OQ-HS3). Launch the agent as `%s`, …`
+- **Before:**
+  ```text
+  … a host service lives only for the command that starts it (docs/design/host-notch-services.md OQ-HS3). Launch the agent as `%s`, …
+  ```
 - **After:** `… a host service lives only as long as the command that starts it. Launch the agent as `%s`, …`
 - **Sites:** `host.go:3288`, `host.go:3384`, `host.go:3390`, `host.go:3470`, `host.go:3546`, `host.go:3549`, `hostinputs.go:318`, `hostinputs.go:416`, `hostinputs.go:423`, `hostinputs.go:444`, `hostmodelmenu.go:200`, `hostmodelmenu.go:388`, `hostmcponce.go:35`, `configpromotewrite.go:102`, `autocapture.go:157`, `describe.go:283`, `configmigrate.go:191`, `commands.go:374` (the last one is written out below).
 
@@ -1208,7 +1211,13 @@ These texts are reference material, so they may be longer than an error. They st
 - **Why:** 1, AGENTS.md (advice names a command), Keep it true. A reader who copies an example into `config.toml` gets a syntax error (P4).
 
 ### Design IDs and doc names
-- **Where:** `config_ref.txt:2396` ("host-notch-services.md OQ-HS4, HS-D27, HS-D29"), `config_ref.txt:2837` ("OQ-CS5"), `config_ref.txt:2869` (`docs/reference/mcp-configuration.md`), `config_ref.txt:3125` ("notch-convergence.md NC-D71").
+- **Where:** these lines of `config_ref.txt`, each followed by the text it prints:
+  ```text
+  config_ref.txt:2396  host-notch-services.md OQ-HS4, HS-D27, HS-D29
+  config_ref.txt:2837  OQ-CS5
+  config_ref.txt:2869  docs/reference/mcp-configuration.md
+  config_ref.txt:3125  notch-convergence.md NC-D71
+  ```
 - **After:** delete the parenthetical in each case. The sentence before it already states the rule.
 - **Why:** 6 (P1).
 
@@ -1236,7 +1245,7 @@ These texts are reference material, so they may be longer than an error. They st
   (yolo config reset does not re-create it: reset only throws away edits yolo saved, and a `once` file has none.)
   Note: mode 0444 is only file permissions, which the kernel does not enforce against root.
   ```
-- **Why:** 1 ("§5" points into a design doc the reader does not have), 6 ("DAC", "sidecars").
+- **Why:** 1 (the section number points into a design doc the reader does not have), 6 ("DAC", "sidecars").
 
 ### host_management: "assert" paragraph
 - **Where:** `config_ref.txt:1318-1325`, `config_ref.txt:1342-1344`.
@@ -1258,7 +1267,7 @@ These texts are reference material, so they may be longer than an error. They st
   yolo prune: --keep-images was removed. yolo now keeps each workspace's current image and every image a running jail uses, and removes the older ones.
   Drop the flag. To keep an image, launch its workspace once. `yolo prune` without --apply shows what it would remove.
   ```
-- **Why:** 6 (OQ-LS3), 8 ("undo buffer nobody used").
+- **Why:** 6 (the design id), 8 ("undo buffer nobody used").
 
 ### nix-roots: no workspace
 - **Where:** `nixroots.go:110-111`.
