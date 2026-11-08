@@ -3,7 +3,7 @@ title: "The agent's own session lives in .yolo, and nothing tells it so"
 date: 2026-11-07
 status: accepted
 stage: DESIGN
-next: "Build SD-D15: project logs move under .yolo/logs/, locks and pids under .yolo/run/"
+next: "Move the three top-level locks under .yolo/run/ once no supported older yolo takes them at the old path (SD-D15)"
 depends-on:
   - named-setups.md
 tags: [design, storage, workspace-state, briefing, guardrails, recovery, setups]
@@ -298,7 +298,7 @@ None open. The six questions were ruled on 2026-11-07 and are [SD-D10](#SD-D10) 
 
 ## 6. Decision Ledger
 
-SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the owner's rulings of 2026-11-07, compacted from the six open questions. The Built column names the commit that landed each row; only SD-D15 is not built yet.
+SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the owner's rulings of 2026-11-07, compacted from the six open questions. The Built column names the commit that landed each row; SD-D15 is built for the logs; its locks stay at the top level until no jail an older yolo started can still take them there, a move for a later release.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -316,7 +316,7 @@ SD-D1 to SD-D9 are the seat's one-answer decisions; SD-D10 to SD-D15 are the own
 | <a id="SD-D12"></a>SD-D12 | **Question 3, ruled A.** The `mv`/`rm` guard ships in the opt-in guardrails pack only; nothing is blocked by default | 2026-11-07 | [§3.3](#33-mechanical-guards-where-they-are-cheap-and-honest) | `832332b65` |
 | <a id="SD-D13"></a>SD-D13 | **Question 4, ruled A.** The rescue runs automatically at keeper stop when the identity stamp mismatches; the stop takes as long as the copy and prints the rescue directory and the restoring `mv`. A slow stop beats a lost session | 2026-11-07 | [§3.5](#35-recovery-and-survivability) | `6e041847b` |
 | <a id="SD-D14"></a>SD-D14 | **Question 5, ruled A.** `yolo --fresh-home` runs the selected setup on a new empty home at `.yolo/setups/<setup>/home.fresh-<stamp>`, kept afterwards and listed by `yolo stores` | 2026-11-07 | [§3.6](#36-a-supported-way-to-do-what-the-agent-wanted) | `22da313c7` |
-| <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | 499484fd3 (logs; locks stay until no older-yolo jail takes them, and no pid file exists for `run/`) |
+| <a id="SD-D15"></a>SD-D15 | **Question 6, ruled A.** Project-level logs move under `.yolo/logs/`, locks and pids under `.yolo/run/`, in the named-setups slice; the top level becomes `setups/ durable/ approvals/ archive/ README.md` | 2026-11-07 | [§3.1](#31-legibility-of-yolo-itself) | ef6f83ebd (logs; locks stay until no older-yolo jail takes them, and no pid file exists for `run/`) |
 
 ## 7. Appendix: evidence
 
