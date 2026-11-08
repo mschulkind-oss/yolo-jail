@@ -297,6 +297,14 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	// one every release before it already had.
 	{release: "v0.17.0", pack: "muse-code", problem: `unknown field "subcommands"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("subcommands")},
+	// Measured against v0.17.0 on 2026-11-08: guardrails' mv and rm entries declare `guard`
+	// (packdecl.Contribution.Guard), which that reader keeps each blocked-tool contribution
+	// without, so an old jail handed the tree would block mv and rm outright. The guard below is
+	// what keeps one from ever being handed it.
+	{release: "v0.17.0", pack: "guardrails", problem: `contribution "mv" without its unknown field "guard"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("guard")},
+	{release: "v0.17.0", pack: "guardrails", problem: `contribution "rm" without its unknown field "guard"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree, repair: dropKey("guard")},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a
@@ -722,7 +730,8 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 		strings.Contains(skipped, "skipping the provider contribution") || strings.Contains(skipped, `" is ignored`) ||
 		strings.Contains(skipped, "skipping provider declaration with unknown provider model field") ||
 		strings.Contains(skipped, "is read without its unknown field") ||
-		strings.Contains(skipped, "keeping the autonomy contribution without its unknown field")
+		strings.Contains(skipped, "keeping the autonomy contribution without its unknown field") ||
+		strings.Contains(skipped, "keeping the blocked-tool contribution")
 	kindSkip := strings.Contains(skipped, "skipping unknown kind")
 	if !fieldSkip && !kindSkip {
 		return -1
@@ -733,7 +742,7 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 		}
 		if (fieldSkip && (strings.HasPrefix(b.problem, `unknown field "`) ||
 			strings.HasPrefix(b.problem, `unknown provider model field "`) ||
-			strings.Contains(b.problem, `is read without its unknown field "`))) ||
+			strings.Contains(b.problem, `without its unknown field "`))) ||
 			(kindSkip && strings.HasPrefix(b.problem, `unknown kind "`)) {
 			return i
 		}
