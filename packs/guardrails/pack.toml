@@ -1,5 +1,5 @@
 name = "guardrails"
-description = "Habits worth enforcing: tools a launch refuses in favour of a better one, in a jail and in what `yolo host --` starts. Opt in by adding \"guardrails\" to packs."
+description = "Habits worth enforcing: tools a launch refuses in favour of a better one, and `mv`/`rm` guards that refuse to touch the workspace's .yolo, in a jail and in what `yolo host --` starts. Opt in by adding \"guardrails\" to packs."
 
 [[blocked_tool]]
 bin = "grep"
@@ -13,6 +13,20 @@ bin = "find"
 message = "find is blocked to prevent unintended recursive searches. Use fd for a faster, more intuitive alternative."
 suggestion = "Try: fd <pattern>"
 replacement = "fd"
+
+# Guards: mv and rm run as usual, and refuse only an argument naming the workspace's .yolo,
+# something in it outside the durable dir ($YOLO_DURABLE_DIR), or a directory holding it
+# (the workspace itself included). `message` is the briefing's line; the refusal names the
+# paths and the next step itself.
+[[blocked_tool]]
+bin = "mv"
+guard = "workspace-state"
+message = "refuses to move the workspace's .yolo (this workspace's agent homes) or anything in it; your own files under $YOLO_DURABLE_DIR move freely."
+
+[[blocked_tool]]
+bin = "rm"
+guard = "workspace-state"
+message = "refuses to delete the workspace's .yolo (this workspace's agent homes), anything in it, or a directory holding it; your own files under $YOLO_DURABLE_DIR delete freely."
 
 # Where each package name came from, one line per manager, checked 2026-10-02. Each package
 # installs `rg` on PATH: /usr/bin/rg in the file lists, bin/rg in Homebrew's formula

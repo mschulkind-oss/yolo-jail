@@ -329,6 +329,10 @@ const (
 	// exist. Moving the list into a pack makes the assumption explicit: the pack that
 	// blocks a tool is the pack that can say what replaces it, and selecting it is the
 	// opt-in.
+	//
+	// An entry with `guard` (Contribution.Guard, guard.go) is a GUARD: its shim runs the real
+	// program and refuses only when an argument names the protected path set — the guardrails
+	// pack's `mv` and `rm` in front of the workspace's `.yolo`.
 	KindBlockedTool Kind = "blocked-tool"
 
 	// KindIntercept routes a command NAME inside the jail to a pack-declared forwarder:

@@ -59,7 +59,7 @@ type hostBlockers struct {
 // hostBlockedChildPath is childPath with this launch's blocked tools first on it, printing the
 // notes and the disclosure. It is the one call hostLaunch makes, after the target resolved.
 func hostBlockedChildPath(launch *hostComposition, childPath string, errw io.Writer) string {
-	b := composeHostBlockers(launch.cfg, launch.packs, childPath)
+	b := composeHostBlockersIn(launch.cfg, launch.packs, childPath, launch.workspace)
 	for _, n := range b.notes {
 		fmt.Fprintf(errw, "yolo host: %s\n", n)
 	}
@@ -92,6 +92,12 @@ func hostBypassSet(environ []string) bool {
 // childPath. In a jail it does nothing: the jail's own blockers are already first on the PATH a
 // nested `yolo host` inherits, and childEnviron hands the child that PATH unchanged.
 func composeHostBlockers(cfg *jsonx.OrderedMap, packs []*packload.Pack, childPath string) hostBlockers {
+	return composeHostBlockersIn(cfg, packs, childPath, "")
+}
+
+// composeHostBlockersIn is composeHostBlockers for a launch started in workspace, the directory
+// a guard (an `mv` or `rm` shim refusing the workspace's .yolo) protects; "" skips guards.
+func composeHostBlockersIn(cfg *jsonx.OrderedMap, packs []*packload.Pack, childPath, workspace string) hostBlockers {
 	out := hostBlockers{path: childPath}
 	if config.InJail() {
 		return out
@@ -138,7 +144,8 @@ func composeHostBlockers(cfg *jsonx.OrderedMap, packs []*packload.Pack, childPat
 				"capability instead of redirecting it (install %s, or name its folder in "+
 				"`host_path`, to restore the block)", name, repl, repl))
 		},
-		Warn: func(msg string) { out.notes = append(out.notes, msg) },
+		Warn:      func(msg string) { out.notes = append(out.notes, msg) },
+		Workspace: workspace,
 	})
 	if len(scripts) == 0 {
 		return out

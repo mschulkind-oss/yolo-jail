@@ -111,7 +111,7 @@ your user config for every jail:
 
 **Nothing is blocked by default.** yolo's default blocked list is empty. Blocking is opt-in, two ways:
 
-- **The `guardrails` pack** — add `"packs": ["guardrails"]` and `grep` (with recursive flags) and `find` refuse, pointing at `rg` and `fd`.
+- **The `guardrails` pack** — add `"packs": ["guardrails"]` and `grep` (with recursive flags) and `find` refuse, pointing at `rg` and `fd`. It also guards `mv` and `rm`: they work as usual, but refuse to move or delete the workspace's `.yolo` (the agents' homes), anything in it, or a folder that holds it, and point at `yolo --fresh-home`. Files under `$YOLO_DURABLE_DIR` stay free to move.
 - **Your own `security.blocked_tools`** — any tool you name, with your own message.
 
 An entry of yours naming the same tool as a pack's **replaces** the pack's wholesale. A block is only
@@ -124,6 +124,7 @@ What `guardrails` blocks, and what it suggests instead:
 |---------|-----------|
 | `grep` (recursive flags) | Use `rg` (ripgrep) |
 | `find` | Use `fd` |
+| `mv`, `rm` naming `.yolo`, something in it outside `$YOLO_DURABLE_DIR`, or a folder holding it | Ask the human for `yolo --fresh-home` |
 
 ### Customize Blocked Tools
 

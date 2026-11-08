@@ -32,6 +32,9 @@ type BlockedTool struct {
 	// next rule's shape ("block find UNLESS it is depth-limited") is already visible
 	// and block-on-presence cannot express it.
 	AllowFlags []string
+	// Guard names the path set a guard shim refuses by (packdecl.Contribution.Guard); empty
+	// for an ordinary block.
+	Guard string
 	// Pack is the declaring pack, for provenance in a collision message.
 	Pack string
 }
@@ -59,6 +62,7 @@ func BlockedTools(packs []*Pack) []BlockedTool {
 				Replacement: c.Replacement,
 				Flags:       append([]string(nil), c.Flags...),
 				AllowFlags:  append([]string(nil), c.AllowFlags...),
+				Guard:       c.Guard,
 				Pack:        p.Name,
 			})
 		}

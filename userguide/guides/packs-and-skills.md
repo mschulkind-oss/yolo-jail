@@ -59,7 +59,8 @@ on your host: `aws-auth`, `github`, `serial`, `journal`, `host-processes`, `audi
 what each does, and [GitHub](github.md) covers the `github` pack, which runs the jail's `gh` with
 your host's login.
 
-**Habits.** `guardrails` makes recursive `grep` and `find` refuse and point at `rg` and `fd`.
+**Habits.** `guardrails` makes recursive `grep` and `find` refuse and point at `rg` and `fd`, and
+makes `mv` and `rm` refuse to touch the workspace's `.yolo`.
 [Packages and Tools](packages-and-tools.md#blocked-tools) covers blocking tools.
 
 Some packs bring others with them: `claude` brings `claude-auth` and `wire-bridge`, `codex` brings

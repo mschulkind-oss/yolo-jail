@@ -743,6 +743,17 @@ type Contribution struct {
 	Message     string   `json:"message,omitempty"`
 	Suggestion  string   `json:"suggestion,omitempty"`
 	Replacement string   `json:"replacement,omitempty"`
+	// Guard turns a blocked-tool entry into a GUARD (a term coined in
+	// docs/design/workspace-state-safety.md §3.3): a shim that runs the real program unless an
+	// argument names a protected path set, and refuses only then, instead of refusing the tool
+	// or one of its modes outright. The value names the path set, from a closed list
+	// (KnownGuards, guard.go), and the shim parses the guarded tool's own arguments, so a guard
+	// takes only the tools whose grammar the shim knows (GuardBins). With a guard, `message` is
+	// the one line the briefing lists the tool under; the refusal itself is core's, because it
+	// names paths a manifest cannot know (the workspace's, on each setup). `flags`,
+	// `allow_flags` and `replacement` are refused beside it: a guard matches paths, not flags,
+	// and steers to no other tool.
+	Guard string `json:"guard,omitempty"`
 
 	// intercept: the argv the shim at ~/.yolo/bin/block/<bin> execs, with the caller's
 	// arguments appended (kinds.go, KindIntercept). Its first word is a bare program name
@@ -4575,7 +4586,15 @@ func validateContribution(label string, c Contribution) []string {
 			"%s: kind %q does not take \"forward\" — it is the argv an \"intercept\" shim execs; "+
 				"no consumer reads it on this kind", label, c.Kind))
 	}
+	// `guard` likewise: only a blocked-tool's shim reads it.
+	if c.Guard != "" && c.Kind != KindBlockedTool {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"guard\" — it makes a \"blocked-tool\" shim refuse by "+
+				"path; no consumer reads it on this kind", label, c.Kind))
+	}
 	switch c.Kind {
+	case KindBlockedTool:
+		problems = append(problems, guardProblems(label, c)...)
 	case KindIntercept:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)

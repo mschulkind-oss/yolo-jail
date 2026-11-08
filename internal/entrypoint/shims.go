@@ -84,14 +84,15 @@ func generateBlockers(e *Env) error {
 	agent := agentPath(e)
 	scripts := RenderBlockers(config, BlockerRender{
 		LookPath: func(bin string) string { return lookPathIn(agent, bin) },
-		RealBin:  func(name string) (string, bool) { return e.ShimBinPath() + "/" + name, true },
+		RealBin:  func(name string) (string, bool) { return jailRealBin(e, agent, name) },
 		NoReplacement: func(name, repl string) {
 			e.warn("not blocking " + name + ": its replacement " + repl +
 				" is not on PATH in this jail, and a block with no working alternative " +
 				"removes the capability instead of redirecting it (add " + repl +
 				" to `packages` to restore the block)")
 		},
-		Warn: e.warn,
+		Warn:      e.warn,
+		Workspace: e.WorkspaceDir(),
 	})
 	for _, s := range scripts {
 		if err := writeExecutable(filepath.Join(e.BlockDir(), s.Name), s.Content); err != nil {
@@ -99,6 +100,31 @@ func generateBlockers(e *Env) error {
 		}
 	}
 	return nil
+}
+
+// jailRealBin is the program a jail's filter shim or guard passes an allowed call on to. grep
+// and find are the shim bin dir's, as they always were. Any other name (a guard's mv or rm) is
+// the shim bin dir's when it is there, else the first on the agent's PATH outside yolo's own
+// bin dirs: macOS keeps mv and rm in /bin while its shim bin dir is /usr/bin. Nothing found
+// skips the entry with a line, since a guard with nothing behind it would break the tool.
+func jailRealBin(e *Env, agent, name string) (string, bool) {
+	p := e.ShimBinPath() + "/" + name
+	if name == "grep" || name == "find" || isExecutableFile(p) {
+		return p, true
+	}
+	block, launch := filepath.Clean(e.BlockDir()), filepath.Clean(e.LaunchDir())
+	var dirs []string
+	for _, d := range strings.Split(agent, ":") {
+		if c := filepath.Clean(d); d != "" && c != block && c != launch {
+			dirs = append(dirs, d)
+		}
+	}
+	if found := lookPathIn(strings.Join(dirs, ":"), name); found != "" {
+		return found, true
+	}
+	e.warn("not guarding " + name + ": there is no " + name + " on this jail's PATH to pass " +
+		"allowed calls on to; add it to `packages` (`yolo config add packages coreutils`)")
+	return "", false
 }
 
 // BlockerScript is one blocked tool's generated script: the file name it is written under in a
@@ -133,6 +159,10 @@ type BlockerRender struct {
 	NoReplacement func(name, replacement string)
 	// Warn receives every other line: the malformed flag patterns an entry carried.
 	Warn func(string)
+	// Workspace is the workspace a guard entry (one with `guard`, guardshim.go) protects, at
+	// the spelling the agent's shell sees: /workspace in a container jail, the real path under
+	// macos-user, the launch directory for `yolo host --`. Empty skips every guard, with a line.
+	Workspace string
 }
 
 // RenderBlockers renders the normalized blocked-tool list (YOLO_BLOCK_CONFIG's shape:
@@ -190,6 +220,9 @@ func renderBlocker(item any, r BlockerRender) (BlockerScript, bool) {
 		if s, isStr := v.(string); isStr {
 			msg = s
 		}
+	}
+	if guard, _ := stringValue(cfg, "guard"); guard != "" {
+		return renderGuard(name, guard, r, warn)
 	}
 	sug := ""
 	if v, present := cfg.Get("suggestion"); present {
