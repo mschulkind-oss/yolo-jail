@@ -85,10 +85,17 @@ func TestAHomeSourceReplacedLosesAHome(t *testing.T) {
 	ws, home, sources := workspace(t)
 	s := Take(ws, home, sources)
 	claude := filepath.Join(home, "claude")
+	// The replacement is made while the original still exists, so the two cannot share an inode
+	// number: a remove-then-mkdir may be handed the freed number straight back (it was, on CI's
+	// filesystem), which makes the "replaced" directory identical to the one stamped.
+	replacement := claude + ".new"
+	if err := os.Mkdir(replacement, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.RemoveAll(claude); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(claude, 0o755); err != nil {
+	if err := os.Rename(replacement, claude); err != nil {
 		t.Fatal(err)
 	}
 	f := Check(s)
