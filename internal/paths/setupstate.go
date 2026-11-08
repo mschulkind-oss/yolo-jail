@@ -4,8 +4,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
@@ -31,10 +33,58 @@ func SetupHomeState(workspace, name string) string {
 	return filepath.Join(SetupStateDir(workspace, name), "home")
 }
 
+// A FRESH HOME (docs/design/workspace-state-safety.md §3.6, SD-D14) is the home a
+// `yolo --fresh-home` launch binds instead of its setup's: a new empty directory beside the
+// setup's home, <workspace>/.yolo/setups/<name>/home.fresh-<stamp>, kept after the launch until the
+// user deletes it. Its capture store is prism.fresh-<stamp> beside it (PrismStateRel), so nothing
+// the fresh session does reaches the setup's own home or its captured edits. It is one of the
+// workspace's homes for every reader handed it (HomeStateRel), and deliberately NOT listed by
+// WorkspaceHomeStates, the list the reapers walk: no reaper touches a fresh home.
+
+// FreshHomePrefix starts a fresh home's directory name; FreshPrismPrefix its capture store's.
+const (
+	FreshHomePrefix  = "home.fresh-"
+	FreshPrismPrefix = "prism.fresh-"
+)
+
+// freshStampLayout is a fresh home's stamp: the moment it was made, in UTC, sortable, as a
+// rescue's is.
+const freshStampLayout = "20060102T150405Z"
+
+// freshStamp matches a fresh home's stamp: freshStampLayout, with the numbered suffix a second
+// fresh home made in the same second gets.
+var freshStamp = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z(-[0-9]{1,3})?$`)
+
+// FreshHomeName is a fresh home's directory name for the moment now; NewFreshHome adds a suffix
+// when it is taken.
+func FreshHomeName(now time.Time) string {
+	return FreshHomePrefix + now.UTC().Format(freshStampLayout)
+}
+
+// IsFreshHomeName reports whether name is a fresh home's directory name (FreshHomePrefix and a
+// stamp).
+func IsFreshHomeName(name string) bool {
+	stamp, ok := strings.CutPrefix(name, FreshHomePrefix)
+	return ok && freshStamp.MatchString(stamp)
+}
+
+// IsFreshHomeRel reports whether rel, a home relative to .yolo (HomeStateRel), is a fresh home.
+func IsFreshHomeRel(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	return len(parts) == 3 && parts[0] == "setups" && setup.ValidName(parts[1]) && IsFreshHomeName(parts[2])
+}
+
+// IsFreshHomeState reports whether home is one of workspace's fresh homes.
+func IsFreshHomeState(workspace, home string) bool {
+	rel, ok := HomeStateRel(workspace, home)
+	return ok && IsFreshHomeRel(rel)
+}
+
 // HomeStateRel returns home relative to <workspace>/.yolo when home is one of the workspace's
-// homes: the legacy "home" (LegacyHomeState), or "setups/<name>/home" for a valid setup name
-// (SetupHomeState). ok is false for any other path, so a reader handed a home by another process
-// (a registration file, a guest's environment) can check that it names this workspace's.
+// homes: the legacy "home" (LegacyHomeState), "setups/<name>/home" for a valid setup name
+// (SetupHomeState), or a fresh home "setups/<name>/home.fresh-<stamp>" (IsFreshHomeName). ok is
+// false for any other path, so a reader handed a home by another process (a registration file, a
+// guest's environment) can check that it names this workspace's.
 func HomeStateRel(workspace, home string) (rel string, ok bool) {
 	if workspace == "" || home == "" {
 		return "", false
@@ -46,7 +96,8 @@ func HomeStateRel(workspace, home string) (rel string, ok bool) {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	switch {
 	case len(parts) == 1 && parts[0] == "home":
-	case len(parts) == 3 && parts[0] == "setups" && setup.ValidName(parts[1]) && parts[2] == "home":
+	case len(parts) == 3 && parts[0] == "setups" && setup.ValidName(parts[1]) &&
+		(parts[2] == "home" || IsFreshHomeName(parts[2])):
 	default:
 		return "", false
 	}
@@ -79,8 +130,8 @@ func OpenWorkspaceHomeRoot(workspace, home string) (*os.Root, error) {
 // (named-setups-plan.md SUP-D34).
 const HomeStateEnv = "YOLO_HOME_STATE"
 
-// ValidHomeStateRel reports whether rel is a home spelled relative to .yolo: "home" or
-// "setups/<valid name>/home".
+// ValidHomeStateRel reports whether rel is a home spelled relative to .yolo: "home",
+// "setups/<valid name>/home" or a fresh home "setups/<valid name>/home.fresh-<stamp>".
 func ValidHomeStateRel(rel string) bool {
 	if rel == "" || filepath.IsAbs(rel) {
 		return false
@@ -93,10 +144,15 @@ func ValidHomeStateRel(rel string) bool {
 // home at homeRel, relative to .yolo: the "prism" beside it, `.yolo/prism` for the legacy home and
 // `.yolo/setups/<name>/prism` for a setup's. A baseline belongs to the home it was rendered into,
 // so one setup's boot never diffs its home against another setup's render (named-setups-plan.md
-// SUP-D35). An invalid homeRel names the legacy store.
+// SUP-D35). A fresh home's is its own `prism.fresh-<stamp>`, never the setup's, so a fresh
+// session's captured edits stay with it. An invalid homeRel names the legacy store.
 func PrismStateRel(homeRel string) string {
 	if !ValidHomeStateRel(homeRel) {
 		return "prism"
+	}
+	dir, base := filepath.Split(filepath.FromSlash(homeRel))
+	if stamp, ok := strings.CutPrefix(base, FreshHomePrefix); ok {
+		return filepath.Join(dir, FreshPrismPrefix+stamp)
 	}
 	return filepath.Join(filepath.Dir(filepath.FromSlash(homeRel)), "prism")
 }
@@ -141,7 +197,8 @@ func openWorkspaceStateRel(workspace, rel string) (*os.Root, error) {
 }
 
 // WorkspaceHomeStates lists the homes workspace holds now, sorted: the legacy home and every
-// setup's home that is a real directory. A symbolic link at `.yolo`, `setups`, a setup's
+// setup's home that is a real directory. A fresh home is not listed (WorkspaceFreshHomes lists
+// those): this is the list the reapers walk, and no reaper touches a fresh home. A symbolic link at `.yolo`, `setups`, a setup's
 // directory or a home is not followed and not listed, so a reader that walks each one (prune)
 // never walks where a jail pointed it. A workspace with none lists nothing.
 func WorkspaceHomeStates(workspace string) []string {
@@ -202,4 +259,65 @@ func SplitHomeState(home string) (workspace, rel string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// FreshHome is one fresh home a workspace holds (WorkspaceFreshHomes).
+type FreshHome struct {
+	// Setup is the setup it was made for, Dir the home, and Prism its capture store beside it,
+	// "" when that was never made.
+	Setup, Dir, Prism string
+}
+
+// WorkspaceFreshHomes lists the fresh homes workspace holds now, sorted by setup and then by
+// name, which is by age. Like WorkspaceHomeStates it follows no symbolic link at `.yolo`,
+// `setups`, a setup's directory or the home, and lists only real directories.
+func WorkspaceFreshHomes(workspace string) []FreshHome {
+	state, err := OpenStateDirRoot(WorkspaceStateDir(workspace))
+	if err != nil {
+		return nil
+	}
+	defer state.Close()
+	setups, err := OpenStateSubdirRoot(state, "setups", SetupsDir(workspace))
+	if err != nil {
+		return nil
+	}
+	defer setups.Close()
+	var out []FreshHome
+	for _, name := range readDirNames(setups) {
+		if !setup.ValidName(name) {
+			continue
+		}
+		d, err := OpenStateSubdirRoot(setups, name, SetupStateDir(workspace, name))
+		if err != nil {
+			continue
+		}
+		for _, entry := range readDirNames(d) {
+			if !IsFreshHomeName(entry) {
+				continue
+			}
+			if fi, err := d.Lstat(entry); err != nil || !fi.IsDir() {
+				continue
+			}
+			f := FreshHome{Setup: name, Dir: filepath.Join(SetupStateDir(workspace, name), entry)}
+			prism := FreshPrismPrefix + strings.TrimPrefix(entry, FreshHomePrefix)
+			if fi, err := d.Lstat(prism); err == nil && fi.IsDir() {
+				f.Prism = filepath.Join(SetupStateDir(workspace, name), prism)
+			}
+			out = append(out, f)
+		}
+		d.Close()
+	}
+	return out
+}
+
+// readDirNames is r's entries' names, sorted; nil when it cannot be read.
+func readDirNames(r *os.Root) []string {
+	f, err := r.Open(".")
+	if err != nil {
+		return nil
+	}
+	names, _ := f.Readdirnames(-1)
+	f.Close()
+	sort.Strings(names)
+	return names
 }

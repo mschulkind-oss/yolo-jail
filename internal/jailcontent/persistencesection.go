@@ -28,6 +28,11 @@ func homeStateShown(m *PersistenceMap, hostWorkspace string, homeDirs []string) 
 			if filepath.ToSlash(rel) == "home" {
 				return "home"
 			}
+			// A `yolo --fresh-home` launch's home is named as itself, so the session is not told
+			// its state is in the setup's usual home (docs/design/workspace-state-safety.md SD-D14).
+			if paths.IsFreshHomeRel(rel) {
+				return filepath.ToSlash(rel)
+			}
 			return current
 		}
 	}

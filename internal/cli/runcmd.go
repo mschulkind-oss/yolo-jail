@@ -104,6 +104,17 @@ Flags:
                      print nothing but one dim line naming it.
   --update, -u       Check selected build inputs now; reuse unchanged good builds.
   --dry-run          macos-user runtime only: print the plan without launching.
+  --fresh-home       Run this launch on a new, empty home instead of the workspace's
+                     usual one, to try something without this workspace's agent
+                     state (sessions, logins, installs). The usual home is not used
+                     or changed. The new home is made at
+                     .yolo/setups/<setup>/home.fresh-<stamp>, the launch says where,
+                     and it is KEPT after the jail stops: 'yolo stores' lists each
+                     one with its size and the command that deletes it, and nothing
+                     deletes it for you. Refused while a jail of this workspace
+                     runs, since a launch would join it on the home it already uses:
+                     'yolo stop' first. Every setup with a jail takes it; 'yolo host'
+                     has no jail home and refuses it.
   --update, -u       Wait for fresh preparation of this launch's selected programs and trees.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal
@@ -122,6 +133,7 @@ Examples:
   yolo -p zai -- claude               # ... on the zai profile, this launch only
   yolo --with-credentials zai -- bash # a jail holding zai's key, keys only
   yolo --timing -- true               # what did this launch spend its time on?
+  yolo --fresh-home -- claude         # claude on a new, empty home; the usual one is untouched
 
 Global options are listed by 'yolo --help'; the full config reference is
 'yolo config-ref'.`
@@ -148,7 +160,7 @@ Global options are listed by 'yolo --help'; the full config reference is
 // TestTheLaunchHasNoQuietFlag. `YOLO_NO_BANNER` is the one pre-existing hatch and it is
 // deliberately narrow — it silences the version line and nothing else.
 var runFlags = []string{"--profile", "--timing", "--dry-run", "--network", "--accept-config-changes", "--setup",
-	"--with-credentials", "--update"}
+	"--with-credentials", "--update", "--fresh-home"}
 
 // runKnownFlags is runFlags plus the spellings that are not policy: the short forms, help, and the
 // global --verbose the front door strips before subcommand resolution (included so a launch that
@@ -397,6 +409,11 @@ func parseRunArgs(args []string, opts *run.Options) runArgv {
 			opts.Timing = true
 		case a == "--dry-run":
 			opts.DryRun = true
+		// Spelled as a LITERAL for TestRunUsageListsEveryRunFlag's reason (below);
+		// TestTheFreshHomeFlagIsRunsSpelling pins it to run.FreshHomeFlag, the spelling every
+		// refusal and disclosure names.
+		case a == "--fresh-home":
+			opts.FreshHome = true
 		case a == "--update" || a == "-u":
 			opts.Update = true
 		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though

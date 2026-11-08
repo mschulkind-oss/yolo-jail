@@ -4,8 +4,12 @@ package paths
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"golang.org/x/sys/unix"
@@ -50,6 +54,35 @@ func EnsureSetupStateDir(workspace, name string) (*os.File, error) {
 		return nil, err
 	}
 	return os.NewFile(uintptr(fd), full), nil
+}
+
+// NewFreshHome makes a new, empty fresh home for setup name, <workspace>/.yolo/setups/<name>/
+// home.fresh-<stamp> (FreshHomeName), and returns its path. It never reuses a directory: a name
+// already taken gets a numbered suffix. Every step is descriptor-relative and refuses a link, as
+// EnsureSetupStateDir's are, so the home is made where the path says.
+func NewFreshHome(workspace, name string, now time.Time) (string, error) {
+	dir, err := EnsureSetupStateDir(workspace, name)
+	if err != nil {
+		return "", err
+	}
+	defer dir.Close()
+	base := FreshHomeName(now)
+	for i := 0; i < 100; i++ {
+		leaf := base
+		if i > 0 {
+			leaf = base + "-" + strconv.Itoa(i)
+		}
+		full := filepath.Join(SetupStateDir(workspace, name), leaf)
+		err := unix.Mkdirat(int(dir.Fd()), leaf, 0o755)
+		if errors.Is(err, unix.EEXIST) {
+			continue
+		}
+		if err != nil {
+			return "", &fs.PathError{Op: "mkdirat", Path: full, Err: err}
+		}
+		return full, nil
+	}
+	return "", fmt.Errorf("no free fresh home name under %s", SetupStateDir(workspace, name))
 }
 
 // mkdirOpenNoFollowAt creates name beneath parent when it is absent and opens it as a directory

@@ -79,6 +79,9 @@ func TestTheStakeNamesTheHomeTheLaunchBound(t *testing.T) {
 	}{
 		{"podman legacy", "podman", podman(hostWS + "/.yolo/home"), "`/workspace/.yolo/home`:", "setups/<setup>"},
 		{"podman setup", "podman", podman(hostWS + "/.yolo/setups/work/home"), "`/workspace/.yolo/setups/<setup>/home`:", ".yolo/home`"},
+		// A `yolo --fresh-home` launch (SD-D14) is told its own fresh home, not the setup's usual one.
+		{"podman fresh home", "podman", podman(hostWS + "/.yolo/setups/work/home.fresh-20261108T101500Z"),
+			"`/workspace/.yolo/setups/work/home.fresh-20261108T101500Z`:", "setups/<setup>/home`"},
 	} {
 		sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: hostWS, Mechanism: c.mechanism,
 			Persistence: c.m, Durable: &DurableDir{Path: durable.ContainerJailPath}}))

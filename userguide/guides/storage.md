@@ -47,6 +47,10 @@ yolo also reclaims most stores by itself, at most once a day each, after a jail 
 never prints to your terminal, which by then belongs to the jail; it is logged in
 `<project>/.yolo/housekeeping.log`. Set `YOLO_NO_AUTO_IMAGE_REAP=1` to turn it off.
 
+Nothing ever deletes a home that `yolo --fresh-home` started a jail on. `yolo stores` lists each
+one, under `<project>/.yolo/setups/<setup>/home.fresh-<stamp>`, with its size and the `rm -r` that
+deletes it once you no longer need what the session there found.
+
 Two kinds of files yolo will not remove without asking, because getting them back means
 downloading them again: shared build-cache files older than 30 days (never a login token or a lock
 file, whatever its age), and mise tool versions that no jail on the machine has used for 30 days. A launch in a terminal offers them once there is at least

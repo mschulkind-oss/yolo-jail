@@ -348,10 +348,19 @@ func Run(opts Options) (rc int) {
 	//
 	// selectHome may take the workspace launch lock (its comment says when), so its release is
 	// deferred first, for every return from here on. Idempotent.
+	//
+	// --fresh-home replaces the selection whole (freshhome.go, SD-D14): a new, empty home, and no
+	// legacy move, since that launch never touches the usual home. Pinned by
+	// TestFreshHomeLaunchBindsANewEmptyHome.
 	defer o.releaseLaunchLock()
-	if o.DryRun {
+	switch {
+	case o.FreshHome:
+		if !o.selectFreshHome() {
+			return 1
+		}
+	case o.DryRun:
 		o.homeState = o.currentHome()
-	} else {
+	default:
 		o.selectHome()
 	}
 	// The no-link check the chosen home is bound by pathname after (SUP-D30): a link the jail left
@@ -3073,6 +3082,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		o.pr(o.Stderr).print("--update cannot refresh a running jail on attach — exit/stop this jail, then run a fresh `yolo --update -- <command>` launch")
 		return 2, false
 	}
+	// --fresh-home never joins a running jail, which has the home it booted on (freshhome.go). Run
+	// refused it before choosing the home when a jail ran; this is the jail a concurrent launch
+	// started since, on every attach path.
+	if o.FreshHome {
+		if release != nil {
+			release()
+		}
+		o.refuseFreshHomeWhileRunning()
+		return 1, false
+	}
 	// Every attach path comes through here (the first probe, the post-lock re-check and the
 	// stale-removal wait), so the launch log's decision record is written once, here.
 	if raced {
@@ -3113,6 +3132,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		releaseLock()
 		return 1, false
 	}
+	// A jail on a fresh home is entered on that home, and the entry says so (freshhome.go). A
+	// restart continues as a fresh launch of this invocation, on the home it chose.
+	chosenHome := o.homeState
+	defer func() {
+		if restarted {
+			o.homeState = chosenHome
+		}
+	}()
+	o.adoptRunningFreshHome(envLines, envKnown)
 	// Launch line to stderr — surfaces the jail's BAKED version so a host CLI
 	// upgrade attaching to a pre-upgrade container (stale shims/mounts/entrypoint)
 	// is visible at a glance (audit §B#4.

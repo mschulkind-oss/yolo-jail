@@ -34,6 +34,7 @@ Launch flags, placed before `--`:
 | `--network bridge\|host` | Choose the network mode for a jail this launch starts, overriding the config's `network.mode` |
 | `--setup <name>` | Choose a named setup for this launch; `yolo setup list` shows them |
 | `--timing` | Report where the launch spent its time |
+| `--fresh-home` | Start the jail on a new, empty home, without this project's agent sessions, logins and installs, and leave the usual home untouched. The new home is kept after the jail stops; `yolo stores` lists each one with the command that deletes it. Refused while the project's jail runs (`yolo stop` first), and by `yolo host` |
 
 ## Set up and check
 

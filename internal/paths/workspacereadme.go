@@ -115,6 +115,13 @@ func WorkspaceStateReadme(workspace string) string {
 		rows = append(rows, "- `setups/<setup>/home/` IRREPLACEABLE: each setup's agent home, "+
 			"made at its first launch and bound into the jail's home directory.")
 	}
+	// The homes `yolo --fresh-home` launches ran on (docs/design/workspace-state-safety.md SD-D14),
+	// said once when there are any: kept, deleted by nothing but the user.
+	if len(WorkspaceFreshHomes(workspace)) > 0 {
+		rows = append(rows, "- `setups/<setup>/home.fresh-<stamp>/`, `prism.fresh-<stamp>/`: a home a "+
+			"`yolo --fresh-home` launch ran on, and its captured settings. Kept until you delete it; "+
+			"`yolo stores` lists each with the command that deletes it.")
+	}
 	return strings.Join([]string{
 		"# yolo-jail's state for this project",
 		"",

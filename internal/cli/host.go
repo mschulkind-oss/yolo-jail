@@ -342,6 +342,13 @@ const acceptConfigChangesAtHost = "  A host launch has nothing to approve: it re
 	"home without asking. The one question it keeps, a first apply dropping MCP servers yolo " +
 	"does not declare, is asked at a terminal; `yolo host apply --assert` asks it.\n"
 
+// freshHomeAtHost is the line the refusal of `--fresh-home` adds at the host
+// (docs/design/workspace-state-safety.md SD-D14): a host launch runs on your own home, so there is
+// no jail home for a fresh one to stand in for.
+const freshHomeAtHost = "  A host launch runs on your own home, not a jail home, so there is no " +
+	"home to swap for a new one. `yolo --fresh-home` starts this workspace's jail on a new, empty " +
+	"home; `yolo setup list` names the setups with a jail.\n"
+
 // resolveHostSetup is `yolo host`'s setup, through the selection every verb shares
 // (config.SelectSetup, Verb SetupForHost): `--setup` must name a setup with no walls, a built-in
 // or a user's; a session's YOLO_SETUP counts only when it names one; else host-self. A setup
@@ -488,6 +495,9 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 				"meaning for it, so it is refused rather than ignored.\n", name)
 			if name == config.AcceptConfigChangesFlag {
 				fmt.Fprint(errw, acceptConfigChangesAtHost)
+			}
+			if name == run.FreshHomeFlag {
+				fmt.Fprint(errw, freshHomeAtHost)
 			}
 			fmt.Fprint(errw, "  Drop it, or launch in this workspace's jail instead (`yolo run "+
 				"--help` lists it).\n")

@@ -208,7 +208,7 @@ type Options struct {
 	MacosUser func() MacosUserRoots
 	// Workspace is the workspace the command was run in, "" for none. Its rescued agent homes are
 	// listed even when no jail of it is running, as is every rescue of a workspace a runtime still
-	// lists a jail for (rescueStores).
+	// lists a jail for (rescueStores). Its fresh homes are listed the same way (freshHomeStores).
 	Workspace string
 }
 

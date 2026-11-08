@@ -193,6 +193,7 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, toolDiskStores(o, rt)...)
 	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
 	rep.Stores = append(rep.Stores, rescueStores(o, rt)...)
+	rep.Stores = append(rep.Stores, freshHomeStores(o, rt)...)
 	rep.Stores = append(rep.Stores, macosUserStores(o)...)
 	rep.Stores = append(rep.Stores, nixStores(o, rt)...)
 	return rep

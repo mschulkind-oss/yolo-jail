@@ -168,6 +168,10 @@ type Options struct {
 	Update bool
 	// DryRun is --dry-run (macos-user only; a hard error elsewhere).
 	DryRun bool
+	// FreshHome is --fresh-home: this launch runs on a new, empty home beside the setup's own,
+	// kept afterwards, and never touches the usual one (freshhome.go;
+	// docs/design/workspace-state-safety.md SD-D14).
+	FreshHome bool
 	// AcceptConfigChanges is --accept-config-changes: it grants the config-change
 	// approval on a launch with no terminal to prompt on, which without it is a
 	// REFUSED launch (docs/reference/config-safety.md, OQ-D2).
