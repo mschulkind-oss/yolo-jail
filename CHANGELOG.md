@@ -10,6 +10,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-09
+
+You can paste a clipboard image into the agent, a workspace's agent sessions are much harder to lose, and one MCP sign-in now serves every jail.
+
+### Added
+
+**Paste an image into the agent.** Run `yolo paste` on your host with an image on the clipboard, then paste into the agent: it gets the image as an attachment. Only the pixels reach the jail. See [Paste an Image into the Agent](userguide/guides/image-paste.md).
+
+**Start an agent without the workspace's saved state.** `yolo --fresh-home` runs the setup on a new, empty home and leaves your usual one untouched. `yolo stores` lists each fresh home and the command that deletes it.
+
+**A moved `.yolo` no longer takes your sessions with it.** If the workspace's `.yolo` folder is moved or deleted while a jail runs, yolo copies the agents' homes out before the jail stops and prints the command that restores them. `yolo stores` lists each rescue. `.yolo` now holds a README saying what in it cannot be replaced, and every agent is told its own session lives there.
+
+**One MCP sign-in for every jail.** A user-level MCP server with `sign_in = "once"` reuses the sign-in Claude Code already has, such as its Slack plugin's, and yolo keeps it fresh for every jail on the machine. `yolo host` does not keep it yet, and says so.
+
+**Config changes reach a running jail.** A change to `mise_tools`, MCP or LSP servers, or security settings applies to the next session you open in a running jail, without restarting it.
+
+### Changed
+
+- Each setup now has its own agent home under `.yolo/setups/<setup>/home`. The first launch with no jail running moves your existing `.yolo/home` there and says so.
+- yolo's logs for a workspace are now written under `.yolo/logs/`.
+- `yolo approve` refuses `--add` and `--remember`. Answer once, use `--for 15m`, or request the push with `yolo request git push <branch>` and approve it with `yolo config apply`.
+- The opt-in `guardrails` pack now refuses an `mv` or `rm` that would move or delete the workspace's `.yolo`, except your own files under its `durable/` folder.
+- A pack's content for an agent that no selected pack provides is skipped with a notice instead of refusing the launch.
+- Pack authors: a pack now declares a provider as `[providers.<id>]`. The old spellings still load, and `yolo pack migrate` rewrites them.
+
+### Fixed
+
+- yolo no longer edits your git ignore files or your mise config as a side effect of another command, and `yolo host` no longer creates a skills link in your workspace.
+- The `muse-code` pack launches again.
+- `yolo init-user-config` no longer writes a `config.jsonc` beside an existing `config.toml`.
+- Links in Pi inside a jail are clickable again in terminals that support them.
+- Copying from Pi 1.5 or newer works inside a jail, including the macOS sandbox, through your terminal's clipboard support. `yolo host` is unchanged.
+- With both Pi and oh-my-pi selected, each keeps its own sessions.
+- On Apple Container, `yolo ps` shows each jail's real state, and a relaunch no longer fails on its own config copy.
+- `yolo config migrate` no longer widens a GitHub grant whose repository is written in capitals, or a workflow grant that names no workflow.
+- A pack forked from a pack yolo does not ship now finds its base.
+
+### Contributors
+
+Thanks to [Kurt Galiatsatos](https://github.com/kurt-hs) for clickable links and clipboard copying in Pi.
+
 ## [0.17.0] - 2026-11-06
 
 You now choose where an agent runs by naming a setup, MCP servers can run remotely, and an agent can check whether a GitHub command would run before it tries.
