@@ -195,6 +195,57 @@ func TestAForkBringsAShippedBase(t *testing.T) {
 	}
 }
 
+// TestAConfiguredBaseSharingAShippedNameKeepsTheShippedOneOut: `fork_of = "pi"` names a selected
+// configured `yolo-packs/pi` by its own word, the way ApplyForks matches a base (resolveForkBase).
+// The closure must treat that base as present: adding yolo's shipped `pi` as well would give the
+// launch two `pi` programs and rebase the fork onto the shipped one, whose exact Name wins the
+// match, instead of the base the user selected. Red if ResolveNeeds looks the base up by Name only.
+func TestAConfiguredBaseSharingAShippedNameKeepsTheShippedOneOut(t *testing.T) {
+	shipped := binPack("pi", "pi")
+	configured := claimPack(t, "yolo-packs/pi", packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "pi", Via: "npm", Package: "pi"})
+	fork := claimPack(t, "pi-matt", forkContribution("pi", "pi"))
+	selected := []*Pack{configured, fork}
+	added, causes, err := ResolveNeeds(selected, needsUniverse(shipped))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 0 || len(causes) != 0 {
+		t.Fatalf("the closure added %q (causes %q) though the selected yolo-packs/pi is the fork's base",
+			addedNames(added), causes)
+	}
+	got, err := ApplyForks(append(selected, added...))
+	if err != nil {
+		t.Fatalf("the fork rewrite refused the selection: %v", err)
+	}
+	if got[0] == configured || got[0].Name != "yolo-packs/pi" {
+		t.Fatalf("the fork did not rewrite the configured base: got[0] = %s (unchanged: %v)", got[0].Name, got[0] == configured)
+	}
+	for _, in := range got[0].Decl.InstallContributions() {
+		if in.Bin == "pi" && in.Kind != packdecl.InstallKindSource {
+			t.Errorf("the configured base's pi is %q, not the fork's", in.Kind)
+		}
+	}
+}
+
+// TestAForkOfABaseNeitherSelectedNorShippedStillNamesTheFix: the shared base match changes only
+// what counts as present; a base no selected pack and no shipped pack answers adds nothing, and
+// ApplyForks still refuses naming `yolo pack add <source>/<base>` and `yolo pack remove`.
+func TestAForkOfABaseNeitherSelectedNorShippedStillNamesTheFix(t *testing.T) {
+	fork := claimPack(t, "pi-matt", forkContribution("pi", "pi"))
+	other := claimPack(t, "yolo-packs/pix", packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "pix", Via: "npm", Package: "pix"})
+	selected := []*Pack{other, fork}
+	added, _, err := ResolveNeeds(selected, needsUniverse(binPack("claude", "claude")))
+	if err != nil || len(added) != 0 {
+		t.Fatalf("added %q, err %v; want nothing and no refusal from the closure", addedNames(added), err)
+	}
+	_, err = ApplyForks(selected)
+	for _, want := range []string{"pi is not in this selection", "yolo pack add <source>/pi", "yolo pack remove pi-matt"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want one naming %q", err, want)
+		}
+	}
+}
+
 // The check fact belongs to the base manifest, not the contribution whose delivery is
 // rewritten. Drive ApplyForks so the accessor is tested on the actual selected copy.
 func TestTheForkRewriteKeepsTheBaseModelListCheck(t *testing.T) {
