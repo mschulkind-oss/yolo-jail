@@ -120,6 +120,11 @@ func stopWorkspace(t *testing.T, setupName string) (cname string, finished *[]st
 		got = append(got, rt)
 		return 0
 	}
+	// The runtime stand-ins of these tests answer every name alike, so no legacy container is
+	// looked for unless a test asks (stoplegacy_test.go restores the real lookup).
+	savedFind := stopLegacyContainerFind
+	t.Cleanup(func() { stopLegacyContainerFind = savedFind })
+	stopLegacyContainerFind = func(string, string, stopCommandRunner) (string, bool) { return "", false }
 	return runtime.JailName(cwd, setupName), &got
 }
 

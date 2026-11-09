@@ -216,14 +216,52 @@ func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 			rc = src
 		}
 	}
-	if legacy := runtime.FromWorkspace(ws); legacy != stopJailNameFor(ws, selected) && stopLegacyJailKnown(legacy) {
-		fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
-		if lrc := stopJail(stdout, stderr, ws, legacy, rt, run, p, force); rc == 0 {
-			rc = lrc
+	if legacy := runtime.FromWorkspace(ws); legacy != stopJailNameFor(ws, selected) {
+		lrt, left := rt, stopLegacyJailKnown(legacy)
+		if !left {
+			lrt, left = stopLegacyContainerFind(legacy, rt, run)
+		}
+		if left {
+			fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
+			if lrc := stopJail(stdout, stderr, ws, legacy, lrt, run, p, force); rc == 0 {
+				rc = lrc
+			}
 		}
 	}
 	return rc
 }
+
+// stopLegacyContainer finds a container under the legacy jail name that nothing else of yolo's
+// records (review M2): an older yolo's jail that exited without its container being removed, or
+// whose keeper record and tracking file are gone. A launch refuses on such a container, so the stop
+// must reach it: it asks rt when rt is a container runtime, then the other container runtime when
+// it is on PATH (stopLookPath), and answers the runtime that holds one.
+func stopLegacyContainer(legacy, rt string, run stopCommandRunner) (string, bool) {
+	var asked []string
+	for _, r := range []string{rt, "podman", "container"} {
+		if (r != "podman" && r != "container") || slices.Contains(asked, r) {
+			continue
+		}
+		if r != rt {
+			if _, err := stopLookPath(r); err != nil {
+				continue
+			}
+		}
+		asked = append(asked, r)
+		if _, exists, answered := probeJailPresence(r, legacy, run, stopRuntimeCommandTimeout); answered && exists {
+			return r, true
+		}
+	}
+	return "", false
+}
+
+// stopLookPath is exec.LookPath behind a var, for the tests: which other container runtime the
+// legacy stop asks.
+var stopLookPath = exec.LookPath
+
+// stopLegacyContainerFind is stopLegacyContainer behind a var, for the tests whose runtime stand-in
+// answers every name alike and so would find a legacy container that is not there.
+var stopLegacyContainerFind = stopLegacyContainer
 
 // stopOneSetup is `yolo stop --setup <name>` (named-setups-plan.md slice 6b): the jail of that one
 // setup in ws, on its own technology, whatever is selected. A name that is not a built-in or one

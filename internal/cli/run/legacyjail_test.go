@@ -60,6 +60,79 @@ func TestALegacyJailRunningRefusesTheLaunchBeforeAnyMove(t *testing.T) {
 	}
 }
 
+// legacyContainerLeftover makes o's podman hold a STOPPED container under the legacy jail name of
+// ws: `ps -a` lists it until `podman rm` (whose status is rmRC) removes it, and `ps` (running only)
+// never does. It returns the argv of every command the launch ran.
+func legacyContainerLeftover(o *Options, ws string, rmRC int) *[][]string {
+	var calls [][]string
+	legacy := yoloruntime.FromWorkspace(ws)
+	present := true
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		calls = append(calls, argv)
+		switch {
+		case slices.Equal(argv, []string{"podman", "ps", "-a", "-q", "--filter", "name=^/" + legacy + "$"}):
+			if present {
+				return ExecResult{Ran: true, Stdout: "0123abcd\n"}
+			}
+			return ExecResult{Ran: true}
+		case slices.Equal(argv, []string{"podman", "ps", "-q", "--filter", "name=^/" + legacy + "$"}):
+			return ExecResult{Ran: true}
+		case slices.Equal(argv, []string{"podman", "rm", legacy}):
+			if rmRC == 0 {
+				present = false
+			}
+			return ExecResult{Ran: true, RC: rmRC}
+		}
+		return ExecResult{Ran: false}
+	}
+	return &calls
+}
+
+// A STOPPED CONTAINER AN OLDER YOLO LEFT IS REMOVED, NOT A REFUSAL (review M2): it holds the
+// legacy name and nothing else, and no yolo command would clear it (`podman stop` does nothing to
+// an exited container), so refusing would wedge the workspace. The launch removes it the way it
+// removes a stale container of its own name, and says so. Deleting the leftover branch of Run's
+// refuseLegacyJail fails this.
+func TestAStoppedLegacyContainerIsRemovedNotRefused(t *testing.T) {
+	packHome(t)
+	ws, _ := legacyHomeWorkspace(t)
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	calls := legacyContainerLeftover(o, ws, 0)
+	_ = Run(*o)
+	legacy := yoloruntime.FromWorkspace(ws)
+	if strings.Contains(stderr.String(), "Refusing to launch: a jail an earlier yolo") ||
+		strings.Contains(stderr.String(), "Refusing to launch: a stopped jail") {
+		t.Errorf("a stopped legacy container refused the launch:\n%s", stderr.String())
+	}
+	if !slices.ContainsFunc(*calls, func(a []string) bool { return slices.Equal(a, []string{"podman", "rm", legacy}) }) {
+		t.Errorf("the launch did not remove the stopped legacy container; calls %v", *calls)
+	}
+	if !strings.Contains(stderr.String(), "Removed the stopped jail an earlier yolo left for this workspace ("+legacy+")") {
+		t.Errorf("the launch did not say it removed the stopped legacy container:\n%s", stderr.String())
+	}
+}
+
+// A stopped legacy container the runtime will not remove refuses the launch naming the runtime's
+// own removal, not a stop (which does nothing to it).
+func TestAStoppedLegacyContainerThatWillNotGoNamesItsRemoval(t *testing.T) {
+	packHome(t)
+	ws, _ := legacyHomeWorkspace(t)
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	legacyContainerLeftover(o, ws, 1)
+	if rc := Run(*o); rc != 1 {
+		t.Fatalf("Run() = %d, want 1 (refused)\nstderr:\n%s", rc, stderr.String())
+	}
+	legacy := yoloruntime.FromWorkspace(ws)
+	if !strings.Contains(stderr.String(), "`podman rm "+legacy+"`") {
+		t.Errorf("the refusal must name `podman rm %s`:\n%s", legacy, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "podman stop") {
+		t.Errorf("the refusal named a stop, which does nothing to a stopped container:\n%s", stderr.String())
+	}
+}
+
 // With nothing under the legacy name, the launch is not refused on its account.
 func TestNoLegacyJailRefusesNothing(t *testing.T) {
 	packHome(t)

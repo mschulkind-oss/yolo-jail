@@ -23,16 +23,59 @@ func (o *Options) refuseLegacyJail() bool {
 	if o.jailName() == legacy {
 		return false
 	}
-	answer, how := o.jailRuns(legacy)
-	if answer != projectJailsRunning {
+	out := o.pr(o.Stderr)
+	// Each pass removes at most one leftover container (one per runtime), so the passes are bounded.
+	for range len(projectContainerRuntimes) + 1 {
+		answer, how := o.jailRuns(legacy)
+		if answer != projectJailsRunning {
+			return false
+		}
+		if leftover := o.legacyLeftoverContainer(legacy, how); leftover {
+			// A STOPPED LEFTOVER IS NOT A RUNNING JAIL (review M2): an older yolo's container that
+			// exited without being removed holds the name and nothing else, as one under this
+			// launch's own name would, and the launch removes it the same way (removeStaleContainer).
+			if o.removeStaleContainer(legacy, how) {
+				out.print("Removed the stopped jail an earlier yolo left for this workspace (" +
+					richtext.Escape(legacy) + ").")
+				continue
+			}
+			out.print("[bold red]Refusing to launch: a stopped jail an earlier yolo left for this workspace (" +
+				richtext.Escape(legacy) + ") could not be removed. It holds this workspace's home.[/bold red]")
+			out.print("Remove it, then launch again: `" + legacyJailRemove(legacy, how) + "`.")
+			return true
+		}
+		out.print("[bold red]Refusing to launch: a jail an earlier yolo started for this workspace (" +
+			richtext.Escape(legacy) + ") is still running. It holds this workspace's home, and this " +
+			"yolo names each setup's jail apart, so it would start a second jail beside it.[/bold red]")
+		out.print("Stop it, then launch again: " + legacyJailStop(legacy, how) + ".")
+		return true
+	}
+	return false
+}
+
+// legacyLeftoverContainer reports whether what jailRuns found under the legacy name is only a
+// stopped container on runtime how: no keeper of any of its keys is alive or unknown, no session
+// of them is live, and the runtime answers that no container of the name runs. Any doubt is not a
+// leftover.
+func (o *Options) legacyLeftoverContainer(cname, how string) bool {
+	if how != "podman" && how != "container" {
 		return false
 	}
-	out := o.pr(o.Stderr)
-	out.print("[bold red]Refusing to launch: a jail an earlier yolo started for this workspace (" +
-		richtext.Escape(legacy) + ") is still running. It holds this workspace's home, and this " +
-		"yolo names each setup's jail apart, so it would start a second jail beside it.[/bold red]")
-	out.print("Stop it, then launch again: " + legacyJailStop(legacy, how) + ".")
-	return true
+	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+		if probeKeeper(key) != keeperGone || len(liveKeyedSessions(key)) > 0 {
+			return false
+		}
+	}
+	id, known := o.probeRunningContainer(cname, how, trackingProbeTimeout)
+	return known && id == ""
+}
+
+// legacyJailRemove is the runtime's own removal of a stopped legacy container.
+func legacyJailRemove(cname, rt string) string {
+	if rt == "container" {
+		return "container rm " + richtext.Escape(cname)
+	}
+	return "podman rm " + richtext.Escape(cname)
 }
 
 // legacyJailStop is the stop a refusal names for the legacy jail, by what found it running:
