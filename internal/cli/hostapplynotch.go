@@ -357,7 +357,7 @@ func hostNotchOutcomeOf(loaded []*packload.Pack, fields render.FieldSet, p *pack
 //     runs one: a pairing's service and a pure worker alike (HS-D29);
 //   - a loophole when its module is a doorway the launch opens (run.HostDoorwayLoopholes, which
 //     re-runs PlanHostDoorways' filter);
-//   - an env contribution unless it is `served_by` a daemon the host serves neither as a doorway
+//   - an env contribution unless it is `jail_only` or `served_by` a daemon the host serves neither as a doorway
 //     nor as a pack service (packload's served-at-this-notch rule, NC-D16): a pointer at anything
 //     else is withheld at `yolo host --` and named there, as audio's at a socket only a jail binds;
 //   - an adapter of a pack that declares no service (a remote gateway, a proxy you run: yolo runs
@@ -373,6 +373,9 @@ func deliveredByHostLaunch(loaded []*packload.Pack, p *packload.Pack, c packdecl
 	case packdecl.KindLoophole:
 		return doorways[path.Base(path.Clean(filepath.ToSlash(c.From)))]
 	case packdecl.KindEnv:
+		if c.JailOnly {
+			return false
+		}
 		if c.ServedBy == "" {
 			return true
 		}
