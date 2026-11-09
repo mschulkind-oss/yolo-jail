@@ -192,8 +192,7 @@ A fundamental invariant of YOLO is credential and filesystem isolation. Running
 does **not** project those files into `/home/agent/` inside the jail.
 
 - Inside the jail, `/home/agent/.pi` (and similar agent state directories) is an isolated
-  per-workspace overlay (`<workspace>/.yolo/home/pi`),
-  not your host home.
+  per-workspace overlay (`<workspace>/.yolo/setups/<setup>/home/pi` for this launch's setup), not your host home.
 - Agent configs and briefings in the jail are composed exclusively by **YOLO packs**
   and the config layering system (`yolo config ls`).
 - If you need agent-specific rules or briefings, choose among the three supported paths:
@@ -278,7 +277,7 @@ Loopholes wire host capabilities (audio, claude-oauth-broker, host-processes)
 into the jail. If one isn't working:
 
 ```
-yolo loopholes list      # what's enabled + status
+yolo loopholes list      # the selected packs' loopholes + status
 yolo broker status       # for the claude-oauth-broker loophole specifically
 yolo broker logs         # recent broker output
 ```
@@ -392,7 +391,7 @@ Run `yolo config drift` to see what is pending now. The command's own result is 
 ===== jail-mechanics/recipes/packs-and-loopholes.md =====
 # packs and loopholes
 
-Selected packs for this jail: claude. Edit the packs list in `/home/test/.config/yolo-jail/config.jsonc`, run `yolo check` there, then start a fresh `yolo` launch from `/home/test/project`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole enable/disable is a host-side switch, not a pack selection; use `yolo config-ref` for the exact switch command.
+Selected packs for this jail: claude. Edit the packs list in `/home/test/.config/yolo-jail/config.jsonc`, run `yolo check` there, then start a fresh `yolo` launch from `/home/test/project`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.
 
 ===== jail-mechanics/recipes/restart.md =====
 # restart
@@ -412,7 +411,7 @@ Selected packs for this jail: claude. Edit the packs list in `/home/test/.config
 # tools
 
 For a one-off tool, install it in the current environment; that installation follows the path lifetimes in `host-map.md`. Permanent tool delivery for this launch is baked image.
-For a permanent image package, edit `packages`, validate with `yolo check --no-build`, then ask the human to run `yolo config apply` and restart using `Please run `yolo stop` in `/home/test/project` on the host; this ends the jail's sessions.`; the image rebuilds first.
+For a permanent image package, run `yolo config add install.nix <package> --project`, validate with `yolo check --no-build`, then ask the human to run `yolo config apply` and restart the jail. Please run `yolo stop` in `/home/test/project` on the host; this ends the jail's sessions. The image rebuilds first.
 
 ===== jail-mechanics/recipes/user-config.md =====
 # user config

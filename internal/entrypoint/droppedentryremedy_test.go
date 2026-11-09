@@ -131,7 +131,7 @@ func TestTheBootDropRemedyDeclaresOnlyUnderAConfigTable(t *testing.T) {
 func TestTheBootDropRemedyNamesTheUserConfigFirst(t *testing.T) {
 	notice, _ := bootLSPTable(t, "")
 	remedy := notice[strings.Index(notice, "handmade"):]
-	user := strings.Index(remedy, "~/.config/yolo-jail/config.jsonc on the host")
+	user := strings.Index(remedy, "your user config (`yolo config set <key> <value> --user`) on the host")
 	workspace := strings.Index(remedy, "this workspace's yolo-jail.jsonc")
 	if user < 0 {
 		t.Fatalf("the remedy does not name the user config on the host; got %q", remedy)

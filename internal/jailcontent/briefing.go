@@ -590,12 +590,17 @@ func BriefingContent(in BriefingInput) string {
 
 	var provisioningFailed []string
 	if in.ProvisioningFailed {
+		// macos-user has no /workspace: the workspace is the host directory itself.
+		ws := "/workspace"
+		if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
+			ws = in.Workspace
+		}
 		provisioningFailed = []string{
 			"## ⚠ Provisioning failed",
 			"",
 			"The last boot's provisioning failed — project tools may be missing.",
-			"Read `/workspace/.yolo/logs/startup.log` and self-serve (e.g. run",
-			"`mise install` in /workspace, then re-run the step that failed).",
+			"Read `" + ws + "/.yolo/logs/startup.log` and self-serve (e.g. run",
+			"`mise install` in " + ws + ", then re-run the step that failed).",
 			"",
 		}
 	}
@@ -848,8 +853,9 @@ func BriefingContent(in BriefingInput) string {
 		"  `~/.gitconfig`, and cloud/gh tokens are invisible here. This is a credential",
 		"  boundary, not a network block — outbound SSH and HTTPS work normally, so git",
 		"  push/pull and API calls succeed whenever the jail has its own credentials",
-		"  (e.g. a workspace-specific deploy key or a token in `.env`). Only without",
-		"  such jail-local credentials do authenticated operations fail.",
+		"  (e.g. a workspace-specific deploy key or a token in `.env`), or when a section",
+		"  below says `git` or `gh` runs through the host's own credentials. Without",
+		"  either, authenticated operations fail.",
 		noSudoLine,
 		"",
 	)

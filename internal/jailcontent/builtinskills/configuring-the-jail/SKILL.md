@@ -294,8 +294,8 @@ A fundamental invariant of YOLO is credential and filesystem isolation. Running
 does **not** project those files into `/home/agent/` inside the jail.
 
 - Inside the jail, `/home/agent/.pi` (and similar agent state directories) is an isolated
-  per-workspace overlay (`<workspace>/.yolo/home/pi`, or `.yolo/home/.pi` on Apple Container),
-  not your host home.
+  per-workspace overlay (`<workspace>/.yolo/setups/<setup>/home/pi` for this launch's setup,
+  or `.yolo/setups/<setup>/home/.pi` on Apple Container), not your host home.
 - Agent configs and briefings in the jail are composed exclusively by **YOLO packs**
   and the config layering system (`yolo config ls`).
 - If you need agent-specific rules or briefings, choose among the three supported paths:

@@ -73,7 +73,7 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 			"## Change timing\n\nBefore editing the config, read **jail-mechanics** for the applied facts and exact next steps. The change-timing recipe is generated from this jail's launch decisions.\n\n")
 		text = strings.ReplaceAll(text, "podman's `-p`", "the container runtime's port mapping")
 		text = strings.ReplaceAll(text, "podman is host-first", "the port order is host-first")
-		text = strings.ReplaceAll(text, ", or `.yolo/home/.pi` on Apple Container", "")
+		text = strings.ReplaceAll(text, ",\n  or `.yolo/setups/<setup>/home/.pi` on Apple Container", "")
 		if facts.Briefing.Mechanism == "macos-user" {
 			text = strings.ReplaceAll(text, "Use this when a change must be **baked into how the jail is built** so it", "Use this when a change must be part of the permanent environment configuration so it")
 			text = replaceSection(text, "## Two representative edits (then run `yolo check --no-build`)", "## Some files in your home are GENERATED — don't hand-edit them", "## Two representative edits (then run `yolo check --no-build`)\n\nUse **jail-mechanics** for the exact current package delivery and change steps.\n\n")
@@ -441,9 +441,9 @@ func renderRecipe(file string, facts FactSheet) string {
 				fmt.Fprintf(&b, "%d. %s runs whenever its pack is selected; `yolo loopholes enable` and `disable` are retired. For a grant this project needs, run `yolo request <pack> <kind>` here; the human runs `yolo config apply` from `%s` on the host. To run or stop one, the human runs `yolo pack add <pack>` or `yolo pack remove <pack>` on the host.\n", step, which, facts.HostWorkspace)
 				step++
 				if facts.Briefing.Mechanism == "macos-user" {
-					fmt.Fprintf(&b, "%d. End this session and start a fresh `yolo` launch from `%s`; the switch is read at launch.\n\n", step, facts.HostWorkspace)
+					fmt.Fprintf(&b, "%d. End this session and start a fresh `yolo` launch from `%s`; the pack selection is read at launch.\n\n", step, facts.HostWorkspace)
 				} else {
-					fmt.Fprintf(&b, "%d. Restart using `%s` so the switch is read at launch. The command's report wins.\n\n", step, facts.RestartCommand)
+					fmt.Fprintf(&b, "%d. Restart using `%s` so the pack selection is read at launch. The command's report wins.\n\n", step, facts.RestartCommand)
 				}
 			}
 		}
@@ -468,7 +468,7 @@ func renderRecipe(file string, facts FactSheet) string {
 			fmt.Fprintf(&b, "3. %s\n4. Restart the jail from `%s` so the new user-scope settings are loaded.\n", changetiming.HostCommand("yolo config apply", facts.HostWorkspace, false), facts.HostWorkspace)
 		}
 	case "packs-and-loopholes.md":
-		fmt.Fprintf(&b, "Selected packs for this jail: %s. Edit the packs list in `%s`, run `yolo check` there, then start a fresh `yolo` launch from `%s`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole enable/disable is a host-side switch, not a pack selection; use `yolo config-ref` for the exact switch command.\n", strings.Join(facts.Packs, ", "), facts.UserConfigPath, facts.HostWorkspace)
+		fmt.Fprintf(&b, "Selected packs for this jail: %s. Edit the packs list in `%s`, run `yolo check` there, then start a fresh `yolo` launch from `%s`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.\n", strings.Join(facts.Packs, ", "), facts.UserConfigPath, facts.HostWorkspace)
 	case "skills-and-briefing.md":
 		fmt.Fprintf(&b, "1. Edit the skill or briefing source, not its staged copy.\n2. Delivery is %s; the map lists exact paths and lifetimes.\n", facts.SkillsDelivery)
 		if facts.Host {
@@ -486,9 +486,9 @@ func renderRecipe(file string, facts FactSheet) string {
 		} else {
 			fmt.Fprintf(&b, "For a one-off tool, install it in the current environment; that installation follows the path lifetimes in `host-map.md`. Permanent tool delivery for this launch is %s.\n", facts.PackageDelivery)
 			if facts.PackageDelivery == "baked image" {
-				fmt.Fprintf(&b, "For a permanent image package, edit `packages`, validate with `yolo check --no-build`, then ask the human to run `yolo config apply` and restart using `%s`; the image rebuilds first.\n", changetiming.HostCommand(facts.RestartCommand, facts.HostWorkspace, true))
+				fmt.Fprintf(&b, "For a permanent image package, run `yolo config add install.nix <package> --project`, validate with `yolo check --no-build`, then ask the human to run `yolo config apply` and restart the jail. %s The image rebuilds first.\n", changetiming.HostCommand(facts.RestartCommand, facts.HostWorkspace, true))
 			} else if facts.PackageDelivery == "store-delivered" {
-				fmt.Fprintf(&b, "For a permanent package, edit its config, validate, ask the human to run `yolo config apply` from `%s`, then restart using `%s`. This delivery does not require an image rebuild.\n", facts.HostWorkspace, changetiming.HostCommand(facts.RestartCommand, facts.HostWorkspace, true))
+				fmt.Fprintf(&b, "For a permanent package, run `yolo config add install.nix <package> --project`, validate with `yolo check --no-build`, ask the human to run `yolo config apply` from `%s`, then restart the jail. %s This delivery does not require an image rebuild.\n", facts.HostWorkspace, changetiming.HostCommand(facts.RestartCommand, facts.HostWorkspace, true))
 			} else {
 				fmt.Fprintf(&b, "For a permanent tool, update its environment config, validate with `yolo check`, then follow its timing class in `workspace-config`.\n")
 			}

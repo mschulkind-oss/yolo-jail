@@ -1046,6 +1046,32 @@ func TestMoveLegacyLocalPackBriefingRefusesWhileAManifestNamesTheLegacyFile(t *t
 			}
 		}
 	}
+	// The same declaration in a pack.toml refuses the same move: the check read only pack.json.
+	for _, group := range []string{
+		"[[briefing]]\nfrom = \"AGENTS.md\"\nagents = [\"claude\"]\n",
+		"[[briefing]]\nfrom = \"./AGENTS.md\"\ninto = \".claude/CLAUDE.md\"\n",
+	} {
+		dir, legacy, target := writeLegacyLocalPack(t, "Claude only.\n")
+		manifest := filepath.Join(dir, packdecl.ManifestTOMLName)
+		if err := os.WriteFile(manifest, []byte("name = \"local\"\n\n"+group), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		res, err := MoveLegacyLocalPackBriefing(dir, false)
+		if err == nil {
+			t.Fatalf("pack.toml %q: want a refusal, got %+v", group, res)
+		}
+		for _, want := range []string{manifest, "briefing[0]", `"briefing/local.md"`, "EVERY agent"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("pack.toml %q: the refusal must name %s: %v", group, want, err)
+			}
+		}
+		if got := readFile(t, legacy); got != "Claude only.\n" {
+			t.Errorf("pack.toml %q: the refusal touched %s", group, legacy)
+		}
+		if _, err := os.Lstat(target); !os.IsNotExist(err) {
+			t.Errorf("pack.toml %q: the refusal created %s", group, target)
+		}
+	}
 	// A manifest pointing elsewhere — or at the new name — does not block the move.
 	dir, _, target := writeLegacyLocalPack(t, "Prose.\n")
 	if err := os.WriteFile(filepath.Join(dir, packdecl.ManifestName),

@@ -71,8 +71,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -890,7 +892,7 @@ func MoveLegacyLocalPackBriefing(localPackDir string, observe bool) (*HostRender
 	return res, nil
 }
 
-// legacyFromDeclaration is the refusal text for a local pack.json whose briefing CONTENT
+// legacyFromDeclaration is the refusal text for a local pack.json (or pack.toml) whose briefing CONTENT
 // contribution names the legacy root file in `from`, or "" when none does (or there is no readable
 // pack.json — a manifest-less local pack broadcasts its briefing/ either way, so the move
 // preserves its delivery exactly).
@@ -898,6 +900,9 @@ func MoveLegacyLocalPackBriefing(localPackDir string, observe bool) (*HostRender
 // Parsed loosely, not through packdecl.Decode: the declaration this looks for is one packdecl
 // refuses, and the question is only "does the user's file still point at the old name?".
 func legacyFromDeclaration(localPackDir string) string {
+	if why := legacyFromTOMLDeclaration(localPackDir); why != "" {
+		return why
+	}
 	manifest := filepath.Join(localPackDir, packdecl.ManifestName)
 	data, err := os.ReadFile(manifest)
 	if err != nil {
@@ -925,6 +930,36 @@ func legacyFromDeclaration(localPackDir string) string {
 			"declaration and reach EVERY agent, not the audience that contribution routes it to. "+
 			"Change that `from` to %q in %s, then re-run `yolo host apply` to move the file",
 			manifest, i, c.From, LocalPackBriefingRel, manifest)
+	}
+	return ""
+}
+
+// legacyFromTOMLDeclaration is legacyFromDeclaration for a local pack.toml, whose briefing
+// contributions are its `[[briefing]]` tables, read as loosely and for the same reason.
+func legacyFromTOMLDeclaration(localPackDir string) string {
+	manifest := filepath.Join(localPackDir, packdecl.ManifestTOMLName)
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		return ""
+	}
+	doc, err := configdoc.Parse(data, configdoc.TOML)
+	if err != nil {
+		return ""
+	}
+	root, _ := jsonx.Plain(doc.Values).(map[string]any)
+	groups, _ := root["briefing"].([]any)
+	for i, g := range groups {
+		c, _ := g.(map[string]any)
+		from, _ := c["from"].(string)
+		agent, _ := c["agent"].(string)
+		if agent != "" || from == "" || path.Clean(from) != LegacyLocalPackBriefingRel {
+			continue
+		}
+		return fmt.Sprintf("%s briefing[%d] names %q as its briefing `from`, and a root "+
+			"AGENTS.md is no longer read as pack prose — so the moved file would be named by no "+
+			"declaration and reach EVERY agent, not the audience that contribution routes it to. "+
+			"Change that `from` to %q in %s, then re-run `yolo host apply` to move the file",
+			manifest, i, from, LocalPackBriefingRel, manifest)
 	}
 	return ""
 }

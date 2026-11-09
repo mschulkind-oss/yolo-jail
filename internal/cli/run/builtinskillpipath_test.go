@@ -25,7 +25,9 @@ func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	ws := "/ws"
-	wsState := paths.LegacyHomeState(ws)
+	// Every launch binds its setup's own home now (paths.SetupHomeState); the skill names it with
+	// a <setup> placeholder, since one skill serves every setup.
+	wsState := paths.SetupHomeState(ws, "<setup>")
 	o := goldenOptions(ws, home)
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
@@ -53,7 +55,7 @@ func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
 	if podmanRel == "" {
 		t.Fatalf("no podman bind for /home/agent/.pi in the argv: %v", argv)
 	}
-	acRel := filepath.ToSlash(filepath.Join(paths.LegacyHomeState("."), wsStateHomeRel("container", ".pi")))
+	acRel := filepath.ToSlash(filepath.Join(paths.SetupHomeState(".", "<setup>"), wsStateHomeRel("container", ".pi")))
 
 	b, err := builtinskills.FS.ReadFile("configuring-the-jail/SKILL.md")
 	if err != nil {
@@ -65,7 +67,9 @@ func TestConfiguringTheJailSkillNamesPisRealOverlay(t *testing.T) {
 			t.Errorf("configuring-the-jail does not name pi's overlay as the launch lays it out (%q)", want)
 		}
 	}
-	if strings.Contains(skill, ".yolo/state/") {
-		t.Errorf("configuring-the-jail still names .yolo/state/, a directory no launch makes")
+	for _, gone := range []string{".yolo/state/", ".yolo/home/"} {
+		if strings.Contains(skill, gone) {
+			t.Errorf("configuring-the-jail still names %s, a directory no launch makes", gone)
+		}
 	}
 }

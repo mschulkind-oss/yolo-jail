@@ -1494,7 +1494,11 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 
 // dropRemedyUserConfig is the user config as the boot drop notice names it: the host path, as
 // a reader on the host types it, beside the workspace's config file.
-const dropRemedyUserConfig = "~/.config/yolo-jail/config.jsonc"
+const dropRemedyUserConfig = "your user config (`yolo config set <key> <value> --user`)"
+
+// envFileAddCommand is the command that lists a dotenv file whose variables every launch reads,
+// for the boot notices that name it. It writes either config format.
+const envFileAddCommand = "yolo config add env.files <file> --user"
 
 // noteDroppedManagedEntries prints a one-line boot notice for each entry in the
 // existing managed block that config does not (re)assert — the visible-drop
@@ -1667,13 +1671,13 @@ func noteGatedMCPEntries(e *Env, surface manifest.Surface, key string, names []s
 		missing := strings.Join(vars[name], ", ")
 		fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (in config, required env not set): %s "+
 			"(needs %s) — %s reaches only %s, through %s, so the `requires_env` gate left it "+
-			"out for %s; it stays declared under `%s`, and to deliver it, select for %s a "+
-			"profile that delivers %s, as %s, with the `profile` key in %s on the host, then "+
+			"out for %s; it stays declared under `%s`, and to deliver it, choose for %s a "+
+			"provider that delivers %s, as %s, with `yolo active-provider %s <provider>` on the host, then "+
 			"launch again\n",
 			surface.Agent, surface.Name, key, name, missing, missing, strings.Join(others, ", "),
-			plural(len(others), "the profile it selected", "the profiles they selected"),
+			plural(len(others), "the provider it selected", "the providers they selected"),
 			surface.Agent, manifest.SourceMCPServers, surface.Agent, missing,
-			plural(len(others), "that one does", "those do"), dropRemedyUserConfig)
+			plural(len(others), "that one does", "those do"), surface.Agent)
 	}
 	names = unreached
 	if len(names) == 0 {
@@ -1700,11 +1704,11 @@ func noteGatedMCPEntries(e *Env, surface manifest.Surface, key string, names []s
 	}
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (in config, required env not set): %s "+
 		"— %s %s unset for %s, so the `requires_env` gate left %s out; %s declared under `%s`, "+
-		"and to deliver %s, set %s in a dotenv file listed under `env_sources` in %s on the "+
-		"host, then launch again\n",
+		"and to deliver %s, set %s in a dotenv file and add that file with "+
+		"`%s` on the host, then launch again\n",
 		surface.Agent, surface.Name, key, strings.Join(items, ", "),
 		strings.Join(unset, ", "), isUnset, surface.Agent, it, stays, manifest.SourceMCPServers,
-		it, strings.Join(unset, ", "), dropRemedyUserConfig)
+		it, strings.Join(unset, ", "), envFileAddCommand)
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

@@ -265,5 +265,5 @@ func TestAnUnreadableUserNodeExtraCACertsIsSaid(t *testing.T) {
 	if !strings.Contains(readCAFile(t, filepath.Join(e.Home, ExtraCAFileRel)), f.loopholeCA) {
 		t.Error("the loophole CA left the extras file")
 	}
-	mustContain(t, "the boot's warning", stderr, "/nowhere/zscaler.pem, which the jail could not read", "env_sources")
+	mustContain(t, "the boot's warning", stderr, "/nowhere/zscaler.pem, which the jail could not read", "`env.set`, or a file under `env.files`")
 }

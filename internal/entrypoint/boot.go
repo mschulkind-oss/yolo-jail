@@ -354,7 +354,7 @@ func hydrateEnvFromSessionEnvFile(e *Env) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		e.warn("warning: could not read the session env file " + path + " (" + err.Error() +
-			"), so an MCP server gated by requires_env on an env_sources variable is left out " +
+			"), so an MCP server gated by requires_env on a variable from `env.files` or `env.set` is left out " +
 			"of the agent configs this launch. Relaunch to rewrite the file.")
 		return
 	}

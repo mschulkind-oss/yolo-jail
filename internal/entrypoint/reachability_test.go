@@ -1077,8 +1077,8 @@ func TestReachabilityProbeEscapeHatchKeepsTheJail(t *testing.T) {
 		t.Errorf("a hatch that suppresses a launch failure silently is indistinguishable from a "+
 			"jail with no problem, got:\n%s", got)
 	}
-	if !strings.Contains(got, "CONTINUING") {
-		t.Errorf("the override must state that it is continuing anyway, got:\n%s", got)
+	if !strings.Contains(got, "CONTINUING although service 'claude-oauth-broker' is unusable from inside this jail.") {
+		t.Errorf("the override must state, in a sentence that parses, that it is continuing anyway, got:\n%s", got)
 	}
 	if !strings.Contains(got, "claude-oauth-broker") {
 		t.Errorf("the override must name what it is continuing past, got:\n%s", got)

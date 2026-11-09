@@ -282,7 +282,7 @@ func applyCATrust(e *Env) error {
 	if ca.userNode != "" && !ca.userNodeRead {
 		e.warn("Warning: your configured environment sets " + nodeExtraCAVar + " to " +
 			richtext.Escape(termsafe.Visible(ca.userNode)) + ", which the jail could not read, so Node " +
-			"does not add its certificates. Check the path in your env_sources: it is read inside the " +
+			"does not add its certificates. Check the path where you set it (`env.set`, or a file under `env.files`): it is read inside the " +
 			"jail, so it must be a path the jail sees, such as one under /workspace.")
 	}
 	if len(ca.hostAdded) == 0 {

@@ -91,11 +91,10 @@ func TestTheBootDropNoticeSaysARequiresEnvGatedServerIsInConfig(t *testing.T) {
 	for _, want := range []string{
 		"claude/config:",
 		"mcpServers",
-		"`mcp_servers`",                       // where it is declared
-		"ACME_TOKEN",                          // the variable it lacks
-		"`requires_env`",                      // the gate that dropped it
-		"`env_sources`",                       // where to set the variable
-		dropRemedyUserConfig + " on the host", // the file that lists them
+		"`mcp_servers`",   // where it is declared
+		"ACME_TOKEN",      // the variable it lacks
+		"`requires_env`",  // the gate that dropped it
+		envFileAddCommand, // how to list the file that sets the variable
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the notice for a requires_env-gated server must name %q; got %q", want, line)
@@ -193,11 +192,10 @@ func TestTheBootDropNoticeNamesTheProfileStepWhenAnotherAgentHasTheVariable(t *t
 	}
 	for _, want := range []string{
 		"ACME_TOKEN",
-		"codex",         // who has it
-		"`profile`",     // the step that delivers it
+		"codex", // who has it
+		"`yolo active-provider claude <provider>`", // the step that delivers it
 		"for claude",    // to whom
 		"`mcp_servers`", // it is declared
-		dropRemedyUserConfig,
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the notice must name %q; got %q", want, line)

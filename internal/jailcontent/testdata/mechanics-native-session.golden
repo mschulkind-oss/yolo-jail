@@ -144,7 +144,7 @@ Loopholes wire host capabilities (audio, claude-oauth-broker, host-processes)
 into the jail. If one isn't working:
 
 ```
-yolo loopholes list      # what's enabled + status
+yolo loopholes list      # the selected packs' loopholes + status
 yolo broker status       # for the claude-oauth-broker loophole specifically
 yolo broker logs         # recent broker output
 ```

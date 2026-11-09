@@ -52,9 +52,10 @@ var inertEnv = paths.LoopholeInertEnv("host-processes")
 // shape, filled for a loophole whose pack is not selected).
 const noEndpointMsg = "yolo-ps: no host-processes endpoint in this jail, so nothing ran.\n" +
 	"  The host-processes loophole is not running here: its pack is not selected.\n" +
-	"  Ask for this project:   yolo request host-processes view <process names>\n" +
-	"  then the human selects the pack, on the host:   yolo pack add host-processes\n" +
-	"  and restarts the jail, answering y at its config-change prompt.\n"
+	"  First the human selects the pack, on the host:   yolo pack add host-processes\n" +
+	"  and restarts the jail, answering y at its config-change prompt.\n" +
+	"  Then ask for this project, here:   yolo request host-processes view <process names>\n" +
+	"  and the human approves it, on the host:   yolo config apply\n"
 
 func main() {
 	os.Exit(run())

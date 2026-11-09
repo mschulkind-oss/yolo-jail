@@ -75,8 +75,8 @@ func AssertRequiredBins(e *Env) {
 			}
 			msg := "warning: pack " + p.Name + " needs program " + req.Bin +
 				", which is not on PATH in this jail and no selected pack provides it (yolo " +
-				"installs nothing for a `program` with no recipe — add it to `packages` in " +
-				"yolo-jail.jsonc, or select a pack whose `program` " + req.Bin + " carries one)"
+				"installs nothing for a `program` with no recipe — add its nix package with " +
+				"`yolo config add install.nix <package> --project`, or select a pack whose `program` " + req.Bin + " carries one)"
 			if len(req.Hints) > 0 {
 				msg += " [host hints: " + strings.Join(sortedHintKeys(req.Hints), ", ") + "]"
 			}

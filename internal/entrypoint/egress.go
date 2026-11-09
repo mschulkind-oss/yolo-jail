@@ -607,8 +607,8 @@ func egressNextStep(p *egressProbe, proxyFault bool) string {
 		s += "  The proxy is the first thing to check: a proxy listening on the host's 127.0.0.1 is\n" +
 			"  not reachable at that address from inside a container.\n"
 	case p.proxySource == "":
-		s += "  If this network only lets traffic out through a proxy, give the jail HTTPS_PROXY with an\n" +
-			"  env_sources entry.\n"
+		s += "  If this network only lets traffic out through a proxy, give the jail HTTPS_PROXY with\n" +
+			"  `yolo config set env.set.HTTPS_PROXY <url> --user`.\n"
 	}
 	return s
 }
