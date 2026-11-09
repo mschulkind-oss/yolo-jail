@@ -145,7 +145,7 @@ func TestRetiredMcpPresetsKeyIsRefused(t *testing.T) {
 	for _, want := range []string{
 		"Invalid jail config",
 		"config.mcp_presets: REMOVED",
-		"add `chrome-devtools` to `packs` in ~/.config/yolo-jail/config.jsonc",
+		"run `yolo pack add chrome-devtools` on the host",
 		"@modelcontextprotocol/server-sequential-thinking",
 	} {
 		if !strings.Contains(out, want) {
