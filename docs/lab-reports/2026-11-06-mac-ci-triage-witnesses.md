@@ -93,6 +93,22 @@ or the runner's podman machine (report only).
 - W5. On the next release tag's nightly, confirm `TestTheJailsYoloCarriesItsMatchedBundleStamp`
   passes on the on-tag form.
 
+**Status of W5 (2026-11-09): still open.** The 11-07 nightly passed the test on the off-tag form
+`0.17.0+82` ([report](2026-11-07-mac-session-homes-and-nightly-42372802408.md)), which is not the
+form W5 asks about. The tag `v0.17.0` points at `6ac121c04`, and no nightly has run that commit;
+a scheduled run tests the last pushed commit, so one may never land on it.
+
+**To run W5**, at main `6ac121c04` exactly (the tag commit), or at the next release tag's commit:
+
+1. Find a Nightly macOS Integration run whose head is that commit:
+   `gh run list -R mschulkind-oss/yolo-jail --workflow nightly-macos.yml --json databaseId,headSha,event --limit 20`.
+   If none exists, a dispatched run on the tag is the owner's to start; do not dispatch one.
+2. `gh run view -R mschulkind-oss/yolo-jail <run id> --log | grep TestTheJailsYoloCarriesItsMatchedBundleStamp`.
+   Expected: `--- PASS: TestTheJailsYoloCarriesItsMatchedBundleStamp`. On the tag commit the stamp
+   takes the on-tag form `<tag>+g<hash>`, with no commit count.
+3. Report the run id, its head commit, the test line, and the stamp where the log shows it. A pass
+   closes W5.
+
 ### 4. The 60-minute step cap
 
 Shard 8 on 11-05 passed every test and was still cut off at 60 minutes. The regenerated table
@@ -101,8 +117,16 @@ variance.
 
 - W6. Read the next two scheduled runs' longest shard step time.
 
+**W6's two readings are in.** The longest integration step was **59 minutes on 11-07** (nightly
+42372802408 at `4b26d1dfc`, shard 5), including one test, `TestAJailLaunchesOnTOMLFiles`, that hung
+until its 20-minute timeout; without that hang shard 5 would have run about 39 minutes. Shards 12,
+14 and 15 lost their runner that night. It was **52 minutes on 11-08** (read 2026-11-09). So the
+55-minute line was crossed once, and only because of a hung test; the clean reading leaves about
+8 minutes under the cap.
+
 **Decision needed (owner):** if any shard passes 55 minutes, either add shards or raise the step
-cap. Each costs runner minutes; neither is decided here.
+cap. Each costs runner minutes; neither is decided here. The readings above are what the decision
+has to go on.
 
 ### 5. The legacy home's move under the yolo account
 
