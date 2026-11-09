@@ -20,7 +20,10 @@ type orphanFixture struct {
 	gs, build, containers string
 	dirs                  OrphanCnameDirs
 	cname, ws             string
-	files                 map[string][]string // class -> paths
+	// project, when set, is the key the approval records are written under, as production keys
+	// them (runtime.FromWorkspace, named-setups-plan.md SUP-D39); empty keys them by cname.
+	project string
+	files   map[string][]string // class -> paths
 	now                   time.Time
 }
 
@@ -64,8 +67,12 @@ func (f *orphanFixture) add(t *testing.T, cname string) {
 		write(OrphanClassLogs, filepath.Join(f.dirs.Logs, n), "log")
 	}
 	write(OrphanClassOwners, filepath.Join(f.dirs.Owners, cname), "4242\n")
+	approvalKey := cname
+	if f.project != "" {
+		approvalKey = f.project
+	}
 	for _, s := range []string{".json", ".scope.json", ".scope-sources.json", ".loophole-grants.json"} {
-		write(OrphanClassApprovals, filepath.Join(f.dirs.Approvals, cname+s), "{}")
+		write(OrphanClassApprovals, filepath.Join(f.dirs.Approvals, approvalKey+s), "{}")
 	}
 	if cname != f.cname {
 		return // no pointer: the workspace cannot be told
@@ -499,11 +506,44 @@ func TestOrphanSweepRemovesASetupsAgedOrphanWhoseWorkspaceIsGone(t *testing.T) {
 		now: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), files: map[string][]string{}}
 	f.dirs = OrphanCnameDirsUnder(gs, f.build, f.containers)
 	f.ws = filepath.Join(gs, "workspaces", "gone-ws")
-	f.cname = runtime.FromResolved(f.ws) + "-podman-self"
+	f.project = runtime.FromResolved(f.ws)
+	f.cname = f.project + "-podman-self"
 	f.add(t, f.cname)
 	rep := f.sweep(nil, true, nil)
-	if len(rep.Names) != 1 || rep.Names[0] != f.cname {
-		t.Errorf("swept %v, want the setup's jail name %s alone", rep.Names, f.cname)
+	if len(rep.Names) != 2 || rep.Names[0] != f.project || rep.Names[1] != f.cname {
+		t.Errorf("swept %v, want the project key %s (its approval records) and the setup's jail name %s",
+			rep.Names, f.project, f.cname)
 	}
+	f.assertAll(t, true)
+}
+
+// THE APPROVAL RECORDS UNDER THE PROJECT KEY ARE SWEPT ON THE EVIDENCE OF A SETUP'S POINTER
+// (review M1): approvals keep the project key (SUP-D39) while the pointer is the jail's, so no
+// pointer of the approvals' own name exists. And the pointer is the only evidence, so it stays
+// while those records do: a sweep that removed it first would leave them for ever.
+func TestOrphanSweepKeepsTheSetupsPointerWhileTheProjectsApprovalsStay(t *testing.T) {
+	gs := t.TempDir()
+	if r, err := filepath.EvalSymlinks(gs); err == nil {
+		gs = r
+	}
+	f := &orphanFixture{gs: gs, build: filepath.Join(gs, "build"), containers: filepath.Join(gs, "containers"),
+		now: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), files: map[string][]string{}}
+	f.dirs = OrphanCnameDirsUnder(gs, f.build, f.containers)
+	f.ws = filepath.Join(gs, "workspaces", "gone-ws")
+	f.project = runtime.FromResolved(f.ws)
+	f.cname = f.project + "-podman-self"
+	f.add(t, f.cname)
+	for _, p := range f.files[OrphanClassApprovals] {
+		backdate(t, p, f.now) // answered recently: not past the floor yet
+	}
+	f.sweep(nil, true, nil)
+	f.assertClass(t, OrphanClassApprovals, false)
+	f.assertClass(t, OrphanClassCurrentImages, false)
+	f.assertClass(t, OrphanClassLocks, true)
+
+	for _, p := range f.files[OrphanClassApprovals] {
+		backdate(t, p, f.now.Add(-OrphanCnameAgeFloor-24*time.Hour))
+	}
+	f.sweep(nil, true, nil)
 	f.assertAll(t, true)
 }

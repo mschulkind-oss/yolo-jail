@@ -65,6 +65,10 @@ import (
 //     (its recheck failed, or its removal did) keeps the pointer, so the next sweep can still
 //     prove the workspace gone and finish the record.
 //
+//     The approval records keep the project key while each jail's pointer has the jail's name
+//     (named-setups-plan.md SUP-D39), so a project key's records are judged by the pointer of any
+//     of its jails, and such a pointer stays while any of those records does.
+//
 //     An unmounted workspace (a detached volume, an unmounted share) reads as gone: past the
 //     floor its approvals go and its next launch prompts again. That is the accepted limit.
 //
@@ -316,6 +320,39 @@ func PruneOrphanCnameStateGuarded(dirs OrphanCnameDirs, known map[string]struct{
 	}
 	sort.Strings(names)
 
+	// The approval records keep the PROJECT key (runtime.FromWorkspace, named-setups-plan.md
+	// SUP-D39) while a launch names its pointer for its jail (runtime.JailName), so a project's
+	// approvals usually have no pointer of their own name. A pointer of any of the project's
+	// jails is the same evidence: it names the workspace, which hashes back to the project key.
+	projectGone := map[string]bool{}
+	for _, ent := range byName {
+		for _, e := range ent {
+			if e.class != OrphanClassCurrentImages {
+				continue
+			}
+			name := filepath.Base(e.path)
+			if ws, ok := pointerWorkspace(dirs.CurrentImages, name); ok && workspaceAbsent(ws) {
+				projectGone[runtime.FromResolved(ws)] = true
+			}
+		}
+	}
+	// approvalsStay reports whether any approval record of project is still on disk. Names sort
+	// the project key before each of its jails' names, so by the time a jail's pointer is weighed
+	// the project's records have had their own turn. A dry run counts what it predicted removing
+	// as removed, so it predicts what the apply does.
+	predicted := map[string]bool{}
+	approvalsStay := func(project string) bool {
+		for _, e := range byName[project] {
+			if e.class != OrphanClassApprovals || predicted[e.path] {
+				continue
+			}
+			if _, err := os.Lstat(e.path); err == nil || !errors.Is(err, fs.ErrNotExist) {
+				return true
+			}
+		}
+		return false
+	}
+
 	for _, cname := range names {
 		if _, keep := known[cname]; keep {
 			continue
@@ -330,7 +367,7 @@ func PruneOrphanCnameStateGuarded(dirs OrphanCnameDirs, known map[string]struct{
 		if !allOlderThan(ents, now, OrphanCnameAgeFloor) {
 			continue
 		}
-		wsGone := workspaceGone(dirs.CurrentImages, cname)
+		wsGone := workspaceGone(dirs.CurrentImages, cname) || projectGone[cname]
 		// Approvals before the pointer: the pointer is the evidence the approval decision read.
 		sort.SliceStable(ents, func(i, j int) bool { return orphanOrder(ents[i].class) < orphanOrder(ents[j].class) })
 		removedAny, approvalKept := false, false
@@ -341,8 +378,15 @@ func PruneOrphanCnameStateGuarded(dirs OrphanCnameDirs, known map[string]struct{
 			if ent.class == OrphanClassCurrentImages && approvalKept {
 				continue // the evidence for the approval part that stayed
 			}
+			if ent.class == OrphanClassCurrentImages {
+				// The evidence for the project's approval records, kept while any of them stays.
+				if ws, ok := pointerWorkspace(dirs.CurrentImages, cname); ok && approvalsStay(runtime.FromResolved(ws)) {
+					continue
+				}
+			}
 			size := entrySize(ent.path)
 			if !apply {
+				predicted[ent.path] = true
 				rep.Files++
 				rep.Bytes += size
 				rep.ByClass[ent.class]++
@@ -425,9 +469,16 @@ func allOlderThan(ents []orphanEntry, now time.Time, floor time.Duration) bool {
 // to the cname (its legacy name, or a setup's: runtime.IsJailOfResolved), and nothing exists at that path. Any doubt (no pointer, a malformed one, a path
 // that does not hash back, an Lstat error other than not-exist) is "not gone".
 func workspaceGone(currentImagesDir, cname string) bool {
+	ws, ok := pointerWorkspace(currentImagesDir, cname)
+	return ok && workspaceAbsent(ws)
+}
+
+// pointerWorkspace is the workspace cname's current-image pointer names, when the pointer is
+// well formed and that workspace hashes back to cname; ok=false on any doubt.
+func pointerWorkspace(currentImagesDir, cname string) (string, bool) {
 	data, err := os.ReadFile(filepath.Join(currentImagesDir, cname))
 	if err != nil {
-		return false
+		return "", false
 	}
 	var lines []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -436,13 +487,19 @@ func workspaceGone(currentImagesDir, cname string) bool {
 		}
 	}
 	if len(lines) < 2 {
-		return false
+		return "", false
 	}
 	ws := lines[1]
 	if !filepath.IsAbs(ws) || !runtime.IsJailOfResolved(ws, cname) {
-		return false
+		return "", false
 	}
-	_, err = os.Lstat(ws)
+	return ws, true
+}
+
+// workspaceAbsent is true only when nothing exists at ws; an Lstat error other than not-exist
+// counts as present.
+func workspaceAbsent(ws string) bool {
+	_, err := os.Lstat(ws)
 	return errors.Is(err, fs.ErrNotExist)
 }
 
