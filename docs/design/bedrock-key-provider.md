@@ -43,7 +43,7 @@ the hand-written API-key provider this replaces),
 [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) (the claims rule, PP-D9,
 and the one-selection-answers-every-gate rule, PP-D5),
 [`agent-credentials.md`](../reference/agent-credentials.md) (what refuses a launch and what only
-warns), [`secret-env-scoping.md`](secret-env-scoping.md) (how every provider's key in `[env]`
+warns), [`secret-env-scoping.md`](secret-env-scoping.md) (how every provider's key in `[env.secrets]`
 reaches its agents; it decides [OQ-BK3](#OQ-BK3) and may supersede the narrowing's refusal story).
 
 ---
@@ -302,7 +302,7 @@ deleting a file, or not; yolo never edits it.
 
    Matt keeps `bedrock-key.env` loaded only by his layer, so an SSO launch never opens it. With
    `bedrock-key` a provider, he can name the file once with
-   `yolo config add env.sources ~/.config/yolo-jail/bedrock-key.env` and never pass the flag
+   `yolo config add env.secrets.files '"~/.config/yolo-jail/bedrock-key.env"' --user` and never pass the flag
    again; every launch then reads the file, and the gate delivers the key only to an agent on
    `bedrock-key`. The guarantee moves from "which launches read the file" to "which processes
    receive the value". His question about that — what a key in the file does when nothing claims
@@ -316,9 +316,9 @@ deleting a file, or not; yolo never edits it.
      never open the file. Cost: the flag stays, and `active_provider` cannot select the key
      without it, which is half of what the owner asked for.
 
-   <!-- vantage: question id=OQ-BK3 leaning="A — the same pattern as every provider's key: the file in the user config's [env], its reach decided by the claim, as secret-env-scoping.md states for every provider." -->
+   <!-- vantage: question id=OQ-BK3 leaning="A — the same pattern as every provider's key: the file in the user config's [env.secrets], its reach decided by the claim, as secret-env-scoping.md states for every provider." -->
 
-   _Leaning:_ A — the same pattern as every provider's key: the file in the user config's `[env]`,
+   _Leaning:_ A — the same pattern as every provider's key: the file in the user config's `[env.secrets]`,
    its reach decided by the claim, as [`secret-env-scoping.md`](secret-env-scoping.md) states for
    every provider.
 
