@@ -153,7 +153,7 @@ func TestHostApplyNamesTheRetiredMCPPresetsKey(t *testing.T) {
 	var out, errw bytes.Buffer
 	hostMain([]string{"apply"}, &out, &errw, false, strings.NewReader(""))
 	if report := out.String() + errw.String(); !strings.Contains(report,
-		"config.mcp_presets: REMOVED") || !strings.Contains(report, "add `chrome-devtools` to `packs`") {
+		"config.mcp_presets: REMOVED") || !strings.Contains(report, "`yolo pack add chrome-devtools`") {
 		t.Errorf("host apply does not name the retired key and the pack:\n%s", report)
 	}
 }

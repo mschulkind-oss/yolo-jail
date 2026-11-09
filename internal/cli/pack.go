@@ -203,7 +203,7 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               files into home/, proving it delivers the same (moves keep their
                               history in a checkout). This release still reads pack.json
   yolo pack lint [--online] [dir]
-                              validate the tree AND the pack.json manifest; print its footprint.
+                              validate the tree AND its pack.toml or pack.json manifest; print its footprint.
                               It reads each patched fork's and extension's patch series as a launch
                               does. --online also checks each upstream in a scratch mirror it
                               deletes afterwards: that the ref and the series' base exist, what the

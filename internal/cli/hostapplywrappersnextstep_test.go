@@ -52,7 +52,7 @@ func TestAWrappersFailureNamesItsNextStep(t *testing.T) {
 			if lines[at+1] != fix {
 				t.Errorf("the line after the failure is\n%q\nwant\n%q", lines[at+1], fix)
 			}
-			off := `  or stop yolo writing wrappers: set "host_wrappers": false in ` + paths.UserConfigPath()
+			off := "  or stop yolo writing wrappers: yolo config set host_wrappers false --user"
 			if lines[at+2] != off {
 				t.Errorf("the second step is\n%q\nwant\n%q", lines[at+2], off)
 			}

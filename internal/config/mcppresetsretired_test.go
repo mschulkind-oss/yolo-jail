@@ -16,8 +16,8 @@ import (
 // wantMCPPresetsRefusal is what every spelling of the refusal must carry: the removal, the
 // pack and the file it is selected in, the sequential-thinking entry, and the check to run.
 var wantMCPPresetsRefusal = []string{
-	"REMOVED", "add `chrome-devtools` to `packs`", "~/.config/yolo-jail/config.jsonc",
-	`"sequential-thinking": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]}`,
+	"REMOVED", "`yolo pack add chrome-devtools`",
+	"`yolo config set mcp_servers.sequential-thinking.command '[\"npx\", \"-y\", \"@modelcontextprotocol/server-sequential-thinking\"]'`",
 	"Delete the key", "yolo check",
 }
 

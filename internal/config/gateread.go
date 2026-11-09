@@ -361,7 +361,7 @@ func NewScopeCheck(workspace string, brokers []ScopeBroker, read *WorkspaceRead)
 	rec, _, _ := readScopeRecord(ApprovalScopePath(workspace))
 	check := &ScopeCheck{}
 	for _, b := range brokers {
-		s := ScopeSource{Source: b.Source, Label: b.Label, RemoteHost: b.RemoteHost,
+		s := ScopeSource{Source: b.Source, Label: b.Label, Pack: b.Pack, RemoteHost: b.RemoteHost,
 			Form: brokerscope.FormFor(b.RemoteHost)}
 		if s.Form == brokerscope.FormRemoteURL {
 			// A source on any host: every remote URL, verbatim, and no entry, which validation

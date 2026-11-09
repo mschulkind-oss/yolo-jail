@@ -54,8 +54,8 @@ Only an ORPHAN can be removed. A program a selected pack or an MCP preset declar
 never a candidate, so this command cannot uninstall a tool your config still
 asks for — drop the declaration first, then run it.
 
-Nothing is removed at boot unless you ask for it. Set "programs": {"autoprune": true} in
-~/.config/yolo-jail/config.jsonc (USER scope only) to make every launch remove what it
+Nothing is removed at boot unless you ask for it. Run
+` + "`yolo config set programs.autoprune true --user`" + ` to make every launch remove what it
 catalogs. It is off by default and it is not reversible — read an 'ls' first.
 
   ~/.local/bin is also where YOU may have put things. yolo cannot tell a tool you

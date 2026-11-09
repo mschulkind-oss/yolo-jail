@@ -456,8 +456,8 @@ func withBackgroundKey(key, label string, w io.Writer, fn func(*backgroundOutcom
 	})
 	if startErr != nil {
 		if errors.Is(startErr, errBackgroundFailurePending) {
-			fmt.Fprintf(w, "%s: kept its unclaimed typed failure generation %d in .json — the next fresh launch claims it and recovers it\n",
-				label, pendingGeneration)
+			fmt.Fprintf(w, "%s: kept its unclaimed typed failure generation %d in %s — the next fresh launch claims it and recovers it\n",
+				label, pendingGeneration, backgroundOutcomePath(key))
 		} else {
 			fmt.Fprintf(w, "%s: could not establish its background outcome generation (%v) — its next launch retries the check\n", label, startErr)
 		}
@@ -483,8 +483,8 @@ func withBackgroundKey(key, label string, w io.Writer, fn func(*backgroundOutcom
 	if finishErr != nil {
 		preserveErr := preserveBackgroundOutcomeClaim(o)
 		if preserveErr != nil {
-			fmt.Fprintf(w, "%s: could not conditionally record its background outcome (%v) and could not preserve generation %d as typed evidence (%v) — .json remains running with log %s; a fresh launch retries, and `yolo capture %s` can check it now\n",
-				label, finishErr, o.Generation, preserveErr, o.Log, key)
+			fmt.Fprintf(w, "%s: could not conditionally record its background outcome (%v) and could not preserve generation %d as typed evidence (%v) — %s still records it as running, with log %s; a fresh launch retries, and `yolo capture %s` can check it now\n",
+				label, finishErr, o.Generation, preserveErr, backgroundOutcomePath(key), o.Log, key)
 		} else {
 			fmt.Fprintf(w, "%s: could not conditionally record its background outcome (%v); retained generation %d as an immutable typed claim — the next launch recovers it; its log is %s\n",
 				label, finishErr, o.Generation, o.Log)
@@ -942,7 +942,7 @@ func noteBackgroundOutcome(f packload.Fork, pr richtext.Printer) (again bool) {
 		return nil
 	})
 	if claimErr != nil {
-		warn(fmt.Sprintf("%s: could not claim its background outcome (%v) — the .json remains for foreground recovery, and the next launch retries", f.Label(), claimErr))
+		warn(fmt.Sprintf("%s: could not claim its background outcome (%v) — %s remains for foreground recovery, and the next launch retries", f.Label(), claimErr, backgroundOutcomePath(key)))
 		return false
 	}
 	if running {

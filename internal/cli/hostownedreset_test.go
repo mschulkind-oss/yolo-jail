@@ -240,7 +240,7 @@ func TestHostSideCaptureStillRefusedWithoutOwn(t *testing.T) {
 				if rc := configCapture(hostTargetForTest(), args, &out, &errw, false); rc != 1 {
 					t.Fatalf("capture under %s: rc=%d, want 1\n%s%s", name, rc, out.String(), errw.String())
 				}
-				if !strings.Contains(errw.String(), `"host_management": "own"`) {
+				if !strings.Contains(errw.String(), "yolo config set host_management '\"own\"' --user") {
 					t.Errorf("the refusal does not name the contract that keeps a store:\n%s", errw.String())
 				}
 				if !strings.Contains(errw.String(), saysItRead[name]) {

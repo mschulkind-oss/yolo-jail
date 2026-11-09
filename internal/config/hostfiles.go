@@ -960,7 +960,7 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 			continue
 		}
 		msg := fmt.Sprintf("config.%s[%d]: an entry that names a host source is "+
-			"user-scope only — move it to ~/.config/yolo-jail/config.jsonc (a workspace "+
+			"user-scope only — move it to "+paths.UserConfigDisplayPath()+" (a workspace "+
 			"config travels with the repo and is agent-editable, so it cannot decide which "+
 			"host files cross into the jail). A source-less entry (inline 'content', or only "+
 			"'managed'/'defaults') is allowed here.", hostFilesKey, i)

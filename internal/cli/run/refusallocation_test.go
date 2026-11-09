@@ -184,8 +184,8 @@ func TestALaunchRefusesTheRetiredMCPPresetsKeyAtEitherScope(t *testing.T) {
 			out := stdout.String() + stderr.String()
 			for _, want := range []string{
 				shown + ":2:18: config.mcp_presets: REMOVED",
-				"add `chrome-devtools` to `packs` in ~/.config/yolo-jail/config.jsonc",
-				`"sequential-thinking": {"command": "npx"`,
+				"`yolo pack add chrome-devtools` on the host",
+				"`yolo config set mcp_servers.sequential-thinking.command",
 			} {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal does not carry %q:\n%s", want, out)

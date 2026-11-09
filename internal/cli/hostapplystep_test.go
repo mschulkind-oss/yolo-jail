@@ -17,8 +17,8 @@ func TestTheHostApplyStepNamesOwnWhereTheApplyWritesNothing(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	for _, c := range []struct{ cfg, want string }{
-		{`{}`, "`yolo host apply --assert` builds it once `\"host_management\": \"own\"` is set"},
-		{`{"host_management":"none"}`, "`yolo host apply --assert` builds it once `\"host_management\": \"own\"` is set"},
+		{`{}`, "`yolo host apply --assert` builds it once `yolo config set host_management '\"own\"' --user` has run"},
+		{`{"host_management":"none"}`, "`yolo host apply --assert` builds it once `yolo config set host_management '\"own\"' --user` has run"},
 		{`{"host_management":"own"}`, "`yolo host apply --assert` builds it"},
 	} {
 		writeFile(t, paths.UserConfigPath(), c.cfg)

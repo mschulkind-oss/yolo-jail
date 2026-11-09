@@ -101,7 +101,7 @@ reset/capture also take:
                      against your REAL home and could clobber your own config, so
                      they refuse there unless --force. 'own' exempts both: yolo
                      composes those files and keeps their capture store. Under
-                     'none' and 'assert' there is no store, so capture refuses
+                     'none' there is no store, so capture refuses
                      even with --force. A host-side reset of a WORKSPACE needs no
                      --force — those files are that jail's, not yours — but it
                      refuses while that jail is running, or while the container

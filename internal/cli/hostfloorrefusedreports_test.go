@@ -53,7 +53,7 @@ func TestCheckDepsFailsOnAProgramTheLaunchRefusesWhateverThePATHHolds(t *testing
 	for _, want := range []string{
 		"✗ nativecli",
 		"so `yolo host` refuses to launch; to run your own copy, leave pack nativepack out with " +
-			"`\"host_floor\": {\"nativepack\": false}` in the user config",
+			"`yolo config set host_floor.nativepack false --user`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("check-deps lacks %q:\n%s", want, got)

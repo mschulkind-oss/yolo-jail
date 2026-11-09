@@ -154,7 +154,7 @@ func TestRequestOutsideCeilingIsSkippedNotFatal(t *testing.T) {
 	if got := readFile(t, fx.project); !strings.Contains(got, `push = ["main"]`) {
 		t.Fatalf("the request was not written:\n%s", got)
 	}
-	for _, want := range []string{"runs without it", "yolo allow git on_request push", "yolo config apply"} {
+	for _, want := range []string{"runs without it", "yolo allow git on_request push", "does not turn it on until it is allowed"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("skipped request report lacks %q: %q", want, out)
 		}
@@ -204,7 +204,7 @@ func TestRequestWritesALoopholeKindWithValues(t *testing.T) {
 			t.Fatalf("project file lacks %q:\n%s", want, got)
 		}
 	}
-	for _, want := range []string{"runs without it", "yolo allow journal on_request read_all", "yolo config apply"} {
+	for _, want := range []string{"runs without it", "yolo allow journal on_request read_all", "does not turn it on until it is allowed"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("skipped request report lacks %q: %q", want, out)
 		}

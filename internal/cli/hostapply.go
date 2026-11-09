@@ -298,8 +298,8 @@ func reportWrappersFailure(errw io.Writer, home, dir, what string, err error, en
 	fmt.Fprintf(errw, "  fix: make %s a directory you can write (yolo keeps only its wrappers "+
 		"there), then: yolo host apply --assert\n", prettyHomePath(home, dir))
 	if enabled {
-		fmt.Fprintf(errw, "  or stop yolo writing wrappers: set \"host_wrappers\": false in %s\n",
-			paths.UserConfigDisplayPath())
+		fmt.Fprintf(errw, "  or stop yolo writing wrappers: %s\n",
+			"yolo config set host_wrappers false --user")
 	}
 }
 

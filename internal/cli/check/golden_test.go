@@ -42,9 +42,8 @@ Resource Groups
 
   [FAIL] Could not resolve the yolo-jail repo root
        -> The yolo CLI needs a complete matched flake/helper bundle for jail image builds.
-          Fix: build one with ` + "`just build-dev-bundle`" + ` and invoke its printed launcher path, or
-          install a self-contained launcher and bundle together with ` + "`just install`" + `, then
-          run ` + "`yolo check`" + ` again.
+          Fix: Reinstall yolo from Homebrew or a release archive, which include the build files each jail is made from (see "Other ways to install" at https://docs.yolo-jail.mschulkind.dev); a ` + "`go install`" + ` or pipx install does not include them. In a yolo-jail checkout, run ` + "`just install`" + `, or run ` + "`just build-dev-bundle`" + ` and then the launcher it prints.
+          Then run ` + "`yolo check`" + ` again.
 Merged Configuration
   - No runtime available — see Container Runtime above
 

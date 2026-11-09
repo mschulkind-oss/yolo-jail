@@ -548,7 +548,7 @@ func TestUpdatePromptNotOfferedWhenItCannotOrShouldNot(t *testing.T) {
 		h.seed(t, ch, nil)
 		h.d.stdin = strings.NewReader("y\n")
 		h.notify("run")
-		if h.applied != 0 || !strings.Contains(h.stderr.String(), "separate jail source together") {
+		if h.applied != 0 || !strings.Contains(h.stderr.String(), "reinstall from Homebrew or a release archive") {
 			t.Errorf("want coordinated manual guidance and no prompt: %q", h.stderr.String())
 		}
 	})
@@ -621,7 +621,7 @@ func TestUpdateCommand(t *testing.T) {
 		if rc := updateMain([]string{"update"}, h.d); rc != 1 || h.applied != 0 {
 			t.Errorf("exit %d, applied %d; want 1, 0", rc, h.applied)
 		}
-		if !strings.Contains(h.stderr.String(), "YOLO_REPO_ROOT") {
+		if !strings.Contains(h.stderr.String(), "Homebrew or a release archive") || strings.Contains(h.stderr.String(), "YOLO_REPO_ROOT") {
 			t.Errorf("missing coordinated-update explanation: %q", h.stderr.String())
 		}
 	})

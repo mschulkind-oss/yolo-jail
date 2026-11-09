@@ -88,8 +88,8 @@ func (o *Options) sectionHostFloor(r *reporter) {
 				// HNR-D2). The reason carries its own fix.
 				// A WARNING, not a fact about the machine: every `yolo host` launch refuses on it.
 				r.warn(fmt.Sprintf("%s — no floor entry: %s", p.Bin(), st.Reason),
-					fmt.Sprintf("`yolo host` refuses to launch until the floor holds it, or until `host_floor` "+
-						"leaves pack %s out (`\"host_floor\": {\"%s\": false}` in the user config)", p.Pack, p.Pack))
+					fmt.Sprintf("`yolo host` refuses to launch until the floor holds it, or until you leave pack %s "+
+						"out of it with `%s`", p.Pack, config.HostFloorLeaveOutCommand(p.Pack)))
 				if _, left := records[p.Bin()]; left {
 					r.dim(fmt.Sprintf("%s: yolo's floor still holds a copy it no longer keeps, which `yolo host` "+
 						"does not run — %s", p.Bin(), floor.StaleCopyStep(hostOwned(), p.Bin())))

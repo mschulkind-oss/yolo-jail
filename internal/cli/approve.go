@@ -106,10 +106,6 @@ in config); 6 the host can no longer confirm
 the request (its jail's launch is gone or its scope changed), so it cannot be
 allowed. A request whose jail stopped normally is already refused, which is 3.
 
-No requests, grants or working-set entries. A GitHub write, or a git push no
-grant or working-set entry covers, files a pending Allow-once request while its
-host broker runs. Run yolo approve --help for the host store commands.
-
 Examples:
   yolo approve
   yolo approve r-<id>

@@ -2365,8 +2365,8 @@ func (c *hostComposition) providerEnvLine() string {
 		return ""
 	}
 	return fmt.Sprintf("cleared %s from %s's environment: %s's profile selection decides its "+
-		"provider variables, and it sets none of these. To use them, select a profile that sets "+
-		"them (`yolo config-ref`: profile, providers).", strings.Join(cleared, ", "), c.agent, c.agent)
+		"provider variables, and it sets none of these. To use them, choose a provider that sets "+
+		"them with `yolo active-provider %s <provider>`.", strings.Join(cleared, ", "), c.agent, c.agent, c.agent)
 }
 
 // credentialGaps is the providers.md#the-credential-preflight pre-flight for this launch, answered against environ().
@@ -4182,9 +4182,9 @@ func hostWrappers(args []string, out, errw io.Writer, color bool) int {
 		//    is where config edits live; a per-key mutation verb beside it is drift.
 		fmt.Fprintf(errw, "yolo host wrappers: `%s` was removed — wrappers are ON by default "+
 			"when `host_management` is \"own\", so there is usually nothing to set.\n"+
-			"To force them off, put `\"host_wrappers\": false` in %s yourself; an explicit value "+
+			"To force them off, run `yolo config set host_wrappers false --user`; an explicit value "+
 			"always wins over the default.\nRun `yolo host wrappers status` to see what is in "+
-			"effect.\n", verb, paths.UserConfigDisplayPath())
+			"effect.\n", verb)
 		return 2
 	default:
 		fmt.Fprintf(errw, "yolo host wrappers: unknown verb %q (want status)\n", verb)

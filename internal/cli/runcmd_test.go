@@ -222,6 +222,13 @@ func TestRunUsageListsEveryRunFlag(t *testing.T) {
 			t.Errorf("runUsage does not document %q\n%s", f, runUsage)
 		}
 	}
+	// Each flag is documented once: `run --help` once listed --update twice, with two
+	// different descriptions.
+	for _, f := range runFlags {
+		if n := strings.Count(runUsage, "\n  "+f+" ") + strings.Count(runUsage, "\n  "+f+",") + strings.Count(runUsage, "\n  "+f+"\n"); n > 1 {
+			t.Errorf("runUsage documents %q %d times\n%s", f, n, runUsage)
+		}
+	}
 	for _, f := range []string{"--help", "-h"} {
 		if !strings.Contains(runUsage, f) {
 			t.Errorf("runUsage does not document %q\n%s", f, runUsage)

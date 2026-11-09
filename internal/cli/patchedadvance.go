@@ -2045,7 +2045,7 @@ func (a *advance) next() string {
 	case a.hostTree():
 		if config.HostManagementMode() != config.HostManagementOwn {
 			// Under "none" that apply writes nothing (hostApplyStep).
-			return "the next `yolo host apply --assert` once `\"host_management\": \"own\"` is set"
+			return "the next `yolo host apply --assert` once `" + config.HostManagementOwnCommand + "` has run"
 		}
 		return "the next `yolo host apply --assert`"
 	case a.o.host:
@@ -2062,7 +2062,7 @@ func (a *advance) later() string {
 	switch {
 	case a.hostTree():
 		if config.HostManagementMode() != config.HostManagementOwn {
-			return "`yolo host apply --assert` once `\"host_management\": \"own\"` is set"
+			return "`yolo host apply --assert` once `" + config.HostManagementOwnCommand + "` has run"
 		}
 		return "`yolo host apply --assert`"
 	case a.o.host:

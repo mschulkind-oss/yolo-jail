@@ -1751,7 +1751,7 @@ const applyUsage = `yolo apply — make this environment match its description, 
                             Your own keys are never touched. A DRY RUN until --assert.
                             Runs at host_management none (the default); refused at own.
   yolo apply --sealed       refuse if any UNDECLARED input shaped the environment
-                            (yolo-jail.local.jsonc, an outstanding capture overlay,
+                            (yolo-jail.local.toml, an outstanding capture overlay,
                             an unset host_management)
   yolo apply --dry-run      show what would change, write nothing
                             (at jail: the description the launch would provision, and no launch)

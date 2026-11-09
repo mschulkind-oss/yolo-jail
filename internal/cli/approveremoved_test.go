@@ -23,7 +23,7 @@ func TestApproveRefusesTheRemovedAddAndRememberFlags(t *testing.T) {
 		for _, flags := range [][]string{{"--add"}, {"--remember"}, {"--add=yes"}, {"--remember=1"}, {"--add", "--deny"}} {
 			s := &brokerstore.Store{Dir: t.TempDir(), Source: source,
 				Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil },
-				Entries: func(q brokerstore.Request, add bool) ([]brokerstore.WorkingEntry, error) {
+				Entries: func(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 					return []brokerstore.WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: brokerstore.WorkingBranch, Resource: "refs/heads/main", By: "human"}}, nil
 				}}
 			q, err := s.File(brokerstore.Request{Jail: "j", Start: "s", Workspace: "/code/app", Argv: []string{"git-receive-pack", "a b refs/heads/main"},
@@ -85,5 +85,13 @@ func TestApproveUsageNamesNoRemovedFlag(t *testing.T) {
 	}
 	if !strings.Contains(approveUsage, "--add and --remember\nare removed") {
 		t.Errorf("yolo approve --help does not say --add and --remember are removed:\n%s", approveUsage)
+	}
+}
+
+// The empty-listing line belongs to a bare `yolo approve`, not to its usage: inside the help it told
+// the reader to run the help they were reading.
+func TestApproveUsageDoesNotCarryTheEmptyListingLine(t *testing.T) {
+	if strings.Contains(approveUsage, "No requests, grants or working-set entries") {
+		t.Errorf("yolo approve --help carries the empty-listing line:\n%s", approveUsage)
 	}
 }

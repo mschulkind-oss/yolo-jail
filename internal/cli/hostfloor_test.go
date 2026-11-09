@@ -261,7 +261,7 @@ func TestHostLaunchOnAMachineWithoutTheFloorsLoaderRefusesAndNamesTheStep(t *tes
 	for _, want := range []string{"yolo host: yolo has no copy of floorcli on this machine (the floor runs it on " +
 		"Node's official linux-", "needs the dynamic loader ", "a NixOS host without nix-ld, or a musl system",
 		"programs.nix-ld.enable = true;", declaredNoCopyRefusal,
-		"leave pack floorpack out of the floor with `\"host_floor\": {\"floorpack\": false}`"} {
+		"leave pack floorpack out of the floor with `yolo config set host_floor.floorpack false --user`"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 		}

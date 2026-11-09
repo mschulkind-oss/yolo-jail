@@ -172,11 +172,23 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 		return rc
 	}
 
-	if capability != "repos" && !requestWithinCeiling(workspace, source, capability) {
+	skipped := capability != "repos" && !requestWithinCeiling(workspace, source, capability)
+	if skipped {
 		reportRequestSkipped(out, source, capability, requestDescription(capability, value))
 	}
-	fmt.Fprintln(out, "It is approved on the host: the human runs `yolo config apply` there, in this workspace, and answers y.")
+	fmt.Fprintln(out, requestApprovalLine(skipped))
 	return rc
+}
+
+// requestApprovalLine is the host step after a written request. Approving the project's change
+// alone does not turn on a capability the user config does not allow, so a skipped request names
+// the allow command, which offers the approval itself when the human runs it in this workspace.
+func requestApprovalLine(skipped bool) string {
+	if skipped {
+		return "Approving this project's change with `yolo config apply` does not turn it on until it is allowed. " +
+			"Run in this workspace on the host, the `yolo allow` command above allows it and then offers the change for approval."
+	}
+	return "It is approved on the host: the human runs `yolo config apply` there, in this workspace, and answers y."
 }
 
 // reportRequestSkipped says a written request is outside the user's ceiling, so the project runs
@@ -246,8 +258,10 @@ func requestLoopholeKind(workspace string, decl config.LoopholeGrantDeclaration,
 			description += " " + strings.Join(values, ", ")
 		}
 		reportRequestSkipped(out, decl.Pack, kind, description)
+		fmt.Fprintln(out, requestApprovalLine(true))
+		return rc
 	}
-	fmt.Fprintln(out, "It is approved on the host: the human runs `yolo config apply` there, in this workspace, and answers y.")
+	fmt.Fprintln(out, requestApprovalLine(false))
 	return rc
 }
 

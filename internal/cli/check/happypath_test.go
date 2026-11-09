@@ -177,7 +177,7 @@ func TestRepoRootFailureNamesTheLaunchsFix(t *testing.T) {
 	if !ok {
 		t.Fatalf("no repo-root finding:\n%s", got)
 	}
-	for _, want := range []string{"just install", "just build-dev-bundle", "printed launcher path"} {
+	for _, want := range []string{"Homebrew or a release archive", "just install", "just build-dev-bundle", "launcher it prints"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("the repo-root finding does not name %q:\n%s", want, got)
 		}

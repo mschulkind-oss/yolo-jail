@@ -73,7 +73,7 @@ func refuseHostUnmetCapabilities(errw io.Writer, agent, typed string) bool {
 			at = "at " + strings.Join(where, " and at ")
 		}
 		printHostLines(errw, []string{"refusing to launch: " + strings.Join(probs, "; "),
-			"  Make it a list of capability names (`\"required_capabilities\": [\"web_search\"]`) " +
+			"  Make it a list of capability names (such as web_search) " +
 				at + ", or remove it. `yolo check` reports the same problem."})
 		return true
 	}

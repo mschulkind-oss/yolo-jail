@@ -102,7 +102,9 @@ Flags:
                      or YOLO_VERBOSE=1 in the environment, "perf_logging": true in
                      the user config — record the same spans to the same file and
                      print nothing but one dim line naming it.
-  --update, -u       Check selected build inputs now; reuse unchanged good builds.
+  --update, -u       Check this launch's build inputs now, reusing builds whose inputs
+                     have not changed, and wait for fresh preparation of its selected
+                     programs and trees.
   --dry-run          macos-user runtime only: print the plan without launching.
   --fresh-home       Run this launch on a new, empty home instead of the workspace's
                      usual one, to try something without this workspace's agent
@@ -115,7 +117,6 @@ Flags:
                      runs, since a launch would join it on the home it already uses:
                      'yolo stop' first. Every setup with a jail takes it; 'yolo host'
                      has no jail home and refuses it.
-  --update, -u       Wait for fresh preparation of this launch's selected programs and trees.
   --accept-config-changes
                      Approve a changed jail config on a launch with no terminal
                      to prompt on (CI, scripts), recording it as approved just
@@ -414,8 +415,6 @@ func parseRunArgs(args []string, opts *run.Options) runArgv {
 		// refusal and disclosure names.
 		case a == "--fresh-home":
 			opts.FreshHome = true
-		case a == "--update" || a == "-u":
-			opts.Update = true
 		// Spelled as a LITERAL, not as config.AcceptConfigChangesFlag, even though
 		// that constant is the flag's owner and the refusal message's source. The
 		// usage/parser drift guard (TestRunUsageListsEveryRunFlag) reads this

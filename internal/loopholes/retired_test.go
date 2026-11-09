@@ -103,7 +103,7 @@ func TestRetiredUserDirIsReportedWithMigrationInstructions(t *testing.T) {
 		t.Fatalf("RetiredUserLoopholes = %v, want [alpha zeta] (sorted)", got)
 	}
 	notice := RetiredUserLoopholeNotice()
-	for _, want := range []string{retired, "alpha", "zeta", "RETIRED", "kind\": \"loophole"} {
+	for _, want := range []string{retired, "alpha", "zeta", "RETIRED", "pack.toml", "[[loophole]]", "from = \"loopholes/alpha\""} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("notice does not mention %q:\n%s", want, notice)
 		}

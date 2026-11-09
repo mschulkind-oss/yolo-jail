@@ -878,7 +878,7 @@ func floorDepClause(st hostfloor.Status) string {
 		// floor can hold it or `host_floor` leaves its pack out.
 		return "yolo's floor cannot hold it here (" + richtext.Escape(st.Reason) + "), so `yolo host` " +
 			"refuses to launch; to run your own copy, leave pack " + st.Program.Pack + " out with " +
-			"`\"host_floor\": {\"" + st.Program.Pack + "\": false}` in the user config"
+			"`" + config.HostFloorLeaveOutCommand(st.Program.Pack) + "`"
 	}
 	// Every launch's readiness act installs it at every host-management mode (HNR-D1); the apply
 	// only under "own" (hostApplyStep).
@@ -1182,8 +1182,8 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); yolo host runs a program a selected "+
 			"pack declares only from yolo's floor, never a copy on your PATH. Fix what the floor needs "+
 			"(`yolo host apply` shows the whole floor), or, to run your own copy, leave pack %s out of the "+
-			"floor with `\"host_floor\": {%q: false}` in the user config\n",
-			cmd0, noCopyWhere(floor.GOOS, prog), st.Reason, prog.Pack, prog.Pack)
+			"floor with `%s`\n",
+			cmd0, noCopyWhere(floor.GOOS, prog), st.Reason, prog.Pack, config.HostFloorLeaveOutCommand(prog.Pack))
 		return hostTarget{}, 127
 	case errors.Is(err, hostfloor.ErrNewerRecord):
 		// Refused, not failed: the floor holds a newer yolo's copy, and the refusal names the

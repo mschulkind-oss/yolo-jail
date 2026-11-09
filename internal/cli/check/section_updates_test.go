@@ -57,7 +57,7 @@ func TestSectionUpdates(t *testing.T) {
 		{"binary-only update", updatesOptions(t, selfupdate.Channel{Kind: selfupdate.KindGoInstall, Version: "0.10.0"}, nil,
 			&selfupdate.State{CheckedAt: updatesNow.Add(-time.Hour), Identity: (selfupdate.Channel{Kind: selfupdate.KindGoInstall, Version: "0.10.0"}).Identity(),
 				Kind: selfupdate.KindGoInstall, Current: "0.10.0", Latest: "0.11.0", Available: true}),
-			[]string{"separate jail source together", "Update the host binary and its separate jail source together."}},
+			[]string{"this install cannot update itself", "Reinstall yolo from Homebrew or a release archive: " + selfupdate.ReleasesPage}},
 		{"last check failed", updatesOptions(t, ch, nil, cached(func(s *selfupdate.State) { s.Error = "HTTP 403" })),
 			[]string{"[WARN] the last update check failed (3 hours ago): HTTP 403"}},
 		{"never checked", updatesOptions(t, ch, nil, nil),

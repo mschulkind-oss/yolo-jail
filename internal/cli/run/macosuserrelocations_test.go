@@ -145,7 +145,7 @@ func TestTheMacosUserArmRefusesARelocationIntoAHome(t *testing.T) {
 	})
 	for _, want := range []string{"cannot deliver every cache_relocations entry",
 		"~/.cache/huggingface → " + target, "inside the home folder " + filepath.Join(users, "alice"),
-		"`yolo --setup podman-self`, which mounts it instead", "~/.config/yolo-jail/config.jsonc"} {
+		"`yolo --setup podman-self`, which mounts it instead", "`yolo config unset cache_relocations.<subdir> --user`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}
@@ -219,7 +219,7 @@ func TestARelocationTargetThatIsAFileRefusesADryRunToo(t *testing.T) {
 		})
 		for _, want := range []string{"cannot deliver every cache_relocations entry",
 			"~/.cache/huggingface → " + target + ": it is a file, not a folder",
-			"~/.config/yolo-jail/config.jsonc", "remove it"} {
+			"`yolo config unset cache_relocations.<subdir> --user`", "remove it"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("dry run %v: the refusal does not say %q:\n%s", dry, want, out)
 			}
@@ -260,7 +260,7 @@ func TestARelocationTargetYoloCannotMakeNamesTheNextStep(t *testing.T) {
 		grants = grantRecorder(o, 0, "")
 	})
 	for _, want := range []string{"Refusing the macos-user launch: cache_relocations.bbb: creating target " + b,
-		"Create the folder yourself", "~/.config/yolo-jail/config.jsonc", "remove the entry",
+		"Create the folder yourself", "`yolo config unset cache_relocations.<subdir> --user`", "remove the entry",
 		"Cache relocation: created " + a + " and opened it to " + macosuser.SandboxUser} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
@@ -287,7 +287,7 @@ func TestARelocationTargetUnderAFolderYouCannotWriteRefusesWithTheNextStep(t *te
 	relocLaunchHome(t, target)
 	out := runMacosUserExpectingRefusal(t, floortest.ResolvedTemp(t), func(o *Options) { grantRecorder(o, 0, "") })
 	for _, want := range []string{"creating target " + target, "Create the folder yourself",
-		"~/.config/yolo-jail/config.jsonc"} {
+		"`yolo config unset cache_relocations.<subdir> --user`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, out)
 		}

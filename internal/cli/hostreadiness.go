@@ -288,7 +288,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 		}
 		if !seenPack[f.pack] {
 			seenPack[f.pack] = true
-			leaveOut = append(leaveOut, fmt.Sprintf("%q: false", f.pack))
+			leaveOut = append(leaveOut, "`"+config.HostFloorLeaveOutCommand(f.pack)+"`")
 		}
 	}
 	if os.Getenv(paths.AllowMissingProgramsEnv) != "" && !patchFailure && !updateFailure {
@@ -313,7 +313,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	ways := "      Fix what each line names (an install needs the network), or drop the pack from your packs list.\n"
 	if len(leaveOut) > 0 {
 		ways = "      Fix what each line names (an install needs the network), drop the pack from your packs list, or\n" +
-			"      leave it out of yolo's floor with `\"host_floor\": {" + strings.Join(leaveOut, ", ") + "}` in the user config.\n"
+			"      leave it out of yolo's floor with " + strings.Join(leaveOut, " and ") + ".\n"
 	}
 	fmt.Fprintf(errw, "yolo host: REFUSING to launch: a program a selected pack declares could not be installed.\n%s%s"+
 		"      To launch without it:\n"+

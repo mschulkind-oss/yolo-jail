@@ -68,7 +68,7 @@ func validateShippedSkillPrefix(config *jsonx.OrderedMap, workspace string, errs
 	}
 	if wsValue, atWorkspace := wsCfg.Get(shippedSkillPrefixKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+shippedSkillPrefixKey+": user-scope only — it names every skill yolo ships, "+
-			"so it is read from "+paths.UserConfigDisplayPath()+" and a workspace value has no effect. "+
+			"so it is read from "+paths.UserConfigDisplayPath()+" and a workspace value refuses the launch. "+
 			"Remove it here, and set it on the host with `yolo config set "+shippedSkillPrefixKey+" '\"<word>\"' --user`.")
 	}
 }

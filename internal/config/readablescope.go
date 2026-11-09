@@ -233,7 +233,7 @@ func readableScopeFailure(workspace string, brokers []ScopeBroker, cause error) 
 	rec, _, _ := readScopeRecord(ApprovalScopePath(workspace))
 	check := &ScopeCheck{Fatal: &ReadableAuthorityError{Cause: cause}}
 	for _, broker := range brokers {
-		source := ScopeSource{Source: broker.Source, Label: broker.Label, RemoteHost: broker.RemoteHost,
+		source := ScopeSource{Source: broker.Source, Label: broker.Label, Pack: broker.Pack, RemoteHost: broker.RemoteHost,
 			Form: brokerscope.FormFor(broker.RemoteHost), Read: brokerscope.Read{Problem: "readable broker authority could not be resolved: " + cause.Error()}}
 		source.Dormant = !recordHeldRead(rec, broker.Source)
 		check.Sources = append(check.Sources, source)
@@ -650,7 +650,7 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 	}
 	check := &ScopeCheck{ReadableInput: &input}
 	for _, broker := range brokers {
-		source := ScopeSource{Source: broker.Source, Label: broker.Label, RemoteHost: broker.RemoteHost,
+		source := ScopeSource{Source: broker.Source, Label: broker.Label, Pack: broker.Pack, RemoteHost: broker.RemoteHost,
 			Form: brokerscope.FormFor(broker.RemoteHost)}
 		if current, ok := observed[broker.Source]; ok {
 			source.Read = current.Read

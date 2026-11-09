@@ -9,6 +9,10 @@ import (
 // into the user's real home (docs/reference/config-ownership.md#the-host_management-key).
 const hostManagementKey = "host_management"
 
+// HostManagementOwnCommand is the command that sets `host_management` to "own", for the advice
+// that names it. `yolo config set` writes it in either config format.
+const HostManagementOwnCommand = `yolo config set host_management '"own"' --user`
+
 // HostManagement is the declared ownership contract for the host notch. It is the value of
 // `host_management`, and it selects the surface mode the host renders in — which is what
 // makes "ownership is declared, never inferred" (config-ownership.md#principles, P1) literally true rather than

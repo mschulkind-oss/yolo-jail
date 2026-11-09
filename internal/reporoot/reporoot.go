@@ -59,6 +59,12 @@ type bundleStamp struct {
 var linuxBinaries = []string{"yolo", "yolo-entrypoint", "yolo-jaild", "yolo-ps", "yolo-cglimit", "yolo-journalctl", "yolo-serial", "yolo-log"}
 var darwinBinaries = []string{"yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
 
+// ReinstallSteps is the next step when yolo cannot find the files a launch builds each jail from.
+// Most users have no checkout, so `just` comes last, for the ones who do.
+const ReinstallSteps = "Reinstall yolo from Homebrew or a release archive, which include the build files each jail is made from " +
+	"(see \"Other ways to install\" at https://docs.yolo-jail.mschulkind.dev); a `go install` or pipx install does not include them. " +
+	"In a yolo-jail checkout, run `just install`, or run `just build-dev-bundle` and then the launcher it prints."
+
 var resolveExecutable = os.Executable
 var resolveInstalledBundle = paths.FlakeBundleDir
 
@@ -67,7 +73,7 @@ var resolveInstalledBundle = paths.FlakeBundleDir
 func Resolve(getenv func(string) string) (Resolution, bool) {
 	exe, err := resolveExecutable()
 	if err != nil {
-		res := Resolution{Error: fmt.Errorf("cannot locate the running yolo executable: %w; reinstall yolo with `just install`", err)}
+		res := Resolution{Error: fmt.Errorf("cannot locate the running yolo executable: %w. %s", err, ReinstallSteps)}
 		return res, false
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
@@ -87,7 +93,7 @@ func resolveWith(executable, installedPath string, getenv func(string) string, i
 	}
 
 	if executable == "" {
-		return failed(errors.New("cannot locate the running yolo executable; reinstall yolo with `just install`"))
+		return failed(errors.New("cannot locate the running yolo executable. " + ReinstallSteps))
 	}
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		executable = resolved

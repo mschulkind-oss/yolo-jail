@@ -44,6 +44,9 @@ type ScopeSource struct {
 	Source string
 	// Label is the loophole that reads it (`github-broker`), naming the block.
 	Label string
+	// Pack is the selected pack that ships that loophole, which a decline names: deselecting it
+	// is the way to launch without the loophole. "" when the caller did not know it.
+	Pack string
 	// RemoteHost is the forge whose remotes were read: `github.com`, or `*` for every remote
 	// on any host (Form).
 	RemoteHost string
@@ -478,6 +481,8 @@ type scopeOutcome struct {
 	gitConfigs []string
 	// labels are the loopholes whose scope changed, for the next step a decline names.
 	labels []string
+	// packs are the packs that ship those loopholes, by index into labels.
+	packs []string
 	// entryEdits are the entries whose rows changed, for the decline's and the refusal's step.
 	entryEdits []EntryEdit
 	// approved is each in-play loophole's scope as read, which is what a passing gate
@@ -575,6 +580,7 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		}
 		out.changed = true
 		out.labels = append(out.labels, s.Label)
+		out.packs = append(out.packs, s.Pack)
 		out.block = append(out.block, block...)
 		out.counts = append(out.counts, count)
 		if s.Read.GitConfig != "" {
@@ -809,7 +815,7 @@ func ScopeChanges(workspace string, scope *ScopeCheck) (ChangeReport, error) {
 		}
 		sc := compareScope(scope, old, oldSources)
 		rep = ChangeReport{ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts,
-			ScopeLabels: sc.labels, EntryEdits: sc.entryEdits, Workspace: workspaceOrCwd(workspace)}
+			ScopeLabels: sc.labels, ScopePacks: sc.packs, EntryEdits: sc.entryEdits, Workspace: workspaceOrCwd(workspace)}
 	}
 	if scope.grantsInPlay() {
 		g, err := readLoopholeGrantsGate(workspace, scope)
