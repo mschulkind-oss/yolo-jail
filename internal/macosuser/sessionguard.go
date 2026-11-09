@@ -58,6 +58,16 @@ import (
 // SessionGuardVerb is the hidden `yolo internal` verb that runs the guard.
 const SessionGuardVerb = "session-guard"
 
+// MemoryGuardKey is the config key the guard enforces, as its lines name it to the user.
+const MemoryGuardKey = "machine.resources.memory"
+
+// MemoryGuardBreach is the clause of the guard's stop line that names the key and its limit:
+// "over machine.resources.memory (256m)". The line is built from it, and a reader that waits for
+// the line (the macos-user integration suite) looks for this, so the two cannot drift apart.
+func MemoryGuardBreach(limitBytes int64) string {
+	return "over " + MemoryGuardKey + " (" + formatBytes(limitBytes) + ")"
+}
+
 // sessionGuardInterval is how often the guard samples the process table, and
 // sessionGuardGrace how long a stopped process gets between SIGTERM and SIGKILL. Both are
 // the launch's defaults; the verb takes --interval and --grace only so its run loop can be
@@ -440,11 +450,11 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 			if !v.over {
 				continue
 			}
-			s.say("[bold red]yolo: this session holds %s resident, over machine.resources.memory (%s); "+
+			s.say("[bold red]yolo: this session holds %s resident, %s; "+
 				"stopping pid %d, its largest process (%s). If the session needs more, raise it with "+
 				"`yolo config set machine.resources.memory <size>` (a size such as 16g), or remove it with "+
 				"`yolo config unset machine.resources.memory`.[/bold red]",
-				formatBytes(v.total), formatBytes(o.memory), v.victim.pid, formatBytes(v.victim.rssKiB*1024))
+				formatBytes(v.total), MemoryGuardBreach(o.memory), v.victim.pid, formatBytes(v.victim.rssKiB*1024))
 			_ = s.kill(v.victim.pid, syscall.SIGTERM)
 			victim = v.victim.pid
 			graceTimer = time.After(o.grace)
