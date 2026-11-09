@@ -25,13 +25,13 @@ The checks are the [named-setups plan's Mac checks](../design/named-setups-plan.
 | W-SU4 (a), a jail of the project running | **Passes** |
 | W-SU4 (b), `.yolo/home` a symbolic link | **Does not match**: the launch refuses, see [§2](#2-w-su4-b-meets-the-linked-state-refusal) |
 | W-SU4, the move | **Passes** |
-| W-SU4, `TestAppleContainer` | Not run |
+| W-SU4, `TestAppleContainer` | **Passes**, run later at `b36be7d53`, see [§5](#5-later-the-same-day-w5-and-the-testapplecontainer-suite) |
 | W-SU12, Apple Container | **Passes**, except that the refusal names only `yolo stop` |
 | W-SU12, Seatbelt | **The refusal and stop pass, and the relaunch fails** as in [§1](#1-seatbelt-workspaces-from-before-6a-iii-refuse-to-launch) |
 | W-SU12, `yolo prune` | **Passes** |
 | Nightly 42482019048 (`310130d79`) | One failure, `TestCircleCIFakeHostCLIUsesRealClassifier`, the test defect the [11-07 report](2026-11-07-mac-session-homes-and-nightly-42372802408.md#3-nightly-42372802408) explained |
 | Triage [W6](2026-11-06-mac-ci-triage-witnesses.md#4-the-60-minute-step-cap) | **Both readings are in**: 59 min on 11-07, with a 20-minute hang, and 52 min on 11-08 |
-| Triage W5 | **Cannot run yet**: no nightly has run the tag commit `6ac121c04` |
+| Triage W5 | **Passes** on the on-tag form, run locally at the `v0.17.1` tag, see [§5](#5-later-the-same-day-w5-and-the-testapplecontainer-suite) |
 
 ### 1. Seatbelt workspaces from before 6a-iii refuse to launch
 
@@ -169,6 +169,21 @@ two `…RelocationOnAVolumeMeasurement` tests.
 `310130d79` predates 6a-iii, and the run at `8987ad733` on 11-06 passed. So the first three began
 between those commits, not with 6a-iii.
 
+### 5. Later the same day: W5 and the TestAppleContainer suite
+
+**W5.** At a detached worktree of the `v0.17.1` tag (commit `7f62a455c`), `go test -count=1
+-timeout 0 -v -run '^TestTheJailsYoloCarriesItsMatchedBundleStamp$' ./integration` passed in
+9.76 s. A dev bundle built at that worktree reports `yolo-jail 0.17.1+g7f62a455cf58` and build
+stamp `v0.17.1-0-g7f62a455cf58`: the on-tag form, with no commit count. W5 asked for this on a
+nightly, but no nightly has run a tag commit, so this was run locally instead. The scheduled
+nightly 42643319301, created 2026-11-09, ran `310130d79` again, the same commit as 11-08's, so it
+does not cover 6a-iii either. Its shard 4 had failed while shards 15 to 18 were still running,
+and its logs could not yet be fetched.
+
+**`TestAppleContainer`.** At main `b36be7d53`, `YOLO_SETUP=apple-container-self go test -count=1
+-timeout 0 -v -run '^TestAppleContainer' ./integration` took 334 s: all 23 tests passed, none
+skipped.
+
 ## Fixed and committed
 
 Nothing.
@@ -181,8 +196,8 @@ Nothing.
 3. The W-SU12 Apple Container refusal names only `yolo stop`, and `yolo stop` opens with a "No jail
    running" line about the default setup.
 4. The four suite failures in [§4](#4-the-testmacosuser-suite).
-5. `TestAppleContainer` under `apple-container-self` (the end of W-SU4) was not run; W5 waits on a
-   nightly at `6ac121c04`.
+5. ~~`TestAppleContainer` and W5~~: both pass, see
+   [§5](#5-later-the-same-day-w5-and-the-testapplecontainer-suite).
 6. `TestCircleCIFakeHostCLIUsesRealClassifier` still fails nightly.
 
 ## Evidence

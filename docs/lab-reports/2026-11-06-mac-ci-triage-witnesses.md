@@ -92,6 +92,7 @@ or the runner's podman machine (report only).
 
 - W5. On the next release tag's nightly, confirm `TestTheJailsYoloCarriesItsMatchedBundleStamp`
   passes on the on-tag form.
+  *Run 2026-11-09, locally at the `v0.17.1` tag* ([report](2026-11-09-mac-named-setups-6a-iii-6b.md#5-later-the-same-day-w5-and-the-testapplecontainer-suite)): passes on `0.17.1+g7f62a455cf58`.
 
 ### 4. The 60-minute step cap
 

@@ -1497,7 +1497,7 @@ forward ([SUP-D50](#SUP-D50)).
   `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
   `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
   ./integration` passes.
-  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#2-w-su4-b-meets-the-linked-state-refusal)): (a) and the move pass. (b) is refused by the linked-state check before the move runs, and `TestAppleContainer` was not run.
+  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#2-w-su4-b-meets-the-linked-state-refusal)): (a) and the move pass. (b) is refused by the linked-state check before the move runs. `TestAppleContainer` passes (23 tests) at `b36be7d53` ([§5](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#5-later-the-same-day-w5-and-the-testapplecontainer-suite)).
 - **W-SU12 (slice 6a-iii, at main `e67b3c81f` or later):** first, with an installed yolo from before 6a-iii (main `bb10db358`, the commit before it landed),
   start `yolo --setup apple-container-self -- bash` in a workspace under `/Users/Shared/yolo/c`,
   and leave it running. Then run `yolo --setup apple-container-self --
