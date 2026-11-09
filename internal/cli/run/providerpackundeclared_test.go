@@ -55,7 +55,9 @@ func TestTheLaunchTypesOutTheDeclarationForABuiltInName(t *testing.T) {
 	_, err := o.composePackChannel(profileFor("pi", "groq"), []*packload.Pack{officialPack(t, "pi")},
 		zaiAndRouterKeys())
 	if err == nil || !strings.Contains(err.Error(), "pi has groq built in") ||
-		!strings.Contains(err.Error(), `"profiles": {"groq": {"provider": "groq"}}`) {
-		t.Fatalf("composePackChannel = %v, want the two-line declaration typed out", err)
+		!strings.Contains(err.Error(), "\n  yolo config set providers.groq.platform groq --user\n") ||
+		!strings.Contains(err.Error(), "\n  yolo config set active_provider.pi groq --user\n") ||
+		strings.Contains(err.Error(), `"profiles": {`) {
+		t.Fatalf("composePackChannel = %v, want the `yolo config set` commands that declare it", err)
 	}
 }

@@ -1,6 +1,8 @@
 package packload
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -168,17 +170,52 @@ func TestTheFormerPackNamesNameTheirNewPacks(t *testing.T) {
 	}
 }
 
-// OQ-PE4: a name a selected agent has built in, which no shipped pack declares, is refused with the
-// two-line declaration typed out, naming the agent; and the declaration it types works.
+// OQ-PE4: a name a selected agent has built in, which no shipped pack declares, is refused naming
+// the agent and the next step. Beside a TOML user config (or none, which a first write makes
+// TOML), the next step is the `yolo config set` commands that declare and select it, each on its
+// own line, never a JSON snippet to paste into a TOML file; beside a legacy JSONC user config,
+// which no command can give a `profiles` entry, it is the two JSON entries typed out. The
+// declaration it types works (below, and TestTheUndeclaredBuiltInNameCommandsDeclareIt in
+// internal/cli runs the printed commands).
 func TestAnUndeclaredBuiltInNameTypesOutItsDeclaration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	selected := embeddedNamed(t, "pi", "bedrock")
 	declared := DeclaredProfileNames(selected, nil)
 	msg := UndeclaredProfileHelp("groq", declared, selected, Embedded())
 	for _, want := range []string{`no profile named "groq" is declared`, "pi has groq built in",
-		`"providers": {"groq": {"platform": "groq"}}`, `"profiles": {"groq": {"provider": "groq"}}`,
+		"config.toml",
+		"\n  yolo config set providers.groq.platform groq --user\n",
+		"\n  yolo config set active_provider.pi groq --user\n",
 		"(declared: bedrock"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q lacks %q", msg, want)
+		}
+	}
+	for _, bad := range []string{`"providers": {`, `"profiles": {`} {
+		if strings.Contains(msg, bad) {
+			t.Errorf("message %q tells a TOML user config to paste JSON (%q)", msg, bad)
+		}
+	}
+	// Each agent with the name built in gets its own selection line.
+	if msg := UndeclaredProfileHelp("groq", nil, embeddedNamed(t, "pi", "opencode"), Embedded()); !strings.Contains(msg,
+		"\n  yolo config set active_provider.opencode groq --user\n  yolo config set active_provider.pi groq --user\n") {
+		t.Errorf("message %q does not select groq for each agent on its own line", msg)
+	}
+	// A legacy JSONC user config keeps the typed entries: no command writes its `profiles` key.
+	legacy := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msg = UndeclaredProfileHelp("groq", declared, selected, Embedded())
+	for _, want := range []string{"config.jsonc", `"providers": {"groq": {"platform": "groq"}}`,
+		`"profiles": {"groq": {"provider": "groq"}}`, "(declared: bedrock"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("legacy message %q lacks %q", msg, want)
 		}
 	}
 	// Two selected agents with it built in are both named.
