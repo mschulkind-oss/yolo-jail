@@ -24,7 +24,7 @@ type orphanFixture struct {
 	// them (runtime.FromWorkspace, named-setups-plan.md SUP-D39); empty keys them by cname.
 	project string
 	files   map[string][]string // class -> paths
-	now                   time.Time
+	now     time.Time
 }
 
 func newOrphanFixture(t *testing.T) *orphanFixture {
