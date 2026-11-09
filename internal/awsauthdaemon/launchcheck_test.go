@@ -36,6 +36,13 @@ func failing(stderr string) awsauth.Output {
 	return awsauth.Output{Spawned: true, Code: 255, Stderr: stderr}
 }
 
+// neverElapses is a launch-check budget that never runs out (HandlerConfig.LaunchCheckBudgetElapsed).
+// A test asserting what the check answers once its mint has FINISHED hands it, so the answer is
+// the mint's and never a race between the mint and a loaded machine's clock: a one-second real
+// budget turned a healthy mint into "had not finished within 1s" at a load average of ~40. Only
+// TestASlowMintIsBoundedByTheBudget, which pins the budget itself, runs the real timer.
+func neverElapses(time.Duration) <-chan time.Time { return nil }
+
 // TestTheLaunchCheckWarnsForEveryFailureClass is design §8's degenerate inputs at the wire:
 // no session ever established, a session that lapsed, and a profile the host's AWS config
 // lacks each come back as ONE warning carrying the classifier's Message, which names the fix;
@@ -72,7 +79,7 @@ func TestTheLaunchCheckWarnsForEveryFailureClass(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			broker := testHandlerBroker(t, unnarrowed("bedrock"), cannedRunner(tc.out, nil))
-			do := serveHandler(t, HandlerConfig{Broker: broker})
+			do := serveHandler(t, HandlerConfig{Broker: broker, LaunchCheckBudgetElapsed: neverElapses})
 			report := askCheck(t, do, time.Second)
 			if len(report.Warnings) != 1 || len(report.Notes) != 0 {
 				t.Fatalf("report = %+v, want exactly one warning", report)
@@ -119,7 +126,8 @@ func TestTheLaunchCheckSaysHowEachFixReachesTheRunningService(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			broker := testHandlerBroker(t, unnarrowed("bedrock"), cannedRunner(tc.out, nil))
-			report := askCheck(t, serveHandler(t, HandlerConfig{Broker: broker}), time.Second)
+			report := askCheck(t, serveHandler(t, HandlerConfig{Broker: broker,
+				LaunchCheckBudgetElapsed: neverElapses}), time.Second)
 			if len(report.Warnings) != 1 {
 				t.Fatalf("report = %+v, want exactly one warning", report)
 			}
@@ -151,7 +159,7 @@ func TestTheLaunchCheckIsSilentOnAHealthyMintAndWarmsTheCache(t *testing.T) {
 	var calls atomic.Int32
 	broker := testHandlerBroker(t, unnarrowed("bedrock"),
 		cannedRunner(processOutput(time.Now().Add(time.Hour), "ASIA1"), &calls))
-	do := serveHandler(t, HandlerConfig{Broker: broker})
+	do := serveHandler(t, HandlerConfig{Broker: broker, LaunchCheckBudgetElapsed: neverElapses})
 	if report := askCheck(t, do, time.Second); len(report.Warnings)+len(report.Notes) != 0 {
 		t.Fatalf("a healthy mint produced %+v", report)
 	}
@@ -205,7 +213,7 @@ func releaseAndDrain(t *testing.T, release chan struct{}, mints *mintTracker, be
 	t.Helper()
 	t.Cleanup(func() {
 		close(release)
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(testHangGuard(t))
 		for mints.previous() == before {
 			if time.Now().After(deadline) {
 				t.Error("the held mint never finished")
@@ -227,11 +235,25 @@ func TestASlowMintIsBoundedByTheBudget(t *testing.T) {
 		broker := testHandlerBroker(t, unnarrowed("bedrock"), blockingRunner(&calls, false, release))
 		mints := newMintTracker(nil)
 		releaseAndDrain(t, release, mints, nil)
-		do := serveHandler(t, HandlerConfig{Broker: broker, Mints: mints})
-		start := time.Now()
+		// The budget's timer is injected and fires at once: what is pinned is that the check
+		// stops waiting on the budget it was handed while the mint is still held, not how fast
+		// a loaded machine runs it (an elapsed-time bound here is a pass condition on load).
+		handed := make(chan time.Duration, 1)
+		elapsed := func(budget time.Duration) <-chan time.Time {
+			handed <- budget
+			fired := make(chan time.Time, 1)
+			fired <- time.Now()
+			return fired
+		}
+		do := serveHandler(t, HandlerConfig{Broker: broker, Mints: mints, LaunchCheckBudgetElapsed: elapsed})
 		report := askCheck(t, do, 100*time.Millisecond)
-		if took := time.Since(start); took > 2*time.Second {
-			t.Errorf("the check took %s against a 100ms budget", took)
+		select {
+		case got := <-handed:
+			if got != 100*time.Millisecond {
+				t.Errorf("the check waited on a %s budget, want the 100ms it was asked for", got)
+			}
+		default:
+			t.Error("the check answered without waiting on its budget")
 		}
 		if len(report.Warnings) != 0 || len(report.Notes) != 1 ||
 			!strings.Contains(report.Notes[0], "had not finished within 100ms") {
@@ -269,14 +291,14 @@ func TestTheLaunchCheckJoinsTheMintInFlight(t *testing.T) {
 	broker := testHandlerBroker(t, unnarrowed("bedrock"), blockingRunner(&calls, false, release))
 	mints := newMintTracker(nil)
 	inflight := mints.begin(broker, "proactive")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testHangGuard(t))
 	for calls.Load() == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the proactive mint never started")
 		}
 		time.Sleep(time.Millisecond)
 	}
-	do := serveHandler(t, HandlerConfig{Broker: broker, Mints: mints})
+	do := serveHandler(t, HandlerConfig{Broker: broker, Mints: mints, LaunchCheckBudgetElapsed: neverElapses})
 	// The request runs on its own goroutine and is DECODED on this one: a t.Fatalf off the
 	// test goroutine would end only that goroutine and leave this test waiting forever.
 	answered := make(chan reply, 1)
@@ -289,7 +311,7 @@ func TestTheLaunchCheckJoinsTheMintInFlight(t *testing.T) {
 	var got reply
 	select {
 	case got = <-answered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testHangGuard(t)):
 		t.Fatal("the launch check never answered")
 	}
 	<-inflight.done

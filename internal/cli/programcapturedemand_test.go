@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -122,11 +121,14 @@ func selectedNPMSharedWorker(t *testing.T) *sync.WaitGroup {
 	t.Helper()
 	var workers sync.WaitGroup
 	old := sharedPreparationSpawn
+	// The worker runs as long as its producer takes; its context is only the test's hang
+	// guard, never a budget a loaded machine has to beat.
+	guard := testHangGuard(t)
 	sharedPreparationSpawn = func(_ context.Context, d preparationDemand) error {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), guard)
 			defer cancel()
 			_ = runSharedPreparation(ctx, d, io.Discard)
 		}()

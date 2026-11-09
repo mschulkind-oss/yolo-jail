@@ -11,20 +11,31 @@ import (
 	"time"
 )
 
-func selectedNPMWaitFile(t *testing.T, path string) {
+// selectedNPMWaitFile waits for the producer to reach the barrier file at path. The wait is on
+// that event, under testHangGuard only; a fixed few seconds failed a healthy producer at a
+// load average of ~40. A requester in done that returns first fails the wait at once with its
+// error, since its producer can then never reach the barrier.
+func selectedNPMWaitFile(t *testing.T, path string, done <-chan error) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testHangGuard(t))
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("the requester returned before its producer reached the barrier %s: %v", path, err)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	t.Fatal("private producer did not reach its controlled barrier", path)
 }
+
+// selectedNPMWaitLeases waits for the shared demand count to settle at want, under
+// testHangGuard only.
 func selectedNPMWaitLeases(t *testing.T, dir string, want int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testHangGuard(t))
 	for time.Now().Before(deadline) {
 		var records []livePreparationDemand
 		err := withDemandState(context.Background(), dir, false, func() error { var err error; records, err = livePreparationDemands(dir); return err })
@@ -50,7 +61,7 @@ func TestSelectedNPMSharedSecondDemandKeepsOriginalOwnedProducer(t *testing.T) {
 		return err
 	}
 	go func() { firstDone <- wait(first) }()
-	selectedNPMWaitFile(t, filepath.Join(f.root, "resolve-started"))
+	selectedNPMWaitFile(t, filepath.Join(f.root, "resolve-started"), firstDone)
 	second, cancelSecond := context.WithCancel(context.Background())
 	defer cancelSecond()
 	go func() { secondDone <- wait(second) }()
@@ -73,7 +84,7 @@ func TestSelectedNPMSharedSecondDemandKeepsOriginalOwnedProducer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testHangGuard(t)):
 		t.Fatal("remaining requester did not complete")
 	}
 	workers.Wait()
@@ -100,7 +111,7 @@ func TestSelectedNPMSharedZeroDemandAndRevocationDoNotAdmit(t *testing.T) {
 				_, err := waitOrdinaryPreparation(ctx, f.in, req.Fingerprint, req.Runtime, req.Platform, true, io.Discard, foregroundOrdinaryGuard(ctx, req, f.in))
 				done <- err
 			}()
-			selectedNPMWaitFile(t, filepath.Join(f.root, "resolve-started"))
+			selectedNPMWaitFile(t, filepath.Join(f.root, "resolve-started"), done)
 			if revoke {
 				writeFile(t, paths.UserConfigPath(), `{"packs":[]}`)
 			} else {
@@ -111,7 +122,7 @@ func TestSelectedNPMSharedZeroDemandAndRevocationDoNotAdmit(t *testing.T) {
 				if err == nil {
 					t.Fatal("revoked/interrupted ordinary request succeeded")
 				}
-			case <-time.After(6 * time.Second):
+			case <-time.After(testHangGuard(t)):
 				t.Fatal("owned producer cancellation did not settle")
 			}
 			workers.Wait()

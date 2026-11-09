@@ -35,6 +35,25 @@ import (
 // they failed, with messages blaming the product.
 const childDeadline = 10 * time.Second
 
+// exitHangGuard bounds a wait whose event either comes or never does — a helper's exit
+// after the code under test released it — so that it never races the machine's load: it is
+// the time left before the test's own deadline, less a margin for reporting and for the
+// red path's cleanup, and unbounded (a day) when go test runs with -timeout 0. A wait
+// under it is a pass the moment the event arrives; only a hang reaches it.
+func exitHangGuard(t *testing.T) time.Duration {
+	t.Helper()
+	td, ok := t.Deadline()
+	if !ok {
+		return 24 * time.Hour
+	}
+	left := time.Until(td)
+	margin := 30 * time.Second
+	if left < 2*margin {
+		margin = left / 2
+	}
+	return left - margin
+}
+
 // fakeHostTTY makes a fresh pty's slave this process's stdin and stdout for the rest of
 // the test, the way a terminal is the launcher's, and returns both ends. What the test
 // writes to master is typed input, and what the proxy writes to stdout comes back out of
@@ -817,16 +836,20 @@ func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr b
 	if err := cmd.Process.Signal(sig); err != nil {
 		t.Fatal(err)
 	}
+	// Wait on the helper's exit itself. The code under test either releases the saturated
+	// TTY and exits, or blocks on it and never does; how long a loaded machine takes to run
+	// the exit is not the property, so the bound is only the test's own hang guard. (A fixed
+	// childDeadline here failed a healthy helper at a load average of ~40.)
 	var waitErr error
 	select {
 	case waitErr = <-done:
-	case <-time.After(childDeadline):
+	case <-time.After(exitHangGuard(t)):
 		if heldStderr != nil && errors.Is(unix.Kill(cmd.Process.Pid, 0), unix.ESRCH) {
 			closeHeldStderr()
 			waitErr = <-done
 			waited = true
 			assertSignalExit(t, waitErr, sig)
-			t.Fatalf("owned helper stderr writer kept Cmd.Wait from completing within childDeadline")
+			t.Fatalf("owned helper stderr writer kept Cmd.Wait from completing although the helper had exited")
 		}
 		// This release is cleanup after the bounded assertion window, not a retry:
 		// it lets a red path terminate its own helper before the test fails.
