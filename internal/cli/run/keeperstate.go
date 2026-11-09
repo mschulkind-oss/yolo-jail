@@ -60,8 +60,41 @@ var errKeeperAlive = errors.New("another process holds this jail's liveness lock
 
 // holdLivenessLock takes cname's liveness lock exclusively, without waiting, and keeps it: the
 // keeper's own take, and the take of whoever reaps an unkept jail. errKeeperAlive when a keeper,
-// or another reaper, holds it.
+// or another reaper, holds it. A probe (probeKeeper) is this take, released at once.
+//
+// EVERY TAKE PASSES THE GATE (livenessGatePath), so a PROBE IS NEVER MISTAKEN FOR A KEEPER. A
+// probe holds the liveness lock for an instant, and flock cannot tell a holder of an instant from
+// a keeper: without the gate, two launches of one workspace probing the same key at once (both ask
+// the legacy jail name before any lock, refuseLegacyJail) each could find the other's instant and
+// read a live keeper, and a keeper starting meanwhile could read another keeper. The gate is held,
+// blocking, only around the non-blocking flock of the liveness lock, and a probe lets the liveness
+// lock go before it lets the gate go (probeKeeper). So whoever holds the gate meets no probe's instant on the
+// liveness lock: a holder it finds is one that took it and kept it past its own pass through the
+// gate, a keeper or a reaper, which is what errKeeperAlive means. Real liveness is untouched: a
+// keeper holds the liveness lock, not the gate, for its life, so a probe still finds it.
+//
+// THE GATE CANNOT DEADLOCK OR STALL: it is the innermost lock (nothing is taken while it is
+// held), it is held across one open and one non-blocking flock and never across a wait, and the
+// kernel lets it go when its holder dies. It is one file for every name, never removed, so no
+// per-name file is left for the orphan sweep (internal/prune). A holder of the liveness lock that
+// does not pass the gate (an older yolo, the orphan sweep's removal of a lock file at least
+// fourteen days old) can still be met for an instant; awaitLivenessLock waits that out for a
+// keeper, and a probe reads it as alive, as before the gate.
 func holdLivenessLock(cname string) (*os.File, error) {
+	return takeLivenessLock(cname, true)
+}
+
+// takeLivenessLock is holdLivenessLock's take, through the gate. keep false is a probe's: the
+// liveness lock is let go before the gate is, and nil is returned for it.
+func takeLivenessLock(cname string, keep bool) (*os.File, error) {
+	if livenessGateHook != nil {
+		livenessGateHook(cname)
+	}
+	gate, err := takeLivenessGate()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseLock(gate)
 	f, err := openLivenessLock(cname)
 	if err != nil {
 		return nil, err
@@ -73,8 +106,48 @@ func holdLivenessLock(cname string) (*os.File, error) {
 		}
 		return nil, err
 	}
+	if livenessHeldHook != nil {
+		livenessHeldHook(cname)
+	}
+	if !keep {
+		releaseLock(f)
+		return nil, nil
+	}
 	return f, nil
 }
+
+// livenessGatePath is the gate every take of a liveness lock passes (holdLivenessLock).
+func livenessGatePath() string {
+	return filepath.Join(paths.GlobalStorage(), "locks", "keeper-liveness.gate")
+}
+
+// takeLivenessGate takes the gate exclusively, waiting for it: it is only ever held for an
+// instant. EINTR is retried, as a signal delivered meanwhile is not a failure to take it.
+func takeLivenessGate() (*os.File, error) {
+	path := livenessGatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		err = flockSyscall(int(f.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// livenessHeldHook and livenessGateHook are test seams, nil outside tests: the first runs while a
+// take holds the gate and the liveness lock, the second before a take waits for the gate.
+var livenessHeldHook, livenessGateHook func(cname string)
 
 // releaseLock unlocks and closes a lock file this process holds. A nil file is a no-op.
 func releaseLock(f *os.File) {
@@ -99,11 +172,12 @@ const (
 )
 
 // probeKeeper asks cname's liveness lock whether a keeper holds it, and holds nothing afterwards.
+// It lets the liveness lock go while it still holds the gate (takeLivenessLock), so no other take
+// can meet its instant.
 func probeKeeper(cname string) keeperLiveness {
-	f, err := holdLivenessLock(cname)
+	_, err := takeLivenessLock(cname, false)
 	switch {
 	case err == nil:
-		releaseLock(f)
 		return keeperGone
 	case errors.Is(err, errKeeperAlive):
 		return keeperAlive

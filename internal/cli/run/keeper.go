@@ -598,9 +598,9 @@ func (k *keeper) run() int {
 var keeperLivenessWait = 2 * time.Second
 
 // awaitLivenessLock is a new keeper's take of its liveness lock, which waits out a hold of an
-// instant, up to bound. Every probe of a keeper takes the lock exclusively for an instant
-// (probeKeeper, the reaper's take), and several poll it: a last session streaming its teardown,
-// `yolo stop`, an arrival waiting for a drain. The fresh launch that spawned this keeper found no
+// instant, up to bound. A probe's instant can no longer be met (holdLivenessLock's gate), but a
+// reaper's take can be let go at once (the orphan reap finding its owner alive, lifecycle.go), and
+// an older yolo's probe or the orphan sweep takes the lock without the gate. The fresh launch that spawned this keeper found no
 // keeper under the launch lock and handed that lock over, so no keeper can have started for the name
 // since, and a hold met here is one of those instants. A take that failed at once refused the launch
 // as though the previous jail's keeper were still running. A hold that outlasts the bound is still

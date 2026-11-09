@@ -1559,6 +1559,11 @@ minors. Each fix is pinned by a test that failed before it, through the producti
   a setup that exists on this machine (`TestAStopOfAnUndefinedSetupsJailFindsItsRuntimeOrNamesASetup`).
 - **m5:** `Run`'s release of the project lock at READY is pinned
   (`TestRunReleasesTheProjectLockOnceItsJailIsUp`).
+- **A probe read as a live keeper (found by the full integration run).** Two launches of one
+  workspace ask the legacy jail name at once, before any lock, and a keeper probe holds the
+  liveness lock for an instant, so one launch could read the other's probe as a running legacy
+  jail and refuse. Every take of a liveness lock now passes one gate lock, and a probe lets the
+  liveness lock go inside it (`TestAProbeIsNeverMistakenForALiveKeeper`).
 
 ## Backlog
 
