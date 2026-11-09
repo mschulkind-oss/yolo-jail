@@ -766,11 +766,12 @@ func stopStillThere(stderr io.Writer, rt, cname, state string) {
 		cname, state, leftoverRemoveHint(rt, cname))
 }
 
-// launchedRuntime is the container runtime the jail named cname was launched on, from its keeper's
-// start record (run.LaunchedRuntime); ok is false when no record names one of them.
+// launchedRuntime is the runtime the jail named cname was launched on, from its keepers' start
+// records (run.LaunchedRuntime): a container runtime, or macos-user; ok is false when no record
+// names one of them.
 func launchedRuntime(cname string) (string, bool) {
 	rt, ok := run.LaunchedRuntime(cname)
-	if !ok || !slices.Contains(paths.SupportedRuntimes, rt) {
+	if !ok || !slices.Contains(paths.AllRuntimes, rt) {
 		return "", false
 	}
 	return rt, true

@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -179,5 +180,36 @@ func TestAStopWithSetupRefusesWhatNamesNoJail(t *testing.T) {
 	}
 	if len(f.podmanCalls) != 0 || len(f.macosStops) != 0 {
 		t.Errorf("a refused stop stopped something: podman %v macos %v", f.podmanCalls, f.macosStops)
+	}
+}
+
+// A LEGACY macos-user JAIL IS STOPPED ON macos-user WHATEVER IS SELECTED (review M4): its keeper
+// keeps its start record under its macos-user key, not under the bare name, so a stop that read
+// only the bare name asked the selected container runtime, found nothing, and left the jail that
+// the launch refuses on running. The record is real; the stop reads it through
+// run.LaunchedRuntime, so deleting its notch keys fails this.
+func TestAStopReachesALegacyMacosUserJailWhenAContainerSetupIsSelected(t *testing.T) {
+	f := newStopSetupsFixture(t)
+	legacy := runtime.FromWorkspace(f.ws)
+	record := filepath.Join(paths.GlobalStorage(), "owners", legacy+".macos-user.keeper.json")
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte(`{"pid":4242,"runtime":"macos-user"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stopLegacyJailKnown = func(name string) bool { return name == legacy }
+	f.known[legacy] = true
+	var rc int
+	stdout, stderr := captureBoth(t, func() { rc = runStop([]string{"stop"}) })
+	if rc != 0 {
+		t.Fatalf("runStop = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout, stderr)
+	}
+	if !slices.Contains(f.macosStops, legacy) {
+		t.Errorf("the legacy macos-user jail %s was not handed to the macos-user stop (got %v)\nstdout:\n%s",
+			legacy, f.macosStops, stdout)
+	}
+	if calls := f.podmanCalls[legacy]; len(calls) != 0 {
+		t.Errorf("the stop asked podman about the legacy macos-user jail: %v", calls)
 	}
 }

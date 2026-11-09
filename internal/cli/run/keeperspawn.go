@@ -779,12 +779,17 @@ func JailKnown(cname string) bool {
 // one that died, so it is there for every jail a keeper started that is not known gone. `yolo stop`
 // asks this runtime ahead of the one the config and YOLO_RUNTIME resolve (JL-D79): a jail launched
 // with YOLO_RUNTIME=container in a workspace whose default is podman runs where podman cannot see it.
+//
+// A macos-user jail's keepers keep their records under its macos-user and guest keys, not under
+// cname, so those are read too (review M4): without them a stop of a macos-user jail that is not
+// the selected setup's asked a container runtime, which reported nothing running.
 func LaunchedRuntime(cname string) (string, bool) {
-	rec, ok := readKeeperRecord(cname)
-	if !ok || rec.Runtime == "" {
-		return "", false
+	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+		if rec, ok := readKeeperRecord(key); ok && rec.Runtime != "" {
+			return rec.Runtime, true
+		}
 	}
-	return rec.Runtime, true
+	return "", false
 }
 
 // FinishStop is `yolo stop`'s second half at a container backend, once the runtime has stopped the
