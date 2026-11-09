@@ -230,3 +230,29 @@ func TestActiveProviderVerbInJailPrintsHostRun(t *testing.T) {
 		t.Fatal("the in-jail refusal wrote a file")
 	}
 }
+
+// A provider the user config declares with only `platform` (what `yolo config set
+// providers.groq.platform groq --user` writes) is one the launch selects once active_provider
+// names it, so the verb must accept it too: the verb and the launch share one resolver.
+func TestActiveProviderVerbAcceptsAUserProviderDeclaredWithOnlyPlatform(t *testing.T) {
+	ws := testconfig.Workspace(t, "")
+	user := testconfig.User(t, "packs = [\"pi\"]\n\n[providers.groq]\nplatform = \"groq\"\n")
+	t.Setenv("HOME", user.Root)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_WORKSPACE", "")
+	t.Setenv("YOLO_HOST_DIR", "")
+	withConfigEditCWD(t, ws.Root)
+
+	rc, out, errs := runActiveProviderVerb(t, "pi", "groq")
+	if rc != 0 {
+		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	got := readFile(t, user.Path)
+	if !strings.Contains(got, "[active_provider]") || !strings.Contains(got, "pi = \"groq\"") {
+		t.Fatalf("active_provider not written:\n%s", got)
+	}
+	if errs := launchErrors(t, ws.Root); len(errs) != 0 {
+		t.Fatalf("the written config does not pass the launch's validation: %v\n%s", errs, got)
+	}
+}
