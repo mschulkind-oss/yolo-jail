@@ -216,7 +216,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 26. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md), with the other herdr calls
     — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
 27. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
-    [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
+    [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the wording style of yolo's messages](../design/message-style.md), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [array-append pinning](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md), [relocating
     `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [whether to ask pi-subagents for a registry several
     extensions can share](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)
@@ -386,7 +386,13 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     evidence, and the combined/native gates remain.
 56. [Declare secrets in their own config table, reaching only the agents that claim them](../design/secret-env-scoping.md), and the
     [Bedrock API key provider](../design/bedrock-key-provider.md) that waits on it — both designs; [OQ-SE1](../design/secret-env-scoping.md#OQ-SE1) to [OQ-SE3](../design/secret-env-scoping.md#OQ-SE3)
-    are ruled (2026-11-09) and [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) waits on the owner. Nothing is built.
+    and [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) are ruled (2026-11-09), and the [secret-env-scoping implementation plan](../design/secret-env-scoping-plan.md)
+    is being built. Nothing has landed.
+57. Write a design for Claude's sign-ins in the macOS Keychain at `yolo host`. On a Mac, host Claude keeps its login
+    and MCP sign-ins in the Keychain rather than `~/.claude/.credentials.json` (inferred, not yet measured), so the one MCP sign-in that
+    [OQ-MA10](../design/mcp-auth-sharing.md#OQ-MA10) turns on at Linux `yolo host` is unsupported at `yolo host` on a
+    Mac until this design exists — the owner, 2026-11-09: *"put a design doc on the roadmap for mac keychain stuff."*
+    It reads with [the keychain from a jail](../design/keychain-from-a-jail.md), which rules Copilot's item, not Claude's.
 
 ## Boundaries
 
