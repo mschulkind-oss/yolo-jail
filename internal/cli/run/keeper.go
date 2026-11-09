@@ -48,6 +48,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -236,6 +237,11 @@ type keeper struct {
 	// jailLeft is a container the keeper's stop did not end: the keeper leaves it UNKEPT, its
 	// owner-PID file and start record in place, rather than a container nothing owns (endJail).
 	jailLeft bool
+	// vanished is a container the runtime lost under the keeper (keepervanish.go): its wait failed
+	// and the runtime then listed no container of the name. startedAt is when the keeper was built,
+	// the bound of "since the jail started" before its start record exists.
+	vanished  atomic.Bool
+	startedAt time.Time
 
 	// THE RECORD OF WHAT WENT DOWN (keeperwatch.go, JL-D19). recMu guards the three: record is the
 	// start record as written, which a death rewrites with its Down list grown; recorded says the
@@ -252,7 +258,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	signals <-chan os.Signal) *keeper {
 	k := &keeper{plan: plan, progress: progress, launchLock: lock, signals: signals,
 		lifelineGone: make(chan struct{}), running: make(chan struct{}), ending: make(chan struct{}),
-		key: keeperKey(plan.Cname, plan.Notch)}
+		key: keeperKey(plan.Cname, plan.Notch), startedAt: time.Now()}
 	k.sink = &keeperSink{}
 	if progress != nil {
 		k.sink.pipe = progress
@@ -576,6 +582,7 @@ func (k *keeper) run() int {
 			k.endJail(lastSessionLeftReason, true)
 			return k.finish(0, nil)
 		case <-ended:
+			k.explainUnrecordedEnd()
 			k.sink.logf("keeper: %s ended; tearing down its host services", p.Cname)
 			k.endJail("", false)
 			return k.finish(0, drained)
@@ -854,7 +861,8 @@ func (k *keeper) watchSessions() <-chan struct{} {
 }
 
 // watchContainer closes the returned channel once the container has ended some other way: on podman
-// `podman wait` answered, or the main process's client exited and the runtime then says no container
+// `podman wait` answered, or failed with the runtime then listing no container of the name
+// (keepervanish.go), or the main process's client exited and the runtime then says no container
 // of the name runs, whichever comes first (§9.5 item 3: "It confirms with the same probe").
 //
 // THE CLIENT'S EXIT IS NOT THE CONTAINER'S END. The container is conmon's, not the client's: a client
@@ -867,7 +875,7 @@ func (k *keeper) watchSessions() <-chan struct{} {
 // keeper holding: it logs that once and looks again every keeperClientGonePoll, since the one
 // observation that needed no poll is gone with the client.
 func (k *keeper) watchContainer() <-chan struct{} {
-	o, p := k.o, k.plan
+	p := k.plan
 	ended := make(chan struct{})
 	var once sync.Once
 	done := func() { once.Do(func() { close(ended) }) }
@@ -875,13 +883,10 @@ func (k *keeper) watchContainer() <-chan struct{} {
 		<-k.jm.exited
 		k.awaitNotRunning(done)
 	}()
-	if p.Runtime == "podman" {
-		go func() {
-			res := o.Exec([]string{p.Runtime, "wait", p.Cname}, "", nil, 0)
-			if res.Ran && !res.Timeout && res.RC == 0 && strings.TrimSpace(res.Stdout) != "" {
-				done()
-			}
-		}()
+	if p.Runtime == "podman" { // parity: HonoredBy — Apple Container has no wait verb; its client's exit and the running probe above are its observation (keepervanish.go)
+		// A wait that answers is the container's exit; one that fails on a container the runtime
+		// no longer lists is the jail lost under its keeper (keepervanish.go).
+		go k.awaitPodmanWait(done)
 	}
 	return ended
 }
