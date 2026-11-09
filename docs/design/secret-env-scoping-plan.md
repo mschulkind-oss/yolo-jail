@@ -184,6 +184,8 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | <a id="SEP-D14"></a>SEP-D14 | The remedy when no private file is listed suggests `~/.config/yolo-jail/secrets.env` at user scope and `secrets.env` (anchored beside the config file) at project and local scope; the `unsecret` mirror suggests `~/.config/yolo-jail/defaults.env` and `defaults.env` | The design gives the user-scope spelling; a workspace private file must lie inside the workspace |
 | <a id="SEP-D15"></a>SEP-D15 | Several providers on one line: `the zai, foo providers, which this launch does not select, claim that name. If it is one of theirs: …`; row 4 with claimants in one pack names that pack, with several packs `To use it as a provider's key: yolo pack add <a> (or <b>).` | Cheap wording; the design shows the one-provider case only |
 | <a id="SEP-D16"></a>SEP-D16 | A nested jail's inherited user layer (`InheritNested`) carries `env.secrets` | Parity: the nested launch then applies the same rule to the same config |
+| <a id="SEP-D17"></a>SEP-D17 | **One dotenv file listed in both `[env] files` and `[env.secrets] files` is one refusal, not one per name**, and its remedy is `yolo config secret --file <path>` (or `unsecret --file`), which moves the file's entry from one list to the other in the scope that lists it. Task 5 adds `--file`; Task 7 checks for the shared file before the per-name both-sets check. | Every name in the file is in both sets, and a per-name `--drop` would delete the one line both sets read. The fix is to move the file, and a verb must name it (happy-path principle). Decided by the planner, 2026-11-09; was design gap 1. |
+| <a id="SEP-D18"></a>SEP-D18 | **A legacy JSONC workspace config holding a provider key gets the same remedy as a legacy user config:** `yolo config migrate`, then the verb with `--project`. | Parity across scopes: [SE-D6](secret-env-scoping.md#SE-D6) states the rule for the user file, and nothing about the workspace scope differs. Decided by the planner, 2026-11-09; was design gap 2. |
 
 ## Tasks
 
@@ -1053,15 +1055,5 @@ a running jail keeps its processes' environment until it restarts.
 
 ## Design gaps
 
-For the design's owner; nothing here blocks Tasks 1 to 6.
+None open. The two found while planning are decided as [SEP-D17](#SEP-D17) and [SEP-D18](#SEP-D18).
 
-1. **One dotenv file listed in both `[env] files` and `[env.secrets] files`.** Every name it sets is in
-   both sets, so the both-sets refusal fires per name, and its `--drop` remedies would delete the one line
-   both sets read. No single `yolo config` verb names the real fix (drop the file from one list:
-   `yolo config unset` does not remove one list element today). The design's happy-path rule needs a
-   command here. Until ruled, Task 5's verbs refuse a `--drop` whose two copies are the same line of the
-   same file, saying so, and Task 7 prints the design's text unchanged.
-2. **A legacy JSONC *workspace* config** (`yolo-jail.jsonc` with `env_sources` holding a provider key).
-   [SE-D6](secret-env-scoping.md#SE-D6) and [§3.5](secret-env-scoping.md#35-the-refusal) speak of a legacy
-   *user* file only. The plan applies the same remedy (`yolo config migrate`, then the verb with
-   `--project`); confirm or rule otherwise.
