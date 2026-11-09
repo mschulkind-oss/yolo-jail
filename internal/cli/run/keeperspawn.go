@@ -455,13 +455,19 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 	sp := o.Perf.Span("attach.why_the_jail_ended")
 	reason, ended := o.whyTheJailEnded(cname, rt, rc, since)
 	sp.End()
+	// A RECORDED stop is a SIGTERM's cause, and explains a 137. With none, a podman refresh since
+	// the session began is still named (keepervanish.go), without either of those claims.
+	recorded := reason != ""
+	if ended && !recorded {
+		reason = o.unrecordedEndReason(rt, since)
+	}
 	o.reportJailEnded(rt, reason, ended)
 	o.releaseSessionLock()
 	if ended {
-		if reason != "" && first {
+		if recorded && first {
 			rc = 128 + int(syscall.SIGTERM)
 		}
-		if reason == "" {
+		if !recorded {
 			o.maybeWarnAboutOOMKiller(rc, rt)
 			if o.streamKeeperTeardown(cname, logFrom) && rc == 0 {
 				rc = 1
