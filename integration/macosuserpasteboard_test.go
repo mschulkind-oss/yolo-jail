@@ -300,7 +300,7 @@ func clip(s string) string {
 }
 
 // TestMacosUserPasteboardProbeShellRunsAgainstAStandIn runs the probe's shell on any machine,
-// against stand-in `pbpaste` and `osascript` first on PATH, and reads it with the parser the Mac
+// against stand-in Bash functions for `pbpaste` and `osascript`, and reads it with the parser the Mac
 // test uses: pbpaste answers the marker after a warning line on stderr (the shape macOS printed
 // on a CI runner, which a merged-output comparison misread as a failed read), the text read
 // fails on stderr, and the PNG read hangs past a one-second bound so the watchdog must end it. Not behind requireMacosUser's skip, so it runs
@@ -311,23 +311,26 @@ func TestMacosUserPasteboardProbeShellRunsAgainstAStandIn(t *testing.T) {
 		t.Skip("no bash on PATH")
 	}
 	marker, pngHex := "yolo-pasteboard-probe-standin", "89504E470D0A1A0A"
-	bin := resolvedTempDir(t)
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("pbpaste", "echo 'IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver' >&2\nprintf '%s' \"$PB_MARKER\"\n")
-	write("osascript", `case "$2" in
-  *PNGf*) exec sleep 30 ;;
-  *) echo "execution error: Can't make some data into the expected type. (-1700)" >&2; exit 1 ;;
-esac
-`)
+	// Keep the fast answers in the already-running Bash. Starting a cold shell
+	// executable on a busy Mac can itself exceed this probe's one-second command
+	// bound, turning all three stand-ins into timeouts before they answer. The
+	// hanging PNG arm still runs a real child that the production watchdog kills.
+	standIns := `
+pbpaste() {
+  echo 'IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver' >&2
+  printf '%s' "$PB_MARKER"
+}
+osascript() {
+  case "$2" in
+    *PNGf*) exec sleep 30 ;;
+    *) echo "execution error: Can't make some data into the expected type. (-1700)" >&2; return 1 ;;
+  esac
+}
+`
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bash, "-c", pasteboardProbeScript(1))
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"PB_MARKER="+marker, "TMPDIR="+resolvedTempDir(t))
+	cmd := exec.CommandContext(ctx, bash, "-c", standIns+pasteboardProbeScript(1))
+	cmd.Env = append(os.Environ(), "PB_MARKER="+marker, "TMPDIR="+resolvedTempDir(t))
 	begun := time.Now()
 	raw, err := cmd.CombinedOutput()
 	if err != nil {

@@ -315,6 +315,10 @@ func pruneRunOnTemp(t *testing.T, opts prune.Options, gs string, out *bytes.Buff
 	tempScan := t.TempDir()
 	opts.TempDirs = func() []string { return []string{tempScan} }
 	opts.ProcStarts = func() ([]prune.ProcStart, bool) { return nil, true }
+	// These fixtures exercise owned host state, never the real machine's guest
+	// staging root, process table, or sandbox account. Guest sweep wiring has its
+	// own tests in prunepacktrees_test.go.
+	opts.GuestPackTrees = func(bool) (prune.EmbeddedReap, bool) { return prune.EmbeddedReap{}, false }
 	return opts
 }
 
@@ -324,7 +328,18 @@ func pruneRunOnTemp(t *testing.T, opts prune.Options, gs string, out *bytes.Buff
 // /tmp — a pin that caught it by running one would do the damage it exists to prevent.
 func TestPruneRunOnTempConfinesTheTempDirSweep(t *testing.T) {
 	root := t.TempDir()
-	opts := pruneRunOnTemp(t, pruneOptions([]string{"prune"}), t.TempDir(), &bytes.Buffer{})
+	input := pruneOptions([]string{"prune"})
+	input.GuestPackTrees = func(bool) (prune.EmbeddedReap, bool) {
+		t.Fatal("pruneRunOnTemp leaked the machine's guest-pack-tree callback")
+		return prune.EmbeddedReap{}, false
+	}
+	opts := pruneRunOnTemp(t, input, t.TempDir(), &bytes.Buffer{})
+	if opts.GuestPackTrees == nil {
+		t.Fatal("pruneRunOnTemp must explicitly replace the machine's guest sweep")
+	}
+	if _, present := opts.GuestPackTrees(true); present {
+		t.Fatal("a temp-only prune fixture must not run a guest sweep")
+	}
 	if opts.TempDirs == nil || opts.ProcStarts == nil {
 		t.Fatal("pruneRunOnTemp leaves TempDirs/ProcStarts nil: prune defaults them to the " +
 			"machine's real /tmp and process table, and a test --apply then sweeps them")

@@ -189,19 +189,42 @@ func TestInteractiveStopsForwardingWhenChildExitsWithOpenInput(t *testing.T) {
 func TestInteractiveProductionRunnerStopsAfterChildExitWithOpenInput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "security")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nIFS= read -r line\nexit 23\n"), 0o700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nIFS= read -r line\nprintf R\nexit 23\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	readyRead, readyWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readyRead.Close()
+	defer readyWrite.Close()
+	ready := make(chan error, 1)
+	go func() {
+		var marker [1]byte
+		_, err := io.ReadFull(readyRead, marker[:])
+		ready <- err
+	}()
 	stdin, input := io.Pipe()
 	defer stdin.Close()
 	defer input.Close()
 	finished := make(chan int, 1)
 	go func() {
 		finished <- Run(ViewMode, "Claude Code-credentials-5d0efea8", []string{"-i"}, stdin,
-			io.Discard, io.Discard, path, runSecurity)
+			readyWrite, io.Discard, path, runSecurity)
 	}()
 	if _, err := io.WriteString(input, "find-generic-password -s Other\n"); err != nil {
 		t.Fatal(err)
+	}
+	// Start the exit bound only after the actual child has started and consumed
+	// its command. Otherwise cold exec startup under whole-suite load can spend
+	// the entire two seconds before this test's EOF-handling assertion begins.
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatalf("child readiness: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the production child did not start and read its command")
 	}
 	select {
 	case code := <-finished:

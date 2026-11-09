@@ -4,11 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fakeDarwinGit makes storeGit's host darwin, with PATH resolving git to lookPath and xcrun naming
@@ -109,13 +106,22 @@ func TestStoreGitAsksXcrunPerDeveloperDir(t *testing.T) {
 // runs plain "git", and nothing is kept, so the next store asks again.
 func TestAHungXcrunLeavesGitAndIsAskedAgain(t *testing.T) {
 	fakeDarwinGit(t, appleGitShim, "", nil)
-	xcrunFindGit = askXcrunForGit // the real question, of the fake xcrun below
+	// Count the question, not a side effect inside the child: the deadline includes
+	// exec startup, so a busy Mac can kill the child before its first shell command.
+	asked := 0
+	xcrunFindGit = func() (string, error) {
+		asked++
+		path, err := askXcrunForGit() // still the real bounded subprocess runner
+		if err == nil {
+			t.Error("the hanging xcrun unexpectedly answered without an error")
+		}
+		return path, err
+	}
 	bound := xcrunBound
 	xcrunBound = 200 * time.Millisecond
 	t.Cleanup(func() { xcrunBound = bound })
 	dir := t.TempDir()
-	asked := filepath.Join(dir, "asked")
-	script := "#!/bin/sh\necho x >> " + shquote.Quote(asked) + "\nexec sleep 30\n"
+	script := "#!/bin/sh\nexec sleep 30\n"
 	if err := os.WriteFile(filepath.Join(dir, "xcrun"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +139,7 @@ func TestAHungXcrunLeavesGitAndIsAskedAgain(t *testing.T) {
 			t.Errorf("store %d: a hung xcrun's non-answer was kept", i)
 		}
 	}
-	if data, _ := os.ReadFile(asked); strings.Count(string(data), "x") != 2 {
-		t.Errorf("xcrun asked %q times, want twice (once a store)", data)
+	if asked != 2 {
+		t.Errorf("xcrun asked %d times, want twice (once a store)", asked)
 	}
 }
