@@ -72,7 +72,7 @@ func (o *Options) legacyLeftoverContainer(cname, how string) bool {
 
 // legacyJailRemove is the runtime's own removal of a stopped legacy container.
 func legacyJailRemove(cname, rt string) string {
-	if rt == "container" {
+	if rt == "container" { // parity: HonoredBy — each runtime removes its own container with its own CLI
 		return "container rm " + richtext.Escape(cname)
 	}
 	return "podman rm " + richtext.Escape(cname)
