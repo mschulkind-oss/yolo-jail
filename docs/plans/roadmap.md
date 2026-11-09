@@ -386,7 +386,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     evidence, and the combined/native gates remain.
 56. [Declare secrets in their own config table, reaching only the agents that claim them](../design/secret-env-scoping.md), and the
     [Bedrock API key provider](../design/bedrock-key-provider.md) that waits on it — both designs; [OQ-SE1](../design/secret-env-scoping.md#OQ-SE1) to [OQ-SE3](../design/secret-env-scoping.md#OQ-SE3)
-    are ruled (2026-11-09) and [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) waits on the owner. Nothing is built.
+    are ruled (2026-11-09), and the [secret-env-scoping implementation plan](../design/secret-env-scoping-plan.md)
+    is ready to build; [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) waits on the owner. Nothing is built.
 
 ## Boundaries
 

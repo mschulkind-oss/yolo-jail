@@ -2,8 +2,8 @@
 title: "A secret is declared in its own place in config, and reaches only the agents whose provider claims it"
 date: 2026-11-09
 status: accepted
-stage: DESIGN
-next: "Write the implementation plan; OQ-SE1 to OQ-SE3 and the both-sets refusal were ruled 2026-11-09, nothing is built"
+stage: DECIDED
+next: "Build Task 1 of secret-env-scoping-plan.md; nothing is built"
 tags: [credentials, env_sources, providers, credential-gate, security, parity, config]
 summary: "Today one `[env]` list carries every variable, and a dotenv value is withheld from the wrong agents only while some selected pack's provider claims its name; deselect the pack and the same key reaches every process. This design splits the config into a public set, today's `[env]`, whose values reach every process as they do now, and a private set, `[env.secrets]`, whose values reach only the agents whose selected provider claims them. Each name is written once. A provider that finds its key in the public set refuses the launch and names the one command that moves it. One rule for zai, cerebras, kilo, openrouter, bedrock, bedrock-key and any provider a user declares; the same rule at the jail, macos-user and host notches."
 vantage:
