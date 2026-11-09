@@ -14,6 +14,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
+// embeddedSourceNextStep is the next step for a shipped pack this yolo build could not read: the
+// fault is the installed build's, not the user's config.
+const embeddedSourceNextStep = "the packs this yolo build ships could not be read — reinstall yolo, then rerun the command"
+
 func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 	if ctx.rawUser == nil {
 		return nil, fmt.Errorf("planned user config source is missing from explicit edit context")
@@ -29,6 +33,12 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 	fsys := ctx.embeddedFS
 	embedded := map[string]*packload.Pack{}
 	var embeddedErr error
+	// lookup is the closure's universe, the shipped packs by name, as the launch's
+	// embeddedPackLookup is: a name yolo does not ship is a MISS, never a failure. The closure
+	// asks for names it may not find on purpose — a fork's base it does not see among the
+	// selected packs by Name (ResolveNeeds; a configured base's Name is its handle), or a need —
+	// and the closure itself refuses, naming the pack and the fix, when the miss matters
+	// (ApplyForks, ResolveNeeds). Only a shipped pack that could not be READ is embeddedErr.
 	lookup := func(name string) (*packload.Pack, bool) {
 		if pack, ok := embedded[name]; ok {
 			return pack, true
@@ -38,8 +48,11 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 			return nil, false
 		}
 		info, err := fs.Stat(fsys, name)
-		if err != nil || !info.IsDir() {
-			embeddedErr = fmt.Errorf("embedded pack %s is not present in the immutable source", name)
+		if errors.Is(err, fs.ErrNotExist) || (err == nil && !info.IsDir()) {
+			return nil, false
+		}
+		if err != nil {
+			embeddedErr = fmt.Errorf("read embedded pack %s: %w", name, err)
 			return nil, false
 		}
 		root := filepath.Join(string(filepath.Separator), "embedded", name)
@@ -130,7 +143,7 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 	selected, err := selectPacksWithEmbeddedLookup(entries, PackSelectSpec{Resolve: resolve, FailFast: true, Selection: selection}, lookup)
 	if err != nil {
 		if embeddedErr != nil {
-			return nil, fmt.Errorf("planned pack closure source: %w (selection: %v)", embeddedErr, err)
+			return nil, fmt.Errorf("planned pack closure source: %w (selection: %v); %s", embeddedErr, err, embeddedSourceNextStep)
 		}
 		return nil, fmt.Errorf("resolve planned pack selection: %w", err)
 	}
@@ -138,7 +151,7 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 		return nil, fmt.Errorf("resolve planned active provider selection for pack closure: %w", ctx.viaSelectionErr)
 	}
 	if embeddedErr != nil {
-		return nil, fmt.Errorf("planned pack closure source: %w", embeddedErr)
+		return nil, fmt.Errorf("planned pack closure source: %w; %s", embeddedErr, embeddedSourceNextStep)
 	}
 	if !selected.Complete() {
 		return nil, fmt.Errorf("planned pack selection is incomplete: %v %v", selected.Unresolved, selected.ClosureErr)
