@@ -10,15 +10,16 @@ package check
 import (
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // secretEnvGap is one warning per env-set line scope would print at launch.
-func secretEnvGap(scope *packload.CredentialScope) []overrideGapFinding {
+// Each line's verb names the scope whose config sets the name, as the launch's does
+// (secret-env-scoping-plan.md#SEP-D6).
+func secretEnvGap(scope *packload.CredentialScope, workspace string) []overrideGapFinding {
 	var warns []overrideGapFinding
-	// DisclosureNotes.Scope stays nil until Task 5's config.LocateEnvName fills it
-	// (secret-env-scoping-plan.md#SEP-D6).
-	for _, line := range scope.EnvSetLines(packload.DisclosureNotes{}) {
+	for _, line := range scope.EnvSetLines(packload.DisclosureNotes{Scope: config.EnvNameScope(workspace)}) {
 		warns = append(warns, overrideGapFinding{msg: strings.TrimSpace(line)})
 	}
 	return warns

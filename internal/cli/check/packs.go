@@ -477,7 +477,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		r.warn(w.msg, w.note)
 	}
 	// The env-set lines the launch prints, over the same gate (secret-env-scoping.md §3.7).
-	for _, w := range secretEnvGap(scope) {
+	for _, w := range secretEnvGap(scope, o.Workspace) {
 		r.warn(w.msg, w.note)
 	}
 

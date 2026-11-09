@@ -306,6 +306,13 @@ func PlanEdit(data []byte, format configdoc.Format, m Mutation) (*Plan, error) {
 				}
 				if handled {
 					hunks = commentPreservingHunks(data, ranges, doc.Index.Comments())
+					// A TOML inline table is one line and holds no comment, so its member goes
+					// whole, with one separating comma (inlineTableMemberSpan).
+					if len(ranges) == 1 {
+						if span, inline := inlineTableMemberSpan(data, ranges[0]); inline {
+							hunks = []Hunk{{Start: span.Start, End: span.End, Before: append([]byte(nil), data[span.Start:span.End]...)}}
+						}
+					}
 					deleteValue(root, path)
 					break
 				}
@@ -1997,6 +2004,39 @@ func findMemberKey(doc *configdoc.Document, parent []configdoc.Step, member conf
 	}
 	return ""
 }
+
+// inlineTableMemberSpan widens the span of a member of a TOML inline table (`{ A = "1", B = "2" }`)
+// to take one separating comma with it: the following one and the blanks after it, or, for the
+// last member, the preceding one; the only member takes the blanks inside the braces. A span
+// that is not an inline-table member is returned as it is, with false.
+func inlineTableMemberSpan(data []byte, s configdoc.Span) (configdoc.Span, bool) {
+	blank := func(b byte) bool { return b == ' ' || b == '\t' }
+	before := s.Start - 1
+	for before >= 0 && blank(data[before]) {
+		before--
+	}
+	after := s.End
+	for after < len(data) && blank(data[after]) {
+		after++
+	}
+	if before < 0 || after >= len(data) || (data[before] != '{' && data[before] != ',') {
+		return s, false
+	}
+	switch {
+	case data[after] == ',':
+		end := after + 1
+		for end < len(data) && blank(data[end]) {
+			end++
+		}
+		return configdoc.Span{Start: s.Start, End: end}, true
+	case data[after] == '}' && data[before] == ',':
+		return configdoc.Span{Start: before, End: s.End}, true
+	case data[after] == '}' && data[before] == '{':
+		return configdoc.Span{Start: before + 1, End: after}, true
+	}
+	return s, false
+}
+
 func findComma(data []byte, start, end int, comments []configdoc.Span) int {
 	for i := start; i < end; i++ {
 		if data[i] != ',' {

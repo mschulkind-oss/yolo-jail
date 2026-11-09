@@ -71,9 +71,11 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | [`internal/cli/check/entrypoint.go`](../../internal/cli/check/entrypoint.go) | the boot preflight's env is the public set only | 3 |
 | [`internal/cli/host.go`](../../internal/cli/host.go) | `composeHostVarsWith`, `hostScopedEnvSources`, `resolveHostGrant`, `credentialScopeLines` | 4 |
 | [`internal/cli/check/envoverrides.go`](../../internal/cli/check/envoverrides.go), `internal/cli/check/secretenv.go` (new), [`packs.go`](../../internal/cli/check/packs.go) | `overrideScope` reads `HydratedEnv`; row 4 and row 1 lines as WARN | 4 |
-| `internal/config/envlocate.go` (new) | `LocateEnvName`: which scope, set and place set a name | 5 |
+| `internal/config/envlocate.go` (new) | `LocateEnvName`, `ReadEnvScopeFiles`, `EnvNameScope`, `EnvPlace.Describe`: which scope, set and place set a name, read from each scope's own top-level file (the file a move edits; an include's entry is not editable) | 5 |
 | `internal/config/dotenvedit.go` (new) | remove and append one name's line in a dotenv file | 5 |
-| `internal/cli/configsecret.go` (new) | `yolo config secret\|unsecret <NAME> [--drop]` | 5 |
+| `internal/cli/configsecret.go` (new) | `yolo config secret\|unsecret <NAME> [--drop]`, `--dotenv <path>` ([SEP-D17](#SEP-D17)) | 5 |
+| [`internal/configedit/edit.go`](../../internal/configedit/edit.go) | removing a TOML inline-table member takes its separating comma (`inlineTableMemberSpan`); before it, removing `A` from `set = { A = "1", B = "2" }` planned unparseable TOML (found by `TestConfigSecretMovesAnInlineValue`) | 5 |
+| [`internal/cli/check/secretenv.go`](../../internal/cli/check/secretenv.go), [`packs.go`](../../internal/cli/check/packs.go) | `secretEnvGap(scope, workspace)` fills `DisclosureNotes.Scope` from `EnvNameScope` | 5 |
 | [`internal/cli/config.go`](../../internal/cli/config.go) | dispatch, `configHelpToken`, usage text | 5 |
 | [`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt) | `[env.secrets]` in the env entry (Task 3), the verbs (Task 5), the refusal sentence (Task 7) | 3, 5, 7 |
 | [`internal/cli/configreftoml_test.go`](../../internal/cli/configreftoml_test.go) | `TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas` names the two verbs | 5 |
@@ -186,7 +188,7 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | <a id="SEP-D14"></a>SEP-D14 | The remedy when no private file is listed suggests `~/.config/yolo-jail/secrets.env` at user scope and `secrets.env` (anchored beside the config file) at project and local scope; the `unsecret` mirror suggests `~/.config/yolo-jail/defaults.env` and `defaults.env` | The design gives the user-scope spelling; a workspace private file must lie inside the workspace |
 | <a id="SEP-D15"></a>SEP-D15 | Several providers on one line: `the zai, foo providers, which this launch does not select, claim that name. If it is one of theirs: …`; row 4 with claimants in one pack names that pack, with several packs `To use it as a provider's key: yolo pack add <a> (or <b>).` | Cheap wording; the design shows the one-provider case only |
 | <a id="SEP-D16"></a>SEP-D16 | A nested jail's inherited user layer (`InheritNested`) carries `env.secrets` | Parity: the nested launch then applies the same rule to the same config |
-| <a id="SEP-D17"></a>SEP-D17 | **One dotenv file listed in both `[env] files` and `[env.secrets] files` is one refusal, not one per name**, and its remedy is `yolo config secret --file <path>` (or `unsecret --file`), which moves the file's entry from one list to the other in the scope that lists it. Task 5 adds `--file`; Task 7 checks for the shared file before the per-name both-sets check. | Every name in the file is in both sets, and a per-name `--drop` would delete the one line both sets read. The fix is to move the file, and a verb must name it (happy-path principle). Decided by the planner, 2026-11-09; was design gap 1. |
+| <a id="SEP-D17"></a>SEP-D17 | **One dotenv file listed in both `[env] files` and `[env.secrets] files` is one refusal, not one per name**, and its remedy is `yolo config secret --dotenv <path>` (or `unsecret --dotenv`), which moves the file's entry from one list to the other in the scope that lists it. Task 5 adds `--dotenv`; Task 7 checks for the shared file before the per-name both-sets check. | Every name in the file is in both sets, and a per-name `--drop` would delete the one line both sets read. The fix is to move the file, and a verb must name it (happy-path principle). Decided by the planner, 2026-11-09; was design gap 1. Spelled `--dotenv`, not the planner's `--file`, by Task 5: the design names `--file` as the generic verbs' config-file scope flag ([SE-D9](secret-env-scoping.md#SE-D9)), and the design wins. |
 | <a id="SEP-D18"></a>SEP-D18 | **A legacy JSONC workspace config holding a provider key gets the same remedy as a legacy user config:** `yolo config migrate`, then the verb with `--project`. | Parity across scopes: [SE-D6](secret-env-scoping.md#SE-D6) states the rule for the user file, and nothing about the workspace scope differs. Decided by the planner, 2026-11-09; was design gap 2. |
 
 ## Tasks
@@ -826,7 +828,12 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
   - Inline moves go through `configedit.ResolveTarget` + `configedit.ApplyTargeted` with
     `configedit.Mutation{Action: configedit.Add|configedit.Remove, Path: …}` (`env.secrets.set.NAME` /
     `env.set.NAME`); `addMissingKey`'s parent-table behavior covers a missing `[env.secrets]`.
-  - Wire `DisclosureNotes.Scope` in `credentialnotes.go` to `LocateEnvName` (the Task 3 marker).
+  - Wire `DisclosureNotes.Scope` in `credentialnotes.go` to `LocateEnvName` (the Task 3 marker), and in
+    `check/secretenv.go` (the Task 4 marker), through `config.EnvNameScope`.
+  - **As built:** `--dotenv <path>` moves a file entry ([SEP-D17](#SEP-D17)); the inline test asserts the parsed
+    values, not the substring `[env.secrets]`, because `addMissingKey` writes a missing table as the
+    `[env.secrets.set]` header, which says the same; `LocateEnvName` reads each scope's top-level file with
+    `configdoc.Parse` rather than `LoadReadableConfigWithSources`, because a move edits that file.
   - `config_ref.txt`: the TOML section's verb list (~`:140`) gains
     `yolo config secret|unsecret <NAME> [--drop] [--user|--project|--local]` with a one-line gloss; the env
     entry names both verbs.

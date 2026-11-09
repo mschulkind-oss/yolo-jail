@@ -139,6 +139,11 @@
                                it, and what would apply without it
     yolo config set|add|unset <key> [value] [--user|--project|--local]
                                one typed edit, with the splice that keeps comments
+    yolo config secret <NAME> [--drop] [--user|--project|--local]
+                               move one env name into [env.secrets], never
+                               printing its value
+    yolo config unsecret <NAME> [--drop] [--user|--project|--local]
+                               move it back to [env]
     yolo config migrate        convert old files to TOML once, proving equality
     yolo config drift|dump|apply   as described below
 
@@ -764,6 +769,13 @@
     and the launch names it (never its value).  A private file in the
     WORKSPACE config obeys the same inside-the-workspace rule as
     env.files.
+    `yolo config secret NAME` moves NAME from the public set to the
+    private one in the scope that holds it (an inline value to
+    [env.secrets] set, a dotenv line to the first [env.secrets] file);
+    `yolo config unsecret NAME` moves it back.  `--drop` deletes the
+    other set's copy instead of moving one, and `--dotenv PATH` moves a
+    whole dotenv file's entry between the two files lists.  Neither
+    prints a value.
     An unset name removes a pack's `env` value of the name too, in a jail
     as at the host.  It never removes a value the selected provider
     composes, nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -38,8 +39,11 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	// processes hold one (o.heldGrant, jailgrant.go): a granted name is every process's, never
 	// "withheld from every process". Its remedy stays unwritten: a running jail takes no grant
 	// later, and the fresh launch that does is named by the attach's refusal (ES-D33).
-	// DisclosureNotes.Scope stays nil until Task 5's config.LocateEnvName fills it (secret-env-scoping-plan.md#SEP-D6).
-	lines := channel.scope.DisclosureWith(o.grantDisclosureNotes())
+	// An env-set line's verb names the scope whose config sets the name, read only when a line
+	// prints (secret-env-scoping-plan.md#SEP-D6).
+	notes := o.grantDisclosureNotes()
+	notes.Scope = config.EnvNameScope(o.Workspace)
+	lines := channel.scope.DisclosureWith(notes)
 	if len(lines) == 0 {
 		return
 	}

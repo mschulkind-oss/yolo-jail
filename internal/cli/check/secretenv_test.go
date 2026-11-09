@@ -2,6 +2,8 @@ package check
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,11 +22,20 @@ func TestSecretEnvGapWarnsOfAPrivateNameNothingClaims(t *testing.T) {
 	env.Set("secrets", secrets)
 	merged := jsonx.NewOrderedMap()
 	merged.Set("env", env)
-	scope := overrideScope(nil, merged, packload.ServedDaemons{}, t.TempDir(), func(string) {},
+	t.Setenv("HOME", t.TempDir())
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.toml"), []byte("[env.secrets]\nset = { STRIPE_KEY = \"s-probe\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scope := overrideScope(nil, merged, packload.ServedDaemons{}, ws, func(string) {},
 		func() (map[string]packload.UserProfile, error) { return nil, nil })
-	warns := secretEnvGap(scope)
+	warns := secretEnvGap(scope, ws)
 	if len(warns) != 1 || !strings.Contains(warns[0].msg, "STRIPE_KEY: withheld from every process") {
 		t.Fatalf("one warning naming the withheld private name, got %+v", warns)
+	}
+	// SEP-D6: the verb names the scope whose config sets the name.
+	if !strings.Contains(warns[0].msg, "yolo config unsecret STRIPE_KEY --project") {
+		t.Errorf("the warning's verb names the project scope: %+v", warns[0])
 	}
 	if strings.Contains(warns[0].msg+warns[0].note, "s-probe") {
 		t.Errorf("a warning never carries a value: %+v", warns[0])
