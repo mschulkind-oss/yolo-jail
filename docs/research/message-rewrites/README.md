@@ -66,28 +66,28 @@ per file.
 Each part's "Wrong today" section gives the details. These are the ones worth fixing as bugs,
 whatever happens to the rewrites:
 
-- **Unusable advice in a TOML config.** Messages give JSON and `config.jsonc` advice, which a TOML
+- **Unusable advice in a TOML config.** Messages give JSON and `config.jsonc` advice, which a TOML *Fixed in `de5c3a223`, `ad7b7161b` and `90b74519d`, except `profiles.go` (needs a ruling: the TOML spelling it would name is refused) and `config_ref.txt`'s examples (left to the config-reference rewrite).*
   config cannot take: `profiles.go` (providers), `prism.go` (the dropped-entry lines), the
   `host_management` advice, the macOS memory guard, the AWS profile refusal, the CA hint, and
   `config_ref.txt`'s examples.
 - **Advice that is false.**
-  - The macOS guest refusal names a `loopholes` key that no longer exists.
-  - The jail-mechanics recipe describes a host-side loophole "switch" that was retired.
-  - `yolo-ps` gives its two steps in the wrong order.
-  - `gitbroker/access.go` says "then relaunch" where the running broker picks up the grant itself.
-  - The `--accept-config-changes` refusal says "THIS LAUNCH ONLY", but the approval is recorded
+  - The macOS guest refusal names a `loopholes` key that no longer exists. *Fixed in `de5c3a223`.*
+  - The jail-mechanics recipe describes a host-side loophole "switch" that was retired. *Fixed in `ad7b7161b`.*
+  - `yolo-ps` gives its two steps in the wrong order. *Fixed in `ad7b7161b`.*
+  - `gitbroker/access.go` says "then relaunch" where the running broker picks up the grant itself. *Fixed in `de5c3a223`.*
+  - The `--accept-config-changes` refusal says "THIS LAUNCH ONLY", but the approval is recorded *Fixed in `90b74519d`.*
     for later launches.
-  - The briefing's "Limitations" section says authenticated git fails without jail credentials,
+  - The briefing's "Limitations" section says authenticated git fails without jail credentials, *Fixed in `ad7b7161b`.*
     which is false when the broker runs.
 - **Formatting bugs.**
-  - `yolo run --help` lists `--update` twice.
-  - `backgroundadvance.go` prints a bare "in .json".
-  - `reachability.go:574` prints a sentence that does not parse.
-  - The tools recipe double-wraps a sentence in backticks.
-  - The macOS certificate-trust disclosure gets plurals and nouns wrong.
-- **Text that can never print.** The `--add` branches in the brokers and `hostfloor`'s
+  - `yolo run --help` lists `--update` twice. *Fixed in `90b74519d`.*
+  - `backgroundadvance.go` prints a bare "in .json". *Fixed in `90b74519d`.*
+  - `reachability.go:574` prints a sentence that does not parse. *Fixed in `ad7b7161b`.*
+  - The tools recipe double-wraps a sentence in backticks. *Fixed in `ad7b7161b`.*
+  - The macOS certificate-trust disclosure gets plurals and nouns wrong. *Fixed in `f610d55a1`.*
+- **Text that can never print.** The `--add` branches in the brokers and `hostfloor`'s *Fixed in `de5c3a223` and `c879f67ed`.*
   `EnsureFresh` are unreachable. Delete them; do not reword them.
-- **A wrong cause.** `loopholes/discover.go` reports a missing loophole directory as "outside the
+- **A wrong cause.** `loopholes/discover.go` reports a missing loophole directory as "outside the *Fixed in `c879f67ed`.*
   pack".
 
 Already fixed since the audit: `yolo init-user-config` no longer writes `config.jsonc` beside an
