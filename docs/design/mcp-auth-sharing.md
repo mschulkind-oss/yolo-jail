@@ -33,7 +33,7 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule.
 
-**Needs your ruling:** [OQ-MA9](#oq-ma9-the-source-agents-second-server), a duplicate server in the agent a sign-in is adopted from, and [OQ-MA10](#oq-ma10-the-one-sign-in-at-yolo-host), whether `yolo host -- claude` takes part in the one sign-in.
+**Needs your ruling:** [OQ-MA9](#OQ-MA9), a duplicate server in the agent a sign-in is adopted from, and [OQ-MA10](#OQ-MA10), whether `yolo host -- claude` takes part in the one sign-in.
 
 **Reads with:** [`mcp-auth-stores.md`](../research/mcp-auth-stores.md) (the per-agent store research),
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
@@ -714,7 +714,7 @@ changes.
   poll for the length of the session, then one last pass (the plan's ID-20). All of them run the
   broker's own code over one canonical store and one audit log. A record remembers the store it
   was adopted from, and only that store losing the entry is a sign-out (the plan's ID-18). `yolo
-  host`: not kept, and the launch says so, pending [OQ-MA10](#oq-ma10-the-one-sign-in-at-yolo-host).
+  host`: not kept, and the launch says so, pending [OQ-MA10](#OQ-MA10).
   The Mac columns are built and wait on their [Mac checks](#mac-checks).
 
 ## 11. Existing state on the day it ships
@@ -854,9 +854,9 @@ them: user config with `[mcp_servers.slack]`, `url = "https://mcp.slack.com/mcp"
 
 ## Open questions
 
-### OQ-MA9: the source agent's second server
+### The source agent's second server
 
-**Context.** §16 item 4's first slice shipped the Claude adoption without the header route. A
+**Context.** [§16](#16-what-i-would-build-in-order) item 4's first slice shipped the Claude adoption without the header route. A
 user who declares `[mcp_servers.slack]` with `url = "https://mcp.slack.com/mcp"` and
 `sign_in = "once"` gets that server rendered into Claude as an ordinary remote server, beside
 the Slack plugin's own `plugin:slack:slack`. The broker adopts the plugin's sign-in and keeps it
@@ -880,7 +880,9 @@ which plugin or `/mcp` entry carries the sign-in.
 **Leaning: A.** The owner's case is the Slack plugin, which already is the server in Claude; a
 second, unauthenticated copy is the thing a user would ask about.
 
-### OQ-MA10: the one sign-in at `yolo host`
+<!-- vantage: question id=OQ-MA9 leaning="A — the Slack plugin already is the server in Claude; a second, unauthenticated copy is the thing a user would ask about." -->
+
+### The one sign-in at `yolo host`
 
 **Context.** Every jail backend now keeps a `sign_in = "once"` server's Claude sign-in
 ([§10](#10-parity-every-backend-and-notch)): it adopts the entry from the machine-wide Claude
@@ -907,8 +909,10 @@ Linux. A Mac's Keychain store stays unsupported, and the line says so.
 
 **C.** On by default at `yolo host` on Linux, as on every jail backend.
 
-**Leaning: B.** It is OQ-MA6's answer to the same tension: yolo does not take over another
+**Leaning: B.** It is [OQ-MA6](#decision-ledger)'s answer to the same tension: yolo does not take over another
 program's own store unless the user asks, and the user who asks gets the one sign-in everywhere.
+
+<!-- vantage: question id=OQ-MA10 leaning="B — yolo does not take over another program's own store unless the user asks, as with OQ-MA6." -->
 
 ## Decision Ledger
 

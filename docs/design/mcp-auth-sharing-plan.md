@@ -345,7 +345,8 @@ reverse it.
   after that does it strip the refresh token from the source entry
   ([MA-D17](mcp-auth-sharing.md#decision-ledger)). A definitive refusal leaves the source
   untouched and the token is remembered in memory by its SHA-256 only, so no pass redeems it
-  again; a transient failure backs off 30 s, 1, 2, 5 min (§8.4). The record keeps the SHA-256 of
+  again; a transient failure backs off 30 s, 1, 2, 5 min
+  ([§8.4](mcp-auth-sharing.md#84-refresh-the-broker-is-the-single-refresher)). The record keeps the SHA-256 of
   the token it adopted, so a source entry still holding a spent token is written over, never
   redeemed.
 - <a id="id-14"></a>**ID-14. Matching is by URL and issuer through the pack's `match`, and the
@@ -1373,7 +1374,7 @@ the design's; what is recorded here is what that pass must start from.
   (the user-wide half of [OQ-MA5](mcp-auth-sharing.md#decision-ledger)),
   `oauth.client_secret_command`, `yolo mcp-auth header`, `login`, `logout` and `status`, the
   header-route renders for Codex and pi, and
-  [OQ-MA9](mcp-auth-sharing.md#oq-ma9-the-source-agents-second-server). The §9.3 measurements
+  [OQ-MA9](mcp-auth-sharing.md#OQ-MA9). The [§9.3](mcp-auth-sharing.md#93-adopting-a-sign-in-an-agent-already-has) measurements
   (Claude keeps working with no `refreshToken`; Slack refreshes with the client id alone) are
   the owner's end-to-end check of this slice, not yet taken.
 
@@ -1385,8 +1386,8 @@ the design's; what is recorded here is what that pass must start from.
   - *macos-user:* built (2026-11-06), the session-long poll ([ID-20](#id-20)) on the session's
     bridge file; whether Claude uses that file and not the Keychain there is a
     [Mac witness](mcp-auth-sharing.md#mac-checks), not yet taken.
-  - *`yolo host`:* not built, by [OQ-MA10](mcp-auth-sharing.md#oq-ma10-the-one-sign-in-at-yolo-host):
-    the user's own Claude store is `~/.claude`, which OQ-NC7 says yolo never writes. The launch
+  - *`yolo host`:* not built, by [OQ-MA10](mcp-auth-sharing.md#OQ-MA10):
+    the user's own Claude store is `~/.claude`, which [OQ-NC7](../plans/notch-convergence.md#7-decision-ledger) says yolo never writes. The launch
     says the tier is not kept there and names `yolo -- claude` (`hostmcponce.go`).
   - *Credential-view mode:* each workspace has its own Claude store; slice 2's view adapter.
 - **Phase E, slice 3** (item 5): the store route, then Copilot, agy, Muse and omp as their
