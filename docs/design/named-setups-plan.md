@@ -1574,6 +1574,12 @@ minors. Each fix is pinned by a test that failed before it, through the producti
   own name now reads the legacy-named one, with the same proof ([SUP-D51](#SUP-D51);
   `TestMacosUserSelfRelaunchAdmitsADeliveryTheLegacyNamedRecordLists`,
   `TestMacosUserSelfRelaunchRefusesAFileTheLegacyNamedRecordDoesNotList`).
+- **The legacy-jail refusal named only `yolo stop` for a kept container (found by the Mac run of
+  2026-11-09, W-SU12).** `jailRuns` answers through the keeper before it asks a runtime, so the
+  advice never learned the jail was a container. After a keeper or session answer, the refusal
+  now asks each runtime on PATH for the name and names its stop too
+  (`TestAKeptLegacyContainerJailNamesTheRuntimesStop`,
+  `TestAKeptLegacyJailNoRuntimeRunsNamesOnlyYoloStop`).
 
 ## Backlog
 
