@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // RESOURCES ON macos-user, ON A MAC: the sampled memory guard (internal/macosuser/sessionguard.go)
@@ -97,8 +99,11 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 		t.Fatalf("HOG: a process holding 768m in a 256m session slept its full minute: nothing "+
 			"stopped it.\n%s", out)
 	}
-	if !strings.Contains(out, "over resources.memory (256m)") {
-		t.Errorf("HOG: no guard line naming resources.memory:\n%s", out)
+	// The guard's own clause (macosuser.MemoryGuardBreach), not a copy of its words: the line
+	// began naming machine.resources.memory, the TOML key, at de5c3a223, and a copied
+	// "over resources.memory (256m)" then failed a guard that had stopped the hog.
+	if breach := macosuser.MemoryGuardBreach(256 << 20); !strings.Contains(out, breach) {
+		t.Errorf("HOG: no guard line saying %q:\n%s", breach, out)
 	}
 	if r.rc == 0 || !strings.Contains(r.stdout, "HOG-RC=") || strings.Contains(r.stdout, "HOG-RC=0") {
 		t.Errorf("HOG: the session exited %d with the hog's status %q; a stopped hog must leave a "+
@@ -110,7 +115,7 @@ func TestMacosUserMemoryGuard(t *testing.T) {
 			secs, memoryGuardHogBound)
 	}
 	stepSummary(t, "- HOG: rc "+strconv.Itoa(r.rc)+" after "+secs+"s; guard line: "+
-		firstLineWith(out, "over resources.memory"), "")
+		firstLineWith(out, macosuser.MemoryGuardBreach(256<<20)), "")
 }
 
 // firstLineWith returns the first line of s containing marker, trimmed, or "".
