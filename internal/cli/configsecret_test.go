@@ -91,6 +91,42 @@ func TestConfigSecretWithNoPrivateFileNamesTheOneToAddFirst(t *testing.T) {
 	}
 }
 
+// SEP-D13: a name in an inline env.sources table moves into the other set's `set` table.
+func TestConfigSecretMovesANameOutOfAnInlineSourcesTable(t *testing.T) {
+	user := secretFixture(t, "[env]\nsources = [{ set = { ZAI_API_KEY = \"zai-value\", DEBUG = \"1\" } }]\n")
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"secret", "ZAI_API_KEY", "--user"}, &out, &errw); rc != 0 {
+		t.Fatalf("rc %d: %s", rc, errw.String())
+	}
+	got, _ := os.ReadFile(user.Path)
+	doc, err := configdoc.Parse(got, configdoc.TOML)
+	if err != nil {
+		t.Fatalf("the edited config parses: %v\n%s", err, got)
+	}
+	_, private, _ := doc.Index.Value(configdoc.Step{Key: "env"}, configdoc.Step{Key: "secrets"}, configdoc.Step{Key: "set"}, configdoc.Step{Key: "ZAI_API_KEY"})
+	if !private || strings.Count(string(got), "ZAI_API_KEY") != 1 || !strings.Contains(string(got), "DEBUG") {
+		t.Errorf("the name left the sources table for [env.secrets] set, DEBUG stayed:\n%s", got)
+	}
+	if !strings.Contains(out.String(), "moved ZAI_API_KEY from ([env] sources) to ([env.secrets] set)") ||
+		strings.Contains(out.String()+errw.String(), "zai-value") {
+		t.Errorf("one line names both places and no value:\n%s%s", out.String(), errw.String())
+	}
+}
+
+// SEP-D14: the unsecret mirror suggests defaults.env.
+func TestConfigUnsecretWithNoPublicFileNamesDefaultsEnv(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nfiles = [\"secrets.env\"]\n")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(user.Path), "secrets.env"), []byte("STRIPE_KEY=s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	rc := configRunW([]string{"unsecret", "STRIPE_KEY"}, &out, &errw)
+	want := `no public file to move STRIPE_KEY into; run yolo config add env.files '"~/.config/yolo-jail/defaults.env"' --user, then this command again`
+	if rc == 0 || !strings.Contains(errw.String(), want) {
+		t.Errorf("rc %d, stderr %q", rc, errw.String())
+	}
+}
+
 func TestConfigSecretDropKeepsThePrivateCopy(t *testing.T) {
 	user := secretFixture(t, "[env]\nset = { ZAI_API_KEY = \"old\" }\n\n[env.secrets]\nset = { ZAI_API_KEY = \"new\" }\n")
 	var out, errw bytes.Buffer

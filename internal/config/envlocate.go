@@ -210,6 +210,13 @@ func (f EnvScopeFile) InlineValue(site EnvSite, name string) (string, bool) {
 			v, _ := secrets.Get("set")
 			set, _ = asMap(v)
 		}
+	case "env.sources":
+		if sources, ok := asList(f.envValue("sources")); ok && site.Index >= 0 && site.Index < len(sources) {
+			if table, ok := asMap(sources[site.Index]); ok {
+				v, _ := table.Get("set")
+				set, _ = asMap(v)
+			}
+		}
 	}
 	if set == nil {
 		return "", false
@@ -235,11 +242,10 @@ func (f EnvScopeFile) Sites(name string) []EnvSite {
 	if env, _ := envTable(f.values); env != nil {
 		for i, entry := range getListOrNilFalsy(env, "sources") {
 			if table, ok := asMap(entry); ok {
+				// envSourcesInline flattens the table to name → value (nil for an unset name).
 				if inline, ok := envSourcesInline(table); ok {
-					if set, _ := asMap(mustGet(inline, "set")); set != nil {
-						if _, present := set.Get(name); present {
-							out = append(out, f.inlineSite("env.sources", i, false))
-						}
+					if v, present := inline.Get(name); present && v != nil {
+						out = append(out, f.inlineSite("env.sources", i, false))
 					}
 				}
 			}

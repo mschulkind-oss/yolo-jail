@@ -245,14 +245,7 @@ func (m secretMove) moveName(files []config.EnvScopeFile, workspace string, out,
 		return 1
 	}
 	src := h.source[0]
-	if src.Place.Key == "env.sources" || src.Place.Key == "env_sources" {
-		if src.Inline() {
-			fmt.Fprintf(errw, "%s is set by an inline %s table in %s, which this verb does not split; "+
-				"move it by hand to the %s set table of that file, then run yolo check\n",
-				m.name, src.Place.Key, h.file.ConfigFile, to)
-			return 1
-		}
-	}
+	// A legacy env_sources entry never gets here: its file is JSONC, refused above (SE-D6).
 	if m.drop {
 		if len(h.dst) == 0 {
 			fmt.Fprintf(errw, "--drop keeps the %s copy of %s, but %s holds none; run %s to move it instead\n",
@@ -320,7 +313,12 @@ func (m secretMove) moveName(files []config.EnvScopeFile, workspace string, out,
 // removeSite removes one site: a `set` table's key, or every line of a dotenv file that sets name.
 func (m secretMove) removeSite(f config.EnvScopeFile, s config.EnvSite, workspace string, errw io.Writer) int {
 	if s.Inline() {
-		return m.edit(f, workspace, configedit.Remove, append(stepsOf(s.Place.Key), configdoc.Step{Key: m.name}), "", errw)
+		path := stepsOf(s.Place.Key)
+		if s.Place.Key == "env.sources" {
+			// SEP-D13: one name of an inline sources table, env.sources[i].set.NAME.
+			path = append(path, configdoc.Step{Index: s.Index, IsIndex: true}, configdoc.Step{Key: "set"})
+		}
+		return m.edit(f, workspace, configedit.Remove, append(path, configdoc.Step{Key: m.name}), "", errw)
 	}
 	if _, _, err := config.RemoveDotenvName(s.Dotenv, m.name); err != nil {
 		fmt.Fprintf(errw, "cannot remove %s from %s: %v; remove its line there by hand\n", m.name, s.Dotenv, scrubPathErr(err))
@@ -477,7 +475,7 @@ func privateWord(private bool) string {
 // suggestedDotenv is the file a refusal suggests listing: beside the user config for the user
 // scope, the workspace root otherwise.
 func suggestedDotenv(scope string, private bool) string {
-	name := "public.env"
+	name := "defaults.env"
 	if private {
 		name = "secrets.env"
 	}
