@@ -24,6 +24,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -40,6 +41,31 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
+
+// testAgentDeadlineEnv carries the test's own deadline (t.Deadline, less a margin, RFC 3339)
+// to the fake AWS agent, which runs in a child process with no *testing.T. Its fetch waits on the
+// response itself, under load as long as it takes; this deadline is only the hang guard that
+// turns a doorway that never answers into a red assertion before go test's timeout panic, never
+// a budget the doorway has to beat. Unset (go test -timeout 0), the fetch has no bound at all.
+const testAgentDeadlineEnv = "YOLO_CLI_TEST_AGENT_DEADLINE"
+
+// agentFetchContext is the fake agent's fetch context: bounded by testAgentDeadlineEnv when the
+// test has a deadline, unbounded otherwise.
+func agentFetchContext() (context.Context, context.CancelFunc) {
+	if d, err := time.Parse(time.RFC3339Nano, os.Getenv(testAgentDeadlineEnv)); err == nil {
+		return context.WithDeadline(context.Background(), d)
+	}
+	return context.WithCancel(context.Background())
+}
+
+// agentDeadline is the deadline runDoorwayLaunchAfter hands the fake agent: the test's own hang
+// guard (testHangGuard), or "" when the test has no deadline.
+func agentDeadline(t *testing.T) string {
+	if _, ok := t.Deadline(); !ok {
+		return ""
+	}
+	return time.Now().Add(testHangGuard(t)).Format(time.RFC3339Nano)
+}
 
 // testFakeAWSAgentArg makes a child of this test binary the fake AWS agent (TestMain).
 const testFakeAWSAgentArg = "-yolo-cli-test-fake-aws-agent"
@@ -65,13 +91,14 @@ func fakeAWSAgentMain() int {
 		}
 	}
 	if uri := rep.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"]; uri != "" {
+		ctx, cancel := agentFetchContext()
+		defer cancel()
 		get := func(auth string) (int, []byte) {
-			req, _ := http.NewRequest(http.MethodGet, uri, nil)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 			if auth != "" {
 				req.Header.Set("Authorization", auth)
 			}
-			client := &http.Client{Timeout: 10 * time.Second}
-			resp, err := client.Do(req)
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				rep.Err = err.Error()
 				return -1, nil
@@ -174,6 +201,7 @@ func runDoorwayLaunchAfter(t *testing.T, cfg string, shell map[string]string, fl
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dump := filepath.Join(t.TempDir(), "agent.json")
 	t.Setenv("YOLO_CLI_TEST_AGENT_DUMP", dump)
+	t.Setenv(testAgentDeadlineEnv, agentDeadline(t))
 	// The host service is this launch's own (HD-R1) and ends with it, so the next test's launch
 	// spawns against its own fake `aws` with nothing to stop here.
 
