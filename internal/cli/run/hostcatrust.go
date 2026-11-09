@@ -66,20 +66,20 @@ func readHostTrustReal() hostTrust {
 		if kt.SystemError != "" {
 			notes = append(notes, "[yellow]Warning: could not read this Mac's System keychain ("+
 				esc(kt.SystemError)+")[/yellow], so the jail does not trust its certificate authorities. "+
-				"A certificate authority your network needs can be named in env_sources: put a bundle "+
-				"holding it and the public roots in the workspace and set {\"SSL_CERT_FILE\": \"<that "+
-				"file>\"}, which the other four TLS variables follow.")
+				"A certificate authority your network needs can be named: put a bundle holding it and "+
+				"the public roots in the workspace and run `yolo config set env.set.SSL_CERT_FILE <that file>`, "+
+				"which the other four TLS variables follow.")
 		}
 		if kt.LoginError != "" {
 			notes = append(notes, "[yellow]Note: could not read your login keychain ("+esc(kt.LoginError)+
 				")[/yellow], so a certificate authority you trusted only there is not trusted in the jail "+
-				"this launch; this Mac's System keychain's still are. If the keychain is locked, unlock it "+
-				"(`security unlock-keychain`) and launch again.")
+				"this launch; the ones in this Mac's System keychain are still trusted. If the keychain is "+
+				"locked, unlock it (`security unlock-keychain`) and launch again.")
 		}
 		if kt.LeftOut > 0 {
-			notes = append(notes, fmt.Sprintf("[dim]%d certificate(s) in this Mac's keychains were left "+
+			notes = append(notes, fmt.Sprintf("[dim]%d %s in this Mac's keychains %s left "+
 				"out of the jail's trust: expired, not for TLS servers, or not trusted by macOS for TLS.[/dim]",
-				kt.LeftOut))
+				kt.LeftOut, plural(kt.LeftOut, "certificate", "certificates"), plural(kt.LeftOut, "was", "were")))
 		}
 		// The bundle the host's SSL_CERT_FILE names is this Mac's trust too: its OpenSSL programs
 		// (nix curl, git, Python) read it, so a CA trusted there is trusted in the jail beside the
@@ -93,14 +93,15 @@ func readHostTrustReal() hostTrust {
 	if err != nil {
 		return hostTrust{notes: []string{"[yellow]Warning: could not read this host's CA bundle (" +
 			esc(err.Error()) + ")[/yellow], so the jail trusts its image's public roots and the " +
-			"loophole CAs alone. A certificate authority your network needs can be named in " +
-			"env_sources: put a bundle holding it and the public roots in the workspace and set " +
-			"{\"SSL_CERT_FILE\": \"<that file>\"}, which the other four TLS variables follow."}}
+			"loophole CAs alone. A certificate authority your network needs can be named: put a " +
+			"bundle holding it and the public roots in the workspace and run " +
+			"`yolo config set env.set.SSL_CERT_FILE <that file>`, which the other four TLS variables follow."}}
 	}
 	var notes []string
 	if hb.LeftOut > 0 {
-		notes = append(notes, fmt.Sprintf("[dim]%d certificate(s) in %s were left out of the jail's "+
-			"trust: out of date, or not readable as a certificate.[/dim]", hb.LeftOut, esc(hb.Path)))
+		notes = append(notes, fmt.Sprintf("[dim]%d %s in %s %s left out of the jail's "+
+			"trust: out of date, or not readable as a certificate.[/dim]", hb.LeftOut,
+			plural(hb.LeftOut, "certificate", "certificates"), esc(hb.Path), plural(hb.LeftOut, "was", "were")))
 	}
 	return hostTrust{cas: hb.CAs, notes: notes}
 }

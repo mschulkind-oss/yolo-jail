@@ -29,7 +29,7 @@ const (
 )
 
 // HostBundleSource is the source a CA read from a Linux host's bundle at path is disclosed by.
-func HostBundleSource(path string) string { return "this host's CA bundle (" + path + ")" }
+func HostBundleSource(path string) string { return "the CA bundle at " + path }
 
 // CA is one certificate authority the host trusts: the name a launch discloses it by, its PEM
 // block, and where on the host its trust came from.

@@ -300,7 +300,7 @@ func TestALaunchWritesTheCABundleBesideItsEnvFileAndNamesItsCAs(t *testing.T) {
 	}
 	for _, want := range []string{"Trusting 2 certificate authorities from this Mac's System keychain: " +
 		"Example Corp Inspection CA, Example Corp Any-Purpose CA.", "NIX_SSL_CERT_FILE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, " +
-		"GIT_SSL_CAINFO name " + bundle, NodeExtraCAVar + " names " + extras, "5 more in it were left out"} {
+		"GIT_SSL_CAINFO name " + bundle, NodeExtraCAVar + " names " + extras + ", which holds only these.", "5 more certificate authorities in this Mac's System keychain were left out"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the launch does not say %q:\n%s", want, out.String())
 		}

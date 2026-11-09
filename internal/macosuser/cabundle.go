@@ -267,11 +267,12 @@ func SSLCertFileNotes(st SSLCertFileTrust, place string) []string {
 	switch {
 	case st.Error != "":
 		return []string{"[yellow]Warning: could not read this host's CA bundle (" + esc(st.Error) +
-			")[/yellow], so " + place + " does not trust the certificate authorities in it this launch; this " +
-			"Mac's keychains' still are. Point SSL_CERT_FILE at a readable bundle, or unset it, and launch again."}
+			")[/yellow], so " + place + " does not trust the certificate authorities in it this launch; the " +
+			"ones in this Mac's keychains are still trusted. Point SSL_CERT_FILE at a readable bundle, or unset it, and launch again."}
 	case st.LeftOut > 0:
-		return []string{fmt.Sprintf("[dim]%d certificate(s) in %s were left out of %s's "+
-			"trust: out of date, or not readable as a certificate.[/dim]", st.LeftOut, esc(st.Path), place)}
+		return []string{fmt.Sprintf("[dim]%d %s in %s %s left out of %s's "+
+			"trust: out of date, or not readable as a certificate.[/dim]", st.LeftOut,
+			plural(st.LeftOut, "certificate", "certificates"), esc(st.Path), plural(st.LeftOut, "was", "were"), place)}
 	}
 	return nil
 }
@@ -491,8 +492,8 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 	// System keychain's warning when the login keychain's CAs are what remain.
 	if ca.LoginReadError != "" {
 		out.printf("[yellow]Note: could not read your login keychain (%s)[/yellow], so a certificate "+
-			"authority you trusted only there is not trusted in the sandbox this launch; this Mac's "+
-			"System keychain's still are. If the keychain is locked, unlock it (`security "+
+			"authority you trusted only there is not trusted in the sandbox this launch; the ones in "+
+			"this Mac's System keychain are still trusted. If the keychain is locked, unlock it (`security "+
 			"unlock-keychain`) and launch again.", esc(ca.LoginReadError))
 	}
 	// THE BUNDLE SSL_CERT_FILE NAMES: a warning when it could not be read, and what it left out,
@@ -571,24 +572,30 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 	if len(read) > 1 {
 		verb, trusts = "add", "trust"
 	}
-	pronoun := "it"
-	switch {
-	case keychains > 1 && bundleRead:
-		pronoun = "the keychains"
-	case keychains > 1:
-		pronoun = "them"
-	case bundleRead:
-		pronoun = "the keychain"
+	// The keychains alone hold the left-out count, so they are named, never a pronoun that the
+	// bundle could seem to share.
+	kcHolder := "this Mac's keychains"
+	switch keychains {
+	case 1:
+		kcHolder = read[0]
+	case 2:
+		kcHolder = read[0] + " and " + read[1]
 	}
 	left := ""
 	if ca.LeftOut > 0 {
-		left = fmt.Sprintf(" %d more in %s %s left out: expired, not for TLS servers, or not "+
-			"trusted by macOS for TLS.", ca.LeftOut, pronoun, plural(ca.LeftOut, "was", "were"))
+		more := ""
+		if n > 0 {
+			more = " more"
+		}
+		left = fmt.Sprintf(" %d%s %s in %s %s left out: expired, not for TLS servers, or not "+
+			"trusted by macOS for TLS.", ca.LeftOut, more,
+			plural(ca.LeftOut, "certificate authority", "certificate authorities"), kcHolder,
+			plural(ca.LeftOut, "was", "were"))
 	}
 	authorities := fmt.Sprintf("%d certificate %s", n, plural(n, "authority", "authorities"))
 	node := ""
 	if v, ok := sandboxEnvFileValue(envContent, NodeExtraCAVar); ok && v == extrasFile && extrasFile != "" {
-		node = " " + NodeExtraCAVar + " names " + extrasFile + ", those alone."
+		node = " " + NodeExtraCAVar + " names " + extrasFile + ", which holds only these."
 	}
 	if follows != "" {
 		// THE CALLER'S BUNDLE, which every one of the five names that they did not set otherwise.
@@ -625,24 +632,28 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 			theirs = append(theirs, k)
 		}
 	}
-	vars := strings.Join(ours, ", ")
+	// vars is the subject of a sentence, with its verb: "SSL_CERT_FILE names", "A, B name", or
+	// "no variable names"; Vars is the same at a sentence's start.
+	vars := strings.Join(ours, ", ") + " " + plural(len(ours), "names", "name")
 	if len(ours) == 0 {
-		vars = "no variable"
+		vars = "no variable names"
 	}
+	Vars := strings.ToUpper(vars[:1]) + vars[1:]
 	tail := ""
 	if len(theirs) > 0 {
-		tail = " " + strings.Join(theirs, ", ") + " keep the empty value your own environment set."
+		tail = " " + strings.Join(theirs, ", ") + " " + plural(len(theirs), "keeps", "keep") +
+			" the empty value your own environment set."
 	}
 	switch {
 	case ca.ReadError != "" && n == 0:
 		out.printf("[yellow]Warning: could not read this Mac's System keychain (%s)[/yellow], so "+
-			"the sandbox trusts only the public roots in its tool profile: %s name %s.%s A "+
+			"the sandbox trusts only the public roots in its tool profile: %s %s.%s A "+
 			"certificate authority your network needs can be named: put a bundle holding it and the "+
 			"public roots in the workspace, run `yolo config set env.set.SSL_CERT_FILE <that file>`, "+
 			"which the other four follow, and `yolo config set env.set.%s <that file>` for Node.",
 			esc(ca.ReadError), vars, target, tail, NodeExtraCAVar)
 	case n == 0:
-		out.printf("[dim]TLS in the sandbox: %s name the public roots in its tool profile (%s); "+
+		out.printf("[dim]TLS in the sandbox: %s the public roots in its tool profile (%s); "+
 			"%s %s no certificate authority.%s%s[/dim]",
 			vars, target, strings.ToLower(holder[:1])+holder[1:], verb, left, tail)
 	default:
@@ -650,8 +661,8 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 			node = " " + NodeExtraCAVar + " keeps your own value, so Node does not add " +
 				plural(n, "it", "them") + "."
 		}
-		out.printf("Trusting %s%s. %s name %s, the tool "+
-			"profile's public roots plus %s.%s%s%s", authorities, catrust.SourcesPhrase(kept, "", esc), vars,
+		out.printf("Trusting %s%s. %s %s, the tool "+
+			"profile's public roots plus %s.%s%s%s", authorities, catrust.SourcesPhrase(kept, "", esc), Vars,
 			target, plural(n, "it", "them"), node, left, tail)
 	}
 }

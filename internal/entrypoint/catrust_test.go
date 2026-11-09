@@ -142,7 +142,7 @@ func TestTheBootJoinsTheHostsCAsAndNamesThem(t *testing.T) {
 		t.Errorf("the shell's copy does not export %s:\n%s", nodeExtraCAVar, sh)
 	}
 	mustContain(t, "the boot's disclosure", stderr,
-		"Trusting 1 certificate authority from this host's CA bundle (/etc/ssl/certs/ca-certificates.crt): Example Corp Inspection CA.",
+		"Trusting 1 certificate authority from the CA bundle at /etc/ssl/certs/ca-certificates.crt: Example Corp Inspection CA.",
 		"so Node adds it.")
 	if strings.Contains(stderr.String(), "Public Root") {
 		t.Errorf("the disclosure names a CA the image's roots already carry:\n%s", stderr)

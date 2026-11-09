@@ -126,6 +126,20 @@ func TestHostTrustNotesNeverReachTheCommandsStdout(t *testing.T) {
 	}
 }
 
+// AN UNREADABLE LINUX HOST BUNDLE NAMES THE VERB THAT NAMES ANOTHER, not a JSON fragment for
+// env_sources that a TOML config cannot take.
+func TestAnUnreadableLinuxHostBundleNamesTheVerb(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("the Linux host read; a Mac reads its keychains")
+	}
+	t.Setenv("SSL_CERT_FILE", filepath.Join(t.TempDir(), "absent.pem"))
+	ht := readHostTrustReal()
+	if len(ht.notes) != 1 || !strings.Contains(ht.notes[0], "`yolo config set env.set.SSL_CERT_FILE <that file>`") ||
+		strings.Contains(ht.notes[0], "env_sources") || strings.Contains(ht.notes[0], "{\"") {
+		t.Errorf("the unreadable bundle's note does not name the verb: %q", ht.notes)
+	}
+}
+
 // A LINUX HOST'S BUNDLE says how many certificates it left out, never silently (PS-D16): the
 // host's own read, through the host's SSL_CERT_FILE, which a Linux host's OpenSSL honors too.
 func TestALinuxHostSaysWhatItsBundleLeftOut(t *testing.T) {
@@ -143,7 +157,7 @@ func TestALinuxHostSaysWhatItsBundleLeftOut(t *testing.T) {
 	if len(ht.cas) != 1 || ht.cas[0].Source != catrust.HostBundleSource(bundle) {
 		t.Fatalf("the host read kept %+v, want the one CA from %s", ht.cas, bundle)
 	}
-	if len(ht.notes) != 1 || !strings.Contains(ht.notes[0], "1 certificate(s) in "+bundle+" were left out") {
+	if len(ht.notes) != 1 || !strings.Contains(ht.notes[0], "1 certificate in "+bundle+" was left out") {
 		t.Errorf("the left-out certificate is not said: %q", ht.notes)
 	}
 }

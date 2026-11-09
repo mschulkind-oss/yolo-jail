@@ -87,8 +87,8 @@ func TestAMacosUserLaunchTrustsTheBundleItsSSLCertFileNames(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Trusting 3 certificate authorities, 2 from this Mac's System keychain " +
-			"(Example Corp Inspection CA, Example Corp Any-Purpose CA) and 1 from this host's CA bundle (" + path + ") (Zscaler Root CA).",
-		"1 certificate(s) in " + path + " were left out of the sandbox's trust",
+			"(Example Corp Inspection CA, Example Corp Any-Purpose CA) and 1 from the CA bundle at " + path + " (Zscaler Root CA).",
+		"1 certificate in " + path + " was left out of the sandbox's trust",
 	} {
 		if !strings.Contains(notices.String(), want) {
 			t.Errorf("the notice stream lacks %q:\n%s", want, notices.String())
@@ -191,9 +191,9 @@ func TestTheTrustLineNamesTheSSLCertFileBundleAsASource(t *testing.T) {
 		holder, left string
 	}{
 		{"system", false, "this Mac's System keychain and the bundle SSL_CERT_FILE names (" + path +
-			") add no certificate authority", "more in the keychain were left out"},
+			") add no certificate authority", " in this Mac's System keychain were left out"},
 		{"system and login", true, "this Mac's System keychain, your login keychain and the bundle " +
-			"SSL_CERT_FILE names (" + path + ") add no certificate authority", "more in the keychains were left out"},
+			"SSL_CERT_FILE names (" + path + ") add no certificate authority", " in this Mac's System keychain and your login keychain were left out"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, _, _ := sslCertFileDeps(t, f, path, root)
@@ -211,6 +211,10 @@ func TestTheTrustLineNamesTheSSLCertFileBundleAsASource(t *testing.T) {
 				if !strings.Contains(notices.String(), want) {
 					t.Errorf("the notice stream lacks %q:\n%s", want, notices.String())
 				}
+			}
+			// Nothing was trusted, so the left-out count is not "more" than anything.
+			if strings.Contains(notices.String(), " more certificate") {
+				t.Errorf("the left-out count says \"more\" though no CA was trusted:\n%s", notices.String())
 			}
 		})
 	}
