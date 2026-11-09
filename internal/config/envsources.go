@@ -79,6 +79,14 @@ func anchorReadableEnvSources(cfg *jsonx.OrderedMap, dir string) {
 		if env, ok := asMap(envValue); ok {
 			anchorEnvSourceList(env, "sources", dir)
 			anchorEnvSourceList(env, "files", dir)
+			// The private set's files anchor per declaring file too, beside the public ones: this
+			// is where SE-D1's set bit is "assigned where the entry is read" — the entry keeps its
+			// key, env.secrets.files, through the merge (secret-env-scoping.md#SE-D1).
+			if secretsValue, ok := env.Get("secrets"); ok {
+				if secrets, ok := asMap(secretsValue); ok {
+					anchorEnvSourceList(secrets, "files", dir)
+				}
+			}
 		}
 	}
 }
@@ -112,10 +120,12 @@ func anchorEnvSourceList(cfg *jsonx.OrderedMap, key, dir string) {
 
 // envEntry is one entry of the ordered list the env resolver walks, with the config key that
 // spelled it: a dotenv path (a string) or an inline table of assignments, a nil value being a
-// removal.
+// removal. private is the set bit (secret-env-scoping.md#SE-D1): true for an entry the
+// `[env.secrets]` table declared.
 type envEntry struct {
-	key   string
-	value any
+	key     string
+	value   any
+	private bool
 }
 
 func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
@@ -134,12 +144,15 @@ func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
 //  2. every `env.files` path, in order (the readable spelling of its file entries);
 //  3. `env.set` as one inline table, applied after every file — the reading the migrator
 //     converts by (configmigrate.lowerEnvSources) and config-project.md §1 shows;
-//  4. `env.unset` as one inline table of removals, applied last, so an unset wins over a
+//  4. the private set (secret-env-scoping.md#33-the-two-sets): every `env.secrets.files` path,
+//     then `env.secrets.set` as one inline table, each entry carrying the set bit;
+//  5. `env.unset` as one inline table of removals, applied last, so an unset wins over a
 //     set of the same name from any layer (readable-config-plan.md's "unset precedence",
-//     RC-D23).
+//     RC-D23), in either set (SE-D4).
 //
 // The merge has already joined the layers: `env.files` is the user's entries then the
-// workspace's, `env.set` is later-wins per name, and `env.unset` is their union.
+// workspace's, `env.set` is later-wins per name, and `env.unset` is their union; the same
+// holds for `env.secrets.files` and `env.secrets.set`.
 func envEntries(cfg *jsonx.OrderedMap) []envEntry {
 	var out []envEntry
 	for _, entry := range getListOrNilFalsy(cfg, "env_sources") {
@@ -182,6 +195,29 @@ func envEntries(cfg *jsonx.OrderedMap) []envEntry {
 			}
 		}
 	}
+	if secretsValue, present := env.Get("secrets"); present {
+		if secrets, ok := asMap(secretsValue); ok {
+			for _, entry := range getListOrNilFalsy(secrets, "files") {
+				if _, isPath := asStr(entry); isPath {
+					out = append(out, envEntry{key: "env.secrets.files", value: entry, private: true})
+				}
+			}
+			if setValue, present := secrets.Get("set"); present {
+				if set, ok := asMap(setValue); ok {
+					assignments := jsonx.NewOrderedMap()
+					for _, k := range set.Keys() {
+						v, _ := set.Get(k)
+						if vs, ok := asStr(v); ok {
+							assignments.Set(k, vs)
+						}
+					}
+					if assignments.Len() > 0 {
+						out = append(out, envEntry{key: "env.secrets.set", value: assignments, private: true})
+					}
+				}
+			}
+		}
+	}
 	removals := jsonx.NewOrderedMap()
 	for _, name := range getListOrNilFalsy(env, "unset") {
 		if s, ok := asStr(name); ok {
@@ -196,12 +232,15 @@ func envEntries(cfg *jsonx.OrderedMap) []envEntry {
 
 // EnvEntries is envEntries for a reader outside this package that must compare what the
 // launch resolves without reading any file — the migration's equality proof. Each entry is a
-// path string or an inline table whose nil values are removals.
+// path string or an inline table whose nil values are removals. Private entries are skipped: a
+// legacy file never has one (secret-env-scoping.md#SE-D6), so the proof compares the public set.
 func EnvEntries(cfg *jsonx.OrderedMap) []any {
-	entries := envEntries(cfg)
-	out := make([]any, len(entries))
-	for i, e := range entries {
-		out[i] = e.value
+	var out []any
+	for _, e := range envEntries(cfg) {
+		if e.private {
+			continue
+		}
+		out = append(out, e.value)
 	}
 	return out
 }
@@ -276,6 +315,9 @@ func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn
 	}
 
 	for _, e := range envEntries(config) {
+		if e.private {
+			continue // the public-only reader; ResolveEnv reads both sets
+		}
 		entry := e.value
 		if em, ok := asMap(entry); ok {
 			for _, k := range em.Keys() {
