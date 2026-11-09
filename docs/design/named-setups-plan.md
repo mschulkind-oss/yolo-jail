@@ -1580,6 +1580,10 @@ minors. Each fix is pinned by a test that failed before it, through the producti
   now asks each runtime on PATH for the name and names its stop too
   (`TestAKeptLegacyContainerJailNamesTheRuntimesStop`,
   `TestAKeptLegacyJailNoRuntimeRunsNamesOnlyYoloStop`).
+- **`yolo stop` opened with "No jail running" for a setup that ran nothing (found by the Mac run
+  of 2026-11-09, W-SU1).** The line for the selected setup is now held back, and printed only when
+  the stop found no other jail of the workspace either
+  (`TestAStopThatEndsAnotherSetupsJailDropsTheSelectedNoJailLine`).
 
 ## Backlog
 
