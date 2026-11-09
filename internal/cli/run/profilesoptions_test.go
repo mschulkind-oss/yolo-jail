@@ -129,7 +129,7 @@ func TestComposeRefusesAProfileNameNothingDeclares(t *testing.T) {
 	writeProfilesConfig(t, `{}`)
 	o := goldenOptions("/ws", t.TempDir())
 	o.ProfileName = "dev"
-	_, err := o.composePackChannel(newConfig(), packsFixture(t, "claude", "bedrock", "pi"), emptyEnv())
+	_, err := o.composePackChannel(newConfig(), packsFixture(t, "claude", "bedrock", "pi"), hydrate(emptyEnv()))
 	if err == nil {
 		t.Fatal("a -p name no pack or config entry declares must refuse the launch, not key silently")
 	}
@@ -147,7 +147,7 @@ func TestComposeRefusesAProfileNameNothingDeclares(t *testing.T) {
 func TestComposeRefusesAnUndeclaredOptionThroughTheChannel(t *testing.T) {
 	writeProfilesConfig(t, `{"zai-fast": {"provider": "zai", "model": "fast", "temperature": "0.2"}}`)
 	o := goldenOptions("/ws", t.TempDir())
-	_, err := o.composePackChannel(newConfig(), []*packload.Pack{optionsZaiPack(t)}, emptyEnv())
+	_, err := o.composePackChannel(newConfig(), []*packload.Pack{optionsZaiPack(t)}, hydrate(emptyEnv()))
 	if err == nil {
 		t.Fatal("an option the provider does not declare must refuse the launch")
 	}

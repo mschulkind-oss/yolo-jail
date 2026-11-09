@@ -37,7 +37,7 @@ func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 	packs[2].Official = false
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	_, err := o.composePackChannel(cfg, packs, cerebrasKey())
+	_, err := o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	var unserved *packload.UnservedAdapterError
 	if !errors.As(err, &unserved) {
 		t.Fatalf("macos-user composed claude on cerebras through a bridge it cannot start (err %v)", err)
@@ -53,7 +53,7 @@ func TestMacosUserRefusesAPairingThroughAServiceItCannotStart(t *testing.T) {
 	// composed against the port this launch picked for it.
 	packs[2].Local = true
 	o.launchServices = nil
-	channel, err = o.composePackChannel(cfg, packs, cerebrasKey())
+	channel, err = o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatalf("macos-user refused a pairing through a local pack's bridge: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestMacosUserServesCodexsRefreshPointerAtThePortItsAdapterBinds(t *testing.
 
 	o.runtime = "macos-user"
 	o.served = servedAddressState{}
-	macos, err := o.composePackChannel(cfg, packs, emptyEnv())
+	macos, err := o.composePackChannel(cfg, packs, hydrate(emptyEnv()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestMacosUserServesAViaThroughTheBridgesHostHalf(t *testing.T) {
 
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	macos, err := o.composePackChannel(cfg, packs, userEnv)
+	macos, err := o.composePackChannel(cfg, packs, hydrate(userEnv))
 	if err != nil {
 		t.Fatal(err)
 	}

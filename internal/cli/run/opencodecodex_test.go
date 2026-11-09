@@ -61,7 +61,7 @@ func TestABareCodexProfileComposesWithOpencodeSelected(t *testing.T) {
 	o := retireOptions(t, &out)
 	o.ProfileName = "codex"
 	packs := codexLaunchPacks(t)
-	c, err := o.composePackChannel(newConfig(), packs, emptyEnv())
+	c, err := o.composePackChannel(newConfig(), packs, hydrate(emptyEnv()))
 	if err != nil {
 		t.Fatalf("a bare -p codex over claude, codex, opencode and pi refused:\n%v", err)
 	}
@@ -86,7 +86,7 @@ func TestOpencodeOffCodexAsksForNoOpenAILogin(t *testing.T) {
 	var out bytes.Buffer
 	o := retireOptions(t, &out)
 	o.ProfileName = "bedrock"
-	c, err := o.composePackChannel(newConfig(), codexLaunchPacks(t), emptyEnv())
+	c, err := o.composePackChannel(newConfig(), codexLaunchPacks(t), hydrate(emptyEnv()))
 	if err != nil {
 		t.Fatalf("composing a bedrock launch: %v", err)
 	}

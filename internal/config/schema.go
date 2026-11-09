@@ -228,6 +228,13 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "env.set.*", Scope: both, Type: SchemaTypeString},
 		{Path: "env.unset", Scope: both, Type: SchemaTypeList},
 		{Path: "env.unset.*", Scope: both, Type: SchemaTypeString},
+		// The private set (docs/design/secret-env-scoping.md §3.3, SE-D3): files and set, no sources
+		// and no unset; a value here reaches only the agents whose provider or MCP server claims it.
+		{Path: "env.secrets", Scope: both, Type: SchemaTypeObject},
+		{Path: "env.secrets.files", Scope: both, Type: SchemaTypeList},
+		{Path: "env.secrets.files.*", Scope: both, Type: SchemaTypeString},
+		{Path: "env.secrets.set", Scope: both, Type: SchemaTypeObject},
+		{Path: "env.secrets.set.*", Scope: both, Type: SchemaTypeString},
 		{Path: "allow", Scope: user, Type: SchemaTypeObject},
 		{Path: "allow.*", Scope: user, Type: SchemaTypeObject},
 		{Path: "allow.*.always", Scope: user, Type: SchemaTypeList},

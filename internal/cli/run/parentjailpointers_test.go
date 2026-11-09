@@ -233,7 +233,7 @@ func TestANestedLaunchsModelListFetchFailsAsARealFetchFailure(t *testing.T) {
 		asked++
 		return awsauthdaemon.ModelListAnswer{Source: "fetched"}
 	}
-	_, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	_, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if asked != 0 {
 		t.Errorf("the nested launch asked the model-list service %d times", asked)
 	}

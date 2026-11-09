@@ -116,7 +116,10 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		}
 	}
 	if channel != nil && channel.userEnv != nil {
-		for _, name := range channel.userEnv.Keys() {
+		for _, name := range channel.userEnv.Values().Keys() {
+			add(name)
+		}
+		for _, name := range channel.userEnv.Removals() {
 			add(name)
 		}
 	}

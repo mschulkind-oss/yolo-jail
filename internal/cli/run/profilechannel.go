@@ -81,14 +81,15 @@ type packChannel struct {
 	// (agentenvfiles.go), and the macos-user arm layers the shared half plus the launched
 	// agent's (launchEnv).
 	scope *packload.CredentialScope
-	// userEnv is the hydrated env_sources BEFORE the gate — the secret channel the gate
-	// scopes — with each removal (an inline null no later entry cancelled) carried as a nil
-	// value after the assignments (config.HydrateEnvSources). Hydrated once, here, because two
+	// userEnv is the hydrated environment BEFORE the gate — both env sets, the channel the gate
+	// scopes — with the set bit per name and the removals (config.HydratedEnv,
+	// secret-env-scoping.md SE-D1). The set bit lives in this value because a recomposition
+	// hands it back: carried anywhere else, a rekey would make every secret public. Hydrated once, here, because two
 	// hydrations would read every dotenv file twice and warn twice, and the paths that compose
 	// the channel again (an attach's rekey, a pack-skew attach) hand this map back, removals
 	// included. No writer delivers it whole any more: the shared file carries the shared
 	// composition (scope.SharedEnv), and each agent's file what its own composition adds.
-	userEnv *jsonx.OrderedMap
+	userEnv *config.HydratedEnv
 	// sessionInputs are this entry's session inputs (composeSessionInputs, LA-D18), written in the
 	// shared file's channel section after the wire tables. nil writes none.
 	sessionInputs []sessionInput
@@ -148,15 +149,15 @@ type packChannel struct {
 
 // composePackChannel composes the channel from the config and the STAGED pack set.
 //
-// userEnv may be nil, which means "hydrate env_sources here", through
-// config.HydrateEnvSources: the assignments and the removals of one pass, the removals carried
-// as nil values so a later composition from the same map keeps them. The paths that compose
+// userEnv may be nil, which means "hydrate the env sets here", through config.ResolveEnv: both
+// sets' assignments, the set bit and the removals of one pass, so a later composition from the
+// same value keeps them. The paths that compose
 // again pass the channel's own map back rather than resolving env_sources a second time; a
 // hand-built assembleInput (every one is a test) passes whatever it has, or nil.
 func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	userEnv *jsonx.OrderedMap) (*packChannel, error) {
+	userEnv *config.HydratedEnv) (*packChannel, error) {
 	if userEnv == nil {
-		userEnv = config.HydrateEnvSources(o.Workspace, cfg, func(msg string) {
+		userEnv = config.ResolveEnv(o.Workspace, cfg, func(msg string) {
 			o.pr(o.Stderr).print(msg)
 		})
 	}
@@ -264,7 +265,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 // composePackChannelWith is one composition of the channel over the payload specs and whatever
 // launch-owned services this launch has planned so far (servedDaemons adds them).
 func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packload.Pack,
-	userEnv, profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile,
+	userEnv *config.HydratedEnv, profiles *jsonx.OrderedMap, userProfiles map[string]packload.UserProfile,
 	specs []loopholes.JailDaemonSpec) (*packChannel, error) {
 	// A login service with no profile serves nothing, so nothing points at it
 	// (ServedDaemons.WithoutUnconfiguredLogins).
@@ -312,7 +313,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// THE SESSION INPUTS (sessioninputs.go, LA-D18). The capture-jail mark is Options.captureJail,
 	// read through subLaunch, which a hand-built Options with no CapturesDir answers as an
 	// ordinary launch rather than a nil call.
-	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv)
+	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv.PublicValues())
 	c := &packChannel{
 		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,
@@ -340,7 +341,6 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// vehicle serializes (packload's envcompose.go, the null rank OQ-NC12's decision records), so
 	// it takes out a pack env value of its name in a jail as it does at the host, and never a
 	// shape var.
-	assignments, removals := config.SplitHydratedEnvSources(userEnv)
 	in := packload.ScopeInput{
 		Packs:     packs,
 		Providers: providers,
@@ -348,8 +348,15 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		// Each agent's whole active set (§4.5): every entry's claimed key reaches that agent.
 		Sets:              packload.ProfileSets(profiles),
 		Resolved:          resolved,
-		EnvSources:        assignments,
-		EnvSourceRemovals: removals,
+		EnvSources:        userEnv.Values(),
+		EnvSourceRemovals: userEnv.Removals(),
+		// THE ENV SETS (docs/design/secret-env-scoping.md §3.4): the set bit, the MCP servers'
+		// claims and the agents that render them, and — to word a line, never to decide a reach
+		// (SE-D8) — what the shipped packs this launch did not select claim.
+		Private:          userEnv.Private(),
+		MCPClaims:        packload.MCPEnvClaims(packload.ComposeMCPServers(cfgMap(cfg, "mcp_servers"), packs, "")),
+		MCPAgents:        packload.MCPAgents(packs),
+		UnselectedClaims: packload.UnselectedProviderClaims(packs),
 		// THE SERVICE CALLER TOKENS, answering first in every agent's lookup (WB-D18): an
 		// address a pack service serves names its token as its credential, and the derive of
 		// any agent sent there must read the value that service demands.

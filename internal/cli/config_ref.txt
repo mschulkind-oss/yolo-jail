@@ -752,6 +752,18 @@
       • set and unset — one table of values and one list of names, which
         apply after every list.
     `yolo config add env.files '"secrets.env"' --project` adds a file entry.
+    [env.secrets] is the PRIVATE set, beside the public one above:
+      [env.secrets]
+      files = ["~/.config/yolo-jail/keys.env"]
+      set = { ZAI_API_KEY = "…" }
+    It has two keys, files and set, read the same way and in either
+    scope (no sources, no unset: an [env] unset name removes it from
+    both sets).  A private value reaches only the agents whose selected
+    provider claims the name, or whose config names an MCP server whose
+    requires_env lists it; with nothing claiming it, it reaches nobody,
+    and the launch names it (never its value).  A private file in the
+    WORKSPACE config obeys the same inside-the-workspace rule as
+    env.files.
     An unset name removes a pack's `env` value of the name too, in a jail
     as at the host.  It never removes a value the selected provider
     composes, nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES

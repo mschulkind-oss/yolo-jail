@@ -415,7 +415,7 @@ func (o *Options) runningJailPackView(cname, rt string, cfg *jsonx.OrderedMap, f
 	if view.diff.empty() {
 		return view, nil
 	}
-	var userEnv *jsonx.OrderedMap
+	var userEnv *config.HydratedEnv
 	if channel != nil {
 		userEnv = channel.userEnv
 	}

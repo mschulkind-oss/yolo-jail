@@ -78,7 +78,7 @@ func zaiSelectedByAcme(t *testing.T, o *Options) []*packload.Pack {
 func channelFor(t *testing.T, o *Options, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack, userEnv *jsonx.OrderedMap) *packChannel {
 	t.Helper()
-	c, err := o.composePackChannel(cfg, packs, userEnv)
+	c, err := o.composePackChannel(cfg, packs, hydrate(userEnv))
 	if err != nil {
 		t.Fatalf("composing the provider channel: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestCheckProviderCredentialsFollowCatalogMembership(t *testing.T) {
 	}
 	// Selected AND dropped: the selection refuses, naming the null, and not as a credential.
 	o.UseProfiles = map[string]string{"acme": "zai"}
-	if _, err := o.composePackChannel(cfg, packs, emptyEnv()); err == nil ||
+	if _, err := o.composePackChannel(cfg, packs, hydrate(emptyEnv())); err == nil ||
 		!strings.Contains(err.Error(), "Remove the `providers.zai` null entry that removes it") ||
 		strings.Contains(err.Error(), "ZAI_API_KEY") {
 		t.Errorf("a selection of a provider the user dropped must refuse naming the null, not a key: %v", err)

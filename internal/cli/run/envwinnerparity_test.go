@@ -308,10 +308,14 @@ func TestTheDeliveryReadersAnswerTheCompositionsWinner(t *testing.T) {
 // removals, and the second composition removes what the first did.
 func TestARecomposedChannelKeepsTheEnvSourcesRemovals(t *testing.T) {
 	o, cfg, packs, channel := winnerChannel(t)
-	again := channelFor(t, o, cfg, packs, channel.userEnv)
+	again, err := o.composePackChannel(cfg, packs, channel.userEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removals := strings.Join(channel.userEnv.Removals(), ",")
 	for _, k := range []string{"K5", "K6"} {
-		if v, ok := channel.userEnv.Get(k); !ok || v != nil {
-			t.Errorf("the channel's hydration must carry %s's removal as a nil value: %v %v", k, v, ok)
+		if !strings.Contains(","+removals+",", ","+k+",") {
+			t.Errorf("the channel's hydration must carry %s's removal: %s", k, removals)
 		}
 	}
 	if e, ok := again.scope.SharedEnv().Lookup("K5"); !ok || !e.Unset {

@@ -70,7 +70,7 @@ func TestAnUndeclaredLaterEntryOfOpencodesSetRefuses(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.UseProfiles = map[string]string{"opencode": "zai,typo"}
-	_, err := o.composePackChannel(bareConfig(), opencodeSetPacks(t), zaiAndRouterKeys())
+	_, err := o.composePackChannel(bareConfig(), opencodeSetPacks(t), hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `profile "typo" selected for opencode`) {
 		t.Fatalf("composePackChannel = %v, want the refusal naming opencode's second entry", err)
 	}

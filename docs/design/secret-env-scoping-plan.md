@@ -61,6 +61,8 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | [`internal/config/schema.go`](../../internal/config/schema.go) | `env.secrets` rows (object, `files`, `files.*`, `set`, `set.*`, both scopes) | 3 |
 | [`internal/config/envsourcescope.go`](../../internal/config/envsourcescope.go) | `validateEnvSourceScope` checks `env.secrets.files`; `envSourceScopeRefusal` spells `[env.secrets] files` for it | 3 |
 | [`internal/config/inherit.go`](../../internal/config/inherit.go) | the `env` case copies `secrets` too | 3 |
+| [`internal/config/validationprojection.go`](../../internal/config/validationprojection.go) | `readableEnvValidationShape` accepts `secrets` (`files`, `set`), and `validateReadableEnvironment` names a bad `env.secrets.set` name; without it a TOML `[env.secrets]` is refused as the removed legacy `env` key (found by the Task 3 nested launch) | 3 |
+| [`internal/config/removals.go`](../../internal/config/removals.go) | `env.secrets.files` clears with an empty list, as `env.files` does (`TestReadableSchemaRemovalPoliciesCoverAcceptedEmptyListsAndNativeSelection`) | 3 |
 | [`internal/cli/run/profilechannel.go`](../../internal/cli/run/profilechannel.go) | `composePackChannel` takes `*config.HydratedEnv`; `packChannel.userEnv` type; gate inputs | 3 |
 | [`internal/cli/run/run.go`](../../internal/cli/run/run.go), [`packtree.go`](../../internal/cli/run/packtree.go), [`loopholegrants.go`](../../internal/cli/run/loopholegrants.go), [`seal.go`](../../internal/cli/run/seal.go), [`assemble.go`](../../internal/cli/run/assemble.go) | the `userEnv` type follows | 3 |
 | [`internal/cli/run/jailgrant.go`](../../internal/cli/run/jailgrant.go) | `resolveJailGrant` reads the private values | 3 |
@@ -562,7 +564,9 @@ lines). A public provider key still behaves as today; the refusal is Task 7.
      		t.Fatal(err)
      	}
      	shared := string(userEnvFileBody(channel.sharedEnvSourceWinners(), channel))
-     	if !strings.Contains(shared, "GH_TOKEN") || strings.Contains(shared, "ZAI_API_KEY") || strings.Contains(shared, "STRIPE_KEY") {
+     	// The YOLO_PROVIDERS table names ZAI_API_KEY as zai's api_key_env_name, so the check is the export.
+     	if !strings.Contains(shared, "export GH_TOKEN=") || strings.Contains(shared, "export ZAI_API_KEY=") ||
+     		strings.Contains(shared, "STRIPE_KEY") || strings.Contains(shared, "tok-") {
      		t.Errorf("yolo-user-env.sh must hold the public set only:\n%s", shared)
      	}
      	if _, ok := channel.scope.EnvSourcesFor("claude").Get("ZAI_API_KEY"); !ok {

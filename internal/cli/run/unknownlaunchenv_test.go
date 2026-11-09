@@ -159,7 +159,7 @@ func TestKnownLaunchYOLOEnvNamesUseSelectedDeclarations(t *testing.T) {
 func TestKnownLaunchYOLOEnvNamesIncludeHydratedChannelNames(t *testing.T) {
 	userEnv := jsonx.NewOrderedMap()
 	userEnv.Set("YOLO_CONFIGURED_CHANNEL_NAME", "secret-not-read")
-	known := knownLaunchYOLOEnvNames(nil, &packChannel{userEnv: userEnv})
+	known := knownLaunchYOLOEnvNames(nil, &packChannel{userEnv: hydrate(userEnv)})
 	if !slices.Contains(known, "YOLO_CONFIGURED_CHANNEL_NAME") {
 		t.Fatalf("hydrated channel key was not recognized: %v", known)
 	}

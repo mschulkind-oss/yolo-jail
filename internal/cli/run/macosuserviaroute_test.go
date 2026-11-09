@@ -64,7 +64,7 @@ func TestMacosUserPointsAViaAtThePortThePlannedBridgeServes(t *testing.T) {
 		selectPerAgent(map[string]string{"claude": "cerebras", "pi": "bedrock-bridge"}))
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	channel, err := o.composePackChannel(cfg, packs, cerebrasKey())
+	channel, err := o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}

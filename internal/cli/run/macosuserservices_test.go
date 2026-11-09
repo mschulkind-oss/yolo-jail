@@ -64,7 +64,7 @@ func TestMacosUserComposesABridgedPairingAgainstALaunchOwnedService(t *testing.T
 	o, cfg, _, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), selectCerebras)
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	channel, err := o.composePackChannel(cfg, packs, cerebrasKey())
+	channel, err := o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatalf("macos-user refused claude on cerebras: %v", err)
 	}

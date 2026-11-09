@@ -38,6 +38,7 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	// processes hold one (o.heldGrant, jailgrant.go): a granted name is every process's, never
 	// "withheld from every process". Its remedy stays unwritten: a running jail takes no grant
 	// later, and the fresh launch that does is named by the attach's refusal (ES-D33).
+	// DisclosureNotes.Scope stays nil until Task 5's config.LocateEnvName fills it (secret-env-scoping-plan.md#SEP-D6).
 	lines := channel.scope.DisclosureWith(o.grantDisclosureNotes())
 	if len(lines) == 0 {
 		return

@@ -58,7 +58,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -98,8 +97,7 @@ func (o *Options) resolveJailGrant(channel *packChannel) error {
 	if len(o.WithCredentials) == 0 || o.Sealed || channel == nil {
 		return nil
 	}
-	envSources, _ := config.SplitHydratedEnvSources(channel.userEnv)
-	providers, err := packload.ResolveGrant(o.WithCredentials, channel.providers, envSources)
+	providers, err := packload.ResolveGrant(o.WithCredentials, channel.providers, channel.userEnv.Values())
 	if err != nil {
 		return err
 	}

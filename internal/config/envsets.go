@@ -110,6 +110,23 @@ func (h *HydratedEnv) Values() *jsonx.OrderedMap {
 	return h.values
 }
 
+// PublicValues is the public set's assignments alone, in hydration order: what every process may
+// receive from config (secret-env-scoping.md §3.4 row 1, before a provider's claim narrows it).
+func (h *HydratedEnv) PublicValues() *jsonx.OrderedMap {
+	out := jsonx.NewOrderedMap()
+	if h == nil {
+		return out
+	}
+	for _, k := range h.values.Keys() {
+		if h.private[k] {
+			continue
+		}
+		v, _ := h.values.Get(k)
+		out.Set(k, v)
+	}
+	return out
+}
+
 // IsPrivate reports whether the private set holds name.
 func (h *HydratedEnv) IsPrivate(name string) bool {
 	return h != nil && h.private[name]

@@ -184,8 +184,21 @@ func validateReadablePortList(value any, field string) []string {
 
 func readableEnvValidationShape(env *jsonx.OrderedMap) bool {
 	for _, key := range env.Keys() {
-		if key != "sources" && key != "files" && key != "set" && key != "unset" {
+		if key != "sources" && key != "files" && key != "set" && key != "unset" && key != "secrets" {
 			return false
+		}
+	}
+	// The private set, [env.secrets] (secret-env-scoping.md#SE-D1): files and set only, the
+	// public set's shapes.
+	if rawSecrets, present := env.Get("secrets"); present {
+		secrets, ok := asMap(rawSecrets)
+		if !ok || !readableEnvValidationShape(secrets) {
+			return false
+		}
+		for _, key := range secrets.Keys() {
+			if key != "files" && key != "set" {
+				return false
+			}
 		}
 	}
 	if rawSources, present := env.Get("sources"); present {
@@ -255,6 +268,21 @@ func validateReadableEnvironment(config *jsonx.OrderedMap, errors *[]string) {
 			for _, name := range set.Keys() {
 				if !envVarNameRe.MatchString(name) {
 					add(errors, "config.env.set."+name+": invalid variable name (must match [A-Za-z_][A-Za-z0-9_]*)")
+				}
+			}
+		}
+	}
+	if secretsValue, present := env.Get("secrets"); present {
+		secrets, _ := asMap(secretsValue)
+		if secrets != nil {
+			if setValue, present := secrets.Get("set"); present {
+				set, _ := asMap(setValue)
+				if set != nil {
+					for _, name := range set.Keys() {
+						if !envVarNameRe.MatchString(name) {
+							add(errors, "config.env.secrets.set."+name+": invalid variable name (must match [A-Za-z_][A-Za-z0-9_]*)")
+						}
+					}
 				}
 			}
 		}

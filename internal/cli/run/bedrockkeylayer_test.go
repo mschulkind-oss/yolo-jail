@@ -117,10 +117,10 @@ func TestTheBedrockKeyLayerLoadsAfterTheBaseAndEmptiesTheProfileAtLaunch(t *test
 	loopholes.SetPackModules(packLoopholeModules(selected))
 	channel := channelFor(t, o, cfg, selected, nil)
 
-	if got, _ := channel.userEnv.Get("LAYER_ORDER_PROBE"); got != "layer" {
+	if got, _ := channel.userEnv.Values().Get("LAYER_ORDER_PROBE"); got != "layer" {
 		t.Errorf("LAYER_ORDER_PROBE = %v, want the layer's value: its env file loads after the base's", got)
 	}
-	if got, _ := channel.userEnv.Get("BASE_ONLY"); got != "1" {
+	if got, _ := channel.userEnv.Values().Get("BASE_ONLY"); got != "1" {
 		t.Errorf("BASE_ONLY = %v, want the base's file still loaded", got)
 	}
 	if channel.served.Serves("aws-auth") {

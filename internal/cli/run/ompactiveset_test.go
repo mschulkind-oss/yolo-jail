@@ -38,7 +38,7 @@ func TestABareListWithACarriedSecondEntryRefusesForOmp(t *testing.T) {
 		!strings.Contains(got, `"claude":"zai"`) {
 		t.Fatalf("effective table = %s, want oh-omp's whole list and claude's first entry", got)
 	}
-	_, err := o.composePackChannel(cfg, packs, keys)
+	_, err := o.composePackChannel(cfg, packs, hydrate(keys))
 	if err == nil {
 		t.Fatal("a bare list putting a carried entry second in oh-omp's set must refuse the launch")
 	}
@@ -51,7 +51,7 @@ func TestABareListWithACarriedSecondEntryRefusesForOmp(t *testing.T) {
 
 	reordered := goldenOptions(t.TempDir(), home)
 	reordered.ProfileName = "bedrock,zai"
-	if _, err := reordered.composePackChannel(cfg, packs, keys); err != nil {
+	if _, err := reordered.composePackChannel(cfg, packs, hydrate(keys)); err != nil {
 		t.Errorf("with the carried entry first the bare list must compose: %v", err)
 	}
 }

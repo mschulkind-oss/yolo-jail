@@ -63,7 +63,7 @@ func TestTheLaunchHandsTheFetchedListToTheJail(t *testing.T) {
 			Models: []awsauth.BedrockModel{{ID: "openai.gpt-test-1:0", Vendor: "openai"},
 				{ID: "us.anthropic.claude-test-v1", Vendor: "anthropic", Name: "US Claude Test"}}}}
 	}
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestALaunchLeftWithNothingToStartOnSaysWhyAndWhatToAdd(t *testing.T) {
 	o.FetchModelList = func(ModelListRequest) awsauthdaemon.ModelListAnswer {
 		return awsauthdaemon.ModelListAnswer{Note: "the fetch failed: run aws sso login --profile stand-in-profile"}
 	}
-	_, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	_, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err == nil {
 		t.Fatal("the launch composed with nothing for copilot to start on")
 	}
@@ -110,7 +110,7 @@ func TestALaunchLeftWithNothingToStartOnSaysWhyAndWhatToAdd(t *testing.T) {
 // installs the production one (TestTheFrontDoorInstallsTheModelListFetch, internal/cli).
 func TestNoSeamFetchesNothing(t *testing.T) {
 	o, cfg, packs, _ := bareBedrockLaunch(t)
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestWithNothingToCarryCopilotTheLaunchFetchesNothingAndStopsNothing(t *test
 	packs = slices.DeleteFunc(packs, func(p *packload.Pack) bool { return p.Name == "wire-bridge" })
 	asked := 0
 	o.FetchModelList = failedFetch(&asked)
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatalf("a launch with nothing to carry copilot was refused for a model list: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestAProfileModelOfDefaultNamesNoModel(t *testing.T) {
 	o.ProfileName = "bbd"
 	asked := 0
 	o.FetchModelList = failedFetch(&asked)
-	_, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	_, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err == nil || !strings.Contains(err.Error(), `copilot has no model to start on for profile "bbd"`) {
 		t.Fatalf("a profile naming model \"default\" with a failed fetch: err = %v, want copilot's refusal", err)
 	}
@@ -180,7 +180,7 @@ func TestNoListTellsClaudeAtTheBridgeWhatItMeansAndWhatToDo(t *testing.T) {
 	cfg := awsAuthServedConfig(t, packs)
 	asked := 0
 	o.FetchModelList = failedFetch(&asked)
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestTheLaunchCarriesTheFactsCopilotStartsBy(t *testing.T) {
 				{ID: "us.anthropic.claude-opus-5-5", Vendor: "anthropic", Created: "2026-05-01T10:00:00Z"},
 				{ID: "us.anthropic.claude-sonnet-5", Vendor: "anthropic", Created: "2025-09-29T00:00:00Z"}}}}
 	}
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatal(err)
 	}
