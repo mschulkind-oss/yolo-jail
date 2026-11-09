@@ -16,7 +16,7 @@ import (
 func TestApprovePerRefLaterInvalidResourceLeavesNoGrant(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "git")
 	s := &brokerstore.Store{Dir: dir, Source: "git", Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil }}
-	s.Entries = func(q brokerstore.Request, _ bool) ([]brokerstore.WorkingEntry, error) {
+	s.Entries = func(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 		return []brokerstore.WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: brokerstore.WorkingBranch, Resource: "refs/heads/first", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: "unsupported-kind", Resource: "refs/heads/second", By: "human"},

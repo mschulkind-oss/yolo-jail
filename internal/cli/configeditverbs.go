@@ -258,7 +258,7 @@ func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutatio
 	if target.Role == config.ExplicitEditUser {
 		fmt.Fprintln(out, "Written.")
 	} else {
-		fmt.Fprintln(out, "Written. Run `yolo check` in this workspace; the host must run `yolo config apply` to approve the workspace change.")
+		fmt.Fprintln(out, projectWrittenLine(postWriteCheck))
 	}
 	if postWriteCheck {
 		checkRC := runConfigPostWriteCheck(workspace, out, errw)
@@ -268,6 +268,15 @@ func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutatio
 		}
 	}
 	return 0
+}
+
+// projectWrittenLine is the line after a project edit. When the check runs right after it,
+// the line does not ask the reader to run that check again.
+func projectWrittenLine(postWriteCheck bool) string {
+	if postWriteCheck {
+		return "Written. The host must run `yolo config apply` to approve the workspace change."
+	}
+	return "Written. Run `yolo check` in this workspace; the host must run `yolo config apply` to approve the workspace change."
 }
 
 func runConfigPostWriteCheck(workspace string, out, errw io.Writer) int {
@@ -429,6 +438,13 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 	case config.RemovalUnsetList:
 		return configedit.Mutation{}, fmt.Errorf("this key's removal requires updating both env.set and env.unset; no multi-key edit is available")
 	case config.RemovalUnspecified:
+		// A pack's setting, `allow.<pack>.<setting>`, is the pack's own to type (Any here), and
+		// its whole value is this file's line: unset removes it, list or table, so the advice
+		// that names one (a sets list, a profile) has a verb that carries it out.
+		if format == configdoc.TOML && isAllowPackSetting(authoredPath) {
+			mutation.Action = configedit.Remove
+			return mutation, nil
+		}
 		if rule.Type == config.SchemaTypeAny || rule.Type == config.SchemaTypeObject ||
 			rule.Type == config.SchemaTypeList || rule.Type == config.SchemaTypeObjectOrList {
 			return configedit.Mutation{}, fmt.Errorf("this key has no scalar removal policy in the selected config schema")
@@ -445,6 +461,20 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 		return configedit.Mutation{}, fmt.Errorf("the selected config schema does not define a removal for this key")
 	}
 	return mutation, nil
+}
+
+// isAllowPackSetting reports whether path is `allow.<pack>.<setting>`: exactly three keys, the
+// first `allow`, none an index.
+func isAllowPackSetting(path []configdoc.Step) bool {
+	if len(path) != 3 || path[0].Key != "allow" {
+		return false
+	}
+	for _, step := range path {
+		if step.IsIndex || step.Key == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func configEditAuthoredValue(data []byte, format configdoc.Format, path []configdoc.Step) (any, bool, error) {
@@ -502,7 +532,10 @@ func parseConfigEditValue(raw string, path []configdoc.Step) (any, error) {
 	value, err := parseTOMLConfigValue(raw)
 	if err != nil {
 		// A mixed element (a package name that may also be a table) accepts a bare word as a string.
-		if rule.Type == config.SchemaTypeMixed && !strings.ContainsAny(raw, "\"'[]{}=#, \t\n") {
+		// So does a pack's setting (Any here), so `yolo config set allow.aws-auth.profile sso`,
+		// the form every advice line names, writes the profile rather than a TOML error.
+		if (rule.Type == config.SchemaTypeMixed || (rule.Type == config.SchemaTypeAny && isAllowPackSetting(path))) &&
+			!strings.ContainsAny(raw, "\"'[]{}=#, \t\n") {
 			return raw, nil
 		}
 		return nil, err

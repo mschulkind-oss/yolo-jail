@@ -95,7 +95,7 @@ func (a *Authority) Classify(argv []string, repo string) (Decision, brokerstore.
 			d.Set = s.Name
 			if mode == "standing" {
 				if base == SetReadWrite && s.Name == SetReadWrite {
-					return d, brokerstore.Policy{}, errors.New("host brokered.github.sets makes GitHub writes standing; remove the read-write entry to require Allow once before retrying")
+					return d, brokerstore.Policy{}, errors.New("allow.github.sets in your user config makes GitHub writes standing, which is refused. Next: remove its read-write entry, or run `yolo config unset allow.github.sets --user` on the host to go back to the default sets (reads standing, writes asked), then run the command again")
 				}
 				d.Outcome = OutcomeStanding
 				return d, brokerstore.Policy{}, nil

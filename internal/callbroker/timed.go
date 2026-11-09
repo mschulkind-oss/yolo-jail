@@ -25,12 +25,9 @@ import (
 const defaultCellMaxFor = brokerstore.TimedGrantDefault
 
 // RequestEntries is a pack store's Entries hook: the timed entries a --for answer to q records,
-// one per classified write. It refuses Add, which no pack answer offers.
-func RequestEntries(q brokerstore.Request, add bool) ([]brokerstore.WorkingEntry, error) {
-	if add {
-		return nil, fmt.Errorf("a pack call never joins the working set by an answer. Next: run `yolo approve %s` to Allow once, "+
-			"or `yolo approve %s --for 15m` to allow its writes for a while", q.ID, q.ID)
-	}
+// one per classified write. Its call:<cell> kinds never join the working set for good (the
+// store refuses a lasting one), so no pack answer is permanent.
+func RequestEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 	if len(q.CallWrites) == 0 || q.Repo == "" || q.Workspace == "" {
 		return nil, fmt.Errorf("request %s names no classified write a timed answer can cover. Next: run `yolo approve %s` to Allow once", q.ID, q.ID)
 	}

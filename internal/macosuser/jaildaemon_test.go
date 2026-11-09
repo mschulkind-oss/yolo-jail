@@ -367,7 +367,7 @@ func TestTheOrchestratorResolvesTheGuestSetForAClientAlone(t *testing.T) {
 		t.Fatalf("rc = %d, want the refusal\n%s", rc, buf.String())
 	}
 	for _, want := range []string{"nix build .#guestPrefix failed", "yolo-serial", "the serial loophole",
-		`"loopholes": {"serial": {"enabled": false}}`} {
+		"`yolo pack remove serial` on the host"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, buf.String())
 		}
@@ -386,7 +386,7 @@ func TestTheOrchestratorResolvesTheGuestSetForAClientAlone(t *testing.T) {
 		t.Fatalf("rc = %d with no resolver, want the refusal\n%s", rc, buf.String())
 	}
 	for _, want := range []string{"yolo bug", "github.com/mschulkind-oss/yolo-jail/issues",
-		`"loopholes": {"serial": {"enabled": false}}`} {
+		"`yolo pack remove serial` on the host"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("the no-resolver refusal names no next step (%q):\n%s", want, buf.String())
 		}

@@ -49,12 +49,19 @@ func TestAbsentProfileRefusesAndNamesTheKeyAndTheScope(t *testing.T) {
 	if err == nil {
 		t.Fatal("no profile resolved to a servable configuration")
 	}
-	if !strings.Contains(err.Error(), settingsScope(SettingProfile)) {
-		t.Errorf("refusal does not name the profile key: %v", err)
+	// It names the verb that sets the key as a TOML user config spells it, never a JSONC file
+	// or the legacy loopholes.* path a migrated config has no place for.
+	if !strings.Contains(err.Error(), "`yolo config set allow.aws-auth.profile <profile> --user`") {
+		t.Errorf("refusal does not name the verb that sets the profile: %v", err)
+	}
+	for _, stale := range []string{"config.jsonc", "yolo-jail.jsonc", "loopholes.aws-auth"} {
+		if strings.Contains(err.Error(), stale) {
+			t.Errorf("refusal still names %q: %v", stale, err)
+		}
 	}
 	// The user-scope half is the security half (OQ-SSO4): a workspace file is one
 	// the jail's own agent can rewrite.
-	if !strings.Contains(err.Error(), "USER config") {
+	if !strings.Contains(err.Error(), "user-scope on purpose") {
 		t.Errorf("refusal does not say the key is user-scope: %v", err)
 	}
 }

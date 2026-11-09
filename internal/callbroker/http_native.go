@@ -64,7 +64,7 @@ func nativeHTTPLookup(lookups []loopholedecl.CallBrokerLookup, resource string) 
 		}
 	}
 	if matched.Name == "" || matched.HTTPMethod != "GET" || !strings.Contains(matched.HTTPPath, "{id}") {
-		return matched, errors.New("HTTP native resource has no declared GET mapping; fix the selected pack and retry")
+		return matched, errors.New("HTTP native resource has no declared GET mapping; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 	}
 	return matched, nil
 }

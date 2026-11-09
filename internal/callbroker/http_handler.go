@@ -102,7 +102,7 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 	classified, err := classifier.ClassifyHTTPWithLookups(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders, h.lookupHTTP(jail))
 	if err != nil {
 		reason = "classifier-failed"
-		return Verdict{Verdict: "refused", Next: "Check the selected pack's HTTP classifier and retry"}, response, err
+		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's HTTP classifier, so running the call again fails the same way: report it to the pack's author"}, response, err
 	}
 	if classified.Refused != nil {
 		reason = "classifier-refused"

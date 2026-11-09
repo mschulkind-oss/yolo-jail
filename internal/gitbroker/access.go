@@ -109,7 +109,12 @@ func (b *Broker) accessStatus(ctx context.Context, jail string) (gitAccessStatus
 	if invalidRemote {
 		out.Next = "run `yolo check` on the host, then correct the repository URL with `git remote set-url <remote> <url>` and relaunch"
 	} else if out.Read != "granted" {
-		out.Next = "ask the human to run `yolo allow git fetch` on the host in this workspace, then relaunch"
+		// Where the launch recorded a live scope, the running broker re-reads its grants on
+		// every call, so the grant needs no relaunch (config.BrokerNoReadRefusal's switch).
+		out.Next = "ask the human to run `yolo allow git fetch` on the host in this workspace; this jail's running broker takes the grant at its next call"
+		if !f.LiveScope {
+			out.Next = "ask the human to run `yolo allow git fetch` on the host in this workspace, then restart the jail and approve the grant at the launch's config-change gate"
+		}
 	}
 	for _, g := range f.Grants {
 		name := g.Branch

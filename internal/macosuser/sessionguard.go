@@ -380,7 +380,7 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 		// guard in it: the same command failing there too says the guard is not the cause.
 		s.say("[bold red]yolo: the memory guard could not start %s (%s). `yolo run --dry-run` "+
 			"prints the launch argv it was given; to launch without the guard, remove "+
-			"resources.memory from yolo-jail.jsonc.[/bold red]",
+			"machine.resources.memory with `yolo config unset machine.resources.memory`.[/bold red]",
 			richtext.Escape(argv[0]), richtext.Escape(err.Error()))
 		return 127
 	}
@@ -428,8 +428,8 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 			if err != nil {
 				if !psFailing {
 					s.say("[yellow]yolo: the memory guard cannot read the process table (%s), so "+
-						"resources.memory is not being checked; it will keep trying. Remove "+
-						"resources.memory from yolo-jail.jsonc to silence this.[/yellow]",
+						"machine.resources.memory is not being checked; it will keep trying. Remove "+
+						"it with `yolo config unset machine.resources.memory` to silence this.[/yellow]",
 						richtext.Escape(err.Error()))
 				}
 				psFailing = true
@@ -440,9 +440,10 @@ func runSessionGuard(o sessionGuardOptions, argv []string, s guardSeams) int {
 			if !v.over {
 				continue
 			}
-			s.say("[bold red]yolo: this session holds %s resident, over resources.memory (%s); "+
-				"stopping pid %d, its largest process (%s). Raise resources.memory in "+
-				"yolo-jail.jsonc, or remove it, if the session needs more.[/bold red]",
+			s.say("[bold red]yolo: this session holds %s resident, over machine.resources.memory (%s); "+
+				"stopping pid %d, its largest process (%s). If the session needs more, raise it with "+
+				"`yolo config set machine.resources.memory <size>` (a size such as 16g), or remove it with "+
+				"`yolo config unset machine.resources.memory`.[/bold red]",
 				formatBytes(v.total), formatBytes(o.memory), v.victim.pid, formatBytes(v.victim.rssKiB*1024))
 			_ = s.kill(v.victim.pid, syscall.SIGTERM)
 			victim = v.victim.pid

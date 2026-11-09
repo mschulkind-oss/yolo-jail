@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -125,6 +126,43 @@ func TestGitAccessStatusMissingReadGrantKeepsGrantAdvice(t *testing.T) {
 	if code != 0 || json.Unmarshal(body, &status) != nil || status.Read != "not-granted" ||
 		!strings.Contains(status.Next, "yolo allow git fetch") || strings.Contains(status.Next, "git remote set-url") {
 		t.Fatalf("missing read grant lost its next step: code=%d status=%+v body=%s stderr=%s", code, status, body, stderr.String())
+	}
+}
+
+// THE READ GRANT'S NEXT STEP FOLLOWS THE LAUNCH'S LIVE SCOPE, as the broker's own refusal does
+// (config.BrokerNoReadRefusal): a live broker takes the grant at its next call, so "then
+// relaunch" sent the agent to restart a jail that needed nothing; one without a live scope
+// still needs the restart.
+func TestGitAccessStatusReadGrantStepFollowsLiveScope(t *testing.T) {
+	f := newFixtureOpts(t, fixtureOpts{noRead: true})
+	for _, live := range []bool{true, false} {
+		// This build's broker always binds a live scope (brokerscope.BindBroker); an older
+		// launch's file, or a backend whose scope is not rewritten, carries it false.
+		sf, err := brokerscope.ReadFile(f.scopeFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf.LiveScope = live
+		if _, err := brokerscope.Write(sf); err != nil {
+			t.Fatal(err)
+		}
+		body, code := gitremote.ForwardAccess("status", nil, gitremote.Env{Getenv: func(key string) string {
+			if key == gitremote.EndpointEnv {
+				return f.endpoint
+			}
+			return ""
+		}, Stderr: io.Discard})
+		var status struct {
+			Next string `json:"next"`
+		}
+		if code != 0 || json.Unmarshal(body, &status) != nil {
+			t.Fatalf("live=%v: code=%d body=%s", live, code, body)
+		}
+		live2 := strings.Contains(status.Next, "takes the grant at its next call")
+		restart := strings.Contains(status.Next, "restart the jail")
+		if live2 != live || restart == live || strings.Contains(status.Next, "relaunch") {
+			t.Errorf("live=%v: the next step does not follow the live scope: %q", live, status.Next)
+		}
 	}
 }
 

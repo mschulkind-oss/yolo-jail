@@ -350,7 +350,7 @@ func TestTheGuardReturnsTheChildsStatus(t *testing.T) {
 	// A stop names the next step: what it tried to start, the command that prints the whole
 	// launch argv, and how to launch without the guard in between.
 	for _, want := range []string{"could not start /nonexistent/yolo-test-binary",
-		"`yolo run --dry-run` prints the launch argv", "remove resources.memory from yolo-jail.jsonc"} {
+		"`yolo run --dry-run` prints the launch argv", "remove machine.resources.memory with `yolo config unset machine.resources.memory`"} {
 		if !strings.Contains(g.stderr.String(), want) {
 			t.Errorf("the start failure does not say %q:\n%s", want, g.stderr.String())
 		}
@@ -399,7 +399,7 @@ func TestTheGuardStopsTheLargestProcessWithTermThenKill(t *testing.T) {
 	}
 	errText := g.stderr.String()
 	for _, want := range []string{"resources.memory (100m)", "200m", fmt.Sprintf("stopping pid %d", pid),
-		"Raise resources.memory"} {
+		"`yolo config set machine.resources.memory <size>` (a size such as 16g)"} {
 		if !strings.Contains(errText, want) {
 			t.Errorf("the breach line lacks %q:\n%s", want, errText)
 		}
@@ -437,7 +437,7 @@ func TestTheGuardSaysOnceWhenItCannotReadTheTable(t *testing.T) {
 		t.Errorf("the table warning printed %d times, want once:\n%s", c, g.stderr.String())
 	}
 	// And it names the next step, as every problem line does.
-	if want := "Remove resources.memory from yolo-jail.jsonc to silence this."; !strings.Contains(g.stderr.String(), want) {
+	if want := "Remove it with `yolo config unset machine.resources.memory` to silence this."; !strings.Contains(g.stderr.String(), want) {
 		t.Errorf("the table warning does not end with %q:\n%s", want, g.stderr.String())
 	}
 	if g.killLog() != "" || g.psCalls < 2 {

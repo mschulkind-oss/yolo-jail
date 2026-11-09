@@ -1128,7 +1128,7 @@ func TestProductionStandingWritePolicyRefusesWritesAndKeepsReads(t *testing.T) {
 		t.Fatalf("standing read changed: exit %d, stdout %q, stderr %q", code, out, stderr)
 	}
 	code, _, stderr := fixture.forward("pr", "comment", "41", "--repo", "o/r", "--body", "must-not-run")
-	if code != ghbroker.ExitNoPerm || !strings.Contains(stderr, "brokered.github.sets") || !strings.Contains(stderr, "remove") {
+	if code != ghbroker.ExitNoPerm || !strings.Contains(stderr, "allow.github.sets") || !strings.Contains(stderr, "`yolo config unset allow.github.sets --user`") || strings.Contains(stderr, "brokered.github.sets") {
 		t.Fatalf("standing write policy was not refused with a repair step: exit %d, stderr %q", code, stderr)
 	}
 	for _, argv := range [][]string{

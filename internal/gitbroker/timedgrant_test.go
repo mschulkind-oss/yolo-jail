@@ -131,10 +131,10 @@ func TestApproveGitAddJoinsWorkingSetAcrossRelaunch(t *testing.T) {
 	}
 }
 
-// TestAddIsRefusedForATagAndANewBranchNamingFor: the working set holds existing branches
-// (GB-D11, GB-D18, BB-D90), so Add on a tag or a creation refuses, names `--for`, and changes
-// nothing; the same request takes a timed answer.
-func TestAddIsRefusedForATagAndANewBranchNamingFor(t *testing.T) {
+// TestATagAndANewBranchTakeATimedAnswer: the working set holds existing branches (GB-D11,
+// GB-D18, BB-D90), so a tag never joins it for good, an answer that mixes flags is refused
+// naming the answers there are and changes nothing, and each request takes a timed answer.
+func TestATagAndANewBranchTakeATimedAnswer(t *testing.T) {
 	f := newFixture(t, "")
 	f.commit("one")
 	mustGit(t, f.ws, "tag", "v1")
@@ -143,14 +143,21 @@ func TestAddIsRefusedForATagAndANewBranchNamingFor(t *testing.T) {
 	out, err = f.git("push", "origin", "HEAD:refs/heads/agent/new")
 	created := refusedRequest(t, out, err)
 
+	// A lasting answer, which no flag gives since --add was removed, still never holds a tag.
+	if _, err := ApprovalStore().DecideWorking(tag, brokerstore.Decision{Add: true}); err == nil {
+		t.Fatal("a lasting answer was recorded for a tag")
+	}
+	// An answer that mixes a duration with another flag names the answers there are, never a
+	// removed one.
 	for _, id := range []string{tag, created} {
-		_, err := ApprovalStore().DecideWorking(id, brokerstore.Decision{Add: true})
-		if err == nil || !strings.Contains(err.Error(), "--for 15m") || !strings.Contains(err.Error(), "--add is not available") {
-			t.Fatalf("--add on %s: %v", id, err)
+		_, err := ApprovalStore().DecideWorking(id, brokerstore.Decision{For: time.Hour, Deny: true})
+		if err == nil || !strings.Contains(err.Error(), "`yolo approve "+id+" --for <duration>`") ||
+			!strings.Contains(err.Error(), "`yolo approve "+id+" --deny`") || strings.Contains(err.Error(), "Add") {
+			t.Fatalf("--for with --deny on %s: %v", id, err)
 		}
 	}
 	if n := len(liveEntries(t)); n != 0 {
-		t.Fatalf("a refused Add recorded %d entries", n)
+		t.Fatalf("a refused answer recorded %d entries", n)
 	}
 
 	if _, err := ApprovalStore().DecideWorking(tag, brokerstore.Decision{For: time.Hour}); err != nil {

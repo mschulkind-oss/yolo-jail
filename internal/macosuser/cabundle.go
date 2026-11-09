@@ -542,20 +542,43 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 			plural(len(fromLogin), "it", "them"))
 	}
 	// What was read, as the subject of "adds no …" and "trusts …".
-	holder, verb, trusts, pronoun := "This Mac's System keychain", "adds", "trusts", "it"
-	if ca.LoginRead {
-		holder, verb, trusts, pronoun = "This Mac's System keychain and your login keychain", "add", "trust", "them"
+	// A keychain that could not be read is no part of the subject: the warning above says so,
+	// and crediting it here would say the opposite.
+	var read []string
+	if ca.ReadError == "" {
+		read = append(read, "this Mac's System keychain")
 	}
+	if ca.LoginRead {
+		read = append(read, "your login keychain")
+	}
+	keychains := len(read)
 	if bundleRead {
 		// The bundle joins the subject; the left-out count below stays the keychains' own.
-		if ca.LoginRead {
-			holder = "This Mac's System keychain, your login keychain"
-			pronoun = "the keychains"
-		} else {
-			pronoun = "the keychain"
-		}
-		holder += " and the bundle SSL_CERT_FILE names (" + esc(ca.HostBundle.Path) + ")"
+		read = append(read, "the bundle SSL_CERT_FILE names ("+esc(ca.HostBundle.Path)+")")
+	}
+	holder := "This Mac's System keychain"
+	switch len(read) {
+	case 0:
+	case 1:
+		holder = read[0]
+	case 2:
+		holder = read[0] + " and " + read[1]
+	default:
+		holder = strings.Join(read[:len(read)-1], ", ") + " and " + read[len(read)-1]
+	}
+	holder = strings.ToUpper(holder[:1]) + holder[1:]
+	verb, trusts := "adds", "trusts"
+	if len(read) > 1 {
 		verb, trusts = "add", "trust"
+	}
+	pronoun := "it"
+	switch {
+	case keychains > 1 && bundleRead:
+		pronoun = "the keychains"
+	case keychains > 1:
+		pronoun = "them"
+	case bundleRead:
+		pronoun = "the keychain"
 	}
 	left := ""
 	if ca.LeftOut > 0 {
@@ -614,9 +637,9 @@ func printCATrust(out printer, ca CATrust, envContent, bundleFile, extrasFile, f
 	case ca.ReadError != "" && n == 0:
 		out.printf("[yellow]Warning: could not read this Mac's System keychain (%s)[/yellow], so "+
 			"the sandbox trusts only the public roots in its tool profile: %s name %s.%s A "+
-			"certificate authority your network needs can be named in env_sources: put a bundle "+
-			"holding it and the public roots in the workspace and set {\"SSL_CERT_FILE\": \"<that "+
-			"file>\"}, which the other four follow, and {\"%s\": \"<that file>\"} for Node.",
+			"certificate authority your network needs can be named: put a bundle holding it and the "+
+			"public roots in the workspace, run `yolo config set env.set.SSL_CERT_FILE <that file>`, "+
+			"which the other four follow, and `yolo config set env.set.%s <that file>` for Node.",
 			esc(ca.ReadError), vars, target, tail, NodeExtraCAVar)
 	case n == 0:
 		out.printf("[dim]TLS in the sandbox: %s name the public roots in its tool profile (%s); "+

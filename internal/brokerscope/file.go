@@ -311,6 +311,12 @@ func ValidateCurrentWithMatcher(path string, expected File, repo string, matcher
 			return nil
 		}
 	}
+	// A live scope is rewritten by `yolo config apply`'s gate while the jail runs (LA-D11), so
+	// approving the repository there is enough; only a scope that is not live needs a relaunch.
+	if f.LiveScope {
+		return errors.New("repository no longer approved. Next: ask the human to run `yolo config apply` on the host " +
+			"in this workspace and approve its repository scope; this jail's running broker takes it at its next call")
+	}
 	return errors.New("repository no longer approved; relaunch the jail to approve its scope")
 }
 

@@ -1788,13 +1788,14 @@ func guestNeedPhrase(daemons []string, clients []GuestClient) string {
 
 // guestWayPast is the refusals' way past a guest set that cannot be staged without fixing
 // anything: launch without what it is for. A client's loophole is known (GuestClient.Loophole), so
-// its switch is spelled in full; a daemon's name is a loophole's or a pack service's, which this
+// the command that deselects its pack is spelled in full; a daemon's name is a loophole's or a pack service's, which this
 // package cannot tell apart, so it is named and not spelled.
 func guestWayPast(daemons []string, clients []GuestClient) string {
 	var parts []string
 	for _, c := range clients {
-		parts = append(parts, "set `\"loopholes\": {\""+c.Loophole+"\": {\"enabled\": false}}` in the "+
-			"workspace config (yolo-jail.jsonc) to go without "+c.Binary)
+		// Each guest client's loophole is the pack of the same name (packs/<loophole>), and a
+		// loophole has no switch of its own: it runs whenever its pack is selected.
+		parts = append(parts, "run `yolo pack remove "+c.Loophole+"` on the host to go without "+c.Binary)
 	}
 	if len(daemons) > 0 {
 		parts = append(parts, "deselect the loophole or pack that runs "+strings.Join(daemons, ", "))

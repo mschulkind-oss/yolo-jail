@@ -12,7 +12,7 @@ import (
 // a standalone end marker cannot make a retained sibling request grant it again.
 func TestDecideWorkingRevokedBatchEntrySurvivesRetention(t *testing.T) {
 	s, clock := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/revoked", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/live", By: "human"},
@@ -57,7 +57,7 @@ func TestDecideWorkingRevokedBatchEntrySurvivesRetention(t *testing.T) {
 
 func TestRequestDirectorySyncFailureRetainsRevocationBarrierAcrossRetry(t *testing.T) {
 	s, clock := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/revoked", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/live", By: "human"},
@@ -74,7 +74,7 @@ func TestRequestDirectorySyncFailureRetainsRevocationBarrierAcrossRetry(t *testi
 
 	// The newer request takes over only the live sibling. The first request can
 	// now retire, but its revoked entry still needs its standalone end barrier.
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/live", By: "human"}}, nil
 	}
 	*clock = clock.Add(24 * time.Hour)
@@ -176,7 +176,7 @@ func assertFailedRetentionState(t *testing.T, s *Store, first, second Request, e
 // rather than entry ID, as the retention dependency for renewed authority.
 func TestDecideWorkingSupersededTimedRequestsAreRetired(t *testing.T) {
 	s, clock := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/renewed", By: "human"}}, nil
 	}
 	first := retentionRequest(t, s)
@@ -228,7 +228,7 @@ func TestDecideWorkingSupersededTimedRequestsAreRetired(t *testing.T) {
 
 func TestDecideWorkingMixedBatchRetainsOnlyNeededRevisions(t *testing.T) {
 	s, clock := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/renewed", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/sibling", By: "human"},
@@ -240,7 +240,7 @@ func TestDecideWorkingMixedBatchRetainsOnlyNeededRevisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Renew only one revision; the other still depends on the original batch.
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/renewed", By: "human"}}, nil
 	}
 	*clock = clock.Add(time.Hour)

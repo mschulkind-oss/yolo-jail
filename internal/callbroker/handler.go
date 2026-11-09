@@ -153,7 +153,7 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 	answer, err := classifier.ClassifyCLI(ctx, argv, stdin, h.lookupWithClassifier(jail, classifier))
 	if err != nil {
 		auditReason = "classifier-failed"
-		return Verdict{Verdict: "refused", Next: "Check the selected pack's classifier and retry"}, CLIResult{}, err
+		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, err
 	}
 	if answer.Refused != nil {
 		auditReason = "classifier-refused"
@@ -170,7 +170,7 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		auditSet = "read"
 	} else {
 		auditReason = "classification-unknown"
-		return Verdict{Verdict: "refused", Next: "Check the selected pack's classifier and retry"}, CLIResult{}, errors.New("call broker classifier returned no operation")
+		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, errors.New("call broker classifier returned no operation")
 	}
 	q := callRequest(h.input.Source, h.workspace, jail, h.start, h.bound.LaunchID, call, stdin)
 	if len(call.Writes) != 0 && h.start != "" {
@@ -204,7 +204,7 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 	}
 	if len(call.Writes) != 0 {
 		if verdict.Verdict == "runs" {
-			verdict = Verdict{Verdict: "refused", Rule: "pack approval effects are not active", Next: "Wait for pack broker approval policy and host activation before retrying", Digest: q.Digest}
+			verdict = Verdict{Verdict: "refused", Rule: "pack approval effects are not active", Next: "This build of yolo does not run a pack call's writes from this path; ask the human to perform this operation on the host", Digest: q.Digest}
 			auditReason = "approval-inactive"
 		} else if verdict.Verdict == "asks" {
 			verdict.Next = "Pack requests cannot be filed until the approval policy is settled; ask the human to perform this operation on the host"

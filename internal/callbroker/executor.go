@@ -138,7 +138,7 @@ func (p pinnedCLI) run(ctx context.Context, canonical Classification, originalSt
 	}
 	for _, word := range canonical.Argv {
 		if strings.ContainsRune(word, 0) {
-			return CLIResult{}, errors.New("canonical CLI argv is invalid; check the selected pack and retry")
+			return CLIResult{}, errors.New("canonical CLI argv is invalid; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 	}
 	if err := p.unchanged(); err != nil {

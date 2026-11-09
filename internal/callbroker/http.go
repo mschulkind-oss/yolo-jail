@@ -142,25 +142,25 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 		}
 		raw, err := c.invokePayload(ctx, payload)
 		if err != nil {
-			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if err := rejectDuplicateJSONFields(raw); err != nil {
-			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if err := validateHTTPAnswerShape(raw); err != nil {
-			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is malformed: %w; check the selected pack and retry", c.Source, err)
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is malformed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		var answer httpClassifierAnswer
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&answer); err != nil {
-			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; check the selected pack and retry", c.Source, err)
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier answer is not strict JSON: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if decoder.Decode(new(any)) != io.EOF {
-			return HTTPResult{}, errors.New("HTTP classifier answer has trailing data; check the selected pack and retry")
+			return HTTPResult{}, errors.New("HTTP classifier answer has trailing data; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		if answer.Version != input.Version {
-			return HTTPResult{}, errors.New("HTTP classifier used an unknown protocol version; check the selected pack and retry")
+			return HTTPResult{}, errors.New("HTTP classifier used an unknown protocol version; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		kinds := 0
 		if answer.Classification != nil {
@@ -176,11 +176,11 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 			kinds++
 		}
 		if kinds != 1 {
-			return HTTPResult{}, errors.New("HTTP classifier must return exactly one answer kind; check the selected pack and retry")
+			return HTTPResult{}, errors.New("HTTP classifier must return exactly one answer kind; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		if len(answer.Lookups) != 0 {
 			if round == maxLookupRounds {
-				return HTTPResult{}, errors.New("HTTP classifier exceeded three lookup rounds; check the selected pack and retry")
+				return HTTPResult{}, errors.New("HTTP classifier exceeded three lookup rounds; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 			}
 			if read == nil {
 				return HTTPResult{}, errors.New("HTTP lookup needs current core read standing; request read access and retry")
@@ -217,22 +217,22 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 			if answer.Refused.Class == "" || answer.Refused.Reason == "" || answer.Refused.NextStep == "" ||
 				len(answer.Refused.Reason) > 512 || len(answer.Refused.NextStep) > 512 ||
 				termsafe.HasUnsafe(answer.Refused.Reason) || termsafe.HasUnsafe(answer.Refused.NextStep) {
-				return HTTPResult{}, errors.New("HTTP classifier refusal is missing, unsafe or oversized; check the selected pack and retry")
+				return HTTPResult{}, errors.New("HTTP classifier refusal is missing, unsafe or oversized; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 			}
 			return HTTPResult{OriginalIntentSHA256: originalDigest, Refused: answer.Refused}, nil
 		}
 		if answer.Local || answer.Classification == nil {
-			return HTTPResult{}, errors.New("HTTP classifier returned an unsupported local result; check the selected pack and retry")
+			return HTTPResult{}, errors.New("HTTP classifier returned an unsupported local result; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		if failedLookup {
 			return HTTPResult{}, errors.New("a native lookup failed; classifier facts cannot authorize a guessed resource; inspect host read access")
 		}
 		canonical, reads, writes, err := c.validateHTTPClassification(original, allowedHeaders, *answer.Classification)
 		if err != nil {
-			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; check the selected pack and retry", c.Source, err)
+			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if len(writes) == 0 && !httpStandingReadMethod(original, canonical, c.ReadOverPost) {
-			return HTTPResult{}, errors.New("HTTP standing read needs safe methods or both original and canonical POST on a gate-approved read path; check the selected pack and retry")
+			return HTTPResult{}, errors.New("HTTP standing read needs safe methods or both original and canonical POST on a gate-approved read path; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		canonicalDigest := digestHTTPCall(canonical, reads, writes)
 		return HTTPResult{Canonical: canonical, Reads: reads, Writes: writes,

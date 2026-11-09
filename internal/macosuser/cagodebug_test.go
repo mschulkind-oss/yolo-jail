@@ -101,7 +101,7 @@ func TestACallersPinnedOffSettingIsKeptAndNamed(t *testing.T) {
 		t.Errorf("GODEBUG = %q, want the caller's own", v)
 	}
 	for _, want := range []string{"your configured environment sets GODEBUG " + goCAFileSetting,
-		"from your login keychain (Staging CA)", "Remove that setting from env_sources and launch again"} {
+		"from your login keychain (Staging CA)", "Remove that setting from `env.set`, or the file under `env.files` that sets it, and launch again"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the launch does not say %q:\n%s", want, out)
 		}

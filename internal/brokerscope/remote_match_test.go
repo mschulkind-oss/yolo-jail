@@ -1,6 +1,34 @@
 package brokerscope
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// A REPOSITORY THAT LEFT A LIVE SCOPE IS APPROVED AGAIN WITHOUT A RELAUNCH: `yolo config apply`
+// rewrites a live scope while the jail runs (LA-D11), so the refusal names that step, and only a
+// scope that is not live still says to relaunch.
+func TestARepositoryThatLeftTheScopeNamesTheStepItsScopeTakes(t *testing.T) {
+	t.Setenv("HOME", resolvedTempDir(t))
+	const approved = "git@github.com:mschulkind/dotfiles"
+	const request = "git@github.com:mschulkind/other"
+	path, f := remoteURLFile(t, "left-scope", FormRemoteURL, approved)
+	for _, live := range []bool{true, false} {
+		f.LiveScope = live
+		if _, err := Write(f); err != nil {
+			t.Fatal(err)
+		}
+		err := ValidateCurrent(path, f, request)
+		if err == nil {
+			t.Fatalf("live=%v: a repository outside the scope was admitted", live)
+		}
+		names := strings.Contains(err.Error(), "`yolo config apply`") && strings.Contains(err.Error(), "at its next call")
+		relaunch := strings.Contains(err.Error(), "relaunch")
+		if names != live || relaunch == live {
+			t.Errorf("live=%v: the refusal does not name its scope's step: %v", live, err)
+		}
+	}
+}
 
 func TestValidateCurrentRemoteMatcherIsExplicitAndUsesFreshScope(t *testing.T) {
 	t.Setenv("HOME", resolvedTempDir(t))

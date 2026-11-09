@@ -99,7 +99,7 @@ func TestPackCLIClassifierValidatesCanonicalResourceAndDoesNotExecute(t *testing
 		t.Run(name, func(t *testing.T) {
 			broken := fixtureClassifier(t, fmt.Sprintf("cat >/dev/null\nprintf '%%s' '%s'", verdict))
 			_, err := broken.ClassifyCLI(context.Background(), []string{"update", "a1"}, stdin, nil)
-			if err == nil || !strings.Contains(err.Error(), "check the selected pack") {
+			if err == nil || !strings.Contains(err.Error(), "report it to the pack's author") || strings.Contains(err.Error(), "retry") {
 				t.Fatalf("unsafe classification accepted: %v", err)
 			}
 		})
@@ -137,7 +137,7 @@ func TestPackCLIClassifierFailsClosed(t *testing.T) {
 			}
 			start := time.Now()
 			_, err := classifier.ClassifyCLI(context.Background(), []string{"update", "a1"}, stdin, nil)
-			if err == nil || !strings.Contains(err.Error(), "check the selected pack") {
+			if err == nil || !strings.Contains(err.Error(), "report it to the pack's author") || strings.Contains(err.Error(), "retry") {
 				t.Fatalf("classifier failure accepted: %v", err)
 			}
 			if tc.name == "oversized" && !strings.Contains(err.Error(), "64 KiB") {

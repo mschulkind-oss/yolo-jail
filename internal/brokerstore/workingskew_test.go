@@ -19,7 +19,7 @@ import (
 func TestDecideWorkingWritesEachEntryAsTheRecordAnOlderBrokerReads(t *testing.T) {
 	for _, add := range []bool{false, true} {
 		s, _ := workingFixture(t)
-		s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+		s.Entries = func(q Request) ([]WorkingEntry, error) {
 			return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/agent/x", By: "human"}}, nil
 		}
 		q, err := s.File(Request{Jail: "j", Start: "start", Workspace: "/ws", Argv: []string{"push"}, Repo: "github.com/o/r",

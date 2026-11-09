@@ -597,12 +597,28 @@ func TestPackCLIPredictionCannotClaimAnInactiveWriteRuns(t *testing.T) {
 	}
 	for _, op := range []string{"evaluate", "act", "ask"} {
 		v, _, err := active.serveCLI(context.Background(), op, "launch", []string{"update", "a1"}, nil)
-		if err != nil || v.Verdict != "refused" || v.Rule != "pack approval effects are not active" {
+		if err != nil || v.Verdict != "refused" || v.Rule != "pack approval effects are not active" ||
+			strings.Contains(v.Next, "Wait for") || !strings.Contains(v.Next, "ask the human to perform this operation on the host") {
 			t.Fatalf("%s predicted/performed an inactive write: %+v %v", op, v, err)
 		}
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("inactive write executed: %v", err)
+	}
+}
+
+// A PACK'S CLASSIFIER ANSWERING WRONGLY FAILS THE SAME WAY EVERY TIME, so its refusal says it is
+// the pack's bug and whom to tell, never "check the selected pack and retry".
+func TestAClassifierFaultNamesThePacksAuthorNotARetry(t *testing.T) {
+	for name, call := range map[string]Classification{
+		"empty":           {},
+		"undeclared cell": {Writes: []Write{{Cell: "nope", Chain: []Resource{{Type: "task", ID: "a1"}}}}},
+	} {
+		v := decideCall(call, map[string]config.CallBrokerCellPolicy{}, nil, "/workspace", "local-tasks", time.Now())
+		if v.Verdict != "refused" || !strings.Contains(v.Next, "report it to the pack's author") ||
+			strings.Contains(strings.ToLower(v.Next), "retry") {
+			t.Errorf("%s: %+v", name, v)
+		}
 	}
 }
 
