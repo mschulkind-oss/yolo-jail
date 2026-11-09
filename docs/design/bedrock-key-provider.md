@@ -1,9 +1,9 @@
 ---
 title: "The Bedrock API key is a provider you select, not a layer you pass"
 date: 2026-11-07
-status: in-review
-stage: DESIGN
-next: "Rule OQ-BK3 — or let secret-env-scoping.md answer it as the same pattern every provider's key follows"
+status: accepted
+stage: DECIDED
+next: "Write the implementation plan against the tree (none exists yet); the key file rides secret-env-scoping.md's [env.secrets], so plan after or with it"
 depends-on:
   - bedrock-plumbing.md
   - providers-and-profiles-redesign.md
@@ -13,9 +13,9 @@ summary: "A Bedrock API key becomes a provider named bedrock-key that an owner s
 
 # The Bedrock API key is a provider you select, not a layer you pass
 
-**Status:** 2026-11-09. Nothing built. Evidence verified at `2bbdd801f`. Four of five questions ruled
-by the owner on 2026-11-09 and folded into the body; [OQ-BK3](#OQ-BK3) waits on
-[`secret-env-scoping.md`](secret-env-scoping.md), which the owner's question about it spawned.
+**Status:** 2026-11-09. Nothing built. Evidence verified at `2bbdd801f`. All five questions ruled
+by the owner on 2026-11-09 and folded into the body; the key file's home follows
+[`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
 
 > **In short.** The key is already a credential a provider can claim; what it lacks is a provider
 > of its own and a rule that keeps `aws-auth`'s pointer away from that provider. Both come from
@@ -36,7 +36,7 @@ not mix an agent on `bedrock` with one on `bedrock-key`; separate launches in on
 
 **Start at [The design](#the-design)** — the provider, the claims, and the two guarantees.
 
-**Needs your ruling:** [OQ-BK3](#OQ-BK3).
+**Needs your ruling:** None.
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (the three supported credentials, and
 the hand-written API-key provider this replaces),
@@ -44,7 +44,7 @@ the hand-written API-key provider this replaces),
 and the one-selection-answers-every-gate rule, PP-D5),
 [`agent-credentials.md`](../reference/agent-credentials.md) (what refuses a launch and what only
 warns), [`secret-env-scoping.md`](secret-env-scoping.md) (how every provider's key in `[env.secrets]`
-reaches its agents; it decides [OQ-BK3](#OQ-BK3) and may supersede the narrowing's refusal story).
+reaches its agents; the key file follows it ([OQ-BK3](#OQ-BK3)), and it may supersede the narrowing's refusal story).
 
 ---
 
@@ -52,7 +52,7 @@ reaches its agents; it decides [OQ-BK3](#OQ-BK3) and may supersede the narrowing
 
 | | Before | After |
 | :--- | :--- | :--- |
-| Once | write `~/.config/yolo-jail/bedrock-key.toml` by hand | `yolo config add env.sources ~/.config/yolo-jail/bedrock-key.env` |
+| Once | write `~/.config/yolo-jail/bedrock-key.toml` by hand | `yolo config add env.secrets.files '"~/.config/yolo-jail/bedrock-key.env"' --user` |
 | Per launch | `yolo --user-layer ~/.config/yolo-jail/bedrock-key.toml` | `yolo -p bedrock-key` |
 | Per machine or workspace | not expressible | `yolo active-provider claude bedrock-key` |
 
@@ -180,15 +180,17 @@ configs of that shape exist to migrate.
 
 ### How G1 holds: the credential gate
 
-With the key file named in the user config's `[env] sources`, the file is read on every launch,
+**The key file lives in the user config's `[env.secrets]`**, its reach decided by the claim — the same
+pattern as every provider's key in [`secret-env-scoping.md`](secret-env-scoping.md)
+([OQ-BK3](#OQ-BK3)). Named there, the file is read on every launch,
 and the bearer is **delivered to the agents whose selection resolves to a claiming provider and to
 no other process** — the gate's rule, which PP-D9 was built to keep
 ([`credentialscope.go:665-668`](../../internal/packload/credentialscope.go)). An SSO launch reads
 the file and delivers the key nowhere; the launch's withheld-credential disclosure says so by
 name, never by value. That is G1 restated at the agent, not the launch: a stronger guarantee in
 one direction (two agents in one launch can differ) and a weaker one in another (the file is
-opened by launches that do not use it). Whether the owner wants the file in the user config at all,
-or keeps it in a layer that now carries only the `[env]` line, is [OQ-BK3](#OQ-BK3).
+opened by launches that do not use it). A launch that cannot read the file says so every time;
+that is the price of dropping the flag, which is what lets `yolo active-provider` select the key.
 
 ### How G2 holds: a served pointer reaches only a provider that claims it
 
@@ -296,43 +298,15 @@ deleting a file, or not; yolo never edits it.
 | **A variant**, `bedrock/key` | **Rejected.** A variant carries a name, a via and model options; claims are a property of the provider entry, so a variant cannot claim a different list |
 | **Dynamic claims**: `bedrock` drops the bearer from its list when the pointer is served | **Rejected.** A claim list that depends on another pack's state is undebuggable from the config, and `yolo check` could not predict it |
 
-## Open Questions
-
-1. 💬 **OQ-BK3: Does the key file move into the user config, or stay in a layer?**
-
-   Matt keeps `bedrock-key.env` loaded only by his layer, so an SSO launch never opens it. With
-   `bedrock-key` a provider, he can name the file once with
-   `yolo config add env.secrets.files '"~/.config/yolo-jail/bedrock-key.env"' --user` and never pass the flag
-   again; every launch then reads the file, and the gate delivers the key only to an agent on
-   `bedrock-key`. The guarantee moves from "which launches read the file" to "which processes
-   receive the value". His question about that — what a key in the file does when nothing claims
-   it — is the one [`secret-env-scoping.md`](secret-env-scoping.md) answers for every provider at
-   once, so the answer here should be whatever that design settles.
-
-   - **A — In the user config.** `yolo -p bedrock-key` and `yolo active-provider` are the whole
-     recipe. An SSO launch's disclosure lists the bearer as withheld by name. Cost: the file is
-     opened by launches that do not use it, and a launch that cannot read it says so every time.
-   - **B — Stay in a layer holding only the `[env]` line.** Launches that do not pass the layer
-     never open the file. Cost: the flag stays, and `active_provider` cannot select the key
-     without it, which is half of what the owner asked for.
-
-   <!-- vantage: question id=OQ-BK3 leaning="A — the same pattern as every provider's key: the file in the user config's [env.secrets], its reach decided by the claim, as secret-env-scoping.md states for every provider." -->
-
-   _Leaning:_ A — the same pattern as every provider's key: the file in the user config's `[env.secrets]`,
-   its reach decided by the claim, as [`secret-env-scoping.md`](secret-env-scoping.md) states for
-   every provider.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
-The owner's rulings of 2026-11-09 first, then the seat's decisions, which each have one defensible answer.
+The owner's rulings of 2026-11-09 first (BK-D6 carries [OQ-BK3](#OQ-BK3)'s), then the seat's decisions, which each have one defensible answer.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-BK1 | **`bedrock-key` ships in `packs/bedrock`, beside the narrowed `bedrock`.** The owner: *"the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together."* | 2026-11-09 | [The provider](#the-provider) | — |
 | OQ-BK2 | **A served pointer reaches only an agent whose provider claims a variable it sets; the gate reads the declared claims, and no new provider key expresses it.** The owner: *"the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared."* | 2026-11-09 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
+| <a id="BK-D6"></a><a id="OQ-BK3"></a>BK-D6 ([OQ-BK3](#OQ-BK3)) | **The key file goes in the user config's `[env.secrets]`, its reach decided by the claim**, the same pattern as every provider in [`secret-env-scoping.md`](secret-env-scoping.md); `yolo -p bedrock-key` and `yolo active-provider` are the whole recipe, and no layer or flag is needed. The owner: *"obviously A. that's the point of the design, no?"* | 2026-11-09 | [How G1 holds](#how-g1-holds-the-credential-gate) | — |
 | OQ-BK4 | **Narrow, with no migration path.** Selecting `bedrock` uses SSO and only SSO; a bearer in `[env] sources` is not used for it; the ordinary credential pre-flight refusal stands, with no alias and no special line. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | — |
 | OQ-BK5 | **Not in one launch; yes in one jail or workspace.** One launch may not mix an agent on `bedrock` with one on `bedrock-key` (refused as today, with the corrected remedy sentence); separate launches in the same workspace may each use a different one, by stop and relaunch. An attach with the other provider is not promised until its pre-flight placement is verified. The owner: *"in the same jail/workspace? yes, in the same launch? no."* | 2026-11-09 | [Two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch) | — |
 | <a id="BK-D1"></a>BK-D1 | **User-declared providers are selectable, and the help says so.** The launch, `yolo active-provider` and `yolo check` already resolve a user's `providers` entry by name ([P1](#premises)). The two strings that say "one a selected pack declares" are corrected to "one a selected pack or your `providers` table declares"; no selection code changes | 2026-11-07 | [Selection](#selection) | — |
