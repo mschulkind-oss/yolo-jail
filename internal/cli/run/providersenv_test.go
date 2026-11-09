@@ -14,6 +14,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // providerEnvPack writes a local pack shipping one provider and loads it the way the
@@ -134,7 +135,7 @@ func TestAssembleAutomaticallyForwardsUserLocalProvider(t *testing.T) {
 	}
 	for _, want := range []string{
 		"YOLO_FORWARD_HOST_PORTS=[11434]",
-		"/tmp/yolo-fwd-yolo-ws-abcd1234:/tmp/yolo-fwd:rw",
+		"/tmp/yolo-fwd-" + paths.JailShortHash("yolo-ws-abcd1234") + ":/tmp/yolo-fwd:rw",
 	} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("automatic local-provider forward missing %q\nargv:\n%s", want, argv)

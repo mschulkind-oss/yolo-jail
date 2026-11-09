@@ -32,7 +32,7 @@ func (o *Options) planPortForwards(forwardHostPorts []any) []PortForward {
 // live process handles (native proxying is out of scope). Must run BEFORE the
 // container so the socket files exist when the container-side socat connects.
 //
-// cname keys the socat log; socketDir is the per-jail /tmp/yolo-fwd-<cname> dir. Returns the socat
+// cname keys the socat log; socketDir is the per-jail /tmp/yolo-fwd-<hash> dir (fwdSocketDir). Returns the socat
 // handles, each reaped by a goroutine of its own from its start, so its end is seen the moment it
 // happens: the keeper records a forward that ends while its jail is up (keeperwatch.go, JL-D19).
 //

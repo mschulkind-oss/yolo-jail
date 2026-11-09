@@ -516,13 +516,16 @@ func (o *Options) forwardHostPortsArgs(rt, cname string, forwardHostPorts []any)
 	return args
 }
 
-// fwdSocketDir returns /tmp/yolo-fwd-<cname> (resolving /tmp on macOS).
+// fwdSocketDir returns /tmp/yolo-fwd-<hash> (resolving /tmp on macOS), keyed by the jail name's
+// short hash (paths.JailShortHash), not the name itself: a setup-qualified name can run to 87
+// bytes, and a socket path beneath it would pass the AF_UNIX limit (104 bytes on macOS, 108 on
+// Linux), so port forwarding would fail at launch (review m1).
 func (o *Options) fwdSocketDir(cname string) string {
 	base := "/tmp"
 	if o.IsMacOS {
 		base = resolvePath("/tmp")
 	}
-	return filepath.Join(base, "yolo-fwd-"+cname)
+	return filepath.Join(base, "yolo-fwd-"+paths.JailShortHash(cname))
 }
 
 // hostServicesMountArgs builds the host-services dir mount and the endpoint env of

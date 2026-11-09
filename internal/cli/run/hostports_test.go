@@ -2,6 +2,8 @@ package run
 
 import (
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -58,5 +60,23 @@ func TestSocketNotReadyWarning(t *testing.T) {
 	want := "Warning: socat socket(s) not ready after 2.0s: /a.sock, /b.sock"
 	if got := SocketNotReadyWarning([]string{"/a.sock", "/b.sock"}); got != want {
 		t.Errorf("warning = %q", got)
+	}
+}
+
+// A FORWARDED PORT'S SOCKET FITS AF_UNIX FOR THE LONGEST JAIL NAME (review m1): a setup-qualified
+// jail name can run to 87 bytes, and Apple Container publishes each port's host socket beneath the
+// per-jail directory, whose path on macOS (/private/tmp/...) must stay under the 104-byte limit.
+// Pinned through the launch's own argv builder (forwardHostPortsArgs).
+func TestAForwardedPortsSocketFitsTheUnixLimitForALongJailName(t *testing.T) {
+	cname := "yolo-" + strings.Repeat("w", 40) + "-0123abcd-" + strings.Repeat("s", 32)
+	o := &Options{IsMacOS: true}
+	args := o.forwardHostPortsArgs("container", cname, []any{"65535"})
+	i := slices.Index(args, "--publish-socket")
+	if i < 0 || i+1 >= len(args) {
+		t.Fatalf("no --publish-socket in %v", args)
+	}
+	host, _, _ := strings.Cut(args[i+1], ":")
+	if len(host) >= 104 {
+		t.Errorf("the forwarded port's host socket %s is %d bytes, past the macOS AF_UNIX limit of 104", host, len(host))
 	}
 }
