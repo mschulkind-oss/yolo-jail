@@ -123,9 +123,9 @@ func TestHostApplyNamesWhatYoloHostDeliversAtLaunch(t *testing.T) {
 			t.Errorf("%s is said not to apply at the host, and `yolo host --` delivers it: %q", k, lines[0])
 		}
 	}
-	// audio's pointer at a socket only a jail binds is withheld at `yolo host --` (LP-D1), and
-	// its loophole has no doorway, so env and loophole are in both groups, each contribution
-	// decided with the launch's own checks.
+	// Audio's pointer at a socket only a jail binds (LP-D1) and Pi's jail-only clipboard
+	// env are withheld at `yolo host --`. Audio's loophole has no doorway, so env and
+	// loophole are in both groups, each contribution decided with the launch's own checks.
 	for _, k := range []packdecl.Kind{packdecl.KindEnv, packdecl.KindLoophole} {
 		if countWord(notApplying, string(k)) != 1 {
 			t.Errorf("audio's %s has no meaning at the host (the launch withholds it), and the "+
@@ -136,7 +136,7 @@ func TestHostApplyNamesWhatYoloHostDeliversAtLaunch(t *testing.T) {
 	// --verbose says which pack's contributions landed in each group, for a kind in both.
 	verboseReport(t)
 	_, verbose := surveyApply(t)
-	for _, want := range []string{"env (aws-auth, guardrails, pi)", "env (audio)", "loophole (aws-auth, codex-auth)",
+	for _, want := range []string{"env (aws-auth, guardrails, pi)", "env (audio, pi)", "loophole (aws-auth, codex-auth)",
 		"loophole (audio, cgroup-delegate)", "`yolo config-ref` says how"} {
 		if !strings.Contains(verbose, want) {
 			t.Errorf("--verbose does not say %q:\n%s", want, verbose)

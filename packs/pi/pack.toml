@@ -195,6 +195,13 @@ guarded.config = [{ agent = "pi", managed = { defaultProjectTrust = "ask" }, nam
 [[env]]
 vars = { PI_TELEMETRY = "0" }
 
+# macOS confinement denies native pasteboard access, but pi only automatically
+# falls back to terminal clipboard copying for SSH-like sessions or headless Linux.
+# Emit OSC 52 in jails without granting clipboard reads; keep yolo host unchanged.
+[[env]]
+jail_only = true
+vars = { PI_CLIPBOARD_OSC52 = "1" }
+
 [[state]]
 at = ".pi"
 

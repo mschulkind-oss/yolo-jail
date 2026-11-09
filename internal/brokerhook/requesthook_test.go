@@ -30,11 +30,6 @@ func alive(pid int) bool {
 	return true
 }
 
-// hookStartAllowance is how long a test gives a hook to start and write its child's pid file
-// before a clock it races (a Timeout, a request's expiry) stops it, on a machine busy with the
-// whole tree's tests: at 300ms both the timeout and the expiry cases once stopped the hook first.
-const hookStartAllowance = 2 * time.Second
-
 func readPid(t *testing.T, path string) int {
 	t.Helper()
 	var pid int
@@ -72,11 +67,9 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 			f.skew.Store(int64(brokerstore.PendingLife + time.Minute))
 			return nil
 		}, "stopped because its request is no longer pending"},
-		// The runner's timeout clock starts before the hook's shell does, and the case needs the
-		// hook's child alive (its pid file written) before the clock runs out: at 300ms a Mac
-		// running the whole tree's tests timed the hook out first, and the pid file never came.
-		// The same start-up allowance the expiry test below gives its hook.
-		{"timed out", hookStartAllowance, func(*fixture, brokerstore.Request) error { return nil },
+		// The run's Timeout runs out only once the hook's child is seen (limitClock), so it
+		// never races the hook's start-up, however slowly a busy machine starts it.
+		{"timed out", time.Minute, func(*fixture, brokerstore.Request) error { return nil },
 			"stopped because it ran into its timeout"},
 	} {
 		for _, shape := range []struct{ name, tail string }{
@@ -88,7 +81,8 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 				var log syncBuffer
 				child := filepath.Join(f.dir, "child")
 				hook := f.script(t, "hook", "cat >/dev/null\nsleep 300 >/dev/null 2>&1 &\necho $! >'"+child+"'\n"+shape.tail)
-				stop := f.runFor(t, hook, &log, c.timeout, 5*time.Millisecond)
+				clock := &limitClock{}
+				stop := f.runFor(t, hook, &log, c.timeout, 5*time.Millisecond, clock)
 				defer stop()
 				q, err := f.store.File(f.filing)
 				if err != nil {
@@ -97,6 +91,12 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 				pid := readPid(t, child)
 				if err := c.leave(f, q); err != nil {
 					t.Fatal(err)
+				}
+				if c.timeout > 0 {
+					// The Timeout, shorter than the request's life, is the run's limit.
+					if got := clock.runOut(t); got[0] != c.timeout {
+						t.Fatalf("the run's limit is %s, want its Timeout %s", got[0], c.timeout)
+					}
 				}
 				waitFor(t, "the hook to be stopped", func() bool { return strings.Contains(log.String(), c.logged) })
 				waitFor(t, "the hook's child to die", func() bool { return !alive(pid) })
@@ -124,7 +124,9 @@ func TestAHookIsKilledWhenItsRequestLeavesPending(t *testing.T) {
 // whichever comes first, the store's expiry event or the runner's own clock on the request's
 // expiry, and when the runner's Timeout runs past the expiry, as its default does.
 func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
-	const left = hookStartAllowance
+	// How long the request has left when the runner starts. The runner's clock on it runs out
+	// only once the hook's child is seen (limitClock), so no real clock races the hook's start.
+	const left = 10 * time.Minute
 	for _, c := range []struct {
 		name              string
 		timeout, interval time.Duration
@@ -154,9 +156,18 @@ func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
 					t.Fatal(err)
 				}
 				f.skew.Store(0)
-				stop := f.runFor(t, hook, &log, c.timeout, c.interval)
+				clock := &limitClock{}
+				stop := f.runFor(t, hook, &log, c.timeout, c.interval, clock)
 				defer stop()
 				pid := readPid(t, child)
+				if c.interval < time.Minute {
+					// The store's clock passes the expiry, so its next poll's expiry event races
+					// the runner's own clock, run out just below.
+					f.skew.Store(int64(left + time.Minute))
+				}
+				if got := clock.runOut(t); got[0] > left {
+					t.Fatalf("the run's limit is %s, past its request's expiry %s from now", got[0], left)
+				}
 				waitFor(t, "the hook to be stopped", func() bool { return strings.Contains(log.String(), "was stopped because") })
 				waitFor(t, "the hook's child to die", func() bool { return !alive(pid) })
 				stop() // waits for the runner to finish with the hook, failure record included

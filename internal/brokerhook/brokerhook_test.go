@@ -61,14 +61,18 @@ func (f *fixture) script(t *testing.T, name, body string) string {
 // run starts a runner for lifetime "start" and returns its stop.
 func (f *fixture) run(t *testing.T, command string, log *syncBuffer) func() {
 	t.Helper()
-	return f.runFor(t, command, log, 0, 5*time.Millisecond)
+	return f.runFor(t, command, log, 0, 5*time.Millisecond, nil)
 }
 
-// runFor is run with a hook timeout and a poll interval.
-func (f *fixture) runFor(t *testing.T, command string, log *syncBuffer, timeout, interval time.Duration) func() {
+// runFor is run with a hook timeout, a poll interval and, unless nil, a limitClock that
+// decides when each run's limit (a Timeout, its request's expiry) is reached.
+func (f *fixture) runFor(t *testing.T, command string, log *syncBuffer, timeout, interval time.Duration, clock *limitClock) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Runner{Store: f.store, Start: "start", Command: command, Interval: interval, Timeout: timeout, Log: log}
+	if clock != nil {
+		r.afterFunc = clock.afterFunc
+	}
 	done := make(chan struct{})
 	go func() { r.Run(ctx); close(done) }()
 	// Run reads the store once before it watches; a request filed after that is an event.
@@ -77,6 +81,55 @@ func (f *fixture) runFor(t *testing.T, command string, log *syncBuffer, timeout,
 		cancel()
 		<-done
 	}
+}
+
+// limitClock stands in for the clock that ends a hook's run at its limit: a run's limit is
+// reached only when the test calls runOut, so a test can see the hook start first however
+// slowly it starts, with no real clock racing that start.
+type limitClock struct {
+	mu     sync.Mutex
+	limits []time.Duration
+	fires  []func()
+	fired  []bool
+}
+
+func (c *limitClock) afterFunc(d time.Duration, f func()) func() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	i := len(c.fires)
+	c.limits, c.fires, c.fired = append(c.limits, d), append(c.fires, f), append(c.fired, false)
+	return func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		was := c.fired[i]
+		c.fired[i] = true
+		return !was
+	}
+}
+
+// runOut reaches the limit of every run whose clock was started and not yet stopped, and
+// returns the limits of every clock started. It fails the test when none was: the runner no
+// longer bounds a run by it, and nothing would stop the hook. A clock already stopped (its
+// run ended another way first, such as on the store's expiry event) does not fire.
+func (c *limitClock) runOut(t *testing.T) []time.Duration {
+	t.Helper()
+	c.mu.Lock()
+	var due []func()
+	for i, f := range c.fires {
+		if !c.fired[i] {
+			c.fired[i] = true
+			due = append(due, f)
+		}
+	}
+	limits := append([]time.Duration(nil), c.limits...)
+	c.mu.Unlock()
+	if len(limits) == 0 {
+		t.Fatal("no hook run's limit clock was started")
+	}
+	for _, f := range due {
+		f()
+	}
+	return limits
 }
 
 type syncBuffer struct {

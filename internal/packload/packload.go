@@ -875,20 +875,42 @@ func ProfilesOnly(profiles map[string]string) GateSelection {
 // is delivery order, not something this fold resolves; a collision is reported by the
 // footprint's env-key claims.
 func EnvFold(packs []*Pack, sel GateSelection, agent string) []EnvFoldEntry {
+	return envFold(packs, sel, agent, false)
+}
+
+// envFold filters jail-only contributions BEFORE reducing a pack's static keys, so
+// withholding a later jail-only assignment at the host preserves an earlier ordinary one.
+func envFold(packs []*Pack, sel GateSelection, agent string, atHost bool) []EnvFoldEntry {
 	var out []EnvFoldEntry
 	for _, p := range packs {
-		static := p.Decl.EnvContributions()
-		servedBy := p.Decl.EnvServedBy()
+		static := map[string]string{}
+		servedBy := map[string]string{}
+		var gated []packdecl.Contribution
+		for _, c := range p.Decl.Contributions() {
+			// c.Bin: a private client's env is never the ordinary fold's
+			// (packdecl.PrivateProgramEnvContributions), as EnvContributions skips it.
+			if c.Kind != packdecl.KindEnv || c.Bin != "" || (atHost && c.JailOnly) {
+				continue
+			}
+			if c.Profile != "" || c.Platform != "" {
+				gated = append(gated, c)
+				continue
+			}
+			for k, v := range c.Vars {
+				static[k] = v
+				servedBy[k] = c.ServedBy
+			}
+		}
 		for _, k := range sortedMapKeys(static) {
 			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k], Pack: p.Name})
 		}
-		for _, gated := range p.Decl.GatedEnvContributions() {
-			if !gateFiresFor(packs, p, gated.Profile, gated.Platform, sel, agent) {
+		for _, c := range gated {
+			if !gateFiresFor(packs, p, c.Profile, c.Platform, sel, agent) {
 				continue
 			}
-			for _, k := range sortedMapKeys(gated.Vars) {
-				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy,
-					RegionProfileSetting: gated.RegionProfileSetting, Pack: p.Name})
+			for _, k := range sortedMapKeys(c.Vars) {
+				out = append(out, EnvFoldEntry{Key: k, Value: c.Vars[k], ServedBy: c.ServedBy,
+					RegionProfileSetting: c.RegionProfileSetting, Pack: p.Name})
 			}
 		}
 	}

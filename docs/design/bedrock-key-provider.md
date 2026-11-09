@@ -3,7 +3,7 @@ title: "The Bedrock API key is a provider you select, not a layer you pass"
 date: 2026-11-07
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BK1 and OQ-BK2 — the shipped entry and the pointer rule decide everything else"
+next: "Rule OQ-BK3 — or let secret-env-scoping.md answer it as the same pattern every provider's key follows"
 depends-on:
   - bedrock-plumbing.md
   - providers-and-profiles-redesign.md
@@ -13,8 +13,9 @@ summary: "A Bedrock API key becomes a provider named bedrock-key that an owner s
 
 # The Bedrock API key is a provider you select, not a layer you pass
 
-**Status:** 2026-11-07. Nothing built. Evidence verified at `2bbdd801f`. The seat's design, pending
-the owner's review; every ledger row is the seat's.
+**Status:** 2026-11-09. Nothing built. Evidence verified at `2bbdd801f`. Four of five questions ruled
+by the owner on 2026-11-09 and folded into the body; [OQ-BK3](#OQ-BK3) waits on
+[`secret-env-scoping.md`](secret-env-scoping.md), which the owner's question about it spawned.
 
 > **In short.** The key is already a credential a provider can claim; what it lacks is a provider
 > of its own and a rule that keeps `aws-auth`'s pointer away from that provider. Both come from
@@ -29,21 +30,21 @@ plus a flag, and the layer exists only to hold two facts the provider table coul
 gate rule — a served env contribution reaches an agent only when its provider claims a variable
 the contribution sets.
 
-**Cost.** A user who selects `bedrock` with a bearer and no SSO profile today must select
-`bedrock-key` instead; the launch tells them so. A launch mixing an SSO agent and a key agent stays
-refused, as it is today.
+**Cost.** Selecting `bedrock` means SSO and only SSO: a bearer in `[env] sources` is not used for it,
+and a launch with no SSO credential is refused by the ordinary credential pre-flight. One launch may
+not mix an agent on `bedrock` with one on `bedrock-key`; separate launches in one workspace may.
 
 **Start at [The design](#the-design)** — the provider, the claims, and the two guarantees.
 
-**Needs your ruling:** [OQ-BK1](#OQ-BK1), [OQ-BK2](#OQ-BK2), [OQ-BK3](#OQ-BK3), [OQ-BK4](#OQ-BK4),
-[OQ-BK5](#OQ-BK5).
+**Needs your ruling:** [OQ-BK3](#OQ-BK3).
 
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (the three supported credentials, and
 the hand-written API-key provider this replaces),
 [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) (the claims rule, PP-D9,
 and the one-selection-answers-every-gate rule, PP-D5),
 [`agent-credentials.md`](../reference/agent-credentials.md) (what refuses a launch and what only
-warns).
+warns), [`secret-env-scoping.md`](secret-env-scoping.md) (how every provider's key in `[env]`
+reaches its agents; it decides [OQ-BK3](#OQ-BK3) and may supersede the narrowing's refusal story).
 
 ---
 
@@ -143,10 +144,12 @@ A provider on platform `aws-bedrock` so that every agent starts in Bedrock mode 
 pre-flight applies ([BR-D1](bedrock-plumbing.md#BR-D1);
 [`internal/packload/regionpreflight.go:74`](../../internal/packload/regionpreflight.go) keys the
 requirement on the platform). Its own `api_key_env_name` so that it claims the bearer and nothing
-else ([P2](#premises)). Whether it ships in `packs/bedrock` or is authored by the user is
-[OQ-BK1](#OQ-BK1); the shape is the same either way, and a shipped entry also carries `bedrock`'s
-`bridge` variant so claude and copilot reach non-Anthropic models through the wire bridge with the
-key as `x-api-key` ([WG-I31](wire-bridge-gateway.md#WG-I31)).
+else ([P2](#premises)). **It ships in `packs/bedrock`, beside the narrowed `bedrock`**
+([OQ-BK1](#decision-ledger)): the narrowing is the half nobody would guess, and shipping both halves
+together is the only way they are always present together. A user-authored entry of the same shape
+works too, and the shipped entry also carries `bedrock`'s `bridge` variant so claude and copilot reach
+non-Anthropic models through the wire bridge with the key as `x-api-key`
+([WG-I31](wire-bridge-gateway.md#WG-I31)).
 
 ### The claims, and why `bedrock` must narrow
 
@@ -162,11 +165,18 @@ So the narrowing is not a tidy-up; the design does not work without it:
 | `bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_CONTAINER_CREDENTIALS_FULL_URI` |
 | `bedrock-key` | `AWS_BEARER_TOKEN_BEDROCK` |
 
-A user who authors `bedrock-key` without a shipped narrowing must also override
-`providers.bedrock.api_key_env_name` to the five, which a user override of the shipped list does
-([`credentialscope.go:672-675`](../../internal/packload/credentialscope.go)). That is the strongest
-argument for shipping both halves together ([OQ-BK1](#OQ-BK1)). What the narrowing costs an
-existing user is [OQ-BK4](#OQ-BK4).
+Shipping the narrowing with the provider is what spares a user the second edit: without it, anyone
+authoring `bedrock-key` would also have to override `providers.bedrock.api_key_env_name` to the five
+([`credentialscope.go:672-675`](../../internal/packload/credentialscope.go)), a detail nothing would
+tell them.
+
+**Selecting `bedrock` means SSO, and only SSO** ([OQ-BK4](#decision-ledger)). A bearer in
+`[env] sources` is simply not used for an agent on `bedrock`: it is not in that provider's claim
+list, so the gate withholds it and the disclosure names it. A user who selects `bedrock` with a bearer
+and no SSO credential is refused by the ordinary credential pre-flight, which lists the names
+`bedrock` claims and where it looked, exactly as for any provider whose key never arrived. There is
+no alias from `bedrock` to `bedrock-key`, no extra refusal sentence and no migration path: no
+configs of that shape exist to migrate.
 
 ### How G1 holds: the credential gate
 
@@ -185,7 +195,8 @@ or keeps it in a layer that now carries only the `[env]` line, is [OQ-BK3](#OQ-B
 The aws-auth contribution *sets* `AWS_CONTAINER_CREDENTIALS_FULL_URI` and
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` ([`packs/aws-auth/pack.toml:16-17`](../../packs/aws-auth/pack.toml)).
 The shipped `bedrock` *claims* `AWS_CONTAINER_CREDENTIALS_FULL_URI`; `bedrock-key` does not. The
-rule this design adds to the platform gate:
+rule this design adds to the platform gate, read off the declared claims and nothing else
+([OQ-BK2](#decision-ledger)):
 
 > A served env contribution whose platform gate fires for an agent is delivered to that agent
 > only when the agent's provider claims at least one variable the contribution sets. Otherwise it
@@ -207,7 +218,34 @@ Everything else follows from mechanisms that exist:
 - **`bedrock` is unchanged**, and so is a user provider that declares a platform and no list: both
   claim the pointer variable, so both still receive the pointer.
 
-Where this rule lives, and whether a new key should express it instead, is [OQ-BK2](#OQ-BK2).
+No new provider key expresses this. A `login = "none"` or `aws_auth = false` would be a second
+spelling of a fact the claim list already carries, and a provider could say it while still claiming
+the pointer variable, a contradiction a validator would then have to refuse. The gate reads what is
+declared.
+
+### Two providers in one workspace, never in one launch
+
+**One launch may not mix an agent on `bedrock` with one on `bedrock-key`**
+([OQ-BK5](#decision-ledger)). `-p claude=bedrock-key,codex=bedrock` is refused, as it is today, by the
+launch-wide override check ([P4](#premises)): the launch delivers the bearer somewhere and the pointer
+somewhere, and the check does not ask whether one agent holds both. The refusal's remedy sentence
+changes, because emptying the SSO profile is the wrong advice for this launch: it says that one launch
+cannot mix an agent on `bedrock` with one on `bedrock-key`, and names a launch on either alone.
+
+**Separate launches in the same workspace may each use a different one.** Every fresh launch composes
+its own environment: the gate runs anew, the shared and per-agent env files are rewritten whole on
+every entry ([CN-D7](../reference/providers.md#CN-D7)), and the aws-auth daemon is started only when
+some agent's selection delivers its pointer ([P3](#premises)). So `yolo stop`, then `yolo -p bedrock-key`
+after a jail that ran on `bedrock`, or the reverse, needs nothing this design does not already carry.
+
+What this doc does **not** promise is an attach into a running jail with the other provider. An attach
+composes against the daemons the running jail started at boot and never starts one
+([`servedaddresses.go:41-42`](../../internal/cli/run/servedaddresses.go)), so `-p bedrock` attached to a
+jail launched on `bedrock-key` alone has no pointer source and the credential pre-flight refuses the
+attach for want of a credential; and `-p bedrock-key` attached to an SSO jail puts the bearer beside the
+launch's pointer, which the launch-wide check judges. Whether that check runs at the attach's delivery
+was not verified here; until it is, the sequence that works is the stop-and-relaunch above, and the
+refusal, where one fires, should name it.
 
 ### Selection
 
@@ -229,8 +267,8 @@ deleting a file, or not; yolo never edits it.
 | :--- | :--- |
 | `-p bedrock-key` with no key file loaded | the credential pre-flight's refusal naming `AWS_BEARER_TOKEN_BEDROCK` and the `[env] sources` it consulted ([`internal/cli/run/providerpreflight.go:56`](../../internal/cli/run/providerpreflight.go)); the value is never printed |
 | key file loaded, `-p bedrock` (SSO) | the launch runs on SSO; the bearer is withheld from every process and the disclosure names it |
-| `-p claude=bedrock-key,codex=bedrock` in one launch | **refused**, as today, by the launch-wide override check ([P4](#premises)); [OQ-BK5](#OQ-BK5) |
-| an existing config selecting `bedrock` with a bearer and no SSO profile | after the narrowing, the credential pre-flight refuses and names `bedrock-key`; [OQ-BK4](#OQ-BK4) |
+| `-p claude=bedrock-key,codex=bedrock` in one launch | **refused**, as today, by the launch-wide override check ([P4](#premises)); the remedy sentence says one launch cannot mix the two and names a launch on either alone ([two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch)) |
+| `-p bedrock` with a bearer and no SSO credential | the ordinary credential pre-flight refusal, naming the five names `bedrock` claims and where it looked; the bearer is not used for `bedrock` ([the claims](#the-claims-and-why-bedrock-must-narrow)) |
 
 ## Non-goals
 
@@ -239,7 +277,10 @@ deleting a file, or not; yolo never edits it.
   served-contribution gate.
 - No minted Bedrock API key ([OQ-SSO9](../reference/agent-credentials.md#sso-decision-ledger)
   retired it).
-- No per-agent override pre-flight, unless [OQ-BK5](#OQ-BK5) rules it in.
+- No per-agent override pre-flight ([OQ-BK5](#decision-ledger)): one launch runs one Bedrock
+  credential route.
+- No alias and no migration path from `bedrock` with a bearer to `bedrock-key`
+  ([OQ-BK4](#decision-ledger)).
 - No workspace-scope provider declaration; `platform` and `api_key_env_name` stay user-scope
   ([`internal/config/schema.go:385`](../../internal/config/schema.go)).
 
@@ -248,77 +289,25 @@ deleting a file, or not; yolo never edits it.
 | Alternative | Verdict |
 | :--- | :--- |
 | **A distinct platform**, `platform = "aws-bedrock-key"`, so aws-auth's gate never fires | **Rejected.** Every Bedrock fact keys on the platform: the agents' Bedrock mode, the region pre-flight, the claims. A second platform value duplicates all of it to turn off one pointer |
-| **A new provider key**, say `login = "none"` or `aws_auth = false` | **Not rejected; it is [OQ-BK2](#OQ-BK2) B.** It states intent plainly, but it is a second way to say what the claim list already says, and the brief's rule is to prefer an existing mechanism |
+| **A new provider key**, say `login = "none"` or `aws_auth = false` | **Rejected** ([OQ-BK2](#decision-ledger)). It states intent plainly, but it is a second way to say what the claim list already says, and could contradict it |
+| **An alias**: resolve `bedrock` to `bedrock-key` when the only delivered Bedrock credential is the bearer | **Rejected** ([OQ-BK4](#decision-ledger)). A selection that means a different provider than it names; selecting `bedrock` means SSO |
+| **A per-agent override pre-flight**, so one launch mixes an SSO agent and a key agent | **Rejected** ([OQ-BK5](#decision-ledger)). Separate launches in one workspace already serve the need |
 | **Keep the layer as the only recipe**, document it | **Rejected.** It answers the owner's question with "no" |
 | **A variant**, `bedrock/key` | **Rejected.** A variant carries a name, a via and model options; claims are a property of the provider entry, so a variant cannot claim a different list |
 | **Dynamic claims**: `bedrock` drops the bearer from its list when the pointer is served | **Rejected.** A claim list that depends on another pack's state is undebuggable from the config, and `yolo check` could not predict it |
 
 ## Open Questions
 
-1. 💬 **OQ-BK1: Does yolo ship the `bedrock-key` provider, or does each user write it?**
-
-   Matt has a Bedrock API key in `~/.config/yolo-jail/bedrock-key.env` and an SSO profile under
-   `[allow.aws-auth]`. He wants `yolo -p bedrock-key`. Today no provider of that name exists, so
-   the launch refuses the name with the declared list. He can add the four-line provider to his
-   user config, but the bearer stays co-claimed by the shipped `bedrock`, so his SSO launches are
-   refused the moment the key file is in `[env] sources`; he must also override `bedrock`'s claim
-   list by hand, a detail nothing tells him. Two users have this shape today (the owner's dotfiles
-   and the user guide's hand-written example); how many others is unsurveyed.
-
-   - **A — Ship it in `packs/bedrock`.** `bedrock-key` and the narrowed `bedrock` land together;
-     `yolo -p bedrock-key` works on any machine with the pack selected, and `yolo check` lists
-     it. Cost: a second shipped Bedrock provider to explain, and one user override of
-     `bedrock`'s list (if anyone made one) to re-check.
-   - **B — Document the user-authored shape.** Nothing ships; the guide shows both the provider
-     and the `bedrock` override. Cost: every user repeats a two-part edit, and getting half of it
-     right is a refused launch whose remedy does not name the other half.
-
-   <!-- vantage: question id=OQ-BK1 leaning="A — the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together." -->
-
-   _Leaning:_ A — the narrowing is the half nobody would guess, and shipping both halves is the
-   only way it is always present together.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-BK2: How does selecting the key provider keep the SSO pointer away?**
-
-   Matt runs `yolo -p bedrock-key` with his SSO profile still configured. Today any provider on
-   platform `aws-bedrock` receives aws-auth's pointer and starts its daemon, so the launch holds
-   the bearer beside the pointer and is refused: `Refusing to launch … AWS_BEARER_TOKEN_BEDROCK
-   is delivered by …; set aws-auth's profile to "" …`. Something has to withhold the pointer for
-   that agent without emptying the profile he needs for SSO launches.
-
-   - **A — A served pointer reaches only a provider that claims it.** `bedrock-key` claims the
-     bearer and not `AWS_CONTAINER_CREDENTIALS_FULL_URI`, so the pointer is withheld, the daemon
-     is not started, and the launch's existing "withheld" and "Not started" lines say so. Nothing
-     new in the config. Cost: a rule to document ("a pointer is a credential a provider claims");
-     a user provider that lists only the bearer silently loses SSO, which is what it asked for.
-   - **B — A new provider key**, `login = "none"` (or `aws_auth = false`), read by the gate.
-     Explicit on the page. Cost: a second spelling of a fact the claim list already carries, and
-     a provider could say `login = "none"` while still claiming the pointer variable, a
-     contradiction the validator must then refuse.
-   - **C — A per-launch aws-auth switch**, such as `--allow aws-auth.profile=` on the command
-     line. Cost: it is the layer again with a shorter spelling, and `active_provider` still
-     cannot express it.
-   - **D — A distinct platform value.** Rejected above; listed so the choice is complete.
-
-   <!-- vantage: question id=OQ-BK2 leaning="A — the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared." -->
-
-   _Leaning:_ A — the pointer variable is already in `bedrock`'s claim list and absent from
-   `bedrock-key`'s; the gate only has to read what is declared.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-BK3: Does the key file move into the user config, or stay in a layer?**
+1. 💬 **OQ-BK3: Does the key file move into the user config, or stay in a layer?**
 
    Matt keeps `bedrock-key.env` loaded only by his layer, so an SSO launch never opens it. With
    `bedrock-key` a provider, he can name the file once with
    `yolo config add env.sources ~/.config/yolo-jail/bedrock-key.env` and never pass the flag
    again; every launch then reads the file, and the gate delivers the key only to an agent on
    `bedrock-key`. The guarantee moves from "which launches read the file" to "which processes
-   receive the value".
+   receive the value". His question about that — what a key in the file does when nothing claims
+   it — is the one [`secret-env-scoping.md`](secret-env-scoping.md) answers for every provider at
+   once, so the answer here should be whatever that design settles.
 
    - **A — In the user config.** `yolo -p bedrock-key` and `yolo active-provider` are the whole
      recipe. An SSO launch's disclosure lists the bearer as withheld by name. Cost: the file is
@@ -327,72 +316,28 @@ deleting a file, or not; yolo never edits it.
      never open the file. Cost: the flag stays, and `active_provider` cannot select the key
      without it, which is half of what the owner asked for.
 
-   <!-- vantage: question id=OQ-BK3 leaning="A — the gate is the guarantee the rest of yolo relies on for every other provider's key, and the layer's remaining job is one line." -->
+   <!-- vantage: question id=OQ-BK3 leaning="A — the same pattern as every provider's key: the file in the user config's [env], its reach decided by the claim, as secret-env-scoping.md states for every provider." -->
 
-   _Leaning:_ A — the gate is the guarantee the rest of yolo relies on for every other provider's
-   key, and the layer's remaining job is one line.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-BK4: What happens to a user who selects `bedrock` with a bearer today?**
-
-   A user with no SSO profile and a bearer in `[env] sources` runs `yolo -p bedrock` today and it
-   works: `bedrock` claims the bearer, nothing serves a pointer, claude sends the bearer. After
-   the narrowing, `bedrock` no longer claims the bearer, the gate withholds it, and the credential
-   pre-flight refuses the launch for a provider none of whose names arrived. The user guide's
-   example and the "no-daemon fallback" in the credentials reference describe exactly this user;
-   how many exist is unsurveyed.
-
-   - **A — Narrow, and let the refusal name `bedrock-key`.** The pre-flight's refusal already
-     lists the names a provider claims and where it looked; it gains one line: "a Bedrock API key
-     is the `bedrock-key` provider: `yolo -p bedrock-key`". The user changes one word. Cost: a
-     config that launched last release refuses once.
-   - **B — Narrow, and alias.** When the only delivered Bedrock credential is the bearer and the
-     selection is `bedrock`, resolve it to `bedrock-key` and say so. Cost: a selection that means
-     a different provider than it names, and a rule the one-namespace design was built to avoid.
-
-   <!-- vantage: question id=OQ-BK4 leaning="A — one refusal that names the one-word fix, against a silent rewrite of what the user selected." -->
-
-   _Leaning:_ A — one refusal that names the one-word fix, against a silent rewrite of what the
-   user selected.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-BK5: May one launch run an SSO agent and a key agent side by side?**
-
-   Matt runs `yolo -p claude=bedrock-key,codex=bedrock`. Under this design codex gets the pointer
-   and claude the bearer, and neither agent holds both. The override pre-flight still refuses,
-   because it asks whether the launch delivers the bearer anywhere and the pointer anywhere, not
-   whether one agent holds both. Today the same launch is refused for the same reason, so nothing
-   regresses; the question is whether the design owes the per-agent check.
-
-   - **A — Out of scope; refused as today.** The refusal is unchanged and its remedy (empty the
-     profile) is wrong for this launch, so it gains one sentence: "one launch cannot mix an agent
-     on `bedrock` with one on `bedrock-key`". Cost: a legitimate launch stays refused.
-   - **B — Make the override pre-flight per agent.** The check asks, for each agent, whether that
-     agent receives both. The mixed launch runs. Cost: `yolo check` predicts the same refusal and
-     must change in step; the macos-user and host arms compose one environment per invocation and
-     need the same split.
-
-   <!-- vantage: question id=OQ-BK5 leaning="A — nobody has asked for the mixed launch, and B is a pre-flight redesign this doc should not carry; file it when someone does." -->
-
-   _Leaning:_ A — nobody has asked for the mixed launch, and B is a pre-flight redesign this doc
-   should not carry; file it when someone does.
+   _Leaning:_ A — the same pattern as every provider's key: the file in the user config's `[env]`,
+   its reach decided by the claim, as [`secret-env-scoping.md`](secret-env-scoping.md) states for
+   every provider.
 
    **Answer:**
    > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
-The seat's decisions, pending the owner's review. Each has one defensible answer.
+The owner's rulings of 2026-11-09 first, then the seat's decisions, which each have one defensible answer.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-BK1 | **`bedrock-key` ships in `packs/bedrock`, beside the narrowed `bedrock`.** The owner: *"the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together."* | 2026-11-09 | [The provider](#the-provider) | — |
+| OQ-BK2 | **A served pointer reaches only an agent whose provider claims a variable it sets; the gate reads the declared claims, and no new provider key expresses it.** The owner: *"the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared."* | 2026-11-09 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
+| OQ-BK4 | **Narrow, with no migration path.** Selecting `bedrock` uses SSO and only SSO; a bearer in `[env] sources` is not used for it; the ordinary credential pre-flight refusal stands, with no alias and no special line. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | — |
+| OQ-BK5 | **Not in one launch; yes in one jail or workspace.** One launch may not mix an agent on `bedrock` with one on `bedrock-key` (refused as today, with the corrected remedy sentence); separate launches in the same workspace may each use a different one, by stop and relaunch. An attach with the other provider is not promised until its pre-flight placement is verified. The owner: *"in the same jail/workspace? yes, in the same launch? no."* | 2026-11-09 | [Two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch) | — |
 | <a id="BK-D1"></a>BK-D1 | **User-declared providers are selectable, and the help says so.** The launch, `yolo active-provider` and `yolo check` already resolve a user's `providers` entry by name ([P1](#premises)). The two strings that say "one a selected pack declares" are corrected to "one a selected pack or your `providers` table declares"; no selection code changes | 2026-11-07 | [Selection](#selection) | — |
 | <a id="BK-D2"></a>BK-D2 | **`bedrock-key` is on platform `aws-bedrock`.** Every Bedrock fact keys on the platform; a second value would duplicate them to switch off one pointer | 2026-11-07 | [Alternatives](#alternatives-considered) | — |
-| <a id="BK-D3"></a>BK-D3 | **The pointer rule, whichever form [OQ-BK2](#OQ-BK2) takes, lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
+| <a id="BK-D3"></a>BK-D3 | **The pointer rule ([OQ-BK2](#decision-ledger)'s form) lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
 | <a id="BK-D4"></a>BK-D4 | **No message this design adds prints a credential value.** Refusals and disclosures name variables and files, as the existing ones do | 2026-11-07 | [Failure paths](#failure-paths-stated) | — |
 | <a id="BK-D5"></a>BK-D5 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | — |
 
