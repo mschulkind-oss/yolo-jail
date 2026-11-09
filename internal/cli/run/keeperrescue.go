@@ -391,12 +391,3 @@ func workspaceKeeperKeys(workspace string) []string {
 	sort.Strings(out)
 	return out
 }
-
-// keyedNames are the keys a workspace's macos-user keepers hold (macosUserKeeperNotches).
-func keyedNames(cname string) []string {
-	var out []string
-	for _, n := range macosUserKeeperNotches {
-		out = append(out, keeperKey(cname, n))
-	}
-	return out
-}
