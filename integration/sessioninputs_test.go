@@ -14,15 +14,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestASessionInputChangeReachesTheNextSessionOfARunningJail(t *testing.T) {
 	requireJail(t)
 
 	workspace := writeProject(t, `{"security":{"blocked_tools":[{"name":"yolosessiona","message":"SESSION-BLOCK-A"}]}}`)
-	cname := naming.FromWorkspace(workspace)
+	cname := jailName(workspace)
 	const release = "release-session-inputs"
 	holder := startYoloBackground(t, "session-inputs-holder", workspace,
 		`yolosessiona; printf '\nHOLDER-READY-%s\n' $((40+2)); `+

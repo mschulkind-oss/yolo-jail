@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // The flag spelling: report on stderr, spans in the file, jail-tagged. The shutdown chain is the
@@ -55,7 +54,7 @@ func TestTimingReportSpansShutdown(t *testing.T) {
 		t.Fatalf("host-perf.log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "jail="+naming.FromWorkspace(dir)) {
+	if !strings.Contains(log, "jail="+jailName(dir)+" ===") {
 		t.Errorf("file not jail-tagged;\ngot:\n%s", log)
 	}
 	for _, want := range []string{
@@ -152,7 +151,7 @@ func assertRecordedQuietly(t *testing.T, dir, stderr string) {
 	if err != nil {
 		t.Fatalf("a recording launch wrote no host-perf.log: %v", err)
 	}
-	for _, want := range []string{"jail=" + naming.FromWorkspace(dir), "end    shutdown.stop_loopholes"} {
+	for _, want := range []string{"jail=" + jailName(dir) + " ===", "end    shutdown.stop_loopholes"} {
 		if !strings.Contains(string(logBytes), want) {
 			t.Errorf("host-perf.log missing %q;\ngot:\n%s", want, logBytes)
 		}
