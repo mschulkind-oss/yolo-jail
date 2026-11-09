@@ -1952,6 +1952,8 @@ func (c *hostComposition) credentialScopeLines() []string {
 		Remedy:    c.credentialRemedy,
 		Inherited: inherited,
 		Composed:  composed,
+		// `yolo host` reads the user scope only, so the verb an env-set line names edits it.
+		Scope: func(string) string { return " --user" },
 	})
 }
 
@@ -2835,7 +2837,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// for them separately would read every dotenv file twice and warn twice — noise a missing
 	// host-only file used to produce on every `yolo host env`. Both reach the gate, whose
 	// composition ranks the removals with env_sources (envcompose.go).
-	userEnv, removals := config.ResolveEnvSourcesFull(workspace, scoped, warn)
+	// Both sets (secret-env-scoping.md#33-the-two-sets): the gate reads the set bit, so a private
+	// value reaches this process only when its selection claims the name.
+	hydrated := config.ResolveEnv(workspace, scoped, warn)
+	userEnv, removals := hydrated.Values(), hydrated.Removals()
 	// What this launch consulted for credentials, recorded as it is consulted: the
 	// env_sources entries that survived the scope filter, plus the shell this process
 	// inherited. The providers.md#the-credential-preflight pre-flight quotes the list verbatim, so a refusal says where it
@@ -2930,6 +2935,12 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		Sets:       setTable,
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
+		Private:    hydrated.Private(),
+		// An MCP server's requires_env claims a private name for the agents rendering it
+		// (secret-env-scoping.md SE-D13): the host's own packs and your mcp_servers.
+		MCPClaims:        packload.MCPEnvClaims(packload.ComposeMCPServers(hostUserMCPServers(cfg), packs, "")),
+		MCPAgents:        packload.MCPAgents(packs),
+		UnselectedClaims: packload.UnselectedProviderClaims(packs),
 		// The env_sources nulls, which the composition ranks with env_sources: each removes the
 		// shell's value and the fold's, never a shape var.
 		EnvSourceRemovals: removals,
@@ -3721,6 +3732,13 @@ func macosUserGuestRuns(packs []*packload.Pack, service string) bool {
 // Returns cfg itself when nothing is dropped, and a shallow copy otherwise — the caller
 // shares this map with composition steps that must keep seeing the original, and the
 // copy is throwaway.
+// hostUserMCPServers is your own mcp_servers table, nil when none.
+func hostUserMCPServers(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
+	v, _ := cfg.Get("mcp_servers")
+	m, _ := v.(*jsonx.OrderedMap)
+	return m
+}
+
 func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.OrderedMap {
 	// Every spelling of a file entry: the legacy `env_sources` list and the readable
 	// `env.sources` and `env.files` lists, which config's one env resolver walks alike.
@@ -3786,6 +3804,31 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 					narrowed.Set(key, kept)
 				} else {
 					narrowed.Delete(key)
+				}
+			}
+			// The private set's files (secret-env-scoping.md#33-the-two-sets), by the same rule.
+			if secrets, ok := getMapValue(env, "secrets"); ok {
+				if list, ok := getList(secrets, "files"); ok && len(list) > 0 {
+					if kept, dropped := filter("env.secrets.files", list); dropped {
+						narrowedSecrets := jsonx.NewOrderedMap()
+						for _, k := range secrets.Keys() {
+							v, _ := secrets.Get(k)
+							narrowedSecrets.Set(k, v)
+						}
+						if len(kept) > 0 {
+							narrowedSecrets.Set("files", kept)
+						} else {
+							narrowedSecrets.Delete("files")
+						}
+						if narrowed == nil {
+							narrowed = jsonx.NewOrderedMap()
+							for _, k := range env.Keys() {
+								v, _ := env.Get(k)
+								narrowed.Set(k, v)
+							}
+						}
+						narrowed.Set("secrets", narrowedSecrets)
+					}
 				}
 			}
 			if narrowed != nil {
@@ -4268,6 +4311,16 @@ func hostProviderSectionRefusal(cfg *jsonx.OrderedMap, warn func(string)) error 
 }
 
 // getList is env[key] as a list, ok false when absent or not a list.
+// getMapValue is m's table at key, false when absent or not a table.
+func getMapValue(m *jsonx.OrderedMap, key string) (*jsonx.OrderedMap, bool) {
+	v, ok := m.Get(key)
+	if !ok {
+		return nil, false
+	}
+	t, ok := v.(*jsonx.OrderedMap)
+	return t, ok
+}
+
 func getList(env *jsonx.OrderedMap, key string) ([]any, bool) {
 	value, present := env.Get(key)
 	if !present {

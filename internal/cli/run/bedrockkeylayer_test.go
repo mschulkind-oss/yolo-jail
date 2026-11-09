@@ -82,7 +82,7 @@ func TestABedrockKeyLayerNamesTheProfileStepAndThenLaunches(t *testing.T) {
 // THE OWNER'S LAYER AS FILES, through the launch's own call sites: the TOML user config names
 // aws-auth's profile and one env file, and the legacy `--user-layer bedrock-key.jsonc` empties the
 // profile and adds a second env file. composePackChannel is handed no environment, so it hydrates
-// env_sources itself (config.HydrateEnvSources) and filters the served logins
+// env_sources itself (config.ResolveEnv) and filters the served logins
 // (loopholes.ConfiguredSetting) from the config config.LoadConfig read, as a launch does. The
 // layer's env file loads after the base's, so its value wins a name both set (it loaded first,
 // and lost, while the layer's legacy env_sources sat beside the base's env.files), and the empty

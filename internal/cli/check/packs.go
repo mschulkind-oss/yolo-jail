@@ -469,11 +469,15 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// `needs` delivers here exactly as it does at launch. envoverrides.go states why this
 	// calls the launch's own rule instead of restating it, which two delivery channels it
 	// cannot see, and why a directory grant counts only off macOS (!o.IsMacOS below).
-	overrideErrs, overrideWarns := envOverrideGap(loaded, merged, served, o.Workspace, !o.IsMacOS, r.configWarn, userProfiles)
+	overrideErrs, overrideWarns, scope := envOverrideGap(loaded, merged, served, o.Workspace, !o.IsMacOS, r.configWarn, userProfiles)
 	for _, e := range overrideErrs {
 		r.fail(e.msg, e.note)
 	}
 	for _, w := range overrideWarns {
+		r.warn(w.msg, w.note)
+	}
+	// The env-set lines the launch prints, over the same gate (secret-env-scoping.md §3.7).
+	for _, w := range secretEnvGap(scope) {
 		r.warn(w.msg, w.note)
 	}
 

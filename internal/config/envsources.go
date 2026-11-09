@@ -62,7 +62,7 @@ func ParseDotenv(text string) *jsonx.OrderedMap {
 // fed into the jail's environment.
 //
 // Absolute and ~-relative entries pass through untouched, and inline dict entries are
-// not paths. Unanchored relative entries that reach ResolveEnvSources anyway (a
+// not paths. Unanchored relative entries that reach ResolveEnv anyway (a
 // pre-ruling assembled snapshot read verbatim, a hand-built config) fall back to the
 // workspace root — the pre-ruling behavior, deliberately, for artifacts a newer loader
 // never touched.
@@ -275,138 +275,6 @@ func ResolveEnvSourcePath(entry, workspace string) string {
 	return joined
 }
 
-// ResolveEnvSources iterates the config's env entries in order (envEntries: env_sources, then
-// the readable [env] table's files, set and unset) — inline dicts apply
-// directly; string entries read as dotenv files; later
-// entries override earlier; missing/unreadable files warn (via warn) and skip.
-// Returns the final env map as an OrderedMap (later-wins on key, position kept).
-func ResolveEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
-	merged, _ := ResolveEnvSourcesFull(workspace, config, warn)
-	return merged
-}
-
-// ResolveEnvSourcesFull is BOTH answers from ONE pass — the assignments map and the
-// removal list — for callers that need the two together. Calling ResolveEnvSources and
-// EnvSourceRemovals separately runs the pass twice, reading every dotenv file twice and
-// warning twice; a caller composing an environment (the host notch's hostEnvVars) uses
-// this instead.
-// One pass, because the two answers are defined by the SAME ordering and computing them
-// separately let them disagree. Later entries win for both: an assignment after a null
-// sets the variable and drops the removal; a null after an assignment removes it and drops
-// the assignment. That holds across entry KINDS too — a dotenv file listed after an inline
-// null cancels that null, which a dict-only scan could not see.
-func ResolveEnvSourcesFull(workspace string, config *jsonx.OrderedMap, warn Warn) (*jsonx.OrderedMap, []string) {
-	if warn == nil {
-		warn = func(string) {} // discard warnings by default
-	}
-	merged := jsonx.NewOrderedMap()
-	removed := map[string]bool{}
-	var order []string
-	remove := func(k string) {
-		if !removed[k] {
-			order = append(order, k)
-		}
-		removed[k] = true
-		merged.Delete(k)
-	}
-	assign := func(k, v string) {
-		removed[k] = false
-		merged.Set(k, v)
-	}
-
-	for _, e := range envEntries(config) {
-		if e.private {
-			continue // the public-only reader; ResolveEnv reads both sets
-		}
-		entry := e.value
-		if em, ok := asMap(entry); ok {
-			for _, k := range em.Keys() {
-				v, _ := em.Get(k)
-				if v == nil {
-					// The REMOVAL spelling. Only an inline dict can express one: a
-					// dotenv FILE has no syntax for "unset", and inventing one would
-					// make yolo's dialect differ from everyone else's.
-					remove(k)
-					continue
-				}
-				// Decoded JSON keys are always strings, so only the value type gates:
-				// apply the entry only when the value is a string.
-				if vs, vok := asStr(v); vok {
-					assign(k, vs)
-				}
-			}
-			continue
-		}
-		if s, ok := asStr(entry); ok {
-			p := ResolveEnvSourcePath(s, workspace)
-			data, err := os.ReadFile(p)
-			if err != nil {
-				if os.IsNotExist(err) {
-					// The label names no key: a legacy env_sources list reads lowered to env.files
-					// or env.sources (RC-D50), so the key a reader holds is not always the one
-					// the file wrote. The path names the entry in every spelling.
-					warn("dotenv file not found, skipping: " + s + " (resolved to " + p + ")")
-				} else {
-					warn("dotenv file unreadable, skipping: " + s + ": " + err.Error())
-				}
-				continue
-			}
-			parsed := ParseDotenv(string(data))
-			for _, k := range parsed.Keys() {
-				v, _ := parsed.Get(k)
-				vs, _ := v.(string)
-				assign(k, vs)
-			}
-		}
-	}
-
-	out := make([]string, 0, len(order))
-	for _, k := range order {
-		if removed[k] {
-			out = append(out, k)
-		}
-	}
-	return merged, out
-}
-
-// HydrateEnvSources is ResolveEnvSourcesFull's two answers in ONE ordered map: the assignments
-// in hydration order, then each removal as a nil value. It is the form a jail launch keeps the
-// hydration in (run's packChannel.userEnv), so the attach and pack-skew paths that compose the
-// channel again from that map keep the removals the first pass found, rather than walking every
-// env_sources entry a second time. SplitHydratedEnvSources reads it back.
-//
-// The removals cross into a jail at all because a null ranks with env_sources in the one ordered
-// composition (packload's envcompose.go): it takes out a pack env fold's value of the same name,
-// at every notch, where the jail used to drop it.
-func HydrateEnvSources(workspace string, config *jsonx.OrderedMap, warn Warn) *jsonx.OrderedMap {
-	merged, removals := ResolveEnvSourcesFull(workspace, config, warn)
-	for _, k := range removals {
-		merged.Set(k, nil)
-	}
-	return merged
-}
-
-// SplitHydratedEnvSources is HydrateEnvSources' map back as its two answers: the string
-// assignments, in order, and the names held as nil, the removals. A map of assignments alone
-// (any caller that hydrated through ResolveEnvSources) yields no removals. A nil map yields an
-// empty one.
-func SplitHydratedEnvSources(m *jsonx.OrderedMap) (*jsonx.OrderedMap, []string) {
-	assignments := jsonx.NewOrderedMap()
-	var removals []string
-	if m == nil {
-		return assignments, nil
-	}
-	for _, k := range m.Keys() {
-		v, _ := m.Get(k)
-		if v == nil {
-			removals = append(removals, k)
-			continue
-		}
-		assignments.Set(k, v)
-	}
-	return assignments, removals
-}
-
 // DescribeEnvSources returns one description per env_sources entry in cfg, in order: a
 // file entry as the path it resolves to, an inline dict as the keys it assigns. Empty
 // when cfg declares none.
@@ -430,36 +298,6 @@ func DescribeEnvSources(workspace string, cfg *jsonx.OrderedMap) []string {
 		}
 	}
 	return out
-}
-
-// EnvSourceRemovals returns the variable names an `env_sources` entry asks to be REMOVED
-// — the keys whose value is JSON null.
-//
-// # Why a removal exists at all
-//
-// ResolveEnvSources returns a map of assignments, and a map cannot express "and delete
-// this one". A null is therefore skipped there, which is right for the JAIL: a container
-// starts from an empty environment, so "removed" is already the default state of anything
-// yolo does not pass in.
-//
-// On the HOST it is the opposite. `yolo host -- claude` starts from the invoking shell's
-// os.Environ(), which may well carry an AWS_PROFILE that has to go — the motivating case
-// in docs/reference/host-agent-environment.md §2.2, where the hand-written wrapper's first
-// act is `unset AWS_PROFILE`. No config SURFACE can express a removal at all, which is
-// one of the reasons the process-env channel has to exist (§1 P1).
-//
-// A removal is not an empty assignment: `AWS_PROFILE=` and no AWS_PROFILE behave
-// differently in every AWS SDK, which is why this returns names to unset rather than
-// pairs to set empty.
-//
-// It shares ONE pass with ResolveEnvSources (resolveEnvSources below) so the two can never
-// disagree about ordering. That mattered: an earlier version walked only the inline dicts,
-// so a dotenv FILE listed after a null did assign the variable in the map while the
-// removal still fired — later-wins in one half and earlier-wins in the other, and the
-// unset silently won.
-func EnvSourceRemovals(workspace string, config *jsonx.OrderedMap, warn Warn) []string {
-	_, removals := ResolveEnvSourcesFull(workspace, config, warn)
-	return removals
 }
 
 // expandUser expands a leading "~". Only "~" and "~/..." are expanded (a

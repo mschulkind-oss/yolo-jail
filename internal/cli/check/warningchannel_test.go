@@ -42,7 +42,7 @@ package check
 // it never reached. TestSkippedPackEntryWarningReachesTheSummary calls sectionPacks
 // DIRECTLY for exactly that reason: it is a section test, not an end-to-end one.
 //
-// ResolveEnvSources (entrypoint.go) is the reachable one, and it is the case
+// ResolveEnv (entrypoint.go) is the reachable one, and it is the case
 // reference-mismatch-diagnostics.md §3 actually measured — a missing env_sources file is
 // portability, never a validation error (validate.go rejects only shape), so nothing
 // short-circuits ahead of it. TestEnvSourcesWarningsReachTheSummary is the end-to-end
@@ -149,7 +149,7 @@ func warnChannelFixture(t *testing.T, out *bytes.Buffer, workspaceConfig string)
 // the summary's warning count BY TWO.
 //
 // It runs the whole of Check(), so the wiring under test is the production argument at
-// entrypoint.go — `config.ResolveEnvSources(workspace, merged, r.configWarn)`. MUTATION
+// entrypoint.go — `config.ResolveEnv(workspace, merged, r.configWarn)`. MUTATION
 // VERIFIED: replacing that third argument with `func(string) {}` (the discarding sink,
 // which is behaviourally what the old ungraded warningLine was to the summary) drops the
 // delta to 0 and this test fails with "the summary's warning count did not move".
@@ -361,7 +361,7 @@ func startsWithWarningLiteral(expr ast.Expr) bool {
 //
 // So: every config-loader call in this package that takes a Warn sink must pass
 // r.configWarn. The three the doc's step 1 names are LoadPacks, LoadCacheRelocations and
-// ResolveEnvSources; this walks the AST for the ARGUMENT SHAPE rather than a list of
+// ResolveEnv; this walks the AST for the ARGUMENT SHAPE rather than a list of
 // function names, so a fourth loader wired with a discarding sink tomorrow is caught
 // without an edit here.
 //
@@ -444,7 +444,7 @@ func TestEveryConfigWarnSinkIsGraded(t *testing.T) {
 	// finding nothing to complain about. There must be sinks to protect.
 	if sinks < 3 {
 		t.Errorf("found %d r.configWarn call sites, want at least 3 (LoadPacks in packs.go, "+
-			"LoadCacheRelocations in check.go, ResolveEnvSources in entrypoint.go) — the "+
+			"LoadCacheRelocations in check.go, ResolveEnv in entrypoint.go) — the "+
 			"warning channel has been unwired, not simplified", sinks)
 	}
 }

@@ -679,7 +679,8 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
      added by yolo` and still names `yolo config unsecret STRIPE_KEY --user`.
   2. `internal/cli/check/secretenv_test.go` (new): a merged config with `[env.secrets] set = { STRIPE_KEY = "s" }`
      and no claiming pack → `secretEnvGap` returns one warning whose message contains `STRIPE_KEY: withheld
-     from every process` and no `s` value.
+     from every process` and not its value (`s-probe`; a one-letter value matches every message); and
+     the Packs section prints it (the call site, not only the helper).
 
   Red: `env -u YOLO_VERSION go test ./internal/cli -run HostSecretEnv -count=1` → the vars assertion
   passes (Task 1 made `ResolveEnvSourcesFull` skip private entries, so the host already drops them) and
@@ -690,9 +691,12 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
     `mcp_servers`, `UnselectedClaims`. `hostScopedEnvSources` (~`:3724`) filters `env.secrets.files` the way
     it filters `env.files`. `resolveHostGrant` takes `h.Values()`. `credentialScopeLines` sets
     `Scope: func(string) string { return " --user" }` (the host reads user scope only).
-  - `check/envoverrides.go` `overrideScope`: same inputs from `config.ResolveEnv`; returns the hydration too.
-  - `check/secretenv.go` (new): `secretEnvGap(scope, h)` → warnings from the scope's row 4 and unselected
-    row 1 lines; `packs.go` ~`:472` calls it beside `envOverrideGap`.
+  - `check/envoverrides.go` `overrideScope`: same inputs from `config.ResolveEnv`; `envOverrideGap`
+    returns the scope it composed, so the Packs section reads the env-set lines from the one hydration.
+  - `packload` `CredentialScope.EnvSetLines(notes)`: `DisclosureWith`'s env-set lines alone.
+  - `check/secretenv.go` (new): `secretEnvGap(scope)` → one warning per `EnvSetLines` line (row 4 and
+    the unselected row 1); `packs.go` ~`:472` calls it beside `envOverrideGap`. The scope flag waits
+    for Task 5's `LocateEnvName`, as `credentialnotes.go`'s does.
   - Delete `ResolveEnvSources`, `ResolveEnvSourcesFull`, `HydrateEnvSources`, `SplitHydratedEnvSources`,
     `EnvSourceRemovals` and their tests; move any still-meaningful case of
     [`envsourceshydrate_test.go`](../../internal/config/envsourceshydrate_test.go) onto `ResolveEnv`

@@ -17,7 +17,8 @@ import (
 // value, a removal as "<removed>".
 func resolvedEnv(t *testing.T, ws string, cfg *jsonx.OrderedMap) map[string]string {
 	t.Helper()
-	env, removals := config.ResolveEnvSourcesFull(ws, cfg, nil)
+	envHydrated := config.ResolveEnv(ws, cfg, nil)
+	env, removals := envHydrated.Values(), envHydrated.Removals()
 	out := map[string]string{}
 	for _, k := range env.Keys() {
 		v, _ := env.Get(k)

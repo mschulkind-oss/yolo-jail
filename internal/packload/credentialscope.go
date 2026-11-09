@@ -68,7 +68,7 @@ type ScopeInput struct {
 	// EnvSources is the hydrated env_sources, in hydration order. Nil is an empty channel.
 	EnvSources *jsonx.OrderedMap
 	// EnvSourceRemovals are the names env_sources REMOVES, in order: each inline null no later
-	// entry cancelled (config.ResolveEnvSourcesFull's second answer). Every process's composition
+	// entry cancelled (config.HydratedEnv.Removals). Every process's composition
 	// carries them at env_sources' rank (envcompose.go): a removal takes out the pack env fold's
 	// value, and at the host the invoking shell's, and never a shape var. A removal carries no
 	// value, so no claim scopes it. Nil removes nothing.
@@ -1237,6 +1237,41 @@ func shippedPacks(claims []ShippedClaim) string {
 // env_sources hydrated no claimed name, which is every launch that configured no provider
 // credential.
 //
+// mcpDelivered is whether k is a private name only MCP servers claim and some agent receives:
+// such a name is grouped under its servers ("mcp tavily"), never an env-set line.
+func (s *CredentialScope) mcpDelivered(k string, recipients []string) bool {
+	return s.isPrivate(k) && len(s.mcpClaims[k]) > 0 && len(recipients) > 0
+}
+
+// EnvSetLines is DisclosureWith's env-set lines alone (secret-env-scoping.md §3.6): row 4's line
+// for each private name nothing in this launch delivers, and row 1's for each public name an
+// unselected shipped provider claims, in hydration order. `yolo check` reports each as a WARN
+// (secret-env-scoping-plan.md SEP-D9). Names only, never a value.
+func (s *CredentialScope) EnvSetLines(notes DisclosureNotes) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range s.envSources.Keys() {
+		if _, claimed := s.claims[k]; claimed {
+			continue
+		}
+		var recipients []string
+		for _, agent := range s.Agents() {
+			if s.delivers(s.agents[agent], k) {
+				recipients = append(recipients, agent)
+			}
+		}
+		if s.mcpDelivered(k, recipients) {
+			continue
+		}
+		if line := s.envSetLine(k, notes); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // THE ONE DISCLOSURE RENDERER, at every notch (docs/plans/notch-convergence.md item 14, row
 // C7): the jail passes the zero DisclosureNotes, the host its own. A second, notes-less entry
 // point (`Disclosure`) was the jail's until it was deleted, so a notch's difference is always
@@ -1271,8 +1306,8 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		}
 		label := "provider " + strings.Join(claimants, ", ")
 		if !claimed {
-			if servers := s.mcpClaims[k]; s.isPrivate(k) && len(servers) > 0 && len(recipients) > 0 {
-				label = "mcp " + strings.Join(servers, ", ")
+			if s.mcpDelivered(k, recipients) {
+				label = "mcp " + strings.Join(s.mcpClaims[k], ", ")
 			} else {
 				if line := s.envSetLine(k, notes); line != "" {
 					envSetLines = append(envSetLines, line)

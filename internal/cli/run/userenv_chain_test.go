@@ -23,7 +23,7 @@ func decodeCfg(t *testing.T, s string) *jsonx.OrderedMap {
 }
 
 // TestUserEnvChainRevokesOnConfigRemoval walks the whole host-side path that made
-// commented-out credentials survive a rebuild: config.ResolveEnvSources feeding
+// commented-out credentials survive a rebuild: config.ResolveEnv feeding
 // writeUserEnvFile, twice, exactly as run.go:311-312 does it. Launch 1 has
 // env_sources; launch 2 has it commented out. The mounted file must end up empty
 // — this is the assertion that maps 1:1 onto the reported symptom (AWS keys still
@@ -39,7 +39,7 @@ func TestUserEnvChainRevokesOnConfigRemoval(t *testing.T) {
 
 	// --- Launch 1: env_sources present. ---
 	withSources := decodeCfg(t, `{"env_sources": ["creds.env"]}`)
-	env1 := config.ResolveEnvSources(ws, withSources, nil)
+	env1 := config.ResolveEnv(ws, withSources, nil).Values()
 	writeUserEnvFile(userEnvFile, env1, nil)
 	got1, err := os.ReadFile(userEnvFile)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestUserEnvChainRevokesOnConfigRemoval(t *testing.T) {
 
 	// --- Launch 2: env_sources commented out, i.e. absent from the parsed config. ---
 	withoutSources := decodeCfg(t, `{}`)
-	env2 := config.ResolveEnvSources(ws, withoutSources, nil)
+	env2 := config.ResolveEnv(ws, withoutSources, nil).Values()
 	writeUserEnvFile(userEnvFile, env2, nil)
 
 	got2, err := os.ReadFile(userEnvFile)

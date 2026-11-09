@@ -80,7 +80,7 @@ enumeration of those channels and of what each one does and does not carry.
 | Mount assembly — where omission is the boundary | `internal/cli/run` (`assemble.go`, `assemble_parts.go`) |
 | Per-agent host-file grants (`reads-host`) | `internal/cli/run` (`hostFileArgs`); `packload.Pack.HonoredHostFiles` |
 | User-declared host files (`host_files`) | `internal/config` (`LoadHostFiles`, `validateHostFiles`, `hostFileReservedDests`); `internal/cli/run` (`hostUserFileArgs`) |
-| The secret channel (`env_sources`) | `internal/config` (`ResolveEnvSources`, `ParseDotenv`); `internal/cli/run` (`userenv.go`, `agentenvfiles.go`); `internal/macosuser` (`envfile.go`) |
+| The secret channel (`env_sources`) | `internal/config` (`ResolveEnv`, `ParseDotenv`); `internal/cli/run` (`userenv.go`, `agentenvfiles.go`); `internal/macosuser` (`envfile.go`) |
 | Composed agent surfaces, and the boot-time compose | `internal/entrypoint` (`prism.go`), `internal/agentcfg` |
 | Git identity — the two-key allowlist | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint` (`identity.go`) |
 | The Claude OAuth broker daemon, its flock and its canonical login | `internal/broker`, `internal/oauthbroker` (`RefreshLockPath`, `ConfigureStore`) |

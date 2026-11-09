@@ -188,12 +188,19 @@ func (h *HydratedEnv) BothSets() []string {
 
 // ResolveEnv hydrates cfg's environment: both sets, from files and inline tables, in envEntries'
 // one order, later wins per name within each set (secret-env-scoping.md#33-the-two-sets). It is
-// ResolveEnvSourcesFull's walk with a second map: the public walk keeps its later-wins rule
+// the one env reader: the public walk keeps its later-wins rule
 // across assignments and removals, the private walk assigns only (the private set has no removal
 // spelling), and every name the public walk ends up removing is taken out of the private set too
 // — one `[env] unset` removes a name from both (SE-D4, SEP-D2).
 //
-// Missing or unreadable files warn (via warn) and are skipped, as ResolveEnvSourcesFull's do.
+// Missing or unreadable files warn (via warn) and are skipped.
+//
+// Why a removal exists at all: a jail starts from an empty environment, so "removed" is already
+// the default there, but `yolo host -- claude` starts from the invoking shell's os.Environ(),
+// which may carry an AWS_PROFILE that has to go (docs/reference/host-agent-environment.md §2.2).
+// A removal is not an empty assignment: `AWS_PROFILE=` and no AWS_PROFILE behave differently in
+// every AWS SDK. Assignments and removals come from ONE walk so they cannot disagree about
+// order: a dotenv file listed after an inline null cancels that null.
 func ResolveEnv(workspace string, cfg *jsonx.OrderedMap, warn Warn) *HydratedEnv {
 	if warn == nil {
 		warn = func(string) {}
@@ -202,7 +209,7 @@ func ResolveEnv(workspace string, cfg *jsonx.OrderedMap, warn Warn) *HydratedEnv
 		name, value string
 		place       EnvPlace
 	}
-	// The public walk, exactly ResolveEnvSourcesFull's semantics: later wins across assignments
+	// The public walk: later wins across assignments
 	// and removals, and a removal is remembered only while no later entry re-assigns the name.
 	pub := jsonx.NewOrderedMap()
 	pubPlace := map[string]EnvPlace{}

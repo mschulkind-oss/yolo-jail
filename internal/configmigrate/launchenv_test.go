@@ -20,7 +20,8 @@ func launchResolvedEnv(t *testing.T, ws string) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env, removals := config.ResolveEnvSourcesFull(ws, merged, nil)
+	envHydrated := config.ResolveEnv(ws, merged, nil)
+	env, removals := envHydrated.Values(), envHydrated.Removals()
 	out := map[string]string{}
 	for _, k := range env.Keys() {
 		v, _ := env.Get(k)

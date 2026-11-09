@@ -113,10 +113,10 @@ type overrideGapFinding struct {
 // not deliver there has nothing to be overridden, as at launch.
 func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	workspace string, dirsDeliver bool, configWarn func(string),
-	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding) {
+	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding, scope *packload.CredentialScope) {
 	// A login service with no profile serves nothing, as at launch (ServedDaemons.WithoutUnconfiguredLogins).
 	served = served.WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(merged))
-	scope := overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
+	scope = overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
 	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
 		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
 		// jailOriginLookup), minus the two channels named above: the winner of the one ordered
@@ -139,7 +139,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 			warns = append(warns, g)
 		}
 	}
-	return errs, warns
+	return errs, warns, scope
 }
 
 // overrideScope is the credential gate's answer the prediction reads, composed as the launch
@@ -160,7 +160,8 @@ func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served pack
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
 	// Its removals too (an inline null), which the composition below ranks with env_sources, as
 	// the launch does: a null takes a pack env value of its name out of every process.
-	userEnv, removals := config.ResolveEnvSourcesFull(workspace, merged, configWarn)
+	// Both sets (secret-env-scoping.md#33-the-two-sets), with the set bit the gate reads.
+	hydrated := config.ResolveEnv(workspace, merged, configWarn)
 	// The CONFIG's profile table — the `profile` selection, which is the only one a
 	// launch-less command has. See the `-p` note above.
 	profiles := config.ConfigProfileTable(merged, packs)
@@ -188,7 +189,12 @@ func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served pack
 		Packs: packs, Providers: providers, Profiles: profiles, Resolved: resolved,
 		// Each agent's whole active set, as the launch hands the gate (active-provider-sets.md §4.5).
 		Sets:       packload.ProfileSets(config.ConfigProfileSets(merged, packs)),
-		EnvSources: userEnv, EnvSourceRemovals: removals, NoDerives: true, Served: &served,
+		EnvSources: hydrated.Values(), EnvSourceRemovals: hydrated.Removals(), NoDerives: true, Served: &served,
+		Private: hydrated.Private(),
+		// An MCP server's requires_env claims a private name for the agents rendering it (SE-D13).
+		MCPClaims:        packload.MCPEnvClaims(packload.ComposeMCPServers(subMap(merged, "mcp_servers"), packs, "")),
+		MCPAgents:        packload.MCPAgents(packs),
+		UnselectedClaims: packload.UnselectedProviderClaims(packs),
 	})
 	return scope
 }
