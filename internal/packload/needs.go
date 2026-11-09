@@ -111,9 +111,13 @@ func ResolveNeeds(selected []*Pack, embedded func(name string) (*Pack, bool)) (
 			// every contribution, so a fork without it would have nothing to supply bytes to. Only
 			// a base yolo ships joins — a need may add only an embedded pack (WB-D9) — and a base
 			// that is neither shipped nor selected is ApplyForks' refusal, which names the fix. A
-			// fork is not a need, so it adds no edge to the cycle check below.
+			// fork is not a need, so it adds no edge to the cycle check below. The base is present
+			// when the rewrite would find it in the set (forkBaseCandidates, the one matching rule):
+			// `fork_of` is a bare word, so a configured `<source>/<word>` answers it, and adding the
+			// shipped pack of that word too would hand the launch a second base the exact Name match
+			// prefers. Several candidates are ApplyForks' refusal; a shipped one would not settle it.
 			for _, base := range forkBases(p) {
-				if _, have := set[base]; have {
+				if len(forkBaseCandidates(queue, base)) > 0 {
 					continue
 				}
 				target, ok := embedded(base)
