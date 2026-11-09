@@ -57,14 +57,7 @@ Run relevant Markdown/frontmatter and changelog checks for what changed. A note-
   - a section stays at or under about 650 words.
 
   Never say how a change works, why, or how it was found. `### Changed` keeps every upgrade-breaking change, each with the one action the user takes.
-- **Be short by cutting ideas, not grammar** (the maintainer, 2026-11-06, adopting a coworker's review of 0.16.0). When a section runs over, drop an entry or a clause; never squeeze one into shorthand. Write for a smart reader who has no context:
-  - every sentence has a subject and a verb, bold leads included: "**Agents can open pull requests without asking.**", not "**GitHub writes that need no answer.**";
-  - no verb used as a noun ("GitHub writes", "a refusal lists every answer"); say who does what ("an agent writes to GitHub", "when yolo refuses, it lists every command you can run");
-  - no noun stacks or headline shorthand ("the host-run message fixes", "run-as-you refusal"); unpack them into a clause;
-  - no project-internal words (decision IDs, notch, doorway, ceiling, working set, setup names a reader has not met). Use the everyday word, or define the term in the same sentence where it first appears;
-  - one idea per sentence: split a run-on list rather than chaining it with commas and semicolons.
-
-  Read each line back as that reader: if a phrase only makes sense after reading the design docs, rewrite it.
+- **Be short by cutting ideas, not grammar** (the maintainer, 2026-11-06, adopting a coworker's review of 0.16.0). When a section runs over, drop an entry or a clause; never squeeze one into shorthand. Every sentence follows [the plain-language principle](../../../docs/reference/plain-language-principle.md), the rules for all reader-facing text: a subject and a verb in every sentence, bold leads included; no verb used as a noun; no noun stacks; no project-internal words; one idea per sentence. Read each line back as a reader who has never seen the design docs.
 - `### Added`, `### Changed`, `### Fixed`, then `### Contributors`, thanking each outside contributor by public GitHub name and linked handle (never an email). A feature an outside contributor built also names them inline on its own entry ("Contributed by …"). A number goes in only where a test or a constant pins it.
 - An old minor line's retrospective section is headed `## 0.9.x`. A heading that spells a full version is one the extractor will publish.
 
