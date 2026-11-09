@@ -692,7 +692,8 @@ type Contribution struct {
 	// JailOnly withholds this env contribution from unconfined `yolo host` launches.
 	// Use it for variables adapting a program to confinement, such as terminal-mediated
 	// clipboard copying when the jail cannot access the host's native clipboard.
-	// It applies to both unconditional and profile/platform-gated env contributions.
+	// It applies to both unconditional and profile/platform-gated env contributions, and is
+	// refused on a private program env (`bin`), which only a jail launch delivers anyway.
 	JailOnly bool `json:"jail_only,omitempty"`
 	// Vars is a static map of environment variables the pack sets in the jail. Values
 	// are literal strings only — no secrets, no host references — so an env contribution
@@ -4809,6 +4810,10 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, binProblem(nil, label+".bin", c.Bin)...)
 			if c.Profile != "" || c.Platform != "" {
 				problems = append(problems, label+": private program env takes neither a profile nor a platform gate")
+			}
+			if c.JailOnly {
+				problems = append(problems, label+": private program env does not take \"jail_only\" — "+
+					"only a jail launch delivers it already; remove the flag")
 			}
 		}
 		if len(c.Vars) == 0 {

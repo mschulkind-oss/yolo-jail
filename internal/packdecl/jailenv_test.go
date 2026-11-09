@@ -33,3 +33,13 @@ func TestJailOnlyIsRefusedOnOtherContributionKinds(t *testing.T) {
 		t.Fatalf("jail_only on state must be refused with a remedy: %v", problems)
 	}
 }
+
+// A private client's env (`bin`) is delivered only by a jail launch's private-client path,
+// which never reads jail_only, so the flag there would govern nothing.
+func TestJailOnlyIsRefusedOnPrivateProgramEnv(t *testing.T) {
+	_, problems := Decode([]byte(`{"name":"test","contributes":[{"kind":"env","bin":"client","served_by":"front","jail_only":true,` +
+		`"vars":{"T":"{caller_token}","U":"{listen}","C":"{client_trust}"}}]}`))
+	if !strings.Contains(strings.Join(problems, "\n"), `private program env does not take "jail_only"`) {
+		t.Fatalf("jail_only on a private program env must be refused: %v", problems)
+	}
+}

@@ -2148,14 +2148,6 @@ Both forms are dropped with a reason on that backend.
 
 #### `env`
 
-An `env` contribution may set **`jail_only = true`** to deliver its variables only in
-confined launches, not through `yolo host`. This also works beside a `profile` or
-`platform` gate. The host skips the contribution before merging values, so an earlier
-ordinary assignment to the same variable still applies there. For example, `packs/pi`
-sets `PI_CLIPBOARD_OSC52=1` only in jails: Pi copies through the terminal using OSC 52
-without granting native clipboard access. The terminal must support and allow OSC 52
-clipboard writes; this does not enable clipboard reads or image paste.
-
 Static environment variables set in the jail. Values are **literal strings** — no secrets,
 no host references — so `env` never reads the host. The one interpolation is **`{listen}`**,
 legal only in a contribution that declares **`served_by`**: it resolves to the address the
@@ -2180,6 +2172,15 @@ is **`platform:`**, satisfied when the agent's selected provider declares that p
 `packs/aws-auth`'s pointer uses, for `aws-bedrock`), or **`profile:`**, satisfied by the profile's
 name; one per contribution. A fact of the provider belongs on `platform:`, so a second profile
 over the same provider gets it ([`providers.md`, the `profile` modifier](providers.md#the-profile-modifier)).
+
+An `env` contribution may set **`jail_only = true`** to deliver its variables only in
+confined launches, not through `yolo host`. This also works beside a `profile` or
+`platform` gate, but not on a private program env (`bin`), which only a jail launch
+delivers anyway. The host skips the contribution before merging values, so an earlier
+ordinary assignment to the same variable still applies there. For example, `packs/pi`
+sets `PI_CLIPBOARD_OSC52=1` only in jails: Pi copies through the terminal using OSC 52
+without granting native clipboard access. The terminal must support and allow OSC 52
+clipboard writes; this does not enable clipboard reads or image paste.
 
 An `env` contribution may also declare **`overridden_by`**: what, delivered into the same jail,
 makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
