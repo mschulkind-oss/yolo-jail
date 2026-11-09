@@ -1457,6 +1457,7 @@ forward ([SUP-D50](#SUP-D50)).
   prints two `stopped <setup>` lines and both shells end; `YOLO_TEST_MACOS_USER=1 go test
   -count=1 -timeout 0 -run '^TestMacosUser' ./integration` passes with `YOLO_SETUP` set by the
   harness (no `YOLO_RUNTIME` anywhere in the environment: `env | grep YOLO_RUNTIME` prints nothing).
+  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md)): the launch half passes. The `TestMacosUser` half has 4 failures in 159 passes, 3 of them also on CI before 6a-iii.
 - **W-SU2 (slice 4b):** a workspace whose `yolo-jail.toml` holds `[network]\nmode = "host"`:
   `yolo --setup apple-container-self -- true` refuses with the
   [§6](named-setups.md#6-config-by-example) sentence ending in `yolo --setup podman-self -- claude`
@@ -1496,6 +1497,7 @@ forward ([SUP-D50](#SUP-D50)).
   `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
   `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
   ./integration` passes.
+  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#2-w-su4-b-meets-the-linked-state-refusal)): (a) and the move pass. (b) is refused by the linked-state check before the move runs, and `TestAppleContainer` was not run.
 - **W-SU12 (slice 6a-iii, at main `e67b3c81f` or later):** first, with an installed yolo from before 6a-iii (main `bb10db358`, the commit before it landed),
   start `yolo --setup apple-container-self -- bash` in a workspace under `/Users/Shared/yolo/c`,
   and leave it running. Then run `yolo --setup apple-container-self --
@@ -1508,6 +1510,7 @@ forward ([SUP-D50](#SUP-D50)).
   `/Users/Shared/yolo/d`. The refusal there names `yolo stop` alone. Last, with the Apple
   Container jail stopped, run `yolo prune` and `container volume ls`. The tool disk
   `yolo-c-…-apple-container-self.mise` stays, and prune does not offer to delete it.
+  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#1-seatbelt-workspaces-from-before-6a-iii-refuse-to-launch)): the Apple Container half and prune pass, but the refusal names only `yolo stop`. In the Seatbelt half the relaunch after `yolo stop` refuses on the user-config copy, because its delivery record carries the old jail name. Every Seatbelt workspace from before 6a-iii hits this.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
   create` and exits non-zero; `yolo yolo-account share <dir>` does what `macos-fix-permissions`
   did (the ACL on `<dir>` lists `_yolojail`). Also, on a Mac where the yolo account exists:
