@@ -265,7 +265,8 @@ var hostWithheldAtLaunch = map[packdecl.Kind]string{
 	packdecl.KindEnv: "a variable `served_by` a daemon the host does not serve — a bound " +
 		"loophole's socket path, which only a jail binds (audio's), or a loophole with no doorway " +
 		"— is withheld at `yolo host --` and named there: a client at the host reaches its own " +
-		"server instead",
+		"server instead. An env contribution marked `jail_only = true` is also withheld; " +
+		"omit that flag to deliver it through `yolo host` too",
 	// packload.Adaptation.Service: an adapter's address is answered by its own pack's service
 	// when the pack declares one, and the host runs that service only through a host half the
 	// launch's gate admits (launchservice.Admit, OQ-HS4). Without one, the composition leaves the
