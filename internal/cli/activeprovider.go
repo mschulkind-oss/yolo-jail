@@ -4,7 +4,8 @@ package cli
 // `active_provider` table (docs/design/config-commands.md §4): which provider an agent (or every
 // agent, "default") uses. It is sugar over `yolo config set active_provider.<agent> <name>`, plus
 // the one thing a text edit cannot do: it validates the name against the selectable namespace the
-// selected packs declare (config.LoadSelectableProfiles), `native` always valid. It writes the
+// launch resolves (config.LoadSelectableProfiles) over the selected packs and the user config as
+// the edit leaves it, its `providers` table included, `native` always valid. It writes the
 // user file that already holds [active_provider] through the same edit machinery `yolo allow`
 // uses, and approves nothing.
 
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -24,7 +26,7 @@ const activeProviderUsage = `usage: yolo active-provider <agent|default> <provid
 
 Choose which provider an agent uses, in your user config's [active_provider] table (in the file
 that already holds it). "default" is every agent the table does not name; "native" leaves the
-agent to its own login. The name must be one a selected pack declares.
+agent to its own login. The name must be one a selected pack or your config's [providers] table declares.
 
 Examples:
   yolo active-provider default native
@@ -33,12 +35,33 @@ Examples:
 
 The change takes effect at the next launch.`
 
-// activeProviderSelectable is the names a selection may take: the selectable namespace over the
-// packs the user config selects, a variable so a test can supply a declared set.
-var activeProviderSelectable = func() ([]string, error) {
+// activeProviderPlanned is the user config as the verb's edit leaves it: active_provider.<agent>
+// set to name. The namespace is resolved against this, not the config before the edit, because the
+// launch resolves against the config that holds the selection: a config holding active_provider
+// declares its whole `providers` table (config.SelectableProfiles), so a provider declared with
+// only `platform` becomes selectable exactly when the selection names it.
+func activeProviderPlanned(agent, name string) *jsonx.OrderedMap {
+	cfg := jsonx.DeepCopyMap(config.UserScopeConfigOrEmpty())
+	if cfg == nil {
+		cfg = jsonx.NewOrderedMap()
+	}
+	table, _ := cfg.Get(config.ActiveProviderKey)
+	selection, ok := table.(*jsonx.OrderedMap)
+	if !ok {
+		selection = jsonx.NewOrderedMap()
+	}
+	selection.Set(agent, name)
+	cfg.Set(config.ActiveProviderKey, selection)
+	return cfg
+}
+
+// activeProviderSelectable is the names a selection may take: the selectable namespace the launch
+// resolves (config.LoadSelectableProfiles) over the packs the user config selects and cfg, the
+// config as the edit leaves it; a variable so a test can supply a declared set.
+var activeProviderSelectable = func(cfg *jsonx.OrderedMap) ([]string, error) {
 	packs, _ := config.UserScopeSelectedPacks()
 	packs = nonNilPacks(packs)
-	profiles, err := config.LoadSelectableProfiles(func(string) {}, config.UserScopeConfigOrEmpty(), packs)
+	profiles, err := config.LoadSelectableProfiles(func(string) {}, cfg, packs)
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +84,11 @@ var activeProviderSelectable = func() ([]string, error) {
 }
 
 // activeProviderReplaced is the refusal of selecting name when a provider's or variant's `name`
-// replaced it (config.ReplacedNameRefusals, RC-D68), "" otherwise; a variable so a test can supply
-// one.
-var activeProviderReplaced = func(name string) string {
+// replaced it (config.ReplacedNameRefusals, RC-D68) in cfg, the config as the edit leaves it, ""
+// otherwise; a variable so a test can supply one.
+var activeProviderReplaced = func(cfg *jsonx.OrderedMap, name string) string {
 	packs, _ := config.UserScopeSelectedPacks()
 	packs = nonNilPacks(packs)
-	cfg := config.UserScopeConfigOrEmpty()
 	profiles, err := config.LoadSelectableProfiles(func(string) {}, cfg, packs)
 	if err != nil {
 		return ""
@@ -118,7 +140,8 @@ func activeProviderRunW(args []string, out, errw io.Writer) int {
 	}
 
 	if name != config.NativeProvider {
-		declared, err := activeProviderSelectable()
+		planned := activeProviderPlanned(agent, name)
+		declared, err := activeProviderSelectable(planned)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo active-provider: cannot read what the selected packs declare: %v\n"+
 				"  Run `yolo check` to see which pack is broken.\n", err)
@@ -132,7 +155,7 @@ func activeProviderRunW(args []string, out, errw io.Writer) int {
 			}
 		}
 		if !found {
-			if refusal := activeProviderReplaced(name); refusal != "" {
+			if refusal := activeProviderReplaced(planned, name); refusal != "" {
 				fmt.Fprintf(errw, "yolo active-provider: %s\n  Select it by the name it is given there:  "+
 					"yolo active-provider %s <that name>\n", refusal, agent)
 				return 1
@@ -141,10 +164,11 @@ func activeProviderRunW(args []string, out, errw io.Writer) int {
 			if len(declared) > 0 {
 				listed = strings.Join(declared, ", ")
 			}
-			fmt.Fprintf(errw, "yolo active-provider: no selected pack declares a provider %q. Declared: %s, native.\n"+
+			fmt.Fprintf(errw, "yolo active-provider: neither a selected pack nor your config's [providers] declares a provider %q. Declared: %s, native.\n"+
 				"  If a pack provides it, select that pack first:  yolo pack add <pack>\n"+
+				"  To declare it yourself, name its platform:  yolo config set providers.%s.platform <platform> --user\n"+
 				"  Otherwise pick one of the declared names, e.g.:  yolo active-provider %s native\n",
-				name, listed, agent)
+				name, listed, name, agent)
 			return 1
 		}
 	}
