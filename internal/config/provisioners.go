@@ -137,7 +137,7 @@ func validateProvisioners(config *jsonx.OrderedMap, workspace string, errs, warn
 	if wsValue, atWorkspace := wsCfg.Get(provisionersKey); atWorkspace && wsValue != nil && WorkspaceUserScopeOnlyKey(provisionersKey) {
 		add(errs, "config."+provisionersKey+": user-scope only — it decides which command yolo "+
 			"offers and runs to install a program on your machine, so it is read from "+
-			paths.UserConfigDisplayPath()+" and a workspace value has no effect. Move it there, or remove it.")
+			paths.UserConfigDisplayPath()+" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 

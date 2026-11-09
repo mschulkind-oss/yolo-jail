@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,7 +245,7 @@ func TestProgramOverridesIsUserScopeOnly(t *testing.T) {
 	}
 	cfg := decode(t, `{"programs": {"overrides": {"board": {"path": "/srv/board"}}}}`)
 	errs, _ := ValidateConfig(cfg, ws, nil)
-	if !anyContains(errs, "user-scope only") || !anyContains(errs, "config.jsonc") {
+	if !anyContains(errs, "user-scope only") || !anyContains(errs, paths.UserConfigDisplayPath()) {
 		t.Errorf("a workspace override must be an ERROR naming the user config file: %v", errs)
 	}
 }

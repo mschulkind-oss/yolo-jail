@@ -359,7 +359,7 @@ func validateProfilesWithScopes(workspace string, userCfg, wsCfg *jsonx.OrderedM
 // words with the key name swapped.
 func userScopeOnlyMessage(key string) string {
 	return "config." + key + ": user-scope only — move it to " +
-		"~/.config/yolo-jail/config.jsonc. A workspace config travels with the repo " +
+		paths.UserConfigDisplayPath() + ". A workspace config travels with the repo " +
 		"and is agent-editable, so it cannot decide which provider an agent talks to " +
 		"— a profile steers the endpoint and the model an agent uses, which is " +
 		"exactly the steering a committed, agent-writable file must not do."

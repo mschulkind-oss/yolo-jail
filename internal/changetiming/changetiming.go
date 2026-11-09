@@ -174,7 +174,7 @@ func Classify(key string, ctx Context) (Row, error) {
 	}
 	if key == "loopholes" && ctx.HostSwitch {
 		row.Outcome = HostSwitch
-		row.Reason = "this loophole is enabled by its host-side switch"
+		row.Reason = "this loophole runs whenever its pack is selected, which the human changes on the host"
 		return row, nil
 	}
 	if ctx.Grant != NoGrant {

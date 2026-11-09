@@ -5,6 +5,7 @@ import (
 	"errors"
 	"go/ast"
 	"go/token"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestSessionRunOutputErrorNamesTheTerminalCauseAndNextStep(t *testing.T) {
 	}
 
 	output.Reset()
-	reportSessionRunError(o.pr(&output), "podman", errors.New("exec: podman: executable file not found in $PATH"))
+	reportSessionRunError(o.pr(&output), "podman", &exec.Error{Name: "podman", Err: exec.ErrNotFound})
 	got = output.String()
 	for _, want := range []string{
 		"Configured runtime 'podman' not found on PATH.",
@@ -44,6 +45,32 @@ func TestSessionRunOutputErrorNamesTheTerminalCauseAndNextStep(t *testing.T) {
 	}
 	if strings.Contains(got, "working terminal") {
 		t.Errorf("ordinary runtime-error control took the terminal-output branch: %s", got)
+	}
+
+	// Any other start failure is reported as itself: the runtime may well be installed.
+	output.Reset()
+	reportSessionRunError(o.pr(&output), "podman", errors.New("fork/exec /usr/bin/podman: permission denied"))
+	got = output.String()
+	if strings.Contains(got, "not found on PATH") || !strings.Contains(got, "permission denied") {
+		t.Errorf("a non-missing start failure is misreported: %s", got)
+	}
+}
+
+// The keeper's start failure goes through the same report, so it never calls an installed runtime
+// missing either.
+func TestKeeperStartFailureUsesTheRuntimeStartReport(t *testing.T) {
+	decl := funcDecl(t, "keeper.go", "run")
+	var found bool
+	ast.Inspect(decl.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "reportRuntimeStartError" {
+				found = true
+			}
+		}
+		return true
+	})
+	if !found {
+		t.Error("keeper.go's run no longer reports a start failure through reportRuntimeStartError")
 	}
 }
 

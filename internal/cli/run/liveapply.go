@@ -650,7 +650,7 @@ func (o *Options) configChangesPending(rt, cname string, cfg *jsonx.OrderedMap, 
 	brokers := make([]config.ScopeBroker, 0, len(lps))
 	for _, lp := range lps {
 		brokers = append(brokers, config.ScopeBroker{Source: lp.Brokered.Source, Label: lp.Name,
-			RemoteHost: lp.Brokered.RemoteHost, GrantKinds: lp.Brokered.Grants})
+			RemoteHost: lp.Brokered.RemoteHost, GrantKinds: lp.Brokered.Grants, Pack: lp.Pack})
 	}
 	r, err := config.ScopeChanges(o.Workspace, config.NewScopeCheck(o.Workspace, brokers, read))
 	return err == nil && r.ScopeChanged

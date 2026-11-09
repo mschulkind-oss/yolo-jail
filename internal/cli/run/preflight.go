@@ -757,8 +757,8 @@ func declineLines(r config.ChangeReport, attach bool) []string {
 		lines = append(lines, "The `"+ed.Key+"` change is in "+strings.Join(files, " and ")+
 			": undo it there, or answer y at the next launch, which asks again.")
 	}
-	for _, l := range r.ScopeLabels {
-		lines = append(lines, config.WithoutBrokerStep(l)+" Otherwise the next launch asks about "+
+	for i, l := range r.ScopeLabels {
+		lines = append(lines, config.WithoutBrokerStep(l, config.ScopePackAt(r.ScopePacks, i))+" Otherwise the next launch asks about "+
 			"its repositories again.")
 	}
 	if r.GrantsChanged {

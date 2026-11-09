@@ -89,7 +89,7 @@ func generateBlockers(e *Env) error {
 			e.warn("not blocking " + name + ": its replacement " + repl +
 				" is not on PATH in this jail, and a block with no working alternative " +
 				"removes the capability instead of redirecting it (add " + repl +
-				" to `packages` to restore the block)")
+				" with `yolo config add install.nix <package> --project` to restore the block)")
 		},
 		Warn:      e.warn,
 		Workspace: e.WorkspaceDir(),
@@ -123,7 +123,7 @@ func jailRealBin(e *Env, agent, name string) (string, bool) {
 		return found, true
 	}
 	e.warn("not guarding " + name + ": there is no " + name + " on this jail's PATH to pass " +
-		"allowed calls on to; add it to `packages` (`yolo config add packages coreutils`)")
+		"allowed calls on to; add it with `yolo config add install.nix coreutils --project`")
 	return "", false
 }
 

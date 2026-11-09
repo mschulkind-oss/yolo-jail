@@ -208,7 +208,7 @@ func unknownKindNote(i int, kind Kind) string {
 	return fmt.Sprintf(
 		"contributes[%d]: skipping unknown kind %q — this build does not know it, "+
 			"so the contribution is not rendered (version skew; a build that "+
-			"knows the kind will render it)", i, kind)
+			"knows the kind will render it: update yolo)", i, kind)
 }
 
 // fieldAt is fields[i], "" past its end (a manifest whose contributes did not decode as a list).

@@ -27,6 +27,12 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // agent-editable. A workspace spelling of this key is refused by validateHostFloor and never read.
 const hostFloorKey = "host_floor"
 
+// HostFloorLeaveOutCommand is the command that leaves pack out of yolo's floor, for the advice
+// that names it. `yolo config set` writes it in either config format.
+func HostFloorLeaveOutCommand(pack string) string {
+	return "yolo config set " + hostFloorKey + "." + pack + " false --user"
+}
+
 // HostFloorWire renders the user's `host_floor` value as compact JSON, "" when absent — the wire
 // shape `agent_updates` uses, so both keys are read by one reader
 // (entrypoint.PackPolicyAllows).

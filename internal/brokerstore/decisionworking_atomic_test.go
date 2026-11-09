@@ -20,7 +20,7 @@ func TestDecideWorkingFailedLaterResourcePreservesPriorCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Entries = func(q Request, add bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/new", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingTag, Resource: "refs/tags/invalid-permanent", By: "human"},
@@ -47,7 +47,7 @@ func TestDecideWorkingFailedLaterResourcePreservesPriorCoverage(t *testing.T) {
 
 func TestDecideWorkingFailedAuditDoesNotCommitAnyResource(t *testing.T) {
 	s, _ := workingFixture(t)
-	s.Entries = func(q Request, add bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},
@@ -74,7 +74,7 @@ func TestDecideWorkingFailedAuditDoesNotCommitAnyResource(t *testing.T) {
 // real filesystem rename failure at the single commit point, after planning.
 func TestDecideWorkingRequestRenameFailureKeepsTheWholeAnswerPending(t *testing.T) {
 	s, _ := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},
@@ -125,7 +125,7 @@ func TestDecideWorkingCommittedBatchFreshReadersAndIndividualRevocation(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},
@@ -218,7 +218,7 @@ func TestUncommittedOrMalformedWorkingAnswerIsNeverAuthority(t *testing.T) {
 
 func TestWorkingDecisionUpdatesAndRetentionNeverResurrectOldCoverage(t *testing.T) {
 	s, clock := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"}, {Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"}}, nil
 	}
 	seed := func() Request {
@@ -260,7 +260,7 @@ func TestWorkingDecisionUpdatesAndRetentionNeverResurrectOldCoverage(t *testing.
 
 func TestDecideWorkingConcurrentFreshReaderSeesWholeAnswer(t *testing.T) {
 	s, _ := workingFixture(t)
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},
@@ -351,7 +351,7 @@ func TestDecideWorkingFailedEntryRecordStoresNoResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Entries = func(q Request, _ bool) ([]WorkingEntry, error) {
+	s.Entries = func(q Request) ([]WorkingEntry, error) {
 		return []WorkingEntry{
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/one", By: "human"},
 			{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/two", By: "human"},

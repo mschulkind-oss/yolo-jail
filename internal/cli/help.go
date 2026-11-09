@@ -72,7 +72,7 @@ var commandHelp = []struct{ name, blurb string }{
 	// Beside host-run: the other host command whose result lands in the workspace for the agent.
 	{"paste", "On the host: save the clipboard's image into the workspace and put its in-jail path on the clipboard"},
 	{"history", "What happened to this workspace's broker requests: answered how, when they ran, what to do next"},
-	{"init", "Scaffold yolo-jail.jsonc in the current workspace"},
+	{"init", "Scaffold yolo-jail.toml in the current workspace"},
 	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
 	{"config", "Edit and inspect yolo's own configuration: 'config apply', 'config drift', 'config dump'"},
 	{"allow", "Allow a broker capability in your user config, then offer this workspace's approval"},

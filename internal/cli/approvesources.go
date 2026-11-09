@@ -70,7 +70,7 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 				store := genericApprovalStore(source)
 				store.Revalidate = callbroker.ApprovalAuthority
 				// A timed answer (BX-D17), one entry per write, stored all-or-none (BX-D18);
-				// RequestEntries refuses Add, which no pack answer offers (OQ-BX7).
+				// a pack answer is never permanent (OQ-BX7).
 				store.Entries, store.TimedLimit = callbroker.RequestEntries, callbroker.ApprovalTimedLimit
 				store.Audit = callbroker.StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil), source)
 				selected[source] = store

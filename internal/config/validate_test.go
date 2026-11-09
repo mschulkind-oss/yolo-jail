@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,7 +121,7 @@ func TestValidateCacheRelocationsRejectsWorkspaceScope(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("errors = %v, want exactly one", errs)
 	}
-	for _, want := range []string{"user-scope only", "~/.config/yolo-jail/config.jsonc"} {
+	for _, want := range []string{"user-scope only", paths.UserConfigDisplayPath()} {
 		if !strings.Contains(errs[0], want) {
 			t.Errorf("error %q does not name %q", errs[0], want)
 		}

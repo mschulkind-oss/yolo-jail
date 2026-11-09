@@ -69,8 +69,8 @@ normally once a day, after a terminal has disclosed the network request. When a
 cached update exists, one line is printed under the banner on a terminal; a
 safe, self-contained interactive launch offers to update and relaunch.
 
-To turn the background check, notice and offer off: "update_check": false in
-~/.config/yolo-jail/config.jsonc, or YOLO_NO_UPDATE_CHECK=1 for one shell. They
+To turn the background check, notice and offer off, run
+` + "`yolo config set update_check false --user`" + `, or set YOLO_NO_UPDATE_CHECK=1 for one shell. They
 never run in a jail or in CI. ` + "`yolo check`" + ` reports the last answer.
 
 Examples:

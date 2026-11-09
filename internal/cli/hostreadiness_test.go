@@ -128,7 +128,7 @@ func TestAHostLaunchRefusesWhenADeclaredProgramCannotBeInstalled(t *testing.T) {
 		"yolo host: REFUSING to launch: a program a selected pack declares could not be installed.\n",
 		"      program othercli (pack floorpack): ",
 		"npm ERR! 404",
-		"`\"host_floor\": {\"floorpack\": false}`",
+		"`yolo config set host_floor.floorpack false --user`",
 		"          YOLO_ALLOW_MISSING_PROGRAMS=1 yolo host -- sometool --x\n",
 	} {
 		if !strings.Contains(errw.String(), want) {

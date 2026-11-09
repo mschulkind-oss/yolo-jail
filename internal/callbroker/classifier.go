@@ -144,16 +144,16 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 	for round := 0; round <= maxLookupRounds; round++ {
 		answer, err := c.invoke(ctx, input)
 		if err != nil {
-			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; check the selected pack and retry", c.Source, err)
+			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if err := c.validate(answer, input); err != nil {
-			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; check the selected pack and retry", c.Source, err)
+			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if len(answer.Lookups) == 0 {
 			return answer, nil
 		}
 		if round == maxLookupRounds {
-			return Answer{}, fmt.Errorf("call broker %s classifier exceeded three lookup rounds; check the selected pack and retry", c.Source)
+			return Answer{}, fmt.Errorf("call broker %s classifier exceeded three lookup rounds; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source)
 		}
 		if read == nil {
 			return Answer{}, fmt.Errorf("call broker %s lookup requires a core-approved read grant; request read access before retrying", c.Source)
@@ -167,19 +167,19 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 				}
 			}
 			if declared == nil {
-				return Answer{}, fmt.Errorf("call broker %s classifier requested an undeclared lookup; check the selected pack and retry", c.Source)
+				return Answer{}, fmt.Errorf("call broker %s classifier requested an undeclared lookup; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source)
 			}
 			fact, err := read(ctx, *declared, lookup.Arguments)
 			if err != nil {
 				return Answer{}, fmt.Errorf("call broker %s lookup failed: %w; check read access and retry", c.Source, err)
 			}
 			if !json.Valid(fact) || len(fact) > classifierLimit {
-				return Answer{}, fmt.Errorf("call broker %s lookup returned invalid or oversized facts; check the selected pack and retry", c.Source)
+				return Answer{}, fmt.Errorf("call broker %s lookup returned invalid or oversized facts; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source)
 			}
 			input.Facts = append(input.Facts, LookupFact{Name: lookup.Name, Arguments: lookup.Arguments, Value: fact})
 		}
 	}
-	return Answer{}, errors.New("call broker classifier exceeded lookup rounds; check the selected pack and retry")
+	return Answer{}, errors.New("call broker classifier exceeded lookup rounds; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 }
 
 func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) {

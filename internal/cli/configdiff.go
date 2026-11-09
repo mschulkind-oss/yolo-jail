@@ -175,10 +175,10 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 		}
 		fmt.Fprintf(errw, "yolo config capture: nothing to capture into — under %s yolo "+
 			"keeps no capture store for your real home, so an edit there stays in the file as "+
-			"you made it and there is nothing to fold. Set `\"host_management\": \"own\"` in "+
-			"%s to keep one; for a jail's edits, run `yolo config capture` inside the jail that "+
+			"you made it and there is nothing to fold. Run `%s` "+
+			"to keep one; for a jail's edits, run `yolo config capture` inside the jail that "+
 			"owns the workspace.\n",
-			state, prettyHomePath(t.store.Home, paths.UserConfigDisplayPath()))
+			state, config.HostManagementOwnCommand)
 		return true
 	}
 	if force {

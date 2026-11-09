@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func TestValidateProfilesRejectsWorkspaceScope(t *testing.T) {
 	if found == "" {
 		t.Fatalf("no config.profiles error; got %v", errs)
 	}
-	for _, want := range []string{"user-scope only", "~/.config/yolo-jail/config.jsonc"} {
+	for _, want := range []string{"user-scope only", paths.UserConfigDisplayPath()} {
 		if !strings.Contains(found, want) {
 			t.Errorf("error %q missing %q", found, want)
 		}
@@ -98,7 +99,7 @@ func TestValidateProfilesRejectsWorkspaceScopeForBothKeys(t *testing.T) {
 			t.Errorf("no config.%s error; got %v", key, errs)
 			continue
 		}
-		for _, want := range []string{"user-scope only", "~/.config/yolo-jail/config.jsonc"} {
+		for _, want := range []string{"user-scope only", paths.UserConfigDisplayPath()} {
 			if !strings.Contains(found, want) {
 				t.Errorf("config.%s error %q missing %q", key, found, want)
 			}

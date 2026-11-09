@@ -40,7 +40,7 @@ func callRequest(source, workspace, jail, start, launch string, c Classification
 // gate result, never reconstructed from mutable workspace config at call time.
 func decideCall(call Classification, cells map[string]config.CallBrokerCellPolicy, working []brokerstore.WorkingEntry, workspace, source string, now time.Time) Verdict {
 	if len(call.Reads)+len(call.Writes) == 0 {
-		return Verdict{Verdict: "refused", Rule: "empty classification", Next: "Check the selected pack's classifier and retry"}
+		return Verdict{Verdict: "refused", Rule: "empty classification", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}
 	}
 	if len(call.Writes) == 0 {
 		return Verdict{Verdict: "runs", Rule: "standing read"}
@@ -49,7 +49,7 @@ func decideCall(call Classification, cells map[string]config.CallBrokerCellPolic
 	for _, write := range call.Writes {
 		policy, ok := cells[write.Cell]
 		if !ok || len(write.Chain) == 0 {
-			return Verdict{Verdict: "refused", Rule: "undeclared write cell or resource", Next: "Check the selected pack and retry"}
+			return Verdict{Verdict: "refused", Rule: "undeclared write cell or resource", Next: "This is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author"}
 		}
 		table := "all"
 		timed := false

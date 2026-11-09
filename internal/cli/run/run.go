@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
@@ -274,7 +276,7 @@ func Run(opts Options) (rc int) {
 		// bundle all missed), so print the same actionable fix the resolver would
 		// and exit.
 		if !repoRootOK {
-			reason := "No complete executable-relative yolo-jail bundle was found. Build one with `just build-dev-bundle` and invoke its printed launcher path, or run `just install`."
+			reason := "No complete executable-relative yolo-jail bundle was found. " + reporoot.ReinstallSteps
 			if repoRes.Error != nil {
 				reason = repoRes.Error.Error()
 			}
@@ -313,7 +315,7 @@ func Run(opts Options) (rc int) {
 		// --dry-run stays exempt because it materializes nothing (RunMacosUser
 		// returns before the nix build, with darwin=nil), and refusing a plan render
 		// would hide the very plan a user asked to inspect.
-		reason := "No complete executable-relative yolo-jail bundle was found. Build one with `just build-dev-bundle` and invoke its printed launcher path, or run `just install`."
+		reason := "No complete executable-relative yolo-jail bundle was found. " + reporoot.ReinstallSteps
 		if repoRes.Error != nil {
 			reason = repoRes.Error.Error()
 		}
@@ -547,10 +549,6 @@ func Run(opts Options) (rc int) {
 	// which wires internal/macosuser (SBPL sandbox, dscl provisioning, the
 	// sandbox-exec launch) + the darwinpkg streaming-build materialize adapter.
 	// Falls back to an actionable error if the front door didn't inject it.
-	if rt == "macos-user" && o.Update && !o.DryRun && len(staged.packs) > 0 { // parity: Refused — --update preparation is host-owned work this path cannot do, so the launch refuses naming the host alternative
-		o.pr(o.Stderr).print("--update preparation is unavailable in this macos-user launch path — run `yolo host --update -- <command>` for host-owned programs, or launch without --update")
-		return 1
-	}
 	if rt == "macos-user" {
 		o.noteRecoveryHatches(rt, false) // recoveryscope.go: what each set hatch reaches here, forks alone (PF-D97)
 		if o.MacosUserRun == nil {
@@ -2838,7 +2836,18 @@ func reportSessionRunError(out printer, rt string, err error) {
 		out.print("[dim]Retry from a working terminal in this workspace.[/dim]")
 		return
 	}
-	out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
+	reportRuntimeStartError(out, rt, err)
+}
+
+// reportRuntimeStartError reports a runtime that could not be started. Only a missing binary is
+// called "not found on PATH"; any other error is printed as it is, so an installed runtime is
+// never reported as missing.
+func reportRuntimeStartError(out printer, rt string, err error) {
+	if err == nil || errors.Is(err, exec.ErrNotFound) {
+		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
+	} else {
+		out.printf("[bold red]Could not start the jail with runtime '%s': %s[/bold red]", rt, richtext.Escape(err.Error()))
+	}
 	out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
 }
 

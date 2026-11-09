@@ -205,7 +205,9 @@ type Decision struct {
 	For     time.Duration
 	Session bool
 	Uses    int
-	// Add (DecideWorking only) puts the request's resources into the working set for good.
+	// Add (DecideWorking only) puts the request's resources into the working set for good, as
+	// `yolo approve --add` did before GB-D28 removed it. No answer sets it now: it stays so the
+	// lasting entries those answers left are still read, and so a test can record one.
 	Add bool
 	// Remember (Decide only) records the Allow once as AnswerRemember: the caller has written
 	// the request's refs into the project's config. It grants nothing more than Allow once.
@@ -233,9 +235,9 @@ type Store struct {
 	Audit func(context.Context, string, Request, Grant) error
 	// Entries, when set, is the source's answer to "what working-set entries would this
 	// request's refs become", for DecideWorking: it fills each entry's Workspace, Repo, Kind,
-	// Resource and By, and returns an error naming the next step when add cannot apply to the
-	// request. Nil for a source whose requests take Allow once and Deny alone.
-	Entries func(q Request, add bool) ([]WorkingEntry, error)
+	// Resource and By, and returns an error naming the next step when a per-resource answer
+	// cannot apply to the request. Nil for a source whose requests take Allow once and Deny alone.
+	Entries func(q Request) ([]WorkingEntry, error)
 	// TimedLimit, when set, is the longest timed answer DecideWorking may record for q, in place
 	// of the request's policy window: a pack call's smallest cell max_for (pack-brokers.md
 	// BX-D17). It runs inside the decision's transaction, after Revalidate. Nil keeps the
@@ -1120,7 +1122,8 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 				return refusal(ErrNotConfirmed, "%v", err)
 			}
 			if d.Deny || d.Session || d.Uses != 0 || d.For < 0 || (d.Add && d.For != 0) {
-				return errors.New("choose Add, or a positive duration, for a per-resource grant")
+				return refusal(ErrRefusedByPolicy, "a per-resource answer is a positive duration alone. Next: run "+
+					"`yolo approve %s --for <duration>`, `yolo approve %s` to Allow once, or `yolo approve %s --deny`", id, id, id)
 			}
 			current, err := currentPolicy(*q, s.Revalidate)
 			if err != nil {
@@ -1143,7 +1146,7 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			} else if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
 				return refusal(ErrRefusedByPolicy, "duration exceeds this set's policy ceiling of %s", min(q.Policy.MaxWindow, current.MaxWindow))
 			}
-			entries, err := s.Entries(*q, d.Add)
+			entries, err := s.Entries(*q)
 			if err != nil {
 				return refusal(ErrRefusedByPolicy, "%v", err)
 			}

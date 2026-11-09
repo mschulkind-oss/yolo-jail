@@ -124,7 +124,7 @@ func TestAContainerJailTrustsTheHostsCAs(t *testing.T) {
 			t.Errorf("the jail does not trust the host's CA: no %s in\n%s", want, lastLines(r.combined(), 40))
 		}
 	}
-	disclosure := "Trusting 1 certificate authority from this host's CA bundle (" + hostBundle + "): " + cn + "."
+	disclosure := "Trusting 1 certificate authority from the CA bundle at " + hostBundle + ": " + cn + "."
 	if !strings.Contains(r.combined(), disclosure) {
 		t.Errorf("the launch does not name the host's CA with its source (want %q):\n%s", disclosure, lastLines(r.combined(), 40))
 	}

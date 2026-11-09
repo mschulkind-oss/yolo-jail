@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
@@ -360,9 +361,42 @@ func TestParseConfigEditValueKeepsVersionStringsAndTOMLTypes(t *testing.T) {
 	}
 }
 
+// A PACK'S SETTING HAS A VERB EACH WAY. Advice names `yolo config set allow.<pack>.<setting>
+// <value>` and, for a list such as the GitHub broker's sets, its removal; `unset` refused every
+// `allow.*.*` key ("no scalar removal policy"), and `set` refused a bare profile name as TOML.
+func TestAPacksSettingIsSetBareAndUnsetWhole(t *testing.T) {
+	profile := []configdoc.Step{{Key: "allow"}, {Key: "aws-auth"}, {Key: "profile"}}
+	if v, err := parseConfigEditValue("sso", profile); err != nil || v != "sso" {
+		t.Fatalf("bare profile = %#v, %v; want the string sso", v, err)
+	}
+	sets := []configdoc.Step{{Key: "allow"}, {Key: "github"}, {Key: "sets"}}
+	data := []byte("packs = [\"github\"]\n\n[allow.github]\nsets = [{ name = \"read-write\", mode = \"standing\" }]\n")
+	m, err := configEditUnsetMutation(configdoc.TOML, sets, sets, data)
+	if err != nil {
+		t.Fatalf("unset allow.github.sets: %v", err)
+	}
+	if m.Action != configedit.Remove || len(m.Path) != 3 || m.Path[2].Key != "sets" {
+		t.Fatalf("unset allow.github.sets = %+v; want the line removed", m)
+	}
+	if m, err := configEditUnsetMutation(configdoc.TOML, profile, profile, data); err != nil || m.Action != configedit.Remove {
+		t.Fatalf("unset allow.aws-auth.profile = %+v, %v; want the line removed", m, err)
+	}
+}
+
 func runConfigEditCapture(t *testing.T, workspace string, args []string) (int, string, string) {
 	t.Helper()
 	var out, errw bytes.Buffer
 	rc := runConfigEditWith(args, &out, &errw, workspace)
 	return rc, out.String(), errw.String()
+}
+
+// `yolo config set|add|unset` runs `yolo check` right after a project edit, so the line before
+// that check must not tell the reader to run it.
+func TestProjectWrittenLineDoesNotAskForTheCheckThatFollows(t *testing.T) {
+	if got := projectWrittenLine(true); strings.Contains(got, "yolo check") {
+		t.Errorf("projectWrittenLine(true) = %q; the check runs next, so it must not ask for one", got)
+	}
+	if got := projectWrittenLine(false); !strings.Contains(got, "Run `yolo check`") {
+		t.Errorf("projectWrittenLine(false) = %q; with no check after it, it must ask for one", got)
+	}
 }

@@ -197,3 +197,17 @@ func TestResolveIgnoresCheckoutAboveCwd(t *testing.T) {
 		t.Fatalf("Resolve() walked up to the checkout %q from a subdir — the cwd-walk is back", got.Root)
 	}
 }
+
+// A launcher that cannot find its own executable names a step a user without a checkout can take,
+// not only `just install`.
+func TestUnlocatableExecutableNamesAReinstallForEveryUser(t *testing.T) {
+	got := resolveWith("", "", func(string) string { return "" }, "", "")
+	if got.Error == nil {
+		t.Fatal("an empty executable path resolved")
+	}
+	for _, want := range []string{"Homebrew or a release archive", "just install"} {
+		if !strings.Contains(got.Error.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, got.Error)
+		}
+	}
+}

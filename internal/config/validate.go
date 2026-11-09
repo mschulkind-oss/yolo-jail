@@ -241,7 +241,7 @@ func validateRepoPath(config *jsonx.OrderedMap, errs, warns *[]string) {
 		return
 	}
 	add(warns, "config.repo_path: ignored — this key was retired. yolo now finds "+
-		"the repo from the flake bundle its install shipped (or YOLO_REPO_ROOT). Remove it.")
+		"the repo from the flake bundle its install shipped. Remove it.")
 }
 
 // validateAgentsRetired reports the DELETED `agents` key.
@@ -568,7 +568,7 @@ func validateHostWrappers(config *jsonx.OrderedMap, workspace string, errs *[]st
 	if wsValue, atWorkspace := wsCfg.Get(hostWrappersKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostWrappersKey+": user-scope only — it puts generated "+
 			"executables on your PATH, so it is read from "+paths.UserConfigDisplayPath()+
-			" and a workspace value has no effect. Move it there, or remove it.")
+			" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -645,7 +645,7 @@ func validateHostApplyOnLaunch(config *jsonx.OrderedMap, workspace string, errs 
 	if wsValue, atWorkspace := wsCfg.Get(hostApplyOnLaunchKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostApplyOnLaunchKey+": user-scope only — it lets a wrapped agent "+
 			"launch write into your real home, so it is read from "+paths.UserConfigDisplayPath()+
-			" and a workspace value has no effect. Move it there, or remove it.")
+			" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -682,7 +682,7 @@ func validateHostManagement(config *jsonx.OrderedMap, workspace string, errs *[]
 	if wsValue, atWorkspace := wsCfg.Get(hostManagementKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostManagementKey+": user-scope only — it declares who owns the "+
 			"config files in your real home, so it is read from "+paths.UserConfigDisplayPath()+
-			" and a workspace value has no effect. Move it there, or remove it.")
+			" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -722,7 +722,7 @@ func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]st
 		add(errs, "config."+agentUpdatesKey+": user-scope only — /workspace is writable by "+
 			"whatever runs in the jail, so a workspace value would let an agent freeze its "+
 			"own updates. It is read from "+paths.UserConfigDisplayPath()+" and a workspace value "+
-			"has no effect. Move it there, or remove it.")
+			"refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -748,7 +748,7 @@ func validateHostFloor(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	if wsValue, atWorkspace := wsCfg.Get(hostFloorKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostFloorKey+": user-scope only — it decides which programs yolo "+
 			"installs on your machine and `yolo host` runs, so it is read from "+
-			paths.UserConfigDisplayPath()+" and a workspace value has no effect. Move it there, or remove it.")
+			paths.UserConfigDisplayPath()+" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -774,7 +774,7 @@ func validateHostPath(config *jsonx.OrderedMap, workspace string, errs *[]string
 	if wsValue, atWorkspace := wsCfg.Get(hostPathKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+hostPathKey+": user-scope only — a folder on it decides which program "+
 			"`yolo host` runs, so it is read from "+paths.UserConfigDisplayPath()+" and a workspace value "+
-			"has no effect. Move it there, or remove it.")
+			"refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -904,7 +904,7 @@ func validatePromotionTarget(config *jsonx.OrderedMap, workspace string, errs *[
 	if wsValue, atWorkspace := wsCfg.Get(promotionTargetKey); atWorkspace && wsValue != nil {
 		add(errs, "config."+promotionTargetKey+": user-scope only — it selects the pack "+
 			"that receives your captured personal settings, so it is read from "+paths.UserConfigDisplayPath()+
-			" and a workspace value has no effect. Move it there, or remove it.")
+			" and a workspace value refuses the launch. Move it there, or remove it.")
 	}
 }
 
@@ -1250,12 +1250,10 @@ func validateLSPServers(config *jsonx.OrderedMap, errs *[]string) {
 // steps (docs/design/mcp-presets-removal.md §13 step 3). `yolo host apply`, which runs no full
 // validation, names it too (composeHostInputs).
 const MCPPresetsRetiredMessage = "config.mcp_presets: REMOVED — yolo no longer keeps its own list of MCP servers. " +
-	"Delete the key. For the browser (`chrome-devtools`), add `chrome-devtools` to `packs` in " +
-	"~/.config/yolo-jail/config.jsonc (beside your agents, e.g. " +
-	`["claude", "chrome-devtools"]); a workspace file cannot select it. For ` +
-	"`sequential-thinking`, which was deleted, write the server yourself: " +
-	`"mcp_servers": {"sequential-thinking": {"command": "npx", "args": ["-y", ` +
-	`"@modelcontextprotocol/server-sequential-thinking"]}}. Then run ` + "`yolo check`."
+	"Delete the key. For the browser (`chrome-devtools`), run `yolo pack add chrome-devtools` on " +
+	"the host; a workspace file cannot select it. For `sequential-thinking`, which was deleted, " +
+	"add the server yourself: `yolo config set mcp_servers.sequential-thinking.command " +
+	`'["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]'` + "`. Then run `yolo check`."
 
 // validateMCPPresetsRetired reports the DELETED top-level `mcp_presets` key (2026-10-23,
 // docs/design/mcp-presets-removal.md §13 step 3, ruled at docs/reference/pack-system.md#oq-pk1).
@@ -1852,7 +1850,7 @@ func validateCacheRelocations(config *jsonx.OrderedMap, workspace string, errs, 
 	if wsCfg, err := loadValidationWorkspaceConfig(workspace, edit...); err == nil && wsCfg != nil {
 		if _, atWorkspace := wsCfg.Get(cacheRelocationsKey); atWorkspace {
 			add(errs, "config."+cacheRelocationsKey+": user-scope only — move it to "+
-				"~/.config/yolo-jail/config.jsonc (a workspace config is "+
+				paths.UserConfigDisplayPath()+" (a workspace config is "+
 				"agent-editable, so it cannot grant read-write host mounts)")
 		}
 	}

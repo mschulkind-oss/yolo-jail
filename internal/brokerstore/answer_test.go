@@ -22,7 +22,7 @@ func answerFixture(t *testing.T) (*Store, Request, *time.Time) {
 	s := &Store{Dir: t.TempDir(), Source: "github", Revalidate: unchangedPolicy, PublishRecords: true,
 		Now:           func() time.Time { return now },
 		PublishFailed: func(_ Request, err error) { t.Errorf("publish failed: %v", err) },
-		Entries: func(q Request, _ bool) ([]WorkingEntry, error) {
+		Entries: func(q Request) ([]WorkingEntry, error) {
 			return []WorkingEntry{{Workspace: q.Workspace, Repo: q.Repo, Kind: WorkingBranch, Resource: "refs/heads/agent/x", By: "human"}}, nil
 		}}
 	in := spendOrFileRequest()

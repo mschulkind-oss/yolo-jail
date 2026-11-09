@@ -313,7 +313,7 @@ func TestAProfileChoiceOverridesTheImportedHostSettingsInAJail(t *testing.T) {
 	for _, want := range []string{
 		"claude/settings: your host ~/.claude/settings.json sets env.CLAUDE_CODE_USE_BEDROCK = \"1\"",
 		"provider selection decides that key", "Your host file is unchanged",
-		"select a profile that sets it"} {
+		"choose a provider that sets it with `yolo active-provider"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the boot must name the override (%q):\n%s", want, stderr)
 		}

@@ -148,7 +148,7 @@ func goCAFileLine(state goCAFileState, n int, fromLogin []string) string {
 			"sandbox account and do not trust the " +
 			plural(len(fromLogin), "certificate authority", "certificate authorities") +
 			" from your login keychain (" + login + "); tools that read a CA file, such as curl, git, " +
-			"Node and Python, do. Remove that setting from env_sources and launch again to have Go " +
+			"Node and Python, do. Remove that setting from `env.set`, or the file under `env.files` that sets it, and launch again to have Go " +
 			"programs trust " + plural(len(fromLogin), "it", "them") + " too."
 	}
 	return ""

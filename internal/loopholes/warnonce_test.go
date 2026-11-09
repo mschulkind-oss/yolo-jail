@@ -42,7 +42,7 @@ func TestAMissingModuleDirIsReportedOncePerLaunchNotOncePerDiscovery(t *testing.
 
 	said := 0
 	for _, w := range *warnings {
-		if strings.Contains(w, gone) && strings.Contains(w, "is not a directory") {
+		if strings.Contains(w, gone) && strings.Contains(w, "does not exist") {
 			said++
 		}
 	}
@@ -109,7 +109,7 @@ func TestConcurrentDiscoveriesSayEachLineOnceWithoutRacing(t *testing.T) {
 
 	missing := 0
 	for msg, n := range said {
-		if strings.Contains(msg, gone) && strings.Contains(msg, "is not a directory") {
+		if strings.Contains(msg, gone) && strings.Contains(msg, "does not exist") {
 			missing += n
 		}
 		if n != 1 {

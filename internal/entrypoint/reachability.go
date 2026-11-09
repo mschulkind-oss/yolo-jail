@@ -572,7 +572,7 @@ func unusableServicesLead(d loopbackDisposition, names []string, native bool) st
 // trustworthy. It mirrors the stale-image report's "CONTINUING ON A STALE IMAGE",
 // including the part that matters most: nothing was repaired.
 func unusableOverrideNotice(names []string) string {
-	return "warning: " + paths.AllowUnreachableServicesEnv + " is set — CONTINUING with " +
+	return "warning: " + paths.AllowUnreachableServicesEnv + " is set — CONTINUING although " +
 		serviceListPhrase(names) + " unusable from inside this jail.\n" +
 		"  Nothing was repaired; the launch was merely allowed to proceed, and every\n" +
 		"  in-jail client of those services will still fail. Unset it to have an\n" +

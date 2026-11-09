@@ -106,7 +106,7 @@ func TestASelectedBrokerPackPutsTheBrokerInPlay(t *testing.T) {
 				"reached=%v\n%s", l.rc, l.reached, l.out)
 		}
 		for _, want := range []string{"github-broker repository scope, read from", `+ o/r  remote "origin"  added`,
-			"--accept-config-changes", "take the pack that ships it out of `packs`"} {
+			"--accept-config-changes", "run `yolo pack remove github` on the host"} {
 			if !strings.Contains(l.out, want) {
 				t.Errorf("the refusal does not show %q:\n%s", want, l.out)
 			}

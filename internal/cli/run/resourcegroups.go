@@ -78,7 +78,7 @@ func (o *Options) refuseUnsupportedResourceGroup(cfg *jsonx.OrderedMap) bool {
 		}
 	}
 	o.pr(o.Stderr).printf("[bold red]Resource group %q selected via %s, but placement is unsupported/unknown; this launch was not started.[/bold red]", richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)))
-	o.pr(o.Stderr).print("Run `yolo check --no-build` to inspect the selection and supported placement, or remove the mapping with `yolo config unset --user resource_groups`.")
+	o.pr(o.Stderr).print("This build cannot place a launch in a resource group, so every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`.")
 	return true
 }
 
@@ -115,6 +115,6 @@ func RefuseHostResourceGroup(errw io.Writer, cfg *jsonx.OrderedMap) bool {
 		return false
 	}
 	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s, but host placement is unsupported/unknown; command was not started.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source))
-	fmt.Fprintln(errw, "Run `yolo check --no-build` to inspect the selection and supported placement, or remove the mapping with `yolo config unset --user resource_groups`.")
+	fmt.Fprintln(errw, "This build cannot place a launch in a resource group, so every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`.")
 	return true
 }

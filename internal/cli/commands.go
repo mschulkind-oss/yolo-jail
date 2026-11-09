@@ -910,7 +910,7 @@ const initUserConfigUsage = `Usage: yolo init-user-config
 
 Write the USER-level defaults at ~/.config/yolo-jail/config.jsonc — the settings
 every workspace on this machine inherits (packs, runtime, resources, loopholes),
-which a workspace's own yolo-jail.jsonc then narrows. An existing file is left
+which a workspace's own yolo-jail.toml then narrows. An existing file is left
 untouched.
 
   --help, -h  Show this help. Answered before the file is written.
@@ -943,8 +943,8 @@ func isTTYStdout() bool {
 const configRefUsage = `Usage: yolo config-ref
 
 Print the full configuration reference: every key accepted by a workspace
-yolo-jail.jsonc and by ~/.config/yolo-jail/config.jsonc, with its type, default
-and meaning. This is the schema document, and it is long — pipe it, or search it.
+yolo-jail.toml and by ~/.config/yolo-jail/config.toml (or their older .jsonc
+forms), with its type, default and meaning. This is the schema document, and it is long — pipe it, or search it.
 
   --help, -h  Show this help. The reference ITSELF is what a bare
               ` + "`yolo config-ref`" + ` prints; this only describes the command.

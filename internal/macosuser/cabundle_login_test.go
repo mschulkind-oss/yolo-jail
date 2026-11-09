@@ -149,7 +149,7 @@ func TestALaunchTrustsAndNamesTheLoginKeychainsCA(t *testing.T) {
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("the launch does not say %q:\n%s", want, out.String())
 	}
-	if !strings.Contains(out.String(), "6 more in them were left out") {
+	if !strings.Contains(out.String(), "6 more certificate authorities in this Mac's System keychain and your login keychain were left out") {
 		t.Errorf("the left-out count does not cover both keychains:\n%s", out.String())
 	}
 	// THE SEPARATE ACCOUNT'S GO PROGRAMS (PS-D17, cagodebug.go): told to verify against the bundle,

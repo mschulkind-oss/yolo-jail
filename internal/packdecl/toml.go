@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1851,9 +1852,38 @@ func locateTOMLProblems(messages []string, groups []groupedContribution, root ma
 		if !strings.HasPrefix(message, ManifestTOMLName+":") && !strings.HasPrefix(message, ManifestTOMLName+" ") {
 			message = ManifestTOMLName + ": " + message
 		}
-		out[i] = message
+		out[i] = tomlSpelling(message, groups)
 	}
 	return out
+}
+
+var (
+	jsonKindWord       = regexp.MustCompile(`kind "([a-z][a-z0-9-]*)"`)
+	jsonContributionAt = regexp.MustCompile(`contributes\[(\d+)\]`)
+)
+
+// tomlSpelling rewrites the JSON manifest's words left in a problem's body into what a pack.toml
+// author can find: `kind "mcp-auth"` becomes `[[mcp_auth]]` and `contributes[1]` the group's own
+// key (`blocked_tool[0]`). A kind or index with no TOML group is left as written.
+func tomlSpelling(message string, groups []groupedContribution) string {
+	message = jsonKindWord.ReplaceAllStringFunc(message, func(m string) string {
+		kind := Kind(jsonKindWord.FindStringSubmatch(m)[1])
+		group := strings.ReplaceAll(string(kind), "-", "_")
+		if kind == KindConfigOverlay {
+			group = "overlay"
+		}
+		if groupKind(group) != kind {
+			return m
+		}
+		return "[[" + group + "]]"
+	})
+	return jsonContributionAt.ReplaceAllStringFunc(message, func(m string) string {
+		n, err := strconv.Atoi(jsonContributionAt.FindStringSubmatch(m)[1])
+		if err != nil || n < 0 || n >= len(groups) || groups[n].location.Key == "" {
+			return m
+		}
+		return groups[n].location.Key
+	})
 }
 
 func launchDiagnosticLocation(message string, groups []groupedContribution) (ManifestLocation, bool) {

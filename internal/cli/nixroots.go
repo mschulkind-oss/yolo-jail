@@ -108,7 +108,7 @@ func nixRootsMain(args []string, env nixRootsEnv, out, errw io.Writer) int {
 	}
 	if env.workspace == "" {
 		fmt.Fprintln(errw, "yolo nix-roots: no workspace here. Run it from inside a workspace yolo "+
-			"has launched (one with a .yolo directory or a yolo-jail.jsonc).")
+			"has launched, or one with a yolo-jail.toml.")
 		return 1
 	}
 	sub, flags := rest[0], rest[1:]

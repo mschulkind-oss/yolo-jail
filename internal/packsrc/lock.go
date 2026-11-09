@@ -87,6 +87,10 @@ func newerSchemaError(path string, got, want int) error {
 // LockName is the pack lockfile's name, beside the user config.
 const LockName = "packs.lock.json"
 
+// IssuesURL is where a refusal only a yolo bug can cause sends its reader (entrypoint.IssuesURL
+// spells the same address for the launchers).
+const IssuesURL = "https://github.com/mschulkind-oss/yolo-jail/issues"
+
 // LockPath returns the lockfile path beside a user config path.
 func LockPath(userConfigPath string) string {
 	return filepath.Join(filepath.Dir(userConfigPath), LockName)

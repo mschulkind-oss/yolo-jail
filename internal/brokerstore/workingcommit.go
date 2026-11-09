@@ -86,8 +86,10 @@ func validWorkingDecisionEntry(q Request, e WorkingEntry, add bool) error {
 	if e.Kind == "" {
 		e.Kind = WorkingBranch
 	}
-	if e.Kind == WorkingTag && add {
-		return errors.New("a tag never joins the working set for good: its entry needs an expiry")
+	// A lasting entry holds a branch, a PR or an issue; every other kind is timed. No answer
+	// records one now that `--add` is removed (GB-D28), so this guards the store's own seam.
+	if add && e.Kind != WorkingBranch && e.Kind != WorkingPR && e.Kind != WorkingIssue {
+		return fmt.Errorf("a %s entry never joins the working set for good: its entry needs an expiry", e.Kind)
 	}
 	return checkWorkingKind(e)
 }

@@ -177,10 +177,9 @@ func (r *ResolveRefusal) Error() string { return r.Message }
 func (s Settings) Resolve() (Config, error) {
 	profile := strings.TrimSpace(s.Profile)
 	if profile == "" {
-		return Config{}, &ResolveRefusal{Kind: RefusalMissingProfile, Message: fmt.Sprintf("no AWS profile is configured: set %s in your USER config "+
-			"(~/.config/yolo-jail/config.jsonc) to the profile this service should resolve. It is "+
-			"user-scope on purpose — a workspace yolo-jail.jsonc is a file the jail's own agent can "+
-			"rewrite", settingsScope(SettingProfile))}
+		return Config{}, &ResolveRefusal{Kind: RefusalMissingProfile, Message: "no AWS profile is configured. Next: run " +
+			"`yolo config set allow.aws-auth.profile <profile> --user` on the host, naming the profile this service " +
+			"should resolve. It is user-scope on purpose — a workspace config is a file the jail's own agent can rewrite"}
 	}
 	role := strings.TrimSpace(s.RoleARN)
 	policy := strings.TrimSpace(s.SessionPolicy)

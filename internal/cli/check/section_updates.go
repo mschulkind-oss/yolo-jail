@@ -51,7 +51,7 @@ func (o *Options) sectionUpdates(r *reporter) {
 		case selfupdate.KindArchive:
 			remedy = selfupdate.ReleasesPage
 		case selfupdate.KindGoInstall, selfupdate.KindPipx, selfupdate.KindUV:
-			remedy = "Update the host binary and its separate jail source together."
+			remedy = "Reinstall yolo from Homebrew or a release archive: " + selfupdate.ReleasesPage + "."
 		}
 		r.warn(strings.TrimSuffix(selfupdate.Notice(st), " — run `yolo update`")+" (checked "+age+" ago)", remedy)
 	default:

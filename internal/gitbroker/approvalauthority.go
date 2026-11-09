@@ -178,14 +178,10 @@ func ApprovalStore() *brokerstore.Store {
 		Entries: pushEntries, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
 }
 
-// pushEntries is the working-set entries `yolo approve <id> --for` (add false, timed) or
-// `--add` (add true) records for push request q: one per ref the request needed approval for
-// (every ref when the request does not say), in q's workspace and repository (GB-D26).
-//
-// Add does not apply to a tag (the working set holds branches, GB-D11, GB-D18) nor to a branch
-// creation (a lasting right to create is a user grant, BB-D90); either refuses, naming the
-// answer that does apply. A timed answer applies to both.
-func pushEntries(q brokerstore.Request, add bool) ([]brokerstore.WorkingEntry, error) {
+// pushEntries is the timed working-set entries `yolo approve <id> --for <duration>` records for
+// push request q: one per ref the request needed approval for (every ref when the request does
+// not say), in q's workspace and repository (GB-D26). A tag's entry is of the tag kind.
+func pushEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 	if err := checkPushArgv(q.Argv); err != nil {
 		return nil, err
 	}
@@ -204,18 +200,8 @@ func pushEntries(q brokerstore.Request, add bool) ([]brokerstore.WorkingEntry, e
 			continue
 		}
 		e := brokerstore.WorkingEntry{Workspace: q.Workspace, Repo: q.Repo, Kind: brokerstore.WorkingBranch, Resource: c.Ref, By: "human"}
-		switch {
-		case strings.HasPrefix(c.Ref, "refs/tags/"):
-			if add {
-				return nil, fmt.Errorf("--add is not available for %s: the working set holds branches, never tags. "+
-					"Next: run `yolo approve %s --for 15m` to allow pushes to the tag for 15 minutes, or `yolo approve %s` to Allow once, "+
-					"or give a release agent a `tag` grant in the workspace config", c.Ref, q.ID, q.ID)
-			}
+		if strings.HasPrefix(c.Ref, "refs/tags/") {
 			e.Kind = brokerstore.WorkingTag
-		case add && c.Create():
-			return nil, fmt.Errorf("--add is not available for %s: it is a new branch, and a lasting right to create is a "+
-				"user grant. Next: run `yolo approve %s --for 15m` (the branch joins the working set once the push creates it), "+
-				"or `yolo approve %s` to Allow once", c.Ref, q.ID, q.ID)
 		}
 		out = append(out, e)
 	}

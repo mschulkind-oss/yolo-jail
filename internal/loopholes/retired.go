@@ -114,9 +114,8 @@ func RetiredUserLoopholeNotice() string {
 	b.WriteString("  mkdir -p " + shquote.Quote(filepath.Join(local, "loopholes")) + "\n")
 	b.WriteString("  mv " + shquote.Quote(dir) + "/<name> " +
 		shquote.Quote(filepath.Join(local, "loopholes")) + "/<name>\n")
-	b.WriteString("then declare each one in " + filepath.Join(local, "pack.json") + ":\n")
-	b.WriteString(`  {"name": "local", "contributes": [{"kind": "loophole", "from": "loopholes/` +
-		name + `"}]}` + "\n")
+	b.WriteString("then declare each one in " + filepath.Join(local, "pack.toml") + ":\n")
+	b.WriteString("  name = \"local\"\n\n  [[loophole]]\n  from = \"loopholes/" + name + "\"\n")
 	// The subset is the one thing that can still fail AFTER a correct move, so it is
 	// named here rather than left for the user to hit as a load error: a pack's
 	// loophole is held to the pack-shipped subset (docs/reference/loophole-system.md#the-pack-shipped-subset)

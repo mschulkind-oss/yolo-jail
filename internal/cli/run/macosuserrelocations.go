@@ -91,8 +91,9 @@ func (o *Options) planMacosUserCacheRelocations(links []macosuser.ContextLink) (
 		out.print("On macos-user a relocation is a link in the sandbox account's ~/.cache to the " +
 			"folder itself, and the Seatbelt profile opens that folder, so it must be one the " +
 			"sandbox account can reach and that nothing else it uses overlaps: outside every home " +
-			"and outside the workspace, on this disk or on one volume under /Volumes. Point the " +
-			"entry in ~/.config/yolo-jail/config.jsonc at such a folder, remove it, or use " +
+			"and outside the workspace, on this disk or on one volume under /Volumes. Point the entry " +
+			"at such a folder with `yolo config set cache_relocations.<subdir> '\"<folder>\"' --user`, remove it with " +
+			"`yolo config unset cache_relocations.<subdir> --user`, or use " +
 			"`yolo --setup podman-self`, which mounts it instead.")
 		return nil, false
 	}
@@ -142,8 +143,9 @@ func (o *Options) planMacosUserCacheRelocations(links []macosuser.ContextLink) (
 		out.print("[bold red]Refusing the macos-user launch: " + ensureErr.Error() + "[/bold red]")
 		out.print("yolo creates only a relocation's last folder, as you, and never more. Create the " +
 			"folder yourself (`sudo mkdir` and `sudo chown \"$USER\"` it, if only an administrator " +
-			"may write the folder above it), point the entry in ~/.config/yolo-jail/config.jsonc at " +
-			"a folder you can create, or remove the entry.")
+			"may write the folder above it), point the entry at a folder you can create with " +
+			"`yolo config set cache_relocations.<subdir> '\"<folder>\"' --user`, or remove the entry with " +
+			"`yolo config unset cache_relocations.<subdir> --user`.")
 		return nil, false
 	}
 	return relocs, true

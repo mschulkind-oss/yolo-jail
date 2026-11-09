@@ -38,7 +38,7 @@ func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 		t.Fatalf("host refusal contains raw terminal control: %q", got)
 	}
 	visible := strings.ReplaceAll(got, "\u2060", "")
-	for _, want := range []string{"[bold red]project\\x1b[31m[/bold red]", "safe.slice"} {
+	for _, want := range []string{"[bold red]project\\x1b[31m[/bold red]", "safe.slice", "This build cannot place a launch in a resource group"} {
 		if !strings.Contains(visible, want) {
 			t.Errorf("host refusal lost visible dynamic text %q: %q", want, got)
 		}
@@ -252,7 +252,7 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 	if rc := Run(*o); rc != 1 {
 		t.Fatalf("Run() = %d, want refusal\nstderr:\n%s", rc, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), `forms.slice`) || !strings.Contains(stderr.String(), `yolo check --no-build`) || !strings.Contains(stderr.String(), `unsupported/unknown`) {
+	if !strings.Contains(stderr.String(), `forms.slice`) || !strings.Contains(stderr.String(), `yolo config unset --user resource_groups`) || !strings.Contains(stderr.String(), `unsupported/unknown`) {
 		t.Fatalf("resource-group refusal lacks selected identity, unsupported state, or next step:\n%s", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), `Read-only I/O child plan (not applied or enforced)`) || !strings.Contains(stderr.String(), `8:0 rbps: finite assigned 101`) {

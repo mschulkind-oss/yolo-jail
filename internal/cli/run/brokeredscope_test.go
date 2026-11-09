@@ -196,6 +196,29 @@ func TestADeclineNamesTheNextStep(t *testing.T) {
 	}
 }
 
+// A decline names the pack that ships the broker, with the command that deselects it, when the
+// launch knows the pack: "take the pack that ships it out of `packs`" left the reader to find it.
+func TestADeclinedScopeNamesThePackThatShipsTheBroker(t *testing.T) {
+	o, buf, _ := brokeredFixture(t)
+	mods := loopholes.PackModules()
+	for i := range mods {
+		mods[i].Pack = "gb-pack"
+	}
+	loopholes.SetPackModules(mods)
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("n\n")
+	if o.checkConfigChanges(gbOn(), "podman") {
+		t.Fatalf("an `n` was accepted:\n%s", buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "To launch without gb instead, run `yolo pack remove gb-pack` on the host") {
+		t.Errorf("the decline does not name the pack that ships the broker:\n%s", out)
+	}
+	if strings.Contains(out, "take the pack that ships it") {
+		t.Errorf("the decline still leaves the pack unnamed:\n%s", out)
+	}
+}
+
 // The gate reads the workspace's remotes when a brokered loophole will start, puts the
 // labeled scope block in front of the reader, and a launch with no terminal refuses.
 func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {

@@ -1171,7 +1171,7 @@ Checked and true: the `GODEBUG` line's claims (Go 1.27, `x509sslcertoverrideplat
 
 ## Wrong today
 
-- **`--add` refusal text is unreachable and names a removed flag.**
+- **`--add` refusal text is unreachable and names a removed flag.** *Fixed in `de5c3a223`.*
   - `yolo approve` refuses `--add` before any store call (`internal/cli/approveremoved_test.go` pins this), so `Decision.Add` is never true. These branches can never print:
     - `internal/ghbroker/approvalstore.go:53`, `:59` and `:72` ("--add is not available for …")
     - `internal/gitbroker/approvalauthority.go:210` and `:216`
@@ -1179,18 +1179,18 @@ Checked and true: the `GODEBUG` line's claims (Go 1.27, `x509sslcertoverrideplat
   - If they ever did print, they would tell the human about a flag that no longer exists.
   - `internal/brokerstore/store.go:1123` ("choose Add, or a positive duration") is reachable through `--deny`, `--session` or `--uses` on a per-resource request, and it tells the human to "choose Add".
   - *Fix:* delete the `add` branches, and reword `:1123` as "this request takes `yolo approve <id>`, `--for <duration>` or `--deny`".
-- **macOS memory guard names `yolo-jail.jsonc`.** These lines tell users to edit `yolo-jail.jsonc`. A converted workspace has `yolo-jail.toml` instead, so the advice points at a file that is not there.
+- **macOS memory guard names `yolo-jail.jsonc`.** These lines tell users to edit `yolo-jail.jsonc`. A converted workspace has `yolo-jail.toml` instead, so the advice points at a file that is not there. *Fixed in `de5c3a223`.*
   - `internal/macosuser/sessionguard.go:381`, `:430` and `:443`
   - The key there is `machine.resources.memory`, and its value is a size such as `16g`, not a byte count.
-- **The AWS profile refusal names `~/.config/yolo-jail/config.jsonc` and a legacy key.** A migrated user config is `config.toml`, and the key there is `allow.aws-auth.profile`, not `loopholes.aws-auth.settings.profile`. The daemon's startup path already avoids this text, but `yolo check` prints it through the self-check.
+- **The AWS profile refusal names `~/.config/yolo-jail/config.jsonc` and a legacy key.** A migrated user config is `config.toml`, and the key there is `allow.aws-auth.profile`, not `loopholes.aws-auth.settings.profile`. The daemon's startup path already avoids this text, but `yolo check` prints it through the self-check. *Fixed in `de5c3a223`.*
   - `internal/awsauth/settings.go:180`, printed by `internal/awsauthdaemon/main.go:483`
-- **The CA hint gives JSON syntax for `env_sources`.** It writes `{"SSL_CERT_FILE": "<that file>"}`, a JSON fragment, which a TOML config cannot take as written. The right form is `yolo config set env.set.SSL_CERT_FILE <file>`. `cagodebug.go:151` names `env_sources` the same way.
+- **The CA hint gives JSON syntax for `env_sources`.** It writes `{"SSL_CERT_FILE": "<that file>"}`, a JSON fragment, which a TOML config cannot take as written. The right form is `yolo config set env.set.SSL_CERT_FILE <file>`. `cagodebug.go:151` names `env_sources` the same way. *Fixed in `de5c3a223`.*
   - `internal/macosuser/cabundle.go:615`
   - `internal/macosuser/cagodebug.go:151`
-- **The GitHub sets refusals name the legacy key, and no verb can carry out their advice.** `internal/ghbroker/authority.go:98` says `brokered.github.sets`; a TOML user config spells it `allow.github.sets`. Removing an entry from that list, or the whole list, has no command: `yolo config unset` refuses `allow.*.*` keys, whose type is Any. That breaks "advice names a verb" (`AGENTS.md`). *Owner decision:* a removal verb for `allow.<pack>.<setting>` lists, or an accepted exception that names the file.
-- **macOS guest refusal names a config key that does not exist.** `internal/macosuser/orchestrator.go:1796` says to set `"loopholes": {"host-processes": {"enabled": false}}`. `loopholes` is not in the readable schema, and `host-processes` and `serial` have no off switch, so the only way past is to deselect the pack.
-- **The macOS CA disclosure credits a keychain it could not read.** In the caller-bundle case with a System keychain read error, the main line says "This Mac's System keychain and your login keychain trust N certificate authorities". See the rendered section.
-- **Read grant: "then relaunch" is wrong where scope is live (settled).** `internal/gitbroker/access.go:112` tells the agent to ask for `yolo allow git fetch`, "then relaunch". On Linux podman and on macos-user no relaunch is needed:
+- **The GitHub sets refusals name the legacy key, and no verb can carry out their advice.** `internal/ghbroker/authority.go:98` says `brokered.github.sets`; a TOML user config spells it `allow.github.sets`. Removing an entry from that list, or the whole list, has no command: `yolo config unset` refuses `allow.*.*` keys, whose type is Any. That breaks "advice names a verb" (`AGENTS.md`). *Owner decision:* a removal verb for `allow.<pack>.<setting>` lists, or an accepted exception that names the file. *Fixed in `de5c3a223`: `yolo config unset` now removes an `allow.<pack>.<key>` setting.*
+- **macOS guest refusal names a config key that does not exist.** `internal/macosuser/orchestrator.go:1796` says to set `"loopholes": {"host-processes": {"enabled": false}}`. `loopholes` is not in the readable schema, and `host-processes` and `serial` have no off switch, so the only way past is to deselect the pack. *Fixed in `de5c3a223`.*
+- **The macOS CA disclosure credits a keychain it could not read.** In the caller-bundle case with a System keychain read error, the main line says "This Mac's System keychain and your login keychain trust N certificate authorities". See the rendered section. *Fixed in `de5c3a223`.*
+- **Read grant: "then relaunch" is wrong where scope is live (settled).** `internal/gitbroker/access.go:112` tells the agent to ask for `yolo allow git fetch`, "then relaunch". On Linux podman and on macos-user no relaunch is needed: *Fixed in `de5c3a223`, with `brokerscope/file.go:314`.*
   - The broker re-reads its scope file, grants included, on every call (`brokercore.Live` in `internal/brokercore/authority.go`; the git broker's fetch path reads it fresh at `internal/gitbroker/broker.go:461`–`:470`).
   - Run interactively, `yolo allow` ends by running `yolo config apply`'s gate (`allowApprovalGate` in `internal/cli/allow.go`). That gate rewrites the running broker's scope file through `brokerscope.ReplaceScopeContext` (`internal/cli/run/liveapply.go`).
   - It does so only where the launch recorded `LiveScope`: `rt == "podman" && !o.IsMacOS || rt == "macos-user"` (`internal/cli/run/mechanicsfacts.go:68`). On podman on macOS (and Apple Container) a restart is still needed.
@@ -1198,11 +1198,11 @@ Checked and true: the `GODEBUG` line's claims (Go 1.27, `x509sslcertoverrideplat
   - *Fix:* build `access.go:112`'s `Next` from the same `f.LiveScope` switch, or call `BrokerNoReadRefusal`'s advice directly.
   - `internal/ghbroker/access.go:97` and `:99` ("…then relaunch") are correct as written. They fire when the GitHub broker started with no usable `gh`, and that is decided once, when the broker starts.
   - `internal/brokerscope/file.go:314` ("relaunch the jail to approve its scope") has the same flaw for a repository that left the scope. It is a narrow race path; see "Scope-file refusals that say relaunch".
-- **`just install` advice for non-checkout installs.** These lines tell every user to "reinstall yolo with `just install`". A Homebrew or release-archive user has no checkout, so `just` is not available to them. The advice is only true for developers.
+- **`just install` advice for non-checkout installs.** These lines tell every user to "reinstall yolo with `just install`". A Homebrew or release-archive user has no checkout, so `just` is not available to them. The advice is only true for developers. *Fixed in `90b74519d`.*
   - `internal/reporoot/reporoot.go:70` and `:90` ("cannot locate the running yolo executable")
   - `internal/selfupdate/apply.go:103` (`binaryOnlyUpdateError`) also mentions the retired `YOLO_REPO_ROOT`, which a uv user never set.
-- **`callbroker` "retry" steps that cannot succeed.** Many lines end in "check the selected pack and retry" or "fix the selected pack and retry", in `classifier.go`, `http.go`, `http_native.go` and `handler.go`. They fire on a pack's classifier answering wrongly. That fails the same way every time, so "retry" is misleading. See P5.
-- **`callbroker/handler.go:207`: "Wait for pack broker approval policy and host activation before retrying".** Nothing the user or agent can wait for will turn this on in the current build. The writes path is hard-off, so the step is false as written.
+- **`callbroker` "retry" steps that cannot succeed.** Many lines end in "check the selected pack and retry" or "fix the selected pack and retry", in `classifier.go`, `http.go`, `http_native.go` and `handler.go`. They fire on a pack's classifier answering wrongly. That fails the same way every time, so "retry" is misleading. See P5. *Fixed in `de5c3a223`.*
+- **`callbroker/handler.go:207`: "Wait for pack broker approval policy and host activation before retrying".** Nothing the user or agent can wait for will turn this on in the current build. The writes path is hard-off, so the step is false as written. *Fixed in `de5c3a223`.*
 
 ## Not covered (honest)
 

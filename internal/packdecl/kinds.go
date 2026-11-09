@@ -476,7 +476,7 @@ var footprints = map[Kind]Footprint{
 	},
 	KindSkills: {
 		Kind: KindSkills, Combine: CombineMerge,
-		Claims: "a skills tree merged into an agent's skills dir (built-in < pack < user)",
+		Claims: "a skills tree merged into an agent's skills dir (workspace < built-in < packs < your local pack)",
 	},
 	KindBriefing: {
 		Kind: KindBriefing, Combine: CombineConcat,

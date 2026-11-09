@@ -49,6 +49,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -396,7 +397,8 @@ func adoptedSkillGroup(s *hostApplySurvey, home string, write bool) (remedyGroup
 		// archive, and the remedy above would be advice about a directory that is not there.
 		g.Remedy = ""
 		g.NoRemedy = "no local pack location could be resolved, so each one is ARCHIVED " +
-			"instead — nothing is deleted, and nothing composes it back either"
+			"instead, under " + prettyHomePath(home, string(hostArchiveRoot(string(packdecl.KindSkills)))) +
+			" — nothing is deleted, and nothing composes it back either"
 	}
 	return g, true
 }

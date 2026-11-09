@@ -88,6 +88,9 @@ func SchemaKeys() []SchemaKey {
 		"include_if_found.*", "required_capabilities.*", "adapters.*", "local_clones.*",
 		"host_import_exclusions.*", "host_path.*", "security.blocked_tools.*",
 		"packages.*.outputs.*", "packages.*.platforms.*",
+		// The per-pack `host_floor` opt-out, so `yolo config set host_floor.<pack> false --user`
+		// can write the step the floor refusals name.
+		"host_floor.*",
 	} {
 		add(path)
 	}
@@ -532,7 +535,8 @@ func legacySchemaType(path string) SchemaType {
 		"devices", "packages.*.outputs", "packages.*.platforms", "host_path", "host_files":
 		return SchemaTypeList
 	case "mounts.*.optional", "programs.autoprune", "programs.overrides.*.prebuilt", "profiles.*.enforce_models",
-		"gpu.enabled", "gpu.seccomp_unconfined", "gpu.vaapi", "providers.*.models.*.reasoning", "loopholes.*.enabled":
+		"gpu.enabled", "gpu.seccomp_unconfined", "gpu.vaapi", "providers.*.models.*.reasoning", "loopholes.*.enabled",
+		"host_floor.*":
 		return SchemaTypeBoolean
 	case "providers.*.models.*.context_window", "providers.*.models.*.max_tokens",
 		"providers.*.models.*.cost.input", "providers.*.models.*.cost.output",

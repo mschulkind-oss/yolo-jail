@@ -532,8 +532,7 @@ func (k *keeper) run() int {
 	jm, err := startJailMain(runCmd, keeperStream{k.sink, frameJailStdout},
 		keeperStream{k.sink, frameJailStderr}, func() { o.Perf.Mark("jail_main.exited") })
 	if err != nil {
-		o.pr(o.Stderr).printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", p.Runtime)
-		o.pr(o.Stderr).print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
+		reportRuntimeStartError(o.pr(o.Stderr), p.Runtime, err)
 		return k.unwindUnstarted(1)
 	}
 	o.Perf.Mark("jail_main.spawned")

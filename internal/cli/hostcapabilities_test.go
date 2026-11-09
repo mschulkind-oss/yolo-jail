@@ -183,7 +183,7 @@ func TestHostLaunchRefusesMappedResourceGroupBeforeAgentExecution(t *testing.T) 
 	if rc != 1 || env != nil {
 		t.Fatalf("mapped unsupported host launch = rc %d, exec=%v; want refusal before exec\n%s", rc, env != nil, stderr)
 	}
-	for _, want := range []string{"work.slice", "unsupported/unknown", "yolo check --no-build"} {
+	for _, want := range []string{"work.slice", "unsupported/unknown", "yolo config unset --user resource_groups"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("host resource-group refusal lacks %q:\n%s", want, stderr)
 		}

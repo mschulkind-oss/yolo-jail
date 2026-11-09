@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -100,7 +101,7 @@ func RunStep(ctx context.Context, s Step, stdout, stderr io.Writer) error {
 }
 
 func binaryOnlyUpdateError(kind Kind, command string) error {
-	return fmt.Errorf("%s installs only the host binary and has no matched flake/helper bundle; YOLO_REPO_ROOT is obsolete and cannot supply the missing runtime pair. Updating one half would make launches incomplete. Build a matched development bundle with `just build-dev-bundle` and invoke its printed launcher path, or install both halves together with `just install` (%s)", kind, command)
+	return fmt.Errorf("%s installs only the host binary, without the build files each jail is made from, so `yolo update` does not run `%s`: it would update the binary alone. %s", kind, command, reporoot.ReinstallSteps)
 }
 
 // Apply updates ch by running Plan's steps, stopping at the first failure.
@@ -193,7 +194,7 @@ func Notice(s State) string {
 	case KindArchive:
 		return fmt.Sprintf("⬆ yolo-jail %s is available (this is %s) — download it from %s", s.Latest, s.Current, ReleasesPage)
 	case KindGoInstall, KindPipx, KindUV:
-		return fmt.Sprintf("⬆ yolo-jail %s is available (this is %s) — update the host binary and its separate jail source together", s.Latest, s.Current)
+		return fmt.Sprintf("⬆ yolo-jail %s is available (this is %s) — this install cannot update itself; reinstall from Homebrew or a release archive: %s", s.Latest, s.Current, ReleasesPage)
 	}
 	return fmt.Sprintf("⬆ yolo-jail %s is available (this is %s) — run `yolo update`", s.Latest, s.Current)
 }

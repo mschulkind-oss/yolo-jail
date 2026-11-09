@@ -35,7 +35,8 @@ a host terminal directly (not through ` + "`yolo host-run`" + `):
 
 Start ` + "`yolo wait <id>`" + ` in the background meanwhile: it exits 0 once the request
 is allowed, and then the same command runs. A standing ` + "`read-write`" + ` entry in
-` + "`brokered.github.sets`" + ` is refused; remove it. A configured ` + "`on_request`" + ` hook is
+` + "`allow.github.sets`" + ` is refused; remove it (` + "`yolo config unset allow.github.sets --user`" + `
+removes the whole list). A configured ` + "`on_request`" + ` hook is
 optional and its output alone is never consent. Commands that could print the credential or reach the host
 (auth token, --web, api to a URL, a host file, …) are refused with exit 64, as is anything outside
 the workspace's repositories. --jq and --template work as they do in gh.

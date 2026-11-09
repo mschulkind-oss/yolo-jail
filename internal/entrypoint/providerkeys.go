@@ -127,10 +127,10 @@ func noteHostProviderKeyDrops(e *Env, surface manifest.Surface, drops []agentcfg
 		}
 		e.warn(fmt.Sprintf("%s: your host %s sets %s = %s, and in a jail %s's provider selection "+
 			"decides that key, so this jail's copy leaves it out (it is absent unless the selected "+
-			"provider sets it). Your host file is unchanged; to use it here, select a profile that "+
-			"sets it (`yolo config-ref`: profile, providers).", surface.Agent+"/"+surface.Name,
+			"provider sets it). Your host file is unchanged; to use it here, choose a provider that "+
+			"sets it with `yolo active-provider %s <provider>` on the host.", surface.Agent+"/"+surface.Name,
 			surface.Path, pointerLabel(d.Pointer), logValue(pointerLabel(d.Pointer), d.Value),
-			surface.Agent))
+			surface.Agent, surface.Agent))
 	}
 }
 

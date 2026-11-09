@@ -578,9 +578,14 @@ func TestBackgroundPatchFailureSurvivesRecordSaveFailureAndClaim(t *testing.T) {
 				if err != nil || kept.PatchFailure == nil || kept.Log != backgroundAdvanceLog() {
 					t.Fatalf("the unclaimed .json lost typed evidence/log: %+v err=%v", kept, err)
 				}
-				withBackgroundKey(bg.fork.Key(), bg.fork.Label(), io.Discard, func(o *backgroundOutcome) {
+				var said strings.Builder
+				withBackgroundKey(bg.fork.Key(), bg.fork.Label(), &said, func(o *backgroundOutcome) {
 					o.State = bgNothing
 				})
+				// The line names the file it kept the failure in, not a bare ".json".
+				if got := said.String(); !strings.Contains(got, "in "+backgroundOutcomePath(bg.fork.Key())+" ") {
+					t.Fatalf("the kept-failure line does not name its file %s: %q", backgroundOutcomePath(bg.fork.Key()), got)
+				}
 				still, err := readBackgroundOutcome(backgroundOutcomePath(bg.fork.Key()))
 				if err != nil || still.Generation != kept.Generation || still.PatchFailure == nil {
 					t.Fatalf("a later background run overwrote the unclaimed typed failure: before=%+v after=%+v err=%v",

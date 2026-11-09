@@ -8963,7 +8963,7 @@
 "TestTheNextStartCollectsARunDirADeadOwnerLeft": 29
 },
 "internal/gitbroker": {
-"TestAddIsRefusedForATagAndANewBranchNamingFor": 67,
+"TestATagAndANewBranchTakeATimedAnswer": 67,
 "TestAllowOnceCreationJoinsTheWorkingSet": 67,
 "TestAllowOnceSpendsOnlyOnItsExactPush": 67,
 "TestAnyRepoBranchGrantCoversEveryRemote": 67,

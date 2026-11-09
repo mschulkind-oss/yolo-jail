@@ -72,5 +72,5 @@ func sectionResourceGroups(r *reporter, cfg *jsonx.OrderedMap, workspace string,
 		}
 	}
 	r.fail("Resource group selected: "+termsafe.Visible(selection.Unit)+" via "+termsafe.Visible(selection.Source)+"; placement unsupported/unknown",
-		"This build cannot verify host resource-group placement or policy. Remove the mapping with `yolo config unset --user resource_groups` or wait for a supported placement adapter; do not treat selection as enforcement.")
+		"This build cannot verify host resource-group placement or policy. Every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`; do not treat selection as enforcement.")
 }

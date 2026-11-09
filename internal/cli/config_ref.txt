@@ -2115,7 +2115,7 @@
                     preferred over a hint — a tool shipping its own installer ships its
                     own updater, while a distro package pins whatever that repo has.
                     So hints matter most on a need, where yolo installs nothing.
-      skills        {from (pack dir), into (~ dir)} — merged (built-in < pack < yours).
+      skills        {from (pack dir), into (~ dir)} — merged (workspace < built-in < packs < your local pack).
                     `from` IS honored, at both notches and by wrapped-plugin discovery; it
                     defaults to skills/.  A `from` naming a dir the pack lacks delivers
                     nothing and says so; an absent CONVENTIONAL skills/ is silent.

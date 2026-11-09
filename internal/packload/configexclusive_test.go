@@ -60,8 +60,8 @@ func TestTwoPacksOneSurfaceCollidesNamingBoth(t *testing.T) {
 	}
 	for _, want := range []string{
 		"claude", "claude-fzf", // both culprits
-		"config-overlay",    // the correct expression
-		"\"surface\":",      // …shown as a shape the author can copy
+		"config-overlay",                                                      // the correct expression
+		"[[overlay]]", "surface = \"claude/settings\"", "set.<key> = <value>", // …in the pack.toml form an author writes
 		"mode",              // what silently changed
 		"\"stateful\"",      // from
 		"\"rmw\"",           // to

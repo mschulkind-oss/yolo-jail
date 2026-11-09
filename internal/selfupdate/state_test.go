@@ -303,7 +303,7 @@ func TestNotice(t *testing.T) {
 		{State{Kind: KindHomebrew, Latest: "0.11.0", Current: "0.10.0"},
 			"⬆ yolo-jail 0.11.0 is available (this is 0.10.0) — run `yolo update`"},
 		{State{Kind: KindGoInstall, Latest: "0.11.0", Current: "0.10.0"},
-			"⬆ yolo-jail 0.11.0 is available (this is 0.10.0) — update the host binary and its separate jail source together"},
+			"⬆ yolo-jail 0.11.0 is available (this is 0.10.0) — this install cannot update itself; reinstall from Homebrew or a release archive: " + ReleasesPage},
 		{State{Kind: KindArchive, Latest: "0.11.0", Current: "0.10.0"},
 			"⬆ yolo-jail 0.11.0 is available (this is 0.10.0) — download it from " + ReleasesPage},
 	}

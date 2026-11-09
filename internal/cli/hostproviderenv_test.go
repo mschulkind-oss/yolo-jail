@@ -93,7 +93,7 @@ func TestHostEnvScriptAppliesTheSelectedProviderEnvironment(t *testing.T) {
 				}
 			}
 			if !strings.Contains(errw.String(), "cleared ") ||
-				!strings.Contains(errw.String(), "select a profile that sets them") {
+				!strings.Contains(errw.String(), "choose a provider that sets them with `yolo active-provider") {
 				t.Errorf("stderr must explain the provider keys removed and how selection changes that:\n%s",
 					errw.String())
 			}
@@ -164,7 +164,7 @@ func TestHostLaunchMakesClaudesProviderVariablesTheSelections(t *testing.T) {
 			t.Errorf("a value the selection does not decide must stay the user's: %v", env)
 		}
 		if !strings.Contains(errs, "yolo host: cleared CLAUDE_CODE_USE_BEDROCK, ANTHROPIC_BASE_URL") ||
-			!strings.Contains(errs, "select a profile that sets them") {
+			!strings.Contains(errs, "choose a provider that sets them with `yolo active-provider") {
 			t.Errorf("the launch must say what it cleared and how to set it:\n%s", errs)
 		}
 	})

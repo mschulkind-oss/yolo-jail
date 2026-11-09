@@ -42,7 +42,7 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 		if b == nil {
 			continue
 		}
-		s := ScopeSource{Source: selected.Source, Label: selected.Label, RemoteHost: b.Scope.RemoteHost,
+		s := ScopeSource{Source: selected.Source, Label: selected.Label, Pack: selected.Pack, RemoteHost: b.Scope.RemoteHost,
 			Form: brokerscope.FormCallRoot, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
 			EntryKey: brokeredRootsPath(selected.Source)}
 		if b.HTTP != nil {

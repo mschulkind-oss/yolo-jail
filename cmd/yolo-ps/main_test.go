@@ -225,6 +225,14 @@ func TestYoloPsWithNoEndpointNamesTheRequest(t *testing.T) {
 			t.Errorf("stderr does not name %q:\n%s", want, stderr)
 		}
 	}
+	// `yolo request` refuses a loophole whose pack is not selected, so selecting the pack
+	// comes first, and the request is approved with `yolo config apply`.
+	if strings.Index(stderr, "yolo pack add") > strings.Index(stderr, "yolo request") {
+		t.Errorf("stderr names the request before the pack selection it needs:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "yolo config apply") {
+		t.Errorf("stderr does not say how the request is approved:\n%s", stderr)
+	}
 	for _, gone := range []string{"enabled", "config.jsonc", "visible"} {
 		if strings.Contains(stderr, gone) {
 			t.Errorf("stderr still teaches the retired recipe (%q):\n%s", gone, stderr)

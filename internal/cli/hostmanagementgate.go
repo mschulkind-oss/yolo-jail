@@ -131,8 +131,8 @@ func refuseHostCommandLaunch(errw io.Writer) bool {
 		state = "is \"none\" in " + paths.UserConfigDisplayPath()
 	}
 	fmt.Fprintf(errw, "yolo host: refusing to launch: host command launches require `host_management: \"own\"`; `host_management` %s. No command was started and yolo provided no host launch assistance.\n"+
-		"Set `\"host_management\": \"own\"` in %s to opt in. Separate host configuration and inspection commands use their own rules; `yolo host env` and `yolo host wrappers status` are not subject to this launch gate.\n",
-		state, paths.UserConfigDisplayPath())
+		"To opt in, run `%s`. Separate host configuration and inspection commands use their own rules; `yolo host env` and `yolo host wrappers status` are not subject to this launch gate.\n",
+		state, config.HostManagementOwnCommand)
 	return true
 }
 
@@ -181,7 +181,7 @@ func refuseHostManagement(out, errw io.Writer, format string) (int, bool) {
 // `"assert"`; otherwise mode and declared are hostManagementRefusal's.
 func hostManagementVerdict(mode config.HostManagement, declared, retired bool) string {
 	const own = `set it to "own" to have yolo compose your agents' config files from your packs`
-	path := paths.UserConfigPath()
+	path := paths.UserConfigDisplayPath()
 	switch {
 	case retired:
 		return `An --assert would REFUSE: host_management is the retired "assert" in ` + path +
@@ -205,6 +205,6 @@ func hostApplyStep(does string) string {
 	if config.HostManagementMode() == config.HostManagementOwn {
 		return "`yolo host apply --assert` " + does
 	}
-	return "`yolo host apply --assert` " + does + " once `\"host_management\": \"own\"` is set (under " +
+	return "`yolo host apply --assert` " + does + " once `" + config.HostManagementOwnCommand + "` has run (under " +
 		"\"none\", the default, it writes nothing)"
 }

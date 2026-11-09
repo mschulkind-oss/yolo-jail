@@ -300,7 +300,7 @@ func TestALaunchWritesTheCABundleBesideItsEnvFileAndNamesItsCAs(t *testing.T) {
 	}
 	for _, want := range []string{"Trusting 2 certificate authorities from this Mac's System keychain: " +
 		"Example Corp Inspection CA, Example Corp Any-Purpose CA.", "NIX_SSL_CERT_FILE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, " +
-		"GIT_SSL_CAINFO name " + bundle, NodeExtraCAVar + " names " + extras, "5 more in it were left out"} {
+		"GIT_SSL_CAINFO name " + bundle, NodeExtraCAVar + " names " + extras + ", which holds only these.", "5 more certificate authorities in this Mac's System keychain were left out"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the launch does not say %q:\n%s", want, out.String())
 		}
@@ -327,9 +327,9 @@ func TestAnUnreadableKeychainWarnsAndPointsAtThePublicRoots(t *testing.T) {
 	}
 	roots := testProfile + "/" + profileCABundleRel
 	for _, want := range []string{"could not read this Mac's System keychain (security: SecKeychainOpen failed)",
-		roots, `in env_sources: put a bundle holding it and the public roots in the workspace and set ` +
-			`{"SSL_CERT_FILE": "<that file>"}, which the other four follow, and ` +
-			`{"NODE_EXTRA_CA_CERTS": "<that file>"} for Node.`} {
+		roots, "can be named: put a bundle holding it and the public roots in the workspace, run " +
+			"`yolo config set env.set.SSL_CERT_FILE <that file>`, which the other four follow, and " +
+			"`yolo config set env.set.NODE_EXTRA_CA_CERTS <that file>` for Node."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("the warning does not carry %q:\n%s", want, out.String())
 		}
@@ -390,6 +390,26 @@ func TestTheDisclosureEscapesACAsName(t *testing.T) {
 		if user != nil && !strings.Contains(out.String(), "bold]corp") {
 			t.Errorf("the user's bundle path was interpreted rather than printed:\n%q", out.String())
 		}
+	}
+}
+
+// A KEYCHAIN THE LAUNCH COULD NOT READ IS NEVER CREDITED. With the System keychain unreadable,
+// the login keychain read, and the user's own bundle and Node file, the main line said "This
+// Mac's System keychain and your login keychain trust 1 certificate authority" right under the
+// warning that the System keychain could not be read.
+func TestTheDisclosureCreditsOnlyTheKeychainsItRead(t *testing.T) {
+	ca := CATrust{ProfileBundle: "/p/bundle", ReadError: "security: SecKeychainOpen failed", LoginRead: true,
+		Kept: []TrustedCA{{Name: "Dev CA"}}, Bundle: "x", Extras: "x"}
+	user := userCAEnv("SSL_CERT_FILE", "/mine.pem", NodeExtraCAVar, "/mine-node.pem")
+	env, bundle, extras, follows := applyCATrust(user, ca, "k")
+	var out bytes.Buffer
+	printCATrust(printer{w: &out}, ca, SandboxEnvFileContent(env), bundle, extras, follows)
+	got := out.String()
+	if !strings.Contains(got, "Your login keychain trusts 1 certificate authority for TLS (Dev CA)") {
+		t.Errorf("the main line does not credit the login keychain alone:\n%s", got)
+	}
+	if strings.Contains(got, "System keychain and your login keychain") {
+		t.Errorf("the main line credits the System keychain it could not read:\n%s", got)
 	}
 }
 
@@ -603,7 +623,7 @@ func TestALaunchWithAUserBundleNamesItForEveryTool(t *testing.T) {
 					t.Errorf("the launch does not say %q:\n%s", want, out.String())
 				}
 			}
-			if strings.Contains(out.String(), "env_sources: put a bundle") {
+			if strings.Contains(out.String(), "can be named: put a bundle") {
 				t.Errorf("the launch tells a user who set SSL_CERT_FILE to set it:\n%s", out.String())
 			}
 		})

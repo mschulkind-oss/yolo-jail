@@ -39,9 +39,7 @@ func yoloBugNote(what string) string {
 
 // repoRootFix is the next step when no executable-relative or installed matched bundle resolves.
 const repoRootFix = "The yolo CLI needs a complete matched flake/helper bundle for jail image builds.\n" +
-	"Fix: build one with `just build-dev-bundle` and invoke its printed launcher path, or\n" +
-	"install a self-contained launcher and bundle together with `just install`, then\n" +
-	"run `yolo check` again."
+	"Fix: " + reporoot.ReinstallSteps + "\nThen run `yolo check` again."
 
 func repoRootFailureFix(rr reporoot.Resolution) string {
 	if rr.Error != nil {

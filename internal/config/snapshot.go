@@ -133,6 +133,8 @@ type ChangedNonInteractiveError struct {
 	// ScopeLabels are the brokered loopholes whose scope changed: the advice names the
 	// command that launches this project without each one.
 	ScopeLabels []string
+	// ScopePacks are the packs that ship those loopholes, by index into ScopeLabels.
+	ScopePacks []string
 	// Workspace is the launch's workspace, which that command names, so it works from
 	// wherever it is pasted.
 	Workspace string
@@ -231,7 +233,7 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		files +
 		"\nAny file those configs `include` counts as part of the merge too.\n\n" +
 		e.approveStep(recorded) +
-		withoutBrokerSteps(e.ScopeLabels, e.Workspace)
+		withoutBrokerSteps(e.ScopeLabels, e.ScopePacks)
 }
 
 // approveStep is the advice's last paragraph: the way to approve the change from where the
@@ -241,18 +243,18 @@ func (e *ChangedNonInteractiveError) approveStep(recorded string) string {
 	if e.Apply {
 		return "Revert the change, or approve it: " + ApplyRetryStep(e.Workspace)
 	}
-	return "Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
+	return "Revert the change, or approve it by re-running with\n" +
 		"  " + AcceptConfigChangesFlag + "\n" +
-		"which records " + recorded + " as approved exactly as answering `y` would."
+		"which records " + recorded + " as approved exactly as answering `y` would, so later launches do not ask about it again."
 }
 
 // withoutBrokerSteps is the other next step a changed repository scope has: launching the
 // project without the brokered loophole that reads it, with the command that does that, one
 // line per loophole; "" when no scope changed.
-func withoutBrokerSteps(labels []string, workspace string) string {
+func withoutBrokerSteps(labels, packs []string) string {
 	var b strings.Builder
-	for _, l := range labels {
-		b.WriteString("\n" + WithoutBrokerStep(l) + " The next launch then asks nothing about its repositories.")
+	for i, l := range labels {
+		b.WriteString("\n" + WithoutBrokerStep(l, ScopePackAt(packs, i)) + " The next launch then asks nothing about its repositories.")
 	}
 	return b.String()
 }
@@ -260,9 +262,21 @@ func withoutBrokerSteps(labels []string, workspace string) string {
 // WithoutBrokerStep is the way to launch without the brokered loophole name: a broker has no
 // switch (docs/design/boundary-broker.md BB-D104, BB-D106), so it is deselecting the pack that
 // ships it, in the user config, which takes it out of every project.
-func WithoutBrokerStep(name string) string {
-	return "To launch without " + name + " instead, take the pack that ships it out of `packs` in " +
-		paths.UserConfigDisplayPath() + ": it runs whenever that pack is selected, in every project."
+func WithoutBrokerStep(name, pack string) string {
+	if pack == "" {
+		return "To launch without " + name + " instead, take the pack that ships it out of `packs` in " +
+			paths.UserConfigDisplayPath() + ": it runs whenever that pack is selected, in every project."
+	}
+	return "To launch without " + name + " instead, run `yolo pack remove " + pack + "` on the host: " +
+		"it runs whenever that pack is selected, in every project."
+}
+
+// ScopePackAt is packs[i], or "" when the report carried no pack for that label.
+func ScopePackAt(packs []string, i int) string {
+	if i < len(packs) {
+		return packs[i]
+	}
+	return ""
 }
 
 func (e *ChangedNonInteractiveError) Error() string {
@@ -337,6 +351,8 @@ type ChangeReport struct {
 	// ScopeLabels are the brokered loopholes whose scope changed, for the next step a declined
 	// scope names (`yolo loopholes disable <label> --workspace <Workspace>`).
 	ScopeLabels []string
+	// ScopePacks are the packs that ship those loopholes, by index into ScopeLabels.
+	ScopePacks []string
 	// Workspace is the launch's workspace, for that step.
 	Workspace string
 	// WritableMounts are the writable host mounts the changed workspace config holds, one line
@@ -554,7 +570,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	scopeBlock := append(append([]string(nil), sc.block...), brokeredSkippedGateLines(scope)...)
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
 		ScopeChanged: sc.changed, ScopeBlock: scopeBlock, ScopeCounts: sc.counts, EntryEdits: sc.entryEdits,
-		ConfigFiles: configFiles, ScopeLabels: sc.labels, Workspace: workspaceOrCwd(workspace),
+		ConfigFiles: configFiles, ScopeLabels: sc.labels, ScopePacks: sc.packs, Workspace: workspaceOrCwd(workspace),
 		GrantsChanged: grants.out.changed, GrantBlock: grants.out.shownBlock(), GrantCounts: grants.out.counts}
 	report.EntryEdits = append(report.EntryEdits, grants.out.requestEdits...)
 	if configChanged {
@@ -579,6 +595,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 				GitConfigs:           sc.gitConfigs,
 				EntryEdits:           sc.entryEdits,
 				ScopeLabels:          sc.labels,
+				ScopePacks:           sc.packs,
 				Workspace:            workspaceOrCwd(workspace),
 				WritableMounts:       report.WritableMounts,
 				MountSources:         report.MountSources,

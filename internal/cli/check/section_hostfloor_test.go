@@ -231,7 +231,7 @@ func TestCheckNamesTheLoaderAProgramLacksAndTheNixLDStep(t *testing.T) {
 	out, r := runHostFloorSection(o)
 	for _, want := range []string{"floorcli — no floor entry: the floor runs it on Node's official linux-",
 		"needs the dynamic loader ", "(a NixOS host without nix-ld, or a musl system)", "programs.nix-ld.enable = true;",
-		"`yolo host` refuses to launch until the floor holds it, or until `host_floor` leaves pack floorpack out"} {
+		"`yolo host` refuses to launch until the floor holds it, or until you leave pack floorpack out of it with `yolo config set host_floor.floorpack false --user`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)
 		}
