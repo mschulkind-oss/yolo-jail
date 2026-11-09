@@ -93,7 +93,7 @@ func resolveWith(executable, installedPath string, getenv func(string) string, i
 	}
 
 	if executable == "" {
-		return failed(errors.New("cannot locate the running yolo executable. " + ReinstallSteps))
+		return failed(fmt.Errorf("cannot locate the running yolo executable. %s", ReinstallSteps))
 	}
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		executable = resolved
