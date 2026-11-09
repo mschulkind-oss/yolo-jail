@@ -22,15 +22,20 @@ func TestCircleCIFakeHostCLIUsesRealClassifier(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "circleci"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	packHome(t, `{"packs":["circleci"],"allow":{"circleci":{"always":["read"]}}}`)
+	// XDG_CONFIG_HOME is declared host environment, so it must be set to show it is
+	// redacted. It names the isolated HOME's .config, where packHome links
+	// .config/containers: podman reads its machine connections from
+	// $XDG_CONFIG_HOME/containers, and on macOS a bare temp dir there leaves it
+	// unable to reach its VM (TestNoJailTestPointsXDGConfigHomeAtABareTempDir).
 	env := []string{
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"CIRCLE_TOKEN=synthetic-circleci-host-token",
 		"CIRCLE_CLI_TOKEN=",
 		"DBUS_SESSION_BUS_ADDRESS=",
-		"XDG_CONFIG_HOME=" + filepath.Join(bin, "xdg"),
+		"XDG_CONFIG_HOME=" + filepath.Join(os.Getenv("HOME"), ".config"),
 		"YOLO_NO_AUTO_IMAGE_REAP=1",
 	}
-	packHome(t, `{"packs":["circleci"],"allow":{"circleci":{"always":["read"]}}}`)
 	workspace := writeProject(t, `{}`)
 	hostGit(t, workspace, "init", "-q", "-b", "main")
 	hostGit(t, workspace, "remote", "add", "origin", "git@github.com:acme/app.git")
