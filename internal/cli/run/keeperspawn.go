@@ -811,14 +811,34 @@ func FinishStop(stdout, stderr io.Writer, workspace, cname, rt string, logFrom i
 	o.CaptureOnTerminate = capture
 	fillDefaults(&o)
 	o.runtime = rt
+	// The jail this stop ends, which need not be the selected setup's: another setup's, or the
+	// legacy one (named-setups-plan.md slice 6b). Every reader of this teardown asks o.jailName(),
+	// and the credential cleanup runs only for that name (forgetGoneCredentials; review M3).
+	o.keeperJailName = cname
 	// The home the jail bound, from its keeper's start record (keeperRecord.Home), so the reap of
 	// an unkept jail captures its config edits from that home (docs/design/named-setups.md §9). A
 	// record from before setups had homes names none: homeDir then answers the legacy home, the
-	// only one such a jail could bind.
+	// only one such a jail could bind. With no record, the home is the one its name says: a
+	// setup's own home when that is there, else the legacy home.
 	if rec, ok := readKeeperRecord(cname); ok && paths.IsWorkspaceHomeState(workspace, rec.Home) {
 		o.homeState = rec.Home
+	} else if !ok {
+		o.homeState = homeOfJailName(workspace, cname)
 	}
 	return o.finishStop(cname, rt, logFrom, force)
+}
+
+// homeOfJailName is the home a jail named cname of workspace binds when nothing recorded it: the
+// setup's home its name carries (runtime.JailName) when that directory is there, else the legacy
+// home, which the legacy name and a setup whose home was never moved both bind.
+func homeOfJailName(workspace, cname string) string {
+	if name, ok := strings.CutPrefix(cname, yoloruntime.FromWorkspace(workspace)+"-"); ok && name != "" {
+		home := paths.SetupHomeState(workspace, name)
+		if fi, err := os.Lstat(home); err == nil && fi.IsDir() {
+			return home
+		}
+	}
+	return paths.LegacyHomeState(workspace)
 }
 
 func (o *Options) finishStop(cname, rt string, logFrom int64, force bool) int {
