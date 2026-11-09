@@ -1,9 +1,9 @@
 ---
 title: "A secret is declared in its own place in config, and reaches only the agents whose provider claims it"
 date: 2026-11-09
-status: in-review
+status: accepted
 stage: DESIGN
-next: "Rule OQ-SE1 to OQ-SE3 — whether an unclaimed secret stops the launch, whether anything but a provider can claim one, and whether a claimed name can ever go to every process"
+next: "Write the implementation plan; OQ-SE1 to OQ-SE3 and the both-sets refusal were ruled 2026-11-09, nothing is built"
 tags: [credentials, env_sources, providers, credential-gate, security, parity, config]
 summary: "Today one `[env]` list carries every variable, and a dotenv value is withheld from the wrong agents only while some selected pack's provider claims its name; deselect the pack and the same key reaches every process. This design splits the config into a public set, today's `[env]`, whose values reach every process as they do now, and a private set, `[env.secrets]`, whose values reach only the agents whose selected provider claims them. Each name is written once. A provider that finds its key in the public set refuses the launch and names the one command that moves it. One rule for zai, cerebras, kilo, openrouter, bedrock, bedrock-key and any provider a user declares; the same rule at the jail, macos-user and host notches."
 vantage:
@@ -22,7 +22,7 @@ this"*), and this change is in the trust-boundary class
 > **In short.** Config has two places for environment variables. The **public set** is today's `[env]`:
 > plain, safe values that reach every process, named once, exactly as now. The **private set** is a new
 > `[env.secrets]` table beside it, taking files and inline values the same way, whose values reach only
-> the agents whose selected provider claims the name, and otherwise nobody. A provider that finds its key
+> the agents whose selected provider (or MCP server) claims the name, and otherwise nobody. A provider that finds its key
 > in the public set refuses to start and prints the one command that moves it. No name is written twice.
 
 **Why it matters.** With `packs = ["claude", "zai"]`, `ZAI_API_KEY` reaches claude on the zai profile and
@@ -32,8 +32,8 @@ on an edit that mentions neither the key nor a credential, and nothing says so.
 
 **The shape.** One new table, `[env.secrets]`, with the same `files` and `set` keys as `[env]`; one bit kept
 per hydrated value (which set declared it); one gate rule with four outcomes (public and unclaimed → every
-process; public and claimed → refused; private and claimed → the selecting agents; private and unclaimed →
-nobody); two new verbs that move a name between the sets; no change to the delivery vehicles.
+process; public and claimed by a provider → refused; private and claimed → the claiming agents; private and
+unclaimed → nobody; one name in both sets → refused); two new verbs that move a name between the sets; no change to the delivery vehicles.
 
 **Cost.** Every provider key a user keeps in `[env]` today is refused once, on the first launch that selects
 its provider, with the command that moves it. A user who keeps keys and plain variables in one dotenv file
@@ -41,7 +41,10 @@ splits that file, one command per key.
 
 **Start at [§3](#3-the-rule)** — the two sets and the four outcomes. Everything else applies it.
 
-**Needs your ruling:** [OQ-SE1](#OQ-SE1), [OQ-SE2](#OQ-SE2), [OQ-SE3](#OQ-SE3).
+**Ruled 2026-11-09:** [OQ-SE1](#OQ-SE1) (an unclaimed secret starts the launch and prints a line),
+[OQ-SE2](#OQ-SE2) (an MCP server's `requires_env` claims too), [OQ-SE3](#OQ-SE3) (a claimed name never
+reaches every process from config), and a name in both sets is a fatal error ([SE-D2](#SE-D2)). No question
+is open.
 
 **Reads with:** [`providers.md`](../reference/providers.md#the-credential-gate) (the credential gate as
 built, whose rule this amends), [`credential-sources-separation.md`](credential-sources-separation.md)
@@ -64,14 +67,16 @@ No companion plan is seeded: the owner asked for the design alone.
   `api_key_env_name` ([`packs/zai/pack.toml`](../../packs/zai/pack.toml) claims `ZAI_API_KEY`), widened to
   same-platform siblings ([PP-D9](providers-and-profiles-redesign.md#PP-D9)). From
   [`providers.md`](../reference/providers.md#the-credential-gate). Not a value: a pack never carries one.
+  An MCP server's `requires_env` entry is a claim too, for the agents whose config names that server
+  ([OQ-SE2](#OQ-SE2)), but only a provider's claim makes a public value a refusal ([SE-D15](#SE-D15)).
 - **A selected provider** — a provider in the launch's composed provider table: one a selected pack
   declares, or one the user declares under `providers`. The gate reads claims off that table and nothing
   else (`credentialClaims` in [`credentialscope.go`](../../internal/packload/credentialscope.go)).
 - **The public set** *(the owner's words, 2026-11-09)* — every value the `[env]` table declares, in either
   scope, from a file or inline: today's whole channel. A value here reaches every process.
 - **The private set** *(the owner's words)* — every value the new `[env.secrets]` table declares, in either
-  scope, from a file or inline. A value here reaches only the agents whose selected provider claims its
-  name. "Secret" in this doc means "in the private set"; the doc never judges whether a value deserves to be.
+  scope, from a file or inline. A value here reaches only the agents whose selected provider, or whose
+  MCP server, claims its name. "Secret" in this doc means "in the private set"; the doc never judges whether a value deserves to be.
 - **A delivery vehicle** — the code that writes a launch's environment for one notch or backend: the
   container's shared `yolo-user-env.sh` plus per-agent `agent-env/<agent>.sh` files, macos-user's per-session
   file, the host notch's one exec'd process. From [`providers.md`](../reference/providers.md#the-credential-gate).
@@ -191,24 +196,26 @@ would undo the declaration.
 
 ### 3.4 The four outcomes
 
-For every hydrated value, by its set and by whether a selected provider claims its name:
+For every hydrated value, by its set and by whether something in this launch claims its name (a selected
+provider, or an MCP server an agent's config names):
 
-| # | Set | Claimed by a selected provider? | Reach | What is printed |
+| # | Set | Claimed in this launch? | Reach | What is printed |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | public | no | every process, as today | nothing, as today — unless a shipped pack this launch did not select claims the name, when one line says so and names the move ([§3.6](#36-the-lines), [SE-D8](#SE-D8)) |
-| 2 | public | **yes** | **the launch is refused** before anything is written | the refusal of [§3.5](#35-the-refusal) |
+| 2 | public | **yes, by a provider** | **the launch is refused** before anything is written | the refusal of [§3.5](#35-the-refusal) |
 | 3 | private | yes | the agents whose active set resolves to a claimant; no other process | today's lines: `ZAI_API_KEY (provider zai): claude only`, or `… withheld from every process — no agent in this launch selected it` |
-| 4 | private | no | **nobody**; written to no file | `CEREBRAS_API_KEY: withheld from every process — no provider in this launch claims it.` then the remedy of [§3.6](#36-the-lines) |
+| 4 | private | no | **nobody**; written to no file | `CEREBRAS_API_KEY: withheld from every process — nothing in this launch claims it.` then the remedy of [§3.6](#36-the-lines) |
 
-Row 1 is today's [CN-D3](../reference/providers.md#CN-D3), now true only of the set the user called public.
-Row 3 is today's gate unchanged. Rows 2 and 4 are the design. A removal (`[env] unset`) is unchanged and
+Row 1 is today's [CN-D3](../reference/providers.md#CN-D3), now true only of the set the user called public;
+a public name only an MCP server claims stays in row 1 ([SE-D15](#SE-D15)). Row 3 is today's gate, with the
+MCP claim added. Rows 2 and 4 are the design, and so is one more refusal: a name set in both sets
+([§4.8](#48-the-same-name-in-both-sets), [SE-D2](#SE-D2)). A removal (`[env] unset`) is unchanged and
 names nothing: it carries no value, so it has no reach.
 
 The refusal of row 2 fires at every entry that runs the gate — a fresh launch, an attach, `yolo check`,
-`yolo host --` and `yolo host env` ([SE-D7](#SE-D7)) — and at every notch. Whether row 4 is a refusal too
-is [OQ-SE1](#OQ-SE1); under its leaning the launch runs and prints the line. Whether anything but a
-provider can claim a name is [OQ-SE2](#OQ-SE2). Whether a claimed name can ever reach every process from
-config is [OQ-SE3](#OQ-SE3); the per-launch `--with-credentials` grant stays either way.
+`yolo host --` and `yolo host env` ([SE-D7](#SE-D7)) — and at every notch. Row 4 is not a refusal: the launch
+runs and prints the line on every launch ([OQ-SE1](#OQ-SE1)). A claimed name never reaches every process from
+config; the per-launch `--with-credentials` grant is the one way to widen it ([OQ-SE3](#OQ-SE3)).
 
 > [!WARNING]
 > The intuitive fix — widen the claims to every pack yolo ships, selected or not — keeps the gate guessing
@@ -252,11 +259,11 @@ is refused into keeps the environment its processes already hold until it restar
 Two line kinds join the disclosure, both names-only like every existing line
 ([CN-D16](../reference/providers.md#CN-D16)):
 
-1. **Row 4, a private name no selected provider claims.** The remedy is chosen in this order, the first
+1. **Row 4, a private name nothing in this launch claims.** The remedy is chosen in this order, the first
    that applies printed:
    - a **shipped pack this launch did not select** declares a provider claiming the name: `To use it as
      cerebras's key: yolo pack add cerebras.`
-   - otherwise: `If it is not a provider's key, it belongs in the public set: yolo config unsecret
+   - otherwise: `If no provider or MCP server needs it, it belongs in the public set: yolo config unsecret
      FOO_TOKEN --user` (or `--project`, by the scope that set it).
 2. **Row 1, a public name a shipped, unselected pack's provider claims.** One line, not a refusal:
    `ZAI_API_KEY reaches every process from your public environment; the zai provider, which this launch
@@ -287,8 +294,7 @@ the text the launch prints. Values are placeholders; the launch never prints one
 proposed, not built: the `[env.secrets]` table (its `files` and `set` keys follow `[env]`'s, which the
 readable schema types today, and the generic verbs reach a new key once the schema names it), and the
 verbs `yolo config secret <NAME>` and `yolo config unsecret <NAME>`. `yolo config add env.secrets.files
-'"<path>"' --user` follows the one-key-one-value shape the generic verb has today. Where an outcome rests
-on an open question, the example shows the leaning and names it. `yolo host -- <cmd>` and macos-user give
+'"<path>"' --user` follows the one-key-one-value shape the generic verb has today. `yolo host -- <cmd>` and macos-user give
 the same answers unless an example says otherwise ([§4.22](#422-the-same-cases-at-yolo-host),
 [§4.23](#423-the-same-cases-on-macos-user)).
 
@@ -355,13 +361,13 @@ Unchanged from today: the pack is selected, so zai claims the name and nobody se
 | `ZAI_API_KEY` | **every process**, no line | nobody | nowhere |
 
 ```text
-  ZAI_API_KEY: withheld from every process — no provider in this launch claims it. To use it as zai's
+  ZAI_API_KEY: withheld from every process — nothing in this launch claims it. To use it as zai's
     key: yolo pack add zai.
 ```
 
 The remedy names the pack because a shipped pack yolo did not select declares a provider claiming the name
 ([§3.6](#36-the-lines)). The value's reach did not change with the edit to `packs`: it narrowed from one
-agent to nobody, and the line says why. Under [OQ-SE1](#OQ-SE1)'s leaning the launch runs.
+agent to nobody, and the line says why. The launch runs ([OQ-SE1](#OQ-SE1)).
 
 ### 4.4 A provider key left in the public set, its pack selected: the refusal
 
@@ -419,33 +425,36 @@ easy and safe".
 | `GH_TOKEN` | nobody | nowhere |
 
 ```text
-  GH_TOKEN: withheld from every process — no provider in this launch claims it. If it is not a provider's
-    key, it belongs in the public set: yolo config unsecret GH_TOKEN --user
+  GH_TOKEN: withheld from every process — nothing in this launch claims it. If no provider or MCP server
+    needs it, it belongs in the public set: yolo config unsecret GH_TOKEN --user
 ```
 
-The jail's `gh` fails later with its own message. [OQ-SE1](#OQ-SE1) asks whether this launch should
-instead refuse until the name is claimed or moved; under its leaning, it starts. Whether an MCP server or
-another consumer could claim such a name, so that it need not be public, is [OQ-SE2](#OQ-SE2).
+The launch starts, and the jail's `gh` fails later with its own message; the line repeats on every
+launch until the name is moved ([OQ-SE1](#OQ-SE1)). `gh` is not an MCP server, so nothing can claim the
+token: a value every shell should hold is public.
 
 ### 4.8 The same name in both sets
 
 `defaults.env` holds `ZAI_API_KEY=old-…` and `secrets.env` holds `ZAI_API_KEY=zai-…`; `packs` names `zai`;
 claude is on zai.
 
-| Name | Reaches | Value delivered | Written to |
-| :--- | :--- | :--- | :--- |
-| `ZAI_API_KEY` | claude only | the private set's | `agent-env/claude.sh` |
+| Name | Reaches | Written to |
+| :--- | :--- | :--- |
+| `ZAI_API_KEY` | **the launch is refused** before anything is written | nowhere |
 
 ```text
-  ZAI_API_KEY (provider zai): claude only
-  ZAI_API_KEY is also set in your public environment ([env], from ~/.config/yolo-jail/defaults.env);
-    that copy is not delivered anywhere. To drop it: yolo config unsecret --drop ZAI_API_KEY --user
+config.env: ZAI_API_KEY is set in both your public environment ([env], from
+~/.config/yolo-jail/defaults.env) and your private one ([env.secrets], from
+~/.config/yolo-jail/secrets.env). A name lives in one set. Keep the private copy:
+yolo config secret ZAI_API_KEY --drop --user
+or keep the public copy: yolo config unsecret ZAI_API_KEY --drop --user
 ```
 
-The private set wins the name whatever order the entries merge in ([SE-D2](#SE-D2)): a public copy that
-reached every process would undo the declaration, and a refusal here would let a repository's public `.env`
-block a user who keeps the same name private. There is no row-2 refusal, because the name is private. The
-`--drop` form of the verb removes the public entry without moving it *(proposed; [SE-D9](#SE-D9))*.
+The refusal is fatal whatever the name, whether or not anything claims it, and whatever order the entries
+merge in, at every entry that runs the gate ([SE-D2](#SE-D2), [SE-D7](#SE-D7)). Each copy is named by the
+set and the file or table that set it, in the scope that set it, so a copy in a repository's committed
+config names `--project`. The `--drop` form removes the other set's copy instead of moving one *(proposed;
+[SE-D9](#SE-D9))*.
 
 ### 4.9 A secret written inline
 
@@ -522,7 +531,7 @@ files = [".env.secrets"]
 | Name | Reaches | Line |
 | :--- | :--- | :--- |
 | `DATABASE_URL` | every process | none |
-| `STRIPE_KEY` | nobody | `STRIPE_KEY: withheld from every process — no provider in this launch claims it. If it is not a provider's key, it belongs in the public set: yolo config unsecret STRIPE_KEY --project` |
+| `STRIPE_KEY` | nobody | `STRIPE_KEY: withheld from every process — nothing in this launch claims it. If no provider or MCP server needs it, it belongs in the public set: yolo config unsecret STRIPE_KEY --project` |
 
 A project may declare a name private; it can only narrow by doing so, never widen ([SE-D5](#SE-D5)). If
 the repository instead put `ZAI_API_KEY` in `.env` and a contributor selects `zai`, the refusal of
@@ -554,7 +563,7 @@ Unchanged from today for the public set. A removal carries no value, so it belon
 | :--- | :--- |
 | `defaults.env` (public) | **refused**, row 2: `AWS_PROFILE is set in your public environment … and the bedrock provider this launch selects claims it as its key … yolo config secret AWS_PROFILE --user` |
 | `secrets.env` (private) | claude only; `aws` and `terraform` do without, as today; `AWS_PROFILE (provider bedrock): claude only` |
-| `secrets.env`, and the user wants every process to hold it | [OQ-SE3](#OQ-SE3). Under its leaning A there is no config spelling for that: the per-run grant `yolo --with-credentials bedrock -- bash` (or `yolo host --with-credentials bedrock -- terraform`) is the way |
+| `secrets.env`, and the user wants every process to hold it | No config spelling does that ([OQ-SE3](#OQ-SE3)): the per-run grant `yolo --with-credentials bedrock -- bash` (or `yolo host --with-credentials bedrock -- terraform`) is the way |
 
 ### 4.15 `bedrock` against `bedrock-key`, with the bearer in the private set
 
@@ -626,8 +635,11 @@ claude's and pi's MCP tables name a server with `env = { TAVILY_API_KEY = "${TAV
 | Where the user writes it | Reaches | What happens to the server |
 | :--- | :--- | :--- |
 | `defaults.env` (public) | every process | starts under claude and pi; no line. Today's state |
-| `secrets.env` (private), [OQ-SE2](#OQ-SE2) A (leaning) | nobody | dropped by its `requires_env` check for every agent; `TAVILY_API_KEY: withheld from every process — no provider in this launch claims it. If it is not a provider's key, it belongs in the public set: yolo config unsecret TAVILY_API_KEY --user` |
-| `secrets.env` (private), [OQ-SE2](#OQ-SE2) B | claude and pi | the server's `requires_env` counts as those two agents' claim; `TAVILY_API_KEY (mcp tavily): claude, pi only` |
+| `secrets.env` (private) | claude and pi, and no other process | starts under both; the server's `requires_env` is those two agents' claim ([OQ-SE2](#OQ-SE2)); `TAVILY_API_KEY (mcp tavily): claude, pi only` |
+| `secrets.env` (private), and no agent's config names the server | nobody | not started; `TAVILY_API_KEY: withheld from every process — nothing in this launch claims it.` and the row-4 remedy |
+
+The public row is not refused: an MCP server's claim delivers a private value but never makes a public one
+a refusal; only a provider's key may not be public ([SE-D15](#SE-D15)).
 
 ### 4.19 A legacy JSONC user config
 
@@ -735,12 +747,12 @@ its processes hold until it restarts. Per-agent files are rewritten whole on eve
 
 | Risk | Mitigation |
 | :--- | :--- |
-| A user puts a plain variable in the private set and loses `gh` or an MCP server for an hour | The line prints on every launch and in `yolo check`, naming `yolo config unsecret`; [OQ-SE1](#OQ-SE1) B makes it a refusal instead |
+| A user puts a plain variable in the private set and loses `gh` or an MCP server for an hour | The line prints on every launch and in `yolo check`, naming `yolo config unsecret`; the launch still starts ([OQ-SE1](#OQ-SE1)) |
 | A user's one dotenv file mixes keys and plain variables, and the refusal makes them split it by hand | `yolo config secret` moves one line, and the refusal names it; splitting a file is the one-time cost [§5](#5-migration-the-first-launch-after-the-change) states |
 | A workspace config smuggles a file from outside the workspace into either set | Refused by the same check as today ([OQ-AS3](../research/agent-safehouse.md#OQ-AS3)), extended to `env.secrets.files` |
 | The three notches drift | The rule is in the gate's one function ([CN-D5](../reference/providers.md#CN-D5)); each notch's tests already pin the gate's result through its vehicle |
 | The set bit is wrong for an include or a layer | It is assigned where the entry is read, the same place relative paths are anchored per file (`AnchorEnvSources`, [`envsources.go`](../../internal/config/envsources.go)) |
-| A repository's public `.env` and a user's private set name the same variable, and the launch refuses | It does not: the private set wins the name and the public copy is reported, never delivered ([SE-D2](#SE-D2)) |
+| A repository's public `.env` and a user's private set name the same variable, and the launch refuses | It does, by ruling ([SE-D2](#SE-D2)); the refusal names both copies and the `--drop` command for each, in the scope that holds it |
 
 ## 8. What this does not license
 
@@ -761,91 +773,29 @@ its processes hold until it restarts. Per-agent files are rewritten whole on eve
 
 ## 9. Open Questions
 
-1. 💬 **OQ-SE1: Does a secret no selected provider claims stop the launch, or only print a line?**
-
-   Priya moves `GH_TOKEN` into `~/.config/yolo-jail/secrets.env` along with her provider keys, because
-   the file is called secrets and the token is one. No provider claims `GH_TOKEN`, so the gate hands it
-   to nobody. Her jail either starts without it, printing one line that names
-   `yolo config unsecret GH_TOKEN --user`, or refuses to start until she runs it.
-
-   - **A — Start, and print the line on every launch.** Her jail is up; `gh` fails later with its own
-     message, and the launch output above it names the command. Cost: a user who does not read the launch
-     output loses time to a tool that quietly lacks its token.
-   - **B — Refuse until every private name is claimed or moved.** She sees the line at once and runs the
-     command before anything else. Cost: a key she keeps for a pack she selects only some weeks blocks
-     every other launch, and the refusal of [§3.5](#35-the-refusal) stops being the one hard stop.
-
-   <!-- vantage: question id=OQ-SE1 leaning="A — withholding already protects her, the line names the command and repeats on every launch, and B would make a key for an occasionally selected pack block every other launch." -->
-
-   _Leaning:_ A — withholding already protects her, the line names the command and repeats on every
-   launch, and B would make a key for an occasionally selected pack block every other launch.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-SE2: Can anything other than a provider claim a secret?**
-
-   Dana keeps `TAVILY_API_KEY` for an MCP server that claude and pi both launch. It is a key, so she
-   wants it in the private set, but no provider claims it, and a private name nothing claims reaches
-   nobody. Either she puts it in the public set and every shell in the jail holds it, as today, or the
-   server's own `requires_env` entry counts as a claim for the agents whose config names that server.
-
-   - **A — Providers only.** A claim is a provider's `api_key_env_name` and nothing else. She writes the
-     key in the public set. Cost: a key that is not a provider's can never be private, and a shell holds
-     it, which is today's state.
-   - **B — An MCP server's `requires_env` claims too**, for the agents whose tables name the server. The
-     key lands in those two agents' env files and no other, and the line reads `TAVILY_API_KEY (mcp
-     tavily): claude, pi only`. Cost: a second claim kind, read from the MCP tables rather than the
-     provider table, and a per-agent delivery for a value no profile selected.
-
-   <!-- vantage: question id=OQ-SE2 leaning="A — one claim kind keeps the rule one sentence, nobody has asked, every file is readable by the whole uid anyway, and B can be added later without changing A's meaning." -->
-
-   _Leaning:_ A — one claim kind keeps the rule one sentence, nobody has asked, every file is readable by
-   the whole uid anyway, and B can be added later without changing A's meaning.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-SE3: Can a claimed name ever reach every process from config?**
-
-   Matt keeps `AWS_PROFILE=dev` for `aws` and `terraform` in the jail. The `bedrock` provider claims that
-   name, so in the public set it is refused, and in the private set it reaches only an agent on a Bedrock
-   profile; the two tools do without, as today, unless he runs `yolo --with-credentials bedrock -- bash`
-   for that launch. He asks whether config can say "this one, everyone".
-
-   - **A — No.** The claim is final; the per-launch grant is the one way to widen a claimed value, and it
-     names a provider, not a name. Cost: the `AWS_PROFILE` problem stays a per-run flag.
-   - **B — A per-name list in the private set**, such as `[env.secrets] everyone = ["AWS_PROFILE"]`, disclosed
-     on every launch as `AWS_PROFILE (provider bedrock): every process, by env.secrets.everyone`. Cost: the
-     one name written in two places that this design exists to avoid, and a standing exception to
-     "nothing leaks" that an agent on another provider now sees.
-
-   <!-- vantage: question id=OQ-SE3 leaning="A — it keeps every name in one place, the grant already covers the case one run at a time, and B is the two-places pattern the owner rejected, for one variable." -->
-
-   _Leaning:_ A — it keeps every name in one place, the grant already covers the case one run at a time,
-   and B is the two-places pattern the owner rejected, for one variable. A ruling here answers
-   [OQ-ES6](credential-sources-separation.md#OQ-ES6) too.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+None. [OQ-SE1](#OQ-SE1) to [OQ-SE3](#OQ-SE3) were ruled on 2026-11-09 and are in the [Decision Ledger](#decision-ledger).
 
 ## Decision Ledger
 
-The seat's decisions, pending the owner's review. Each is a mechanism choice with one defensible answer.
+The owner's rulings ([OQ-SE1](#OQ-SE1) to [OQ-SE3](#OQ-SE3), [SE-D2](#SE-D2)) and the seat's mechanism decisions.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="SE-D1"></a>SE-D1 | **Hydration keeps which set declared each value**, assigned where the entry is read beside the per-file anchoring of relative paths, and carried through the merge, so the gate never re-reads a config to learn it | 2026-11-09 | [§3.3](#33-the-two-sets) | — |
-| <a id="SE-D2"></a>SE-D2 | **A name in both sets is the private set's.** The public copy is delivered nowhere, reported by name, and the line names the verb that drops it; no refusal, so a repository's public file cannot block a user who keeps the name private | 2026-11-09 | [§3.3](#33-the-two-sets), [§4.8](#48-the-same-name-in-both-sets) | — |
+| <a id="SE-D2"></a>SE-D2 | **A name in both sets is a fatal error** (owner, 2026-11-09: *"just make this a fatal error."*). The refusal names both copies and the `--drop` command that keeps each, whatever claims the name | 2026-11-09 | [§3.3](#33-the-two-sets), [§4.8](#48-the-same-name-in-both-sets) | — |
 | <a id="SE-D3"></a>SE-D3 | **`[env.secrets]` has `files` and `set`, no `sources`**: the ordered mixed list exists to lower legacy `env_sources`, and the private set has no legacy spelling | 2026-11-09 | [§3.3](#33-the-two-sets) | — |
 | <a id="SE-D4"></a>SE-D4 | **One `unset`, under `[env]`, removes a name from both sets.** A removal carries no value, so it has no set | 2026-11-09 | [§3.3](#33-the-two-sets), [§4.13](#413-removing-a-name) | — |
 | <a id="SE-D5"></a>SE-D5 | **Both sets exist in both scopes**, under the same rule. A workspace private file must lie inside the workspace, refused with the user-scope spelling as `[env] files` is today; a project declaring a name private can only narrow its reach | 2026-11-09 | [§3.3](#33-the-two-sets), [§4.12](#412-a-repository-that-ships-a-private-set) | — |
 | <a id="SE-D6"></a>SE-D6 | **A legacy JSONC file has no private set.** Its `env_sources` is read into the public set as today, and the refusal names `yolo config migrate` before the move verb | 2026-11-09 | [§3.3](#33-the-two-sets), [§4.19](#419-a-legacy-jsonc-user-config) | — |
 | <a id="SE-D7"></a>SE-D7 | **The refusal fires at every entry that runs the gate** — fresh launch, attach, `yolo check`, `yolo host --`, `yolo host env` — and at every notch; nothing is written before it, and a running jail keeps its environment | 2026-11-09 | [§3.4](#34-the-four-outcomes), [§4.20](#420-a-fresh-launch-against-an-attach) | — |
 | <a id="SE-D8"></a>SE-D8 | **The shipped set is read to word a line, never to decide a reach**: a public name an unselected shipped pack claims gets one line naming the move; a private name such a pack claims gets `yolo pack add` in its remedy; a release therefore changes text, never delivery | 2026-11-09 | [§3.6](#36-the-lines) | — |
-| <a id="SE-D9"></a>SE-D9 | **Two named verbs move a name between the sets**, `yolo config secret <NAME>` and `yolo config unsecret <NAME>` (with `--drop` to remove a public copy without moving it), in the scope that holds the entry unless a scope flag says otherwise; a verb earns its place because the move crosses a dotenv file and a config file, which no generic edit can. The names are the seat's and the plan may rename them | 2026-11-09 | [§3.5](#35-the-refusal) | — |
+| <a id="SE-D9"></a>SE-D9 | **Two named verbs move a name between the sets**, `yolo config secret <NAME>` and `yolo config unsecret <NAME>` in the scope that holds the entry unless a scope flag says otherwise; `--drop` removes the other set's copy of the name instead of moving one, so `secret NAME --drop` keeps the private copy and `unsecret NAME --drop` the public one; a verb earns its place because the move crosses a dotenv file and a config file, which no generic edit can. The names are the seat's and the plan may rename them | 2026-11-09 | [§3.5](#35-the-refusal) | — |
 | <a id="SE-D10"></a>SE-D10 | **No hatch.** No `YOLO_ALLOW_*` variable restores today's delivery; the one remedy is the config verb | 2026-11-09 | [§5](#5-migration-the-first-launch-after-the-change) | — |
 | <a id="SE-D11"></a>SE-D11 | **The disclosure gains two line kinds** — a private name withheld for want of a claim, and a public name an unselected shipped pack claims — and keeps its names-only rule; nothing is printed about whether a secret was inline or in a file | 2026-11-09 | [§3.6](#36-the-lines) | — |
+| <a id="SE-D12"></a><a id="OQ-SE1"></a>SE-D12 ([OQ-SE1](#OQ-SE1)) | **A private name nothing claims starts the launch**, reaches nobody, and prints a line naming `yolo config unsecret` on every launch and in `yolo check` (owner, 2026-11-09: A) | 2026-11-09 | [§3.4](#34-the-four-outcomes), [§3.6](#36-the-lines) | — |
+| <a id="SE-D13"></a><a id="OQ-SE2"></a>SE-D13 ([OQ-SE2](#OQ-SE2)) | **An MCP server's `requires_env` claims a name too**, for the agents whose config names that server, and delivers a private value to those agents only (owner, 2026-11-09: B) | 2026-11-09 | [§1](#1-words-this-doc-uses), [§4.18](#418-a-secret-for-an-mcp-server-tavily_api_key) | — |
+| <a id="SE-D14"></a><a id="OQ-SE3"></a>SE-D14 ([OQ-SE3](#OQ-SE3)) | **A claimed name never reaches every process from config**; the per-launch `--with-credentials` grant is the one widening (owner, 2026-11-09: A). This answers [OQ-ES6](credential-sources-separation.md#OQ-ES6) too | 2026-11-09 | [§4.14](#414-aws_profile-for-aws-and-terraform-while-bedrock-is-selected) | — |
+| <a id="SE-D15"></a>SE-D15 | **Only a provider's claim makes a public value a refusal.** An MCP server's claim delivers a private value, but a public name only an MCP server claims stays public and reaches every process, as today; otherwise every MCP key kept public today would refuse | 2026-11-09 | [§3.4](#34-the-four-outcomes) | — |
 
 ## Appendix: what this doc did not verify
 
