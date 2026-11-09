@@ -216,7 +216,7 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 26. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md), with the other herdr calls
     — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree.
 27. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
-    [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
+    [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the wording style of yolo's messages](../design/message-style.md), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [array-append pinning](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md), [relocating
     `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [whether to ask pi-subagents for a registry several
     extensions can share](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close), [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md)

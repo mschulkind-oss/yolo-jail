@@ -20,7 +20,10 @@ principle's rule N.
    section.
 2. **Messages that are badly written** — true, but not in the plain-language style. This is the
    language sweep, done afterwards, from [the patterns](#patterns-that-recur-across-the-parts)
-   and the parts' before/after entries. Each part below lists messages
+   and the parts' before/after entries. The style those rewrites follow — voice, the order of a
+   refusal, where a command goes, how a path is shown — is settled in
+   [`message-style.md`](../../design/message-style.md), fifteen real messages rewritten for the
+   owner's markup; the parts' Afters are reworded to its rules before they are applied. Each part below lists messages
 that break a rule. Each entry gives the current text ("Before"), a proposed rewrite ("After") and
 the rule it breaks ("Why"). This is research: it changes no code, and no rewrite has been applied.
 
