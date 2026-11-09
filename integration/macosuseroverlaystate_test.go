@@ -53,7 +53,9 @@ echo "=== END PLANTED ==="
 echo "=== STATE ==="
 printf 'auth|%s\n' "$(cat "$HOME/.oh-omp/agent/auth.json" 2>/dev/null || echo GONE)"
 printf 'session|%s\n' "$(cat "$HOME/.oh-omp/agent/sessions/it.jsonl" 2>/dev/null || echo GONE)"
-if [ -f "$HOME/.oh-omp/agent/models.yml" ]; then g=PRESENT; else g=GONE; fi
+if [ -n "$PI_CODING_AGENT_DIR" ]; then d=SET; else d=UNSET; fi
+printf 'sessiondir|%s\n' "$d"
+if [ -n "$PI_CODING_AGENT_DIR" ] && [ -f "$PI_CODING_AGENT_DIR/models.yml" ]; then g=PRESENT; else g=GONE; fi
 printf 'generated|%s\n' "$g"
 if [ -f "$HOME/.oh-omp/agent/skills/configuring-the-jail/SKILL.md" ]; then s=PRESENT; else s=ABSENT; fi
 printf 'skills|%s\n' "$s"
@@ -73,11 +75,18 @@ echo "=== END STATE ==="
 	}
 	state := macosUserHomeProbeFields(t, r2.stdout, "STATE")
 	for key, want := range map[string]string{
-		"auth":      "omp sign-in",
-		"session":   "a session",
-		"generated": "PRESENT",
-		"skills":    "PRESENT",
-		"briefing":  "PRESENT",
+		"auth":    "omp sign-in",
+		"session": "a session",
+		// THE GENERATED CONFIG IS THE SESSION'S since omp declared a session home (839c23f6f;
+		// per-session-profiles.md SP-D37): a session pass renders omp's surfaces into its own
+		// directory, which the session names in PI_CODING_AGENT_DIR, and leaves the shared
+		// ~/.oh-omp/agent copies alone (SP-D2). Every macos-user launch is a session pass, so the
+		// shared models.yml this test once read is no longer written, and the test reads the
+		// file where the launch says it is.
+		"sessiondir": "SET",
+		"generated":  "PRESENT",
+		"skills":     "PRESENT",
+		"briefing":   "PRESENT",
 		// HOME IS THE WORKSPACE'S SIDECAR since slice 12a (MMP-D25), so omp's `scope: workspace`
 		// state dir is a real directory in it, not the account home's link into the sidecar it
 		// was before; a link here would mean the layout still treats HOME as the shared account
