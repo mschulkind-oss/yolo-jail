@@ -1458,6 +1458,7 @@ forward ([SUP-D50](#SUP-D50)).
   -count=1 -timeout 0 -run '^TestMacosUser' ./integration` passes with `YOLO_SETUP` set by the
   harness (no `YOLO_RUNTIME` anywhere in the environment: `env | grep YOLO_RUNTIME` prints nothing).
   *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md)): the launch half passes. The `TestMacosUser` half has 4 failures in 159 passes, 3 of them also on CI before 6a-iii.
+  *Fixed forward:* the bootstrap now gets the home the launch bound, so its capture store is the setup's (`TestMacosUserCapturesConfigEditsWhenTheSessionEnds`, a product bug), and three stale tests now read the supervisor log under the setup's home, omp's config in its session directory, and the memory guard's `machine.resources.memory` line; re-run the `TestMacosUser` half at main `<landing sha>` or later.
 - **W-SU2 (slice 4b):** a workspace whose `yolo-jail.toml` holds `[network]\nmode = "host"`:
   `yolo --setup apple-container-self -- true` refuses with the
   [§6](named-setups.md#6-config-by-example) sentence ending in `yolo --setup podman-self -- claude`
