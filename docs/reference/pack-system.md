@@ -2173,6 +2173,15 @@ is **`platform:`**, satisfied when the agent's selected provider declares that p
 name; one per contribution. A fact of the provider belongs on `platform:`, so a second profile
 over the same provider gets it ([`providers.md`, the `profile` modifier](providers.md#the-profile-modifier)).
 
+An `env` contribution may set **`jail_only = true`** to deliver its variables only in
+confined launches, not through `yolo host`. This also works beside a `profile` or
+`platform` gate, but not on a private program env (`bin`), which only a jail launch
+delivers anyway. The host skips the contribution before merging values, so an earlier
+ordinary assignment to the same variable still applies there. For example, `packs/pi`
+sets `PI_CLIPBOARD_OSC52=1` only in jails: Pi copies through the terminal using OSC 52
+without granting native clipboard access. The terminal must support and allow OSC 52
+clipboard writes; this does not enable clipboard reads or image paste.
+
 An `env` contribution may also declare **`overridden_by`**: what, delivered into the same jail,
 makes a consumer ignore its variables — other variables (all of them delivered, unless one of an
 `unless` list is too), or a `host_files` grant under a home path — each with a `because` the

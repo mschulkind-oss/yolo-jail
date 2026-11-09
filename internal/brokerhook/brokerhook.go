@@ -87,6 +87,10 @@ type Runner struct {
 	lastWarn string
 	// pathDir is the private directory holding the `yolo` link, once made (linkDir).
 	pathDir string
+	// afterFunc starts the clock that ends one run at its limit (Runner.limit) and returns
+	// its stop; nil is time.AfterFunc. A test sets it to decide when that clock runs out, so
+	// a hook is stopped only once the test has seen it start, however slowly it starts.
+	afterFunc func(d time.Duration, f func()) (stop func() bool)
 }
 
 var (
@@ -304,8 +308,12 @@ func (r *Runner) launch(parent context.Context, q brokerstore.Request) {
 			r.mu.Unlock()
 			cancel(nil)
 		}()
-		timer := time.AfterFunc(limit, func() { cancel(cause) })
-		defer timer.Stop()
+		after := r.afterFunc
+		if after == nil {
+			after = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
+		}
+		stopClock := after(limit, func() { cancel(cause) })
+		defer stopClock()
 		r.fire(ctx, q)
 	}()
 }

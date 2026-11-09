@@ -384,6 +384,9 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     selection, finite-policy planning and fake-only admission boundary are integrated; no production caller, native
     placement or enforcement exists. Stable-name exclusion, the real writer, placement, device and performance
     evidence, and the combined/native gates remain.
+56. [Scope provider keys by where they come from](../design/secret-env-scoping.md), and the
+    [Bedrock API key provider](../design/bedrock-key-provider.md) that waits on it — both designs; [OQ-SE1](../design/secret-env-scoping.md#OQ-SE1) to [OQ-SE4](../design/secret-env-scoping.md#OQ-SE4)
+    and [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) wait on the owner. Nothing is built.
 
 ## Boundaries
 

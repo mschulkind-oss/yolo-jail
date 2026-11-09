@@ -6,11 +6,21 @@ date: 2026-11-07
 
 # User-facing message rewrites
 
-This is an audit of every message yolo prints to a person or to an agent, measured against the
-language rules in the [`cutting-releases`](../../../.pi/skills/cutting-releases/SKILL.md) skill.
-Those rules were written for the changelog: write to the reader in their own terms, name no
-internals, be short, and end every stop with an easy next step (the
-[happy path principle](../../reference/happy-path-principle.md)). Each part below lists messages
+This is an audit of every message yolo prints to a person or to an agent, measured against
+[the plain-language principle](../../reference/plain-language-principle.md): write to the reader
+in their own terms, name no internals, be short, and end every stop with an easy next step (the
+[happy path principle](../../reference/happy-path-principle.md)). A "rule N" in the parts is that
+principle's rule N.
+
+**It found two kinds of problem, fixed as two separate pieces of work:**
+
+1. **Messages that are wrong** — false advice, advice a TOML config cannot take, formatting bugs,
+   text that can never print. These are bugs, fixed first and on their own, from
+   [Messages that are wrong today](#messages-that-are-wrong-today) and each part's "Wrong today"
+   section.
+2. **Messages that are badly written** — true, but not in the plain-language style. This is the
+   language sweep, done afterwards, from [the patterns](#patterns-that-recur-across-the-parts)
+   and the parts' before/after entries. Each part below lists messages
 that break a rule. Each entry gives the current text ("Before"), a proposed rewrite ("After") and
 the rule it breaks ("Why"). This is research: it changes no code, and no rewrite has been applied.
 
@@ -93,24 +103,28 @@ whatever happens to the rewrites:
 Already fixed since the audit: `yolo init-user-config` no longer writes `config.jsonc` beside an
 existing `config.toml` (commit `2bbdd801f`).
 
-## Decisions for the owner
+## Calls the parts left open, and how they are settled
 
-The parts name these as calls the owner has to make, not choices a rewrite can settle:
+The parts left these open. Each follows from a standing rule, so none waits on the owner
+(settled 2026-11-09):
 
 1. **Unremovable keys.** `yolo config unset` refuses `allow.<pack>.<key>` keys such as
-   `allow.github.sets`, so a message about removing one cannot name a verb. Either the verb
-   learns to remove them, or the advice names the file
-   ([brokers-macos-rest.md, Wrong today](brokers-macos-rest.md#wrong-today)).
-2. **No verb for `host_floor`.** The per-pack `host_floor` opt-out has no verb either: the schema
-   has only the top-level key
+   `allow.github.sets`, so a message about removing one cannot name a verb. Advice names a verb
+   (AGENTS.md, "Config is TOML"), so `yolo config unset` learns to remove them; that is part of
+   the wrong-messages fix ([brokers-macos-rest.md, Wrong today](brokers-macos-rest.md#wrong-today)).
+2. **No verb for `host_floor`.** The per-pack `host_floor` opt-out has no verb either, because
+   the schema has only the top-level key. Same rule, same fix: the verb learns the per-pack key
    ([launch-and-check.md, Wrong today](launch-and-check.md#wrong-today)).
-3. **Skill-file cuts.** How much of the history and internals to cut from the two built-in skills,
-   and the "add it to a pack" wording in the skills briefing ([jail-boot.md](jail-boot.md)).
-4. **Bug-only refusals.** Whether a refusal that only a yolo bug can cause should end with
-   "report it" and a link to the issues page ([jail-boot.md](jail-boot.md)).
+3. **Skill-file cuts.** The two built-in skills and the skills briefing are agent-facing text, so
+   rules 6 and 8 apply: cut history and internals an agent does not need to act
+   ([jail-boot.md](jail-boot.md)). Done in the language sweep.
+4. **Bug-only refusals.** A refusal only a yolo bug can cause ends by saying so and linking the
+   issues page: the [happy path principle](../../reference/happy-path-principle.md) requires
+   naming who can act ([jail-boot.md](jail-boot.md)).
 5. **Two unconfirmed facts** behind rewrites: the overlay file-naming rule
    (`packoverlay/conventional.go:107`), and whether `env.set.SSL_CERT_FILE` counts as the
    caller's own bundle in the CA disclosure ([brokers-macos-rest.md](brokers-macos-rest.md)).
+   Whoever rewrites those two messages checks the code first.
 
 ## Follow-ups outside the messages
 

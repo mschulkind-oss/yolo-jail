@@ -2479,6 +2479,8 @@
                     loophole's socket path, which only a jail binds (audio's), or a
                     loophole with no doorway — is withheld at `yolo host --`, which
                     names it: a client at the host reaches its own server instead.
+                    An env contribution marked `jail_only = true` is also withheld;
+                    omit that flag to deliver it through `yolo host` too.
       adapter       an adapter whose address its own pack's service answers, when that
                     service has no host half (`host_daemon`) or is in a fetched pack:
                     nothing at the host serves the address, so `yolo host --` refuses a

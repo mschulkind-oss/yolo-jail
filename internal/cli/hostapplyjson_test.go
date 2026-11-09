@@ -235,9 +235,9 @@ func TestHostApplyJSONNamesTheInapplicableKindsAndCarriesNoProse(t *testing.T) {
 }
 
 // TestHostApplyJSONNamesTheAtLaunchKinds: the document's two kind lists are the text line's two
-// clauses. pi's env (a plain variable, and aws-auth's credential pointer) is delivered by
-// `yolo host --`, so it is an at-launch kind and no longer an inapplicable one, which is the
-// document half of the at-launch regression.
+// clauses. Pi's ordinary env reaches `yolo host --`, while its jail-only clipboard env
+// does not. Env must therefore appear in BOTH groups, each decided per contribution,
+// and each document group must agree with the corresponding text clause.
 func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
 	home := t.TempDir()
 	selectPacksWith(t, home, `"pi"`, `,"host_management":"own"`)
@@ -248,8 +248,8 @@ func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
 	if !slices.Contains(doc.AtLaunchKinds, string(packdecl.KindEnv)) {
 		t.Errorf("at_launch_kinds = %v, want env among them:\n%s", doc.AtLaunchKinds, raw)
 	}
-	if slices.Contains(doc.InapplicableKinds, string(packdecl.KindEnv)) {
-		t.Errorf("inapplicable_kinds = %v names env, which `yolo host --` delivers:\n%s",
+	if !slices.Contains(doc.InapplicableKinds, string(packdecl.KindEnv)) {
+		t.Errorf("inapplicable_kinds = %v, want env for Pi's jail-only clipboard contribution:\n%s",
 			doc.InapplicableKinds, raw)
 	}
 	// The same survey as the text line: every kind it names is in the document's lists.
@@ -258,10 +258,14 @@ func TestHostApplyJSONNamesTheAtLaunchKinds(t *testing.T) {
 		t.Fatalf("text dry run rc=%d\n%s", rc, report)
 	}
 	clauses := notchClauses(notchKindLines(report)[0])
-	for _, k := range doc.AtLaunchKinds {
-		if countWord(clauses[atLaunchClause], k) != 1 {
-			t.Errorf("at_launch_kinds names %s and the text line's at-launch clause does not: %q",
-				k, clauses[atLaunchClause])
+	for clause, kinds := range map[string][]string{
+		atLaunchClause: doc.AtLaunchKinds, doesNotApplyClause: doc.InapplicableKinds,
+	} {
+		for _, k := range kinds {
+			if countWord(clauses[clause], k) != 1 {
+				t.Errorf("document names %s in %q and the corresponding text clause does not: %q",
+					k, clause, clauses[clause])
+			}
 		}
 	}
 }

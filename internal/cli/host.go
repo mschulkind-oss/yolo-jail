@@ -2922,6 +2922,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// (ServedDaemons.WithoutUnconfiguredLogins), at this notch as in a jail.
 	hostServed := c.servedSet(workerWhy).WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(cfg))
 	c.scopeInput = packload.ScopeInput{
+		AtHost:    true,
 		Packs:     packs,
 		Providers: providers,
 		Profiles:  agentTable,
