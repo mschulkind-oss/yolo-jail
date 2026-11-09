@@ -1512,6 +1512,7 @@ forward ([SUP-D50](#SUP-D50)).
   Container jail stopped, run `yolo prune` and `container volume ls`. The tool disk
   `yolo-c-…-apple-container-self.mise` stays, and prune does not offer to delete it.
   *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#1-seatbelt-workspaces-from-before-6a-iii-refuse-to-launch)): the Apple Container half and prune pass, but the refusal names only `yolo stop`. In the Seatbelt half the relaunch after `yolo stop` refuses on the user-config copy, because its delivery record carries the old jail name. Every Seatbelt workspace from before 6a-iii hits this.
+  *Re-run* the Seatbelt relaunch ([SUP-D51](#SUP-D51)) and the Apple Container refusal's advice (it now names `container stop yolo-c-…` too) at main `<landing sha>` or later.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
   create` and exits non-zero; `yolo yolo-account share <dir>` does what `macos-fix-permissions`
   did (the ACL on `<dir>` lists `_yolojail`). Also, on a Mac where the yolo account exists:
