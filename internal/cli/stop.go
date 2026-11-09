@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -219,7 +220,7 @@ func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 	if legacy := runtime.FromWorkspace(ws); legacy != stopJailNameFor(ws, selected) {
 		lrt, left := rt, stopLegacyJailKnown(legacy)
 		if !left {
-			lrt, left = stopLegacyContainerFind(legacy, rt, run)
+			lrt, left = stopLeftoverContainerFind(legacy, rt, run)
 		}
 		if left {
 			fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
@@ -231,12 +232,13 @@ func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 	return rc
 }
 
-// stopLegacyContainer finds a container under the legacy jail name that nothing else of yolo's
-// records (review M2): an older yolo's jail that exited without its container being removed, or
-// whose keeper record and tracking file are gone. A launch refuses on such a container, so the stop
-// must reach it: it asks rt when rt is a container runtime, then the other container runtime when
-// it is on PATH (stopLookPath), and answers the runtime that holds one.
-func stopLegacyContainer(legacy, rt string, run stopCommandRunner) (string, bool) {
+// stopLeftoverContainer finds a container named cname whose runtime nothing of yolo's records:
+// under the legacy jail name, an older yolo's jail that exited without its container being removed,
+// or whose keeper record and tracking file are gone (review M2), which a launch refuses on; under a
+// setup that is no longer defined, the jail whose technology its setup no longer says (review m4).
+// It asks rt when rt is a container runtime, then each other container runtime on PATH
+// (stopLookPath), and answers the runtime that holds one.
+func stopLeftoverContainer(cname, rt string, run stopCommandRunner) (string, bool) {
 	var asked []string
 	for _, r := range []string{rt, "podman", "container"} {
 		if (r != "podman" && r != "container") || slices.Contains(asked, r) {
@@ -248,7 +250,7 @@ func stopLegacyContainer(legacy, rt string, run stopCommandRunner) (string, bool
 			}
 		}
 		asked = append(asked, r)
-		if _, exists, answered := probeJailPresence(r, legacy, run, stopRuntimeCommandTimeout); answered && exists {
+		if _, exists, answered := probeJailPresence(r, cname, run, stopRuntimeCommandTimeout); answered && exists {
 			return r, true
 		}
 	}
@@ -256,12 +258,12 @@ func stopLegacyContainer(legacy, rt string, run stopCommandRunner) (string, bool
 }
 
 // stopLookPath is exec.LookPath behind a var, for the tests: which other container runtime the
-// legacy stop asks.
+// stop asks for a container whose runtime nothing records.
 var stopLookPath = exec.LookPath
 
-// stopLegacyContainerFind is stopLegacyContainer behind a var, for the tests whose runtime stand-in
-// answers every name alike and so would find a legacy container that is not there.
-var stopLegacyContainerFind = stopLegacyContainer
+// stopLeftoverContainerFind is stopLeftoverContainer behind a var, for the tests whose runtime
+// answers every name alike and so would find a container that is not there.
+var stopLeftoverContainerFind = stopLeftoverContainer
 
 // stopOneSetup is `yolo stop --setup <name>` (named-setups-plan.md slice 6b): the jail of that one
 // setup in ws, on its own technology, whatever is selected. A name that is not a built-in or one
@@ -279,8 +281,9 @@ func stopOneSetup(stdout, stderr io.Writer, ws, name string,
 
 // stopOtherSetupJail stops the jail of setup name, one that has state in ws but is not the
 // selected one, when anything of that jail is left. Its technology is the setup's; a setup that
-// is no longer defined is answered by the runtime its keeper recorded launching it on, and, with
-// none recorded, its jail is reported with the step that lets the stop reach it.
+// is no longer defined is answered by the runtime its keeper recorded launching it on, else by the
+// container runtime that holds a container of its name (stopLeftoverContainerFind), and, with
+// neither, its jail is reported with the one command that lets the stop reach it.
 func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[string]setup.Setup,
 	problems []string, run stopCommandRunner, p *perf.Log, force bool) int {
 	cname := runtime.JailName(ws, name)
@@ -291,17 +294,35 @@ func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[stri
 	if err == nil {
 		return stopSetupJail(stdout, stderr, ws, s, s.Backend(), run, p, force)
 	}
+	rt := ""
 	if _, known := launchedRuntime(cname); !known {
-		fmt.Fprintf(stderr, "yolo stop: something of setup %s's jail (%s) is left in this workspace, but %s "+
-			"is not defined any more, so which technology runs it is not known (%v). Define it again, then run "+
-			"`yolo stop` again:\n    yolo setup new %s --from <setup>\n", name, cname, name, err, name)
-		return 1
+		found, ok := stopLeftoverContainerFind(cname, "", run)
+		if !ok {
+			fmt.Fprintf(stderr, "yolo stop: something of setup %s's jail (%s) is left in this workspace, but %s "+
+				"is not defined any more, so which technology runs it is not known (%v). Define it again from the "+
+				"built-in setup it ran on, then run `yolo stop` again:\n    yolo setup new %s --from %s\n"+
+				"The built-in setups that run a jail are %s.\n",
+				name, cname, name, err, name, setup.Default(goruntime.GOOS).Name, strings.Join(jailSetupNames(), ", "))
+			return 1
+		}
+		rt = found
 	}
-	rc, ended := stopJailEnded(stdout, stderr, ws, cname, "", run, p, force)
+	rc, ended := stopJailEnded(stdout, stderr, ws, cname, rt, run, p, force)
 	if ended {
 		fmt.Fprintf(stdout, "stopped %s\n", name)
 	}
 	return rc
+}
+
+// jailSetupNames is the built-in setups that run a jail (every kind but host), by name.
+func jailSetupNames() []string {
+	var names []string
+	for _, s := range setup.BuiltIns() {
+		if s.Kind() != setup.KindHost {
+			names = append(names, s.Name)
+		}
+	}
+	return names
 }
 
 // stopSetupJail stops the jail of setup s in ws, on rt, and says `stopped <setup>` when it ended

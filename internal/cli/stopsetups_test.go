@@ -183,6 +183,75 @@ func TestAStopWithSetupRefusesWhatNamesNoJail(t *testing.T) {
 	}
 }
 
+// A SETUP NO LONGER DEFINED STILL HAS ITS JAIL STOPPED WHEN A RUNTIME HOLDS IT, AND OTHERWISE THE
+// STOP NAMES ONE COMMAND TO RUN (review m4): its technology is no longer in the config and no
+// keeper recorded it, so the stop asks the container runtimes on PATH for a container of its name;
+// with none, the advice names a real setup to copy rather than a placeholder.
+func TestAStopOfAnUndefinedSetupsJailFindsItsRuntimeOrNamesASetup(t *testing.T) {
+	for _, held := range []bool{true, false} {
+		name := "a podman container holds it"
+		if !held {
+			name = "no runtime holds it"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newStopSetupsFixture(t)
+			gone := runtime.JailName(f.ws, "gone")
+			if err := os.MkdirAll(paths.SetupStateDir(f.ws, "gone"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f.known[gone] = true
+			savedFind, savedLook := stopLeftoverContainerFind, stopLookPath
+			t.Cleanup(func() { stopLeftoverContainerFind, stopLookPath = savedFind, savedLook })
+			stopLeftoverContainerFind = stopLeftoverContainer // the real lookup (stopWorkspace stubs it)
+			stopLookPath = func(rt string) (string, error) {
+				if rt == "podman" {
+					return "/usr/bin/podman", nil
+				}
+				return "", os.ErrNotExist
+			}
+			// Swap the fixture's podman for one that also holds the undefined setup's container.
+			present := map[string]bool{f.podman: true, gone: held}
+			useStopExec(t, func(argv []string, _ time.Duration) (string, bool, int) {
+				target := argv[len(argv)-1]
+				f.podmanCalls[target] = append(f.podmanCalls[target], argv)
+				switch {
+				case argv[1] == "inspect" && present[target]:
+					return "true\n", true, 0
+				case argv[1] == "inspect":
+					return "Error: no such container", true, 125
+				case argv[1] == "container" && argv[2] == "exists" && present[target]:
+					return "", true, 0
+				case argv[1] == "container" && argv[2] == "exists":
+					return "", true, 1
+				case argv[1] == "stop" || argv[1] == "rm":
+					present[target] = false
+					return "", true, 0
+				}
+				t.Errorf("unexpected argv %v", argv)
+				return "", false, 1
+			})
+			var rc int
+			stdout, stderr := captureBoth(t, func() { rc = runStop([]string{"stop"}) })
+			if held {
+				if rc != 0 || present[gone] || !strings.Contains(stdout, "stopped gone\n") {
+					t.Errorf("rc=%d, the undefined setup's container still there=%v\nstdout:\n%s\nstderr:\n%s",
+						rc, present[gone], stdout, stderr)
+				}
+				return
+			}
+			if rc != 1 {
+				t.Errorf("runStop = %d, want 1\nstderr:\n%s", rc, stderr)
+			}
+			if strings.Contains(stderr, "<setup>") || !strings.Contains(stderr, "yolo setup new gone --from ") {
+				t.Errorf("the advice must name a real setup to copy, not a placeholder:\n%s", stderr)
+			}
+			if !strings.Contains(stderr, "podman-self, apple-container-self") {
+				t.Errorf("the advice must list the built-in setups that run a jail:\n%s", stderr)
+			}
+		})
+	}
+}
+
 // A LEGACY macos-user JAIL IS STOPPED ON macos-user WHATEVER IS SELECTED (review M4): its keeper
 // keeps its start record under its macos-user key, not under the bare name, so a stop that read
 // only the bare name asked the selected container runtime, found nothing, and left the jail that

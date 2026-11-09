@@ -11,7 +11,7 @@ import (
 // (named-setups-plan.md SUP-D10): a launch refuses while that jail runs and names this stop as the
 // remedy, so the front door (runStop) must end it as well as the selected setup's jail. The legacy
 // name is asked when something of it is left (stopLegacyJailKnown), and otherwise its container is
-// looked for (stopLegacyContainer): an older yolo's container that exited without being removed is
+// looked for (stopLeftoverContainer): an older yolo's container that exited without being removed is
 // known to nothing else of yolo's, and still holds the name (review M2).
 func TestAStopFromTheFrontDoorAlsoStopsTheLegacyJail(t *testing.T) {
 	for _, tc := range []struct {
@@ -30,7 +30,7 @@ func TestAStopFromTheFrontDoorAlsoStopsTheLegacyJail(t *testing.T) {
 			legacy := strings.TrimSuffix(cname, "-podman-self")
 			savedKnown, savedLook := stopLegacyJailKnown, stopLookPath
 			t.Cleanup(func() { stopLegacyJailKnown, stopLookPath = savedKnown, savedLook })
-			stopLegacyContainerFind = stopLegacyContainer // the real lookup (stopWorkspace stubs it)
+			stopLeftoverContainerFind = stopLeftoverContainer // the real lookup (stopWorkspace stubs it)
 			var asked []string
 			stopLegacyJailKnown = func(name string) bool {
 				asked = append(asked, name)
