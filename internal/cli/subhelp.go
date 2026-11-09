@@ -91,7 +91,7 @@ var subcommandUsage = map[string]subUsage{
 	// same text — which names the alias — rather than a near-duplicate that would
 	// drift.
 	"doctor": {text: checkUsage, valueFlags: []string{"--format"}},
-	"stop":   {text: stopUsage},
+	"stop":   {text: stopUsage, valueFlags: []string{"--setup"}},
 	// --format's value is consumed, so `yolo ps --format --help` asks for a format
 	// called "--help" (and is refused as one) rather than reading as a help
 	// request — the same rule init's -m follows.

@@ -92,34 +92,39 @@ func BakedYoloVersionFromInspectEnv(envLines []string) (string, bool) {
 }
 
 // PsContainer is a fully-resolved ps display row: the parsed CLI fields plus the
-// workspace resolved from the tracking file / inspect.
+// workspace resolved from the tracking file / inspect, and the setup the jail runs as
+// (named-setups-plan.md slice 6b): its launch record's, or the one its name carries; "" when
+// neither says, which the table prints as PsUnknownSetup (named-setups.md §12.2).
 type PsContainer struct {
 	Name      string
+	Setup     string
 	Status    string
 	Workspace string
 }
 
-// RenderPsTable renders the `yolo ps` table byte-exactly like ps(): a header
-// then one line per container, with the name and status columns left-padded to
-// the widest value (measured in Unicode code points), two spaces between
-// columns. Returns "" for no containers
+// PsUnknownSetup is the SETUP cell of a row whose setup is not known: a jail an older yolo
+// started, which recorded none and carries none in its name.
+const PsUnknownSetup = "?"
+
+// RenderPsTable renders the `yolo ps` table: a header then one line per container, with the
+// name, setup and status columns left-padded to the widest value (measured in Unicode code
+// points), two spaces between columns. Returns "" for no containers
 // (the caller prints "No running jails." instead). No trailing newline on the
 // final row (each line is joined by "\n").
 func RenderPsTable(containers []PsContainer) string {
 	if len(containers) == 0 {
 		return ""
 	}
-	wName, wStatus := 0, 0
+	wName, wSetup, wStatus := 0, utf8.RuneCountInString("SETUP"), 0
 	for _, c := range containers {
-		if n := utf8.RuneCountInString(c.Name); n > wName {
-			wName = n
-		}
-		if n := utf8.RuneCountInString(c.Status); n > wStatus {
-			wStatus = n
-		}
+		wName = max(wName, utf8.RuneCountInString(c.Name))
+		wSetup = max(wSetup, utf8.RuneCountInString(psSetupCell(c.Setup)))
+		wStatus = max(wStatus, utf8.RuneCountInString(c.Status))
 	}
 	var b strings.Builder
 	b.WriteString(padRunes("CONTAINER", wName))
+	b.WriteString("  ")
+	b.WriteString(padRunes("SETUP", wSetup))
 	b.WriteString("  ")
 	b.WriteString(padRunes("STATUS", wStatus))
 	b.WriteString("  WORKSPACE")
@@ -127,11 +132,21 @@ func RenderPsTable(containers []PsContainer) string {
 		b.WriteString("\n")
 		b.WriteString(padRunes(c.Name, wName))
 		b.WriteString("  ")
+		b.WriteString(padRunes(psSetupCell(c.Setup), wSetup))
+		b.WriteString("  ")
 		b.WriteString(padRunes(c.Status, wStatus))
 		b.WriteString("  ")
 		b.WriteString(c.Workspace)
 	}
 	return b.String()
+}
+
+// psSetupCell is a row's SETUP cell: its setup, or PsUnknownSetup.
+func psSetupCell(setup string) string {
+	if setup == "" {
+		return PsUnknownSetup
+	}
+	return setup
 }
 
 // padRunes left-justifies s to width code points with trailing spaces. If s is

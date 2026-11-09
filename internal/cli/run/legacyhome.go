@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"golang.org/x/sys/unix"
@@ -421,6 +422,25 @@ func (o *Options) jailRuns(cname string) (answer projectJails, how string) {
 		}
 	}
 	return answer, ""
+}
+
+// JailRunState is jailRuns over the real seams, for a reader outside a launch: `yolo setup list`'s
+// running column (named-setups-plan.md slice 6b). running is true when the jail named cname runs;
+// known is false when no way of asking said running and one could not answer, so it may run.
+func JailRunState(cname string) (running, known bool) {
+	o := NewDefaultOptions()
+	o.Exec = realExec
+	o.LookPath = func(name string) (string, bool) {
+		p, err := exec.LookPath(name)
+		return p, err == nil
+	}
+	switch j, _ := o.jailRuns(cname); j {
+	case projectJailsRunning:
+		return true, true
+	case projectJailsUnknown:
+		return false, false
+	}
+	return false, true
 }
 
 // projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's

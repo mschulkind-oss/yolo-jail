@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
@@ -271,5 +273,71 @@ func TestSetupListMakesTheLaunchsSelection(t *testing.T) {
 	if rc != 0 || !strings.Contains(out, "Selected: apple-container-self") || !strings.Contains(out, "this OS's default") ||
 		strings.Contains(out, "runtime = ") {
 		t.Fatalf("a workspace `runtime` key: rc=%d err=%q out=\n%s", rc, errw, out)
+	}
+}
+
+// TestSetupListMarksTheSetupsRunningHere (named-setups-plan.md slice 6b, W-SU1): `yolo setup
+// list` says which setups run a jail in this workspace. It asks about each setup with state under
+// .yolo/setups, by its setup-qualified jail name (setupJailState, run.JailRunState): one that runs
+// is marked `running`, one that could not be asked `may be running`, and a setup with no state
+// here is not asked.
+func TestSetupListMarksTheSetupsRunningHere(t *testing.T) {
+	setupsHome(t)
+	ws, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"podman-self", "seatbelt-self", "apple-container-self"} {
+		if err := os.MkdirAll(paths.SetupStateDir(ws, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := setupJailState
+	t.Cleanup(func() { setupJailState = saved })
+	asked := map[string]bool{}
+	setupJailState = func(cname string) (running, known bool) {
+		asked[cname] = true
+		switch cname {
+		case runtime.JailName(ws, "podman-self"):
+			return true, true
+		case runtime.JailName(ws, "seatbelt-self"):
+			return false, false
+		}
+		return false, true
+	}
+	rc, out, errw := runSetupCapture("list")
+	if rc != 0 {
+		t.Fatalf("rc=%d err=%q", rc, errw)
+	}
+	notes := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			notes[f[0]] = line
+		}
+	}
+	for name, want := range map[string]string{"podman-self": "running", "seatbelt-self": "may be running"} {
+		if !strings.Contains(notes[name], ", "+want) {
+			t.Errorf("%s's line does not say %q:\n%s", name, want, out)
+		}
+	}
+	for _, name := range []string{"apple-container-self", "host-self", "seatbelt-yolo-account"} {
+		if strings.Contains(notes[name], "running") {
+			t.Errorf("%s, which runs no jail here, is marked running:\n%s", name, out)
+		}
+	}
+	if strings.Contains(notes["podman-self"], "may be running") {
+		t.Errorf("a running setup is marked as one that could not be asked:\n%s", out)
+	}
+	want := map[string]bool{
+		runtime.JailName(ws, "podman-self"): true, runtime.JailName(ws, "seatbelt-self"): true,
+		runtime.JailName(ws, "apple-container-self"): true,
+	}
+	if len(asked) != len(want) {
+		t.Errorf("asked about %v, want only the setups with state here %v", asked, want)
+	}
+	for cname := range want {
+		if !asked[cname] {
+			t.Errorf("never asked about %s", cname)
+		}
 	}
 }

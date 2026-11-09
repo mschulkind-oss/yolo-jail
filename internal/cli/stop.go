@@ -23,10 +23,10 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // stopRuntimeStopTimeoutSeconds is run.TeardownStopTimeoutSeconds, named here because stopJail's
@@ -35,9 +35,12 @@ import (
 const stopRuntimeStopTimeoutSeconds = run.TeardownStopTimeoutSeconds
 
 // stopUsage is what `yolo stop --help` prints.
-const stopUsage = `Usage: yolo stop [--force]
+const stopUsage = `Usage: yolo stop [--setup <name>] [--force]
 
-Stop this workspace's running jail.
+Stop this workspace's running jails: one per setup that runs one here, each
+ended on its own technology and named in a "stopped <setup>" line. --setup
+stops that one setup's jail alone. A jail an earlier yolo started for this
+workspace, before jails were named per setup, is stopped too.
 
 Rarely needed: a jail lives while any session in it does, and quitting the
 last one tears it down. This ends every session at once — a wedged session, a
@@ -70,12 +73,16 @@ macos-user sessions and the keeper that holds their host services, and
 removes what a keeper that died left behind. --force is a container-backend
 flag; the macos-user stop already signals its keeper.
 
+A yolo host session runs no jail: it ends when the program it runs exits.
+
 Flags:
-  -f, --force   End the jail now, without waiting out the keeper's teardown.
-  --help, -h    Show this help.
+  --setup <name>  Stop only this setup's jail (yolo setup list names them).
+  -f, --force     End the jail now, without waiting out the keeper's teardown.
+  --help, -h      Show this help.
 
 Examples:
-  yolo stop                           # release this workspace's jail
+  yolo stop                           # release this workspace's jails
+  yolo stop --setup seatbelt-self     # release one setup's jail
   yolo stop --force                   # end it now, keeper included
   yolo stop && yolo -- claude         # the replacement series, in full`
 
@@ -87,7 +94,11 @@ func runStop(args []string) int {
 	// Misuse exits non-zero with the pointer to this command's help (unknownflags.go), as `yolo ps`
 	// and `yolo prune` do. Without it a flag this stop does not define was dropped and the command
 	// reported its normal status — a request believed answered, and nothing done.
-	if refuseUnknownFlags("stop", args, []string{"stop", "--force", "-f", "--help", "-h"}, os.Stderr) {
+	if refuseUnknownFlags("stop", args, []string{"stop", "--force", "-f", "--setup", "--help", "-h"}, os.Stderr) {
+		return 2
+	}
+	only, ok := stopSetupRequested(args, os.Stderr)
+	if !ok {
 		return 2
 	}
 	force := stopForceRequested(args)
@@ -100,7 +111,12 @@ func runStop(args []string) int {
 	// own to grow, and the person running it is often already asking "why is
 	// everything slow".
 	p := run.TimingLogFor(ws, os.Getenv, os.Stderr)
-	rc := stopWorkspaceJails(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), stopExec, p, force)
+	var rc int
+	if only != "" {
+		rc = stopOneSetup(os.Stdout, os.Stderr, ws, only, stopExec, p, force)
+	} else {
+		rc = stopWorkspaceJails(os.Stdout, os.Stderr, ws, detectListingRuntime(ws), stopExec, p, force)
+	}
 	// D12, stop's small case of it: recording and REPORTING are different
 	// questions. The spans are already in <ws>/.yolo/logs/host-perf.log; the table
 	// prints only when the user asked for it on THIS invocation, which for stop
@@ -117,19 +133,34 @@ func runStop(args []string) int {
 }
 
 // stopForceRequested reports whether this invocation asked for the escalated stop. A plain scan:
-// stop has one flag of its own, and it consumes no value, so it cannot swallow the token after it.
+// --force consumes no value, and --setup's value is a setup name, which never begins with a dash.
 func stopForceRequested(args []string) bool {
 	return slices.Contains(args, "--force") || slices.Contains(args, "-f")
 }
 
+// stopSetupRequested is the setup `yolo stop --setup <name>` names, "" for a stop of every setup;
+// the last --setup wins, as at a launch. ok is false, with the refusal printed, when a --setup has
+// no value.
+func stopSetupRequested(args []string, errw io.Writer) (name string, ok bool) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break
+		}
+		fl, isSetup := readValueFlag(args, i, "--setup")
+		if !isSetup {
+			continue
+		}
+		if fl.err != nil {
+			fmt.Fprintf(errw, "yolo stop: %v (a setup's name; `yolo setup list` names them)\n", fl.err)
+			return "", false
+		}
+		name, i = fl.value, fl.last
+	}
+	return name, true
+}
+
 // stopExec is realStopExec behind a var, so a test can drive runStop against a fake runtime.
 var stopExec = realStopExec
-
-// stopRuntimeInstalled reports whether a runtime's CLI is on PATH, behind a var for the tests.
-var stopRuntimeInstalled = func(bin string) bool {
-	_, err := exec.LookPath(bin)
-	return err == nil
-}
 
 // Bound each runtime command, including probes of an unresponsive runtime.
 var stopRuntimeCommandTimeout = 60 * time.Second
@@ -159,16 +190,33 @@ func realStopExec(argv []string, timeout time.Duration) (string, bool, int) {
 	return out.String(), true, 0
 }
 
-// stopWorkspaceJails stops the jail a launch from ws would key by now, the selected setup's
-// (workspaceJailName), and then a jail an earlier yolo started under the workspace's legacy jail
-// name (runtime.FromWorkspace; named-setups-plan.md SUP-D10), when anything of one is left
-// (run.JailKnown). A launch refuses while that legacy jail runs and names this stop, so the stop
-// must reach it. Every setup's jail is slice 6b's. The status is the first failure's, else 0.
+// stopWorkspaceJails is `yolo stop` without --setup (named-setups-plan.md slice 6b): it stops
+// every setup's jail in ws, saying `stopped <setup>` for each one it ended.
+//
+//   - The selected setup's jail first (workspaceSetup, the jail a launch from here would join), on
+//     rt, the runtime the selection resolves, always: a stop with nothing running says so.
+//   - Then each other setup with state under .yolo/setups (paths.SetupStateNames), by its
+//     setup-qualified name, on its own technology (stopOtherSetupJail), when anything of its jail
+//     is left (stopSetupJailKnown, run.JailKnown); one with nothing left is not mentioned.
+//   - Then a jail an earlier yolo started under the workspace's legacy jail name
+//     (runtime.FromWorkspace; SUP-D10), when anything of one is left (stopLegacyJailKnown). A
+//     launch refuses while that legacy jail runs and names this stop, so the stop must reach it.
+//
+// The status is the first failure's, else 0.
 func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) int {
-	cname := workspaceJailName(ws)
-	rc := stopJail(stdout, stderr, ws, cname, rt, run, p, force)
-	if legacy := runtime.FromWorkspace(ws); legacy != cname && stopLegacyJailKnown(legacy) {
+	selected := workspaceSetup()
+	rc := stopSetupJail(stdout, stderr, ws, selected, rt, run, p, force)
+	user, problems := userSetupTables()
+	for _, name := range paths.SetupStateNames(ws) {
+		if name == selected.Name {
+			continue
+		}
+		if src := stopOtherSetupJail(stdout, stderr, ws, name, user, problems, run, p, force); rc == 0 {
+			rc = src
+		}
+	}
+	if legacy := runtime.FromWorkspace(ws); legacy != stopJailNameFor(ws, selected) && stopLegacyJailKnown(legacy) {
 		fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
 		if lrc := stopJail(stdout, stderr, ws, legacy, rt, run, p, force); rc == 0 {
 			rc = lrc
@@ -177,8 +225,77 @@ func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 	return rc
 }
 
-// stopLegacyJailKnown is run.JailKnown behind a var, for the tests.
-var stopLegacyJailKnown = run.JailKnown
+// stopOneSetup is `yolo stop --setup <name>` (named-setups-plan.md slice 6b): the jail of that one
+// setup in ws, on its own technology, whatever is selected. A name that is not a built-in or one
+// of the user's setups is refused with the launch's own message (exit 2, as a misused flag).
+func stopOneSetup(stdout, stderr io.Writer, ws, name string,
+	run stopCommandRunner, p *perf.Log, force bool) int {
+	user, problems := userSetupTables()
+	s, err := setupLookup(name, user, problems)
+	if err != nil {
+		fmt.Fprintf(stderr, "yolo stop: %v\n", err)
+		return 2
+	}
+	return stopSetupJail(stdout, stderr, ws, s, s.Backend(), run, p, force)
+}
+
+// stopOtherSetupJail stops the jail of setup name, one that has state in ws but is not the
+// selected one, when anything of that jail is left. Its technology is the setup's; a setup that
+// is no longer defined is answered by the runtime its keeper recorded launching it on, and, with
+// none recorded, its jail is reported with the step that lets the stop reach it.
+func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[string]setup.Setup,
+	problems []string, run stopCommandRunner, p *perf.Log, force bool) int {
+	cname := runtime.JailName(ws, name)
+	if !stopSetupJailKnown(cname) {
+		return 0
+	}
+	s, err := setupLookup(name, user, problems)
+	if err == nil {
+		return stopSetupJail(stdout, stderr, ws, s, s.Backend(), run, p, force)
+	}
+	if _, known := launchedRuntime(cname); !known {
+		fmt.Fprintf(stderr, "yolo stop: something of setup %s's jail (%s) is left in this workspace, but %s "+
+			"is not defined any more, so which technology runs it is not known (%v). Define it again, then run "+
+			"`yolo stop` again:\n    yolo setup new %s --from <setup>\n", name, cname, name, err, name)
+		return 1
+	}
+	rc, ended := stopJailEnded(stdout, stderr, ws, cname, "", run, p, force)
+	if ended {
+		fmt.Fprintf(stdout, "stopped %s\n", name)
+	}
+	return rc
+}
+
+// stopSetupJail stops the jail of setup s in ws, on rt, and says `stopped <setup>` when it ended
+// one. A host setup runs no jail: a `yolo host` session is the program it runs, which ends when
+// that program exits, so the stop says so for the one asked about by name and stops nothing.
+func stopSetupJail(stdout, stderr io.Writer, ws string, s setup.Setup, rt string,
+	run stopCommandRunner, p *perf.Log, force bool) int {
+	if s.Kind() == setup.KindHost {
+		fmt.Fprintf(stdout, "%s runs no jail to stop: a `yolo host` session ends when the program it runs "+
+			"exits; end that program in its terminal.\n", s.Name)
+		return 0
+	}
+	rc, ended := stopJailEnded(stdout, stderr, ws, stopJailNameFor(ws, s), rt, run, p, force)
+	if ended {
+		fmt.Fprintf(stdout, "stopped %s\n", s.Name)
+	}
+	return rc
+}
+
+// stopJailNameFor is run.JailNameFor, outside the functions whose runner parameter is named run.
+func stopJailNameFor(ws string, s setup.Setup) string { return run.JailNameFor(ws, s) }
+
+// stopLegacyJailKnown and stopSetupJailKnown are run.JailKnown behind vars, for the tests: is
+// anything left of the legacy jail, or of a setup's jail other than the selected one.
+var (
+	stopLegacyJailKnown = run.JailKnown
+	stopSetupJailKnown  = run.JailKnown
+)
+
+// stopMacosUserJailKnown is run.JailKnown behind a var, for the tests: whether a macos-user stop
+// has a jail to end, asked before it ends one, so it can say it stopped it.
+var stopMacosUserJailKnown = run.JailKnown
 
 // stopJail is stop's testable core, for the jail named cname (jailname.go's name: the selected
 // setup's, or the legacy name of a jail an older yolo started). A RUNNING container is stopped gracefully
@@ -196,6 +313,16 @@ var stopLegacyJailKnown = run.JailKnown
 // its grace and the keeper's teardown is not waited out (finishStop signals instead).
 func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) int {
+	rc, _ := stopJailEnded(stdout, stderr, ws, cname, rt, run, p, force)
+	return rc
+}
+
+// stopJailEnded is stopJail, also saying whether it ended a jail: one running, ending, or a
+// leftover container of the name, or (macos-user) a jail of which anything was left
+// (stopMacosUserJailKnown). A stop that found nothing, or failed, ended none. `yolo stop` says
+// `stopped <setup>` for each one ended (stopSetupJail).
+func stopJailEnded(stdout, stderr io.Writer, ws, cname, rt string,
+	run stopCommandRunner, p *perf.Log, force bool) (int, bool) {
 	launched, known := launchedRuntime(cname)
 	if known && launched != rt {
 		if rt != "" {
@@ -206,7 +333,7 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	}
 	if rt == "" {
 		fmt.Fprintln(stderr, "yolo stop: no container runtime found (podman / container).")
-		return 1
+		return 1, false
 	}
 	if rt == "macos-user" {
 		// NO CONTAINER, AND STILL SOMETHING TO STOP (docs/design/jail-lifetime-last-session-wins.md
@@ -214,7 +341,9 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 		// arrival at an unkept key names. It signals them, streams the keeper's teardown, and removes
 		// what a dead keeper left. --force is a container-backend flag: this path already signals its
 		// keeper (StopMacosUser).
-		return stopMacosUser(stdout, stderr, ws, cname)
+		was := stopMacosUserJailKnown(cname)
+		rc := stopMacosUser(stdout, stderr, ws, cname)
+		return rc, rc == 0 && was
 	}
 
 	// Is anything actually running? `stop` on a non-existent container errors,
@@ -226,13 +355,13 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	if !ran {
 		fmt.Fprintf(stderr, "yolo stop: the %s runtime did not complete: `%s` is not on PATH, would not "+
 			"start, or timed out. Check that the runtime is installed and responsive, then run `yolo stop` again.\n", rt, rt)
-		return 1
+		return 1, false
 	}
 	if rt == "container" && rc != 0 { // parity: HonoredBy — `container ls` is AC's answer, and a failed one is "could not ask", where podman's failed inspect is "no such container"
 		fmt.Fprintf(stderr, "yolo stop: `container ls` failed (rc %d), so whether this workspace's jail "+
 			"(%s) is running is not known. `container ls` shows why; `container stop %s` stops the jail.\n",
 			rc, cname, cname)
-		return 1
+		return 1, false
 	}
 	// The keeper's log as it stands before the stop, so the teardown streamed below is the one this
 	// stop causes (run.FinishStop).
@@ -243,10 +372,11 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 		if keeperAlive(cname) {
 			fmt.Fprintf(stdout, "This workspace's jail (%s) is already ending.\n", cname)
 			if frc := finishStop(stdout, stderr, ws, cname, rt, logFrom, stopCapture(stderr), force); frc != 0 {
-				return frc
+				return frc, false
 			}
 			// The keeper's teardown is done; the container may still be there (see stopContainerGone).
-			return stopContainerGone(stdout, stderr, rt, cname, run, p, force)
+			grc := stopContainerGone(stdout, stderr, rt, cname, run, p, force)
+			return grc, grc == 0
 		}
 		// A container of this name that EXISTS but is not running is not "no jail": it holds the
 		// name, so the next launch's create is refused (the wedge of a --rm container whose runtime
@@ -255,15 +385,13 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 		switch {
 		case !answered:
 			stopCouldNotAsk(stderr, rt, cname)
-			return 1
+			return 1, false
 		case exists:
-			return endLeftoverJail(stdout, stderr, rt, cname, state, force, run, p)
+			lrc := endLeftoverJail(stdout, stderr, rt, cname, state, force, run, p)
+			return lrc, lrc == 0
 		}
 		fmt.Fprintf(stdout, "No jail running for this workspace (%s).\n", cname)
-		if !known {
-			noteOtherRuntimes(stdout, rt, cname)
-		}
-		return 0
+		return 0, false
 	}
 
 	// Why, for every session the stop ends, recorded before it (recordYoloStop): each prints it
@@ -287,12 +415,12 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	if !ran {
 		if force && rt == "podman" {
 			if stopContainerGone(stdout, stderr, rt, cname, run, p, true) != 0 {
-				return 1
+				return 1, false
 			}
 		} else {
 			fmt.Fprintf(stderr, "yolo stop: `%s stop %s` failed (rc %d); any message the runtime printed above "+
 				"says why. `yolo stop` again retries it.\n", rt, cname, rc)
-			return 1
+			return 1, false
 		}
 	}
 	if rc != 0 {
@@ -308,12 +436,12 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 			// confirmed typed absence remains the only success condition.
 			if force && rt == "podman" {
 				if stopContainerGone(stdout, stderr, rt, cname, run, p, true) != 0 {
-					return 1
+					return 1, false
 				}
 			} else {
 				fmt.Fprintf(stderr, "yolo stop: `%s stop %s` failed (rc %d); any message the runtime printed "+
 					"above says why. `yolo stop` again retries it.\n", rt, cname, rc)
-				return 1
+				return 1, false
 			}
 		}
 	}
@@ -325,16 +453,16 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 	frc := finishStop(stdout, stderr, ws, cname, rt, logFrom, stopCapture(stderr), force)
 	sp.End()
 	if frc != 0 {
-		return frc
+		return frc, false
 	}
 	// The runtime's stop and the keeper's teardown can each return cleanly while a container of the
 	// name is still there, so neither is proof the jail ended. Judge the stop by the container's
 	// EXISTENCE before saying so (stopContainerGone).
 	if rc := stopContainerGone(stdout, stderr, rt, cname, run, p, force); rc != 0 {
-		return rc
+		return rc, false
 	}
 	fmt.Fprintf(stdout, "Stopped %s. The next yolo launch starts fresh.\n", cname)
-	return 0
+	return 0, true
 }
 
 // finishStop is run.FinishStop behind a var, so a test can pin that the stop reaches it.
@@ -608,21 +736,6 @@ func launchedRuntime(cname string) (string, bool) {
 		return "", false
 	}
 	return rt, true
-}
-
-// noteOtherRuntimes is a no-op stop that cannot know which runtime launched the jail it tracks: no
-// keeper's start record names one, and a tracking file says a jail of this name was launched. Each
-// other container runtime installed here is a place that jail can run, so it names the stop that
-// asks there.
-func noteOtherRuntimes(stdout io.Writer, rt, cname string) {
-	if _, tracked := runtime.ReadContainerWorkspace(cname); !tracked {
-		return
-	}
-	for _, other := range paths.SupportedRuntimes {
-		if other != rt && stopRuntimeInstalled(other) {
-			fmt.Fprintf(stdout, "If it was launched on %s, `YOLO_SETUP=%s yolo stop` stops it.\n", other, config.SetupForRemovedRuntime(other))
-		}
-	}
 }
 
 // stopCapture is the E3 config capture `yolo stop` hands the reap of an unkept jail, as a launch is

@@ -164,14 +164,15 @@ func TestBakedYoloVersionFromInspectEnv(t *testing.T) {
 
 func TestRenderPsTable(t *testing.T) {
 	containers := []PsContainer{
-		{"yolo-a-1", "Up 2 hours", "/home/matt/a"},
-		{"yolo-longer-name-2", "Up 3m", "/home/matt/b"},
+		{Name: "yolo-a-1", Setup: "podman-self", Status: "Up 2 hours", Workspace: "/home/matt/a"},
+		{Name: "yolo-longer-name-2", Status: "Up 3m", Workspace: "/home/matt/b"},
 	}
 	got := RenderPsTable(containers)
-	// name col width = len("yolo-longer-name-2")=18, status col = len("Up 2 hours")=10.
-	want := "CONTAINER           STATUS      WORKSPACE\n" +
-		"yolo-a-1            Up 2 hours  /home/matt/a\n" +
-		"yolo-longer-name-2  Up 3m       /home/matt/b"
+	// name col width = len("yolo-longer-name-2")=18, setup col = len("podman-self")=11, status col =
+	// len("Up 2 hours")=10. A row whose setup is not known prints `?` (named-setups.md §12.2).
+	want := "CONTAINER           SETUP        STATUS      WORKSPACE\n" +
+		"yolo-a-1            podman-self  Up 2 hours  /home/matt/a\n" +
+		"yolo-longer-name-2  ?            Up 3m       /home/matt/b"
 	if got != want {
 		t.Errorf("table =\n%q\nwant\n%q", got, want)
 	}

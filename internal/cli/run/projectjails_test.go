@@ -45,3 +45,27 @@ func TestTheMoveAsksEverySetupsJail(t *testing.T) {
 		t.Errorf("with no jail running, projectJails = %v, want stopped", got)
 	}
 }
+
+// JailRunState is `yolo setup list`'s question (named-setups-plan.md slice 6b): a jail whose
+// macos-user keeper holds its lock runs; with no keeper, no session and no container runtime on
+// PATH, it is known stopped.
+func TestJailRunStateAsksTheJailsKeepers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	ws := t.TempDir()
+	cname := yoloruntime.JailName(ws, "seatbelt-self")
+	if running, known := JailRunState(cname); running || !known {
+		t.Errorf("with nothing of the jail, JailRunState = (%v, %v), want (false, true)", running, known)
+	}
+	held, err := holdLivenessLock(keeperKey(cname, keeperNotchMacosUser))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLock(held)
+	if running, known := JailRunState(cname); !running || !known {
+		t.Errorf("with its macos-user keeper alive, JailRunState = (%v, %v), want (true, true)", running, known)
+	}
+	if running, _ := JailRunState(yoloruntime.JailName(ws, "podman-self")); running {
+		t.Error("another setup's keeper made this setup's jail run")
+	}
+}

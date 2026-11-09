@@ -28,7 +28,7 @@ func TestStopForceIsParsedAndDocumented(t *testing.T) {
 	if stopForceRequested([]string{"stop"}) {
 		t.Error("a plain stop asked for force")
 	}
-	for _, want := range []string{"--force", "-f", "Usage: yolo stop [--force]"} {
+	for _, want := range []string{"--force", "-f", "--setup <name>", "Usage: yolo stop [--setup <name>] [--force]"} {
 		if !strings.Contains(stopUsage, want) {
 			t.Errorf("stopUsage does not mention %q", want)
 		}

@@ -77,3 +77,57 @@ func TestStopEndsTheWorkspaceJail(t *testing.T) {
 		t.Errorf("the no-op stop must say so:\n%s", r2.combined())
 	}
 }
+
+// TestStopStopsEverySetupsJail is W-SU1's Linux half (named-setups-plan.md slice 6b): two setups
+// of one workspace run two jails at once; `yolo setup list` marks both running, and one
+// `yolo stop` ends both, naming each, whichever setup is selected. The second setup is a
+// user-defined podman one, so the test needs no backend beyond the suite's own.
+func TestStopStopsEverySetupsJail(t *testing.T) {
+	requireJail(t)
+	packHome(t, `{"setups": {"lab": {"confinement": "podman"}}}`)
+	dir := writeProject(t, `{}`)
+	const releaseName = "release-setups-stop-test"
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(dir, releaseName), []byte("go\n"), 0o644)
+	})
+	runs := map[string]*bgRun{}
+	for _, name := range []string{"podman-self", "lab"} {
+		runs[name] = startYoloBackground(t, name, dir,
+			`echo "UP-IN-$YOLO_SETUP"; for _ in $(seq 1 300); do [ -f /workspace/`+releaseName+` ] && break; sleep 0.5; done`,
+			"YOLO_SETUP="+name)
+	}
+	for name, r := range runs {
+		awaitOutput(t, r, regexp.MustCompile(`UP-IN-`+name+`\n`))
+	}
+
+	list := runCommand(t, dir, []string{"setup", "list"}, withHostSemantics(), withEnv("YOLO_SETUP=podman-self"))
+	for name := range runs {
+		marked := false
+		for _, line := range strings.Split(list.stdout, "\n") {
+			if f := strings.Fields(line); len(f) > 0 && f[0] == name && strings.HasSuffix(line, ", running") {
+				marked = true
+			}
+		}
+		if !marked {
+			t.Errorf("`yolo setup list` does not mark %s running:\n%s", name, list.combined())
+		}
+	}
+
+	r := runCommand(t, dir, []string{"stop"}, withHostSemantics(), withEnv("YOLO_SETUP=podman-self"))
+	if r.rc != 0 {
+		t.Fatalf("yolo stop failed: rc %d\n%s", r.rc, r.combined())
+	}
+	for name := range runs {
+		if n := strings.Count(r.stdout, "stopped "+name+"\n"); n != 1 {
+			t.Errorf("the stop said `stopped %s` %d times, want once:\n%s", name, n, r.combined())
+		}
+		if n := runningContainers(t, jailNameOn(dir, name)); n != 0 {
+			t.Errorf("%d containers of %s remain after the stop", n, name)
+		}
+	}
+	for name, run := range runs {
+		if rc := run.wait(t, jailTimeout()); rc != 143 {
+			t.Errorf("the %s launch returned %d, want 143 (stopped):\n%s", name, rc, run.combined())
+		}
+	}
+}

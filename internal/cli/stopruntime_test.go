@@ -203,59 +203,6 @@ func TestAStopThatCannotListAppleContainerFails(t *testing.T) {
 	}
 }
 
-// TestANoOpStopNamesTheOtherRuntimeWhenItCannotKnow: with no start record, yolo cannot know which
-// runtime launched a jail it tracks. When another container runtime is installed, the no-op names
-// the stop that asks it; with none installed, with nothing tracked, or with a start record that
-// names the runtime it asked, it says nothing more.
-func TestANoOpStopNamesTheOtherRuntimeWhenItCannotKnow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cname := runtime.FromWorkspace("/ws")
-	saved := stopRuntimeInstalled
-	t.Cleanup(func() { stopRuntimeInstalled = saved })
-	record := filepath.Join(paths.GlobalStorage(), "owners", cname+".keeper.json")
-	cases := []struct {
-		name      string
-		installed bool
-		tracked   bool
-		recorded  bool
-		want      bool
-	}{
-		{"tracked, Apple Container installed", true, true, false, true},
-		{"tracked, nothing else installed", false, true, false, false},
-		{"untracked", true, false, false, false},
-		{"tracked, Apple Container installed, launched on podman", true, true, true, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			stopRuntimeInstalled = func(bin string) bool { return tc.installed && bin == "container" }
-			runtime.CleanupContainerTracking(cname)
-			_ = os.Remove(record)
-			if tc.recorded {
-				if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(record, []byte(`{"pid":4242,"runtime":"podman"}`+"\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if tc.tracked {
-				if err := runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: cname, Workspace: "/ws"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var out, errb bytes.Buffer
-			s := &stopRun{stats: []string{"!Error: no such container", "!absent", "!absent"}}
-			if rc := stopJail(&out, &errb, "/ws", runtime.FromWorkspace("/ws"), "podman", s.run, nil, false); rc != 0 {
-				t.Fatalf("rc=%d", rc)
-			}
-			got := strings.Contains(out.String(), "YOLO_SETUP=apple-container-self yolo stop")
-			if got != tc.want {
-				t.Errorf("named `YOLO_SETUP=apple-container-self yolo stop` = %v, want %v:\n%s", got, tc.want, out.String())
-			}
-		})
-	}
-}
-
 // TestANoOpStopOnAppleContainerIsSuccess: `container ls` answering without the jail is nothing
 // running, and the stop is idempotent there as on podman: it says so, succeeds, and stops nothing.
 // A probe that read any answer from `container ls` as running would run `container stop` on a jail

@@ -64,11 +64,44 @@ type psReport struct {
 // psJail is one running jail. Problem is "" for a healthy one and otherwise the
 // same reason string the human report prints ("workspace gone", or a stuck-in-
 // provisioning reason).
+//
+// Setup is the setup the jail runs as (psSetupOf), null when it is not known: a jail an older
+// yolo started (named-setups.md §12.2).
 type psJail struct {
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	Workspace string `json:"workspace"`
-	Problem   string `json:"problem,omitempty"`
+	Name      string  `json:"name"`
+	Setup     *string `json:"setup"`
+	Status    string  `json:"status"`
+	Workspace string  `json:"workspace"`
+	Problem   string  `json:"problem,omitempty"`
+}
+
+// psSetupOf is the setup the jail named name runs as (named-setups-plan.md slice 6b; the order is
+// named-setups.md §12.2's): its launch record's setup; else the setup its name carries, the name
+// being runtime.JailName of its workspace and a setup; else "", a jail an older yolo started,
+// which recorded none and is keyed by the workspace alone.
+func psSetupOf(name, workspace string) string {
+	if rec, ok := runtime.ReadLaunchRecord(name); ok && rec.Setup != "" {
+		return rec.Setup
+	}
+	if workspace == "" || workspace == "unknown" {
+		return ""
+	}
+	// A record keeps the resolved path (FromResolved); a path from an inspected environment may
+	// not be resolved, so FromWorkspace is asked too.
+	for _, key := range []string{runtime.FromResolved(workspace), runtime.FromWorkspace(workspace)} {
+		if s, ok := strings.CutPrefix(name, key+"-"); ok && setup.ValidName(s) {
+			return s
+		}
+	}
+	return ""
+}
+
+// psSetupJSON is a row's setup as JSON: null when it is not known.
+func psSetupJSON(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // Run executes `yolo ps`, writing the table to deps.Out, and returns the exit
@@ -127,13 +160,13 @@ func psRun(deps psDeps) int {
 
 	// Resolve each row's workspace (tracking file first, then inspect env).
 	type resolved struct {
-		name, status, workspace string
+		name, setup, status, workspace string
 	}
 	var containers []resolved
 	running := map[string]struct{}{}
 	for _, r := range rows {
 		ws := getContainerWorkspace(deps, r.Name, rt)
-		containers = append(containers, resolved{r.Name, r.Status, ws})
+		containers = append(containers, resolved{r.Name, psSetupOf(r.Name, ws), r.Status, ws})
 		running[r.Name] = struct{}{}
 	}
 
@@ -144,7 +177,7 @@ func psRun(deps psDeps) int {
 	// Render the table via the ported renderer.
 	pcs := make([]runtime.PsContainer, len(containers))
 	for i, c := range containers {
-		pcs[i] = runtime.PsContainer{Name: c.name, Status: c.status, Workspace: c.workspace}
+		pcs[i] = runtime.PsContainer{Name: c.name, Setup: c.setup, Status: c.status, Workspace: c.workspace}
 	}
 	if table := runtime.RenderPsTable(pcs); table != "" {
 		// Bold only the header row (the first line); the aligned body cells are
@@ -162,7 +195,7 @@ func psRun(deps psDeps) int {
 	// the JSON rows, so a problem can never appear in one form and not the other.
 	var problems [][2]string
 	for _, c := range containers {
-		jail := psJail{Name: c.name, Status: c.status, Workspace: c.workspace}
+		jail := psJail{Name: c.name, Setup: psSetupJSON(c.setup), Status: c.status, Workspace: c.workspace}
 		switch {
 		case c.workspace != "unknown" && !deps.PathIsDir(c.workspace):
 			jail.Problem = "workspace gone"
@@ -224,8 +257,9 @@ func psMacosUser(deps psDeps, pr richtext.Printer, report psReport) int {
 		if ws == "" {
 			ws = "unknown"
 		}
-		rows = append(rows, runtime.PsContainer{Name: name, Status: status, Workspace: ws})
-		report.Jails = append(report.Jails, psJail{Name: name, Status: status, Workspace: ws})
+		setupName := psSetupOf(name, ws)
+		rows = append(rows, runtime.PsContainer{Name: name, Setup: setupName, Status: status, Workspace: ws})
+		report.Jails = append(report.Jails, psJail{Name: name, Setup: psSetupJSON(setupName), Status: status, Workspace: ws})
 	}
 	if len(rows) == 0 {
 		pr.Print("[dim]No running macos-user sessions.[/dim]")

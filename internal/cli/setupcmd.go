@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -57,6 +58,36 @@ var setupHasBinary = func(name string) bool {
 
 // setupGOOS is the OS the built-ins are judged for; a variable so a test can ask as a Mac.
 var setupGOOS = goruntime.GOOS
+
+// setupJailState is run.JailRunState behind a var, so a test need not start a jail: whether the
+// jail named cname runs, and whether that could be asked.
+var setupJailState = run.JailRunState
+
+// setupRunningNotes is `list`'s running column (named-setups-plan.md slice 6b): for each setup
+// with state in this workspace's .yolo/setups, "running" when its jail (run.JailNameFor, by name)
+// runs and "may be running" when that could not be asked. A setup with no state here has never
+// launched here, so it is not asked. Inside a jail nothing is asked: the keepers and sessions
+// that answer are the host's, which `yolo setup list` on the host reads.
+func setupRunningNotes() map[string]string {
+	notes := map[string]string{}
+	if config.InJail() {
+		return notes
+	}
+	ws, err := os.Getwd()
+	if err != nil {
+		return notes
+	}
+	for _, name := range paths.SetupStateNames(ws) {
+		cname := run.JailNameFor(ws, setup.Setup{Name: name})
+		switch running, known := setupJailState(cname); {
+		case running:
+			notes[name] = "running"
+		case !known:
+			notes[name] = "may be running"
+		}
+	}
+	return notes
+}
 
 func runSetup(args []string) int {
 	return setupMain(args, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
@@ -182,6 +213,7 @@ func setupList(out, errw io.Writer, color bool) int {
 	for _, name := range mine {
 		rows = append(rows, user[name])
 	}
+	runningHere := setupRunningNotes()
 	nameW, sumW := 0, 0
 	for _, s := range rows {
 		nameW = max(nameW, len(s.Name))
@@ -208,6 +240,9 @@ func setupList(out, errw io.Writer, color bool) int {
 			notes = append(notes, missing.Technology+" not installed")
 		} else if err != nil {
 			notes = append(notes, "not available here")
+		}
+		if r := runningHere[s.Name]; r != "" {
+			notes = append(notes, r)
 		}
 		name := fmt.Sprintf("%-*s", nameW, s.Name)
 		if selErr == nil && s.Name == selected.Name {

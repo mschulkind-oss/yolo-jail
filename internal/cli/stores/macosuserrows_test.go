@@ -155,6 +155,19 @@ func TestTheMacosUserSectionListsTheStateDirAndTheHomesStores(t *testing.T) {
 	if s := rows["macos.state._files"]; s.Count != 2 || !strings.Contains(s.Note, "profile-<cname>.sb") {
 		t.Errorf("the loose-files row = %+v, want the two Seatbelt profiles named", s)
 	}
+	// Each copy is a jail's, one per workspace AND setup (named-setups-plan.md slice 6b): the
+	// Seatbelt rows say so, and say what `<cname>` stands for, the name `yolo ps` lists.
+	for _, key := range []string{"macos.state.home-overlay", "macos.state.ctx", "macos.state.env", "macos.state._files"} {
+		note := rows[key].Note
+		if !strings.Contains(note, "workspace and setup") || !strings.Contains(note, "<cname> is the jail's name") {
+			t.Errorf("%s does not say its copies are per workspace and setup, naming what <cname> is: %s", key, note)
+		}
+	}
+	for _, key := range []string{"macos.state.home-overlay", "macos.state.ctx"} {
+		if got := rows[key].CountLabel; got != "jails" {
+			t.Errorf("%s counts %q, want jails", key, got)
+		}
+	}
 	for key, s := range rows {
 		if strings.Contains(s.Note, "sudo") || strings.Contains(s.Note, "root-owned") {
 			t.Errorf("%s names sudo or root ownership, but the staging root is the host user's: %s", key, s.Note)

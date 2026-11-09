@@ -1307,20 +1307,24 @@ var macosUserPerWorkspaceLeaves = map[string]struct {
 	remove     func(f macosUserFlavor, stateDir string) string
 }{
 	"packs": {"per-launch immutable guest trees and legacy workspace trees", "entries", nil},
-	"home-overlay": {"each workspace's staged skills and briefings", "workspaces", func(f macosUserFlavor, sd string) string {
+	"home-overlay": {"each jail's staged skills and briefings", "jails", func(f macosUserFlavor, sd string) string {
 		return f.removeTree(macosuser.StagedHomeOverlay(cnamePlaceholder, sd))
 	}},
-	"ctx": {"each workspace's staged context tree (its /ctx)", "workspaces", func(f macosUserFlavor, sd string) string {
+	"ctx": {"each jail's staged context tree (its /ctx)", "jails", func(f macosUserFlavor, sd string) string {
 		return f.removeTree(macosuser.StagedCtxRoot(cnamePlaceholder, sd))
 	}},
-	"env": {"each workspace's session environment files", "", func(f macosUserFlavor, sd string) string {
+	"env": {"each jail's session environment files", "", func(f macosUserFlavor, sd string) string {
 		return f.removeFiles(macosuser.SandboxEnvFile(cnamePlaceholder, sd),
 			macosuser.SandboxDaemonEnvFile(cnamePlaceholder, sd))
 	}},
 }
 
-// cnamePlaceholder stands for a workspace's container name in a command a note prints.
+// cnamePlaceholder stands for a jail's name in a command a note prints.
 const cnamePlaceholder = "<cname>"
+
+// cnamePlaceholderMeaning says what cnamePlaceholder stands for in a staging root a launch still
+// writes: a jail's name, which is per workspace and setup (named-setups-plan.md SUP-D2, slice 6b).
+const cnamePlaceholderMeaning = "; <cname> is the jail's name, one per workspace and setup, as `yolo ps` lists it"
 
 // macosUserStateRows is one row per child of a staged dir, plus one for its loose files (the
 // per-workspace Seatbelt profiles), in f's section. exists is false only when the dir is absent.
@@ -1380,10 +1384,10 @@ func macosUserStateRows(o Options, stateDir string, f macosUserFlavor) (rows []S
 				s.Note = leaf.what + ", " + f.owned + ", left by an older yolo. Each workspace's copy stays until " +
 					"you remove it: `" + leaf.remove(f, stateDir) + "`; " + teardown
 			} else {
-				s.Reclaimer = Reclaimer{Detail: "a launch replaces its own workspace's copy; nothing removes another's"}
-				s.Note = leaf.what + ", " + f.owned + " and replaced in place by that workspace's next launch. A " +
-					"workspace you no longer launch keeps its copy until you remove it: `" + leaf.remove(f, stateDir) +
-					"`; " + teardown
+				s.Reclaimer = Reclaimer{Detail: "a launch replaces its own jail's copy; nothing removes another's"}
+				s.Note = leaf.what + ", " + f.owned + " and replaced in place by that jail's next launch. A " +
+					"workspace and setup you no longer launch keeps its copy until you remove it: `" +
+					leaf.remove(f, stateDir) + "`" + cnamePlaceholderMeaning + "; " + teardown
 			}
 			if f.skipWalk[name] {
 				// Counting is reading: the dir's entries are root's to list.
@@ -1412,17 +1416,18 @@ func macosUserStateRows(o Options, stateDir string, f macosUserFlavor) (rows []S
 		rows = append(rows, s)
 	}
 	if looseFiles > 0 {
-		detail := "a launch rewrites its own workspace's profile"
+		detail := "a launch rewrites its own jail's profile"
+		meaning := cnamePlaceholderMeaning
 		if f.legacy {
-			detail = "no reclaimer; no launch writes here any more"
+			detail, meaning = "no reclaimer; no launch writes here any more", ""
 		}
 		rows = append(rows, Store{
 			Key: f.keyPrefix + "_files", Section: f.section, Name: stateDir + "/ (loose files)", Path: stateDir,
 			Sizing: SizingMeasured, Bytes: loose, Files: looseFiles, Count: profiles, CountLabel: "profiles",
 			Reclaimer: Reclaimer{Detail: detail}, Verdict: VerdictHuman,
-			Note: "the per-workspace Seatbelt profiles (profile-<cname>.sb), " + f.owned + ", one per workspace launched; " +
-				"a workspace you no longer launch keeps its own until you remove it: `" +
-				f.removeFiles(filepath.Join(stateDir, "profile-<cname>.sb")) + "`; " + teardown + f.suffix,
+			Note: "the per-jail Seatbelt profiles (profile-<cname>.sb), " + f.owned + ", one per workspace and setup " +
+				"launched; a workspace and setup you no longer launch keeps its own until you remove it: `" +
+				f.removeFiles(filepath.Join(stateDir, "profile-<cname>.sb")) + "`" + meaning + "; " + teardown + f.suffix,
 		})
 	}
 	return rows, true

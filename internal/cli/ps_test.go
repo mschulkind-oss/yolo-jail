@@ -624,3 +624,79 @@ func TestPsOnMacosUserLeavesOutAnotherAccountsSessions(t *testing.T) {
 		t.Errorf("yolo ps listed another account's session:\n%s", out)
 	}
 }
+
+// TestPsListsARowPerSetupWithItsSetup (named-setups-plan.md slice 6b): two setups of one project
+// run two jails, and `yolo ps` lists each under a SETUP column. The setup is the launch record's;
+// a record that names none is answered by the setup the jail's name carries
+// (runtime.JailName); a jail an older yolo started under the legacy name carries none, and is
+// listed with `?` in the table and null in JSON (named-setups.md §12.2).
+func TestPsListsARowPerSetupWithItsSetup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := "/projects/app"
+	recorded := runtime.JailName(ws, "podman-self")
+	named := runtime.JailName(ws, "lab")
+	legacy := runtime.FromWorkspace(ws)
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: recorded, Setup: "podman-self", Workspace: ws}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: named, Workspace: ws}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: legacy, Workspace: ws}))
+	psOut := recorded + "\tUp 2 hours\t2 hours ago\n" + named + "\tUp 3 minutes\t3 minutes ago\n" +
+		legacy + "\tUp 5 days\t5 days ago\n"
+	deps := func(out *bytes.Buffer, format string) psDeps {
+		return psDeps{
+			DetectRuntime: func() string { return "podman" },
+			RunCmd: func(argv []string) (string, bool) {
+				if len(argv) >= 2 && argv[1] == "ps" {
+					return psOut, true
+				}
+				return "COMMAND\nbash\nclaude\n", true
+			},
+			PathIsDir: func(string) bool { return true },
+			Out:       out,
+			Format:    format,
+		}
+	}
+	var buf bytes.Buffer
+	psRun(deps(&buf, ""))
+	lines := strings.Split(buf.String(), "\n")
+	if !strings.HasPrefix(lines[0], "CONTAINER") || !strings.Contains(lines[0], "  SETUP  ") {
+		t.Fatalf("the table has no SETUP column:\n%s", buf.String())
+	}
+	want := map[string]string{recorded: "podman-self", named: "lab", legacy: "?"}
+	for name, setupName := range want {
+		found := false
+		for _, line := range lines {
+			if f := strings.Fields(line); len(f) > 1 && f[0] == name {
+				found = true
+				if f[1] != setupName {
+					t.Errorf("%s is listed under setup %q, want %q:\n%s", name, f[1], setupName, buf.String())
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no row for %s:\n%s", name, buf.String())
+		}
+	}
+
+	var js bytes.Buffer
+	psRun(deps(&js, "json"))
+	var rep struct {
+		Jails []struct {
+			Name  string  `json:"name"`
+			Setup *string `json:"setup"`
+		} `json:"jails"`
+	}
+	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, js.String())
+	}
+	if len(rep.Jails) != 3 {
+		t.Fatalf("JSON lists %d jails, want 3:\n%s", len(rep.Jails), js.String())
+	}
+	for _, j := range rep.Jails {
+		switch want := want[j.Name]; {
+		case want == "?" && j.Setup != nil:
+			t.Errorf("%s's setup is %q in JSON, want null", j.Name, *j.Setup)
+		case want != "?" && (j.Setup == nil || *j.Setup != want):
+			t.Errorf("%s's setup in JSON = %v, want %q", j.Name, j.Setup, want)
+		}
+	}
+}
