@@ -106,8 +106,9 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
 
 - **After (wrapper the CLI prints above the detail):**
   ```text
-  yolo could not make this edit, and no file was changed. Edit the file by hand, or report this as a yolo bug with the detail below.
+  yolo did not change your config, because of a bug in yolo. Report it at https://github.com/mschulkind-oss/yolo-jail/issues with the line below.
   ```
+- **Caution:** before a message gets this wrapper, check that ordinary config cannot reach it. One could: see [A pack the edit's check cannot find](#a-pack-the-edits-check-cannot-find).
 - **Sites:** `internal/configedit/edit.go:82, 86, 89, 101, 120, 158, 178, 207, 211, 215, 249, 257, 264, 325, 336, 340, 360, 375, 390, 393, 421–447, 513–547, 625–710, 757, 761, 850, 1194–1497, 1554–1679, 1800–1952`; `internal/configedit/creation.go:22, 26, 96–158, 188, 192, 249, 265, 268, 289`; `internal/configedit/effective.go:59–88`; `internal/configedit/targeted.go:24`; `internal/config/editvalidation.go:113–131, 278, 285, 329–560`; `internal/config/editvalidation_prospective.go:106–189`; `internal/config/editvalidation_target.go:88, 95, 157–176, 216, 219, 250–362, 407–456`; `internal/config/editvalidation_sources.go:19–160`; `internal/config/editvalidation_profiles.go:19–74`; `internal/config/newreadableconfig.go:37, 118, 124`. Some messages already end in "reread and retry" or "preserve it and retry", for example `configedit/apply.go:74, 106` and `editvalidation_prospective.go:128`. Those are fine.
 
 ### P8. Package-name prefixes and Go types in errors
@@ -466,6 +467,22 @@ TOML is now the default format. Some advice still shows JSON snippets such as `"
 - **Before:** `config target <path> does not exist; create that config file first, then retry (no file was written): <err>`
 - **After:** `<path> does not exist, and no file was written. Create it (for example, `touch <path>`), then run the command again.`
 - **Why:** 6 ("config target"). The first step needs to name a command.
+
+### A pack the edit's check cannot find
+- **Where:** `internal/config/editvalidation_sources.go:42, 62, 133, 141` — the edit verbs, `yolo allow` among them, re-resolve every selected pack before writing. Reported by the owner 2026-11-09 from an ordinary config: a pack whose program has `fork_of: "board"`, with `yolo-packs/board` selected from a pack source. This is not a "should not happen" state, so [P7](#p7-internal-failures-in-yolo-config-setaddunset-name-no-next-step)'s wrapper does not cover it.
+- **Before:**
+  ```text
+  config edit refused: planned effective-config validation failed: validate planned config: planned pack closure source: embedded pack board is not present in the immutable source
+  ```
+- **After**, when the base pack really is not selected:
+  ```text
+  yolo did not change your config. The matt pack's `board` program is built on a pack named board, and no pack in `packs` is called board. Add it, then run the command again: yolo pack add <source>/board
+  ```
+- **After**, for a failure that is yolo's own fault:
+  ```text
+  yolo did not change your config, because of a bug in yolo. Report it at https://github.com/mschulkind-oss/yolo-jail/issues with this line: <detail>
+  ```
+- **Why:** 1, 6 ("planned", "closure", "embedded", "immutable source"), and no next step. In the reported case the config was correct and the check was wrong, which is a bug, not the user's to fix. The fix is in progress; it also stops the check from refusing a selected base pack.
 
 ### User config edit from inside a jail
 - **Where:** `internal/config/editvalidation.go:445`.
