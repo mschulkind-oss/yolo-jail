@@ -212,7 +212,7 @@ func TestAFailedFetchBuildsTheBestCopyAndSaysNotVerified(t *testing.T) {
 }
 
 // originWrapper runs f.store's git through a wrapper that acts on the fetches into YOLO'S MIRROR OF ORIGIN, and
-// nothing else, as set says: "hang" sleeps past any budget, "fail" exits 1, "" runs git. fetches counts them.
+// nothing else, as set says: "hang" sleeps an hour, past any budget and any test timeout, "fail" exits 1, "" runs git. fetches counts them.
 func (f *checkoutFixture) originWrapper(t *testing.T) (set func(mode string), fetches func() int) {
 	t.Helper()
 	dir := t.TempDir()
@@ -236,7 +236,7 @@ done
 if [ -n "$fetch" ] && [ -n "$ours" ]; then
   echo fetch >> %s
   case "$(cat %s)" in
-    hang) exec sleep 30 ;;
+    hang) exec sleep 3600 ;;
     fail) echo "fatal: origin is unreachable" >&2; exit 1 ;;
   esac
 fi
@@ -257,15 +257,15 @@ func TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds(t *testing.T) {
 	set("hang")
 	f.store.Timeout = 4 * time.Second
 	f.now = f.now.Add(3 * time.Hour) // the whole check runs: the fetch, the comparison, the merge base
-	start := time.Now()
+	// The hung fetch sleeps an hour, so the launch RETURNING, with the fetch's own timeout as its
+	// error, is the proof that the budget cut it: no wall-clock bound is asserted, since one
+	// measured the machine's load (24.6s at a load average of ~40) rather than the budget. A
+	// budget that failed to cut the fetch hangs this test into go test's timeout, which is red.
 	r := f.launch(t).Record.PatchBranch // no Err, no Problem (launch says)
 	if r.Commit != tip || r.Verified || !strings.Contains(r.FetchErr, "timed out") {
 		t.Fatalf("resolved = %+v, want the mirror's %s, not verified, the fetch timed out", r, tip)
 	}
 	wantLine(t, r, f.now, "mine  origin "+shortCommit(tip), "not verified (fetch failed: ")
-	if took := time.Since(start); took > 4*time.Second+gitWaitDelay {
-		t.Errorf("the check took %s, past its budget", took)
-	}
 }
 
 func TestAFailedFetchBuildsTheTrackingRefTheUserFetched(t *testing.T) {
