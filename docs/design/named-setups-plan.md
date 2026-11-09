@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "6a-iii, 11b and 6b are built and reviewed (SUP-D36 to SUP-D50): land them on main after the Linux gate; then W-SU1, W-SU4 as revised (SUP-D49) and W-SU12 from the owner's Mac agent, at main <landing sha> or later"
+next: "6a-iii, 11b and 6b landed on main at e67b3c81f (SUP-D36 to SUP-D50); W-SU1, W-SU4 as revised (SUP-D49) and W-SU12 run from the owner's Mac agent at main e67b3c81f or later"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-09):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). The build of slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree), 11b and 6b (`yolo stop`, `ps`, `stores` and `setup list` per setup; [SUP-D46](#SUP-D46) to [SUP-D48](#SUP-D48)) is built and reviewed, and lands on main after the Linux gate ([SUP-D50](#SUP-D50)); W-SU1, W-SU4 and [W-SU12](#mac-checks) then run at main `<landing sha>` or later. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). W-SU1 (unchanged) and W-SU4 (revised to follow SUP-D9, [SUP-D49](#SUP-D49)) run on main after landing and gate no landing ([SUP-D50](#SUP-D50)); [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built, and 11b (the container launch record) is built with 6a-iii. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-09):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). The build of slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree), 11b and 6b (`yolo stop`, `ps`, `stores` and `setup list` per setup; [SUP-D46](#SUP-D46) to [SUP-D48](#SUP-D48)) is built, reviewed and landed on main at `e67b3c81f` after the Linux gate ([SUP-D50](#SUP-D50)); W-SU1, W-SU4 and [W-SU12](#mac-checks) then run at main `e67b3c81f` or later. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). W-SU1 (unchanged) and W-SU4 (revised to follow SUP-D9, [SUP-D49](#SUP-D49)) run on main after landing and gate no landing ([SUP-D50](#SUP-D50)); [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built, and 11b (the container launch record) is built with 6a-iii. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -132,7 +132,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D47"></a>SUP-D47 | **Until slice 11d, `yolo setup list`'s running column asks each jail directly.** For each setup with state under this workspace's `.yolo/setups`, it asks `run.JailRunState`, which is the launch's own `jailRuns` (keepers, live sessions, and a container of the name in each runtime on PATH). The line says `running` when the jail runs and `may be running` when a source could not answer. A setup with no state here is not asked, and nothing is asked inside a jail, whose keepers and sessions are the host's. `JailRunState` is one exported reader added to `internal/cli/run`, which slice 6b fences; nothing in `run` changes behavior. | Implementation decision of slice 6b (2026-11-09). The plan reads slice 11's discovery for this column ([§12.6](named-setups.md#126-narrowing-with---setup)), and 11d is not built. `jailRuns` is the probe the legacy-home move and `--fresh-home` already trust, so `setup list` and those refusals agree. When 11d lands, the column moves to its discovery. Pinned by `TestSetupListMarksTheSetupsRunningHere` and `TestJailRunStateAsksTheJailsKeepers`. |
 | <a id="SUP-D48"></a>SUP-D48 | **`yolo ps` gains a SETUP column, and `yolo stores`' Seatbelt rows say their copies are per jail.** The table reads `CONTAINER  SETUP  STATUS  WORKSPACE`. Each row's setup is its launch record's `setup`; else the setup its name carries (`runtime.JailName` of its workspace); else `?` in the table and `null` in the JSON `setup` key, for a jail an older yolo started ([§12.2](named-setups.md#122-what-a-row-knows-and-where-it-reads-it)). The macos-user staged-dir rows (home overlay, `/ctx`, `env`, the Seatbelt profiles) name each copy as a jail's, one per workspace and setup, and say that `<cname>` is that jail's name, as `yolo ps` lists it. The overlay and `/ctx` rows count `jails`. | Implementation decision of slice 6b (2026-11-09). The plan's 6b test asks for a SETUP column; [§12.3](named-setups.md#123-sort-order-and-the-table)'s full table (`WORKSPACE SETUP STATUS AGE PACKS`) is 11d's and replaces this layout then. Deriving the setup from the name answers records written before 11b, which name no setup. Pinned by `TestPsListsARowPerSetupWithItsSetup`, `TestRenderPsTable` and `TestTheMacosUserSectionListsTheStateDirAndTheHomesStores`. |
 | <a id="SUP-D49"></a>SUP-D49 | **W-SU4 is revised to follow [SUP-D9](#SUP-D9).** It no longer expects a `[y/N]` prompt: with no jail of the project running, the move happens unasked and prints one line naming both paths; with a jail running, or with `.yolo/home` a symbolic link, nothing moves and one line names the next step. | Owner's rule (2026-11-09): the plan follows the design, and where they disagree the plan is wrong. The design ruled [OQ-SU5](named-setups.md#OQ-SU5) as SUP-D9's silent move, so W-SU4's prompt contradicted it. |
-| <a id="SUP-D50"></a>SUP-D50 | **Mac checks run on main after landing, and no Mac check holds a slice off main.** 6a-iii, 11b and 6b land on main once the Linux gate (`just check-ci` and the full integration suite) and the independent review are green; W-SU1, W-SU4 and W-SU12 then run at main `<landing sha>` or later, and what they find is fixed forward on main. No slice waits on a branch for the Mac, and no Mac check is run from a branch. | Owner's rule (2026-11-09): *"we don't use branches for this."* The `mac-handoff` skill carries the same rule (Mac checks live in design docs and come back as lab reports). It replaces this plan's earlier "no primary landing before W-SU1/W-SU4" and "combined candidate" gates. |
+| <a id="SUP-D50"></a>SUP-D50 | **Mac checks run on main after landing, and no Mac check holds a slice off main.** 6a-iii, 11b and 6b land on main once the Linux gate (`just check-ci` and the full integration suite) and the independent review are green; W-SU1, W-SU4 and W-SU12 then run at main `e67b3c81f` or later, and what they find is fixed forward on main. No slice waits on a branch for the Mac, and no Mac check is run from a branch. | Owner's rule (2026-11-09): *"we don't use branches for this."* The `mac-handoff` skill carries the same rule (Mac checks live in design docs and come back as lab reports). It replaces this plan's earlier "no primary landing before W-SU1/W-SU4" and "combined candidate" gates. |
 
 ## Map
 
@@ -798,7 +798,7 @@ setup's own records. The integration suite names a launch's jail through `jailNa
 (`integration/jailname_test.go`), and the harness removes every name a jail of a test workspace
 may run under. The review's findings are fixed, each pinned by a test through its call site
 ([Review fixes](#review-fixes-for-6a-iii-and-6b)). It lands on main after the Linux gate; W-SU1,
-W-SU4 and [W-SU12](#mac-checks) run at main `<landing sha>` or later ([SUP-D50](#SUP-D50)).
+W-SU4 and [W-SU12](#mac-checks) run at main `e67b3c81f` or later ([SUP-D50](#SUP-D50)).
 
 **Focused source review (2026-11-06; not acceptance).** The private prototype's focused review closes three synthetic-only findings: strict phases bind the complete selection and actual spawned PID; the synthetic receiver validates singleton roles and descriptor kinds before taking ownership, requiring the lock at file descriptor (FD) 5 while valid reserved sockets at FDs 6/7 remain unchanged; and withdrawal waits for operations holding real duplicated FDs before `WITHDRAWN`. An FD here is an open kernel handle, not a pathname. This is not a whole-source verdict: the separate SU5 legacy-home adoption RED remains. The native outside/foreign-pack pathname semantic RED (a selected pack's shared-directory bind source swapped after validation, before the engine reads it) rests on the same custody requirement as per-setup homes, so [SUP-D30](#SUP-D30) covers it: it is an accepted risk, and the test that pins it red is not a landing gate. The only complete `go test -count=1 ./internal/cli/run` run was 340.601s, RC 1; the focused race run (21.535s), scoped vet and Darwin/arm64 compile passed.
 
@@ -1005,7 +1005,7 @@ launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
   `--setup podman-self -- true` and once with `yolo host --setup host-self -- true`, then inspect
   `ls .yolo/setups/`. With 6b on the 6a commit, run the full integration suite once on the
   combined tree, then land the reviewed pair on main. **W-SU1 (unchanged) and W-SU4 (revised,
-  SUP-D49) run from the owner's Mac agent at main `<landing sha>` or later** ([SUP-D50](#SUP-D50));
+  SUP-D49) run from the owner's Mac agent at main `e67b3c81f` or later** ([SUP-D50](#SUP-D50));
   W-SU1 checks 6b's `setup list`/`stop`. A nested rootful run does not witness rootless-only or native Mac paths.
 - **Fences:** `yolo stop`/`ps` enumeration (6b); `internal/macosuser/runplan.go` argv (8).
 - **Commit:** `feat(setups): one home and run state per setup under .yolo/setups/<name>; setup-qualified jail names`
@@ -1040,7 +1040,7 @@ launch unchanged (`.yolo/home` still used, no `.yolo/setups`).
   1148-1153`: per setup.
 - **Gates:** `go test -short ./internal/cli/...`; `just check-ci`; 6a's full integration gate on
   the combined 6a+6b tree, and review, before landing on main. W-SU1 (unchanged) and W-SU4
-  (revised, SUP-D49) then run from the owner's Mac agent at main `<landing sha>` or later
+  (revised, SUP-D49) then run from the owner's Mac agent at main `e67b3c81f` or later
   ([SUP-D50](#SUP-D50)).
 - **Fences:** `internal/paths`, `internal/cli/run`.
 - **Commit:** `feat(cli): stop, ps, stores and setup list act per setup`
@@ -1058,7 +1058,7 @@ copies are per workspace and setup ([SUP-D48](#SUP-D48)). Its unit tests are
 `TestPsListsARowPerSetupWithItsSetup` and the rewritten `TestRenderPsTable`. The integration
 test `TestStopStopsEverySetupsJail` is W-SU1's Linux half: two podman setups running at once, both
 marked `running` by `setup list`, and both ended by one `yolo stop`. W-SU1, W-SU4 and
-[W-SU12](#mac-checks) run at main `<landing sha>` or later.
+[W-SU12](#mac-checks) run at main `e67b3c81f` or later.
 
 ### Slice 7 — `yolo yolo-account create | remove | share | unshare` (independent)
 
@@ -1449,7 +1449,7 @@ into the slice's report (see the macos-user plan's
 A Mac check runs on main after its slice lands and holds nothing off main; what it finds is fixed
 forward ([SUP-D50](#SUP-D50)).
 
-- **W-SU1 (slices 6a and 6b, at main `<landing sha>` or later):** in one fresh workspace under `/Users/Shared/yolo/a`,
+- **W-SU1 (slices 6a and 6b, at main `e67b3c81f` or later):** in one fresh workspace under `/Users/Shared/yolo/a`,
   `yolo --setup seatbelt-self -- bash` in terminal 1 and `yolo --setup seatbelt-yolo-account --
   bash` in terminal 2. Expected: both run; `echo $HOME` prints `…/a/.yolo/setups/seatbelt-self/home`
   and `…/a/.yolo/setups/seatbelt-yolo-account/home`; `id -un` prints your login in 1 and
@@ -1481,7 +1481,7 @@ forward ([SUP-D50](#SUP-D50)).
   --predicate 'sender == "Sandbox"'` shows no denial from this session's processes; `claude -p
   'Reply with the single word: ok'` answers. On a Mac without the account, the launch refuses
   with *"Create it once (it asks for your admin password): `yolo yolo-account create`"*.
-- **W-SU4 (slice 6a, at main `<landing sha>` or later; revised 2026-11-09 to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)):** a
+- **W-SU4 (slice 6a, at main `e67b3c81f` or later; revised 2026-11-09 to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)):** a
   workspace last used by Apple Container before this change (its `.yolo/home/.claude.json`
   present). Negative half first, on copies of that workspace: (a) with a jail of the project
   running (`yolo --setup seatbelt-self -- bash` in another terminal), `yolo --setup
@@ -1496,10 +1496,10 @@ forward ([SUP-D50](#SUP-D50)).
   `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
   `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
   ./integration` passes.
-- **W-SU12 (slice 6a-iii, at main `<landing sha>` or later):** first, with an installed yolo from before 6a-iii (main's parent of `<landing sha>`),
+- **W-SU12 (slice 6a-iii, at main `e67b3c81f` or later):** first, with an installed yolo from before 6a-iii (main `bb10db358`, the commit before it landed),
   start `yolo --setup apple-container-self -- bash` in a workspace under `/Users/Shared/yolo/c`,
   and leave it running. Then run `yolo --setup apple-container-self --
-  true` in the same workspace with a yolo at `<landing sha>` or later. Expected: it refuses with *"Refusing to launch: a jail an earlier
+  true` in the same workspace with a yolo at `e67b3c81f` or later. Expected: it refuses with *"Refusing to launch: a jail an earlier
   yolo started for this workspace (yolo-c-…) is still running"*, and the next line names `yolo
   stop` and `container stop yolo-c-…`. `ls .yolo/setups` shows no new directory. `yolo stop` prints
   *"Stopping the jail an earlier yolo started for this workspace"*, and the first shell ends. The
@@ -1587,6 +1587,6 @@ rootless witness for one block 6a-ii; its entry conditions are [SUP-D21](#SUP-D2
 [SUP-D31](#SUP-D31)'s yolo-account owner case, both ruled. Slices 6a/6b are reviewed and their findings fixed
 ([Review fixes](#review-fixes-for-6a-iii-and-6b)); they land on main after the Linux gate. No Mac
 check blocks a landing ([SUP-D50](#SUP-D50)): **W-SU1 and W-SU4** (W-SU1 unchanged, W-SU4 as
-revised to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)) and W-SU12 run at main `<landing sha>`
+revised to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)) and W-SU12 run at main `e67b3c81f`
 or later, and slice 8's W-SU3 on main after it lands. No native Mac or
 rootless-host witness is established by the private Linux fixture.
