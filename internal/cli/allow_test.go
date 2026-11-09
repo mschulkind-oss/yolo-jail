@@ -116,6 +116,35 @@ func TestAllowWritesIntoTheFileHoldingAllowAndOffersApproval(t *testing.T) {
 	}
 }
 
+// TestAllowAcceptsAConfigWhoseForkBaseIsASelectedConfiguredPack is the owner's report
+// (2026-11-09): with a bare `path` pack source holding a base pack and a pack whose program forks
+// it from source, both selected, `yolo allow github on_request create_pr` was refused with
+// "embedded pack board is not present in the immutable source" although the same config launched.
+func TestAllowAcceptsAConfigWhoseForkBaseIsASelectedConfiguredPack(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", "")
+	sourceRoot := filepath.Join(filepath.Dir(fx.userConfig), "yolo-packs")
+	writeFile(t, filepath.Join(sourceRoot, "board", "pack.json"),
+		`{"contributes":[{"kind":"program","bin":"board","via":"npm","package":"board"}]}`)
+	writeFile(t, filepath.Join(sourceRoot, "matt", "pack.json"),
+		`{"contributes":[{"kind":"program","bin":"board","via":"source","fork_of":"board",`+
+			`"source":"git+https://example.invalid/board-cli?ref=main","build":"make install",`+
+			`"produces":[".local/bin/board"]}]}`)
+	writeFile(t, fx.userConfig, "packs = [\"git\", \"github\", \"yolo-packs/board\", \"yolo-packs/matt\"]\n\n"+
+		"[pack_sources.yolo-packs]\npath = '"+sourceRoot+"'\nbare = true\n")
+	recordAllowGate(t, false)
+
+	rc, out, errs := captureStd(t, func() int {
+		return registry["allow"]([]string{"allow", "github", "on_request", "create_pr"})
+	})
+	if rc != 0 {
+		t.Fatalf("yolo allow github on_request create_pr rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	// No file holds [allow] yet, so the verb writes the user config itself.
+	if got := readFile(t, fx.userConfig); !strings.Contains(got, "create_pr") || !strings.Contains(got, "yolo-packs/matt") {
+		t.Fatalf("create_pr was not written beside the selection:\n%s", got)
+	}
+}
+
 func TestAllowUnknownCapabilityListsDeclared(t *testing.T) {
 	fx := newNamedVerbFixture(t, "", "")
 	rec := recordAllowGate(t, true)

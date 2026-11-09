@@ -521,10 +521,11 @@ func ApplyForks(packs []*Pack) ([]*Pack, error) {
 					strings.Join(shared, ", ")))
 				continue
 			}
-			problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q, and %s is not in "+
-				"this selection — a pack yolo ships joins by itself, and any other base must be in "+
-				"your config's packs list as a pack named %s (such as local/%s)", f.Pack, f.Base, f.Bin, f.Base,
-				f.Base, f.Base))
+			problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q (its `fork_of` names %s), "+
+				"and %s is not in this selection — a pack yolo ships joins by itself; any other base must "+
+				"be in your config's packs list as a pack named %s: add it with `yolo pack add "+
+				"<source>/%s` (such as local/%s), or drop the fork with `yolo pack remove %s`",
+				f.Pack, f.Base, f.Bin, f.Base, f.Base, f.Base, f.Base, f.Base, f.Pack))
 			continue
 		}
 		key := f.Base + "/" + f.Bin
