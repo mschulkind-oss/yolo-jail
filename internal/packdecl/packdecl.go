@@ -960,7 +960,7 @@ func unknownViaSkip(i int, c Contribution) string {
 	return fmt.Sprintf(
 		"contributes[%d]: skipping unknown via %q for program %q — this build does not know it, "+
 			"so the contribution is not rendered (version skew; a build that "+
-			"knows the via will render it)", i, c.Via, c.Bin)
+			"knows the via will render it: update yolo)", i, c.Via, c.Bin)
 }
 
 // unknownWireAPISkip returns the provider contribution with every endpoint's wire_api

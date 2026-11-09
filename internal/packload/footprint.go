@@ -560,7 +560,7 @@ func FootprintOf(p *Pack) Footprint {
 			// claim identical to the one a working pack makes. Resolved through the same
 			// helper delivery uses, so the line cannot claim a source delivery would not read.
 			add(packdecl.KindSkills, audienceTarget(c),
-				audienceDetail(c, "from "+c.SkillsSource()+"/ — merged (built-in < pack < user)"),
+				audienceDetail(c, "from "+c.SkillsSource()+"/ — merged (workspace < built-in < packs < your local pack)"),
 				false)
 		case packdecl.KindBriefing:
 			detail := "concat"
@@ -1582,10 +1582,13 @@ func configCollisionReason(id string, packs, diverged []string) string {
 		msg += ", and these already disagree: " + strings.Join(diverged, "; ")
 	}
 	return msg + ".\n" +
-		"    To contribute keys to a surface another pack owns, declare `config-overlay` " +
-		"instead of a second `config`:\n" +
-		"      { \"kind\": \"config-overlay\", \"surface\": \"" + id + "\",\n" +
-		"        \"config\": { \"managed\": { …your keys… } } }\n" +
+		"    To contribute keys to a surface another pack owns, declare an overlay " +
+		"instead of a second `config`. In pack.toml:\n" +
+		"      [[overlay]]\n" +
+		"      surface = \"" + id + "\"\n" +
+		"      set.<key> = <value>\n" +
+		"    (in a legacy pack.json: { \"kind\": \"config-overlay\", \"surface\": \"" + id + "\", " +
+		"\"config\": { \"managed\": { …your keys… } } })\n" +
 		"    That leaves the owner's mode/path/codec alone, folds your keys in BELOW its " +
 		"managed layer (so the owner still wins a genuine conflict), and records which pack " +
 		"set which key (`yolo config diff " + agent + "`)."

@@ -594,7 +594,8 @@ func TestRefreshRefusesOmittedRefWithoutLockfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(outcomes) != 1 || outcomes[0].Err == nil || !strings.Contains(outcomes[0].Err.Error(), "no lockfile to pin") {
+	if len(outcomes) != 1 || outcomes[0].Err == nil || !strings.Contains(outcomes[0].Err.Error(), "no lockfile to pin") ||
+		!strings.Contains(outcomes[0].Err.Error(), "That is a yolo bug: report it at https://github.com/mschulkind-oss/yolo-jail/issues") {
 		t.Fatalf("lockless omitted ref outcome = %+v", outcomes)
 	}
 }

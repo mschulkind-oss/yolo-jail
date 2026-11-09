@@ -231,7 +231,7 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 			continue
 		}
 		if a.Kind == KindGit && a.Ref == "" && opts.LockPath == "" {
-			outcomes[i].Err = fmt.Errorf("pack %s omits ?ref= but has no lockfile to pin the remote default branch — provide a lockfile or write an explicit ref", p.Name)
+			outcomes[i].Err = fmt.Errorf("pack %s omits ?ref= but this refresh has no lockfile to pin the remote default branch in. That is a yolo bug: report it at %s. Until it is fixed, write an explicit ?ref= on the pack's address", p.Name, IssuesURL)
 			continue
 		}
 		if a.Kind == KindGit && a.Ref == "" && previous != nil && (!opts.Force || p.PreserveDefaultPin) {

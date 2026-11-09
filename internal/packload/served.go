@@ -124,7 +124,7 @@ func (s ServedDaemons) WithUngrantedBinds(why map[string]string) ServedDaemons {
 // credential, not one that skips a narrowed service.
 //
 // setting resolves a loophole's setting (loopholes.ConfiguredSetting over the launch's config, which reads
-// a TOML user's `[allow.<pack>]` table too). A daemon this set serves by inheritance stays: the
+// a TOML user's `[allow.<loophole>]` table too). A daemon this set serves by inheritance stays: the
 // launching jail served it. nil setting changes nothing.
 func (s ServedDaemons) WithoutUnconfiguredLogins(packs []*Pack, setting func(loophole, key string) string) ServedDaemons {
 	if setting == nil || len(s.names) == 0 {
@@ -164,7 +164,7 @@ func UnconfiguredLogins(packs []*Pack, setting func(loophole, key string) string
 			continue
 		}
 		out[name] = "serves nothing until its `" + l.Setting + "` setting names " +
-			"a profile (`yolo config set allow." + l.Pack + "." + l.Setting + " <profile>`)"
+			"a profile (`yolo config set allow." + name + "." + l.Setting + " <profile>`)"
 	}
 	return out
 }
@@ -201,7 +201,7 @@ func LoginLoopholes(packs []*Pack) map[string]LoginLoophole {
 func (l LoginLoophole) EmptyProfileStep() string {
 	return "set " + l.Loophole + "'s " + l.Setting + ` to "" in the config layer that should not ` +
 		`use it (` + "`" + `"loopholes": {"` + l.Loophole + `": {"settings": {"` + l.Setting +
-		`": ""}}}` + "`" + ` in a JSONC file, ` + "`" + l.Setting + ` = "" under [allow.` + l.Pack +
+		`": ""}}}` + "`" + ` in a JSONC file, ` + "`" + l.Setting + ` = "" under [allow.` + l.Loophole +
 		`]` + "`" + ` in a TOML one), so its service serves nothing and its pointer is withheld`
 }
 

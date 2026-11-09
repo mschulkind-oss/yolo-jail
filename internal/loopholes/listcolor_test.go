@@ -143,7 +143,8 @@ func TestListEmptyStateColorsItsSourceLabels(t *testing.T) {
 	}
 	plain, colored := render(false), render(true)
 	if !strings.HasPrefix(plain, "No loopholes installed.\n  • pack: a `loophole` contribution") ||
-		!strings.Contains(plain, "\n  • config: loopholes: block in ") {
+		!strings.Contains(plain, "\n  • config: loopholes: block in ") ||
+		!strings.Contains(plain, "a workspace config may set enabled, env, jail_env and settings)") {
 		t.Errorf("the plain empty state changed:\n%s", plain)
 	}
 	if strings.Contains(plain, "\x1b[") {

@@ -348,7 +348,7 @@ func List(deps Deps) int {
 			"%s is selected implicitly when it exists", richtext.Escape(paths.LocalPackDir()))
 		p.Printf("  • [bold]config:[/bold] loopholes: block in %s "+
 			"(install-shaped keys are user-scope only; a workspace "+
-			"yolo-jail.jsonc may set enabled/jail_env)", richtext.Escape(paths.UserConfigDisplayPath()))
+			"config may set enabled, env, jail_env and settings)", richtext.Escape(paths.UserConfigDisplayPath()))
 		return 0
 	}
 	for _, lh := range all {

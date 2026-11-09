@@ -1,6 +1,8 @@
 package loopholes
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,13 +228,20 @@ func loadModuleDirs(modules []PackModule, source string) (map[string]*Loophole, 
 			if dirErr == nil {
 				selectedDir, dirErr = filepath.Abs(selectedDir)
 			}
+			if rootErr == nil && errors.Is(dirErr, fs.ErrNotExist) {
+				warnf("loophole module dir %s does not exist, so that loophole is NOT active; check the `from` path that names it in %s", dir, manifestOf(module.Pack))
+				continue
+			}
 			rel, relErr := filepath.Rel(root, selectedDir)
 			if rootErr != nil || dirErr != nil || relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				warnf("loophole module dir %s is outside selected pack %s staged tree, so that loophole is NOT active; repair the selected pack tree", dir, module.Pack)
 				continue
 			}
 		}
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		if fi, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+			warnf("loophole module dir %s does not exist, so that loophole is NOT active; check the `from` path that names it in %s", dir, manifestOf(module.Pack))
+			continue
+		} else if err != nil || !fi.IsDir() {
 			warnf("loophole module dir %s is not a directory, so that loophole is NOT active", dir)
 			continue
 		}
@@ -1008,4 +1017,12 @@ func validateSetOf(mods []PackModule, claims []PackSupersession) ([]ValidateEntr
 func specHasCommand(spec *jsonx.OrderedMap) bool {
 	_, ok := spec.Get("command")
 	return ok
+}
+
+// manifestOf names the manifest a pack module's `from` path is written in, for a warning.
+func manifestOf(pack string) string {
+	if pack == "" {
+		return "its pack's manifest"
+	}
+	return "pack " + pack + "'s manifest"
 }
