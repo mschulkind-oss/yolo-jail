@@ -425,10 +425,10 @@ Sites: `internal/hostfloor/patched.go:490`, `internal/hostfloor/built.go:232` ("
 ## Launch: pack selection, names and forks
 
 ### A fork's base is not selected
-- **Where:** `internal/packload/forks.go:524-527` — a fork pack names a base pack that is not selected.
-- **Before:**
+- **Where:** `internal/packload/forks.go`, in `ApplyForks` — a fork pack names a base pack that is not selected.
+- **Before** (the next-step clause was added 2026-11-09, `e4e96b4b3`; the sentence is still long and still says "this selection"):
   ```text
-  pack %s forks pack %s's %q, and %s is not in this selection — a pack yolo ships joins by itself, and any other base must be in your config's packs list as a pack named %s (such as local/%s)
+  pack %s forks pack %s's %q (its `fork_of` names %s), and %s is not in this selection — a pack yolo ships joins by itself; any other base must be in your config's packs list as a pack named %s: add it with `yolo pack add <source>/%s` (such as local/%s), or drop the fork with `yolo pack remove %s`
   ```
 - **After:**
   ```text
