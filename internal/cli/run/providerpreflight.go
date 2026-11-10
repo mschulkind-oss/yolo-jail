@@ -81,6 +81,7 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 	}
 	facts := packload.ProviderCredentialGapsTo(packs, channel.providers, channel.scope, reaches,
 		func(name string) bool { return o.Getenv(name) != "" }, consulted)
+	facts = nestedPrivateKeyNotes(facts)
 	held := o.Getenv(paths.AllowMissingProvidersEnv) != ""
 	// The refusal's wording is packload's, the host notch's too (notch-convergence.md item 14).
 	lines, refuse = packload.ProviderCredentialRefusal(facts, held)
@@ -230,6 +231,25 @@ func envPairs(argv []string) map[string]string {
 		kv := argv[i+1]
 		if eq := strings.IndexByte(kv, '='); eq > 0 {
 			out[kv[:eq]] = kv[eq+1:]
+		}
+	}
+	return out
+}
+
+// nestedPrivateKeyNotes adds, under each fact saying a credential is not set, why a nested
+// launch may lack it and the next step (secret-env-scoping.md SE-D16: a nested jail gets no
+// privilege its outer jail lacks, so the host's private env set is not carried into it). A
+// launch that is not inside a jail is not nested, and its facts stand as they are.
+func nestedPrivateKeyNotes(facts []string) []string {
+	if !config.InJail() {
+		return facts
+	}
+	var out []string
+	for _, f := range facts {
+		out = append(out, f)
+		if strings.Contains(f, "is not set in this launch's environment") {
+			out = append(out, "    not carried into a nested jail: your private env set is not handed to a jail launched from "+
+				"inside a jail; run this agent from the jail the host launched")
 		}
 	}
 	return out

@@ -76,20 +76,26 @@ func TestRedactPrivateEnvAtCoversTheTableAndItsParents(t *testing.T) {
 	}
 }
 
-// SEP-D16: the nested jail's user layer carries the private set too, and the preflight's does not.
-// Cutting "secrets" from filterReadableInheritRoot fails this.
-func TestTheNestedInheritCarriesThePrivateEnvSet(t *testing.T) {
-	effective := decode(t, `{"env": {"set": {"DEBUG": "1"}, "secrets": {"set": {"SENTRY_DSN": "v"}, "files": ["/k.env"]}}}`)
-	for scope, want := range map[InheritScope]bool{InheritNested: true, InheritPreflight: false} {
+// SE-D16 (owner, 2026-11-10: "nested jails get no special privs that the outer jail does not
+// have"): the rendered nested scope holds no private value, no private file entry and no private
+// set; the public set still crosses. Cutting the strip in filterReadableInheritRoot fails this.
+func TestTheNestedInheritCarriesNoPrivateEnvSet(t *testing.T) {
+	effective := decode(t, `{"env": {"set": {"DEBUG": "1"}, "secrets": {"set": {"SENTRY_DSN": "dsn-value"}, "files": ["/k/secrets.env"]}}}`)
+	for _, scope := range []InheritScope{InheritNested, InheritPreflight} {
 		out, _ := FilterInherit(effective, scope)
-		env, _ := out.Get("env")
-		secrets := false
-		if m, ok := env.(*jsonx.OrderedMap); ok {
-			_, secrets = m.Get("secrets")
+		rendered, err := RenderFiltered(out, scope, "now")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if secrets != want {
-			t.Errorf("scope %v: env.secrets crosses = %v, want %v", scope, secrets, want)
+		for _, leak := range []string{"dsn-value", "SENTRY_DSN", "secrets", "/k/secrets.env"} {
+			if strings.Contains(rendered, leak) {
+				t.Errorf("scope %v carries %q:\n%s", scope, leak, rendered)
+			}
 		}
+	}
+	out, _ := FilterInherit(effective, InheritNested)
+	if rendered, _ := RenderFiltered(out, InheritNested, "now"); !strings.Contains(rendered, "DEBUG") {
+		t.Errorf("the public set still crosses:\n%s", rendered)
 	}
 }
 

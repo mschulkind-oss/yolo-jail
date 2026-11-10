@@ -640,7 +640,9 @@ func filterReadableInheritRoot(key string, value any, scope InheritScope) (any, 
 		}
 	case "env":
 		if scope == InheritNested {
-			copyKeys(m, out, "sources", "files", "set", "unset", "secrets") // SEP-D16: the private set too
+			// NOT "secrets": the private set, values and file entries alike, never crosses into a nested
+			// jail, which gets no privilege its outer jail lacks (SE-D16, superseding SEP-D16).
+			copyKeys(m, out, "sources", "files", "set", "unset")
 			// A null list is a legacy env_sources null that replaced the lists beneath it
 			// (lowerLegacyEnvSources). The handed-in scope is the jail's bottom user layer,
 			// with nothing beneath to replace, so the null means what absence does.

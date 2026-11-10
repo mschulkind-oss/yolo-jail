@@ -86,3 +86,19 @@ func TestTheSessionInputsReadThePublicSetAlone(t *testing.T) {
 		t.Errorf("a private value reached the session inputs: %q", got)
 	}
 }
+
+// A launch from inside a jail that lacks a provider's key says the private set is not carried
+// into a nested jail, and names the next step; a host launch's facts stand as they are (SE-D16).
+func TestANestedLaunchNamesWhyAKeyIsMissing(t *testing.T) {
+	facts := []string{`  • pack zai requires provider "zai", whose credential variable ZAI_API_KEY is not set in this launch's environment`}
+	t.Setenv("YOLO_VERSION", "")
+	if got := nestedPrivateKeyNotes(facts); len(got) != 1 {
+		t.Errorf("a host launch is not nested: %q", got)
+	}
+	t.Setenv("YOLO_VERSION", "9.9.9")
+	got := strings.Join(nestedPrivateKeyNotes(facts), "\n")
+	if !strings.Contains(got, "ZAI_API_KEY") || !strings.Contains(got, "not carried into a nested jail") ||
+		!strings.Contains(got, "run this agent from the jail the host launched") {
+		t.Errorf("the nested note:\n%s", got)
+	}
+}
