@@ -1115,3 +1115,15 @@ Owed at `<landing sha>`; the jail notch and `yolo host` were run on Linux only.
 
 None open. The two found while planning are decided as [SEP-D17](#SEP-D17) and [SEP-D18](#SEP-D18).
 
+## Backlog
+
+Found while building, left for later:
+
+- **`yolo config secret` on an inline `env` table.** A user file that spells `env = { set = {...} }`
+  inline still gets invalid TOML when the verb appends a `[env.secrets.set]` table, and a dotted key
+  fails with a raw struct dump. The fix is in `configedit`, and it is larger than this plan.
+- **The remedy inside a jail has no scope.** In a jail, `LocateEnvName` cannot see the user config, so
+  the refusal's remedy names neither `--user` nor a `yolo host-run` line.
+- **Inline public `env.sources` values reach the assembled copy unredacted.** This predates the plan;
+  the redaction covers the private set only.
+

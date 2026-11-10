@@ -869,6 +869,33 @@ mount under `/var/lib/containers/storage` was gone by the second read. The test 
 passed three times alone. The test should compare against the same table it read, or skip mount
 points that vanished in between.
 
+### <a id="landing-gate-flakes-2026-11-09"></a>🔧 **Nine tests failed once in a loaded landing gate and passed alone**
+
+During the 2026-11-09 landings, with load average from 30 to 60, each of these failed in a full
+`just check-ci` or integration run and then passed when run alone. None has been diagnosed. Each
+needs its code read for a wall-clock bound or a race, then a fix that waits on the event:
+
+- `TestQuitDoesNotWaitForTheScratchDelete` (`integration/scratchvolumes_test.go`). Its pass
+  condition is an elapsed-time bound, which the
+  [event-driven test rule](../../AGENTS.md#testing) forbids. It passed alone in 14.4 s.
+- `TestSelectedCLIExactOnceExpiresOrIsRevokedWithoutHostEffect`
+  (`internal/callbroker/once_expiry_test.go`)
+- `TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit`
+  (`internal/callbroker/classifier_test.go`)
+- `TestSelectedNPMSharedZeroDemandAndRevocationDoNotAdmit` and
+  `TestSelectedNPMSharedSecondDemandKeepsOriginalOwnedProducer`
+  (`internal/cli/programcapturelifetime_test.go`)
+- `TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks`
+  (`internal/cli/preparationfailure_test.go`)
+- `TestRunProactiveSurvivesAFailedMint` (`internal/awsauthdaemon/main_test.go`)
+- `TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe`
+  (`internal/gitremote/preflight_diagnostic_test.go`)
+- `TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds`
+  (`internal/packsrc/patchbranchcheckout_test.go`)
+
+Two other flakes from the same gates are already fixed: the proxy egress tests (`853751692`) and
+`TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`).
+
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 
 The capture store's [record-platform rule](../reference/install-capture.md#record-platform) makes
