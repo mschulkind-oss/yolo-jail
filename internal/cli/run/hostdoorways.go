@@ -45,6 +45,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -76,6 +77,21 @@ type HostDoorways struct {
 	// forService is every doorway a carried agent's platform alone asks for
 	// (PlanHostDoorwaysFor), sorted: its pointer is the launch-owned service's, never the agent's.
 	forService []string
+	// pin, jail and stopStep are the launch's pinned yolo, the label its host services log as the
+	// jail they serve, and the stop step their give-up line names (PinnedTo).
+	pin      *helperpin.Pin
+	jail     string
+	stopStep string
+}
+
+// PinnedTo hands the doorways' host services the launch's pinned yolo
+// (docs/design/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
+// naming stopStep, and jail labels them in their start lines. Called before Start; a launch that
+// pins none leaves them to refuse to start, never to run another build.
+func (d *HostDoorways) PinnedTo(pin *helperpin.Pin, jail, stopStep string) {
+	if d != nil {
+		d.pin, d.jail, d.stopStep = pin, jail, stopStep
+	}
 }
 
 // PlanHostDoorways plans the doorways of a `yolo host` launch of packs, the packs its selection
@@ -456,7 +472,7 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 		return nil, stop, nil, nil
 	}
 	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
-		reachSubject: agent, mountsNoWorkspace: true}
+		reachSubject: agent, mountsNoWorkspace: true, helperPin: d.pin, keeperJailName: d.jail, helperStopRemedy: d.stopStep}
 	fillDefaults(o)
 	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
 	if err := o.refusePlacementOfDoorways(d.set, doorwayRefsOf(d.plans)); err != nil {

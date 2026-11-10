@@ -103,6 +103,13 @@ func (o *Options) noteMacosUserLocalHostCode(plan *launchservice.Plan, what stri
 		richtext.Escape(what), plan.Pack, richtext.Escape(shquote.Join(plan.Cmd))))
 }
 
+// pinMacosUserPlan gives a plan the launch's pinned yolo to run from, the jail label its start line
+// names, and the stop step a give-up names (docs/design/pinned-host-helpers.md PH-D3, PH-D6). A
+// keeper's plans carry the pin the launch handed it.
+func (o *Options) pinMacosUserPlan(plan *launchservice.Plan) {
+	plan.Pin, plan.Jail, plan.StopRemedy = o.helperPin, o.jailName(), o.stopStep()
+}
+
 // startMacosUserService starts one launch-owned service and returns it and its log; a var so a
 // test can observe the start without spawning one.
 var startMacosUserService = func(plan *launchservice.Plan, env map[string]string) (launchedService, string, error) {
@@ -399,6 +406,7 @@ func (o *Options) startMacosUserServices(starts []serviceStart, hostSocket strin
 			}
 			input[openauthclient.HostSocketEnv] = hostSocket
 		}
+		o.pinMacosUserPlan(plan)
 		r, log, err := startMacosUserService(plan, input)
 		if err != nil {
 			stop()

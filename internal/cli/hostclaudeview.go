@@ -21,6 +21,7 @@ package cli
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,11 +40,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
-	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
 // hostClaudeViewGOOS keeps the platform predicate at the launch boundary testable off Darwin.
@@ -60,30 +62,42 @@ var hostClaudeViewGOOS = runtime.GOOS
 // here is this build's, so it keeps host views by construction. It is handed this process's pid
 // (`--end-with-pid`), which the exec into Claude keeps, so it ends with the agent; it shares the
 // credential, the refresh lock and the replaced-token record with every jail's broker (HD-D16).
-var hostClaudeBrokerEnsure = func(errw io.Writer) error {
-	_, err := startHostViewBroker(errw)
+var hostClaudeBrokerEnsure = func(pin *helperpin.Pin, jail string, errw io.Writer) error {
+	_, err := startHostViewBroker(pin, jail, errw)
 	return err
 }
 
 // hostViewBrokerStartTimeout bounds the wait for the spawned broker's socket to accept.
 const hostViewBrokerStartTimeout = 5 * time.Second
 
-// hostViewBrokerArgv is the private broker's argv: yolo's own daemon at socket, ending with pid.
-func hostViewBrokerArgv(socket string, pid int) []string {
-	return execx.SelfExecArgv([]string{"yolo", "internal", "daemon", broker.BrokerLoopholeName,
-		"--socket", socket, "--end-with-pid", strconv.Itoa(pid)})
+// hostViewBrokerArgv is the private broker's argv: the launch's pinned yolo (PH-D3) running its
+// own daemon at socket, ending with pid. The pin's file is checked unchanged first, and a missing or
+// replaced one is an error: there is no fallback to the running binary, which may be another build.
+func hostViewBrokerArgv(pin *helperpin.Pin, socket string, pid int) ([]string, error) {
+	if pin == nil || pin.Path == "" {
+		return nil, errors.New("this launch resolved no host yolo to start the broker from. " + reporoot.ReinstallSteps)
+	}
+	if !pin.Unchanged() {
+		return nil, fmt.Errorf("the yolo this launch pinned is no longer at %s (an upgrade removed or replaced it). %s",
+			pin.Path, reporoot.ReinstallSteps)
+	}
+	return []string{pin.Path, "internal", "daemon", broker.BrokerLoopholeName,
+		"--socket", socket, "--end-with-pid", strconv.Itoa(pid)}, nil
 }
 
 // startHostViewBroker spawns the private broker and returns its socket once it accepts. Its log is
 // the one every copy of the broker appends to (broker.BrokerLogPath).
-func startHostViewBroker(errw io.Writer) (string, error) {
+func startHostViewBroker(pin *helperpin.Pin, jail string, errw io.Writer) (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("name the broker's socket: %w", err)
 	}
 	socket := filepath.Join(paths.HostSingletonDir,
 		fmt.Sprintf("yolo-claude-host-%d-%s.sock", os.Getpid(), hex.EncodeToString(b)))
-	argv := hostViewBrokerArgv(socket, os.Getpid())
+	argv, err := hostViewBrokerArgv(pin, socket, os.Getpid())
+	if err != nil {
+		return "", err
+	}
 	logPath := broker.BrokerLogPath()
 	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -91,6 +105,9 @@ func startHostViewBroker(errw io.Writer) (string, error) {
 		cmd.Stdout, cmd.Stderr = lf, lf
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if jail != "" {
+		cmd.Env = append(os.Environ(), helperpin.EnvJail+"="+jail)
+	}
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("start the %s for this launch: %w", broker.BrokerLoopholeName, err)
 	}
@@ -136,7 +153,7 @@ func hostClaudeView(launch *hostComposition, environ []string, errw io.Writer) [
 		return environ
 	}
 	loc := claudeview.HostLocation(pack.Name)
-	res, err := registerHostClaudeView(loc, errw)
+	res, err := registerHostClaudeView(launch, loc, errw)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: Warning: could not give %s the machine's shared Claude "+
 			"login (%v), so it starts on its own login in ~/.claude. `yolo claude-auth status` "+
@@ -145,7 +162,8 @@ func hostClaudeView(launch *hostComposition, environ []string, errw io.Writer) [
 	}
 	if hostClaudeViewGOOS == "darwin" {
 		path := hostPathFromEnviron(environ)
-		shimDir, shimErr := writeHostClaudeSecurityAdapter(loc.Dir, path)
+		pin, _ := launch.helperPin() // resolved by the broker start above
+		shimDir, shimErr := writeHostClaudeSecurityAdapter(pin, loc.Dir, path)
 		if shimErr != nil {
 			fmt.Fprintf(errw, "yolo host: could not prepare the scoped security adapter (%v), so %s "+
 				"keeps its own login and no credential view is handed off; resolve the security shim conflict, "+
@@ -174,11 +192,11 @@ func hostClaudeView(launch *hostComposition, environ []string, errw io.Writer) [
 	return setEnviron(environ, claudeview.SecureStorageEnv, loc.Dir)
 }
 
-func writeHostClaudeSecurityAdapter(viewDir, childPath string) (string, error) {
-	yolo, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve this yolo executable: %w", err)
+func writeHostClaudeSecurityAdapter(pin *helperpin.Pin, viewDir, childPath string) (string, error) {
+	if pin == nil || pin.Path == "" {
+		return "", errors.New("this launch resolved no host yolo for the security adapter to run. " + reporoot.ReinstallSteps)
 	}
+	yolo := pin.Path
 	service := claudesecurity.ViewService(viewDir)
 	root := paths.HostBlockDir()
 	scripts, err := hostBlockerScriptsInPath(root, childPath)
@@ -238,8 +256,14 @@ func hostBlockerScriptsInPath(root, childPath string) ([]entrypoint.BlockerScrip
 }
 
 // registerHostClaudeView starts this launch's broker and registers loc with it.
-func registerHostClaudeView(loc claudeview.Location, errw io.Writer) (oauthbroker.RegisterResult, error) {
-	if err := hostClaudeBrokerEnsure(errw); err != nil {
+func registerHostClaudeView(launch *hostComposition, loc claudeview.Location, errw io.Writer) (oauthbroker.RegisterResult, error) {
+	// The pin, asked only now that a broker is about to start. A launch that cannot pin gives the
+	// view up like any other setup failure (never fatal, above), naming the reinstall step.
+	pin, err := launch.helperPin()
+	if err != nil {
+		return oauthbroker.RegisterResult{}, err
+	}
+	if err := hostClaudeBrokerEnsure(pin, launch.helperJail(), errw); err != nil {
 		return oauthbroker.RegisterResult{}, err
 	}
 	oauthbroker.ConfigureStore()

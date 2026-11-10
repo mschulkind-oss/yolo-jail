@@ -1641,10 +1641,11 @@ func PlanInvariants(plan RunPlan) []string {
 				"); it would run an unstaged/unreadable binary")
 	}
 	// The stage step must have a real source binary to copy — an empty selfExe
-	// (os.Executable failed) would stage nothing and the self-exec would fail.
+	// (no pinned yolo, or the pinned file gone: PinnedSelfExe) would stage nothing and the self-exec
+	// would fail.
 	if !hasGuestSessionYoloCopy(plan) {
 		problems = append(problems,
-			"no source yolo binary resolved to stage (os.Executable failed); the sandbox would have no bootstrap binary to exec")
+			"no source yolo binary resolved to stage (this launch has no pinned yolo, or the pinned file is gone or replaced; reinstall yolo or run `just install`, then launch again); the sandbox would have no bootstrap binary to exec")
 	}
 
 	// B3 (Go): the stage commands must produce a FRESH inode (copy-to-temp + mv),

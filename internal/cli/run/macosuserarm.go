@@ -48,6 +48,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
@@ -86,6 +87,25 @@ type MacosUserArm struct {
 	// the arm is the one value the front door's handler and Run share for a launch.
 	skipGrant func(string) bool
 	staged    func([]string)
+	// helperPin is the launch's pinned yolo (Run's pre-flight, SetHelperPin), which the backend stages
+	// as the guest's yolo and starts its helpers from (HelperPin, macosuser.PinnedSelfExe).
+	helperPin *helperpin.Pin
+}
+
+// SetHelperPin records the pin Run resolved for this launch (also how a test hands the arm one).
+func (a *MacosUserArm) SetHelperPin(pin *helperpin.Pin) {
+	a.mu.Lock()
+	a.helperPin = pin
+	a.mu.Unlock()
+}
+
+// HelperPin is the launch's pinned yolo, nil until Run has resolved it. The backend's SelfExe is
+// built from it (internal/cli's macosUserSessionDeps), so nothing the launch stages or starts comes
+// from os.Executable().
+func (a *MacosUserArm) HelperPin() *helperpin.Pin {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.helperPin
 }
 
 // NewMacosUserArm makes an arm, not yet installed: it handles no signal until Run installs it.
