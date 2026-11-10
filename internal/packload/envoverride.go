@@ -213,25 +213,31 @@ func mixedProviderRemedy(packs []*Pack, p *Pack, d packdecl.EnvOverrideDecl, o p
 		return ""
 	}
 	g := envGate{profile: d.Profile, platform: d.Platform, servedBy: d.ServedBy, sets: d.Sets}
-	var gated, overriding []string
+	// Each side's agents, and the set entry that puts each agent on that side: the profile a
+	// launch on that side alone selects, which in a set need not be the agent's primary.
+	var gated, overriding, gatedProfiles, overridingProfiles []string
 	for _, agent := range sortedMapKeys(sel.Profiles) {
 		fires := gateFiresFor(packs, p, g, sel, agent)
 		// Only an agent some selected pack installs is a process at all, as gateFiresFor asks.
-		claims := sel.claimsAll(agent, o.Vars) && agentInstalled(packs, agent)
-		if fires && claims {
+		claiming := -1
+		if agentInstalled(packs, agent) {
+			claiming = sel.claimingEntry(agent, o.Vars)
+		}
+		if fires && claiming >= 0 {
 			return ""
 		}
 		if fires {
 			gated = append(gated, agent)
+			gatedProfiles = appendUnique(gatedProfiles, sel.entryName(agent, sel.gatedEntry(agent, g)))
 		}
-		if claims {
+		if claiming >= 0 {
 			overriding = append(overriding, agent)
+			overridingProfiles = appendUnique(overridingProfiles, sel.entryName(agent, claiming))
 		}
 	}
 	if len(gated) == 0 || len(overriding) == 0 {
 		return ""
 	}
-	gatedProfiles, overridingProfiles := profilesOf(sel, gated), profilesOf(sel, overriding)
 	var launches []string
 	for _, profile := range append(append([]string(nil), overridingProfiles...), gatedProfiles...) {
 		launches = appendUnique(launches, "`yolo -p "+profile+"`")
@@ -254,13 +260,20 @@ func agentInstalled(packs []*Pack, agent string) bool {
 	return false
 }
 
-// profilesOf is the selected profiles of agents, each once, in agent order.
-func profilesOf(sel GateSelection, agents []string) []string {
-	var out []string
-	for _, agent := range agents {
-		out = appendUnique(out, sel.Profiles[agent])
+// gatedEntry is the index of the entry of agent's set the platform gate g fires on: for a served
+// contribution the one the served-pointer rule lets through, else the first on g's platform; -1
+// (the primary) when no entry says.
+func (sel GateSelection) gatedEntry(agent string, g envGate) int {
+	if g.servedBy != "" {
+		i, _ := sel.servedEntry(agent, g.platform, g.sets)
+		return i
 	}
-	return out
+	for i, platform := range sel.entryPlatforms(agent) {
+		if platform == g.platform {
+			return i
+		}
+	}
+	return -1
 }
 
 // quotedList is names in backticks, joined with " or ".

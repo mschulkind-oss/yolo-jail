@@ -812,34 +812,61 @@ func providerClaims(providers *jsonx.OrderedMap) map[string][]string {
 // that declares a platform and no list ... still receive[s] the pointer", which holds even where
 // no same-platform provider lists names for it to co-claim).
 func (sel GateSelection) servedClaimed(agent, platform string, sets []string) bool {
+	_, ok := sel.servedEntry(agent, platform, sets)
+	return ok
+}
+
+// servedEntry is servedClaimed with the index, in agent's set, of the first entry that lets the
+// contribution through; -1 with true when agent has no SetClaims entry, so nothing narrows it.
+func (sel GateSelection) servedEntry(agent, platform string, sets []string) (int, bool) {
 	claims, ok := sel.SetClaims[agent]
 	if !ok {
-		return true
+		return -1, true
 	}
-	platforms, ok := sel.SetPlatforms[agent]
-	if !ok {
-		platforms = []string{sel.Platforms[agent]}
-	}
+	platforms := sel.entryPlatforms(agent)
 	for i, names := range claims {
 		if i >= len(platforms) || platforms[i] != platform {
 			continue
 		}
 		if names == nil {
-			return true
+			return i, true
 		}
 		for _, v := range sets {
 			if slices.Contains(names, v) {
-				return true
+				return i, true
 			}
 		}
 	}
-	return false
+	return -1, false
+}
+
+// entryPlatforms is agent's set's platforms, index for index (SetPlatforms, else its primary's).
+func (sel GateSelection) entryPlatforms(agent string) []string {
+	if platforms, ok := sel.SetPlatforms[agent]; ok {
+		return platforms
+	}
+	return []string{sel.Platforms[agent]}
+}
+
+// entryName is the profile at index i of agent's set (Sets, else its primary); its primary for an
+// index outside the set, -1 included.
+func (sel GateSelection) entryName(agent string, i int) string {
+	if set, ok := sel.Sets[agent]; ok && i >= 0 && i < len(set) {
+		return set[i]
+	}
+	return sel.Profiles[agent]
 }
 
 // claimsAll reports whether some entry of agent's set claims every one of names: the agents
 // a claimed value reaches, as the override pre-flight asks it (envoverride.go).
 func (sel GateSelection) claimsAll(agent string, names []string) bool {
-	for _, claimed := range sel.SetClaims[agent] {
+	return sel.claimingEntry(agent, names) >= 0
+}
+
+// claimingEntry is the index of the first entry of agent's set that claims every one of names,
+// -1 when none does.
+func (sel GateSelection) claimingEntry(agent string, names []string) int {
+	for i, claimed := range sel.SetClaims[agent] {
 		all := claimed != nil
 		for _, v := range names {
 			if !slices.Contains(claimed, v) {
@@ -848,10 +875,10 @@ func (sel GateSelection) claimsAll(agent string, names []string) bool {
 			}
 		}
 		if all {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 // SelectionOfSets is SelectionOf over a whole active-set table: Profiles and Platforms answer

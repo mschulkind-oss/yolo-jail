@@ -83,9 +83,14 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 
 ## Traps
 
-- **A `GateSelection` copy that drops `Claims` withholds the pointer from every agent** at that reader — the
-  host doorway would stay closed with no error. `hostdoorways.go` builds two literals; both must copy it.
-  `TestAWSAuthServesAYoloHostAgentThroughItsDoorway` (integration) is the witness that catches it.
+- **A `GateSelection` copy that drops `SetClaims` lets the pointer through** at that reader, since an agent
+  with no entry is not narrowed. `hostdoorways.go` builds two literals and both copy it. They matter only
+  when a launch holds an agent with no client of its own for the platform beside a `bedrock-key` agent,
+  where a dropped copy would open the aws-auth doorway for nobody. *Backlog (review finding, minor):* no
+  test covers those two copies; the witness is a `PlanHostDoorwaysFor` unit test with such a launch.
+- **The `yolo host` worker-gate wording** (`internal/cli/host.go`, `workerGateClause`) still says only "is
+  not on platform …". No shipped pack reaches it with a served pointer today (aws-auth is a doorway at that
+  notch). *Backlog (review finding, minor):* give it the jail's "and claims a variable its pointer sets".
 - **`ProfilesOnly` and literal test selections carry no claims.** A platform gate never fires for
   `ProfilesOnly` (no platforms), so it is safe. *As built (overrides the line this replaced):* an agent with
   no `SetClaims` entry, and a set entry whose provider claims nothing at all, are NOT narrowed. The second

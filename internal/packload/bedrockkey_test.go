@@ -135,6 +135,23 @@ func TestAMixedBedrockLaunchNamesALaunchOnEitherAlone(t *testing.T) {
 		t.Errorf("a mixed launch must not be told to empty the SSO profile:\n%s", got)
 	}
 
+	// A set: each side is named by the entry that puts the agent there, not by its primary, so
+	// the remedy never offers a launch (`-p zai`) that carries neither credential.
+	setPacks := embeddedNamed(t, "claude", "codex", "aws-auth", "bedrock", "zai")
+	providers, resolved, _ := launchSelection(t, setPacks, nil, nil,
+		map[string]string{"claude": "zai", "codex": "bedrock"})
+	setSel := SelectionOfSets(map[string][]string{"claude": {"zai", "bedrock-key"}, "codex": {"bedrock"}},
+		resolved, providers)
+	setFindings := EnvOverrideFindings(setPacks, setSel, look, nil, nil)
+	if len(setFindings) != 1 {
+		t.Fatalf("a set mixing them: findings = %+v, want one", setFindings)
+	}
+	setGot := strings.Join(setFindings[0].Lines, "\n")
+	if !strings.Contains(setGot, "claude on `bedrock-key` receives AWS_BEARER_TOKEN_BEDROCK") ||
+		!strings.Contains(setGot, "`yolo -p bedrock-key` or `yolo -p bedrock`") || strings.Contains(setGot, "zai") {
+		t.Errorf("a set must be named by its claiming entry, never its primary:\n%s", setGot)
+	}
+
 	// The control: one agent holding both keeps the profile step, since emptying the profile is
 	// that launch's way to keep the bearer.
 	both := GateSelection{Profiles: map[string]string{"claude": "mine"},
