@@ -549,7 +549,9 @@ func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
 // with a Bedrock API key as the credential (aws-auth not enabled), claude's process is handed none,
 // while its env file, which is the wire bridge's key channel for claude's route
 // (wirebridged's keyfile.go, which reads a name's first assignment), still carries it for the
-// bridge to sign with. On `-p bedrock` claude's own client signs with the key, so it keeps it.
+// bridge to sign with. On `-p bedrock-key` claude's own client signs with the key, so it keeps
+// it. The key's provider is bedrock-key since docs/design/bedrock-key-provider.md (OQ-BK4): the
+// shipped bedrock no longer claims the bearer.
 func TestClaudeAtTheBridgeNeverHoldsABedrockAPIKey(t *testing.T) {
 	const key = "real-bedrock-api-key"
 	creds := jsonx.NewOrderedMap()
@@ -557,10 +559,10 @@ func TestClaudeAtTheBridgeNeverHoldsABedrockAPIKey(t *testing.T) {
 	packs := []string{"claude", "bedrock", "aws-auth", "codex-auth", "wire-bridge"}
 	config := func([]*packload.Pack) *jsonx.OrderedMap {
 		cfg := bareConfig()
-		withBedrockRegion(cfg)
+		withBedrockKeyRegion(cfg)
 		return cfg
 	}
-	jail, channel, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock-bridge" })
+	jail, channel, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock-key-bridge" })
 	env := jail.agentEnv("claude")
 	if env["CLAUDE_CODE_USE_BEDROCK"] != "1" || env["ANTHROPIC_BEDROCK_BASE_URL"] == "" {
 		t.Fatalf("the fixture does not run claude's Bedrock mode at the bridge: %v", env)
@@ -582,9 +584,9 @@ func TestClaudeAtTheBridgeNeverHoldsABedrockAPIKey(t *testing.T) {
 			first, files["claude"])
 	}
 
-	native, _, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock" })
+	native, _, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = "bedrock-key" })
 	if got := native.agentEnv("claude")["AWS_BEARER_TOKEN_BEDROCK"]; got != key {
-		t.Errorf("control: claude's own Bedrock client on -p bedrock was handed AWS_BEARER_TOKEN_BEDROCK=%q, want the key", got)
+		t.Errorf("control: claude's own Bedrock client on -p bedrock-key was handed AWS_BEARER_TOKEN_BEDROCK=%q, want the key", got)
 	}
 }
 
@@ -599,13 +601,13 @@ func TestClaudeAtTheBridgeOnMacosUserHoldsNoBedrockAPIKey(t *testing.T) {
 	packs := []string{"claude", "bedrock", "aws-auth", "codex-auth", "wire-bridge"}
 	config := func([]*packload.Pack) *jsonx.OrderedMap {
 		cfg := bareConfig()
-		withBedrockRegion(cfg)
+		withBedrockKeyRegion(cfg)
 		return cfg
 	}
 	for _, tc := range []struct {
 		profile string
 		holds   bool
-	}{{"bedrock-bridge", false}, {"bedrock", true}} {
+	}{{"bedrock-key-bridge", false}, {"bedrock-key", true}} {
 		_, channel, _ := launchGateJailWith(t, packs, config, creds, func(o *Options) { o.ProfileName = tc.profile })
 		got, held := channel.launchEnv("claude").Get("AWS_BEARER_TOKEN_BEDROCK")
 		if held != tc.holds || (held && got != key) {

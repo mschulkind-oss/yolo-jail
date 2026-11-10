@@ -242,8 +242,11 @@ func TestAUserBedrockProviderReceivesTheAWSCredentialsItsPlatformClaims(t *testi
 	for _, profile := range []string{"eu", "bedrock"} {
 		s := scope(map[string]string{"claude": profile, "pi": "codex"})
 		for _, k := range awsNames {
-			if !has(s.EnvSourcesFor("claude"), k) {
-				t.Errorf("claude on %s must receive %s", profile, k)
+			// The shipped bedrock is SSO and only SSO (docs/design/bedrock-key-provider.md
+			// OQ-BK4): the bearer is bedrock-key's, which a list-less sibling co-claims and the
+			// narrowed bedrock does not.
+			if want := profile == "eu" || k != "AWS_BEARER_TOKEN_BEDROCK"; has(s.EnvSourcesFor("claude"), k) != want {
+				t.Errorf("claude on %s receives %s = %v, want %v", profile, k, !want, want)
 			}
 			if has(s.EnvSourcesFor("pi"), k) || has(s.EnvSourcesFor(""), k) {
 				t.Errorf("claude on %s: %s must still reach no other process", profile, k)

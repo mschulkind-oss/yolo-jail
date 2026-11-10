@@ -592,7 +592,8 @@ func unselectedGates(u packload.ProfileServedDaemon) string {
 	}
 	var why []string
 	if len(u.Platforms) > 0 {
-		why = append(why, "no agent's selected provider is on platform "+quote(u.Platforms))
+		why = append(why, "no agent's selected provider is on platform "+quote(u.Platforms)+
+			" and claims a variable its pointer sets")
 	}
 	if len(u.Profiles) > 0 {
 		why = append(why, "no agent's selected profile is "+quote(u.Profiles))

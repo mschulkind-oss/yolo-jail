@@ -20,6 +20,7 @@ package packload
 // reaches, never exported through the shared per-entry channel (CN7 (c)).
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -33,6 +34,10 @@ type ProfileServedDaemon struct {
 	Name      string
 	Profiles  []string
 	Platforms []string
+	// Sets is every variable its platform-gated contributions set, sorted: a provider on one of
+	// Platforms starts it only when it claims one of these (the served-pointer rule,
+	// GateSelection.servedClaimed), so a line offering a `-p` name reads ProfilesServing.
+	Sets []string
 }
 
 // profileServedDaemons maps each profile-served daemon the selected packs name to the packs
@@ -50,7 +55,7 @@ func profileServedDaemons(packs []*Pack) map[string][]gatedServer {
 		for _, c := range p.Decl.GatedEnvContributions() {
 			if c.ServedBy != "" {
 				gated[c.ServedBy] = append(gated[c.ServedBy],
-					gatedServer{pack: p, profile: c.Profile, platform: c.Platform})
+					gatedServer{pack: p, gate: envGateOf(c)})
 			}
 		}
 	}
@@ -61,9 +66,8 @@ func profileServedDaemons(packs []*Pack) map[string][]gatedServer {
 }
 
 type gatedServer struct {
-	pack     *Pack
-	profile  string
-	platform string
+	pack *Pack
+	gate envGate
 }
 
 // UnselectedProfileServedDaemons is every profile-served daemon no gate of this launch's
@@ -74,17 +78,20 @@ func UnselectedProfileServedDaemons(packs []*Pack, sel GateSelection) []ProfileS
 	var out []ProfileServedDaemon
 	for daemon, servers := range profileServedDaemons(packs) {
 		delivered := false
-		var profiles, platforms []string
+		var profiles, platforms, sets []string
 		for _, s := range servers {
-			if gateDelivered(packs, s.pack, s.profile, s.platform, sel) {
+			if gateDelivered(packs, s.pack, s.gate, sel) {
 				delivered = true
 				break
 			}
 			switch {
-			case s.platform != "":
-				platforms = appendUnique(platforms, s.platform)
-			case s.profile != "":
-				profiles = appendUnique(profiles, s.profile)
+			case s.gate.platform != "":
+				platforms = appendUnique(platforms, s.gate.platform)
+				for _, v := range s.gate.sets {
+					sets = appendUnique(sets, v)
+				}
+			case s.gate.profile != "":
+				profiles = appendUnique(profiles, s.gate.profile)
 			}
 		}
 		if delivered {
@@ -92,7 +99,8 @@ func UnselectedProfileServedDaemons(packs []*Pack, sel GateSelection) []ProfileS
 		}
 		sort.Strings(profiles)
 		sort.Strings(platforms)
-		out = append(out, ProfileServedDaemon{Name: daemon, Profiles: profiles, Platforms: platforms})
+		sort.Strings(sets)
+		out = append(out, ProfileServedDaemon{Name: daemon, Profiles: profiles, Platforms: platforms, Sets: sets})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -107,6 +115,31 @@ func ProfilesOnPlatform(resolved map[string]ResolvedProfile, providers *jsonx.Or
 	for name, r := range resolved {
 		if platform != "" && entryString(providerEntry(providers, r.Provider), "platform") == platform {
 			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ProfilesServing is every resolved profile whose selection would start d, sorted: its name
+// gates' profiles, and each profile over a provider on one of d's platforms that the
+// served-pointer rule lets through — one that claims a variable d's pointer sets, or claims
+// nothing at all (GateSelection.servedClaimed). So aws-auth's line offers `bedrock`, never
+// `bedrock-key`. nil when none would.
+func ProfilesServing(resolved map[string]ResolvedProfile, providers *jsonx.OrderedMap,
+	d ProfileServedDaemon) []string {
+	out := append([]string(nil), d.Profiles...)
+	claims := providerClaims(providers)
+	for _, platform := range d.Platforms {
+		for _, name := range ProfilesOnPlatform(resolved, providers, platform) {
+			names, claimsAny := claims[ProviderFor(resolved, name)]
+			serves := !claimsAny
+			for _, v := range d.Sets {
+				serves = serves || slices.Contains(names, v)
+			}
+			if serves {
+				out = appendUnique(out, name)
+			}
 		}
 	}
 	sort.Strings(out)

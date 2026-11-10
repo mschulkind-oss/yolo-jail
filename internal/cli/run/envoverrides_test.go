@@ -115,6 +115,13 @@ func withBedrockRegion(cfg *jsonx.OrderedMap) {
 	cfg.Set("providers", newConfig("bedrock", newConfig("region", testBedrockRegion)))
 }
 
+// withBedrockKeyRegion is withBedrockRegion for the Bedrock API key's provider too: the bearer is
+// bedrock-key's, not bedrock's (docs/design/bedrock-key-provider.md OQ-BK4).
+func withBedrockKeyRegion(cfg *jsonx.OrderedMap) {
+	cfg.Set("providers", newConfig("bedrock", newConfig("region", testBedrockRegion),
+		"bedrock-key", newConfig("region", testBedrockRegion)))
+}
+
 // inEnvSources is the extra member that delivers vars through one inline env_sources
 // entry — the channel an override actually reaches a jail by. json.Marshal sorts the keys,
 // so the config is the same bytes every run.
@@ -590,11 +597,13 @@ func userEnvWith(vars map[string]string) *jsonx.OrderedMap {
 //
 // Which is also why the refusal must come BEFORE that write, and the test asserts the file
 // is byte-for-byte what the previous entry left: the first cut refused after writing, so a
-// refused attach had already put the bearer beside the pointer in the live jail.
+// refused attach had already put the overriding credential beside the pointer in the live jail.
+// The credential is the static pair: `bedrock` claims it, and since
+// docs/design/bedrock-key-provider.md no longer claims the bearer, which it would not deliver.
 func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	o, cfg, channel, stderr := attachFixture(t, awsAdapterJailEnv,
-		packs, userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"}),
+		packs, userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"}),
 		func(o *Options, cfg *jsonx.OrderedMap) {
 			o.Getenv = shellWith(nil)
 			o.ProfileName = "bedrock"
@@ -608,11 +617,11 @@ func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 	rc, _ := o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
 		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
 	if rc != 1 {
-		t.Fatalf("an attach delivering aws-auth's pointer beside a bearer must refuse, rc=%d\n"+
+		t.Fatalf("an attach delivering aws-auth's pointer beside a static pair must refuse, rc=%d\n"+
 			"stderr:\n%s", rc, stderr.String())
 	}
 	got := stderr.String()
-	for _, want := range []string{bearerVar + " is delivered by " + packload.FromEnvSources, pointerVar} {
+	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources, pointerVar} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)
 		}
@@ -739,8 +748,9 @@ func TestEnvOverrideNamesThePackContributionAndTheSecretChannel(t *testing.T) {
 	o := overrideOptions(t)
 	o.Getenv = shellWith(nil)
 	o.ProfileName = "bedrock"
-	userEnv := jsonx.NewOrderedMap()
-	userEnv.Set(bearerVar, "sk-bedrock-frozen")
+	// The static pair, which `bedrock` claims; it no longer claims the bearer
+	// (docs/design/bedrock-key-provider.md OQ-BK4), so a bearer would not be delivered here.
+	userEnv := userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "sk-bedrock-frozen"})
 	selected := awsAuthSelected(t)
 	cfg := awsAuthServedConfig(t, selected)
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected, userEnv), nil)
@@ -748,7 +758,7 @@ func TestEnvOverrideNamesThePackContributionAndTheSecretChannel(t *testing.T) {
 	for _, want := range []string{
 		"pack aws-auth",
 		pointerVar,
-		bearerVar + " is delivered by " + packload.FromEnvSources,
+		"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources,
 		// The gate the pointer rides, in the refusal's remedy: the provider's platform since
 		// OQ-BR8, not a profile name.
 		"selected provider's platform is `aws-bedrock`",
@@ -854,10 +864,10 @@ func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 	cfg := awsAuthServedConfig(t, selected)
 	cfg.Set("host_files", []any{newConfig("path", "~/.aws/config", "content", "[default]\n")})
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
-		userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"})), nil)
+		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})), nil)
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, bearerVar+" is delivered by "+packload.FromEnvSources) {
-		t.Errorf("the bearer's refusal is missing:\n%s", joined)
+	if !strings.Contains(joined, "AWS_ACCESS_KEY_ID is delivered by "+packload.FromEnvSources) {
+		t.Errorf("the static pair's refusal is missing:\n%s", joined)
 	}
 	if strings.Contains(joined, "~/.aws") {
 		t.Errorf("the uncertain grant leaked into the refusal:\n%s", joined)

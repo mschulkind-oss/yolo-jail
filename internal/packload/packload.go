@@ -762,6 +762,96 @@ type GateSelection struct {
 	// SetPlatforms is, index for index with Sets, the platform of each entry's provider, ""
 	// for one that declares none.
 	SetPlatforms map[string][]string
+	// SetClaims is, index for index with the agent's set (Sets, else its one primary), the
+	// names each entry's provider CLAIMS (credentialClaims over the composed table, siblings
+	// included), sorted; a nil entry is a provider that claims nothing at all. The served-pointer
+	// rule reads it (servedClaimed). An agent with no SetClaims entry was selected by a caller
+	// that composed no provider table, so no claim was declared for it and none narrows it.
+	SetClaims map[string][][]string
+}
+
+// envGate is one gated `kind: "env"` contribution as the gate reads it: its `profile` name or
+// `platform`, the daemon it points at (`served_by`), and the variables it sets.
+type envGate struct {
+	profile, platform, servedBy string
+	sets                        []string
+}
+
+// gateOf is c's gate.
+func gateOf(c packdecl.Contribution) envGate {
+	return envGate{profile: c.Profile, platform: c.Platform, servedBy: c.ServedBy, sets: sortedMapKeys(c.Vars)}
+}
+
+// envGateOf is c's gate, for the gated-contribution view (packdecl.EnvContribution).
+func envGateOf(c packdecl.EnvContribution) envGate {
+	return envGate{profile: c.Profile, platform: c.Platform, servedBy: c.ServedBy, sets: sortedMapKeys(c.Vars)}
+}
+
+// providerClaims inverts credentialClaims: each claiming provider's names, sorted. A provider
+// that claims nothing has no entry.
+func providerClaims(providers *jsonx.OrderedMap) map[string][]string {
+	out := map[string][]string{}
+	for name, claimants := range credentialClaims(providers) {
+		for _, provider := range claimants {
+			out[provider] = append(out[provider], name)
+		}
+	}
+	for provider := range out {
+		sort.Strings(out[provider])
+	}
+	return out
+}
+
+// servedClaimed is THE SERVED-POINTER RULE (docs/design/bedrock-key-provider.md OQ-BK2, BK-D3):
+// a served contribution whose platform gate fires for agent reaches it only when an entry of
+// agent's set on that platform resolves to a provider that claims at least one variable the
+// contribution sets. So aws-auth's pointer reaches an agent on `bedrock`, which claims
+// AWS_CONTAINER_CREDENTIALS_FULL_URI, and not one on `bedrock-key`, which claims only the bearer.
+// The claims are the declared ones and nothing else: an entry whose provider claims nothing at
+// all declared no credential route, so the rule does not narrow it (the design's "a user provider
+// that declares a platform and no list ... still receive[s] the pointer", which holds even where
+// no same-platform provider lists names for it to co-claim).
+func (sel GateSelection) servedClaimed(agent, platform string, sets []string) bool {
+	claims, ok := sel.SetClaims[agent]
+	if !ok {
+		return true
+	}
+	platforms, ok := sel.SetPlatforms[agent]
+	if !ok {
+		platforms = []string{sel.Platforms[agent]}
+	}
+	for i, names := range claims {
+		if i >= len(platforms) || platforms[i] != platform {
+			continue
+		}
+		if names == nil {
+			return true
+		}
+		for _, v := range sets {
+			if slices.Contains(names, v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// claimsAll reports whether some entry of agent's set claims every one of names: the agents
+// a claimed value reaches, as the override pre-flight asks it (envoverride.go).
+func (sel GateSelection) claimsAll(agent string, names []string) bool {
+	for _, claimed := range sel.SetClaims[agent] {
+		all := claimed != nil
+		for _, v := range names {
+			if !slices.Contains(claimed, v) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
 }
 
 // SelectionOfSets is SelectionOf over a whole active-set table: Profiles and Platforms answer
@@ -776,6 +866,7 @@ func SelectionOfSets(sets map[string][]string, resolved map[string]ResolvedProfi
 		}
 	}
 	sel := SelectionOf(primary, resolved, providers)
+	claims := providerClaims(providers)
 	for agent, set := range sets {
 		if len(set) == 0 {
 			continue
@@ -785,10 +876,17 @@ func SelectionOfSets(sets map[string][]string, resolved map[string]ResolvedProfi
 		}
 		sel.Sets[agent] = set
 		platforms := make([]string, len(set))
+		entries := make([][]string, len(set))
 		for i, name := range set {
-			platforms[i] = entryString(providerEntry(providers, ProviderFor(resolved, name)), "platform")
+			provider := ProviderFor(resolved, name)
+			platforms[i] = entryString(providerEntry(providers, provider), "platform")
+			entries[i] = claims[provider]
 		}
 		sel.SetPlatforms[agent] = platforms
+		if sel.SetClaims == nil {
+			sel.SetClaims = map[string][][]string{}
+		}
+		sel.SetClaims[agent] = entries
 	}
 	return sel
 }
@@ -819,11 +917,17 @@ func (sel GateSelection) profileSelected(agent, profile string) bool {
 func SelectionOf(profiles map[string]string, resolved map[string]ResolvedProfile,
 	providers *jsonx.OrderedMap) GateSelection {
 	sel := GateSelection{Profiles: profiles}
+	claims := providerClaims(providers)
 	for agent, profile := range profiles {
 		if profile == "" {
 			continue
 		}
-		platform := entryString(providerEntry(providers, ProviderFor(resolved, profile)), "platform")
+		provider := ProviderFor(resolved, profile)
+		if sel.SetClaims == nil {
+			sel.SetClaims = map[string][][]string{}
+		}
+		sel.SetClaims[agent] = [][]string{claims[provider]}
+		platform := entryString(providerEntry(providers, provider), "platform")
 		if platform == "" {
 			continue
 		}
@@ -905,7 +1009,7 @@ func envFold(packs []*Pack, sel GateSelection, agent string, atHost bool) []EnvF
 			out = append(out, EnvFoldEntry{Key: k, Value: static[k], ServedBy: servedBy[k], Pack: p.Name})
 		}
 		for _, c := range gated {
-			if !gateFiresFor(packs, p, c.Profile, c.Platform, sel, agent) {
+			if !gateFiresFor(packs, p, gateOf(c), sel, agent) {
 				continue
 			}
 			for _, k := range sortedMapKeys(c.Vars) {
@@ -926,17 +1030,22 @@ func envFold(packs []*Pack, sel GateSelection, agent string, atHost bool) []EnvF
 // table key naming a CLI no pack of the launch installs is no activation for either arm — the
 // rule the launch-wide gate this replaced also kept, and the one the host notch leans on,
 // since it keys its one-agent table by whatever basename it was asked to run.
-func gateFiresFor(packs []*Pack, p *Pack, profile, platform string, sel GateSelection, agent string) bool {
+func gateFiresFor(packs []*Pack, p *Pack, g envGate, sel GateSelection, agent string) bool {
 	if agent == "" {
 		return false
 	}
 	switch {
-	case platform != "":
-		if !sel.platformSelected(agent, platform) {
+	case g.platform != "":
+		if !sel.platformSelected(agent, g.platform) {
 			return false
 		}
-	case profile != "":
-		if !sel.profileSelected(agent, profile) {
+		// THE SERVED-POINTER RULE (OQ-BK2): a pointer at a daemon reaches only an agent whose
+		// provider claims a variable it sets. Here, in the one gate every notch shares (BK-D3).
+		if g.servedBy != "" && !sel.servedClaimed(agent, g.platform, g.sets) {
+			return false
+		}
+	case g.profile != "":
+		if !sel.profileSelected(agent, g.profile) {
 			return false
 		}
 	default:
@@ -964,9 +1073,9 @@ func gateFiresFor(packs []*Pack, p *Pack, profile, platform string, sel GateSele
 // gateDelivered reports whether p's gate fires for SOME agent of the launch — whether the
 // contribution reaches any process at all. The env-override pre-flight asks it, because an
 // override between two variables nobody receives overrides nothing.
-func gateDelivered(packs []*Pack, p *Pack, profile, platform string, sel GateSelection) bool {
+func gateDelivered(packs []*Pack, p *Pack, g envGate, sel GateSelection) bool {
 	for agent := range sel.Profiles {
-		if gateFiresFor(packs, p, profile, platform, sel, agent) {
+		if gateFiresFor(packs, p, g, sel, agent) {
 			return true
 		}
 	}

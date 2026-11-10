@@ -317,7 +317,8 @@ func TestNoteUseProfilesSaysWhatEachAgentsSelectionReaches(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"),
 		officialPack(t, "bedrock"), officialPack(t, "aws-auth")}
 	key := jsonx.NewOrderedMap()
-	key.Set("AWS_BEARER_TOKEN_BEDROCK", "bearer-for-bedrock-agents")
+	// A name `bedrock` claims; it no longer claims the bearer (docs/design/bedrock-key-provider.md).
+	key.Set("AWS_PROFILE", "bedrock-agents")
 	got := profileLineChannel(t, packs, map[string]string{"claude": "bedrock", "pi": "bedrock"}, key)
 	want := `Profile bedrock: declared by bedrock; claude → provider "bedrock", through claude's ` +
 		`own "aws-bedrock" client; pi → provider "bedrock", through pi's own "aws-bedrock" client`

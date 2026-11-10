@@ -454,7 +454,7 @@ func TestShippedPacksRequireNoCredential(t *testing.T) {
 // checkEnvOverrides concatenates one block per tripped certain `overridden_by` entry, each
 // opening with its own "Refusing to launch: …" verdict — and every verdict must render
 // bold, not only the first line of the whole block. The fixture is the real two-finding
-// launch: aws-auth's pointer under `bedrock`, with BOTH the Bedrock bearer and a static key
+// launch: aws-auth's pointer on an aws-bedrock provider, with BOTH the Bedrock bearer and a static key
 // pair (no AWS_PROFILE) delivered, which trips two of the pack's certain entries.
 //
 // The lines come from checkEnvOverrides rather than a hand-written slice, so the test also
@@ -467,9 +467,14 @@ func TestPrintProviderRefusalBoldsEveryFindingsVerdict(t *testing.T) {
 	o.Color = true
 	o.IsTTYStderr = func() bool { return true }
 	o.Getenv = shellWith(nil)
-	o.ProfileName = "bedrock"
+	// A user's own Bedrock provider claiming the bearer, the static pair and the pointer: the
+	// shipped bedrock no longer claims the bearer (docs/design/bedrock-key-provider.md OQ-BK4).
+	o.ProfileName = "both"
 	selected := awsAuthSelected(t)
 	cfg := awsAuthServedConfig(t, selected)
+	cfg.Set("providers", newConfig("both", newConfig("platform", "aws-bedrock", "region", testBedrockRegion,
+		"api_key_env_name", []any{bearerVar, "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", pointerVar})))
+	cfg.Set("active_provider", newConfig("claude", "both"))
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
 		userEnvWith(map[string]string{
 			bearerVar:               "sk-bedrock-frozen",

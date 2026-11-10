@@ -21,7 +21,7 @@ func shippedManifestPath(root string) string {
 // SelectableProfiles supplies them to a real launch; a test inside this package cannot import it,
 // so withShippedProviderProfiles hands ResolveProfiles the same selection for each provider the
 // composed table holds.
-var shippedProviderNamedProfiles = []string{"zai", "openrouter", "llamacpp", "kilo", "cerebras", "bedrock", "meta"}
+var shippedProviderNamedProfiles = []string{"zai", "openrouter", "llamacpp", "kilo", "cerebras", "bedrock", "bedrock-key", "meta"}
 
 func withShippedProviderProfiles(user map[string]UserProfile, providers *jsonx.OrderedMap) map[string]UserProfile {
 	out := map[string]UserProfile{}

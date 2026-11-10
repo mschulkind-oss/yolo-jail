@@ -196,11 +196,21 @@ func TestTheShippedBedrockProviderClaimsItsCredentialRoutes(t *testing.T) {
 	// reopened through that one name.
 	got := append([]string(nil), CredentialEnvNames(providerEntry(table, "bedrock"))...)
 	sort.Strings(got)
-	want := []string{"AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK",
+	// The bearer is NOT bedrock's: it is bedrock-key's alone (docs/design/bedrock-key-provider.md
+	// OQ-BK1, OQ-BK4), so an SSO agent never receives it and a bedrock-key agent never receives
+	// the pointer.
+	want := []string{"AWS_ACCESS_KEY_ID",
 		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_PROFILE", "AWS_SECRET_ACCESS_KEY",
 		"AWS_SESSION_TOKEN"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("bedrock claims %v, want exactly %v (CN-D2)", got, want)
+		t.Errorf("bedrock claims %v, want exactly %v (CN-D2, OQ-BK4)", got, want)
+	}
+	key := providerEntry(table, "bedrock-key")
+	if names := CredentialEnvNames(key); strings.Join(names, ",") != "AWS_BEARER_TOKEN_BEDROCK" {
+		t.Errorf("bedrock-key claims %v, want exactly AWS_BEARER_TOKEN_BEDROCK (OQ-BK1)", names)
+	}
+	if p := entryString(key, "platform"); p != "aws-bedrock" {
+		t.Errorf("bedrock-key's platform = %q, want aws-bedrock (BK-D2)", p)
 	}
 	if KeyEnvName(providerEntry(table, "bedrock")) != "" {
 		t.Error("bedrock lists several routes, so it must point no agent at any one of them")

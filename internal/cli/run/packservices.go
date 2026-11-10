@@ -243,11 +243,8 @@ func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs [
 		if d, ok := drop[s.Name]; ok {
 			o.unstartedDaemons = append(o.unstartedDaemons, d)
 			// The `-p` names that WOULD start it: its name gates' profiles, and every declared
-			// profile over a provider of one of its platforms.
-			names := append([]string(nil), d.Profiles...)
-			for _, platform := range d.Platforms {
-				names = append(names, packload.ProfilesOnPlatform(resolved, providers, platform)...)
-			}
+			// profile over a provider of one of its platforms that claims its pointer.
+			names := packload.ProfilesServing(resolved, providers, d)
 			if o.unstartedDaemonProfiles == nil {
 				o.unstartedDaemonProfiles = map[string][]string{}
 			}
@@ -303,7 +300,7 @@ func (o *Options) noteUnstartedProfileDaemons() {
 				quoted[i] = strconv.Quote(p)
 			}
 			why = append(why, "no agent's selected provider is on platform "+
-				strings.Join(quoted, " or "))
+				strings.Join(quoted, " or ")+" and claims a variable its pointer sets")
 		}
 		if len(d.Profiles) > 0 {
 			quoted := make([]string, len(d.Profiles))

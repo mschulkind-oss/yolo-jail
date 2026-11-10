@@ -110,7 +110,7 @@ func PlanHostDoorwaysFor(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel pack
 	gateSel, clientless := withoutClientlessPlatforms(packs, sel)
 	if len(clientless) > 0 && len(carried) > 0 {
 		kept := packload.GateSelection{Profiles: gateSel.Profiles, Platforms: map[string]string{},
-			Sets: gateSel.Sets}
+			Sets: gateSel.Sets, SetClaims: gateSel.SetClaims}
 		for agent, platform := range gateSel.Platforms {
 			kept.Platforms[agent] = platform
 		}
@@ -274,7 +274,8 @@ func withoutClientlessPlatforms(packs []*packload.Pack, sel packload.GateSelecti
 	if len(clientless) == 0 {
 		return sel, nil
 	}
-	out := packload.GateSelection{Profiles: sel.Profiles, Platforms: map[string]string{}, Sets: sel.Sets}
+	out := packload.GateSelection{Profiles: sel.Profiles, Platforms: map[string]string{}, Sets: sel.Sets,
+		SetClaims: sel.SetClaims}
 	for agent, platform := range sel.Platforms {
 		if packload.AgentBindsPlatform(packs, agent, platform) {
 			out.Platforms[agent] = platform

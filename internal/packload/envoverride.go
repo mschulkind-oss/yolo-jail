@@ -40,6 +40,7 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -158,7 +159,8 @@ func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 		}
 		for _, d := range p.Decl.EnvOverrideContributions() {
 			if (d.Profile != "" || d.Platform != "") &&
-				!gateDelivered(packs, p, d.Profile, d.Platform, sel) {
+				!gateDelivered(packs, p, envGate{profile: d.Profile, platform: d.Platform,
+					servedBy: d.ServedBy, sets: d.Sets}, sel) {
 				continue
 			}
 			if served != nil && d.ServedBy != "" && !served.Serves(d.ServedBy) {
@@ -176,6 +178,15 @@ func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 					continue
 				}
 				lines := overrideFindingLines(p.Name, d, o, facts, removals)
+				// ONE LAUNCH, ONE ROUTE (docs/design/bedrock-key-provider.md OQ-BK5): when the
+				// contribution and what overrides it reach DIFFERENT agents, the launch mixes two
+				// providers, and emptying the login's profile would break the agent that uses it.
+				// The remedy names a launch on either alone instead.
+				if mix := mixedProviderRemedy(packs, p, d, o, sel); mix != "" {
+					lines[len(lines)-1] = mix
+					out = append(out, EnvOverrideFinding{Certain: o.IsCertain(), Lines: lines})
+					continue
+				}
 				// A pointer at a LOGIN LOOPHOLE has a third way out, the one a layer that
 				// keeps its own credential takes: that layer's profile set to "", so the
 				// service serves nothing and the pointer is withheld (UnconfiguredLogins).
@@ -189,6 +200,84 @@ func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 		}
 	}
 	return out
+}
+
+// mixedProviderRemedy is the remedy line for a launch that delivers d to some agents and o's
+// variables to OTHER agents, "" when it does not: each side is named by its agents' selected
+// profiles, and the way out is a launch on one of them alone. o's variables reach an agent when
+// one of its set's providers claims them all (GateSelection.claimsAll); a variable no agent's
+// provider claims reaches every process, so nothing is mixed. Names only, never a value.
+func mixedProviderRemedy(packs []*Pack, p *Pack, d packdecl.EnvOverrideDecl, o packdecl.EnvOverride,
+	sel GateSelection) string {
+	if len(o.Vars) == 0 || d.Platform == "" {
+		return ""
+	}
+	g := envGate{profile: d.Profile, platform: d.Platform, servedBy: d.ServedBy, sets: d.Sets}
+	var gated, overriding []string
+	for _, agent := range sortedMapKeys(sel.Profiles) {
+		fires := gateFiresFor(packs, p, g, sel, agent)
+		// Only an agent some selected pack installs is a process at all, as gateFiresFor asks.
+		claims := sel.claimsAll(agent, o.Vars) && agentInstalled(packs, agent)
+		if fires && claims {
+			return ""
+		}
+		if fires {
+			gated = append(gated, agent)
+		}
+		if claims {
+			overriding = append(overriding, agent)
+		}
+	}
+	if len(gated) == 0 || len(overriding) == 0 {
+		return ""
+	}
+	gatedProfiles, overridingProfiles := profilesOf(sel, gated), profilesOf(sel, overriding)
+	var launches []string
+	for _, profile := range append(append([]string(nil), overridingProfiles...), gatedProfiles...) {
+		launches = appendUnique(launches, "`yolo -p "+profile+"`")
+	}
+	return fmt.Sprintf("  One launch cannot mix them: %s on %s receive%s pack %s's %s, and %s on %s "+
+		"receive%s %s. Launch on one provider alone, %s; separate launches in one workspace may "+
+		"each use a different one.",
+		strings.Join(gated, ", "), quotedList(gatedProfiles), verbS(gated), p.Name, strings.Join(d.Sets, ", "),
+		strings.Join(overriding, ", "), quotedList(overridingProfiles), verbS(overriding),
+		strings.Join(o.Vars, ", "), strings.Join(launches, " or "))
+}
+
+// agentInstalled reports whether some pack of packs installs agent's CLI.
+func agentInstalled(packs []*Pack, agent string) bool {
+	for _, p := range packs {
+		if slices.Contains(p.InstallBins(), agent) {
+			return true
+		}
+	}
+	return false
+}
+
+// profilesOf is the selected profiles of agents, each once, in agent order.
+func profilesOf(sel GateSelection, agents []string) []string {
+	var out []string
+	for _, agent := range agents {
+		out = appendUnique(out, sel.Profiles[agent])
+	}
+	return out
+}
+
+// quotedList is names in backticks, joined with " or ".
+func quotedList(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = "`" + n + "`"
+	}
+	return strings.Join(q, " or ")
+}
+
+// verbS is the present-tense "s" for a subject of agents: one agent receives, two receive.
+func verbS(agents []string) string {
+	if len(agents) == 1 {
+		return "s"
+	}
+	return ""
 }
 
 // trippedVars returns, when every one of o.Vars is delivered and none of o.Unless is, one
