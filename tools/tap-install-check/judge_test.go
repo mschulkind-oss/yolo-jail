@@ -396,8 +396,10 @@ func TestCheckBundle(t *testing.T) {
 			writeFile(t, filepath.Join(dir, "bin/linux-amd64", name), fakeELF(t, elf.EM_X86_64), 0o755)
 			writeFile(t, filepath.Join(dir, "bin/linux-arm64", name), fakeELF(t, elf.EM_AARCH64), 0o755)
 		}
-		writeFile(t, filepath.Join(dir, "bin/darwin-arm64/yolo-jaild"), fakeMachO(t, macho.CpuArm64), 0o755)
-		writeFile(t, filepath.Join(dir, "bin/darwin-amd64/yolo-jaild"), fakeMachO(t, macho.CpuAmd64), 0o755)
+		for _, name := range []string{"yolo", "yolo-jaild"} {
+			writeFile(t, filepath.Join(dir, "bin/darwin-arm64", name), fakeMachO(t, macho.CpuArm64), 0o755)
+			writeFile(t, filepath.Join(dir, "bin/darwin-amd64", name), fakeMachO(t, macho.CpuAmd64), 0o755)
+		}
 		return dir
 	}
 
@@ -443,6 +445,9 @@ func TestCheckBundle(t *testing.T) {
 		{"a Mach-O under linux-amd64", func(t *testing.T, dir string) {
 			writeFile(t, filepath.Join(dir, "bin/linux-amd64/yolo"), fakeMachO(t, macho.CpuAmd64), 0o755)
 		}, "bin/linux-amd64/yolo: not an ELF executable"},
+		{"no host yolo in darwin-arm64", func(t *testing.T, dir string) {
+			os.Remove(filepath.Join(dir, "bin/darwin-arm64/yolo"))
+		}, "no bin/darwin-arm64/yolo"},
 		{"an ELF under darwin-arm64", func(t *testing.T, dir string) {
 			writeFile(t, filepath.Join(dir, "bin/darwin-arm64/yolo-jaild"), fakeELF(t, elf.EM_AARCH64), 0o755)
 		}, "bin/darwin-arm64/yolo-jaild: not a Mach-O executable"},

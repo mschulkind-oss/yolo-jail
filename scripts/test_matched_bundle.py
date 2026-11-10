@@ -39,7 +39,7 @@ def repo_fixture(root: Path, *, real_scripts=False):
         if real_scripts:
             shutil.copy2(HERE / name, scripts / name)
         elif name == "stage-source-bundle.sh":
-            (scripts / name).write_text("SHIPPED_BINARIES=(yolo yolo-helper)\nGUEST_BINARIES=(guest-helper)\n")
+            (scripts / name).write_text("SHIPPED_BINARIES=(yolo yolo-helper)\nDARWIN_HOST_BINARIES=(yolo)\nGUEST_BINARIES=(guest-helper)\n")
         else:
             (scripts / name).write_text(f"fixture {name}\n")
     env = clean_git_env()
@@ -216,9 +216,22 @@ class SnapshotTests(unittest.TestCase):
             output = Path(td) / "bundle"
             mb.assemble(snapshot, output, identity=identity, build_kind="development",
                         version="v", commit="c", runner=run)
-            # Linux: the stage alone, whose linux yolo IS the launcher. macOS: the stage, then
-            # the one darwin build of yolo, which the bundle's guest set does not include.
-            self.assertEqual(len(seen), 1 if goos == "linux" else 2)
+            # The stage alone on both hosts: its own yolo for the host platform IS the launcher
+            # (the darwin dir carries the host yolo beside the guest set), so no second build runs.
+            self.assertEqual(len(seen), 1)
+
+    def test_binary_lists_put_the_darwin_host_yolo_in_the_darwin_set(self):
+        """The darwin dir's names are the host list (yolo) plus the guest list, and the stage
+        script is what declares both."""
+        repo = repo_fixture(self.root / "darwin-lists", real_scripts=True)
+        shipped, darwin = mb._binary_lists(repo / "scripts/stage-source-bundle.sh")
+        self.assertIn("yolo", darwin)
+        self.assertEqual(darwin[0], "yolo")
+        self.assertEqual(darwin[1:], ["yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"])
+        script = self.root / "no-host-list.sh"
+        script.write_text("SHIPPED_BINARIES=(yolo)\nGUEST_BINARIES=(g)\n")
+        with self.assertRaises(ValueError):
+            mb._binary_lists(script)
 
     def test_assemble_builds_yolo_once_and_the_launcher_is_the_bundles_copy(self):
         """The real build-go.sh and stage-source-bundle.sh, with a fake go that records every
@@ -293,8 +306,8 @@ out.chmod(0o755)
                 self.assertEqual(launcher, (share / f"linux-{host_arch}/yolo").read_bytes(),
                                  "the installed launcher is not the bundle's own linux yolo")
             else:
-                self.assertFalse((share / f"darwin-{host_arch}/yolo").exists(),
-                                 "the darwin guest set gained a yolo; the launcher must then be that file")
+                self.assertEqual(launcher, (share / f"darwin-{host_arch}/yolo").read_bytes(),
+                                 "the installed launcher is not the bundle's own darwin yolo")
                 self.assertIn(f"built for: darwin/{host_arch}", launcher.decode())
 
     def test_build_go_stamps_identity_and_no_checkout_path(self):

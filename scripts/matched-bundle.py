@@ -27,9 +27,11 @@ def _inside(path: str) -> bool:
 
 
 def _binary_lists(script: Path) -> tuple[list[str], list[str]]:
+    """The linux ship set, and the names in each darwin dir: the darwin host list
+    (DARWIN_HOST_BINARIES, which holds the host `yolo`) then the guest list."""
     text = script.read_text()
     values = []
-    for name in ("SHIPPED_BINARIES", "GUEST_BINARIES"):
+    for name in ("SHIPPED_BINARIES", "DARWIN_HOST_BINARIES", "GUEST_BINARIES"):
         match = re.search(rf"^{name}=\(([^)]*)\)$", text, re.MULTILINE)
         if not match:
             raise ValueError(f"stage script has no {name} declaration: {script}")
@@ -37,7 +39,8 @@ def _binary_lists(script: Path) -> tuple[list[str], list[str]]:
         if not names or len(names) != len(set(names)):
             raise ValueError(f"stage script has an invalid {name} declaration")
         values.append(names)
-    return values[0], values[1]
+    darwin = values[1] + [n for n in values[2] if n not in values[1]]
+    return values[0], darwin
 
 
 def _platform(root: Path) -> tuple[str, str]:
@@ -202,8 +205,8 @@ def assemble(snapshot: Path, destination: Path, *, identity: str, build_kind: st
 
     `yolo` is built once for the host's platform, and the launcher in bin/ IS that build:
     on Linux it is the bundle's own bin/linux-<arch>/yolo, copied out of the staged tree;
-    on macOS, where the bundle ships only the guest set for darwin, it is the one darwin
-    build of yolo, which the macos-user guest also stages from the running launcher.
+    on macOS it is the bundle's own bin/darwin-<arch>/yolo, the one darwin build of yolo,
+    which the macos-user guest also stages from the running launcher.
     Nothing compiles yolo a second time, so the launcher and the bundle's same-platform
     copy cannot differ (docs/design/installed-launcher-provenance.md, OQ-IP2). A Linux
     jail on a Mac runs a different program by nature: the bundle's linux build.
@@ -225,16 +228,9 @@ def assemble(snapshot: Path, destination: Path, *, identity: str, build_kind: st
     stage_env["YOLO_BUNDLE_GUEST_OSES"] = "darwin" if host_os == "darwin" else ""
     _run([str(snapshot / "scripts/stage-source-bundle.sh"), str(share)],
          cwd=snapshot, env=stage_env, runner=runner)
-    if host_os == "linux":
-        launcher = share / "bin" / f"linux-{host_arch}" / "yolo"
-    else:
-        if "yolo" in guest:
-            launcher = share / "bin" / f"{host_os}-{host_arch}" / "yolo"
-        else:
-            launcher_env = env.copy()
-            launcher_env.update({"BUILD_GO_CMDS": "yolo", "GOOS": host_os, "GOARCH": host_arch})
-            _run([str(snapshot / "scripts/build-go.sh")], cwd=snapshot, env=launcher_env, runner=runner)
-            launcher = snapshot / "dist-go" / f"{host_os}-{host_arch}" / "yolo"
+    if "yolo" not in guest and host_os == "darwin":
+        raise ValueError("stage script's darwin set has no yolo, so the bundle cannot supply the launcher")
+    launcher = share / "bin" / f"{host_os}-{host_arch}" / "yolo"
     if not launcher.is_file():
         raise RuntimeError(f"native launcher build missing: {launcher}")
     bin_dir = destination / "bin"
