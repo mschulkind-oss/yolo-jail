@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // THE aws-auth CREDENTIAL CHANNEL, END TO END, OVER THE REAL LOOPBACK HOP.
@@ -541,6 +543,64 @@ func TestAWSAuthServesAYoloHostAgentThroughItsDoorway(t *testing.T) {
 		"AccessKeyId": "ASIAYOLOHOSTDOORWAY", "SecretAccessKey": "yolo-host-secret",
 		"Token": "yolo-host-session-token"}) {
 		t.Error(m)
+	}
+}
+
+// awsAuthKeyAgentScript is a stand-in `pi` that says which Bedrock credential it was handed: the
+// pointer verbatim (a URL, not a secret) and whether the Bedrock API key is present, never its
+// value. No real pi runs.
+const awsAuthKeyAgentScript = `#!/bin/sh
+[ "${1:-}" = update ] && exit 0
+echo "POINTER=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}"
+if [ -n "${AWS_BEARER_TOKEN_BEDROCK:-}" ]; then echo "BEARER=present"; else echo "BEARER=absent"; fi
+`
+
+// TestAWSAuthWithholdsItsPointerFromABedrockKeyHostAgent is docs/design/bedrock-key-provider.md
+// end to end at `yolo host`, with the real built `yolo`: aws-auth enabled with an SSO profile, and
+// pi on `bedrock-key` with the Bedrock API key in the private set. The key reaches pi; aws-auth's
+// pointer does not, since bedrock-key claims only the key (OQ-BK2); and no aws-auth doorway is
+// opened, since no agent's provider claims what it would serve (CN-D22). The launch is not refused
+// for the SSO profile beside the key: the pointer is delivered to nobody, so nothing overrides it.
+func TestAWSAuthWithholdsItsPointerFromABedrockKeyHostAgent(t *testing.T) {
+	const probe = "bk-integration-probe-not-a-key"
+	fx := newAWSAuthFixtureWith(t, `{}`, false, func(string) string { return "echo 'fake aws: not asked' >&2; exit 2" })
+	// TOML, because the key belongs in the private set ([env.secrets]), which a provider's key
+	// must ride (secret-env-scoping.md row 2): a legacy env_sources entry is public and refused.
+	// Written in place rather than through writeUserTOML, which would re-isolate the home the
+	// fixture just prepared.
+	cfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
+	if err := os.Remove(filepath.Join(cfgDir, paths.UserConfigLegacyJSONCName)); err != nil {
+		t.Fatalf("removing the seeded config.jsonc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, paths.UserConfigTOMLName), []byte(
+		"packs = [\"bedrock\", \"pi\"]\nhost_management = \"own\"\nhost_floor = false\n\n"+
+			"[active_provider]\npi = \"bedrock-key\"\n\n"+
+			"[providers.bedrock-key]\nregion = \"us-east-1\"\n\n"+
+			"[allow.aws-auth]\nprofile = \""+awsAuthProfile+"\"\nunnarrowed = true\n\n"+
+			"[env.secrets]\nset = { AWS_BEARER_TOKEN_BEDROCK = \""+probe+"\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(fx.argvLog), "pi"), []byte(awsAuthKeyAgentScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opts := append(fx.opts, withEnv("YOLO_VERSION=", "AWS_PROFILE=", "AWS_REGION=", "AWS_DEFAULT_REGION=",
+		"AWS_BEARER_TOKEN_BEDROCK=", "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI=", "AWS_CONTAINER_AUTHORIZATION_TOKEN="))
+	r := runCommand(t, fx.dir, []string{"host", "--", "pi"}, opts...)
+	if r.rc != 0 {
+		t.Fatalf("yolo host -- pi on bedrock-key: rc %d\n%s", r.rc, r.combined())
+	}
+	if got := kvLine(r.stdout, "POINTER"); got != "" {
+		t.Errorf("pi on bedrock-key was handed aws-auth's pointer %q:\n%s", got, r.combined())
+	}
+	if !strings.Contains(r.stdout, "BEARER=present") {
+		t.Errorf("pi on bedrock-key was not handed the Bedrock API key:\n%s", r.combined())
+	}
+	if strings.Contains(r.stderr, `opened the "aws-auth" doorway`) {
+		t.Errorf("a launch where no agent claims aws-auth's pointer opened its doorway:\n%s", r.stderr)
+	}
+	if strings.Contains(r.combined(), probe) {
+		t.Errorf("the launch printed the key's value")
 	}
 }
 
