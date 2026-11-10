@@ -149,3 +149,25 @@ func TestNoReadGrantAndNoRemotesNamesTheGrant(t *testing.T) {
 		t.Fatal("the host's ssh ran with no read grant")
 	}
 }
+
+// A REFUSED REQUEST'S LOG LINE NAMES THE COMMAND THAT SAYS WHAT IT ASKED FOR. The log is shared by
+// every jail on the machine and names no remote (TestBrokerLogNamesNoRepository), so a refusal read
+// there points at the audit record, filtered to the jail, which holds the remote and the reason.
+func TestARefusedRequestsLogLineNamesTheAuditCommand(t *testing.T) {
+	f := newFixtureOpts(t, fixtureOpts{noRead: true})
+	if out, err := f.git("fetch", "origin"); err == nil {
+		t.Fatalf("fetch succeeded with no read grant:\n%s", out)
+	}
+	var line string
+	for _, l := range strings.Split(f.log.String(), "\n") {
+		if strings.Contains(l, "git-upload-pack") && strings.Contains(l, "refused") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("no refused git-upload-pack line in the broker log:\n%s", f.log.String())
+	}
+	if !strings.Contains(line, "`yolo audit --service git --jail yolo-host-services-") {
+		t.Errorf("the refusal's log line names no audit command for its jail:\n%s", line)
+	}
+}

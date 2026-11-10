@@ -119,8 +119,9 @@ These are what a maintainer breaks by accident. Each holds for SSH and HTTPS ali
   the scope or the grants, or an edit to the user's ceiling, reaches the next fetch or push of a
   running jail.
 - **The broker's background log names no workspace, repository, remote, host path or ref.** It
-  is shared by every jail on the machine; it carries request numbers, services, outcomes and
-  request ids only. The audit log holds the rest.
+  is shared by every jail on the machine; it carries request numbers, services, outcomes, jail
+  ids and request ids only. The audit log holds the rest, and a refused request's line names the
+  command that reads it: `yolo audit --service git --jail <jail>` on the host.
 - **Every refusal names a next step that works from where the user stands**
   ([GB-D24](../design/git-broker.md#GB-D24),
   [`happy-path-principle.md`](happy-path-principle.md)). A refusal of an answered request never

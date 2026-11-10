@@ -417,7 +417,13 @@ func (b *Broker) serveRequest(ctx context.Context, req request, jail string, in 
 		if req.Service == serviceUploadPack || req.Service == serviceReceivePack {
 			service = req.Service
 		}
-		fmt.Fprintf(b.log, "%s: request %d: %s, %s/%s, exit %d\n", Name, n, service, ev.Set, ev.Outcome, code)
+		// The log is every jail's, so it names no remote (docs/reference/git-broker.md); a refusal
+		// names the audit command that does, filtered to this jail.
+		next := ""
+		if ev.Outcome == "refused" && jail != "" {
+			next = fmt.Sprintf("; its remote and reason: `yolo audit --service %s --jail %s` on the host", Source, jail)
+		}
+		fmt.Fprintf(b.log, "%s: request %d: %s, %s/%s, exit %d%s\n", Name, n, service, ev.Set, ev.Outcome, code, next)
 		return code
 	}
 	refuse := func(set, reason, msg string, code int) int {
