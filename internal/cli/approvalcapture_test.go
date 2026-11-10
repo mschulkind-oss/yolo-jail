@@ -129,37 +129,22 @@ func (w *acWorld) setTime(d time.Duration) { w.clock.Store(acBase.Add(d).UnixNan
 // acPushRef is one ref command of a push.
 type acPushRef struct{ old, new, ref string }
 
-// gitPush files a git push request. gitbroker's pushRequest and pushAbout are unexported, so
-// this mirrors them exactly (internal/gitbroker/approvalauthority.go pushRequest and pushArgv,
-// approval.go askForPush and pushAbout): argv is `git-receive-pack`, one "<old> <new> <ref>"
-// per ref and one "push-option=<value>" per option; the repository is gitproto.Identity of the
-// remote; the set is "push"; the policy is Allow once for 15 minutes; the stdin digest is that
-// of nothing; NeedsApproval and About.Refs are the refs nothing else covered; the headline
-// counts the refs and names the repository.
+// gitPush files a git push request built by gitbroker.PushAsk, the constructor the broker's own
+// pushRequest uses, bound to this world's jail, workspace and launch as the broker binds it.
+// The repository is gitproto.Identity of the remote; needs are the refs nothing else covered.
 func (w *acWorld) gitPush(refs []acPushRef, options, needs []string) brokerstore.Request {
 	w.t.Helper()
 	repo, err := gitproto.Identity(acGitRemote)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	argv := []string{"git-receive-pack"}
+	var cmds []gitproto.Command
 	for _, r := range refs {
-		argv = append(argv, r.old+" "+r.new+" "+r.ref)
+		cmds = append(cmds, gitproto.Command{Old: r.old, New: r.new, Ref: r.ref})
 	}
-	for _, o := range options {
-		argv = append(argv, "push-option="+o)
-	}
-	empty := sha256.Sum256(nil)
-	count := "1 ref"
-	if len(needs) != 1 {
-		count = fmt.Sprintf("%d refs", len(needs))
-	}
-	q, err := w.store.File(brokerstore.Request{Jail: paths.JailShortHash(w.sf.Container), Start: acStart, Workspace: w.sf.Workspace,
-		LaunchID: w.sf.LaunchID, Argv: argv, Repo: repo, Set: "push", StdinDigest: hex.EncodeToString(empty[:]),
-		Policy:        brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: 24 * time.Hour, Uses: 1},
-		NeedsApproval: needs,
-		About: brokerstore.About{Action: brokerstore.ActionPush, Target: repo, Headline: "push " + count + " to " + repo,
-			Refs: append([]string(nil), needs...)}})
+	ask := gitbroker.PushAsk(repo, cmds, options, needs)
+	ask.Jail, ask.Start, ask.Workspace, ask.LaunchID = paths.JailShortHash(w.sf.Container), acStart, w.sf.Workspace, w.sf.LaunchID
+	q, err := w.store.File(ask)
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -496,6 +481,17 @@ func TestApprovalCapture(t *testing.T) {
 		byID[f.ID] = f
 	}
 	dir := acFixturesDir(t)
+	// A real fixture is only real if this test regenerates it: one with no scenario would be
+	// a hand-written request wearing the captured label, and nothing would catch its drift.
+	scenarios := map[string]bool{}
+	for _, sc := range acScenarios() {
+		scenarios[sc.id] = true
+	}
+	for _, f := range committed {
+		if f.Support == "real" && !scenarios[f.ID] {
+			t.Errorf("fixtures/%s.json is labeled real, but no capture scenario regenerates it; add one to acScenarios or label it synthetic", f.ID)
+		}
+	}
 	for _, sc := range acScenarios() {
 		t.Run(sc.id, func(t *testing.T) {
 			fx := approvalfixtures.Fixture{Schema: approvalfixtures.Schema, ID: sc.id, Title: sc.title, Family: sc.family,
