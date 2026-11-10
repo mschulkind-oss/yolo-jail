@@ -52,6 +52,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
@@ -399,6 +400,9 @@ func (k *keeper) run() int {
 	if f, err := openKeeperLog(k.stateKey()); err == nil {
 		k.sink.setLog(f)
 	}
+	// The log's first line says which build this keeper is (PH-D9): its stdio is /dev/null, so
+	// internaldaemon.Run leaves the start line to the keeper.
+	k.sink.logOnlyf("%s", strings.TrimSuffix(helperpin.StartLine(time.Now(), KeeperVerb), "\n"))
 	k.sink.logOnlyf("%s", line)
 	// The owner-PID file names a CONTAINER's owner, which the orphan reaper reads; a key at
 	// macos-user has no container, and its record alone says who holds it.
