@@ -527,14 +527,11 @@ func TestApprovalCapture(t *testing.T) {
 			if err := fx.Validate(); err != nil {
 				t.Fatalf("%s: %v", sc.id, err)
 			}
-			var b bytes.Buffer
-			enc := json.NewEncoder(&b)
-			enc.SetEscapeHTML(false)
-			enc.SetIndent("", "  ")
-			if err := enc.Encode(fx); err != nil {
+			b, err := approvalfixtures.Encode(fx)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, sc.id+".json"), b.Bytes(), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, sc.id+".json"), b, 0o644); err != nil {
 				t.Fatal(err)
 			}
 		})

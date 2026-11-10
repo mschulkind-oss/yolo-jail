@@ -67,9 +67,28 @@
     },
     {
       "platform": "linux",
-      "kind": "missing",
+      "kind": "native-capture",
       "renderer": "owner baseline: on_request script via notify-send to swaync",
-      "note": "Not yet captured."
+      "file": "captures/linux/git-push-working-set-miss.png",
+      "tested": "visual",
+      "provenance": {
+        "captured_at": "2026-11-10T04:07:12Z",
+        "commit": "a264c505c521c9c6cf609a56cd2b30ae6b9db7b8",
+        "compositor": "sway",
+        "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+        "compositor_version": "sway version 1.12",
+        "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+        "daemon": "swaync",
+        "daemon_config": "{\"timeout\": 3}",
+        "daemon_version": "SwayNotificationCenter-0.12.6",
+        "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+        "libnotify_version": "notify-send 0.8.8",
+        "os": "Linux userland (container), kernel 7.2.9-zen1-1-zen",
+        "resolution": "1280x800",
+        "scale": "1",
+        "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)"
+      },
+      "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels."
     },
     {
       "platform": "macos",

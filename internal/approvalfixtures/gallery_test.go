@@ -15,10 +15,9 @@ var galleryFile = filepath.Join("..", "..", filepath.FromSlash(GalleryPath))
 // The committed gallery is what the committed fixtures generate, so a fixture edit that
 // forgets the page fails here. YOLO_UPDATE_APPROVAL_FIXTURES=1 rewrites it.
 func TestGalleryIsCurrent(t *testing.T) {
-	fs, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Generate from the folded set, so an update run that has just rewritten the fixture
+	// files (which this process's embedded copy predates) still writes the final page.
+	fs := foldedFixtures(t)
 	got, err := Gallery(fs)
 	if err != nil {
 		t.Fatal(err)
