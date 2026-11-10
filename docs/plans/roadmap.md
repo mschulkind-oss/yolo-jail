@@ -98,6 +98,11 @@ owed. That document owns its remaining build.
     its verification needs podman on a Mac. One launch also left `yolo-gitconfig` unwritten, which
     is unexplained ([the lab report](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md)).
 
+[Pin each jail's host helpers to the build that launched it](../design/pinned-host-helpers.md), and
+log each helper's build when it starts — ruled 2026-11-10 with no question open; build from
+[its plan](../design/pinned-host-helpers-plan.md). It closes the log gap that left the 2026-11-10
+old-build git broker unprovable.
+
 Pi's profile-set/provider-seal extension is built, including its required child guard, and
 [MM-D42](../design/model-lists-and-pickers.md#MM-D42)'s profile-derived child defaults are a
 mechanism yolo ships no declaration of: a pack of the user's own may declare `launch_computed` for a
