@@ -15,7 +15,7 @@ import (
 
 func TestEachAgentReadsItsOwnProvidersTiersInTheJail(t *testing.T) {
 	requireJail(t)
-	// Both providers' keys ride env_sources, the channel the credential gate delivers into each
+	// Both providers' keys ride [env.secrets], the channel the credential gate delivers into each
 	// agent's own file; the shell's own copies are blanked so the launch cannot lean on them.
 	t.Setenv("KILO_API_KEY", "")
 
@@ -23,10 +23,18 @@ func TestEachAgentReadsItsOwnProvidersTiersInTheJail(t *testing.T) {
 	// kilo ships no tier alias, so the user names `fast`; llamacpp ships `default`. Neither is a
 	// provider pi or opencode has built in: on one it has (zai, cerebras) an agent runs its own
 	// list, so no tier is composed for it (docs/design/pi-codex-provider-shadowing.md OQ-3).
-	packHome(t, `{"packs": ["pi", "opencode", "kilo", "llamacpp"],
-		"profile": {"pi": "kilo", "opencode": "llamacpp"},
-		"providers": {"kilo": {"models": {"fast": "kilo-fast"}}},
-		"env_sources": [{"KILO_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, `packs = ["pi", "opencode", "kilo", "llamacpp"]
+
+[active_provider]
+pi = "kilo"
+opencode = "llamacpp"
+
+[providers.kilo.models]
+fast = "kilo-fast"
+
+[env.secrets]
+set = { KILO_API_KEY = "integration-probe-not-a-real-key" }
+`)
 	// Each agent's file alone, then opencode's sourced over pi's: what opencode sees when pi
 	// starts it.
 	script := `d=~/.config/yolo-agent-env

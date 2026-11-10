@@ -14,11 +14,18 @@ import (
 	"testing"
 )
 
-// wcConfig is the maintainer's case: several providers' keys in the ONE env_sources store,
-// beside an unclaimed value, and no profile selecting any of them. kilo is selected and claims
-// KILO_API_KEY, which the store does not hold.
-const wcConfig = `{"packs": ["claude", "zai", "cerebras", "openrouter", "kilo"], "env_sources": [` +
-	`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "OPENROUTER_API_KEY": "tok-o", "PORT": "8080"}]}`
+// wcConfig is the maintainer's case: several providers' keys in the ONE private set, beside an
+// unclaimed public value, and no profile selecting any of them. kilo is selected and claims
+// KILO_API_KEY, which the store does not hold. A provider's key lives in the private set
+// ([env.secrets]), since the public set refuses one (secret-env-scoping.md).
+const wcConfig = `packs = ["claude", "zai", "cerebras", "openrouter", "kilo"]
+
+[env]
+set = { PORT = "8080" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c", OPENROUTER_API_KEY = "tok-o" }
+`
 
 // wcBlank blanks the names these cells read that hostGateNames does not, so what the command
 // receives is what yolo composed.
@@ -165,8 +172,11 @@ func TestWithCredentialsIsRepeatable(t *testing.T) {
 // derive composes — and additionally receives the granted keys. The grant re-points nothing,
 // so the agent's backend is still the profile's.
 func TestWithCredentialsCombinesWithAProfile(t *testing.T) {
-	cfg := `{"packs": ["claude", "zai", "cerebras", "bedrock"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`
+	cfg := `packs = ["claude", "zai", "cerebras", "bedrock"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c", AWS_ACCESS_KEY_ID = "AKIA-host" }
+`
 	env, errs := hostGateLaunchWith(t, cfg, wcShell(nil),
 		[]string{"-p", "bedrock", "--with-credentials", "zai"}, "claude")
 	for k, want := range map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_ACCESS_KEY_ID": "AKIA-host", "ZAI_API_KEY": "tok-z"} {
@@ -190,8 +200,14 @@ func TestWithCredentialsIsImpliedByNothingElse(t *testing.T) {
 	shell := wcShell(map[string]string{"YOLO_ALLOW_MISSING_PROVIDERS": "1", "YOLO_ALLOW_SOURCE_SKEW": "1",
 		"YOLO_ALLOW_UNREACHABLE_SERVICES": "1", "YOLO_ALLOW_ATTACH_SKEW": "1", "YOLO_WITH_CREDENTIALS": "all",
 		"YOLO_ALLOW_ALL_CREDENTIALS": "1"})
-	cfg := `{"packs": ["claude", "zai", "cerebras"], "profile": {"claude": "zai"}, "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c"}]}`
+	cfg := `packs = ["claude", "zai", "cerebras"]
+
+[active_provider]
+claude = "zai"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c" }
+`
 	for _, tc := range []struct {
 		flags []string
 		cmd   string
@@ -215,8 +231,17 @@ func TestWithCredentialsIsImpliedByNothingElse(t *testing.T) {
 // selected by profile — sends none of its shape into the shell, and the grant's disclosure
 // goes to stderr with the verb's prefix.
 func TestHostEnvWithCredentialsExportsTheKeysOnly(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "profile": {"claude": "zai"}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "PORT": "8080"}]}`, wcShell(nil))
+	hostGateHome(t, `packs = ["claude", "zai", "cerebras"]
+
+[active_provider]
+claude = "zai"
+
+[env]
+set = { PORT = "8080" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c" }
+`, wcShell(nil))
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--with-credentials", "all"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env --with-credentials all: rc = %d\n%s", rc, errw.String())
@@ -244,8 +269,11 @@ func TestHostEnvWithCredentialsExportsTheKeysOnly(t *testing.T) {
 // With --agent, `yolo host env` composes that agent's slice — its profile included — and adds
 // the granted keys beside it, as the exec does.
 func TestHostEnvWithCredentialsKeepsANamedAgentsProfile(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	hostGateHome(t, `packs = ["claude", "zai", "cerebras"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c" }
+`, wcShell(nil))
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--agent", "claude", "-p", "zai", "--with-credentials", "cerebras"},
 		&out, &errw, false, nil); rc != 0 {
@@ -300,8 +328,11 @@ func TestHostHelpDocumentsWithCredentials(t *testing.T) {
 // drop the profile's shape. Only a run with neither --agent nor -p takes the ad-hoc slice
 // (ES-D16).
 func TestHostEnvWithCredentialsKeepsATypedProfilesSlice(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	hostGateHome(t, `packs = ["claude", "zai", "cerebras"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c" }
+`, wcShell(nil))
 	script := func(args ...string) (string, string) {
 		t.Helper()
 		var out, errw bytes.Buffer
@@ -348,8 +379,11 @@ func TestWithCredentialsScopeHeaderNamesTheGrant(t *testing.T) {
 // ZAI_API_KEY. The additive command is the same run with the claimant added to the grant, and
 // every command the line names runs and still delivers the key the grant already carried.
 func TestWithCredentialsRemedyWidensTheGrant(t *testing.T) {
-	cfg := `{"packs": ["claude", "zai", "cerebras", "bedrock"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`
+	cfg := `packs = ["claude", "zai", "cerebras", "bedrock"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c", AWS_ACCESS_KEY_ID = "AKIA-host" }
+`
 	for _, tc := range []struct {
 		flags []string
 		cmd   string
@@ -387,8 +421,11 @@ func TestWithCredentialsRemedyWidensTheGrant(t *testing.T) {
 // `yolo host env` names the shell spelling of the widened grant, keeping the flags that chose the
 // slice: none for the ad-hoc default, the typed -p, and --agent where it is not the default.
 func TestHostEnvWithCredentialsRemedyWidensTheGrant(t *testing.T) {
-	cfg := `{"packs": ["claude", "zai", "cerebras", "openrouter"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "OPENROUTER_API_KEY": "tok-o"}]}`
+	cfg := `packs = ["claude", "zai", "cerebras", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-z", CEREBRAS_API_KEY = "tok-c", OPENROUTER_API_KEY = "tok-o" }
+`
 	for _, tc := range []struct {
 		args []string
 		want string

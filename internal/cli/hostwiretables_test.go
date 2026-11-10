@@ -56,9 +56,16 @@ func wireTable(t *testing.T, env map[string]string, name string) map[string]any 
 }
 
 // zaiOverBedrock is the measured case of OQ-FT15: the config selects bedrock for claude, and the
-// launch types `-p zai`.
-const zaiOverBedrock = `{"packs": ["claude", "zai"], "profile": {"claude": "bedrock"}, ` +
-	`"env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+// launch types `-p zai`. ZAI_API_KEY is the zai provider's key, so it lives in the private set
+// (secret-env-scoping.md), which only TOML spells.
+const zaiOverBedrock = `packs = ["claude", "zai"]
+
+[active_provider]
+claude = "bedrock"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`
 
 // TestHostLaunchExportsTheWireTablesItComposed: `yolo host -p zai -- claude` hands claude the three
 // tables, the selection holding claude's one-launch entry and nothing of the config's, the profile
@@ -133,7 +140,15 @@ func TestHostEnvPrintsTheWireTables(t *testing.T) {
 // command is the one `yolo host apply` filled into the scratch home's Claude settings, run
 // through /bin/sh as Claude runs it, in the environment the exec was handed.
 func TestHostLaunchFooterNamesAOneLaunchProfile(t *testing.T) {
-	home, command := hostFooterHome(t, zaiOverBedrock)
+	// hostFooterHome applies a legacy JSONC config, which has no private set, so it applies
+	// zaiOverBedrock's selection without the key; the launch then reads zaiOverBedrock itself,
+	// the key in its private set, from the TOML config that replaces it.
+	home, command := hostFooterHome(t, `{"packs": ["claude", "zai"], "profile": {"claude": "bedrock"}}`)
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.Remove(filepath.Join(cfgDir, "config.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(cfgDir, "config.toml"), "host_management = \"own\"\n"+zaiOverBedrock)
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("AWS_REGION", hostGateRegion)
 	blankHostGateShell(t)

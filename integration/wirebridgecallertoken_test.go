@@ -55,12 +55,19 @@ func TestAnAttachKeepsTheBridgesCallerTokenAndALaunchRotatesIt(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 
 	dir := writeProject(t, `{}`)
-	packHome(t, fmt.Sprintf(`{
-		"packs": ["claude", "cerebras"],
-		"profile": {"claude": "cerebras"},
-		"env_sources": [{"CEREBRAS_API_KEY": "caller-token-integration-key"}],
-		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://127.0.0.1:%d/v1"}}}}
-	}`, stubPort))
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
+	// set (secret-env-scoping.md).
+	writeUserTOML(t, fmt.Sprintf(`packs = ["claude", "cerebras"]
+
+[active_provider]
+claude = "cerebras"
+
+[providers.cerebras]
+endpoints = { openai = { base_url = "http://127.0.0.1:%d/v1" } }
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "caller-token-integration-key" }
+`, stubPort))
 
 	const release = "release-caller-token"
 	first := startYoloBackground(t, "first", dir,

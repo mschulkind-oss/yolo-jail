@@ -422,8 +422,17 @@ func TestHostApplyCountsAPointerAtAWorkerAsDeliveredAtLaunch(t *testing.T) {
 func TestHostHandsAWorkerNoProviderCredentialTheBridgeGets(t *testing.T) {
 	pack := filepath.Join(t.TempDir(), "acme")
 	writeFile(t, filepath.Join(pack, "pack.json"), workerManifest("acme-worker"))
-	hostGateHome(t, `{"packs": ["claude", "cerebras", {"source": "file://`+pack+`", "name": "acme"}], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
+	// (secret-env-scoping.md).
+	hostGateHome(t, `packs = ["claude", "cerebras", "packs/acme"]
+
+[pack_sources.packs]
+path = "`+filepath.Dir(pack)+`"
+bare = true
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+`, wcShell(nil))
 	dir := workerStandIn(t)
 	l := runWorkerLaunchAs(t, dir, "acme-worker", "claude", "exit 0", nil, "-p", "cerebras")
 	if l.rc != 0 {

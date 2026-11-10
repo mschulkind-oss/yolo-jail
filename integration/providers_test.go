@@ -303,12 +303,18 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	// bridge's loopback URL), and copilot's derive PREFERS that endpoint (D-3) — so
 	// the composed block is the bridged anthropic route, and the needs closure has
 	// staged the wire-bridge daemon serving on it (that is why the key crosses via
-	// env_sources here, the bridge's own 0600 channel: an idle bridge would refuse
-	// the boot at the witness). The claude/zai subtest above stays on the invoking
-	// environment because zai needs no bridge.
+	// [env.secrets] here, the private set, which reaches the bridge's own 0600 channel: an
+	// idle bridge would refuse the boot at the witness). The claude/zai subtest above stays
+	// on the invoking environment because zai needs no bridge.
 	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
-		packHome(t, `{"packs": ["copilot", "cerebras"], "profile": {"copilot": "cerebras"},
-			"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}]}`)
+		writeUserTOML(t, `packs = ["copilot", "cerebras"]
+
+[active_provider]
+copilot = "cerebras"
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "integration-probe-not-a-real-key" }
+`)
 		// Copilot's own env file, as its launcher sources it (the credential gate).
 		// The key copilot sends the bridge is the launch's caller token, never the cerebras
 		// key, which the bridge adds upstream itself (wire-bridge.md WB-D18). The token is

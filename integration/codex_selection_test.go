@@ -56,13 +56,24 @@ const codexProbeProvider = `"providers": {"llamacpp": {
   "models": {"default": "llama"}
 }}`
 
+// codexProbeProviderTOML is codexProbeProvider in config.toml's spelling, for the launch that
+// carries zai's key: only TOML has the private set ([env.secrets]) a provider's key lives in
+// (secret-env-scoping.md), so that fixture is a TOML user config. Tables only, so it goes after
+// every top-level key.
+const codexProbeProviderTOML = `[providers.llamacpp.endpoints.openai]
+base_url = "http://127.0.0.1:8080/v1"
+
+[providers.llamacpp.models]
+default = "llama"
+`
+
 func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 	requireJail(t)
 
 	// zai ships api_key_env_name = ZAI_API_KEY and its provider is cataloged (it carries
 	// endpoints), so the credential preflight refuses a launch that cannot deliver it —
 	// selected or not (internal/packload requiredProviders).
-	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// The key rides [env.secrets], the channel the credential gate delivers into the agent's own
 	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
 	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
 	// shell's own copy is blanked, so the launch cannot lean on it.
@@ -73,8 +84,8 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		// The five shipped packs that compose a provider table at all, and the zai
 		// profile activated at codex's CLI name — the flag spelling, scoped to this
 		// launch exactly as a user would type it.
-		packHome(t, `{"packs": ["claude", "zai", "codex", "pi", "opencode"], `+
-			`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}], `+codexProbeProvider+`}`)
+		writeUserTOML(t, "packs = [\"claude\", \"zai\", \"codex\", \"pi\", \"opencode\"]\n\n"+
+			"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n\n"+codexProbeProviderTOML)
 		// runCommand rather than runYolo/runYoloDirect: the flag goes BEFORE the `--`
 		// that starts the container command, which neither wrapper's shape allows.
 		r := runCommand(t, dir, append(jailRunArgs(), "-p", "codex=zai", "--", "true"))

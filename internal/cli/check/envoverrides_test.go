@@ -90,6 +90,22 @@ func withEnvSources(merged *jsonx.OrderedMap, vars map[string]string) *jsonx.Ord
 	return merged
 }
 
+// withEnvSecrets returns merged with vars in the private set, `[env.secrets]` `set` — the
+// channel a provider-claimed name reaches a jail by (secret-env-scoping.md): a claimed name in
+// the public set is refused on its own, before any override is weighed.
+func withEnvSecrets(merged *jsonx.OrderedMap, vars map[string]string) *jsonx.OrderedMap {
+	set := jsonx.NewOrderedMap()
+	for _, k := range sortedKeys(vars) {
+		set.Set(k, vars[k])
+	}
+	secrets := jsonx.NewOrderedMap()
+	secrets.Set("set", set)
+	env := jsonx.NewOrderedMap()
+	env.Set("secrets", secrets)
+	merged.Set("env", env)
+	return merged
+}
+
 func sortedKeys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -127,9 +143,13 @@ func TestSectionPacksPredictsNoOverrideForAWithheldCredential(t *testing.T) {
 	}
 	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
 
+	// WIDGET_TOKEN is the elsewhere provider's key, so it lives in the private set
+	// (secret-env-scoping.md).
+	merged := withEnvSecrets(useProfiles("someagent", "gatedprofile"),
+		map[string]string{widgetToken: "frozen-token-value"})
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, tokenDelivered())
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, merged)
 	if r.failed != 0 {
 		t.Errorf("an override by a credential no agent receives must not FAIL the check:\n%s", buf.String())
 	}
@@ -159,8 +179,12 @@ func TestSectionPacksPredictsTheOverrideOfADeliveredClaimedCredential(t *testing
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, tokenDelivered())
-	if r.failed == 0 {
+	// The selected provider's own key, so it lives in the private set (secret-env-scoping.md); and
+	// the FAIL must be the override's, which a public key's refusal would otherwise mask.
+	delivered := withEnvSecrets(useProfiles("someagent", "gatedprofile"),
+		map[string]string{widgetToken: "frozen-token-value"})
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, delivered)
+	if r.failed == 0 || !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromEnvSources) {
 		t.Errorf("the selected provider's own token is delivered beside the pointer it overrides, "+
 			"so the launch refuses and `check` must FAIL:\n%s", buf.String())
 	}

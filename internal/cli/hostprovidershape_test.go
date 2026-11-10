@@ -64,10 +64,13 @@ func TestHostExecComposesTheProviderEnv(t *testing.T) {
 	scrubAnthropicEnv(t)
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	userCfg(t, home, `{
-	  "profile": {"claude": "zai"},
-	  "env_sources": [{"ZAI_API_KEY": "tok-9"}]
-	}`)
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	userCfg(t, home, `[active_provider]
+claude = "zai"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-9" }
+`)
 
 	env, agent, err := composeHostEnv("claude", "", func(string) {})
 	if err != nil {
@@ -99,7 +102,10 @@ func TestHostExecComposesNoProviderEnvWithoutTheProfile(t *testing.T) {
 	scrubAnthropicEnv(t)
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	userCfg(t, home, `{"env_sources": [{"ZAI_API_KEY": "tok-9"}]}`)
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	userCfg(t, home, `[env.secrets]
+set = { ZAI_API_KEY = "tok-9" }
+`)
 
 	env, _, err := composeHostEnv("claude", "", func(string) {})
 	if err != nil {

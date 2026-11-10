@@ -80,11 +80,16 @@ func TestHostDeliversTheResolvedProfileOptionsToItsDerive(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	writeOptionsLocalPack(t, home)
-	userCfg(t, home, `{
-	  "profile": {"claude": "fast"},
-	  "profiles": {"fast": {"provider": "zai", "model": "fast"}},
-	  "env_sources": [{"ZAI_API_KEY": "tok-9"}]
-	}`)
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	userCfg(t, home, `[active_provider]
+claude = "zai/fast"
+
+[providers.zai.variants.fast]
+model = "fast"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-9" }
+`)
 
 	env, _, err := composeHostEnv("claude", "", func(string) {})
 	if err != nil {

@@ -16,22 +16,36 @@ import (
 
 const hostProfileKeyPacks = `"packs": ["claude", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-key"}]`
 
+// hostProfileKeyCfg is hostProfileKeyPacks as a TOML user config, with sel (an
+// `active_provider` selection, or "") ahead of the other tables. ZAI_API_KEY is the zai provider's
+// key, so it lives in the private set (secret-env-scoping.md), which only TOML spells.
+func hostProfileKeyCfg(sel string) string {
+	return `packs = ["claude", "zai"]
+` + sel + `
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-key" }
+`
+}
+
 // The string form and "*" each select zai for claude, whose zai profile claims ZAI_API_KEY, so
 // the host launch hands claude the key; with no selection it withholds it. The withheld
 // control is what makes the key's delivery the thing under test.
 func TestHostLaunchSelectsTheProfileKeysDefault(t *testing.T) {
 	for name, sel := range map[string]string{
-		"string form": `"zai"`,
-		"\"*\"":       `{"*": "zai"}`,
-		"named":       `{"claude": "zai"}`,
+		// TOML has no string form: the legacy `"profile": "zai"` migrates to `default`, here in
+		// its table spelling.
+		"table form": "[active_provider]\ndefault = \"zai\"",
+		"\"*\"":      `active_provider = { default = "zai" }`,
+		"named":      `active_provider = { claude = "zai" }`,
 	} {
-		env, errs := hostGateLaunchWith(t, `{`+hostProfileKeyPacks+`, "profile": `+sel+`}`, nil, nil, "claude")
+		env, errs := hostGateLaunchWith(t, hostProfileKeyCfg(sel), nil, nil, "claude")
 		if env["ZAI_API_KEY"] != "tok-key" {
 			t.Errorf("%s: `yolo host -- claude` did not select zai: ZAI_API_KEY = %q\n%s",
 				name, env["ZAI_API_KEY"], errs)
 		}
 	}
-	env, errs := hostGateLaunchWith(t, `{`+hostProfileKeyPacks+`}`, nil, nil, "claude")
+	env, errs := hostGateLaunchWith(t, hostProfileKeyCfg(""), nil, nil, "claude")
 	if env["ZAI_API_KEY"] != "" {
 		t.Errorf("control: with no selection claude must not hold zai's key, got %q\n%s", env["ZAI_API_KEY"], errs)
 	}
@@ -42,8 +56,9 @@ func TestHostLaunchSelectsTheProfileKeysDefault(t *testing.T) {
 // claimed key. A "*" that keyed the command would either refuse every ad-hoc command or hand
 // each one the provider's key.
 func TestHostLaunchDefaultDoesNotReachACommandNoPackInstalls(t *testing.T) {
-	for name, sel := range map[string]string{"string form": `"zai"`, "\"*\"": `{"*": "zai"}`} {
-		env, errs := hostGateLaunchWith(t, `{`+hostProfileKeyPacks+`, "profile": `+sel+`}`, nil, nil, "bash")
+	for name, sel := range map[string]string{"table form": "[active_provider]\ndefault = \"zai\"",
+		"\"*\"": `active_provider = { default = "zai" }`} {
+		env, errs := hostGateLaunchWith(t, hostProfileKeyCfg(sel), nil, nil, "bash")
 		if env["ZAI_API_KEY"] != "" {
 			t.Errorf("%s: bash received zai's key through the key's default: %q\n%s", name, env["ZAI_API_KEY"], errs)
 		}
@@ -53,7 +68,7 @@ func TestHostLaunchDefaultDoesNotReachACommandNoPackInstalls(t *testing.T) {
 // Precedence at the host, the jail's: a null entry keeps "*" off its agent, and a typed -p
 // beats the key's entry for the one command it composes.
 func TestHostLaunchProfileKeyPrecedence(t *testing.T) {
-	cfg := `{` + hostProfileKeyPacks + `, "profile": {"*": "zai", "claude": null}}`
+	cfg := hostProfileKeyCfg(`active_provider = { default = "zai", claude = "native" }`)
 	env, errs := hostGateLaunchWith(t, cfg, nil, nil, "claude")
 	if env["ZAI_API_KEY"] != "" {
 		t.Errorf("a null entry must keep \"*\" off claude: ZAI_API_KEY = %q\n%s", env["ZAI_API_KEY"], errs)

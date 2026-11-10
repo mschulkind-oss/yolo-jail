@@ -21,8 +21,13 @@ import (
 
 // bridgeConfig lists wire-bridge explicitly, beside claude, whose `needs` would join it anyway
 // (notch-convergence item 6): the refusal then says it is in `packs`.
-const bridgeConfig = `{"packs": ["claude", "copilot", "cerebras", "wire-bridge"], ` +
-	`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`
+// CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
+// (docs/design/secret-env-scoping.md).
+const bridgeConfig = `packs = ["claude", "copilot", "cerebras", "wire-bridge"]
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+`
 
 // `yolo host env` owns no process, so it refuses a profile the bridge serves (OQ-HS3), as an error
 // naming the launch that works and with nothing on stdout for a shell to eval.
@@ -72,7 +77,11 @@ func TestHostRemedyNeverNamesTheBridgedProfileForClaude(t *testing.T) {
 // pack in the one precedence order (OQ-NC4: config order, then the closure's additions, then the
 // local pack last), so the local pack's address wins (docs/plans/notch-convergence.md NC-D59).
 func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, wcShell(nil))
+	home := hostGateHome(t, `packs = ["claude", "cerebras"]
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+`, wcShell(nil))
 	dir := filepath.Join(home, ".config", "yolo-jail", "local")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -94,9 +103,17 @@ func TestHostStillComposesAnAdapterNoPackServiceServes(t *testing.T) {
 func TestHostLaunchChosenAddressOverridesTheAdapterOverride(t *testing.T) {
 	upstream, _ := fakeUpstream(t)
 	for _, packs := range []string{`"claude", "cerebras", "wire-bridge"`, `"claude", "cerebras"`} {
-		cfg := `{"packs": [` + packs + `], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], ` +
-			`"adapters": {"openai->anthropic": {"address": "http://127.0.0.1:9214"}}, ` +
-			`"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "` + upstream.URL + `/v1"}}}}}`
+		cfg := `packs = [` + packs + `]
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+
+[adapters."openai->anthropic"]
+address = "http://127.0.0.1:9214"
+
+[providers.cerebras.endpoints.openai]
+base_url = "` + upstream.URL + `/v1"
+`
 		l := runServiceLaunch(t, cfg, []string{"-p", "cerebras"}, "", nil)
 		base := l.report.Env["ANTHROPIC_BASE_URL"]
 		if l.rc != 0 || base == "" || strings.Contains(base, ":9214") || strings.Contains(base, ":8214") {

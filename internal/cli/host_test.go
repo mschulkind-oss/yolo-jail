@@ -17,9 +17,16 @@ import (
 )
 
 // userCfg writes the machine-wide user config under a temp HOME.
+// userCfg writes the user config: config.jsonc for a legacy JSONC text (one starting with `{`),
+// config.toml otherwise. A provider's key lives in a TOML fixture's [env.secrets], since the
+// legacy spelling has no private set (docs/design/secret-env-scoping.md SE-D6).
 func userCfg(t *testing.T, home, text string) {
 	t.Helper()
-	p := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	name := "config.toml"
+	if strings.HasPrefix(strings.TrimSpace(text), "{") {
+		name = "config.jsonc"
+	}
+	p := filepath.Join(home, ".config", "yolo-jail", name)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1172,7 +1179,13 @@ func TestHostExecProceedsOnceTheKeyIsHydrated(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	userCfg(t, home, `{"host_management":"own","host_apply_on_launch":false,"env_sources": [{"ZAI_API_KEY": "sk-zai"}]}`)
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	userCfg(t, home, `host_management = "own"
+host_apply_on_launch = false
+
+[env.secrets]
+set = { ZAI_API_KEY = "sk-zai" }
+`)
 
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"-p", "zai", "--", "claude"}, &out, &errw, false, nil); rc != 127 {

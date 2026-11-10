@@ -37,7 +37,8 @@ var shippedPiPackDir, _ = filepath.Abs(filepath.Join("..", "..", "packs", "pi"))
 // own pack declares, since yolo's declares none.
 func launchComputedPackDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "pi-with-computed")
+	// Named pi inside its own folder, so withComputedPack's pack source selects it as packs/pi.
+	dir := filepath.Join(t.TempDir(), "pi")
 	if err := os.CopyFS(dir, os.DirFS(shippedPiPackDir)); err != nil {
 		t.Fatal(err)
 	}
@@ -94,15 +95,23 @@ func decodePackManifestFile(t *testing.T, path string) *packdecl.Manifest {
 	return m
 }
 
-// withComputedPack rewrites cfg's bare "pi" pack, its last, into the test pack under the name pi.
+// withComputedPack rewrites the TOML cfg's bare "pi" pack, its last, into the test pack, selected
+// as packs/pi from a bare pack source so its names stay pi's.
 func withComputedPack(t *testing.T, cfg string) string {
 	t.Helper()
-	src, _ := json.Marshal(launchComputedPackDir(t))
-	out := strings.Replace(cfg, `"pi"]`, `{"source": `+string(src)+`, "name": "pi"}]`, 1)
+	return withPackSource(t, cfg, `"packs/pi"]`, filepath.Dir(launchComputedPackDir(t)))
+}
+
+// withPackSource replaces the TOML cfg's bare "pi" pack, its last, with entries, and appends the
+// bare pack source `packs` reading root.
+func withPackSource(t *testing.T, cfg, entries, root string) string {
+	t.Helper()
+	src, _ := json.Marshal(root)
+	out := strings.Replace(cfg, `"pi"]`, entries, 1)
 	if out == cfg {
 		t.Fatalf("no bare pi pack to replace in %s", cfg)
 	}
-	return out
+	return out + "\n[pack_sources.packs]\npath = " + string(src) + "\nbare = true\n"
 }
 
 // piSubagentsCodexCfg configures openrouter as pi's profile, with openai-auth's codex profile
@@ -110,22 +119,55 @@ func withComputedPack(t *testing.T, cfg string) string {
 const piSubagentsCodexCfg = `{"packs": ["claude", "openrouter", "codex-auth", "pi"], ` +
 	`"profile": {"pi": "openrouter"}, "env_sources": [{"OPENROUTER_API_KEY": "tok-router"}]}`
 
-// piSubagentsAcmeCfg is one user provider with two profiles over it whose role pins differ, the
+// piSubagentsCodexTOML is piSubagentsCodexCfg as a TOML user config: OPENROUTER_API_KEY is the
+// openrouter provider's key, so it lives in the private set (secret-env-scoping.md), which only
+// TOML spells. piSubagentsCodexCfg stays for its users outside this file.
+const piSubagentsCodexTOML = `packs = ["claude", "openrouter", "codex-auth", "pi"]
+
+[active_provider]
+pi = "openrouter"
+
+[env.secrets]
+set = { OPENROUTER_API_KEY = "tok-router" }
+`
+
+// piSubagentsAcmeCfg is one user provider with two variants over it whose role pins differ, the
 // case a static map keyed on the parent's provider could not express; acme-a is configured.
-const piSubagentsAcmeCfg = `{"packs": ["claude", "pi"], ` +
-	`"providers": {"acme": {"endpoints": {"openai": {"base_url": "https://acme.example/v1"}}, ` +
-	`"api_key_env_name": "ACME_KEY", "models": {"default": "acme-large", "fast": "acme-mini"}}}, ` +
-	`"profiles": {` +
-	`"acme-a": {"provider": "acme", "subagents": {"roles": {"worker": "fast"}}}, ` +
-	`"acme-b": {"provider": "acme", "subagents": {"default": "fast", "roles": {"worker": "default", "scout": "fast"}}}}, ` +
-	`"profile": {"pi": "acme-a"}, "env_sources": [{"ACME_KEY": "tok-acme"}]}`
+// ACME_KEY is acme's key, so it lives in the private set (secret-env-scoping.md). A TOML variant
+// names its model, here the provider's default, which the legacy profile left implicit.
+const piSubagentsAcmeCfg = `packs = ["claude", "pi"]
+
+[active_provider]
+pi = "acme/acme-a"
+
+[providers.acme]
+api_key_env_name = "ACME_KEY"
+
+[providers.acme.endpoints.openai]
+base_url = "https://acme.example/v1"
+
+[providers.acme.models]
+default = "acme-large"
+fast = "acme-mini"
+
+[providers.acme.variants.acme-a]
+model = "default"
+subagents = { roles = { worker = "fast" } }
+
+[providers.acme.variants.acme-b]
+model = "default"
+subagents = { default = "fast", roles = { worker = "default", scout = "fast" } }
+
+[env.secrets]
+set = { ACME_KEY = "tok-acme" }
+`
 
 // THE SHIPPED PI PACK HANDS NO COMPUTED FLAG (the maintainer's ruling of 2026-10-16: "yolo
 // shouldn't depend on my custom pi fork in any way, or even know it exists"). The same -p that
 // hands the test pack's flag hands the shipped pack's pi its selection alone, says nothing of a
 // held flag.
 func TestHostShippedPiHandsNoComputedFlag(t *testing.T) {
-	home := hostGateHome(t, piSubagentsCodexCfg, nil)
+	home := hostGateHome(t, piSubagentsCodexTOML, nil)
 	unchanged := piSettingsFixture(t, home, `{"defaultProvider":"openrouter"}`)
 	run := hostSelectionRun(t, home, []string{"-p", "pi=codex"}, "pi")
 	if len(run.argv) < 3 || run.argv[1] != "--provider" || run.argv[2] != "openai-codex" {
@@ -180,7 +222,7 @@ func subagentsWord(argv []string) (string, bool) {
 // block is a computed key no launch selection carried. Now it is handed as the codex profile's
 // policy, all of it on openai-codex and none of it on openrouter.
 func TestHostPiCodexOverConfiguredOpenRouterHandsItsChildPolicy(t *testing.T) {
-	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexCfg), map[string]string{piSubagentsOptIn: "1"})
+	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexTOML), map[string]string{piSubagentsOptIn: "1"})
 	unchanged := piSettingsFixture(t, home, `{"defaultProvider":"openrouter","subagents":{"defaultProvider":"openrouter",`+
 		`"modelScope":{"enforce":true,"strict":true,"allow":["openrouter/*"]}}}`)
 	run := hostSelectionRun(t, home, []string{"-p", "pi=codex"}, "pi", "--continue")
@@ -229,7 +271,7 @@ func TestHostPiCodexOverConfiguredOpenRouterHandsItsChildPolicy(t *testing.T) {
 // hands pi no flag it would exit over, and says why its children keep the file's policy, naming the
 // variable that turns the handoff on.
 func TestHostPiChildPolicyWaitsOnItsOptIn(t *testing.T) {
-	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexCfg), nil)
+	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexTOML), nil)
 	unchanged := piSettingsFixture(t, home, `{"defaultProvider":"openrouter"}`)
 	run := hostSelectionRun(t, home, []string{"-p", "pi=codex"}, "pi")
 	if _, ok := subagentsWord(run.argv); ok {
@@ -254,16 +296,16 @@ func TestHostPiSameProviderProfilesHandTheirOwnRoles(t *testing.T) {
 	home := hostGateHome(t, withComputedPack(t, piSubagentsAcmeCfg), map[string]string{piSubagentsOptIn: "1"})
 	unchanged := piSettingsFixture(t, home, `{"theme":"native"}`)
 
-	b := hostSelectionRun(t, home, []string{"-p", "pi=acme-b"}, "pi")
+	b := hostSelectionRun(t, home, []string{"-p", "pi=acme/acme-b"}, "pi")
 	word, ok := subagentsWord(b.argv)
 	if !ok || len(b.argv) != 3 {
 		t.Fatalf("-p acme-b over configured acme-a handed %q, want only %s and its policy\n%s",
 			b.argv, piSubagentsFlag, b.errs)
 	}
 	// The configured profile's own roles, from the other side.
-	hostGateHome(t, withComputedPack(t, strings.Replace(piSubagentsAcmeCfg, `"profile": {"pi": "acme-a"}`, `"profile": {"pi": "acme-b"}`, 1)),
+	hostGateHome(t, withComputedPack(t, strings.Replace(piSubagentsAcmeCfg, `pi = "acme/acme-a"`, `pi = "acme/acme-b"`, 1)),
 		map[string]string{piSubagentsOptIn: "1"})
-	a := hostSelectionRun(t, "", []string{"-p", "pi=acme-a"}, "pi")
+	a := hostSelectionRun(t, "", []string{"-p", "pi=acme/acme-a"}, "pi")
 	aWord, ok := subagentsWord(a.argv)
 	if !ok {
 		t.Fatalf("-p acme-a over configured acme-b handed %q\n%s", a.argv, a.errs)
@@ -279,7 +321,7 @@ func TestHostPiSameProviderProfilesHandTheirOwnRoles(t *testing.T) {
 	}
 
 	// An agreeing -p hands nothing: the file is the configured profile's.
-	if same := hostSelectionRun(t, "", []string{"-p", "pi=acme-b"}, "pi"); !reflect.DeepEqual(same.argv, []string{"pi"}) {
+	if same := hostSelectionRun(t, "", []string{"-p", "pi=acme/acme-b"}, "pi"); !reflect.DeepEqual(same.argv, []string{"pi"}) {
 		t.Errorf("an agreeing -p handed %q", same.argv)
 	}
 	unchanged()
@@ -288,7 +330,7 @@ func TestHostPiSameProviderProfilesHandTheirOwnRoles(t *testing.T) {
 // WHAT DOES NOT CHANGE: no -p keeps today's argv exactly, opt-in or not; a declared subcommand
 // runs as typed; and YOLO_NO_LAUNCH_FLAGS=1 skips the child policy with the rest of the selection.
 func TestHostPiChildPolicyLeavesTheUnmovedLaunchAlone(t *testing.T) {
-	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexCfg), map[string]string{piSubagentsOptIn: "1"})
+	home := hostGateHome(t, withComputedPack(t, piSubagentsCodexTOML), map[string]string{piSubagentsOptIn: "1"})
 	unchanged := piSettingsFixture(t, home, `{"defaultProvider":"openrouter"}`)
 	if bare := hostSelectionRun(t, home, nil, "pi", "--continue"); !reflect.DeepEqual(bare.argv, []string{"pi", "--continue"}) {
 		t.Errorf("with no -p pi got %q, want its own argv\n%s", bare.argv, bare.errs)
@@ -322,8 +364,7 @@ func piForkPackDir(t *testing.T) string {
 // build is the program: with YOLO_SKIP_PATCHES covering the fork, which runs its upstream build,
 // the launch hands the selection alone and says which flag it dropped and why.
 func TestHostAForksComputedFlagFollowsItsBuild(t *testing.T) {
-	src, _ := json.Marshal(piForkPackDir(t))
-	cfg := strings.Replace(piSubagentsCodexCfg, `"pi"]`, `"pi", {"source": `+string(src)+`, "name": "pi-fork"}]`, 1)
+	cfg := withPackSource(t, piSubagentsCodexTOML, `"pi", "packs/pi-fork"]`, filepath.Dir(piForkPackDir(t)))
 	hostGateHome(t, cfg, map[string]string{"YOLO_SKIP_PATCHES": ""})
 	compose := func() ([]string, string) {
 		t.Helper()
@@ -345,7 +386,7 @@ func TestHostAForksComputedFlagFollowsItsBuild(t *testing.T) {
 		t.Fatalf("the fork's %s did not reach the launch: %q\n%s", piSubagentsFlag, argv, said)
 	}
 
-	t.Setenv("YOLO_SKIP_PATCHES", "pi-fork")
+	t.Setenv("YOLO_SKIP_PATCHES", "packs/pi-fork")
 	argv, said = compose()
 	if _, ok := subagentsWord(argv); ok {
 		t.Errorf("the upstream build got the fork's flag: %q", argv)
@@ -354,7 +395,7 @@ func TestHostAForksComputedFlagFollowsItsBuild(t *testing.T) {
 		t.Errorf("the selection must still be handed: %q", argv)
 	}
 	if !strings.Contains(said, "runs its upstream build this launch (YOLO_SKIP_PATCHES)") ||
-		!strings.Contains(said, "pack pi-fork") || !strings.Contains(said, piSubagentsFlag) {
+		!strings.Contains(said, "pack packs/pi-fork") || !strings.Contains(said, piSubagentsFlag) {
 		t.Errorf("the dropped flag was not said:\n%s", said)
 	}
 }

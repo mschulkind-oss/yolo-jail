@@ -22,12 +22,12 @@ import (
 // shell sets against the shape var, gets none, nor do K8 (one source) and K9 (none).
 var wantHostShadowLines = []string{
 	"yolo host: Shadowed FXP_KEY: the fxp profile's value wins over your env_sources value",
-	"yolo host: Shadowed K1: the fxp profile's value wins over the fx pack's value",
+	"yolo host: Shadowed K1: the fxp profile's value wins over the packs/fx pack's value",
 	"yolo host: Shadowed K2: the fxp profile's value wins over your env_sources value",
-	"yolo host: Shadowed K4: your env_sources value wins over the fx pack's value",
-	"yolo host: Shadowed K5: your env_sources removal wins over the fx pack's value",
+	"yolo host: Shadowed K4: your env_sources value wins over the packs/fx pack's value",
+	"yolo host: Shadowed K5: your env_sources removal wins over the packs/fx pack's value",
 	"yolo host: Shadowed K6: the fxp profile's value wins over your env_sources removal",
-	"yolo host: Shadowed K7: the fxp profile's removal wins over your env_sources value and the fx pack's value",
+	"yolo host: Shadowed K7: the fxp profile's removal wins over your env_sources value and the packs/fx pack's value",
 }
 
 // hostShadowLinesIn is every shadow line of out, in order.
@@ -63,11 +63,11 @@ func TestTheHostLaunchNamesWhatItShadowed(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	writeWinnerFixture(t, home)
-	cfg, err := os.ReadFile(paths.UserConfigPath())
+	cfg, err := os.ReadFile(paths.UserConfigDisplayPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	userCfg(t, home, strings.Replace(string(cfg), "{", `{"host_management":"own","host_apply_on_launch":false,`, 1))
+	userCfg(t, home, "host_management = \"own\"\nhost_apply_on_launch = false\n"+string(cfg))
 	rc, reached, errw := hostExecRun(t, "fxa")
 	if rc != 0 || !reached {
 		t.Fatalf("yolo host -- fxa: rc=%d reached=%v\n%s", rc, reached, errw)

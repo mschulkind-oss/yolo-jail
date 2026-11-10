@@ -71,13 +71,13 @@ func sessionHomeReport(t *testing.T, out string) map[string]string {
 func TestEachSessionReadsItsOwnPiProfile(t *testing.T) {
 	requireJail(t)
 	probe := sessionHomeProbe(t)
-	// Both providers' keys ride env_sources, the channel the credential gate delivers into pi's
+	// Both providers' keys ride [env.secrets], the channel the credential gate delivers into pi's
 	// own env file (as in TestPiRunsOnEveryProviderOfItsSet); the shell's copies are blanked.
 	t.Setenv("ZAI_API_KEY", "")
 	t.Setenv("OPENROUTER_API_KEY", "")
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "zai", "openrouter"], "profile": {"pi": "zai"}, "env_sources": [`+
-		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"pi\", \"zai\", \"openrouter\"]\n\n[active_provider]\npi = \"zai\"\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 
 	// Session A: the fresh launch's first session, on the configured profile (OQ-SP3: no -p is the
 	// configured profile). It reports, then holds the jail open until released, then reports again
