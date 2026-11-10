@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -36,23 +37,24 @@ export class ModelRuntime {
 
 // piCooperationHarness queues $PRIOR's registrations (a pack extension loaded before yolo's, each
 // given a streamSimple of its own), loads yolo's extension $YOLO_LOADS times, applies every queued
-// registration to one runtime in that order, fires session_start, and prints each provider's
+// registration to one runtime in that order (yolo's first when $YOLO_FIRST is set), fires session_start, and prints each provider's
 // registration as the runtime holds it.
 const piCooperationHarness = `
 import extension from "./extension.mjs";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 const runtime = new ModelRuntime();
-const queued = [];
+const theirs = [], ours = [];
 for (const [name, config] of JSON.parse(process.env.PRIOR || "[]")) {
-	queued.push([name, { ...config, streamSimple: () => "pack-stream" }]);
+	theirs.push([name, { ...config, streamSimple: () => "pack-stream" }]);
 }
 const handlers = [], warnings = [];
 for (let i = 0; i < Number(process.env.YOLO_LOADS || "1"); i++) {
 	await extension({
-		registerProvider(name, config) { queued.push([name, config]); },
+		registerProvider(name, config) { ours.push([name, config]); },
 		on(event, handler) { if (event === "session_start") handlers.push(handler); },
 	});
 }
+const queued = process.env.YOLO_FIRST ? [...ours, ...theirs] : [...theirs, ...ours];
 for (const [name, config] of queued) runtime.registerProvider(name, config);
 for (const h of handlers) h({}, { hasUI: true, ui: { notify: (message) => warnings.push(message) } });
 const providers = {};
@@ -82,6 +84,13 @@ type piCooperationRun struct {
 // at the pi/model-lists surface's path, prior registered first, and yolo's extension loaded loads
 // times.
 func runPiCooperation(t *testing.T, lists, prior string, loads string, allJS string) piCooperationRun {
+	t.Helper()
+	return runPiCooperationOrdered(t, lists, prior, loads, allJS, false)
+}
+
+// runPiCooperationOrdered is runPiCooperation with yolo's registrations applied before prior's
+// when yoloFirst is set.
+func runPiCooperationOrdered(t *testing.T, lists, prior string, loads string, allJS string, yoloFirst bool) piCooperationRun {
 	t.Helper()
 	p := shippedPiPack(t)
 	source, err := os.ReadFile(movedShippedFile(t, p, ".pi/agent/extensions/yolo-model-lists.js"))
@@ -115,6 +124,9 @@ func runPiCooperation(t *testing.T, lists, prior string, loads string, allJS str
 	cmd := exec.Command(requireNode(t, "the pi model-lists extension"), "harness.mjs")
 	cmd.Dir = dir
 	cmd.Env = append(environWithout("PI_CODING_AGENT_DIR"), "HOME="+home, "PRIOR="+prior, "YOLO_LOADS="+loads)
+	if yoloFirst {
+		cmd.Env = append(cmd.Env, "YOLO_FIRST=1")
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("running the shipped extension: %v\n%s", err, out)
@@ -215,6 +227,58 @@ func TestPiEnforcedModelListReplacesAnEarlierRegistrationAndSaysSo(t *testing.T)
 	for _, loads := range []string{"1", "2"} {
 		if run := runPiCooperation(t, lists, "[]", loads, piZaiCatalogStub); len(run.Warnings) != 0 {
 			t.Errorf("loads=%s: warnings with no earlier registration = %v, want none", loads, run.Warnings)
+		}
+	}
+}
+
+// piCopilotCatalogStub stands in for pi-ai's catalog on github-copilot, whose models span more
+// than one pi api: claude-sol runs on anthropic-messages and gpt-6.1-sol on openai-responses.
+const piCopilotCatalogStub = `
+const rows = [
+	{ id: "claude-sol", name: "Catalog Claude", api: "anthropic-messages", provider: "github-copilot",
+		baseUrl: "https://copilot.example", headers: { "Editor-Version": "vscode/1" }, input: ["text"],
+		contextWindow: 200000, maxTokens: 32000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+	{ id: "gpt-6.1-sol", name: "Catalog GPT", api: "openai-responses", provider: "github-copilot",
+		baseUrl: "https://copilot.example", headers: { "Editor-Version": "vscode/1" }, input: ["text"],
+		contextWindow: 400000, maxTokens: 64000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+];
+export const calls = [];
+export function getBuiltinModel(provider, id) {
+	return provider === "github-copilot" ? rows.find((m) => m.id === id) : undefined;
+}
+export function getBuiltinModels(provider) { return provider === "github-copilot" ? rows : []; }
+export function builtinProviders() { return []; }
+`
+
+// AN ENFORCED LIST YOLO CANNOT ENFORCE MERGES (ML-D15): a narrowed github-copilot list spanning
+// two pi apis gets no refusing stream, so taking another extension's rows away would cost the
+// user its long-context copies and buy no refusal. yolo keeps that extension's rows in either
+// load order, adds its declared rows the extension lacks, and says only that it cannot refuse.
+func TestPiUnenforceableModelListKeepsAnotherExtensionsRows(t *testing.T) {
+	lists := `{"providers":{"github-copilot":{"models":[{"id":"claude-sol"},{"id":"gpt-6.1-sol"}],"enforce":true}}}`
+	prior := `[["github-copilot",{"models":[
+		{"id":"gpt-6.1-sol[1m]","name":"GPT 1M","api":"openai-responses","wireId":"gpt-6.1-sol","contextWindow":1000000},
+		{"id":"gpt-6.1-sol","name":"Pack GPT","api":"openai-responses","contextWindow":400000}]}]]`
+	for _, yoloFirst := range []bool{false, true} {
+		run := runPiCooperationOrdered(t, lists, prior, "1", piCopilotCatalogStub, yoloFirst)
+		ids := modelIDs(run.Providers["github-copilot"].Models)
+		for _, want := range []string{"gpt-6.1-sol[1m]", "gpt-6.1-sol"} {
+			if !slices.Contains(ids, want) {
+				t.Errorf("yoloFirst=%v: registered ids = %v, want the extension's %s kept", yoloFirst, ids, want)
+			}
+		}
+		if !yoloFirst {
+			if want := []string{"gpt-6.1-sol[1m]", "gpt-6.1-sol", "claude-sol"}; !reflect.DeepEqual(ids, want) {
+				t.Errorf("registered ids = %v, want the extension's rows then yolo's claude-sol", ids)
+			}
+		}
+		for _, w := range run.Warnings {
+			if strings.Contains(w, "replaced") {
+				t.Errorf("yoloFirst=%v: warning %q: nothing was replaced", yoloFirst, w)
+			}
+		}
+		if len(run.Warnings) != 1 || !strings.Contains(run.Warnings[0], "cannot refuse") {
+			t.Errorf("yoloFirst=%v: warnings = %v, want the one saying pi cannot refuse outside the list", yoloFirst, run.Warnings)
 		}
 	}
 }

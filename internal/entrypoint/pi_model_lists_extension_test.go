@@ -433,8 +433,9 @@ func TestPiModelListsExtensionDelegatesAProviderPiDoesNotShipToItsAPIRegistry(t 
 
 // A LIST WHOSE MODELS RUN ON TWO pi APIS CANNOT BE REFUSED WHOLE: a registration names one api,
 // pi hands its wrapper only that api's models, and pi's --model fallback copies a listed model of
-// either api. So it is registered as the exact menu alone, and pi says once that it cannot refuse
-// there, rather than refusing half of what --model can reach.
+// either api. So it is registered as the menu alone (keeping another extension's rows, ML-D15),
+// and pi says once that it cannot refuse there, rather than refusing half of what --model can
+// reach.
 func TestPiModelListsExtensionSaysWhenAListSpanningTwoAPIsCannotBeRefused(t *testing.T) {
 	const twoAPIs = `
 export const calls = [];

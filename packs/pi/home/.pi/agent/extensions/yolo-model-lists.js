@@ -378,25 +378,30 @@ export default async function registerYoloModelLists(pi) {
 			if (lib.catalog(provider).length === 0) continue;
 			models = withCatalog(provider, models, lib);
 		}
+		// A list yolo cannot refuse outside keeps another extension's rows and adds only its declared
+		// rows whose ids they lack (ML-D15): replacing them would take that extension's models away
+		// and buy no refusal in return.
+		const keeping = () => ({
+			models: markTheirs(models, undefined),
+			[MERGE]: (prior) => {
+				const theirs = foreignModels(prior);
+				if (!theirs) return { models: markTheirs([...models], undefined) };
+				const ids = new Set(theirs.map((m) => m?.id));
+				// pi validates a registration on its own, so the other extension's provider-level
+				// api and baseUrl ride along for its rows that rely on them (unchanged values).
+				return {
+					...(prior.api ? { api: prior.api } : {}),
+					...(prior.baseUrl ? { baseUrl: prior.baseUrl } : {}),
+					models: markTheirs([...theirs, ...declared.filter((m) => !ids.has(m.id))], theirs),
+				};
+			},
+		});
 		if (!list.enforce) {
-			pi.registerProvider(provider, {
-				models: markTheirs(models, undefined),
-				[MERGE]: (prior) => {
-					const theirs = foreignModels(prior);
-					if (!theirs) return { models: markTheirs([...models], undefined) };
-					const ids = new Set(theirs.map((m) => m?.id));
-					// pi validates a registration on its own, so the other extension's provider-level
-					// api and baseUrl ride along for its rows that rely on them (unchanged values).
-					return {
-						...(prior.api ? { api: prior.api } : {}),
-						...(prior.baseUrl ? { baseUrl: prior.baseUrl } : {}),
-						models: markTheirs([...theirs, ...declared.filter((m) => !ids.has(m.id))], theirs),
-					};
-				},
-			});
+			pi.registerProvider(provider, keeping());
 			continue;
 		}
-		// An enforced list replaces another extension's models, and is told about (ML-D15).
+		// An enforced list pi can refuse outside replaces another extension's models, and is told
+		// about (ML-D15).
 		const replacing = (config) => ({
 			...config,
 			models: markTheirs(config.models, undefined),
@@ -408,7 +413,7 @@ export default async function registerYoloModelLists(pi) {
 		const api = listApi(provider, list, lib);
 		const delegate = api && delegateFor(provider, api, lib);
 		if (!delegate) {
-			pi.registerProvider(provider, replacing({ models }));
+			pi.registerProvider(provider, keeping());
 			unenforced.push(provider);
 			continue;
 		}
@@ -436,9 +441,9 @@ export default async function registerYoloModelLists(pi) {
 			const warnings = [];
 			if (unenforced.length > 0) {
 				warnings.push(
-					`yolo: pi shows exactly yolo's model list for ${unenforced.join(", ")}, but cannot refuse a model ` +
+					`yolo: the profile enforces yolo's model list for ${unenforced.join(", ")}, but pi cannot refuse a model ` +
 					`outside it there (the list's models do not share one pi api, or pi's own stream for it was not ` +
-					`found), so \`pi --model\` can still run an unlisted one.`,
+					`found), so \`pi --model\` can still run an unlisted one, and another pi extension's models there are kept.`,
 				);
 			}
 			if (replaced.length > 0) {
