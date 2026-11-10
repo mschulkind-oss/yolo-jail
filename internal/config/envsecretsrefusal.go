@@ -33,7 +33,7 @@ func SecretEnvRefusals(h *HydratedEnv, claims []packload.PublicClaim, site func(
 		if pub.Entry != "" && pub.Entry == prv.Entry {
 			if !sharedDone[pub.Entry] {
 				sharedDone[pub.Entry] = true
-				out = append(out, sharedFileRefusal(pub.Entry, site(name, false)))
+				out = append(out, sharedFileRefusal(pub.Entry, sharedFileSite(site(name, false), pub.Entry)))
 			}
 			continue
 		}
@@ -52,6 +52,17 @@ func SecretEnvRefusals(h *HydratedEnv, claims []packload.PublicClaim, site func(
 		out = append(out, publicKeyRefusal(c, places[0], site(c.Name, false)))
 	}
 	return out
+}
+
+// sharedFileSite is the site whose scope flag a shared-file remedy carries: the one that lists
+// entry. A name's own public site may be another scope's (an inline value, or another file), and
+// its flag would point the verb at the wrong config; with none that lists entry, no flag is
+// named and the verb asks which scope.
+func sharedFileSite(s EnvSite, entry string) EnvSite {
+	if s.Place.Key != "" && s.Place.Entry != entry {
+		return EnvSite{}
+	}
+	return s
 }
 
 // asWritten is p as the user's file spells it: the load lowers a legacy `env_sources` to the

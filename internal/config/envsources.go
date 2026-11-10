@@ -275,6 +275,17 @@ func ResolveEnvSourcePath(entry, workspace string) string {
 	return joined
 }
 
+// EnvSourcePathByName is ResolveEnvSourcePath without following links: the path the entry NAMES,
+// which a verb that edits a user's file acts on (no symlink guessing). A relative entry joins
+// anchor.
+func EnvSourcePathByName(entry, anchor string) string {
+	expanded := expandUser(entry)
+	if filepath.IsAbs(expanded) {
+		return expanded
+	}
+	return filepath.Join(anchor, expanded)
+}
+
 // DescribeEnvSources returns one description per env_sources entry in cfg, in order: a
 // file entry as the path it resolves to, an inline dict as the keys it assigns. Empty
 // when cfg declares none.

@@ -264,6 +264,9 @@ func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string,
 	case len(anyDest) > 0:
 		kept = anyDest[0]
 	}
+	if !src.Inline() && m.refuseLinked(src.Dotenv, errw) {
+		return 1
+	}
 	if m.drop {
 		if kept.Place.Key == "" {
 			fmt.Fprintf(errw, "--drop keeps the %s copy of %s, but no config holds one; run %s to move it instead\n",
@@ -309,6 +312,9 @@ func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string,
 			return 1
 		}
 		target := entries[0]
+		if m.refuseLinked(target.Dotenv, errw) {
+			return 1
+		}
 		if target.Dotenv == src.Dotenv {
 			fmt.Fprintf(errw, "%s lists %s in both sets, so moving %s between them would only copy a line onto itself; "+
 				"put the file in one set first with %s\n", m.name, src.Dotenv, m.name, m.dotenvCommand(src.Raw, h.file.Scope))
@@ -409,7 +415,7 @@ func (m secretMove) moveDotenvEntry(files []config.EnvScopeFile, workspace strin
 }
 
 func sameDotenv(e config.EnvSite, arg, anchor string) bool {
-	if e.Raw == arg || e.Dotenv == config.ResolveEnvSourcePath(arg, anchor) {
+	if e.Raw == arg || e.Dotenv == config.EnvSourcePathByName(arg, anchor) {
 		return true
 	}
 	abs, err := filepath.Abs(arg)
@@ -449,6 +455,20 @@ func (m secretMove) approveLine(f config.EnvScopeFile, out io.Writer) int {
 		fmt.Fprintln(out, "The host must run `yolo config apply` to approve the workspace change.")
 	}
 	return 0
+}
+
+// refuseLinked refuses a dotenv file that is a symbolic link: the verb acts on the name an entry
+// gives and never a link's target, and replacing the link with a file would be a guess at what
+// the user meant (no symlink guessing).
+func (m secretMove) refuseLinked(path string, errw io.Writer) bool {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	fmt.Fprintf(errw, "%s is a symbolic link, and yolo config %s neither writes through a link nor replaces one; "+
+		"move the line by hand in the file it points to, or make %s a regular file and run this command again\n",
+		path, m.verb, path)
+	return true
 }
 
 // dotenvCommand is the --dotenv form of this verb for entry, the one that moves a whole file.

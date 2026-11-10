@@ -104,3 +104,21 @@ func TestSecretEnvRefusalIsEmptyForAPrivateKeyAndAnUnclaimedPublicName(t *testin
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A shared file's remedy carries the flag of the scope that lists the file, never the flag of a
+// name's own site in another scope (review minor 8).
+func TestSharedFileRefusalNeverBorrowsAnotherScopesFlag(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	h := NewHydratedEnv()
+	shared := "/home/u/.config/yolo-jail/keys.env"
+	h.SetPublic("A_KEY", "v", EnvPlace{Key: "env.files", Entry: shared})
+	h.SetPrivate("A_KEY", "v", EnvPlace{Private: true, Key: "env.secrets.files", Entry: shared})
+	// The name's first public site is an inline value in the project config.
+	otherScope := func(string, bool) EnvSite {
+		return EnvSite{Scope: EnvScopeProject, Place: EnvPlace{Key: "env.set"}}
+	}
+	got := SecretEnvRefusals(h, nil, otherScope)
+	if len(got) != 1 || strings.Contains(got[0], "--project") {
+		t.Errorf("the file is listed by another scope than --project: %q", got)
+	}
+}

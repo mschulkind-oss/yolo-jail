@@ -142,7 +142,7 @@ func (f EnvScopeFile) fileSite(key, raw string, index int, private bool) EnvSite
 		entry = filepath.Join(f.Anchor, raw)
 	}
 	return EnvSite{Place: EnvPlace{Private: private, Key: key, Entry: entry}, Scope: f.Scope, Legacy: f.Legacy,
-		ConfigFile: f.ConfigFile, Dotenv: ResolveEnvSourcePath(raw, f.Anchor), Raw: raw, Index: index}
+		ConfigFile: f.ConfigFile, Dotenv: EnvSourcePathByName(raw, f.Anchor), Raw: raw, Index: index}
 }
 
 func (f EnvScopeFile) inlineSite(key string, index int, private bool) EnvSite {

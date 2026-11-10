@@ -267,3 +267,25 @@ func TestConfigSecretDropWorksAcrossScopes(t *testing.T) {
 		t.Errorf("the user's private value is kept:\n%s", got)
 	}
 }
+
+// Review minor 6: a dotenv file that is a link is neither written through nor replaced.
+func TestConfigSecretRefusesADotenvFileThatIsALink(t *testing.T) {
+	user := secretFixture(t, "[env]\nfiles = [\"defaults.env\"]\n\n[env.secrets]\nfiles = [\"secrets.env\"]\n")
+	dir := filepath.Dir(user.Path)
+	real := filepath.Join(t.TempDir(), "real.env")
+	if err := os.WriteFile(real, []byte("ZAI_API_KEY=z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "defaults.env")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	rc := configRunW([]string{"secret", "ZAI_API_KEY", "--user"}, &out, &errw)
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the link was replaced: %v %v", info, err)
+	}
+	if got, _ := os.ReadFile(real); rc == 0 || string(got) != "ZAI_API_KEY=z\n" || !strings.Contains(errw.String(), "symbolic link") {
+		t.Errorf("rc %d, target %q, stderr %q", rc, got, errw.String())
+	}
+}
