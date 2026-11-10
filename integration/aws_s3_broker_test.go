@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,10 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/s3fixture"
 	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
 )
+
+// requestIDInRefusal is the request id a call-broker ask names, without the backtick that
+// closes the quoted command around it.
+var requestIDInRefusal = regexp.MustCompile("yolo approve (r-[0-9a-f]+)")
 
 // TestAWSS3BrokerMediatesReadsAndAsksForWrites runs the shipped aws-s3 pack in a real (nested)
 // jail: the jail's `aws` is intercepted, the production classifier decides, and a fake host
@@ -88,9 +93,8 @@ func TestAWSS3BrokerMediatesReadsAndAsksForWrites(t *testing.T) {
 		deadline := time.Now().Add(4 * time.Minute)
 		for ; time.Now().Before(deadline); time.Sleep(time.Second) {
 			b, _ := os.ReadFile(refusal)
-			if i := strings.Index(string(b), "yolo approve r-"); i >= 0 {
-				rest := string(b[i+len("yolo approve "):])
-				a.id = strings.Fields(rest)[0]
+			if m := requestIDInRefusal.FindSubmatch(b); m != nil {
+				a.id = string(m[1])
 				break
 			}
 		}
