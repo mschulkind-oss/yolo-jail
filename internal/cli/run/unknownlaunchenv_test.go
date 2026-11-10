@@ -320,3 +320,36 @@ func TestRecognizedYOLORuntimeStillSelectsPodman(t *testing.T) {
 		t.Fatalf("YOLO_RUNTIME=podman selection = %q, %v; want podman, true", rt, ok)
 	}
 }
+
+// PI-D8 (docs/design/provider-inherits.md): the region variables are a declaration fact, so a
+// selected provider that declares none and inherits takes its parent's, found among the same
+// packs. Over the launch's own channel for `-p bedrock-key` and the shipped packs, with the region
+// variables renamed YOLO_-prefixed on a copy of the bedrock pack, because this list recognizes
+// nothing else (AWS_REGION would be filtered out whichever provider it came from).
+func TestAnInheritingProviderTakesItsParentsRegionVariables(t *testing.T) {
+	_, channel, _ := bedrockKeyChannel(t, "bedrock-key")
+	var packs []*packload.Pack
+	for _, p := range awsAuthSelected(t) {
+		if p.Name != "bedrock" {
+			packs = append(packs, p)
+			continue
+		}
+		clone := *p
+		decl := *p.Decl
+		decl.Contributes = append([]packdecl.Contribution(nil), p.Decl.Contributes...)
+		for i := range decl.Contributes {
+			if decl.Contributes[i].Kind == packdecl.KindProvider && len(decl.Contributes[i].RegionEnvName) > 0 {
+				decl.Contributes[i].RegionEnvName = []string{"YOLO_BEDROCK_REGION_PROBE"}
+			}
+		}
+		clone.Decl = &decl
+		packs = append(packs, &clone)
+	}
+	if !slices.Contains(knownLaunchYOLOEnvNames(packs, channel), "YOLO_BEDROCK_REGION_PROBE") {
+		t.Error("selecting only bedrock-key lost the region variable it inherits from bedrock")
+	}
+	_, ssoChannel, _ := bedrockKeyChannel(t, "bedrock")
+	if !slices.Contains(knownLaunchYOLOEnvNames(packs, ssoChannel), "YOLO_BEDROCK_REGION_PROBE") {
+		t.Error("selecting bedrock lost its own region variable")
+	}
+}

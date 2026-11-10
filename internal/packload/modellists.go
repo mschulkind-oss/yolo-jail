@@ -69,7 +69,11 @@ type shapedModels struct {
 // listed. The design text's literal "packs apply in `packs` order" would let a later add
 // re-open an earlier only; the implementation decision to apply the verbs in two passes is
 // recorded as MM-D11.
-func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note func(string)) map[string]bool {
+//
+// skip names providers to leave alone (a child that inherits, whose contributions must land AFTER
+// it takes its parent's list, PI-D3); restrict, when non-nil, names the only providers to shape.
+func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note func(string),
+	skip, restrict map[string]bool) map[string]bool {
 	applied := map[string]bool{}
 	if note == nil {
 		note = func(string) {}
@@ -95,6 +99,9 @@ func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note fu
 		byProvider[s.c.Provider] = append(byProvider[s.c.Provider], s)
 	}
 	for _, name := range providers {
+		if skip[name] || (restrict != nil && !restrict[name]) {
+			continue
+		}
 		shapes := byProvider[name]
 		entry := providerEntry(out, name)
 		if entry == nil {

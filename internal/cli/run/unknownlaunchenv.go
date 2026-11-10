@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -162,7 +163,7 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 			for _, name := range provider.APIKeyEnvName {
 				add(name)
 			}
-			for _, name := range provider.RegionEnvName {
+			for _, name := range inheritedRegionEnvName(provider, packs) {
 				add(name)
 			}
 		}
@@ -194,4 +195,26 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 	}
 	sort.Strings(out)
 	return out
+}
+
+// inheritedRegionEnvName is the region variables a provider reads: its own declaration's, or, when
+// it declares none and inherits (PI-D8, docs/design/provider-inherits.md), its parent's — the
+// parent found among the same packs. The region variables are a declaration fact, not a composed
+// one, so the composed table's inheritance does not reach this reader by itself. One level only,
+// as the composition allows.
+func inheritedRegionEnvName(provider packdecl.ProviderContribution, packs []*packload.Pack) []string {
+	if len(provider.RegionEnvName) > 0 || provider.Inherits == "" {
+		return provider.RegionEnvName
+	}
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, parent := range p.Decl.Providers() {
+			if parent.Name == provider.Inherits {
+				return parent.RegionEnvName
+			}
+		}
+	}
+	return nil
 }

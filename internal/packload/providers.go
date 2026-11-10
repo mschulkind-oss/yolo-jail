@@ -180,8 +180,14 @@ func composeProviderTable(user *jsonx.OrderedMap, packs []*Pack, cfg composeOpts
 		pinned[selected.prov.Name] = selected.prov.PinnedEndpoint
 		providerSupplied[selected.prov.Name] = selected.prov.Models != nil || selected.prov.ModelRows != nil
 	}
+	// A provider that inherits is composed AFTER everything else (providerinherits.go,
+	// docs/design/provider-inherits.md), so it starts from its parent's finished entry.
+	inh, err := resolveInherits(out, user)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	// THE `models` CONTRIBUTIONS remain between the packs' own providers and the user's entries.
-	contributed := applyModelContributions(out, user, packs, cfg.modelNote)
+	contributed := applyModelContributions(out, user, packs, cfg.modelNote, inh.children, nil)
 	for name := range contributed {
 		providerSupplied[name] = true
 	}
@@ -189,42 +195,61 @@ func composeProviderTable(user *jsonx.OrderedMap, packs []*Pack, cfg composeOpts
 		for _, name := range user.Keys() {
 			value, _ := user.Get(name)
 			if value == nil {
+				// PI-D7: a disabled parent still lends its entry to a child.
+				inh.snapshot(out, name)
 				out.Delete(name)
 				continue
 			}
-			// Every caller keeps its own input map; the deep copy covers the malformed
-			// passthrough, new-entry paths, and the nested existing-entry fold.
-			value = jsonx.DeepCopy(value)
-			override, ok := value.(*jsonx.OrderedMap)
-			if !ok {
-				out.Set(name, value)
+			if inh.children[name] {
 				continue
 			}
-			current, exists := out.Get(name)
-			if !exists {
-				out.Set(name, override)
-				continue
-			}
-			base, ok := current.(*jsonx.OrderedMap)
-			if !ok {
-				out.Set(name, override)
-				continue
-			}
-			if err := readableRowOverAlias(name, base, override); err != nil {
-				return nil, nil, nil, err
-			}
-			before := pinnedAddresses(base)
-			dropRepointedVendors(base, override)
-			mergeUnder(base, override)
-			if pinned[name] && !addressesWithin(pinnedAddresses(base), before) {
-				return nil, nil, nil, PinnedEndpointRefusal(name, shipper[name])
-			}
-			if err := addressConflict(name, base, shipper[name]); err != nil {
+			if err := mergeUserEntry(out, name, value, pinned, shipper); err != nil {
 				return nil, nil, nil, err
 			}
 		}
 	}
+	for _, child := range inh.order {
+		if err := inh.compose(child, out, user, packs, cfg, pinned, shipper, providerSupplied); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	stripInherits(out)
 	return out, shipper, providerSupplied, nil
+}
+
+// mergeUserEntry folds one non-null user `providers` entry into out, the one fold both the user
+// loop and a child's own user layer run (providerinherits.go), so the two cannot drift: the
+// readable-row-over-alias check, the repointed-vendor drop, the per-field merge, the pin and the
+// address-conflict checks.
+func mergeUserEntry(out *jsonx.OrderedMap, name string, value any, pinned map[string]bool, shipper map[string]string) error {
+	// Every caller keeps its own input map; the deep copy covers the malformed
+	// passthrough, new-entry paths, and the nested existing-entry fold.
+	value = jsonx.DeepCopy(value)
+	override, ok := value.(*jsonx.OrderedMap)
+	if !ok {
+		out.Set(name, value)
+		return nil
+	}
+	current, exists := out.Get(name)
+	if !exists {
+		out.Set(name, override)
+		return nil
+	}
+	base, ok := current.(*jsonx.OrderedMap)
+	if !ok {
+		out.Set(name, override)
+		return nil
+	}
+	if err := readableRowOverAlias(name, base, override); err != nil {
+		return err
+	}
+	before := pinnedAddresses(base)
+	dropRepointedVendors(base, override)
+	mergeUnder(base, override)
+	if pinned[name] && !addressesWithin(pinnedAddresses(base), before) {
+		return PinnedEndpointRefusal(name, shipper[name])
+	}
+	return addressConflict(name, base, shipper[name])
 }
 
 // pinnedAddresses is every address a provider entry names (PE-D4): each `base_url` under its
@@ -278,6 +303,9 @@ func PinnedEndpointRefusal(name, pack string) error {
 
 func canonicalProviderEntry(provider packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
+	if provider.Inherits != "" {
+		entry.Set(inheritsKey, provider.Inherits)
+	}
 	if len(provider.Aliases) == 1 {
 		entry.Set("alias", provider.Aliases[0])
 	} else if len(provider.Aliases) > 1 {
@@ -1550,6 +1578,11 @@ func quoted(s string) string {
 // into fresh OrderedMaps, and Capabilities is copied into a fresh []any.
 func shippedProviderEntry(prov packdecl.ProviderContribution) *jsonx.OrderedMap {
 	entry := jsonx.NewOrderedMap()
+	// Resolved and stripped inside composeProviderTable (providerinherits.go), so no consumer
+	// of the composed table ever sees it.
+	if prov.Inherits != "" {
+		entry.Set(inheritsKey, prov.Inherits)
+	}
 	// One name composes as the string every consumer has always read; several compose as a
 	// list (OQ-CN1), the same shape a user's own entry spells it in — []any, the JSONC
 	// decoder's, so the user layer's list REPLACES the pack's in mergeUnder rather than

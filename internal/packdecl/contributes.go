@@ -853,6 +853,12 @@ type Contribution struct {
 	// delivers only to an agent that selected this provider. See EnvNames for why one name
 	// stays a string and why several point an agent at none of them.
 	APIKeyEnvName EnvNames `json:"api_key_env_name,omitempty"`
+	// ProviderInherits is the provider whose composed settings this one starts from
+	// (`inherits`, docs/design/provider-inherits.md): models, default model, region, options,
+	// platform and the rest, never the credential, the names or the variants (PI-D2). Empty
+	// inherits nothing. packload.composeProviderTable resolves it; a declaration reader that
+	// looks a provider up by name follows it where the fact it reads is a declaration fact.
+	ProviderInherits string `json:"inherits,omitempty"`
 	// Platform is WHAT SERVICE this provider is — "aws-bedrock" for Amazon Bedrock — so a
 	// derive can recognize the service without matching the provider's NAME
 	// (docs/design/providers-and-profiles-redesign.md OQ-BR2, ruled 2026-09-29). It is the
@@ -2101,6 +2107,8 @@ type ProviderContribution struct {
 	ModelOrder    []string
 	Endpoints     map[string]ProviderEndpoint
 	APIKeyEnvName EnvNames
+	// Inherits is the provider this one inherits from; see Contribution.ProviderInherits.
+	Inherits string
 	// Platform is what service this provider is (OQ-BR2); see the field's own comment on
 	// Contribution.
 	Platform string
@@ -2153,6 +2161,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			ModelOrder:     append([]string(nil), c.ProviderModelOrder...),
 			Endpoints:      c.Endpoints,
 			APIKeyEnvName:  c.APIKeyEnvName,
+			Inherits:       c.ProviderInherits,
 			Platform:       c.Platform,
 			Region:         c.Region,
 			RegionEnvName:  c.RegionEnvName,
@@ -4377,6 +4386,11 @@ func validateContribution(label string, c Contribution) []string {
 				"\"env\" gates the variables on the selected provider being that service; no "+
 				"consumer reads it on this kind", label, c.Kind))
 	}
+	if c.ProviderInherits != "" && c.Kind != KindProvider {
+		problems = append(problems, fmt.Sprintf(
+			"%s: kind %q does not take \"inherits\" — it names the PROVIDER a provider starts from, "+
+				"and no consumer reads it on this kind", label, c.Kind))
+	}
 	if c.PinnedEndpoint && c.Kind != KindProvider {
 		problems = append(problems, fmt.Sprintf(
 			"%s: kind %q does not take \"pinned_endpoint\" — it pins a PROVIDER's address against "+
@@ -4931,6 +4945,11 @@ func validateContribution(label string, c Contribution) []string {
 		req("name", c.Name)
 		problems = append(problems, validateProviderEndpoints(label, c.Endpoints)...)
 		problems = append(problems, c.APIKeyEnvName.Problems(label)...)
+		if c.ProviderInherits != "" && c.ProviderInherits == c.Name {
+			problems = append(problems, fmt.Sprintf("%s: \"inherits\" names the provider itself (%q) — "+
+				"name the provider whose settings it starts from, or drop the key "+
+				"(docs/design/provider-inherits.md)", label, c.Name))
+		}
 		// An agent builds its service's host name from the region (RegionProblem), so a pack's
 		// is held to one DNS label as a user's is.
 		if c.Region != "" {
