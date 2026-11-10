@@ -3,14 +3,14 @@ title: "A jail's host helpers should run the build that launched it, and say whi
 date: 2026-11-10
 status: accepted
 stage: DECIDED
-next: "Build the plan's tasks 1 and 2 (the pin package and the darwin host yolo in the bundle); the rest follow"
+next: "Built; the Mac witnesses for the darwin pin and the give-up path remain for the owner's Mac agent"
 tags: [design, host-services, keeper, daemons, install, bundles, logging]
 summary: "Every host-side process that serves one jail or one launch (keeper, host daemons, launch-owned services, yolo host's private daemons, removers) is exec'd from one pinned file, the host-OS yolo inside the bundle the launch resolved, checked unchanged before every exec, so it runs the launch's build for the jail's whole life or does not run at all. Each such daemon writes a start line naming its build, commit, pid, jail and executable. The user config stays shared and unpinned; the 3f58db1cc own-table read and the config-apply note cover that skew."
 ---
 
 # A jail's host helpers should run the build that launched it, and say which build that is
 
-**Status:** 2026-11-10. Nothing built. Every rule below is decided; no question is open. Evidence
+**Status:** 2026-11-10. Built. Every rule below is decided; no question is open. Evidence
 verified against `e5a75f551`.
 
 > **In short.** A host helper's build should be a property of the launch that started it, not of
@@ -308,14 +308,14 @@ What covers that skew, unchanged by this design:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| PH-R1 | The owner's ruling: pin host helpers to the jail's build, and log each helper's version when it starts ("yes A doc and then implementation if no OQs") | 2026-11-10 | [§3](#3-the-pinned-helper), [§5](#5-the-start-line) | — |
-| PH-D1 | The pin is the host-OS `yolo` in the bundle the launch resolved, symlinks resolved; same build means same build stamp (and snapshot identity where the launcher has one) | 2026-11-10 | [§3.1](#31-where-it-comes-from) | — |
-| PH-D2 | macOS bundles carry a host `yolo` in `bin/darwin-<arch>/`, as a list separate from the guest set; `assemble` takes the launcher from it; reporoot requires it on macOS | 2026-11-10 | [§3.1](#31-where-it-comes-from) | — |
-| PH-D3 | Resolved once at pre-flight by any launch that will start a helper; a launch that cannot have one refuses before spawning, naming the reinstall step; a launch that starts none resolves none | 2026-11-10 | [§3.2](#32-when-it-is-resolved) | — |
-| PH-D4 | One rule for every self-exec that serves a jail or launch; check-time and machine-wide yolo processes are outside it | 2026-11-10 | [§3.3](#33-who-execs-it) | — |
-| PH-D5 | The keeper gets the pin through its plan; on Linux it keeps JL-D5's `/proc/self/exe`, which now names the pin's inode | 2026-11-10 | [§3.3](#33-who-execs-it) | — |
-| PH-D6 | A `stat` identity check before every exec by path; a failed check never falls back: a first spawn refuses, a keeper spawn is skipped and logged, a restart is a give-up naming the stop step | 2026-11-10 | [§3.4](#34-the-check-before-every-exec) | — |
-| PH-D7 | Attaches and joins start nothing the keeper holds; their own children use their own launch's pin | 2026-11-10 | [§3.5](#35-attach-and-join) | — |
-| PH-D8 | A generation is in use while a live process of this user executes from it; an unreadable process table declines the sweep | 2026-11-10 | [§4](#4-keeping-the-bundle-alive-while-a-helper-runs-from-it) | — |
-| PH-D9 | The start line: format, keys and order, `YOLO_HELPER_JAIL` from every spawner, stderr (the keeper: its own log), none for `--self-check` | 2026-11-10 | [§5](#5-the-start-line) | — |
-| PH-D10 | The user config stays unpinned; `3f58db1cc`'s own-table read and the config-apply note cover the skew, and the note drops its "may still run" hedge | 2026-11-10 | [§6](#6-what-stays-unpinned-the-user-config) | — |
+| PH-R1 | The owner's ruling: pin host helpers to the jail's build, and log each helper's version when it starts ("yes A doc and then implementation if no OQs") | 2026-11-10 | [§3](#3-the-pinned-helper), [§5](#5-the-start-line) | yes |
+| PH-D1 | The pin is the host-OS `yolo` in the bundle the launch resolved, symlinks resolved; same build means same build stamp (and snapshot identity where the launcher has one) | 2026-11-10 | [§3.1](#31-where-it-comes-from) | yes |
+| PH-D2 | macOS bundles carry a host `yolo` in `bin/darwin-<arch>/`, as a list separate from the guest set; `assemble` takes the launcher from it; reporoot requires it on macOS | 2026-11-10 | [§3.1](#31-where-it-comes-from) | yes |
+| PH-D3 | Resolved once at pre-flight by any launch that will start a helper; a launch that cannot have one refuses before spawning, naming the reinstall step; a launch that starts none resolves none | 2026-11-10 | [§3.2](#32-when-it-is-resolved) | yes |
+| PH-D4 | One rule for every self-exec that serves a jail or launch; check-time and machine-wide yolo processes are outside it | 2026-11-10 | [§3.3](#33-who-execs-it) | yes |
+| PH-D5 | The keeper gets the pin through its plan; on Linux it keeps JL-D5's `/proc/self/exe`, which now names the pin's inode | 2026-11-10 | [§3.3](#33-who-execs-it) | yes |
+| PH-D6 | A `stat` identity check before every exec by path; a failed check never falls back: a first spawn refuses, a keeper spawn is skipped and logged, a restart is a give-up naming the stop step | 2026-11-10 | [§3.4](#34-the-check-before-every-exec) | yes |
+| PH-D7 | Attaches and joins start nothing the keeper holds; their own children use their own launch's pin | 2026-11-10 | [§3.5](#35-attach-and-join) | yes |
+| PH-D8 | A generation is in use while a live process of this user executes from it; an unreadable process table declines the sweep | 2026-11-10 | [§4](#4-keeping-the-bundle-alive-while-a-helper-runs-from-it) | yes |
+| PH-D9 | The start line: format, keys and order, `YOLO_HELPER_JAIL` from every spawner, stderr (the keeper: its own log), none for `--self-check` | 2026-11-10 | [§5](#5-the-start-line) | yes |
+| PH-D10 | The user config stays unpinned; `3f58db1cc`'s own-table read and the config-apply note cover the skew, and the note drops its "may still run" hedge | 2026-11-10 | [§6](#6-what-stays-unpinned-the-user-config) | yes |

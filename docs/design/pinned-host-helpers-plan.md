@@ -3,7 +3,7 @@ title: "Plan: pinned host helpers and their start line"
 date: 2026-11-10
 status: accepted
 stage: DECIDED
-next: "Build task 1 (internal/helperpin) and task 2 (the darwin host yolo in the bundle) in parallel"
+next: "Built; nothing remains but the Mac witnesses"
 depends-on: [pinned-host-helpers.md]
 tags: [plan, host-services, keeper, daemons, bundles, logging]
 summary: "Build plan for pinned-host-helpers.md, by file: a helperpin package (resolve, identity check, start line), the darwin host yolo in bundles, the run pipeline's self-execs through the pin, launch services, yolo host and macos-user, the start line in internaldaemon and the keeper, process-exe liveness in the generation reaper, and one integration test."
@@ -11,7 +11,7 @@ summary: "Build plan for pinned-host-helpers.md, by file: a helperpin package (r
 
 # Plan: pinned host helpers and their start line
 
-**Status:** 2026-11-10. Written against `e5a75f551`. Nothing built.
+**Status:** 2026-11-10. Written against `e5a75f551`. Built.
 
 **Design:** [`pinned-host-helpers.md`](pinned-host-helpers.md). Precedence: the design wins on
 behavior, the tree wins on fact (cosmetic drift only: follow it and say so in the commit), this file

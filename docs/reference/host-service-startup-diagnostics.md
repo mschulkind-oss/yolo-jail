@@ -289,6 +289,28 @@ unrestricted AWS access, so a launch prints no routine notice for it: the settin
 `disclose` sentence. It stays an explicit user-scope opt-in, default false; conflicting settings are
 refused; real errors and the pack's read/exec trust disclosures are unchanged.
 
+## Start line
+
+Every `yolo internal daemon <name>` process writes one line at start, before anything else, into
+the log its spawner gives it (`logs/host-service-<name>.log` for a host daemon; the keeper writes it
+as the first line of its own log):
+
+```text
+<stamp> helper start: name=<daemon> build=<version> commit=<commit> pid=<pid> jail=<jail> exe=<path>
+```
+
+- **Keys, in this order, always present:** `name`, `build` (the version stamp, the value a
+  container's `YOLO_VERSION` carries, or `unstamped`), `commit`, `pid`, `jail`, `exe` (the running
+  executable, or `unknown`). A value with whitespace or a quote is Go-quoted.
+- **`jail`** comes from `YOLO_HELPER_JAIL` *(coined in
+  [pinned-host-helpers.md](../design/pinned-host-helpers.md#5-the-start-line): the helper's jail
+  label)*, which each spawner sets to the container name, the macos-user key or `yolo host`'s
+  workspace key; without it the line says `-`.
+- **Not written** for `--self-check`.
+
+"Which build served this jail" is one search, for example
+`rg 'helper start: name=git-broker' ~/.local/share/yolo-jail/logs/host-service-git-broker.log`.
+
 ## Not covered
 
 - No readiness-success or `waiting` lines, and no longer readiness budget. The keychain design's
