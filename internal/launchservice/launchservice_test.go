@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -42,6 +43,11 @@ func fakeHostHalf(mode string) int {
 		return 1
 	}
 	ready := os.NewFile(3, "ready")
+	if mode == "serve-jail" {
+		// Record what the child was handed, then serve like "serve".
+		fmt.Fprintf(os.Stdout, "helper-jail=%q\n", os.Getenv(helperpin.EnvJail))
+		mode = "serve"
+	}
 	if mode == "fail" {
 		fmt.Fprintf(ready, "failed %s the upstream key is missing\n", in.Service)
 		return 1
