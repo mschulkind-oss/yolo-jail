@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "id": "github-workflow-run",
+  "title": "GitHub: run a workflow on another ref",
+  "family": "github",
+  "support": "real",
+  "support_note": "A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). `gh workflow run` on the default branch runs unasked under a runs grant; with none, or on another ref, it files this request, with the workflow file as title and the ref in refs (aboutOf's dispatch branch).",
+  "prompt": "request",
+  "state": "pending",
+  "story": "An agent asks to run the deploy workflow of example-org/app on an experiment branch, which no runs grant covers.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-35cdfebc0d8689013896966fd8f7dfb6",
+    "source": "github",
+    "jail": "6527d798",
+    "workspace": "/home/dev/code/app",
+    "set": "read-write",
+    "argv": [
+      "workflow",
+      "run",
+      "--repo=example-org/app",
+      "--ref=feature/experiment",
+      "deploy.yml"
+    ],
+    "command": "workflow run --repo=example-org/app --ref=feature/experiment deploy.yml",
+    "repo": "example-org/app",
+    "command_digest": "6016f6529162435cecd2df8e32b1ddd4c74d9e577e8f42722c14a4825ff249d9",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "action": "workflow-dispatch",
+    "target": "workflow runs on example-org/app",
+    "headline": "run a workflow on example-org/app",
+    "title": "deploy.yml",
+    "refs": [
+      "feature/experiment"
+    ],
+    "description": "run a workflow on example-org/app\ntitle: deploy.yml\nref: feature/experiment"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "workflow-dispatch",
+    "YOLO_REQUEST_DESCRIPTION": "run a workflow on example-org/app\ntitle: deploy.yml\nref: feature/experiment",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "run a workflow on example-org/app\ntitle: deploy.yml\nref: feature/experiment",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "run a workflow on example-org/app",
+    "YOLO_REQUEST_ID": "r-35cdfebc0d8689013896966fd8f7dfb6",
+    "YOLO_REQUEST_JAIL": "6527d798",
+    "YOLO_REQUEST_REFS": "feature/experiment",
+    "YOLO_REQUEST_REPO": "example-org/app",
+    "YOLO_REQUEST_SET": "read-write",
+    "YOLO_REQUEST_SUMMARY": "github r-35cdfebc0d8689013896966fd8f7dfb6: set read-write on example-org/app for jail 6527d798, to run: workflow run --repo=example-org/app --ref=feature/experiment deploy.yml [command SHA-256 6016f6529162435cecd2df8e32b1ddd4c74d9e577e8f42722c14a4825ff249d9; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "github r-35cdfebc0d8689013896966fd8f7dfb6: set read-write on example-org/app for jail 6527d798, to run: workflow run --repo=example-org/app --ref=feature/experiment deploy.yml [command SHA-256 6016f6529162435cecd2df8e32b1ddd4c74d9e577e8f42722c14a4825ff249d9; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "workflow runs on example-org/app",
+    "YOLO_REQUEST_TITLE": "deploy.yml",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "id": "github-approve-run",
+  "title": "GitHub: approve a workflow run",
+  "family": "github",
+  "support": "real",
+  "support_note": "A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). FINDING: the request is `gh api -X POST repos/.../actions/runs/<id>/approve` and does not record whose run it is: a fork's run (which always asks) and a run of the repository itself that no approve-run grant covers file the same object, because the broker reads the run's head repository only to decide, never to describe (access.go approveRunOf, readRun).",
+  "prompt": "request",
+  "state": "pending",
+  "story": "A contributor's pull request waits for a workflow run to be approved, and the agent asks to approve it.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-17ea3f7925ef704f911cc0f91521e428",
+    "source": "github",
+    "jail": "6527d798",
+    "workspace": "/home/dev/code/app",
+    "set": "read-write",
+    "argv": [
+      "api",
+      "--method=POST",
+      "repos/example-org/app/actions/runs/9876543210/approve"
+    ],
+    "command": "api --method=POST repos/example-org/app/actions/runs/9876543210/approve",
+    "repo": "example-org/app",
+    "command_digest": "bbd3b5878bf8dcbaa7c1dfaf45969b2a2c26b9883c0a427954c41dfe36162964",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "action": "api",
+    "target": "repository-level writes to example-org/app",
+    "headline": "call the GitHub API on example-org/app",
+    "title": "repos/example-org/app/actions/runs/9876543210/approve",
+    "description": "call the GitHub API on example-org/app\ntitle: repos/example-org/app/actions/runs/9876543210/approve"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "api",
+    "YOLO_REQUEST_DESCRIPTION": "call the GitHub API on example-org/app\ntitle: repos/example-org/app/actions/runs/9876543210/approve",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "call the GitHub API on example-org/app\ntitle: repos/example-org/app/actions/runs/9876543210/approve",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "call the GitHub API on example-org/app",
+    "YOLO_REQUEST_ID": "r-17ea3f7925ef704f911cc0f91521e428",
+    "YOLO_REQUEST_JAIL": "6527d798",
+    "YOLO_REQUEST_REFS": "",
+    "YOLO_REQUEST_REPO": "example-org/app",
+    "YOLO_REQUEST_SET": "read-write",
+    "YOLO_REQUEST_SUMMARY": "github r-17ea3f7925ef704f911cc0f91521e428: set read-write on example-org/app for jail 6527d798, to run: api --method=POST repos/example-org/app/actions/runs/9876543210/approve [command SHA-256 bbd3b5878bf8dcbaa7c1dfaf45969b2a2c26b9883c0a427954c41dfe36162964; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "github r-17ea3f7925ef704f911cc0f91521e428: set read-write on example-org/app for jail 6527d798, to run: api --method=POST repos/example-org/app/actions/runs/9876543210/approve [command SHA-256 bbd3b5878bf8dcbaa7c1dfaf45969b2a2c26b9883c0a427954c41dfe36162964; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "repository-level writes to example-org/app",
+    "YOLO_REQUEST_TITLE": "repos/example-org/app/actions/runs/9876543210/approve",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

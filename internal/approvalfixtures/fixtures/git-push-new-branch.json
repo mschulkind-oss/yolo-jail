@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "id": "git-push-new-branch",
+  "title": "Git: push that creates a new branch",
+  "family": "git",
+  "support": "real",
+  "support_note": "A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go).",
+  "prompt": "request",
+  "state": "pending",
+  "story": "An agent pushes a branch of example-org/app that does not exist on the remote yet, and no create-branch grant covers it.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-6b6c0d914f0729563f5cfddf4875579f",
+    "source": "git",
+    "jail": "1ba5b73c",
+    "workspace": "/home/dev/code/app",
+    "set": "push",
+    "argv": [
+      "git-receive-pack",
+      "0000000000000000000000000000000000000000 2222222222222222222222222222222222222222 refs/heads/agent/add-retry-queue"
+    ],
+    "command": "git-receive-pack '0000000000000000000000000000000000000000 2222222222222222222222222222222222222222 refs/heads/agent/add-retry-queue'",
+    "repo": "example.test/example-org/app",
+    "command_digest": "1aebfa6f844d1a9577d22336a8f240eefc5a5cb9339c9f2cf93423ffc36880cf",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "needs_approval": [
+      "refs/heads/agent/add-retry-queue"
+    ],
+    "action": "push",
+    "target": "example.test/example-org/app",
+    "headline": "push 1 ref to example.test/example-org/app",
+    "refs": [
+      "refs/heads/agent/add-retry-queue"
+    ],
+    "description": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/add-retry-queue"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "push",
+    "YOLO_REQUEST_DESCRIPTION": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/add-retry-queue",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/add-retry-queue",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "push 1 ref to example.test/example-org/app",
+    "YOLO_REQUEST_ID": "r-6b6c0d914f0729563f5cfddf4875579f",
+    "YOLO_REQUEST_JAIL": "1ba5b73c",
+    "YOLO_REQUEST_REFS": "refs/heads/agent/add-retry-queue",
+    "YOLO_REQUEST_REPO": "example.test/example-org/app",
+    "YOLO_REQUEST_SET": "push",
+    "YOLO_REQUEST_SUMMARY": "git r-6b6c0d914f0729563f5cfddf4875579f: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack '0000000000000000000000000000000000000000…[114 chars, sha256 1809827a]' [command SHA-256 1aebfa6f844d1a9577d22336a8f240eefc5a5cb9339c9f2cf93423ffc36880cf; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "git r-6b6c0d914f0729563f5cfddf4875579f: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack &#39;0000000000000000000000000000000000000000…[114 chars, sha256 1809827a]&#39; [command SHA-256 1aebfa6f844d1a9577d22336a8f240eefc5a5cb9339c9f2cf93423ffc36880cf; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "example.test/example-org/app",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

@@ -34,13 +34,341 @@ dt { color: var(--muted); } dd { margin: 0; font-family: ui-monospace, monospace
 </head>
 <body>
 <h1>Approval request gallery</h1>
-<p class="lede">1 fixtures from the shared approval fixture set. Every rendering is labeled: a
+<p class="lede">15 fixtures from the shared approval fixture set. Every rendering is labeled: a
 <span class="kind kind-native-capture">native capture</span> is a screenshot of a real OS notification server with its
 provenance; a <span class="kind kind-preview">preview</span> is an HTML imitation and proves nothing about native rendering;
 <span class="kind kind-missing">missing</span> means no capture exists yet. Real fixtures were filed through yolo's own
 brokers and printed by <code>yolo approve --json</code>; synthetic fixtures describe operations yolo cannot file today.</p>
-<p class="meta">Evidence counts: browser preview: 1; linux missing: 1; macos missing: 1;</p>
+<p class="meta">Evidence counts: browser preview: 15; linux missing: 15; macos missing: 15;</p>
 
+
+<h2 id="family-git">git</h2>
+
+<section class="tile" id="git-push-force">
+<h3>Git: force push to an existing branch</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#git-push-force" class="meta">git-push-force</a></div>
+<p>An agent rewrites the history of a branch of example-org/app and force-pushes it. The request shows the old and new ids and nothing that marks the update as non-fast-forward.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). FINDING: the request does not say a push is forced. A push is the ref commands the client sent, each &#39;&lt;old&gt; &lt;new&gt; &lt;ref&gt;&#39; (gitproto.Command, gitbroker pushArgv); the broker never checks that &lt;new&gt; descends from &lt;old&gt;, so a force push and a fast-forward are the same request, and the headline and refs read the same.</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;1111111111111111111111111111111111111111 4444444444444444444444444444444444444444 refs/heads/agent/fix-retry&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/agent/fix-retry</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/agent/fix-retry</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="git-push-long-names">
+<h3>Git: long branch names and a push option</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#git-push-long-names" class="meta">git-push-long-names</a></div>
+<p>An agent pushes two branches with very long names and a push option the server acts on, to exercise how a notifier truncates.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). The headline counts refs and never names them (pushAbout); the long names reach a notifier only through refs and description.</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;0000000000000000000000000000000000000000 2222222222222222222222222222222222222222 refs/heads/agent/investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-part-1&#39; &#39;1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-part-2&#39; push-option=ci.variable=DEPLOY_ENVIRONMENT_OVERRIDE_FOR_THIS_PUSH_ONLY=staging-eu-west-1-canary</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/agent/investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-part-1
+refs/heads/agent/rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-part-2</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 2 refs to example.test/example-org/app</div>
+<div class="body">push 2 refs to example.test/example-org/app
+ref: refs/heads/agent/investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-investigate-flaky-integration-test-in-the-retry-queue-part-1
+ref: refs/heads/agent/rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-rework-the-ingestion-pipeline-backpressure-handling-part-2</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="git-push-new-branch">
+<h3>Git: push that creates a new branch</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#git-push-new-branch" class="meta">git-push-new-branch</a></div>
+<p>An agent pushes a branch of example-org/app that does not exist on the remote yet, and no create-branch grant covers it.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go).</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;0000000000000000000000000000000000000000 2222222222222222222222222222222222222222 refs/heads/agent/add-retry-queue&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/agent/add-retry-queue</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/agent/add-retry-queue</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="git-push-working-set-miss">
+<h3>Git: push to a branch outside the working set</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#git-push-working-set-miss" class="meta">git-push-working-set-miss</a></div>
+<p>An agent pushes a fix to an existing branch of example-org/app that its working set does not cover, in the same push as a branch that is covered; only the uncovered ref needs approval.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go).</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main&#39; &#39;1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/main</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/main</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<h2 id="family-github">github</h2>
+
+<section class="tile" id="github-approve-run">
+<h3>GitHub: approve a workflow run</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#github-approve-run" class="meta">github-approve-run</a></div>
+<p>A contributor&#39;s pull request waits for a workflow run to be approved, and the agent asks to approve it.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). FINDING: the request is `gh api -X POST repos/.../actions/runs/&lt;id&gt;/approve` and does not record whose run it is: a fork&#39;s run (which always asks) and a run of the repository itself that no approve-run grant covers file the same object, because the broker reads the run&#39;s head repository only to decide, never to describe (access.go approveRunOf, readRun).</p>
+<dl>
+<dt>command</dt><dd>api --method=POST repos/example-org/app/actions/runs/9876543210/approve</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: call the GitHub API on example-org/app</div>
+<div class="body">call the GitHub API on example-org/app
+title: repos/example-org/app/actions/runs/9876543210/approve</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="github-pr-comment">
+<h3>GitHub: comment on a PR</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#github-pr-comment" class="meta">github-pr-comment</a></div>
+<p>An agent posts a long review comment on a pull request of example-org/app.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The comment body is in the canonical argv (--body), so it reaches `command` whole; About carries no title for a comment, so the headline and description name only the PR.</p>
+<dl>
+<dt>command</dt><dd>pr comment --repo=example-org/app &#39;--body=Thanks for the update. I re-ran the ingestion benchmarks against this branch and the p95 latency is unchanged, but the retry queue now drains in about half the time. Two follow-ups before merging: the backoff constant should come from config rather than a literal, and the new test should assert the dead-letter path as well as the happy path. I have not touched either; tell me which you want me to take. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. &#39; 42</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: write to PR example-org/app#42</div>
+<div class="body">write to PR example-org/app#42</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="github-workflow-run">
+<h3>GitHub: run a workflow on another ref</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#github-workflow-run" class="meta">github-workflow-run</a></div>
+<p>An agent asks to run the deploy workflow of example-org/app on an experiment branch, which no runs grant covers.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). `gh workflow run` on the default branch runs unasked under a runs grant; with none, or on another ref, it files this request, with the workflow file as title and the ref in refs (aboutOf&#39;s dispatch branch).</p>
+<dl>
+<dt>command</dt><dd>workflow run --repo=example-org/app --ref=feature/experiment deploy.yml</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: run a workflow on example-org/app</div>
+<div class="body">run a workflow on example-org/app
+title: deploy.yml
+ref: feature/experiment</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
 
 <h2 id="family-circleci">circleci</h2>
 
@@ -82,6 +410,314 @@ brokers and printed by <code>yolo approve --json</code>; synthetic fixtures desc
 <div class="ttl">yolo: rerun failed jobs of workflow 8f14e45f in gh/example-org/app</div>
 <div class="body">rerun failed jobs of workflow 8f14e45f in gh/example-org/app
 workflow: main (failed, 2 of 14 jobs)</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="circleci-run-list">
+<h3>CircleCI: list a project&#39;s runs (no prompt)</h3>
+<div><span class="badge real">real</span><span class="badge state">no-prompt</span><a href="#circleci-run-list" class="meta">circleci-run-list</a></div>
+<p>An agent lists the recent runs of an approved example-org/app project; the call runs under the workspace&#39;s read grant and the human is never asked.</p>
+<p class="meta">Policy files no request for it, so there is nothing to capture. The circleci classifier (internal/circleciclassify/classifier.go Classify) answers a project-scoped `run list` with Reads only and no Writes; callbroker&#39;s serveCLI (internal/callbroker/handler.go) files a request only for a call with Writes, and runs a read under the read grant or refuses it (read grant missing, classifier refused) without ever asking. The gallery must not invent a prompt.</p>
+
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="noprompt">No notification: policy runs this operation without asking, so there is nothing to render.</div>
+
+</div>
+
+</div>
+</section>
+
+<h2 id="family-cross-cutting">cross-cutting</h2>
+
+<section class="tile" id="state-allowed-once">
+<h3>Allowed once</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">allowed</span><a href="#state-allowed-once" class="meta">state-allowed-once</a></div>
+<p>The human allows a PR comment once; the agent&#39;s retry of the same command then runs.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The answer is `yolo approve &lt;id&gt;`; the request object is the request-decided event of `--watch --json`.</p>
+<dl>
+<dt>command</dt><dd>pr comment --repo=example-org/app &#39;--body=Looks good to me.&#39; 42</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --watch --json (request-decided)</dd>
+</dl>
+<dl><dt>decision</dt><dd>yolo approve r-e631a4143705f6fbd611e4bab793b820 → exit 0</dd></dl>
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: write to PR example-org/app#42</div>
+<div class="body">write to PR example-org/app#42</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="state-decided-elsewhere">
+<h3>Answered by another front end first</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">decided-elsewhere</span><a href="#state-decided-elsewhere" class="meta">state-decided-elsewhere</a></div>
+<p>The human allows a request from a terminal while its notification is still on screen; a click on the notification then finds it already decided.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The request object is the allowed request after the first answer (request-decided event); the recorded call is the second `yolo approve &lt;id&gt;`, which exits 3.</p>
+<dl>
+<dt>command</dt><dd>pr comment --repo=example-org/app &#39;--body=Looks good to me.&#39; 42</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --watch --json (request-decided), then a second yolo approve &lt;id&gt;</dd>
+</dl>
+<dl><dt>decision</dt><dd>yolo approve r-03321b43eb2a0d027d996f475abdaff0 → exit 3</dd><dt>stderr</dt><dd>yolo approve: request r-03321b43eb2a0d027d996f475abdaff0 is already allowed. Next: run `yolo approve` to see its state; the agent re-runs its command to file a new request.
+</dd></dl>
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: write to PR example-org/app#42</div>
+<div class="body">write to PR example-org/app#42</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="state-denied">
+<h3>Denied with a note</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">denied</span><a href="#state-denied" class="meta">state-denied</a></div>
+<p>The human denies a push and tells the agent why; the request ends denied.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). The denial is `yolo approve &lt;id&gt; --deny --note &lt;text&gt;`; the request object is the request-decided event of `--watch --json`.</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main&#39; &#39;1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/main</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --watch --json (request-decided)</dd>
+</dl>
+<dl><dt>decision</dt><dd>yolo approve r-b434c78f560449130249e63dfd01eed2 --deny --note Do not push to main from an agent; open a branch instead. → exit 0</dd></dl>
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/main</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="state-expired">
+<h3>Expired unanswered</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">expired</span><a href="#state-expired" class="meta">state-expired</a></div>
+<p>Nobody answers a push request for an hour, and it expires.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). A request nobody answers expires after an hour (brokerstore.PendingLife); the request object is the request-expired event of `--watch --json`, with the store&#39;s clock moved past it.</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main&#39; &#39;1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/main</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --watch --json (request-expired)</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/main</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="state-hook-failure">
+<h3>The on_request hook failed</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">pending</span><a href="#state-hook-failure" class="meta">state-hook-failure</a></div>
+<p>The user&#39;s notification hook cannot reach a notification daemon, so the request waits and the listing says the user may not have been notified.</p>
+<p class="meta">A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). The request is filed under a real brokerhook.Runner whose hook exits 1; the runner records hook_failure and hook_output on the request (brokerhook.go noteFailure), and `--json` prints them.</p>
+<dl>
+<dt>command</dt><dd>git-receive-pack &#39;1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main&#39; &#39;1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry&#39;</dd>
+<dt>source</dt><dd>git (set push)</dd>
+<dt>repository</dt><dd>example.test/example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+<dt>needs approval</dt><dd>refs/heads/main</dd>
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+<dt>hook failure</dt><dd>hook exited 1: notify-send: Cannot autolaunch D-Bus without X11 $DISPLAY</dd>
+<dt>captured with</dt><dd>yolo approve --json</dd>
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: push 1 ref to example.test/example-org/app</div>
+<div class="body">push 1 ref to example.test/example-org/app
+ref: refs/heads/main</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+<section class="tile" id="state-stale">
+<h3>Pending but no longer confirmable</h3>
+<div><span class="badge real">real</span><span class="badge">captured</span><span class="badge state">stale</span><a href="#state-stale" class="meta">state-stale</a></div>
+<p>The jail that filed a request is gone, so its notification can no longer be answered with Allow; only a denial works.</p>
+<p class="meta">A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The launch&#39;s scope file is gone, so the host can no longer confirm the request: `yolo approve &lt;id&gt;` revalidates against it and exits 6 (approveExitNotConfirmed).</p>
+<dl>
+<dt>command</dt><dd>pr comment --repo=example-org/app &#39;--body=Looks good to me.&#39; 42</dd>
+<dt>source</dt><dd>github (set read-write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+<dt>captured with</dt><dd>yolo approve --json, then the launch&#39;s scope file removed</dd>
+</dl>
+<dl><dt>decision</dt><dd>yolo approve r-c4d7487187661e0ada4d61035723433a → exit 6</dd><dt>stderr</dt><dd>yolo approve: open /home/dev/.local/share/yolo-jail/broker/github/scope/capture-github.json: no such file or directory. Next: deny it with `yolo approve &lt;id&gt; --deny`, or let it expire; if its jail still runs, restart it and have the agent re-run its command to file a new request.
+</dd></dl>
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: write to PR example-org/app#42</div>
+<div class="body">write to PR example-org/app#42</div>
 <div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
 </div>
 

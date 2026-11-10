@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "id": "github-pr-comment",
+  "title": "GitHub: comment on a PR",
+  "family": "github",
+  "support": "real",
+  "support_note": "A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The comment body is in the canonical argv (--body), so it reaches `command` whole; About carries no title for a comment, so the headline and description name only the PR.",
+  "prompt": "request",
+  "state": "pending",
+  "story": "An agent posts a long review comment on a pull request of example-org/app.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-a30b5b6701f128cda53830e0c8dd5733",
+    "source": "github",
+    "jail": "6527d798",
+    "workspace": "/home/dev/code/app",
+    "set": "read-write",
+    "argv": [
+      "pr",
+      "comment",
+      "--repo=example-org/app",
+      "--body=Thanks for the update. I re-ran the ingestion benchmarks against this branch and the p95 latency is unchanged, but the retry queue now drains in about half the time. Two follow-ups before merging: the backoff constant should come from config rather than a literal, and the new test should assert the dead-letter path as well as the happy path. I have not touched either; tell me which you want me to take. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. ",
+      "42"
+    ],
+    "command": "pr comment --repo=example-org/app '--body=Thanks for the update. I re-ran the ingestion benchmarks against this branch and the p95 latency is unchanged, but the retry queue now drains in about half the time. Two follow-ups before merging: the backoff constant should come from config rather than a literal, and the new test should assert the dead-letter path as well as the happy path. I have not touched either; tell me which you want me to take. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. Detail line for the benchmark table. ' 42",
+    "repo": "example-org/app",
+    "command_digest": "cd484f1328f70ebee349785c7324ad209a42af349dcf606f04e0c3825182a21f",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "action": "pr-write",
+    "target": "PR example-org/app#42",
+    "headline": "write to PR example-org/app#42",
+    "description": "write to PR example-org/app#42"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "pr-write",
+    "YOLO_REQUEST_DESCRIPTION": "write to PR example-org/app#42",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "write to PR example-org/app#42",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "write to PR example-org/app#42",
+    "YOLO_REQUEST_ID": "r-a30b5b6701f128cda53830e0c8dd5733",
+    "YOLO_REQUEST_JAIL": "6527d798",
+    "YOLO_REQUEST_REFS": "",
+    "YOLO_REQUEST_REPO": "example-org/app",
+    "YOLO_REQUEST_SET": "read-write",
+    "YOLO_REQUEST_SUMMARY": "github r-a30b5b6701f128cda53830e0c8dd5733: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app '--body=[redacted]' 42 [command SHA-256 cd484f1328f70ebee349785c7324ad209a42af349dcf606f04e0c3825182a21f; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "github r-a30b5b6701f128cda53830e0c8dd5733: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app &#39;--body=[redacted]&#39; 42 [command SHA-256 cd484f1328f70ebee349785c7324ad209a42af349dcf606f04e0c3825182a21f; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "PR example-org/app#42",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "circleci-run-list",
+  "title": "CircleCI: list a project's runs (no prompt)",
+  "family": "circleci",
+  "support": "real",
+  "support_note": "Policy files no request for it, so there is nothing to capture. The circleci classifier (internal/circleciclassify/classifier.go Classify) answers a project-scoped `run list` with Reads only and no Writes; callbroker's serveCLI (internal/callbroker/handler.go) files a request only for a call with Writes, and runs a read under the read grant or refuses it (read grant missing, classifier refused) without ever asking. The gallery must not invent a prompt.",
+  "prompt": "none",
+  "state": "no-prompt",
+  "story": "An agent lists the recent runs of an approved example-org/app project; the call runs under the workspace's read grant and the human is never asked.",
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

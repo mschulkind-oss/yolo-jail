@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "id": "state-stale",
+  "title": "Pending but no longer confirmable",
+  "family": "cross-cutting",
+  "support": "real",
+  "support_note": "A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The launch's scope file is gone, so the host can no longer confirm the request: `yolo approve <id>` revalidates against it and exits 6 (approveExitNotConfirmed).",
+  "prompt": "request",
+  "state": "stale",
+  "story": "The jail that filed a request is gone, so its notification can no longer be answered with Allow; only a denial works.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json, then the launch's scope file removed",
+  "request": {
+    "schema": 1,
+    "id": "r-c4d7487187661e0ada4d61035723433a",
+    "source": "github",
+    "jail": "6527d798",
+    "workspace": "/home/dev/code/app",
+    "set": "read-write",
+    "argv": [
+      "pr",
+      "comment",
+      "--repo=example-org/app",
+      "--body=Looks good to me.",
+      "42"
+    ],
+    "command": "pr comment --repo=example-org/app '--body=Looks good to me.' 42",
+    "repo": "example-org/app",
+    "command_digest": "4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "action": "pr-write",
+    "target": "PR example-org/app#42",
+    "headline": "write to PR example-org/app#42",
+    "description": "write to PR example-org/app#42"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "pr-write",
+    "YOLO_REQUEST_DESCRIPTION": "write to PR example-org/app#42",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "write to PR example-org/app#42",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "write to PR example-org/app#42",
+    "YOLO_REQUEST_ID": "r-c4d7487187661e0ada4d61035723433a",
+    "YOLO_REQUEST_JAIL": "6527d798",
+    "YOLO_REQUEST_REFS": "",
+    "YOLO_REQUEST_REPO": "example-org/app",
+    "YOLO_REQUEST_SET": "read-write",
+    "YOLO_REQUEST_SUMMARY": "github r-c4d7487187661e0ada4d61035723433a: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app '--body=[redacted]' 42 [command SHA-256 4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "github r-c4d7487187661e0ada4d61035723433a: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app &#39;--body=[redacted]&#39; 42 [command SHA-256 4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "PR example-org/app#42",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "decision": {
+    "argv": [
+      "approve",
+      "r-c4d7487187661e0ada4d61035723433a"
+    ],
+    "exit": 6,
+    "stderr": "yolo approve: open /home/dev/.local/share/yolo-jail/broker/github/scope/capture-github.json: no such file or directory. Next: deny it with `yolo approve <id> --deny`, or let it expire; if its jail still runs, restart it and have the agent re-run its command to file a new request.\n"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}
