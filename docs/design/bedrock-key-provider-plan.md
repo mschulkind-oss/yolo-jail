@@ -3,7 +3,7 @@ title: "Bedrock-key provider: implementation plan"
 date: 2026-11-10
 status: accepted
 stage: BUILT
-next: "Land on main after review and the landing gate; the Mac agent then runs W-BK1 to W-BK3"
+next: "Landed at `e946cfc39`; the owner's Mac agent runs W-BK1 to W-BK3 at main and files a lab report"
 depends-on:
   - bedrock-key-provider.md
   - secret-env-scoping.md
@@ -227,7 +227,7 @@ The Linux suite drives that arm only through a stub backend (`TestAMixedBedrockL
 `TestClaudeAtTheBridgeOnMacosUserHoldsNoBedrockAPIKey`). None of these holds the landing; they run on main
 after it.
 
-**Shared setup for every witness.** At main at the first commit containing `d95b06451`, or later. The
+**Shared setup for every witness.** At main `e946cfc39` or later. The
 installed `yolo` built from that main (`just install` on the Mac). A fresh workspace,
 `/Users/Shared/yolo/bedrock-key`, holding an empty `yolo-jail.toml`. A host AWS profile with a live SSO
 session (`aws sso login --profile <p>` done). The user config `~/.config/yolo-jail/config.toml` holds:
