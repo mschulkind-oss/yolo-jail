@@ -106,7 +106,7 @@ Then the three witnesses, with `--setup seatbelt-self` in `/Users/Shared/yolo/be
 
 - **`-p claude=bedrock-key`** exits 0 with *"Not started: the aws-auth jail daemon, because no
   agent's selected provider is on platform "aws-bedrock" and claims a variable its pointer sets,
-  which it serves; select one (`-p <agent>=bedrock`) to start it `(providers.md OQ-CN7)`."*, and with
+  which it serves; select one (`-p <agent>=bedrock`) to start it (providers.md [`OQ-CN7`](../reference/providers.md#oq-cn7))."*, and with
   no `Opened the "aws-auth" doorway` line.
 - **`-p claude=bedrock`** opens the doorway, then exits 1:
 
