@@ -9,14 +9,14 @@ depends-on:
   - browser-trust-boundary.md
   - request-history-and-privacy.md
 tags: [design, approvals, queue, browser, sse, watch]
-summary: "The optional web request queue (W2) as a separate program that shells out to yolo approve --json and --watch --json. Every full snapshot replaces the queue's state wholesale; watch events only update it between snapshots and can never outlive the next one. Freshness is a visible, computed state. The browser receives whole state over server-sent events, so a reconnect is a fresh copy, never a replay."
+summary: "The optional web request queue (W2) as a host command, `yolo approve --web`, that runs the current `yolo` as a child for yolo approve --json and --watch --json. Every full snapshot replaces the queue's state wholesale; watch events only update it between snapshots and can never outlive the next one. Freshness is a visible, computed state. The browser receives whole state over server-sent events, so a reconnect is a fresh copy, never a replay."
 ---
 
 # A read-only browser queue over a lossy watch stream: snapshot is truth, events are hints
 
-**Status:** 2026-11-09. Checked against yolo `04f300a9e`. The read-only experiment is built out of
-tree in a local, unpublished repository `yolo-approval-queue`, tested against a fake `yolo` replaying
-recorded output. UNMEASURED: it has not been run against a live host store with real jails filing
+**Status:** 2026-11-09. Checked against yolo `04f300a9e`. The read-only experiment is built in yolo as
+`yolo approve --web` ([`internal/approvalqueue/`](../../../internal/approvalqueue/), run from a checkout
+with `just dev-approvals`), tested against a fake `yolo` replaying recorded output. UNMEASURED: it has not been run against a live host store with real jails filing
 requests.
 
 > **In short.** The queue never trusts the watch stream to be complete. A full `yolo approve --json`
@@ -219,7 +219,7 @@ rulings.
 
 | Failure | Handling |
 | :--- | :--- |
-| `yolo` not found or not runnable | Startup fails with the path tried and `--yolo <path>` as the next step. |
+| This `yolo` executable cannot be found | Startup fails saying so and naming `yolo approve --json` as the next step to see whether yolo itself works. |
 | `--json` exits non-zero or times out (60 s) | Model goes **Stale** with the exit code and the first 4 KiB of stderr as text; retried at the next interval. |
 | `--json` prints invalid JSON or a schema other than 1 | Stale, reason "unsupported output"; for schema ≠ 1 the reason names the schema seen and says to update the queue. |
 | Watch child exits | Restart after 1 s, doubling to at most 30 s, reset after 60 s of running; each restart triggers a snapshot. Model is **Stale** until the restarted watch's opening line arrives. |
@@ -231,13 +231,14 @@ rulings.
 ## 9. One command
 
 ```sh
-go run . [--yolo yolo] [--listen 127.0.0.1:0] [--reconcile 15s]
+yolo approve --web [--listen 127.0.0.1:0] [--reconcile 15s] [--assets <dir>] [--no-open]
 ```
 
 It checks that `yolo` runs, takes the first snapshot, starts the watch, binds the listener (a random
 free port by default), and prints the one-time bootstrap URL that
 [`browser-trust-boundary.md` §8](browser-trust-boundary.md#8-the-read-only-slice-requirements)
-prescribes; pressing Enter prints a fresh one. It refuses a listen address that is not a loopback
+prescribes, and opens the browser on a launcher file unless `--no-open` is given; pressing Enter prints a
+fresh one. It refuses a listen address that is not a loopback
 address, and refuses to start when its standard output is not a terminal, because the bootstrap
 code must reach only the person at that terminal. It runs on the host; inside a jail `yolo approve` refuses
 (the store is host-only), and the queue reports that refusal as its startup error.

@@ -234,7 +234,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
 29. [Build agent access approvals in the maintainer's five steps](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
     he set the order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host CLI to
     view and approve, a web UI out of tree on that CLI, then a talk about merging it. Alongside that foundation,
-    [coordinate the notification gallery, optional queue and broader service-mediation proposals](../design/approval-experience/README.md).
+    [coordinate the notification gallery, optional queue and broader service-mediation proposals](../design/approval-experience/README.md),
+    with [the browser trust boundary](../design/approval-experience/browser-trust-boundary.md) that gates any queue mutation.
     The git source and the paste-to-host stopgap are built, and the user guide covers them
     ([git](../../userguide/guides/git.md), [running a host command](../../userguide/guides/host-commands.md),
     [approvals](../../userguide/guides/approvals.md)). What remains of the maintainer's 2026-10-23 ask (*"proper

@@ -155,39 +155,61 @@ receive. Origin-scoped storage (`sessionStorage`) is keyed by scheme, host *and 
 
 ### 4.2 The flow
 
+The owner ruled the shape on 2026-11-09: *"a host command ... launches a URL to a browser with a
+preshared key"*. A browser opened on a URL puts that URL in the opener's argv, and a separate macOS
+agent account can read every process's argv. So the queue opens the browser on a small launcher
+file and puts only the file's path in argv.
+
 ```mermaid
 sequenceDiagram
     participant T as Starting terminal (host)
     participant Q as Queue process
+    participant F as Launcher file (0600, in a 0700 directory)
     participant B as Browser tab
     Q->>Q: mint code (128-bit, single use, 120 s) in memory
-    Q->>T: print http://127.0.0.1:P/#code=C
-    T->>B: user clicks or pastes
+    Q->>F: write a page that redirects to http://127.0.0.1:P/#code=C
+    Q->>T: print the same URL
+    Q->>B: xdg-open or open, argv is the file's path only
+    B->>F: read the file, follow the redirect
     B->>Q: GET / (no secret in the request)
     B->>B: read location.hash, history.replaceState to "/"
     B->>Q: POST /api/session {code: C}, Origin checked
     Q->>B: {token} (256-bit), code burned
+    Q->>F: delete the file
     B->>B: sessionStorage.token = token
     B->>Q: every data request: Authorization: Bearer token
 ```
 
 | Property | Decision |
 | :--- | :--- |
-| Minting | `crypto/rand`; code 16 bytes, token 32 bytes, both base64url; held only in the process's memory |
-| Code delivery | Printed once to the starting terminal, in the URL **fragment**, which browsers never send to a server or put in a `Referer` |
+| Minting | `crypto/rand`; code 16 bytes, token 32 bytes, both base64url; held in the process's memory |
+| Code delivery | Two routes, one code. The URL is printed once to the starting terminal, and the same URL sits in a launcher file the queue opens in the browser. Either way the code is in the URL **fragment**, which browsers never send to a server or put in a `Referer` |
+| Launcher file | A page with a meta refresh to the URL, mode `0600`, in a fresh `0700` directory under `$XDG_RUNTIME_DIR` when it is an absolute path on Linux, else the system temporary directory. The opener is `xdg-open` on Linux and `open` on macOS, and its argv is that opener and the file's path, never the code. This is the one deliberate on-disk copy of a code |
+| Launcher file lifetime | Deleted after the exchange succeeds, after 120 s, when Enter makes a new link, and on exit. It is written and recorded before its code can be exchanged, so an exchange always finds the file it must delete |
 | Code lifetime | Single use; expires 120 s after printing; one live code at a time. Pressing Enter in the queue's terminal mints a new one and burns the old |
+| `--no-open` | No launcher file and no browser; the printed URL is the only way in |
 | Guessing | A 128-bit code cannot be guessed, so failures never burn it: burning would let a jail that found the port destroy every fresh code. Nor are failures throttled, which a jail could hog the same way. Every exchange is checked in constant time and a correct live code always succeeds; after the fifth failure the terminal warns once that something on this machine is guessing |
+| Race alarm | A code that was already traded and is presented again: every session token is revoked, the exchange answers 409, and the terminal prints one warning for that code. See below |
 | Token lifetime | Until the process exits; at most 8 live tokens, oldest dropped |
 | Comparison | Constant time |
+| Server limits | Read-header, read and idle timeouts, and a cap on header size, so a stalled or idle client cannot hold the listener |
 | Storage in the browser | `sessionStorage` of the queue's exact origin; survives reload, not a new tab |
-| Never | On disk, in argv, in environment passed to children, in a log line, in a URL the server receives, in a cookie |
+| Never | In argv, in environment passed to children, in a log line, in a URL the server receives, in a cookie, or on disk beyond the launcher file's lifetime above |
 
-**Refuse a non-terminal start.** The code is printed only when standard output is a terminal.
-Otherwise the queue exits naming the fix (run it directly in a terminal). This is what keeps the
-code out of `yolo host-run`, whose output is a pipe delivered to the jail
+**Refuse a non-terminal start.** The code is printed, and a launcher file written, only when standard
+output is a terminal. Otherwise the queue exits naming the fix (run it directly in a terminal). This
+is what keeps the code out of `yolo host-run`, whose output is a pipe delivered to the jail
 ([`hostrun.go`](../../../internal/cli/hostrun.go#L43)), and out of any redirect or tee into a
-mountable log. **No automatic browser launch:** the opener's argv would carry the code where `ps`
-shows it to other users and to a `macos-user` agent.
+mountable log.
+
+**The race alarm, and why it opens nothing.** The launcher file and the terminal both hold the code,
+so another process of the same user could read it before the person's browser does. When that
+happens the person's tab arrives second and presents a spent code. That is a detected event, not a
+silent session: every token is revoked and the terminal warns, once per spent code, that something
+else on the machine read the link. It deliberately makes no new link and opens no browser. Whoever
+replays a spent code could otherwise keep the person locked out and open tabs without limit, so
+the person presses Enter for a new link once they have found the cause. Later replays of an
+alarmed code answer 409 and change nothing.
 
 ### 4.3 Residue of the URL, checked
 
@@ -197,6 +219,8 @@ shows it to other users and to a `macos-user` agent.
 | `Referer` | Fragments are never sent; `Referrer-Policy: no-referrer` regardless |
 | Server and proxy logs | The server never receives the fragment |
 | Terminal scrollback | Host-user only; burned after one use or 120 s |
+| The launcher file | Host-user only, `0600` in a `0700` directory; deleted after the exchange, after 120 s, on a new link and on exit. A same-user process that reads it first is the race alarm above |
+| The opener's argv | The file's path only, so `ps` shows no code to other users or to a `macos-user` agent |
 | A jail | Reaches none of the above |
 
 ### 4.4 Alternatives
@@ -206,7 +230,8 @@ shows it to other users and to a `macos-user` agent.
 | `HttpOnly; SameSite=Strict` cookie | Rejected: leaks across ports to jail listeners ([§4.1](#41-why-not-the-cookie)) |
 | Cookie scoped to a secret path prefix | Rejected: the secret then sits permanently in the address bar and every history entry |
 | Token in the URL query for the whole session | Rejected: sent to the server, logged, kept in history |
-| Code in a `0600` file under the host state directory | Rejected as primary: mountable ([§2](#2-threat-model)); also no new-tab advantage |
+| No automatic browser launch, the URL only on the terminal | Superseded by the owner's 2026-11-09 ruling. Passing the URL to the opener would put the code in argv; the launcher file keeps argv to a path |
+| Code in a `0600` file under the host state directory | Rejected: mountable ([§2](#2-threat-model)). The launcher file differs: a fresh `0700` directory under the runtime or temporary directory, not the state directory, deleted within 120 s |
 | Unix socket plus a browser extension | Rejected for now: peer credentials would be real, but an extension is per-browser install and its own review |
 | TLS client certificate | Rejected: certificate enrollment and per-browser stores for a localhost tool |
 | OS keychain | Rejected: the browser cannot read it, so it only moves the delivery problem |
@@ -344,11 +369,16 @@ line, a closed connection, an injected clock), never on elapsed time.
 | T6 | Frame the page from another origin | Blocked; CSP and `X-Frame-Options` on every response | Browser; unit | Read-only |
 | T7 | Served HTML has no inline script or `on*` attribute; CSP exact | Parse finds none | Unit | Read-only |
 | T8 | Hostile fixture: `<script>`, `<img onerror>`, `javascript:` and `data:` URLs, `ESC[31m`, U+202E, zero-width, NUL, a 1 MiB field | No script runs (a sentinel global stays unset), no dialog, no request off-origin, zero links from data, controls shown as markers, the whole field present | Browser | Read-only |
-| T9 | Bootstrap: reuse a code; use after 120 s (injected clock); six bad codes, then the right one; reload | 401; 401; one terminal warning, and the right code still succeeds; token survives reload | Unit; browser | Read-only |
+| T9 | Bootstrap: reuse a code; use after 120 s (injected clock); six bad codes, then the right one; reload | Reuse is the race alarm (409, tokens revoked, see L3); 401; one terminal warning, and the right code still succeeds; token survives reload | Unit; browser | Read-only |
 | T10 | After load, the address bar and current history entry | No fragment; the exchange is a `POST` body, never a URL the server logs | Browser | Read-only |
-| T11 | Search the workspace, `~/.local/share/yolo-jail` (logs included), `~/.config/yolo-jail`, `/tmp`, the queue's `/proc/<pid>/cmdline` and `environ`, and its children's, for the code and token | Absent | Unit (Linux); real jail for the mounted view | Read-only |
+| T11 | Search the workspace, `~/.local/share/yolo-jail` (logs included), `~/.config/yolo-jail`, `/tmp`, the queue's `/proc/<pid>/cmdline` and `environ`, and its children's, for the code and token | Absent, except the launcher file while it lives (L2) | Unit (Linux); real jail for the mounted view | Read-only |
 | T12 | Start with standard output a pipe, and under `yolo host-run` | Refuses, prints no code, names the fix | Unit; real host | Read-only |
 | T13 | Server log after T1 to T12 | Contains no code, token or `Authorization` value | Unit | Read-only |
+| L1 | Start with the opener injected | Launcher file mode `0600` in a `0700` directory; the opener's argv is the file's path only, with no code | Unit | Read-only |
+| L2 | Exchange the code; separately, advance an injected clock past 120 s; separately, press Enter; separately, exit | The launcher file is gone after each; an exchange cannot run before the file is recorded | Unit | Read-only |
+| L3 | Replay a spent code 14 times | 409 each time; every token revoked; one terminal warning; no new link; no opener call | Unit; end to end | Read-only |
+| L4 | A real `xdg-open` or `open` on the launcher file | A real browser lands on the page and trades the code | Real desktop session; Mac | Read-only |
+| L5 | `Main` with a piped standard output; `systemOpen`'s argv; the runtime-directory choice | Refuses and writes no file; argv is opener and path; `$XDG_RUNTIME_DIR` used on Linux when absolute, else the temporary directory | Unit | Read-only |
 | T14 | Browser Allow and terminal `yolo approve` race on one request against a real temporary store | Exactly one decision in the store and audit; the loser is shown "already decided" | Unit with real store | Mutation |
 | T15 | Request changes between display and click (state, digest, refs, expiry) | 409 with the fresh view; fake `yolo` saw no decision call | Unit | Mutation |
 | T16 | `deny-only` source | No Allow rendered; a forged Allow is 409 and runs nothing | Unit; browser | Mutation |
@@ -364,12 +394,16 @@ The read-only experiment implements exactly this, and has no mutation route at a
 `/api/decision`, no code path that runs `yolo approve` with an id.
 
 1. **Listener:** `127.0.0.1`, port 0 by default; a non-loopback `--listen` refused.
-2. **Start:** refuse unless standard output is a terminal, naming the fix; never open a browser.
+2. **Start:** refuse unless standard output is a terminal, naming the fix. Open the browser on a
+   launcher file ([§4.2](#42-the-flow)), never on the URL; `--no-open` skips it.
 3. **Secrets:** bootstrap code 16 bytes and session token 32 bytes from `crypto/rand`, base64url, in
-   memory only; never written to disk, argv, child environment or any log.
-4. **Code delivery:** print `http://127.0.0.1:<port>/#code=<code>` once; single use; 120 s; one live
-   code; Enter in the terminal mints a fresh one; after five failed exchanges, one terminal warning;
-   failures never burn the code and are never throttled.
+   memory only; never written to disk except the launcher file's code (item 4), never in argv, child
+   environment or any log.
+4. **Code delivery:** print `http://127.0.0.1:<port>/#code=<code>` once and write it into the launcher
+   file; single use; 120 s; one live code; Enter in the terminal mints a fresh one; after five
+   failed exchanges, one terminal warning; failures never burn the code and are never throttled.
+   A spent code presented again revokes every token and warns once per code, with no new link and no
+   browser opened.
 5. **Exchange:** the page reads `location.hash`, calls `history.replaceState(null, "", "/")` first,
    then `POST /api/session` with the code in a JSON body; stores the returned token in
    `sessionStorage`; on 401 shows "This link was used or expired: press Enter in the queue's
@@ -387,7 +421,7 @@ The read-only experiment implements exactly this, and has no mutation route at a
     argv values masked behind a per-value Show, as
     [`request-history-and-privacy.md` §6](request-history-and-privacy.md#6-what-a-read-only-view-may-show) rules.
 11. **Logging:** peer address may be logged; code, token and `Authorization` never.
-12. **Tests:** T1 to T13. T3 to T13 run in CI; T1, T2 and T12's `yolo host-run` case need a real
+12. **Tests:** T1 to T13 and L1 to L5. T3 to T13 and L1 to L3 and L5 run in CI; T1, T2 and T12's `yolo host-run` case need a real
     host and a real jail on a rootless host, and the slice's first report says which have run.
 
 ## 9. Risks
