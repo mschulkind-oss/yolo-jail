@@ -2,8 +2,8 @@
 title: "A provider may inherit another provider's settings"
 date: 2026-11-10
 status: accepted
-stage: DECIDED
-next: "Build per the plan below; graduate into docs/reference/providers.md once landed"
+stage: BUILT
+next: "Graduate the remaining argument into docs/reference/providers.md, which already documents the key, and delete this doc"
 depends-on:
   - bedrock-key-provider.md
   - model-lists-and-pickers.md
@@ -14,7 +14,8 @@ summary: "A provider's `inherits = \"<provider>\"` takes another provider's comp
 # A provider may inherit another provider's settings
 
 **Status:** 2026-11-10. Three questions ruled by the owner on 2026-11-10; every other choice is a
-lead decision in the [ledger](#decision-ledger). Building.
+lead decision in the [ledger](#decision-ledger). Built and landed on main the same day; the key is
+documented in [`providers.md`](../reference/providers.md) and `yolo config-ref`.
 
 > **In short.** `bedrock-key` is `bedrock` with a different credential. The fix says so in one
 > key: `inherits = "bedrock"` on the shipped `bedrock-key`. The owner's config writes the model
