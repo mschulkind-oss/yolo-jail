@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -271,6 +272,13 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 		}
 		for _, kind := range kinds {
 			g, declared := loopholeGrantByKind(d.Grants, kind)
+			if !declared && isCallBrokerCellToken(kind) {
+				// A call-broker source named like its pack (circleci, aws-s3) keeps its cell
+				// ceilings in this same table; the call-broker reader owns them
+				// (callBrokerCeiling). A `table.cell` token is never a grant kind, whose
+				// spelling has no dot, so skipping it widens no grant.
+				continue
+			}
 			if !declared {
 				return read, fmt.Errorf("%s lists %s, which the %s pack does not declare; its grant kinds are %s",
 					path, kind, d.Pack, strings.Join(loopholeGrantKinds(d.Grants), ", "))
@@ -297,6 +305,15 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 // loopholeRequestsOf reads `requests.<pack>`'s grant kinds: true for an unvalued kind, a list of
 // strings for a valued one. `false` and an empty list ask for nothing and are left out. A key
 // that is not a kind is left to the settings reader.
+// isCallBrokerCellToken is a call-broker ceiling entry, `working_set.<cell>` or `all.<cell>`,
+// as `yolo allow <source> on_request <table>.<cell>` writes it.
+func isCallBrokerCellToken(token string) bool {
+	table, cell, ok := strings.Cut(token, ".")
+	return ok && (table == "working_set" || table == "all") && callBrokerCellNameRE.MatchString(cell)
+}
+
+var callBrokerCellNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
 func loopholeRequestsOf(requests *jsonx.OrderedMap, d LoopholeGrantDeclaration) (map[string][]string, error) {
 	out := map[string][]string{}
 	value, present := requests.Get(d.Pack)
