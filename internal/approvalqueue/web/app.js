@@ -5,7 +5,7 @@
 (function () {
   var TOKEN_KEY = 'yolo-queue-token';
   var LINK_DEAD = "This link was used or expired: press Enter in the queue's terminal for a new one.";
-  var LINK_RACE = "This link was already used by something else on this machine. Every session was ended and the terminal has a new link: treat this as a possible intruder.";
+  var LINK_RACE = "This link was already used by something else on this machine. Every session was ended: treat this as a possible intruder, and press Enter in the queue's terminal for a new link once you have found the cause.";
   var BANNER_CLASS = { 'live': 'live', 'stale': 'stale', 'never-loaded': 'never' };
   var REVEAL = {}; // "request id#index" -> true while one masked value is shown
   var current = null;

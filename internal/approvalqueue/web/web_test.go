@@ -93,3 +93,18 @@ func TestAppJSIsValidJavaScript(t *testing.T) {
 		t.Fatalf("node --check: %v\n%s", err, out)
 	}
 }
+
+// The race alarm ends every session and makes no new link (the person presses Enter once the cause
+// is found), so the page must not tell them a new link is waiting.
+func TestTheRaceMessageSendsThePersonToEnterNotToANewLink(t *testing.T) {
+	m := regexp.MustCompile(`var LINK_RACE = "([^"]*)"`).FindStringSubmatch(read(t, "app.js"))
+	if m == nil {
+		t.Fatal("app.js has no LINK_RACE message")
+	}
+	if strings.Contains(m[1], "new link:") || strings.Contains(m[1], "has a new link") {
+		t.Errorf("LINK_RACE promises a link the alarm never makes: %q", m[1])
+	}
+	if !strings.Contains(m[1], "press Enter") {
+		t.Errorf("LINK_RACE does not say how to get a new link: %q", m[1])
+	}
+}
