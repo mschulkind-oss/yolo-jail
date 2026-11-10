@@ -222,6 +222,8 @@ func TestClientRefusesAnythingOutsideTheGrammarWithoutARequest(t *testing.T) {
 		{"s3api", "head-object", "--bucket", "bkt", "--bucket", "cbkt", "--key", "k"},
 		{"s3", "cp", "s3://bkt/../x", "-"},
 		{"--version", "x"},
+		{"s3api", "head-object", "--bucket", "bkt", "--key", "--debug"},
+		{"s3api", "head-object", "--bucket=-x", "--key", "k"},
 		{},
 	} {
 		code, _, errs := aws(t, s, "", args...)

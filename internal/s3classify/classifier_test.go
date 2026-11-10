@@ -432,3 +432,38 @@ func TestS3ClassifierRefusesBadProtocolInClassify(t *testing.T) {
 		t.Fatalf("bad version not refused: %+v", a)
 	}
 }
+
+// A head-object value the host aws would parse as an option never reaches the canonical argv:
+// `--key=--debug` must not become the bare word `--debug` on the host.
+func TestS3ClassifierRefusesAnOptionShapedHeadObjectValue(t *testing.T) {
+	roots := []string{"s3://bkt"}
+	for _, argv := range [][]string{
+		{"s3api", "head-object", "--bucket", "bkt", "--key=--debug"},
+		{"s3api", "head-object", "--bucket", "bkt", "--key=--endpoint-url=a.b"},
+		{"s3api", "head-object", "--bucket", "bkt", "--key=--profile=x"},
+		{"s3api", "head-object", "--bucket", "bkt", "--key", "-x"},
+		{"s3api", "head-object", "--bucket", "bkt", "--key=--recursive"},
+		{"s3api", "head-object", "--bucket=-x", "--key", "k"},
+	} {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			a := Classify(input(roots, argv...))
+			if a.Refused == nil || a.Classification != nil {
+				t.Fatalf("an option-shaped value was classified: %+v", a)
+			}
+		})
+	}
+}
+
+// A refusal names a jail-supplied option only when it is a plain option name, so a crafted
+// word with control, format or bidi characters is never echoed (core refuses such text).
+func TestS3ClassifierEchoesOnlyPlainOptionNames(t *testing.T) {
+	roots := []string{"s3://bkt"}
+	a := Classify(input(roots, "--profile=secret-name", "s3", "ls", "s3://bkt"))
+	if a.Refused == nil || !strings.Contains(a.Refused.Reason, "--profile ") || strings.Contains(a.Refused.Reason, "secret-name") {
+		t.Fatalf("plain option: %+v", a.Refused)
+	}
+	a = Classify(input(roots, "--a\u202eb", "s3", "ls", "s3://bkt"))
+	if a.Refused == nil || a.Refused.Class != "credential" || strings.Contains(a.Refused.Reason, "\u202e") {
+		t.Fatalf("crafted option: %+v", a.Refused)
+	}
+}

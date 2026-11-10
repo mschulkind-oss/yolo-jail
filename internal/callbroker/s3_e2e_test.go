@@ -373,16 +373,7 @@ func TestS3ShippedPackThroughRealMediation(t *testing.T) {
 	if err != nil || !strings.Contains(view, pending[0].ID) {
 		t.Fatalf("host approve --json: %v %s", err, view)
 	}
-	if dir := os.Getenv("W3_EVIDENCE_DIR"); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "aws-s3-approve-json-put.json"), []byte(view), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		t.Logf("yolo approve --json (pending put):\n%s", view)
-	}
+	t.Logf("yolo approve --json (pending put):\n%s", view)
 
 	// (c) the host approves once; the same call runs and the object has the exact bytes.
 	if out, err := f.host("approve", pending[0].ID); err != nil {

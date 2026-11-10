@@ -92,7 +92,7 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 		name, _, _ := strings.Cut(arg[2:], "=")
 		if !commandFlags[name] {
 			return refused(answer, "credential",
-				"the option "+safe(arg)+" is not accepted from the jail",
+				"the option "+safe(name)+" is not accepted from the jail",
 				"Set it in the host's AWS configuration or environment; the broker never takes an endpoint, profile, region or signing option from the jail")
 		}
 	}
@@ -199,6 +199,10 @@ func classifyS3API(answer callbroker.Answer, input callbroker.CLIInput, roots []
 			}
 			i++
 			value = args[i]
+		}
+		if strings.HasPrefix(value, "-") {
+			// The host aws would read such a value as an option, not as the bucket or key.
+			return unsupported(answer, name+" takes a value that does not start with -")
 		}
 		if name == "--bucket" {
 			bucket = value
@@ -372,16 +376,14 @@ func refused(answer callbroker.Answer, class, reason, next string) callbroker.An
 	return answer
 }
 
-// safe bounds and cleans a jail-supplied word before it is echoed in a refusal.
-func safe(s string) string {
-	name, _, _ := strings.Cut(s, "=")
-	if len(name) > 64 {
-		name = name[:64]
+// optionName is the only shape of a jail-supplied option name echoed back in a refusal.
+var optionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// safe names a jail-supplied option in a refusal only when it is a plain option name;
+// anything else (control, format or bidi characters, overlong words) is not echoed.
+func safe(name string) string {
+	if optionName.MatchString(name) {
+		return "--" + name
 	}
-	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, name)
+	return "given"
 }

@@ -110,3 +110,16 @@ func TestDeclaredCellsRespectCeilingAndInvariant(t *testing.T) {
 		t.Fatalf("unknown-cell errors=%v", errs)
 	}
 }
+
+// A `<table>.<cell>` ceiling token is skipped by the grant reader, so the call-broker reader
+// must name one that matches no declared table/cell pair instead of ignoring a typo.
+func TestUndeclaredCallBrokerCeilingTokenIsNamed(t *testing.T) {
+	decl := callBrokerCellFixture(t)
+	ws := testConfigMap(t, `{}`)
+	user := testConfigMap(t, `{"allow":{"local-tasks":{"on_request":["all.rerun_workflow","working_set.rerun_workflows"]}}}`)
+	var errs, warns []string
+	validateCallBrokerCells("local-tasks", decl, user, ws, &errs, &warns)
+	if len(errs) != 0 || len(warns) != 1 || !strings.Contains(warns[0], "all.rerun_workflow names no declared") {
+		t.Fatalf("errs=%v warns=%v", errs, warns)
+	}
+}

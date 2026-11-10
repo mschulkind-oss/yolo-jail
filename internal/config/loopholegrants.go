@@ -302,9 +302,6 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 	return read, nil
 }
 
-// loopholeRequestsOf reads `requests.<pack>`'s grant kinds: true for an unvalued kind, a list of
-// strings for a valued one. `false` and an empty list ask for nothing and are left out. A key
-// that is not a kind is left to the settings reader.
 // isCallBrokerCellToken is a call-broker ceiling entry, `working_set.<cell>` or `all.<cell>`,
 // as `yolo allow <source> on_request <table>.<cell>` writes it.
 func isCallBrokerCellToken(token string) bool {
@@ -314,6 +311,9 @@ func isCallBrokerCellToken(token string) bool {
 
 var callBrokerCellNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
+// loopholeRequestsOf reads `requests.<pack>`'s grant kinds: true for an unvalued kind, a list of
+// strings for a valued one. `false` and an empty list ask for nothing and are left out. A key
+// that is not a kind is left to the settings reader.
 func loopholeRequestsOf(requests *jsonx.OrderedMap, d LoopholeGrantDeclaration) (map[string][]string, error) {
 	out := map[string][]string{}
 	value, present := requests.Get(d.Pack)

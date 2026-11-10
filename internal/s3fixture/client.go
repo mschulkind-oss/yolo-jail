@@ -170,6 +170,10 @@ func parse(args []string) (command, error) {
 				}
 				val = rest[i]
 			}
+			if strings.HasPrefix(val, "-") {
+				// The real aws reads such a word as an option; refuse it like a usage error.
+				return bad("%s needs a value that does not start with -", name)
+			}
 			if _, dup := vals[name]; dup {
 				return bad("%s given twice", name)
 			}

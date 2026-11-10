@@ -288,6 +288,24 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 	allowed := func(table, cell string) bool {
 		return callBrokerCeiling(sourceAllow, table, cell)
 	}
+	// The grant reader leaves every `<table>.<cell>` token in allow.<source> to this reader
+	// (isCallBrokerCellToken), so a token naming no declared table/cell pair is named here
+	// rather than silently granting nothing.
+	if sourceAllow != nil {
+		for _, field := range []string{"always", "on_request"} {
+			list, _ := getOr(sourceAllow, field, nil).([]any)
+			for _, raw := range list {
+				token, _ := raw.(string)
+				if !isCallBrokerCellToken(token) {
+					continue
+				}
+				table, name, _ := strings.Cut(token, ".")
+				if cell, exists := known[name]; !exists || !inList(cell.Tables, table) {
+					add(warns, "allow."+source+"."+field+": "+token+" names no declared call-broker table and cell, so it allows nothing; remove it with `yolo config unset`, or allow a declared one with `yolo allow "+source+" "+field+" <table>.<cell>`")
+				}
+			}
+		}
+	}
 	if requestSource == nil {
 		requestSource = jsonx.NewOrderedMap()
 	}
