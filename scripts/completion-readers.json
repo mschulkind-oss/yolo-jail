@@ -7743,6 +7743,7 @@
 "internal/cli/check/requestsettings_test.go",
 "internal/cli/check/resourcegroups_test.go",
 "internal/cli/check/secretenv_test.go",
+"internal/cli/check/secretenvcallsites_test.go",
 "internal/cli/check/section_autogc_test.go",
 "internal/cli/check/section_containerimage_test.go",
 "internal/cli/check/section_durabledir_safety_test.go",
