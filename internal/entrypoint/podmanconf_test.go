@@ -74,6 +74,66 @@ func TestExportPodmanRequiredConfKeepsAnOverrideSetOnPurposeAndSaysSo(t *testing
 	}
 }
 
+const testRequiredPodmanConf = "[containers]\ncgroups = \"disabled\"\n[engine]\ncgroup_manager = \"cgroupfs\"\nevents_logger = \"file\"\n"
+
+// foreignOverrideWarning runs the export with an override already pointing at a foreign file
+// holding body, and returns what the boot printed and the variable it left.
+func foreignOverrideWarning(t *testing.T, body string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	required := filepath.Join(dir, "yolo-required.conf")
+	theirs := filepath.Join(dir, "theirs.conf")
+	for p, b := range map[string]string{required: testRequiredPodmanConf, theirs: body} {
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(ContainersConfOverrideEnv, theirs)
+	var out bytes.Buffer
+	e := NewEnv(map[string]string{ContainersConfOverrideEnv: theirs})
+	e.Stderr = &out
+	exportPodmanRequiredConfFrom(e, required)
+	return out.String(), os.Getenv(ContainersConfOverrideEnv)
+}
+
+// A foreign override that already carries every required key, among keys of its own, is
+// compliant: no warning, since there is nothing for its reader to do.
+func TestExportPodmanRequiredConfIsQuietForACompliantForeignOverride(t *testing.T) {
+	msg, kept := foreignOverrideWarning(t, testRequiredPodmanConf+"tmp_dir = \"/tmp/x\"\n[network]\ndns_servers = [\"1.1.1.1\"]\n")
+	if msg != "" {
+		t.Errorf("a compliant override drew a warning: %q", msg)
+	}
+	if !strings.HasSuffix(kept, "theirs.conf") {
+		t.Errorf("the override became %q; the user's file must be kept", kept)
+	}
+}
+
+// One missing key and one wrong value are each named, and the advice names verbs.
+func TestExportPodmanRequiredConfNamesTheKeyAForeignOverrideLacks(t *testing.T) {
+	msg, _ := foreignOverrideWarning(t, "[containers]\ncgroups = \"enabled\"\n[engine]\ncgroup_manager = \"cgroupfs\"\n")
+	for _, want := range []string{
+		"[engine] events_logger is missing",
+		"[containers] cgroups is enabled, not disabled",
+		"yolo config why env.set.CONTAINERS_CONF_OVERRIDE",
+		"yolo config add env.unset",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("warning %q does not say %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "cgroup_manager") {
+		t.Errorf("warning %q names cgroup_manager, which the override sets correctly", msg)
+	}
+}
+
+// A foreign override that is not TOML is said to be unreadable rather than judged.
+func TestExportPodmanRequiredConfSaysAnUnparseableOverrideIsUnreadable(t *testing.T) {
+	msg, _ := foreignOverrideWarning(t, "this is [not toml\n")
+	if !strings.Contains(msg, "could not be read as TOML") {
+		t.Errorf("warning %q does not say the override could not be read", msg)
+	}
+}
+
 // THE CALL SITE: the container boot runs the export, on a session's pass too, and the
 // production path is the file flake.nix bakes. MUTATION: delete the step, swap its body, or
 // give it a notSessionPass, and this fails.

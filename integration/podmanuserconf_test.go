@@ -7,7 +7,8 @@ import (
 
 // noRequiredPodmanConfRC is the script's exit status for an image that bakes no
 // /etc/containers/yolo-required.conf: the minimal variant (CI's), which carries no nested-podman
-// config at all, so there is nothing for the boot to keep in force.
+// config at all, or an image built before the file existed (a stale image the suite was told
+// to accept with YOLO_TEST_IMAGE_SKEW=warn or off).
 const noRequiredPodmanConfRC = 3
 
 // TestNestedPodmanRunsOverAUserContainersConf: a user ~/.config/containers/containers.conf,
@@ -34,7 +35,8 @@ podman run --rm --network=host -v /nix/store:/nix/store:ro --rootfs "$r" \
 	r := runYolo(t, dir, script)
 	if r.rc == noRequiredPodmanConfRC {
 		t.Skip("this jail image bakes no /etc/containers/yolo-required.conf (the minimal variant, " +
-			"which carries no nested-podman config); build the full image to run this test")
+			"or an image built before this change); rebuild the full image " +
+			"(YOLO_TEST_REBUILD_IMAGE=1) to run this test")
 	}
 	out := r.combined()
 	if !strings.Contains(out, "override=/etc/containers/yolo-required.conf") {

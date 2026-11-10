@@ -1,6 +1,15 @@
 package entrypoint
 
-import "os"
+import (
+	"fmt"
+	"maps"
+	"os"
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/tomlx"
+)
 
 // ImagePodmanRequiredConf is the image's file of the podman settings a nested podman in the
 // jail cannot run without (flake.nix, mkBinPathLinks's withNestedPodman block): cgroups
@@ -42,10 +51,49 @@ func exportPodmanRequiredConfFrom(e *Env, path string) {
 		setEnvBoth(e, ContainersConfOverrideEnv, path)
 	default:
 		// Podman takes ONE override file, and this one was set on purpose (a pack's env, the
-		// user's shell), so it stays; the jail's requirements then have to ride on it.
-		e.warnOnce("Warning: " + ContainersConfOverrideEnv + "=" + cur + " is already set, so the jail's " +
-			"required podman settings in " + path + " are not applied, and a nested `podman run` can " +
-			"fail with a read-only cgroup error. Copy that file's keys into " + cur + ", or unset " +
-			ContainersConfOverrideEnv + ".")
+		// user's config), so it stays; the jail's requirements then have to ride on it. Say so
+		// only when they do not: a file that already holds every required key is compliant,
+		// and a warning that following its own advice cannot clear is a defect.
+		if why := missingRequiredPodmanKeys(path, cur); why != "" {
+			e.warnOnce("Warning: " + ContainersConfOverrideEnv + "=" + cur + " is already set and " + why +
+				", so a nested `podman run` can fail with a read-only cgroup error. Copy the keys of " +
+				path + " into " + cur + ", or drop the variable from the jail: find where it is set with " +
+				"`yolo config why env.set." + ContainersConfOverrideEnv + "`, or remove it from every " +
+				"config and pack env with `yolo config add env.unset '\"" + ContainersConfOverrideEnv +
+				"\"'`, then start a new session.")
+		}
 	}
+}
+
+// missingRequiredPodmanKeys compares the override file someone else set (foreign) against the
+// image's required file (required), key by key under each table, and returns "" when foreign
+// holds every required key with the required value, or else what is wrong with it, for the
+// warning's sentence.
+func missingRequiredPodmanKeys(required, foreign string) string {
+	want, err := tomlx.DecodeFile(required)
+	if err != nil {
+		return "the image's " + required + " could not be read (" + err.Error() + ")"
+	}
+	have, err := tomlx.DecodeFile(foreign)
+	if err != nil {
+		return "it could not be read as TOML (" + err.Error() + ")"
+	}
+	var wrong []string
+	for _, table := range slices.Sorted(maps.Keys(want)) {
+		wantKeys, _ := want[table].(map[string]any)
+		haveKeys, _ := have[table].(map[string]any)
+		for _, key := range slices.Sorted(maps.Keys(wantKeys)) {
+			got, ok := haveKeys[key]
+			switch {
+			case !ok:
+				wrong = append(wrong, fmt.Sprintf("[%s] %s is missing", table, key))
+			case !reflect.DeepEqual(got, wantKeys[key]):
+				wrong = append(wrong, fmt.Sprintf("[%s] %s is %v, not %v", table, key, got, wantKeys[key]))
+			}
+		}
+	}
+	if len(wrong) == 0 {
+		return ""
+	}
+	return "in it " + strings.Join(wrong, ", ")
 }
