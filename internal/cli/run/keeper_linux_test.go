@@ -21,15 +21,16 @@ func TestAKeepersChildGetsTheDeathSignal(t *testing.T) {
 // the keeper was exec'd from, /proc/self/exe, never the path `just install` may have replaced; a
 // launch's still resolve its path.
 func TestAKeepersSelfExecsRunItsOwnInode(t *testing.T) {
-	o := &Options{keeperMode: true}
-	if got := o.selfExecArgv([]string{"yolo", "internal", "scratch-rm"}); got[0] != "/proc/self/exe" || got[1] != "internal" {
-		t.Errorf("a keeper's self-exec is %q", got)
+	pin := fixturePin(t, []byte("a yolo"))
+	o := &Options{keeperMode: true, helperPin: &pin}
+	if got, err := o.selfExecArgv([]string{"yolo", "internal", "scratch-rm"}); err != nil || got[0] != "/proc/self/exe" || got[1] != "internal" {
+		t.Errorf("a keeper's self-exec is %q (%v)", got, err)
 	}
-	launch := &Options{}
-	if got := launch.selfExecArgv([]string{"yolo", "internal"}); got[0] == "/proc/self/exe" || got[0] == "yolo" {
-		t.Errorf("a launch's self-exec is %q, want its binary's path", got)
+	launch := &Options{helperPin: &pin}
+	if got, err := launch.selfExecArgv([]string{"yolo", "internal"}); err != nil || got[0] != pin.Path {
+		t.Errorf("a launch's self-exec is %q (%v), want its pin %s", got, err, pin.Path)
 	}
-	if got := o.selfExecArgv([]string{"/usr/bin/other", "x"}); got[0] != "/usr/bin/other" {
-		t.Errorf("a non-yolo argv was rewritten: %q", got)
+	if got, err := o.selfExecArgv([]string{"/usr/bin/other", "x"}); err != nil || got[0] != "/usr/bin/other" {
+		t.Errorf("a non-yolo argv was rewritten: %q (%v)", got, err)
 	}
 }

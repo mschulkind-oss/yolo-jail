@@ -46,7 +46,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
@@ -119,23 +118,11 @@ func (o *Options) spawnScratchRemover(rt string, wait time.Duration, names []str
 	if lock != nil {
 		defer lock.Close()
 	}
-	argv := o.selfExecArgv(scratchRemoverArgv(rt, o.Workspace, wait, lock != nil, names))
-	return o.StartDetached(argv, lock)
-}
-
-// selfExecArgv resolves a leading "yolo" to the binary to run. A launch uses the running binary's
-// path (execx.SelfExecArgv). A KEEPER uses its own inode on Linux (keeperSelfExe): it can outlive
-// its launch by days, across a `just install` that replaced the file at that path, and a scratch
-// remover or a daemon it starts must run the code the jail was started with
-// (docs/design/jail-lifetime-last-session-wins.md JL-D5).
-func (o *Options) selfExecArgv(argv []string) []string {
-	if o.keeperMode && len(argv) > 0 && argv[0] == "yolo" {
-		if exe := keeperSelfExe(); exe != "" {
-			out := append([]string{exe}, argv[1:]...)
-			return out
-		}
+	argv, err := o.selfExecArgv(scratchRemoverArgv(rt, o.Workspace, wait, lock != nil, names))
+	if err != nil {
+		return o.reportPinnedSpawnRefused("the scratch remover", err)
 	}
-	return execx.SelfExecArgv(argv)
+	return o.StartDetached(argv, lock)
 }
 
 // ScratchRemoverBound is how long a caller of WaitForScratchRemovers should be prepared to

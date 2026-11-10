@@ -171,6 +171,7 @@ func startExternalServiceHarness(t *testing.T, socketsDir, script, transport str
 	spec.Set("command", []any{"sh", "-c", script, "fake-svc", "{endpoint}"})
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = io.Discard
 	o.ServiceReadyTimeout = readyTimeout
 	return o.startExternalService("fake-svc", spec, socketsDir, transport, "127.0.0.1", nil)
@@ -319,6 +320,7 @@ func TestExternalServiceReportsCrashImmediately(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{"sh", "-c", "exit 3"})
@@ -354,6 +356,7 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.ServiceReadyTimeout = 300 * time.Millisecond
 	spec := jsonx.NewOrderedMap()
@@ -457,6 +460,7 @@ func TestFrontedServiceComesUpBehindFront(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{os.Args[0], "-front-upstream-child", "line", "{socket}"})
@@ -607,6 +611,7 @@ func TestBundledHostProcessesRunsBehindTheFront(t *testing.T) {
 	// something else.
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.approvedLoopholeGrants = map[string]map[string]config.LoopholeGrantStanding{
 		"host-processes": {"view": {Standing: string(loopholegrant.Granted), Values: []string{"yolo-fake-proc"}}},
 	}
@@ -773,6 +778,7 @@ func TestConfigLoopholeComesUpBehindFront(t *testing.T) {
 
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	var buf strings.Builder
 	o.Stderr = &buf
 	// No cgroup delegate (its gate is a PathExists probe), no journal (absent key), and
@@ -921,6 +927,7 @@ func TestManifestEOFDaemonRoundTripsBehindFront(t *testing.T) {
 	spec.Set("command", toAnyList(lp.HostDaemon.Cmd))
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	var buf strings.Builder
 	o.Stderr = &buf
 	h, ok := o.startExternalService("eofd", spec, socketsDir,
@@ -1002,6 +1009,7 @@ func TestFrontedServiceStaleUpstreamNeitherSatisfiesNorBlocks(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.ServiceReadyTimeout = 300 * time.Millisecond
 	upstream := frontSocketFile(frontShortHash(socketsDir), "fake-svc")
@@ -1049,6 +1057,7 @@ func TestStopLoopholesRetiresFrontSockets(t *testing.T) {
 	defer os.Remove(sock)
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = io.Discard
 	o.PIDAlive = func(int) bool { return false }
 	o.stopLoopholes(nil, socketsDir, "", "podman")
@@ -1212,6 +1221,7 @@ func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
 	for _, tc := range cases {
 		o := &Options{}
 		fillDefaults(o)
+		o.helperPin = testPin()
 		o.IsMacOS = false
 		// No --network typed, so the config's mode decides (G25).
 		o.PathExists = func(string) bool { return tc.inContainer }
@@ -1234,6 +1244,7 @@ func TestExternalServiceRefusesADaemonInsideTheWorkspace(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{Workspace: ws}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{daemon, "--socket", "{socket}"})
@@ -1264,6 +1275,7 @@ func TestExternalServiceStartsADaemonOutsideTheWorkspace(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{Workspace: t.TempDir()}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	spec := jsonx.NewOrderedMap()
 	spec.Set("command", []any{os.Args[0], "-front-upstream-child", "line", "{socket}"})
@@ -1323,6 +1335,7 @@ func TestExternalServiceReportsCleanExitWithNoService(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.ServiceReadyTimeout = 300 * time.Millisecond
 	spec := jsonx.NewOrderedMap()

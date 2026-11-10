@@ -71,6 +71,13 @@ func runPackSkew(t *testing.T, ws, env string, tty bool, stdin string, getenv ma
 		if err := os.RemoveAll(prebuiltBinDir(repo.Root)); err != nil {
 			t.Fatal(err)
 		}
+		// Every bundle holds the host yolo a launch pins (a restart continues into a fresh launch).
+		if err := os.MkdirAll(prebuiltBinDir(repo.Root), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(prebuiltBinDir(repo.Root), "yolo"), []byte("binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	o.Exec = func(argv []string, dir string, e []string, d time.Duration) ExecResult {
 		if len(argv) > 1 && argv[1] == "stop" {

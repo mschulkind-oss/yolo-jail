@@ -103,6 +103,10 @@ func TestMain(m *testing.M) {
 	// real ~/.local/share/yolo-jail/logs, beside the shipped host-processes and journal
 	// loopholes' own logs, which two of them appended to.
 	releaseHome := testsupport.IsolateHome()
+	// THE PIN EVERY FIXTURE'S OPTIONS CARRY (pinnedhelpers_test.go): a launch execs its helpers from
+	// the pinned host yolo and never from os.Executable(), so a fixture that execs one is given a
+	// pin whose file is this test binary.
+	releasePin := installSharedTestPin()
 	code := m.Run()
 	// EVERY SIGNAL ARM STOPS THE PROCESS'S NIX (launchSignalArm.terminate), and that stop is
 	// permanent: a test that drove an arm to its exit on the process's own set refused every later
@@ -115,6 +119,7 @@ func TestMain(m *testing.M) {
 			code = 1
 		}
 	}
+	releasePin()
 	releaseHome()
 	release()
 	os.Exit(code)
@@ -215,6 +220,7 @@ func TestShippedJournalPackRunsBehindTheFront(t *testing.T) {
 	cfg := jsonx.NewOrderedMap()
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.approvedLoopholeGrants = map[string]map[string]config.LoopholeGrantStanding{
 		"journal": {
 			"read":     {Standing: string(loopholegrant.Requestable)},

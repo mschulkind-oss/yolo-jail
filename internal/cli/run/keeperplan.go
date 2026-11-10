@@ -26,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -41,6 +42,11 @@ type keeperPlan struct {
 	// `brew upgrade` or `just install` between the two would otherwise run the plan in code that
 	// never printed its disclosure.
 	Build string `json:"build"`
+	// Pin is the host yolo the launch pinned (pinnedexec.go): its path and the identity it had. The
+	// keeper execs its own later self-execs from it off Linux, after a stat check, where there is no
+	// /proc/self/exe; on Linux it keeps its own inode, which is the pin's because it was spawned from it
+	// (PH-D5). The zero Pin is a plan no launch wrote.
+	Pin helperpin.Pin `json:"pin"`
 	// Workspace, Cname and Runtime name the jail.
 	Workspace string `json:"workspace"`
 	Cname     string `json:"cname"`
