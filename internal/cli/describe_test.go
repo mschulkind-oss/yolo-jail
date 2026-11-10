@@ -479,3 +479,22 @@ func TestApplyHostRMW(t *testing.T) {
 		t.Errorf("RMW must regenerate yolo's managed key to its declared value:\n%s", data)
 	}
 }
+
+// `describe --json` and `internal config-dump` print the effective config without a private
+// inline value (re-review major 2a).
+func TestDescribeJSONAndConfigDumpNeverPrintAPrivateInlineValue(t *testing.T) {
+	_, repo := withHomeAndCwd(t)
+	secret := "SYNTHETIC_PRIVATE_DSN_DO_NOT_PRINT"
+	writeFile(t, filepath.Join(repo, "yolo-jail.toml"), "[env.secrets]\nset = { SENTRY_DSN = \""+secret+"\" }\n")
+	var out, errw bytes.Buffer
+	if rc := describeMain([]string{"--json"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("describe --json rc=%d: %s", rc, errw.String())
+	}
+	if strings.Contains(out.String(), secret) || !strings.Contains(out.String(), "SENTRY_DSN") {
+		t.Errorf("describe --json:\n%s", out.String())
+	}
+	dump := captureStdout(t, func() { runConfigDump([]string{repo}) })
+	if strings.Contains(dump, secret) || !strings.Contains(dump, "SENTRY_DSN") {
+		t.Errorf("internal config-dump:\n%s", dump)
+	}
+}
