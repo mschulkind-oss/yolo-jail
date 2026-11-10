@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "id": "state-decided-elsewhere",
+  "title": "Answered by another front end first",
+  "family": "cross-cutting",
+  "support": "real",
+  "support_note": "A GitHub write under the default windowed read-write set files a request: internal/ghbroker/window.go (the Request and its About, aboutOf) through Authority.Classify (authority.go). The request object is the allowed request after the first answer (request-decided event); the recorded call is the second `yolo approve <id>`, which exits 3.",
+  "prompt": "request",
+  "state": "decided-elsewhere",
+  "story": "The human allows a request from a terminal while its notification is still on screen; a click on the notification then finds it already decided.",
+  "origin": "captured",
+  "captured_with": "yolo approve --watch --json (request-decided), then a second yolo approve <id>",
+  "request": {
+    "schema": 1,
+    "id": "r-03321b43eb2a0d027d996f475abdaff0",
+    "source": "github",
+    "jail": "6527d798",
+    "workspace": "/home/dev/code/app",
+    "set": "read-write",
+    "argv": [
+      "pr",
+      "comment",
+      "--repo=example-org/app",
+      "--body=Looks good to me.",
+      "42"
+    ],
+    "command": "pr comment --repo=example-org/app '--body=Looks good to me.' 42",
+    "repo": "example-org/app",
+    "command_digest": "4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "decided": "2026-11-09T14:02:00Z",
+    "state": "allowed",
+    "action": "pr-write",
+    "target": "PR example-org/app#42",
+    "headline": "write to PR example-org/app#42",
+    "description": "write to PR example-org/app#42"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "pr-write",
+    "YOLO_REQUEST_DESCRIPTION": "write to PR example-org/app#42",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "write to PR example-org/app#42",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "write to PR example-org/app#42",
+    "YOLO_REQUEST_ID": "r-03321b43eb2a0d027d996f475abdaff0",
+    "YOLO_REQUEST_JAIL": "6527d798",
+    "YOLO_REQUEST_REFS": "",
+    "YOLO_REQUEST_REPO": "example-org/app",
+    "YOLO_REQUEST_SET": "read-write",
+    "YOLO_REQUEST_SUMMARY": "github r-03321b43eb2a0d027d996f475abdaff0: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app '--body=[redacted]' 42 [command SHA-256 4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "github r-03321b43eb2a0d027d996f475abdaff0: set read-write on example-org/app for jail 6527d798, to run: pr comment --repo=example-org/app &#39;--body=[redacted]&#39; 42 [command SHA-256 4fe8ab733e625a6c2c5eeb40fd13dfe8e0c7099b6d725e1aeeb953656f06faf1; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "PR example-org/app#42",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "decision": {
+    "argv": [
+      "approve",
+      "r-03321b43eb2a0d027d996f475abdaff0"
+    ],
+    "exit": 3,
+    "stderr": "yolo approve: request r-03321b43eb2a0d027d996f475abdaff0 is already allowed. Next: run `yolo approve` to see its state; the agent re-runs its command to file a new request.\n"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "native-capture",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "file": "captures/linux/state-decided-elsewhere.png",
+      "tested": "visual",
+      "provenance": {
+        "captured_at": "2026-11-10T04:28:49Z",
+        "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+        "compositor": "sway",
+        "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+        "compositor_version": "sway version 1.12",
+        "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+        "daemon": "swaync",
+        "daemon_config": "{\"timeout\": 3}",
+        "daemon_version": "SwayNotificationCenter-0.12.6",
+        "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+        "libnotify_version": "notify-send 0.8.8",
+        "os": "Linux userland in a container",
+        "resolution": "1280x800",
+        "scale": "1",
+        "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)"
+      },
+      "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the decided-elsewhere outcome is not something a toast renders."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

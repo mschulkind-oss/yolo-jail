@@ -1383,6 +1383,21 @@
           events_logger = "file"
           CONTAINERS
 
+          # The subset above the jail REQUIRES, not merely prefers: /sys/fs/cgroup is
+          # mounted read-only and nothing runs systemd.  The entrypoint points
+          # CONTAINERS_CONF_OVERRIDE at this file (internal/entrypoint/podmanconf.go),
+          # which podman reads after every user containers.conf: a user file, even one
+          # holding a single [engine] key, otherwise stops the /etc file's
+          # `cgroups = "disabled"` from applying, and every `podman run` then fails on
+          # cgroup.subtree_control.  The override merges, so user files keep every other key.
+          cat > $out/etc/containers/yolo-required.conf <<REQUIRED
+          [containers]
+          cgroups = "disabled"
+          [engine]
+          cgroup_manager = "cgroupfs"
+          events_logger = "file"
+          REQUIRED
+
           cat > $out/etc/containers/policy.json <<POLICY
           {"default":[{"type":"insecureAcceptAnything"}]}
           POLICY

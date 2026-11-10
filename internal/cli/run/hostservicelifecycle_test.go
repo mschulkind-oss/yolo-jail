@@ -392,9 +392,12 @@ func daemonizingWrapperMain() int {
 
 // TestPerJailRecordlessStartupReasonCleanup: an opted-in per-jail daemon that sends no record is
 // classified by its process — exited before readiness, or alive past the readiness bound. The
-// timed phase begins immediately before the production start, not before fixture construction;
-// an escaped descendant still holds the reason endpoint until after start returns, when its
-// attempted write proves the parent end has closed.
+// outcome kind is the event that proves the readiness budget (injected as ServiceReadyTimeout), not
+// the process's or an escaped descendant's own lifetime, ended the start: the wrapper sleeps an
+// hour and the descendant blocks on a release file only the test writes after start returns. No
+// elapsed-time bound is a pass condition; a wall-clock limit is only a generous hang guard. The
+// descendant holds the reason endpoint until after start returns, when its attempted write proves
+// the parent end has closed.
 func TestPerJailRecordlessStartupReasonCleanup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns host processes")
@@ -402,17 +405,14 @@ func TestPerJailRecordlessStartupReasonCleanup(t *testing.T) {
 	for _, tc := range []struct {
 		mode       string
 		timeout    time.Duration
-		maxPhase   time.Duration
 		kind       hostservice.StartupKind
 		grandchild bool
 	}{
-		// Budget plus scheduling/child-spawn slack; the separate end-to-end guard still catches
-		// a stuck fixture. Neither bound claims a hard real-time scheduling guarantee.
-		{mode: "silent-exit", timeout: 3 * time.Second, maxPhase: 2 * time.Second, kind: hostservice.StartupKindProcessExited},
-		{mode: "silent-hang", timeout: 400 * time.Millisecond, maxPhase: 2400 * time.Millisecond, kind: hostservice.StartupKindReadinessTimedOut},
-		{mode: "silent-grandchild-exit", timeout: 1500 * time.Millisecond, maxPhase: 3500 * time.Millisecond,
+		{mode: "silent-exit", timeout: 3 * time.Second, kind: hostservice.StartupKindProcessExited},
+		{mode: "silent-hang", timeout: 400 * time.Millisecond, kind: hostservice.StartupKindReadinessTimedOut},
+		{mode: "silent-grandchild-exit", timeout: 1500 * time.Millisecond,
 			kind: hostservice.StartupKindProcessExited, grandchild: true},
-		{mode: "silent-grandchild-hang", timeout: 1500 * time.Millisecond, maxPhase: 3500 * time.Millisecond,
+		{mode: "silent-grandchild-hang", timeout: 1500 * time.Millisecond,
 			kind: hostservice.StartupKindReadinessTimedOut, grandchild: true},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -434,23 +434,13 @@ func TestPerJailRecordlessStartupReasonCleanup(t *testing.T) {
 				}
 			})
 			started := time.Now()
-			var phaseStarted time.Time
-			o, handles, refusal, output := runPerJailReasonFixture(t, tc.mode, tc.timeout, false, 0, func() {
-				if tc.mode == "silent-grandchild-hang" {
-					time.Sleep(3 * time.Second) // synthetic fixture setup, before production startup
-				}
-				phaseStarted = time.Now()
-			})
-			phaseElapsed := time.Since(phaseStarted)
-			endToEnd := time.Since(started)
-			t.Logf("fixture preparation=%s production start/readiness/close=%s end-to-end=%s (readiness deadline=%s)",
-				phaseStarted.Sub(started), phaseElapsed, endToEnd, tc.timeout)
-			if phaseElapsed > tc.maxPhase {
-				t.Errorf("production start/readiness/close took %s, beyond readiness %s plus scheduling slack (%s)",
-					phaseElapsed, tc.timeout, tc.maxPhase)
-			}
-			if endToEnd > 12*time.Second {
-				t.Errorf("fixture and startup took %s, beyond the finite end-to-end hang guard (12s)", endToEnd)
+			o, handles, refusal, output := runPerJailReasonFixture(t, tc.mode, tc.timeout, false, 0)
+			elapsed := time.Since(started)
+			t.Logf("fixture and start took %s (readiness budget=%s; informational only)", elapsed, tc.timeout)
+			// Generous hang guard only: the grandchild gives up after 30s, so a start that waited
+			// on it would land beyond this.
+			if elapsed > 25*time.Second {
+				t.Errorf("fixture and startup took %s, beyond the hang guard (25s): start waited on the wrapper or descendant", elapsed)
 			}
 			if len(handles) != 0 || refusal != nil || len(o.startupOutcomes) != 1 {
 				t.Fatalf("record-less failure: handles=%d refusal=%+v outcomes=%+v\n%s", len(handles), refusal, o.startupOutcomes, output)
@@ -467,6 +457,14 @@ func TestPerJailRecordlessStartupReasonCleanup(t *testing.T) {
 			}
 			if _, err := os.Stat(ready); err != nil {
 				t.Fatalf("no descendant held the reason endpoint during the start: %v", err)
+			}
+			// Start returned while the descendant was still blocked on the release only this test
+			// writes: the budget, not the descendant's lifetime, ended it.
+			if _, err := os.Stat(release); err == nil {
+				t.Fatal("the descendant was released before the start returned")
+			}
+			if data, _ := os.ReadFile(result); len(data) > 0 {
+				t.Fatalf("the descendant finished before the start returned: %q", data)
 			}
 			if err := os.WriteFile(release, []byte("go"), 0o600); err != nil {
 				t.Fatal(err)

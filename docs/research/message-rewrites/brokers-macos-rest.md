@@ -288,9 +288,9 @@ Some examples: "selected unit is not a delegatable scope or service", "child fin
   ```text
   This project asks to push to its declared branches of o/r without approval, but your user config does not allow that. To allow it, run `yolo allow …` on the host, then push again. Or push from the host.
   ```
-- **Before (`:169`):**
+- **Before (`:173`):**
   ```text
-  …is not in effect: the host user config's canonical `allow.git` write authority could not be validated, so the broker covers no such write. Repair `allow.git.always` or `allow.git.on_request` on the host…
+  …is not in effect: the host user config's canonical `allow.git` write authority could not be validated (<the error>), so the broker covers no such write. Repair that on the host (`yolo check` there names it), then push again… If a newer yolo on the host wrote it, this jail's broker is older than that config: `yolo stop` this workspace's jail and launch it again. Or push from the host.
   ```
 - **After:**
   ```text

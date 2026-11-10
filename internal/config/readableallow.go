@@ -1000,7 +1000,7 @@ func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canon
 				return nil, true, err
 			}
 			plan, err := ResolveReadableAllowance(ReadableAllowanceInput{
-				User: user, SelectedPacks: selected, Declarations: declarations, PackSettings: settings,
+				User: ownAllowanceOnly(user, allow, source), SelectedPacks: selected, Declarations: declarations, PackSettings: settings,
 			})
 			if err != nil {
 				return nil, true, err
@@ -1021,6 +1021,30 @@ func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canon
 		}
 	}
 	return grantKindsOf(user, source), false, nil
+}
+
+// ownAllowanceOnly is user with its `allow` table narrowed to allow.<source>, the only entry a
+// broker's write authority reads. A running broker rereads the user config at every call, and
+// outlives the yolo that started it: a newer `yolo allow` can write another source's table in
+// capability names this broker's packs do not declare (2026-11-09: `allow.github.on_request`
+// respelled `dispatch_workflows` as `runs`), and resolving that entry here would withdraw this
+// source's grants over a table that does not govern them. allow.<source> itself is still
+// resolved in full, so an entry of its own this yolo cannot validate still fails closed. user is
+// left untouched.
+func ownAllowanceOnly(user, allow *jsonx.OrderedMap, source string) *jsonx.OrderedMap {
+	own := jsonx.NewOrderedMap()
+	if value, ok := allow.Get(source); ok {
+		own.Set(source, value)
+	}
+	narrowed := jsonx.NewOrderedMap()
+	for _, key := range user.Keys() {
+		value, _ := user.Get(key)
+		if key == "allow" {
+			value = own
+		}
+		narrowed.Set(key, value)
+	}
+	return narrowed
 }
 
 // readablePolicyGrantKinds projects a resolved broker policy back onto the grant kinds of its

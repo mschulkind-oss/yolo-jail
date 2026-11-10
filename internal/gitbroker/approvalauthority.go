@@ -210,9 +210,22 @@ func pushEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 
 // pushRequest is the request a push of cmds to repo files from this broker, unfiled.
 func (b *Broker) pushRequest(repo string, cmds []gitproto.Command, opts []string) brokerstore.Request {
-	q := brokerstore.Request{Jail: holderJail(b.bound), Start: b.start, Workspace: b.bound.Workspace,
-		LaunchID: b.bound.LaunchID, Argv: pushArgv(cmds, opts), Repo: repo, Set: setPush, Policy: pushPolicy,
-		StdinDigest: pushStdinDigest}
+	q := PushAsk(repo, cmds, opts, nil)
+	q.Jail, q.Start, q.Workspace, q.LaunchID = holderJail(b.bound), b.start, b.bound.Workspace, b.bound.LaunchID
 	q.Digest = brokerstore.CommandDigest(q)
+	return q
+}
+
+// PushAsk is what a push of cmds with the push options opts to repo asks the store, before a
+// broker binds its jail, workspace and launch: the argv, set, policy and stdin digest, and, when
+// needs (the refs nothing else covered) is non-nil, NeedsApproval and the About a request shows.
+// pushRequest builds on it, and the approval fixtures' capture test
+// (internal/cli/approvalcapture_test.go) files it, so a change here shows up as fixture drift.
+func PushAsk(repo string, cmds []gitproto.Command, opts, needs []string) brokerstore.Request {
+	q := brokerstore.Request{Argv: pushArgv(cmds, opts), Repo: repo, Set: setPush, Policy: pushPolicy,
+		StdinDigest: pushStdinDigest}
+	if needs != nil {
+		q.NeedsApproval, q.About = needs, pushAbout(repo, needs)
+	}
 	return q
 }

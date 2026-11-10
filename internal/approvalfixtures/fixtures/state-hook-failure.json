@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "id": "state-hook-failure",
+  "title": "The on_request hook failed",
+  "family": "cross-cutting",
+  "support": "real",
+  "support_note": "A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). The request is filed under a real brokerhook.Runner whose hook exits 1; the runner records hook_failure and hook_output on the request (brokerhook.go noteFailure), and `--json` prints them.",
+  "prompt": "request",
+  "state": "pending",
+  "story": "The user's notification hook cannot reach a notification daemon, so the request waits and the listing says the user may not have been notified.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-72f8c9f67e641544a1da58fee9860076",
+    "source": "git",
+    "jail": "1ba5b73c",
+    "workspace": "/home/dev/code/app",
+    "set": "push",
+    "argv": [
+      "git-receive-pack",
+      "1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main",
+      "1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry"
+    ],
+    "command": "git-receive-pack '1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 refs/heads/main' '1111111111111111111111111111111111111111 3333333333333333333333333333333333333333 refs/heads/agent/fix-retry'",
+    "repo": "example.test/example-org/app",
+    "command_digest": "34720ec36da688ed15c9817cfe2862816670d76da7ba93bbdcd9463f64ea7d18",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "hook_failure": "hook exited 1: notify-send: Cannot autolaunch D-Bus without X11 $DISPLAY",
+    "hook_output": "notify-send: Cannot autolaunch D-Bus without X11 $DISPLAY\n",
+    "needs_approval": [
+      "refs/heads/main"
+    ],
+    "action": "push",
+    "target": "example.test/example-org/app",
+    "headline": "push 1 ref to example.test/example-org/app",
+    "refs": [
+      "refs/heads/main"
+    ],
+    "description": "push 1 ref to example.test/example-org/app\nref: refs/heads/main"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "push",
+    "YOLO_REQUEST_DESCRIPTION": "push 1 ref to example.test/example-org/app\nref: refs/heads/main",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "push 1 ref to example.test/example-org/app\nref: refs/heads/main",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "push 1 ref to example.test/example-org/app",
+    "YOLO_REQUEST_ID": "r-72f8c9f67e641544a1da58fee9860076",
+    "YOLO_REQUEST_JAIL": "1ba5b73c",
+    "YOLO_REQUEST_REFS": "refs/heads/main",
+    "YOLO_REQUEST_REPO": "example.test/example-org/app",
+    "YOLO_REQUEST_SET": "push",
+    "YOLO_REQUEST_SUMMARY": "git r-72f8c9f67e641544a1da58fee9860076: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack '1111111111111111111111111111111111111111…[97 chars, sha256 dffa3bb3]' '1111111111111111111111111111111111111111…[108 chars, sha256 0128eca7]' [command SHA-256 34720ec36da688ed15c9817cfe2862816670d76da7ba93bbdcd9463f64ea7d18; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "git r-72f8c9f67e641544a1da58fee9860076: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack &#39;1111111111111111111111111111111111111111…[97 chars, sha256 dffa3bb3]&#39; &#39;1111111111111111111111111111111111111111…[108 chars, sha256 0128eca7]&#39; [command SHA-256 34720ec36da688ed15c9817cfe2862816670d76da7ba93bbdcd9463f64ea7d18; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "example.test/example-org/app",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Nothing to capture: the hook could not reach a session bus, so no toast was shown. The failure is visible only in yolo approve."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

@@ -263,6 +263,7 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 	if len(plan) == 0 {
 		if !mode.attach {
 			o.prOut(o.Stdout).print("[green]Nothing to apply: the jail already has this workspace's config.[/green]")
+			o.noteBrokersStartedByAnOlderYolo(o.prOut(o.Stdout), rt, cname, envLines)
 		}
 		return 0
 	}
@@ -277,6 +278,11 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 	out.print("[bold]Config apply result:[/bold]")
 	for _, line := range o.applyBlock(result, rt) {
 		out.print(line)
+	}
+	// A change applied now is enforced by the same brokers, so it is as exposed to their yolo. An
+	// attach says its own skew line already (warnIfJailIsOlderThanTheLauncher).
+	if !mode.attach {
+		o.noteBrokersStartedByAnOlderYolo(out, rt, cname, envLines)
 	}
 	rc := 0
 	for _, c := range result {
