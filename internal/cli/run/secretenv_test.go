@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,6 +52,12 @@ func TestTheSharedFileCarriesNoPrivateValue(t *testing.T) {
 // refuses above the dispatch or hands it a launch env.
 func secretEnvRefusalRun(t *testing.T, ws, userTOML string) (bool, int, string) {
 	t.Helper()
+	// On the host: inside a jail the remedy is the host-run line (config.remedyCommand), which
+	// the in-jail form of these tests would read instead of the command a host user types.
+	t.Setenv("YOLO_VERSION", "")
+	if err := os.Unsetenv("YOLO_VERSION"); err != nil {
+		t.Fatal(err)
+	}
 	home := packHome(t)
 	writeUserConfigTOML(t, home, userTOML)
 	var stdout, stderr bytes.Buffer
