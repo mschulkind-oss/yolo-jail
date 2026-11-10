@@ -58,11 +58,21 @@ func blackhole(ctx context.Context, _ string) (net.Conn, error) {
 // runEgress runs the probe over targets with dial and returns the terminal and boot-log text.
 func runEgress(t *testing.T, vars map[string]string, native bool, targets []string, dial egressDialer) (term, log string) {
 	t.Helper()
+	return runEgressWithin(t, 200*time.Millisecond, vars, native, targets, dial)
+}
+
+// proxyExchangeGuard is the probe budget for a test whose fake answers on its own, so the budget
+// is only a failure guard that turns a hang into a red test. A test whose fake never answers
+// (blackhole) needs the short budget to expire, and uses runEgress.
+const proxyExchangeGuard = 60 * time.Second
+
+func runEgressWithin(t *testing.T, budget time.Duration, vars map[string]string, native bool, targets []string, dial egressDialer) (term, log string) {
+	t.Helper()
 	var termBuf, logBuf strings.Builder
 	e := NewEnv(vars)
 	e.GNUStat = !native
 	e.Stderr, e.LogOnly = &termBuf, &logBuf
-	reportEgress(e, startEgressProbe(e, targets, dial, 200*time.Millisecond))
+	reportEgress(e, startEgressProbe(e, targets, dial, budget))
 	if err := genFailuresError(e); err != nil {
 		t.Errorf("the egress check must never refuse a boot, got %v", err)
 	}
@@ -277,7 +287,7 @@ func TestEgressProbeGoesThroughTheProxyTheEnvironmentNames(t *testing.T) {
 		return proxyServer(t, "200 Connection established", &req, &mu), nil
 	}}
 	vars := map[string]string{"HTTPS_PROXY": "http://alice:s3cret@proxy.corp.example:3128"}
-	term, log := runEgress(t, vars, false, oneTarget, f.dial)
+	term, log := runEgressWithin(t, proxyExchangeGuard, vars, false, oneTarget, f.dial)
 	if term != "" {
 		t.Errorf("a proxy that connects is a working network, got:\n%s", term)
 	}
@@ -301,7 +311,7 @@ func TestEgressProbeNamesAProxyThatCannotReachOut(t *testing.T) {
 		return proxyServer(t, "502 Bad Gateway", &req, &mu), nil
 	}}
 	vars := map[string]string{"https_proxy": "http://alice:s3cret@proxy.corp.example:3128"}
-	term, _ := runEgress(t, vars, false, oneTarget, f.dial)
+	term, _ := runEgressWithin(t, proxyExchangeGuard, vars, false, oneTarget, f.dial)
 	for _, want := range []string{"the proxy proxy.corp.example:3128 named by https_proxy",
 		"answered CONNECT with 502 Bad Gateway"} {
 		if !strings.Contains(term, want) {
