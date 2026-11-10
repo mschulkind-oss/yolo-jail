@@ -1467,7 +1467,7 @@ forward ([SUP-D50](#SUP-D50)).
   this workspace (yolo-su1-a-…-apple-container-self)."* about the default setup, which ran no jail
   ([found on the Mac](#found-on-the-mac-2026-11-09), item 2). **The `TestMacosUser` half failed:**
   159 passed, 4 failed, 4 skipped, in 1049 s; the four are item 3 there.
-  **Still to run, at main `<landing sha>` or later** (the commit carrying the fix of item 3):
+  **Still to run, at main `400d1eb28` or later** (the commit carrying the fix of item 3):
   `YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run '^TestMacosUser' ./integration`.
   Expected: no failures. Report the pass/fail/skip counts and each failure's message. Settles W-SU1.
 - **W-SU2 (slice 4b):** a workspace whose `yolo-jail.toml` holds `[network]\nmode = "host"`:
@@ -1550,12 +1550,12 @@ forward ([SUP-D50](#SUP-D50)).
   `yolo stop` alone, as expected; `yolo stop` added *"This workspace's jail was launched on
   macos-user, so this stop asks macos-user, not container."* and the old shell ended; **the
   relaunch failed**, refused on its own user-config copy (item 1 there).
-  **Still to run, at main `<landing sha>` or later** (the commit carrying the fixes of items 1
+  **Still to run, at main `400d1eb28` or later** (the commit carrying the fixes of items 1
   and 2): the Apple Container half's refusal and stop, expecting the refusal to name `container
   stop yolo-c-…` beside `yolo stop` and `yolo stop` to print no "No jail running" line for a
   setup it did not stop; and the Seatbelt half from the start, in a fresh `/Users/Shared/yolo/d`
   laid by the `bb10db358` yolo, expecting the relaunch after `yolo stop` to run. Settles W-SU12.
-- **W-SU13 (slice 6a-iii, the fix of [item 1](#found-on-the-mac-2026-11-09), at main `<landing sha>` or later):**
+- **W-SU13 (slice 6a-iii, the fix of [item 1](#found-on-the-mac-2026-11-09), at main `400d1eb28` or later):**
   a Seatbelt workspace last launched before 6a-iii relaunches. Use the two workspaces the 11-09
   run left in place: `/Users/Shared/yolo/su12-d` (laid by `bb10db358` under `seatbelt-self`) and
   `/Users/Shared/yolo/w7-move` (laid 2026-11-06 at `c5990cf51` under `seatbelt-yolo-account`,

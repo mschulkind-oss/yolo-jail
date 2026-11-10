@@ -116,7 +116,7 @@ The [accepted HTTP contract](pack-brokers-http.md) is normative for G1–G4/H; i
 
 Run by the owner's Mac agent on main; what they find is fixed forward.
 
-- **W-BX1 (slice F's integration test on macOS, at main `<landing sha>` or later):**
+- **W-BX1 (slice F's integration test on macOS, at main `400d1eb28` or later):**
   `TestCircleCIFakeHostCLIUsesRealClassifier` passes on the Mac. It failed in the Nightly macOS
   Integration runs 42372802408 (11-07, `4b26d1dfc`) and 42482019048 (`310130d79`), and on
   the owner's Mac under `YOLO_SETUP=podman-self`, with `yolo check` reporting *"Container runtime
@@ -128,7 +128,7 @@ Run by the owner's Mac agent on main; what they find is fixed forward.
   1. On the Mac, outside any jail, with the podman machine running:
      `YOLO_SETUP=podman-self go test -count=1 -timeout 0 -run '^TestCircleCIFakeHostCLIUsesRealClassifier$' ./integration`.
      Expected: `ok`.
-  2. On the first scheduled Nightly macOS Integration run whose head commit is `<landing sha>` or
+  2. On the first scheduled Nightly macOS Integration run whose head commit is `400d1eb28` or
      later (`gh run list -R mschulkind-oss/yolo-jail --workflow nightly-macos.yml --json databaseId,headSha,event --limit 20`),
      read the shard that ran it:
      `gh run view -R mschulkind-oss/yolo-jail <run id> --log | grep TestCircleCIFakeHostCLIUsesRealClassifier`.
