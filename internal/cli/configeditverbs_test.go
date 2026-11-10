@@ -400,3 +400,38 @@ func TestProjectWrittenLineDoesNotAskForTheCheckThatFollows(t *testing.T) {
 		t.Errorf("projectWrittenLine(false) = %q; with no check after it, it must ask for one", got)
 	}
 }
+
+// A GPU leaf's unset removes this file's line, as it did before a legacy null had a TOML spelling
+// (GPUNullDefaults, which the schema's removal policy does not carry).
+func TestRunConfigEditUnsetRemovesEachGPULeaf(t *testing.T) {
+	for _, leaf := range []string{"capabilities", "devices", "vendor", "enabled", "vaapi"} {
+		t.Run(leaf, func(t *testing.T) {
+			project := testconfig.Workspace(t, "")
+			user := testconfig.User(t, "")
+			t.Setenv("HOME", user.Root)
+			t.Setenv("YOLO_VERSION", "")
+			path := filepath.Join(project.Root, paths.WorkspaceConfigTOMLName)
+			before := "[machine.gpu]\nenabled = true\ncapabilities = \"utility\"\n"
+			if leaf != "capabilities" && leaf != "enabled" {
+				before += leaf + " = " + map[string]string{"devices": `"0"`, "vendor": `"nvidia"`, "vaapi": "false"}[leaf] + "\n"
+			}
+			if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			rc, out, errw := runConfigEditCapture(t, project.Root, []string{"unset", "machine.gpu." + leaf})
+			if rc != 0 {
+				t.Fatalf("unset rc=%d stdout=%q stderr=%q", rc, out, errw)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(got, []byte("\n"+leaf+" =")) {
+				t.Fatalf("%s line still present: %q", leaf, got)
+			}
+			if !bytes.Contains(got, []byte("[machine.gpu]")) {
+				t.Fatalf("other leaves lost: %q", got)
+			}
+		})
+	}
+}

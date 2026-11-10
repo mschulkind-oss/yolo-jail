@@ -100,5 +100,10 @@
         }
       }
     }
+  },
+  "workspace-local-gpu-null": {
+    "v0151": {
+      "enabled": []
+    }
   }
 }

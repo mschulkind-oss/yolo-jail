@@ -134,6 +134,9 @@ func patternMatches(pattern, path []string) bool {
 // the equality check's old side. Keys the readers already lower (packages, gpu, network.ports …)
 // arrive at their new spelling on the second use and pass through.
 func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
+	// The lowering places the old file's own tables and then edits them (a null respelled or
+	// removed), so it works on a copy: the old file's values are read again after it.
+	old = jsonx.DeepCopyMap(old)
 	out := lowered{values: jsonx.NewOrderedMap(), origins: map[string][]string{}}
 	skip := func(path []string, value any, reason string) {
 		out.skipped = append(out.skipped, NotConverted{File: file, Path: dotted(path), Reason: reason})

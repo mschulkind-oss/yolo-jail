@@ -191,3 +191,42 @@ func TestACaptureJailIsHandedNoneOfTheConfigsMiseTools(t *testing.T) {
 		}
 	}
 }
+
+// TestEffectivePackagesAnswersTheNullDefaults pins EffectivePackages' reading of `machine.gpu` to
+// GPUNullDefaults: an absent leaf, a null one and the listed default add the same packages.
+func TestEffectivePackagesAnswersTheNullDefaults(t *testing.T) {
+	for _, vendor := range []any{nil, "amd"} {
+		absent, null, defaults := jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+		for _, s := range []*jsonx.OrderedMap{absent, null, defaults} {
+			s.Set("enabled", true)
+		}
+		for _, d := range GPUNullDefaults() {
+			leaf := d.Path[len(d.Path)-1]
+			if len(d.Path) != 3 || leaf == "enabled" {
+				continue
+			}
+			if leaf == "vendor" && vendor != nil {
+				for _, s := range []*jsonx.OrderedMap{absent, null, defaults} {
+					s.Set("vendor", vendor)
+				}
+				continue
+			}
+			null.Set(leaf, nil)
+			defaults.Set(leaf, d.Value)
+		}
+		read := func(section *jsonx.OrderedMap) string {
+			machine := jsonx.NewOrderedMap()
+			machine.Set("gpu", section)
+			cfg := jsonx.NewOrderedMap()
+			cfg.Set("machine", machine)
+			return jsonx.MustDumpsCompact(EffectivePackages(cfg, ""))
+		}
+		want := read(absent)
+		if got := read(null); got != want {
+			t.Errorf("vendor %v: null leaves add %s, absent ones %s", vendor, got, want)
+		}
+		if got := read(defaults); got != want {
+			t.Errorf("vendor %v: the listed defaults add %s, absent leaves %s", vendor, got, want)
+		}
+	}
+}
