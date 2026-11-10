@@ -176,7 +176,7 @@ sequenceDiagram
 | Minting | `crypto/rand`; code 16 bytes, token 32 bytes, both base64url; held only in the process's memory |
 | Code delivery | Printed once to the starting terminal, in the URL **fragment**, which browsers never send to a server or put in a `Referer` |
 | Code lifetime | Single use; expires 120 s after printing; one live code at a time. Pressing Enter in the queue's terminal mints a new one and burns the old |
-| Brute force | Five failed exchanges burn the live code and print a warning on the terminal naming Enter as the next step |
+| Guessing | A 128-bit code cannot be guessed, so failures never burn it: burning would let a jail that found the port destroy every fresh code. Nor are failures throttled, which a jail could hog the same way. Every exchange is checked in constant time and a correct live code always succeeds; after the fifth failure the terminal warns once that something on this machine is guessing |
 | Token lifetime | Until the process exits; at most 8 live tokens, oldest dropped |
 | Comparison | Constant time |
 | Storage in the browser | `sessionStorage` of the queue's exact origin; survives reload, not a new tab |
@@ -344,7 +344,7 @@ line, a closed connection, an injected clock), never on elapsed time.
 | T6 | Frame the page from another origin | Blocked; CSP and `X-Frame-Options` on every response | Browser; unit | Read-only |
 | T7 | Served HTML has no inline script or `on*` attribute; CSP exact | Parse finds none | Unit | Read-only |
 | T8 | Hostile fixture: `<script>`, `<img onerror>`, `javascript:` and `data:` URLs, `ESC[31m`, U+202E, zero-width, NUL, a 1 MiB field | No script runs (a sentinel global stays unset), no dialog, no request off-origin, zero links from data, controls shown as markers, the whole field present | Browser | Read-only |
-| T9 | Bootstrap: reuse a code; use after 120 s (injected clock); six bad codes; reload | 401; 401; code burned and terminal warns; token survives reload | Unit; browser | Read-only |
+| T9 | Bootstrap: reuse a code; use after 120 s (injected clock); six bad codes, then the right one; reload | 401; 401; one terminal warning, and the right code still succeeds; token survives reload | Unit; browser | Read-only |
 | T10 | After load, the address bar and current history entry | No fragment; the exchange is a `POST` body, never a URL the server logs | Browser | Read-only |
 | T11 | Search the workspace, `~/.local/share/yolo-jail` (logs included), `~/.config/yolo-jail`, `/tmp`, the queue's `/proc/<pid>/cmdline` and `environ`, and its children's, for the code and token | Absent | Unit (Linux); real jail for the mounted view | Read-only |
 | T12 | Start with standard output a pipe, and under `yolo host-run` | Refuses, prints no code, names the fix | Unit; real host | Read-only |
@@ -368,7 +368,8 @@ The read-only experiment implements exactly this, and has no mutation route at a
 3. **Secrets:** bootstrap code 16 bytes and session token 32 bytes from `crypto/rand`, base64url, in
    memory only; never written to disk, argv, child environment or any log.
 4. **Code delivery:** print `http://127.0.0.1:<port>/#code=<code>` once; single use; 120 s; one live
-   code; Enter in the terminal mints a fresh one; five failed exchanges burn the live code and warn.
+   code; Enter in the terminal mints a fresh one; after five failed exchanges, one terminal warning;
+   failures never burn the code and are never throttled.
 5. **Exchange:** the page reads `location.hash`, calls `history.replaceState(null, "", "/")` first,
    then `POST /api/session` with the code in a JSON body; stores the returned token in
    `sessionStorage`; on 401 shows "This link was used or expired: press Enter in the queue's

@@ -221,8 +221,9 @@ push surface, so it takes the same default.
 **Decision ([RH-D2](#RH-D2), a proposed change to the lead's ruling):**
 
 - Every field is shown, as ruled, **except the value following a secret-bearing flag**, which
-  shows as `--body=[hidden: 47 characters, sha256 1a2b3c4d] Show`, in the elision format yolo
-  already uses ([`watch.go`](../../../internal/brokerstore/watch.go#L457)).
+  shows as `--body=[hidden: 47 characters, sha256 1a2b3c4d] Show`, modeled on yolo's own elision
+  (`…[N chars, sha256 xxxxxxxx]`, [`watch.go`](../../../internal/brokerstore/watch.go#L457)) but
+  hiding the whole value.
 - **Show** reveals that one value in place. Reveal state lives in page memory per request and
   value, and every value re-masks when the page becomes hidden (`visibilitychange`) or reloads.
 - **The command digest and stdin digest are always visible**, so the action's identity never

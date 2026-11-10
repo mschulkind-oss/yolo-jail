@@ -226,7 +226,7 @@ rulings.
 | Watch line unparseable or over 16 MiB | Count it, show the count, discard the line, trigger a snapshot. |
 | Watch stderr reports a store read failure | Stale until the next successful snapshot. |
 | Browser disconnects | Nothing server-side; the page reconnects with its token and gets the whole model. A 401 shows the trust boundary's "link used or expired" message. |
-| Queue process killed | Children are in the queue's process group and die with it; observed history is lost by design (it is labeled "since this queue started"). |
+| Queue process stopped | Children run in their own process group, which the queue kills on SIGINT, SIGTERM and SIGHUP (a closed terminal); on Linux a parent-death signal also covers a SIGKILL of the queue. Elsewhere a SIGKILL can orphan the watch child until its next write fails. Observed history is lost by design (it is labeled "since this queue started"). |
 
 ## 9. One command
 
