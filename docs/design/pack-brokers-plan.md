@@ -135,6 +135,8 @@ Run by the owner's Mac agent on main; what they find is fixed forward.
      Expected: `--- PASS: TestCircleCIFakeHostCLIUsesRealClassifier`.
   3. Report both outputs and the run id. A pass in both settles W-BX1.
 
+  *Step 1 run 2026-11-09 at `04f300a9e`* (lab report, retired; in git at `22e2562bf`): **passes** (`--- PASS … (16.19s)`), after `YOLO_LOAD_RUNTIME=podman just load` cleared a stale podman image. Step 2 waits on a nightly at `400d1eb28` or later: the 11-09 nightly ran `310130d79` again.
+
 ## Ships with and remaining dependencies
 
 - A–F and access tasks 1–3 are integrated; D metadata alone cannot authorize pack approvals. F source is the bounded read-only project-scoped `run list` slice with selected host-environment binding and XDG credential fencing; no live authentication or real permission is accepted. E/F source acceptance and final landing gates remain pending. Timed multiwrite answers are built ([BX-D17](pack-brokers.md#BX-D17)); [OQ-BX7](pack-brokers.md#OQ-BX7) keeps Add and `--remember` refused. The separately accepted [HTTP contract](pack-brokers-http.md) and [build plan](pack-brokers-http-plan.md) route unimplemented G1–G4/H; no HTTP runtime is present. MCP’s selected producer is a separate protocol, and independent MCP outcome/start/teardown repairs remain pending; MCP status is not an approval source. Apple Container admission remains separately unproven; report unsupported backend honestly.
