@@ -38,11 +38,15 @@ func LowerLegacyNulls(values *jsonx.OrderedMap) []string {
 					m.Set(key, "off")
 				case RemovalNativeString:
 					m.Set(key, NativeProvider)
-				case RemovalDefault:
-					value, _ := nullDefault(at)
-					m.Set(key, value)
 				default:
-					left = append(left, strings.Join(at, "."))
+					// A `machine.gpu` null is not a schema removal: `yolo config unset` removes the
+					// line, so the schema keeps no policy there. The migration's lookup is
+					// GPUNullDefaults.
+					if value, ok := nullDefault(at); ok {
+						m.Set(key, value)
+					} else {
+						left = append(left, strings.Join(at, "."))
+					}
 				}
 			case *jsonx.OrderedMap:
 				walk(current, at)

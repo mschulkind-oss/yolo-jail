@@ -54,8 +54,16 @@ func (w writerCounts) add(values *jsonx.OrderedMap) {
 			w[defaultKey(d.Path)]++
 		}
 	}
-	for _, d := range config.GPUNullDefaults() {
-		if _, ok := nullDefaultValue(values, d.Path); ok {
+	// A non-table `gpu` (`machine.gpu = true`) is the section enabled with every other leaf at its
+	// default, so it writes every leaf: a null elsewhere that is dropped must not leave its bool
+	// showing through.
+	wholeSection := false
+	if v, ok := nullDefaultValue(values, []string{"machine", "gpu"}); ok && v != nil {
+		_, isTable := v.(*jsonx.OrderedMap)
+		wholeSection = !isTable
+	}
+	for i, d := range config.GPUNullDefaults() {
+		if _, ok := nullDefaultValue(values, d.Path); ok || (wholeSection && i > 0) {
 			w[defaultKey(d.Path)]++
 		}
 	}

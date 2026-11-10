@@ -63,6 +63,10 @@ func TestMigrationKeepsEveryLegacyGPUNull(t *testing.T) {
 		{"the whole section null, nothing beneath", map[string]string{
 			"ws/yolo-jail.jsonc": `{"gpu": null, "packages": ["just"]}`,
 		}, "", ""},
+		{"a user bool section under a project leaf null", map[string]string{
+			"config.toml":        "[machine]\ngpu = true\n",
+			"ws/yolo-jail.jsonc": `{"gpu": {"devices": null}}`,
+		}, "", ""},
 		{"a legacy null under a TOML user config", map[string]string{
 			"config.toml":        "[machine.gpu]\nenabled = true\ncapabilities = 'utility'\n",
 			"ws/yolo-jail.jsonc": `{"gpu": {"capabilities": null}}`,

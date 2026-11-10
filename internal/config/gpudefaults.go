@@ -5,10 +5,12 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // gpudefaults.go is the one place `machine.gpu` (legacy: top-level `gpu`) says what each of its
 // leaves means when it is absent or null. The launch's readers (internal/cli/run readableGPU and
 // gpuArgs) answer these constants for an absent leaf and for a null one alike, since a reader takes
-// only a value of the leaf's type; cli/run's TestGPUReadersAnswerTheNullDefaults fails if one stops.
+// only a value of the leaf's type; cli/run's TestGPUReadersAnswerTheNullDefaults, cli/check's
+// TestGPUConfigAnswersTheNullDefaults and this package's TestEffectivePackagesAnswersTheNullDefaults
+// fail if one stops.
 //
 // TOML has no null, and a legacy null under `gpu` reset whatever a lower layer wrote there to that
-// default. So the null's TOML spelling is the default itself (RemovalDefault, LowerLegacyNulls),
+// default. So the null's TOML spelling is the default itself (LowerLegacyNulls),
 // and `yolo config migrate` leaves it out where no other file writes the leaf. A whole-section
 // null reset the section, which `machine.gpu = false` says.
 

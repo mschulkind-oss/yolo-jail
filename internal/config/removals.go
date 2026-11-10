@@ -1,7 +1,5 @@
 package config
 
-import "strings"
-
 // RemovalPolicy describes an authored removal spelling. Unspecified is deliberate: legacy
 // null values are path- and presence-sensitive, so an unrecorded path must not inherit a
 // generic interpretation.
@@ -16,9 +14,6 @@ const (
 	RemovalNativeString
 	RemovalTombstone
 	RemovalUnsetList
-	// RemovalDefault spells a legacy null as the value the key's absence means
-	// (GPUNullDefaults): a scalar that replaces a lower layer's value, as the null did.
-	RemovalDefault
 )
 
 // RemovalRule attaches one explicitly known removal convention to an exact schema path.
@@ -41,7 +36,7 @@ func RemovalPolicies() []RemovalRule {
 
 // ReadableRemovalPolicies lists settled removal values in the new authored vocabulary.
 func ReadableRemovalPolicies() []RemovalRule {
-	rules := []RemovalRule{
+	return []RemovalRule{
 		{Path: "active_provider.default", Policy: RemovalNativeString},
 		{Path: "active_provider.*", Policy: RemovalNativeString},
 		{Path: "packs", Policy: RemovalEmptyList},
@@ -95,12 +90,6 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "providers.*", Policy: RemovalOffString},
 		{Path: "providers.*.variants.*", Policy: RemovalOffString},
 	}
-	// A legacy null under `gpu` reset what a lower layer wrote to what absence means; TOML says
-	// it by writing that default (gpudefaults.go).
-	for _, d := range GPUNullDefaults() {
-		rules = append(rules, RemovalRule{Path: strings.Join(d.Path, "."), Policy: RemovalDefault})
-	}
-	return rules
 }
 
 func removalPolicy(path string) RemovalPolicy {
