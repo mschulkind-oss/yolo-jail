@@ -188,7 +188,7 @@ Capture provenance, OS and notification-server versions, theme, scaling and reda
 
 A separately shipped optional service, started in development by one command against the real host machinery. It reads `yolo approve --json` for the snapshot and `yolo approve --watch --json` for events, and reconciles by periodic re-snapshot because the watch stream is lossy by design: reconnects, pruning and working-set changes cannot be reconstructed from events. Rich detail means the full host-derived request: argv, repository, resource chain, set, policy ceiling, source revalidation status, workspace-wide grant reach, duration, use limits and time remaining.
 
-How the engineer reaches the page (toast link, terminal hint, menu item, automatic browser launch) is deliberately unresolved by owner ruling. WebSocket is a reasonable live state channel; server-sent events or polling are acceptable and the sibling chooses against real interaction needs. The live channel is separate from development asset reload, and neither carries authority.
+How the engineer reaches the page (toast link, terminal hint, menu item, automatic browser launch) is deliberately unresolved by owner ruling for the general case; the read-only experiment of [5.4](#54-the-read-only-queue-as-built-yolo-approve---web) prints a link and opens the browser from its own terminal. WebSocket is a reasonable live state channel; server-sent events or polling are acceptable and the sibling chooses against real interaction needs. The live channel is separate from development asset reload, and neither carries authority.
 
 ### 5.2 Read-only first; mutation only behind a tested host-user boundary
 
@@ -209,6 +209,66 @@ Read-only access also needs a privacy boundary: "no approve button" does not mak
 The current JSON listing contains pending requests, live grants and live working sets, not comprehensive past requests. History is assembled from what the host exposes (adapter-provided audit and snapshot data) and from the queue's own observed record, and the view states which. An initial "observed since this service started" history is useful if plainly labeled with restart and disconnection gaps; it is not completion of the owner's history requirement. The history and privacy sibling chooses how a host-side projection combines available evidence, what retention applies, which generic interface extensions are necessary, and what is redacted.
 
 Never infer denial, expiry or execution from disappearance. Keep past requests and approvals distinct from currently usable grants. Display spend-before-dispatch honestly: a queue-driven Allow followed by a crashed call has consumed its use, and the queue must not offer a retry that silently re-approves.
+
+### 5.4 The read-only queue as built: `yolo approve --web`
+
+**Status: experimental, read-only, host only.** [`internal/approvalqueue/`](../../../internal/approvalqueue/) holds it, as part of yolo and standard library only. It has no route that allows, denies or revokes, and no code path runs `yolo approve` with a request id: it runs the current executable as `approve --json` (a snapshot every `--reconcile`, 15 seconds by default, and after any watch trouble) and `approve --watch --json` (events, which only refresh the page between two snapshots and never outlive the next one). Inside a jail `yolo approve --web` refuses like every other form of `yolo approve` and says to run it on the host.
+
+**Run it** (on the host, in a terminal):
+
+```sh
+yolo approve --web        # or, from a checkout: just dev-approvals
+```
+
+| Flag | Default | Meaning |
+| :--- | :--- | :--- |
+| `--listen` | `127.0.0.1:0` | Address to listen on; only `127.0.0.1` is accepted. Port 0 picks a free port. |
+| `--reconcile` | `15s` | How often to take a full snapshot. |
+| `--assets` | embedded | Serve the page's files from this directory, so an edit shows on reload (development). |
+| `--no-open` | off | Do not open a browser; use the link printed on the terminal. |
+
+**How the key reaches the browser.** The queue prints a link holding a one-time code (128-bit, single use, 120 seconds), and opens the browser itself. It refuses to start unless standard output is a terminal, so the code cannot land in a pipe, a file or `yolo host-run` output. The code is never in the opener's argv, because a separate macOS agent account can read every process's argv: the queue writes a launcher page (mode 0600) in a fresh 0700 directory under `$XDG_RUNTIME_DIR` (Linux) or the system temporary directory, and runs `xdg-open` (Linux) or `open` (macOS) on that file alone. The page redirects to the link. The file is deleted after the exchange succeeds, after 120 seconds, when Enter makes a new link, and on exit. Press Enter for a new link; Ctrl-C quits. The page trades the code for a header token (kept in `sessionStorage`, never a cookie) and clears the address bar first.
+
+**The race alarm.** A code that was already traded and is presented again means the person's tab lost a race to something else that read the link. The page says "this link was already used by something else on this machine", the server revokes every session token and the terminal prints one loud warning for that code. The alarm makes no new code and opens no browser, and it tells the person to press Enter for a new link once the cause is found: otherwise whoever replays a code could keep the person locked out and open tabs without limit. Further replays of an already-alarmed code get 409 and change nothing. Every code the process has traded is remembered (each is 22 characters, and one is spent only by a person pressing Enter), so a replay of any of them alarms, however old. A stolen code becomes a detected event, not a silent session. Making a link is one critical section: the launcher file is written and recorded before the code can be exchanged, so an exchange always finds the file it must delete. The server also drops stalled and idle clients (read, read-header and idle timeouts) and refuses headers over 16 KiB. Failed exchanges for a wrong code never burn the live code and are never throttled; the fifth for one code prints one warning on the terminal.
+
+**What the page shows.** Pending requests with every field yolo reports, in full; the agent's own text in a box labeled agent-supplied; values after `--body`, `--body-file`, `--field`, `-F`, `--raw-field`, `-f`, `--header`, `-H` and `--input` masked as `[hidden: N characters, sha256 xxxxxxxx]` with a Show button that re-masks when the page is hidden or reloads (this defends against eyes, not against the tab's own script); control, bidirectional and zero-width characters as markers such as `⟨U+202E⟩`; live grants, working-set entries, sources and diagnostics; and history. Freshness is stated: **Live**, **Stale** (with yolo's message, and an empty list is then not "nothing pending"), **Never loaded** and, browser side, **Disconnected**. History is only what this queue observed since it started, in memory, newest 200, with every watch restart or discarded line named; a request that leaves the pending list with no event seen reads "no longer pending; outcome not observed", never denied or expired. The Host and Origin checks, CSP, `X-Frame-Options` and the other response headers apply to every response.
+
+**Child processes.** Each child runs in its own process group; on SIGINT, SIGTERM or SIGHUP the queue kills each group and waits. Linux also sets a parent-death signal; elsewhere a SIGKILL of the queue can orphan the watch until its next write.
+
+**Tests.** `just check-ci` runs them under `go test -short`, which is the landing gate. The race detector is not part of it: run `go test -race -count=1 ./internal/approvalqueue/...` for that. A fake `yolo` is the test binary itself, re-executed with `FAKE_YOLO_SCRIPT` to replay the recorded files in `internal/approvalqueue/testdata`; the real supervisor runs against it. Waits are on channels, injected clocks and model conditions with a 60 second failure guard, never elapsed time. The CLI side is pinned by `TestApproveWebIsWiredIntoYoloApprove`, which fails if the dispatch is deleted.
+
+Trust-boundary test plan, read-only rows (the `T` numbers are those of the out-of-tree trust-boundary plan this queue was built against; that document is not in this repository):
+
+| Test | Status |
+| :--- | :--- |
+| T3 Host mismatch is 421 | runs in CI |
+| T4 Origin, `Sec-Fetch-Site`, `OPTIONS`, no CORS headers | runs in CI |
+| T6 CSP and `X-Frame-Options` on every response | header half runs in CI; framing from another origin needs a browser, **not run** |
+| T7 no inline script or `on*` attribute, CSP exact | runs in CI |
+| T8 hostile fixture in a real browser (sentinel global, no dialog) | server and static halves run in CI; the in-browser execution check is **not run** |
+| T9 code reuse, 120 s expiry with an injected clock, warning after five failures with no burn and no throttle, 8-token cap | runs in CI; "token survives reload" is covered over HTTP, not in a browser. Reuse of a spent code is now the race alarm below. |
+| T10 no fragment left in the address bar | `app.js` is checked to call `history.replaceState` before the exchange; the address-bar check in a browser is **not run** |
+| T11 code and token absent from argv and environment of the queue, its children and now the opener | runs for the children, the queue's own argv and the injected opener's argv; a search of the home directory, state directories and the temporary directory for a stray copy is **not run** (the launcher file is the one deliberate copy and its deletion is tested) |
+| T12 refuses when standard output is not a terminal | runs in CI; the `yolo host-run` case is **not run** (needs a real host) |
+| T13 log holds no code, token or `Authorization` value | runs in CI |
+| L1 launcher file mode 0600 in a 0700 directory, opener argv is the path only | runs in CI |
+| L2 launcher file deleted after the exchange, at expiry (injected clock) and on exit | runs in CI |
+| L3 race alarm: a spent code gives 409, revokes every token and warns once per code; 14 replays give one warning, no new link and no opener call | runs in CI (auth and end to end) |
+| L5 the terminal check in `Main` on a real piped standard output, `systemOpen`'s real argv, and the production runtime-directory choice | runs in CI |
+| L4 a real `xdg-open` or `open` opening a real browser on the launcher | **not run**: needs a desktop session |
+| T1 forged `Host`/`Origin` from a real jail to every route | **not run**: needs a real jail on a rootless host; a nested jail cannot test it |
+| T2 peer address and uid the queue sees from a jail | **not run**: same |
+| T5 another origin's page fetching state and stream | **not run**: needs a browser |
+
+Also checked: no route other than `POST /api/session` accepts a POST, no cookie is ever set, and masking agrees with a verbatim copy of yolo's `summaryArgv` argument by argument. The mutation rows (T14 to T21) are not written, because there is nothing to test. Not measured: the queue has not been run against a live host store with real jails filing requests.
+
+**Fixtures.** `internal/approvalqueue/testdata/` holds output recorded from yolo built at commit `04f300a9e`, run against a throwaway home directory and sanitized (paths rewritten to `/home/example/code/app`, repositories to `example/app`, jail ids derived from fake container names), in the host-like environment `env -i HOME=<throwaway> PATH=/usr/bin:/bin` that makes `yolo approve` run outside a jail:
+
+- `approve-json-populated.json`, `approve-json-final.json`, `empty-home-approve-json.json`: `yolo approve --json` snapshots, including hostile text (HTML tags, escape sequences, a right-to-left override, zero-width characters, a 5000-character ref, `--body` secrets).
+- `watch-1.jsonl`: a watch transcript with every event kind. `watch-2-after-gap.jsonl`: the opening line of a second watch after a stretch in which a request was filed, allowed and used with no watcher running. `empty-home-watch.jsonl`: an empty watch.
+- `injail-approve-refusal.*`: the exit code (2) and message of `yolo approve` run inside a jail.
+
+The queue mirrors yolo's schema 1 JSON by shape (it does not import the CLI), ignores unknown fields and refuses any other schema number.
 
 ## 6. Workstream 3: service mediation that scales beyond one adapter
 

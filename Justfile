@@ -74,6 +74,10 @@ dev-storybook port="8765":
     echo "open:    http://127.0.0.1:{{port}}/index.html"
     exec python3 -m http.server --bind 127.0.0.1 --directory "$dir" "{{port}}"
 
+# Start the experimental read-only approval queue web UI from this checkout. Run it on the host, in a terminal: it needs a terminal for its one-time link. Flags pass through, e.g. `just dev-approvals --no-open`.
+dev-approvals *args:
+    go run ./cmd/yolo approve --web {{args}}
+
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run. `just deploy yolo-stable` installs under another name.
 deploy name="yolo": (install name) (_host-state name)
 

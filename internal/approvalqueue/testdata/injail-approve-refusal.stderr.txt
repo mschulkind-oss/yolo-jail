@@ -1,0 +1,2 @@
+yolo-jail 1 | linux/x86_64 | in-jail
+yolo approve is host-only: the request store is never mounted into a jail. Run `yolo approve` in a terminal on the host.

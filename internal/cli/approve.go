@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalqueue"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -33,6 +34,7 @@ const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | 
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
        yolo approve --json
        yolo approve --watch [--json]
+       yolo approve --web [--listen 127.0.0.1:<port>] [--reconcile <duration>] [--assets <dir>] [--no-open]
 
 Host-only: list requests, grants and each workspace's working set, allow a
 request once, grant its requested set for a bounded duration, deny it with optional human feedback,
@@ -98,6 +100,18 @@ and as "hook_failure" and "hook_output" in its JSON. This is the surface a UI
 built outside yolo uses. Such a UI must never accept approvals from the jails
 it approves: a jail can reach a port the host listens on.
 
+--web (experimental, read-only, host only) serves a browser view of the same
+state on 127.0.0.1 and cannot allow, deny or revoke anything. Run it in a
+terminal: it works only when standard output is a terminal, prints a one-time
+link there, and opens your browser on a private launcher file that carries the
+link, so the link is never in a process's argv. --no-open skips the browser.
+Press Enter for a new link. A link used a second time ends every session and
+warns once, and makes no new link and opens no browser: press Enter once you
+have found the cause. --listen sets the address (127.0.0.1 only; default 127.0.0.1:0, a free
+port), --reconcile how often it takes a full snapshot (default 15s), and
+--assets serves the page's files from a directory for development. See
+docs/design/approval-experience/README.md.
+
 Exit codes: 0 done; 1 the store could not be read or written; 2 usage;
 3 the request is already decided; 4 no request, grant or entry has that id
 (or, with --workspace, that workspace path);
@@ -133,9 +147,16 @@ const (
 // approveWatchInterval is how often `--watch` polls the store.
 var approveWatchInterval = time.Second
 
+// approveWebStart runs the browser queue; a variable so a test can see `yolo approve --web`
+// reach it without starting a server.
+var approveWebStart = approvalqueue.Main
+
 func runApprove(args []string) int {
 	if answerHelp("approve", args, os.Stdout) {
 		return 0
+	}
+	if len(args) > 1 && args[1] == "--web" {
+		return approveWeb(args[2:], config.InJail(), approveWebStart, os.Stderr)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -147,6 +168,17 @@ func runApprove(args []string) int {
 		return approveFailure(err, os.Stderr)
 	}
 	return approveAllWithDiagnostics(ctx, args[1:], false, stores, diagnostics, os.Stdout, os.Stderr)
+}
+
+// approveWeb is `yolo approve --web`: the experimental read-only browser queue. It is host-only
+// like every other form of yolo approve; start is the queue's entry point, a parameter so a test
+// can see the dispatch reach it.
+func approveWeb(args []string, inJail bool, start func([]string) int, errs io.Writer) int {
+	if inJail {
+		fmt.Fprintln(errs, "yolo approve --web is host-only: the request store is never mounted into a jail. Run `yolo approve --web` in a terminal on the host.")
+		return approveExitUsage
+	}
+	return start(args)
 }
 
 // approveFailure maps a store error to its stable exit code and the next step its message
