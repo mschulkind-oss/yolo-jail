@@ -185,8 +185,9 @@ func Current(stableDir string) string {
 // symlink-resolved paths at both ends, because the launcher resolves the prefix
 // before mounting it (jailPrefixSource) and a stale relative path would otherwise
 // read as "not in use".
-func Reap(stableDir string, liveSources map[string]bool, liveKnown, apply bool, now time.Time) []string {
-	return ReapGuarded(stableDir, liveSources, liveKnown, apply, now, nil)
+func Reap(stableDir string, liveSources map[string]bool, liveKnown, apply bool, now time.Time,
+	procExes func() ([]string, bool)) []string {
+	return ReapGuarded(stableDir, liveSources, liveKnown, apply, now, procExes, nil)
 }
 
 // ReapGuarded is Reap with each generation's removal bracketed by guard: guard takes the
@@ -197,11 +198,30 @@ func Reap(stableDir string, liveSources map[string]bool, liveKnown, apply bool, 
 // since the listing may have swapped the link — and still past GenerationGrace. A jail
 // started since the listing mounts the current generation, which is never reaped. nil guard
 // runs every removal directly.
+//
+// procExes lists the executable path of each live process of this user, and a generation is
+// also in use while one of them lies inside it (PH-D8: a host helper runs out of the bundle
+// its launch pinned, and no mount shows that). Like liveKnown it is tri-state: a nil reader or
+// ok==false is "could not ask" and reaps nothing. A path is compared symlink-resolved, with
+// Linux's " (deleted)" suffix dropped, so a replaced file still counts as inside.
 func ReapGuarded(stableDir string, liveSources map[string]bool, liveKnown, apply bool, now time.Time,
-	guard func(recheck func() bool, del func()) bool) []string {
+	procExes func() ([]string, bool), guard func(recheck func() bool, del func()) bool) []string {
 	removed := []string{}
-	if !liveKnown {
+	if !liveKnown || procExes == nil {
 		return removed
+	}
+	exes, exesKnown := procExes()
+	if !exesKnown {
+		return removed
+	}
+	for _, exe := range exes {
+		exe = strings.TrimSuffix(exe, " (deleted)")
+		if exe == "" {
+			continue
+		}
+		// A file replaced or removed no longer resolves, but its directory may: resolve the
+		// longest existing parent so a symlinked path into a generation still lands inside it.
+		inUseExe(exe, func(p string) { liveSources = withSource(liveSources, p) })
 	}
 	current := Current(stableDir)
 	inUse := map[string]bool{}
@@ -258,4 +278,33 @@ func generationInUse(gen string, inUse map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// withSource returns liveSources plus p, without mutating the caller's map.
+func withSource(m map[string]bool, p string) map[string]bool {
+	out := make(map[string]bool, len(m)+1)
+	for k := range m {
+		out[k] = true
+	}
+	out[p] = true
+	return out
+}
+
+// inUseExe reports exe to add after resolving the deepest existing ancestor's symlinks.
+func inUseExe(exe string, add func(string)) {
+	rest := ""
+	p := exe
+	for {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			add(filepath.Join(r, rest))
+			return
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			add(exe)
+			return
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
+	}
 }

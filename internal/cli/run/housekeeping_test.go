@@ -389,7 +389,7 @@ func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 		"prune.PruneRetiredLoopholeStateGuarded(",
 		"prune.PruneImageCacheGuarded(",
 		"prune.PruneImageDeliveryGuarded(paths.ImageDeliveryDir(), true, guard)",
-		"flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), guard)",
+		"flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), prune.ProcessExes, guard)",
 		"o.withHousekeepingPass(func(guard prune.Guard) {",
 	} {
 		if !strings.Contains(src, call) {
@@ -417,7 +417,7 @@ func TestBundleGenerationReapAsksWhatIsRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := afterFunc(string(src), "func (o *Options) reapFlakeBundleGenerations(")
-	for _, want := range []string{"LivePrefixSources(", "if !known {", "flakebundle.ReapGuarded("} {
+	for _, want := range []string{"LivePrefixSources(", "if !known {", "prune.ProcessExes", "flakebundle.ReapGuarded("} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("the bundle-generation pass no longer calls %s. Generations exist so a "+
 				"`just install` cannot delete a running jail's binaries; a reap that does not "+

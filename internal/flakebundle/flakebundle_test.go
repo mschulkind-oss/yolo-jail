@@ -179,7 +179,7 @@ func TestReapKeepsWhatIsStillRunning(t *testing.T) {
 	}
 	live := map[string]bool{filepath.Join(inUse, "bin", "linux-amd64"): true}
 
-	removed := Reap(stable, live, true, true, time.Now())
+	removed := Reap(stable, live, true, true, time.Now(), noProcs)
 
 	if len(removed) != 1 || removed[0] != dead {
 		t.Fatalf("Reap removed %v, want exactly [%s]", removed, dead)
@@ -216,7 +216,7 @@ func TestAGuardedReapKeepsAGenerationActivatedDuringThePass(t *testing.T) {
 			del()
 			return true
 		}
-		removed := ReapGuarded(stable, map[string]bool{}, true, true, time.Now(), guard)
+		removed := ReapGuarded(stable, map[string]bool{}, true, true, time.Now(), noProcs, guard)
 		_, err := os.Stat(gen)
 		if (err == nil) != activate || (len(removed) == 1) == activate {
 			t.Errorf("activated during the pass=%v: kept=%v removed=%v", activate, err == nil, removed)
@@ -237,7 +237,7 @@ func TestReapDeclinesWhenLivenessIsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if removed := Reap(stable, nil, false /*liveKnown*/, true, time.Now()); len(removed) != 0 {
+	if removed := Reap(stable, nil, false /*liveKnown*/, true, time.Now(), noProcs); len(removed) != 0 {
 		t.Fatalf("Reap must decline entirely when the runtime cannot be enumerated, removed %v", removed)
 	}
 	if _, err := os.Stat(gen); err != nil {
@@ -262,7 +262,7 @@ func TestReapIgnoresWhatItDidNotStage(t *testing.T) {
 		}
 	}
 
-	if removed := Reap(stable, map[string]bool{}, true, true, time.Now()); len(removed) != 0 {
+	if removed := Reap(stable, map[string]bool{}, true, true, time.Now(), noProcs); len(removed) != 0 {
 		t.Fatalf("Reap took something it did not stage: %v", removed)
 	}
 	for _, name := range strangers {
@@ -284,5 +284,69 @@ func TestGenerationInUseDoesNotMatchOnAPathPrefix(t *testing.T) {
 	}
 	if !generationInUse(gen, map[string]bool{gen + "/bin/linux-amd64": true}) {
 		t.Error("a source inside the generation must count as in use")
+	}
+}
+
+// noProcs is a process table that was read and holds no process inside any generation.
+func noProcs() ([]string, bool) { return nil, true }
+
+// oldGenerationBesideCurrent stages an old, unmounted generation and a newer current one.
+func oldGenerationBesideCurrent(t *testing.T) (stable, gen string) {
+	t.Helper()
+	stable = stableIn(t)
+	old := time.Now().Add(-48 * time.Hour)
+	gen = stageBundle(t, stable, old, 1)
+	stageBundle(t, stable, time.Now(), 2)
+	if err := os.Chtimes(gen, old, old); err != nil {
+		t.Fatal(err)
+	}
+	return stable, gen
+}
+
+// TestAGenerationAProcessRunsFromIsKept: a live process executing a file inside a generation
+// keeps it, though no jail mounts it (PH-D8). The exe is named three ways a process table
+// gives it: the file, a symlink to it, and Linux's " (deleted)" suffix for a replaced file.
+func TestAGenerationAProcessRunsFromIsKept(t *testing.T) {
+	stable, gen := oldGenerationBesideCurrent(t)
+	exe := filepath.Join(gen, "bin", "linux-amd64", "yolo-entrypoint")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(gen, link); err != nil {
+		t.Fatal(err)
+	}
+	for name, e := range map[string]string{
+		"file":    exe,
+		"symlink": filepath.Join(link, "bin", "linux-amd64", "yolo-entrypoint"),
+		"deleted": exe + " (deleted)",
+	} {
+		procs := func() ([]string, bool) { return []string{"/usr/bin/sh", e}, true }
+		if removed := Reap(stable, map[string]bool{}, true, true, time.Now(), procs); len(removed) != 0 {
+			t.Errorf("%s: removed %v a live process executes from", name, removed)
+		}
+		if _, err := os.Stat(gen); err != nil {
+			t.Fatalf("%s: generation gone: %v", name, err)
+		}
+	}
+	// A process running from a sibling whose name only shares a prefix does not keep it.
+	sibling := gen + "2/bin/yolo"
+	procs := func() ([]string, bool) { return []string{sibling}, true }
+	if removed := Reap(stable, map[string]bool{}, true, true, time.Now(), procs); len(removed) != 1 {
+		t.Errorf("a prefix-sharing sibling kept the generation: removed %v", removed)
+	}
+}
+
+// TestAnUnreadableProcessTableReapsNothing: "could not read the process table" is not "no
+// process runs from it", and a nil reader is the same unknown.
+func TestAnUnreadableProcessTableReapsNothing(t *testing.T) {
+	for name, procs := range map[string]func() ([]string, bool){
+		"unreadable": func() ([]string, bool) { return nil, false },
+		"nil":        nil,
+	} {
+		stable, gen := oldGenerationBesideCurrent(t)
+		if removed := Reap(stable, map[string]bool{}, true, true, time.Now(), procs); len(removed) != 0 {
+			t.Errorf("%s: removed %v", name, removed)
+		}
+		if _, err := os.Stat(gen); err != nil {
+			t.Errorf("%s: generation gone: %v", name, err)
+		}
 	}
 }

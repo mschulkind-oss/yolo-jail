@@ -411,3 +411,22 @@ func nonEmpty(s, fallback string) string {
 	}
 	return fallback
 }
+
+// ProcessExes is this user's live processes' executable paths, for a sweep that keeps what a
+// running process executes from (the flake-bundle generation reaper, PH-D8). Unlike
+// DevBundleProcStarts it reads the table on darwin too: the generations are the user's own
+// install, run by the user's own helpers. false is "could not ask", and a process whose
+// executable the OS would not name is omitted.
+func ProcessExes() ([]string, bool) {
+	procs, ok := readProcStarts()
+	if !ok {
+		return nil, false
+	}
+	var out []string
+	for _, p := range procs {
+		if p.Exe != "" {
+			out = append(out, p.Exe)
+		}
+	}
+	return out, true
+}
