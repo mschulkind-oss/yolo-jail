@@ -4,7 +4,7 @@ package config
 // does not remain split across the common config parser.
 var (
 	knownEndpointKeys    = set("base_url", "wire_api")
-	knownProviderKeys    = set("base_url", "endpoints", "wire_api", "api_key_env_name", "platform", "models", "region", "capabilities", "options")
+	knownProviderKeys    = set("base_url", "endpoints", "wire_api", "api_key_env_name", "platform", "models", "region", "capabilities", "options", "inherits")
 	knownModelKeys       = set("id", "name", "description", "vendor", "reasoning", "input", "cost", "context_window", "max_tokens", "base", "openrouter_routing", "extends", "wire_id")
 	unknownModelKeyHints = map[string]string{
 		"wireId":   "the wire id is spelled `wire_id`, like every other key here",

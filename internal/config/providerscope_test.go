@@ -255,3 +255,26 @@ func TestProviderSurfacesAreReservedAgainstHostFiles(t *testing.T) {
 		})
 	}
 }
+
+// PI-D5 (docs/design/provider-inherits.md): `inherits` takes another provider's platform and
+// endpoints, so it is user-scope only, "" (the opt-out) included. Through ValidateConfig, so
+// deleting the call from the scope pass fails it.
+func TestWorkspaceProviderInheritsIsRefused(t *testing.T) {
+	for _, value := range []string{`"bedrock"`, `""`} {
+		errs := providerScopeErrors(t, `{"providers":{"x":{"inherits":`+value+`}}}`, `{}`)
+		found := ""
+		for _, e := range errs {
+			if strings.HasPrefix(e, "config.providers.x.inherits:") {
+				found = e
+			}
+		}
+		if found == "" {
+			t.Fatalf("inherits=%s in a workspace config was not refused; got %v", value, errs)
+		}
+		for _, want := range []string{"user-scope only", "platform and endpoints", paths.UserConfigPath()} {
+			if !strings.Contains(found, want) {
+				t.Errorf("error %q missing %q", found, want)
+			}
+		}
+	}
+}

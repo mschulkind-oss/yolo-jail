@@ -295,6 +295,7 @@ func TestReadableSchemaMatchesWorkspaceProviderScopeAndSelectionReaders(t *testi
 		"providers.*.via":              SchemaScopeUserOnly,
 		"providers.*.endpoints":        SchemaScopeUserOnly,
 		"providers.*.platform":         SchemaScopeUserOnly,
+		"providers.*.inherits":         SchemaScopeUserOnly,
 		"providers.*.api_key_env_name": SchemaScopeUserOnly,
 		"mounts.*.write":               SchemaScopeFieldSensitive, // a project may request one (RC-D24)
 		"active_provider.default":      SchemaScopeUserOnly,
@@ -322,6 +323,8 @@ func TestReadableSchemaMatchesWorkspaceProviderScopeAndSelectionReaders(t *testi
 		{"provider capabilities", `{"providers":{"acme":{"capabilities":["web_search"]}}}`, false},
 		{"provider endpoint", `{"providers":{"acme":{"endpoints":{"openai":{"base_url":"https://example.test/v1"}}}}}`, true},
 		{"provider platform", `{"providers":{"acme":{"platform":"aws-bedrock"}}}`, true},
+		{"provider inherits", `{"providers":{"acme":{"inherits":"bedrock"}}}`, true},
+		{"provider inherits opt-out", `{"providers":{"acme":{"inherits":""}}}`, true},
 		{"provider credential variable", `{"providers":{"acme":{"api_key_env_name":"ACME_KEY"}}}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
