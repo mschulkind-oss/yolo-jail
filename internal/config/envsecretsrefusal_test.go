@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -120,5 +121,26 @@ func TestSharedFileRefusalNeverBorrowsAnotherScopesFlag(t *testing.T) {
 	got := SecretEnvRefusals(h, nil, otherScope)
 	if len(got) != 1 || strings.Contains(got[0], "--project") {
 		t.Errorf("the file is listed by another scope than --project: %q", got)
+	}
+}
+
+// One file spelled two ways is one shared file: the launch says so, steering the user to the
+// file move and never into a --drop (re-review blocker).
+func TestSecretEnvRefusalFindsASharedFileByIdentity(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	dir := t.TempDir()
+	real := dir + "/keys.env"
+	if err := os.WriteFile(real, []byte("A_KEY=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, dir+"/alias.env"); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHydratedEnv()
+	h.SetPublic("A_KEY", "v", EnvPlace{Key: "env.files", Entry: real})
+	h.SetPrivate("A_KEY", "v", EnvPlace{Private: true, Key: "env.secrets.files", Entry: dir + "/alias.env"})
+	got := SecretEnvRefusals(h, nil, userSite)
+	if len(got) != 1 || !strings.Contains(got[0], "yolo config secret --dotenv") || strings.Contains(got[0], "--drop") {
+		t.Errorf("want the shared-file refusal, got %q", got)
 	}
 }

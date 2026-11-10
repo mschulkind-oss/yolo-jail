@@ -273,7 +273,7 @@ func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string,
 				to, m.name, shquote.Join(dropless(m.argv)))
 			return 1
 		}
-		if !kept.Inline() && !src.Inline() && kept.Dotenv == src.Dotenv {
+		if !kept.Inline() && !src.Inline() && (kept.Dotenv == src.Dotenv || config.SameDotenvFile(kept.Dotenv, src.Dotenv)) {
 			fmt.Fprintf(errw, "%s lists %s in both sets, so --drop would delete its only copy of %s; "+
 				"put the file in one set first with %s\n", m.name, src.Dotenv, m.name, m.dotenvCommand(src.Raw, h.file.Scope))
 			return 1
@@ -281,7 +281,8 @@ func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string,
 		if rc := m.removeSite(h.file, src, workspace, errw); rc != 0 {
 			return rc
 		}
-		fmt.Fprintf(out, "dropped %s from %s; kept %s\n", m.name, src.Place.Describe(), kept.Place.Describe())
+		fmt.Fprintf(out, "dropped %s from %s; kept %s in the %s config\n", m.name, src.Place.Describe(),
+			kept.Place.Describe(), strings.TrimPrefix(kept.Scope, "--"))
 		return m.approveLine(h.file, out)
 	}
 	if kept.Place.Key != "" {
@@ -313,11 +314,6 @@ func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string,
 		}
 		target := entries[0]
 		if m.refuseLinked(target.Dotenv, errw) {
-			return 1
-		}
-		if target.Dotenv == src.Dotenv {
-			fmt.Fprintf(errw, "%s lists %s in both sets, so moving %s between them would only copy a line onto itself; "+
-				"put the file in one set first with %s\n", m.name, src.Dotenv, m.name, m.dotenvCommand(src.Raw, h.file.Scope))
 			return 1
 		}
 		line, found, err := config.DotenvLine(src.Dotenv, m.name)
@@ -419,7 +415,10 @@ func sameDotenv(e config.EnvSite, arg, anchor string) bool {
 		return true
 	}
 	abs, err := filepath.Abs(arg)
-	return err == nil && e.Dotenv == abs
+	if err == nil && e.Dotenv == abs {
+		return true
+	}
+	return config.SameDotenvFile(e.Dotenv, config.EnvSourcePathByName(arg, anchor))
 }
 
 // edit applies one mutation to f's file through the generic verbs' transaction, printing no
@@ -535,17 +534,21 @@ func suggestedDotenv(f config.EnvScopeFile, private bool) string {
 	if private {
 		candidates = []string{"secrets.env", "private.env", "secrets-private.env"}
 	}
-	listed := map[string]bool{}
-	for _, e := range f.FileEntries(!private) {
-		listed[e.Dotenv] = true
-	}
+	others := f.FileEntries(!private)
 	pick := candidates[len(candidates)-1]
 	for _, name := range candidates {
 		display := name
 		if f.Scope == config.EnvScopeUser {
 			display = "~/.config/yolo-jail/" + name
 		}
-		if !listed[config.ResolveEnvSourcePath(display, f.Anchor)] {
+		path := config.EnvSourcePathByName(display, f.Anchor)
+		taken := false
+		for _, e := range others {
+			if e.Dotenv == path || config.SameDotenvFile(e.Dotenv, path) {
+				taken = true
+			}
+		}
+		if !taken {
 			return display
 		}
 	}

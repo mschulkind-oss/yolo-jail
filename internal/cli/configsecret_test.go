@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
@@ -287,5 +288,111 @@ func TestConfigSecretRefusesADotenvFileThatIsALink(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(real); rc == 0 || string(got) != "ZAI_API_KEY=z\n" || !strings.Contains(errw.String(), "symbolic link") {
 		t.Errorf("rc %d, target %q, stderr %q", rc, got, errw.String())
+	}
+}
+
+// One file spelled differently in each set is still one copy: --drop must refuse on identity
+// (os.SameFile), never on the spelling (re-review blocker).
+func TestConfigSecretDropRefusesOneFileSpelledDifferently(t *testing.T) {
+	for name, spell := range map[string]func(dir string) string{
+		"dot segment":      func(dir string) string { return dir + "/./keys.env" },
+		"double slash":     func(dir string) string { return dir + "//keys.env" },
+		"alias link":       func(dir string) string { return filepath.Join(dir, "alias.env") },
+		"linked directory": func(dir string) string { return filepath.Join(dir, "sub", "keys.env") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			user := secretFixture(t, "")
+			dir := filepath.Dir(user.Path)
+			keys := filepath.Join(dir, "keys.env")
+			if err := os.WriteFile(keys, []byte("ZAI_API_KEY=z\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(keys, filepath.Join(dir, "alias.env")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(dir, filepath.Join(dir, "sub")); err != nil {
+				t.Fatal(err)
+			}
+			body := "[env]\nfiles = [\"" + keys + "\"]\n\n[env.secrets]\nfiles = [\"" + spell(dir) + "\"]\n"
+			if err := os.WriteFile(user.Path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, verb := range []string{"secret", "unsecret"} {
+				var out, errw bytes.Buffer
+				rc := configRunW([]string{verb, "ZAI_API_KEY", "--drop", "--user"}, &out, &errw)
+				if got, _ := os.ReadFile(keys); rc == 0 || string(got) != "ZAI_API_KEY=z\n" {
+					t.Errorf("%s --drop: rc %d, the only copy is now %q\n%s", verb, rc, got, errw.String())
+				}
+			}
+		})
+	}
+}
+
+// The destination file being a link is refused too, not only the source (mutation survivor).
+func TestConfigSecretRefusesADestinationThatIsALink(t *testing.T) {
+	user := secretFixture(t, "[env]\nfiles = [\"defaults.env\"]\n\n[env.secrets]\nfiles = [\"secrets.env\"]\n")
+	dir := filepath.Dir(user.Path)
+	if err := os.WriteFile(filepath.Join(dir, "defaults.env"), []byte("ZAI_API_KEY=z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(t.TempDir(), "real.env")
+	if err := os.WriteFile(real, []byte("OTHER=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(dir, "secrets.env")); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	rc := configRunW([]string{"secret", "ZAI_API_KEY", "--user"}, &out, &errw)
+	if got, _ := os.ReadFile(real); rc == 0 || string(got) != "OTHER=1\n" || !strings.Contains(errw.String(), "symbolic link") {
+		t.Errorf("rc %d, target %q, stderr %q", rc, got, errw.String())
+	}
+}
+
+// A suggestion is never a file [env] files already lists, even when a link or a linked
+// directory (macOS's /var) stands between the spellings (review major 1b).
+func TestSuggestedDotenvComparesFileIdentityBehindLinks(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "via")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", link)
+	user := secretFixture(t, "")
+	dir := filepath.Dir(user.Path)
+	if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("A=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "secrets.env"), filepath.Join(dir, "linked.env")); err != nil {
+		t.Fatal(err)
+	}
+	// [env] lists the file through a link; the suggestion for the private set must skip it.
+	body := "[env]\nfiles = [\"" + filepath.Join(dir, "linked.env") + "\"]\n"
+	if err := os.WriteFile(user.Path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := config.ReadEnvScopeFiles("", true)
+	if err != nil || len(files) == 0 {
+		t.Fatalf("%v %v", files, err)
+	}
+	got := suggestedDotenv(files[0], true)
+	if strings.HasSuffix(got, "/secrets.env") {
+		t.Errorf("suggested %s, which [env] files lists through a link", got)
+	}
+}
+
+// --drop names the scope whose config holds the kept copy (review minor).
+func TestConfigSecretDropNamesTheScopeOfTheKeptCopy(t *testing.T) {
+	secretFixture(t, "[env]\nset = { FOO = \"user-value\" }\n")
+	ws, _ := os.Getwd()
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.toml"), []byte("[env.secrets]\nset = { FOO = \"repo-value\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"secret", "FOO", "--drop", "--user"}, &out, &errw); rc != 0 {
+		t.Fatalf("rc %d: %s", rc, errw.String())
+	}
+	if !strings.Contains(out.String(), "kept ([env.secrets] set) in the project config") {
+		t.Errorf("the kept copy's scope is named:\n%s", out.String())
 	}
 }

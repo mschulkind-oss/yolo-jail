@@ -30,7 +30,8 @@ func SecretEnvRefusals(h *HydratedEnv, claims []packload.PublicClaim, site func(
 			continue
 		}
 		pub, prv := places[0], places[1]
-		if pub.Entry != "" && pub.Entry == prv.Entry {
+		if pub.Entry != "" && prv.Entry != "" && (pub.Entry == prv.Entry ||
+			SameDotenvFile(EnvSourcePathByName(pub.Entry, ""), EnvSourcePathByName(prv.Entry, ""))) {
 			if !sharedDone[pub.Entry] {
 				sharedDone[pub.Entry] = true
 				out = append(out, sharedFileRefusal(pub.Entry, sharedFileSite(site(name, false), pub.Entry)))

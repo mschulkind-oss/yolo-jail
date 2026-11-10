@@ -55,6 +55,18 @@ type EnvSite struct {
 	Index int
 }
 
+// SameDotenvFile reports whether a and b are one existing file, by identity (os.SameFile), however
+// each is spelled: a dot segment, a doubled slash, a link to it, or a path through a linked
+// directory. It acts on neither name, and is false when either does not exist.
+func SameDotenvFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
+}
+
 // IsValidEnvName reports whether name is a variable name a dotenv line or a `set` table can carry.
 func IsValidEnvName(name string) bool { return envVarNameRe.MatchString(name) }
 
