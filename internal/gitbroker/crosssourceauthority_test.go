@@ -55,4 +55,17 @@ func TestAnotherSourcesUnreadableAllowanceDoesNotWithdrawTheGitBranchGrant(t *te
 	if !strings.Contains(out, "a_git_capability_a_newer_yolo_declares") {
 		t.Fatalf("the refusal does not name the entry that could not be validated:\n%s", out)
 	}
+
+	// The error is the user config's words, carried to the jail's terminal: a key naming a
+	// terminal control sequence reaches it only as visible text (termsafe.Visible).
+	writeReadableGitUserTOMLWithPacks(t, "['git', 'github']",
+		"always = ['fetch']\non_request = ['push']\n\"k\\u001b]0;owned\\u0007\" = true\n", "")
+	f.commit("after a control sequence in allow.git")
+	out, err = f.git("push", "origin", "HEAD:main")
+	if err == nil || !strings.Contains(out, reasonNeedsApproval) {
+		t.Fatalf("an unreadable allow.git still covered the push: err=%v\n%s", err, out)
+	}
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("the refusal carried a raw control sequence from the user config:\n%q", out)
+	}
 }
