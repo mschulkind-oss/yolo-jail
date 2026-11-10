@@ -114,6 +114,15 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string, fr
 				add(errs, prob)
 			}
 		}
+		// A provider NAME (or "" to opt out): which provider's composed settings this one
+		// starts from (docs/design/provider-inherits.md). Whether the name exists and is not
+		// itself an inheritor is the composition's refusal, not a shape rule.
+		if in, ok := cfg.Get("inherits"); ok && in != nil {
+			if _, isString := asStr(in); !isString {
+				add(errs, fmt.Sprintf("%s.inherits: expected a provider name or \"\" (to opt out), got %s",
+					path, pyReprValue(in)))
+			}
+		}
 		if a, ok := cfg.Get("api_key_env_name"); ok && a != nil {
 			// One variable name, or a list of them (OQ-CN1,
 			// docs/reference/providers.md). The rule is packdecl's, so a pack
@@ -513,6 +522,16 @@ func validateProviderCredentialScopeConfig(wsCfg *jsonx.OrderedMap, errs *[]stri
 		// pass below, for this function's reason: the merged map is not the security boundary.
 		if r, has := entry.Get("region"); has && r != nil {
 			validateProviderRegion(r, path+".region", errs)
+		}
+		// `inherits` (PI-D5) takes another provider's platform and endpoints, so it decides
+		// where a credential goes as surely as writing them does; "" is refused too, since it
+		// withholds the platform a pack's inheritance would have supplied.
+		if _, has := entry.Get("inherits"); has {
+			add(errs, providerCredentialScopeMessage(path+".inherits", "it makes this provider "+
+				"take another provider's platform and endpoints, which decide where a credential "+
+				"goes, so a workspace value could repoint a provider at another provider's "+
+				"address or platform; and \"\" could withhold a platform the provider's pack "+
+				"gives it."))
 		}
 		if _, has := entry.Get("api_key_env_name"); has {
 			add(errs, providerCredentialScopeMessage(path+".api_key_env_name", "it names the "+

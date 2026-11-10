@@ -2605,14 +2605,16 @@
     error.
     ⚠ WHERE A CREDENTIAL GOES IS USER-SCOPE ONLY.  `endpoints` in any form (a URL, a
     protocol, a dialect, or a removal of one), `api_key_env_name` (a value or a removal),
-    `platform`, and a removed provider are REFUSED in a workspace
+    `platform`, `inherits`, and a removed provider are REFUSED in a workspace
     `yolo-jail.toml` or `yolo-jail.local.toml`, each naming the field; write them in
     your user config instead.  The workspace file is agent-editable: an agent that can
     repoint its own model endpoint can send everything it reads to a server you did not
     choose, one that can rename the variable a provider claims can send you a different
     credential (GH_TOKEN, say) to that provider, or unclaim a key so every process
     receives it, and one that can relabel a provider's platform can hand its agents a
-    credential pointer meant for another service.
+    credential pointer meant for another service, and one that can set `inherits` can
+    do the same by borrowing another provider's platform and endpoints, or withhold a
+    platform with `inherits = ""`.
     `models`, `options`, `region` and `capabilities` still merge from either scope, a
     `region` only as a region name (below).
     Per entry:
@@ -2650,6 +2652,22 @@
                      aws-auth credential pointer, claims the AWS credential variables
                      `bedrock` claims (unless it lists its own api_key_env_name) and is
                      required a region.  A value no pack knows changes nothing.
+      inherits       the NAME of another provider whose composed settings this one starts
+                     from, `inherits = "bedrock"`; yours are laid over them, per field and
+                     per model alias.  [bold yellow]USER SCOPE ONLY[/bold yellow].  What carries over: the parent's
+                     models, model_options, every_model, default `model`, region, options,
+                     platform, endpoints, capabilities, `via`, and an `only` narrowing of
+                     its model list — after your own `providers.<parent>` entry is applied,
+                     so a model list written once under `providers.bedrock` reaches both.
+                     What never carries over: api_key_env_name (the credential is what
+                     makes the child a different route), name, alias and variants.
+                     `inherits = ""` opts out, which undoes a pack's inheritance.  One
+                     level only: a parent that itself inherits (a chain or a cycle), a
+                     provider naming itself, or a parent no selected pack or config
+                     declares REFUSES the launch, naming the fix.  The shipped `bedrock-key`
+                     inherits `bedrock`, so a `[providers.bedrock.models]` table you write
+                     once serves both Bedrock routes, and `[providers.bedrock-key]`
+                     entries override it for that route alone.
       region         the region a regional provider is reached through, as one DNS label
                      ("us-east-1"): the agents build their service's host name from it,
                      so a value with a dot, a slash or a "#" is refused at every scope.

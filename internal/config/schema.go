@@ -394,6 +394,7 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "network.mode", Scope: both, Type: SchemaTypeString},
 		{Path: "providers.*.api_key_env_name", Scope: user, Type: SchemaTypeMixed},
 		{Path: "providers.*.platform", Scope: user, Type: SchemaTypeString},
+		{Path: "providers.*.inherits", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.capabilities", Scope: user, Type: SchemaTypeList},
 		{Path: "providers.*.capabilities.*", Scope: user, Type: SchemaTypeString},
 		{Path: "providers.*.wire_api", Scope: user, Type: SchemaTypeString},
@@ -465,7 +466,7 @@ func readableProviderScope(path string) SchemaScope {
 	for _, prefix := range []string{
 		"providers.*.name", "providers.*.alias", "providers.*.model", "providers.*.via",
 		"providers.*.base_url", "providers.*.wire_api", "providers.*.api_key_env_name",
-		"providers.*.platform", "providers.*.endpoints", "providers.*.variants",
+		"providers.*.platform", "providers.*.endpoints", "providers.*.variants", "providers.*.inherits",
 	} {
 		if path == prefix || strings.HasPrefix(path, prefix+".") {
 			return SchemaScopeUserOnly

@@ -982,6 +982,12 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   under a new command, only if the needs grow to provider tabs or favorites. From
   `pi-model-selection-ux.md`, deleted 2026-10-16. Owner:
   [rendering the effective list into each picker](../design/model-lists-and-pickers.md#8-rendering-the-effective-list-into-each-picker).
+- **Show where an inherited provider value came from.** `yolo config why` and `yolo config dump`
+  read config layers, not the composed providers table, so a value a provider took from another
+  through `inherits` (`bedrock-key`'s model list, written under `providers.bedrock`) shows no
+  origin. Showing "inherited from bedrock" needs a composed-table origin trace those commands do
+  not have. Added 2026-11-10 as PI-D9. Owner:
+  [provider inherits](../design/provider-inherits.md#PI-D9).
 
 ### Security model
 

@@ -51,6 +51,7 @@ var legacyMixedWorkspaceScopeRestrictions = []WorkspaceScopeRestriction{
 	{Path: "config.providers.*", When: "provider value is null"},
 	{Path: "config.providers.*.api_key_env_name"},
 	{Path: "config.providers.*.endpoints"},
+	{Path: "config.providers.*.inherits"},
 	{Path: "config.providers.*.endpoints.*.base_url"},
 	{Path: "config.providers.*.platform"},
 }
