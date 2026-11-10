@@ -36,7 +36,7 @@ type Auth struct {
 	fails  int
 	warned bool
 	tokens []string
-	burned []string // codes already traded for a token, newest last; see ExchangeResult
+	spent  []spentCode // every code this process traded for a token; see ExchangeResult
 
 	// OnWarn is called, outside the lock, once per code when WarnAfter failed exchanges have
 	// been seen for it. It gets the failure count.
@@ -64,7 +64,13 @@ const (
 	Reused
 )
 
-const maxBurned = 16
+// spentCode is a code already traded for a token. Each is 22 characters and a code is spent only by
+// a person pressing Enter, so every one is kept for the life of the process: a replay of any of
+// them alarms, however old.
+type spentCode struct {
+	code    string
+	alarmed bool
+}
 
 // NewAuth makes an Auth with no live code. A nil clock is time.Now.
 func NewAuth(now func() time.Time) *Auth {
@@ -84,10 +90,20 @@ func (a *Auth) mint(n int) string {
 
 // NewCode mints a fresh single-use code, replacing any earlier one, and resets the failure
 // count and the warning.
-func (a *Auth) NewCode() string {
+func (a *Auth) NewCode() string { return a.NewCodeWith(nil) }
+
+// NewCodeWith is NewCode, but calls prepare with the new code BEFORE the code can be
+// exchanged: an exchange waits until prepare returns. A caller that writes the code somewhere
+// it must later clean up (the launcher file) records it there first, so an exchange can never
+// outrun the record. prepare must not call back into a.
+func (a *Auth) NewCodeWith(prepare func(code string)) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.code = a.mint(CodeBytes)
+	code := a.mint(CodeBytes)
+	if prepare != nil {
+		prepare(code)
+	}
+	a.code = code
 	a.exp = a.now().Add(CodeTTL)
 	a.fails, a.warned = 0, false
 	return a.code
@@ -101,25 +117,26 @@ func (a *Auth) Exchange(code string) (string, bool) {
 
 // ExchangeResult trades a code for a session token. A wrong or expired code fails and is
 // counted; the WarnAfter-th failure for the live code raises OnWarn once. A code that was
-// already traded is a race: every token is revoked and OnRace is raised, so a stolen link is
+// already traded is a race: the first replay of each such code revokes every token and raises OnRace
+// once, and later replays of it do nothing but return Reused, so a stolen link is
 // a detected event rather than a silent session.
 func (a *Auth) ExchangeResult(code string) (string, Result) {
 	a.mu.Lock()
 	match := subtle.ConstantTimeCompare([]byte(code), []byte(a.code)) == 1
 	live := a.code != "" && a.now().Before(a.exp)
-	spent := 0
-	for _, b := range a.burned {
-		spent |= subtle.ConstantTimeCompare([]byte(code), []byte(b))
+	spentAt := -1
+	for i, b := range a.spent {
+		if subtle.ConstantTimeCompare([]byte(code), []byte(b.code)) == 1 {
+			spentAt = i
+		}
 	}
 	var tok string
 	res := Failed
 	warn := 0
+	alarm := false
 	switch {
 	case match && live:
-		a.burned = append(a.burned, a.code)
-		if len(a.burned) > maxBurned {
-			a.burned = a.burned[len(a.burned)-maxBurned:]
-		}
+		a.spent = append(a.spent, spentCode{code: a.code})
 		a.code, a.fails, a.warned = "", 0, false
 		tok = a.mint(TokenBytes)
 		a.tokens = append(a.tokens, tok)
@@ -127,8 +144,14 @@ func (a *Auth) ExchangeResult(code string) (string, Result) {
 			a.tokens = a.tokens[len(a.tokens)-MaxTokens:]
 		}
 		res = Exchanged
-	case spent == 1:
-		a.tokens = nil
+	case spentAt >= 0:
+		// The first replay of a spent code is the alarm. Later replays of it change nothing,
+		// so a holder cannot use the alarm to churn sessions, terminal output or browsers.
+		if !a.spent[spentAt].alarmed {
+			a.spent[spentAt].alarmed = true
+			a.tokens = nil
+			alarm = true
+		}
 		res = Reused
 	default:
 		a.fails++
@@ -144,7 +167,7 @@ func (a *Auth) ExchangeResult(code string) (string, Result) {
 	if res == Exchanged && onExchange != nil {
 		onExchange()
 	}
-	if res == Reused && onRace != nil {
+	if alarm && onRace != nil {
 		onRace()
 	}
 	return tok, res

@@ -521,6 +521,44 @@ func TestSessionExchangeOverHTTPAndReload_T9(t *testing.T) {
 	}
 }
 
+func TestServerDropsStalledAndOversizedClients(t *testing.T) {
+	e, _ := newEnv(t, time.Hour)
+	hs := e.srv.httpServer(1)
+	if hs.ReadHeaderTimeout <= 0 || hs.ReadTimeout <= 0 || hs.IdleTimeout <= 0 || hs.MaxHeaderBytes <= 0 || hs.MaxHeaderBytes > 64<<10 {
+		t.Fatalf("connection limits: read-header %v read %v idle %v max header %d", hs.ReadHeaderTimeout, hs.ReadTimeout, hs.IdleTimeout, hs.MaxHeaderBytes)
+	}
+	// The listener the test environment really serves on enforces the header limit.
+	r := e.do("GET", "/api/state", map[string]string{"X-Big": strings.Repeat("a", 200<<10)}, "")
+	slurp(r)
+	if r.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("oversized header: %d, want 431", r.StatusCode)
+	}
+}
+
+func TestEverySpentCodeAlarmsHoweverOldAndOnlyOncePerCode(t *testing.T) {
+	a := NewAuth((&clockT{t: base}).Now)
+	races := 0
+	a.OnRace = func() { races++ }
+	var codes []string
+	for i := 0; i < 40; i++ { // well past any bounded memory of spent codes
+		c := a.NewCode()
+		if _, ok := a.Exchange(c); !ok {
+			t.Fatal("exchange")
+		}
+		codes = append(codes, c)
+	}
+	if _, r := a.ExchangeResult(codes[0]); r != Reused || races != 1 {
+		t.Fatalf("the oldest spent code: %v, races %d", r, races)
+	}
+	for i := 0; i < 5; i++ {
+		a.ExchangeResult(codes[0])
+	}
+	a.ExchangeResult(codes[1])
+	if races != 2 {
+		t.Fatalf("one alarm per spent code: %d", races)
+	}
+}
+
 func TestSpentCodeIsARaceAlarmThatRevokesEveryToken(t *testing.T) {
 	clk := &clockT{t: base}
 	a := NewAuth(clk.Now)
@@ -541,6 +579,17 @@ func TestSpentCodeIsARaceAlarmThatRevokesEveryToken(t *testing.T) {
 	}
 	if races != 1 || a.TokenCount() != 0 || a.Valid(t1) || a.Valid(t2) {
 		t.Fatalf("races %d, tokens %d", races, a.TokenCount())
+	}
+	// Fourteen more replays of alarmed codes, in either order, are 409s with no side effect: no
+	// second alarm, and a token minted since is not revoked again.
+	t3, _ := func() (string, bool) { c := a.NewCode(); return a.Exchange(c) }()
+	for i := 0; i < 14; i++ {
+		if _, r := a.ExchangeResult(first); r != Reused {
+			t.Fatalf("replay %d: %v", i, r)
+		}
+	}
+	if races != 1 || !a.Valid(t3) {
+		t.Fatalf("replays of an alarmed code had effects: races %d, token valid %v", races, a.Valid(t3))
 	}
 	// A code that was never issued is only a failure, not an alarm.
 	if _, r := a.ExchangeResult("never-issued"); r != Failed || races != 1 {

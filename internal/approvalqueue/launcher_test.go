@@ -246,35 +246,6 @@ func TestEnterReplacesTheLauncherFile(t *testing.T) {
 	}
 }
 
-func TestSpentLinkIsARaceAlarmThatRevokesEveryTokenAndMintsANewLink(t *testing.T) {
-	b := startBrowserRun(t)
-	o := b.nextOpen(t)
-	code := codeInBody.FindStringSubmatch(o.body)[1]
-	st, tok := b.exchange(code)
-	if st != 200 || tok == "" {
-		t.Fatalf("exchange: %d", st)
-	}
-	if st := b.get("/api/state", tok); st != 200 {
-		t.Fatalf("state: %d", st)
-	}
-	// The same link again: the person's tab lost a race to whatever read it first.
-	if st, _ := b.exchange(code); st != http.StatusConflict {
-		t.Fatalf("second exchange: %d, want 409", st)
-	}
-	if st := b.get("/api/state", tok); st != 401 {
-		t.Fatalf("the token survived the race alarm: %d", st)
-	}
-	waitLine(t, b.out, "WARNING: a link was used a second time")
-	o2 := b.nextOpen(t)
-	code2 := codeInBody.FindStringSubmatch(o2.body)[1]
-	if code2 == code {
-		t.Fatal("no fresh code after the alarm")
-	}
-	if st, _ := b.exchange(code2); st != 200 {
-		t.Fatalf("the new link: %d", st)
-	}
-}
-
 func TestNoOpenSkipsTheBrowserButStillPrintsTheLink(t *testing.T) {
 	dir := t.TempDir()
 	fake := fakeyolo.Install(t, fakeyolo.Script{

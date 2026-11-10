@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -190,16 +191,27 @@ func run(ctx context.Context, env Env) error {
 
 	// printLink mints a code, prints its URL (the fallback, and the only way with --no-open),
 	// and has the browser opened on a launcher file so the code is never in an opener's argv.
+	// Only a person pressing Enter, and the start, make a link; issueMu keeps two of them in
+	// order. The launcher file is written and recorded before the code can be exchanged
+	// (NewCodeWith), so an exchange always finds the file it must delete.
+	var issueMu sync.Mutex
 	printLink := func() {
-		url := fmt.Sprintf("http://127.0.0.1:%d/#code=%s", port, auth.NewCode())
-		fmt.Fprintf(env.Stdout, "Open: %s\n", url)
-		lau.Launch(url, server.CodeTTL)
+		issueMu.Lock()
+		defer issueMu.Unlock()
+		urlFor := func(code string) string { return fmt.Sprintf("http://127.0.0.1:%d/#code=%s", port, code) }
+		var path string
+		code := auth.NewCodeWith(func(code string) { path = lau.Prepare(urlFor(code), server.CodeTTL) })
+		fmt.Fprintf(env.Stdout, "Open: %s\n", urlFor(code))
+		lau.Open(path)
 	}
 	auth.OnExchange = lau.Remove
+	// The race alarm ends every session and warns, once per spent code. It makes no new link and
+	// opens no browser: whoever replays a code could otherwise keep the person locked out and
+	// spawn tabs without limit. The person asks for a new link, with Enter, once the cause is found.
 	auth.OnRace = func() {
 		fmt.Fprintln(env.Stdout, "WARNING: a link was used a second time. Something else on this machine had read it before your browser did. "+
-			"Every session has been ended and a new link was made; if you did not open the link twice yourself, treat this as an attempt to read your approval requests.")
-		printLink()
+			"Every session has been ended. If you did not open the link twice yourself, treat this as an attempt to read your approval requests; "+
+			"press Enter for a new link once you have found the cause.")
 	}
 	fmt.Fprintln(env.Stdout, "yolo approval queue (experimental, read-only). The link below works once, for 120 seconds.")
 	printLink()

@@ -18,9 +18,17 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalqueue/model"
 )
 
+// envRunMain makes the test binary act as `yolo approve --web`: it runs Main on the process's real
+// standard streams and exits with its code. TestMainRefusesWhenStandardOutputIsNotATerminal
+// re-executes the binary this way, so the terminal check in Main is reached for real.
+const envRunMain = "APPROVALQUEUE_TEST_RUN_MAIN"
+
 func TestMain(m *testing.M) {
 	if fakeyolo.MaybeRun() {
 		return
+	}
+	if os.Getenv(envRunMain) != "" {
+		os.Exit(Main(nil))
 	}
 	os.Exit(m.Run())
 }

@@ -53,13 +53,17 @@ func openerFor(goos string) string {
 	return ""
 }
 
+// newOpenerCmd builds the opener's command; a variable so a test sees the argv systemOpen
+// really builds without starting a browser.
+var newOpenerCmd = exec.Command
+
 // systemOpen runs the platform's opener on path. Its argv is the opener and the path only.
 func systemOpen(path string) error {
 	name := openerFor(runtime.GOOS)
 	if name == "" {
 		return fmt.Errorf("no browser opener is known for %s", runtime.GOOS)
 	}
-	cmd := exec.Command(name, path)
+	cmd := newOpenerCmd(name, path)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -89,17 +93,23 @@ func newLauncher(dir string, open func(string) error, after func(time.Duration, 
 	return &launcher{dir: dir, open: open, after: after, logf: logf}
 }
 
-// Launch replaces any earlier launcher file with one for url, schedules its deletion after
-// ttl, and opens it.
-func (l *launcher) Launch(url string, ttl time.Duration) {
-	l.Remove()
+// Prepare replaces any earlier launcher file with one for url and schedules its deletion after
+// ttl; it returns the new file's path, or "" when there is none (--no-open, or the file could
+// not be written). The write and the record of the path are one critical section, so a Remove
+// (the exchange) can never run between them and leave a file nothing tracks. The caller calls
+// it BEFORE the code in url can be exchanged (Auth.NewCodeWith), which is what makes the file
+// exist and be recorded before any exchange can ask for its removal.
+func (l *launcher) Prepare(url string, ttl time.Duration) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.removeLocked()
 	if l.open == nil { // --no-open: the printed link is the only way in
-		return
+		return ""
 	}
 	f, err := os.CreateTemp(l.dir, "open-*.html") // mode 0600
 	if err != nil {
 		l.logf("cannot write the launcher file: %v", err)
-		return
+		return ""
 	}
 	path := f.Name()
 	_, werr := f.WriteString(launcherBody(url))
@@ -109,12 +119,18 @@ func (l *launcher) Launch(url string, ttl time.Duration) {
 	if werr != nil {
 		os.Remove(path)
 		l.logf("cannot write the launcher file: %v", werr)
-		return
+		return ""
 	}
-	l.mu.Lock()
 	l.path = path
 	l.stop = l.after(ttl, func() { l.removePath(path) })
-	l.mu.Unlock()
+	return path
+}
+
+// Open opens the browser on the launcher file Prepare returned.
+func (l *launcher) Open(path string) {
+	if l.open == nil || path == "" {
+		return
+	}
 	if err := l.open(path); err != nil {
 		l.logf("could not open a browser (%v); use the link printed above", err)
 	}
@@ -123,23 +139,27 @@ func (l *launcher) Launch(url string, ttl time.Duration) {
 // Remove deletes the live launcher file, if any.
 func (l *launcher) Remove() {
 	l.mu.Lock()
-	path, stop := l.path, l.stop
+	defer l.mu.Unlock()
+	l.removeLocked()
+}
+
+// removeLocked is Remove with l.mu held.
+func (l *launcher) removeLocked() {
+	if l.stop != nil {
+		l.stop()
+	}
+	if l.path != "" {
+		os.Remove(l.path)
+	}
 	l.path, l.stop = "", nil
-	l.mu.Unlock()
-	if stop != nil {
-		stop()
-	}
-	if path != "" {
-		os.Remove(path)
-	}
 }
 
 func (l *launcher) removePath(path string) {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.path == path {
 		l.path, l.stop = "", nil
 	}
-	l.mu.Unlock()
 	os.Remove(path)
 }
 

@@ -55,14 +55,30 @@ type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
-// Serve serves on l until Close; the Host and Origin checks use l's port.
-func (s *Server) Serve(l net.Listener) error {
-	port := l.Addr().(*net.TCPAddr).Port
-	srv := &http.Server{
+// The connection limits. Anything that can reach the port can open a connection, so a client
+// that stalls mid-request or sits idle is dropped. There is no write timeout: the live stream
+// is a long response by design.
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 30 * time.Second
+	idleTimeout       = 60 * time.Second
+	maxHeaderBytes    = 16 << 10
+)
+
+func (s *Server) httpServer(port int) *http.Server {
+	return &http.Server{
 		Handler:           s.Handler(port),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 		BaseContext:       func(net.Listener) context.Context { return s.base },
 	}
+}
+
+// Serve serves on l until Close; the Host and Origin checks use l's port.
+func (s *Server) Serve(l net.Listener) error {
+	srv := s.httpServer(l.Addr().(*net.TCPAddr).Port)
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()

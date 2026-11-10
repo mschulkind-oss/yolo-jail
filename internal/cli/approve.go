@@ -105,8 +105,9 @@ state on 127.0.0.1 and cannot allow, deny or revoke anything. Run it in a
 terminal: it works only when standard output is a terminal, prints a one-time
 link there, and opens your browser on a private launcher file that carries the
 link, so the link is never in a process's argv. --no-open skips the browser.
-Press Enter for a new link; a link used a second time ends every session and
-warns. --listen sets the address (127.0.0.1 only; default 127.0.0.1:0, a free
+Press Enter for a new link. A link used a second time ends every session and
+warns once, and makes no new link and opens no browser: press Enter once you
+have found the cause. --listen sets the address (127.0.0.1 only; default 127.0.0.1:0, a free
 port), --reconcile how often it takes a full snapshot (default 15s), and
 --assets serves the page's files from a directory for development. See
 docs/design/approval-experience/README.md.
