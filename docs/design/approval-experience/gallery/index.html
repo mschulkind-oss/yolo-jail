@@ -34,12 +34,12 @@ dt { color: var(--muted); } dd { margin: 0; font-family: ui-monospace, monospace
 </head>
 <body>
 <h1>Approval request gallery</h1>
-<p class="lede">15 fixtures from the shared approval fixture set. Every rendering is labeled: a
+<p class="lede">16 fixtures from the shared approval fixture set. Every rendering is labeled: a
 <span class="kind kind-native-capture">native capture</span> is a screenshot of a real OS notification server with its
 provenance; a <span class="kind kind-preview">preview</span> is an HTML imitation and proves nothing about native rendering;
 <span class="kind kind-missing">missing</span> means no capture exists yet. Real fixtures were filed through yolo's own
 brokers and printed by <code>yolo approve --json</code>; synthetic fixtures describe operations yolo cannot file today.</p>
-<p class="meta">Evidence counts: browser preview: 15; linux missing: 15; macos missing: 15;</p>
+<p class="meta">Evidence counts: browser preview: 16; linux missing: 16; macos missing: 16;</p>
 
 
 <h2 id="family-git">git</h2>
@@ -443,6 +443,56 @@ workflow: main (failed, 2 of 14 jobs)</div>
 <div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
 <div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
 <div class="noprompt">No notification: policy runs this operation without asking, so there is nothing to render.</div>
+
+</div>
+
+</div>
+</section>
+
+<h2 id="family-s3">s3</h2>
+
+<section class="tile" id="s3-delete-objects-synthetic">
+<h3>S3: delete several objects under a prefix (synthetic)</h3>
+<div><span class="badge synthetic">synthetic</span><span class="badge">hand-written</span><span class="badge state">pending</span><a href="#s3-delete-objects-synthetic" class="meta">s3-delete-objects-synthetic</a></div>
+<p>An agent cleaning up build artifacts asks to delete three objects under one prefix of a sanitized bucket.</p>
+<p class="meta">No per-operation S3 mediation exists: packs/aws-auth mints and narrows SSO credentials and files no approval requests. Hand-written in the shape `yolo approve --json` uses, to show a multi-resource, destructive-looking write; the S3 vertical sibling decides the real operation set.</p>
+<dl>
+<dt>command</dt><dd>s3api delete-objects --bucket example-artifacts &#39;--delete&#39;</dd>
+<dt>source</dt><dd>s3-broker (set delete)</dd>
+
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: delete 3 objects in s3://example-artifacts/builds/app/1041/</div>
+<div class="body">delete 3 objects in s3://example-artifacts/builds/app/1041/
+object: builds/app/1041/app.tar.gz
+object: builds/app/1041/app.sha256
+object: builds/app/1041/manifest.json</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
 
 </div>
 

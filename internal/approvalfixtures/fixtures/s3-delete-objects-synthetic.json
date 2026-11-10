@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "id": "s3-delete-objects-synthetic",
+  "title": "S3: delete several objects under a prefix (synthetic)",
+  "family": "s3",
+  "support": "synthetic",
+  "support_note": "No per-operation S3 mediation exists: packs/aws-auth mints and narrows SSO credentials and files no approval requests. Hand-written in the shape `yolo approve --json` uses, to show a multi-resource, destructive-looking write; the S3 vertical sibling decides the real operation set.",
+  "prompt": "request",
+  "state": "pending",
+  "story": "An agent cleaning up build artifacts asks to delete three objects under one prefix of a sanitized bucket.",
+  "origin": "hand-written",
+  "request": {
+    "schema": 1,
+    "id": "r-5ca1ab1e000000000000000000000053",
+    "source": "s3-broker",
+    "jail": "a1b2c3d4",
+    "workspace": "/home/dev/code/app",
+    "set": "delete",
+    "argv": [
+      "s3api",
+      "delete-objects",
+      "--bucket",
+      "example-artifacts",
+      "--delete",
+      "Objects=[{Key=builds/app/1041/app.tar.gz},{Key=builds/app/1041/app.sha256},{Key=builds/app/1041/manifest.json}]"
+    ],
+    "command": "s3api delete-objects --bucket example-artifacts '--delete'",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "action": "object-delete",
+    "target": "s3://example-artifacts/builds/app/1041/",
+    "headline": "delete 3 objects in s3://example-artifacts/builds/app/1041/",
+    "description": "delete 3 objects in s3://example-artifacts/builds/app/1041/\nobject: builds/app/1041/app.tar.gz\nobject: builds/app/1041/app.sha256\nobject: builds/app/1041/manifest.json"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ID": "r-5ca1ab1e000000000000000000000053",
+    "YOLO_REQUEST_ACTION": "object-delete",
+    "YOLO_REQUEST_TARGET": "s3://example-artifacts/builds/app/1041/",
+    "YOLO_REQUEST_HEADLINE": "delete 3 objects in s3://example-artifacts/builds/app/1041/",
+    "YOLO_REQUEST_DESCRIPTION": "delete 3 objects in s3://example-artifacts/builds/app/1041/\nobject: builds/app/1041/app.tar.gz\nobject: builds/app/1041/app.sha256\nobject: builds/app/1041/manifest.json",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "delete 3 objects in s3://example-artifacts/builds/app/1041/\nobject: builds/app/1041/app.tar.gz\nobject: builds/app/1041/app.sha256\nobject: builds/app/1041/manifest.json",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app",
+    "YOLO_REQUEST_SET": "delete"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "missing",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "note": "Not yet captured."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}
