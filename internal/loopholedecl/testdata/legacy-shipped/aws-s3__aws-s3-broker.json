@@ -1,0 +1,47 @@
+{
+  "name": "aws-s3-broker",
+  "description": "Run scoped S3 commands on the host with the host's AWS login.",
+  "version": 1,
+  "access": "read S3 objects and listings under this workspace's declared roots; writes ask first",
+  "transport": "loopback-tls",
+  "lifecycle": "spawned",
+  "grants": [
+    {
+      "kind": "read",
+      "text": "read S3 objects and listings under the declared roots",
+      "requestable_by_default": true
+    }
+  ],
+  "call_broker": {
+    "source": "aws-s3",
+    "front": "cli",
+    "program": "aws",
+    "classifier": ["yolo", "internal", "call-broker-classify", "aws-s3"],
+    "executor": "core",
+    "credential_paths": ["~/.aws"],
+    "env_from_host": [
+      "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_CONFIG_FILE",
+      "AWS_SHARED_CREDENTIALS_FILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3"
+    ],
+    "scope": {
+      "roots": "declared"
+    },
+    "resource": [
+      {"type": "location"},
+      {"type": "prefix", "parent": "location"},
+      {"type": "object", "parent": "location"}
+    ],
+    "cell": [
+      {
+        "name": "put_objects",
+        "tables": ["working_set", "all"],
+        "max_for": "1h"
+      },
+      {
+        "name": "delete_objects",
+        "tables": ["all"]
+      }
+    ]
+  }
+}
