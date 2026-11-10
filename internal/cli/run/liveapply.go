@@ -26,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
@@ -263,6 +264,7 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 	if len(plan) == 0 {
 		if !mode.attach {
 			o.prOut(o.Stdout).print("[green]Nothing to apply: the jail already has this workspace's config.[/green]")
+			o.noteJailLaunchedByAnotherYolo(rt, cname, envLines)
 		}
 		return 0
 	}
@@ -290,6 +292,26 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 			"nothing.[/dim]")
 	}
 	return rc
+}
+
+// noteJailLaunchedByAnotherYolo follows "Nothing to apply" when the running jail was launched by
+// a yolo other than this one. That verdict compares the config with what the jail was handed;
+// the jail's host brokers, which run the yolo that launched it, reread the user config at every
+// call as THAT yolo reads it, so a grant this yolo sees in force can still be refused there
+// (2026-11-09: a jail launched by an older yolo refused its `branch:main` grant after a newer
+// `yolo allow` wrote a capability the older one does not declare). Silent unless both versions
+// are known and differ, as the attach's skew line is (attachskew.go).
+func (o *Options) noteJailLaunchedByAnotherYolo(rt, cname string, envLines []string) {
+	baked, _ := runtime.BakedYoloVersionFromInspectEnv(envLines)
+	host := o.yoloVersion("")
+	if baked == "" || host == "" || host == "unknown" || baked == host {
+		return
+	}
+	o.prOut(o.Stdout).print("[dim]" + richtext.Escape(termsafe.Visible(fmt.Sprintf(
+		"This jail was launched by yolo %s, and its host brokers still run it; this is yolo %s. "+
+			"They reread your user config at every call as yolo %s reads it, so a grant shown in "+
+			"force here can still be refused there. To bring them to this yolo, %s once its "+
+			"sessions are done, then launch it again.", baked, host, baked, stopRemedy(rt, cname)))) + "[/dim]")
 }
 
 // applyPlan gathers the plan's inputs (applyPlanInput) and builds it. scope is the gate's own

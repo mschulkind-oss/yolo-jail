@@ -9,8 +9,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// offSwitchUserTOML writes a TOML user config selecting git (a broker, whose readable policy
-// resolves the whole `allow` table) beside the given packs and tables.
+// offSwitchUserTOML writes a TOML user config selecting git (a broker) beside the given packs and
+// tables.
 func offSwitchUserTOML(t *testing.T, packs, tables string) {
 	t.Helper()
 	home := layerHome(t, "")
@@ -20,8 +20,8 @@ func offSwitchUserTOML(t *testing.T, packs, tables string) {
 
 // TestATOMLOffSwitchIsAccepted: `off = true` under a selected pack's `[allow.<pack>]` table is the
 // TOML spelling of LC-D3's off switch for the pack's off-switch loophole, so a TOML user config
-// carrying it, beside a setting or alone in a settingless pack's table, resolves: the git
-// broker's readable policy, which reads every `allow` table, still holds its read grant. Refusing
+// carrying it, beside a setting or alone in a settingless pack's table, resolves: the whole
+// `allow` table resolves, and the git broker's readable policy still holds its read grant. Refusing
 // it would take the user's broker grants down with it.
 func TestATOMLOffSwitchIsAccepted(t *testing.T) {
 	offSwitchUserTOML(t, `"aws-auth", "cgroup-delegate", "claude"`,
@@ -31,13 +31,35 @@ func TestATOMLOffSwitchIsAccepted(t *testing.T) {
 	if err != nil || !canonical {
 		t.Fatalf("the off switch broke the git broker's readable policy: kinds %v, canonical %t, err %v", kinds, canonical, err)
 	}
+	if err := resolveWholeUserAllowance(t); err != nil {
+		t.Fatalf("the whole allow table refused the off switch: %v", err)
+	}
+}
+
+// resolveWholeUserAllowance resolves every `allow.<pack>` table of the user config, as the
+// launch's readable scope does. A broker's own write authority reads only its own table
+// (ownAllowanceOnly), so it is not where another pack's undeclared key is refused.
+func resolveWholeUserAllowance(t *testing.T) error {
+	t.Helper()
+	user, sources, err := UserScopeConfigWithSources(true, func(string) {})
+	if err != nil {
+		return err
+	}
+	selected, declarations, settings, err := readableBrokerSelection(user, sources)
+	if err != nil {
+		return err
+	}
+	_, err = ResolveReadableAllowance(ReadableAllowanceInput{
+		User: user, SelectedPacks: selected, Declarations: declarations, PackSettings: settings,
+	})
+	return err
 }
 
 // TestATOMLOffOnAPackWithNoOffSwitchIsRefused: `off` is reserved only where its pack ships an
 // off-switch loophole; on any other pack it is an undeclared key, as before.
 func TestATOMLOffOnAPackWithNoOffSwitchIsRefused(t *testing.T) {
 	offSwitchUserTOML(t, `"journal"`, "[allow.journal]\noff = true\n")
-	if _, _, err := BrokeredGrantKindsUsingReadablePolicy("git"); err == nil || !strings.Contains(err.Error(), "allow.journal.off") {
+	if err := resolveWholeUserAllowance(t); err == nil || !strings.Contains(err.Error(), "allow.journal.off") {
 		t.Errorf("allow.journal.off must be refused naming the key, got %v", err)
 	}
 }
@@ -45,7 +67,7 @@ func TestATOMLOffOnAPackWithNoOffSwitchIsRefused(t *testing.T) {
 // TestATOMLOffMustBeABoolean: the switch is `true` or `false`; anything else is refused.
 func TestATOMLOffMustBeABoolean(t *testing.T) {
 	offSwitchUserTOML(t, `"aws-auth"`, "[allow.aws-auth]\noff = \"yes\"\n")
-	if _, _, err := BrokeredGrantKindsUsingReadablePolicy("git"); err == nil || !strings.Contains(err.Error(), "allow.aws-auth.off") {
+	if err := resolveWholeUserAllowance(t); err == nil || !strings.Contains(err.Error(), "allow.aws-auth.off") {
 		t.Errorf("a non-boolean allow.aws-auth.off must be refused naming the key, got %v", err)
 	}
 }

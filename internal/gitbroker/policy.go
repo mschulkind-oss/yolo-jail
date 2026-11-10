@@ -166,7 +166,10 @@ func (b *Broker) coverForSnapshot(f brokerscope.File, repo string, say func(stri
 			kindWarned[kind] = true
 			switch {
 			case authorityErr != nil:
-				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` write authority could not be validated, so the broker covers no such write. Repair `allow.git.always` or `allow.git.on_request` on the host, then push again; the broker rereads that config on each push, or push from the host.")
+				// The error itself, not a guess at which entry failed: the selection of packs
+				// can fail too, and a yolo newer than this broker can write a capability it
+				// does not declare.
+				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` write authority could not be validated (" + authorityErr.Error() + "), so the broker covers no such write. Repair that on the host (`yolo check` there names it), then push again; the broker rereads that config on each push. If a newer yolo on the host wrote it, this jail's broker is older than that config: `yolo stop` this workspace's jail and launch it again. Or push from the host.")
 			case canonical:
 				say("this workspace's " + kind + " grant on " + repo + " is not in effect: the host user config's canonical `allow.git` does not authorize it under the selected broker's declared capabilities. To let the broker " + what + ", " + allowAdvice(kind) + ", then push again; the broker rereads that config on each push, or push from the host.")
 			default:
