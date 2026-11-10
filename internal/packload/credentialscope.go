@@ -778,8 +778,12 @@ func (s *CredentialScope) isPrivate(name string) bool {
 
 // mcpReceives reports whether agent receives the private name through an MCP server's claim
 // (secret-env-scoping.md SE-D13): the name is private, an MCP server's `requires_env` lists it,
-// and agent is one whose config names the servers. A public name never needs it (SE-D15).
+// no provider claims it, and agent is one whose config names the servers. A public name never
+// needs it (SE-D15), and a provider-claimed name is reached by its claimants alone.
 func (s *CredentialScope) mcpReceives(agent, name string) bool {
+	if _, claimed := s.claims[name]; claimed {
+		return false // a provider's claim is the whole reach of its key; an MCP claim never widens it (SEP P2)
+	}
 	return agent != "" && s.isPrivate(name) && len(s.mcpClaims[name]) > 0 && s.mcpAgents[agent]
 }
 

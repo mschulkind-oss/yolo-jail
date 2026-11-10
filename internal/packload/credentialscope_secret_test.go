@@ -175,3 +175,30 @@ func TestMCPEnvClaimsAndAgents(t *testing.T) {
 		t.Errorf("a pack with no derive.lua renders no MCP table: %v", got)
 	}
 }
+
+// Review major 3: an MCP server's requires_env must not widen a key a provider claims to an agent
+// not on that provider; the claim reaches only the names no provider claims (SEP P2).
+func TestAnMCPClaimNeverWidensAProviderClaimedPrivateKey(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		Profiles:   map[string]string{"claude": "zai-profile"},
+		Resolved:   map[string]ResolvedProfile{"zai-profile": {Provider: "zai"}},
+		EnvSources: hydrated("ZAI_API_KEY", "z"),
+		Private:    map[string]bool{"ZAI_API_KEY": true},
+		MCPClaims:  map[string][]string{"ZAI_API_KEY": {"zai-search"}},
+		MCPAgents:  []string{"claude", "pi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := scope.EnvSourcesFor("claude").Get("ZAI_API_KEY"); !ok {
+		t.Error("claude is on the zai provider and receives its key")
+	}
+	if _, ok := scope.EnvSourcesFor("pi").Get("ZAI_API_KEY"); ok {
+		t.Error("pi is not on zai: an MCP claim must not hand it the provider's key")
+	}
+	lines := strings.Join(scope.DisclosureWith(DisclosureNotes{}), "\n")
+	if !strings.Contains(lines, "claude only") || strings.Contains(lines, "claude, pi") {
+		t.Errorf("the disclosure names the agents that receive it:\n%s", lines)
+	}
+}

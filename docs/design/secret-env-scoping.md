@@ -68,7 +68,7 @@ No companion plan is seeded: the owner asked for the design alone.
   same-platform siblings ([PP-D9](providers-and-profiles-redesign.md#PP-D9)). From
   [`providers.md`](../reference/providers.md#the-credential-gate). Not a value: a pack never carries one.
   An MCP server's `requires_env` entry is a claim too, for the agents whose config names that server
-  ([OQ-SE2](#OQ-SE2)), but only a provider's claim makes a public value a refusal ([SE-D15](#SE-D15)).
+  ([OQ-SE2](#OQ-SE2)), but only a provider's claim makes a public value a refusal ([SE-D15](#SE-D15)). An MCP claim reaches only a name no provider claims: a provider-claimed key reaches its claimants alone, whatever a server's `requires_env` lists (`TestAnMCPClaimNeverWidensAProviderClaimedPrivateKey`).
 - **A selected provider** — a provider in the launch's composed provider table: one a selected pack
   declares, or one the user declares under `providers`. The gate reads claims off that table and nothing
   else (`credentialClaims` in [`credentialscope.go`](../../internal/packload/credentialscope.go)).
