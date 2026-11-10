@@ -128,6 +128,7 @@ func runConfigSecret(args []string, out, errw io.Writer, workspace string) int {
 		fmt.Fprintf(errw, "yolo config %s: %v; fix that file, then run this command again\n", m.verb, err)
 		return 1
 	}
+	all := files
 	if m.file != "" {
 		scope, ok := scopeOfConfigFile(files, m.file)
 		if !ok {
@@ -148,7 +149,7 @@ func runConfigSecret(args []string, out, errw io.Writer, workspace string) int {
 	if m.dotenv != "" {
 		return m.moveDotenvEntry(files, workspace, out, errw)
 	}
-	return m.moveName(files, workspace, out, errw)
+	return m.moveName(files, all, workspace, out, errw)
 }
 
 func scopeOfConfigFile(files []config.EnvScopeFile, file string) (string, bool) {
@@ -187,19 +188,28 @@ func (m secretMove) inJailUserScope(f config.EnvScopeFile, workspace string, err
 	return true
 }
 
-func (m secretMove) moveName(files []config.EnvScopeFile, workspace string, out, errw io.Writer) int {
+// moveName moves one name in the scope files selects; all is every scope's file, which the
+// destination set is looked up in, so a copy another scope holds is never promoted over or
+// duplicated.
+func (m secretMove) moveName(files, all []config.EnvScopeFile, workspace string, out, errw io.Writer) int {
 	type held struct {
 		file        config.EnvScopeFile
 		source, dst []config.EnvSite
 	}
 	var holding []held
 	var anyDest []config.EnvSite
+	for _, f := range all {
+		for _, s := range f.Sites(m.name) {
+			if s.Place.Private == m.private {
+				anyDest = append(anyDest, s)
+			}
+		}
+	}
 	for _, f := range files {
 		h := held{file: f}
 		for _, s := range f.Sites(m.name) {
 			if s.Place.Private == m.private {
 				h.dst = append(h.dst, s)
-				anyDest = append(anyDest, s)
 			} else {
 				h.source = append(h.source, s)
 			}
@@ -246,21 +256,34 @@ func (m secretMove) moveName(files []config.EnvScopeFile, workspace string, out,
 	}
 	src := h.source[0]
 	// A legacy env_sources entry never gets here: its file is JSONC, refused above (SE-D6).
+	// The copy a move keeps or collides with: this file's, else another scope's.
+	kept := config.EnvSite{}
+	switch {
+	case len(h.dst) > 0:
+		kept = h.dst[0]
+	case len(anyDest) > 0:
+		kept = anyDest[0]
+	}
 	if m.drop {
-		if len(h.dst) == 0 {
-			fmt.Fprintf(errw, "--drop keeps the %s copy of %s, but %s holds none; run %s to move it instead\n",
-				to, m.name, h.file.ConfigFile, shquote.Join(dropless(m.argv)))
+		if kept.Place.Key == "" {
+			fmt.Fprintf(errw, "--drop keeps the %s copy of %s, but no config holds one; run %s to move it instead\n",
+				to, m.name, shquote.Join(dropless(m.argv)))
+			return 1
+		}
+		if !kept.Inline() && !src.Inline() && kept.Dotenv == src.Dotenv {
+			fmt.Fprintf(errw, "%s lists %s in both sets, so --drop would delete its only copy of %s; "+
+				"put the file in one set first with %s\n", m.name, src.Dotenv, m.name, m.dotenvCommand(src.Raw, h.file.Scope))
 			return 1
 		}
 		if rc := m.removeSite(h.file, src, workspace, errw); rc != 0 {
 			return rc
 		}
-		fmt.Fprintf(out, "dropped %s from %s; kept %s\n", m.name, src.Place.Describe(), h.dst[0].Place.Describe())
+		fmt.Fprintf(out, "dropped %s from %s; kept %s\n", m.name, src.Place.Describe(), kept.Place.Describe())
 		return m.approveLine(h.file, out)
 	}
-	if len(h.dst) > 0 {
+	if kept.Place.Key != "" {
 		fmt.Fprintf(errw, "%s is already in %s %s too; keep the %s copy with %s, or the %s one with %s\n",
-			m.name, to, h.dst[0].Place.Describe(), to, m.withDrop(h.file.Scope), from, m.inverseDrop(h.file.Scope))
+			m.name, to, kept.Place.Describe(), to, m.withDrop(h.file.Scope), from, m.inverseDrop(kept.Scope))
 		return 1
 	}
 	var dest config.EnvPlace
@@ -282,10 +305,15 @@ func (m secretMove) moveName(files []config.EnvScopeFile, workspace string, out,
 		entries := h.file.FileEntries(m.private)
 		if len(entries) == 0 {
 			fmt.Fprintf(errw, "no %s file to move %s into; run yolo config add %s %s %s, then this command again\n",
-				privateWord(m.private), m.name, filesKey(m.private), shquote.Quote(`"`+suggestedDotenv(h.file.Scope, m.private)+`"`), h.file.Scope)
+				privateWord(m.private), m.name, filesKey(m.private), shquote.Quote(`"`+suggestedDotenv(h.file, m.private)+`"`), h.file.Scope)
 			return 1
 		}
 		target := entries[0]
+		if target.Dotenv == src.Dotenv {
+			fmt.Fprintf(errw, "%s lists %s in both sets, so moving %s between them would only copy a line onto itself; "+
+				"put the file in one set first with %s\n", m.name, src.Dotenv, m.name, m.dotenvCommand(src.Raw, h.file.Scope))
+			return 1
+		}
 		line, found, err := config.DotenvLine(src.Dotenv, m.name)
 		if err != nil || !found {
 			fmt.Fprintf(errw, "cannot read %s's line from %s: %v; check the file, then run this command again\n", m.name, src.Dotenv, err)
@@ -423,6 +451,12 @@ func (m secretMove) approveLine(f config.EnvScopeFile, out io.Writer) int {
 	return 0
 }
 
+// dotenvCommand is the --dotenv form of this verb for entry, the one that moves a whole file.
+func (m secretMove) dotenvCommand(entry, scope string) string {
+	d := secretMove{verb: m.verb, dotenv: entry}
+	return d.command(scope)
+}
+
 func (m secretMove) withDrop(scope string) string {
 	d := m
 	d.drop = true
@@ -473,16 +507,32 @@ func privateWord(private bool) string {
 }
 
 // suggestedDotenv is the file a refusal suggests listing: beside the user config for the user
-// scope, the workspace root otherwise.
-func suggestedDotenv(scope string, private bool) string {
-	name := "defaults.env"
+// scope, the workspace root otherwise. It is never a file the other set already lists (listing
+// one in both sets puts every name in it in both), so it falls through the candidates until one
+// is not.
+func suggestedDotenv(f config.EnvScopeFile, private bool) string {
+	candidates := []string{"defaults.env", "public.env", "defaults-public.env"}
 	if private {
-		name = "secrets.env"
+		candidates = []string{"secrets.env", "private.env", "secrets-private.env"}
 	}
-	if scope == config.EnvScopeUser {
-		return "~/.config/yolo-jail/" + name
+	listed := map[string]bool{}
+	for _, e := range f.FileEntries(!private) {
+		listed[e.Dotenv] = true
 	}
-	return name
+	pick := candidates[len(candidates)-1]
+	for _, name := range candidates {
+		display := name
+		if f.Scope == config.EnvScopeUser {
+			display = "~/.config/yolo-jail/" + name
+		}
+		if !listed[config.ResolveEnvSourcePath(display, f.Anchor)] {
+			return display
+		}
+	}
+	if f.Scope == config.EnvScopeUser {
+		return "~/.config/yolo-jail/" + pick
+	}
+	return pick
 }
 
 // scrubValue replaces value in s, so no error a verb relays quotes it.

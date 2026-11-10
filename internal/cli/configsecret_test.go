@@ -206,3 +206,64 @@ func TestConfigSecretOfANameSetNowhereSaysSo(t *testing.T) {
 		t.Errorf("rc %d, stderr %q", rc, errw.String())
 	}
 }
+
+// A file both sets list is one copy of its keys: suggesting it as the destination, or dropping
+// from it, would delete the only copy (review blocker 1).
+func TestConfigSecretNeverSuggestsAFileTheOtherSetLists(t *testing.T) {
+	user := secretFixture(t, "[env]\nfiles = [\"defaults.env\", \"secrets.env\"]\n")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(user.Path), "defaults.env"), []byte("ZAI_API_KEY=z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	rc := configRunW([]string{"secret", "ZAI_API_KEY", "--user"}, &out, &errw)
+	if rc == 0 || strings.Contains(errw.String(), "/secrets.env") || !strings.Contains(errw.String(), "private.env") {
+		t.Errorf("rc %d: the suggestion must not be a file [env] files lists:\n%s", rc, errw.String())
+	}
+}
+
+func TestConfigSecretDropRefusesWhenBothSetsListTheSameFile(t *testing.T) {
+	user := secretFixture(t, "[env]\nfiles = [\"keys.env\"]\n\n[env.secrets]\nfiles = [\"keys.env\"]\n")
+	keys := filepath.Join(filepath.Dir(user.Path), "keys.env")
+	if err := os.WriteFile(keys, []byte("ZAI_API_KEY=z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"secret", "unsecret"} {
+		var out, errw bytes.Buffer
+		rc := configRunW([]string{verb, "ZAI_API_KEY", "--drop", "--user"}, &out, &errw)
+		if got, _ := os.ReadFile(keys); rc == 0 || string(got) != "ZAI_API_KEY=z\n" {
+			t.Errorf("%s --drop must leave the only copy: rc %d, file %q", verb, rc, got)
+		}
+		if !strings.Contains(errw.String(), "--dotenv") {
+			t.Errorf("%s: the refusal points at --dotenv:\n%s", verb, errw.String())
+		}
+	}
+}
+
+// Review major 4: a name private in the user config and public in the project's. The refusal's
+// remedy must work, and must never move the repo's value into the user's private set.
+func TestConfigSecretDropWorksAcrossScopes(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { FOO = \"user-value\" }\n")
+	ws, _ := os.Getwd()
+	project := filepath.Join(ws, "yolo-jail.toml")
+	if err := os.WriteFile(project, []byte("[env]\nset = { FOO = \"repo-value\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"secret", "FOO", "--project"}, &out, &errw); rc == 0 {
+		t.Errorf("a plain move would put the repo's value beside the user's private one")
+	}
+	if got, _ := os.ReadFile(project); !strings.Contains(string(got), "repo-value") {
+		t.Errorf("the refused move left the project config alone:\n%s", got)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := configRunW([]string{"secret", "FOO", "--drop", "--project"}, &out, &errw); rc != 0 {
+		t.Fatalf("the remedy fails across scopes, rc %d: %s", rc, errw.String())
+	}
+	if got, _ := os.ReadFile(project); strings.Contains(string(got), "FOO") {
+		t.Errorf("--drop removed the project's public copy:\n%s", got)
+	}
+	if got, _ := os.ReadFile(user.Path); !strings.Contains(string(got), "user-value") || strings.Contains(string(got), "repo-value") {
+		t.Errorf("the user's private value is kept:\n%s", got)
+	}
+}
