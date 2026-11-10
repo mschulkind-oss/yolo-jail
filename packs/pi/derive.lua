@@ -1766,6 +1766,21 @@ end)
 -- reads that api from pi's catalog, which this derive cannot see.
 yolo.derive("pi", "model-lists", function(ctx)
   local lists = {}
+  -- WHICH BEDROCK PROVIDER IS pi's `amazon-bedrock`. pi has one, and the composed table may hold
+  -- several aws-bedrock providers (bedrock-key inherits bedrock's list and its `only`,
+  -- docs/design/provider-inherits.md), each of which would otherwise write the one id in table
+  -- order. The active set's native Bedrock entry owns it (piNativeBedrockEntry); a set whose
+  -- Bedrock entry rides a via row leaves it to none; a set with no Bedrock entry leaves it to the
+  -- first aws-bedrock provider by name, so the list is the same at every render.
+  local bedrockOwner = piNativeBedrockEntry(ctx)
+  if bedrockOwner == nil and ctx.selected_platform ~= "aws-bedrock" then
+    for name, prov in pairs(ctx.providers or {}) do
+      if type(prov) == "table" and prov.platform == "aws-bedrock" and
+        (bedrockOwner == nil or name < bedrockOwner) then
+        bedrockOwner = name
+      end
+    end
+  end
   -- The shared facts rows name, for a pi that reads the shared form (piMarkShared, ML-D14).
   local sharedModels = {}
   for name, prov in pairs(ctx.providers or {}) do
@@ -1775,6 +1790,7 @@ yolo.derive("pi", "model-lists", function(ctx)
     local own = piOwn(ctx, name)
     local viaRow = own == nil and ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider
     local nativeBedrock = type(prov) == "table" and prov.platform == "aws-bedrock" and not viaRow
+    local notBedrockOwner = nativeBedrock and name ~= bedrockOwner
     -- Only a provider pi can use: one it has a models.json row for (piReachable, or the via row),
     -- yolo's Bedrock provider on pi's own client, or one pi has built in. A registration for a
     -- provider pi has no address or credential for is refused by pi at load ("no authentication
@@ -1797,7 +1813,8 @@ yolo.derive("pi", "model-lists", function(ctx)
         end
       end
     end
-    if name ~= "openai-codex" and usable and (prov.models_only == true or hasRouting) then
+    if name ~= "openai-codex" and usable and not notBedrockOwner and
+      (prov.models_only == true or hasRouting) then
       local piID = nativeBedrock and "amazon-bedrock" or name
       local rowApi, rowUrl = nil, nil
       if type(own) == "table" then

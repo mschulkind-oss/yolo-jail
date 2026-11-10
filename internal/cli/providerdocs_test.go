@@ -51,7 +51,12 @@ var legacyProviderDocFields = map[string]string{
 	"Platform": "platform", "Region": "region", "RegionEnvName": "region_env_name",
 	"RegionFile": "region_file", "Models": "models", "ModelOptions": "model_options",
 	"Options": "options", "Capabilities": "capabilities", "PinnedEndpoint": "pinned_endpoint",
+	"Inherits": "inherits",
 }
+
+// legacyProviderDocBacking names the Contribution field backing a legacy projection field whose
+// name differs from it; every other legacy field is backed by the field of its own name.
+var legacyProviderDocBacking = map[string]string{"Inherits": "ProviderInherits"}
 
 // groupedProviderFields are normalized fields populated by packdecl's grouped-TOML codec and
 // retained with json:"-" on Contribution. Their provenance is also exercised through DecodeTOML
@@ -87,7 +92,11 @@ func providerContributionDocProblems(entry string, projection, contribution refl
 	for i := 0; i < projection.NumField(); i++ {
 		name := projection.Field(i).Name
 		if tag, ok := legacyProviderDocFields[name]; ok {
-			checkBacking(name, name, tag)
+			backing := name
+			if b, renamed := legacyProviderDocBacking[name]; renamed {
+				backing = b
+			}
+			checkBacking(name, backing, tag)
 			if !regexp.MustCompile(`\b` + regexp.QuoteMeta(tag) + `\b`).MatchString(entry) {
 				problems = append(problems, "legacy provider field "+strconv.Quote(tag)+" is not named in config-ref's `provider` entry")
 			}

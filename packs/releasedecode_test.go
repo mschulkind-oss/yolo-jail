@@ -311,6 +311,13 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.17.0", pack: "pi", problem: `unknown field "jail_only"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("jail_only")},
+	// Measured against v0.17.1 on 2026-11-10: bedrock-key declares `inherits = "bedrock"`
+	// (docs/design/provider-inherits.md) in place of its own platform and region block, and that
+	// reader skips the bedrock-key provider contribution for the unknown field. An old jail keeps
+	// its staged pack tree on attach, and a fresh launch pairs the new tree with the new binaries.
+	{release: "v0.17.1", pack: "bedrock", problem: `unknown field "inherits"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("inherits")},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a

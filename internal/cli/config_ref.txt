@@ -2320,7 +2320,7 @@
                     region_file:{path, path_env_name, profile_env_name,
                     default_profile, profile_section, key},
                     models:{alias: id}, model_options, capabilities,
-                    options:{option: default|null}, pinned_endpoint} —
+                    options:{option: default|null}, pinned_endpoint, inherits} —
                     the SERVICE facts of a named provider: what service it is
                     (`platform`, open vocabulary, "aws-bedrock" for Bedrock; an agent's
                     derive and a `platform` env gate recognize the service by it), the
@@ -2351,7 +2351,11 @@
                     on a provider with `pinned_endpoint: true`: there a `providers`
                     entry that adds or moves any base_url is refused, because a
                     subscription's bearer token goes wherever the agent is pointed
-                    (claude-auth, codex-auth and copilot-auth set it).  The
+                    (claude-auth, codex-auth and copilot-auth set it).  `inherits`
+                    names another provider whose composed entry this one starts
+                    from, every key but api_key_env_name, its names and its
+                    variants (packs/bedrock's bedrock-key inherits bedrock; see
+                    `providers.<name>.inherits` below).  The
                     credential is NEVER
                     here: api_key_env_name is the NAME of a variable you hydrate
                     (env), and a base_url carrying userinfo is refused.  The
