@@ -15,13 +15,17 @@ package internaldaemon
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/awscredadapter"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostprocesses"
 	"github.com/mschulkind-oss/yolo-jail/internal/journald"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauthdaemon"
@@ -35,6 +39,25 @@ import (
 // JailKeeper is the `jail-keeper` member's entry, set by internal/cli (run.KeeperMain with the
 // seams the CLI wires into a launch). nil in a binary that never set it, which refuses the member.
 var JailKeeper func(args []string) int
+
+// startLineWriter is where a daemon's start line goes; nil is os.Stderr at the time of the call.
+// A test points it at a buffer.
+var startLineWriter io.Writer
+
+// logStart writes the helper's start line (helperpin.StartLine, PH-D9) before the daemon runs.
+// jail-keeper is left out: its stdio is /dev/null, so it writes the line to its own log
+// (internal/cli/run/keeper.go). A --self-check or --settings-check (aws-auth's) is a check, not a start, and `yolo check`'s doctor
+// output is compared; a usage error never reaches here.
+func logStart(name string, rest []string) {
+	if name == "jail-keeper" || slices.Contains(rest, "--self-check") || slices.Contains(rest, "--settings-check") {
+		return
+	}
+	w := startLineWriter
+	if w == nil {
+		w = os.Stderr
+	}
+	_, _ = io.WriteString(w, helperpin.StartLine(time.Now(), name)+"\n")
+}
 
 // IsDaemonArgv reports whether argv (os.Args, program name first) is the self-exec of a
 // daemon in this group: `<program> internal daemon …`. A TestMain asks it before m.Run.
@@ -63,6 +86,7 @@ func Run(args []string) int {
 		return 2
 	}
 	rest := args[1:]
+	var serve func([]string) int
 	switch args[0] {
 	case "jail-keeper":
 		// A container jail's KEEPER (internal/cli/run/keeper.go): the process a fresh launch spawns
@@ -72,50 +96,52 @@ func Run(args []string) int {
 			fmt.Fprintln(os.Stderr, "yolo internal daemon: jail-keeper is not wired into this binary")
 			return 2
 		}
-		return JailKeeper(rest)
+		serve = JailKeeper
 	case "aws-auth":
-		return awsauthdaemon.Main(rest)
+		serve = awsauthdaemon.Main
 	case "aws-credential-adapter":
 		// aws-auth's DOORWAY outside a sandbox that shares the host's loopback (the loophole's
 		// `jail_daemon.host_cmd`): a launch-owned listener a macos-user launch starts, handed its
 		// inputs in a file (docs/design/host-notch-services.md HS-D15).
-		return awscredadapter.DoorwayMain(rest)
+		serve = awscredadapter.DoorwayMain
 	case "openai-auth-adapter":
 		// openai-auth's Codex refresh DOORWAY, the same way (HS-D15; OQ-OA6 route (b)).
-		return openaiauthhost.DoorwayMain(rest)
+		serve = openaiauthhost.DoorwayMain
 	case "claude-oauth-broker":
-		return oauthbroker.Main(rest)
+		serve = oauthbroker.Main
 	case "call-broker":
-		return callbroker.Main(rest)
+		serve = callbroker.Main
 	case "github-broker":
 		// packs/github's per-jail broker: runs the host's gh for one jail, fenced to the
 		// workspace's own repositories (docs/design/boundary-broker.md).
-		return ghbroker.Main(rest)
+		serve = ghbroker.Main
 	case "git-broker":
 		// packs/git's per-jail broker: git fetch and push for one jail over the host's own ssh,
 		// fenced to the workspace's approved remotes (docs/design/git-broker.md).
-		return gitbroker.Main(rest)
+		serve = gitbroker.Main
 	case "host-processes":
-		return hostprocesses.Main(rest)
+		serve = hostprocesses.Main
 	case "journal":
-		return journald.Main(rest)
+		serve = journald.Main
 	case "macos-log":
 		// packs/macos-log's bridge: Apple's `log`, run as the host user for a jail whose own
 		// account cannot read the unified log (packs/macos-log/README.md).
-		return journald.MacosLogMain(rest)
+		serve = journald.MacosLogMain
 	case "mcp-auth-broker":
-		return mcpauthdaemon.Main(rest)
+		serve = mcpauthdaemon.Main
 	case "openai-auth-broker":
-		return openaiauthdaemon.Main(rest)
+		serve = openaiauthdaemon.Main
 	case "serial":
-		return serialdaemon.Main(rest)
+		serve = serialdaemon.Main
 	case "wire-bridge":
 		// The wire bridge's HOST HALF (packs/wire-bridge's `host_daemon`): a launch-owned
 		// service a host or macos-user launch starts for the one agent it runs, handed its
 		// inputs in a file, never on this argv (docs/design/host-notch-services.md).
-		return wirebridged.HostMain(rest)
+		serve = wirebridged.HostMain
 	default:
 		fmt.Fprintf(os.Stderr, "yolo internal daemon: unknown daemon %q\n", args[0])
 		return 2
 	}
+	logStart(args[0], rest)
+	return serve(rest)
 }

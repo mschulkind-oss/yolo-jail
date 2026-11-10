@@ -72,6 +72,7 @@ func applyFixture(t *testing.T, bootConfig, wsConfig string, jail applyJail) (*O
 	buf := &strings.Builder{}
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin() // the context injector `config apply` runs is exec'd from a pin
 	o.Workspace, o.Stdout, o.Stderr = ws, buf, buf
 	o.Getenv = func(string) string { return "" }
 	o.IsMacOS, o.IsLinux = false, true

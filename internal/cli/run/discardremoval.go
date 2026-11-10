@@ -78,8 +78,13 @@ func (o *Options) discardGoneTrees(cname, skeleton, tree string) {
 	if batch == "" {
 		return
 	}
-	argv := o.selfExecArgv(discardRemoverArgv(cname))
-	if err := o.StartDetached(argv, nil); err != nil {
+	argv, err := o.selfExecArgv(discardRemoverArgv(cname))
+	if err == nil {
+		err = o.StartDetached(argv, nil)
+	} else {
+		_ = o.reportPinnedSpawnRefused("the discard remover", err)
+	}
+	if err != nil {
 		o.Perf.Mark("shutdown.clear_tracking.discard_rm_not_started")
 		_ = os.RemoveAll(batch)
 		return

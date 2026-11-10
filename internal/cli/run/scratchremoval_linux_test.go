@@ -76,7 +76,7 @@ func TestStartDetachedRefusesToSelfExecATestBinary(t *testing.T) {
 // The child is `sh`, standing in for the remover: holding the lock is keeping fd 3 open.
 func TestWaitForScratchRemoversWaitsForTheSpawnedChild(t *testing.T) {
 	ws := t.TempDir()
-	o := &Options{Workspace: ws}
+	o := &Options{Workspace: ws, helperPin: testPin()}
 	o.StartDetached = func(argv []string, inherit *os.File) error {
 		return startDetached([]string{"sh", "-c", "sleep 1.5"}, inherit)
 	}

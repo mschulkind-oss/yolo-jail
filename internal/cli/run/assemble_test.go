@@ -102,6 +102,8 @@ func goldenOptions(workspace, home string) *Options {
 	// No fixture spawns a detached process: fillDefaults' real starter would self-exec
 	// the test binary as the scratch remover.
 	o.StartDetached = func([]string, *os.File) error { return errTestBinarySelfExec }
+	// A fixture that self-execs a helper execs the shared test pin, as a launch execs its own.
+	o.helperPin = testPin()
 	return o
 }
 

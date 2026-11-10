@@ -13,7 +13,7 @@ import (
 )
 
 var matchedLinuxBinaries = []string{"yolo", "yolo-entrypoint", "yolo-jaild", "yolo-ps", "yolo-cglimit", "yolo-journalctl", "yolo-serial", "yolo-log"}
-var matchedDarwinBinaries = []string{"yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
+var matchedDarwinBinaries = []string{"yolo", "yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
 
 const snapshotA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 const snapshotB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -55,7 +55,7 @@ func writeMatchedBundle(t *testing.T, root, identity, kind string) {
 	for _, name := range matchedLinuxBinaries {
 		writeBundleFile(t, linux, name)
 	}
-	if runtime.GOOS == "darwin" {
+	if bundleGOOS == "darwin" {
 		darwin := filepath.Join(root, "bin", "darwin-"+runtime.GOARCH)
 		for _, name := range matchedDarwinBinaries {
 			writeBundleFile(t, darwin, name)
@@ -324,4 +324,25 @@ func containsAll(text string, parts ...string) bool {
 		}
 	}
 	return true
+}
+
+// A darwin bundle without its host yolo is not a matched bundle: every host helper a Mac launch
+// starts is exec'd from that copy (docs/design/pinned-host-helpers.md, PH-D2). The OS is injected
+// so this runs on Linux; the guest set alone, as older bundles shipped it, must be refused.
+func TestValidateBundleRequiresTheDarwinHostYolo(t *testing.T) {
+	old := bundleGOOS
+	t.Cleanup(func() { bundleGOOS = old })
+	bundleGOOS = "darwin"
+	root := filepath.Join(canonicalTempDir(t), "bundle")
+	writeMatchedBundle(t, root, snapshotA, "installed")
+	if _, err := validateBundle(root); err != nil {
+		t.Fatalf("a complete darwin bundle was refused: %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "bin", "darwin-"+runtime.GOARCH, "yolo")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := validateBundle(root)
+	if err == nil || !strings.Contains(err.Error(), "bin/darwin-"+runtime.GOARCH+"/yolo") {
+		t.Fatalf("a darwin bundle with only the guest set was accepted or the error names no yolo: %v", err)
+	}
 }

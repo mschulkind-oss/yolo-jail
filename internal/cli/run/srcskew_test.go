@@ -103,6 +103,14 @@ func skewOptions(t *testing.T, repoRoot string, env map[string]string, stdout, s
 	o.RepoRoot = func() (reporoot.Resolution, bool) {
 		return reporoot.Resolution{Root: repoRoot, Source: reporoot.FromEnv}, true
 	}
+	// The bundle holds the host yolo a launch pins; untracked, outside the skew gate's fileset.
+	pinDir := filepath.Join(repoRoot, "bin", runtime.GOOS+"-"+runtime.GOARCH)
+	if err := os.MkdirAll(pinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pinDir, "yolo"), []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	o.LookPath = func(name string) (string, bool) {
 		if name == "podman" {
 			return "/usr/bin/podman", true

@@ -1638,6 +1638,9 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	deps.GuestBinaries = guestBinariesSeam
+	// A LAUNCH STAGES AND STARTS NOTHING FROM os.Executable() (docs/design/pinned-host-helpers.md):
+	// with no pin handed in (macosUserSessionDeps), SelfExe answers "": a live launch's plan refuses, and a dry run names the source as unresolved.
+	deps.SelfExe = macosuser.PinnedSelfExe(nil)
 	return deps
 }
 
@@ -1649,6 +1652,9 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 func macosUserSessionDeps(arm *run.MacosUserArm, log *perf.Log,
 	materialize func(repoRoot string, packages []any) (*macosuser.Darwin, bool, error)) macosuser.Deps {
 	deps := macosLaunchDeps(arm.RunSession, materialize)
+	// THE GUEST yolo AND EVERY HELPER ARE THE LAUNCH'S PINNED yolo (PH-D3), read from the arm Run
+	// hands the pin to once it resolves it.
+	deps.SelfExe = macosuser.PinnedSelfExe(arm.HelperPin)
 	deps.Ending = arm.Ending
 	deps.Perf = log
 	return deps

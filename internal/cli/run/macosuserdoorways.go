@@ -156,6 +156,7 @@ func (o *Options) startMacosUserDoorways(plans []*launchservice.Plan, launchEnv 
 		if before != nil {
 			before(plan)
 		}
+		o.pinMacosUserPlan(plan)
 		r, log, err := startMacosUserDoorway(plan, doorwayInput(launchEnv, hostSocket))
 		if err != nil {
 			stop()

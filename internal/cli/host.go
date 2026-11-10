@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -1075,8 +1076,21 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			environ = managed.Environ(environ)
 		}
 		sp = trace.span("host.services_start")
+		// THE PIN, before anything of this block spawns (PH-D3): every doorway, service, worker and
+		// private daemon below runs from it. A launch that cannot pin refuses here, with nothing started.
+		pin, perr := launch.helperPin()
+		if perr != nil {
+			sp.End()
+			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", perr)
+			return 1
+		}
+		startPinned := func(plan *launchservice.Plan, input map[string]string) (*launchservice.Running, error) {
+			launch.pinPlan(plan, pin)
+			return startLaunchService(plan, input)
+		}
+		launch.doorways.PinnedTo(pin, launch.helperJail(), hostStopRemedy)
 		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
-			launch.agent, errw, startLaunchService)
+			launch.agent, errw, startPinned)
 		for _, line := range lines {
 			fmt.Fprintf(errw, "yolo host: %s\n", line)
 		}
@@ -1092,7 +1106,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 		// machine-wide daemon, there only when something else had started it.
 		if launch.openAISocket == "" && len(launch.services)+len(launch.workers) > 0 &&
 			run.HostOpenAIServiceOn(launch.cfg, launch.packs) {
-			socket, stopOpenAI, oerr := startHostOpenAIService(errw)
+			socket, stopOpenAI, oerr := startHostOpenAIService(errw, launch.helperPin, launch.helperJail())
 			if oerr != nil {
 				fmt.Fprintf(errw, "yolo host: could not start the OpenAI credential service for "+
 					"this launch's services: %v. A service that reaches it fails its requests; fix "+
@@ -1112,7 +1126,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			if slices.Contains(launch.workers, plan) {
 				input = launch.workerInput()
 			}
-			r, err := startLaunchService(plan, input)
+			r, err := startPinned(plan, input)
 			if err != nil {
 				for _, started := range running {
 					started.Stop()
@@ -1584,6 +1598,10 @@ func yoloManagedDirs() []string {
 // walk the vars were composed from — loading them a second time would not just double the
 // work, it would let the check and the exec disagree about what the launch carries.
 type hostComposition struct {
+	// pin, pinErr and pinDone are the launch's pinned yolo, resolved on first use (helperPin).
+	pin     *helperpin.Pin
+	pinErr  error
+	pinDone bool
 	// agent is the CLI name the profile table is keyed by (the target's basename).
 	agent string
 	// vars is the composition proper, one var per name: the one ordered composition
@@ -1715,7 +1733,7 @@ type hostComposition struct {
 // Pack is the pack whose contribution set the view flag (or the login), which keys the managed
 // home. interactive is whether a human can answer a login.
 func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
-	p := openaiauthhost.Prelaunch{Bin: c.agent, Interactive: interactive}
+	p := openaiauthhost.Prelaunch{Bin: c.agent, Interactive: interactive, Pin: c.helperPin, Jail: c.helperJail()}
 	flagVar := openaiauthhost.PrelaunchVar(c.agent, "FLAG")
 	loginVar := openaiauthhost.PrelaunchVar(c.agent, "LOGIN")
 	for i, v := range c.vars {

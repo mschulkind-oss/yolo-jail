@@ -434,8 +434,8 @@ func DarwinBootstrapArgv(runAs RunAs, stagedYolo, home string, bootstrapEnv *jso
 
 // BuildRunPlan assembles the full RunPlan (pure — no shelling out). `config` is
 // the loaded jail config; `sandboxEnv` is the fully-resolved launch env;
-// `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
-// to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
+// `selfExe` is the yolo source staged for the sandbox to self-exec as the bootstrap: a launch's
+// pinned yolo (PinnedSelfExe), the running binary for a command that serves no launch; `hostPackRoot` is the host-side staged pack tree
 // the run pipeline produced before dispatching here (""=no packs); `hostHomeOverlay`
 // is the host-side composed CONTENT — the tree of skills and briefings, already laid out
 // at their home-relative destinations (Tree ""=nothing to deliver), and the destinations
@@ -1641,10 +1641,11 @@ func PlanInvariants(plan RunPlan) []string {
 				"); it would run an unstaged/unreadable binary")
 	}
 	// The stage step must have a real source binary to copy — an empty selfExe
-	// (os.Executable failed) would stage nothing and the self-exec would fail.
+	// (no pinned yolo, or the pinned file gone: PinnedSelfExe) would stage nothing and the self-exec
+	// would fail.
 	if !hasGuestSessionYoloCopy(plan) {
 		problems = append(problems,
-			"no source yolo binary resolved to stage (os.Executable failed); the sandbox would have no bootstrap binary to exec")
+			"no source yolo binary resolved to stage (this launch has no pinned yolo, or the pinned file is gone or replaced; reinstall yolo or run `just install`, then launch again); the sandbox would have no bootstrap binary to exec")
 	}
 
 	// B3 (Go): the stage commands must produce a FRESH inode (copy-to-temp + mv),

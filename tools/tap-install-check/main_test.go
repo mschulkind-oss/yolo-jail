@@ -46,6 +46,7 @@ func newStubMachine(t *testing.T) *stubMachine {
 	writeFile(t, filepath.Join(m.bundle, "flake.lock"), "{}", 0o644)
 	writeFile(t, filepath.Join(m.bundle, "bin/linux-amd64/yolo-entrypoint"), fakeELF(t, elf.EM_X86_64), 0o755)
 	writeFile(t, filepath.Join(m.bundle, "bin/linux-arm64/yolo-entrypoint"), fakeELF(t, elf.EM_AARCH64), 0o755)
+	writeFile(t, filepath.Join(m.bundle, "bin/darwin-arm64/yolo"), fakeMachO(t, macho.CpuArm64), 0o755)
 	writeFile(t, filepath.Join(m.bundle, "bin/darwin-arm64/yolo-jaild"), fakeMachO(t, macho.CpuArm64), 0o755)
 	for link, target := range map[string]string{
 		"prefix/bin/yolo":        "../Cellar/yolo-jail/0.11.0/bin/yolo",

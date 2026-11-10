@@ -52,6 +52,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
@@ -84,7 +85,7 @@ const (
 	keeperLockFD     = 5
 )
 
-// keeperArgv is the keeper's command line; "yolo" is replaced by the running binary at the spawn.
+// keeperArgv is the keeper's command line; "yolo" is replaced by the launch's pinned yolo at the spawn.
 // withLock says the spawn hands it the launch lock as fd 5, and reserved is how many reserved
 // ports it hands it after that, one `--reserved-fd` each (keeperspawn.go's startKeeper).
 func keeperArgv(planPath string, withLock bool, reserved int) []string {
@@ -328,6 +329,12 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	// one: a sealed keeper plans no host service, and so refuses a plan naming one (checkPlan).
 	o.Sealed = plan.Sealed
 	o.keeperMode = true
+	// The pin the launch resolved: this keeper's own later self-execs run it off Linux, after a stat
+	// check (selfExecArgv); on Linux they keep its own inode. A plan with none execs nothing by path.
+	if plan.Pin.Path != "" {
+		pin := plan.Pin
+		o.helperPin = &pin
+	}
 	// What a held service's supervision names: the fresh launch's command (macosUserCommandName).
 	o.keeperCommand = plan.Command
 	k.o = &o
@@ -399,6 +406,9 @@ func (k *keeper) run() int {
 	if f, err := openKeeperLog(k.stateKey()); err == nil {
 		k.sink.setLog(f)
 	}
+	// The log's first line says which build this keeper is (PH-D9): its stdio is /dev/null, so
+	// internaldaemon.Run leaves the start line to the keeper.
+	k.sink.logOnlyf("%s", strings.TrimSuffix(helperpin.StartLine(time.Now(), KeeperVerb), "\n"))
 	k.sink.logOnlyf("%s", line)
 	// The owner-PID file names a CONTAINER's owner, which the orphan reaper reads; a key at
 	// macos-user has no container, and its record alone says who holds it.

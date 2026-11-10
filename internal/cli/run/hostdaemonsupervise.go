@@ -106,6 +106,10 @@ type daemonSupervisor struct {
 	// stoppedByVerb reports, and consumes, the marker `yolo host-daemon stop` leaves for the pid
 	// it signals (hostservice.TakeStopMarker). nil for a daemon the verb never stops.
 	stoppedByVerb func(pid int) bool
+	// restartBlocked, when set, is asked before every restart: "" lets it go ahead, otherwise it is
+	// the sentence (the cause and the stop step) that turns the death into a give-up, because the pinned
+	// yolo the daemon was started from is no longer there (pinnedexec.go).
+	restartBlocked func() string
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
@@ -226,6 +230,24 @@ func (s *daemonSupervisor) wait(d time.Duration) bool {
 	}
 }
 
+// hostDaemonWait is the backoff wait between a death and its restart. A var so a test can run code
+// at the moment the supervisor is waiting, instead of racing a timer.
+var hostDaemonWait = func(s *daemonSupervisor, d time.Duration) bool { return s.wait(d) }
+
+// giveUpIfBlocked ends supervision, saying why, when restartBlocked refuses a restart.
+func (s *daemonSupervisor) giveUpIfBlocked(how string) bool {
+	if s.restartBlocked == nil {
+		return false
+	}
+	why := s.restartBlocked()
+	if why == "" {
+		return false
+	}
+	s.say(fmt.Sprintf("host service '%s' died (%s); not restarting it: %s%s", s.name, how, why, s.logClause()))
+	s.finish(fmt.Sprintf("%s, and it was not restarted: %s", how, why))
+	return true
+}
+
 // logClause names the daemon's log for a line, or nothing when its log could not be opened.
 func (s *daemonSupervisor) logClause() string {
 	if s.logPath == "" {
@@ -282,6 +304,9 @@ func (s *daemonSupervisor) run() {
 			restarts, backoff = 0, s.policy.initial
 		}
 		for {
+			if s.giveUpIfBlocked(how) {
+				return
+			}
 			if restarts >= s.policy.restarts {
 				s.say(fmt.Sprintf("host service '%s' died (%s) after %d restarts in a row; giving up: "+
 					"it stays down, and what uses it fails, until this launch ends and the next one "+
@@ -291,8 +316,12 @@ func (s *daemonSupervisor) run() {
 			}
 			s.say(fmt.Sprintf("host service '%s' died mid-session (%s); restarting it in %s "+
 				"(restart %d of %d).%s", s.name, how, backoff, restarts+1, s.policy.restarts, s.logClause()))
-			if !s.wait(backoff) {
+			if !hostDaemonWait(s, backoff) {
 				s.finish(stoppedByTeardown)
+				return
+			}
+			// The pin can change during the backoff, so ask again right before the restart.
+			if s.giveUpIfBlocked(how) {
 				return
 			}
 			restarts++

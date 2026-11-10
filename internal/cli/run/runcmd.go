@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
@@ -250,6 +251,14 @@ type Options struct {
 	// keeperMode is set on a KEEPER's own Options (keeper.go): the children it starts get the
 	// kernel's death signal, and its self-execs run its own binary.
 	keeperMode bool
+	// helperPin is the host yolo this launch execs every helper that serves its jail from
+	// (pinnedexec.go, docs/design/pinned-host-helpers.md): resolved once at pre-flight by Run, handed
+	// to the keeper through its plan, nil only on a dry run or a test that never execs. A self-exec
+	// with none is refused, never run from os.Executable().
+	helperPin *helperpin.Pin
+	// helperStopRemedy is the stop step a give-up line of a launch with no jail names in place of
+	// keyedStopRemedy's: `yolo host` has no container and no `yolo stop`. "" for every other launch.
+	helperStopRemedy string
 	// keeperCommand is, on a keeper at macos-user, the command of the launch that spawned it, which
 	// the supervision of a doorway or service it holds names (macosUserCommandName).
 	keeperCommand string

@@ -1572,7 +1572,7 @@
         # Linux ship set: only what a guest actually RUNS. `yolo-jaild` is the
         # supervisor and every in-jail daemon; the Mac loophole clients are
         # `yolo-serial`, `yolo-ps` and `yolo-log`. `yolo` is staged from the
-        # running host binary, and neither the Linux entrypoint nor Linux-only
+        # launch's pinned host yolo, and neither the Linux entrypoint nor Linux-only
         # loophole clients belong in the guest set. The canonical list remains
         # pinned against scripts/stage-source-bundle.sh and macosuser.GuestBinaries.
         guestBinaries = [ "yolo-jaild" "yolo-serial" "yolo-ps" "yolo-log" ];

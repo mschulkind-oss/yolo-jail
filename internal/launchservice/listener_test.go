@@ -92,8 +92,10 @@ func doorwayPlan(t *testing.T) (*Plan, string) {
 	r := held["127.0.0.1:1"]
 	t.Cleanup(r.Release)
 	addr := r.Addr()
-	return PlanAt(Declared{Service: "door", Pack: "p", Cmd: []string{"yolo", "doorway", addr}},
-		addr, paths.ServiceCallerTokenEnv("door"), strings.Repeat("cd", 32), r), addr
+	plan := PlanAt(Declared{Service: "door", Pack: "p", Cmd: []string{"yolo", "doorway", addr}},
+		addr, paths.ServiceCallerTokenEnv("door"), strings.Repeat("cd", 32), r)
+	plan.Pin = halfPin
+	return plan, addr
 }
 
 func get(t *testing.T, addr, auth string) (int, string) {

@@ -146,6 +146,10 @@ type Prelaunch struct {
 	Pack string
 	// Interactive reports whether a human can answer a browser login: stdin is a terminal.
 	Interactive bool
+	// Pin resolves the pinned yolo the launch's own credential daemon runs from, asked only when
+	// that daemon is about to start. Jail is the launch's label for the daemon's start line.
+	Pin  HelperPin
+	Jail string
 }
 
 // Declared reports whether the launch asks for a prelaunch at all.
@@ -157,8 +161,9 @@ func (p Prelaunch) Declared() bool { return p.Flag != "" || p.Login }
 // refresh adapter), a launch that sets nothing and says why that variable is unset (NotServed).
 func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 	d := deps{
-		ensure: startPrivate, request: openauthclient.RequestUnix,
-		listen: net.Listen, home: paths.Home, storage: paths.GlobalStorage,
+		ensure:  func(w io.Writer) (string, func(), error) { return startPrivate(w, pinnedExec(p.Pin), p.Jail) },
+		request: openauthclient.RequestUnix,
+		listen:  net.Listen, home: paths.Home, storage: paths.GlobalStorage,
 		workspace: os.Getwd, newToken: svcendpoint.NewToken, getenv: os.Getenv,
 	}
 	return prepare(d, p, stderr)
@@ -691,4 +696,8 @@ func (l *Launch) Run(target string, argv, environ []string, stdin io.Reader, std
 // host-to-host socket and the stop that ends it (privatedaemon.go): what a `yolo host` launch hands
 // a launch-owned service that reaches the credential service host to host
 // (docs/design/host-notch-services.md HS-D3), when its prelaunch started none. stop does not wait.
-func StartPrivate(stderr io.Writer) (string, func(), error) { return startPrivate(stderr) }
+//
+// The daemon runs from the launch's pin (pin, resolved when it is about to start) and is told jail.
+func StartPrivate(stderr io.Writer, pin HelperPin, jail string) (string, func(), error) {
+	return startPrivate(stderr, pinnedExec(pin), jail)
+}

@@ -434,20 +434,44 @@ func TestDryRunPrintsAndExecutesNothing(t *testing.T) {
 	}
 }
 
-func TestDryRunNonzeroWhenPlanBroken(t *testing.T) {
-	d := mockDeps(nil)
+// A dry run materializes nothing, so a launch with no resolvable pin (PinnedSelfExe answers "")
+// still plans and exits 0, naming the source as unresolved; the same launch live refuses on the
+// B2 invariant. Deleting the dry-run exemption in buildPlan fails the first half.
+func TestDryRunWithNoPinnedYoloPlansAndExitsZero(t *testing.T) {
+	var rec []string
+	d := mockDeps(&rec)
 	d.IsMacOS = func() bool { return false }
-	// An empty SelfExe yields an unstaged bootstrap binary — the B2 plan
-	// invariant fires, so the dry-run exits non-zero.
-	d.SelfExe = func() string { return "" }
+	d.SelfExe = macosuserNoPin()
 	var buf bytes.Buffer
 	d.Out = &buf
 	opts := newOpts("/Users/Shared/yolo/proj")
 	opts.DryRun = true
-	if rc := RunMacosUser(d, opts); rc != 1 {
-		t.Errorf("broken plan rc = %d, want 1", rc)
+	if rc := RunMacosUser(d, opts); rc != 0 {
+		t.Fatalf("a dry run with no pin rc = %d, want 0:\n%s", rc, buf.String())
+	}
+	if !strings.Contains(buf.String(), "no pinned yolo") {
+		t.Errorf("the plan does not name the source as unresolved:\n%s", buf.String())
+	}
+	if len(rec) != 0 {
+		t.Errorf("dry-run must not shell out: %v", rec)
 	}
 }
+
+func TestLiveLaunchWithNoPinnedYoloStillRefuses(t *testing.T) {
+	d := mockDeps(nil)
+	d.SelfExe = macosuserNoPin()
+	var buf bytes.Buffer
+	d.Out = &buf
+	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/proj")); rc != 1 {
+		t.Errorf("a live launch with no pin rc = %d, want 1", rc)
+	}
+	if !strings.Contains(buf.String(), "no source yolo binary resolved to stage") {
+		t.Errorf("the refusal does not name the missing source:\n%s", buf.String())
+	}
+}
+
+// macosuserNoPin is what PinnedSelfExe answers for a launch with no resolvable pin: the real one.
+func macosuserNoPin() func() string { return PinnedSelfExe(nil) }
 
 func TestDryRunRejectsHomeWorkspace(t *testing.T) {
 	var rec []string

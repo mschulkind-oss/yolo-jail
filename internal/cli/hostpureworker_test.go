@@ -34,7 +34,7 @@ func workerManifest(service string) string {
 		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "` + service + `"]}}]}`
 }
 
-// workerStandIn stands a shell in for every host half this test starts (launchservice.SelfExec):
+// workerStandIn stands a shell in for every host half this test starts (the pinned yolo of its bundle):
 // it records its pid, its input and the listen descriptors it was handed under dir, removes the
 // input as a host half does, answers `ready <service>` (the argv's last word), and reads its
 // lifeline until the launch closes it.
@@ -44,11 +44,10 @@ func workerStandIn(t *testing.T) string {
 	script := `svc="$1"; out="$2"; echo $$ > "$out/pid.$svc"; cat "$YOLO_HOST_SERVICE_INPUT" > "$out/input.$svc"; ` +
 		`rm -f "$YOLO_HOST_SERVICE_INPUT"; printf '%s' "$YOLO_HOST_SERVICE_LISTEN_FDS" > "$out/fds.$svc"; ` +
 		`printf 'ready %s\n' "$svc" >&3; exec 3>&-; exec cat <&4 >/dev/null`
-	orig := launchservice.SelfExec
-	launchservice.SelfExec = func(argv []string) []string {
-		return []string{"/bin/sh", "-c", script, "sh", argv[len(argv)-1], dir}
-	}
-	t.Cleanup(func() { launchservice.SelfExec = orig })
+	// The bundle's yolo is the stand-in: run as `yolo internal daemon <service>`, its last word is the service.
+	root, _ := writeYoloBundle(t, "#!/bin/sh\nout='"+dir+"'\nfor a in \"$@\"; do last=$a; done\nexec /bin/sh -c '"+
+		strings.ReplaceAll(script, "'", `'\''`)+"' sh \"$last\" \"$out\"\n")
+	bundleSeam(t, root, nil)
 	return dir
 }
 

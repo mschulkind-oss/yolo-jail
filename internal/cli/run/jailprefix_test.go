@@ -45,7 +45,11 @@ func stageBundleAt(t *testing.T, root string, withBinaries bool) {
 		t.Fatal(err)
 	}
 	for _, name := range requiredJailBinaries {
-		if err := os.WriteFile(filepath.Join(binDir, name), []byte("binary"), 0o755); err != nil {
+		body := []byte("binary")
+		if name == "yolo" {
+			body = yoloStandInScript()
+		}
+		if err := os.WriteFile(filepath.Join(binDir, name), body, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -548,4 +552,15 @@ func TestDarwinAcceptsAPrefixTheVMCanSee(t *testing.T) {
 	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("a darwin launch refused a complete prebuilt bundle under $HOME")
 	}
+}
+
+// yoloStandInScript is the host yolo of a fixture bundle: a script that runs this test binary, whose
+// TestMain answers `internal daemon <name>` as the real one does. A launch under test pins this file
+// (pinnedexec.go) and so starts its helpers from it, as a launch starts them from the bundle's yolo.
+func yoloStandInScript() []byte {
+	exe, err := os.Executable()
+	if err != nil {
+		return []byte("binary")
+	}
+	return []byte("#!/bin/sh\nexec '" + exe + "' \"$@\"\n")
 }

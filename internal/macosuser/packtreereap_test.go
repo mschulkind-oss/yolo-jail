@@ -268,3 +268,33 @@ func TestDescribeHoldersNeutralizesAGuestChosenName(t *testing.T) {
 		t.Errorf("the name was rendered as markup: %q", out.String())
 	}
 }
+
+// A pin that goes away while the guest runs (an upgrade swapped the bundle) leaves the launch with
+// no yolo to run the reaper from, and it starts none: it says why, once, before its Kept line
+// (design 3.4, row 2). The pin is "gone" from the moment the process table is first read, which
+// is the end of the launch. Deleting the line in handOffPackTree fails this.
+func TestAHandoffSkippedForWantOfAPinnedYoloSaysWhy(t *testing.T) {
+	started, pinGone := false, false
+	_, _, out, _ := runPackTreeLaunch(t, 0, func() ([]GuestProc, error) {
+		pinGone = true
+		return append(hostTable(), GuestProc{PID: 9004, PPID: 1, Sandbox: true, Start: time.Now()}), nil
+	}, func(d *Deps, _ *Options) {
+		d.StartPackTreeReaper = func([]string, *os.File) error { started = true; return nil }
+		live := d.SelfExe
+		d.SelfExe = func() string {
+			if pinGone {
+				return ""
+			}
+			return live()
+		}
+	})
+	if started {
+		t.Fatal("a reaper was started with no pinned yolo")
+	}
+	if n := strings.Count(out.String(), "no pinned yolo to run it from"); n != 1 {
+		t.Errorf("the skipped hand-off was named %d times, want once:\n%s", n, out)
+	}
+	if !strings.Contains(out.String(), "Kept guest pack tree") {
+		t.Errorf("the Kept line is gone:\n%s", out)
+	}
+}

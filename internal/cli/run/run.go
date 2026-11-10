@@ -327,6 +327,22 @@ func Run(opts Options) (rc int) {
 			"nothing.[/dim]")
 		return 1
 	}
+	// THE PIN (pinnedexec.go, docs/design/pinned-host-helpers.md section 3.2, PH-D3): every launch
+	// that will start a host helper (a container launch always starts a keeper; macos-user starts its
+	// own) resolves the host yolo it execs them from, once, here, before anything is spawned. An
+	// attach starts nothing the keeper holds, but its own context injector self-execs, so it needs one
+	// too (PH-D7). A launch with no host yolo in its bundle refuses naming the reinstall step. A dry
+	// run starts no helper and resolves none; a missing repo root was refused above.
+	if repoRootOK && !o.DryRun {
+		if err := o.resolveHelperPin(repoRoot); err != nil {
+			o.pr(o.Stderr).print("[bold red]Cannot pin this launch's host yolo.[/bold red]\n" + richtext.Escape(err.Error()))
+			return 1
+		}
+	} else if repoRootOK && o.MacosUserArm != nil {
+		// A macos-user dry run starts nothing, but its plan names the yolo it would stage (the pin's
+		// file), so it pins best effort; one it cannot pin shows in the plan as the missing source.
+		_ = o.resolveHelperPin(repoRoot)
+	}
 
 	// --- Phase 2: pack staging, BEFORE the backend dispatch ---
 	//

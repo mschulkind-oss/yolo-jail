@@ -400,6 +400,13 @@ func checkBundle(dir string) (unknown []string, errs []error) {
 			unknown = append(unknown, "bin/"+e.Name())
 			continue
 		}
+		// A darwin dir carries the host yolo, the one the launcher is (PH-D2). A release that
+		// predates the darwin dirs has none to check, which the caller's list already allows.
+		if strings.HasPrefix(e.Name(), "darwin-") {
+			if _, err := os.Stat(filepath.Join(dir, "bin", e.Name(), "yolo")); err != nil {
+				errs = append(errs, fmt.Errorf("the bundle has no bin/%s/yolo", e.Name()))
+			}
+		}
 		files, err := os.ReadDir(filepath.Join(dir, "bin", e.Name()))
 		if err != nil {
 			errs = append(errs, err)

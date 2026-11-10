@@ -169,11 +169,19 @@ func (o *Options) runCtxAttach(rt, cname string, args []string, deadline time.Ti
 	if confirmedPID != pid {
 		return fmt.Errorf("this jail's process changed before mount injection (pid %d, now %d)", pid, confirmedPID)
 	}
-	argv := o.selfExecArgv(append([]string{"yolo", "internal", ctxAttachVerbName,
+	// The injector child runs from THIS process's own pin: `yolo config apply` is no launch, so it
+	// resolves one from the bundle it was started from, once (PH-D7, ensureHelperPin).
+	if err := o.ensureHelperPin(); err != nil {
+		return err
+	}
+	argv, err := o.selfExecArgv(append([]string{"yolo", "internal", ctxAttachVerbName,
 		"--pid", strconv.Itoa(pid),
 		"--start-time", strconv.FormatUint(identity.StartTime, 10),
 		"--mount-ns-device", strconv.FormatUint(identity.MountNSDevice, 10),
 		"--mount-ns-inode", strconv.FormatUint(identity.MountNSInode, 10)}, args...))
+	if err != nil {
+		return fmt.Errorf("the mount step cannot run: %w", err)
+	}
 	if unshare {
 		argv = append([]string{"podman", "unshare", "--"}, argv...)
 	}

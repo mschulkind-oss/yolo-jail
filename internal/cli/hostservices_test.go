@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"io"
 	"io/fs"
 	"net"
@@ -141,7 +142,9 @@ func fakeHostBroker(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	socket := filepath.Join(dir, "broker.sock.host")
 	orig := startHostOpenAIService
-	startHostOpenAIService = func(io.Writer) (string, func(), error) { return socket, func() {}, nil }
+	startHostOpenAIService = func(io.Writer, openaiauthhost.HelperPin, string) (string, func(), error) {
+		return socket, func() {}, nil
+	}
 	t.Cleanup(func() { startHostOpenAIService = orig })
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop); _ = os.Remove(socket) })

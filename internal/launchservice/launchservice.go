@@ -43,12 +43,13 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/logstamp"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -290,6 +291,15 @@ type Plan struct {
 	// (reserve.go). An address with none, in a plan built by hand, is one the service binds
 	// itself.
 	reserved map[string]*Reserved
+	// Pin is the launch's pinned yolo (helperpin), the program a service whose Cmd starts with
+	// `yolo` is execd from. Nil means the launch pinned none, and such a service does not start.
+	Pin *helperpin.Pin
+	// Jail is the jail label handed to the service as helperpin.EnvJail, for its start line; ""
+	// sets nothing.
+	Jail string
+	// StopRemedy is the caller's stop step, worded for the end of a give-up line, such as
+	// "`yolo stop` once its sessions are done, then launch".
+	StopRemedy string
 }
 
 // NewPlan picks a served address for every adaptation d's service serves, at its DECLARED address
@@ -532,9 +542,22 @@ func LogPath(service string) string {
 	return filepath.Join(paths.GlobalStorage(), "logs", "launch-service-"+service+".log")
 }
 
-// SelfExec resolves a host half's argv (its first word is `yolo`) to this binary. A var so the
-// package's tests can stand a test binary in for yolo.
-var SelfExec = execx.SelfExecArgv
+// resolveArgv is the argv a plan's service is execd with, and whether it runs from the pin (whose
+// identity Supervise then checks before a restart). A Cmd that names its own program is as is.
+func resolveArgv(plan *Plan) (argv []string, pinned bool, err error) {
+	argv = plan.Cmd
+	if len(argv) == 0 || argv[0] != "yolo" {
+		return argv, false, nil
+	}
+	if plan.Pin == nil {
+		return argv, false, errors.New("this launch pinned no yolo to run it from; launch again so it resolves one (" + reporoot.ReinstallSteps + ")")
+	}
+	if !plan.Pin.Unchanged() {
+		return argv, false, fmt.Errorf("the yolo this launch pinned is no longer at %s (an upgrade removed or replaced it); "+
+			"launch again so it pins the installed one (%s)", plan.Pin.Path, reporoot.ReinstallSteps)
+	}
+	return append([]string{plan.Pin.Path}, argv[1:]...), true, nil
+}
 
 // Running is one started launch-owned service: a process, and, once its launch supervises it
 // (Supervise), every process that replaces it after a death, on the same addresses.
@@ -545,6 +568,9 @@ type Running struct {
 
 	// restart is the declared policy Supervise applies ("" is on-failure).
 	restart string
+	// pinned is set when the service is execd from Plan.Pin, which Supervise checks is unchanged
+	// before each restart.
+	pinned bool
 	// input is the marshaled Input, kept so a restart writes the same file again: the service
 	// removes the one it reads.
 	input []byte
@@ -615,13 +641,16 @@ func (r *Running) Done() <-chan struct{} { return r.done }
 // so a process that replaces a dead one is handed the same sockets (HS-D28); they close when the
 // service is gone for good, and at once when it does not start.
 func Start(plan *Plan, env map[string]string) (*Running, error) {
-	argv := SelfExec(plan.Cmd)
+	argv, pinned, argvErr := resolveArgv(plan)
 	logPath := LogPath(plan.Service)
 	reserved := plan.takeReserved()
 	fail := func(why string) error {
 		ReleaseAll(reserved)
 		return fmt.Errorf("the %q service (pack %q) did not start: %s. Its argv: %s. Its log: %s",
 			plan.Service, plan.Pack, why, strings.Join(argv, " "), logPath)
+	}
+	if argvErr != nil {
+		return nil, fail(argvErr.Error())
 	}
 	in := Input{Service: plan.Service, Env: map[string]string{}}
 	for k, v := range env {
@@ -640,7 +669,7 @@ func Start(plan *Plan, env map[string]string) (*Running, error) {
 	if err != nil {
 		return nil, fail(err.Error())
 	}
-	r := &Running{Plan: plan, Argv: argv, Log: logPath, restart: plan.Restart, input: data, dir: dir,
+	r := &Running{Plan: plan, Argv: argv, Log: logPath, restart: plan.Restart, pinned: pinned, input: data, dir: dir,
 		reserved: reserved, backoff: RestartBackoff, done: make(chan struct{}), stopping: make(chan struct{})}
 	p, why := r.spawn("starting")
 	if p == nil {
@@ -691,6 +720,9 @@ func (r *Running) spawn(verb string) (*serviceProcess, string) {
 	reservedFiles, listenFDs := handOver(r.reserved)
 	cmd.Env = append(os.Environ(), InputEnv+"="+inputPath,
 		paths.JailDaemonReadyFDEnv+"=3", LifelineFDEnv+"=4", ListenFDsEnv+"="+listenFDs)
+	if r.Plan.Jail != "" {
+		cmd.Env = append(cmd.Env, helperpin.EnvJail+"="+r.Plan.Jail)
+	}
 	cmd.ExtraFiles = append([]*os.File{readyW, lifeR}, reservedFiles...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	// Its own process group, so a terminal's Ctrl-C reaches the agent and not the service the
@@ -862,6 +894,9 @@ func (r *Running) restartAfter(p *serviceProcess, sup *supervision) bool {
 			"is launched again. Its log: %s", svc, pack, agent, agent, agent, r.Log)
 		return false
 	}
+	if r.pinGone(say, p) {
+		return false
+	}
 	where := r.restartWhere(agent)
 	say("the %q service (pack %q) exited (%s) while %s runs; restarting it in %s%s. Its log: %s",
 		svc, pack, status, agent, r.backoff, where, r.Log)
@@ -872,6 +907,9 @@ func (r *Running) restartAfter(p *serviceProcess, sup *supervision) bool {
 		r.backoff *= 2
 		if r.backoff > RestartBackoffMax {
 			r.backoff = RestartBackoffMax
+		}
+		if r.pinGone(say, p) {
+			return false
 		}
 		next, why := r.spawn("restarting")
 		if next != nil {
@@ -891,6 +929,20 @@ func (r *Running) restartAfter(p *serviceProcess, sup *supervision) bool {
 		say("the %q service (pack %q) did not come back: %s; trying again in %s. Its log: %s",
 			svc, pack, why, r.backoff, r.Log)
 	}
+}
+
+// pinGone says, and reports true, when the service runs from the launch's pin and the pin has
+// been removed or replaced: another build must not be started in its place, so the service stays
+// down until its jail is launched again (design §3.4).
+func (r *Running) pinGone(say func(string, ...any), p *serviceProcess) bool {
+	if !r.pinned || r.Plan.Pin.Unchanged() {
+		return false
+	}
+	status, _ := exitStatusOf(p.err)
+	say("the %q service (pack %q) died (%s); not restarting it: the yolo this jail was launched with is "+
+		"no longer at %s (an upgrade removed or replaced it). It stays down until the jail is launched "+
+		"again: %s. Its log: %s", r.Plan.Service, r.Plan.Pack, status, r.Plan.Pin.Path, r.Plan.StopRemedy, r.Log)
+	return true
 }
 
 // restartWhere is the clause a restart line adds about the service's addresses: the same ones,

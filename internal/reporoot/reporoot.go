@@ -57,7 +57,15 @@ type bundleStamp struct {
 }
 
 var linuxBinaries = []string{"yolo", "yolo-entrypoint", "yolo-jaild", "yolo-ps", "yolo-cglimit", "yolo-journalctl", "yolo-serial", "yolo-log"}
-var darwinBinaries = []string{"yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
+
+// darwinBinaries is what a darwin bundle dir holds: the host yolo, the same build as the launcher
+// (docs/design/pinned-host-helpers.md, PH-D2), then the macos-user guest set. It is pinned to
+// DARWIN_HOST_BINARIES and GUEST_BINARIES in scripts/stage-source-bundle.sh.
+var darwinBinaries = []string{"yolo", "yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
+
+// bundleGOOS is the OS the bundle is validated for; a variable so a test can check the darwin
+// requirements on Linux.
+var bundleGOOS = runtime.GOOS
 
 // ReinstallSteps is the next step when yolo cannot find the files a launch builds each jail from.
 // Most users have no checkout, so `just` comes last, for the ones who do.
@@ -202,10 +210,10 @@ func validateBundle(root string) (bundleStamp, error) {
 			return stamp, fmt.Errorf("required executable Linux helper bin/linux-%s/%s is missing or not executable", runtime.GOARCH, name)
 		}
 	}
-	if runtime.GOOS == "darwin" {
+	if bundleGOOS == "darwin" {
 		for _, name := range darwinBinaries {
 			if !isRegularFile(filepath.Join(root, "bin", "darwin-"+runtime.GOARCH, name)) {
-				return stamp, fmt.Errorf("required macOS guest helper bin/darwin-%s/%s is missing", runtime.GOARCH, name)
+				return stamp, fmt.Errorf("required macOS helper bin/darwin-%s/%s is missing", runtime.GOARCH, name)
 			}
 		}
 	}
