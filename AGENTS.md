@@ -271,7 +271,10 @@ The mechanics behind each of these are in
   `<workspace>/.yolo/logs/launch.log`, beside the entrypoint's `boot.log`.
 - **Podman-in-podman**: inside a container the CLI uses `--userns=host` and forces `--net=host`; inner
   containers also need `--cgroups=disabled` — both are image defaults in
-  `/etc/containers/containers.conf`.
+  `/etc/containers/containers.conf`, and the required keys are repeated in
+  `/etc/containers/yolo-required.conf`, which the entrypoint names in `CONTAINERS_CONF_OVERRIDE`
+  because any user `~/.config/containers/containers.conf` otherwise stops the `/etc` cgroups setting
+  from applying ([`podmanconf.go`](internal/entrypoint/podmanconf.go)).
 - **Host loopback forwarding and the reachability witness**
   ([`loopback-tls-reachability.md`](docs/reference/loopback-tls-reachability.md)). On a rootless podman
   with a recognised `rootlessNetworkCmd`, the default `network.mode: bridge` adds the option forwarding

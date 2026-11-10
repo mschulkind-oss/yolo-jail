@@ -100,7 +100,8 @@ func TestEveryBootStepRunsOrSaysWhy(t *testing.T) {
 func TestTheContainerBootRunsItsStepsInOrder(t *testing.T) {
 	want := []string{
 		"hydrate_user_env", "start_egress_probe", "configure_timezone", "scratch_permissions",
-		"generate_store_packages", "configure_graphics_drivers", "export_image_ld_lib", "generate_ld_cache",
+		"generate_store_packages", "configure_graphics_drivers", "export_image_ld_lib",
+		"export_podman_required_conf", "generate_ld_cache",
 		"generate_shims", "generate_agent_launchers", "generate_package_manager_launchers",
 		"deliver_launch_flags", "assert_required_bins",
 		"catalog_installed_orphans", "reconcile_installed_programs", "report_durable_dir",

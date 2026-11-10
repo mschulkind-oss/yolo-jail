@@ -248,6 +248,15 @@ func bootSteps() []bootStep {
 			notDarwin: "macos-user bakes no image farm, and dyld does not read LD_LIBRARY_PATH",
 		},
 		{
+			// Keep the podman settings a nested podman needs in force over a user
+			// containers.conf (podmanconf.go), in a session's pass too: an exec's env is the
+			// container's, not the boot's.
+			name:      "export_podman_required_conf",
+			run:       exportPodmanRequiredConfStep,
+			noMark:    true,
+			notDarwin: "macos-user runs no image, so there is no baked podman requirement to keep in force",
+		},
+		{
 			// Populate /run/ld.so.cache from the /lib farm, plus both store-package lib dirs above.
 			name:      "generate_ld_cache",
 			run:       func(b *bootRun) { generateLdCache(b.e, StorePackagesLib(), StorePackagesFHSLib()) },
