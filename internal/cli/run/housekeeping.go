@@ -834,7 +834,7 @@ func (o *Options) reapFlakeBundleGenerations(rt string, guard prune.Guard) {
 	if !known {
 		return // not stamped: the next launch retries
 	}
-	removed := flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), guard)
+	removed := flakebundle.ReapGuarded(paths.FlakeBundleDir(), sources, known, true, o.Now(), prune.ProcessExes, guard)
 	done()
 	if len(removed) > 0 {
 		o.housekeepingNote("flake bundle: reclaimed %d superseded generation(s)", len(removed))
