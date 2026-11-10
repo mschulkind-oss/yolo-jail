@@ -1520,10 +1520,8 @@ forward ([SUP-D50](#SUP-D50)).
   Seatbelt launch in (a) printed the "laid by an Apple Container setup … leaves that one in place"
   line. **(b) passes as revised:** the run saw exactly the refusal above, with the link, its target
   and `.yolo/setups` unchanged, so it is settled and is not re-run ([SUP-D51](#SUP-D51)). **The
-  move passes.** **`TestAppleContainer` was not run**, and is the one step still owed: run the
-  `go test` line above at main `e67b3c81f` or later, outside any jail, with Apple Container's
-  `container system status` healthy. Report the pass/fail/skip counts and each failure's message;
-  any skip on this declared run is itself a failure. Settles W-SU4.
+  move passes.** **`TestAppleContainer` passes:** run later the same day at main `b36be7d53` with
+  `YOLO_SETUP=apple-container-self`, all 23 tests passed, none skipped, in 334 s. Settles W-SU4.
 - **W-SU12 (slice 6a-iii, at main `e67b3c81f` or later):** first, with an installed yolo from before 6a-iii (main `bb10db358`, the commit before it landed),
   start `yolo --setup apple-container-self -- bash` in a workspace under `/Users/Shared/yolo/c`,
   and leave it running. Then run `yolo --setup apple-container-self --

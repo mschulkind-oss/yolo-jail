@@ -92,6 +92,7 @@ or the runner's podman machine (report only).
 
 - W5. On the next release tag's nightly, confirm `TestTheJailsYoloCarriesItsMatchedBundleStamp`
   passes on the on-tag form.
+  *Run 2026-11-09, locally at the `v0.17.1` tag*: `go test -count=1 -timeout 0 -v -run '^TestTheJailsYoloCarriesItsMatchedBundleStamp$' ./integration` at a detached worktree of `7f62a455c` passed in 9.76 s, and a dev bundle built there reports `yolo-jail 0.17.1+g7f62a455cf58`, build stamp `v0.17.1-0-g7f62a455cf58`: the on-tag form. No nightly has run a tag commit (nightly 42643319301 ran `310130d79` again), so this ran locally.
 
 **Status of W5 (2026-11-09): still open.** The 11-07 nightly passed the test on the off-tag form
 `0.17.0+82` ([report](2026-11-07-mac-session-homes-and-nightly-42372802408.md)), which is not the
