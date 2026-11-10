@@ -3,7 +3,7 @@ title: "Mac capture runner: what a macOS approval notification looks like, and w
 date: 2026-11-09
 status: draft
 stage: SKETCH
-next: "Review and land; then the owner's Mac agent runs M-0 to M-13 at main and files a lab report"
+next: "Landed at `2dd3d8e8f`; the owner's Mac agent runs M-0 to M-13 at main and files a lab report"
 tags: [design, approvals, notifications, macos, mac-checks, gallery]
 summary: "How the owner's Mac agent renders the shared approval fixtures as real macOS notifications, captures them for the gallery with provenance, and measures what terminal-notifier 3 and the owner's current alerter and dialog baseline print on every press, dismissal and withdrawal."
 ---
@@ -254,7 +254,7 @@ tn() {  # tn <label> [extra flags...]
 
 ## 4. Mac checks
 
-**Commit:** at main, the first commit that contains this document, or later; record the SHA in
+**Commit:** at main `2dd3d8e8f` or later; record the SHA in
 every capture's `commit` and in the lab report. **Build:** none — the checks use the checkout's
 fixtures and the posting tools, not a yolo binary. **Order:** M-0 first; the rest in any order,
 each restoring what it changed.
