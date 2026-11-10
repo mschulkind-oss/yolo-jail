@@ -53,8 +53,11 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
 
 The pack ships a second provider on the same platform, `bedrock-key`, for a static Bedrock key: a
 Bedrock API key (a bearer token) or an IAM key pair. It claims exactly `AWS_BEARER_TOKEN_BEDROCK`,
-`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, has the same region settings as
-`bedrock`, and has a `bridge` variant named `bedrock-key-bridge`. Put the key in a private file
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, and has a `bridge` variant
+named `bedrock-key-bridge`. Everything else it inherits from `bedrock`
+([`inherits`](../../docs/reference/providers.md)): the platform, the region settings, and any model
+list, default model or region you set under `providers.bedrock`, so you write those once. A
+`[providers.bedrock-key]` entry of your own overrides them for this route alone. Put the key in a private file
 once, then select the provider per launch:
 
 ```

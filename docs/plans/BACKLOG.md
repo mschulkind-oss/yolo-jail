@@ -988,6 +988,13 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   origin. Showing "inherited from bedrock" needs a composed-table origin trace those commands do
   not have. Added 2026-11-10 as PI-D9. Owner:
   [provider inherits](../design/provider-inherits.md#PI-D9).
+- **Two small gaps in provider `inherits`.** A null fact in a child's own `pack.toml`
+  `model_options` deletes the inherited fact instead of composing as a removal marker that
+  overrides lower layers, because the child's pack entry is folded in with the user layer's
+  merge; no shipped pack writes one. And a child declared only in the user's config composes
+  at the end of the table rather than at its place in the file, which matters only to a menu
+  that follows table order. Found in the 2026-11-10 review. Owner:
+  [provider inherits](../design/provider-inherits.md#the-key).
 
 ### Security model
 

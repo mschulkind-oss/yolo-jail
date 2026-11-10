@@ -268,6 +268,14 @@ inherits = "b"
 [providers.b]
 inherits = "a"
 `, `{}`, []string{"inherit from each other", `yolo config set providers.b.inherits '""' --user`}},
+		{"nulled parent that inherits", `[providers.c]
+inherits = "p"
+[providers.p]
+inherits = "q"
+[providers.q]
+platform = "x"
+`, `{"p":null}`, []string{"providers.c.inherits", "one level only",
+			`yolo config set providers.c.inherits '"<root>"' --user`}},
 		{"nulled parent no pack", `[providers.c]
 inherits = "gone"
 `, `{"gone":null}`, []string{`"gone"`, "yolo pack add"}},

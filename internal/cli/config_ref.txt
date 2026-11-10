@@ -2665,7 +2665,12 @@
                      so a model list written once under `providers.bedrock` reaches both.
                      What never carries over: api_key_env_name (the credential is what
                      makes the child a different route), name, alias and variants.
-                     `inherits = ""` opts out, which undoes a pack's inheritance.  One
+                     A child with no api_key_env_name of its own still claims every
+                     name its inherited platform's providers list, as a provider that
+                     writes that platform does.  `inherits = ""` opts out, which undoes
+                     a pack's inheritance; the child then has only what it declares, so
+                     an opted-out bedrock-key also needs
+                     `yolo config set providers.bedrock-key.platform '"aws-bedrock"' --user`.  One
                      level only: a parent that itself inherits (a chain or a cycle), a
                      provider naming itself, or a parent no selected pack or config
                      declares REFUSES the launch, naming the fix.  The shipped `bedrock-key`

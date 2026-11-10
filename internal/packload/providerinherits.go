@@ -87,11 +87,26 @@ func resolveInherits(out, user *jsonx.OrderedMap) (*inheritsPlan, error) {
 			return nil, selfInheritRefusal(child)
 		case plan.children[p]:
 			return nil, chainInheritRefusal(child, p, plan.parent[p] == child)
+		case packLayerInherits(out, p) != "":
+			// A parent the user disabled has no effective inherits, but the entry it lends is
+			// still the pack's, which inherits: the same chain, one level hidden (PI-D4, PI-D7).
+			return nil, chainInheritRefusal(child, p, packLayerInherits(out, p) == child)
 		case !providerDeclared(out, user, p):
 			return nil, missingParentRefusal(child, p)
 		}
 	}
 	return plan, nil
+}
+
+// packLayerInherits is the `inherits` the pack layer gives name, "" for none.
+func packLayerInherits(out *jsonx.OrderedMap, name string) string {
+	if e := providerEntry(out, name); e != nil {
+		if s, ok := e.Get(inheritsKey); ok {
+			str, _ := s.(string)
+			return str
+		}
+	}
+	return ""
 }
 
 // providerDeclared reports whether the pack layer or the user's own entry gives the table a
@@ -186,8 +201,9 @@ func chainInheritRefusal(child, parent string, cycle bool) error {
 	if cycle {
 		what = fmt.Sprintf("%q and %q inherit from each other", child, parent)
 	}
-	return fmt.Errorf("providers.%s.inherits: refused — %s. Point %q at the root provider, or opt "+
-		"%q out: %s", child, what, child, parent, optOutStep(parent))
+	return fmt.Errorf("providers.%s.inherits: refused — %s. Point %q at the root provider "+
+		"(yolo config set providers.%s.inherits '\"<root>\"' --user), or opt %q out: %s",
+		child, what, child, child, parent, optOutStep(parent))
 }
 
 func missingParentRefusal(child, parent string) error {

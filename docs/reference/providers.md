@@ -255,7 +255,15 @@ inherits from composes as before.
   narrowed the model list.
 - **Never carries over:** `api_key_env_name` (the credential is what makes the child a different
   route), `name`, `alias` and `variants` (all selection names, owned by one provider each).
-- **`inherits = ""` opts out**, which is how you undo an inheritance a pack declares.
+- **`inherits = ""` opts out**, which is how you undo an inheritance a pack declares. The child
+  then has only what it declares itself: opting the shipped `bedrock-key` out leaves it with no
+  `platform`, so also run `yolo config set providers.bedrock-key.platform '"aws-bedrock"' --user`.
+- **A child that lists no `api_key_env_name` of its own** still claims, through its inherited
+  `platform`, every name that platform's providers list, exactly as a provider of yours that
+  writes the `platform` itself does. Give it its own `api_key_env_name` to narrow it.
+- **A pack's child declares only what it states whole.** A `pack.toml` cannot set
+  `model_options` for an alias it does not list itself, nor `region_env_name` without a
+  `platform`; your own config's `providers.<child>` entry can override per alias.
 - **One level only.** A parent that itself inherits (a chain, a cycle), a provider naming itself,
   or a parent that no selected pack or config declares refuses the launch and `yolo check`, naming
   the fix. A parent you disabled with `providers.<parent> = null` still lends its entry.
