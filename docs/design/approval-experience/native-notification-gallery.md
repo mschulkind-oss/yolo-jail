@@ -270,6 +270,14 @@ and one slot per evidence entry:
   `PREVIEW (HTML, not native)`;
 - **missing** — the words "No capture" and the reason, never an image.
 
+**To look at it,** run this from the checkout root. It folds any new capture manifests,
+regenerates the page and serves it on `127.0.0.1` (default port 8765, or pass another). It prints
+the URL and the file path; the file also opens directly in a browser.
+
+```console
+$ just dev-storybook
+```
+
 Request text is untrusted (umbrella rule 2): the page is built with contextual escaping and carries
 no script, which a test proves with markup in a headline.
 
