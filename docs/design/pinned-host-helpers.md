@@ -3,7 +3,7 @@ title: "A jail's host helpers should run the build that launched it, and say whi
 date: 2026-11-10
 status: accepted
 stage: DECIDED
-next: "Built; the Mac witnesses for the darwin pin and the give-up path remain for the owner's Mac agent"
+next: "Built; the owner's Mac agent runs the Mac checks W-PH1 to W-PH5"
 tags: [design, host-services, keeper, daemons, install, bundles, logging]
 summary: "Every host-side process that serves one jail or one launch (keeper, host daemons, launch-owned services, yolo host's private daemons, removers) is exec'd from one pinned file, the host-OS yolo inside the bundle the launch resolved, checked unchanged before every exec, so it runs the launch's build for the jail's whole life or does not run at all. Each such daemon writes a start line naming its build, commit, pid, jail and executable. The user config stays shared and unpinned; the 3f58db1cc own-table read and the config-apply note cover that skew."
 ---
@@ -303,6 +303,73 @@ What covers that skew, unchanged by this design:
   [§3.4](#34-the-check-before-every-exec) and does not restart it.
 - A housekeeping sweep keeps a generation a detached daemon still runs from, and declines when it
   cannot read the process table.
+
+## Mac checks
+
+Linux runs the keeper's own self-execs through `/proc/self/exe`, so the nested jail and the
+integration suite never reach the pin-path exec, its `stat` check, or the darwin bundle. These
+witnesses settle them on a Mac, at main `2590e19cc` or later. Run each from a fresh workspace under
+`/Users/Shared/yolo/<x>` with `yolo` installed from that main by `just install` (W-PH4 uses the
+`seatbelt-self` setup; the others use a container setup, Apple Container or podman). Paste every
+output named under "report". Commands below use `darwin-arm64`; on Intel read `darwin-amd64`.
+
+### W-PH1: the darwin bundle carries the host yolo, and the launcher is that file (PH-D2)
+
+1. `ls ~/.local/share/yolo-jail/flake-bundle/bin/darwin-arm64/`
+   lists `yolo` beside `yolo-jaild`, `yolo-serial`, `yolo-ps` and `yolo-log`.
+2. `cmp "$(command -v yolo)" ~/.local/share/yolo-jail/flake-bundle/bin/darwin-arm64/yolo && echo same`
+   prints `same`.
+
+Report: both outputs. Settles PH-D2 on macOS.
+
+### W-PH2: a container jail's helpers run from the pin and say so (PH-D1, PH-D3, PH-D4, PH-D9)
+
+1. Start a jail in the workspace with `yolo -- sh -c 'echo $YOLO_VERSION; sleep 600'` and leave it running.
+2. In another terminal: `ps -axo pid,args | grep 'internal daemon' | grep -v grep`
+   Every line, the `jail-keeper` and `git-broker` included, starts with a path under
+   `~/.local/share/yolo-jail/flake-bundles/<generation>/bin/darwin-arm64/yolo`, never `$GOBIN/yolo`
+   or `/opt/homebrew/bin/yolo`.
+3. `grep 'helper start: name=git-broker' ~/.local/share/yolo-jail/logs/host-service-git-broker.log | tail -1`
+   shows `build=` equal to the `$YOLO_VERSION` the jail printed, `jail=` the container name, and
+   `exe=` the same bundle path as step 2.
+4. `head -1 ~/.local/share/yolo-jail/logs/jail-keeper-<container name>.log`
+   contains `helper start: name=jail-keeper`.
+
+Report: the outputs of steps 2–4 and the jail's `$YOLO_VERSION`. Settles PH-D3, PH-D4 and PH-D9 off Linux.
+
+### W-PH3: a restart after the pin changed gives up (PH-D6, PH-D18)
+
+With the W-PH2 jail still running:
+
+1. Change the pinned file's identity without changing its contents (its modification time):
+   `touch <the bundle path from W-PH2 step 2>`
+2. Kill the broker: `pkill -f 'internal daemon git-broker'`
+3. `tail -3 ~/.local/share/yolo-jail/logs/host-service-git-broker.log`
+   shows `host service 'git-broker' died (...); not restarting it: the yolo this jail was launched
+   with is no longer at <that path> (an upgrade removed or replaced it). It stays down until the jail
+   is launched again:` followed by the stop step, and no new `helper start: name=git-broker` line
+   after it.
+4. `ps -axo args | grep 'internal daemon git-broker' | grep -v grep` prints nothing.
+
+Report: steps 3 and 4. A restart (a second start line) fails it. Settles PH-D6 and PH-D18 off Linux.
+End with `yolo stop` in the workspace.
+
+### W-PH4: macos-user helpers run from the pin, and a dry run still plans (PH-D4, PH-D21)
+
+1. In a `seatbelt-self` workspace: `yolo -- sh -c 'sleep 300'`, and while it runs:
+   `grep -h 'helper start:' ~/.local/share/yolo-jail/logs/launch-service-*.log ~/.local/share/yolo-jail/logs/host-service-*.log | tail -5`
+   Lines from this session show `exe=` under the bundle's `bin/darwin-arm64/yolo` and `jail=` this
+   session's key.
+2. `yolo run --dry-run; echo "rc=$?"` in the same workspace prints the plan and `rc=0`.
+
+Report: both outputs. Settles PH-D4 for macos-user and PH-D21.
+
+### W-PH5: the generation reaper's process reader works on macOS (PH-D8, PH-D14)
+
+1. In a checkout of that main: `go test -count=1 -run TestProcessExesNamesTheRunningBinary ./internal/prune`
+   prints `ok`.
+
+Report: the output. A failure means a running helper's generation could be reaped on macOS.
 
 ## Decision Ledger
 
