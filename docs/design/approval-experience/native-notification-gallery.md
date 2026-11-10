@@ -76,8 +76,10 @@ directly. A Go consumer calls `approvalfixtures.Load()`, which embeds the direct
 | evidence `kind` | `native-capture`, `preview`, `missing` | Every fixture lists Linux and macOS evidence; a native capture names its file, what it tested and seven provenance keys; a browser rendering is never native; missing has no file and says why |
 | evidence `tested` | `visual`, `action`, `lifecycle` | A preview tests only `visual` |
 
-**Sanitization is positive, not a denylist.** Every workspace must be `/home/dev/code/<name>` and
-every repository `example-org/<name>`; anything else fails validation. A denylist would have to
+**Sanitization is positive, not a denylist.** A request's workspace must be
+`/home/dev/code/<name>` or `/home/dev/src/<name>`, and its repository `example-org/<name>`
+(optionally under `example.test/`); anything else fails validation. Only those two request fields
+are checked by pattern; the rest of a fixture's text is reviewed when it is written. A denylist would have to
 name what it hides.
 
 ### 1.3 Real fixtures stay real
@@ -105,7 +107,7 @@ exit code `yolo approve` returned when the capture test decided it.
 | Git | `git-push-working-set-miss` | real | Two refs pushed, one covered by the working set: the request lists only the uncovered ref |
 | Git | `git-push-new-branch` | real | A ref that does not exist on the remote yet |
 | Git | `git-push-force` | real | A non-fast-forward update |
-| Git | `git-push-long-names` | real | Two refs with very long names, for wrapping and truncation |
+| Git | `git-push-long-names` | real | Two refs with very long names, for wrapping and truncation, and a push option |
 | GitHub | `github-pr-comment` | real | A write whose content (the comment body) is long |
 | GitHub | `github-workflow-run` | real | A workflow run on a branch other than the default |
 | GitHub | `github-approve-run` | real | Approving a held workflow run, filed as a raw API call |
@@ -121,7 +123,6 @@ exit code `yolo approve` returned when the capture test decided it.
 
 **Not covered yet.** The umbrella asks for several cases that no fixture has yet:
 
-- push options;
 - partially covered scope beyond the working-set miss;
 - exact versus broader available actions on GitHub;
 - CircleCI run-approval and pipeline-creation stories;
@@ -134,26 +135,29 @@ accepts all of them.
 **Evidence today.**
 
 - **Browser:** every fixture has a preview.
-- **Linux:** the 15 fixtures that prompt have a native capture
-  ([`linux-notification-capture.md`](linux-notification-capture.md)).
+- **Linux:** 14 of the 15 fixtures that prompt have a native capture
+  ([`linux-notification-capture.md`](linux-notification-capture.md)). `state-hook-failure` has
+  none to take, since its toast was never shown, and lists Linux as missing with that reason. A
+  `state-*` capture shows the toast as it was filed, and its note says so: the outcome is not
+  something a toast renders.
 - **macOS:** every fixture lists its capture as missing.
 
 ## 2. The owner's current toasts: the baseline
 
 ### 2.1 What renders them
 
-All SOURCED from the owner's dotfiles at commit `44bb526` unless marked MEASURED.
+All SOURCED from the owner's configuration as of 2026-11-09 unless marked MEASURED.
 
-1. **The hook.** The owner's shared user config (not a work-tagged one) sets `on_request` to a
-   personal shell script in `~/.local/bin`. yolo's host broker runs it once per filed request
+1. **The hook.** The owner's user config sets `on_request` to a personal shell script. yolo's
+   host broker runs it once per filed request
    with the `YOLO_REQUEST_*` fields
    ([`boundary-broker.md` §6.6](../boundary-broker.md#66-one-store-several-front-ends-and-a-stable-surface-for-the-ones-yolo-does-not-ship)).
 2. **The notify call (Linux).** `notify-send -u critical -a yolo -A once="Allow once" -A hour="Allow 1h" -A deny=Deny "yolo: <headline>" "<description markup>"`.
    The body is yolo's `DESCRIPTION`: the headline, then the agent's title and refs, one per line.
    The script deliberately omits the `SUMMARY` (the command, set, repository, digests).
-3. **The daemon.** **swaync** (SwayNotificationCenter), a systemd user unit wanted by the sway
-   session target; its config sets only `timeout: 3`, with the default stylesheet. **mako is not
-   live**: its config file's only line says notifications moved to swaync.
+3. **The daemon.** **swaync** (SwayNotificationCenter), started with the sway session; its
+   config sets only `timeout: 3`, with the default stylesheet. mako is configured but not
+   running.
 4. **The answer.** `notify-send` blocks and prints the clicked action's key; the script maps
    `once`, `hour` and `deny` to `yolo approve <id>`, `--for 1h` and `--deny` through the `yolo`
    link the broker puts first on the hook's `PATH`. Anything else, including empty output,

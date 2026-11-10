@@ -78,6 +78,23 @@ func TestManifestsAreFolded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The other direction: every native capture a fixture claims is one a committed manifest
+	// lists, so a hand-added entry, or one left over from an earlier run, cannot pass as native.
+	listed := map[string]bool{}
+	for _, m := range loadManifests(t) {
+		for id, caps := range m.Captures {
+			for _, c := range caps {
+				listed[m.Platform+"\x00"+id+"\x00"+c.Renderer+"\x00"+c.File] = true
+			}
+		}
+	}
+	for _, f := range committed {
+		for _, e := range f.Evidence {
+			if e.Kind == "native-capture" && !listed[e.Platform+"\x00"+f.ID+"\x00"+e.Renderer+"\x00"+e.File] {
+				t.Errorf("fixtures/%s.json claims a native %s capture %s that no committed manifest lists; list it as missing, or re-run the capture", f.ID, e.Platform, e.File)
+			}
+		}
+	}
 	folded := foldedFixtures(t)
 	update := os.Getenv("YOLO_UPDATE_APPROVAL_FIXTURES") == "1"
 	for i, f := range folded {

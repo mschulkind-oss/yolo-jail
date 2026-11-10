@@ -14,7 +14,7 @@ summary: "The Linux notification capture sibling of the approval-experience umbr
 # Capturing approval notifications on Linux, headless and reproducibly
 
 **Status:** 2026-11-09. Built and run once inside the jail:
-[`capture-linux.sh`](../../../scripts/approval-gallery/capture-linux.sh) produced the 15 Linux captures
+[`capture-linux.sh`](../../../scripts/approval-gallery/capture-linux.sh) produced the 14 Linux captures
 in [`gallery/captures/linux/`](gallery/captures/linux/manifest.json), and
 [`measure-lifecycle.sh`](../../../scripts/approval-gallery/measure-lifecycle.sh) the lifecycle
 measurements in [§4](#4-what-the-stack-measured). No pointer click was driven.
@@ -74,8 +74,9 @@ no notification by itself. The umbrella's [§4.2](README.md#42-native-constraint
 
 - `dbus-run-session` needs `--config-file` naming the nix package's `session.conf`, because the
   jail has no system dbus config.
-- The jail has no `/etc/os-release`, so the `os` provenance reads `Linux userland (container),
-  kernel <uname -r>`.
+- The `os` provenance is deliberately generic (`Linux userland in a container`): the kernel and
+  distribution describe the capturing machine, while the daemon, toolkit and font versions are
+  what determine the rendering.
 
 ## 2. Capturing the gallery
 
@@ -88,22 +89,29 @@ $ scripts/approval-gallery/capture-linux.sh \
 $ YOLO_UPDATE_APPROVAL_FIXTURES=1 go test ./internal/approvalfixtures/
 ```
 
-For each fixture that has a `hook_env`, the script:
+For each fixture that has a `hook_env` and whose request records no hook failure, the script:
 
-1. Exports the fixture's `YOLO_REQUEST_*` values, one key at a time, because values can hold
-   newlines.
-2. Runs the hook with a **stub `yolo` first on `PATH`**. The stub only logs its arguments, so a
-   capture can never approve anything. The run checks that its log is empty.
+1. Builds an environment holding only the fixture's `YOLO_REQUEST_*` values (one key at a time,
+   because values can hold newlines), a throwaway `HOME`, and the bus, display and runtime
+   variables the daemon needs, and runs the hook in it with `env -i`.
+2. Puts a **stub `yolo` first on that `PATH`**. The stub only logs its arguments, and the run
+   fails if the log is not empty, since nothing presses a button during a capture.
 3. Takes screenshots until two consecutive frames are identical and not all black. It crops the
    frame to the toast.
 4. Dismisses the toast the way a user would (`swaync-client --close-latest`). It waits for the
    hook to exit, and sends it SIGINT if it is still running.
 5. Writes one manifest entry. Each entry has the file, the renderer, `tested: visual`, a note that
-   this is the default theme and not the owner's desktop, and the provenance below.
+   this is the default theme and not the owner's desktop (and, for a fixture whose state is not
+   pending, that the outcome is not rendered), and the provenance below.
 
-`circleci-run-list` has `prompt: none` and no hook environment, so the script skips it. The fold
-test refuses a manifest that names such a fixture, so a capture cannot appear for a request that
-policy never asks about.
+A fixture whose toast does not appear fails the run, and its image and entry are left out rather
+than kept from an earlier run.
+
+Two fixtures are skipped. `circleci-run-list` has `prompt: none` and no hook environment, and
+`state-hook-failure` records a hook that could not reach a session bus, so neither showed a toast.
+The fold test refuses a manifest that names a `prompt: none` fixture, and refuses a fixture whose
+native capture no committed manifest lists, so a capture cannot appear where no toast was shown or
+outlive the run that made it.
 
 ### 2.1 Provenance
 
@@ -112,7 +120,7 @@ The seven keys
 
 | Key | Linux value | Why it matters |
 | :--- | :--- | :--- |
-| `os` | userland plus kernel | The daemon draws with the host's GTK and fonts |
+| `os` | `Linux userland in a container` | Kept generic; the toolkit and font rows pin the rendering |
 | `daemon`, `daemon_version` | `swaync`, `SwayNotificationCenter-0.12.6` | Button layout, wrapping and lifecycle differ by daemon and version |
 | `theme` | swaync default CSS, GTK default, no gsettings theme | The owner's pixels can differ from these |
 | `scale` | `1` | Wrapping and truncation depend on it |

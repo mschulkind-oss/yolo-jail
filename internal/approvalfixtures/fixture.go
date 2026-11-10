@@ -55,7 +55,9 @@ type Fixture struct {
 	// runs it without asking (an audited read). A "none" fixture has no Request and no
 	// HookEnv: the gallery must not invent a prompt where policy needs none.
 	Prompt string `json:"prompt"`
-	// State is the scenario's lifecycle state, one of States.
+	// State is the scenario's lifecycle state, one of States. A store state (pending, allowed,
+	// denied, expired, refused) is the request's own state; decided-elsewhere is a decision that
+	// exited 3 (already decided), and stale one that exited 6 (not confirmable).
 	State string `json:"state"`
 	// Story is who did what, in a sentence or two, with generalized names.
 	Story string `json:"story"`
@@ -69,7 +71,8 @@ type Fixture struct {
 	// field the surface adds later survives a round trip untouched.
 	Request json.RawMessage `json:"request,omitempty"`
 	// HookEnv is the YOLO_REQUEST_* environment the on_request hook receives for this request
-	// (brokerhook.Env), with the same origin as Request. Present iff Request is.
+	// (brokerhook.Env), with the same origin as Request. Present iff Request is. Every key
+	// starts with YOLO_REQUEST_, since a capture runner exports each one.
 	HookEnv map[string]string `json:"hook_env,omitempty"`
 	// Decision is, when the scenario is about answering, the `yolo approve` call and what it
 	// returned: the outcome every surface must honor (rule 4: transport is not authorization).
@@ -100,8 +103,9 @@ type Evidence struct {
 	// script via notify-send to swaync" or "proposed: toast notifier (boundary-broker §6)".
 	Renderer string `json:"renderer"`
 	// File is the image or page, relative to the fixtures directory's gallery
-	// (docs/design/approval-experience/gallery/). Required for a native capture; absent for
-	// missing.
+	// (docs/design/approval-experience/gallery/). Required for a native capture, and under
+	// captures/<platform>/; absent for missing. One platform's renderer is never both missing
+	// and captured.
 	File string `json:"file,omitempty"`
 	// Tested is what the evidence shows: "visual" (how it looks only), or "action" and
 	// "lifecycle" when a button press or a withdrawal was also driven and observed.
@@ -274,7 +278,28 @@ func (f Fixture) Validate() error {
 				if f.HookEnv != nil && f.HookEnv["YOLO_REQUEST_ID"] != r.ID {
 					bad("hook_env YOLO_REQUEST_ID %q is not the request's id %q", f.HookEnv["YOLO_REQUEST_ID"], r.ID)
 				}
+				// A store state is the request's own; the outcomes a surface must handle are
+				// what a decision's exit says.
+				switch f.State {
+				case "pending", "allowed", "denied", "expired", "refused":
+					if r.State != f.State {
+						bad("state %q but the request's state is %q", f.State, r.State)
+					}
+				case "decided-elsewhere":
+					if f.Decision == nil || f.Decision.Exit != 3 {
+						bad(`state "decided-elsewhere" needs a decision that exited 3 (already decided)`)
+					}
+				case "stale":
+					if f.Decision == nil || f.Decision.Exit != 6 {
+						bad(`state "stale" needs a decision that exited 6 (not confirmable)`)
+					}
+				}
 			}
+		}
+	}
+	for k := range f.HookEnv {
+		if !strings.HasPrefix(k, "YOLO_REQUEST_") {
+			bad("hook_env key %q is not a YOLO_REQUEST_ variable: a capture runner exports every key", k)
 		}
 	}
 	if f.Decision != nil {
@@ -289,11 +314,15 @@ func (f Fixture) Validate() error {
 	}
 
 	platforms := map[string]bool{}
+	kinds := map[string]map[string]bool{} // platform NUL renderer -> kinds seen so far
 	for i, e := range f.Evidence {
 		at := fmt.Sprintf("evidence[%d]", i)
 		oneOf(at+".platform", e.Platform, Platforms)
 		oneOf(at+".kind", e.Kind, Kinds)
 		platforms[e.Platform] = true
+		if kinds[e.Platform+"\x00"+e.Renderer] == nil {
+			kinds[e.Platform+"\x00"+e.Renderer] = map[string]bool{}
+		}
 		if strings.TrimSpace(e.Renderer) == "" {
 			bad("%s.renderer is empty", at)
 		}
@@ -308,6 +337,12 @@ func (f Fixture) Validate() error {
 			if e.File == "" || e.Tested == "" {
 				bad("%s: a native capture names its file and what it tested", at)
 			}
+			if !strings.HasPrefix(e.File, "captures/"+e.Platform+"/") {
+				bad("%s: a native capture's file is under captures/%s/", at, e.Platform)
+			}
+			if kinds[e.Platform+"\x00"+e.Renderer]["missing"] {
+				bad("%s: %s renderer %q is both missing and captured", at, e.Platform, e.Renderer)
+			}
 			for _, k := range ProvenanceKeys {
 				if strings.TrimSpace(e.Provenance[k]) == "" {
 					bad("%s: a native capture records provenance %q", at, k)
@@ -318,6 +353,9 @@ func (f Fixture) Validate() error {
 				bad("%s: a preview shows how it looks and tests no action or lifecycle", at)
 			}
 		case "missing":
+			if kinds[e.Platform+"\x00"+e.Renderer]["native-capture"] {
+				bad("%s: %s renderer %q is both missing and captured", at, e.Platform, e.Renderer)
+			}
 			if e.File != "" || e.Tested != "" {
 				bad("%s: missing evidence has no file and tested nothing", at)
 			}
@@ -325,6 +363,7 @@ func (f Fixture) Validate() error {
 				bad("%s: missing evidence says why it is missing", at)
 			}
 		}
+		kinds[e.Platform+"\x00"+e.Renderer][e.Kind] = true
 		if e.File != "" && (strings.HasPrefix(e.File, "/") || strings.Contains(e.File, "..")) {
 			bad("%s.file %q is not a relative path inside the gallery", at, e.File)
 		}

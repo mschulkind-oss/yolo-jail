@@ -52,6 +52,9 @@ func TestGalleryIsCurrent(t *testing.T) {
 func TestGalleryEscapesRequestTextAndNeverFakesACapture(t *testing.T) {
 	f := valid()
 	f.Request = json.RawMessage(`{"schema":1,"id":"r-1","source":"git","workspace":"/home/dev/code/app","state":"pending","headline":"<script>alert(1)</script>","description":"<b>x</b>","command":"<img src=x onerror=alert(1)>"}`)
+	// The preview tile is where the headline and description are drawn, so the markup reaches
+	// the template.
+	f.Evidence = append(f.Evidence, Evidence{Platform: "browser", Kind: "preview", Renderer: "r", File: "index.html", Tested: "visual"})
 	page, err := Gallery([]Fixture{f})
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +63,11 @@ func TestGalleryEscapesRequestTextAndNeverFakesACapture(t *testing.T) {
 	for _, bad := range []string{"<script>alert", "<b>x</b>", "<img src=x"} {
 		if strings.Contains(s, bad) {
 			t.Fatalf("unescaped %q in the page", bad)
+		}
+	}
+	for _, shown := range []string{"&lt;script&gt;alert(1)&lt;/script&gt;", "&lt;b&gt;x&lt;/b&gt;"} {
+		if !strings.Contains(s, shown) {
+			t.Fatalf("the escaped text %q is not on the page, so the test did not reach it", shown)
 		}
 	}
 	if strings.Contains(s, "<img") {

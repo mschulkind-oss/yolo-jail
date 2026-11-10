@@ -35,7 +35,7 @@ func TestValidateRefusesEachBrokenRule(t *testing.T) {
 	if err := valid().Validate(); err != nil {
 		t.Fatalf("the valid fixture: %v", err)
 	}
-	native := Evidence{Platform: "linux", Kind: "native-capture", Renderer: "r", File: "a.png", Tested: "visual",
+	native := Evidence{Platform: "linux", Kind: "native-capture", Renderer: "r", File: "captures/linux/a.png", Tested: "visual",
 		Provenance: map[string]string{"os": "o", "daemon": "d", "daemon_version": "1", "theme": "t", "scale": "1", "captured_at": "c", "commit": "c"}}
 	cases := []struct {
 		name, want string
@@ -66,6 +66,16 @@ func TestValidateRefusesEachBrokenRule(t *testing.T) {
 		{"hook env for another request", "not the request's id", func(f *Fixture) { f.HookEnv["YOLO_REQUEST_ID"] = "r-2" }},
 		{"an unknown state", "state", func(f *Fixture) { f.State = "approved" }},
 		{"a decision that is not approve", `starts with "approve"`, func(f *Fixture) { f.Decision = &Decision{Argv: []string{"audit"}} }},
+		{"a native capture outside its platform's directory", "is under captures/linux/", func(f *Fixture) {
+			n := native
+			n.File = "captures/macos/a.png"
+			f.Evidence[0] = n
+		}},
+		{"one renderer both missing and captured", "both missing and captured", func(f *Fixture) { f.Evidence = append(f.Evidence, native) }},
+		{"a hook env key that is not a request field", "not a YOLO_REQUEST_ variable", func(f *Fixture) { f.HookEnv["LD_PRELOAD"] = "x" }},
+		{"a store state the request does not have", `the request's state is "pending"`, func(f *Fixture) { f.State = "denied" }},
+		{"decided elsewhere without exit 3", "exited 3", func(f *Fixture) { f.State = "decided-elsewhere" }},
+		{"stale without exit 6", "exited 6", func(f *Fixture) { f.State = "stale"; f.Decision = &Decision{Argv: []string{"approve"}, Exit: 0} }},
 		{"a file escaping the gallery", "not a relative path", func(f *Fixture) {
 			n := native
 			n.File = "../../secret.png"

@@ -509,7 +509,7 @@ The manifest has the same shape as the Linux capture's, keyed by fixture id, one
     "circleci-rerun-workflow-synthetic": [
       {
         "file": "captures/macos/circleci-rerun-workflow-synthetic.png",
-        "renderer": "proposed: terminal-notifier 3 (boundary-broker §6.2)",
+        "renderer": "terminal-notifier 3",
         "tested": "visual",
         "provenance": {
           "os": "…", "daemon": "terminal-notifier", "daemon_version": "…",
@@ -524,8 +524,11 @@ The manifest has the same shape as the Linux capture's, keyed by fixture id, one
 
 `file` is relative to the gallery directory, as `Evidence.File` requires. Each entry maps one to
 one onto an `Evidence` value with `platform: "macos"` and `kind: "native-capture"`; a fixture with
-no capture keeps its `missing` entry, with the reason. A baseline entry's `renderer` says which
-baseline path drew it (alerter or the dialog), never just "baseline".
+no capture keeps its `missing` entry, with the reason. A terminal-notifier capture's `renderer` is
+exactly `terminal-notifier 3`, the string each fixture's macOS `missing` entry carries: folding
+replaces an entry by platform and renderer, so another spelling would leave the fixture both
+missing and captured, which validation refuses. A baseline entry's `renderer` says which baseline
+path drew it (alerter or the dialog), never just "baseline", and is added beside it.
 
 When the report comes back, the `mac-handoff` skill's incoming steps apply: verify each claimed
 failure, fix forward, fold the M-2 to M-9 outcomes into

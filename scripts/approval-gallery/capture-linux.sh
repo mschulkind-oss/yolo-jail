@@ -109,9 +109,9 @@ shot() { grim "$1"; }
 mean() { magick "$1" -format '%[fx:mean]' info: 2>/dev/null; }
 
 COMMIT=$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)
-OSNAME=$(sed -n 's/^PRETTY_NAME="\(.*\)"$/\1/p' /etc/os-release 2>/dev/null || true)
-OSNAME=${OSNAME:-Linux}
-OSSTR="$OSNAME userland (container), kernel $(uname -r)"
+# Generic on purpose: the kernel and distribution say more about the capturing machine than
+# about the rendering, which the daemon, toolkit and font versions below already pin.
+OSSTR="Linux userland in a container"
 SWAYNC_STORE=$(dirname "$(dirname "$(readlink -f "$(command -v swaync)")")")
 SWAYNC_VER=$(basename "$SWAYNC_STORE" | sed 's/^[a-z0-9]*-//')
 SWAY_VER=$(sway --version | head -1 || true)
@@ -129,22 +129,31 @@ CAPTURED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "gtk: ${GTK_VER:-unknown}"
 } >"$OUT/tools.txt"
 
+FAILED=""
 ENTRIES=$W/entries.jsonl
 : >"$ENTRIES"
 for f in "$FIXTURES"/*.json; do
   jq -e '.hook_env | type == "object"' "$f" >/dev/null 2>&1 || { echo "skip (no hook_env): $f"; continue; }
+  # A request whose hook could not show anything has no toast to capture.
+  if jq -e '(.request.hook_failure // "") != ""' "$f" >/dev/null 2>&1; then echo "skip (the hook showed nothing): $f"; continue; fi
+  state=$(jq -r .state "$f")
+  note="Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels."
+  [ "$state" = pending ] || note="$note Shows the toast as filed; the $state outcome is not something a toast renders."
   id=$(jq -r .id "$f")
   echo "== $id"
   png=$OUT/$id.png
   full=$W/$id.full.png
-  # Hook environment: values can hold newlines, so read each key separately.
+  # Hook environment: only the fixture's YOLO_REQUEST_* values (one key at a time, since values
+  # can hold newlines), a throwaway HOME, and what reaching the daemon needs, so the hook
+  # cannot find the real yolo or its state by any path.
   (
-    for k in $(jq -r '.hook_env | keys[]' "$f"); do
-      v=$(jq -j --arg k "$k" '.hook_env[$k]' "$f")
-      export "$k=$v"
+    args=(HOME="$W/home" PATH="$W/stub:$PATH" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR")
+    for k in $(jq -r '.hook_env | keys[] | select(startswith("YOLO_REQUEST_"))' "$f"); do
+      args+=("$k=$(jq -j --arg k "$k" '.hook_env[$k]' "$f")")
     done
-    export PATH="$W/stub:$PATH"
-    if [ -x "$HOOK" ]; then exec "$HOOK"; else exec sh "$HOOK"; fi
+    mkdir -p "$W/home"
+    if [ -x "$HOOK" ]; then exec env -i "${args[@]}" "$HOOK"; else exec env -i "${args[@]}" sh "$HOOK"; fi
   ) >"$W/$id.hook.out" 2>&1 &
   HP=$!
   ok=""
@@ -163,6 +172,8 @@ for f in "$FIXTURES"/*.json; do
   done
   if [ -z "$ok" ]; then
     echo "  FAILED: no stable notification appeared" >&2
+    FAILED="$FAILED $id"
+    rm -f "$png"
     kill -INT "$HP" 2>/dev/null || true
     wait "$HP" 2>/dev/null || true
     continue
@@ -178,9 +189,9 @@ for f in "$FIXTURES"/*.json; do
   jq -cn --arg id "$id" --arg os "$OSSTR" --arg dv "$SWAYNC_VER" \
     --arg theme "swaync default CSS, GTK theme default (${GTK_VER:-gtk4}; no gsettings theme set)" \
     --arg at "$CAPTURED" --arg commit "$COMMIT" --arg comp "sway" --arg cv "$SWAY_VER" \
-    --arg lv "$NS_VER" --arg fonts "$FONT" \
+    --arg lv "$NS_VER" --arg fonts "$FONT" --arg note "$note" \
     '{id:$id,entry:{file:("captures/linux/"+$id+".png"),renderer:"owner baseline: on_request script via notify-send to swaync",tested:"visual",
-      note:"Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+      note:$note,
       provenance:{os:$os,daemon:"swaync",daemon_version:$dv,theme:$theme,scale:1,captured_at:$at,commit:$commit,
         compositor:$comp,compositor_version:$cv,compositor_mode:"headless (WLR_BACKENDS=headless, pixman)",
         libnotify_version:$lv,resolution:"1280x800",fonts:$fonts,
@@ -189,11 +200,20 @@ for f in "$FIXTURES"/*.json; do
 done
 
 jq -s '{schema:1,platform:"linux",captures:(reduce .[] as $e ({}; .[$e.id] += [$e.entry]))}' "$ENTRIES" >"$OUT/manifest.json"
-echo "stub yolo calls (must be empty unless a button was pressed): $(wc -l <"$STUBLOG")"
+if [ -s "$STUBLOG" ]; then
+  echo "FAILED: the hook ran yolo during a capture (nothing presses a button here):" >&2
+  cat "$STUBLOG" >&2
+  exit 1
+fi
 
 if [ "$LIFECYCLE" = 1 ]; then
   kill "$DPID" "$SWAYPID" 2>/dev/null || true
   for d in swaync mako; do
     bash "$HERE/measure-lifecycle.sh" "$d" "$RUN/lifecycle-raw" "$RUN/lc" || echo "lifecycle $d failed" >&2
   done
+fi
+
+if [ -n "$FAILED" ]; then
+  echo "FAILED captures:$FAILED (their manifest entries and images are absent)" >&2
+  exit 1
 fi

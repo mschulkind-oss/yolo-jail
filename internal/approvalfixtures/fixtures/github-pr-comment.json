@@ -68,8 +68,8 @@
       "file": "captures/linux/github-pr-comment.png",
       "tested": "visual",
       "provenance": {
-        "captured_at": "2026-11-10T04:07:12Z",
-        "commit": "a264c505c521c9c6cf609a56cd2b30ae6b9db7b8",
+        "captured_at": "2026-11-10T04:28:49Z",
+        "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
         "compositor": "sway",
         "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
         "compositor_version": "sway version 1.12",
@@ -79,7 +79,7 @@
         "daemon_version": "SwayNotificationCenter-0.12.6",
         "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
         "libnotify_version": "notify-send 0.8.8",
-        "os": "Linux userland (container), kernel 7.2.9-zen1-1-zen",
+        "os": "Linux userland in a container",
         "resolution": "1280x800",
         "scale": "1",
         "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)"

@@ -51,6 +51,9 @@ else
   mako >"$O/daemon.log" 2>&1 &
 fi
 DPID=$!
+MONPID="" SENDPID=""
+# An interrupted run leaves nothing behind: the monitor, the daemon, sway, and any notifier.
+trap 'for p in $SENDPID; do pkill -P "$p" 2>/dev/null; done; kill $MONPID "$DPID" "$SWAYPID" 2>/dev/null' EXIT
 for _ in $(seq 50); do
   gdbus call --session -d org.freedesktop.Notifications -o /org/freedesktop/Notifications \
     -m org.freedesktop.Notifications.GetServerInformation >"$O/serverinfo.txt" 2>&1 && break
@@ -102,6 +105,7 @@ send() { # name: runs notify-send exactly as the owner's hook does, in the backg
       >"$O/$n.stdout" 2>"$O/$n.stderr"
     echo $? >"$O/$n.exit"
   ) &
+  SENDPID=$!
 }
 waitexit() {
   for _ in $(seq 60); do
@@ -111,7 +115,8 @@ waitexit() {
   return 1
 }
 count() { if [ "$DAEMON" = swaync ]; then swaync-client -c; else makoctl list | rg -c '^Notification'; fi; }
-lastns() { pgrep -n -x notify-send; }
+# lastns is the notify-send of the latest send, never another one in the same PID namespace.
+lastns() { pgrep -n -x -P "$SENDPID" notify-send; }
 
 echo "== S1 send (a)"
 mon_start s1_send
