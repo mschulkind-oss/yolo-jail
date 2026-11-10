@@ -49,10 +49,11 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
   finds. `bedrock` is the single sign-on and key-pair provider: it does not claim
   `AWS_BEARER_TOKEN_BEDROCK`, so a Bedrock API key is not delivered to an agent on it.
 
-## `bedrock-key`: a Bedrock API key
+## `bedrock-key`: a static Bedrock key
 
-The pack ships a second provider on the same platform, `bedrock-key`, for a Bedrock API key (a
-bearer token). It claims exactly `AWS_BEARER_TOKEN_BEDROCK`, has the same region settings as
+The pack ships a second provider on the same platform, `bedrock-key`, for a static Bedrock key: a
+Bedrock API key (a bearer token) or an IAM key pair. It claims exactly `AWS_BEARER_TOKEN_BEDROCK`,
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, has the same region settings as
 `bedrock`, and has a `bridge` variant named `bedrock-key-bridge`. Put the key in a private file
 once, then select the provider per launch:
 

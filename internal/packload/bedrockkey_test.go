@@ -3,6 +3,8 @@ package packload
 import (
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // bedrockkey_test.go pins THE SERVED-POINTER RULE (docs/design/bedrock-key-provider.md OQ-BK2,
@@ -164,5 +166,47 @@ func TestAMixedBedrockLaunchNamesALaunchOnEitherAlone(t *testing.T) {
 	single := strings.Join(all[0].Lines, "\n")
 	if strings.Contains(single, "cannot mix") || !strings.Contains(single, `profile = ""`) {
 		t.Errorf("one agent holding both must keep the profile step:\n%s", single)
+	}
+}
+
+// A static key pair is a Bedrock key too (the owner, 2026-11-10: "why don't we support
+// access/secret? I want to"): an agent on bedrock-key receives the bearer, the key pair and its
+// session token from the env channel, and never the SSO profile, which is bedrock's.
+func TestBedrockKeyReceivesAStaticKeyPair(t *testing.T) {
+	packs := bedrockKeyPacks(t)
+	sources := jsonx.NewOrderedMap()
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"} {
+		sources.Set(k, "value-of-"+strings.ToLower(k))
+	}
+	profiles := map[string]string{"claude": "bedrock-key", "codex": "bedrock-key"}
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
+	s, err := ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Profiles: profiles,
+		Resolved: resolved, EnvSources: sources, NoDerives: true})
+	if err != nil {
+		t.Fatalf("the gate refused: %v", err)
+	}
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+		if _, ok := s.EnvSourcesFor("claude").Get(k); !ok {
+			t.Errorf("claude on bedrock-key did not receive %s", k)
+		}
+	}
+	if _, ok := s.EnvSourcesFor("claude").Get("AWS_PROFILE"); ok {
+		t.Error("claude on bedrock-key received AWS_PROFILE, which only bedrock claims")
+	}
+}
+
+// With every agent on bedrock-key the aws-auth pointer reaches nobody, so a key pair beside a
+// configured SSO profile is no override either.
+func TestABedrockKeyLaunchWithAKeyPairTripsNoOverride(t *testing.T) {
+	packs := bedrockKeyPacks(t)
+	_, _, sel := launchSelection(t, packs, nil, nil, map[string]string{"claude": "bedrock-key"})
+	look := func(name string) (string, bool) {
+		if name == "AWS_ACCESS_KEY_ID" || name == "AWS_SECRET_ACCESS_KEY" {
+			return "~/.config/yolo-jail/bedrock-key.env", true
+		}
+		return "", false
+	}
+	if got := EnvOverrideFindings(packs, sel, look, nil, nil); len(got) != 0 {
+		t.Errorf("a bedrock-key launch with a key pair tripped an override:\n%s", strings.Join(got[0].Lines, "\n"))
 	}
 }

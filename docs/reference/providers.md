@@ -290,7 +290,7 @@ and agy, whose transport takes no address, reaches nothing.
 
 - **The provider** declares `"platform": "aws-bedrock"`, `region_env_name` `AWS_REGION` and
   `AWS_DEFAULT_REGION`, a `region_file` naming `~/.aws/config`, the five AWS credential names
-  under `api_key_env_name` (a second provider, `bedrock-key`, claims the Bedrock API key alone),
+  under `api_key_env_name` (a second provider, `bedrock-key`, claims the Bedrock API key and the static key pair),
   no endpoint, no region and no `options`. A region is the user's to
   set, on the provider, in the environment or in the profile's section of `~/.aws/config`
   ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
@@ -650,7 +650,7 @@ A profile's credentials and gated env reach **only the agent that selected it**
 `packs/bedrock`'s `bedrock` provider claims `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
 `AWS_CONTAINER_CREDENTIALS_FULL_URI`, and its sibling `bedrock-key` claims
-`AWS_BEARER_TOKEN_BEDROCK` alone ([the design](../design/bedrock-key-provider.md)), so an AWS pair hydrated for one agent's Bedrock profile no
+`AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` ([the design](../design/bedrock-key-provider.md)), so an AWS pair hydrated for one agent's Bedrock profile no
 longer reaches pi's Bedrock support (or any shell) unless pi selected Bedrock. A provider with
 ONE variable keeps the string spelling; a derive sees `api_key_env_name` only when it names
 exactly one variable (`packload.ProvidersForDerive`), so a multi-route provider points an agent
@@ -2866,7 +2866,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#7-decision-ledger), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (the claude, codex, opencode and pi derives, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
-| The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the five AWS credential names under `api_key_env_name`, plus `bedrock-key` claiming the Bedrock API key; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.toml`, each agent pack's `needs` |
+| The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the five AWS credential names under `api_key_env_name`, plus `bedrock-key` claiming the Bedrock API key and the static key pair; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.toml`, each agent pack's `needs` |
 | The Bedrock model list | none ships ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), 2026-10-05, withdrawing [BR-D19](../design/bedrock-plumbing.md#BR-D19)'s three entries): each agent starts on its own Bedrock default; a pack's `models` contribution or the user's `providers.bedrock.models` supplies one | `packs/bedrock/pack.toml`, `packs/bedrock/README.md` |
 | copilot's Bedrock start model | `openai.gpt-oss-120b-1:0`, through the bridge, when no profile and no list names one ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)) | `packs/copilot/derive.lua` (`bedrockStartModel`) |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |

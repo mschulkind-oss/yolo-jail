@@ -23,12 +23,13 @@ region_file.profile_section = "profile {profile}"
 name = "bedrock-bridge"
 via = "wire-bridge"
 
-# A Bedrock API key (docs/design/bedrock-key-provider.md): the same platform, so every agent starts
-# in Bedrock mode and the region pre-flight applies, claiming the bearer and nothing else. It claims
-# no aws-auth pointer variable, so the pointer is withheld from an agent on it (OQ-BK2); `bedrock`
-# above no longer claims the bearer, so an SSO agent never receives it (OQ-BK4).
+# A static Bedrock key (docs/design/bedrock-key-provider.md): the same platform, so every agent
+# starts in Bedrock mode and the region pre-flight applies, claiming the bearer or a static key pair
+# (BK-D5) and nothing else. It claims no aws-auth pointer variable and no AWS_PROFILE, so the
+# pointer is withheld from an agent on it (OQ-BK2); `bedrock` above no longer claims the bearer, so
+# an SSO agent never receives it (OQ-BK4).
 [providers.bedrock-key]
-api_key_env_name = ["AWS_BEARER_TOKEN_BEDROCK"]
+api_key_env_name = ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
 platform = "aws-bedrock"
 region_env_name = ["AWS_REGION", "AWS_DEFAULT_REGION"]
 region_file.default_profile = "default"

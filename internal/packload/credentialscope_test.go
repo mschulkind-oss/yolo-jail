@@ -206,8 +206,10 @@ func TestTheShippedBedrockProviderClaimsItsCredentialRoutes(t *testing.T) {
 		t.Errorf("bedrock claims %v, want exactly %v (CN-D2, OQ-BK4)", got, want)
 	}
 	key := providerEntry(table, "bedrock-key")
-	if names := CredentialEnvNames(key); strings.Join(names, ",") != "AWS_BEARER_TOKEN_BEDROCK" {
-		t.Errorf("bedrock-key claims %v, want exactly AWS_BEARER_TOKEN_BEDROCK (OQ-BK1)", names)
+	// The bearer or a static key pair, never AWS_PROFILE or the pointer (OQ-BK1, BK-D5).
+	keyWant := "AWS_BEARER_TOKEN_BEDROCK,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_SESSION_TOKEN"
+	if names := CredentialEnvNames(key); strings.Join(names, ",") != keyWant {
+		t.Errorf("bedrock-key claims %v, want exactly %s (OQ-BK1, BK-D5)", names, keyWant)
 	}
 	if p := entryString(key, "platform"); p != "aws-bedrock" {
 		t.Errorf("bedrock-key's platform = %q, want aws-bedrock (BK-D2)", p)

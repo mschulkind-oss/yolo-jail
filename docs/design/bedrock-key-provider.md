@@ -26,7 +26,7 @@ by the owner on 2026-11-09 and folded into the body; the key file's home follows
 plus a flag, and the layer exists only to hold two facts the provider table could state.
 
 **The shape.** A `bedrock-key` provider on platform `aws-bedrock` that claims exactly
-`AWS_BEARER_TOKEN_BEDROCK`; the shipped `bedrock` narrowed to the five chain variables; and one
+`AWS_BEARER_TOKEN_BEDROCK` and the static key pair ([BK-D5](#BK-D5)); the shipped `bedrock` narrowed to the five chain variables; and one
 gate rule — a served env contribution reaches an agent only when its provider claims a variable
 the contribution sets.
 
@@ -143,8 +143,8 @@ region_env_name = ["AWS_REGION", "AWS_DEFAULT_REGION"]   # as bedrock's; the reg
 A provider on platform `aws-bedrock` so that every agent starts in Bedrock mode and the region
 pre-flight applies ([BR-D1](bedrock-plumbing.md#BR-D1);
 [`internal/packload/regionpreflight.go:74`](../../internal/packload/regionpreflight.go) keys the
-requirement on the platform). Its own `api_key_env_name` so that it claims the bearer and nothing
-else ([P2](#premises)). **It ships in `packs/bedrock`, beside the narrowed `bedrock`**
+requirement on the platform). Its own `api_key_env_name` so that it claims the bearer, the static
+key pair and its session token, and nothing else ([P2](#premises), [BK-D5](#BK-D5)). **It ships in `packs/bedrock`, beside the narrowed `bedrock`**
 ([OQ-BK1](#decision-ledger)): the narrowing is the half nobody would guess, and shipping both halves
 together is the only way they are always present together. A user-authored entry of the same shape
 works too, and the shipped entry also carries `bedrock`'s `bridge` variant so claude and copilot reach
@@ -163,7 +163,7 @@ So the narrowing is not a tidy-up; the design does not work without it:
 | Provider | Claims |
 | :--- | :--- |
 | `bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_CONTAINER_CREDENTIALS_FULL_URI` |
-| `bedrock-key` | `AWS_BEARER_TOKEN_BEDROCK` |
+| `bedrock-key` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
 
 Shipping the narrowing with the provider is what spares a user the second edit: without it, anyone
 authoring `bedrock-key` would also have to override `providers.bedrock.api_key_env_name` to the five
@@ -313,6 +313,7 @@ The owner's rulings of 2026-11-09 first (BK-D6 carries [OQ-BK3](#OQ-BK3)'s), the
 | <a id="BK-D2"></a>BK-D2 | **`bedrock-key` is on platform `aws-bedrock`.** Every Bedrock fact keys on the platform; a second value would duplicate them to switch off one pointer | 2026-11-07 | [Alternatives](#alternatives-considered) | `d95b06451` |
 | <a id="BK-D3"></a>BK-D3 | **The pointer rule ([OQ-BK2](#decision-ledger)'s form) lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | `d95b06451` |
 | <a id="BK-D4"></a>BK-D4 | **No message this design adds prints a credential value.** Refusals and disclosures name variables and files, as the existing ones do | 2026-11-07 | [Failure paths](#failure-paths-stated) | `d95b06451` |
+| <a id="BK-D5"></a>BK-D5 | **`bedrock-key` also takes a static key pair.** It claims `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` beside the bearer, so a key file holding an IAM key pair works with `-p bedrock-key`; it still claims neither `AWS_PROFILE` nor the pointer, so aws-auth stays out of such a launch and the key pair overrides nothing. `bedrock` keeps its claim on the pair too. The owner: *"why don't swe suport access/secret? I want to"* | 2026-11-10 | [The claims](#the-claims-and-why-bedrock-must-narrow) | ✅ `TestBedrockKeyReceivesAStaticKeyPair`, `TestABedrockKeyLaunchWithAKeyPairTripsNoOverride` |
 | <a id="BK-D5"></a>BK-D5 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | nothing to build |
 
 ## Appendix: evidence
