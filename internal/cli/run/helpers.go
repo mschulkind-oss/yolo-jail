@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -232,8 +233,8 @@ func (o *Options) gpuArgs(cfg *jsonx.OrderedMap, rt string, gpuEnabled bool, gpu
 
 	gpuSec := readableGPU(cfg).options
 	if gpuVendor == "nvidia" {
-		gpuDevices := mapStrOr(gpuSec, "devices", "all")
-		gpuCaps := mapStrOr(gpuSec, "capabilities", "compute,utility")
+		gpuDevices := mapStrOr(gpuSec, "devices", config.DefaultGPUDevices)
+		gpuCaps := mapStrOr(gpuSec, "capabilities", config.DefaultGPUCapabilities)
 		if gpuDevices == "all" {
 			args = append(args, "--device", "nvidia.com/gpu=all")
 		} else {
@@ -248,8 +249,8 @@ func (o *Options) gpuArgs(cfg *jsonx.OrderedMap, rt string, gpuEnabled bool, gpu
 		return args
 	}
 	if gpuVendor == "amd" {
-		gpuDevices := mapStrOr(gpuSec, "devices", "all")
-		gpuMode := mapStrOr(gpuSec, "mode", "devices")
+		gpuDevices := mapStrOr(gpuSec, "devices", config.DefaultGPUDevices)
+		gpuMode := mapStrOr(gpuSec, "mode", config.DefaultGPUMode)
 		if gpuMode == "cdi" {
 			if gpuDevices == "all" {
 				args = append(args, "--device", "amd.com/gpu=all")

@@ -45,13 +45,57 @@ func lookup(values *jsonx.OrderedMap, path []string) (any, bool) {
 	return nil, false
 }
 
-// add counts one writer for each default key that values writes.
+// add counts one writer for each default key that values writes, and for each key a legacy null
+// may reset to its default (config.GPUNullDefaults), in either spelling: a file this migration
+// leaves as it is may still be a legacy one.
 func (w writerCounts) add(values *jsonx.OrderedMap) {
 	for _, d := range config.WrittenDefaults() {
 		if _, ok := lookup(values, d.Path); ok {
 			w[defaultKey(d.Path)]++
 		}
 	}
+	for _, d := range config.GPUNullDefaults() {
+		if _, ok := nullDefaultValue(values, d.Path); ok {
+			w[defaultKey(d.Path)]++
+		}
+	}
+}
+
+// nullDefaultValue is the value values writes at path, a config.GPUNullDefaults key, in the
+// readable spelling or the legacy one (`machine.gpu.x` or `gpu.x`).
+func nullDefaultValue(values *jsonx.OrderedMap, path []string) (any, bool) {
+	if v, ok := lookup(values, path); ok {
+		return v, true
+	}
+	return lookup(values, path[1:])
+}
+
+// dropNullDefaults removes from values, one old file's lowering, every legacy null the lowering
+// respelled as its default (config.LowerLegacyNulls) where no other file writes the key: with
+// nothing beneath to reset, leaving it out says what the null said. Over another file's value the
+// default stays, since it is what resets that value. The plan's equality check, which fills every
+// such default on both sides (config.ApplyGPUNullDefaults), is what proves each drop.
+func dropNullDefaults(values, old *jsonx.OrderedMap, writers writerCounts) []DroppedInert {
+	var out []DroppedInert
+	for _, d := range config.GPUNullDefaults() {
+		if writers[defaultKey(d.Path)] != 1 {
+			continue
+		}
+		if v, ok := nullDefaultValue(old, d.Path); !ok || v != nil {
+			continue
+		}
+		if _, ok := lookup(values, d.Path); !ok {
+			continue
+		}
+		oldPath := d.Path
+		if _, ok := lookup(old, d.Path); !ok {
+			oldPath = d.Path[1:]
+		}
+		out = append(out, DroppedInert{Path: dotted(oldPath), Value: "null",
+			Why: "no other config file writes it, so leaving it out means what the null meant: " + describe(d.Value)})
+		removePath(values, d.Path)
+	}
+	return out
 }
 
 // dropDefaults removes from values every key that holds exactly its default and that no other

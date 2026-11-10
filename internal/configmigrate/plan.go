@@ -467,6 +467,7 @@ func oldTop(g *Graph) string {
 func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions) (Target, []NotConverted, error) {
 	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf}, f.Logical)
 	dropped := dropDefaults(l.values, writers)
+	l.inert = append(l.inert, dropNullDefaults(l.values, f.doc.Values, writers)...)
 	var folded []FoldedFact
 	if opts.fold {
 		folded = foldEveryModel(l.values)
@@ -1004,6 +1005,7 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	// default filled, by the table the readers answer from.
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		config.ApplyWrittenDefaults(m)
+		config.ApplyGPUNullDefaults(m)
 		unfoldEveryModel(m)
 	}
 	for _, pair := range []struct {

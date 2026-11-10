@@ -16,7 +16,7 @@ type gpuConfigValues struct {
 
 func readableGPU(cfg *jsonx.OrderedMap) gpuConfigValues {
 	value, _ := config.MachineValue(cfg, "gpu", "", "gpu")
-	settings := gpuConfigValues{vendor: "nvidia", mode: "devices"}
+	settings := gpuConfigValues{vendor: config.DefaultGPUVendor, mode: config.DefaultGPUMode}
 	gpu, _ := value.(*jsonx.OrderedMap)
 	settings.options = gpu
 	if enabled, ok := value.(bool); ok {
@@ -24,8 +24,8 @@ func readableGPU(cfg *jsonx.OrderedMap) gpuConfigValues {
 	}
 	if gpu != nil {
 		settings.enabled = mapBoolOr(gpu, "enabled", false)
-		settings.vendor = mapStrOr(gpu, "vendor", "nvidia")
-		settings.mode = mapStrOr(gpu, "mode", "devices")
+		settings.vendor = mapStrOr(gpu, "vendor", config.DefaultGPUVendor)
+		settings.mode = mapStrOr(gpu, "mode", config.DefaultGPUMode)
 	}
 	return settings
 }

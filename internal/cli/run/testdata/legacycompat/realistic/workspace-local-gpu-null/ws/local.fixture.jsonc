@@ -1,0 +1,10 @@
+{
+  // This machine has an AMD card: ROCm takes no driver capabilities, so the project's are reset.
+  "gpu": {
+    "enabled": true,
+    "capabilities": null,
+    "vendor": "amd",
+    "mode": "devices",
+    "devices": "all"
+  }
+}

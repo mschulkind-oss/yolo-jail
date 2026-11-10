@@ -1,0 +1,5 @@
+{
+  "about": "The owner's 2026-11-09 shape: a committed project config, linked from a dotfiles tree, turns the GPU on with NVIDIA capabilities, and the workspace's local file switches it to AMD and resets the capabilities with a null (ROCm takes no driver capabilities). TOML has no null: the conversion writes the default the null meant (RC-D72), and must neither refuse nor let the project's capabilities show through. The local file is stored under another name, since the repository ignores yolo-jail.local.jsonc.",
+  "links": {"ws/yolo-jail.jsonc": "../sample-dotfiles/forms/yolo-jail.jsonc"},
+  "renames": {"ws/local.fixture.jsonc": "ws/yolo-jail.local.jsonc"}
+}

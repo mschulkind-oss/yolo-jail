@@ -1602,8 +1602,11 @@ func validateGPU(config *jsonx.OrderedMap, errs, warns *[]string) {
 		add(errs, "config.gpu.devices: expected a string ('all', '0', or '0,1')")
 	}
 
+	// A vendor's own leaf holding its default under the other vendor is inert: it is how TOML
+	// spells a legacy null that reset a lower layer's value (GPUNullDefaults), and no reader of
+	// the other vendor reads it.
 	modeV, _ := gpu.Get("mode")
-	if modeV != nil {
+	if modeV != nil && !(strEq(modeV, DefaultGPUMode) && !isAMD) {
 		if !isAMD {
 			add(errs, "config.gpu.mode: only valid when vendor='amd'")
 		} else if !strEq(modeV, "devices") && !strEq(modeV, "cdi") {
@@ -1612,7 +1615,7 @@ func validateGPU(config *jsonx.OrderedMap, errs, warns *[]string) {
 	}
 
 	capV, _ := gpu.Get("capabilities")
-	if capV != nil {
+	if capV != nil && !(strEq(capV, DefaultGPUCapabilities) && isAMD) {
 		if isAMD {
 			add(errs, "config.gpu.capabilities: not supported for vendor='amd' "+
 				"(ROCm has no driver-capabilities concept)")
@@ -1633,7 +1636,7 @@ func validateGPU(config *jsonx.OrderedMap, errs, warns *[]string) {
 	}
 
 	gfxV, _ := gpu.Get("hsa_override_gfx_version")
-	if gfxV != nil {
+	if gfxV != nil && !(strEq(gfxV, DefaultGPUHSAOverride) && !isAMD) {
 		if !isAMD {
 			add(errs, "config.gpu.hsa_override_gfx_version: only valid when vendor='amd'")
 		} else if !isStr(gfxV) {

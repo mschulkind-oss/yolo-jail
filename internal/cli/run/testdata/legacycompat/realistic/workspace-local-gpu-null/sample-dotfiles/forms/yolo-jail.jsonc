@@ -1,0 +1,8 @@
+{
+  // The project's GPU: NVIDIA, with the capabilities its workloads need.
+  "packages": ["just"],
+  "gpu": {
+    "enabled": true,
+    "capabilities": "compute,utility"
+  }
+}

@@ -10,10 +10,12 @@ import (
 // readable key spelling) at a path the readable schema gives a removal spelling: an empty list for
 // a list that a null replaced (`install.nix = []`, the readable spelling of a legacy
 // `"packages": null`; `security.blocked_tools = []`), "off" for a table or entry it dropped
-// (`mcp_servers.<name> = "off"`, `lsp_servers.<name> = "off"`, `install.mise.<tool> = "off"`), and
+// (`mcp_servers.<name> = "off"`, `lsp_servers.<name> = "off"`, `install.mise.<tool> = "off"`),
 // "native" for an agent's selection (`active_provider.<agent> = "native"`, what the legacy
-// `profile` key's null always meant). TOML has no null, and each of those spellings says in TOML
-// what the null said in JSONC (ReadableRemovalPolicies, RC-D50, RC-D52), so the lowering is exact.
+// `profile` key's null always meant), and, under `machine.gpu`, the default the key's absence
+// means (`machine.gpu.capabilities = "compute,utility"`, GPUNullDefaults). TOML has no null, and
+// each of those spellings says in TOML what the null said in JSONC (ReadableRemovalPolicies,
+// RC-D50, RC-D52), so the lowering is exact.
 //
 // It is the ONE null lowering, shared by `yolo config migrate` (configmigrate.lower), the
 // inherited user scope a launch delivers as TOML (RenderFilteredForDelivery) and, for the
@@ -36,6 +38,9 @@ func LowerLegacyNulls(values *jsonx.OrderedMap) []string {
 					m.Set(key, "off")
 				case RemovalNativeString:
 					m.Set(key, NativeProvider)
+				case RemovalDefault:
+					value, _ := nullDefault(at)
+					m.Set(key, value)
 				default:
 					left = append(left, strings.Join(at, "."))
 				}
