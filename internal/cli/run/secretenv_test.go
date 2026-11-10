@@ -2,10 +2,15 @@ package run
 
 import (
 	"bytes"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // secret-env-scoping.md §3.4 rows 1, 3 and 4 at the jail notch: the shared file holds the public
@@ -39,4 +44,81 @@ func TestTheSharedFileCarriesNoPrivateValue(t *testing.T) {
 		strings.Contains(out, "tok-") {
 		t.Errorf("row 4's line, names only:\n%s", out)
 	}
+}
+
+// secretEnvRefusalRun drives Run on macos-user over a TOML user config, returning whether the
+// backend was reached, the exit code and the streams. The backend is a stub, so the launch either
+// refuses above the dispatch or hands it a launch env.
+func secretEnvRefusalRun(t *testing.T, ws, userTOML string) (bool, int, string) {
+	t.Helper()
+	home := packHome(t)
+	writeUserConfigTOML(t, home, userTOML)
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.Args = []string{"bash"}
+	reached := false
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+		_ macosuser.HostContext, _ bool, _ *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		reached = true
+		return 0
+	}
+	rc := Run(*o)
+	return reached, rc, stdout.String() + stderr.String()
+}
+
+// requireNoUserEnvFile fails when any yolo-user-env.sh exists under the workspace: the refusal
+// comes before any vehicle is written (secret-env-scoping.md SE-D7).
+func requireNoUserEnvFile(t *testing.T, ws string) {
+	t.Helper()
+	_ = filepath.WalkDir(ws, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.Name() == "yolo-user-env.sh" {
+			t.Errorf("a refused launch wrote %s", p)
+		}
+		return nil
+	})
+}
+
+// secret-env-scoping.md §3.5 (row 2) at the jail notch: a selected provider's key in the public
+// set refuses the launch above the backend dispatch, naming the move and never the value, and
+// nothing is written first (SE-D7). No hatch (SE-D10).
+func TestAPublicProviderKeyRefusesBeforeAnythingIsWritten(t *testing.T) {
+	ws := t.TempDir()
+	reached, rc, out := secretEnvRefusalRun(t, ws, "packs = [\"claude\", \"zai\"]\n\n"+
+		"[active_provider]\nclaude = \"zai\"\n\n[env]\nset = { ZAI_API_KEY = \"zai-probe\" }\n")
+	if rc == 0 || reached {
+		t.Fatalf("a public provider key must refuse before the backend: rc = %d, reached = %v\n%s", rc, reached, out)
+	}
+	for _, want := range []string{"Refusing to launch: ",
+		"config.env.set: ZAI_API_KEY is set in your public environment ([env] set), and the zai provider this launch selects claims it as its key.",
+		"Move it to the private set: yolo config secret ZAI_API_KEY --user"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "zai-probe") {
+		t.Errorf("the refusal printed the value:\n%s", out)
+	}
+	requireNoUserEnvFile(t, ws)
+}
+
+// SE-D2 at the jail notch: one name in both sets refuses whatever claims it, naming both --drop
+// commands; nothing claims FOO here.
+func TestANameInBothSetsRefusesBeforeAnythingIsWritten(t *testing.T) {
+	ws := t.TempDir()
+	reached, rc, out := secretEnvRefusalRun(t, ws, "packs = []\n\n[env]\nset = { FOO = \"a-probe\" }\n\n"+
+		"[env.secrets]\nset = { FOO = \"b-probe\" }\n")
+	if rc == 0 || reached {
+		t.Fatalf("a name in both sets must refuse before the backend: rc = %d, reached = %v\n%s", rc, reached, out)
+	}
+	for _, want := range []string{"Refusing to launch: ",
+		"config.env: FOO is set in both your public environment ([env] set) and your private one ([env.secrets] set).",
+		"yolo config secret FOO --drop --user", "yolo config unsecret FOO --drop --user"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "-probe") {
+		t.Errorf("the refusal printed a value:\n%s", out)
+	}
+	requireNoUserEnvFile(t, ws)
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,5 +99,44 @@ func TestHostSecretEnvSaysAShellValuePassesThrough(t *testing.T) {
 	if !strings.Contains(errs, "STRIPE_KEY: not added by yolo") ||
 		!strings.Contains(errs, "yolo config unsecret STRIPE_KEY --user") {
 		t.Errorf("the inherited wording, with the user-scope remedy:\n%s", errs)
+	}
+}
+
+// hostPublicKeyConfig holds zai's key in the PUBLIC set: secret-env-scoping.md §3.5's row 2.
+const hostPublicKeyConfig = "packs = [\"zai\"]\n\n[env]\nset = { ZAI_API_KEY = \"z-probe\" }\n"
+
+// Row 2 at the host notch: `yolo host --` and `yolo host env` refuse a selected provider's key in
+// the public set before anything is exec'd or printed for a shell to eval (SE-D7), in the jail's
+// words, and never print the value.
+func TestHostRefusesAPublicProviderKey(t *testing.T) {
+	const move = "Move it to the private set: yolo config secret ZAI_API_KEY --user"
+	rc, env, errs := hostGateRun(t, hostPublicKeyConfig, nil, nil, "bash")
+	if rc == 0 || env != nil || !strings.Contains(errs, move) ||
+		!strings.Contains(errs, "config.env.set: ZAI_API_KEY is set in your public environment ([env] set)") {
+		t.Errorf("yolo host -- bash must refuse before the exec, naming the move: rc = %d, reached = %v\n%s", rc, env != nil, errs)
+	}
+	if strings.Contains(errs, "z-probe") {
+		t.Errorf("the refusal printed the value:\n%s", errs)
+	}
+	c := composeHostLaunch("bash", "", nil, func(string) {})
+	if c.err == nil || !strings.Contains(c.err.Error(), move) {
+		t.Errorf("the composition carries the refusal: %v", c.err)
+	}
+	var out, errw bytes.Buffer
+	if rc := hostEnv([]string{"--agent", "bash"}, &out, &errw); rc == 0 || out.Len() != 0 {
+		t.Errorf("yolo host env must exit non-zero with nothing for a shell to eval: rc = %d\nstdout:\n%s", rc, out.String())
+	}
+	if !strings.Contains(errw.String(), move) || strings.Contains(errw.String()+out.String(), "z-probe") {
+		t.Errorf("yolo host env names the move and never the value:\n%s", errw.String())
+	}
+}
+
+// SE-D2 at the host notch: a name in both sets refuses, naming both --drop commands.
+func TestHostRefusesANameInBothSets(t *testing.T) {
+	rc, env, errs := hostGateRun(t, "packs = []\n\n[env]\nset = { FOO = \"a-probe\" }\n\n"+
+		"[env.secrets]\nset = { FOO = \"b-probe\" }\n", nil, nil, "bash")
+	if rc == 0 || env != nil || !strings.Contains(errs, "yolo config secret FOO --drop --user") ||
+		!strings.Contains(errs, "yolo config unsecret FOO --drop --user") || strings.Contains(errs, "-probe") {
+		t.Errorf("yolo host -- bash must refuse a name in both sets: rc = %d, reached = %v\n%s", rc, env != nil, errs)
 	}
 }

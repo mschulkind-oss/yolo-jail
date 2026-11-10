@@ -24,8 +24,8 @@ import (
 // starts and in pi's own env file, and the bootstrap's YOLO_USE_PROFILES carries pi's list.
 func TestMacosUserLaunchDeliversPisWholeSet(t *testing.T) {
 	home := packHome(t)
-	writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai", "openrouter"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`)
+	writeUserConfigTOML(t, home, "packs = [\"claude\", \"pi\", \"zai\", \"openrouter\"]\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"tok-zai\", OPENROUTER_API_KEY = \"tok-router\" }\n")
 	ws := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
@@ -56,8 +56,9 @@ func TestMacosUserLaunchDeliversPisWholeSet(t *testing.T) {
 
 func TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile(t *testing.T) {
 	home := packHome(t)
-	writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-cn9", "GH_TOKEN": "gh-cn9"}]}`)
+	writeUserConfigTOML(t, home, "packs = [\"claude\", \"pi\", \"zai\"]\n\n"+
+		"[env]\nset = { GH_TOKEN = \"gh-cn9\" }\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"tok-cn9\" }\n")
 	ws := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)

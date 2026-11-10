@@ -28,22 +28,26 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// grantConfig is a user config selecting packs (a JSON list's members) and rest (more members,
-// or ""), whose env_sources is the one store every cell launches with: a DOTENV FILE holding two
-// providers' keys and one value no provider claims. A file, not an inline map, so the merged
-// config the launch freezes into the workspace (config-assembled.json) holds no value of its own,
-// and a value found in a workspace file is the grant's doing.
+// grantConfig is a TOML user config selecting packs (a list's members) with rest (more TOML, or
+// "") appended, whose private set is the one store every cell launches with: a DOTENV FILE
+// holding two providers' keys, beside one public value no provider claims. A file, not an inline
+// map, so the merged config the launch freezes into the workspace (config-assembled.json) holds
+// no key of its own, and a key found in a workspace file is the grant's doing.
 func grantConfig(t *testing.T, packs, rest string) string {
 	t.Helper()
 	store := filepath.Join(t.TempDir(), "creds.env")
-	if err := os.WriteFile(store, []byte("ZAI_API_KEY=tok-z\nCEREBRAS_API_KEY=tok-c\nPORT=8080\n"), 0o600); err != nil {
+	if err := os.WriteFile(store, []byte("ZAI_API_KEY=tok-z\nCEREBRAS_API_KEY=tok-c\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	quoted, _ := json.Marshal(store)
-	if rest != "" {
-		rest = ", " + rest
-	}
-	return `{"packs": [` + packs + `], "env_sources": [` + string(quoted) + `]` + rest + `}`
+	return "packs = [" + packs + "]\n\n[env]\nset = { PORT = \"8080\" }\n\n[env.secrets]\nfiles = [" +
+		string(quoted) + "]\n" + rest
+}
+
+// legacyGrantConfig is packs as a legacy JSONC file holding no key, with rest (more JSON members)
+// appended: the spelling whose unknown keys the refusal below is worded for.
+func legacyGrantConfig(packs, rest string) string {
+	return `{"packs": [` + packs + `], ` + rest + `}`
 }
 
 // grantValues are the store's credential values, which no disclosure, argv, record or workspace
@@ -72,7 +76,11 @@ func macosUserGrantRun(t *testing.T, ws, config string, args, grant []string,
 	profiles map[string]string) (*jsonx.OrderedMap, int, string) {
 	t.Helper()
 	home := packHome(t)
-	writeUserConfig(t, home, config)
+	if strings.HasPrefix(config, "{") {
+		writeUserConfig(t, home, config)
+	} else {
+		writeUserConfigTOML(t, home, config)
+	}
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	o.Args = args
@@ -179,7 +187,7 @@ func TestAJailGrantIsImpliedByNothingElse(t *testing.T) {
 	for _, k := range []string{"YOLO_WITH_CREDENTIALS", "YOLO_ALLOW_ALL_CREDENTIALS", "YOLO_ALLOW_MISSING_PROVIDERS"} {
 		t.Setenv(k, "1")
 	}
-	cfg := grantConfig(t, `"claude", "zai", "cerebras"`, `"profile": {"claude": "zai"}`)
+	cfg := grantConfig(t, `"claude", "zai", "cerebras"`, "\n[active_provider]\nclaude = \"zai\"\n")
 	env, rc, out := macosUserGrantRun(t, t.TempDir(), cfg, []string{"bash"}, nil, map[string]string{"claude": "zai"})
 	if rc != 0 || env == nil {
 		t.Fatalf("Run() = %d\n%s", rc, out)
@@ -194,7 +202,7 @@ func TestAJailGrantIsImpliedByNothingElse(t *testing.T) {
 	}
 	for _, key := range []string{"with_credentials", "credentials"} {
 		env, rc, out = macosUserGrantRun(t, t.TempDir(),
-			grantConfig(t, `"zai"`, `"`+key+`": ["zai"]`), []string{"bash"}, nil, nil)
+			legacyGrantConfig(`"zai"`, `"`+key+`": ["zai"]`), []string{"bash"}, nil, nil)
 		if rc == 0 || env != nil || !strings.Contains(out, "config."+key+": unknown key") {
 			t.Errorf("config key %q must be refused as unknown, never read as a grant: rc %d, reached %v\n%s",
 				key, rc, env != nil, out)
@@ -210,7 +218,7 @@ func TestAJailGrantIsImpliedByNothingElse(t *testing.T) {
 // grant file back.
 func TestAPodmanJailGrantRidesAGrantFileNeverTheArgv(t *testing.T) {
 	home := packHome(t)
-	writeUserConfig(t, home, grantConfig(t, `"zai", "cerebras"`, ""))
+	writeUserConfigTOML(t, home, grantConfig(t, `"zai", "cerebras"`, ""))
 	ws := t.TempDir()
 	cname := yoloruntime.JailName(ws, "podman-self")
 	hostFile := jailGrantHostFile(cname)
@@ -635,7 +643,7 @@ func TestALaunchRefusedAfterStagingItsGrantRemovesTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	quoted, _ := json.Marshal(store)
-	writeUserConfig(t, home, `{"packs": ["claude", "zai", "cerebras"], "env_sources": [`+string(quoted)+`]}`)
+	writeUserConfigTOML(t, home, "packs = [\"claude\", \"zai\", \"cerebras\"]\n\n[env.secrets]\nfiles = ["+string(quoted)+"]\n")
 	ws := t.TempDir()
 	cname := yoloruntime.JailName(ws, "podman-self")
 	saved := defaultKeeperSpawner

@@ -888,6 +888,10 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Fences:** `*_test.go` files and test fixtures only; a production file in the diff is a stop.
 - **Commit:** `test: provider keys in fixtures live in the private env set`
 - **Report:** the file list, any test left for Task 7, the integration results.
+- **As built:** the TOML conversion selects a `file://` pack through a bare pack source, so its handle
+  is `packs/<name>`; that handle exposed a production fault (a host session directory named with a
+  slash), fixed in its own commit ahead of Task 6. The `internal/cli/run` unit fixtures needed no
+  change: they already hold claimed keys private through `secretenvfixture_test.go`'s `hydrate`.
 
 ### Task 7 — the refusals
 
@@ -991,6 +995,29 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Fences:** no vehicle file (`userenv.go`, `agentenvfiles.go`, `envfile.go`).
 - **Commit:** `feat(env)!: a provider key in the public env set, or a name in both sets, refuses the launch`
 - **Report:** red and green runs, the full integration result, the nested-jail transcript.
+- **As built:**
+  - The load lowers a legacy `env_sources` to the place key `env.sources`, so the label and place
+    come from the place's `Key` *and* the site's `Legacy` bit: a legacy file reads
+    `config.env_sources: … (env_sources)` (`asWritten` in `envsecretsrefusal.go`).
+  - The run test drives `Run` on macos-user with a stub backend
+    (`TestAPublicProviderKeyRefusesBeforeAnythingIsWritten`, `TestANameInBothSetsRefusesBeforeAnythingIsWritten`
+    in `internal/cli/run/secretenv_test.go`), so it pins `launchChannel`'s caller, the printed
+    `Refusing to launch:` and the absence of `yolo-user-env.sh` in one launch.
+  - The attach is pinned end to end by `TestAnAttachRefusesAPublicProviderKey` (integration): the
+    attach passes the same `launchChannel` call before the rekey at `run.go`'s attach branch.
+  - `yolo check`'s second hydration reports on `r.configWarn`, which prints a message once
+    (`warningchannel_test.go` refuses a discarded warning channel).
+  - Task 6 left one test: `TestHostGrantWithheldLineNamesAUserProfileOverTheProvider` (a legacy
+    user profile over a provider, spellable only in the legacy file, whose key is therefore
+    public). It is rewritten as `TestHostRefusesALegacyPublicKeyNamingMigrateFirst`; the remedy's
+    profile ordering stays pinned by `TestRemedyProfilePrefersTheProvidersOwnName`.
+  - Task 6's note above was right for the `hydrate` fixtures and wrong for the `internal/cli/run`
+    tests that write a user config file, or hand `composePackChannel` a config to hydrate itself:
+    their keys sat in a legacy `env_sources`, which the refusal now stops. They are rewritten here,
+    to a TOML private set (`writeUserConfigTOML`, `inEnvSecrets`, `awsAuthUserTOML`) or, for a
+    config map, to the readable `[env]` table (`setFixtureEnv`). A config with no key keeps its
+    legacy spelling, so `overrideNativeLaunch`, `macosUserGrantRun` and `sealFixture` write either
+    file by the body's first character.
 
 ### Task 8 — docs describe the two sets
 

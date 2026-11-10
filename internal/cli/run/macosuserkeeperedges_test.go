@@ -454,7 +454,7 @@ func TestAQuitThatLeavesOthersIsToldOfAServiceThatDied(t *testing.T) {
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
 	_, held := observeHeldServices(t)
@@ -616,7 +616,7 @@ func TestAMacosUserDryRunSaysTheKeeperItWouldStartHoldsWhat(t *testing.T) {
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	spawns := countKeeperSpawns(t)
 	starts, _ := observeHeldServices(t)
@@ -654,7 +654,7 @@ func TestAMacosUserDryRunBesideALiveKeeperDescribesTheJoin(t *testing.T) {
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	spawns := countKeeperSpawns(t)
 	starts, _ := observeHeldServices(t)

@@ -19,18 +19,25 @@ import (
 )
 
 // sealNeedsFixture selects bedrock beside claude, with a ~/.aws holding a region and a
-// secret, an inline env_sources value and the aws-auth loophole enabled.
+// secret, an inline public value, bedrock's AWS_PROFILE in the private set, and aws-auth's
+// settings.
 var sealNeedsFixture = sealFixture{
 	moduleNames: []string{"claude", "bedrock", "aws-auth", "wire-bridge"},
 	files: map[string]string{
 		".aws/config":      "[profile sealtest-profile]\nregion = us-sealtest-8\n",
 		".aws/credentials": "[default]\naws_access_key_id = AKIASEALTEST\naws_secret_access_key = sealtest-aws-secret\n",
 	},
-	config: `{
-  "packs": ["bedrock", "claude"],
-  "env_sources": [{"AWS_PROFILE": "sealtest-profile", "AWS_REGION": "us-sealtest-9"}],
-  "loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "sealtest-profile", "unnarrowed": true}}}
-}
+	config: `packs = ["bedrock", "claude"]
+
+[env]
+set = { AWS_REGION = "us-sealtest-9" }
+
+[env.secrets]
+set = { AWS_PROFILE = "sealtest-profile" }
+
+[allow.aws-auth]
+profile = "sealtest-profile"
+unnarrowed = true
 `,
 	only: []string{"bedrock-fork", "bedrock"},
 }

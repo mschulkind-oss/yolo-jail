@@ -27,6 +27,7 @@ package run
 // spellings of one launch.
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -388,6 +389,12 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	scope, err := packload.ScopeCredentials(in)
 	if err != nil {
 		return nil, err
+	}
+	// THE ENV-SET REFUSALS (docs/design/secret-env-scoping.md §3.5, §4.8): a selected provider's
+	// key in the public set, or a name in both sets, refuses here, before any vehicle is written
+	// (SE-D7); every caller of composePackChannel prints its error as the refusal. No hatch (SE-D10).
+	if refusals := config.SecretEnvRefusals(userEnv, scope.PublicClaims(), config.EnvSiteOf(o.Workspace, false)); len(refusals) > 0 {
+		return nil, errors.New(strings.Join(refusals, "\n"))
 	}
 	// THE FETCHED LIST (bedrockmodels.go, OQ-MM6): a provider no pack or config gives a model list
 	// gets the region's from its platform's credential service, read off the gate's answer for the

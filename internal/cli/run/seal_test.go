@@ -116,7 +116,13 @@ func (f sealFixture) launchStreams(t *testing.T, sealed bool) (argv []string, ws
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(f.config), 0o644); err != nil {
+	// A JSONC body is the legacy file; anything else is TOML, the only file that can hold a
+	// provider's key (secret-env-scoping.md SE-D6).
+	name := "config.toml"
+	if strings.HasPrefix(strings.TrimSpace(f.config), "{") {
+		name = "config.jsonc"
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(f.config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Resolved like packHome's home and dispatchOptions' repo root: every -v source is compared

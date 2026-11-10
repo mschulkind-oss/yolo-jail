@@ -16,6 +16,7 @@ var testOnlyProviderKeys = map[string]bool{
 	"ROUTE_PAIR_ID": true,
 	"WIDGET_TOKEN":  true,
 	"FXP_KEY":       true,
+	"FYP_KEY":       true,
 	"ACME_API_KEY":  true,
 }
 
@@ -53,4 +54,37 @@ func hydrate(m *jsonx.OrderedMap) *config.HydratedEnv {
 		}
 	}
 	return h
+}
+
+// setFixtureEnv writes a fixture's flat env map into cfg's readable `[env]` table, split as
+// hydrate splits it: every provider key under env.secrets.set, every other value under env.set,
+// and a nil value under env.unset. It replaces any env the config held.
+func setFixtureEnv(cfg *jsonx.OrderedMap, m *jsonx.OrderedMap) {
+	set, secrets := jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+	var unset []any
+	for _, k := range m.Keys() {
+		v, _ := m.Get(k)
+		switch {
+		case v == nil:
+			unset = append(unset, k)
+		case isFixtureProviderKey(k):
+			secrets.Set(k, v)
+		default:
+			set.Set(k, v)
+		}
+	}
+	env := jsonx.NewOrderedMap()
+	if set.Len() > 0 {
+		env.Set("set", set)
+	}
+	if len(unset) > 0 {
+		env.Set("unset", unset)
+	}
+	if secrets.Len() > 0 {
+		private := jsonx.NewOrderedMap()
+		private.Set("set", secrets)
+		env.Set("secrets", private)
+	}
+	cfg.Delete("env_sources")
+	cfg.Set("env", env)
 }

@@ -776,6 +776,9 @@
     other set's copy instead of moving one, and `--dotenv PATH` moves a
     whole dotenv file's entry between the two files lists.  Neither
     prints a value.
+    A selected provider's key in [env] refuses the launch (and `yolo
+    host`, `yolo check`), naming `yolo config secret NAME`; a name in
+    both sets refuses too, naming the `--drop` that keeps one copy.
     An unset name removes a pack's `env` value of the name too, in a jail
     as at the host.  It never removes a value the selected provider
     composes, nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES

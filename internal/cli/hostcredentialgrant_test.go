@@ -427,17 +427,25 @@ set = { DEEPSEEK_API_KEY = "tok-ds" }
 	}
 }
 
-// With a user profile declared over that provider, the remedy names it: a declared profile
-// that resolves to the claimant, whatever it is called.
-func TestHostGrantWithheldLineNamesAUserProfileOverTheProvider(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["pi"], `+
+// A user profile over a provider with no profile of its own name was spelled only in the legacy
+// file, which has no private set (SE-D6), so its key could only be public, and a public key a
+// composed provider claims now refuses (secret-env-scoping.md §3.5). The remedy's ordering of user
+// profiles is TestRemedyProfilePrefersTheProvidersOwnName's; what a legacy file gets here is the
+// refusal, naming the migration first (SEP-D18) and the key the file spells.
+func TestHostRefusesALegacyPublicKeyNamingMigrateFirst(t *testing.T) {
+	rc, env, errs := hostGateRun(t, `{"packs": ["pi"], `+
 		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
 		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
 		`"profiles": {"ds": {"provider": "deepseek"}}, `+
 		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "pi")
-	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	if !strings.Contains(line, "`yolo host -p ds -- pi`") {
-		t.Errorf("the remedy must name the user's profile over deepseek: %q", line)
+	want := "config.env_sources: DEEPSEEK_API_KEY is set in your public environment (env_sources), and the " +
+		"deepseek provider this launch selects claims it as its key."
+	if rc == 0 || env != nil || !strings.Contains(errs, want) ||
+		!strings.Contains(errs, "run yolo config migrate, then yolo config secret DEEPSEEK_API_KEY --user") {
+		t.Errorf("a legacy file's public key refuses, naming the migration first: rc = %d\n%s", rc, errs)
+	}
+	if strings.Contains(errs, "tok-ds") {
+		t.Errorf("the refusal printed the value:\n%s", errs)
 	}
 }
 

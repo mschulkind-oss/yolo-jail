@@ -83,7 +83,7 @@ func winnerFixtureConfig() *jsonx.OrderedMap {
 	es.Set("K5", nil)
 	es.Set("K6", nil)
 	es.Set("K7", "es-unclaimed")
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	return cfg
 }
 
@@ -401,7 +401,7 @@ func TestTheJailVehiclesKeepTheWireTablesOverEnvSources(t *testing.T) {
 	es := jsonx.NewOrderedMap()
 	es.Set(entrypoint.ProvidersWireEnv, "es-value")
 	es.Set(entrypoint.UseProfilesWireEnv, nil)
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	channel := channelFor(t, o, cfg, []*packload.Pack{winnerFixturePack(t)}, nil)
 	want := channel.wireTableValues()
 	tables := entrypoint.WireTables()
@@ -493,7 +493,7 @@ end)
 	es.Set("FXP_KEY", "es-fxp")
 	es.Set("FYP_KEY", "es-fyp")
 	es.Set("K2", "es-unclaimed")
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	channel := channelFor(t, o, cfg, []*packload.Pack{p}, nil)
 	if v, _ := channel.scope.EnvFor("fxb").Value("K2"); v != "es-unclaimed" {
 		t.Fatalf("fixture: fxb's K2 must be every process's env_sources value, got %q", v)

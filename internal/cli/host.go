@@ -3022,6 +3022,14 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = err
 		return c
 	}
+	// THE ENV-SET REFUSALS (docs/design/secret-env-scoping.md §3.5, §4.8), the jail's own
+	// function: a selected provider's key in the public set, or a name in both sets, refuses
+	// `yolo host --` and `yolo host env` before anything is exec'd or printed (SE-D7). The host
+	// reads only the user config's env, so the remedy's scope is the user's.
+	if refusals := config.SecretEnvRefusals(hydrated, scope.PublicClaims(), config.EnvSiteOf("", true)); len(refusals) > 0 {
+		c.err = errors.New(strings.Join(refusals, "\n"))
+		return c
+	}
 	c.scope = scope
 	c.served = hostServed
 	// WHAT THE LAUNCH-OWNED SERVICE SIGNS WITH (HS-D32): the doorway pointers and region variables

@@ -286,6 +286,25 @@ func LocateEnvName(workspace, name string, userOnly bool) ([]EnvSite, error) {
 	return out, nil
 }
 
+// EnvSiteOf is SecretEnvRefusals' site answer: the first site whose set matches, from the
+// scopes ReadEnvScopeFiles reads (userOnly for `yolo host`, which has no workspace config). With
+// none, or configs it cannot read, the site has no scope flag and the remedy names none.
+// Read on the cold path only, when a refusal prints.
+func EnvSiteOf(workspace string, userOnly bool) func(name string, private bool) EnvSite {
+	return func(name string, private bool) EnvSite {
+		sites, err := LocateEnvName(workspace, name, userOnly)
+		if err != nil {
+			return EnvSite{}
+		}
+		for _, s := range sites {
+			if s.Place.Private == private {
+				return s
+			}
+		}
+		return EnvSite{}
+	}
+}
+
 // EnvNameScope is DisclosureNotes.Scope's answer (secret-env-scoping-plan.md#SEP-D6): " " plus
 // the scope flag of the one scope whose config sets name, "" when none or several do, or the
 // configs cannot be read. Read on the cold path only, when a line is printed.
