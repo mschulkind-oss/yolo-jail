@@ -310,6 +310,9 @@ func HostLaunchStateDir() string { return filepath.Join(paths.GlobalStorage(), "
 // changed, and stores this launch's for the next. now stamps the stored facts.
 func configChangeRecords(store launchStateStore, snapshot string, packs []*packload.Pack,
 	files []string, now time.Time) []string {
+	// A private env value never reaches the log or the stored snapshot, which the jail can read
+	// beside the log; the previous snapshot is redacted too, for one an older launch stored.
+	snapshot = config.RedactPrivateEnvSnapshot(snapshot)
 	cur := launchFacts{
 		Launched: now.Format("2006-01-02T15:04:05-0700"),
 		Packs:    map[string]string{},
@@ -330,6 +333,7 @@ func configChangeRecords(store launchStateStore, snapshot string, packs []*packl
 		}
 	}
 	prevSnapshot, snapErr := store.read(LastLaunchConfigName)
+	prevSnapshot = []byte(config.RedactPrivateEnvSnapshot(string(prevSnapshot)))
 
 	var out []string
 	out = append(out, "config files: "+fileRecord(cur.Files, prev))

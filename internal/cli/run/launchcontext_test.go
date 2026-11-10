@@ -269,3 +269,43 @@ func TestAFreshContainerLaunchRecordsItsDecisionInTheLaunchLog(t *testing.T) {
 		t.Errorf("a fresh launch recorded an attach:\n%s", got)
 	}
 }
+
+// The launch log and the stored snapshot, which a jail can read, never carry a private inline
+// value, including one an older launch stored in the clear (review major 2a).
+func TestConfigChangeRecordsNeverQuoteAPrivateInlineValue(t *testing.T) {
+	ws := t.TempDir()
+	store := workspaceStateStore{ws}
+	mk := func(v string) string {
+		return `{"env": {"secrets": {"set": {"SENTRY_DSN": "` + v + `"}}}}`
+	}
+	snap := func(v string) string {
+		m, err := jsonx.Decode([]byte(mk(v)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		j, err := config.SnapshotJSON(m.(*jsonx.OrderedMap))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	// An older launch stored its snapshot unredacted.
+	if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.write(LastLaunchConfigName, []byte(snap("old-dsn-value")+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.write(LastLaunchFactsName, []byte(`{"launched":"x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	lines := configChangeRecords(store, snap("new-dsn-value"), nil, nil, time.Now())
+	stored, _ := store.read(LastLaunchConfigName)
+	all := strings.Join(lines, "\n") + string(stored)
+	if strings.Contains(all, "dsn-value") {
+		t.Errorf("a private value reached the log or the stored snapshot:\n%s", all)
+	}
+	if !strings.Contains(all, "SENTRY_DSN") {
+		t.Errorf("the name is still recorded:\n%s", all)
+	}
+}
