@@ -205,7 +205,7 @@ func EnvOverrideFindings(packs []*Pack, sel GateSelection, look OriginLookup,
 // mixedProviderRemedy is the remedy line for a launch that delivers d to some agents and o's
 // variables to OTHER agents, "" when it does not: each side is named by its agents' selected
 // profiles, and the way out is a launch on one of them alone. o's variables reach an agent when
-// one of its set's providers claims them all (GateSelection.claimsAll); a variable no agent's
+// one of its set's providers claims them all (GateSelection.claimingEntry); a variable no agent's
 // provider claims reaches every process, so nothing is mixed. Names only, never a value.
 func mixedProviderRemedy(packs []*Pack, p *Pack, d packdecl.EnvOverrideDecl, o packdecl.EnvOverride,
 	sel GateSelection) string {

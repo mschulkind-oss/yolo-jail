@@ -857,14 +857,9 @@ func (sel GateSelection) entryName(agent string, i int) string {
 	return sel.Profiles[agent]
 }
 
-// claimsAll reports whether some entry of agent's set claims every one of names: the agents
-// a claimed value reaches, as the override pre-flight asks it (envoverride.go).
-func (sel GateSelection) claimsAll(agent string, names []string) bool {
-	return sel.claimingEntry(agent, names) >= 0
-}
-
 // claimingEntry is the index of the first entry of agent's set that claims every one of names,
-// -1 when none does.
+// -1 when none does: the agents a claimed value reaches, as the override pre-flight asks it
+// (envoverride.go).
 func (sel GateSelection) claimingEntry(agent string, names []string) int {
 	for i, claimed := range sel.SetClaims[agent] {
 		all := claimed != nil
