@@ -528,6 +528,9 @@ const credentialRefusalBody = `Refusing to launch: a selected pack needs a provi
 // The jail's refusal is the shared renderer's (packload.ProviderCredentialRefusal), byte for
 // byte; with the hatch held it is the shared override notice over the same facts.
 func TestJailCredentialRefusalIsTheSharedBody(t *testing.T) {
+	// A launch from the host: inside a jail the refusal adds the nested-jail note (SE-D16),
+	// which the shared body does not carry.
+	t.Setenv("YOLO_VERSION", "")
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
 	o := retireOptions(t, discardBuf())
