@@ -106,6 +106,10 @@ type daemonSupervisor struct {
 	// stoppedByVerb reports, and consumes, the marker `yolo host-daemon stop` leaves for the pid
 	// it signals (hostservice.TakeStopMarker). nil for a daemon the verb never stops.
 	stoppedByVerb func(pid int) bool
+	// restartBlocked, when set, is asked before every restart: "" lets it go ahead, otherwise it is
+	// the sentence (the cause and the stop step) that turns the death into a give-up, because the pinned
+	// yolo the daemon was started from is no longer there (pinnedexec.go).
+	restartBlocked func() string
 
 	mu       sync.Mutex
 	cmd      *exec.Cmd
@@ -282,6 +286,13 @@ func (s *daemonSupervisor) run() {
 			restarts, backoff = 0, s.policy.initial
 		}
 		for {
+			if s.restartBlocked != nil {
+				if why := s.restartBlocked(); why != "" {
+					s.say(fmt.Sprintf("host service '%s' died (%s); not restarting it: %s%s", s.name, how, why, s.logClause()))
+					s.finish(fmt.Sprintf("%s, and it was not restarted: %s", how, why))
+					return
+				}
+			}
 			if restarts >= s.policy.restarts {
 				s.say(fmt.Sprintf("host service '%s' died (%s) after %d restarts in a row; giving up: "+
 					"it stays down, and what uses it fails, until this launch ends and the next one "+

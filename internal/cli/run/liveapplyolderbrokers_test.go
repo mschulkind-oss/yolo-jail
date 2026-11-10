@@ -17,12 +17,22 @@ const olderYolo, newerYolo = "0.16.0+87.g14cc75609b4c", "0.17.1"
 
 func wantBrokerSkewNote(t *testing.T, out, started, host string) {
 	t.Helper()
-	for _, want := range []string{"yolo " + started, "yolo " + host, "may still run it", "yolo stop"} {
+	// The brokers are pinned to the yolo that started them (docs/design/pinned-host-helpers.md
+	// section 6), so the note says plainly that they run it: no "may", no "still".
+	for _, want := range []string{"host brokers run yolo " + started + ", the build that started them", "this is yolo " + host, "yolo stop"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the apply does not say %q:\n%s", want, out)
 		}
 	}
+	for _, hedge := range []string{"may still run", "may run", "still run it"} {
+		if strings.Contains(out, hedge) {
+			t.Errorf("the apply hedges with %q, though a pinned broker definitely runs the build that started it:\n%s", hedge, out)
+		}
+	}
 }
+
+// brokerSkewMarker is what the note always contains, and what a silent apply must not.
+const brokerSkewMarker = "host brokers run yolo"
 
 // "Nothing to apply" under brokers an older yolo started names both yolos and the restart, and
 // never advises relaunching onto an older host yolo or the same one.
@@ -48,7 +58,7 @@ func TestConfigApplyNothingToApplyNamesBrokersAnOlderYoloStarted(t *testing.T) {
 			if rc := o.configApply(false); rc != 0 {
 				t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
 			}
-			if out := buf.String(); !strings.Contains(out, "Nothing to apply") || strings.Contains(out, "may still run it") {
+			if out := buf.String(); !strings.Contains(out, "Nothing to apply") || strings.Contains(out, brokerSkewMarker) {
 				t.Errorf("no verdict, or a note advising a relaunch onto an older or the same yolo:\n%s", out)
 			}
 		})
@@ -80,7 +90,7 @@ func TestConfigApplyOnMacosUserNamesAKeeperAnOlderYoloStarted(t *testing.T) {
 	if rc := o.configApply(false); rc != 0 {
 		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
 	}
-	if out := buf.String(); strings.Contains(out, "may still run it") {
+	if out := buf.String(); strings.Contains(out, brokerSkewMarker) {
 		t.Fatalf("a note with no keeper running:\n%s", out)
 	}
 

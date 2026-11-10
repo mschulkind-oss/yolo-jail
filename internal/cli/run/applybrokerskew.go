@@ -23,9 +23,9 @@ import (
 //
 // ONLY WHEN THIS YOLO IS NEWER. A newer yolo reads what an older one writes (its former
 // spellings, internal/config/formerspellings.go), so the exposed direction is an older broker
-// under a newer host yolo, and a relaunch onto an older host yolo is never advised. "May still
-// run it": a host supervisor that restarts a broker after `just install` runs the newer binary,
-// which nothing here can see.
+// under a newer host yolo, and a relaunch onto an older host yolo is never advised. The note is
+// definite: a launch pins its helpers to the yolo it started with and a restart never runs another
+// build (docs/design/pinned-host-helpers.md section 6, PH-D10), so the brokers do run the older one.
 
 // noteBrokersStartedByAnOlderYolo prints the note, or nothing: silent unless the yolo that
 // started this workspace's brokers is known and this one is provably newer.
@@ -36,7 +36,7 @@ func (o *Options) noteBrokersStartedByAnOlderYolo(out printer, rt, cname string,
 		return
 	}
 	out.print("[dim]" + richtext.Escape(termsafe.Visible(fmt.Sprintf(
-		"This workspace's host brokers were started by yolo %s and may still run it; this is yolo %s. "+
+		"This workspace's host brokers run yolo %s, the build that started them; this is yolo %s. "+
 			"A broker rereads your user config at every call as the yolo it runs reads it, so a grant "+
 			"in force here can still be refused there. To run them on this yolo, %s once its sessions "+
 			"are done, then launch again.", started, host, keyedStopRemedy(rt, cname)))) + "[/dim]")

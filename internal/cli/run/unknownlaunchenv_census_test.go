@@ -56,7 +56,7 @@ var notLaunchSettings = func() map[string]string {
 		"YOLO_HOST_SERVICE_ATTEMPT": daemonHalf, "YOLO_HOST_SERVICE_HALF": daemonHalf,
 		"YOLO_HOST_SERVICE_INPUT": daemonHalf, "YOLO_HOST_SERVICE_LIFELINE_FD": daemonHalf,
 		"YOLO_HOST_SERVICE_LISTEN_FDS": daemonHalf, "YOLO_HOST_SERVICE_NAME": daemonHalf,
-		"YOLO_HOST_SERVICE_REASON_FD": daemonHalf, "YOLO_DOCTOR_SERVICE_NOT_STARTED_ON": daemonHalf,
+		"YOLO_HOST_SERVICE_REASON_FD": daemonHalf, "YOLO_HELPER_JAIL": daemonHalf, "YOLO_DOCTOR_SERVICE_NOT_STARTED_ON": daemonHalf,
 		"YOLO_NIX_ROOTS_LOG": daemonHalf, "YOLO_JOURNALCTL_PASSTHROUGH_HELP": daemonHalf,
 		"YOLO_OPENAI_AUTH_HOST_SOCKET": daemonHalf, "YOLO_BUILDER_PUBKEY": daemonHalf,
 

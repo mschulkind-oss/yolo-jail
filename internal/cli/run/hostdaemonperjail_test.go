@@ -137,6 +137,7 @@ func TestADetachedDaemonIsSignalledAndNotWaitedFor(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.ServiceTermGrace = 30 * time.Second
 	h, pid, termed, release := lingeringDaemon(t, o, &loopholes.HostDaemon{
@@ -182,6 +183,7 @@ func TestADaemonWithoutDetachIsStillKilledAfterItsGrace(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.ServiceTermGrace = 200 * time.Millisecond
 	h, pid, termed, _ := lingeringDaemon(t, o, &loopholes.HostDaemon{
@@ -241,6 +243,7 @@ func TestOnPodmanACredentialDaemonRunsAsTheJailsOwn(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.IsMacOS = false
 
@@ -317,6 +320,7 @@ func TestThePerJailOpenAIDaemonRunsTheLegacyMigrationFirst(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{Workspace: workspace}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.IsMacOS = false
 
@@ -354,6 +358,7 @@ func TestAMigrationThatCannotCompleteStartsNoOpenAIDaemonAndSaysWhy(t *testing.T
 	var buf strings.Builder
 	o := &Options{Workspace: workspace}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.IsMacOS = false
 
@@ -389,6 +394,7 @@ func TestOnAppleContainerTheOpenAIServiceRunsAsTheJailsOwnDaemon(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{Workspace: t.TempDir()}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	o.IsMacOS = false
 
@@ -521,6 +527,7 @@ func TestAJailsOwnBrokerDaemonAnswersThroughItsFront(t *testing.T) {
 	var buf strings.Builder
 	o := &Options{}
 	fillDefaults(o)
+	o.helperPin = testPin()
 	o.Stderr = &buf
 	h, ok := o.startExternalService(name, spec, socketsDir, loopholes.TransportLoopbackTLS, "127.0.0.1",
 		&loopholes.HostDaemon{Publishes: loopholes.PublishesSocket, RequestEnd: loopholes.RequestEndFramed,

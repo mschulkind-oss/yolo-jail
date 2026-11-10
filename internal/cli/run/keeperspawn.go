@@ -39,6 +39,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -72,23 +73,24 @@ func SelfExecPath() string {
 	return execx.SelfExecArgv([]string{"yolo"})[0]
 }
 
-// realSpawnKeeper is the production spawner: the running binary, in a session of its own, stdio on
-// /dev/null, the three descriptors as fds 3 to 5 and the reserved ports after them
-// (startDetached's shape, JL-D29). On Linux it is exec'd from /proc/self/exe, which still names
-// this binary after `just install` replaced its file (JL-D5); elsewhere from its path, and a
-// keeper of another build refuses the plan.
-func realSpawnKeeper(_ *Options, planPath string, progress, lifeline, lock *os.File,
+// realSpawnKeeper is the production spawner: the launch's PINNED yolo (pinnedexec.go), in a session
+// of its own, stdio on /dev/null, the three descriptors as fds 3 to 5 and the reserved ports after
+// them (startDetached's shape, JL-D29). On every OS, Linux included: the keeper's /proc/self/exe
+// then names the pin's inode, which is what keeps JL-D5's later self-execs on the pin's build
+// (PH-D5). The pin is stat-checked first, and a changed one refuses the launch rather than running
+// another build.
+func realSpawnKeeper(launch *Options, planPath string, progress, lifeline, lock *os.File,
 	reserved []*os.File) (func() int, error) {
-	argv := keeperArgv(planPath, lock != nil, len(reserved))
-	if exe := keeperSelfExe(); exe != "" {
-		argv[0] = exe
-	} else {
-		argv = execx.SelfExecArgv(argv)
-	}
 	if flag.Lookup("test.v") != nil {
 		return nil, errTestBinarySelfExec
 	}
+	argv, err := launch.pinnedArgv(keeperArgv(planPath, lock != nil, len(reserved)))
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	// The jail the helper serves, for its start line (PH-D9).
+	cmd.Env = append(os.Environ(), helperpin.EnvJail+"="+launch.jailName())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.ExtraFiles = []*os.File{progress, lifeline}
 	if lock != nil {
@@ -253,7 +255,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		teardownID = hex.EncodeToString(nonce[:])
 	}
 	return &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(),
+		Build: keeperBuildStamp(), Pin: o.pinOrZero(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(),
 		Network: o.Network, Color: o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
@@ -1348,7 +1350,7 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		names = append(names, p.Name)
 	}
 	plan := &keeperPlan{
-		Build: keeperBuildStamp(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(), Network: o.Network,
+		Build: keeperBuildStamp(), Pin: o.pinOrZero(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(), Network: o.Network,
 		MacosUserMode: o.MacosUserMode,
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
 		Payload: payload, ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), ApprovedHTTPBindings: cloneHTTPBindings(o.approvedHTTPBindings), PrivateClientEntrypoints: slices.Clone(o.privateClientEntrypoints), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,

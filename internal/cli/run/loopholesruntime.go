@@ -13,6 +13,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
@@ -1336,8 +1337,15 @@ func (o *Options) resolveDaemonArgv(name string, spec *jsonx.OrderedMap, daemonP
 	// token makes the spawn immune to PATH divergence — the jail agent's PATH
 	// need not contain "yolo" (the old console-script name `yolo-host-processes`
 	// wasn't on it, which broke the spawn). A config loophole's own command
-	// (argv[0] != "yolo") is left untouched.
-	return o.selfExecArgv(cmdArgs), true
+	// (argv[0] != "yolo") is left untouched. The token becomes the launch's PINNED yolo, never
+	// os.Executable() (pinnedexec.go): without a pin, or with a changed one, the daemon is not started.
+	argv, err := o.selfExecArgv(cmdArgs)
+	if err != nil {
+		p := o.pr(o.Stderr)
+		p.print("[red]Not starting host service '" + name + "': " + richtext.Escape(err.Error()) + "[/red]")
+		return nil, false
+	}
+	return argv, true
 }
 
 func isShellCommand(command string) bool {
@@ -1477,6 +1485,10 @@ func (o *Options) startExternalService(
 		env = append(env, svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
 		envSet = true
 	}
+	// The jail this daemon serves, for the line it logs at start (PH-D9): the container name, or the
+	// workspace's key at macos-user. Set before the declared env, so a manifest cannot rename it.
+	env = append(env, helperpin.EnvJail+"="+o.jailName())
+	envSet = true
 	if e := cfgMap(spec, "env"); e != nil {
 		for _, k := range e.Keys() {
 			if v, ok := mapGet(e, k).(string); ok {
@@ -1778,6 +1790,19 @@ func (o *Options) startExternalService(
 		// The copies `yolo host-daemon stop` acts on are the ones at a front socket, and its marker
 		// sits beside that socket. A restart's removal of the socket's siblings clears it too.
 		sup.stoppedByVerb = func(pid int) bool { return hostservice.TakeStopMarker(daemonPath, pid) }
+	}
+	// A RESTART RUNS THE SAME PINNED YOLO OR NONE (PH-D6, section 3.4): where this daemon was started
+	// from the pin, a pin that is gone or changed turns a restart into a give-up naming the stop step.
+	// Not a fallback to os.Executable(), which would be the different-build restart this removes.
+	if pin := o.helperPin; pin != nil && cmdArgs[0] == pin.Path {
+		pinned, rt, jail := *pin, o.runtime, o.jailName()
+		sup.restartBlocked = func() string {
+			if pinned.Unchanged() {
+				return ""
+			}
+			return pinGoneClause(pinned.Path) + " It stays down until the jail is launched again: " +
+				keyedStopRemedy(rt, jail) + "."
+		}
 	}
 	sup.start = func() (*exec.Cmd, <-chan struct{}, error) {
 		// The dead process's artifact first, as the first spawn removed a predecessor's: a leftover

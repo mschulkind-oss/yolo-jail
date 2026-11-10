@@ -5,8 +5,11 @@ package run
 
 import (
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,5 +119,68 @@ func TestTheKeepersSelfExecsGoThroughItsOwnBinary(t *testing.T) {
 		if calls["SelfExecArgv"] {
 			t.Errorf("%s calls execx.SelfExecArgv, which re-resolves the binary's path", tc.fn)
 		}
+	}
+}
+
+// TestNoCallSiteReachesExecxSelfExecArgvDirectly is PH-D4 at every call site: a self-exec that serves
+// a jail goes through selfExecArgv, which execs the launch's pin and never re-resolves
+// os.Executable() (docs/design/pinned-host-helpers.md section 3.3). The one caller outside the rule
+// is SelfExecPath, whose caller is a patched fork's build child.
+func TestNoCallSiteReachesExecxSelfExecArgvDirectly(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanned := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		scanned++
+		f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			ast.Inspect(fd, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "SelfExecArgv" {
+					return true
+				}
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == "execx" &&
+					!(file == "keeperspawn.go" && fd.Name.Name == "SelfExecPath") {
+					t.Errorf("%s: %s calls execx.SelfExecArgv, which re-resolves os.Executable(); "+
+						"go through Options.selfExecArgv, which execs the launch's pin", file, fd.Name.Name)
+				}
+				return true
+			})
+		}
+	}
+	if scanned < 50 {
+		t.Fatalf("scanned only %d files: the glob no longer reaches the package", scanned)
+	}
+}
+
+// TestThePinIsResolvedByRunAndExecdByTheKeeperSpawn pins the two call sites no behavioral test
+// reaches: Run resolves the pin before it spawns anything (PH-D3), and the keeper is spawned from
+// that pin on every OS, Linux included, never from /proc/self/exe or os.Executable() (PH-D5).
+func TestThePinIsResolvedByRunAndExecdByTheKeeperSpawn(t *testing.T) {
+	if !callsIn(funcDecl(t, "run.go", "Run"))["resolveHelperPin"] {
+		t.Error("Run no longer resolves the launch's pin at pre-flight")
+	}
+	spawn := callsIn(funcDecl(t, "keeperspawn.go", "realSpawnKeeper"))
+	if !spawn["pinnedArgv"] {
+		t.Error("realSpawnKeeper no longer execs the pin")
+	}
+	if spawn["keeperSelfExe"] || spawn["SelfExecArgv"] {
+		t.Error("realSpawnKeeper spawns the keeper from /proc/self/exe or os.Executable(), not the pin")
 	}
 }
