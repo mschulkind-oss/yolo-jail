@@ -135,7 +135,7 @@ Run by the owner's Mac agent on main; what they find is fixed forward.
      Expected: `--- PASS: TestCircleCIFakeHostCLIUsesRealClassifier`.
   3. Report both outputs and the run id. A pass in both settles W-BX1.
 
-  *Step 1 run 2026-11-09 at `04f300a9e`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-fix-reruns.md#5-w-bx1-step-1-the-circleci-test)): **passes** (`--- PASS … (16.19s)`), after `YOLO_LOAD_RUNTIME=podman just load` cleared a stale podman image. Step 2 waits on a nightly at `400d1eb28` or later: the 11-09 nightly ran `310130d79` again.
+  *Step 1 run 2026-11-09 at `04f300a9e`* (lab report, retired; in git at `22e2562bf`): **passes** (`--- PASS … (16.19s)`), after `YOLO_LOAD_RUNTIME=podman just load` cleared a stale podman image. Step 2 waits on a nightly at `400d1eb28` or later: the 11-09 nightly ran `310130d79` again.
 
 ## Ships with and remaining dependencies
 
