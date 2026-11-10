@@ -219,8 +219,27 @@ The *resolver* is shared across backends; delivery is not.
   check refuses any other pair (`envfile.go` in `internal/macosuser`). Until 2026-09-13 the
   values rode the argv.
 
-On every backend, a value a selected provider claims as its credential is held back from the
-shared delivery and goes to the env file of the agent whose profile selected that provider
+**The channel has two sets** ([secret-env-scoping.md](../design/secret-env-scoping.md)). The
+**public set** is `[env]` (`set`, `files`, `sources`, and a legacy file's `env_sources`): its values
+reach every process, as above. The **private set** is `[env.secrets]` (`set` and `files` only): a
+private value reaches only the agents whose selected provider claims its name, or whose config
+names an MCP server whose `requires_env` names it, and a private value nothing claims reaches no
+process and is named on every launch. Each name is written in one set; one `[env] unset` removes
+it from both. A selected provider's key found in the public set refuses the launch, `yolo host`
+and `yolo check`, naming the move, and a name in both sets refuses too. The two verbs move a name
+between the sets, a dotenv line or an inline value alike, and never print a value:
+
+```bash
+yolo config secret ZAI_API_KEY --user     # public to private
+yolo config unsecret STRIPE_KEY --user    # private to public
+```
+
+`--drop` removes the other set's copy instead of moving one. A legacy JSONC file has no private
+set; its refusal names `yolo config migrate` first. A workspace's private file must lie inside the
+workspace, as a public one must.
+
+On every backend, a private value a selected provider claims as its credential is held back from
+the shared delivery and goes to the env file of the agent whose profile selected that provider
 ([the credential gate](providers.md#the-credential-gate)). On `macos-user` the launched agent's
 own values also ride its session file, since that backend runs one command per invocation.
 

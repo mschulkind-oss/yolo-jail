@@ -13,24 +13,29 @@ Two words do the work:
 
 ## Use a provider in three steps
 
-1. **Add the provider's pack** to your user config, beside your agent: `yolo pack add zai`. In a
-   JSONC user config that is:
+1. **Add the provider's pack** to your user config, beside your agent: `yolo pack add zai`. With
+   the key file from step 2 listed in your private environment, that is:
 
-   ```jsonc
-   {
-     "packs": ["claude", "zai"],
-     "env_sources": ["~/.config/yolo-jail/secrets.env"]
-   }
+   ```toml
+   # ~/.config/yolo-jail/config.toml
+   packs = ["claude", "zai"]
+
+   [env.secrets]
+   files = ["~/.config/yolo-jail/secrets.env"]
    ```
 
-2. **Put the key in a dotenv file** listed under `env_sources`, outside any repository:
+2. **Put the key in a dotenv file** listed under `[env.secrets] files`, outside any repository:
 
    ```bash
    # ~/.config/yolo-jail/secrets.env
    ZAI_API_KEY=your-key-here
    ```
 
-   Never put a key value in a `.jsonc` file. Keep the key in `env_sources` rather than
+   Keep the key in `[env.secrets]`, the private set,
+   rather than in `[env]`, which every process in the jail sees: a launch that finds a selected
+   provider's key in `[env]` stops and names the command that moves it,
+   `yolo config secret ZAI_API_KEY --user`. A legacy JSONC config has no private set, so there
+   the message names `yolo config migrate` first. Keep the key there rather than
    exporting it in your shell: inside a jail, pi, opencode and Codex see only the keys yolo
    delivers, so a launch that finds their key only in your shell stops and tells you to move it.
 
@@ -174,7 +179,7 @@ Two more come with the agent packs, with no extra pack to add:
   `AWS_REGION` in an `env_sources` entry, or as the `region` of your AWS profile in
   `~/.aws/config`. yolo reads that file on your machine for the profile your credential comes
   from: the one `aws-auth` serves, else the `AWS_PROFILE` the agent receives, else `default`. In
-  a jail the agent receives an `AWS_PROFILE` only from your `env_sources`; at `yolo host` it also
+  a jail the agent receives an `AWS_PROFILE` only from your `[env.secrets]`; at `yolo host` it also
   gets the one in your shell. yolo hands the agent that profile's region, and says so at launch,
   in a jail and at `yolo host` alike. A `bedrock` launch that finds no region in any of the three
   is refused, and names the three. In a jail an `AWS_REGION` or `AWS_PROFILE` exported in your
@@ -193,7 +198,7 @@ Two more come with the agent packs, with no extra pack to add:
 
   `yolo -p eu -- claude` then runs Claude Code on its own Bedrock client in `eu-west-1`, with the
   `aws-auth` credentials when that loophole is on. `platform` belongs in your user config; a
-  workspace `yolo-jail.jsonc` carrying it is refused. The AWS keys you put in `env_sources`
+  workspace `yolo-jail.jsonc` carrying it is refused. The AWS keys you put in `[env.secrets]`
   (`AWS_ACCESS_KEY_ID` and the rest) reach the agents on your provider, as they reach the agents
   on `bedrock`, and no other process. If you list your own `api_key_env_name` on the provider,
   only those variables are kept for its agents.
@@ -287,7 +292,9 @@ The shipped `bedrock` provider targets `bedrock-runtime` through agents' native 
 }
 ```
 
-Put the Bedrock API key in the referenced file, not in JSONC or a workspace file:
+Put the Bedrock API key in the referenced file, not in JSONC or a workspace file. A provider's key in
+`env_sources` is refused at launch; run `yolo config migrate`, then
+`yolo config secret BEDROCK_RUNTIME_API_KEY --user`, which moves it to the TOML private set:
 
 ```bash
 # ~/.config/yolo-jail/secrets.env

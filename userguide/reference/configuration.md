@@ -152,7 +152,7 @@ A typical user config:
 # ~/.config/yolo-jail/config.toml
 packs = ["claude", "guardrails"]                 # yolo pack add claude; yolo pack add guardrails
 
-[env]
+[env.secrets]
 files = ["~/.config/yolo-jail/secrets.env"]      # API keys; see Providers and Models
 
 [allow.git]
@@ -166,6 +166,25 @@ Not every key works on every setup; `machine.forward`, for example, stops a laun
 Container. [Settings per setup](settings-per-setup.md) has the per-key detail.
 
 To see the result of the merge, run `yolo describe --json`.
+
+## Public and private environment variables
+
+`[env]` is the **public** set: its values reach every process in the jail, a bare shell included.
+`[env.secrets]` is the **private** set, with the same `set` and `files` rows: a private value
+reaches only the agents that use it, the ones whose selected provider names it as its key, or
+whose config names an MCP server that needs it. A private value nothing uses reaches no process,
+and every launch names it (never its value).
+
+Put API keys in the private set. A key that a selected provider uses, left in `[env]`, stops the
+launch, and the message names the command that moves it:
+
+```bash
+yolo config secret ZAI_API_KEY --user
+```
+
+`yolo config unsecret NAME` moves a name back. Both move a line between dotenv files, or an inline
+value between tables, and never print the value. Write each name in one set only; a name in both
+stops the launch too, and `--drop` keeps one copy. `[env] unset` removes a name from both sets.
 
 ## Approving config changes
 

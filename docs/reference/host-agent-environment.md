@@ -115,8 +115,10 @@ confinement dial). For the
 1. **P1 — Split by payload type, never by agent.** Two channels, both always present for every
    pack, carrying different things. There is no per-agent method selection: selecting per agent
    *was* the fragility, not the fix for it. A pack that needs neither channel declares neither.
-2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env_name` and `env_sources`
-   put only a variable *name* in config; nothing else populates it on the host. **Any BYOK
+2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env_name` puts only a variable
+   *name* in config, and the env channel (`[env.secrets]` for a provider's key since
+   [secret-env-scoping](../design/secret-env-scoping.md); legacy `env_sources`) carries its value;
+   nothing else populates it on the host. **Any BYOK
    provider is unusable on the host without this channel** — for every agent, not just the one
    with no config file. The deciding fact is not a property of the agent at all: whether the env
    channel is needed is a property of the **provider**. Bedrock needs AWS credentials in the

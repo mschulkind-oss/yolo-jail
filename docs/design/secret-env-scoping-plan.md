@@ -2,8 +2,8 @@
 title: "Secret env scoping: implementation plan"
 date: 2026-11-09
 status: accepted
-stage: DECIDED
-next: "Build Task 1 (the hydration keeps which set declared each name); stop at its targeted gate"
+stage: BUILT
+next: "Run the Mac checks below; then graduate with the design into providers.md"
 depends-on:
   - secret-env-scoping.md
 tags: [credentials, env_sources, providers, credential-gate, config, plan]
@@ -11,7 +11,7 @@ tags: [credentials, env_sources, providers, credential-gate, config, plan]
 
 # Secret env scoping: implementation plan
 
-**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Nothing is built.
+**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Built, Tasks 1 to 8; the [Mac checks](#mac-checks) are owed.
 **Design:** [`secret-env-scoping.md`](secret-env-scoping.md), `status: accepted`, no question open
 (rulings [SE-D2](secret-env-scoping.md#SE-D2) and [SE-D12](secret-env-scoping.md#SE-D12) to
 [SE-D15](secret-env-scoping.md#SE-D15)).
@@ -1029,6 +1029,9 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Gates:** `uvx vantage-check` on every edited doc; `just lint-ci`.
 - **Commit:** `docs: the public and private env sets`
 - **Report:** the files, the check results.
+- **As built:** also [`providers-and-models.md`](../../userguide/guides/providers-and-models.md), outside
+  the list above: its three steps put a provider key in `env_sources`, which now refuses, so they
+  name `[env.secrets]` and the two verbs.
 
 ## Ships with
 
@@ -1094,6 +1097,19 @@ a running jail keeps its processes' environment until it restarts.
   rejected).
 - Don't touch [`bedrock-key-provider.md`](bedrock-key-provider.md) or plan anything for the `bedrock-key`
   provider: [OQ-BK3](bedrock-key-provider.md#OQ-BK3) is open.
+
+## Mac checks
+
+Owed at `<landing sha>`; the jail notch and `yolo host` were run on Linux only.
+
+- **macos-user refusal parity.** A user config with `packs = ["zai"]` and `ZAI_API_KEY` under `[env] set`:
+  `yolo -- true` exits non-zero naming `yolo config secret ZAI_API_KEY --user`, the value never printed,
+  and no per-session env file is written. Witness: the stderr and `ls` of the session directory.
+- **Apple Container refusal parity.** The same config on `apple-container-self`: the same refusal, and
+  `<workspace>/.yolo/home/.config/yolo-agent-env/` gains no file.
+- **macos-user private delivery.** The key under `[env.secrets] set` with `-p claude=zai`: claude's
+  session file holds it, a bare `yolo -- env` does not.
+- **`integration/macosuserbridge_test.go`** skipped on Linux (darwin-only); run it on a Mac.
 
 ## Design gaps
 
