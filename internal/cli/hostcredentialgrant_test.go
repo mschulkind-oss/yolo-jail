@@ -21,9 +21,16 @@ import (
 )
 
 // esGrantConfig is the design's measured setup (§3.1): packs claude, pi and zai, and
-// env_sources carrying zai's key beside an unclaimed PORT.
-const esGrantConfig = `{"packs": ["claude", "pi", "zai"], "env_sources": [` +
-	`{"ZAI_API_KEY": "tok-es", "PORT": "8080"}]}`
+// env_sources carrying zai's key beside an unclaimed PORT. ZAI_API_KEY is the zai provider's
+// key, so it lives in the private set (secret-env-scoping.md); PORT stays public.
+const esGrantConfig = `packs = ["claude", "pi", "zai"]
+
+[env]
+set = { PORT = "8080" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es" }
+`
 
 // OQ-NC5 at the host: a bare -p reaches agent CLIs only, so `yolo host -p zai -- env` (a command
 // no selected pack installs) is REFUSED before the exec, and never hands the command zai's key.
@@ -213,8 +220,15 @@ func runRemedy(t *testing.T, argv []string) (int, string, map[string]string, str
 // the agent's backend. The line says so, naming the profile it replaces, and never words it as
 // handing the agent the key.
 func TestHostGrantAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai", "bedrock"], "profile": {"claude": "bedrock"}, `+
-		`"env_sources": [{"ZAI_API_KEY": "tok-es", "AWS_PROFILE": "dev"}]}`, nil, nil, "claude")
+	// ZAI_API_KEY and AWS_PROFILE are claimed (zai's, bedrock's), so both are private.
+	_, errs := hostGateLaunchWith(t, `packs = ["claude", "zai", "bedrock"]
+
+[active_provider]
+claude = "bedrock"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es", AWS_PROFILE = "dev" }
+`, nil, nil, "claude")
 	line := scopeLine(t, errs, "ZAI_API_KEY")
 	want := "To run claude on the zai profile for one launch, replacing its bedrock profile: " +
 		"`yolo host -p zai -- claude`"
@@ -229,8 +243,12 @@ func TestHostGrantAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
 // An ad-hoc command's remedy is the grant, whichever provider claims the name: bedrock's key
 // pair is handed to bash by `--with-credentials bedrock`, never by a -p (OQ-NC5).
 func TestHostGrantAdHocRemedyIsTheGrantNeverAProfile(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai", "bedrock"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-es", "AWS_ACCESS_KEY_ID": "AKIA-host"}]}`, nil, nil, "bash")
+	// ZAI_API_KEY and AWS_ACCESS_KEY_ID are claimed (zai's, bedrock's), so both are private.
+	_, errs := hostGateLaunchWith(t, `packs = ["claude", "zai", "bedrock"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es", AWS_ACCESS_KEY_ID = "AKIA-host" }
+`, nil, nil, "bash")
 	line := scopeLine(t, errs, "AWS_ACCESS_KEY_ID")
 	want := "To hand it to bash for one launch: `yolo host --with-credentials bedrock -- bash`"
 	if !strings.Contains(line, want) {
@@ -258,8 +276,11 @@ func TestHostEnvAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
 // `yolo host -p cerebras -- claude` refuses on the protocol pairing. The line must hand the
 // key to an ad-hoc command instead, and say why claude is not named.
 func TestHostGrantRemedyNeverNamesAProfileTheAgentRefuses(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "cerebras"], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "tok-c"}]}`, nil, nil, "claude")
+	_, errs := hostGateLaunchWith(t, `packs = ["claude", "cerebras"]
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+`, nil, nil, "claude")
 	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
 	if strings.Contains(line, "-- claude`") {
 		t.Errorf("claude cannot run on cerebras here, so no named command may launch it: %q", line)
@@ -275,9 +296,11 @@ func TestHostGrantRemedyNeverNamesAProfileTheAgentRefuses(t *testing.T) {
 // The §1 incident's own config at `yolo host env`, whose agent defaults to claude: every
 // withheld line's named commands run, openai-only providers (cerebras, kilo) included.
 func TestHostEnvRemediesAllRunOverTheIncidentConfig(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras", "kilo"], `+
-		`"env_sources": [{"ZAI_API_KEY": "z", "OPENROUTER_API_KEY": "o", "CEREBRAS_API_KEY": "c", `+
-		`"KILO_API_KEY": "k"}]}`, nil)
+	hostGateHome(t, `packs = ["claude", "pi", "zai", "openrouter", "cerebras", "kilo"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "z", OPENROUTER_API_KEY = "o", CEREBRAS_API_KEY = "c", KILO_API_KEY = "k" }
+`, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())
@@ -297,26 +320,47 @@ func TestHostEnvRemediesAllRunOverTheIncidentConfig(t *testing.T) {
 // declare: a user provider claude cannot speak to gets the ad-hoc spelling, and once the
 // example entry is declared, the named command runs.
 func TestHostGrantDeclareRemedyNamesACommandThatRunsOnceDeclared(t *testing.T) {
-	provider := `"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example/v1"}}, ` +
-		`"api_key_env_name": "DEEPSEEK_API_KEY"}}`
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude"], `+provider+`, `+
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "claude")
+	// DEEPSEEK_API_KEY is the deepseek provider's key, so it lives in the private set.
+	provider := `
+[providers.deepseek]
+api_key_env_name = "DEEPSEEK_API_KEY"
+
+[providers.deepseek.endpoints.openai]
+base_url = "https://api.deepseek.example/v1"
+`
+	secrets := `
+[env.secrets]
+set = { DEEPSEEK_API_KEY = "tok-ds" }
+`
+	_, errs := hostGateLaunchWith(t, `packs = ["claude"]
+`+provider+secrets, nil, nil, "claude")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
 	if !strings.Contains(line, "`yolo host --with-credentials deepseek -- bash`") || strings.Contains(line, "-- claude`") {
 		t.Errorf("claude speaks no openai, so the declared profile's remedy must be ad-hoc: %q", line)
 	}
-	hostGateHome(t, `{"packs": ["claude"], `+provider+`, "profiles": {"deepseek": {"provider": "deepseek"}}, `+
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil)
+	// The legacy `"profiles": {"deepseek": {"provider": "deepseek"}}` has no TOML spelling of its
+	// own: a provider is selectable by its own name (`yolo config migrate` drops the entry).
+	hostGateHome(t, `packs = ["claude"]
+`+provider+secrets, nil)
 	assertRemediesRun(t, line, "DEEPSEEK_API_KEY", "tok-ds")
 }
 
 // With two providers claiming one name, the remedy names the first profile the agent can run
 // on, not merely the first by preference: `aaa` sorts ahead of zai but speaks only openai.
 func TestHostGrantRemedyPrefersAProfileTheAgentRunsOn(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], `+
-		`"providers": {"aaa": {"endpoints": {"openai": {"base_url": "https://aaa.example/v1"}}, `+
-		`"api_key_env_name": "ZAI_API_KEY"}}, "profiles": {"aaa": {"provider": "aaa"}}, `+
-		`"env_sources": [{"ZAI_API_KEY": "tok-es"}]}`, nil, nil, "claude")
+	// ZAI_API_KEY is claimed (by aaa and zai), so it lives in the private set. The legacy
+	// `"profiles": {"aaa": {"provider": "aaa"}}` is the provider's own name in TOML.
+	_, errs := hostGateLaunchWith(t, `packs = ["claude", "zai"]
+
+[providers.aaa]
+api_key_env_name = "ZAI_API_KEY"
+
+[providers.aaa.endpoints.openai]
+base_url = "https://aaa.example/v1"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es" }
+`, nil, nil, "claude")
 	line := scopeLine(t, errs, "ZAI_API_KEY")
 	if !strings.Contains(line, "`yolo host -p zai -- claude`") {
 		t.Errorf("claude runs on zai, which also claims the key, so the line must name it: %q", line)
@@ -355,10 +399,18 @@ func assertRemediesRun(t *testing.T, line, name, value string) {
 // one rather than naming a -p that would refuse. The §1 incident's deepseek line, on pi, which
 // speaks openai. An ad-hoc command needs no profile at all: its remedy is the grant.
 func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t *testing.T) {
-	cfg := `{"packs": ["pi"], ` +
-		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, ` +
-		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, ` +
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`
+	// DEEPSEEK_API_KEY is the deepseek provider's key, so it lives in the private set.
+	cfg := `packs = ["pi"]
+
+[providers.deepseek]
+api_key_env_name = "DEEPSEEK_API_KEY"
+
+[providers.deepseek.endpoints.openai]
+base_url = "https://api.deepseek.example"
+
+[env.secrets]
+set = { DEEPSEEK_API_KEY = "tok-ds" }
+`
 	_, errs := hostGateLaunchWith(t, cfg, nil, nil, "bash")
 	if line := scopeLine(t, errs, "DEEPSEEK_API_KEY"); strings.Contains(line, "No declared profile") ||
 		!strings.Contains(line, "`yolo host --with-credentials deepseek -- bash`") {
@@ -375,17 +427,25 @@ func TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider(t 
 	}
 }
 
-// With a user profile declared over that provider, the remedy names it: a declared profile
-// that resolves to the claimant, whatever it is called.
-func TestHostGrantWithheldLineNamesAUserProfileOverTheProvider(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["pi"], `+
+// A user profile over a provider with no profile of its own name was spelled only in the legacy
+// file, which has no private set (SE-D6), so its key could only be public, and a public key a
+// composed provider claims now refuses (secret-env-scoping.md §3.5). The remedy's ordering of user
+// profiles is TestRemedyProfilePrefersTheProvidersOwnName's; what a legacy file gets here is the
+// refusal, naming the migration first (SEP-D18) and the key the file spells.
+func TestHostRefusesALegacyPublicKeyNamingMigrateFirst(t *testing.T) {
+	rc, env, errs := hostGateRun(t, `{"packs": ["pi"], `+
 		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}, `+
 		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, `+
 		`"profiles": {"ds": {"provider": "deepseek"}}, `+
 		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-ds"}]}`, nil, nil, "pi")
-	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	if !strings.Contains(line, "`yolo host -p ds -- pi`") {
-		t.Errorf("the remedy must name the user's profile over deepseek: %q", line)
+	want := "config.env_sources: DEEPSEEK_API_KEY is set in your public environment (env_sources), and the " +
+		"deepseek provider this launch selects claims it as its key."
+	if rc == 0 || env != nil || !strings.Contains(errs, want) ||
+		!strings.Contains(errs, "run yolo config migrate, then yolo config secret DEEPSEEK_API_KEY --user") {
+		t.Errorf("a legacy file's public key refuses, naming the migration first: rc = %d\n%s", rc, errs)
+	}
+	if strings.Contains(errs, "tok-ds") {
+		t.Errorf("the refusal printed the value:\n%s", errs)
 	}
 }
 
@@ -543,9 +603,23 @@ func TestHostGrantBeatsTheShellsValue(t *testing.T) {
 }
 
 // esUseProfilesBash is the design's ES-D5 case: a profile entry keyed by a command no pack
-// installs, which `yolo check` and every jail launch already refuse.
+// installs, which `yolo check` and every jail launch already refuse. The entry's refusal is the
+// subject, and it comes before any env refusal, so the file carries no provider key; it stays in
+// the legacy spelling, whose `profile` entry for bash the validator refuses whatever else is
+// typed.
 const esUseProfilesBash = `{"packs": ["claude", "pi", "zai"], "profile": {"bash": "zai"}, ` +
-	`"env_sources": [{"ZAI_API_KEY": "tok-es", "PORT": "8080"}]}`
+	`"env_sources": [{"PORT": "8080"}]}`
+
+// esUseProfilesBashClean is the same selection without the entry, holding zai's key where a
+// provider's key lives, the private set (secret-env-scoping.md), for the cells where it delivers.
+const esUseProfilesBashClean = `packs = ["claude", "pi", "zai"]
+
+[env]
+set = { PORT = "8080" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es" }
+`
 
 // ES-D5: no profile keys a command no pack installs. The profile entry is refused at
 // `yolo host --` before anything is exec'd, with the validator's own message and the grant
@@ -580,7 +654,7 @@ func TestHostGrantTypedProfileRefusesBesideARefusedEntry(t *testing.T) {
 		t.Errorf("a typed -p beside a profile key every launch refuses must refuse with the "+
 			"validator's message: rc = %d\n%s", rc, errs)
 	}
-	clean := strings.Replace(esUseProfilesBash, `"profile": {"bash": "zai"}, `, "", 1)
+	clean := esUseProfilesBashClean
 	if rc, env, errs := hostGateRun(t, clean, nil, []string{"-p", "zai"}, "bash"); rc == 0 || env != nil {
 		t.Errorf("a typed -p zai reaches agent CLIs only, so -- bash refuses: rc = %d\n%s", rc, errs)
 	}
@@ -607,7 +681,11 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
 		t.Errorf("yolo host env --agent bash -p zai must refuse the entry too:\n%s", out.String())
 	}
-	userCfg(t, home, strings.Replace(esUseProfilesBash, `"profile": {"bash": "zai"}, `, "", 1))
+	// The clean file replaces the legacy one: a TOML file beside a legacy one is refused.
+	if err := os.Remove(filepath.Join(home, ".config", "yolo-jail", "config.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	userCfg(t, home, esUseProfilesBashClean)
 	out.Reset()
 	errw.Reset()
 	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
@@ -629,8 +707,14 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 // accepted by `yolo check` whether or not that pack is selected, so the host accepts it too
 // rather than refusing what the validator passes.
 func TestHostGrantAcceptsAUseProfilesKeyTheValidatorAccepts(t *testing.T) {
-	env, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "profile": {"codex": "zai"}, `+
-		`"env_sources": [{"ZAI_API_KEY": "tok-es"}]}`, nil, nil, "codex")
+	env, errs := hostGateLaunchWith(t, `packs = ["claude", "zai"]
+
+[active_provider]
+codex = "zai"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-es" }
+`, nil, nil, "codex")
 	if env["ZAI_API_KEY"] != "tok-es" {
 		t.Errorf("profile {codex: zai} is valid config, so codex is keyed: ZAI_API_KEY = %q\n%s",
 			env["ZAI_API_KEY"], errs)

@@ -139,6 +139,11 @@
                                it, and what would apply without it
     yolo config set|add|unset <key> [value] [--user|--project|--local]
                                one typed edit, with the splice that keeps comments
+    yolo config secret <NAME> [--drop] [--user|--project|--local]
+                               move one env name into [env.secrets], never
+                               printing its value
+    yolo config unsecret <NAME> [--drop] [--user|--project|--local]
+                               move it back to [env]
     yolo config migrate        convert old files to TOML once, proving equality
     yolo config drift|dump|apply   as described below
 
@@ -752,6 +757,28 @@
       • set and unset — one table of values and one list of names, which
         apply after every list.
     `yolo config add env.files '"secrets.env"' --project` adds a file entry.
+    [env.secrets] is the PRIVATE set, beside the public one above:
+      [env.secrets]
+      files = ["~/.config/yolo-jail/keys.env"]
+      set = { ZAI_API_KEY = "…" }
+    It has two keys, files and set, read the same way and in either
+    scope (no sources, no unset: an [env] unset name removes it from
+    both sets).  A private value reaches only the agents whose selected
+    provider claims the name, or whose config names an MCP server whose
+    requires_env lists it; with nothing claiming it, it reaches nobody,
+    and the launch names it (never its value).  A private file in the
+    WORKSPACE config obeys the same inside-the-workspace rule as
+    env.files.
+    `yolo config secret NAME` moves NAME from the public set to the
+    private one in the scope that holds it (an inline value to
+    [env.secrets] set, a dotenv line to the first [env.secrets] file);
+    `yolo config unsecret NAME` moves it back.  `--drop` deletes the
+    other set's copy instead of moving one, and `--dotenv PATH` moves a
+    whole dotenv file's entry between the two files lists.  Neither
+    prints a value.
+    A selected provider's key in [env] refuses the launch (and `yolo
+    host`, `yolo check`), naming `yolo config secret NAME`; a name in
+    both sets refuses too, naming the `--drop` that keeps one copy.
     An unset name removes a pack's `env` value of the name too, in a jail
     as at the host.  It never removes a value the selected provider
     composes, nor the YOLO_PROVIDERS, YOLO_PROFILES and YOLO_USE_PROFILES

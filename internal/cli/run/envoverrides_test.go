@@ -46,6 +46,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,6 +78,28 @@ var bearerInShell = shellWith(map[string]string{bearerVar: "sk-bedrock-frozen"})
 // refuse it first (OQ-BR6, pinned on its own in regionpreflight_test.go).
 func awsAuthUserConfig(extra string) string {
 	return `{"packs": ["claude", "bedrock", "aws-auth"]` + bedrockRegionMember + extra + `}`
+}
+
+// awsAuthUserTOML is awsAuthUserConfig's TOML spelling, for a fixture holding a provider's key,
+// which only the TOML private set may (secret-env-scoping.md SE-D6); extra is appended verbatim.
+func awsAuthUserTOML(extra string) string {
+	return "packs = [\"claude\", \"bedrock\", \"aws-auth\"]\n\n[providers.bedrock]\nregion = \"" +
+		testBedrockRegion + "\"\n" + extra
+}
+
+// inEnvSecrets is the TOML private set holding vars, sorted so the config is the same bytes
+// every run.
+func inEnvSecrets(vars map[string]string) string {
+	names := make([]string, 0, len(vars))
+	for k := range vars {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	pairs := make([]string, 0, len(names))
+	for _, k := range names {
+		pairs = append(pairs, k+" = "+strconv.Quote(vars[k]))
+	}
+	return "\n[env.secrets]\nset = { " + strings.Join(pairs, ", ") + " }\n"
 }
 
 // testBedrockRegion is the region fixtures give the shipped `bedrock` provider when a launch
@@ -121,7 +144,13 @@ type nativeLaunch struct {
 func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) string) (*Options, *bytes.Buffer, *nativeLaunch) {
 	t.Helper()
 	home := packHome(t)
-	writeUserConfig(t, home, userConfig)
+	// A JSONC body is the legacy file; anything else is the TOML one, the only file that can hold
+	// a provider's key (secret-env-scoping.md SE-D6).
+	if strings.HasPrefix(strings.TrimSpace(userConfig), "{") {
+		writeUserConfig(t, home, userConfig)
+	} else {
+		writeUserConfigTOML(t, home, userConfig)
+	}
 	ws := t.TempDir()
 
 	var stdout, stderr bytes.Buffer
@@ -203,14 +232,14 @@ func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 // overrides nothing, so none of them refuses or warns — before this, a macos-user launch refused
 // a working bearer over a pointer that could never answer.
 func TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt(t *testing.T) {
-	for _, tc := range []struct{ name, extra string }{
-		{"a bearer", inEnvSources(map[string]string{bearerVar: "sk-bedrock-frozen"})},
-		{"the static pair", inEnvSources(map[string]string{
-			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})},
-		{"a ~/.aws/config grant", `, "host_files": [{"path": "~/.aws/config", "content": "[default]\nregion = us-east-1\n"}]`},
+	for _, tc := range []struct{ name, config string }{
+		{"a bearer", awsAuthUserTOML(inEnvSecrets(map[string]string{bearerVar: "sk-bedrock-frozen"}))},
+		{"the static pair", awsAuthUserTOML(inEnvSecrets(map[string]string{
+			"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"}))},
+		{"a ~/.aws/config grant", awsAuthUserConfig(`, "host_files": [{"path": "~/.aws/config", "content": "[default]\nregion = us-east-1\n"}]`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, stderr, seen := overrideNativeLaunch(t, awsAuthUserConfig(tc.extra), shellWith(nil))
+			o, stderr, seen := overrideNativeLaunch(t, tc.config, shellWith(nil))
 			if rc := Run(*o); rc != 0 || !seen.reached {
 				t.Fatalf("Run() = %d (reached=%v), want the launch to proceed: nothing serves the "+
 					"pointer here, so nothing can override it\nstderr:\n%s", rc, seen.reached, stderr.String())

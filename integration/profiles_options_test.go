@@ -127,7 +127,7 @@ func TestUndeclaredProfileNameRefusesTheLaunch(t *testing.T) {
 func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	requireJail(t)
 
-	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// The key rides [env.secrets], the channel the credential gate delivers into the agent's own
 	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
 	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
 	// shell's own copy is blanked, so the launch cannot lean on it.
@@ -138,16 +138,30 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	// "the provider table never reached codex's derive". It rides in the USER config with
 	// the packs, because a provider address is user-scope only — see codexProbeProvider.
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "codex", "cerebras"], `+codexProbeProvider+`, `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}], `+
-		`"profiles": {"cb-alias": {"provider": "cerebras", "model": "default"}, `+
-		`"ll-alias": {"provider": "llamacpp", "model": "default"}}}`)
+	// The llamacpp table is codexProbeProvider's, spelled in TOML: only TOML has the private set
+	// the cerebras key must live in (secret-env-scoping.md), and there a variant is selected as
+	// <provider>/<variant>.
+	writeUserTOML(t, `packs = ["pi", "codex", "cerebras"]
+
+[providers.llamacpp]
+endpoints = { openai = { base_url = "http://127.0.0.1:8080/v1" } }
+models = { default = "llama" }
+
+[providers.llamacpp.variants.ll-alias]
+model = "default"
+
+[providers.cerebras.variants.cb-alias]
+model = "default"
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "integration-probe-not-a-real-key" }
+`)
 
 	// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the
 	// container command, which runYolo's shape does not allow. Both CLIs in one flag, the
 	// spelling a user types.
 	r := runCommand(t, dir, append(jailRunArgs(),
-		"-p", "pi=ll-alias,codex=cb-alias", "--", "true"))
+		"-p", "pi=llamacpp/ll-alias,codex=cerebras/cb-alias", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("profiled three-pack launch failed: rc %d\n%s", r.rc, r.combined())
 	}

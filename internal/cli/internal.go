@@ -700,7 +700,7 @@ func runConfigDump(args []string) int {
 	errs, warns = src.Annotate(errs), src.Annotate(warns)
 
 	out := jsonx.NewOrderedMap()
-	out.Set("config", cfg)
+	out.Set("config", config.RedactPrivateEnvValues(cfg))
 	out.Set("errors", strAny(errs))
 	out.Set("warnings", strAny(warns))
 	snap, err := config.SnapshotJSON(out)

@@ -252,6 +252,7 @@ func configWhyValue(cfg *jsonx.OrderedMap, steps []configdoc.Step) (any, bool) {
 }
 
 func configWhyRenderForPath(value any, steps []configdoc.Step) string {
+	value = config.RedactPrivateEnvAt(steps, value)
 	inMCP, inHeaders, atHeaderMap := false, false, false
 	for _, step := range steps {
 		if step.IsIndex {

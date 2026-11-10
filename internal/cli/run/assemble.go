@@ -189,7 +189,7 @@ type assembleInput struct {
 	// over — every construction that does not come from the run pipeline is a test. Nil
 	// there means nothing was hydrated, and the lookup then falls back to the CLI's own
 	// environment.
-	userEnv *jsonx.OrderedMap
+	userEnv *config.HydratedEnv
 
 	// acCtxMaterialized is set by EITHER host-file emitter when it copies a grant into
 	// the Apple Container ctx dir. The YOLO_CTX_ROOT that tells the entrypoint where to

@@ -24,8 +24,9 @@ func TestAJailLaunchedWithCredentialsHoldsThemForEverySession(t *testing.T) {
 	requireJail(t)
 	const zaiKey, cerebrasKey = "integration-grant-zai-not-a-real-key", "integration-grant-cerebras-not-a-real-key"
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["zai", "cerebras"], "env_sources": [`+
-		`{"ZAI_API_KEY": "`+zaiKey+`", "CEREBRAS_API_KEY": "`+cerebrasKey+`"}]}`)
+	// Both keys are their providers' own, so they live in the private set (secret-env-scoping.md).
+	writeUserTOML(t, "packs = [\"zai\", \"cerebras\"]\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \""+zaiKey+"\", CEREBRAS_API_KEY = \""+cerebrasKey+"\" }\n")
 
 	const releaseName = "release-jail-grant"
 	first := startYoloBackgroundWith(t, "first", dir, []string{"--with-credentials", "zai"},

@@ -17,7 +17,7 @@ import (
 func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireJail(t)
 	// Both providers' keys, since the credential pre-flight demands every entry's (AP-D3).
-	// The keys ride env_sources, the channel the credential gate delivers into the agent's own
+	// The keys ride [env.secrets], the channel the credential gate delivers into the agent's own
 	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
 	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
 	// shell's own copies are blanked, so the launch cannot lean on them.
@@ -25,8 +25,8 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["pi", "zai", "openrouter"], "env_sources": [`+
-		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"pi\", \"zai\", \"openrouter\"]\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "pi=zai,openrouter", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
@@ -76,14 +76,16 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 // agent runs, and nothing reaches AWS.
 func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
+	t.Setenv("ZAI_API_KEY", "") // delivered through [env.secrets], as above
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
 	// A list the user supplies: packs/bedrock ships none (docs/design/model-lists-and-pickers.md MM-D32).
-	packHome(t, `{"packs": ["bedrock", "pi", "zai"], "providers": {"bedrock": {"region": "`+region+`", `+
-		`"models": {"global.anthropic.claude-opus-5-5": {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}, "us.openai.gpt-6.1-sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, `+
-		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"bedrock\", \"pi\", \"zai\"]\n\n[providers.bedrock]\nregion = \""+region+"\"\n\n"+
+		"[providers.bedrock.models]\n"+
+		"\"global.anthropic.claude-opus-5-5\" = { model = \"global.anthropic.claude-opus-5-5\", vendor = \"anthropic\" }\n"+
+		"\"us.openai.gpt-6.1-sol\" = { model = \"us.openai.gpt-6.1-sol\", vendor = \"openai\" }\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	// pi's own env file, sourced as pi's launcher sources it; absent when nothing is scoped to pi,
 	// which then reads as no region rather than as a failed launch.
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "pi=zai,bedrock", "--", "bash", "-lc",
@@ -113,17 +115,19 @@ func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 }
 
 // THE PROFILE KEY'S LIST FORM (docs/design/active-provider-sets.md AP-D13, on the key PP-D10
-// renamed): `"profile": ["zai", "openrouter"]` in the user config names no agent, so a real
+// renamed): `default = ["zai", "openrouter"]` under [active_provider] in the user config (the
+// legacy `"profile": ["zai", "openrouter"]`) names no agent, so a real
 // launch gives pi the whole list and claude its first entry, and says which agent ignores the
 // rest. Through config resolution, the one fold, the boot render and the launch lines.
 func TestTheProfileKeysListReachesPiWholeAndClaudeFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
+	t.Setenv("ZAI_API_KEY", "") // delivered through [env.secrets], as above
 	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ["zai", "openrouter"], `+
-		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"claude\", \"pi\", \"zai\", \"openrouter\"]\n\n"+
+		"[active_provider]\ndefault = [\"zai\", \"openrouter\"]\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the key's list launch failed: rc %d\n%s", r.rc, r.combined())

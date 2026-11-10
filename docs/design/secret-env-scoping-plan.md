@@ -2,8 +2,8 @@
 title: "Secret env scoping: implementation plan"
 date: 2026-11-09
 status: accepted
-stage: DECIDED
-next: "Build Task 1 (the hydration keeps which set declared each name); stop at its targeted gate"
+stage: BUILT
+next: "Run the Mac checks below; then graduate with the design into providers.md"
 depends-on:
   - secret-env-scoping.md
 tags: [credentials, env_sources, providers, credential-gate, config, plan]
@@ -11,7 +11,7 @@ tags: [credentials, env_sources, providers, credential-gate, config, plan]
 
 # Secret env scoping: implementation plan
 
-**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Nothing is built.
+**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Built, Tasks 1 to 8; the [Mac checks](#mac-checks) are owed.
 **Design:** [`secret-env-scoping.md`](secret-env-scoping.md), `status: accepted`, no question open
 (rulings [SE-D2](secret-env-scoping.md#SE-D2) and [SE-D12](secret-env-scoping.md#SE-D12) to
 [SE-D15](secret-env-scoping.md#SE-D15)).
@@ -61,6 +61,8 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | [`internal/config/schema.go`](../../internal/config/schema.go) | `env.secrets` rows (object, `files`, `files.*`, `set`, `set.*`, both scopes) | 3 |
 | [`internal/config/envsourcescope.go`](../../internal/config/envsourcescope.go) | `validateEnvSourceScope` checks `env.secrets.files`; `envSourceScopeRefusal` spells `[env.secrets] files` for it | 3 |
 | [`internal/config/inherit.go`](../../internal/config/inherit.go) | the `env` case copies `secrets` too | 3 |
+| [`internal/config/validationprojection.go`](../../internal/config/validationprojection.go) | `readableEnvValidationShape` accepts `secrets` (`files`, `set`), and `validateReadableEnvironment` names a bad `env.secrets.set` name; without it a TOML `[env.secrets]` is refused as the removed legacy `env` key (found by the Task 3 nested launch) | 3 |
+| [`internal/config/removals.go`](../../internal/config/removals.go) | `env.secrets.files` clears with an empty list, as `env.files` does (`TestReadableSchemaRemovalPoliciesCoverAcceptedEmptyListsAndNativeSelection`) | 3 |
 | [`internal/cli/run/profilechannel.go`](../../internal/cli/run/profilechannel.go) | `composePackChannel` takes `*config.HydratedEnv`; `packChannel.userEnv` type; gate inputs | 3 |
 | [`internal/cli/run/run.go`](../../internal/cli/run/run.go), [`packtree.go`](../../internal/cli/run/packtree.go), [`loopholegrants.go`](../../internal/cli/run/loopholegrants.go), [`seal.go`](../../internal/cli/run/seal.go), [`assemble.go`](../../internal/cli/run/assemble.go) | the `userEnv` type follows | 3 |
 | [`internal/cli/run/jailgrant.go`](../../internal/cli/run/jailgrant.go) | `resolveJailGrant` reads the private values | 3 |
@@ -69,9 +71,11 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | [`internal/cli/check/entrypoint.go`](../../internal/cli/check/entrypoint.go) | the boot preflight's env is the public set only | 3 |
 | [`internal/cli/host.go`](../../internal/cli/host.go) | `composeHostVarsWith`, `hostScopedEnvSources`, `resolveHostGrant`, `credentialScopeLines` | 4 |
 | [`internal/cli/check/envoverrides.go`](../../internal/cli/check/envoverrides.go), `internal/cli/check/secretenv.go` (new), [`packs.go`](../../internal/cli/check/packs.go) | `overrideScope` reads `HydratedEnv`; row 4 and row 1 lines as WARN | 4 |
-| `internal/config/envlocate.go` (new) | `LocateEnvName`: which scope, set and place set a name | 5 |
+| `internal/config/envlocate.go` (new) | `LocateEnvName`, `ReadEnvScopeFiles`, `EnvNameScope`, `EnvPlace.Describe`: which scope, set and place set a name, read from each scope's own top-level file (the file a move edits; an include's entry is not editable) | 5 |
 | `internal/config/dotenvedit.go` (new) | remove and append one name's line in a dotenv file | 5 |
-| `internal/cli/configsecret.go` (new) | `yolo config secret\|unsecret <NAME> [--drop]` | 5 |
+| `internal/cli/configsecret.go` (new) | `yolo config secret\|unsecret <NAME> [--drop]`, `--dotenv <path>` ([SEP-D17](#SEP-D17)) | 5 |
+| [`internal/configedit/edit.go`](../../internal/configedit/edit.go) | removing a TOML inline-table member takes its separating comma (`inlineTableMemberSpan`); before it, removing `A` from `set = { A = "1", B = "2" }` planned unparseable TOML (found by `TestConfigSecretMovesAnInlineValue`) | 5 |
+| [`internal/cli/check/secretenv.go`](../../internal/cli/check/secretenv.go), [`packs.go`](../../internal/cli/check/packs.go) | `secretEnvGap(scope, workspace)` fills `DisclosureNotes.Scope` from `EnvNameScope` | 5 |
 | [`internal/cli/config.go`](../../internal/cli/config.go) | dispatch, `configHelpToken`, usage text | 5 |
 | [`internal/cli/config_ref.txt`](../../internal/cli/config_ref.txt) | `[env.secrets]` in the env entry (Task 3), the verbs (Task 5), the refusal sentence (Task 7) | 3, 5, 7 |
 | [`internal/cli/configreftoml_test.go`](../../internal/cli/configreftoml_test.go) | `TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas` names the two verbs | 5 |
@@ -183,8 +187,8 @@ bedrock-key plan, once written, depends on this one, not the other way round.
 | <a id="SEP-D13"></a>SEP-D13 | An `env.sources` path entry is moved like a `files` entry; a name in an inline `env.sources` table moves into the other set's `set` | The design names "an inline `set` value or a line in a listed dotenv file"; `env.sources` is the same two shapes in one list |
 | <a id="SEP-D14"></a>SEP-D14 | The remedy when no private file is listed suggests `~/.config/yolo-jail/secrets.env` at user scope and `secrets.env` (anchored beside the config file) at project and local scope; the `unsecret` mirror suggests `~/.config/yolo-jail/defaults.env` and `defaults.env` | The design gives the user-scope spelling; a workspace private file must lie inside the workspace |
 | <a id="SEP-D15"></a>SEP-D15 | Several providers on one line: `the zai, foo providers, which this launch does not select, claim that name. If it is one of theirs: …`; row 4 with claimants in one pack names that pack, with several packs `To use it as a provider's key: yolo pack add <a> (or <b>).` | Cheap wording; the design shows the one-provider case only |
-| <a id="SEP-D16"></a>SEP-D16 | A nested jail's inherited user layer (`InheritNested`) carries `env.secrets` | Parity: the nested launch then applies the same rule to the same config |
-| <a id="SEP-D17"></a>SEP-D17 | **One dotenv file listed in both `[env] files` and `[env.secrets] files` is one refusal, not one per name**, and its remedy is `yolo config secret --file <path>` (or `unsecret --file`), which moves the file's entry from one list to the other in the scope that lists it. Task 5 adds `--file`; Task 7 checks for the shared file before the per-name both-sets check. | Every name in the file is in both sets, and a per-name `--drop` would delete the one line both sets read. The fix is to move the file, and a verb must name it (happy-path principle). Decided by the planner, 2026-11-09; was design gap 1. |
+| <a id="SEP-D16"></a>SEP-D16 | **Superseded by [SE-D16](secret-env-scoping.md#SE-D16) (owner, 2026-11-10).** A nested jail's inherited user layer (`InheritNested`) no longer carries `env.secrets`; it used to, for parity | The owner ruled that nested jails get no privilege the outer jail lacks |
+| <a id="SEP-D17"></a>SEP-D17 | **One dotenv file listed in both `[env] files` and `[env.secrets] files` is one refusal, not one per name**, and its remedy is `yolo config secret --dotenv <path>` (or `unsecret --dotenv`), which moves the file's entry from one list to the other in the scope that lists it. Task 5 adds `--dotenv`; Task 7 checks for the shared file before the per-name both-sets check. | Every name in the file is in both sets, and a per-name `--drop` would delete the one line both sets read. The fix is to move the file, and a verb must name it (happy-path principle). Decided by the planner, 2026-11-09; was design gap 1. Spelled `--dotenv`, not the planner's `--file`, by Task 5: the design names `--file` as the generic verbs' config-file scope flag ([SE-D9](secret-env-scoping.md#SE-D9)), and the design wins. |
 | <a id="SEP-D18"></a>SEP-D18 | **A legacy JSONC workspace config holding a provider key gets the same remedy as a legacy user config:** `yolo config migrate`, then the verb with `--project`. | Parity across scopes: [SE-D6](secret-env-scoping.md#SE-D6) states the rule for the user file, and nothing about the workspace scope differs. Decided by the planner, 2026-11-09; was design gap 2. |
 
 ## Tasks
@@ -562,7 +566,9 @@ lines). A public provider key still behaves as today; the refusal is Task 7.
      		t.Fatal(err)
      	}
      	shared := string(userEnvFileBody(channel.sharedEnvSourceWinners(), channel))
-     	if !strings.Contains(shared, "GH_TOKEN") || strings.Contains(shared, "ZAI_API_KEY") || strings.Contains(shared, "STRIPE_KEY") {
+     	// The YOLO_PROVIDERS table names ZAI_API_KEY as zai's api_key_env_name, so the check is the export.
+     	if !strings.Contains(shared, "export GH_TOKEN=") || strings.Contains(shared, "export ZAI_API_KEY=") ||
+     		strings.Contains(shared, "STRIPE_KEY") || strings.Contains(shared, "tok-") {
      		t.Errorf("yolo-user-env.sh must hold the public set only:\n%s", shared)
      	}
      	if _, ok := channel.scope.EnvSourcesFor("claude").Get("ZAI_API_KEY"); !ok {
@@ -612,7 +618,7 @@ lines). A public provider key still behaves as today; the refusal is Task 7.
     `wsNode.key("env").key("secrets").key("files")`; `hasEnvSourceFile` sees private files (Task 1 made
     `HasEnvFileEntry` count them); `envSourceScopeRefusal` spells `[env.secrets] files = [...]` and
     `yolo config add env.secrets.files … --user` when `key` is `env.secrets.files`.
-  - `inherit.go` ~`:643`: `copyKeys(m, out, "sources", "files", "set", "unset", "secrets")` ([SEP-D16](#SEP-D16)).
+  - `inherit.go` ~`:643`: `copyKeys(m, out, "sources", "files", "set", "unset")`: `"secrets"` was cut ([SEP-D16](#SEP-D16), superseded by [SE-D16](secret-env-scoping.md#SE-D16)).
   - `profilechannel.go`: `composePackChannel(cfg, packs, userEnv *config.HydratedEnv)`; nil hydrates with
     `config.ResolveEnv`. `ScopeInput`: `EnvSources: userEnv.Values()`, `EnvSourceRemovals:
     userEnv.Removals()`, `Private: userEnv.Private()`, `MCPClaims:
@@ -675,7 +681,8 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
      added by yolo` and still names `yolo config unsecret STRIPE_KEY --user`.
   2. `internal/cli/check/secretenv_test.go` (new): a merged config with `[env.secrets] set = { STRIPE_KEY = "s" }`
      and no claiming pack → `secretEnvGap` returns one warning whose message contains `STRIPE_KEY: withheld
-     from every process` and no `s` value.
+     from every process` and not its value (`s-probe`; a one-letter value matches every message); and
+     the Packs section prints it (the call site, not only the helper).
 
   Red: `env -u YOLO_VERSION go test ./internal/cli -run HostSecretEnv -count=1` → the vars assertion
   passes (Task 1 made `ResolveEnvSourcesFull` skip private entries, so the host already drops them) and
@@ -686,9 +693,12 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
     `mcp_servers`, `UnselectedClaims`. `hostScopedEnvSources` (~`:3724`) filters `env.secrets.files` the way
     it filters `env.files`. `resolveHostGrant` takes `h.Values()`. `credentialScopeLines` sets
     `Scope: func(string) string { return " --user" }` (the host reads user scope only).
-  - `check/envoverrides.go` `overrideScope`: same inputs from `config.ResolveEnv`; returns the hydration too.
-  - `check/secretenv.go` (new): `secretEnvGap(scope, h)` → warnings from the scope's row 4 and unselected
-    row 1 lines; `packs.go` ~`:472` calls it beside `envOverrideGap`.
+  - `check/envoverrides.go` `overrideScope`: same inputs from `config.ResolveEnv`; `envOverrideGap`
+    returns the scope it composed, so the Packs section reads the env-set lines from the one hydration.
+  - `packload` `CredentialScope.EnvSetLines(notes)`: `DisclosureWith`'s env-set lines alone.
+  - `check/secretenv.go` (new): `secretEnvGap(scope)` → one warning per `EnvSetLines` line (row 4 and
+    the unselected row 1); `packs.go` ~`:472` calls it beside `envOverrideGap`. The scope flag waits
+    for Task 5's `LocateEnvName`, as `credentialnotes.go`'s does.
   - Delete `ResolveEnvSources`, `ResolveEnvSourcesFull`, `HydrateEnvSources`, `SplitHydratedEnvSources`,
     `EnvSourceRemovals` and their tests; move any still-meaningful case of
     [`envsourceshydrate_test.go`](../../internal/config/envsourceshydrate_test.go) onto `ResolveEnv`
@@ -818,7 +828,12 @@ new lines, as WARN in check per [SEP-D9](#SEP-D9)).
   - Inline moves go through `configedit.ResolveTarget` + `configedit.ApplyTargeted` with
     `configedit.Mutation{Action: configedit.Add|configedit.Remove, Path: …}` (`env.secrets.set.NAME` /
     `env.set.NAME`); `addMissingKey`'s parent-table behavior covers a missing `[env.secrets]`.
-  - Wire `DisclosureNotes.Scope` in `credentialnotes.go` to `LocateEnvName` (the Task 3 marker).
+  - Wire `DisclosureNotes.Scope` in `credentialnotes.go` to `LocateEnvName` (the Task 3 marker), and in
+    `check/secretenv.go` (the Task 4 marker), through `config.EnvNameScope`.
+  - **As built:** `--dotenv <path>` moves a file entry ([SEP-D17](#SEP-D17)); the inline test asserts the parsed
+    values, not the substring `[env.secrets]`, because `addMissingKey` writes a missing table as the
+    `[env.secrets.set]` header, which says the same; `LocateEnvName` reads each scope's top-level file with
+    `configdoc.Parse` rather than `LoadReadableConfigWithSources`, because a move edits that file.
   - `config_ref.txt`: the TOML section's verb list (~`:140`) gains
     `yolo config secret|unsecret <NAME> [--drop] [--user|--project|--local]` with a one-line gloss; the env
     entry names both verbs.
@@ -873,6 +888,10 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Fences:** `*_test.go` files and test fixtures only; a production file in the diff is a stop.
 - **Commit:** `test: provider keys in fixtures live in the private env set`
 - **Report:** the file list, any test left for Task 7, the integration results.
+- **As built:** the TOML conversion selects a `file://` pack through a bare pack source, so its handle
+  is `packs/<name>`; that handle exposed a production fault (a host session directory named with a
+  slash), fixed in its own commit ahead of Task 6. The `internal/cli/run` unit fixtures needed no
+  change: they already hold claimed keys private through `secretenvfixture_test.go`'s `hydrate`.
 
 ### Task 7 — the refusals
 
@@ -976,6 +995,29 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Fences:** no vehicle file (`userenv.go`, `agentenvfiles.go`, `envfile.go`).
 - **Commit:** `feat(env)!: a provider key in the public env set, or a name in both sets, refuses the launch`
 - **Report:** red and green runs, the full integration result, the nested-jail transcript.
+- **As built:**
+  - The load lowers a legacy `env_sources` to the place key `env.sources`, so the label and place
+    come from the place's `Key` *and* the site's `Legacy` bit: a legacy file reads
+    `config.env_sources: … (env_sources)` (`asWritten` in `envsecretsrefusal.go`).
+  - The run test drives `Run` on macos-user with a stub backend
+    (`TestAPublicProviderKeyRefusesBeforeAnythingIsWritten`, `TestANameInBothSetsRefusesBeforeAnythingIsWritten`
+    in `internal/cli/run/secretenv_test.go`), so it pins `launchChannel`'s caller, the printed
+    `Refusing to launch:` and the absence of `yolo-user-env.sh` in one launch.
+  - The attach is pinned end to end by `TestAnAttachRefusesAPublicProviderKey` (integration): the
+    attach passes the same `launchChannel` call before the rekey at `run.go`'s attach branch.
+  - `yolo check`'s second hydration reports on `r.configWarn`, which prints a message once
+    (`warningchannel_test.go` refuses a discarded warning channel).
+  - Task 6 left one test: `TestHostGrantWithheldLineNamesAUserProfileOverTheProvider` (a legacy
+    user profile over a provider, spellable only in the legacy file, whose key is therefore
+    public). It is rewritten as `TestHostRefusesALegacyPublicKeyNamingMigrateFirst`; the remedy's
+    profile ordering stays pinned by `TestRemedyProfilePrefersTheProvidersOwnName`.
+  - Task 6's note above was right for the `hydrate` fixtures and wrong for the `internal/cli/run`
+    tests that write a user config file, or hand `composePackChannel` a config to hydrate itself:
+    their keys sat in a legacy `env_sources`, which the refusal now stops. They are rewritten here,
+    to a TOML private set (`writeUserConfigTOML`, `inEnvSecrets`, `awsAuthUserTOML`) or, for a
+    config map, to the readable `[env]` table (`setFixtureEnv`). A config with no key keeps its
+    legacy spelling, so `overrideNativeLaunch`, `macosUserGrantRun` and `sealFixture` write either
+    file by the body's first character.
 
 ### Task 8 — docs describe the two sets
 
@@ -987,6 +1029,9 @@ works. This is what keeps Task 7 from going red across the suite.
 - **Gates:** `uvx vantage-check` on every edited doc; `just lint-ci`.
 - **Commit:** `docs: the public and private env sets`
 - **Report:** the files, the check results.
+- **As built:** also [`providers-and-models.md`](../../userguide/guides/providers-and-models.md), outside
+  the list above: its three steps put a provider key in `env_sources`, which now refuses, so they
+  name `[env.secrets]` and the two verbs.
 
 ## Ships with
 
@@ -1052,6 +1097,19 @@ a running jail keeps its processes' environment until it restarts.
   rejected).
 - Don't touch [`bedrock-key-provider.md`](bedrock-key-provider.md) or plan anything for the `bedrock-key`
   provider: [OQ-BK3](bedrock-key-provider.md#OQ-BK3) is open.
+
+## Mac checks
+
+Owed at `<landing sha>`; the jail notch and `yolo host` were run on Linux only.
+
+- **macos-user refusal parity.** A user config with `packs = ["zai"]` and `ZAI_API_KEY` under `[env] set`:
+  `yolo -- true` exits non-zero naming `yolo config secret ZAI_API_KEY --user`, the value never printed,
+  and no per-session env file is written. Witness: the stderr and `ls` of the session directory.
+- **Apple Container refusal parity.** The same config on `apple-container-self`: the same refusal, and
+  `<workspace>/.yolo/home/.config/yolo-agent-env/` gains no file.
+- **macos-user private delivery.** The key under `[env.secrets] set` with `-p claude=zai`: claude's
+  session file holds it, a bare `yolo -- env` does not.
+- **`integration/macosuserbridge_test.go`** skipped on Linux (darwin-only); run it on a Mac.
 
 ## Design gaps
 

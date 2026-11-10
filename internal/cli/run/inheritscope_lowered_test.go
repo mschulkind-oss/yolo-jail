@@ -21,7 +21,7 @@ import (
 // user config on disk, so cfg must be the effective config of the HOME the test points at.
 func loweredScopeReads(t *testing.T, o *Options, cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]string {
 	t.Helper()
-	c, err := o.composePackChannel(cfg, packs, jsonx.NewOrderedMap())
+	c, err := o.composePackChannel(cfg, packs, hydrate(jsonx.NewOrderedMap()))
 	if err != nil {
 		t.Fatalf("the channel does not compose: %v", err)
 	}

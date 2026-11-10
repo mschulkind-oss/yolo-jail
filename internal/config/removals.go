@@ -53,6 +53,7 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "env.sources", Policy: RemovalEmptyList},
 		{Path: "env.sources.*.unset", Policy: RemovalEmptyList},
 		{Path: "env.files", Policy: RemovalEmptyList},
+		{Path: "env.secrets.files", Policy: RemovalEmptyList},
 		{Path: "env.unset", Policy: RemovalEmptyList},
 		{Path: "env.set.*", Policy: RemovalUnsetList},
 		{Path: "include_if_found", Policy: RemovalEmptyList},

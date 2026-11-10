@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -530,7 +531,7 @@ func captureHostSessionHomePath(dir string, errw io.Writer) (keptAt, why string,
 	name := filepath.Base(dir)
 	packName := ""
 	for _, d := range decls {
-		if strings.HasPrefix(name, d.pack+"-") && len(d.pack) > len(packName) {
+		if strings.HasPrefix(name, hostSessionDirPrefix(d.pack)) && len(d.pack) > len(packName) {
 			packName = d.pack
 		}
 	}
@@ -989,6 +990,15 @@ func hostSessionSelectionWords(launch *hostComposition) string {
 	return "your configured profile"
 }
 
+// hostSessionDirPrefix is the leading part of every host session directory name for pack, which
+// the capture path matches to find the pack again. A user's pack is named `<source>/<name>`, and a
+// directory name holds no slash, so the name is query-escaped: the slash becomes %2F (and a % in a
+// name %25), which keeps the encoding reversible and two packs' prefixes distinct. A shipped
+// pack's bare name is unchanged by it, so its existing directories still match.
+func hostSessionDirPrefix(pack string) string {
+	return url.QueryEscape(pack) + "-"
+}
+
 // makeHostSessionDir makes one launch's directory for pack under root and its lease, locked
 // shared from the moment the file exists. A filesystem without flock leaves the lease unlocked
 // (nil file): the reaper then cannot prove the directory unused and keeps it past its floor only
@@ -997,7 +1007,7 @@ func makeHostSessionDir(root, pack string) (string, *os.File, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", nil, err
 	}
-	dir, err := os.MkdirTemp(root, pack+"-")
+	dir, err := os.MkdirTemp(root, hostSessionDirPrefix(pack))
 	if err != nil {
 		return "", nil, err
 	}

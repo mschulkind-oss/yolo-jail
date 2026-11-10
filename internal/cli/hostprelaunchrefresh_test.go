@@ -322,8 +322,15 @@ func TestHostPiRefreshSkipsAHeldLockWithOneLine(t *testing.T) {
 // THE REFRESH CARRIES NO CREDENTIAL THE COMPOSITION SCOPES TO PI: the jail's launcher runs it
 // before it sources pi's own env file, which is where the gate puts what it scopes to pi alone.
 func TestHostPiRefreshRunsWithoutTheCredentialsComposedForPi(t *testing.T) {
-	h := newRefreshHost(t, `{"packs": ["pi", "zai"], "host_floor": {"pi": false}, `+
-		`"env_sources": [{"ZAI_API_KEY": "tok-host"}]}`, "")
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	h := newRefreshHost(t, `packs = ["pi", "zai"]
+
+[host_floor]
+pi = false
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-host" }
+`, "")
 	r := h.launch(t, "-p", "zai")
 	if r.rc != 0 || r.execEnv == nil {
 		t.Fatalf("yolo host -p zai -- pi: rc=%d\n%s", r.rc, r.errs)
@@ -392,8 +399,20 @@ func TestHostPiRefreshRunsOnTheChildsPathBeforeTheBlockedTools(t *testing.T) {
 // removal applies, an env_sources null taking the invoking shell's value out, so the refresh never
 // holds a name pi would not.
 func TestHostPiRefreshRunsInTheCompositionEveryProcessReceives(t *testing.T) {
-	h := newRefreshHost(t, `{"packs": ["pi", "zai"], "host_floor": {"pi": false}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-host", "HTTPS_PROXY": "http://proxy.example:3128", "REVIEW_SECRET": null}]}`, "")
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md);
+	// the unclaimed proxy and the null stay public.
+	h := newRefreshHost(t, `packs = ["pi", "zai"]
+
+[host_floor]
+pi = false
+
+[env]
+set = { HTTPS_PROXY = "http://proxy.example:3128" }
+unset = ["REVIEW_SECRET"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-host" }
+`, "")
 	h.setStub(t, `  echo "env PI_TELEMETRY=${PI_TELEMETRY-unset}|HTTPS_PROXY=${HTTPS_PROXY-unset}|`+
 		`REVIEW_SECRET=${REVIEW_SECRET-unset}|ZAI_API_KEY=${ZAI_API_KEY-unset}" >> '`+h.log+`'`)
 	t.Setenv("REVIEW_SECRET", "from-shell")

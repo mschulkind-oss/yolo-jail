@@ -21,13 +21,17 @@ import (
 )
 
 // hostGateLaunch runs `yolo host [flags] -- <agent>` over the shipped claude, codex, pi, zai
-// and aws-auth packs with env_sources carrying an AWS pair and a zai key, and returns the
+// and aws-auth packs with the private env set carrying an AWS pair and a zai key, and returns the
 // environment the exec would have handed the agent plus what the launch printed.
 func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]string, string) {
 	t.Helper()
-	return hostGateLaunchWith(t, `{"packs": ["claude", "codex", "pi", "zai", "bedrock", "aws-auth"], "env_sources": [`+
-		`{"AWS_ACCESS_KEY_ID": "AKIA-host", "AWS_SECRET_ACCESS_KEY": "secret-host", `+
-		`"ZAI_API_KEY": "tok-host"}]}`, nil, flags, agent)
+	// Every one of the three is a provider's key (bedrock's pair, zai's token), so they live in
+	// the private set (secret-env-scoping.md).
+	return hostGateLaunchWith(t, `packs = ["claude", "codex", "pi", "zai", "bedrock", "aws-auth"]
+
+[env.secrets]
+set = { AWS_ACCESS_KEY_ID = "AKIA-host", AWS_SECRET_ACCESS_KEY = "secret-host", ZAI_API_KEY = "tok-host" }
+`, nil, flags, agent)
 }
 
 // hostGateNames are the variables the host gate cells read, blanked in the invoking shell
@@ -147,7 +151,13 @@ func hostGateRunIn(t *testing.T, cfg string, shell map[string]string, flags []st
 // of unset/none use hostGateHomeRaw so this convenience cannot mask the refusal.
 func hostGateHome(t *testing.T, cfg string, shell map[string]string) string {
 	t.Helper()
-	if !strings.Contains(cfg, `"host_management"`) {
+	switch {
+	case !strings.HasPrefix(strings.TrimSpace(cfg), "{"):
+		// A TOML fixture: the two keys go first, ahead of any table header.
+		if !strings.Contains(cfg, "host_management") {
+			cfg = "host_management = \"own\"\nhost_apply_on_launch = false\n" + cfg
+		}
+	case !strings.Contains(cfg, `"host_management"`):
 		cfg = strings.Replace(strings.TrimSpace(cfg), "{", `{"host_management":"own","host_apply_on_launch":false,`, 1)
 	}
 	return hostGateHomeRaw(t, cfg, shell)
@@ -295,8 +305,19 @@ func TestHostGateRelaysAShellHeldKeyToTheEnvDerive(t *testing.T) {
 // and the gate's disclosure names it on stderr, as `yolo host --` does. It used to drop the
 // value from the export with no message at all.
 func TestHostEnvDisclosesWhatItsSliceWithholds(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai"], "profile": {"pi": "zai"}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-host", "GH_TOKEN": "gh-host"}]}`, nil)
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set; GH_TOKEN, which no
+	// provider claims, stays public (secret-env-scoping.md).
+	hostGateHome(t, `packs = ["claude", "pi", "zai"]
+
+[active_provider]
+pi = "zai"
+
+[env]
+set = { GH_TOKEN = "gh-host" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-host" }
+`, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {
 		t.Fatalf("yolo host env: rc = %d\n%s", rc, errw.String())

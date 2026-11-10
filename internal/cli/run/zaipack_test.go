@@ -86,7 +86,7 @@ func zaiLaunchAssembled(t *testing.T, packs []*packload.Pack, cfg *jsonx.Ordered
 		miseStore:    "/mise-store",
 		yoloVersion:  "9.9.9-test",
 		mountTargets: map[string]struct{}{},
-		userEnv:      userEnv,
+		userEnv:      hydrate(userEnv),
 	}
 	return assembled{argv: o.assembleRunCmd(in), o: o, in: in}
 }

@@ -462,9 +462,10 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 		{"/opt/agents/bin/pi", true}} {
 		t.Run(strings.ReplaceAll(tc.launched, "/", "_"), func(t *testing.T) {
 			home := packHome(t)
-			writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai", "bedrock"], "env_sources": [`+
-				`{"AWS_ACCESS_KEY_ID": "AKIA-gate", "AWS_SECRET_ACCESS_KEY": "secret-gate", `+
-				`"ZAI_API_KEY": "tok-gate", "GH_TOKEN": "gh-gate"}]}`)
+			writeUserConfigTOML(t, home, "packs = [\"claude\", \"pi\", \"zai\", \"bedrock\"]\n\n"+
+				"[env]\nset = { GH_TOKEN = \"gh-gate\" }\n\n"+
+				"[env.secrets]\nset = { AWS_ACCESS_KEY_ID = \"AKIA-gate\", AWS_SECRET_ACCESS_KEY = \"secret-gate\", "+
+				"ZAI_API_KEY = \"tok-gate\" }\n")
 			var stdout, stderr bytes.Buffer
 			o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
 			o.Args = []string{tc.launched}
@@ -511,8 +512,9 @@ func TestMacosUserLaunchCarriesOnlyTheLaunchedAgentsCredentials(t *testing.T) {
 // hand codex claude's flag and the credential adapter's address.
 func TestMacosUserLaunchOmitsAnotherAgentsGatedEnv(t *testing.T) {
 	home := packHome(t)
-	writeUserConfig(t, home, `{"packs": ["claude", "codex", "zai", "aws-auth", "bedrock"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-gate"}]`+bedrockRegionMember+`}`)
+	writeUserConfigTOML(t, home, "packs = [\"claude\", \"codex\", \"zai\", \"aws-auth\", \"bedrock\"]\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"tok-gate\" }\n\n"+
+		"[providers.bedrock]\nregion = \""+testBedrockRegion+"\"\n")
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
 	o.Args = []string{"codex"}

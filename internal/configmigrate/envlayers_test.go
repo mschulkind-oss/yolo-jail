@@ -37,7 +37,8 @@ func layeredEnvRead(t *testing.T, ws, layer string) ([]string, map[string]string
 			}
 		}
 	}
-	env, removals := config.ResolveEnvSourcesFull(ws, merged, nil)
+	envHydrated := config.ResolveEnv(ws, merged, nil)
+	env, removals := envHydrated.Values(), envHydrated.Removals()
 	resolved := map[string]string{}
 	for _, k := range env.Keys() {
 		v, _ := env.Get(k)

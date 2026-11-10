@@ -60,7 +60,10 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 	// docs/design/reference-mismatch-diagnostics.md §3 where five printed warnings sat
 	// under a summary saying two. It stays a warning, never a failure — §8's non-goal:
 	// a host file absent here is portability, not a typo.
-	resolvedEnv := config.ResolveEnvSources(workspace, merged, r.configWarn)
+	//
+	// The public set only (secret-env-scoping.md §3.4): a private value never enters the boot
+	// environment, which every process inherits.
+	resolvedEnv := config.ResolveEnv(workspace, merged, r.configWarn).PublicValues()
 	for _, k := range resolvedEnv.Keys() {
 		v, _ := resolvedEnv.Get(k)
 		vars[k] = asString(v)

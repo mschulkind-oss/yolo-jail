@@ -80,6 +80,12 @@ func validateEnvSourceScope(config *jsonx.OrderedMap, workspace string, errs *[]
 	if env, ok := envTable(wsCfg); ok {
 		check("env.sources", getListOrNilFalsy(env, "sources"), wsNode.key("env").key("sources"))
 		check("env.files", getListOrNilFalsy(env, "files"), wsNode.key("env").key("files"))
+		// The private set's files obey the same rule (secret-env-scoping.md SE-D5).
+		secretsValue, _ := env.Get("secrets")
+		if secrets, ok := asMap(secretsValue); ok {
+			check("env.secrets.files", getListOrNilFalsy(secrets, "files"),
+				wsNode.key("env").key("secrets").key("files"))
+		}
 	}
 }
 
@@ -97,7 +103,12 @@ func envSourceScopeRefusal(key, entry, real, root, userPath string, userTOML boo
 		}
 	}
 	spelled := fmt.Sprintf(`"env_sources": [%q]`, fix)
-	if userTOML {
+	if key == "env.secrets.files" {
+		// The private set has no legacy spelling (SE-D6), so its entry moves to the user config's
+		// own private list whatever format that file is in; a legacy user file is migrated first.
+		spelled = fmt.Sprintf("[env.secrets] files = [%q] (`yolo config add env.secrets.files %s --user`)",
+			fix, shquote.Quote(strconv.Quote(fix)))
+	} else if userTOML {
 		// The readable key has a verb that appends to it (docs/design/config-commands.md); a
 		// legacy file keeps `env_sources`, beside which that verb's `env.files` is refused.
 		spelled = fmt.Sprintf("[env] files = [%q] (`yolo config add env.files %s --user`)",

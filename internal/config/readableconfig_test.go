@@ -729,7 +729,8 @@ func TestStandardReaderPreservesLegacyEnvSourcesAndLiteralOff(t *testing.T) {
 	if unset, _ := asList(mustValue(t, inline, "unset")); !reflect.DeepEqual(unset, []any{"PAGER"}) {
 		t.Fatalf("legacy environment unset changed: %#v", unset)
 	}
-	resolved, removals := ResolveEnvSourcesFull(t.TempDir(), got, nil)
+	resolvedHydrated := ResolveEnv(t.TempDir(), got, nil)
+	resolved, removals := resolvedHydrated.Values(), resolvedHydrated.Removals()
 	if value, _ := resolved.Get("AWS_PROFILE"); value != "off" || !reflect.DeepEqual(removals, []string{"PAGER"}) {
 		t.Fatalf("legacy environment operation changed: values=%#v removals=%#v", resolved, removals)
 	}
@@ -765,7 +766,8 @@ func TestStandardReaderPreservesOrderedLegacyEnvSourcesAcrossLayers(t *testing.T
 			t.Errorf("env_sources[%d] was not anchored to its declaring file: %q", i, path)
 		}
 	}
-	resolved, removals := ResolveEnvSourcesFull(t.TempDir(), got, nil)
+	resolvedHydrated := ResolveEnv(t.TempDir(), got, nil)
+	resolved, removals := resolvedHydrated.Values(), resolvedHydrated.Removals()
 	if value, _ := resolved.Get("VALUE"); value != "explicit-inline" {
 		t.Errorf("later explicit inline source did not win after layer dotenv: VALUE=%#v", value)
 	}

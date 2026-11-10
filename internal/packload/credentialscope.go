@@ -68,7 +68,7 @@ type ScopeInput struct {
 	// EnvSources is the hydrated env_sources, in hydration order. Nil is an empty channel.
 	EnvSources *jsonx.OrderedMap
 	// EnvSourceRemovals are the names env_sources REMOVES, in order: each inline null no later
-	// entry cancelled (config.ResolveEnvSourcesFull's second answer). Every process's composition
+	// entry cancelled (config.HydratedEnv.Removals). Every process's composition
 	// carries them at env_sources' rank (envcompose.go): a removal takes out the pack env fold's
 	// value, and at the host the invoking shell's, and never a shape var. A removal carries no
 	// value, so no claim scopes it. Nil removes nothing.
@@ -126,6 +126,43 @@ type ScopeInput struct {
 	// that receives none is given the one the file holds for its credential's profile. Nil reads
 	// no file, the shape of a caller that is not composing a launch (`yolo check`, a test).
 	RegionFiles *RegionFileSource
+	// Private is the set bit of every hydrated name the private set, `[env.secrets]`, declared
+	// (docs/design/secret-env-scoping.md SE-D1). A private value reaches only the agents whose
+	// selected provider claims its name, or whose MCP server does (MCPClaims), and otherwise
+	// nobody (§3.4 rows 3 and 4). A name it does not mark is public: it reaches every process
+	// unless a provider claims it, when today's claimant rule holds and PublicClaims reports it
+	// for the caller to refuse (secret-env-scoping-plan.md SEP-D4). Nil marks nothing, which is
+	// every caller that predates the private set.
+	Private map[string]bool
+	// MCPClaims is each name an MCP server's `requires_env` lists, mapped to those servers, sorted
+	// (MCPEnvClaims over the composed mcp_servers table; secret-env-scoping.md SE-D13). It claims a
+	// PRIVATE value for MCPAgents only; a public name only an MCP server claims stays public
+	// (SE-D15). Nil claims nothing.
+	MCPClaims map[string][]string
+	// MCPAgents is every agent whose config names the composed MCP servers (MCPAgents,
+	// secret-env-scoping-plan.md SEP-D5): the recipients of an MCP-claimed private value.
+	MCPAgents []string
+	// UnselectedClaims is each name a provider of a shipped pack this launch did NOT select
+	// claims (UnselectedProviderClaims). It WORDS a line and never decides a reach
+	// (secret-env-scoping.md SE-D8): a public name it holds gets the row 1 line naming
+	// `yolo config secret`, and a private name nothing selected claims gets `yolo pack add` as its
+	// remedy. Nil words nothing.
+	UnselectedClaims map[string][]ShippedClaim
+}
+
+// ShippedClaim is one provider a shipped pack declares that claims a name, and that pack: what
+// a line names when the launch did not select the pack (secret-env-scoping.md SE-D8).
+type ShippedClaim struct {
+	Provider string
+	Pack     string
+}
+
+// PublicClaim is a name the PUBLIC set holds that a selected provider claims: the input of the
+// row 2 refusal (secret-env-scoping.md §3.5), which the caller words, since the scope and the
+// file that set the name are config's facts, not the gate's. Providers is sorted.
+type PublicClaim struct {
+	Name      string
+	Providers []string
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -169,6 +206,12 @@ type CredentialScope struct {
 	// loopholedecl.TokenCallerToken and this launch minted no caller token for the daemon it
 	// is served by, keyed by variable, naming the daemon.
 	untokenedEnv map[string]string
+	// private, mcpClaims, mcpAgents and unselected are ScopeInput's Private, MCPClaims,
+	// MCPAgents (as a set) and UnselectedClaims.
+	private    map[string]bool
+	mcpClaims  map[string][]string
+	mcpAgents  map[string]bool
+	unselected map[string][]ShippedClaim
 }
 
 // AgentDelivery is what one agent receives beyond the shared set.
@@ -230,7 +273,16 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		// the provider it resolves to, over this launch's own table, so every fold below and
 		// every reader of Selection() answers a `platform` gate from one resolution. Over the
 		// whole active set (AP-P1), so a gate any entry satisfies fires for that agent.
-		sel: SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
+		sel:        SelectionOfSets(in.setTable(), in.Resolved, in.Providers),
+		private:    in.Private,
+		mcpClaims:  in.MCPClaims,
+		unselected: in.UnselectedClaims,
+	}
+	for _, agent := range in.MCPAgents {
+		if s.mcpAgents == nil {
+			s.mcpAgents = map[string]bool{}
+		}
+		s.mcpAgents[agent] = true
 	}
 	s.sharedFold = s.servedFold(envFold(in.Packs, s.sel, "", s.atHost))
 	for _, e := range s.sharedFold {
@@ -242,14 +294,16 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 	if s.envSources == nil {
 		s.envSources = jsonx.NewOrderedMap()
 	}
+	// THE SHARED SET is the public names no provider claims (secret-env-scoping.md §3.4 row 1): a
+	// private name never reaches every process from config (SE-D14).
 	for _, k := range s.envSources.Keys() {
-		if _, claimed := s.claims[k]; claimed {
+		if _, claimed := s.claims[k]; claimed || s.isPrivate(k) {
 			continue
 		}
 		v, _ := s.envSources.Get(k)
 		s.sharedEnvSources.Set(k, v)
 	}
-	for _, agent := range deliveryAgents(in.Profiles, in.Grants) {
+	for _, agent := range deliveryAgents(in.Profiles, in.Grants, s.mcpRecipients()) {
 		profile := in.Profiles[agent]
 		d := &AgentDelivery{
 			Agent:      agent,
@@ -268,7 +322,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 			}
 		}
 		for _, k := range s.envSources.Keys() {
-			if _, claimed := s.claims[k]; claimed && s.delivers(d, k) {
+			if _, claimed := s.claims[k]; (claimed || s.isPrivate(k)) && s.delivers(d, k) {
 				v, _ := s.envSources.Get(k)
 				d.EnvSources.Set(k, v)
 			}
@@ -593,9 +647,14 @@ func (s *CredentialScope) WithheldBy(name string) string {
 }
 
 // deliveryAgents is every process the gate composes a delivery for, sorted: each with a
-// selected profile, and each a grant names.
-func deliveryAgents(profiles map[string]string, grants map[string][]string) []string {
+// selected profile, each a grant names, and each extra names (the agents an MCP-claimed private
+// value reaches, mcpRecipients). An extra with no profile and no grant is the grant-only shape:
+// keys only, no derive runs for it.
+func deliveryAgents(profiles map[string]string, grants map[string][]string, extra []string) []string {
 	set := map[string]string{}
+	for _, agent := range extra {
+		set[agent] = ""
+	}
 	for agent, profile := range profiles {
 		if profile != "" {
 			set[agent] = ""
@@ -712,12 +771,47 @@ func credentialClaims(providers *jsonx.OrderedMap) map[string][]string {
 	return out
 }
 
+// isPrivate reports whether the private set declared name (ScopeInput.Private).
+func (s *CredentialScope) isPrivate(name string) bool {
+	return s.private[name]
+}
+
+// mcpReceives reports whether agent receives the private name through an MCP server's claim
+// (secret-env-scoping.md SE-D13): the name is private, an MCP server's `requires_env` lists it,
+// no provider claims it, and agent is one whose config names the servers. A public name never
+// needs it (SE-D15), and a provider-claimed name is reached by its claimants alone.
+func (s *CredentialScope) mcpReceives(agent, name string) bool {
+	if _, claimed := s.claims[name]; claimed {
+		return false // a provider's claim is the whole reach of its key; an MCP claim never widens it (SEP P2)
+	}
+	return agent != "" && s.isPrivate(name) && len(s.mcpClaims[name]) > 0 && s.mcpAgents[agent]
+}
+
+// mcpRecipients is every MCPAgents agent some hydrated private MCP-claimed name reaches, sorted:
+// the agents the gate composes a delivery for even without a profile.
+func (s *CredentialScope) mcpRecipients() []string {
+	var out []string
+	for agent := range s.mcpAgents {
+		for _, k := range s.envSources.Keys() {
+			if s.mcpReceives(agent, k) {
+				out = append(out, agent)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // receives reports whether an agent whose profile selects provider may see variable name:
-// always when no provider claims it, and otherwise only when provider is a claimant.
+// when no provider claims it, always for a public (or unhydrated) name and never for a private
+// one (secret-env-scoping.md §3.4 rows 1 and 4); and otherwise only when provider is a claimant
+// (rows 2 and 3, and a claimed name only the launching shell holds). An MCP claim is per agent,
+// so delivers asks it, not this.
 func (s *CredentialScope) receives(provider, name string) bool {
 	claimants, claimed := s.claims[name]
 	if !claimed {
-		return true
+		return !s.isPrivate(name)
 	}
 	if provider == "" {
 		return false
@@ -773,6 +867,9 @@ func (s *CredentialScope) delivers(d *AgentDelivery, name string) bool {
 		return s.receives("", name)
 	}
 	if s.receivesAny(d.setProviders(), name) {
+		return true
+	}
+	if s.mcpReceives(d.Agent, name) {
 		return true
 	}
 	for _, g := range d.Granted {
@@ -926,7 +1023,7 @@ func (s *CredentialScope) DeliversEnvSource(name string) bool {
 	if s == nil {
 		return true
 	}
-	if _, claimed := s.claims[name]; !claimed {
+	if _, claimed := s.claims[name]; !claimed && !s.isPrivate(name) {
 		return true
 	}
 	for _, d := range s.agents {
@@ -1034,6 +1131,108 @@ type DisclosureNotes struct {
 	// env_sources value beats that source's. Inherited is asked first. Nil holds nothing: the
 	// jail's case, whose wording ES-D6 keeps.
 	Composed func(name string) bool
+	// Scope words the scope flag of the config that set name, for the verbs the env-set lines
+	// name (secret-env-scoping.md §3.6): " --user", " --project", " --local", or "". Nil is "".
+	Scope func(name string) string
+}
+
+// scopeFlag is notes.Scope's answer for name, "" without one.
+func (notes DisclosureNotes) scopeFlag(name string) string {
+	if notes.Scope == nil {
+		return ""
+	}
+	return notes.Scope(name)
+}
+
+// PublicClaims is every PUBLIC hydrated name a composed provider claims, in hydration order,
+// each with its claiming providers, sorted: the names the row 2 refusal names
+// (secret-env-scoping.md §3.4, §3.5). The gate keeps scoping them as before (SEP-D4), so a caller
+// that skipped the refusal still would not widen one; the callers refuse. An MCP claim never puts
+// a name here (SE-D15). Nil when there is none.
+func (s *CredentialScope) PublicClaims() []PublicClaim {
+	if s == nil {
+		return nil
+	}
+	var out []PublicClaim
+	for _, k := range s.envSources.Keys() {
+		claimants, claimed := s.claims[k]
+		if !claimed || s.isPrivate(k) {
+			continue
+		}
+		out = append(out, PublicClaim{Name: k, Providers: append([]string(nil), claimants...)})
+	}
+	return out
+}
+
+// envSetLine is the disclosure line for a hydrated name no selected provider claims and no
+// MCP claim delivers, when it has one (secret-env-scoping.md §3.6): a private name, which reaches
+// nobody (row 4), and a public name a shipped pack this launch did not select claims (row 1's one
+// line). "" for every other name. Names only.
+func (s *CredentialScope) envSetLine(k string, notes DisclosureNotes) string {
+	shipped := s.unselected[k]
+	if s.isPrivate(k) {
+		line := "  " + k + ": withheld from every process — nothing in this launch claims it."
+		if notes.Inherited != nil && notes.Inherited(k) {
+			line = "  " + k + ": not added by yolo — nothing in this launch claims it, so the " +
+				"invoking shell's own value passes through."
+		}
+		if len(shipped) > 0 {
+			return line + " To use it as " + shippedOwner(shipped) + "'s key: yolo pack add " +
+				shippedPacks(shipped) + "."
+		}
+		return line + " If no provider or MCP server needs it, it belongs in the public set: " +
+			"yolo config unsecret " + k + notes.scopeFlag(k)
+	}
+	if len(shipped) == 0 {
+		return ""
+	}
+	providers := shippedProviders(shipped)
+	if len(providers) == 1 {
+		return "  " + k + " reaches every process from your public environment; the " + providers[0] +
+			" provider, which this launch does not select, claims that name. If it is " + providers[0] +
+			"'s key: yolo config secret " + k + notes.scopeFlag(k)
+	}
+	return "  " + k + " reaches every process from your public environment; the " +
+		strings.Join(providers, ", ") + " providers, which this launch does not select, claim that " +
+		"name. If it is one of theirs: yolo config secret " + k + notes.scopeFlag(k)
+}
+
+// shippedProviders is the distinct providers of claims, sorted.
+func shippedProviders(claims []ShippedClaim) []string {
+	var out []string
+	for _, c := range claims {
+		out = append(out, c.Provider)
+	}
+	return sortedUnique(out)
+}
+
+// shippedOwner names whose key a row 4 remedy offers (secret-env-scoping-plan.md SEP-D15): the one
+// provider, else the one pack, else "a provider".
+func shippedOwner(claims []ShippedClaim) string {
+	if providers := shippedProviders(claims); len(providers) == 1 {
+		return providers[0]
+	}
+	var packs []string
+	for _, c := range claims {
+		packs = append(packs, c.Pack)
+	}
+	if packs = sortedUnique(packs); len(packs) == 1 {
+		return packs[0]
+	}
+	return "a provider"
+}
+
+// shippedPacks is the `yolo pack add` argument for claims: the one pack, or `a (or b)`.
+func shippedPacks(claims []ShippedClaim) string {
+	var packs []string
+	for _, c := range claims {
+		packs = append(packs, c.Pack)
+	}
+	packs = sortedUnique(packs)
+	if len(packs) == 1 {
+		return packs[0]
+	}
+	return packs[0] + " (or " + strings.Join(packs[1:], ", ") + ")"
 }
 
 // DisclosureWith words what the gate did with the credentials the user configured, names
@@ -1042,6 +1241,41 @@ type DisclosureNotes struct {
 // env_sources hydrated no claimed name, which is every launch that configured no provider
 // credential.
 //
+// mcpDelivered is whether k is a private name only MCP servers claim and some agent receives:
+// such a name is grouped under its servers ("mcp tavily"), never an env-set line.
+func (s *CredentialScope) mcpDelivered(k string, recipients []string) bool {
+	return s.isPrivate(k) && len(s.mcpClaims[k]) > 0 && len(recipients) > 0
+}
+
+// EnvSetLines is DisclosureWith's env-set lines alone (secret-env-scoping.md §3.6): row 4's line
+// for each private name nothing in this launch delivers, and row 1's for each public name an
+// unselected shipped provider claims, in hydration order. `yolo check` reports each as a WARN
+// (secret-env-scoping-plan.md SEP-D9). Names only, never a value.
+func (s *CredentialScope) EnvSetLines(notes DisclosureNotes) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range s.envSources.Keys() {
+		if _, claimed := s.claims[k]; claimed {
+			continue
+		}
+		var recipients []string
+		for _, agent := range s.Agents() {
+			if s.delivers(s.agents[agent], k) {
+				recipients = append(recipients, agent)
+			}
+		}
+		if s.mcpDelivered(k, recipients) {
+			continue
+		}
+		if line := s.envSetLine(k, notes); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // THE ONE DISCLOSURE RENDERER, at every notch (docs/plans/notch-convergence.md item 14, row
 // C7): the jail passes the zero DisclosureNotes, the host its own. A second, notes-less entry
 // point (`Disclosure`) was the jail's until it was deleted, so a notch's difference is always
@@ -1053,26 +1287,39 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		return nil
 	}
 	type group struct {
-		claimants  []string
-		providers  string
+		claimants []string
+		// label is the claimant as the line names it: "provider zai", or "mcp tavily" for a
+		// private name only an MCP server claims (secret-env-scoping.md SE-D13).
+		label      string
 		recipients string
 		held       string // "", "inherited" or "composed"
 		names      []string
 	}
 	var order []string
+	// envSetLines are the two line kinds of the env sets (secret-env-scoping.md §3.6, SE-D11),
+	// after every group, in hydration order.
+	var envSetLines []string
 	groups := map[string]*group{}
 	for _, k := range s.envSources.Keys() {
 		claimants, claimed := s.claims[k]
-		if !claimed {
-			continue
-		}
 		var recipients []string
 		for _, agent := range s.Agents() {
 			if s.delivers(s.agents[agent], k) {
 				recipients = append(recipients, agent)
 			}
 		}
-		g := &group{claimants: claimants, providers: strings.Join(claimants, ", "),
+		label := "provider " + strings.Join(claimants, ", ")
+		if !claimed {
+			if s.mcpDelivered(k, recipients) {
+				label = "mcp " + strings.Join(s.mcpClaims[k], ", ")
+			} else {
+				if line := s.envSetLine(k, notes); line != "" {
+					envSetLines = append(envSetLines, line)
+				}
+				continue
+			}
+		}
+		g := &group{claimants: claimants, label: label,
 			recipients: strings.Join(recipients, ", ")}
 		// Only a withheld name can be misreported by the process's own copy: a delivered one
 		// is the env_sources value, which beats it.
@@ -1088,7 +1335,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 				g.held = "composed"
 			}
 		}
-		key := g.providers + "\x00" + g.recipients + "\x00" + g.held
+		key := g.label + "\x00" + g.recipients + "\x00" + g.held
 		if existing, ok := groups[key]; ok {
 			existing.names = append(existing.names, k)
 			continue
@@ -1097,7 +1344,7 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		groups[key] = g
 		order = append(order, key)
 	}
-	if len(order) == 0 {
+	if len(order) == 0 && len(envSetLines) == 0 {
 		return nil
 	}
 	// IN SET ORDER (docs/design/active-provider-sets.md §4.5): when an agent holds a set of more
@@ -1132,18 +1379,28 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 		names := strings.Join(g.names, ", ")
 		switch {
 		case g.held == "granted":
-			lines = append(lines, "  "+names+" (provider "+g.providers+"): "+notes.GrantHolder+
+			lines = append(lines, "  "+names+" ("+g.label+"): "+notes.GrantHolder+
 				", by its --with-credentials grant")
 		case g.held == "inherited":
-			lines = append(lines, "  "+names+" (provider "+g.providers+"): not added by yolo — "+
+			lines = append(lines, "  "+names+" ("+g.label+"): not added by yolo — "+
 				"no agent in this launch selected it, so the invoking shell's own value passes through")
 		case g.recipients == "":
-			line := "  " + names + " (provider " + g.providers + "): withheld from " +
+			line := "  " + names + " (" + g.label + "): withheld from " +
 				"every process — no agent in this launch selected it"
 			if g.held == "composed" {
-				line = "  " + names + " (provider " + g.providers + "): not delivered from " +
+				line = "  " + names + " (" + g.label + "): not delivered from " +
 					"env_sources — no agent in this launch selected it — so the value the process " +
 					"holds is one yolo composed from another source, such as a pack's env"
+			}
+			// An MCP server's requires_env never widens a provider's key (SEP P2), so it names the
+			// servers that this drops the key for.
+			var servers []string
+			for _, n := range g.names {
+				servers = append(servers, s.mcpClaims[n]...)
+			}
+			if servers = sortedUnique(servers); len(servers) > 0 {
+				line += ". The MCP server " + strings.Join(servers, ", ") + " lists it in requires_env, " +
+					"but a provider's key reaches only the agents on that provider, so the server gets none"
 			}
 			if notes.Remedy != nil {
 				if remedy := notes.Remedy(g.claimants); remedy != "" {
@@ -1152,10 +1409,10 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 			}
 			lines = append(lines, line)
 		default:
-			lines = append(lines, "  "+names+" (provider "+g.providers+"): "+g.recipients+" only")
+			lines = append(lines, "  "+names+" ("+g.label+"): "+g.recipients+" only")
 		}
 	}
-	return lines
+	return append(lines, envSetLines...)
 }
 
 // disclosureRule is the disclosure's head line: the rule every line under it follows. Under a

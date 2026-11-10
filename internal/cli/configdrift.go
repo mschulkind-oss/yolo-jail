@@ -149,7 +149,7 @@ func configDump(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo config dump: %v\n", err)
 		return 1
 	}
-	j, err := config.SnapshotJSON(cfg)
+	j, err := config.SnapshotJSON(config.RedactPrivateEnvValues(cfg))
 	if err != nil {
 		fmt.Fprintf(errw, "yolo config dump: %v\n", err)
 		return 1

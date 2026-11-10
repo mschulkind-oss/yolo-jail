@@ -138,7 +138,7 @@ func sealedChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack) *packChannel {
 		profiles:      jsonx.NewOrderedMap(),
 		providers:     jsonx.NewOrderedMap(),
 		scope:         scope,
-		userEnv:       jsonx.NewOrderedMap(),
+		userEnv:       config.NewHydratedEnv(),
 		served:        served,
 		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil),
 	}

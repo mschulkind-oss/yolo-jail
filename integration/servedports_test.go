@@ -108,12 +108,19 @@ func TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts(t *testing.T) {
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 
-	packHome(t, fmt.Sprintf(`{
-		"packs": ["claude", "cerebras", "codex-auth"],
-		"profile": {"claude": "cerebras"},
-		"env_sources": [{"CEREBRAS_API_KEY": "served-ports-integration-key"}],
-		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://127.0.0.1:%d/v1"}}}}
-	}`, stubPort))
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
+	// set (secret-env-scoping.md).
+	writeUserTOML(t, fmt.Sprintf(`packs = ["claude", "cerebras", "codex-auth"]
+
+[active_provider]
+claude = "cerebras"
+
+[providers.cerebras]
+endpoints = { openai = { base_url = "http://127.0.0.1:%d/v1" } }
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "served-ports-integration-key" }
+`, stubPort))
 
 	const release = "release-served-ports"
 	session := func(who string) string {

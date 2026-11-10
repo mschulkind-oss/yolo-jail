@@ -26,14 +26,14 @@ func TestAnUndeclaredCopilotProfileNamesItsPack(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	cfg := profileFor("pi", "copilot")
-	_, err := o.composePackChannel(cfg, []*packload.Pack{officialPack(t, "pi")}, zaiAndRouterKeys())
+	_, err := o.composePackChannel(cfg, []*packload.Pack{officialPack(t, "pi")}, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `no profile named "copilot" is declared`) ||
 		!strings.Contains(err.Error(), "run `yolo pack add copilot-auth`") {
 		t.Fatalf("composePackChannel = %v, want the refusal to name adding the copilot-auth pack", err)
 	}
 	// Selected beside pi, the pack declares it.
 	if _, err := o.composePackChannel(cfg, []*packload.Pack{officialPack(t, "pi"),
-		officialPack(t, "copilot-auth")}, zaiAndRouterKeys()); err != nil {
+		officialPack(t, "copilot-auth")}, hydrate(zaiAndRouterKeys())); err != nil {
 		t.Fatalf("pi with the copilot-auth pack: %v", err)
 	}
 }
@@ -42,7 +42,7 @@ func TestTheLaunchRefusesTheFormerCopilotProfileNamingTheNewOne(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	_, err := o.composePackChannel(profileFor("pi", "github-copilot"),
-		[]*packload.Pack{officialPack(t, "pi"), officialPack(t, "copilot-auth")}, zaiAndRouterKeys())
+		[]*packload.Pack{officialPack(t, "pi"), officialPack(t, "copilot-auth")}, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `profile "github-copilot" selected for pi`) ||
 		!strings.Contains(err.Error(), `renamed "copilot"`) || !strings.Contains(err.Error(), `select "copilot" instead`) {
 		t.Fatalf("composePackChannel = %v, want the former name refused naming copilot", err)
@@ -52,8 +52,7 @@ func TestTheLaunchRefusesTheFormerCopilotProfileNamingTheNewOne(t *testing.T) {
 func TestTheLaunchTypesOutTheDeclarationForABuiltInName(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
-	_, err := o.composePackChannel(profileFor("pi", "groq"), []*packload.Pack{officialPack(t, "pi")},
-		zaiAndRouterKeys())
+	_, err := o.composePackChannel(profileFor("pi", "groq"), []*packload.Pack{officialPack(t, "pi")}, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), "pi has groq built in") ||
 		!strings.Contains(err.Error(), "\n  yolo config set providers.groq.platform groq --user\n") ||
 		!strings.Contains(err.Error(), "\n  yolo config set active_provider.pi groq --user\n") ||

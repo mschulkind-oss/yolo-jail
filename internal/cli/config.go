@@ -52,6 +52,11 @@ Subcommands:
                            what 'config apply' applied since).
   dump                     Print the full COMPUTED config as canonical JSON.
   why <key>                Show which file and line set a key, and what applies without it.
+  secret <NAME> [--drop] [target]
+                           Move an env name into the private set ([env.secrets]),
+                           never printing its value; --dotenv <path> moves a file entry.
+  unsecret <NAME> [--drop] [target]
+                           Move an env name back to the public set ([env]).
   migrate [--dry-run] [--yes]
                            Convert the old-format config files to TOML, once,
                            proving the result says the same; on the host the
@@ -131,6 +136,8 @@ func configRunW(args []string, out, errw io.Writer) int {
 			return 0
 		}
 		return runConfigEditWithPostWriteCheck(args, out, errw, configEditWorkspace())
+	case "secret", "unsecret":
+		return runConfigSecret(args, out, errw, configEditWorkspace())
 	case "why":
 		return configWhy(args[1:], out, errw)
 	case "migrate":
@@ -290,7 +297,7 @@ func writeCLIUsage(out io.Writer, color bool, usage string) {
 
 func configHelpToken(token string) bool {
 	switch token {
-	case "ls", "render", "diff", "reset", "promote", "capture", "set", "add", "unset", "drift", "dump", "apply", "migrate", "why",
+	case "ls", "render", "diff", "reset", "promote", "capture", "set", "add", "unset", "drift", "dump", "apply", "migrate", "why", "secret", "unsecret", "--drop", "--dotenv",
 		"--user", "--project", "--local", "--file", "--dry-run",
 		"--help", "-h", "--all", "--explain", "--setup", "--force", "--keys", "--to",
 		"--plan", "--json", "--accept-promotion", "--record-only", "--accept-config-changes", "--yes":

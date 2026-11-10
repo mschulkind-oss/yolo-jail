@@ -484,8 +484,16 @@ func TestHostWrapperSpellingAndTheChatRouteRunThroughTheBridge(t *testing.T) {
 	}
 	assertServiceGone(t, l)
 
-	cerebras := `{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "tok-c"}], ` +
-		`"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "` + upstream.URL + `/v1"}}}}}`
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
+	// (secret-env-scoping.md).
+	cerebras := `packs = ["claude", "cerebras"]
+
+[providers.cerebras.endpoints.openai]
+base_url = "` + upstream.URL + `/v1"
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "tok-c" }
+`
 	l = runServiceLaunch(t, cerebras, []string{"-p", "cerebras"}, "", nil)
 	if l.rc != 0 || l.report.WithToken != http.StatusOK {
 		t.Fatalf("-p cerebras: rc = %d, request %d: %s\n%s", l.rc, l.report.WithToken, l.report.Body, l.errs)

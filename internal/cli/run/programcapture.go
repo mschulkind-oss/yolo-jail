@@ -251,7 +251,8 @@ func OrdinaryRuntimeUnsupported(cfg *jsonx.OrderedMap, storePackages bool) strin
 		if config.HasEnvFileEntry(cfg) {
 			return "file-backed env_sources or env.files has no sealed runtime identity; retain its authorized installation route"
 		}
-		if env := config.ResolveEnvSources("", cfg, nil); env != nil {
+		// Both sets: a private value still reaches an agent's runtime (secret-env-scoping.md §3.4).
+		if env := config.ResolveEnv("", cfg, nil).Values(); env != nil {
 			for _, key := range env.Keys() {
 				if ordinaryRuntimeEnvKey(key) {
 					return "configured " + key + " can change the installation/runtime loader environment"

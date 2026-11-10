@@ -239,3 +239,24 @@ func TestConfigWhyNamesTheReplacementForARenamedKey(t *testing.T) {
 		}
 	}
 }
+
+// A private inline value is printed by neither `config why` at any depth nor `config dump`
+// (review major 2c); the name still is.
+func TestConfigWhyAndDumpNeverPrintAPrivateInlineValue(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", "")
+	secret := "SYNTHETIC_PRIVATE_DSN_DO_NOT_PRINT"
+	body := "[env.secrets]\nset = { SENTRY_DSN = \"" + secret + "\" }\n"
+	if err := os.WriteFile(fx.userConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"config", "why", "env"}, {"config", "why", "env.secrets"},
+		{"config", "why", "env.secrets.set"}, {"config", "why", "env.secrets.set.SENTRY_DSN"}, {"config", "dump"}} {
+		rc, out, errs := captureStd(t, func() int { return registry["config"](args) })
+		if rc != 0 || strings.Contains(out+errs, secret) {
+			t.Errorf("%v rc=%d leaked a private value: %q", args, rc, out+errs)
+		}
+		if !strings.Contains(out, "SENTRY_DSN") && args[len(args)-1] != "SENTRY_DSN" && !strings.HasSuffix(args[len(args)-1], "SENTRY_DSN") {
+			t.Errorf("%v lost the private name: %q", args, out)
+		}
+	}
+}

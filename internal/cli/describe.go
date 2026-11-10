@@ -85,7 +85,13 @@ func describeMain(args []string, out, errw io.Writer, color bool) int {
 
 	if asJSON {
 		// The canonical computed config — supersedes `config dump` (same bytes).
-		fmt.Fprintln(out, canonical)
+		// Without a private inline value (secret-env-scoping.md): the hash below still covers it.
+		shown, serr := config.SnapshotJSON(config.RedactPrivateEnvValues(cfg))
+		if serr != nil {
+			fmt.Fprintf(errw, "yolo describe: %v\n", serr)
+			return 1
+		}
+		fmt.Fprintln(out, shown)
 		return 0
 	}
 	if asHash {

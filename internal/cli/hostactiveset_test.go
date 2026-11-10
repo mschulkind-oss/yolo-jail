@@ -21,9 +21,23 @@ import (
 )
 
 // setHostCfg selects the shipped claude, pi, zai and openrouter packs and hydrates both
-// providers' keys.
-const setHostCfg = `{"packs": ["claude", "pi", "zai", "openrouter"], "env_sources": [` +
-	`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`
+// providers' keys, in the private set, where a provider's key lives
+// (docs/design/secret-env-scoping.md).
+const setHostCfg = `packs = ["claude", "pi", "zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`
+
+// piSetProfileKeyCfg is setHostCfg with pi's set chosen by the profile key's per-agent list.
+const piSetProfileKeyCfg = `packs = ["claude", "pi", "zai", "openrouter"]
+
+[active_provider]
+pi = ["zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`
 
 // §9's last bullet, the exec half: `yolo host -p pi=zai,openrouter -- pi` hands pi both keys
 // and names the set before it runs.
@@ -42,9 +56,7 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 		}
 	}
 	// The same set from the profile key, a config list.
-	env, _ = hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
-		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil, nil, "pi")
+	env, _ = hostGateLaunchWith(t, piSetProfileKeyCfg, nil, nil, "pi")
 	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
 		t.Errorf("the profile key's list must deliver both keys too: ZAI=%q OPENROUTER=%q",
 			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
@@ -79,11 +91,21 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 	}
 	// A profile with no explicit model still scopes Pi to its provider. Pi's CLI couples
 	// --provider to --model, so this production host path must hand only the declared scope.
-	deepseekCfg := `{"packs": ["claude", "pi"], ` +
-		`"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://deepseek.example/v1"}}, ` +
-		`"api_key_env_name": "DEEPSEEK_API_KEY"}}, ` +
-		`"profiles": {"deepseek": {"provider": "deepseek"}}, ` +
-		`"env_sources": [{"DEEPSEEK_API_KEY": "tok-deepseek"}]}`
+	// The empty [active_provider] table selects nothing; its presence puts the user's providers
+	// in the selection namespace, where the legacy `"profiles": {"deepseek": ...}` put deepseek.
+	deepseekCfg := `packs = ["claude", "pi"]
+
+[providers.deepseek]
+api_key_env_name = "DEEPSEEK_API_KEY"
+
+[providers.deepseek.endpoints.openai]
+base_url = "https://deepseek.example/v1"
+
+[active_provider]
+
+[env.secrets]
+set = { DEEPSEEK_API_KEY = "tok-deepseek" }
+`
 	deepseekHome := hostGateHome(t, deepseekCfg, nil)
 	deepseekSettings := filepath.Join(deepseekHome, ".pi", "agent", "settings.json")
 	deepseekOwn := `{"theme":"native"}`
@@ -101,9 +123,7 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 		t.Errorf("provider-only host selection changed Pi settings.json: %s", got)
 	}
 	// From the profile key, with no -p, pi starts on its file: nothing is handed.
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
-		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil)
+	hostGateHome(t, piSetProfileKeyCfg, nil)
 	bare := hostSelectionRun(t, "", nil, "pi")
 	if !reflect.DeepEqual(bare.argv, []string{"pi"}) || bare.env["YOLO_PI_MODEL_LISTS"] != "" {
 		t.Errorf("with no -p pi got %q and lists %q, want its own argv and its files", bare.argv,
@@ -226,7 +246,11 @@ func TestHostRefusesAnUndeclaredLaterEntry(t *testing.T) {
 // ignores must still be declared, at `yolo host --` and `yolo host env` alike. They used to go
 // unchecked, so `-p zai,typo -- claude` ran claude on zai.
 func TestHostRefusesAnUndeclaredEntryOfABareList(t *testing.T) {
-	const cfg = `{"packs": ["claude", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+	const cfg = `packs = ["claude", "zai"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`
 	const says = `profile "typo" (entry 2 of the bare -p list zai,typo)`
 	rc, env, errs := hostGateRun(t, cfg, nil, []string{"-p", "zai,typo"}, "claude")
 	if rc == 0 || env != nil {
@@ -279,8 +303,11 @@ func TestHostEnvNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 // and asks nothing (regionGaps). With the provider's region set, pi runs and its environment
 // carries that region as AWS_REGION, relayed by pi's derive for its second entry.
 func TestHostAsksTheRegionOfALaterEntry(t *testing.T) {
-	const cfg = `{"packs": ["pi", "zai", "bedrock"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "work"}]}`
+	const cfg = `packs = ["pi", "zai", "bedrock"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", AWS_PROFILE = "work" }
+`
 	rc, env, errs := hostGateRun(t, cfg, map[string]string{"AWS_REGION": ""}, []string{"-p", "pi=zai,bedrock"}, "pi")
 	if rc == 0 || env != nil {
 		t.Fatalf("pi's second entry on bedrock with no region must refuse (rc=%d)\n%s", rc, errs)
@@ -289,8 +316,14 @@ func TestHostAsksTheRegionOfALaterEntry(t *testing.T) {
 		t.Errorf("the refusal must name bedrock and pi:\n%s", errs)
 	}
 
-	const withRegion = `{"packs": ["pi", "zai", "bedrock"], "providers": {"bedrock": {"region": "eu-west-7"}},
-	  "env_sources": [{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "work"}]}`
+	const withRegion = `packs = ["pi", "zai", "bedrock"]
+
+[providers.bedrock]
+region = "eu-west-7"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", AWS_PROFILE = "work" }
+`
 	env, errs = hostGateLaunchWith(t, withRegion, map[string]string{"AWS_REGION": ""},
 		[]string{"-p", "pi=zai,bedrock"}, "pi")
 	if env["AWS_REGION"] != "eu-west-7" {
@@ -313,8 +346,15 @@ const widgetSetPack = `{"name": "local", "contributes": [
 // it, so the launch refuses. envOverrideFindings builds its selection over the whole set
 // (SelectionOfSets); read over the primary alone it sees zai, fires no gate, and pi runs.
 func TestHostRefusesAnOverrideOfAPointerALaterEntryGates(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["pi", "zai"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "WIDGET_TOKEN": "frozen"}]}`, nil)
+	// WIDGET_TOKEN no provider claims stays public; ZAI_API_KEY, zai's key, is private.
+	home := hostGateHome(t, `packs = ["pi", "zai"]
+
+[env]
+set = { WIDGET_TOKEN = "frozen" }
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`, nil)
 	t.Setenv("WIDGET_TOKEN", "")
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"), widgetSetPack)
 	rc, reached, errw := hostExecRun(t, "pi", "-p", "pi=zai,widget")
@@ -419,8 +459,11 @@ func TestHostApplyLeavesOutASetItCannotRender(t *testing.T) {
 // The credential pre-flight at the host demands every entry's key and names the missing one's
 // position; the agent is never started on the rest.
 func TestHostRefusesASetMissingAnEntrysKey(t *testing.T) {
-	rc, env, errs := hostGateRun(t, `{"packs": ["pi", "zai", "openrouter"], "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai"}]}`, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
+	rc, env, errs := hostGateRun(t, `packs = ["pi", "zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
 	if rc == 0 || env != nil {
 		t.Fatalf("a set missing openrouter's key must refuse before the exec (rc=%d)\n%s", rc, errs)
 	}
@@ -434,9 +477,16 @@ func TestHostRefusesASetMissingAnEntrysKey(t *testing.T) {
 // key's own spelling of a per-agent list, while pi takes it whole. Through hostGateLaunchWith, so
 // cutting the note from profileLines or the fold's narrowing from composeHostVarsWith fails it.
 func TestHostNarrowsTheProfileKeysBareListForClaudeAndSaysSo(t *testing.T) {
-	for _, key := range []string{`["zai", "openrouter"]`, `{"*": ["zai", "openrouter"]}`} {
-		cfg := `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ` + key + `, ` +
-			`"env_sources": [{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`
+	// The legacy key's list form and its list under "*" both migrate to the one TOML spelling,
+	// `default` under [active_provider], which the keys' private set needs (secret-env-scoping.md).
+	for _, key := range []string{"[active_provider]\ndefault = [\"zai\", \"openrouter\"]"} {
+		cfg := `packs = ["claude", "pi", "zai", "openrouter"]
+
+` + key + `
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`
 		env, errs := hostGateLaunchWith(t, cfg, nil, nil, "claude")
 		if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "" {
 			t.Errorf("%s: claude must run on zai alone: ZAI=%q OPENROUTER=%q", key,
@@ -462,8 +512,14 @@ func TestHostNarrowsTheProfileKeysBareListForClaudeAndSaysSo(t *testing.T) {
 // AP-D3 for the key's bare list at the host: the entries claude ignores must be declared, as
 // they are for a bare -p.
 func TestHostRefusesAnUndeclaredEntryOfTheProfileKeysBareList(t *testing.T) {
-	const cfg = `{"packs": ["claude", "zai"], "profile": ["zai", "typo"], ` +
-		`"env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+	const cfg = `packs = ["claude", "zai"]
+
+[active_provider]
+default = ["zai", "typo"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`
 	rc, env, errs := hostGateRun(t, cfg, nil, nil, "claude")
 	if rc == 0 || env != nil {
 		t.Fatalf("the key's list with an undeclared entry must refuse before the exec (rc=%d)\n%s", rc, errs)
@@ -499,8 +555,11 @@ func TestHostApplySaysWhatTheProfileKeysBareListNarrowed(t *testing.T) {
 // in a jail: `yolo host -p opencode=zai,openrouter -- opencode` hands opencode both keys and names
 // the set before it runs, and the profile key's list does the same.
 func TestHostRunsOpencodeOnItsWholeSet(t *testing.T) {
-	const cfg = `{"packs": ["claude", "opencode", "zai", "openrouter"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`
+	const cfg = `packs = ["claude", "opencode", "zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`
 	env, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "opencode=zai,openrouter"}, "opencode")
 	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
 		t.Errorf("opencode on [zai, openrouter] must receive both keys: ZAI=%q OPENROUTER=%q",
@@ -512,9 +571,14 @@ func TestHostRunsOpencodeOnItsWholeSet(t *testing.T) {
 			t.Errorf("the launch must say %q:\n%s", want, errs)
 		}
 	}
-	env, _ = hostGateLaunchWith(t, `{"packs": ["claude", "opencode", "zai", "openrouter"], `+
-		`"profile": {"opencode": ["zai", "openrouter"]}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil, nil, "opencode")
+	env, _ = hostGateLaunchWith(t, `packs = ["claude", "opencode", "zai", "openrouter"]
+
+[active_provider]
+opencode = ["zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`, nil, nil, "opencode")
 	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
 		t.Errorf("the profile key's list must deliver both keys too: ZAI=%q OPENROUTER=%q",
 			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
@@ -577,7 +641,11 @@ func TestHostEnvHandsTheSelectionAScriptCanCarry(t *testing.T) {
 		t.Errorf("half of pi's selection was exported:\n%s", out.String())
 	}
 
-	hostGateHome(t, `{"packs": ["claude", "opencode", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`, nil)
+	hostGateHome(t, `packs = ["claude", "opencode", "zai"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`, nil)
 	out.Reset()
 	errw.Reset()
 	if rc := hostEnv([]string{"--agent", "opencode", "-p", "zai"}, &out, &errw); rc != 0 {
@@ -614,9 +682,12 @@ func TestHostApplyRendersOpencodesSet(t *testing.T) {
 }
 
 // setRemedyCfg selects pi with three providers' keys hydrated, so a launch on two of them
-// withholds the third's.
-const setRemedyCfg = `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras"], "env_sources": [` +
-	`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`
+// withholds the third's. The keys are in the private set (docs/design/secret-env-scoping.md).
+const setRemedyCfg = `packs = ["claude", "pi", "zai", "openrouter", "cerebras"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", CEREBRAS_API_KEY = "tok-c" }
+`
 
 // THE ADDITIVE REMEDY (AP-D19): pi runs on a set, so the withheld line for a key only cerebras
 // claims names the launch that ADDS cerebras to the set, in the pair form that replaces pi's set
@@ -642,10 +713,14 @@ func TestHostSetRemedyAddsTheProfileToTheSet(t *testing.T) {
 
 // The same set from the profile key's list: the remedy names the pair that adds cerebras to it.
 func TestHostSetRemedyAddsToTheProfileKeysSet(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter", "cerebras"], `+
-		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`,
-		nil, nil, "pi")
+	_, errs := hostGateLaunchWith(t, `packs = ["claude", "pi", "zai", "openrouter", "cerebras"]
+
+[active_provider]
+pi = ["zai", "openrouter"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", CEREBRAS_API_KEY = "tok-c" }
+`, nil, nil, "pi")
 	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
 	if !strings.Contains(line, "`yolo host -p pi=zai,openrouter,cerebras -- pi`") {
 		t.Errorf("the remedy must add cerebras to the key's set: %q", line)
@@ -675,12 +750,26 @@ func TestHostEnvSetRemedyAddsTheProfileToTheSet(t *testing.T) {
 // AP-D12 refuses a set naming a regional platform twice, so a widened set that would is never
 // named: the line falls back to the switch, and says the switch replaces the whole set.
 func TestHostSetRemedyFallsBackToTheSwitchForASecondRegionalEntry(t *testing.T) {
-	cfg := `{"packs": ["claude", "pi", "zai", "bedrock"], ` +
-		`"providers": {"bedrock": {"region": "us-east-1"}, "bedrock-west": {"platform": "aws-bedrock", ` +
-		`"region": "us-west-2", "endpoints": {"openai": {"base_url": "https://west.example/v1"}}, ` +
-		`"api_key_env_name": "WEST_KEY"}}, ` +
-		`"profiles": {"bedrock-west": {"provider": "bedrock-west"}}, "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "dev", "WEST_KEY": "tok-w"}]}`
+	cfg := `packs = ["claude", "pi", "zai", "bedrock"]
+
+[providers.bedrock]
+region = "us-east-1"
+
+[providers.bedrock-west]
+platform = "aws-bedrock"
+region = "us-west-2"
+api_key_env_name = "WEST_KEY"
+
+[providers.bedrock-west.endpoints.openai]
+base_url = "https://west.example/v1"
+
+# Selects nothing; it makes bedrock-west selectable by its own name, as the legacy
+# "profiles": {"bedrock-west": ...} declared it.
+[active_provider]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", AWS_PROFILE = "dev", WEST_KEY = "tok-w" }
+`
 	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "pi=zai,bedrock"}, "pi")
 	line := scopeLine(t, errs, "WEST_KEY")
 	if strings.Contains(line, "pi=zai,bedrock,bedrock-west") {
@@ -695,11 +784,21 @@ func TestHostSetRemedyFallsBackToTheSwitchForASecondRegionalEntry(t *testing.T) 
 // An entry pi cannot speak is refused at every position of a set as it is alone, so neither the
 // widened set nor the switch is named: the key goes to an ad-hoc command through the grant.
 func TestHostSetRemedyHandsAnUnspeakableProfilesKeyToTheGrant(t *testing.T) {
-	cfg := `{"packs": ["claude", "pi", "zai", "openrouter"], ` +
-		`"providers": {"anth": {"endpoints": {"anthropic": {"base_url": "https://anth.example"}}, ` +
-		`"api_key_env_name": "ANTH_KEY"}}, ` +
-		`"profiles": {"anth": {"provider": "anth"}}, "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "ANTH_KEY": "tok-a"}]}`
+	cfg := `packs = ["claude", "pi", "zai", "openrouter"]
+
+[providers.anth]
+api_key_env_name = "ANTH_KEY"
+
+[providers.anth.endpoints.anthropic]
+base_url = "https://anth.example"
+
+# Selects nothing; it makes anth selectable by its own name, as the legacy
+# "profiles": {"anth": ...} declared it.
+[active_provider]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", ANTH_KEY = "tok-a" }
+`
 	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
 	line := scopeLine(t, errs, "ANTH_KEY")
 	if strings.Contains(line, "-- pi`") {
@@ -713,8 +812,11 @@ func TestHostSetRemedyHandsAnUnspeakableProfilesKeyToTheGrant(t *testing.T) {
 
 // oh-omp holds a set too (AP-D18), so its withheld line adds a profile its set can take.
 func TestHostOmpSetRemedyAddsTheProfileToTheSet(t *testing.T) {
-	const cfg = `{"packs": ["claude", "omp", "zai", "openrouter", "cerebras"], "env_sources": [` +
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "CEREBRAS_API_KEY": "tok-c"}]}`
+	const cfg = `packs = ["claude", "omp", "zai", "openrouter", "cerebras"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", CEREBRAS_API_KEY = "tok-c" }
+`
 	_, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "oh-omp=zai,openrouter"}, "oh-omp")
 	line := scopeLine(t, errs, "CEREBRAS_API_KEY")
 	if !strings.Contains(line, "`yolo host -p oh-omp=zai,openrouter,cerebras -- oh-omp`") {
@@ -727,11 +829,19 @@ func TestHostOmpSetRemedyAddsTheProfileToTheSet(t *testing.T) {
 // The declare-a-profile arm adds too: with no profile over deepseek, the line says to declare one
 // and then names the launch adding it to pi's set, which runs once the example is declared.
 func TestHostSetRemedyAddsTheProfileItTellsTheUserToDeclare(t *testing.T) {
-	provider := `"providers": {"deepseek": {"endpoints": {"openai": {"base_url": "https://api.deepseek.example/v1"}}, ` +
-		`"api_key_env_name": "DEEPSEEK_API_KEY"}}`
-	keys := `"env_sources": [{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router", "DEEPSEEK_API_KEY": "tok-ds"}]`
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+provider+`, `+keys+`}`,
-		nil, []string{"-p", "pi=zai,openrouter"}, "pi")
+	provider := `packs = ["claude", "pi", "zai", "openrouter"]
+
+[providers.deepseek]
+api_key_env_name = "DEEPSEEK_API_KEY"
+
+[providers.deepseek.endpoints.openai]
+base_url = "https://api.deepseek.example/v1"
+`
+	keys := `
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", DEEPSEEK_API_KEY = "tok-ds" }
+`
+	_, errs := hostGateLaunchWith(t, provider+keys, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
 	for _, want := range []string{"No declared profile selects deepseek", `"deepseek": {"provider": "deepseek"}`,
 		"then to add the deepseek profile to pi's active set for one launch, keeping zai, openrouter: " +
@@ -740,18 +850,26 @@ func TestHostSetRemedyAddsTheProfileItTellsTheUserToDeclare(t *testing.T) {
 			t.Errorf("the declare arm must add the profile it names (%q missing): %q", want, line)
 		}
 	}
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+provider+`, `+
-		`"profiles": {"deepseek": {"provider": "deepseek"}}, `+keys+`}`, nil)
+	// The example declared: a TOML user config's providers are selectable by their own names once
+	// it carries the [active_provider] table, here empty, so it selects nothing.
+	hostGateHome(t, provider+"\n[active_provider]\n"+keys, nil)
 	assertRemediesRun(t, line, "DEEPSEEK_API_KEY", "tok-ds")
 	assertRemediesRun(t, line, "OPENROUTER_API_KEY", "tok-router")
 }
+
+// ompZaiCfg selects claude, omp and zai, with zai's key in the private set.
+const ompZaiCfg = `packs = ["claude", "omp", "zai"]
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+`
 
 // OH-OMP'S SCOPE MOVES WITH A -p UNDER AN `only` (docs/design/model-lists-and-pickers.md MM-D30):
 // its one selection key, enabledModels, is written only for a narrowed list, and a -p hands it as
 // --models, which oh-omp 0.15.3 reads in its place. A -p over a list no `only` narrowed composes no
 // scope, as with no -p, and hands nothing.
 func TestHostMovesOhOmpsScopeUnderAnOnly(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["claude", "omp", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`, nil)
+	home := hostGateHome(t, ompZaiCfg, nil)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
 		`{"name":"acme","contributes":[{"kind":"models","provider":"zai","only":["glm-5.3","glm-4.6"]}]}`)
 	run := hostSelectionRun(t, home, []string{"-p", "oh-omp=zai"}, "oh-omp")
@@ -759,7 +877,7 @@ func TestHostMovesOhOmpsScopeUnderAnOnly(t *testing.T) {
 	if want := []string{"oh-omp", "--models", "zai/glm-5.3,zai/glm-4.6"}; !reflect.DeepEqual(run.argv, want) {
 		t.Errorf("oh-omp got %q, want %q\n%s", run.argv, want, run.errs)
 	}
-	hostGateHome(t, `{"packs": ["claude", "omp", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`, nil)
+	hostGateHome(t, ompZaiCfg, nil)
 	if plain := hostSelectionRun(t, "", []string{"-p", "oh-omp=zai"}, "oh-omp"); !reflect.DeepEqual(plain.argv, []string{"oh-omp"}) {
 		t.Errorf("with no `only` oh-omp got %q, want its own argv", plain.argv)
 	}
@@ -796,7 +914,7 @@ func TestHostLeavesASubcommandWhereTheUserTypedIt(t *testing.T) {
 		t.Errorf("a prompt was not moved: pi got %q\n%s", prompt.argv, prompt.errs)
 	}
 
-	home := hostGateHome(t, `{"packs": ["claude", "omp", "zai"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`, nil)
+	home := hostGateHome(t, ompZaiCfg, nil)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json"),
 		`{"name":"acme","contributes":[{"kind":"models","provider":"zai","only":["glm-5.3","glm-4.6"]}]}`)
 	omp := hostSelectionRun(t, home, []string{"-p", "oh-omp=zai"}, "oh-omp", "commit", "--push")
@@ -817,9 +935,14 @@ func TestHostHandsPiItsSetsProviderRequestPolicy(t *testing.T) {
 	doc := func(ids, profiles string) string {
 		return `{"schemaVersion":1,"mode":"allowlist","allowedProviderIds":[` + ids + `],"profiles":[` + profiles + `]}`
 	}
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
-		`"profile": {"pi": "zai"}, "env_sources": [`+
-		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil)
+	hostGateHome(t, `packs = ["claude", "pi", "zai", "openrouter"]
+
+[active_provider]
+pi = "zai"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
+`, nil)
 	if got := hostSelectionRun(t, "", []string{"-p", "pi=zai,openrouter"}, "pi").env[name]; got != doc(`"openrouter","zai"`, `"zai","openrouter"`) {
 		t.Errorf("yolo host -p pi=zai,openrouter handed %s=%q", name, got)
 	}

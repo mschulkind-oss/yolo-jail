@@ -228,7 +228,7 @@ func TestAMacosUserLaunchThatPlansNothingHasNoKeeper(t *testing.T) {
 
 // keeperBridgeConfig is a user config selecting claude on cerebras, whose wire bridge a macos-user
 // launch runs as a launch-owned service, beside the local pack's fixture front.
-const keeperBridgeConfig = `{"packs": ["claude", "cerebras"], "env_sources": [{"CEREBRAS_API_KEY": "csk-test"}]}`
+const keeperBridgeConfig = "packs = [\"claude\", \"cerebras\"]\n\n[env.secrets]\nset = { CEREBRAS_API_KEY = \"csk-test\" }\n"
 
 // fakeHeld is a started launch-owned service whose end a test controls (Done), as a Running's.
 type fakeHeld struct {
@@ -272,7 +272,7 @@ func TestTwoMacosUserSessionsOfOneWorkspaceShareOneKeeper(t *testing.T) {
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
 	spawns := countKeeperSpawns(t)
@@ -513,7 +513,7 @@ func TestAMacosUserServiceThatDiesAfterReadyIsRecordedForTheNextArrivalAndQuit(t
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
 	_, held := observeHeldServices(t)
@@ -869,7 +869,7 @@ func TestASignalBeforeTheMacosUserKeeperIsReadyEndsItsStart(t *testing.T) {
 	}
 	nixchildren.Isolate(t)
 	home := packHome(t)
-	writeUserConfigJSON(t, home, keeperBridgeConfig)
+	writeUserConfigTOML(t, home, keeperBridgeConfig)
 	ws := t.TempDir()
 	key := macosUserKeyOf(ws)
 	lifelineSeen := make(chan struct{})
@@ -929,7 +929,7 @@ func TestAMacosUserJoinerNeedingAServiceTheKeeperLacksIsRefused(t *testing.T) {
 	}
 	home := packHome(t)
 	writeKeeperProxy(t, home)
-	writeUserConfigJSON(t, home, `{"packs": []}`)
+	writeUserConfigTOML(t, home, "packs = []\n")
 	ws := t.TempDir()
 	spawns := countKeeperSpawns(t)
 	observeHeldServices(t)
@@ -952,7 +952,7 @@ func TestAMacosUserJoinerNeedingAServiceTheKeeperLacksIsRefused(t *testing.T) {
 	oA, outA := keeperLaunch(t, ws, func(*jsonx.OrderedMap) int {
 		// The config the keeper started from had no agent; the next launches pair claude through
 		// the wire bridge, which the keeper does not run.
-		writeUserConfigJSON(t, home, keeperBridgeConfig)
+		writeUserConfigTOML(t, home, keeperBridgeConfig)
 		rcB = Run(*oB)
 		rcC = Run(*oC)
 		return 0

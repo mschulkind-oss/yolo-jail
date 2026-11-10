@@ -83,7 +83,7 @@ func winnerFixtureConfig() *jsonx.OrderedMap {
 	es.Set("K5", nil)
 	es.Set("K6", nil)
 	es.Set("K7", "es-unclaimed")
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	return cfg
 }
 
@@ -308,10 +308,14 @@ func TestTheDeliveryReadersAnswerTheCompositionsWinner(t *testing.T) {
 // removals, and the second composition removes what the first did.
 func TestARecomposedChannelKeepsTheEnvSourcesRemovals(t *testing.T) {
 	o, cfg, packs, channel := winnerChannel(t)
-	again := channelFor(t, o, cfg, packs, channel.userEnv)
+	again, err := o.composePackChannel(cfg, packs, channel.userEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removals := strings.Join(channel.userEnv.Removals(), ",")
 	for _, k := range []string{"K5", "K6"} {
-		if v, ok := channel.userEnv.Get(k); !ok || v != nil {
-			t.Errorf("the channel's hydration must carry %s's removal as a nil value: %v %v", k, v, ok)
+		if !strings.Contains(","+removals+",", ","+k+",") {
+			t.Errorf("the channel's hydration must carry %s's removal: %s", k, removals)
 		}
 	}
 	if e, ok := again.scope.SharedEnv().Lookup("K5"); !ok || !e.Unset {
@@ -397,7 +401,7 @@ func TestTheJailVehiclesKeepTheWireTablesOverEnvSources(t *testing.T) {
 	es := jsonx.NewOrderedMap()
 	es.Set(entrypoint.ProvidersWireEnv, "es-value")
 	es.Set(entrypoint.UseProfilesWireEnv, nil)
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	channel := channelFor(t, o, cfg, []*packload.Pack{winnerFixturePack(t)}, nil)
 	want := channel.wireTableValues()
 	tables := entrypoint.WireTables()
@@ -489,7 +493,7 @@ end)
 	es.Set("FXP_KEY", "es-fxp")
 	es.Set("FYP_KEY", "es-fyp")
 	es.Set("K2", "es-unclaimed")
-	cfg.Set("env_sources", []any{es})
+	setFixtureEnv(cfg, es)
 	channel := channelFor(t, o, cfg, []*packload.Pack{p}, nil)
 	if v, _ := channel.scope.EnvFor("fxb").Value("K2"); v != "es-unclaimed" {
 		t.Fatalf("fixture: fxb's K2 must be every process's env_sources value, got %q", v)

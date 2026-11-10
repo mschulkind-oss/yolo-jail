@@ -108,7 +108,13 @@ func TestHostOverrideWarningsAndTheObserveVerb(t *testing.T) {
 // jail gives wherever aws-auth is not served (macos-user,
 // TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt in internal/cli/run).
 func TestHostBearerBesideAWithheldPointerOverridesNothing(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "bedrock"], "env_sources": [{"AWS_BEARER_TOKEN_BEDROCK": "sk-frozen"}]}`, nil)
+	// AWS_BEARER_TOKEN_BEDROCK is the bedrock provider's key, so it lives in the private set
+	// (secret-env-scoping.md).
+	hostGateHome(t, `packs = ["claude", "bedrock"]
+
+[env.secrets]
+set = { AWS_BEARER_TOKEN_BEDROCK = "sk-frozen" }
+`, nil)
 	t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
 	rc, reached, errw := hostExecRun(t, "claude", "-p", "bedrock")
 	if rc != 0 || !reached {

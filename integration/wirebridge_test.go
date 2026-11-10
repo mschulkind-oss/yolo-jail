@@ -118,12 +118,19 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 	// `packs` is user-scope only, and so are `profile`/providers/env_sources.
 	// The openai base_url override is per-field over the pack's shipped facts —
 	// the anthropic endpoint and the wire_api stay the pack's.
-	packHome(t, `{
-		"packs": ["claude", "cerebras"],
-		"profile": {"claude": "cerebras"},
-		"env_sources": [{"CEREBRAS_API_KEY": "`+sentinel+`"}],
-		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://`+stubAddr+`/v1"}}}}
-	}`)
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
+	// set (secret-env-scoping.md).
+	writeUserTOML(t, `packs = ["claude", "cerebras"]
+
+[active_provider]
+claude = "cerebras"
+
+[providers.cerebras]
+endpoints = { openai = { base_url = "http://`+stubAddr+`/v1" } }
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "`+sentinel+`" }
+`)
 
 	// $ANTHROPIC_BASE_URL is claude's alone under the credential gate, delivered in its
 	// own env file (docs/reference/providers.md#the-credential-gate); source it as

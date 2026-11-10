@@ -34,7 +34,7 @@ func envPairs(m *jsonx.OrderedMap) map[string]string {
 // (files, set, unset) was shown by `yolo config why` and never resolved, because the launch's
 // env resolver walked `env_sources` alone. It loads the merged config the launch loads, across
 // the user, project and local files, and resolves it through the resolver every launch path
-// calls (ResolveEnvSourcesFull: run's profile channel, `yolo check`, `yolo host`).
+// calls (ResolveEnv: run's profile channel, `yolo check`, `yolo host`).
 func TestReadableEnvResolvesForTheLaunch(t *testing.T) {
 	f := newEnvScopeFixture(t)
 	userDir := filepath.Join(f.home, ".config", "yolo-jail")
@@ -52,7 +52,8 @@ func TestReadableEnvResolvesForTheLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var warnings []string
-	got, removals := ResolveEnvSourcesFull(f.ws, merged, func(m string) { warnings = append(warnings, m) })
+	gotHydrated := ResolveEnv(f.ws, merged, func(m string) { warnings = append(warnings, m) })
+	got, removals := gotHydrated.Values(), gotHydrated.Removals()
 	want := map[string]string{"FILE_A": "user-file", "OVER": "user-set", "FILE_B": "ws-file", "X": "local"}
 	if !reflect.DeepEqual(envPairs(got), want) {
 		t.Fatalf("resolved env = %v, want %v (merged %s)", envPairs(got), want, jsonx.MustDumpsCompact(merged))
@@ -71,9 +72,9 @@ func TestReadableEnvResolvesForTheLaunch(t *testing.T) {
 		}
 	}
 
-	hydrated := HydrateEnvSources(f.ws, merged, nil)
-	if v, present := hydrated.Get("KEEP"); !present || v != nil {
-		t.Fatalf("the launch's hydrated channel must carry env.unset as a removal: %s", jsonx.MustDumpsCompact(hydrated))
+	hydrated := ResolveEnv(f.ws, merged, nil)
+	if r := hydrated.Removals(); !reflect.DeepEqual(r, []string{"KEEP"}) {
+		t.Fatalf("the launch's hydrated channel must carry env.unset as a removal: %v", r)
 	}
 }
 
@@ -98,7 +99,8 @@ func TestMigratedEnvSourcesResolveTheSame(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				env, removals := ResolveEnvSourcesFull(f.ws, merged, nil)
+				envHydrated := ResolveEnv(f.ws, merged, nil)
+				env, removals := envHydrated.Values(), envHydrated.Removals()
 				return envPairs(env), removals
 			}
 			oldEnv, oldRemovals := resolve(WorkspaceConfigName, tc.jsonc)

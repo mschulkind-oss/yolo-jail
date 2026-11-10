@@ -631,11 +631,22 @@ func TestHostRefusesWhenTheDoorwayCannotStart(t *testing.T) {
 // reaches the host service's credential through it. Planning the doorways over the primary
 // alone (zai, no platform) opens none, and pi's Bedrock entry starts with no credential.
 func TestHostPiWithABedrockEntryAfterTheFirstGetsTheDoorway(t *testing.T) {
-	cfg := `{"packs": ["pi", "zai", "bedrock"], "profile": {"pi": ["zai", "bedrock"]}, ` +
-		`"providers": {"bedrock": {"region": "eu-west-1"}}, ` +
-		`"env_sources": [{"ZAI_API_KEY": "tok-zai"}], ` +
-		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` + doorwayProfile +
-		`", "unnarrowed": true}}}}`
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	cfg := `packs = ["pi", "zai", "bedrock"]
+
+[active_provider]
+pi = ["zai", "bedrock"]
+
+[providers.bedrock]
+region = "eu-west-1"
+
+[env.secrets]
+set = { ZAI_API_KEY = "tok-zai" }
+
+[allow.aws-auth]
+profile = "` + doorwayProfile + `"
+unnarrowed = true
+`
 	l := runDoorwayLaunch(t, cfg, map[string]string{"AWS_REGION": ""}, nil, "pi")
 	assertDoorwayServed(t, l)
 	if got := l.report.Env["AWS_REGION"]; got != "eu-west-1" {

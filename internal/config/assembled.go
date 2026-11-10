@@ -67,8 +67,11 @@ func WorkspaceAssembledConfigPath(workspace, setupName string) string {
 // delivery copy: an absent or stale copy silently degrades the in-jail read to a
 // reduced re-assemble, and "the config was unchanged" is precisely the launch on
 // which nobody would look.
+//
+// The private env set's inline values are written as RedactedEnvValue: the copy sits in the
+// workspace, which the jail reads, and a private value reaches only the agents that claim it.
 func WriteAssembledConfig(workspace, setupName string, merged *jsonx.OrderedMap) error {
-	j, err := SnapshotJSON(merged)
+	j, err := SnapshotJSON(RedactPrivateEnvValues(merged))
 	if err != nil {
 		return err
 	}
@@ -91,7 +94,7 @@ func WorkspaceAssembledOriginsPath(workspace, setupName string) string {
 // digest is not the copy's, so a copy rewritten by a launcher that writes no record (an older
 // yolo) is never described by the record an earlier launch left.
 func WriteAssembledOrigins(workspace, setupName string, merged *jsonx.OrderedMap, src *Sources) error {
-	j, err := SnapshotJSON(merged)
+	j, err := SnapshotJSON(RedactPrivateEnvValues(merged))
 	if err != nil {
 		return err
 	}

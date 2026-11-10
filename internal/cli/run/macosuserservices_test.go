@@ -64,7 +64,7 @@ func TestMacosUserComposesABridgedPairingAgainstALaunchOwnedService(t *testing.T
 	o, cfg, _, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), selectCerebras)
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	channel, err := o.composePackChannel(cfg, packs, cerebrasKey())
+	channel, err := o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatalf("macos-user refused claude on cerebras: %v", err)
 	}
@@ -96,8 +96,8 @@ func TestMacosUserComposesABridgedPairingAgainstALaunchOwnedService(t *testing.T
 // and token, says so on stderr, and stops the service once the command returns. Deleting the
 // startMacosUserServices call in run.go fails this.
 func TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras"], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "csk-test"}]}`, shellWith(nil))
+	o, stderr, seen := overrideNativeLaunch(t, "packs = [\"claude\", \"cerebras\"]\n"+
+		inEnvSecrets(map[string]string{"CEREBRAS_API_KEY": "csk-test"}), shellWith(nil))
 	o.ProfileName = "cerebras"
 	var started []*launchservice.Plan
 	var stopped atomic.Int32
@@ -167,8 +167,8 @@ func assertNamesOnlyTheRoute(t *testing.T, out, lead string, plan *launchservice
 // "Would start" line names the one address the command was pointed at, not every address the plan
 // moved (8214's and 8215's picked ports).
 func TestTheMacosUserDryRunNamesOnlyTheRouteItsCommandIsPointedAt(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras"], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "csk-test"}]}`, shellWith(nil))
+	o, stderr, seen := overrideNativeLaunch(t, "packs = [\"claude\", \"cerebras\"]\n"+
+		inEnvSecrets(map[string]string{"CEREBRAS_API_KEY": "csk-test"}), shellWith(nil))
 	o.ProfileName = "cerebras"
 	o.DryRun = true
 	orig := startMacosUserService
@@ -217,8 +217,8 @@ func TestTheMacosUserArmStartsNoServiceWithoutABridgedProfile(t *testing.T) {
 
 // A service that cannot start refuses the macos-user launch before the command runs.
 func TestTheMacosUserArmRefusesWhenTheServiceCannotStart(t *testing.T) {
-	o, stderr, seen := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras"], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "csk-test"}]}`, shellWith(nil))
+	o, stderr, seen := overrideNativeLaunch(t, "packs = [\"claude\", \"cerebras\"]\n"+
+		inEnvSecrets(map[string]string{"CEREBRAS_API_KEY": "csk-test"}), shellWith(nil))
 	o.ProfileName = "cerebras"
 	orig := startMacosUserService
 	startMacosUserService = func(p *launchservice.Plan, _ map[string]string) (launchedService, string, error) {

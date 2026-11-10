@@ -20,7 +20,7 @@ import (
 func TestOmpRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireJail(t)
 	// Both providers' keys, since the credential pre-flight demands every entry's (AP-D3),
-	// hydrated through env_sources, the channel the credential gate delivers into an agent's own
+	// hydrated through [env.secrets], the channel the credential gate delivers into an agent's own
 	// env file. The shell's own copies are blanked, so the bare-shell assertion reads what yolo
 	// delivered.
 	t.Setenv("ZAI_API_KEY", "")
@@ -29,8 +29,8 @@ func TestOmpRunsOnEveryProviderOfItsSet(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	// llamacpp rides along as a provider omp has none of its own for, whose row proves the
 	// composed table reached omp's derive.
-	packHome(t, `{"packs": ["omp", "zai", "openrouter", "llamacpp"], "env_sources": [`+
-		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"omp\", \"zai\", \"openrouter\", \"llamacpp\"]\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "oh-omp=zai,openrouter", "--", "bash", "-lc",
 		`printf 'shell zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"; `+
 			`f=~/.config/yolo-agent-env/oh-omp.sh; if [ -r "$f" ]; then . "$f"; fi; `+
@@ -77,8 +77,9 @@ func TestOmpRefusesACarriedEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
 	t.Setenv("ZAI_API_KEY", "")
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["bedrock", "claude", "omp", "zai"], "providers": {"bedrock": {"region": "us-east-1"}}, `+
-		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	// zai's key lives in the private set, which only a TOML user config has (secret-env-scoping.md).
+	writeUserTOML(t, "packs = [\"bedrock\", \"claude\", \"omp\", \"zai\"]\n\n[providers.bedrock]\nregion = \"us-east-1\"\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "oh-omp=zai,bedrock", "--", "true"))
 	if r.rc == 0 {
 		t.Fatalf("a carried entry after the first must refuse the launch:\n%s", r.combined())

@@ -75,8 +75,9 @@ func writeShadowFixture(t *testing.T, home string, shadowed bool) {
 	if !shadowed {
 		k, base = "OTHER_K", "OTHER_BASE"
 	}
-	writeUserConfigJSON(t, home, `{"packs": [], "profile": {"fxa": "fxp"}, "env_sources": [{`+
-		`"`+k+`": "`+shadowESValue+`", "`+base+`": "`+shadowBaseES+`", "FXP_KEY": "`+shadowKey+`"}]}`)
+	writeUserConfigTOML(t, home, "packs = []\n\n[active_provider]\nfxa = \"fxp\"\n\n"+
+		"[env]\nset = { "+k+" = \""+shadowESValue+"\", "+base+" = \""+shadowBaseES+"\" }\n\n"+
+		"[env.secrets]\nset = { FXP_KEY = \""+shadowKey+"\" }\n")
 }
 
 // requireShadowLines fails unless out carries both fixture lines, each once (or, unshadowed, no

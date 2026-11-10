@@ -249,7 +249,7 @@ func TestLaunchWithoutTheBridgeRefusesThePairing(t *testing.T) {
 	o := goldenOptions("/ws", home)
 	o.ProfileName = "cerebras"
 
-	_, err := o.composePackChannel(bareConfig(), packs, cerebrasKey())
+	_, err := o.composePackChannel(bareConfig(), packs, hydrate(cerebrasKey()))
 	if err == nil {
 		t.Fatal("claude beside cerebras with no adapter must REFUSE: there is no address " +
 			"for the wire claude speaks, and composing one anyway is the dead URL this " +
@@ -413,7 +413,7 @@ func TestAUserMovesTheBridgesAddress(t *testing.T) {
 	o := goldenOptions("/ws", home)
 	o.ProfileName = "cerebras"
 
-	c, err := o.composePackChannel(bareConfig(), packs, cerebrasKey())
+	c, err := o.composePackChannel(bareConfig(), packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatal(err)
 	}

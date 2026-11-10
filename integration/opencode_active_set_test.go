@@ -20,7 +20,7 @@ import (
 func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireJail(t)
 	// Both providers' keys, since the credential pre-flight demands every entry's (AP-D3). They
-	// are hydrated through env_sources, the channel the credential gate delivers into an agent's
+	// are hydrated through [env.secrets], the channel the credential gate delivers into an agent's
 	// own env file: the shell yolo is launched from reaches no jail's agent (BR-D2), and opencode's
 	// rows name the variable (`{env:ZAI_API_KEY}`) rather than carry a value a derive relays. The
 	// shell's own copies are blanked, so the bare-shell assertion reads what yolo delivered.
@@ -28,8 +28,8 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "")
 
 	dir := writeProject(t, `{}`)
-	packHome(t, `{"packs": ["opencode", "zai", "openrouter"], "env_sources": [`+
-		`{"ZAI_API_KEY": "integration-probe-not-a-real-key", "OPENROUTER_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"opencode\", \"zai\", \"openrouter\"]\n\n[env.secrets]\n"+
+		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	// opencode's own env file, sourced as opencode's launcher sources it, beside what a bare
 	// shell holds: the set's keys are opencode's alone.
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,openrouter", "--", "bash", "-lc",
@@ -74,14 +74,16 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 // agent runs, and nothing reaches AWS.
 func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
-	t.Setenv("ZAI_API_KEY", "") // delivered through env_sources, as above
+	t.Setenv("ZAI_API_KEY", "") // delivered through [env.secrets], as above
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
 	dir := writeProject(t, `{}`)
 	// A list the user supplies: packs/bedrock ships none (docs/design/model-lists-and-pickers.md MM-D32).
-	packHome(t, `{"packs": ["bedrock", "opencode", "zai"], "providers": {"bedrock": {"region": "`+region+`", `+
-		`"models": {"global.anthropic.claude-opus-5-5": {"id": "global.anthropic.claude-opus-5-5", "vendor": "anthropic"}, "us.openai.gpt-6.1-sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, `+
-		`"env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`)
+	writeUserTOML(t, "packs = [\"bedrock\", \"opencode\", \"zai\"]\n\n[providers.bedrock]\nregion = \""+region+"\"\n\n"+
+		"[providers.bedrock.models]\n"+
+		"\"global.anthropic.claude-opus-5-5\" = { model = \"global.anthropic.claude-opus-5-5\", vendor = \"anthropic\" }\n"+
+		"\"us.openai.gpt-6.1-sol\" = { model = \"us.openai.gpt-6.1-sol\", vendor = \"openai\" }\n\n"+
+		"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "true"))
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())

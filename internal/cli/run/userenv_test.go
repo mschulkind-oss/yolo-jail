@@ -44,7 +44,7 @@ func TestWriteUserEnvFileEmptyTouches(t *testing.T) {
 }
 
 // TestWriteUserEnvFileEmptyClearsStaleRender is the regression for creds that
-// outlive their config. Dropping env_sources makes ResolveEnvSources return an
+// outlive their config. Dropping env_sources makes ResolveEnv return an
 // empty map, which used to no-op on an ALREADY-EXISTING file (touchFile returns
 // early when the path is there) — so the last populated render stayed mounted at
 // ~/.config/yolo-user-env.sh and kept exporting AWS keys through both

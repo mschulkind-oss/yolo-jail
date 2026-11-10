@@ -28,7 +28,8 @@ func runEnvSources(t *testing.T, workspace string, entries []any) (assigned map[
 	t.Helper()
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("env_sources", entries)
-	merged := ResolveEnvSources(workspace, cfg, func(string) {})
+	hydrated := ResolveEnv(workspace, cfg, func(string) {})
+	merged := hydrated.Values()
 	assigned = map[string]string{}
 	for _, k := range merged.Keys() {
 		v, _ := merged.Get(k)
@@ -36,7 +37,7 @@ func runEnvSources(t *testing.T, workspace string, entries []any) (assigned map[
 			assigned[k] = s
 		}
 	}
-	return assigned, EnvSourceRemovals(workspace, cfg, func(string) {})
+	return assigned, hydrated.Removals()
 }
 
 // TestEnvSourcesRemovalAndAssignmentAgreeAcrossKinds pins the ordering contract ONE pass
@@ -216,7 +217,7 @@ func TestEnvSourcesAnchorBesideTheDeclaringFile(t *testing.T) {
 		t.Errorf("workspace entry = %#v, want the workspace root (beside the workspace config)", entries[3])
 	}
 
-	resolved := ResolveEnvSources(ws, cfg, func(string) {})
+	resolved := ResolveEnv(ws, cfg, func(string) {}).Values()
 	for _, want := range []string{"FROM_CONFIG_DIR", "FROM_INCLUDE", "FROM_WS", "KEEP"} {
 		if v, ok := resolved.Get(want); !ok || v != "yes" {
 			t.Errorf("%s missing from the resolved map: %#v", want, resolved)

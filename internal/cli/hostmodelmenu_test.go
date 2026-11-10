@@ -170,6 +170,20 @@ func menuSlugs(t *testing.T, path string) []any {
 
 const codexOnTheSubscription = `{"packs": ["codex", "codex-auth"], "profile": {"codex": "codex"}}`
 
+// codexZaiCfg is a config selecting packs, with activeProvider (if any) as its active_provider
+// table, holding ZAI_API_KEY: the zai provider's key, so it lives in the private set
+// (secret-env-scoping.md).
+func codexZaiCfg(packs, activeProvider string) string {
+	cfg := `packs = ` + packs + "\n"
+	if activeProvider != "" {
+		cfg += "\n[active_provider]\n" + activeProvider + "\n"
+	}
+	return cfg + `
+[env.secrets]
+set = { ZAI_API_KEY = "k" }
+`
+}
+
 // THE DONE-WHEN: `yolo host -- codex` with the subscription configured for codex hands codex
 // yolo's menu, built from its own catalog for the subscription's list, named by the flag right
 // after argv[0], kept in yolo's state and never in ~/.codex, disclosed in the pack flags' words,
@@ -224,8 +238,7 @@ func TestHostCodexOnTheConfiguredSubscriptionGetsYolosMenu(t *testing.T) {
 // ~/.codex/config.toml is byte-identical, and no file in the home but the menu names the model.
 func TestHostCodexMovesOntoAPOverAnotherProviderAndGetsItsMenu(t *testing.T) {
 	for _, tc := range []struct{ name, cfg string }{
-		{"config names another provider", `{"packs": ["codex", "zai", "codex-auth"], "profile": {"codex": "zai"}, ` +
-			`"env_sources": [{"ZAI_API_KEY": "k"}]}`},
+		{"config names another provider", codexZaiCfg(`["codex", "zai", "codex-auth"]`, `codex = "zai"`)},
 		{"config names none", `{"packs": ["codex", "codex-auth"]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -290,10 +303,25 @@ func assertNoFileNames(t *testing.T, root, word string, skip ...string) {
 // row as one `-c`, so codex finds the row whether or not `yolo host apply` wrote it; no list, so
 // no menu, and codex's catalog is not read.
 func TestHostCodexMovesOntoAUserProviderWithItsRow(t *testing.T) {
-	cfg := `{"packs": ["codex", "codex-auth"], "profile": {"codex": "codex"}, ` +
-		`"providers": {"acme": {"endpoints": {"openai": {"base_url": "https://acme.example/v1"}}, ` +
-		`"api_key_env_name": "ACME_KEY", "models": {"default": "acme-1"}}}, ` +
-		`"profiles": {"acme": {"provider": "acme"}}, "env_sources": [{"ACME_KEY": "k"}]}`
+	// ACME_KEY is the acme provider's key, so it lives in the private set (secret-env-scoping.md).
+	// The legacy profile acme over provider acme is the provider itself in TOML.
+	cfg := `packs = ["codex", "codex-auth"]
+
+[active_provider]
+codex = "codex"
+
+[providers.acme]
+api_key_env_name = "ACME_KEY"
+
+[providers.acme.endpoints.openai]
+base_url = "https://acme.example/v1"
+
+[providers.acme.models]
+default = "acme-1"
+
+[env.secrets]
+set = { ACME_KEY = "k" }
+`
 	l := runHostMenu(t, "", cfg, nil, []string{"-p", "acme"}, "exec")
 	if l.rc != 0 || l.argv == nil {
 		t.Fatalf("rc=%d, exec reached=%v\n%s", l.rc, l.argv != nil, l.errs)
@@ -344,9 +372,8 @@ func TestHostCodexLetsTheUsersOwnLaterDashCWin(t *testing.T) {
 // provider codex is not on.
 func TestHostCodexSaysWhenAPCannotMoveIt(t *testing.T) {
 	for _, tc := range []struct{ name, cfg string }{
-		{"config names another profile", `{"packs": ["codex", "zai", "codex-auth"], "profile": {"codex": "codex"}, ` +
-			`"env_sources": [{"ZAI_API_KEY": "k"}]}`},
-		{"config names none", `{"packs": ["codex", "zai", "codex-auth"], "env_sources": [{"ZAI_API_KEY": "k"}]}`},
+		{"config names another profile", codexZaiCfg(`["codex", "zai", "codex-auth"]`, `codex = "codex"`)},
+		{"config names none", codexZaiCfg(`["codex", "zai", "codex-auth"]`, "")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			zai := runHostMenu(t, "", tc.cfg, nil, []string{"-p", "zai"}, "exec")
@@ -419,8 +446,7 @@ func TestTheMenuOfAProgramWithNoLaunchSelectionFollowsOnlyItsFile(t *testing.T) 
 // not declare (MM-D25's rule) or one that did not move codex builds none and reads no catalog, the
 // first saying why; one that moved codex builds the menu from the same composition.
 func TestTheMenuStepBuildsNoMenuForAPTheProgramWasNotMovedOnto(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["codex", "zai", "codex-auth"], "profile": {"codex": "zai"}, `+
-		`"env_sources": [{"ZAI_API_KEY": "k"}]}`, nil)
+	home := hostGateHome(t, codexZaiCfg(`["codex", "zai", "codex-auth"]`, `codex = "zai"`), nil)
 	t.Setenv(entrypoint.NoLaunchFlagsEnv, "")
 	reads := filepath.Join(home, "catalog.reads")
 	catalog := filepath.Join(home, "catalog.json")
@@ -461,8 +487,7 @@ func TestTheMenuStepBuildsNoMenuForAPTheProgramWasNotMovedOnto(t *testing.T) {
 // not carry has no list, so its catalog is not read and no flag is added; YOLO_NO_LAUNCH_FLAGS=1
 // skips the step on the subscription too, as it does in a jail.
 func TestHostCodexGetsNoMenuWhereThereIsNone(t *testing.T) {
-	zai := runHostMenu(t, "", `{"packs": ["codex", "zai"], "profile": {"codex": "zai"}, `+
-		`"env_sources": [{"ZAI_API_KEY": "k"}]}`, nil, nil, "exec")
+	zai := runHostMenu(t, "", codexZaiCfg(`["codex", "zai"]`, `codex = "zai"`), nil, nil, "exec")
 	if !reflect.DeepEqual(zai.argv, []string{"codex", "exec"}) || zai.catalogReads != 0 {
 		t.Errorf("codex on zai got %q after %d catalog reads, want its own argv and none\n%s", zai.argv,
 			zai.catalogReads, zai.errs)
@@ -507,8 +532,7 @@ func TestHostManagedCodexHoldsTheMenusLockWhileItRuns(t *testing.T) {
 // the user's own (openaiauthhost, unchanged by MM-D30), so the -p's selection reaches a managed codex
 // only through the words the launch hands it, which run ahead of the managed rewrite's.
 func TestHostManagedCodexGetsTheSelectionInItsArgv(t *testing.T) {
-	home := hostGateHome(t, `{"packs": ["codex", "zai", "codex-auth"], "profile": {"codex": "zai"}, `+
-		`"env_sources": [{"ZAI_API_KEY": "k"}]}`, nil)
+	home := hostGateHome(t, codexZaiCfg(`["codex", "zai", "codex-auth"]`, `codex = "zai"`), nil)
 	fake := &lockProbingManagedLaunch{t: t}
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }

@@ -44,9 +44,9 @@ func TestTheMacosUserArmServesClaudeOnCerebrasThroughARealHostHalf(t *testing.T)
 	}))
 	t.Cleanup(up.Close)
 
-	o, stderr, _ := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras"], `+
-		`"env_sources": [{"CEREBRAS_API_KEY": "csk-test"}], `+
-		`"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "`+up.URL+`/v1"}}}}}`, shellWith(nil))
+	o, stderr, _ := overrideNativeLaunch(t, "packs = [\"claude\", \"cerebras\"]\n\n"+
+		"[env.secrets]\nset = { CEREBRAS_API_KEY = \"csk-test\" }\n\n"+
+		"[providers.cerebras.endpoints.openai]\nbase_url = \""+up.URL+"/v1\"\n", shellWith(nil))
 	o.ProfileName = "cerebras"
 	var base, token string
 	var withToken, without int

@@ -110,7 +110,7 @@ func TestAListNamedAtASingleProviderAgentRefuses(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.UseProfiles = map[string]string{"claude": "zai,openrouter"}
-	_, err := o.composePackChannel(bareConfig(), setPacks(t), zaiAndRouterKeys())
+	_, err := o.composePackChannel(bareConfig(), setPacks(t), hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), "whose pack does not declare provider_sets") ||
 		!strings.Contains(err.Error(), "`-p claude=zai`") {
 		t.Fatalf("composePackChannel = %v, want the single-provider refusal naming the fix", err)
@@ -140,7 +140,7 @@ func TestABareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 		t.Fatalf("effective table = %s, want pi's whole list and claude's first entry", got)
 	}
 	// Through the channel the launch composes, whose bareNote the disclosure prints.
-	channel, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys())
+	channel, err := o.composePackChannel(bareConfig(), packs, hydrate(zaiAndRouterKeys()))
 	if err != nil {
 		t.Fatalf("a bare list must compose: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestAnUndeclaredLaterEntryRefusesTheLaunch(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.UseProfiles = map[string]string{"pi": "zai,typo"}
-	_, err := o.composePackChannel(bareConfig(), setPacks(t), zaiAndRouterKeys())
+	_, err := o.composePackChannel(bareConfig(), setPacks(t), hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `profile "typo" selected for pi`) {
 		t.Fatalf("composePackChannel = %v, want the refusal naming pi's second entry", err)
 	}
@@ -201,14 +201,14 @@ func TestAnUndeclaredEntryOfABareListRefusesWithNoSetCapableAgent(t *testing.T) 
 	o := goldenOptions(t.TempDir(), home)
 	o.ProfileName = "zai,typo"
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai")}
-	_, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys())
+	_, err := o.composePackChannel(bareConfig(), packs, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `profile "typo" (entry 2 of the bare -p list zai,typo)`) {
 		t.Fatalf("composePackChannel = %v, want the bare list's undeclared entry refused", err)
 	}
 	// Declared throughout, the same bare list composes and claude narrows to zai.
 	o.ProfileName = "zai,openrouter"
 	packs = append(packs, officialPack(t, "openrouter"))
-	if _, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys()); err != nil {
+	if _, err := o.composePackChannel(bareConfig(), packs, hydrate(zaiAndRouterKeys())); err != nil {
 		t.Errorf("a declared bare list must compose: %v", err)
 	}
 }
@@ -250,14 +250,14 @@ func TestTwoEntriesOnOneRegionalPlatformRefuse(t *testing.T) {
 	  {"kind":"profile","name":"bedrock-eu","provider":"bedrock-eu"}]}`)
 	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "bedrock"), eu}
 	o.UseProfiles = map[string]string{"pi": "bedrock,bedrock-eu"}
-	_, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys())
+	_, err := o.composePackChannel(bareConfig(), packs, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(),
 		`profiles "bedrock" and "bedrock-eu" in pi's profiles are both on platform "aws-bedrock"`) {
 		t.Fatalf("composePackChannel = %v, want the one-platform refusal naming both entries", err)
 	}
 	// One of them composes.
 	o.UseProfiles = map[string]string{"pi": "bedrock-eu"}
-	if _, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys()); err != nil &&
+	if _, err := o.composePackChannel(bareConfig(), packs, hydrate(zaiAndRouterKeys())); err != nil &&
 		strings.Contains(err.Error(), "both on platform") {
 		t.Errorf("a set of one names its platform once: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestTheProfileKeysBareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 			cfg := bareConfig()
 			cfg.Set("profile", key)
 			packs := setPacks(t)
-			channel, err := o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+			channel, err := o.composePackChannel(cfg, packs, hydrate(zaiAndRouterKeys()))
 			if err != nil {
 				t.Fatalf("the key's bare list must compose: %v", err)
 			}
@@ -349,7 +349,7 @@ func TestTheProfileKeysBareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 				}
 			}
 			o.ProfileName = "zai"
-			channel, err = o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+			channel, err = o.composePackChannel(cfg, packs, hydrate(zaiAndRouterKeys()))
 			if err != nil || channel.bareNote != "" {
 				t.Errorf("a bare -p replaces the key's list everywhere, so nothing is narrowed: %v %q",
 					err, channel.bareNote)
@@ -366,7 +366,7 @@ func TestAnUndeclaredEntryOfTheProfileKeysBareListRefuses(t *testing.T) {
 	cfg := bareConfig()
 	cfg.Set("profile", []any{"zai", "typo"})
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai")}
-	_, err := o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+	_, err := o.composePackChannel(cfg, packs, hydrate(zaiAndRouterKeys()))
 	if err == nil || !strings.Contains(err.Error(), `profile "typo" (entry 2 of the profile key's list zai,typo)`) {
 		t.Fatalf("composePackChannel = %v, want the key's undeclared entry refused", err)
 	}

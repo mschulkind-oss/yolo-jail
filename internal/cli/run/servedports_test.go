@@ -238,7 +238,9 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 		configSelects(cfg, "claude", "cerebras")
 	}
 	compose := func(o *Options, cfg *jsonx.OrderedMap) func([]*packload.Pack) (*packChannel, error) {
-		return func(p []*packload.Pack) (*packChannel, error) { return o.composePackChannel(cfg, p, cerebrasKey()) }
+		return func(p []*packload.Pack) (*packChannel, error) {
+			return o.composePackChannel(cfg, p, hydrate(cerebrasKey()))
+		}
 	}
 
 	o, cfg, channel, _ := attachFixture(t, currentJailEnv, packs, cerebrasKey(), tune)

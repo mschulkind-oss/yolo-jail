@@ -55,12 +55,23 @@ func writeWinnerFixture(t *testing.T, home string) {
   return {K1 = "shape", FXP_KEY = "shape-key", K2 = "shape", K3 = "shape", K6 = "shape", K7 = ctx.tombstone}
 end)
 `)
-	userCfg(t, home, `{
-	  "packs": [{"source": "file://`+root+`", "name": "fx"}],
-	  "profile": {"fxa": "fxp"},
-	  "env_sources": [{"FXP_KEY": "es-claimed", "K2": "es-unclaimed", "K4": "es-unclaimed",
-	    "K5": null, "K6": null, "K7": "es-unclaimed"}]
-	}`)
+	// FXP_KEY is the fxp provider's key, so it lives in the private set (secret-env-scoping.md).
+	userCfg(t, home, `packs = ["packs/fx"]
+
+[pack_sources.packs]
+path = "`+filepath.Dir(root)+`"
+bare = true
+
+[active_provider]
+fxa = "fxp"
+
+[env]
+set = { K2 = "es-unclaimed", K4 = "es-unclaimed", K7 = "es-unclaimed" }
+unset = ["K5", "K6"]
+
+[env.secrets]
+set = { FXP_KEY = "es-claimed" }
+`)
 	for _, k := range hostWinnerKeys {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -214,11 +225,20 @@ func TestTheHostExecKeepsTheWireTablesOverEnvSources(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(t.TempDir())
 	writeWinnerFixture(t, home)
-	userCfg(t, home, `{
-	  "packs": [{"source": "file://`+filepath.Join(home, "packs", "fx")+`", "name": "fx"}],
-	  "profile": {"fxa": "fxp"},
-	  "env_sources": [{"YOLO_PROVIDERS": "es-value", "YOLO_USE_PROFILES": null, "YOLO_PROFILES": null}]
-	}`)
+	// The same file format writeWinnerFixture wrote: one config format per scope.
+	userCfg(t, home, `packs = ["packs/fx"]
+
+[pack_sources.packs]
+path = "`+filepath.Join(home, "packs")+`"
+bare = true
+
+[active_provider]
+fxa = "fxp"
+
+[env]
+set = { YOLO_PROVIDERS = "es-value" }
+unset = ["YOLO_USE_PROFILES", "YOLO_PROFILES"]
+`)
 	// What a parent launch exported.
 	t.Setenv("YOLO_USE_PROFILES", `{"claude": "zai"}`)
 	t.Setenv("YOLO_PROFILES", `{"zai": {}}`)

@@ -71,12 +71,19 @@ func TestMacosUserRunsTheWireBridgeHostHalfForABridgedProfile(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	stubAddr := fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 
-	packHome(t, `{
-		"packs": ["claude", "cerebras"],
-		"profile": {"claude": "cerebras"},
-		"env_sources": [{"CEREBRAS_API_KEY": "`+sentinel+`"}],
-		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://`+stubAddr+`/v1"}}}}
-	}`)
+	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
+	// set (secret-env-scoping.md).
+	writeUserTOML(t, `packs = ["claude", "cerebras"]
+
+[active_provider]
+claude = "cerebras"
+
+[providers.cerebras]
+endpoints = { openai = { base_url = "http://`+stubAddr+`/v1" } }
+
+[env.secrets]
+set = { CEREBRAS_API_KEY = "`+sentinel+`" }
+`)
 	ws := macosUserWorkspace(t, `{}`)
 	uid := sandboxUID(t)
 	me := strconv.Itoa(os.Getuid())

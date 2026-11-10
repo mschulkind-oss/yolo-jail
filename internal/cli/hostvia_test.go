@@ -116,13 +116,18 @@ func deadLoopbackURL(t *testing.T) string {
 }
 
 // copilotOnBedrockViaConfig is copilot beside the shipped bedrock provider (a region, no address)
-// and the wire bridge, with a credential pointer delivered through env_sources that nothing
-// answers, so the bridge binds its route and a request through it fails at the credential fetch,
-// on loopback, instead of reaching AWS.
+// and the wire bridge, with a credential pointer delivered through the private env set (the
+// bedrock provider claims it, secret-env-scoping.md) that nothing answers, so the bridge binds its
+// route and a request through it fails at the credential fetch, on loopback, instead of reaching AWS.
 func copilotOnBedrockViaConfig(t *testing.T) string {
-	return `{"packs": ["copilot", "bedrock", "wire-bridge"], ` +
-		`"providers": {"bedrock": {"region": "eu-west-1"}}, ` +
-		`"env_sources": [{"AWS_CONTAINER_CREDENTIALS_FULL_URI": "` + deadLoopbackURL(t) + `"}]}`
+	return `packs = ["copilot", "bedrock", "wire-bridge"]
+
+[providers.bedrock]
+region = "eu-west-1"
+
+[env.secrets]
+set = { AWS_CONTAINER_CREDENTIALS_FULL_URI = "` + deadLoopbackURL(t) + `" }
+`
 }
 
 // COPILOT ON A BEDROCK BRIDGE PROFILE AT `yolo host` (docs/design/host-notch-services.md HS-D30):
@@ -192,9 +197,20 @@ func TestHostCopilotOnABedrockBridgeProfileRunsThroughALaunchOwnedBridge(t *test
 // (internal/cli/run's copilotbyok_test.go).
 func TestHostCopilotOnASuppliedBedrockListKeepsItsEnvironmentsOneModel(t *testing.T) {
 	scrubAWS(t)
-	cfg := `{"packs": ["copilot", "bedrock", "wire-bridge"], ` +
-		`"providers": {"bedrock": {"region": "eu-west-1", "models": {"sol": {"id": "us.openai.gpt-6.1-sol", "vendor": "openai"}}}}, ` +
-		`"env_sources": [{"AWS_CONTAINER_CREDENTIALS_FULL_URI": "` + deadLoopbackURL(t) + `"}]}`
+	// The credential pointer is the bedrock provider's, so it lives in the private set
+	// (secret-env-scoping.md).
+	cfg := `packs = ["copilot", "bedrock", "wire-bridge"]
+
+[providers.bedrock]
+region = "eu-west-1"
+
+[providers.bedrock.models.sol]
+model = "us.openai.gpt-6.1-sol"
+vendor = "openai"
+
+[env.secrets]
+set = { AWS_CONTAINER_CREDENTIALS_FULL_URI = "` + deadLoopbackURL(t) + `" }
+`
 	l := runServiceLaunchAs(t, cfg, []string{"-p", "bedrock-bridge"}, "copilot", "", nil, nil)
 	if l.rc != 0 {
 		t.Fatalf("rc = %d\n%s", l.rc, l.errs)

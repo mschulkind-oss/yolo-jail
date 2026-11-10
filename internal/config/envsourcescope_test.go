@@ -243,3 +243,63 @@ func envScopeMergedHasFile(t *testing.T, f envScopeFixture, format envScopeForma
 	}
 	return merged
 }
+
+// TestAWorkspacePrivateFileOutsideTheWorkspaceIsRefused is SE-D5: the private set's files obey the
+// workspace rule `[env] files` does, and the refusal spells the entry for the user config with the
+// verb that appends to the private list.
+func TestAWorkspacePrivateFileOutsideTheWorkspaceIsRefused(t *testing.T) {
+	f := newEnvScopeFixture(t)
+	body := "[env.secrets]\nfiles = [\"~/.config/yolo-jail/secrets.env\"]\n"
+	if err := os.WriteFile(filepath.Join(f.ws, WorkspaceLocalTOMLConfigName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	merged, err := LoadConfig(f.ws, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs, _ := ValidateConfig(merged, f.ws, nil)
+	got := envScopeRefusals(errs)
+	if len(got) != 1 {
+		t.Fatalf("refusals = %v (all errors %v), want one", got, errs)
+	}
+	for _, want := range []string{
+		"config.env.secrets.files:",
+		"`yolo config add env.secrets.files '\"~/.config/yolo-jail/secrets.env\"' --user`",
+		"[env.secrets] files = [",
+	} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("refusal %q does not contain %q", got[0], want)
+		}
+	}
+}
+
+// A TOML `[env.secrets]` table is part of the readable env shape (secret-env-scoping.md#SE-D1):
+// validation projects it away with the rest of `[env]` instead of naming the whole table the
+// removed legacy `env` key, and a private name that is no variable name is refused as a public one
+// is.
+func TestAPrivateEnvTableValidatesAsTheReadableEnvShape(t *testing.T) {
+	f := newEnvScopeFixture(t)
+	body := "[env]\nset = { GH_TOKEN = 'gh' }\n\n[env.secrets]\nfiles = ['keys.env']\nset = { ZAI_API_KEY = 'k' }\n"
+	if err := os.WriteFile(filepath.Join(f.ws, WorkspaceLocalTOMLConfigName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	merged, err := LoadConfig(f.ws, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs, _ := ValidateConfig(merged, f.ws, nil); len(errs) != 0 {
+		t.Fatalf("a well-formed [env.secrets] validates clean, got %v", errs)
+	}
+	bad := "[env.secrets]\nset = { 'NOT-A-NAME' = 'k' }\n"
+	if err := os.WriteFile(filepath.Join(f.ws, WorkspaceLocalTOMLConfigName), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	merged, err = LoadConfig(f.ws, false, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs, _ := ValidateConfig(merged, f.ws, nil)
+	if len(errs) != 1 || !strings.Contains(errs[0], "config.env.secrets.set.NOT-A-NAME: invalid variable name") {
+		t.Fatalf("a private name that is no variable name is named, got %v", errs)
+	}
+}

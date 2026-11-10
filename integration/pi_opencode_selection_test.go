@@ -30,8 +30,11 @@ import (
 // agent has built in, whose row proves the composed table reached both derives. Selecting a
 // pack renders its surfaces and installs no CLI, so no vendor install happens in this test
 // (providers_test.go TestProvidersRenderInTheAgentsOwnVocabulary is the same trick). zai's key
-// rides env_sources, the one channel that reaches pi and opencode in a jail.
-const piAndOpencodePacks = `{"packs": ["pi", "opencode", "zai", "llamacpp"], "env_sources": [{"ZAI_API_KEY": "integration-probe-not-a-real-key"}]}`
+// rides [env.secrets], the one channel that reaches pi and opencode in a jail: a provider's key
+// lives in the private set, which only a TOML user config has (secret-env-scoping.md), so this is
+// config.toml text for writeUserTOML.
+const piAndOpencodePacks = "packs = [\"pi\", \"opencode\", \"zai\", \"llamacpp\"]\n\n" +
+	"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n"
 
 // pioencodeSurface is one rendered agent file decoded as the JSON object the agent reads,
 // with the keys a selection must and must not add. The `selection` key is the reserved
@@ -90,7 +93,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 	// zai ships api_key_env_name = ZAI_API_KEY, and the selected-pack credential preflight
 	// refuses a launch whose environment cannot deliver it (internal/packload
 	// ProviderCredentialGaps), so piAndOpencodePacks delivers it.
-	// The key rides env_sources, the channel the credential gate delivers into the agent's own
+	// The key rides [env.secrets], the channel the credential gate delivers into the agent's own
 	// env file: the shell yolo is launched from reaches no jail's agent (bedrock-plumbing.md BR-D2),
 	// and the pre-flight refuses a key left only there for an agent nothing relays it to. The
 	// shell's own copy is blanked, so the launch cannot lean on it.
@@ -98,7 +101,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 
 	t.Run("a profile at both CLIs writes both selections, and no profile clears what yolo wrote", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
-		packHome(t, piAndOpencodePacks)
+		writeUserTOML(t, piAndOpencodePacks)
 
 		// runCommand rather than runYolo: the flag goes BEFORE the `--` that starts the
 		// container command, which runYolo's shape does not allow. Both agents' profiles in
@@ -189,7 +192,7 @@ func TestPiAndOpencodeSelectionFollowTheActiveProfile(t *testing.T) {
 
 	t.Run("a launch with no profile on a fresh workspace writes nothing selection-shaped", func(t *testing.T) {
 		dir := writeProject(t, `{}`)
-		packHome(t, piAndOpencodePacks)
+		writeUserTOML(t, piAndOpencodePacks)
 		r := runYolo(t, dir, "true")
 		if r.rc != 0 {
 			t.Fatalf("unprofiled launch failed: rc %d\n%s", r.rc, r.combined())

@@ -64,7 +64,7 @@ func TestMacosUserPointsAViaAtThePortThePlannedBridgeServes(t *testing.T) {
 		selectPerAgent(map[string]string{"claude": "cerebras", "pi": "bedrock-bridge"}))
 	o.runtime = "macos-user"
 	o.launchServices = nil
-	channel, err := o.composePackChannel(cfg, packs, cerebrasKey())
+	channel, err := o.composePackChannel(cfg, packs, hydrate(cerebrasKey()))
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}
@@ -330,9 +330,10 @@ func TestMacosUserRefusesAViaTheBridgeServesNoRouteFor(t *testing.T) {
 // bridge's input carries claude's CEREBRAS_API_KEY, which it signs claude's requests with.
 // Deleting serviceAgents from servicePointedAt, or from startMacosUserServices' input, fails this.
 func TestTheMacosUserBridgeServingAViaAndAnAdapterPairingNamesBothAndCarriesBothCredentials(t *testing.T) {
-	o, stderr, _ := overrideNativeLaunch(t, `{"packs": ["claude", "cerebras", "pi", "bedrock", "wire-bridge"], `+
-		`"profile": {"claude": "cerebras", "pi": "bedrock-bridge"}`+bedrockRegionMember+
-		inEnvSources(map[string]string{"CEREBRAS_API_KEY": "csk-test"})+`}`, shellWith(nil))
+	o, stderr, _ := overrideNativeLaunch(t, "packs = [\"claude\", \"cerebras\", \"pi\", \"bedrock\", \"wire-bridge\"]\n\n"+
+		"[active_provider]\nclaude = \"cerebras\"\npi = \"bedrock-bridge\"\n\n"+
+		"[providers.bedrock]\nregion = \""+testBedrockRegion+"\"\n"+
+		inEnvSecrets(map[string]string{"CEREBRAS_API_KEY": "csk-test"}), shellWith(nil))
 	o.Args = []string{"claude"}
 	o.ProfileName = ""
 	var started []*launchservice.Plan
