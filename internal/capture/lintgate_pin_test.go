@@ -43,6 +43,10 @@ var gateGOARCH = []string{"amd64", "arm64"}
 //
 // Keys are slash-separated paths relative to the repo root.
 var unanalyzedFiles = map[string]string{
+	"internal/approvalqueue/tty_other.go": "`!(linux || darwin || the BSDs)` is the completeness arm of " +
+		"the terminal probe's constraint set (it answers false, so the queue refuses to start), not " +
+		"a target: yolo does not build for those systems, so a lint pass over it would report " +
+		"nothing about shipped code.",
 	"cmd/yolo-serial/pty_other.go": "`!linux && !darwin` since the client gained a darwin " +
 		"openPty for the macos-user guest (pty_darwin.go): the completeness arm of its " +
 		"constraint set, for serialdaemon's reason below.",

@@ -64,6 +64,10 @@ build-dev-bundle:
 dev *args:
     ./scripts/dev-wrapper.sh "$@"
 
+# Start the experimental read-only approval queue web UI from this checkout. Run it on the host, in a terminal: it needs a terminal for its one-time link. Flags pass through, e.g. `just dev-approvals --no-open`.
+dev-approvals *args:
+    go run ./cmd/yolo approve --web {{args}}
+
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run. `just deploy yolo-stable` installs under another name.
 deploy name="yolo": (install name) (_host-state name)
 

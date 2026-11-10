@@ -1,0 +1,26 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; padding: 0 1rem 3rem; max-width: 70rem; }
+h1 { font-size: 1.4rem; margin: 1rem 0 0.2rem; }
+h2 { font-size: 1.1rem; margin: 1.6rem 0 0.4rem; border-bottom: 1px solid #8886; }
+h3 { font-size: 1rem; margin: 0.8rem 0 0.3rem; }
+.tag { font-size: 0.7rem; border: 1px solid #8888; border-radius: 3px; padding: 0 0.3rem; vertical-align: middle; }
+.sub, .note, .muted { color: #777; font-size: 0.9rem; }
+#banner { position: sticky; top: 0; padding: 0.5rem 0.8rem; font-weight: 600; border-radius: 4px; z-index: 1; }
+#banner.live { background: #1b7f3b; color: #fff; }
+#banner.stale { background: #b45f06; color: #fff; }
+#banner.never { background: #a61c1c; color: #fff; }
+#banner.disconnected { background: #666; color: #fff; }
+#main.grey { opacity: 0.45; }
+.card { border: 1px solid #8886; border-radius: 6px; padding: 0.6rem 0.9rem; margin: 0.8rem 0; }
+.agent { border: 1px dashed #b45f06; border-radius: 4px; padding: 0.4rem 0.7rem; margin-top: 0.6rem; }
+.agent > .label { font-weight: 600; color: #b45f06; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.9rem; margin: 0.3rem 0; }
+dt { font-weight: 600; }
+dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+ol.argv { margin: 0; padding-left: 1.6rem; }
+ol.argv li { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 0.85rem; max-height: 14rem; overflow: auto; }
+.mask { color: #b45f06; }
+button { font-size: 0.75rem; margin-left: 0.5rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+th, td { text-align: left; border-bottom: 1px solid #8884; padding: 0.2rem 0.5rem; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+code { font-family: ui-monospace, monospace; }
