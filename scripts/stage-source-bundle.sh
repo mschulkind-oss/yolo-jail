@@ -13,10 +13,15 @@
 #   flake.lock
 #   bin/linux-amd64/  — one file per name in SHIPPED_BINARIES below
 #   bin/linux-arm64/  — the same names, cross-compiled
-#   bin/darwin-amd64/ — the macos-user GUEST set, GUEST_BINARIES below
+#   bin/darwin-amd64/ — the darwin HOST yolo (DARWIN_HOST_BINARIES below) plus the
+#                       macos-user GUEST set, GUEST_BINARIES below
 #   bin/darwin-arm64/ — the same names, cross-compiled
 #
-# THE DARWIN DIRS ARE NOT A HOST INSTALL. They are what a macos-user launch
+# THE DARWIN HOST yolo IS THE ONE THE LAUNCHER IS. It is in the bundle so every
+# host helper a Mac launch starts can be exec'd from the bundle's own copy, the
+# same build as the launcher, rather than from a path that an install can replace
+# (docs/design/pinned-host-helpers.md, PH-D2). matched-bundle.py takes the
+# installed launcher out of it. The rest of the darwin dirs are NOT A HOST INSTALL. They are what a macos-user launch
 # stages into the sandbox's root-owned prefix (/var/yolo-jail/bin), the guest's
 # counterpart of a container's /opt/yolo-jail/bin: an in-jail binary a declared
 # `jail_daemon.cmd` names runs there as declared (docs/design/declaration-parity.md
@@ -122,6 +127,11 @@ SHIPPED_BINARIES=(yolo yolo-entrypoint yolo-jaild yolo-ps yolo-cglimit yolo-jour
 # by internal/macosuser/guestbundle_test.go.
 GUEST_BINARIES=(yolo-jaild yolo-serial yolo-ps yolo-log)
 
+# The darwin HOST binaries: what a Mac's launcher itself runs, held beside the
+# guest set in every darwin dir. Kept apart from GUEST_BINARIES, which is pinned
+# to flake.nix and macosuser.GuestBinaries and names only what the guest runs.
+DARWIN_HOST_BINARIES=(yolo)
+
 # The guest OSes to stage (space-separated; default darwin). Empty stages none.
 GUEST_OSES=(darwin)
 if [ -n "${YOLO_BUNDLE_GUEST_OSES+set}" ]; then
@@ -192,18 +202,19 @@ for arch in "${ARCHES[@]}"; do
   done
 done
 
-# The guest dirs, one per OS x arch, holding GUEST_BINARIES and nothing else.
-# build-go.sh is narrowed to the guest set (BUILD_GO_CMDS), so a darwin build
-# compiles those binaries rather than every cmd/.
+# The darwin dirs, one per OS x arch, holding DARWIN_HOST_BINARIES and
+# GUEST_BINARIES and nothing else. build-go.sh is narrowed to those (BUILD_GO_CMDS),
+# so a darwin build compiles them rather than every cmd/.
+DARWIN_BINARIES=("${DARWIN_HOST_BINARIES[@]}" "${GUEST_BINARIES[@]}")
 for gos in "${GUEST_OSES[@]}"; do
   for arch in "${ARCHES[@]}"; do
-    echo "stage-source-bundle: cross-compiling the ${gos}/${arch} guest set (${GUEST_BINARIES[*]})"
-    BUILD_GO_CMDS="${GUEST_BINARIES[*]}" CGO_ENABLED=0 GOOS="$gos" GOARCH="$arch" \
+    echo "stage-source-bundle: cross-compiling the ${gos}/${arch} darwin set (${DARWIN_BINARIES[*]})"
+    BUILD_GO_CMDS="${DARWIN_BINARIES[*]}" CGO_ENABLED=0 GOOS="$gos" GOARCH="$arch" \
       "$REPO_ROOT/scripts/build-go.sh"
     src_dir="$REPO_ROOT/dist-go/${gos}-${arch}"
     dst_dir="$DEST/bin/${gos}-${arch}"
     mkdir -p "$dst_dir"
-    for name in "${GUEST_BINARIES[@]}"; do
+    for name in "${DARWIN_BINARIES[@]}"; do
       if [ ! -f "$src_dir/$name" ]; then
         echo "stage-source-bundle: build-go.sh did not produce $src_dir/$name" >&2
         exit 1
@@ -231,17 +242,17 @@ for arch in "${ARCHES[@]}"; do
 done
 for gos in "${GUEST_OSES[@]}"; do
   for arch in "${ARCHES[@]}"; do
-    for name in "${GUEST_BINARIES[@]}"; do
+    for name in "${DARWIN_BINARIES[@]}"; do
       [ -e "$DEST/bin/${gos}-${arch}/$name" ] || {
         echo "stage-source-bundle: missing bin/${gos}-${arch}/$name" >&2; missing=1; }
     done
-    # Exactly the guest set: a host binary (yolo) or a dev tripwire here would be
-    # a second copy of something the guest must take from elsewhere.
+    # Exactly the darwin set: a dev tripwire (goprobe) or any other host binary
+    # here would be a copy of something nothing on a Mac takes from the bundle.
     for f in "$DEST/bin/${gos}-${arch}"/*; do
       base="$(basename "$f")"
-      case " ${GUEST_BINARIES[*]} " in
+      case " ${DARWIN_BINARIES[*]} " in
         *" $base "*) ;;
-        *) echo "stage-source-bundle: $base is not in GUEST_BINARIES but is in bin/${gos}-${arch}" >&2; missing=1 ;;
+        *) echo "stage-source-bundle: $base is not in DARWIN_BINARIES but is in bin/${gos}-${arch}" >&2; missing=1 ;;
       esac
     done
   done
