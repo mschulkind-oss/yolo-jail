@@ -218,6 +218,10 @@ renders an exact menu from ([Model lists shaped by packs](#model-lists-shaped-by
 user's own `providers.<name>.models` then composes over the result per alias, so your config has
 the last word ([MM-D11](../design/model-lists-and-pickers.md#MM-D11)).
 
+A provider that sets `inherits` starts from another provider's finished entry instead of from
+nothing; [A provider may inherit another's settings](#a-provider-may-inherit-anothers-settings)
+says where that fits in this order.
+
 Last, over the finished table, the **adapter pass** fills in an endpoint for a protocol a
 provider does not serve but a selected adapter converts to — below the user layer, so an address
 the user wrote always wins ([`protocol-resolution.md`](protocol-resolution.md)).
@@ -235,6 +239,48 @@ Two refusals guard the output:
 What a composed entry is required to bring — its credential — is
 [the credential preflight](#the-credential-preflight)'s question, and, for a provider reached
 through a region, its region is [the region preflight](#the-region-preflight)'s.
+
+### A provider may inherit another's settings
+
+`providers.<child>.inherits = "<parent>"` makes the child start from the **parent**'s composed
+entry (the parent is the provider the key names; the child is the one that carries it, both words
+coined in [the design](../design/provider-inherits.md)). The parent's entry is the finished one:
+its pack declaration, the `models` contributions aimed at it and your own `providers.<parent>`
+entry. The child's own pack declaration, its `models` contributions and your `providers.<child>`
+entry then lay over it, per field and per model alias, in that order. A provider that nothing
+inherits from composes as before.
+
+- **Carries over:** `models`, `model_options`, `every_model`, the default `model`, `region`,
+  `options`, `platform`, `endpoints`, `capabilities`, `via`, and the mark that an `only`
+  narrowed the model list.
+- **Never carries over:** `api_key_env_name` (the credential is what makes the child a different
+  route), `name`, `alias` and `variants` (all selection names, owned by one provider each).
+- **`inherits = ""` opts out**, which is how you undo an inheritance a pack declares.
+- **One level only.** A parent that itself inherits (a chain, a cycle), a provider naming itself,
+  or a parent that no selected pack or config declares refuses the launch and `yolo check`, naming
+  the fix. A parent you disabled with `providers.<parent> = null` still lends its entry.
+- **User scope only.** `inherits` can change a provider's `platform` and `endpoints`, which decide
+  where a credential goes, so a workspace `yolo-jail.toml` or `yolo-jail.local.toml` that carries
+  it, `""` included, is refused. Set it with
+  `yolo config set providers.<name>.inherits '""' --user`.
+
+It composes on the host, so a jail, `macos-user` and `yolo host` all get the same table.
+The shipped `bedrock-key` inherits `bedrock` ([the shipped Bedrock provider](#the-shipped-bedrock-provider)),
+so a model list written once reaches both routes:
+
+```toml
+# your user config
+[providers.bedrock.models]
+sonnet = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+# optional: this route alone gets one more model, or a different one
+[providers.bedrock-key.models]
+haiku = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+```
+
+Showing where an inherited value came from in `yolo config why` is
+[backlogged](../plans/BACKLOG.md). The design, with its decision ledger, is
+[`provider-inherits.md`](../design/provider-inherits.md).
 
 ### The platform: what service a provider is
 
@@ -294,6 +340,9 @@ and agy, whose transport takes no address, reaches nothing.
   no endpoint, no region and no `options`. A region is the user's to
   set, on the provider, in the environment or in the profile's section of `~/.aws/config`
   ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
+- **`bedrock-key` inherits `bedrock`** ([provider inherits](../design/provider-inherits.md)), so a
+  model list, region or options you write under `providers.bedrock` reach it too, and it keeps its
+  own credential names and its own `bridge` variant.
 - **No model list ships** ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), ruled
   2026-10-05): the provider declares no `models`, so each agent starts on its own Bedrock
   catalog's default and offers its own catalog, an upstream catalog's faults included. copilot,
