@@ -1470,6 +1470,7 @@ forward ([SUP-D50](#SUP-D50)).
   **Still to run, at main `400d1eb28` or later** (the commit carrying the fix of item 3):
   `YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run '^TestMacosUser' ./integration`.
   Expected: no failures. Report the pass/fail/skip counts and each failure's message. Settles W-SU1.
+  *Re-run 2026-11-09 at `04f300a9e`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-fix-reruns.md#4-the-testmacosuser-suite)): **passes**, 163 passed, 0 failed, 4 skipped (the same four), in 1029 s. The launch half, re-run in `w7-move` for W-SU13, passes with no "No jail running" line. Settles W-SU1.
 - **W-SU2 (slice 4b):** a workspace whose `yolo-jail.toml` holds `[network]\nmode = "host"`:
   `yolo --setup apple-container-self -- true` refuses with the
   [§6](named-setups.md#6-config-by-example) sentence ending in `yolo --setup podman-self -- claude`
@@ -1553,6 +1554,7 @@ forward ([SUP-D50](#SUP-D50)).
   stop yolo-c-…` beside `yolo stop` and `yolo stop` to print no "No jail running" line for a
   setup it did not stop; and the Seatbelt half from the start, in a fresh `/Users/Shared/yolo/d`
   laid by the `bb10db358` yolo, expecting the relaunch after `yolo stop` to run. Settles W-SU12.
+  *Re-run 2026-11-09 at `04f300a9e`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-fix-reruns.md#3-w-su12-from-the-start)), in fresh `su12r-c` and `su12r-d`: **passes.** The Apple Container refusal names `yolo stop` and `container stop yolo-su12r-c-9a9f8f00`, the Seatbelt one names `yolo stop` alone, neither `yolo stop` prints a "No jail running" line, both relaunches run, and prune leaves both tool disks. Settles W-SU12.
 - **W-SU13 (slice 6a-iii, the fix of [item 1](#found-on-the-mac-2026-11-09), at main `400d1eb28` or later):**
   a Seatbelt workspace last launched before 6a-iii relaunches. Use the two workspaces the 11-09
   run left in place: `/Users/Shared/yolo/su12-d` (laid by `bb10db358` under `seatbelt-self`) and
@@ -1577,6 +1579,7 @@ forward ([SUP-D50](#SUP-D50)).
   `w7-move` for `a`. W-SU4 needs no re-run for this item: its only Seatbelt launch, in (a), starts a
   setup home no earlier Seatbelt launch had used, so no old-name record is involved. Report each
   command's output. Settles item 1.
+  *Run 2026-11-09 at `04f300a9e`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-fix-reruns.md#1-w-su13-seatbelt-workspaces-from-before-6a-iii-relaunch)): **passes.** Both relaunches exit 0. A new-name record (`…-seatbelt-self.json`, `…-seatbelt-yolo-account.json`) now sits beside each old-name record. Both copies keep their GENERATED first line, and the edited copy is still refused, naming the `mv` step. W-SU1's launch half in `w7-move` passes. Settles item 1.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
   create` and exits non-zero; `yolo yolo-account share <dir>` does what `macos-fix-permissions`
   did (the ACL on `<dir>` lists `_yolojail`). Also, on a Mac where the yolo account exists:
