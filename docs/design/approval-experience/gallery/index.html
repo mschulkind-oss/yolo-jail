@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approval request gallery</title>
+
+<style>
+:root { color-scheme: light dark; --fg:#1d1d1f; --bg:#fafafa; --card:#fff; --muted:#666; --line:#ddd; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e8e8e8; --bg:#161618; --card:#222226; --muted:#aaa; --line:#3a3a3f; } }
+body { font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0 auto; max-width: 1200px; padding: 1.5rem; }
+h1 { margin: 0 0 .25rem; } h2 { margin: 2rem 0 .75rem; text-transform: capitalize; border-bottom: 1px solid var(--line); }
+.lede, .meta { color: var(--muted); }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; margin: 0 0 1rem; }
+.tile h3 { margin: 0 0 .4rem; font-size: 1.05rem; }
+.badge { display: inline-block; font-size: .72rem; font-weight: 600; padding: .1rem .45rem; border-radius: 4px; margin-right: .3rem; border: 1px solid currentColor; }
+.real { color: #1a7f37; } .synthetic { color: #9a6700; } .state { color: #0969da; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem .8rem; margin: .5rem 0; }
+dt { color: var(--muted); } dd { margin: 0; font-family: ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
+.evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .75rem; margin-top: .75rem; }
+.slot { border: 1px dashed var(--line); border-radius: 6px; padding: .6rem; }
+.slot h4 { margin: 0 0 .4rem; font-size: .85rem; }
+.kind { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: .1rem .4rem; border-radius: 3px; }
+.kind-native-capture { background: #1a7f37; color: #fff; } .kind-preview { background: #9a6700; color: #fff; } .kind-missing { background: #cf222e; color: #fff; }
+.missing { color: var(--muted); font-style: italic; padding: 1.5rem .5rem; text-align: center; }
+.toast { font-family: system-ui, sans-serif; background: #2b2b30; color: #eee; border-radius: 10px; padding: .7rem .8rem; max-width: 380px; box-shadow: 0 1px 4px #0006; }
+.toast .app { font-size: .7rem; color: #aaa; } .toast .ttl { font-weight: 700; margin: .1rem 0 .3rem; }
+.toast .body { font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+.toast .btns { display: flex; gap: .3rem; margin-top: .5rem; } .toast .btns span { flex: 1; text-align: center; background: #3d3d44; border-radius: 6px; padding: .3rem; font-size: .8rem; }
+.capture img { max-width: 100%; border: 1px solid var(--line); }
+.prov { font-size: .75rem; }
+.noprompt { padding: .8rem; border-left: 3px solid #1a7f37; }
+</style>
+</head>
+<body>
+<h1>Approval request gallery</h1>
+<p class="lede">1 fixtures from the shared approval fixture set. Every rendering is labeled: a
+<span class="kind kind-native-capture">native capture</span> is a screenshot of a real OS notification server with its
+provenance; a <span class="kind kind-preview">preview</span> is an HTML imitation and proves nothing about native rendering;
+<span class="kind kind-missing">missing</span> means no capture exists yet. Real fixtures were filed through yolo's own
+brokers and printed by <code>yolo approve --json</code>; synthetic fixtures describe operations yolo cannot file today.</p>
+<p class="meta">Evidence counts: browser preview: 1; linux missing: 1; macos missing: 1;</p>
+
+
+<h2 id="family-circleci">circleci</h2>
+
+<section class="tile" id="circleci-rerun-workflow-synthetic">
+<h3>CircleCI: rerun a failed workflow (synthetic)</h3>
+<div><span class="badge synthetic">synthetic</span><span class="badge">hand-written</span><span class="badge state">pending</span><a href="#circleci-rerun-workflow-synthetic" class="meta">circleci-rerun-workflow-synthetic</a></div>
+<p>An agent sees a flaky test fail the main workflow of example-org/app and asks to rerun only the failed jobs of that workflow.</p>
+<p class="meta">The circleci pack&#39;s classifier allows only a project-scoped `run list` (internal/circleciclassify/classifier.go) and refuses every other verb, so yolo cannot file this request. The object below is hand-written in the shape `yolo approve --json` uses, to show what a future write would ask.</p>
+<dl>
+<dt>command</dt><dd>workflow rerun --failed 8f14e45f-ea2c-4b1d-9e3a-0c1f2d3e4a5b</dd>
+<dt>source</dt><dd>circleci-broker (set write)</dd>
+<dt>repository</dt><dd>example-org/app</dd>
+<dt>workspace</dt><dd>/home/dev/code/app (every jail of this workspace may use a grant)</dd>
+
+<dt>filed / expires</dt><dd>2026-11-09T14:00:00Z / 2026-11-09T15:00:00Z</dd>
+
+
+</dl>
+
+<div class="evidence">
+
+
+<div class="slot"><h4>linux · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">owner baseline: on_request script via notify-send to swaync</div>
+<div class="missing">No capture. Not yet captured.</div>
+
+</div>
+
+<div class="slot"><h4>macos · <span class="kind kind-missing">missing</span></h4>
+<div class="meta">terminal-notifier 3</div>
+<div class="missing">No capture. No Mac capture runner yet (mac-capture-runner.md).</div>
+
+</div>
+
+<div class="slot"><h4>browser · <span class="kind kind-preview">preview</span></h4>
+<div class="meta">owner baseline layout (HTML preview of the on_request script&#39;s toast) · tested: visual</div>
+<div class="toast" role="img" aria-label="HTML preview, not a native notification">
+<div class="app">yolo · PREVIEW (HTML, not native)</div>
+<div class="ttl">yolo: rerun failed jobs of workflow 8f14e45f in gh/example-org/app</div>
+<div class="body">rerun failed jobs of workflow 8f14e45f in gh/example-org/app
+workflow: main (failed, 2 of 14 jobs)</div>
+<div class="btns"><span>Allow once</span><span>Allow 1h</span><span>Deny</span></div>
+</div>
+
+</div>
+
+</div>
+</section>
+
+</body>
+</html>
