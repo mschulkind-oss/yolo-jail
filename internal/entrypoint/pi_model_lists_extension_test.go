@@ -343,6 +343,37 @@ func TestPiModelListsExtensionRegistersTheRenderedListAlone(t *testing.T) {
 	}
 }
 
+// piHeaderedCatalogStub is piZaiCatalogStub with a model that carries its own request headers,
+// as every model in pi's github-copilot catalog does (Editor-Version, Copilot-Integration-Id and
+// two more; pi-ai's providers/data/github-copilot.json): the provider has none, so the
+// per-model copy is the only source, and Copilot answers 400 without them.
+var piHeaderedCatalogStub = strings.Replace(piZaiCatalogStub,
+	`baseUrl: "https://catalog.example",`,
+	`baseUrl: "https://catalog.example", headers: { "Editor-Version": "vscode/1.107.0", "Copilot-Integration-Id": "vscode-chat" },`, 1)
+
+// A CATALOG MODEL'S OWN REQUEST HEADERS SURVIVE THE REGISTRATION. They are not an address: pi
+// sends an extension model's `headers` with its requests (pi 1.0.1 provider-composer.js
+// rawModelHeaders, read by ModelRuntime.getAuth), so dropping them with api, baseUrl and provider
+// left a curated github-copilot list sending no Editor-Version, and every turn failed 400.
+func TestPiModelListsExtensionKeepsACatalogModelsHeaders(t *testing.T) {
+	for _, open := range []bool{true, false} {
+		run := runPiModelListsExtension(t, renderedZaiLists(t, open), piHeaderedCatalogStub, piCompatStub)
+		if len(run.Registrations) != 1 || len(run.Registrations[0].Models) == 0 {
+			t.Fatalf("open=%v: registrations = %+v, want one for zai", open, run.Registrations)
+		}
+		known := run.Registrations[0].Models[0]
+		headers, _ := known["headers"].(map[string]any)
+		if headers["Editor-Version"] != "vscode/1.107.0" || headers["Copilot-Integration-Id"] != "vscode-chat" {
+			t.Errorf("open=%v: %s headers = %v, want the catalog model's own headers kept", open, known["id"], known["headers"])
+		}
+		for _, k := range []string{"api", "baseUrl", "provider"} {
+			if _, has := known[k]; has {
+				t.Errorf("open=%v: %s carries the catalog's %s: the registration must never repoint the provider", open, known["id"], k)
+			}
+		}
+	}
+}
+
 // WITH THE SWITCH ON, THE DEFAULT, THE REGISTRATION REFUSES (MM-D6, MM-D21): it names the api the
 // derive stated for zai's models.json row and carries a streamSimple that ends an unlisted model's
 // turn with yolo's refusal before any stream starts, and hands a listed one to pi's own built-in

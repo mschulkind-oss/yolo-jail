@@ -168,9 +168,13 @@ const LOADER_DEFAULTS = {
 };
 
 // catalogFacts is a catalog entry with its address fields dropped, so a registration built from
-// it never repoints the provider.
+// it never repoints the provider. The entry's own `headers` are KEPT: they are not an address but
+// part of what the model needs sent, and pi sends a registered model's headers with its requests
+// (pi 1.0.1 provider-composer.js rawModelHeaders). Every github-copilot catalog model carries the
+// IDE headers Copilot refuses a request without (Editor-Version, Copilot-Integration-Id), and the
+// provider has none, so dropping them failed every turn of a curated Copilot list with a 400.
 function catalogFacts(builtin) {
-	const { api: _api, provider: _provider, baseUrl: _baseUrl, headers: _headers, ...facts } = builtin;
+	const { api: _api, provider: _provider, baseUrl: _baseUrl, ...facts } = builtin;
 	return facts;
 }
 
