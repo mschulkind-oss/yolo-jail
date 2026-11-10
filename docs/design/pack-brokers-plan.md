@@ -112,6 +112,29 @@ Each task is one commit. Before starting, `git status --short`, verify the requi
 The [accepted HTTP contract](pack-brokers-http.md) is normative for G1–G4/H; its [bounded plan](pack-brokers-http-plan.md) owns implementation order, tests and gates. The broader seed below does not create a competing HTTP contract. HTTP runtime and H conformance are unimplemented; begin G1 only on the current integrated source, preserve CLI 64 KiB semantics and [OQ-BX7](pack-brokers.md#OQ-BX7) boundaries, and stop on noncosmetic source drift.
 
 
+## Mac checks
+
+Run by the owner's Mac agent on main; what they find is fixed forward.
+
+- **W-BX1 (slice F's integration test on macOS, at main `400d1eb28` or later):**
+  `TestCircleCIFakeHostCLIUsesRealClassifier` passes on the Mac. It failed in the Nightly macOS
+  Integration runs 42372802408 (11-07, `4b26d1dfc`) and 42482019048 (`310130d79`), and on
+  the owner's Mac under `YOLO_SETUP=podman-self`, with `yolo check` reporting *"Container runtime
+  installed but not started … unable to connect to Podman socket: … podman.sock: connect: no such
+  file or directory"*. The cause is the test's: it runs `yolo check` with `XDG_CONFIG_HOME` moved to
+  a temporary directory (`integration/circleci_broker_test.go`), and podman on macOS finds its
+  machine through `podman-connections.json` under that directory, so it falls back to a local
+  socket that does not exist ([report](../lab-reports/2026-11-07-mac-session-homes-and-nightly-42372802408.md#3-nightly-42372802408)).
+  1. On the Mac, outside any jail, with the podman machine running:
+     `YOLO_SETUP=podman-self go test -count=1 -timeout 0 -run '^TestCircleCIFakeHostCLIUsesRealClassifier$' ./integration`.
+     Expected: `ok`.
+  2. On the first scheduled Nightly macOS Integration run whose head commit is `400d1eb28` or
+     later (`gh run list -R mschulkind-oss/yolo-jail --workflow nightly-macos.yml --json databaseId,headSha,event --limit 20`),
+     read the shard that ran it:
+     `gh run view -R mschulkind-oss/yolo-jail <run id> --log | grep TestCircleCIFakeHostCLIUsesRealClassifier`.
+     Expected: `--- PASS: TestCircleCIFakeHostCLIUsesRealClassifier`.
+  3. Report both outputs and the run id. A pass in both settles W-BX1.
+
 ## Ships with and remaining dependencies
 
 - A–F and access tasks 1–3 are integrated; D metadata alone cannot authorize pack approvals. F source is the bounded read-only project-scoped `run list` slice with selected host-environment binding and XDG credential fencing; no live authentication or real permission is accepted. E/F source acceptance and final landing gates remain pending. Timed multiwrite answers are built ([BX-D17](pack-brokers.md#BX-D17)); [OQ-BX7](pack-brokers.md#OQ-BX7) keeps Add and `--remember` refused. The separately accepted [HTTP contract](pack-brokers-http.md) and [build plan](pack-brokers-http-plan.md) route unimplemented G1–G4/H; no HTTP runtime is present. MCP’s selected producer is a separate protocol, and independent MCP outcome/start/teardown repairs remain pending; MCP status is not an approval source. Apple Container admission remains separately unproven; report unsupported backend honestly.

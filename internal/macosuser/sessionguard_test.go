@@ -398,7 +398,8 @@ func TestTheGuardStopsTheLargestProcessWithTermThenKill(t *testing.T) {
 		t.Errorf("kills = %q, want one SIGTERM to the child %d", g.killLog(), pid)
 	}
 	errText := g.stderr.String()
-	for _, want := range []string{"resources.memory (100m)", "200m", fmt.Sprintf("stopping pid %d", pid),
+	for _, want := range []string{"resident, over machine.resources.memory (100m); stopping",
+		MemoryGuardBreach(patient.memory), "200m", fmt.Sprintf("stopping pid %d", pid),
 		"`yolo config set machine.resources.memory <size>` (a size such as 16g)"} {
 		if !strings.Contains(errText, want) {
 			t.Errorf("the breach line lacks %q:\n%s", want, errText)

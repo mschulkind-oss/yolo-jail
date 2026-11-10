@@ -853,11 +853,15 @@ func isAppleContainerInheritedCopyBeneath(r *os.Root, rel string, uid int) bool 
 // sealed staged overlay and the delivery record (entrypoint.InheritedDeliveryRecordPath) both live
 // in it, and the sandbox can write neither — another account's directory in account mode, and a
 // read-only grant of the Seatbelt profile in run-as-you mode.
+//
+// legacyCname is the name a yolo from before slice 6a-iii keyed this workspace's session by
+// (legacyJailName), or "" when that is cname itself; readRecord falls back to its record.
 type inheritedStaging struct {
-	root     *os.Root
-	rootPath string
-	cname    string
-	euid     int
+	root        *os.Root
+	rootPath    string
+	cname       string
+	legacyCname string
+	euid        int
 }
 
 func (s *inheritedStaging) Close() { _ = s.root.Close() }
@@ -881,12 +885,22 @@ func (o *Options) openInheritedStaging() (*inheritedStaging, bool) {
 	if err != nil {
 		return nil, false
 	}
-	return &inheritedStaging{root: root, rootPath: rootPath, cname: o.jailName(), euid: euid}, true
+	s := &inheritedStaging{root: root, rootPath: rootPath, cname: o.jailName(), euid: euid}
+	if legacy := o.legacyJailName(); legacy != s.cname {
+		s.legacyCname = legacy
+	}
+	return s, true
 }
 
 // recordLeaf is the delivery record's directory (one level below the root) and file name.
 func (s *inheritedStaging) recordLeaf() (path, leaf, name string) {
-	path = entrypoint.InheritedDeliveryRecordPath(macosuser.StagedHomeOverlay(s.cname, s.rootPath))
+	return s.recordLeafFor(s.cname)
+}
+
+// recordLeafFor is recordLeaf for the session cname. Every session's record shares the one
+// directory, so only the file name differs.
+func (s *inheritedStaging) recordLeafFor(cname string) (path, leaf, name string) {
+	path = entrypoint.InheritedDeliveryRecordPath(macosuser.StagedHomeOverlay(cname, s.rootPath))
 	rel, err := filepath.Rel(s.rootPath, path)
 	if err != nil {
 		return path, "", ""
@@ -925,12 +939,29 @@ func (s *inheritedStaging) openRecordLeaf(create bool) (*os.Root, string, error)
 
 // readRecord reads the delivery record: only a regular, sealed 0444 file of this user's, opened
 // without following a link. Anything else is no record, which admits nothing.
+//
+// THE LEGACY-NAMED RECORD (named-setups-plan.md SUP-D51; the Mac run of 2026-11-09, §1). Slice
+// 6a-iii keys a session by the setup-qualified jail name, so a workspace a yolo from before it
+// launched has its record only under the legacy jail name (legacyJailName, the project key
+// alone), in the same directory. When NOTHING stands at this launch's record name, the record
+// under the legacy name is read instead, with exactly the same checks. It proves the same thing:
+// the record keys each digest by the HOME-RELATIVE destination (".config/yolo-jail/config.toml")
+// and records no absolute path, so a record written while the home was <ws>/.yolo/home admits only
+// the file the legacy-home move carried to that same relative path under
+// <ws>/.yolo/setups/<setup>/home. The proof is not weakened: the destination must still be sealed,
+// owned as before, and hash to a digest the record lists. Any entry at this launch's own record
+// name, however it reads, is the only record consulted. The launch then writes its own record
+// under its own name (recordInheritedDelivery, listing the admitted bytes), so the fallback serves
+// one launch; the legacy record is left in place (SUP-D51 says why).
 func (s *inheritedStaging) readRecord() (entrypoint.InheritedDeliveryRecord, bool) {
 	dir, name, err := s.openRecordLeaf(false)
 	if err != nil {
 		return entrypoint.InheritedDeliveryRecord{}, false
 	}
 	defer dir.Close()
+	if _, err := dir.Lstat(name); os.IsNotExist(err) && s.legacyCname != "" {
+		_, _, name = s.recordLeafFor(s.legacyCname)
+	}
 	info, err := dir.Lstat(name)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 || !inheritedFileOwnedBy(info, s.euid) {
 		return entrypoint.InheritedDeliveryRecord{}, false

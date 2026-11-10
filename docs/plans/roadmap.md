@@ -386,8 +386,13 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     evidence, and the combined/native gates remain.
 56. [Declare secrets in their own config table, reaching only the agents that claim them](../design/secret-env-scoping.md), and the
     [Bedrock API key provider](../design/bedrock-key-provider.md) that waits on it — both designs; [OQ-SE1](../design/secret-env-scoping.md#OQ-SE1) to [OQ-SE3](../design/secret-env-scoping.md#OQ-SE3)
-    are ruled (2026-11-09), and the [secret-env-scoping implementation plan](../design/secret-env-scoping-plan.md)
-    is ready to build; [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) waits on the owner. Nothing is built.
+    and [OQ-BK3](../design/bedrock-key-provider.md#OQ-BK3) are ruled (2026-11-09), and the [secret-env-scoping implementation plan](../design/secret-env-scoping-plan.md)
+    is being built. Nothing has landed.
+57. Write a design for Claude's sign-ins in the macOS Keychain at `yolo host`. On a Mac, host Claude keeps its login
+    and MCP sign-ins in the Keychain rather than `~/.claude/.credentials.json` (inferred, not yet measured), so the one MCP sign-in that
+    [OQ-MA10](../design/mcp-auth-sharing.md#OQ-MA10) turns on at Linux `yolo host` is unsupported at `yolo host` on a
+    Mac until this design exists — the owner, 2026-11-09: *"put a design doc on the roadmap for mac keychain stuff."*
+    It reads with [the keychain from a jail](../design/keychain-from-a-jail.md), which rules Copilot's item, not Claude's.
 
 ## Boundaries
 

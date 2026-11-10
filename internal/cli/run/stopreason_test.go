@@ -8,6 +8,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -197,10 +198,14 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		{"a recorded stop", "`yolo stop` (pid 9) stopped it", "137"},
 		{"nothing recorded", "", "137"},
 		{"the session's own end", "", "0"},
+		// Nothing recorded why, and podman's event log has a refresh since the session began: the
+		// 2026-11-09 incident's 255 (keepervanish.go).
+		{"a podman refresh", "", "255"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o, cfg, channel, stderr := attachFixture(t, currentJailEnv, zaiSelected(t), hydratedKey(), nil)
 			o.IsMacOS = true
+			refreshAt := o.Now().Add(time.Minute).Truncate(time.Second)
 			var calls []string
 			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 				joined := strings.Join(argv, " ")
@@ -210,6 +215,9 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 					return ExecResult{Ran: true, Stdout: currentJailEnv}
 				case len(argv) > 1 && argv[1] == "ps":
 					return ExecResult{Ran: true}
+				case tc.rc == "255" && len(argv) > 1 && argv[1] == "events" && strings.Contains(joined, "event=refresh"):
+					return ExecResult{Ran: true, Stdout: `{"Status":"refresh","Type":"system","time":` +
+						strconv.FormatInt(refreshAt.Unix(), 10) + "}\n"}
 				}
 				return ExecResult{Ran: false}
 			}
@@ -230,6 +238,11 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 			case tc.rc == "0":
 				if rc != 0 || probed || strings.Contains(out, "its jail stopped") {
 					t.Errorf("a session's own end: rc %d, probed %v:\n%s", rc, probed, out)
+				}
+			case tc.rc == "255":
+				want := "This session ended because its jail stopped: " + podmanRefreshReason(refreshAt, false) + "."
+				if !strings.Contains(out, want) || strings.Contains(out, "nothing recorded why") {
+					t.Errorf("the attach did not name the podman refresh (want %q):\n%s", want, out)
 				}
 			case tc.reason != "":
 				if !strings.Contains(out, "This session ended because its jail stopped: "+tc.reason+".") {

@@ -133,6 +133,30 @@ func TestAStopLeavesASetupWithNothingLeftAlone(t *testing.T) {
 	}
 }
 
+// A STOP THAT ENDS ANOTHER SETUP'S JAIL DOES NOT OPEN WITH "No jail running" FOR THE SELECTED ONE
+// (the Mac run of 2026-11-09, W-SU1): that line named the OS default setup, which ran nothing,
+// before the stops that did. It is kept only when the stop ended nothing at all (the second run of
+// TestAStopLeavesASetupWithNothingLeftAlone). Red when stopWorkspaceJails prints it unconditionally.
+func TestAStopThatEndsAnotherSetupsJailDropsTheSelectedNoJailLine(t *testing.T) {
+	f := newStopSetupsFixture(t)
+	// The selected setup's jail is gone; seatbelt-self's still runs.
+	captureBoth(t, func() { _ = runStop([]string{"stop", "--setup", "podman-self"}) })
+	if len(f.macosStops) != 0 {
+		t.Fatalf("--setup podman-self stopped %v", f.macosStops)
+	}
+	var rc int
+	stdout, stderr := captureBoth(t, func() { rc = runStop([]string{"stop"}) })
+	if rc != 0 {
+		t.Fatalf("runStop = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout, stderr)
+	}
+	if !slices.Equal(f.macosStops, []string{f.seatbelt}) || !strings.Contains(stdout, "stopped seatbelt-self\n") {
+		t.Fatalf("the stop did not end seatbelt-self's jail (%v):\n%s", f.macosStops, stdout)
+	}
+	if strings.Contains(stdout, "No jail running") {
+		t.Errorf("the stop named the selected setup's absent jail beside the one it ended:\n%s", stdout)
+	}
+}
+
 func TestAStopWithSetupStopsThatSetupsJailAlone(t *testing.T) {
 	f := newStopSetupsFixture(t)
 	var rc int

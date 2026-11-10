@@ -207,13 +207,20 @@ func realStopExec(argv []string, timeout time.Duration) (string, bool, int) {
 func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) int {
 	selected := workspaceSetup()
-	rc := stopSetupJail(stdout, stderr, ws, selected, rt, run, p, force)
+	// The selected setup's "No jail running" line is held back, and printed only when no other jail
+	// of the workspace was found either: beside a stop that did end one it named a setup that ran
+	// nothing (the Mac run of 2026-11-09, W-SU1).
+	var noJail string
+	rc := stopSetupJailHolding(stdout, stderr, ws, selected, rt, run, p, force, &noJail)
+	foundOther := false
 	user, problems := userSetupTables()
 	for _, name := range paths.SetupStateNames(ws) {
 		if name == selected.Name {
 			continue
 		}
-		if src := stopOtherSetupJail(stdout, stderr, ws, name, user, problems, run, p, force); rc == 0 {
+		src, found := stopOtherSetupJail(stdout, stderr, ws, name, user, problems, run, p, force)
+		foundOther = foundOther || found
+		if rc == 0 {
 			rc = src
 		}
 	}
@@ -223,11 +230,15 @@ func stopWorkspaceJails(stdout, stderr io.Writer, ws, rt string,
 			lrt, left = stopLeftoverContainerFind(legacy, rt, run)
 		}
 		if left {
+			foundOther = true
 			fmt.Fprintf(stdout, "Stopping the jail an earlier yolo started for this workspace (%s).\n", legacy)
 			if lrc := stopJail(stdout, stderr, ws, legacy, lrt, run, p, force); rc == 0 {
 				rc = lrc
 			}
 		}
+	}
+	if noJail != "" && !foundOther {
+		fmt.Fprint(stdout, noJail)
 	}
 	return rc
 }
@@ -283,16 +294,17 @@ func stopOneSetup(stdout, stderr io.Writer, ws, name string,
 // selected one, when anything of that jail is left. Its technology is the setup's; a setup that
 // is no longer defined is answered by the runtime its keeper recorded launching it on, else by the
 // container runtime that holds a container of its name (stopLeftoverContainerFind), and, with
-// neither, its jail is reported with the one command that lets the stop reach it.
+// neither, its jail is reported with the one command that lets the stop reach it. found reports
+// whether anything of that jail was left, so the stop asked about it.
 func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[string]setup.Setup,
-	problems []string, run stopCommandRunner, p *perf.Log, force bool) int {
+	problems []string, run stopCommandRunner, p *perf.Log, force bool) (int, bool) {
 	cname := runtime.JailName(ws, name)
 	if !stopSetupJailKnown(cname) {
-		return 0
+		return 0, false
 	}
 	s, err := setupLookup(name, user, problems)
 	if err == nil {
-		return stopSetupJail(stdout, stderr, ws, s, s.Backend(), run, p, force)
+		return stopSetupJail(stdout, stderr, ws, s, s.Backend(), run, p, force), true
 	}
 	rt := ""
 	if _, known := launchedRuntime(cname); !known {
@@ -303,7 +315,7 @@ func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[stri
 				"built-in setup it ran on, then run `yolo stop` again:\n    yolo setup new %s --from %s\n"+
 				"The built-in setups that run a jail are %s.\n",
 				name, cname, name, err, name, setup.Default(goruntime.GOOS).Name, strings.Join(jailSetupNames(), ", "))
-			return 1
+			return 1, true
 		}
 		rt = found
 	}
@@ -311,7 +323,7 @@ func stopOtherSetupJail(stdout, stderr io.Writer, ws, name string, user map[stri
 	if ended {
 		fmt.Fprintf(stdout, "stopped %s\n", name)
 	}
-	return rc
+	return rc, true
 }
 
 // jailSetupNames is the built-in setups that run a jail (every kind but host), by name.
@@ -330,12 +342,19 @@ func jailSetupNames() []string {
 // that program exits, so the stop says so for the one asked about by name and stops nothing.
 func stopSetupJail(stdout, stderr io.Writer, ws string, s setup.Setup, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) int {
+	return stopSetupJailHolding(stdout, stderr, ws, s, rt, run, p, force, nil)
+}
+
+// stopSetupJailHolding is stopSetupJail, holding back the "No jail running" line as
+// stopJailEndedHolding does.
+func stopSetupJailHolding(stdout, stderr io.Writer, ws string, s setup.Setup, rt string,
+	run stopCommandRunner, p *perf.Log, force bool, noJail *string) int {
 	if s.Kind() == setup.KindHost {
 		fmt.Fprintf(stdout, "%s runs no jail to stop: a `yolo host` session ends when the program it runs "+
 			"exits; end that program in its terminal.\n", s.Name)
 		return 0
 	}
-	rc, ended := stopJailEnded(stdout, stderr, ws, stopJailNameFor(ws, s), rt, run, p, force)
+	rc, ended := stopJailEndedHolding(stdout, stderr, ws, stopJailNameFor(ws, s), rt, run, p, force, noJail)
 	if ended {
 		fmt.Fprintf(stdout, "stopped %s\n", s.Name)
 	}
@@ -382,6 +401,14 @@ func stopJail(stdout, stderr io.Writer, ws, cname, rt string,
 // `stopped <setup>` for each one ended (stopSetupJail).
 func stopJailEnded(stdout, stderr io.Writer, ws, cname, rt string,
 	run stopCommandRunner, p *perf.Log, force bool) (int, bool) {
+	return stopJailEndedHolding(stdout, stderr, ws, cname, rt, run, p, force, nil)
+}
+
+// stopJailEndedHolding is stopJailEnded, except that with a non-nil noJail the "No jail running"
+// line for a stop that found nothing is not printed: *noJail is set to it instead, for
+// stopWorkspaceJails to print only when no other jail of the workspace was found either.
+func stopJailEndedHolding(stdout, stderr io.Writer, ws, cname, rt string,
+	run stopCommandRunner, p *perf.Log, force bool, noJail *string) (int, bool) {
 	launched, known := launchedRuntime(cname)
 	if known && launched != rt {
 		if rt != "" {
@@ -449,7 +476,12 @@ func stopJailEnded(stdout, stderr io.Writer, ws, cname, rt string,
 			lrc := endLeftoverJail(stdout, stderr, rt, cname, state, force, run, p)
 			return lrc, lrc == 0
 		}
-		fmt.Fprintf(stdout, "No jail running for this workspace (%s).\n", cname)
+		line := fmt.Sprintf("No jail running for this workspace (%s).\n", cname)
+		if noJail != nil {
+			*noJail = line
+		} else {
+			fmt.Fprint(stdout, line)
+		}
 		return 0, false
 	}
 

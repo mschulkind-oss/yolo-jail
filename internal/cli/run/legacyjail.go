@@ -47,10 +47,31 @@ func (o *Options) refuseLegacyJail() bool {
 		out.print("[bold red]Refusing to launch: a jail an earlier yolo started for this workspace (" +
 			richtext.Escape(legacy) + ") is still running. It holds this workspace's home, and this " +
 			"yolo names each setup's jail apart, so it would start a second jail beside it.[/bold red]")
-		out.print("Stop it, then launch again: " + legacyJailStop(legacy, how) + ".")
+		out.print("Stop it, then launch again: " + legacyJailStop(legacy, o.legacyJailRuntime(legacy, how)) + ".")
 		return true
 	}
 	return false
+}
+
+// legacyJailRuntime is the container runtime the running legacy jail cname is a container of, for
+// the refusal's advice, or how unchanged. jailRuns answers through the keeper or a session record
+// before it asks any runtime, so a kept container jail came back as "keeper" and the refusal
+// named `yolo stop` alone (the Mac run of 2026-11-09, W-SU12). After such an answer, each runtime
+// on PATH is asked whether a container of the name runs; a Seatbelt session is no runtime's, so
+// its advice stays `yolo stop`. A probe that cannot answer chooses nothing.
+func (o *Options) legacyJailRuntime(cname, how string) string {
+	if how != "keeper" && how != "session" {
+		return how
+	}
+	for _, rt := range projectContainerRuntimes {
+		if _, ok := o.LookPath(rt); !ok {
+			continue
+		}
+		if id, known := o.probeRunningContainer(cname, rt, trackingProbeTimeout); known && id != "" {
+			return rt
+		}
+	}
+	return how
 }
 
 // legacyLeftoverContainer reports whether what jailRuns found under the legacy name is only a

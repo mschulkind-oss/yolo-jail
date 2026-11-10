@@ -147,6 +147,27 @@ type fakeJail struct {
 	// execs, once reportExecs sets it, is how many exec sessions the runtime's inspect says the
 	// container has, its main process a hold (jailSessionCount); -1 answers nothing, a count unknown.
 	execs int
+	// waitAnswer, when set, makes `podman wait` block until the test sends its answer, as a real
+	// wait blocks until the container ends or podman's database loses it.
+	waitAnswer chan ExecResult
+	// vanished is a runtime that no longer lists the container, running or stopped, while its main
+	// process runs on: what a podman refresh that forgot a --rm container leaves.
+	vanished bool
+	// refreshes are the times `podman events --filter event=refresh` answers with; eventsAsked closes
+	// at the first such ask.
+	refreshes   []time.Time
+	eventsAsked chan struct{}
+	eventsOnce  sync.Once
+}
+
+// vanish is the runtime losing the container under its keeper: from now on no listing names it, and
+// a pending `podman wait` fails as podman's does on a container its database no longer has.
+func (f *fakeJail) vanish() {
+	f.mu.Lock()
+	f.vanished = true
+	answer := f.waitAnswer
+	f.mu.Unlock()
+	answer <- ExecResult{Ran: true, RC: 125, Stderr: "Error: no container with name or ID \"" + f.cname + "\" found: no such container"}
 }
 
 // reportExecs has the runtime answer that the container runs n exec sessions, its main process a
@@ -174,10 +195,27 @@ func (f *fakeJail) mainArgv(ready bool) []string {
 
 func (f *fakeJail) exec(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	joined := strings.Join(argv, " ")
 	f.calls = append(f.calls, joined)
+	if answer := f.waitAnswer; answer != nil && len(argv) > 1 && argv[1] == "wait" {
+		// Blocks outside the lock, so the keeper's other asks are answered meanwhile.
+		f.mu.Unlock()
+		return <-answer
+	}
+	defer f.mu.Unlock()
 	switch {
+	case len(argv) > 1 && argv[1] == "events":
+		if f.eventsAsked != nil {
+			f.eventsOnce.Do(func() { close(f.eventsAsked) })
+		}
+		var out strings.Builder
+		for _, at := range f.refreshes {
+			out.WriteString(`{"Status":"refresh","Type":"system","time":` + strconv.FormatInt(at.Unix(), 10) +
+				`,"timeNano":` + strconv.FormatInt(at.UnixNano(), 10) + "}\n")
+		}
+		return ExecResult{Ran: true, Stdout: out.String()}
+	case f.vanished && strings.Contains(joined, " ps "):
+		return ExecResult{Ran: true}
 	case len(argv) > 1 && argv[1] == "stop":
 		f.stops++
 		if f.stuck {

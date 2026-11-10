@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Rule OQ-MA9 and OQ-MA10; take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
+next: "Build the one sign-in at Linux yolo host (OQ-MA10); take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -33,7 +33,7 @@ For Slack, every agent then appears to Slack as Claude Code's Slack app, with th
 
 **Start at [§3](#3-why-it-cannot-be-a-link)** — why no cheaper mechanism meets the rule.
 
-**Needs your ruling:** [OQ-MA9](#OQ-MA9), a duplicate server in the agent a sign-in is adopted from, and [OQ-MA10](#OQ-MA10), whether `yolo host -- claude` takes part in the one sign-in.
+**Needs your ruling:** None.
 
 **Reads with:** [`mcp-auth-stores.md`](../research/mcp-auth-stores.md) (the per-agent store research),
 [`mcp-configuration.md`](../reference/mcp-configuration.md) (how the MCP table is composed),
@@ -535,8 +535,14 @@ What the design rests on, each measured or read 2026-11-03 and detailed in
    Claude's config. Claude reads `mcpOAuth` from storage when it uses it, and its entry never gets
    close enough to expiry to start a refresh.
 7. **Serve the rest** by [§9.6](#96-delivery-routes)'s routes: Codex and pi through the header
-   command, opencode through its store. The source agent is not given a second Slack server: it
-   keeps the one it signed in with.
+   command, opencode through its store. The source agent keeps the server it signed in with.
+   Until the header route ships (phase D), the user's `[mcp_servers.slack]` is rendered into the
+   source agent as an ordinary remote server too, so Claude lists a second Slack server beside
+   the plugin's `plugin:slack:slack`, shown as needing authentication: its key in Claude's store
+   hashes the name, so the adopted entry does not cover it. Signing in to it is adopted as well
+   (latest sign-in wins), so nothing breaks. Which agent is the source is known only at run time,
+   once an entry is adopted, while rendering happens at launch; the header route replaces the
+   plain entry rather than the launch withholding it ([OQ-MA9](#OQ-MA9)).
 
 > [!WARNING]
 > The refresh token is never written back into the source agent's entry, though that would keep
@@ -713,9 +719,25 @@ changes.
   ([§8.5](#85-launch-boundary-only); the plan's ID-19). macos-user: the launcher runs the broker's
   poll for the length of the session, then one last pass (the plan's ID-20). All of them run the
   broker's own code over one canonical store and one audit log. A record remembers the store it
-  was adopted from, and only that store losing the entry is a sign-out (the plan's ID-18). `yolo
-  host`: not kept, and the launch says so, pending [OQ-MA10](#OQ-MA10).
+  was adopted from, and only that store losing the entry is a sign-out (the plan's ID-18).
   The Mac columns are built and wait on their [Mac checks](#mac-checks).
+- **`yolo host` on Linux keeps the one sign-in by default, as every jail backend does**
+  ([OQ-MA10](#OQ-MA10)). Host Claude keeps its login and MCP sign-ins in the real home's
+  `~/.claude/.credentials.json`, so the launcher adopts from that file and writes a fresh access
+  token back to it, by [§9.3](#93-adopting-a-sign-in-an-agent-already-has)'s steps: the
+  `mcpOAuth` entry loses its `refreshToken`, and every write is a read-modify-write of that one
+  entry under Claude's `.storage-write.lock`, every other key untouched. This is the one write yolo
+  makes into the user's own `~/.claude`, which the credential view
+  ([CL-D27](claude-login-without-interception.md#CL-D27)) and
+  [OQ-NC7](../plans/notch-convergence.md#7-decision-ledger) otherwise leave alone; without it a
+  host Claude signed in to Slack would refresh the same grant the broker refreshes, the two
+  refreshers [MA-D10](#decision-ledger) rules out. The record names `~/.claude` as its source
+  store, so only that file losing the entry signs the server out from the host.
+- **`yolo host` on a Mac does not keep it.** Host Claude on macOS keeps its login and MCP sign-ins
+  in the Keychain (INFERRED, as in [§9.3](#93-adopting-a-sign-in-an-agent-already-has)), which yolo cannot read or write
+  ([`keychain-from-a-jail.md`](keychain-from-a-jail.md)); the launch says the tier is not kept
+  there and names `yolo -- claude`. A design for the Keychain case is on the
+  [roadmap](../plans/roadmap.md).
 
 ## 11. Existing state on the day it ships
 
@@ -852,72 +874,11 @@ them: user config with `[mcp_servers.slack]`, `url = "https://mcp.slack.com/mcp"
    lifetime: the audit shows `refresh` and Slack keeps working. Then remove Slack with `/mcp`: the
    audit shows `sign-out`, and the next launch adopts nothing.
 
-## Open questions
-
-### The source agent's second server
-
-**Context.** [§16](#16-what-i-would-build-in-order) item 4's first slice shipped the Claude adoption without the header route. A
-user who declares `[mcp_servers.slack]` with `url = "https://mcp.slack.com/mcp"` and
-`sign_in = "once"` gets that server rendered into Claude as an ordinary remote server, beside
-the Slack plugin's own `plugin:slack:slack`. The broker adopts the plugin's sign-in and keeps it
-fresh, but the plain `slack` entry has a different key in Claude's store (the key hashes the
-name), so Claude lists a second Slack server that shows as needing authentication.
-[§9.3](#93-adopting-a-sign-in-an-agent-already-has) step 7 says the source agent "is not given a
-second Slack server", but which agent is the source is only known at run time, once an entry is
-adopted, while rendering happens at launch.
-
-**Impact.** With **A**, Claude shows one Slack server. A user with no Slack plugin in Claude then
-has no Slack in Claude at all until the header route ships, and the launch line names the
-plugin. With **B**, Claude shows two, one of them unauthenticated; signing in to it is adopted
-too (latest sign-in wins), so nothing breaks, but the list is confusing.
-
-**A.** Withhold a `sign_in = "once"` server from every agent pack that declares a machine-wide
-adoption source (today Claude), until that agent's header route ships; the launch line says
-which plugin or `/mcp` entry carries the sign-in.
-
-**B.** Render it as now, and rely on the header route (phase D) to replace the plain entry.
-
-**Leaning: A.** The owner's case is the Slack plugin, which already is the server in Claude; a
-second, unauthenticated copy is the thing a user would ask about.
-
-<!-- vantage: question id=OQ-MA9 leaning="A — the Slack plugin already is the server in Claude; a second, unauthenticated copy is the thing a user would ask about." -->
-
-### The one sign-in at `yolo host`
-
-**Context.** Every jail backend now keeps a `sign_in = "once"` server's Claude sign-in
-([§10](#10-parity-every-backend-and-notch)): it adopts the entry from the machine-wide Claude
-store the jails bridge (CL-D22), moves its refresh token to the host, and writes a fresh access
-token back. `yolo host -- claude` has no such store. Host Claude keeps its own login and MCP
-sign-ins in `~/.claude` ([OQ-NC7](../plans/notch-convergence.md#7-decision-ledger)), the macOS
-Keychain on a Mac, and the one host mode yolo manages, the credential view
-([CL-D27](claude-login-without-interception.md#CL-D27)), leaves `~/.claude` untouched by
-design. Taking a sign-in over at the host means removing the refresh token from `~/.claude`
-and rewriting that file on every refresh. Today the host launch says the tier is not kept there
-and names `yolo -- claude`.
-
-**Impact.** With **A**, a user who works with `yolo host -- claude` signs in to Slack there on
-their own, and that Claude refreshes its own token, beside the broker's record from the jails.
-Two refreshers of one Slack grant is what [MA-D10](#decision-ledger) rules out, so a rotation by
-either can sign the other out. With **B** or **C**, host Claude shares the jails' sign-in, and
-yolo writes `~/.claude/.credentials.json` for the first time.
-
-**A.** Keep it off at `yolo host`, with the launch line as now.
-
-**B.** A user-scope opt-in key (in the shape of [OQ-MA6](#decision-ledger)'s `mcp_sign_in_store`)
-lets the launcher adopt from and write back to `~/.claude/.credentials.json` at `yolo host`, on
-Linux. A Mac's Keychain store stays unsupported, and the line says so.
-
-**C.** On by default at `yolo host` on Linux, as on every jail backend.
-
-**Leaning: B.** It is [OQ-MA6](#decision-ledger)'s answer to the same tension: yolo does not take over another
-program's own store unless the user asks, and the user who asks gets the one sign-in everywhere.
-
-<!-- vantage: question id=OQ-MA10 leaning="B — yolo does not take over another program's own store unless the user asks, as with OQ-MA6." -->
-
 ## Decision Ledger
 
-The `MA-D` rows are implementation decisions taken inside the owner's 2026-11-03 ask, not rulings.
-The `OQ-MA` rows are the owner's rulings on compacted questions.
+`MA-D1` to `MA-D26` are implementation decisions taken inside the owner's 2026-11-03 ask, not rulings.
+The `OQ-MA` rows are the owner's rulings on compacted questions, and so are `MA-D27` and `MA-D28`, which carry
+[OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) under an anchor of their own.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -955,6 +916,8 @@ The `OQ-MA` rows are the owner's rulings on compacted questions.
 | OQ-MA6 | **Owner's ruling (2026-11-03), neither drafted option:** on a Mac, `yolo host` keeps Codex on its Keychain store by default, so its MCP sign-ins are not shared there and the launch says so and names the opt-in; a user-scope key switches Codex to its file store so they can be shared. Owner: *"I'm hesitant to relax somebody else's security restrictions, so I'm tempted to say here, by default, Codex will just not get them shared. And if you want them to be shared, we should give you a config to explicitly turn off the keychain usage of Codex ... if you want it to be able to share things."* The key's spelling is [MA-D19](#decision-ledger) | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
 | OQ-MA7 | **Owner's ruling (2026-11-03):** yolo publishes no OAuth client metadata document for now. Owner: *"Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route."* | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
 | OQ-MA8 | **Owner's ruling (2026-11-03):** an agent that cannot take the shared sign-in signs in itself, with a launch line. Owner: *"It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server."* | 2026-11-03 | [§9.6](#96-delivery-routes) | — |
+| <a id="MA-D27"></a><a id="OQ-MA9"></a>MA-D27 ([OQ-MA9](#OQ-MA9)) | **Owner's ruling (2026-11-09), option B, against the doc's leaning A:** a `sign_in = "once"` server is rendered into the source agent as now, beside that agent's own entry (Claude's Slack plugin), and the header route (phase D) replaces the plain entry; no agent is withheld the server. Until then Claude lists a second, unauthenticated Slack server, and signing in to it is adopted too. The leaning had been to withhold the server from every agent pack that declares an adoption source. Owner: *"B"* | 2026-11-09 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | ✅ (rendered as now; the header route is not built) |
+| <a id="MA-D28"></a><a id="OQ-MA10"></a>MA-D28 ([OQ-MA10](#OQ-MA10)) | **Owner's ruling (2026-11-09), option C:** the one sign-in is on by default at `yolo host` on Linux, as on every jail backend: the launcher adopts from and writes back to `~/.claude/.credentials.json`. No opt-in key. A Mac host's Claude keeps its sign-ins in the Keychain, so `yolo host` on a Mac stays unsupported until a design for the Keychain case exists, which the roadmap carries. Owner: *"C. and put a design doc on the roadmap for mac keychain stuff."* | 2026-11-09 | [§10](#10-parity-every-backend-and-notch) | — |
 
 ## Appendix A: Evidence
 

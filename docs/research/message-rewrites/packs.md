@@ -340,6 +340,13 @@ Sites: `internal/hostfloor/patched.go:490`, `internal/hostfloor/built.go:232` ("
     yolo config set profiles.%s.provider %s --user
   (profiles that exist: %s)
   ```
+- **Shipped:** `profiles.<name>` has no TOML edit target (the readable config replaced it with `providers` and `active_provider`), so the built message declares the provider and selects it through `active_provider`, one line per agent:
+  ```text
+  no profile named %q is declared — %s %s %s built in, so add it to your user config (%s) as a provider and select it for the agent:
+    yolo config set providers.%s.platform %s --user
+    yolo config set active_provider.%s %s --user
+  (declared: %s)
+  ```
 - **Why:** "keep it true" (see "Wrong today": the snippet is JSON, and the file is usually config.toml), plus the verb rule.
 
 ### Undeclared profile: general case
@@ -1293,7 +1300,7 @@ Most detail strings are short and fine: the `state`, `mount`, `env`, `models`, `
 
 ## Wrong today
 
-- `internal/packload/profiles.go:551-555`: the refusal tells the user to "declare it in your user config (%s)", then prints **JSON** (`"providers": {…}, "profiles": {…}`). `paths.UserConfigDisplayPath()` returns `config.toml` first (`internal/paths/paths.go:1269-1277`). On a TOML config, the snippet cannot be pasted in as written. The rewrite above uses `yolo config set` instead. *Not fixed: needs a ruling (see the report).*
+- `internal/packload/profiles.go:551-555`: the refusal tells the user to "declare it in your user config (%s)", then prints **JSON** (`"providers": {…}, "profiles": {…}`). `paths.UserConfigDisplayPath()` returns `config.toml` first (`internal/paths/paths.go:1269-1277`). On a TOML config, the snippet cannot be pasted in as written. The rewrite above uses `yolo config set` instead. *Fixed: on a TOML user config (or none yet) the refusal prints `yolo config set providers.<name>.platform <name> --user` and one `yolo config set active_provider.<agent> <name> --user` line per agent with the name built in. A legacy JSONC user config keeps the typed JSON entries, because no command writes its `profiles` key and `yolo config migrate` refuses while the name is undeclared. `TestTheUndeclaredBuiltInNameCommandsDeclareIt` runs the printed commands.*
 - `internal/loopholes/loopholescmd.go:349-350`: the empty-list hint says "a workspace yolo-jail.jsonc may set enabled/jail_env". The workspace file is `yolo-jail.toml` now, and `.jsonc` is only the legacy spelling. `env` and `settings` may also be overridden there (`internal/config/validate_loopholes.go:864`), so the list of allowed keys is incomplete too. *Fixed in `c879f67ed`.*
 - `internal/packload/served.go:166-167,201-205` (latent): the TOML advice names the **pack** (`allow.<l.Pack>`), and the JSONC advice names the **loophole** (`"loopholes": {"<l.Loophole>": …}`). Both formats key this setting by the same name, the loophole's. Under a TOML user config, `ConfigBlock` (`internal/loopholes/packswitch.go:44-96`) copies each `[allow.<name>]` table's other keys into `loopholes.<name>.settings`, under the same `<name>`. The loophole reads its settings from that block. So `allow.<pack>` reaches the loophole only when the pack and its loophole share a name. `internal/config/userlayerprojection.go` says the same thing from the other side: it moves a legacy `loopholes.<name>.settings` block to `allow.<name>` only when that table already exists, "because the name may be a loophole whose pack has another name". Today the only login loophole is `aws-auth`, served by the `aws-auth` pack (`packs/aws-auth/pack.toml`), so the advice works. If the two names ever differ, the TOML advice writes a setting that nothing reads. Both messages should print `l.Loophole`. The rewrites above do that. *Fixed in `c879f67ed`.*
 - `internal/packdecl` problem bodies (P4): in a TOML manifest, the text still says `kind "mcp-auth"`, `kind "blocked-tool"` and `contributes[N]` for the second entry. A TOML author cannot find `[[mcp_auth]]` or `[[blocked_tool]]` from those words. `locateTOMLProblems` (`internal/packdecl/toml.go:1817-1856`) rewrites only the leading index. *Fixed in `c879f67ed`.*

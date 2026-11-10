@@ -133,6 +133,74 @@ func TestAStoppedLegacyContainerThatWillNotGoNamesItsRemoval(t *testing.T) {
 	}
 }
 
+// A LEGACY JAIL A KEEPER ANSWERS FOR, WHICH IS ALSO A CONTAINER, NAMES THE RUNTIME'S STOP TOO (the
+// Mac run of 2026-11-09, W-SU12's Apple Container half). jailRuns answers through the keeper
+// before it asks any runtime, so the refusal named `yolo stop` alone; it now asks the runtimes for
+// the name to choose its advice. Red when refuseLegacyJail's runtime probe is deleted.
+func TestAKeptLegacyContainerJailNamesTheRuntimesStop(t *testing.T) {
+	packHome(t)
+	ws, _ := legacyHomeWorkspace(t)
+	legacy := yoloruntime.FromWorkspace(ws)
+	live, err := holdLivenessLock(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { releaseLock(live) })
+	for _, rt := range []string{"podman", "container"} {
+		t.Run(rt, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+			o.LookPath = func(name string) (string, bool) { return "/bin/" + name, name == "podman" || name == "container" }
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				switch {
+				case rt == "podman" && slices.Equal(argv, []string{"podman", "ps", "-q", "--filter", "name=^/" + legacy + "$"}):
+					return ExecResult{Ran: true, Stdout: "0123abcd\n"}
+				case rt == "container" && slices.Equal(argv, []string{"container", "ls"}):
+					return ExecResult{Ran: true, Stdout: "ID IMAGE\n" + legacy + " img\n"}
+				case argv[0] == "podman" || argv[0] == "container":
+					return ExecResult{Ran: true}
+				}
+				return ExecResult{Ran: false}
+			}
+			if rc := Run(*o); rc != 1 {
+				t.Fatalf("Run() = %d, want 1 (refused)\nstderr:\n%s", rc, stderr.String())
+			}
+			if want := "`" + rt + " stop " + legacy + "`"; !strings.Contains(stderr.String(), "`yolo stop`") ||
+				!strings.Contains(stderr.String(), want) {
+				t.Errorf("the refusal must name `yolo stop` and %s:\n%s", want, stderr.String())
+			}
+		})
+	}
+}
+
+// A LEGACY JAIL A KEEPER ANSWERS FOR, WHICH NO RUNTIME RUNS (a Seatbelt session), names `yolo stop`
+// alone: no runtime's stop would reach it.
+func TestAKeptLegacyJailNoRuntimeRunsNamesOnlyYoloStop(t *testing.T) {
+	packHome(t)
+	ws, _ := legacyHomeWorkspace(t)
+	legacy := yoloruntime.FromWorkspace(ws)
+	live, err := holdLivenessLock(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { releaseLock(live) })
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o.LookPath = func(name string) (string, bool) { return "/bin/" + name, name == "podman" || name == "container" }
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if argv[0] == "podman" || argv[0] == "container" {
+			return ExecResult{Ran: true}
+		}
+		return ExecResult{Ran: false}
+	}
+	if rc := Run(*o); rc != 1 {
+		t.Fatalf("Run() = %d, want 1 (refused)\nstderr:\n%s", rc, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Stop it, then launch again: `yolo stop` from this workspace.") {
+		t.Errorf("the refusal must name `yolo stop` alone:\n%s", stderr.String())
+	}
+}
+
 // With nothing under the legacy name, the launch is not refused on its account.
 func TestNoLegacyJailRefusesNothing(t *testing.T) {
 	packHome(t)

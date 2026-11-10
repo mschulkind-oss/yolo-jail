@@ -523,13 +523,13 @@ func TestRunProactiveMintsImmediatelyBeforeTheFirstTick(t *testing.T) {
 	go func() { defer close(done); runProactive(broker, newMintTracker(nil), time.Hour, stop) }()
 	select {
 	case <-minted:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testHangGuard(t)):
 		t.Fatal("runProactive did not mint before its first tick")
 	}
 	close(stop)
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testHangGuard(t)):
 		t.Fatal("runProactive did not return on stop")
 	}
 	if calls.Load() != 1 {
@@ -562,7 +562,7 @@ func TestRunProactiveSurvivesAFailedMint(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() { defer close(done); runProactive(broker, newMintTracker(&log), 5*time.Millisecond, stop) }()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testHangGuard(t))
 	for {
 		if _, ok := broker.Current(); ok {
 			break

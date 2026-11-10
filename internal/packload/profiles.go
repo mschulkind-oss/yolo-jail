@@ -26,6 +26,7 @@ package packload
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -548,11 +549,32 @@ func UndeclaredProfileHelp(name string, declared []string, selected, universe []
 		}
 		return msg + " (declared: " + have + ")"
 	}
-	return fmt.Sprintf("no profile named %q is declared — %s %s %s built in, so declare it in "+
-		"your user config (%s):\n"+
-		"  \"providers\": {%q: {\"platform\": %q}},\n"+
-		"  \"profiles\": {%q: {\"provider\": %q}}\n"+
-		"(declared: %s)", name, who, verb, name, paths.UserConfigDisplayPath(), name, name, name, name, have)
+	userConfig := paths.UserConfigDisplayPath()
+	if filepath.Ext(userConfig) != ".toml" {
+		// A legacy JSONC user config: the edit verbs cannot write its `profiles` key, and a
+		// migration refuses while this name is undeclared, so the two entries are typed out.
+		return fmt.Sprintf("no profile named %q is declared — %s %s %s built in, so add these two "+
+			"entries to your user config (%s):\n"+
+			"  \"providers\": {%q: {\"platform\": %q}},\n"+
+			"  \"profiles\": {%q: {\"provider\": %q}}\n"+
+			"(declared: %s)", name, who, verb, name, userConfig, name, name, name, name, have)
+	}
+	// A TOML user config (or none yet): one command declares the provider, and one per agent
+	// selects it through `active_provider`, which is what makes a user-declared provider selectable.
+	selectFor := "the agent"
+	if len(agents) > 1 {
+		selectFor = "each agent that should use it"
+	}
+	q := shquote.Quote(name)
+	var b strings.Builder
+	fmt.Fprintf(&b, "no profile named %q is declared — %s %s %s built in, so add it to your user "+
+		"config (%s) as a provider and select it for %s:\n", name, who, verb, name, userConfig, selectFor)
+	fmt.Fprintf(&b, "  yolo config set providers.%s.platform %s --user\n", name, q)
+	for _, agent := range agents {
+		fmt.Fprintf(&b, "  yolo config set active_provider.%s %s --user\n", agent, q)
+	}
+	fmt.Fprintf(&b, "(declared: %s)", have)
+	return b.String()
 }
 
 // RenamedProfile is the profile a shipped pack's `formerly` record says old was renamed to, and

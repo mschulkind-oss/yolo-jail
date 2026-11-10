@@ -74,7 +74,10 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	r := macosUserRunProbe(t, "jail-daemon", ws, jailDaemonProbeScript(seen))
 	hostSaw, lastListing := watch.stop()
 
-	logDir := filepath.Join(macosUserHome(ws, "account"), ".local", "state", "yolo-jail-daemons")
+	// The setup's home, as the launch binds it (macosUserHome): SupervisorLogPath takes a HOME, not
+	// the workspace, since slice 6a-ii put each setup's home under .yolo/setups/<setup>/home.
+	home := macosUserHome(ws, "account")
+	logDir := filepath.Dir(macosuser.SupervisorLogPath(home))
 	diag := func() string {
 		return fmt.Sprintf("\n--- the supervisor's logs: %s (in the sandbox: ~/.local/state/yolo-jail-daemons; "+
 			"supervisor.log is the supervisor's own stdout and stderr, and the launch quotes "+
@@ -102,7 +105,7 @@ func TestMacosUserJailDaemonRunsConfinedInTheGuest(t *testing.T) {
 	}
 	// JD-8: the guest wrote its own supervisor.log as the sandbox account, the host user can read
 	// it, and it carries the readiness line the launch waited for before saying "Started".
-	if b, err := os.ReadFile(macosuser.SupervisorLogPath(ws)); err != nil {
+	if b, err := os.ReadFile(macosuser.SupervisorLogPath(home)); err != nil {
 		t.Errorf("the host cannot read the supervisor's log: %v%s", err, diag())
 	} else if !strings.Contains(string(b), supervisor.StartedLinePrefix+"openai-auth-broker") {
 		t.Errorf("the supervisor's log has no readiness line for the adapter:\n%s%s", b, diag())

@@ -1331,7 +1331,7 @@ func stageCommandsNameEnvValue(cmds [][]string, content, key string) bool {
 func LauncherOwnedEnvNames() []string {
 	return []string{durable.EnvVar, paths.AllowMissingProgramsEnv, paths.NoProgramReadinessEnv,
 		entrypoint.ForkBuildsEnv, entrypoint.PatchedTreesEnv, paths.MacosUserTmpdirContextEnv,
-		claudeSecurityCompatEnv}
+		paths.HomeStateEnv, claudeSecurityCompatEnv}
 }
 
 // buildBootstrapEnv composes the env baked onto the `yolo internal darwin-bootstrap` self-exec
@@ -1441,6 +1441,13 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 		}
 		if v, ok := sandboxEnv.Get(paths.MacosUserTmpdirContextEnv); ok {
 			bootstrapEnv.Set(paths.MacosUserTmpdirContextEnv, v)
+		}
+		// THE HOME THIS LAUNCH BOUND (paths.HomeStateEnv; named-setups-plan.md SUP-D34, SUP-D35),
+		// relayed for the same reason: the bootstrap's render keys its capture store to it, and the
+		// host-side fold at the session's end reads the store beside that home. Without it the
+		// bootstrap rendered its baseline into the legacy .yolo/prism and the fold found nothing.
+		if v, ok := sandboxEnv.Get(paths.HomeStateEnv); ok {
+			bootstrapEnv.Set(paths.HomeStateEnv, v)
 		}
 		// Every name relayed above is in LauncherOwnedEnvNames, which the run pipeline keeps out of
 		// the composed env (packChannel.launchEnv), so what crosses is the launcher's own value.

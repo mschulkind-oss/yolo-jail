@@ -3,7 +3,7 @@ title: "Plan: build named setups — one name chooses every wall"
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "6a-iii, 11b and 6b landed on main at e67b3c81f (SUP-D36 to SUP-D50); W-SU1, W-SU4 as revised (SUP-D49) and W-SU12 run from the owner's Mac agent at main e67b3c81f or later"
+next: "Fix forward what the Mac found on 2026-11-09 (Found on the Mac, items 1 to 3); then the owner's Mac agent runs W-SU13, W-SU12, W-SU1's suite half and W-SU4's TestAppleContainer step as the Mac checks state"
 tags: [plan, setups, confinement, macos-user, seatbelt, podman, apple-container]
 summary: "The build hand-off for named setups: eleven slices, in order, each with its files, its red test, its gates and its fences. A new stdlib-only package internal/setup holds the model; the launch resolves one setup and derives from it the three values the pipeline already consumes (the render Kind, the backend string, the macos-user Mode); the old keys, flag and env var are refused naming their replacements; homes and run state move under <project>/.yolo/setups/<name>/ keyed by a setup-qualified jail name; host-yolo-account runs the account plan with no Seatbelt. Mac-only checks are witnesses for the owner's Mac agent."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # Plan: build named setups
 
-**Implementation status (2026-11-09):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). The build of slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree), 11b and 6b (`yolo stop`, `ps`, `stores` and `setup list` per setup; [SUP-D46](#SUP-D46) to [SUP-D48](#SUP-D48)) is built, reviewed and landed on main at `e67b3c81f` after the Linux gate ([SUP-D50](#SUP-D50)); W-SU1, W-SU4 and [W-SU12](#mac-checks) then run at main `e67b3c81f` or later. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). W-SU1 (unchanged) and W-SU4 (revised to follow SUP-D9, [SUP-D49](#SUP-D49)) run on main after landing and gate no landing ([SUP-D50](#SUP-D50)); [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built, and 11b (the container launch record) is built with 6a-iii. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
+**Implementation status (2026-11-09):** Main contains slices 4b, 5 and 9, and slice 6a-ii (per-setup homes and capture stores, the legacy-home move and every home reader; [SUP-D32](#SUP-D32) to [SUP-D35](#SUP-D35)). The build of slice 6a-iii (the setup-qualified jail name, per-setup boot baseline and pack tree), 11b and 6b (`yolo stop`, `ps`, `stores` and `setup list` per setup; [SUP-D46](#SUP-D46) to [SUP-D48](#SUP-D48)) is built, reviewed and landed on main at `e67b3c81f` after the Linux gate ([SUP-D50](#SUP-D50)); the owner's Mac ran W-SU1, W-SU4 and [W-SU12](#mac-checks) at `daf82c79a` on 2026-11-09, and what it found is listed in [Found on the Mac](#found-on-the-mac-2026-11-09), with W-SU13 and the re-runs owed at the fixes' commit. Separate local nested rootful Linux Podman/crun probes establish limited bind-mount `-v` source-resolution and descriptor-holder behavior, including a negative direct guest-FD exposure countercontrol; they are not whole-slice verification. The outside/foreign-pack pathname red no longer gates landing: it is the same check-then-start bind-source swap that [OQ-SU7](named-setups.md#OQ-SU7) accepts as a risk ([SUP-D30](#SUP-D30)). W-SU1 (unchanged) and W-SU4 (revised to follow SUP-D9 and the linked-state guard, [SUP-D49](#SUP-D49), [SUP-D51](#SUP-D51)) run on main after landing and gate no landing ([SUP-D50](#SUP-D50)); [OQ-SU5](named-setups.md#OQ-SU5) is ruled (silent move once no jail runs, [SUP-D9](#SUP-D9)); [OQ-SU6](named-setups.md#decision-ledger) is ruled (2026-11-06): one machine-wide list, designed in [the design's §12](named-setups.md#12-listing-what-runs-yolo-ps-and-yolo-stores) and planned here as [Slice 11](#slice-11--yolo-ps-and-yolo-stores-list-every-technology-after-4a-independent-of-6a)'s six sub-slices, of which 11a (SU-D10's prune fix) and 11c (every `yolo host` launch holds a session) are built, and 11b (the container launch record) is built with 6a-iii. See the evidence boundary in [Slice 6a](#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 
 **Plan origin:** 2026-11-03. The planner completed this tree-grounded hand-off against `ce92cf26e`
 (the design's [SU-R6](named-setups.md#SU-R6) commit); at that planning snapshot nothing was built.
@@ -102,7 +102,7 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D17"></a>SUP-D17 | **A TOML file holding `runtime`, `confinement` or `macos_user_mode` is read, refused by its value, edited by the steps the refusal names, and converted by `yolo config migrate` as a JSONC file is.** v0.16.1 wrote these keys to TOML (`yolo config set runtime podman --user`, and its migrate copied them verbatim), so the TOML reader no longer refuses them with one generic line: `validateSetupsRetired` gives the value-aware text a JSONC file gets (`confinement = "host"` is told `yolo host`, never `podman-self`), names `--user`, `--project` or `--local` from the file holding the key, and adds `yolo config migrate` for a user TOML value naming one setup. `yolo config unset <key>` removes the key at any scope, and `yolo config set setup <name> --user` is not blocked by the key it replaces. `yolo config migrate` rewrites a user TOML file in place (as it respells an include) with SUP-D15's conversion, proved like a converted file; a project's value, or a user value naming no one setup, refuses the migration naming its own next step, as a JSONC file's does. | The coordinator's decision under [RC-D50](readable-config.md#RC-D50) (2026-11-04), from the review of slices 4b and 5: a refusal whose step is itself refused is a stop with no next step, which the [happy path principle](../reference/happy-path-principle.md) forbids. The legacy corpus's `realistic/v0161-toml-*` cases hold the launch's refusal for each key at each scope. |
 | <a id="SUP-D18"></a>SUP-D18 | **Launch disclosures use compact source labels:** `--setup`, `YOLO_SETUP`, `user config` and `default`; the setup list and other explanatory surfaces keep `Source.String()`'s full wording. Both container and macos-user launches use one `setup.LaunchDisclosure` function. | The first launch line is a one-line operational statement; concise source labels preserve the invocation's meaning without repeating the longer prose used in setup list output. |
 | <a id="SUP-D19"></a>SUP-D19 | **Slice 6a lands in two parts.** **6a-i** lands now: `runtime.JailName`, the pure path helpers `paths.SetupsDir`/`SetupStateDir`/`SetupHomeState`, `paths.EnsureSetupStateDir` (creates `.yolo/setups/<name>` through a no-link descriptor chain and returns the open directory), and the [SUP-D9](#SUP-D9) move as a function, `adoptLegacyHome`, with its unit tests. **6a-ii** is everything that changes what a launch binds or names: minting the qualified `cname`, the home, baseline and prism-store callers, deleting `WorkspaceHomeState`, the call site of `adoptLegacyHome`, the [SUP-D10](#SUP-D10) refusal and the integration red. 6a-ii waits on the custody proof and unchanged W-SU1/W-SU4, as before. | Nothing in 6a-i binds a path into a guest or changes a launch, so it never reaches the held-bind boundary. The move cannot be wired before the switch: a launch that moved `.yolo/home` and still bound `.yolo/home` would start on an empty home. Until 6a-ii, `adoptLegacyHome` has no production caller, and its tests pin only the callee. The test that fails when the call site is deleted is the legacy variant of `TestNamedSetupsHaveDistinctHomes`, and it lands with 6a-ii. |
-| <a id="SUP-D20"></a>SUP-D20 | **How the move attributes a legacy home and answers each case.** The home is attributed to the **selected** setup when that setup's technology could have laid it: on Linux only `podman` ever did; on macOS `apple-container` and `seatbelt` share the layout since slice 12a. On macOS the Apple Container layout signal (`isAppleContainerInheritedCopy` on a generated user-config copy) attributes the home to Apple Container only. A host setup never adopts one. The caller supplies one tri-state answer about every jail of the project: the legacy name and each setup's `JailName`. The checks run in this order: the source's type, its owner, then attribution (the layout signal reads files beneath the home, so it is asked only about a real directory of the user's), then liveness. Outcomes: (a) no legacy home: nothing, no line; (b) movable, but a jail runs or the runtime could not be asked: left in place, with one line saying that this setup keeps using it ([SUP-D21](#SUP-D21)) and that `yolo stop` and a new launch move it; (c) quiesced, a real directory owned by the invoking user (or by the yolo account for `seatbelt-yolo-account`, [SUP-D31](#SUP-D31)), attributable, and the destination absent or an empty directory: moved with the destination-exclusive rename (`renameat2(RENAME_NOREPLACE)`, `renameatx_np(RENAME_EXCL)` on macOS) after a kernel-checked `rmdir` of an empty destination, with one informational line naming both paths; (d) anything else, whatever runs: left in place, with one line naming the condition and the one step that clears it, after which the next quiesced launch does the move. The steps: a link at `.yolo/home` gets `rm` of the link only; another file type gets `mv -n` aside; another owner gets `sudo chown -R`; a home laid by an Apple Container setup gets "launch an Apple Container setup"; a destination that holds something (a link included) gets `mv -n` of it aside; a linked `setups` gets `rm` of the link; a linked `.yolo` gets "replace the link with the directory it points at". The line prints a manual `mkdir -p … && mv -n …` only where the rename itself is ruled out: `EXDEV` (the home is its own mount) or `EINVAL`/`ENOTSUP` (a filesystem without a no-replace rename, named as such). By [SUP-D21](#SUP-D21) the destination is absent then, so the manual move lands at the setup's home and not inside it. The move never refuses the launch and never deletes anything but an empty directory. | These are implementation answers inside [OQ-SU5](named-setups.md#OQ-SU5)'s ruling. "Attributed to one setup" is read as the setup that launches first. Today both Mac backends read the shared home as their own, so moving it to whichever one runs first keeps today's behavior, and the Apple Container signal keeps an Apple Container home away from Seatbelt (MMP-D32). A raw `mv src dest` was dropped (6a-i review, major 1): it fails while the parent is missing, and it nests the home inside a destination that already exists. A step that clears the condition leaves the rename to yolo, which is never wrong about the destination. |
+| <a id="SUP-D20"></a>SUP-D20 | **How the move attributes a legacy home and answers each case.** The home is attributed to the **selected** setup when that setup's technology could have laid it: on Linux only `podman` ever did; on macOS `apple-container` and `seatbelt` share the layout since slice 12a. On macOS the Apple Container layout signal (`isAppleContainerInheritedCopy` on a generated user-config copy) attributes the home to Apple Container only. A host setup never adopts one. The caller supplies one tri-state answer about every jail of the project: the legacy name and each setup's `JailName`. The checks run in this order: the source's type, its owner, then attribution (the layout signal reads files beneath the home, so it is asked only about a real directory of the user's), then liveness. Outcomes: (a) no legacy home: nothing, no line; (b) movable, but a jail runs or the runtime could not be asked: left in place, with one line saying that this setup keeps using it ([SUP-D21](#SUP-D21)) and that `yolo stop` and a new launch move it; (c) quiesced, a real directory owned by the invoking user (or by the yolo account for `seatbelt-yolo-account`, [SUP-D31](#SUP-D31)), attributable, and the destination absent or an empty directory: moved with the destination-exclusive rename (`renameat2(RENAME_NOREPLACE)`, `renameatx_np(RENAME_EXCL)` on macOS) after a kernel-checked `rmdir` of an empty destination, with one informational line naming both paths; (d) anything else, whatever runs: left in place, with one line naming the condition and the one step that clears it, after which the next quiesced launch does the move. The steps: another file type gets `mv -n` aside; another owner gets `sudo chown -R`; a home laid by an Apple Container setup gets "launch an Apple Container setup"; a destination `.yolo/setups/<name>/home` that holds something (a link included) gets `mv -n` of it aside; a link at `.yolo/setups` or at `.yolo/setups/<name>` gets `rm` of the link. **A link at `.yolo/home`, or a linked `.yolo`, never reaches the move:** the launch's linked-state guard (`linkedWorkspaceState` in `internal/cli/run/wsstatebeneath.go`, called from `Run` in `internal/cli/run/run.go` before the launch log, so before `selectHome`) refuses that launch, naming the `rm` of the link and the `mv` that brings a moved directory back ([SUP-D51](#SUP-D51)). The move keeps its own answers for those two links (`rm` of a linked home; "replace the link with the directory it points at" for a linked `.yolo`) only as defense against a link the jail swaps in between the guard and the move. The line prints a manual `mkdir -p … && mv -n …` only where the rename itself is ruled out: `EXDEV` (the home is its own mount) or `EINVAL`/`ENOTSUP` (a filesystem without a no-replace rename, named as such). By [SUP-D21](#SUP-D21) the destination is absent then, so the manual move lands at the setup's home and not inside it. The move itself never refuses the launch and never deletes anything but an empty directory; the refusal of a link at `.yolo/home` or `.yolo` is the guard's, which runs first. | These are implementation answers inside [OQ-SU5](named-setups.md#OQ-SU5)'s ruling. "Attributed to one setup" is read as the setup that launches first. Today both Mac backends read the shared home as their own, so moving it to whichever one runs first keeps today's behavior, and the Apple Container signal keeps an Apple Container home away from Seatbelt (MMP-D32). A raw `mv src dest` was dropped (6a-i review, major 1): it fails while the parent is missing, and it nests the home inside a destination that already exists. A step that clears the condition leaves the rename to yolo, which is never wrong about the destination. |
 | <a id="SUP-D21"></a>SUP-D21 | **Until the legacy home has moved, the setup it belongs to keeps using it.** A launch whose selected setup the legacy `<ws>/.yolo/home` is attributed to ([SUP-D20](#SUP-D20)), where the home is still in place (deferred or left), binds `.yolo/home` as its home for that run and creates no `.yolo/setups/<name>/home`. Every other setup uses its own setup home. As a second guard, the quiesced move replaces an empty directory at the destination. **This is a 6a-ii entry condition:** the switch that binds `SetupHomeState` must read `adoptLegacyHome`'s result first. | A deferred move was otherwise stranded for good (6a-i review, major 2): the deferring launch would create an empty setup home, and every later move would then find the destination taken. Using the old home for that run is also today's behavior, so a deferral costs nothing. A recorded fresh-home marker was rejected as a second state to keep true. The kernel's `rmdir` emptiness check needs none. |
 | <a id="SUP-D22"></a>SUP-D22 | **A source's answer is `runtime.SourceAnswer{Confinement, State, Names}`, and which container sources exist is `setup.Buildable` of each technology's built-in.** A container source is installed when `setup.Buildable(podman-self or apple-container-self, goos, LookPath)` returns nil, `not-installed` on a `*setup.MissingTechnologyError`, and not a source of this OS on any other error. `Confinement` holds the setup vocabulary (`podman`, `apple-container`, `seatbelt`, `host`). | One answer to "is this technology here" already exists for the launch and `yolo setup list`; a second `LookPath` table in `ps` would disagree with it. |
 | <a id="SUP-D23"></a>SUP-D23 | **The container launch record stays at `paths.ContainerDir()/<name>`, as JSON, and the session record keeps `notch` beside the same fields.** A file whose first byte is not `{` is a legacy record: its trimmed text is the workspace and every other field is unknown. `SessionRecord` gains the launch-record fields and keeps `notch`, which `MacosUserSessions` and prune's session reads key on. | `prune.TrackedContainerNames`, `forkbuild`'s artifact check, `forgetGoneContainer` and the orphan reapers key on that path by name; moving it would change every one for no gain. Running jails launched before the change keep one-line records, and owner's "no compatibility" covers output, not the records of jails still running. |
@@ -133,6 +133,8 @@ of them, and a slice that finds one wrong stops and reports rather than picking 
 | <a id="SUP-D48"></a>SUP-D48 | **`yolo ps` gains a SETUP column, and `yolo stores`' Seatbelt rows say their copies are per jail.** The table reads `CONTAINER  SETUP  STATUS  WORKSPACE`. Each row's setup is its launch record's `setup`; else the setup its name carries (`runtime.JailName` of its workspace); else `?` in the table and `null` in the JSON `setup` key, for a jail an older yolo started ([§12.2](named-setups.md#122-what-a-row-knows-and-where-it-reads-it)). The macos-user staged-dir rows (home overlay, `/ctx`, `env`, the Seatbelt profiles) name each copy as a jail's, one per workspace and setup, and say that `<cname>` is that jail's name, as `yolo ps` lists it. The overlay and `/ctx` rows count `jails`. | Implementation decision of slice 6b (2026-11-09). The plan's 6b test asks for a SETUP column; [§12.3](named-setups.md#123-sort-order-and-the-table)'s full table (`WORKSPACE SETUP STATUS AGE PACKS`) is 11d's and replaces this layout then. Deriving the setup from the name answers records written before 11b, which name no setup. Pinned by `TestPsListsARowPerSetupWithItsSetup`, `TestRenderPsTable` and `TestTheMacosUserSectionListsTheStateDirAndTheHomesStores`. |
 | <a id="SUP-D49"></a>SUP-D49 | **W-SU4 is revised to follow [SUP-D9](#SUP-D9).** It no longer expects a `[y/N]` prompt: with no jail of the project running, the move happens unasked and prints one line naming both paths; with a jail running, or with `.yolo/home` a symbolic link, nothing moves and one line names the next step. | Owner's rule (2026-11-09): the plan follows the design, and where they disagree the plan is wrong. The design ruled [OQ-SU5](named-setups.md#OQ-SU5) as SUP-D9's silent move, so W-SU4's prompt contradicted it. |
 | <a id="SUP-D50"></a>SUP-D50 | **Mac checks run on main after landing, and no Mac check holds a slice off main.** 6a-iii, 11b and 6b land on main once the Linux gate (`just check-ci` and the full integration suite) and the independent review are green; W-SU1, W-SU4 and W-SU12 then run at main `e67b3c81f` or later, and what they find is fixed forward on main. No slice waits on a branch for the Mac, and no Mac check is run from a branch. | Owner's rule (2026-11-09): *"we don't use branches for this."* The `mac-handoff` skill carries the same rule (Mac checks live in design docs and come back as lab reports). It replaces this plan's earlier "no primary landing before W-SU1/W-SU4" and "combined candidate" gates. |
+| <a id="SUP-D51"></a>SUP-D51 | **W-SU4 (b) expects the linked-state guard's refusal, and SUP-D20's link steps cover only the links that guard lets through.** With `.yolo/home` a symbolic link, the launch refuses before the launch log, names where the link points, and names `rm` of the link and the `mv` that moves a directory back; nothing moves and no `.yolo/setups` is made. This amends [SUP-D49](#SUP-D49)'s link clause and [SUP-D20](#SUP-D20)'s "never refuses the launch", which now speaks for the move alone. The links that reach the move are those at `.yolo/setups`, `.yolo/setups/<name>` and the destination `.yolo/setups/<name>/home`. | The plan follows the code's safety guard. W-SU4 (b) itself made the symbolic link, and the Mac run of 2026-11-09 at `daf82c79a` met the guard's refusal instead of the move's line. The owner asked *"how did this symlink get there? why do we care?"*; the answer recorded: the check created it, and the guard exists because the jail can write `.yolo` through the workspace bind, so a link there would carry the launcher's writes, and the container's binds, to wherever it points. Its refusal already names the next step, so the witness changes, not the guard. |
+| <a id="SUP-D52"></a>SUP-D52 | **A Seatbelt launch that finds no delivery record under its own jail name reads the one under the legacy jail name.** The macos-user user-config delivery record (`entrypoint.InheritedDeliveryRecordPath`) is named after the staged overlay, which is named after the jail, so a workspace a yolo from before 6a-iii launched has its record only under the legacy name (`runtime.FromWorkspace`, the name `legacyJailName` returns). When nothing stands at this launch's record name, the launcher reads the legacy-named record instead, with the same checks (`inheritedStaging.readRecord`). The proof is unchanged: the destination must still be sealed 0444, owned as before, and hash to a digest the record lists, so a file no record lists still refuses. The record keys each digest by the home-relative destination and records no absolute path, so it holds across the legacy-home move too: it admits only the file the move carried to the same relative path under `.yolo/setups/<setup>/home`. The launch then writes its own record under its own name, as every launch does, so the fallback serves one launch. The legacy record is left in place: it is consulted only while no record of the new name exists, it admits only bytes yolo delivered, and an older yolo launching the same workspace (the pre-6a-iii build a Mac check runs) still needs it. | The Mac run of 2026-11-09 ([lab report §1](#found-on-the-mac-2026-11-09)): every Seatbelt workspace from before 6a-iii refused its next launch on yolo's own generated user config. Owner's decision (2026-11-09): accept the legacy-named record for the same file, never weaken the proof. Pinned by `TestMacosUserSelfRelaunchAdmitsADeliveryTheLegacyNamedRecordLists` and `TestMacosUserSelfRelaunchRefusesAFileTheLegacyNamedRecordDoesNotList`. |
 
 ## Map
 
@@ -1457,7 +1459,17 @@ forward ([SUP-D50](#SUP-D50)).
   prints two `stopped <setup>` lines and both shells end; `YOLO_TEST_MACOS_USER=1 go test
   -count=1 -timeout 0 -run '^TestMacosUser' ./integration` passes with `YOLO_SETUP` set by the
   harness (no `YOLO_RUNTIME` anywhere in the environment: `env | grep YOLO_RUNTIME` prints nothing).
-  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md)): the launch half passes. The `TestMacosUser` half has 4 failures in 159 passes, 3 of them also on CI before 6a-iii.
+  *Run 2026-11-09 at `daf82c79a`* (darwin/arm64, Apple Container CLI 1.1.0, podman machine
+  `applehv`; workspace `/Users/Shared/yolo/su1-a`): **the launch half passes.** The two homes and
+  users were as expected, `yolo setup list` marked both `running`, `yolo stop` printed `stopped
+  seatbelt-self` and `stopped seatbelt-yolo-account` and both shells ended with 143, and `env |
+  grep YOLO_RUNTIME` printed nothing. `yolo stop`'s first line was a stray *"No jail running for
+  this workspace (yolo-su1-a-…-apple-container-self)."* about the default setup, which ran no jail
+  ([found on the Mac](#found-on-the-mac-2026-11-09), item 2). **The `TestMacosUser` half failed:**
+  159 passed, 4 failed, 4 skipped, in 1049 s; the four are item 3 there.
+  **Still to run, at main `400d1eb28` or later** (the commit carrying the fix of item 3):
+  `YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run '^TestMacosUser' ./integration`.
+  Expected: no failures. Report the pass/fail/skip counts and each failure's message. Settles W-SU1.
 - **W-SU2 (slice 4b):** a workspace whose `yolo-jail.toml` holds `[network]\nmode = "host"`:
   `yolo --setup apple-container-self -- true` refuses with the
   [§6](named-setups.md#6-config-by-example) sentence ending in `yolo --setup podman-self -- claude`
@@ -1482,22 +1494,34 @@ forward ([SUP-D50](#SUP-D50)).
   --predicate 'sender == "Sandbox"'` shows no denial from this session's processes; `claude -p
   'Reply with the single word: ok'` answers. On a Mac without the account, the launch refuses
   with *"Create it once (it asks for your admin password): `yolo yolo-account create`"*.
-- **W-SU4 (slice 6a, at main `e67b3c81f` or later; revised 2026-11-09 to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)):** a
+- **W-SU4 (slice 6a, at main `e67b3c81f` or later; revised 2026-11-09 to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49) and [SUP-D51](#SUP-D51)):** a
   workspace last used by Apple Container before this change (its `.yolo/home/.claude.json`
   present). Negative half first, on copies of that workspace: (a) with a jail of the project
   running (`yolo --setup seatbelt-self -- bash` in another terminal), `yolo --setup
   apple-container-self -- true` asks nothing, prints one line saying the home moves once no jail
   of the project runs and naming `yolo stop`, and `.yolo/home/.claude.json` is still there; (b)
-  with no jail running and `.yolo/home` replaced by a symbolic link to that directory, the same
-  launch asks nothing, prints one line saying the link was left in place with the command to run,
-  and the link and what it points at are unchanged. Then the move: with no jail of the project
-  running and `.yolo/home` a real directory, `yolo --setup apple-container-self -- true` asks
-  nothing and prints one informational line naming both paths (`Moved this project's home … to
-  …`); afterwards `ls .yolo/home` reports no such file and
+  with no jail running and `.yolo/home` replaced by a symbolic link to that directory
+  (`mv .yolo/home .yolo/home-real && ln -s "$PWD/.yolo/home-real" .yolo/home`), the same launch
+  exits 1 with the linked-state guard's refusal, *"Refusing to launch: …/.yolo/home is a symbolic
+  link to …/.yolo/home-real. The jail can write this workspace's .yolo, so a link there would
+  carry the launcher's writes, and the container's binds, to wherever it points."*, followed by a
+  line naming `rm …/.yolo/home` and `rm …/.yolo/home && mv …/.yolo/home-real …/.yolo/home`; the
+  link and what it points at are unchanged, and no `.yolo/setups` is made. Then the move: with no
+  jail of the project running and `.yolo/home` a real directory, `yolo --setup
+  apple-container-self -- true` asks nothing and prints one informational line naming both paths
+  (`Moved this project's home … to …`); afterwards `ls .yolo/home` reports no such file and
   `ls .yolo/setups/apple-container-self/home/.claude.json` exists. Then
-  `YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run '^TestAppleContainer'
-  ./integration` passes.
-  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#2-w-su4-b-meets-the-linked-state-refusal)): (a) and the move pass. (b) is refused by the linked-state check before the move runs, and `TestAppleContainer` was not run.
+  `YOLO_TEST_APPLE_CONTAINER=1 YOLO_SETUP=apple-container-self go test -count=1 -timeout 0 -run
+  '^TestAppleContainer' ./integration` passes.
+  *Run 2026-11-09 at `daf82c79a`*, on a legacy home laid by the installed
+  `0.16.1+35.g7f1210e630c9` under `apple-container-self` and copied to `su4-a`, `su4-b` and
+  `su4-c` under `/Users/Shared/yolo`: **(a) passes**, with the deferral line and no
+  `.yolo/setups/apple-container-self/home` beside the unmoved home ([SUP-D21](#SUP-D21)); the
+  Seatbelt launch in (a) printed the "laid by an Apple Container setup … leaves that one in place"
+  line. **(b) passes as revised:** the run saw exactly the refusal above, with the link, its target
+  and `.yolo/setups` unchanged, so it is settled and is not re-run ([SUP-D51](#SUP-D51)). **The
+  move passes.** **`TestAppleContainer` passes:** run later the same day at main `b36be7d53` with
+  `YOLO_SETUP=apple-container-self`, all 23 tests passed, none skipped, in 334 s. Settles W-SU4.
 - **W-SU12 (slice 6a-iii, at main `e67b3c81f` or later):** first, with an installed yolo from before 6a-iii (main `bb10db358`, the commit before it landed),
   start `yolo --setup apple-container-self -- bash` in a workspace under `/Users/Shared/yolo/c`,
   and leave it running. Then run `yolo --setup apple-container-self --
@@ -1510,7 +1534,49 @@ forward ([SUP-D50](#SUP-D50)).
   `/Users/Shared/yolo/d`. The refusal there names `yolo stop` alone. Last, with the Apple
   Container jail stopped, run `yolo prune` and `container volume ls`. The tool disk
   `yolo-c-…-apple-container-self.mise` stays, and prune does not offer to delete it.
-  *Run 2026-11-09 at `daf82c79a`* ([lab report](../lab-reports/2026-11-09-mac-named-setups-6a-iii-6b.md#1-seatbelt-workspaces-from-before-6a-iii-refuse-to-launch)): the Apple Container half and prune pass, but the refusal names only `yolo stop`. In the Seatbelt half the relaunch after `yolo stop` refuses on the user-config copy, because its delivery record carries the old jail name. Every Seatbelt workspace from before 6a-iii hits this.
+  *Run 2026-11-09 at `daf82c79a`*, with a dev bundle at `bb10db358` as the yolo from before
+  6a-iii. **Apple Container** (`/Users/Shared/yolo/su12-c`): the refusal fired with the old jail
+  `yolo-su12-c-72ac2cea` named, but its next line was only *"Stop it, then launch again: `yolo
+  stop` from this workspace."*, with no `container stop yolo-su12-c-…`
+  ([found on the Mac](#found-on-the-mac-2026-11-09), item 2). `ls .yolo/setups` showed no new
+  directory (`apple-container-self` was there already, from the old bundle's 6a-ii). `yolo stop`
+  printed the expected line, after the same stray "No jail running" line as W-SU1, and the old
+  shell ended with 143. The relaunch ran as `yolo-su12-c-72ac2cea-apple-container-self`. **Prune
+  passes:** `yolo prune` listed *"Apple Container tool disks … none"*, and `container volume ls`
+  still shows `yolo-su12-c-72ac2cea-apple-container-self.mise`, and also the old jail's
+  `yolo-su12-c-72ac2cea.mise`. **Seatbelt** (`/Users/Shared/yolo/su12-d`): the refusal named
+  `yolo stop` alone, as expected; `yolo stop` added *"This workspace's jail was launched on
+  macos-user, so this stop asks macos-user, not container."* and the old shell ended; **the
+  relaunch failed**, refused on its own user-config copy (item 1 there).
+  **Still to run, at main `400d1eb28` or later** (the commit carrying the fixes of items 1
+  and 2): the Apple Container half's refusal and stop, expecting the refusal to name `container
+  stop yolo-c-…` beside `yolo stop` and `yolo stop` to print no "No jail running" line for a
+  setup it did not stop; and the Seatbelt half from the start, in a fresh `/Users/Shared/yolo/d`
+  laid by the `bb10db358` yolo, expecting the relaunch after `yolo stop` to run. Settles W-SU12.
+- **W-SU13 (slice 6a-iii, the fix of [item 1](#found-on-the-mac-2026-11-09), at main `400d1eb28` or later):**
+  a Seatbelt workspace last launched before 6a-iii relaunches. Use the two workspaces the 11-09
+  run left in place: `/Users/Shared/yolo/su12-d` (laid by `bb10db358` under `seatbelt-self`) and
+  `/Users/Shared/yolo/w7-move` (laid 2026-11-06 at `c5990cf51` under `seatbelt-yolo-account`,
+  untouched since). With no jail of either running, in each:
+  1. `ls /Users/Shared/yolo-staged/inherited-delivered | grep -E 'su12-d|w7-move'` before the
+     launch. Expected: the old-name records `yolo-su12-d-fe3a8973.json` and
+     `yolo-w7-move-0e9df7a2.json`.
+  2. `yolo --setup seatbelt-self -- true` in `su12-d`, and `yolo --setup seatbelt-yolo-account --
+     true` in `w7-move`. Expected: each exits 0, and neither prints *"refusing macos-user
+     inherited preflight scope: existing user file … is in the way"*.
+  3. The same `ls` again, and `ls -leO` and `head -1` of
+     `.yolo/setups/<setup>/home/.config/yolo-jail/config.toml`. Expected: the first line is still
+     `# GENERATED by yolo at jail launch`. Paste the listing: which record names the jail now is
+     the fix's choice.
+  4. Negative, in `su12-d` only: `chmod u+w` that `config.toml`, append a line `# edited`, `chmod
+     0444` it, and launch again. Expected: the launch still refuses with the "is in the way" line
+     and names the `mv` step, because the record admits only the bytes yolo staged.
+
+  Then run W-SU1's launch half in `w7-move` in place of a fresh workspace (its `seatbelt-yolo-account`
+  state predates 6a-iii; its `seatbelt-self` launch is its first), expecting what W-SU1 states with
+  `w7-move` for `a`. W-SU4 needs no re-run for this item: its only Seatbelt launch, in (a), starts a
+  setup home no earlier Seatbelt launch had used, so no old-name record is involved. Report each
+  command's output. Settles item 1.
 - **W-SU5 (slice 7):** `yolo macos-setup` prints `yolo macos-setup is now yolo yolo-account
   create` and exits non-zero; `yolo yolo-account share <dir>` does what `macos-fix-permissions`
   did (the ACL on `<dir>` lists `_yolojail`). Also, on a Mac where the yolo account exists:
@@ -1530,6 +1596,42 @@ forward ([SUP-D50](#SUP-D50)).
   paste `container inspect <name> | jq '.[0].status'` from the running jail, which settles how
   `startedDate` is encoded ([SUP-D25](#SUP-D25)).
   *`startedDate` measured 2026-11-06* ([run report §3](../lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md#3-apple-containers-starteddate-for-w-su11)): `status` is an object, not a string, with the keys `networks`, `startedDate` and `state`; `container ls --all --format json` carries the same object. `startedDate` is an RFC 3339 timestamp in UTC with second precision, e.g. `"2026-11-06T19:57:12Z"`, and it matched the wall clock at start. The rest of W-SU11 waits on 11d.
+
+## Found on the Mac, 2026-11-09
+
+The owner's Mac ran W-SU1, W-SU4 and W-SU12 at main `daf82c79a` (darwin/arm64, Apple Container CLI
+1.1.0, podman machine `applehv`; every launch with `YOLO_ALLOW_MISSING_PROGRAMS=1`). Each item is
+fixed forward on main; the witness named re-runs at the fix's commit.
+
+1. **A Seatbelt workspace from before 6a-iii refuses its next launch** (`seatbelt-self` and
+   `seatbelt-yolo-account` alike), with *"refusing macos-user inherited preflight scope: existing
+   user file …/.yolo/setups/seatbelt-self/home/.config/yolo-jail/config.toml is in the way, and the
+   home-overlay installer cannot prove it is a file it delivered before, …"*. The file is yolo's own
+   copy (`-r--r--r-- matt:_yolojail`, first line `# GENERATED by yolo at jail launch`). A Seatbelt
+   launch proves that through a delivery record under
+   `/Users/Shared/yolo-staged/inherited-delivered/`, named after the staged overlay, which is named
+   after the jail (`entrypoint.InheritedDeliveryRecordPath`). The only records for such a
+   workspace carry the old jail name (`yolo-su12-d-fe3a8973.json`), and 6a-iii names the jail
+   `yolo-su12-d-fe3a8973-seatbelt-self`, so the launch finds no record. Next step: carry the record
+   across the rename, or also accept a record under the legacy name. Witnesses: W-SU13, then
+   W-SU12's Seatbelt half.
+2. **The Apple Container legacy-jail refusal names only `yolo stop`**, where W-SU12 expects
+   `container stop yolo-c-…` too, and **`yolo stop` opens with a stray *"No jail running for this
+   workspace (…-apple-container-self)."*** about this OS's default setup when that setup ran no
+   jail, before the stops that did. Witness: W-SU12's Apple Container half.
+3. **Four `TestMacosUser` tests fail**, three of them also on CI before 6a-iii (macos-user run
+   42525693335 at `310130d79`; the run at `8987ad733` on 11-06 passed, so they began between those
+   commits). Witness: W-SU1's suite half.
+
+   | Test | What it said | Also on CI? |
+   | :--- | :--- | :--- |
+   | `TestMacosUserCapturesConfigEditsWhenTheSessionEnds` | *"no overlay sidecar after the session ended (open …/.yolo/setups/seatbelt-yolo-account/prism/claude-settings.overlay.json: no such file or directory)"* | Yes |
+   | `TestMacosUserJailDaemonRunsConfinedInTheGuest` | *"the host cannot read the supervisor's log: open /Users/Shared/yolo/yolo-it-…/.local/state/yolo-jail-daemons/supervisor.log"*; the launch names the log under `…/.yolo/setups/seatbelt-yolo-account/home/.local/state/…`, so the test reads a path without the setup's home | Yes |
+   | `TestMacosUserOverlayInstallKeepsTheAgentStateBesideItsSkills` | *"generated = "GONE" after the second launch, want "PRESENT""* | Yes |
+   | `TestMacosUserMemoryGuard` | *"HOG: no guard line naming resources.memory"*, with `ps` inside the sandbox giving `/bin/ps: Operation not permitted` | No, only on this Mac |
+
+   Skipped on that run: `TestMacosUserMacosLogBridgeScopesToTheSandbox`,
+   `TestMacosUserPasswordlessStartAndExit` and the two `…RelocationOnAVolumeMeasurement` tests.
 
 ## Review fixes for 6a-iii and 6b
 
@@ -1567,6 +1669,22 @@ minors. Each fix is pinned by a test that failed before it, through the producti
   liveness lock for an instant, so one launch could read the other's probe as a running legacy
   jail and refuse. Every take of a liveness lock now passes one gate lock, and a probe lets the
   liveness lock go inside it (`TestAProbeIsNeverMistakenForALiveKeeper`).
+- **Seatbelt workspaces from before 6a-iii refused their next launch (found by the Mac run of
+  2026-11-09).** The user-config delivery record carries the legacy jail name, so the new launch
+  found none and refused yolo's own copy as a file in the way. A launch with no record under its
+  own name now reads the legacy-named one, with the same proof ([SUP-D52](#SUP-D52);
+  `TestMacosUserSelfRelaunchAdmitsADeliveryTheLegacyNamedRecordLists`,
+  `TestMacosUserSelfRelaunchRefusesAFileTheLegacyNamedRecordDoesNotList`).
+- **The legacy-jail refusal named only `yolo stop` for a kept container (found by the Mac run of
+  2026-11-09, W-SU12).** `jailRuns` answers through the keeper before it asks a runtime, so the
+  advice never learned the jail was a container. After a keeper or session answer, the refusal
+  now asks each runtime on PATH for the name and names its stop too
+  (`TestAKeptLegacyContainerJailNamesTheRuntimesStop`,
+  `TestAKeptLegacyJailNoRuntimeRunsNamesOnlyYoloStop`).
+- **`yolo stop` opened with "No jail running" for a setup that ran nothing (found by the Mac run
+  of 2026-11-09, W-SU1).** The line for the selected setup is now held back, and printed only when
+  the stop found no other jail of the workspace either
+  (`TestAStopThatEndsAnotherSetupsJailDropsTheSelectedNoJailLine`).
 
 ## Backlog
 
@@ -1589,7 +1707,6 @@ Recorded from the same review; neither blocks landing.
 rootless witness for one block 6a-ii; its entry conditions are [SUP-D21](#SUP-D21) and
 [SUP-D31](#SUP-D31)'s yolo-account owner case, both ruled. Slices 6a/6b are reviewed and their findings fixed
 ([Review fixes](#review-fixes-for-6a-iii-and-6b)); they land on main after the Linux gate. No Mac
-check blocks a landing ([SUP-D50](#SUP-D50)): **W-SU1 and W-SU4** (W-SU1 unchanged, W-SU4 as
-revised to follow [SUP-D9](#SUP-D9), [SUP-D49](#SUP-D49)) and W-SU12 run at main `e67b3c81f`
-or later, and slice 8's W-SU3 on main after it lands. No native Mac or
+check blocks a landing ([SUP-D50](#SUP-D50)): what W-SU1, W-SU4 and W-SU12 still owe, and
+W-SU13, run on main as [Mac checks](#mac-checks) states, and slice 8's W-SU3 on main after it lands. No native Mac or
 rootless-host witness is established by the private Linux fixture.

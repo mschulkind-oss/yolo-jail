@@ -35,6 +35,25 @@ import (
 // they failed, with messages blaming the product.
 const childDeadline = 10 * time.Second
 
+// exitHangGuard bounds a wait whose event either comes or never does — a helper's exit
+// after the code under test released it — so that it never races the machine's load: it is
+// the time left before the test's own deadline, less a margin for reporting and for the
+// red path's cleanup, and unbounded (a day) when go test runs with -timeout 0. A wait
+// under it is a pass the moment the event arrives; only a hang reaches it.
+func exitHangGuard(t *testing.T) time.Duration {
+	t.Helper()
+	td, ok := t.Deadline()
+	if !ok {
+		return 24 * time.Hour
+	}
+	left := time.Until(td)
+	margin := 30 * time.Second
+	if left < 2*margin {
+		margin = left / 2
+	}
+	return left - margin
+}
+
 // fakeHostTTY makes a fresh pty's slave this process's stdin and stdout for the rest of
 // the test, the way a terminal is the launcher's, and returns both ends. What the test
 // writes to master is typed input, and what the proxy writes to stdout comes back out of
@@ -697,15 +716,19 @@ func TestOutputPressureCancellationRestoresOwnedTerminal(t *testing.T) {
 
 func TestOutputPressureTTYCancellationDoesNotBlockReset(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(sig.String(), func(t *testing.T) { runFullTTYSignalCancellation(t, sig, false) })
+		t.Run(sig.String(), func(t *testing.T) { runFullTTYSignalCancellation(t, sig, false, false) })
 	}
+	// What the kernel's late flush into master's line discipline does to a TTY filled to
+	// EAGAIN, at its strongest: master is read before the signal. The pinned TTY must still
+	// give the pending suspension's reset no room, so the signal still finds it pending.
+	t.Run("master-drained-before-signal", func(t *testing.T) { runFullTTYSignalCancellation(t, syscall.SIGTERM, false, true) })
 }
 
 func TestOutputPressureTTYWaitBoundsHelperStderr(t *testing.T) {
-	runFullTTYSignalCancellation(t, syscall.SIGTERM, true)
+	runFullTTYSignalCancellation(t, syscall.SIGTERM, true, false)
 }
 
-func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr bool) {
+func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr, drainBeforeSignal bool) {
 	master, slave, err := openPty()
 	if err != nil {
 		t.Skipf("cannot open pty: %v", err)
@@ -723,6 +746,9 @@ func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr b
 		t.Fatalf("open an independent nonblocking TTY probe: %v", err)
 	}
 	defer unix.Close(probe)
+	// Released before anything drains master for the helper, and at the latest on return.
+	releaseTTY := func() {}
+	defer func() { releaseTTY() }()
 	probeFlags, err := unix.FcntlInt(uintptr(probe), unix.F_GETFL, 0)
 	if err != nil || probeFlags&unix.O_NONBLOCK == 0 {
 		t.Fatalf("probe flags=%#x err=%v, want independently nonblocking", probeFlags, err)
@@ -759,6 +785,7 @@ func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr b
 			return
 		}
 		_ = cmd.Process.Signal(sig)
+		releaseTTY()
 		_ = unix.SetNonblock(master, true)
 		buf := make([]byte, 4096)
 		deadline := time.Now().Add(3 * time.Second)
@@ -805,6 +832,8 @@ func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr b
 	if _, err := fillTTYUntilEAGAIN(probe); err != nil {
 		t.Fatalf("independent nonblocking TTY probe did not prove output pressure: %v", err)
 	}
+	// The EAGAIN does not keep the TTY full (pinTTYOutput says why); the pin does.
+	releaseTTY = pinTTYOutput(t, slave)
 	if after, err := unix.FcntlInt(uintptr(slave), unix.F_GETFL, 0); err != nil || after != flagsBefore {
 		t.Fatalf("probe changed caller-owned TTY status flags: before=%#x after=%#x err=%v", flagsBefore, after, err)
 	}
@@ -814,22 +843,39 @@ func runFullTTYSignalCancellation(t *testing.T, sig syscall.Signal, holdStderr b
 	if err := waitForFile(control+".boundary", time.Now().Add(childDeadline)); err != nil {
 		t.Fatalf("proxy did not enter pending suspension before %s: %v", sig, err)
 	}
+	if drainBeforeSignal {
+		if _, err := readPTYAvailable(master, time.Now().Add(childDeadline)); err != nil {
+			t.Fatalf("drain master before %s: %v", sig, err)
+		}
+	}
 	if err := cmd.Process.Signal(sig); err != nil {
 		t.Fatal(err)
 	}
-	var waitErr error
-	select {
-	case waitErr = <-done:
-	case <-time.After(childDeadline):
+	// Wait on the helper's exit itself. The code under test either releases the saturated
+	// TTY and exits, or blocks on it and never does; how long a loaded machine takes to run
+	// the exit is not the property, so the bound is only the test's own hang guard. (A fixed
+	// childDeadline here failed a healthy helper at a load average of ~40.) A helper that
+	// STOPPED will never exit, so the wait names that the moment it happens: before the
+	// pin, a TTY the kernel's late flush had given room let the ^Z complete, and this wait
+	// sat out the whole test deadline.
+	outcome, waitErr := awaitOwnedHelper(done, cmd.Process.Pid, exitHangGuard(t))
+	switch outcome {
+	case ownedHelperStopped:
+		// The TTY is pinned, so the pending suspension's reset could not have been
+		// written: a stop here is the product completing a suspension it must not.
+		stages, _ := os.ReadFile(control + ".proxy")
+		t.Fatalf("owned helper STOPPED instead of exiting on %s: its pending suspension completed although the TTY gave its reset no room (stages=%q)", sig, stages)
+	case ownedHelperHung:
 		if heldStderr != nil && errors.Is(unix.Kill(cmd.Process.Pid, 0), unix.ESRCH) {
 			closeHeldStderr()
 			waitErr = <-done
 			waited = true
 			assertSignalExit(t, waitErr, sig)
-			t.Fatalf("owned helper stderr writer kept Cmd.Wait from completing within childDeadline")
+			t.Fatalf("owned helper stderr writer kept Cmd.Wait from completing although the helper had exited")
 		}
 		// This release is cleanup after the bounded assertion window, not a retry:
 		// it lets a red path terminate its own helper before the test fails.
+		releaseTTY()
 		_ = unix.SetNonblock(master, true)
 		buf := make([]byte, 4096)
 		deadline := time.Now().Add(3 * time.Second)
@@ -875,7 +921,9 @@ func fillTTYUntilEAGAIN(fd int) (int, error) {
 	written := 0
 	for {
 		n, err := unix.Write(fd, buf)
-		written += n
+		if n > 0 { // -1 on an error
+			written += n
+		}
 		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
 			return written, nil
 		}
