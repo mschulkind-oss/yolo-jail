@@ -13,7 +13,7 @@ summary: "The repeatable recipe for mediating one more service through a pack ca
 # Service mediation: adding a service should be filling in a table, and here is the table
 
 **Status:** 2026-11-09. Every decision is ledgered; the first walk of the recipe, the
-[S3 slice](aws-s3.md), is being implemented on this lane and nothing is claimed built here.
+[S3 slice](aws-s3.md), is built (`packs/aws-s3`).
 Evidence checked against `04f300a9e`.
 
 > **In short.** The [pack call-broker contract](../pack-brokers.md) already owns decision,

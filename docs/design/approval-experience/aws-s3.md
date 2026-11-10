@@ -2,8 +2,8 @@
 title: "AWS S3 vertical: five object operations through the host's own aws, and nothing else"
 date: 2026-11-09
 status: accepted
-stage: DECIDED
-next: "Build the slice in aws-s3-plan.md: classifier and pack, fixture service, then end to end"
+stage: BUILT
+next: "Graduate this design into a system doc; backlog in aws-s3-plan.md"
 depends-on:
   - ../pack-brokers.md
   - service-mediation.md
@@ -13,7 +13,7 @@ summary: "The first mediated AWS service: an aws-s3 pack on the existing CLI cal
 
 # AWS S3 vertical: five object operations through the host's own `aws`, and nothing else
 
-**Status:** 2026-11-09. Every decision is ledgered; implementation is in progress on this lane and nothing is claimed built here. Evidence checked against `04f300a9e`. The build hand-off is [`aws-s3-plan.md`](aws-s3-plan.md).
+**Status:** 2026-11-09. Every decision is ledgered. Slice 1 is built: `packs/aws-s3`, `internal/s3classify`, `internal/s3fixture` and the end-to-end tests. Evidence checked against `04f300a9e`. The build hand-off is [`aws-s3-plan.md`](aws-s3-plan.md).
 
 > **In short.** S3 is mediated, not delegated: the jail's `aws` is a forwarder, a classifier
 > with no credential admits five exact object operations on roots the human declared, and the

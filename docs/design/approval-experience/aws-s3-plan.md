@@ -2,8 +2,8 @@
 title: "AWS S3 slice 1: build hand-off"
 date: 2026-11-09
 status: accepted
-stage: DECIDED
-next: "Build tasks 1 and 2 in parallel, then task 3 (end-to-end through the real CLI front)"
+stage: BUILT
+next: "Backlog only: the aws-s3 plus un-narrowed aws-auth check warning (S3-D5), prefix-scoped get-object, multipart"
 depends-on:
   - aws-s3.md
   - service-mediation.md
@@ -14,7 +14,7 @@ summary: "Tree-grounded hand-off for the first mediated S3 slice: an aws-s3 pack
 
 # AWS S3 slice 1: build hand-off
 
-**Status:** 2026-11-09. Written against `04f300a9e`. **Design:** [`aws-s3.md`](aws-s3.md); recipe: [`service-mediation.md`](service-mediation.md).
+**Status:** 2026-11-10. Tasks 1, 2 and 3 are built (classifier, dispatch and pack; fixture service and fake host CLI; in-process and nested-jail end-to-end tests); only the [Ships with](#ships-with) backlog remains. Written against `04f300a9e`. **Design:** [`aws-s3.md`](aws-s3.md); recipe: [`service-mediation.md`](service-mediation.md).
 Precedence: the design wins on behavior, the tree wins on cosmetic fact, this plan is advice and the first thing to be wrong. Stop and report, without committing, when a test does not fail as predicted, a named symbol is gone, a fix needs a file outside the task's fence, or a gate fails outside the task's scope.
 
 **Hard rule for every task:** no real AWS. No account, no credential, no network call to an AWS endpoint. Every credential is a synthetic literal; every endpoint is `127.0.0.1`.
