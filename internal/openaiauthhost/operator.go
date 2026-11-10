@@ -86,7 +86,8 @@ they are unavailable from inside a jail (the jail-facing door refuses them).`
 // every other client call. Composing the request here instead would be a second client, and
 // the first thing it would drift on is which door it dials.
 func RunOperator(args []string, stdout, stderr io.Writer) int {
-	return runOperator(args, startPrivate, stdout, stderr)
+	return runOperator(args, func(w io.Writer) (string, func(), error) { return startPrivate(w, invokedExec, "") },
+		stdout, stderr)
 }
 
 // runOperator is the body with the daemon's start injected, the seam `prepare` already uses for

@@ -8,6 +8,7 @@ package cli
 // 2026-09-27). openaiauthhost's own tests pin what each prelaunch then does.
 
 import (
+	"fmt"
 	"io"
 	"testing"
 
@@ -79,7 +80,9 @@ func TestHostPrelaunchIsWhatThePackDeclares(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, _ := hostPrelaunchRun(t, tc.cfg, tc.tty, tc.flags, tc.agent)
-			if got != tc.want {
+			// The pin source and jail label are the launch's, pinned in hostpin_test.go.
+			got.Pin, got.Jail = nil, ""
+			if fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", tc.want) {
 				t.Errorf("prelaunch = %+v, want %+v", got, tc.want)
 			}
 		})

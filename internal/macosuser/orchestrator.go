@@ -45,9 +45,10 @@ type Deps struct {
 	Which func(string) bool
 	// SandboxUserExists reports `id <SANDBOX_USER>` returned 0.
 	SandboxUserExists func() bool
-	// SelfExe returns the path to the running yolo binary (os.Executable()),
-	// staged into the host-owned staging root for the sandbox to self-exec as the
-	// bootstrap (J2 §3).
+	// SelfExe returns the path to the yolo binary staged into the host-owned staging root for the sandbox to self-exec as the
+	// bootstrap (J2 §3), and the one the launch's helpers exec. A LAUNCH's is its pinned yolo
+	// (PinnedSelfExe, docs/design/pinned-host-helpers.md), "" when that is gone; a command that
+	// serves no launch gets the running binary (selfExeReal).
 	SelfExe func() string
 	// GitConfig reads a host git config value best-effort ("" + false if unset).
 	GitConfig func(key string) (string, bool)

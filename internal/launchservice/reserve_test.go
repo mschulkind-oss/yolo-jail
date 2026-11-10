@@ -38,6 +38,7 @@ func TestAPlannedPortStaysTheServicesWhenAnotherListenerAsksFirst(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan.Pin = halfPin
 	addr := plan.Moved["127.0.0.1:8214"]
 	if addr == "" {
 		t.Fatalf("the plan moved nothing for 127.0.0.1:8214: %v", plan.Moved)

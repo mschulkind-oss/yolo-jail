@@ -256,6 +256,9 @@ type Options struct {
 	// to the keeper through its plan, nil only on a dry run or a test that never execs. A self-exec
 	// with none is refused, never run from os.Executable().
 	helperPin *helperpin.Pin
+	// helperStopRemedy is the stop step a give-up line of a launch with no jail names in place of
+	// keyedStopRemedy's: `yolo host` has no container and no `yolo stop`. "" for every other launch.
+	helperStopRemedy string
 	// keeperCommand is, on a keeper at macos-user, the command of the launch that spawned it, which
 	// the supervision of a doorway or service it holds names (macosUserCommandName).
 	keeperCommand string

@@ -31,6 +31,9 @@ func (o *Options) resolveHelperPin(bundleRoot string) error {
 		return err
 	}
 	o.helperPin = &pin
+	if o.MacosUserArm != nil { // the backend stages and starts from the same pin the pipeline does
+		o.MacosUserArm.SetHelperPin(&pin)
+	}
 	return nil
 }
 
@@ -63,9 +66,18 @@ func (o *Options) pinnedArgv(argv []string) ([]string, error) {
 func (o *Options) pinGoneError(path string) error {
 	if o.keeperMode {
 		return errors.New(pinGoneClause(path) + " It stays down until the jail is launched again: " +
-			keyedStopRemedy(o.runtime, o.jailName()) + ".")
+			o.stopStep() + ".")
 	}
 	return fmt.Errorf("%s %s", pinGoneClause(path), reporoot.ReinstallSteps)
+}
+
+// stopStep is the stop step a give-up line names: this launch's own when it has no jail
+// (helperStopRemedy, `yolo host`), else the one keyedStopRemedy words for its notch.
+func (o *Options) stopStep() string {
+	if o.helperStopRemedy != "" {
+		return o.helperStopRemedy
+	}
+	return keyedStopRemedy(o.runtime, o.jailName())
 }
 
 // pinGoneClause is the sentence shared by every report of a pin that is no longer there.

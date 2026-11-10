@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/claudesecurity"
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthbroker"
@@ -36,7 +37,7 @@ import (
 // guarded, and this guard fails the view loudly in any cell that forgot.
 func init() {
 	os.Unsetenv(claudeview.SwitchEnv)
-	hostClaudeBrokerEnsure = func(io.Writer) error {
+	hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error {
 		return errors.New("test guard: refusing to ensure the real claude-oauth-broker; stand in " +
 			"for hostClaudeBrokerEnsure in this test (claudeViewHost)")
 	}
@@ -65,7 +66,7 @@ func claudeViewHost(t *testing.T) {
 	t.Cleanup(loopholes.ResetPackModules)
 	t.Setenv("YOLO_BROKER_STATE_DIR", "")
 	orig := hostClaudeBrokerEnsure
-	hostClaudeBrokerEnsure = func(io.Writer) error {
+	hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error {
 		// What the daemon's start leaves for a registration: its state directory.
 		return os.MkdirAll(oauthbroker.BrokerDir(), 0o700)
 	}
@@ -198,7 +199,7 @@ func TestHostClaudeSecurityAdapterPreservesExistingHostBlockers(t *testing.T) {
 	}
 	path := oldDir + string(os.PathListSeparator) + "/usr/bin"
 	service := claudesecurity.ViewService(filepath.Join(home, "managed"))
-	newDir, err := writeHostClaudeSecurityAdapter(filepath.Join(home, "managed"), path)
+	newDir, err := writeHostClaudeSecurityAdapter(testHostPin(t), filepath.Join(home, "managed"), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func TestHostClaudeSecurityAdapterDoesNotOverrideExistingSecurityShim(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writeHostClaudeSecurityAdapter(filepath.Join(home, "managed"), dir); err == nil {
+	if _, err := writeHostClaudeSecurityAdapter(testHostPin(t), filepath.Join(home, "managed"), dir); err == nil {
 		t.Fatal("view adapter overrode an existing host security shim")
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "security"))
@@ -271,7 +272,7 @@ func TestTheClaudeViewIsOnlyForClaudesOwnPack(t *testing.T) {
 	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude", "pi"]}`,
 		viewShell("1"), nil, "pi", func(string) {
 			claudeViewHost(t)
-			hostClaudeBrokerEnsure = func(io.Writer) error { called = true; return nil }
+			hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error { called = true; return nil }
 		})
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, errs)
@@ -288,7 +289,7 @@ func TestAHostClaudeViewThatFailsWarnsAndSetsNothing(t *testing.T) {
 	rc, env, errs := hostGateRunIn(t, claudeAlone, viewShell("1"), nil,
 		"claude", func(string) {
 			claudeViewHost(t)
-			hostClaudeBrokerEnsure = func(io.Writer) error { return errors.New("no daemon here") }
+			hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error { return errors.New("no daemon here") }
 		})
 	if rc != 0 {
 		t.Fatalf("a failed view refused the launch (rc=%d):\n%s", rc, errs)
@@ -362,7 +363,7 @@ func TestHostClaudeViewHonorsTheBrokerOffSwitch(t *testing.T) {
 	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude"], "loopholes": `+
 		`{"claude-oauth-broker": {"enabled": false}}}`, viewShell("1"), nil, "claude", func(string) {
 		claudeViewHost(t)
-		hostClaudeBrokerEnsure = func(io.Writer) error {
+		hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error {
 			called = true
 			return os.MkdirAll(oauthbroker.BrokerDir(), 0o700)
 		}
@@ -406,7 +407,7 @@ func TestHostClaudeViewIsANoOpInAJail(t *testing.T) {
 		t.Fatalf("setup: outside a jail the view was not set:\n%s", errw.String())
 	}
 	called := false
-	hostClaudeBrokerEnsure = func(io.Writer) error { called = true; return nil }
+	hostClaudeBrokerEnsure = func(*helperpin.Pin, string, io.Writer) error { called = true; return nil }
 	t.Setenv("YOLO_VERSION", "test")
 	errw.Reset()
 	got := hostClaudeView(launch, []string{"A=1"}, &errw)
@@ -423,7 +424,10 @@ func TestHostClaudeViewIsANoOpInAJail(t *testing.T) {
 // daemon's own test (oauthbroker's TestABrokerEndingWithItsLaunchExits) that it ends with the
 // launch.
 func TestTheHostViewBrokerIsALaunchsOwnAndEndsWithIt(t *testing.T) {
-	argv := hostViewBrokerArgv("/tmp/yolo-claude-host-1-ab.sock", 4242)
+	argv, err := hostViewBrokerArgv(testHostPin(t), "/tmp/yolo-claude-host-1-ab.sock", 4242)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := strings.Join(argv, " ")
 	for _, want := range []string{"internal daemon " + broker.BrokerLoopholeName,
 		"--socket /tmp/yolo-claude-host-1-ab.sock", "--end-with-pid 4242"} {

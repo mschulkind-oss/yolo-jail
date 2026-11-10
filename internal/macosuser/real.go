@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -27,9 +28,28 @@ import (
 
 func isMacOSReal() bool { return runtime.GOOS == "darwin" }
 
-// selfExeReal returns the running yolo binary path (os.Executable), staged for
-// the sandbox to self-exec as the bootstrap. Falls back to "yolo" (resolved off
-// PATH) only if os.Executable fails — the plan invariant flags an unstaged path.
+// PinnedSelfExe is Deps.SelfExe for a LAUNCH: the yolo its launch pinned
+// (docs/design/pinned-host-helpers.md), which is staged as the guest's yolo and execd by the helpers
+// the launch starts. It answers "" when there is no pin or the pinned file is gone or replaced,
+// never the running binary, which may be another build: the plan invariant then refuses the launch
+// ("no source yolo binary resolved to stage") and nothing is staged from a different build.
+func PinnedSelfExe(pin func() *helperpin.Pin) func() string {
+	return func() string {
+		if pin == nil {
+			return ""
+		}
+		p := pin()
+		if p == nil || !p.Unchanged() {
+			return ""
+		}
+		return p.Path
+	}
+}
+
+// selfExeReal returns the running yolo binary path (os.Executable), for the commands that serve no
+// launch (`yolo macos-*`, a capture): they stage the yolo the user just ran. A LAUNCH never uses it
+// (PinnedSelfExe). Falls back to "yolo" (resolved off PATH) only if os.Executable fails — the plan
+// invariant flags an unstaged path.
 func selfExeReal() string {
 	if p, err := os.Executable(); err == nil {
 		return p

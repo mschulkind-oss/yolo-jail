@@ -1795,13 +1795,12 @@ func (o *Options) startExternalService(
 	// from the pin, a pin that is gone or changed turns a restart into a give-up naming the stop step.
 	// Not a fallback to os.Executable(), which would be the different-build restart this removes.
 	if pin := o.helperPin; pin != nil && cmdArgs[0] == pin.Path {
-		pinned, rt, jail := *pin, o.runtime, o.jailName()
+		pinned, step := *pin, o.stopStep()
 		sup.restartBlocked = func() string {
 			if pinned.Unchanged() {
 				return ""
 			}
-			return pinGoneClause(pinned.Path) + " It stays down until the jail is launched again: " +
-				keyedStopRemedy(rt, jail) + "."
+			return pinGoneClause(pinned.Path) + " It stays down until the jail is launched again: " + step + "."
 		}
 	}
 	sup.start = func() (*exec.Cmd, <-chan struct{}, error) {

@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
-	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -58,7 +57,7 @@ func TestMain(m *testing.M) {
 		os.Exit(internaldaemon.Run(os.Args[3:]))
 	}
 	// THE TEST BINARY STANDS IN FOR `yolo` when a launch starts a launch-owned service
-	// (launchservice.SelfExec): a child spawned with testAsYoloArg is cli.Main, so a host launch
+	// (the pinned yolo, installYoloStandIn): a child spawned with testAsYoloArg is cli.Main, so a host launch
 	// under test runs the real host half (`yolo internal daemon wire-bridge`) and never this
 	// package's tests again, which is what a bare os.Executable() self-exec would do.
 	if len(os.Args) > 1 && os.Args[1] == testAsYoloArg {
@@ -77,11 +76,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == testFakeAWSAgentArg {
 		os.Exit(fakeAWSAgentMain())
 	}
-	if exe, err := os.Executable(); err == nil {
-		launchservice.SelfExec = func(argv []string) []string {
-			return append([]string{exe, testAsYoloArg}, argv[1:]...)
-		}
-	}
+	// THE PINNED YOLO (hostpin.go) of a host launch under test is a script that runs this test binary
+	// as `yolo` (above): the host-side bundle every launch here resolves, in place of the real one.
+	removeYoloStandIn := installYoloStandIn()
 	depInstallRun = func(cmd string, _ []string, _ io.Writer, _ bool) error {
 		return fmt.Errorf("test guard: refusing to run a pack's install hint %q — override "+
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
@@ -126,6 +123,7 @@ func TestMain(m *testing.M) {
 	releaseSingletons := testsupport.IsolateHostSingletons()
 	code := m.Run()
 	removePatchedTemplate()
+	removeYoloStandIn()
 	releaseSingletons()
 	releaseStagedTree()
 	os.Exit(code)

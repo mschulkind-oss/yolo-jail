@@ -338,6 +338,10 @@ func Run(opts Options) (rc int) {
 			o.pr(o.Stderr).print("[bold red]Cannot pin this launch's host yolo.[/bold red]\n" + richtext.Escape(err.Error()))
 			return 1
 		}
+	} else if repoRootOK && o.MacosUserArm != nil {
+		// A macos-user dry run starts nothing, but its plan names the yolo it would stage (the pin's
+		// file), so it pins best effort; one it cannot pin shows in the plan as the missing source.
+		_ = o.resolveHelperPin(repoRoot)
 	}
 
 	// --- Phase 2: pack staging, BEFORE the backend dispatch ---

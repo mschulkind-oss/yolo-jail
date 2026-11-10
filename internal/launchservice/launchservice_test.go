@@ -91,17 +91,15 @@ func fakeAgent(mode string) int {
 	}
 }
 
-// selfAsHostHalf makes SelfExec run this test binary.
+// halfPin is the pin selfAsHostHalf made: a copy of this test binary, which testPlan (and
+// planWithHalfPin) give every plan, so a service execd from it is a test binary acting as a host half.
+var halfPin *helperpin.Pin
+
+// selfAsHostHalf pins a copy of this test binary for the plans the test builds.
 func selfAsHostHalf(t *testing.T) {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := SelfExec
-	SelfExec = func(argv []string) []string { return append([]string{exe}, argv[1:]...) }
-	t.Cleanup(func() { SelfExec = old })
-	t.Setenv("HOME", t.TempDir())
+	halfPin = pinnedCopy(t)
+	t.Cleanup(func() { halfPin = nil })
 }
 
 func testPlan(t *testing.T) (*Plan, string) {
@@ -112,7 +110,7 @@ func testPlan(t *testing.T) (*Plan, string) {
 	}
 	addr := ln.Addr().String()
 	_ = ln.Close()
-	return &Plan{Declared: Declared{Service: "svc", Pack: "p", Cmd: []string{"yolo", "internal", "daemon", "svc"}},
+	return &Plan{Pin: halfPin, Declared: Declared{Service: "svc", Pack: "p", Cmd: []string{"yolo", "internal", "daemon", "svc"}},
 		TokenEnv: paths.ServiceCallerTokenEnv("svc"), Token: strings.Repeat("ab", 32),
 		Moved: map[string]string{"127.0.0.1:1": addr}}, addr
 }

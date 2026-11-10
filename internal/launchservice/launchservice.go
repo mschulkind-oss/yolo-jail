@@ -542,21 +542,12 @@ func LogPath(service string) string {
 	return filepath.Join(paths.GlobalStorage(), "logs", "launch-service-"+service+".log")
 }
 
-// SelfExec is a TEST SEAM and nil in production: set, it rewrites a host half's argv (its first
-// word is `yolo`) in place of the pin, so another package's tests can stand a test binary in for
-// yolo. A launch never sets it. With it nil a `yolo` half runs from Plan.Pin or does not start;
-// there is no fallback to os.Executable() (docs/design/pinned-host-helpers.md P2).
-var SelfExec func(argv []string) []string
-
 // resolveArgv is the argv a plan's service is execd with, and whether it runs from the pin (whose
 // identity Supervise then checks before a restart). A Cmd that names its own program is as is.
 func resolveArgv(plan *Plan) (argv []string, pinned bool, err error) {
 	argv = plan.Cmd
 	if len(argv) == 0 || argv[0] != "yolo" {
 		return argv, false, nil
-	}
-	if SelfExec != nil {
-		return SelfExec(argv), false, nil
 	}
 	if plan.Pin == nil {
 		return argv, false, errors.New("this launch pinned no yolo to run it from; launch again so it resolves one (" + reporoot.ReinstallSteps + ")")
