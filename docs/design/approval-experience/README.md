@@ -271,13 +271,13 @@ Listing is not support, chosen scope, or authorization to use any account. **Cur
 
 ## 7. Proposed sibling map
 
-Labels are proposed names, not links; each sibling owns one reader question and states acceptance outcomes. A sibling that extends existing machinery links the authority it extends.
+A linked label is a sibling that exists (draft); an unlinked one is still a proposed name; each sibling owns one reader question and states acceptance outcomes. A sibling that extends existing machinery links the authority it extends.
 
 | Proposed sibling | Reader question it owns | Must settle before dependent implementation |
 | --- | --- | --- |
-| Native notification gallery | What do requests look like natively, and what should change? | Fixture format and provenance labels; the owner's current renderer identity and baseline capture |
-| Linux notification capture | How is a headless session bus plus daemon stack built and captured reproducibly? | Daemon matrix, screen metadata, theme and scaling provenance; capture outputs use the gallery fixture format |
-| Mac capture runner | How are macOS notifications rendered, authorized and captured, and how do action collapse and withdrawal behave? | GUI session logistics; `terminal-notifier` measurements; capture outputs use the gallery fixture format |
+| [Native notification gallery](native-notification-gallery.md) (draft; fixtures in [`internal/approvalfixtures/fixtures/`](../../../internal/approvalfixtures/fixtures/), page at [`gallery/index.html`](gallery/index.html), served by `just dev-storybook`) | What do requests look like natively, and what should change? | Fixture format and provenance labels; the owner's current renderer identity and baseline capture |
+| [Linux notification capture](linux-notification-capture.md) (draft) | How is a headless session bus plus daemon stack built and captured reproducibly? | Daemon matrix, screen metadata, theme and scaling provenance; capture outputs use the gallery fixture format |
+| [Mac capture runner](mac-capture-runner.md) (draft) | How are macOS notifications rendered, authorized and captured, and how do action collapse and withdrawal behave? | GUI session logistics; `terminal-notifier` measurements; capture outputs use the gallery fixture format |
 | Web request queue experiment | Can one command show a live, detailed, read-only queue against the real store? | Reconcile strategy for the lossy watch stream; live channel choice |
 | Browser trust boundary | How does the queue prove a decision came from the host user and never from a jail or untrusted content? | Investigate now; tested boundary required before any mutation path |
 | Request history and privacy | What past-request data exists, what is retained, redacted or shown, including in read-only views? | Investigate now; audit fields per adapter, redaction and retention rules, completeness claims |
