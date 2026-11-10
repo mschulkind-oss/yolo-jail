@@ -140,3 +140,31 @@ func TestHostRefusesANameInBothSets(t *testing.T) {
 		t.Errorf("yolo host -- bash must refuse a name in both sets: rc = %d, reached = %v\n%s", rc, env != nil, errs)
 	}
 }
+
+// The host notch hands the gate the MCP servers' claims: a private name only a server's
+// requires_env claims reaches the agent that renders the server, and nobody else (SE-D13).
+func TestHostLaunchPassesTheMCPClaimsToTheGate(t *testing.T) {
+	// The invoking environment may hold a real key of this name; the launch must not inherit it.
+	t.Setenv("TAVILY_API_KEY", "")
+	if err := os.Unsetenv("TAVILY_API_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "packs = [\"claude\"]\n\n[env.secrets]\nset = { TAVILY_API_KEY = \"t-probe\" }\n\n" +
+		"[mcp_servers.tavily]\ncommand = \"tavily-mcp\"\nrequires_env = [\"TAVILY_API_KEY\"]\n"
+	if env, errs := hostGateLaunchWith(t, cfg, nil, nil, "claude"); env["TAVILY_API_KEY"] != "t-probe" {
+		t.Errorf("claude renders the MCP table, so the server's claim delivers the key: %q\n%s", env["TAVILY_API_KEY"], errs)
+	}
+	if env, errs := hostGateLaunchWith(t, cfg, nil, nil, "bash"); env["TAVILY_API_KEY"] != "" {
+		t.Errorf("a bare command never receives a private value\n%s", errs)
+	}
+}
+
+// The host notch tells the gate what a shipped provider this launch does not select claims, so
+// row 1's line names the remedy.
+func TestHostLaunchPassesTheUnselectedClaimsToTheGate(t *testing.T) {
+	cfg := "packs = [\"claude\"]\n\n[env]\nset = { ZAI_API_KEY = \"z-probe\" }\n"
+	_, errs := hostGateLaunchWith(t, cfg, nil, nil, "claude")
+	if !strings.Contains(errs, "the zai provider, which this launch does not select, claims that name") {
+		t.Errorf("row 1's unselected-provider line is missing:\n%s", errs)
+	}
+}
