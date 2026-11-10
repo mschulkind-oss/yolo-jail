@@ -322,6 +322,8 @@ output named under "report". Commands below use `darwin-arm64`; on Intel read `d
 
 Report: both outputs. Settles PH-D2 on macOS.
 
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes**.
+
 ### W-PH2: a container jail's helpers run from the pin and say so (PH-D1, PH-D3, PH-D4, PH-D9)
 
 1. Start a jail in the workspace with `yolo -- sh -c 'echo $YOLO_VERSION; sleep 600'` and leave it running.
@@ -336,6 +338,8 @@ Report: both outputs. Settles PH-D2 on macOS.
    contains `helper start: name=jail-keeper`.
 
 Report: the outputs of steps 2–4 and the jail's `$YOLO_VERSION`. Settles PH-D3, PH-D4 and PH-D9 off Linux.
+
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes on `podman-self`**. On Apple Container, git-broker is inert (no container→host connection), so steps 2–3 cannot pass there; this witness should name podman.
 
 ### W-PH3: a restart after the pin changed gives up (PH-D6, PH-D18)
 
@@ -354,6 +358,8 @@ With the W-PH2 jail still running:
 Report: steps 3 and 4. A restart (a second start line) fails it. Settles PH-D6 and PH-D18 off Linux.
 End with `yolo stop` in the workspace.
 
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes** on `podman-self`: the "not restarting it" line, no second start line, no broker process.
+
 ### W-PH4: macos-user helpers run from the pin, and a dry run still plans (PH-D4, PH-D21)
 
 1. In a `seatbelt-self` workspace: `yolo -- sh -c 'sleep 300'`, and while it runs:
@@ -364,12 +370,16 @@ End with `yolo stop` in the workspace.
 
 Report: both outputs. Settles PH-D4 for macos-user and PH-D21.
 
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#2-w-ph4s-dry-run-and-the-workspaces-default-setup)): **passes**. Step 2 as written exits 1 in a workspace whose default is `apple-container-self`; `yolo run --setup seatbelt-self --dry-run` prints the plan and exits 0, so the step needs that `--setup`.
+
 ### W-PH5: the generation reaper's process reader works on macOS (PH-D8, PH-D14)
 
 1. In a checkout of that main: `go test -count=1 -run TestProcessExesNamesTheRunningBinary ./internal/prune`
    prints `ok`.
 
 Report: the output. A failure means a running helper's generation could be reaped on macOS.
+
+*Run 2026-11-10 at `5a69dd0b4`*: **passes** (`ok`).
 
 ## Decision Ledger
 

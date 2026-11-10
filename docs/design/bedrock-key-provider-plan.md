@@ -267,6 +267,8 @@ The key value is a placeholder: no witness sends a request, and no line may prin
 Report: the exit code and every stderr line naming `aws-auth`. Settles: OQ-BK2's Built column at the
 macos-user notch.
 
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes**, with the placeholder and with the owner's real static key pair.
+
 ### W-BK2 — `bedrock` still opens it (OQ-BK4, the control)
 
 1. In the same workspace:
@@ -282,6 +284,8 @@ Report: the exit code and the `aws-auth` lines. Settles: that the narrowing left
 macos-user. If W-BK1 passes and this fails, the rule is withholding from a claiming provider: file it as a
 defect against `d95b06451`.
 
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes with the placeholder. With the owner's real static key pair in the private set, refused** by the aws-auth override check, because `bedrock` claims the pair too ([BK-D5](bedrock-key-provider.md#BK-D5)). Owner decision.
+
 ### W-BK3 — one launch cannot mix them (OQ-BK5)
 
 1. In the same workspace:
@@ -295,3 +299,5 @@ defect against `d95b06451`.
    `profile = ""` or `not-a-real-key`.
 
 Report: the exit code and the full refusal. Settles: OQ-BK5's remedy at the macos-user notch.
+
+*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes with the placeholder.** With the real pair, the override refusal fires instead and the "cannot mix" remedy never shows.
