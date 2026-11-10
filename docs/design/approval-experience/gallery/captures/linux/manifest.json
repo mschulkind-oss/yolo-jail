@@ -1,0 +1,356 @@
+{
+  "schema": 1,
+  "platform": "linux",
+  "captures": {
+    "circleci-rerun-workflow-synthetic": [
+      {
+        "file": "captures/linux/circleci-rerun-workflow-synthetic.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "git-push-force": [
+      {
+        "file": "captures/linux/git-push-force.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "git-push-long-names": [
+      {
+        "file": "captures/linux/git-push-long-names.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "git-push-new-branch": [
+      {
+        "file": "captures/linux/git-push-new-branch.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "git-push-working-set-miss": [
+      {
+        "file": "captures/linux/git-push-working-set-miss.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "github-approve-run": [
+      {
+        "file": "captures/linux/github-approve-run.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "github-pr-comment": [
+      {
+        "file": "captures/linux/github-pr-comment.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "github-workflow-run": [
+      {
+        "file": "captures/linux/github-workflow-run.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "s3-delete-objects-synthetic": [
+      {
+        "file": "captures/linux/s3-delete-objects-synthetic.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "state-allowed-once": [
+      {
+        "file": "captures/linux/state-allowed-once.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the allowed outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "state-decided-elsewhere": [
+      {
+        "file": "captures/linux/state-decided-elsewhere.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the decided-elsewhere outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "state-denied": [
+      {
+        "file": "captures/linux/state-denied.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the denied outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "state-expired": [
+      {
+        "file": "captures/linux/state-expired.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the expired outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ],
+    "state-stale": [
+      {
+        "file": "captures/linux/state-stale.png",
+        "renderer": "owner baseline: on_request script via notify-send to swaync",
+        "tested": "visual",
+        "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels. Shows the toast as filed; the stale outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "swaync",
+          "daemon_version": "SwayNotificationCenter-0.12.6",
+          "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-10T04:28:49Z",
+          "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "{\"timeout\": 3}"
+        }
+      }
+    ]
+  }
+}

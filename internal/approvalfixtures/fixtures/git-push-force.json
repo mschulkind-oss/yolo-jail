@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "id": "git-push-force",
+  "title": "Git: force push to an existing branch",
+  "family": "git",
+  "support": "real",
+  "support_note": "A push no grant or working-set entry covers whole files one request for the whole push: internal/gitbroker/approval.go askForPush, which builds the About with pushAbout and the request with pushRequest (approvalauthority.go). FINDING: the request does not say a push is forced. A push is the ref commands the client sent, each '<old> <new> <ref>' (gitproto.Command, gitbroker pushArgv); the broker never checks that <new> descends from <old>, so a force push and a fast-forward are the same request, and the headline and refs read the same.",
+  "prompt": "request",
+  "state": "pending",
+  "story": "An agent rewrites the history of a branch of example-org/app and force-pushes it. The request shows the old and new ids and nothing that marks the update as non-fast-forward.",
+  "origin": "captured",
+  "captured_with": "yolo approve --json",
+  "request": {
+    "schema": 1,
+    "id": "r-40a4c030e6fbf1601a20e66fac13d848",
+    "source": "git",
+    "jail": "1ba5b73c",
+    "workspace": "/home/dev/code/app",
+    "set": "push",
+    "argv": [
+      "git-receive-pack",
+      "1111111111111111111111111111111111111111 4444444444444444444444444444444444444444 refs/heads/agent/fix-retry"
+    ],
+    "command": "git-receive-pack '1111111111111111111111111111111111111111 4444444444444444444444444444444444444444 refs/heads/agent/fix-retry'",
+    "repo": "example.test/example-org/app",
+    "command_digest": "02d66a09584363ee4759bea6589259130606f4f2ef93691bbc0377d1715f968a",
+    "stdin_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "filed": "2026-11-09T14:00:00Z",
+    "expires": "2026-11-09T15:00:00Z",
+    "state": "pending",
+    "needs_approval": [
+      "refs/heads/agent/fix-retry"
+    ],
+    "action": "push",
+    "target": "example.test/example-org/app",
+    "headline": "push 1 ref to example.test/example-org/app",
+    "refs": [
+      "refs/heads/agent/fix-retry"
+    ],
+    "description": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/fix-retry"
+  },
+  "hook_env": {
+    "YOLO_REQUEST_ACTION": "push",
+    "YOLO_REQUEST_DESCRIPTION": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/fix-retry",
+    "YOLO_REQUEST_DESCRIPTION_MARKUP": "push 1 ref to example.test/example-org/app\nref: refs/heads/agent/fix-retry",
+    "YOLO_REQUEST_EXPIRES": "2026-11-09T15:00:00Z",
+    "YOLO_REQUEST_HEADLINE": "push 1 ref to example.test/example-org/app",
+    "YOLO_REQUEST_ID": "r-40a4c030e6fbf1601a20e66fac13d848",
+    "YOLO_REQUEST_JAIL": "1ba5b73c",
+    "YOLO_REQUEST_REFS": "refs/heads/agent/fix-retry",
+    "YOLO_REQUEST_REPO": "example.test/example-org/app",
+    "YOLO_REQUEST_SET": "push",
+    "YOLO_REQUEST_SUMMARY": "git r-40a4c030e6fbf1601a20e66fac13d848: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack '1111111111111111111111111111111111111111…[108 chars, sha256 c0639d80]' [command SHA-256 02d66a09584363ee4759bea6589259130606f4f2ef93691bbc0377d1715f968a; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_SUMMARY_MARKUP": "git r-40a4c030e6fbf1601a20e66fac13d848: set push on example.test/example-org/app for jail 1ba5b73c, to run: git-receive-pack &#39;1111111111111111111111111111111111111111…[108 chars, sha256 c0639d80]&#39; [command SHA-256 02d66a09584363ee4759bea6589259130606f4f2ef93691bbc0377d1715f968a; stdin SHA-256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+    "YOLO_REQUEST_TARGET": "example.test/example-org/app",
+    "YOLO_REQUEST_TITLE": "",
+    "YOLO_REQUEST_WORKSPACE": "/home/dev/code/app"
+  },
+  "evidence": [
+    {
+      "platform": "browser",
+      "kind": "preview",
+      "renderer": "owner baseline layout (HTML preview of the on_request script's toast)",
+      "file": "index.html",
+      "tested": "visual"
+    },
+    {
+      "platform": "linux",
+      "kind": "native-capture",
+      "renderer": "owner baseline: on_request script via notify-send to swaync",
+      "file": "captures/linux/git-push-force.png",
+      "tested": "visual",
+      "provenance": {
+        "captured_at": "2026-11-10T04:28:49Z",
+        "commit": "25bddc783fe07c4b62c13a318ca62094d3164b4b",
+        "compositor": "sway",
+        "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+        "compositor_version": "sway version 1.12",
+        "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+        "daemon": "swaync",
+        "daemon_config": "{\"timeout\": 3}",
+        "daemon_version": "SwayNotificationCenter-0.12.6",
+        "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+        "libnotify_version": "notify-send 0.8.8",
+        "os": "Linux userland in a container",
+        "resolution": "1280x800",
+        "scale": "1",
+        "theme": "swaync default CSS, GTK theme default (gtk4-4.22.4; no gsettings theme set)"
+      },
+      "note": "Headless sway with swaync default theme: the owner's script and daemon config, not the owner's desktop pixels."
+    },
+    {
+      "platform": "macos",
+      "kind": "missing",
+      "renderer": "terminal-notifier 3",
+      "note": "No Mac capture runner yet (mac-capture-runner.md)."
+    }
+  ]
+}

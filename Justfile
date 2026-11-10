@@ -64,6 +64,16 @@ build-dev-bundle:
 dev *args:
     ./scripts/dev-wrapper.sh "$@"
 
+# Rebuild the approval notification gallery from the fixtures and serve it on localhost (Ctrl-C stops it).
+dev-storybook port="8765":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    YOLO_UPDATE_APPROVAL_FIXTURES=1 go test -count=1 -run 'TestManifestsAreFolded|TestGalleryIsCurrent' ./internal/approvalfixtures/ >/dev/null
+    dir="$PWD/docs/design/approval-experience/gallery"
+    echo "gallery: $dir/index.html"
+    echo "open:    http://127.0.0.1:{{port}}/index.html"
+    exec python3 -m http.server --bind 127.0.0.1 --directory "$dir" "{{port}}"
+
 # Install yolo CLI and prime the Claude OAuth broker state. Safe to re-run. `just deploy yolo-stable` installs under another name.
 deploy name="yolo": (install name) (_host-state name)
 
