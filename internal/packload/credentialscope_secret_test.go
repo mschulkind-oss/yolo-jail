@@ -202,3 +202,23 @@ func TestAnMCPClaimNeverWidensAProviderClaimedPrivateKey(t *testing.T) {
 		t.Errorf("the disclosure names the agents that receive it:\n%s", lines)
 	}
 }
+
+// A provider-claimed key no profile selects is withheld, and the line names the MCP servers whose
+// requires_env that drops it for (review minor).
+func TestTheWithheldLineNamesTheMCPServersItDropsTheKeyFor(t *testing.T) {
+	scope, err := ScopeCredentials(ScopeInput{
+		Providers:  twoProviders(t),
+		EnvSources: hydrated("ZAI_API_KEY", "z"),
+		Private:    map[string]bool{"ZAI_API_KEY": true},
+		MCPClaims:  map[string][]string{"ZAI_API_KEY": {"zai-search"}},
+		MCPAgents:  []string{"claude"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := DisclosureNotes{Remedy: func([]string) string { return "To select it: yolo active-provider zai" }}
+	lines := strings.Join(scope.DisclosureWith(notes), "\n")
+	if !strings.Contains(lines, "MCP server zai-search lists it in requires_env") || !strings.Contains(lines, "yolo active-provider zai") {
+		t.Errorf("the withheld line names the server and keeps the remedy:\n%s", lines)
+	}
+}

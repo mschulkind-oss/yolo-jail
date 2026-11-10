@@ -92,3 +92,30 @@ func TestTheNestedInheritCarriesThePrivateEnvSet(t *testing.T) {
 		}
 	}
 }
+
+// The origins record names the digest of the copy beside it, so it must be taken over the REDACTED
+// copy: a reader ignores a record whose digest is not the copy's.
+func TestTheOriginsRecordDigestMatchesTheRedactedCopy(t *testing.T) {
+	ws, err := resolve(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := decode(t, privateInline)
+	if err := WriteAssembledConfig(ws, "podman-self", merged); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAssembledOrigins(ws, "podman-self", merged, nil); err != nil {
+		t.Fatal(err)
+	}
+	copyBytes, err := os.ReadFile(WorkspaceAssembledConfigPath(ws, "podman-self"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recBytes, err := os.ReadFile(WorkspaceAssembledOriginsPath(ws, "podman-self"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(recBytes), copyDigest(copyBytes)) {
+		t.Errorf("the record's digest is not the written copy's:\n%s", recBytes)
+	}
+}

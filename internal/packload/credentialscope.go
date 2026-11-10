@@ -1392,6 +1392,16 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 					"env_sources — no agent in this launch selected it — so the value the process " +
 					"holds is one yolo composed from another source, such as a pack's env"
 			}
+			// An MCP server's requires_env never widens a provider's key (SEP P2), so it names the
+			// servers that this drops the key for.
+			var servers []string
+			for _, n := range g.names {
+				servers = append(servers, s.mcpClaims[n]...)
+			}
+			if servers = sortedUnique(servers); len(servers) > 0 {
+				line += ". The MCP server " + strings.Join(servers, ", ") + " lists it in requires_env, " +
+					"but a provider's key reaches only the agents on that provider, so the server gets none"
+			}
 			if notes.Remedy != nil {
 				if remedy := notes.Remedy(g.claimants); remedy != "" {
 					line += ". " + remedy
