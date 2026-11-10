@@ -8,7 +8,7 @@ package cli
 // naming the reinstall step. It never falls back to os.Executable().
 
 import (
-	"errors"
+	"fmt"
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
@@ -24,7 +24,7 @@ var hostBundleRoot = func() (string, error) {
 		if res.Error != nil {
 			return "", res.Error
 		}
-		return "", errors.New("no yolo-jail bundle was found for this yolo. " + reporoot.ReinstallSteps)
+		return "", fmt.Errorf("no yolo-jail bundle was found for this yolo. %s", reporoot.ReinstallSteps)
 	}
 	return res.Root, nil
 }

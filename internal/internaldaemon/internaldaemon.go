@@ -46,10 +46,10 @@ var startLineWriter io.Writer
 
 // logStart writes the helper's start line (helperpin.StartLine, PH-D9) before the daemon runs.
 // jail-keeper is left out: its stdio is /dev/null, so it writes the line to its own log
-// (internal/cli/run/keeper.go). A --self-check is a check, not a start, and `yolo check`'s doctor
+// (internal/cli/run/keeper.go). A --self-check or --settings-check (aws-auth's) is a check, not a start, and `yolo check`'s doctor
 // output is compared; a usage error never reaches here.
 func logStart(name string, rest []string) {
-	if name == "jail-keeper" || slices.Contains(rest, "--self-check") {
+	if name == "jail-keeper" || slices.Contains(rest, "--self-check") || slices.Contains(rest, "--settings-check") {
 		return
 	}
 	w := startLineWriter

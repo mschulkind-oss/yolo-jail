@@ -179,3 +179,87 @@ func TestStartLineReadsTheJailFromTheEnvironment(t *testing.T) {
 		t.Fatal("an empty " + EnvJail + " must read -")
 	}
 }
+
+func writeStamp(t *testing.T, root, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "yolo-build-stamp.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAPinIsAcceptedOnlyFromABundleOfTheLaunchersBuild(t *testing.T) {
+	root := realTemp(t)
+	writeHost(t, root, "linux", "amd64", "yolo")
+	writeStamp(t, root, `{"version":"0.1.0-3-gabcdef123456","commit":"abcdef123456"}`)
+
+	// The stamp holds the raw git-describe string; the launcher compares its normalized form.
+	if _, err := ResolveForBuild(root, "linux", "amd64", "0.1.0+3.gabcdef123456", "abcdef123456"); err != nil {
+		t.Fatalf("a bundle of the launcher's build must be accepted: %v", err)
+	}
+	_, err := ResolveForBuild(root, "linux", "amd64", "0.1.0+3.gabcdef123456", "999999999999")
+	if err == nil {
+		t.Fatal("a bundle of another commit must be refused")
+	}
+	for _, want := range []string{"999999999999", "abcdef123456", reporoot.ReinstallSteps} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal does not name %q: %v", want, err)
+		}
+	}
+	if _, err := ResolveForBuild(root, "linux", "amd64", "0.2.0", "abcdef123456"); err == nil {
+		t.Fatal("a bundle of another version must be refused")
+	}
+}
+
+// PH-D1 ledger: a field the launcher or the stamp does not carry is not compared, so an older
+// bundle, an unstamped launcher and a stamp with an empty field still resolve.
+func TestAnAbsentStampFieldIsNotComparedAndNeverRefuses(t *testing.T) {
+	root := realTemp(t)
+	writeHost(t, root, "linux", "amd64", "yolo")
+	for name, body := range map[string]string{
+		"no commit":      `{"version":"1.0.0"}`,
+		"empty commit":   `{"version":"1.0.0","commit":""}`,
+		"unknown fields": `{"version":"unknown","commit":"unknown"}`,
+		"empty stamp":    `{}`,
+	} {
+		writeStamp(t, root, body)
+		if _, err := ResolveForBuild(root, "linux", "amd64", "1.0.0", "abcdef123456"); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	writeStamp(t, root, `{"version":"9.9.9","commit":"deadbeef0000"}`)
+	if _, err := ResolveForBuild(root, "linux", "amd64", "", ""); err != nil {
+		t.Fatalf("an unstamped launcher must not refuse: %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "yolo-build-stamp.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveForBuild(root, "linux", "amd64", "1.0.0", "abcdef123456"); err != nil {
+		t.Fatalf("a bundle with no stamp must not refuse: %v", err)
+	}
+}
+
+func TestResolveFollowsASymlinkedHostYolo(t *testing.T) {
+	base := realTemp(t)
+	real := filepath.Join(base, "elsewhere-yolo")
+	if err := os.WriteFile(real, []byte("the-real-one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "bundle")
+	dir := filepath.Join(root, "bin", "linux-amd64")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(dir, "yolo")); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ResolveFor(root, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.Path != real {
+		t.Fatalf("pin path = %q, want the resolved file %q", pin.Path, real)
+	}
+	if !pin.Unchanged() {
+		t.Fatal("a fresh pin must be unchanged")
+	}
+}

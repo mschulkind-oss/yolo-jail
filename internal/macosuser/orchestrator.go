@@ -593,6 +593,10 @@ func hostCPUs(deps Deps) int {
 	return deps.HostCPUs()
 }
 
+// DryRunUnpinnedSource is the stage source a dry-run plan names when the launch has no pinned yolo
+// (PinnedSelfExe answered ""): nothing is copied, and a live launch refuses instead.
+const DryRunUnpinnedSource = "(no pinned yolo: this launch resolved none, or the pinned file is gone or replaced)"
+
 // buildPlan starts from the sandbox env, layers the composed channel (PackEnv: the launched
 // program's one ordered composition, its shape vars over the gate-narrowed env_sources over the
 // pack env fold, then the three wire tables), layers the caller's sandbox_env, sets the jail
@@ -723,6 +727,11 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	selfExe := ""
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
+	}
+	// A dry run materializes nothing, so a launch with no resolvable pin still prints its plan,
+	// naming the source as unresolved; a live launch keeps the invariant and refuses.
+	if selfExe == "" && opts.DryRun {
+		selfExe = DryRunUnpinnedSource
 	}
 	// AR-L3 (docs/reference/agent-program-runtimes.md): a Node floor the staged packs declare starts
 	// the provisioning stage unless the host can show it met. Asked HERE, host-side, because the

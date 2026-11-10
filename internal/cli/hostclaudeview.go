@@ -21,7 +21,6 @@ package cli
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -75,7 +74,7 @@ const hostViewBrokerStartTimeout = 5 * time.Second
 // replaced one is an error: there is no fallback to the running binary, which may be another build.
 func hostViewBrokerArgv(pin *helperpin.Pin, socket string, pid int) ([]string, error) {
 	if pin == nil || pin.Path == "" {
-		return nil, errors.New("this launch resolved no host yolo to start the broker from. " + reporoot.ReinstallSteps)
+		return nil, fmt.Errorf("this launch resolved no host yolo to start the broker from. %s", reporoot.ReinstallSteps)
 	}
 	if !pin.Unchanged() {
 		return nil, fmt.Errorf("the yolo this launch pinned is no longer at %s (an upgrade removed or replaced it). %s",
@@ -194,7 +193,7 @@ func hostClaudeView(launch *hostComposition, environ []string, errw io.Writer) [
 
 func writeHostClaudeSecurityAdapter(pin *helperpin.Pin, viewDir, childPath string) (string, error) {
 	if pin == nil || pin.Path == "" {
-		return "", errors.New("this launch resolved no host yolo for the security adapter to run. " + reporoot.ReinstallSteps)
+		return "", fmt.Errorf("this launch resolved no host yolo for the security adapter to run. %s", reporoot.ReinstallSteps)
 	}
 	yolo := pin.Path
 	service := claudesecurity.ViewService(viewDir)

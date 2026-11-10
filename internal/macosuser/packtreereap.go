@@ -91,6 +91,8 @@ func handOffPackTree(deps Deps, out printer, u *packTreeUse, holders []GuestProc
 	}
 	self := deps.SelfExe()
 	if self == "" { // a launch whose pinned yolo is gone starts no helper from another build
+		out.printf("[dim]Not starting the background reaper for guest pack tree %s: this launch has no pinned yolo to run it from "+
+			"(it is gone or replaced); reinstall yolo or run `just install`, then launch again.[/dim]", shquote.QuoteDisplay(u.root))
 		return false, nil
 	}
 	argv := PackTreeReaperArgv(self, u.root, u.anchor, u.mode)

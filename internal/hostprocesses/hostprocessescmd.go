@@ -30,9 +30,9 @@ import (
 // than deleted, because the alias reads like compatibility and the next person
 // to find a manifest spawning `--socket {socket}` will be tempted to restore it.
 // It was the escape hatch for a host yolo OLDER than this binary — and that skew
-// cannot happen: the run pipeline substitutes os.Executable() for argv[0] when
-// it spawns a builtin daemon (SelfExecArgv, internal/cli/run/loopholesruntime.go),
-// so the process reading these flags is always the same binary that read the
+// cannot happen: the run pipeline substitutes the launch's pinned yolo for argv[0]
+// when it spawns a builtin daemon (Options.selfExecArgv, internal/cli/run/pinnedexec.go),
+// so the process reading these flags is always the same build that read the
 // manifest. What the alias would cost now is concrete: folding --socket into
 // --endpoint publishes a token-bearing regular FILE where a socket was meant,
 // which is the shape of issue #31 (see the note above hostservice.ServeUnix) and

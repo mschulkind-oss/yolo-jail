@@ -68,17 +68,6 @@ func shellPin(t *testing.T) helperpin.Pin {
 	return fixturePin(t, body)
 }
 
-// withFixtureBundle makes o's RepoRoot resolve to a bundle that holds a host yolo, so a launch
-// that reaches the pin's pre-flight finds one.
-func withFixtureBundle(t *testing.T, o *Options) string {
-	t.Helper()
-	root := pinFixtureBundle(t, []byte("fixture yolo"))
-	o.RepoRoot = func() (reporoot.Resolution, bool) {
-		return reporoot.Resolution{Root: root, Source: reporoot.FromEnv}, true
-	}
-	return root
-}
-
 // A HOST DAEMON IS EXEC'D FROM THE PIN: the bare `yolo` token of its command becomes the pin's
 // path, and the process that runs is that file, not whatever os.Executable() names.
 func TestAHostDaemonIsExecdFromThePin(t *testing.T) {
@@ -401,4 +390,89 @@ func installSharedTestPin() func() {
 func testPin() *helperpin.Pin {
 	pin := sharedTestPin
 	return &pin
+}
+
+// A PIN THAT CHANGES DURING THE BACKOFF IS A GIVE-UP: the check before the wait passed, so the
+// supervisor asks again right before the restart. The backoff wait is injected: it replaces the pin
+// file at the moment the supervisor is waiting and then lets the wait end. Deleting the second
+// restartBlocked check in daemonSupervisor.run fails this (the daemon would be started again).
+func TestAPinChangedDuringTheBackoffGivesUpWithoutARestart(t *testing.T) {
+	f := newSupervisedFixture(t)
+	fastHostDaemonRestarts(t, 5*time.Millisecond, 10*time.Second, 5)
+	f.o.runtime = "podman"
+	pin := shellPin(t)
+	f.o.helperPin = &pin
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"yolo", "-c", `echo $$ >> "$PIDS"; : > "$1"; exec sleep 30`, "pinned3", "{socket}"})
+	env := jsonx.NewOrderedMap()
+	env.Set("PIDS", f.pids)
+	spec.Set("env", env)
+
+	waited := make(chan struct{}, 1)
+	prev := hostDaemonWait
+	hostDaemonWait = func(s *daemonSupervisor, d time.Duration) bool {
+		repl := pin.Path + ".new"
+		if err := os.WriteFile(repl, []byte("another build"), 0o755); err != nil {
+			t.Error(err)
+		} else if err := os.Rename(repl, pin.Path); err != nil {
+			t.Error(err)
+		}
+		waited <- struct{}{}
+		return true
+	}
+	t.Cleanup(func() { hostDaemonWait = prev })
+
+	h, ok := f.o.startExternalService("pinned3", spec, t.TempDir(), "", "", nil)
+	if !ok {
+		t.Fatalf("the daemon never came up:\n%s", f.terminal.String())
+	}
+	defer h.stop()
+	pids := f.spawned()
+	if len(pids) != 1 {
+		t.Fatalf("want one spawn, have %v", pids)
+	}
+	if err := syscall.Kill(pids[0], syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-waited:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the supervisor never reached its backoff wait")
+	}
+	if !ended(h, 20*time.Second) {
+		t.Fatalf("supervision never ended for a pin that changed in the backoff; host log:\n%s", hostLog("pinned3"))
+	}
+	if !strings.Contains(hostLog("pinned3"), "not restarting it") {
+		t.Errorf("no give-up line:\n%s", hostLog("pinned3"))
+	}
+	if n := len(f.spawned()); n != 1 {
+		t.Errorf("a daemon whose pin changed in the backoff was started again (%d spawns)", n)
+	}
+}
+
+// A MANIFEST'S env CANNOT RENAME THE JAIL a helper logs: YOLO_HELPER_JAIL is the launch's fact and
+// is set after the declared env. Moving the append back before the declared env fails this.
+func TestAManifestEnvCannotOverrideTheHelperJail(t *testing.T) {
+	f := newSupervisedFixture(t)
+	pin := shellPin(t)
+	f.o.helperPin = &pin
+	rec := filepath.Join(t.TempDir(), "jail")
+	spec := jsonx.NewOrderedMap()
+	spec.Set("command", []any{"yolo", "-c", `echo "$YOLO_HELPER_JAIL" > "$REC"; : > "$1"; exec sleep 30`, "jailenv", "{socket}"})
+	env := jsonx.NewOrderedMap()
+	env.Set("REC", rec)
+	env.Set(helperpin.EnvJail, "forged")
+	spec.Set("env", env)
+	h, ok := f.o.startExternalService("jailenv", spec, t.TempDir(), "", "", nil)
+	if !ok {
+		t.Fatalf("the daemon never came up:\n%s", f.terminal.String())
+	}
+	defer h.stop()
+	if !waitFor(10*time.Second, func() bool { b, _ := os.ReadFile(rec); return len(b) > 0 }) {
+		t.Fatal("the daemon never recorded its jail")
+	}
+	raw, _ := os.ReadFile(rec)
+	if got := strings.TrimSpace(string(raw)); got != f.o.jailName() || got == "forged" {
+		t.Errorf("the daemon was told jail %q, want the launch's %q", got, f.o.jailName())
+	}
 }

@@ -7,6 +7,7 @@
 package helperpin
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,11 +41,34 @@ func Resolve(bundleRoot string) (Pin, error) {
 
 // ResolveFor is Resolve for an explicit platform.
 func ResolveFor(bundleRoot, goos, goarch string) (Pin, error) {
+	return ResolveForBuild(bundleRoot, goos, goarch, version.Baked(), version.GitCommit)
+}
+
+// bundleStamp is the part of the bundle's yolo-build-stamp.json a pin is checked against: the raw
+// version and commit its binaries were linked with (scripts/stage-source-bundle.sh).
+type bundleStamp struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+}
+
+// ResolveForBuild is ResolveFor for an explicit launcher build: wantVersion is the launcher's
+// normalized stamped version (version.Baked) and wantCommit its stamped commit (PH-D1, design 3.1).
+// The pin is accepted only from a bundle whose stamp names that version and commit. A field either
+// side does not carry (empty or "unknown": an unstamped launcher, an older bundle) is not compared,
+// so it never refuses on that field alone.
+func ResolveForBuild(bundleRoot, goos, goarch, wantVersion, wantCommit string) (Pin, error) {
 	root, err := filepath.EvalSymlinks(bundleRoot)
 	if err != nil {
 		return Pin{}, fmt.Errorf("cannot resolve the bundle root %s: %w. %s", bundleRoot, err, reporoot.ReinstallSteps)
 	}
+	if err := checkBuild(root, wantVersion, wantCommit); err != nil {
+		return Pin{}, err
+	}
 	path := filepath.Join(root, "bin", goos+"-"+goarch, "yolo")
+	// Every symlink resolved, the file itself too: Path and Unchanged name the real file.
+	if resolved, rerr := filepath.EvalSymlinks(path); rerr == nil {
+		path = resolved
+	}
 	fi, err := os.Stat(path)
 	if err != nil {
 		return Pin{}, fmt.Errorf("the bundle has no host yolo at %s: %w. %s", path, err, reporoot.ReinstallSteps)
@@ -52,6 +76,40 @@ func ResolveFor(bundleRoot, goos, goarch string) (Pin, error) {
 	pin := Pin{Path: path, Size: fi.Size(), MtimeNanos: fi.ModTime().UnixNano()}
 	pin.Dev, pin.Ino = devIno(fi)
 	return pin, nil
+}
+
+// checkBuild refuses a bundle whose stamp names another build than the launcher's.
+func checkBuild(root, wantVersion, wantCommit string) error {
+	data, err := os.ReadFile(filepath.Join(root, "yolo-build-stamp.json"))
+	if err != nil {
+		return nil // an older bundle: reporoot already validated what it requires
+	}
+	var st bundleStamp
+	if json.Unmarshal(data, &st) != nil {
+		return nil
+	}
+	haveVersion := ""
+	if known(st.Version) {
+		haveVersion = version.Normalize(st.Version)
+	}
+	versionDiffers := known(wantVersion) && haveVersion != "" && haveVersion != wantVersion
+	commitDiffers := known(wantCommit) && known(st.Commit) && st.Commit != wantCommit
+	if !versionDiffers && !commitDiffers {
+		return nil
+	}
+	return fmt.Errorf("the bundle at %s is yolo %s (commit %s) and this launcher is yolo %s (commit %s), "+
+		"so its yolo would not be this launcher's build. %s",
+		root, orUnknown(haveVersion), orUnknown(st.Commit), orUnknown(wantVersion), orUnknown(wantCommit),
+		reporoot.ReinstallSteps)
+}
+
+func known(s string) bool { return s != "" && s != "unknown" }
+
+func orUnknown(s string) string {
+	if !known(s) {
+		return "unknown"
+	}
+	return s
 }
 
 // Unchanged reports whether the pinned file is still the one recorded: a stat, never a hash.

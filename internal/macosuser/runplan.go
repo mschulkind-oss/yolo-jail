@@ -434,8 +434,8 @@ func DarwinBootstrapArgv(runAs RunAs, stagedYolo, home string, bootstrapEnv *jso
 
 // BuildRunPlan assembles the full RunPlan (pure — no shelling out). `config` is
 // the loaded jail config; `sandboxEnv` is the fully-resolved launch env;
-// `selfExe` is the running yolo binary (os.Executable()) staged for the sandbox
-// to self-exec as the bootstrap; `hostPackRoot` is the host-side staged pack tree
+// `selfExe` is the yolo source staged for the sandbox to self-exec as the bootstrap: a launch's
+// pinned yolo (PinnedSelfExe), the running binary for a command that serves no launch; `hostPackRoot` is the host-side staged pack tree
 // the run pipeline produced before dispatching here (""=no packs); `hostHomeOverlay`
 // is the host-side composed CONTENT — the tree of skills and briefings, already laid out
 // at their home-relative destinations (Tree ""=nothing to deliver), and the destinations

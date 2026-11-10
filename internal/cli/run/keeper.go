@@ -85,7 +85,7 @@ const (
 	keeperLockFD     = 5
 )
 
-// keeperArgv is the keeper's command line; "yolo" is replaced by the running binary at the spawn.
+// keeperArgv is the keeper's command line; "yolo" is replaced by the launch's pinned yolo at the spawn.
 // withLock says the spawn hands it the launch lock as fd 5, and reserved is how many reserved
 // ports it hands it after that, one `--reserved-fd` each (keeperspawn.go's startKeeper).
 func keeperArgv(planPath string, withLock bool, reserved int) []string {

@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // writeYoloBundle makes <root>/bin/<os>-<arch>/yolo hold body and returns the root and its pin.
@@ -251,5 +252,29 @@ func TestHostLaunchThatStartsNoHelperResolvesNoPin(t *testing.T) {
 	}
 	if *n != 0 {
 		t.Errorf("a launch that starts no helper resolved its pin %d times", *n)
+	}
+}
+
+// PH-D1 at the host call site: a bundle whose stamp names another commit than this launcher is
+// refused with both builds and the reinstall step. Deleting the build check from helperpin (or
+// the composition's call to it) fails this.
+func TestAHostCompositionRefusesABundleOfAnotherBuild(t *testing.T) {
+	root, _ := writeYoloBundle(t, "#!/bin/sh\n")
+	if err := os.WriteFile(filepath.Join(root, "yolo-build-stamp.json"), []byte(`{"commit":"bbbbbbbbbbbb"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := version.GitCommit
+	version.GitCommit = "aaaaaaaaaaaa"
+	t.Cleanup(func() { version.GitCommit = orig })
+	bundleSeam(t, root, nil)
+	c := &hostComposition{}
+	pin, err := c.helperPin()
+	if pin != nil || err == nil {
+		t.Fatalf("pin = %v, err = %v; want a refusal", pin, err)
+	}
+	for _, want := range []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", reporoot.ReinstallSteps} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal lacks %q: %v", want, err)
+		}
 	}
 }

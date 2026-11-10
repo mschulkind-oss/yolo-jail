@@ -250,7 +250,7 @@ func categoryDirCommands(dirs ...string) [][]string {
 // ---------------------------------------------------------------------------
 // Staging the yolo binary into the host-owned staging root
 // ---------------------------------------------------------------------------
-// StagedYoloPath returns where the running yolo binary is staged for the sandbox
+// StagedYoloPath returns where the yolo binary is staged for the sandbox
 // user to self-exec (host-owned and sealed 0555, so the sandbox can run it and cannot
 // rewrite it).
 //
@@ -262,8 +262,8 @@ func StagedYoloPath(sd string) string {
 	return GuestBinaryPath("yolo", sd)
 }
 
-// StageBinaryCommands returns the argv, run as the host user, that stage the running yolo binary
-// (selfExe = os.Executable()) into the host-owned staging root for the yolo account
+// StageBinaryCommands returns the argv, run as the host user, that stage the yolo binary
+// (selfExe: a launch's pinned yolo, or os.Executable() for a command that serves no launch) into the host-owned staging root for the yolo account
 // to self-exec as `yolo internal darwin-bootstrap` (J2 §3). This replaces the
 // old StageEntrypointCommands, which copied the deleted src/entrypoint tree.
 //

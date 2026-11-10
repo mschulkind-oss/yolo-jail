@@ -3,6 +3,7 @@ package internaldaemon
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,16 @@ func TestStartLineIsNotWrittenForASelfCheck(t *testing.T) {
 	Run([]string{"git-broker", "--self-check"})
 	if buf.Len() != 0 {
 		t.Errorf("a --self-check wrote %q, want no start line", buf.String())
+	}
+}
+
+// TestStartLineIsNotWrittenForASettingsCheck: aws-auth's settings check is a check too, and its
+// output is read by the host.
+func TestStartLineIsNotWrittenForASettingsCheck(t *testing.T) {
+	buf := captureStartLines(t)
+	Run([]string{"aws-auth", "--settings-check", "--settings", filepath.Join(t.TempDir(), "none.json")})
+	if buf.Len() != 0 {
+		t.Errorf("a --settings-check wrote %q, want no start line", buf.String())
 	}
 }
 

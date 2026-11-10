@@ -4,9 +4,9 @@ package run
 
 import "syscall"
 
-// keeperSelfExe is "" off Linux: there is no /proc/self/exe, so the keeper is spawned from
-// os.Executable()'s path (execx.SelfExecArgv), and a keeper of another build refuses the launch's
-// plan by its build stamp instead (docs/design/jail-lifetime-last-session-wins.md JL-D5, JL-D20).
+// keeperSelfExe is "" off Linux: there is no /proc/self/exe, so the keeper is spawned from the
+// launch's pinned yolo by path (pinnedexec.go) and later self-execs the same pin after a stat
+// check, and a keeper of another build refuses the launch's plan by its build stamp instead (docs/design/jail-lifetime-last-session-wins.md JL-D5, JL-D20).
 func keeperSelfExe() string { return "" }
 
 // setChildDeathSignal does nothing off Linux, which has no parent-death signal: a keeper SIGKILLed

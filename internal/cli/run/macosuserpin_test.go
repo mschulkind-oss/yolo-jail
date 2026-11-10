@@ -6,10 +6,14 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 func pinnedMacosUserOptions(t *testing.T) (*Options, *bytes.Buffer) {
@@ -95,5 +99,35 @@ func TestResolvingTheLaunchPinHandsItToTheMacosUserArm(t *testing.T) {
 	}
 	if got := arm.HelperPin(); got == nil || o.helperPin == nil || *got != *o.helperPin {
 		t.Errorf("the arm's pin = %v, want the launch's %v", got, o.helperPin)
+	}
+}
+
+// PH-D1 at the launch's pre-flight: a bundle whose stamp names another commit than this launcher
+// is refused, with both builds and the reinstall step, and no pin is stored. Deleting the build
+// check from helperpin fails this.
+func TestResolvingTheLaunchPinRefusesABundleOfAnotherBuild(t *testing.T) {
+	root := pinFixtureBundle(t, []byte("yolo"))
+	if err := os.WriteFile(filepath.Join(root, "yolo-build-stamp.json"), []byte(`{"commit":"bbbbbbbbbbbb"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := version.GitCommit
+	version.GitCommit = "aaaaaaaaaaaa"
+	t.Cleanup(func() { version.GitCommit = orig })
+	o := &Options{}
+	err := o.resolveHelperPin(root)
+	if err == nil || o.helperPin != nil {
+		t.Fatalf("err = %v, pin = %v; want a refusal and no pin", err, o.helperPin)
+	}
+	for _, want := range []string{"aaaaaaaaaaaa", "bbbbbbbbbbbb", reporoot.ReinstallSteps} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal lacks %q: %v", want, err)
+		}
+	}
+	// The matching stamp is accepted.
+	if err := os.WriteFile(filepath.Join(root, "yolo-build-stamp.json"), []byte(`{"commit":"aaaaaaaaaaaa"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.resolveHelperPin(root); err != nil {
+		t.Fatalf("a bundle of this build was refused: %v", err)
 	}
 }

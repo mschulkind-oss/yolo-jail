@@ -206,7 +206,7 @@ def assemble(snapshot: Path, destination: Path, *, identity: str, build_kind: st
     `yolo` is built once for the host's platform, and the launcher in bin/ IS that build:
     on Linux it is the bundle's own bin/linux-<arch>/yolo, copied out of the staged tree;
     on macOS it is the bundle's own bin/darwin-<arch>/yolo, the one darwin build of yolo,
-    which the macos-user guest also stages from the running launcher.
+    which a macos-user launch pins and stages as the guest's yolo.
     Nothing compiles yolo a second time, so the launcher and the bundle's same-platform
     copy cannot differ (docs/design/installed-launcher-provenance.md, OQ-IP2). A Linux
     jail on a Mac runs a different program by nature: the bundle's linux build.

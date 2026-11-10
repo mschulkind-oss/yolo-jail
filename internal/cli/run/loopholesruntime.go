@@ -1485,10 +1485,6 @@ func (o *Options) startExternalService(
 		env = append(env, svcendpoint.AdvertiseHostEnv+"="+advertiseHost)
 		envSet = true
 	}
-	// The jail this daemon serves, for the line it logs at start (PH-D9): the container name, or the
-	// workspace's key at macos-user. Set before the declared env, so a manifest cannot rename it.
-	env = append(env, helperpin.EnvJail+"="+o.jailName())
-	envSet = true
 	if e := cfgMap(spec, "env"); e != nil {
 		for _, k := range e.Keys() {
 			if v, ok := mapGet(e, k).(string); ok {
@@ -1500,6 +1496,10 @@ func (o *Options) startExternalService(
 		}
 		envSet = true
 	}
+	// The jail this daemon serves, for the line it logs at start (PH-D9): the container name, or the
+	// workspace's key at macos-user. Set AFTER the declared env, which a later entry wins over, so a manifest cannot rename it.
+	env = append(env, helperpin.EnvJail+"="+o.jailName())
+	envSet = true
 	// newCmd is the daemon's process, before its start: the argv, the environment and the log,
 	// one spelling for the first spawn and every restart its supervisor makes
 	// (hostdaemonsupervise.go), so a restart is the same daemon. lf is the log it writes, nil
