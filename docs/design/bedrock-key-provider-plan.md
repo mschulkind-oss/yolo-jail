@@ -2,8 +2,8 @@
 title: "Bedrock-key provider: implementation plan"
 date: 2026-11-10
 status: accepted
-stage: DECIDED
-next: "Build Task 1 (the served-pointer claim rule in the gate), then Tasks 2 to 5 in order"
+stage: BUILT
+next: "Land on main after review and the landing gate; the Mac agent then runs W-BK1 to W-BK3"
 depends-on:
   - bedrock-key-provider.md
   - secret-env-scoping.md
@@ -12,7 +12,7 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 
 # Bedrock-key provider: implementation plan
 
-**Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`.
+**Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`; built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. The Traps section records where the build overrode this plan.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
 (rulings OQ-BK1 to OQ-BK5 and BK-D1 to BK-D6 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
 The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
@@ -86,10 +86,13 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 - **A `GateSelection` copy that drops `Claims` withholds the pointer from every agent** at that reader — the
   host doorway would stay closed with no error. `hostdoorways.go` builds two literals; both must copy it.
   `TestAWSAuthServesAYoloHostAgentThroughItsDoorway` (integration) is the witness that catches it.
-- **`ProfilesOnly` and literal test selections carry no `Claims`.** A platform gate never fires for
-  `ProfilesOnly` (no platforms), so it is safe. Test literals that set `Platforms` for an aws-auth pointer
-  fixture must add `Claims` — rewrite those to the new rule, do not make the rule lenient for a nil map.
-  (Constraint: a lenient nil is a silent second path, the class AGENTS.md's escape-hatch rule forbids.)
+- **`ProfilesOnly` and literal test selections carry no claims.** A platform gate never fires for
+  `ProfilesOnly` (no platforms), so it is safe. *As built (overrides the line this replaced):* an agent with
+  no `SetClaims` entry, and a set entry whose provider claims nothing at all, are NOT narrowed. The second
+  is the design's own outcome — "a user provider with `platform = "aws-bedrock"` and no list still
+  receives the pointer" — which the literal rule would break whenever no same-platform provider lists
+  names for it to inherit (the existing `fetchedmodels_test` fixtures are that case). Both are the design's
+  behavior, not a hatch; `TestAClaimlessBedrockProviderStillReceivesThePointer` pins the second.
 - **Siblings co-claim.** A user provider with `platform = "aws-bedrock"` and no list inherits every name a
   same-platform provider lists — now including `bedrock-key`'s bearer. That is the design's ("both claim
   the pointer variable"), not a bug.
@@ -98,6 +101,15 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
   private set.
 - **Variant names are a flat profile namespace**: `bedrock`'s variant is named `bedrock-bridge`, so
   `bedrock-key`'s must be `bedrock-key-bridge`.
+- **A shipped provider must be in `shippedProviderNamedProfiles`** (`internal/packload/shippedmanifest_test.go`)
+  or the packload fixtures never resolve its profile, and a rule test passes with the rule deleted.
+- **The not-started line must name a profile that claims the pointer.** Before this build it offered every
+  profile on the platform, so a user provider sorting before `bedrock` was offered. As built,
+  `packload.ProfilesServing` filters them (`packservices.go`), and the line reads "no agent's selected
+  provider is on platform … and claims a variable its pointer sets" (`macosuserservices.go` says the same).
+- **The golden provider table changes on purpose**: `testdata/provider-table-equivalence.golden` is rewritten
+  (`YOLO_UPDATE_PROVIDER_GOLDEN=1`) for the all-shipped and pack-bedrock cases only, which are exactly the
+  cases that compose `packs/bedrock`.
 
 ## Tasks
 
@@ -204,4 +216,77 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 
 ## Mac checks
 
-Written at landing, below, when the build knows what only a Mac can show.
+What only a Mac shows: the gate rule at the macos-user notch with a real Seatbelt session, where the
+aws-auth adapter is a doorway opened outside the sandbox (`macosuserdoorways.go`) rather than a jail daemon.
+The Linux suite drives that arm only through a stub backend (`TestAMixedBedrockLaunchIsRefusedNamingALaunchOnEither`,
+`TestClaudeAtTheBridgeOnMacosUserHoldsNoBedrockAPIKey`). None of these holds the landing; they run on main
+after it.
+
+**Shared setup for every witness.** At main at the first commit containing `d95b06451`, or later. The
+installed `yolo` built from that main (`just install` on the Mac). A fresh workspace,
+`/Users/Shared/yolo/bedrock-key`, holding an empty `yolo-jail.toml`. A host AWS profile with a live SSO
+session (`aws sso login --profile <p>` done). The user config `~/.config/yolo-jail/config.toml` holds:
+
+```toml
+packs = ["claude", "codex", "bedrock"]
+
+[providers.bedrock]
+region = "us-east-1"
+
+[providers.bedrock-key]
+region = "us-east-1"
+
+[allow.aws-auth]
+profile = "<p>"
+unnarrowed = true
+
+[env.secrets]
+set = { AWS_BEARER_TOKEN_BEDROCK = "not-a-real-key" }
+```
+
+The key value is a placeholder: no witness sends a request, and no line may print it.
+
+### W-BK1 — `bedrock-key` opens no aws-auth doorway (OQ-BK2, CN-D22)
+
+1. In the workspace:
+
+   ```
+   yolo --setup seatbelt-self -p claude=bedrock-key -- true
+   ```
+
+   Expected: exit 0. Stderr has a line starting `Not started: the aws-auth jail daemon, because no agent's
+   selected provider is on platform "aws-bedrock" and claims a variable its pointer sets` and ending
+   `` select one (`-p <agent>=bedrock`) to start it (providers.md OQ-CN7).``. Stderr has NO line starting
+   `Opened the "aws-auth" doorway`, and no line contains `not-a-real-key`.
+
+Report: the exit code and every stderr line naming `aws-auth`. Settles: OQ-BK2's Built column at the
+macos-user notch.
+
+### W-BK2 — `bedrock` still opens it (OQ-BK4, the control)
+
+1. In the same workspace:
+
+   ```
+   yolo --setup seatbelt-self -p claude=bedrock -- true
+   ```
+
+   Expected: exit 0, a line starting `Opened the "aws-auth" doorway (pack "aws-auth"`, and no
+   `Not started: the aws-auth jail daemon` line.
+
+Report: the exit code and the `aws-auth` lines. Settles: that the narrowing left the SSO path whole on
+macos-user. If W-BK1 passes and this fails, the rule is withholding from a claiming provider: file it as a
+defect against `d95b06451`.
+
+### W-BK3 — one launch cannot mix them (OQ-BK5)
+
+1. In the same workspace:
+
+   ```
+   yolo --setup seatbelt-self -p claude=bedrock-key,codex=bedrock -- true
+   ```
+
+   Expected: a nonzero exit before the sandbox starts, with stderr containing `Refusing to launch`,
+   `One launch cannot mix them`, and `` `yolo -p bedrock-key` or `yolo -p bedrock` ``; no line contains
+   `profile = ""` or `not-a-real-key`.
+
+Report: the exit code and the full refusal. Settles: OQ-BK5's remedy at the macos-user notch.

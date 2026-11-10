@@ -1,6 +1,6 @@
 # `bedrock` — Amazon Bedrock, as one provider every agent reads
 
-This pack declares Amazon Bedrock's `bedrock-runtime` endpoint as one provider, `bedrock`, and
+This pack declares Amazon Bedrock's `bedrock-runtime` endpoint as a provider, `bedrock`, and
 two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program and ships no model list. Select it beside
 the agent you want on Bedrock (`yolo pack add bedrock`):
 
@@ -42,11 +42,35 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
   ```
   Region: AWS_REGION=eu-west-1 for codex on provider "bedrock", read from ~/.aws/config [profile my-sso] (profile "my-sso", the one loopholes.aws-auth.settings.profile names for the credential): the provider sets no region, and no region variable reaches it
   ```
-- **The six AWS credential variables** under `api_key_env_name`: `AWS_BEARER_TOKEN_BEDROCK`,
-  `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
+- **Five AWS credential variables** under `api_key_env_name`: `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
   `AWS_CONTAINER_CREDENTIALS_FULL_URI`. yolo delivers each only to an agent whose profile selects
-  a Bedrock provider. None is demanded: an agent's own client takes whichever credential it
-  finds.
+  a provider that claims it. None is demanded: an agent's own client takes whichever credential it
+  finds. `bedrock` is the single sign-on and key-pair provider: it does not claim
+  `AWS_BEARER_TOKEN_BEDROCK`, so a Bedrock API key is not delivered to an agent on it.
+
+## `bedrock-key`: a Bedrock API key
+
+The pack ships a second provider on the same platform, `bedrock-key`, for a Bedrock API key (a
+bearer token). It claims exactly `AWS_BEARER_TOKEN_BEDROCK`, has the same region settings as
+`bedrock`, and has a `bridge` variant named `bedrock-key-bridge`. Put the key in a private file
+once, then select the provider per launch:
+
+```
+yolo config add env.secrets.files '"~/.config/yolo-jail/bedrock-key.env"' --user
+yolo -p bedrock-key
+```
+
+The file holds a line `AWS_BEARER_TOKEN_BEDROCK=<your-key>`. It belongs in the private set
+`[env.secrets]` ([secret-env-scoping.md](../../docs/design/secret-env-scoping.md)), never the public
+`[env]`. `yolo active-provider claude bedrock-key` makes it the default for an agent.
+
+An agent on `bedrock-key` is never given `aws-auth`'s credential pointer, so the key and the
+pointer cannot collide, and when every Bedrock agent is on `bedrock-key` the `aws-auth` daemon does
+not start. Your `aws-auth` profile setting stays configured for a later `bedrock` launch.
+One launch cannot mix an agent on `bedrock` with an agent on `bedrock-key`; it is refused and the
+message names `yolo -p bedrock-key` or `yolo -p bedrock`. Separate launches may use either. Design:
+[bedrock-key-provider.md](../../docs/design/bedrock-key-provider.md).
 
 ## No model list
 

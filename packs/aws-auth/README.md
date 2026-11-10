@@ -98,10 +98,14 @@ permission the permission set grants, plus the refresh token, plus every other p
 in the file. It is also the only option that satisfies the refresh requirement for
 free, which is exactly why people reach for it.
 
-**Never configure `AWS_BEARER_TOKEN_BEDROCK` in the same jail.** In every client
-measured the bearer **beats** the credential chain, so a jail with both configured uses
+**Never give one agent both `AWS_BEARER_TOKEN_BEDROCK` and this pointer.** In every client
+measured the bearer **beats** the credential chain, so an agent with both uses
 the frozen bearer and this service never runs — a silent wrong answer rather than a
-visible conflict.
+visible conflict, which is why the launch refuses it. The pointer reaches only an agent whose
+provider claims it. For a Bedrock API key, select the `bedrock-key` provider
+(`yolo -p bedrock-key`): its agents never receive the pointer, and the daemon does not start when
+every Bedrock agent is on it. One launch cannot mix an agent on `bedrock` with one on
+`bedrock-key`. See [bedrock-key-provider.md](../../docs/design/bedrock-key-provider.md#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it).
 
 **Nor a static key pair.** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` together are
 what the chain's environment provider answers with, and it runs *before* the

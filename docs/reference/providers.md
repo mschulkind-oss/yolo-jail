@@ -268,7 +268,7 @@ over it, or a profile `bedrock-sso` over the shipped `bedrock`, gets all of them
 does. **The credential claims follow the platform too**
 ([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)): a provider that declares a
 `platform` and no `api_key_env_name` of its own claims every variable a provider of the same
-platform in the composed table lists. So `bedrock-eu` claims the six AWS variables the shipped
+platform in the composed table lists. So `bedrock-eu` claims the five AWS variables the shipped
 `bedrock` lists, and the [credential gate](#the-credential-gate) delivers a private AWS key
 to the agents on either provider and to no other process. Before, `bedrock-eu` claimed nothing
 while `bedrock` still claimed all six, so the gate withheld them from every process, the agent on
@@ -289,8 +289,9 @@ claude, `-p bedrock` sends copilot and oh-omp through it ([the carrier](#bedrock
 and agy, whose transport takes no address, reaches nothing.
 
 - **The provider** declares `"platform": "aws-bedrock"`, `region_env_name` `AWS_REGION` and
-  `AWS_DEFAULT_REGION`, a `region_file` naming `~/.aws/config`, the six AWS credential names
-  under `api_key_env_name`, no endpoint, no region and no `options`. A region is the user's to
+  `AWS_DEFAULT_REGION`, a `region_file` naming `~/.aws/config`, the five AWS credential names
+  under `api_key_env_name` (a second provider, `bedrock-key`, claims the Bedrock API key alone),
+  no endpoint, no region and no `options`. A region is the user's to
   set, on the provider, in the environment or in the profile's section of `~/.aws/config`
   ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
 - **No model list ships** ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), ruled
@@ -646,13 +647,24 @@ A profile's credentials and gated env reach **only the agent that selected it**
 | A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)), either one by any entry of an active set |
 | An env derive's output (the **shape variables**: the provider variables an env derive emits for one agent, such as claude's `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`, credential included; a term coined in the design this gate came from) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only, or of each provider in its active set |
 
-`packs/bedrock`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+`packs/bedrock`'s `bedrock` provider claims `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
-`AWS_CONTAINER_CREDENTIALS_FULL_URI`, so an AWS pair hydrated for one agent's Bedrock profile no
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, and its sibling `bedrock-key` claims
+`AWS_BEARER_TOKEN_BEDROCK` alone ([the design](../design/bedrock-key-provider.md)), so an AWS pair hydrated for one agent's Bedrock profile no
 longer reaches pi's Bedrock support (or any shell) unless pi selected Bedrock. A provider with
 ONE variable keeps the string spelling; a derive sees `api_key_env_name` only when it names
 exactly one variable (`packload.ProvidersForDerive`), so a multi-route provider points an agent
 at none of them.
+
+**A served pointer reaches only a provider that claims it.** A served (`served_by`) env
+contribution, such as `aws-auth`'s credential pointer, whose platform gate fires for an agent
+reaches that agent only when a provider in the agent's active set on that platform claims at
+least one variable the contribution sets. A provider that claims nothing at all (a user's
+`platform = "aws-bedrock"` provider with no `api_key_env_name`, where no other provider of the
+platform lists names) is not narrowed. So an agent on `bedrock-key` never receives the pointer;
+when every Bedrock agent is on `bedrock-key` the aws-auth daemon does not start and the
+env-override check has nothing to evaluate, the same at a jail, `macos-user` and `yolo host`. The
+rule is [how G2 holds](../design/bedrock-key-provider.md#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it).
 
 Where each answer lands is the **delivery vehicle**'s, a term the gate's design coined for the code
 that writes a launch's environment for one notch or backend. There are three:
@@ -2694,7 +2706,7 @@ says "Settled in", the link is where the behavior is now described.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="CN-D1"></a>CN-D1 | *Implementation decision.* `api_key_env_name` is a string or a non-empty list of distinct valid names (`packdecl.EnvNames`, one rule for manifests and user `providers`). One name keeps the string spelling on every surface; a list of several points an agent at none of them (`KeyEnvName`), so the derives read a view with the one name or none (`ProvidersForDerive`) and the pre-flight and the wire bridge read `KeyEnvName`. Picking the first of several would, for Bedrock, compose a bearer into claude's `ANTHROPIC_AUTH_TOKEN`. In a manifest, `null` and `""` read as absent, as they did while the field was a plain unvalidated string (review found the first build refusing both, fatally at boot); a user config's `""` stays refused, as it always was. Manifest names are validated now, which a pack author can meet as a new refusal | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestAProviderMayListItsCredentialVariables`, `TestACredentialVariableListIsValidated`; the manifest's `null` and `""`, `TestAnEmptyOrNullCredentialVariableReadsAsAbsent` |
-| <a id="CN-D2"></a>CN-D2 | *Implementation decision.* `bedrock` claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`: [`OQ-SSO7`](agent-credentials.md#sso-decision-ledger)'s three routes as the clients spell them, plus the other two of pi's four spellings ([OQ-CN4](#oq-cn4)). Since [PP-D9](../design/providers-and-profiles-redesign.md#PP-D9) (2026-09-29) a provider declaring the same `platform` and no `api_key_env_name` of its own co-claims these six, so a user's own Bedrock provider keeps them to its agents rather than having them withheld from every process | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestTheShippedBedrockProviderClaimsItsCredentialRoutes`; the platform co-claim `packload.credentialClaims` ([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)) |
+| <a id="CN-D2"></a>CN-D2 | *Implementation decision.* `bedrock` claimed `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`: [`OQ-SSO7`](agent-credentials.md#sso-decision-ledger)'s three routes as the clients spell them, plus the other two of pi's four spellings ([OQ-CN4](#oq-cn4)). Since [PP-D9](../design/providers-and-profiles-redesign.md#PP-D9) (2026-09-29) a provider declaring the same `platform` and no `api_key_env_name` of its own co-claims these six (the bearer has since moved to `bedrock-key`, [the design](../design/bedrock-key-provider.md)), so a user's own Bedrock provider keeps them to its agents rather than having them withheld from every process | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestTheShippedBedrockProviderClaimsItsCredentialRoutes`; the platform co-claim `packload.credentialClaims` ([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)) |
 | <a id="CN-D3"></a>CN-D3 | *Implementation decision.* An `env_sources` value no provider claims stays shared, delivered to every process as before. The gate scopes provider credentials; a user's other variables (`GH_TOKEN`) are not a provider's. Since [secret-env-scoping](../design/secret-env-scoping.md), true of the public set only: a private value nothing claims reaches nobody ([SE-D12](../design/secret-env-scoping.md#SE-D12)) | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestScopeCredentialsSplitsClaimedFromShared` |
 | <a id="CN-D4"></a>CN-D4 | *Implementation decision.* The per-agent env gate (`gateFiresFor`): an agent pack's gated env reaches its own agent when that agent selected the profile; a CLI-less pack's reaches every agent that selected it; a table key naming no CLI any selected pack installs activates nothing. So `-p codex=bedrock` gives codex nothing of claude's either — "as specific as possible" — and the override pre-flight asks the same rule (`gateDelivered`) | 2026-09-26 | [the done conditions](#the-credential-gate-done-conditions) | ✅ `TestAnAgentPacksGatedEnvReachesOnlyItsOwnAgent`, `TestGateDoneConditions2And3CodexOnBedrock` |
 | <a id="CN-D5"></a>CN-D5 | *Implementation decision.* One gate function, `packload.ScopeCredentials`, with two call sites: `composePackChannel` (the jail, whose result the container and macos-user vehicles read) and `composeHostVars` (the host notch, which composes from user scope only and never went through `composePackChannel`). The same arrangement `EnvFold` and `AgentEnv` already had | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestGateDoneCondition1PiOnZaiSeesNoAWS` (the jail), `TestHostGatePiOnZaiSeesNoAWS` (the host notch) |
@@ -2854,7 +2866,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#7-decision-ledger), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (the claude, codex, opencode and pi derives, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
-| The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.toml`, each agent pack's `needs` |
+| The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the five AWS credential names under `api_key_env_name`, plus `bedrock-key` claiming the Bedrock API key; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.toml`, each agent pack's `needs` |
 | The Bedrock model list | none ships ([MM-D32](../design/model-lists-and-pickers.md#MM-D32), 2026-10-05, withdrawing [BR-D19](../design/bedrock-plumbing.md#BR-D19)'s three entries): each agent starts on its own Bedrock default; a pack's `models` contribution or the user's `providers.bedrock.models` supplies one | `packs/bedrock/pack.toml`, `packs/bedrock/README.md` |
 | copilot's Bedrock start model | `openai.gpt-oss-120b-1:0`, through the bridge, when no profile and no list names one ([MM-D34](../design/model-lists-and-pickers.md#MM-D34)) | `packs/copilot/derive.lua` (`bedrockStartModel`) |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |

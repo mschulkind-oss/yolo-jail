@@ -1063,7 +1063,7 @@ pack without naming an AWS variable (`packload.EnvOverrideFindings`; the schema 
 
 | Delivered beside the pointer | Result | Why |
 | :--- | :--- | :--- |
-| `AWS_BEARER_TOKEN_BEDROCK` | **refused** | every client measured prefers the bearer to the credential chain |
+| `AWS_BEARER_TOKEN_BEDROCK` | **refused** | every client measured prefers the bearer to the credential chain. The `bedrock-key` provider avoids it: an agent on it is never given the pointer ([how](../design/bedrock-key-provider.md#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it)) |
 | both `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, unless `AWS_PROFILE` is also delivered | **refused** | the chain's environment provider answers before the container-credentials provider in claude, codex, opencode and pi |
 | a `host_files` entry that renders anything under `~/.aws` | **warning** | it overrides the pointer only when it holds credentials for the profile the SDK resolves, and a path cannot say whether it does |
 
@@ -1076,7 +1076,13 @@ all three, as two FAILs and a WARN.
 The rule counts only what reaches the jail:
 
 - The declaration is evaluated only while the pointer is delivered, which takes an agent on a
-  Bedrock provider.
+  Bedrock provider that claims it. An agent on `bedrock-key` is not given the pointer, so there
+  is nothing to evaluate for it.
+- One launch cannot mix an agent on `bedrock` with an agent on `bedrock-key`: the bearer would
+  reach the second beside the pointer the first receives, and the launch is refused. The remedy
+  line reads "One launch cannot mix them" and names `yolo -p bedrock-key` or `yolo -p bedrock`.
+  Separate launches may each use one
+  ([why](../design/bedrock-key-provider.md#two-providers-in-one-workspace-never-in-one-launch)).
 - A variable counts when it is delivered into the jail, through `env_sources` or a pack. One
   exported only in the shell `yolo` was run from does not count, since no backend forwards that
   shell.

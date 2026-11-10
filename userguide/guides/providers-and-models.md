@@ -262,6 +262,18 @@ you want in your user config and make profiles for them:
 }
 ```
 
+### Use a Bedrock API key with the shipped provider
+
+A Bedrock API key is a bearer token. The `bedrock` pack ships a provider for it, `bedrock-key`, beside `bedrock`, which is for single sign-on and AWS key pairs. Put the key in a private file once:
+
+```
+yolo config add env.secrets.files '"~/.config/yolo-jail/bedrock-key.env"' --user
+```
+
+The file holds one line, `AWS_BEARER_TOKEN_BEDROCK=replace-with-your-bedrock-api-key`. Then select the provider for a launch with `yolo -p bedrock-key`, or make it the default for an agent with `yolo active-provider claude bedrock-key`. The key goes in the private set, never the public `[env]` table.
+
+An agent on `bedrock-key` does not receive the `aws-auth` login, so the key and the login never collide. Selecting `bedrock` means single sign-on only. One launch cannot put one agent on `bedrock` and another on `bedrock-key`; yolo refuses it and names `yolo -p bedrock-key` or `yolo -p bedrock`. Separate launches can use either.
+
 ### Use a manual Bedrock API-key provider
 
 The shipped `bedrock` provider targets `bedrock-runtime` through agents' native Bedrock clients. If you need a plain OpenAI-compatible endpoint instead, define a separate provider in your **user** config. This example gives Codex the Responses endpoint and Pi and OpenCode the Chat Completions endpoint. Copilot is outside the validated scope of this recipe; no live Copilot-to-Bedrock request is claimed here.
@@ -301,7 +313,7 @@ Put the Bedrock API key in the referenced file, not in JSONC or a workspace file
 BEDROCK_RUNTIME_API_KEY=replace-with-your-bedrock-runtime-api-key
 ```
 
-The value above is a fake placeholder. A Bedrock API key is a Bedrock-specific bearer token, not an AWS access-key pair. `api_key_env_name` names the variable the provider claims; the [credential gate](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#the-credential-gate) delivers a claimed variable to agents selecting any provider that claims the same name. The shipped native `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, so these dedicated Runtime and Mantle names keep the manual keys separate from native Bedrock. If you deliberately reuse `AWS_BEARER_TOKEN_BEDROCK`, agents selecting native `bedrock` receive that shared value too. The existing bearer/SSO credential-pointer conflict is unchanged; do not combine a bearer key with the `aws-auth` pointer for the same Bedrock client. You do not need `--with-credentials` for this profile-gated delivery. Keep the provider and endpoint in user scope: a workspace config cannot declare an external `base_url`. Leave out `platform: "aws-bedrock"`: that marker selects the native Bedrock derive, not this generic endpoint route.
+The value above is a fake placeholder. A Bedrock API key is a Bedrock-specific bearer token, not an AWS access-key pair. `api_key_env_name` names the variable the provider claims; the [credential gate](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#the-credential-gate) delivers a claimed variable to agents selecting any provider that claims the same name. The shipped native `bedrock` provider does not claim `AWS_BEARER_TOKEN_BEDROCK` (the shipped `bedrock-key` provider does), so these dedicated Runtime and Mantle names keep the manual keys separate from native Bedrock. If you deliberately reuse `AWS_BEARER_TOKEN_BEDROCK`, agents selecting `bedrock-key` receive that shared value too. Do not combine a bearer key with the `aws-auth` pointer for the same Bedrock client; an agent on `bedrock-key` is never given the pointer. You do not need `--with-credentials` for this profile-gated delivery. Keep the provider and endpoint in user scope: a workspace config cannot declare an external `base_url`. Leave out `platform: "aws-bedrock"`: that marker selects the native Bedrock derive, not this generic endpoint route.
 
 After saving the user config, run `yolo check` to validate it. Then use this profile with an agent that speaks one of the configured protocols:
 
@@ -352,7 +364,7 @@ AWS's [Bedrock endpoints page](https://docs.aws.amazon.com/bedrock/latest/usergu
 
 Claude Code's native Mantle mode is a separate client path, not this generic OpenAI provider: its Mantle switch is `CLAUDE_CODE_USE_MANTLE=1` and its Anthropic model IDs use the `anthropic.` prefix. The shipped `bedrock` profile is for runtime; this guide does not claim that selecting it configures native Mantle for Claude Code. The generic recipe is also separate from Pi's `bedrock-bridge` profile: with a supplied Bedrock model list, that profile keeps Pi's native Converse client and sends requests through the bridge's signing. See [the Converse via route](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/wire-bridge.md#converse-on-a-via-route); it is fixture-tested, not measured against live AWS here.
 
-For the shipped Bedrock provider's AWS credential chain, region handling and bridge profiles, use the `bedrock` instructions above rather than this generic API-key recipe. The existing bearer/SSO credential-pointer conflict still applies there.
+For the shipped Bedrock provider's AWS credential chain, region handling and bridge profiles, use the `bedrock` instructions above rather than this generic API-key recipe. For a Bedrock API key on the native clients, use the `bedrock-key` provider ([above](#use-a-bedrock-api-key-with-the-shipped-provider)).
 
 ## Several providers in one session
 

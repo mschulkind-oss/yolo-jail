@@ -295,7 +295,8 @@ Only the parts of the built provider system that Bedrock lands on. MEASURED at `
 
 - **One `bedrock` provider exists, and it is claude's.** `packs/claude/pack.json` ships a
   provider `bedrock` (no endpoints, no models, the six AWS credential names under
-  `api_key_env_name`) and a profile `bedrock` selecting it. It is
+  `api_key_env_name`; since [bedrock-key-provider.md](bedrock-key-provider.md), five, with the
+  bearer claimed by `bedrock-key`) and a profile `bedrock` selecting it. It is
   [the worked example](../reference/providers.md#two-channels-split-by-payload-type) in
   `providers.md`. ⚠ **Changed 2026-09-29**, after the measurements above: the provider declares
   `"platform": "aws-bedrock"` ([OQ-BR2](providers-and-profiles-redesign.md#8-decision-ledger)) and
@@ -525,6 +526,12 @@ and never on absence, and an interactive `/model` still stands.
 > versions the launcher installed on 2026-09-29: pi 0.99.1, opencode 1.18.32, codex-cli 0.158.0.
 
 ### 6.3 A hand-written API-key provider (documentation only)
+
+> [!NOTE]
+> Since this section was written, the Bedrock API key ships as the `bedrock-key` provider in
+> `packs/bedrock`, and `bedrock` no longer claims `AWS_BEARER_TOKEN_BEDROCK`
+> ([bedrock-key-provider.md](bedrock-key-provider.md)). The recipe below remains the way to a
+> plain HTTP endpoint of your own.
 
 An agent or model with no native path, or a user who wants a plain HTTP provider, needs no yolo
 code. It needs an ordinary user-scope `providers` entry. A workspace file carrying

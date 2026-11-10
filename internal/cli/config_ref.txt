@@ -100,7 +100,8 @@
   [bold]active_provider[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): which provider each agent runs on.
     `claude = "bedrock"`, `claude = "bedrock/opus"` (a variant), `default = ...`
     for every agent the table does not name, and `"native"` to leave an agent
-    to its own login (a legacy null under active_provider reads as "native").  The name must be one a selected pack declares.  Edit with
+    to its own login (a legacy null under active_provider reads as "native").  The name must be one a selected pack or your
+    `[providers]` table declares.  Edit with
     [bold]yolo active-provider <agent|default> <provider|provider/variant|native>[/bold];
     it takes effect at the next launch.
 

@@ -2,8 +2,8 @@
 title: "The Bedrock API key is a provider you select, not a layer you pass"
 date: 2026-11-07
 status: accepted
-stage: DECIDED
-next: "Write the implementation plan against the tree (none exists yet); the key file rides secret-env-scoping.md's [env.secrets], so plan after or with it"
+stage: BUILT
+next: "Graduate into docs/reference/providers.md once merged and the Mac checks in bedrock-key-provider-plan.md are reported"
 depends-on:
   - bedrock-plumbing.md
   - providers-and-profiles-redesign.md
@@ -13,7 +13,7 @@ summary: "A Bedrock API key becomes a provider named bedrock-key that an owner s
 
 # The Bedrock API key is a provider you select, not a layer you pass
 
-**Status:** 2026-11-09. Nothing built. Evidence verified at `2bbdd801f`. All five questions ruled
+**Status:** 2026-11-10. Built on a branch, not yet merged: `d95b06451` (provider, rule, remedy), `e2eacec79` (integration); plan [`bedrock-key-provider-plan.md`](bedrock-key-provider-plan.md). Evidence verified at `2bbdd801f`. All five questions ruled
 by the owner on 2026-11-09 and folded into the body; the key file's home follows
 [`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
 
@@ -304,16 +304,16 @@ The owner's rulings of 2026-11-09 first (BK-D6 carries [OQ-BK3](#OQ-BK3)'s), the
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-BK1 | **`bedrock-key` ships in `packs/bedrock`, beside the narrowed `bedrock`.** The owner: *"the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together."* | 2026-11-09 | [The provider](#the-provider) | — |
-| OQ-BK2 | **A served pointer reaches only an agent whose provider claims a variable it sets; the gate reads the declared claims, and no new provider key expresses it.** The owner: *"the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared."* | 2026-11-09 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
-| <a id="BK-D6"></a><a id="OQ-BK3"></a>BK-D6 ([OQ-BK3](#OQ-BK3)) | **The key file goes in the user config's `[env.secrets]`, its reach decided by the claim**, the same pattern as every provider in [`secret-env-scoping.md`](secret-env-scoping.md); `yolo -p bedrock-key` and `yolo active-provider` are the whole recipe, and no layer or flag is needed. The owner: *"obviously A. that's the point of the design, no?"* | 2026-11-09 | [How G1 holds](#how-g1-holds-the-credential-gate) | — |
-| OQ-BK4 | **Narrow, with no migration path.** Selecting `bedrock` uses SSO and only SSO; a bearer in `[env] sources` is not used for it; the ordinary credential pre-flight refusal stands, with no alias and no special line. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | — |
-| OQ-BK5 | **Not in one launch; yes in one jail or workspace.** One launch may not mix an agent on `bedrock` with one on `bedrock-key` (refused as today, with the corrected remedy sentence); separate launches in the same workspace may each use a different one, by stop and relaunch. An attach with the other provider is not promised until its pre-flight placement is verified. The owner: *"in the same jail/workspace? yes, in the same launch? no."* | 2026-11-09 | [Two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch) | — |
-| <a id="BK-D1"></a>BK-D1 | **User-declared providers are selectable, and the help says so.** The launch, `yolo active-provider` and `yolo check` already resolve a user's `providers` entry by name ([P1](#premises)). The two strings that say "one a selected pack declares" are corrected to "one a selected pack or your `providers` table declares"; no selection code changes | 2026-11-07 | [Selection](#selection) | — |
-| <a id="BK-D2"></a>BK-D2 | **`bedrock-key` is on platform `aws-bedrock`.** Every Bedrock fact keys on the platform; a second value would duplicate them to switch off one pointer | 2026-11-07 | [Alternatives](#alternatives-considered) | — |
-| <a id="BK-D3"></a>BK-D3 | **The pointer rule ([OQ-BK2](#decision-ledger)'s form) lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | — |
-| <a id="BK-D4"></a>BK-D4 | **No message this design adds prints a credential value.** Refusals and disclosures name variables and files, as the existing ones do | 2026-11-07 | [Failure paths](#failure-paths-stated) | — |
-| <a id="BK-D5"></a>BK-D5 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | — |
+| OQ-BK1 | **`bedrock-key` ships in `packs/bedrock`, beside the narrowed `bedrock`.** The owner: *"the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together."* | 2026-11-09 | [The provider](#the-provider) | `d95b06451` |
+| OQ-BK2 | **A served pointer reaches only an agent whose provider claims a variable it sets; the gate reads the declared claims, and no new provider key expresses it.** The owner: *"the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared."* | 2026-11-09 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | `d95b06451` |
+| <a id="BK-D6"></a><a id="OQ-BK3"></a>BK-D6 ([OQ-BK3](#OQ-BK3)) | **The key file goes in the user config's `[env.secrets]`, its reach decided by the claim**, the same pattern as every provider in [`secret-env-scoping.md`](secret-env-scoping.md); `yolo -p bedrock-key` and `yolo active-provider` are the whole recipe, and no layer or flag is needed. The owner: *"obviously A. that's the point of the design, no?"* | 2026-11-09 | [How G1 holds](#how-g1-holds-the-credential-gate) | user guide recipe, with this status line |
+| OQ-BK4 | **Narrow, with no migration path.** Selecting `bedrock` uses SSO and only SSO; a bearer in `[env] sources` is not used for it; the ordinary credential pre-flight refusal stands, with no alias and no special line. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | `d95b06451` |
+| OQ-BK5 | **Not in one launch; yes in one jail or workspace.** One launch may not mix an agent on `bedrock` with one on `bedrock-key` (refused as today, with the corrected remedy sentence); separate launches in the same workspace may each use a different one, by stop and relaunch. An attach with the other provider is not promised until its pre-flight placement is verified. The owner: *"in the same jail/workspace? yes, in the same launch? no."* | 2026-11-09 | [Two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch) | `d95b06451` |
+| <a id="BK-D1"></a>BK-D1 | **User-declared providers are selectable, and the help says so.** The launch, `yolo active-provider` and `yolo check` already resolve a user's `providers` entry by name ([P1](#premises)). The two strings that say "one a selected pack declares" are corrected to "one a selected pack or your `providers` table declares"; no selection code changes | 2026-11-07 | [Selection](#selection) | `config_ref.txt`, with this status line |
+| <a id="BK-D2"></a>BK-D2 | **`bedrock-key` is on platform `aws-bedrock`.** Every Bedrock fact keys on the platform; a second value would duplicate them to switch off one pointer | 2026-11-07 | [Alternatives](#alternatives-considered) | `d95b06451` |
+| <a id="BK-D3"></a>BK-D3 | **The pointer rule ([OQ-BK2](#decision-ledger)'s form) lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | `d95b06451` |
+| <a id="BK-D4"></a>BK-D4 | **No message this design adds prints a credential value.** Refusals and disclosures name variables and files, as the existing ones do | 2026-11-07 | [Failure paths](#failure-paths-stated) | `d95b06451` |
+| <a id="BK-D5"></a>BK-D5 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | nothing to build |
 
 ## Appendix: evidence
 
