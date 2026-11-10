@@ -31,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/s3classify"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -55,7 +56,17 @@ func runInternal(args []string) int {
 		// before exec with roots baked from the host-resolved macos-user launch context.
 		return runSandboxTmpdirValidation(args[1:])
 	case "call-broker-classify":
-		return circleciclassify.Run(args[1:], os.Stdin, os.Stdout, os.Stderr)
+		// One built-in classifier per call-broker source; the pack's declared argv names it.
+		if len(args) >= 2 {
+			switch args[1] {
+			case "circleci":
+				return circleciclassify.Run(args[1:], os.Stdin, os.Stdout, os.Stderr)
+			case "aws-s3":
+				return s3classify.Run(args[1:], os.Stdin, os.Stdout, os.Stderr)
+			}
+		}
+		fmt.Fprintln(os.Stderr, "use `yolo internal call-broker-classify <circleci|aws-s3>` as the selected pack declares it")
+		return 64
 	case "call-broker-forward":
 		if len(args) < 4 || args[2] != "--" {
 			fmt.Fprintln(os.Stderr, "use the selected pack's call broker intercept with its original arguments")

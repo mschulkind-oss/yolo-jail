@@ -1,0 +1,18 @@
+# aws-s3: S3 is MEDIATED, not credentialed. The jail's `aws` is intercepted and forwarded to
+# a host broker; the host's own `aws` program runs the one canonical call the classifier
+# derived, signing with the host's AWS login. No credential, endpoint, profile or region
+# crosses to the jail, and the jail can read or write only the buckets and prefixes this
+# workspace's config declares under `brokered.aws-s3.roots`.
+#
+# This pack does NOT change the aws-auth credential route. A jail that also selects
+# `aws-auth` (or otherwise holds AWS credentials) with S3 reach can call S3 directly and
+# bypasses this broker entirely; narrowing that credential is the user's to control.
+name = "aws-s3"
+description = "Broker scoped S3 reads and approved writes through the host aws CLI using the host's own login; the jail can reach only the buckets and prefixes this workspace declares."
+
+[[loophole]]
+from = "loopholes/aws-s3-broker"
+
+[[intercept]]
+bin = "aws"
+forward = ["yolo", "internal", "call-broker-forward", "aws-s3-broker", "--"]
