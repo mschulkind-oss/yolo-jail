@@ -111,7 +111,12 @@ func TestBriefingAgreesWithTheBlockedToolDefault(t *testing.T) {
 			continue
 		}
 		blocks++
-		for _, name := range []string{c.Bin, c.Replacement} {
+		// A guard names no replacement: it refuses by path, and points at no other tool.
+		names := []string{c.Bin}
+		if c.Replacement != "" {
+			names = append(names, c.Replacement)
+		}
+		for _, name := range names {
 			if !strings.Contains(bullet, strings.ToLower(name)) {
 				t.Errorf("the guardrails pack blocks %s in favor of %s, and the briefing's "+
 					"description of it never names %q:\n%s", c.Bin, c.Replacement, name, bullet)

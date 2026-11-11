@@ -42,9 +42,9 @@ need to know.
 
   • [bold]Nothing is blocked by default.[/bold] Blocking is opt-in: the
     "guardrails" pack blocks grep -r and find in favor of rg and fd, makes
-    mv and rm refuse to touch the workspace's .yolo, and
-    security.blocked_tools adds your own. Set YOLO_BYPASS_SHIMS=1 in scripts
-    that need the originals.
+    mv and rm refuse to touch the workspace's .yolo, makes git clean refuse
+    scopes that reach it, and security.blocked_tools adds your own. Set
+    YOLO_BYPASS_SHIMS=1 in scripts that need the originals.
 
 [bold cyan]TOOLS AVAILABLE INSIDE[/bold cyan]
 
