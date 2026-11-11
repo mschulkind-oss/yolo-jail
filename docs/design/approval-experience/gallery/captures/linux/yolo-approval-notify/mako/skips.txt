@@ -1,0 +1,7 @@
+skip circleci-run-list: no request is filed (prompt: none)
+skip state-allowed-once: fixture state is allowed, an outcome a new request toast does not render
+skip state-decided-elsewhere: fixture state is decided-elsewhere, an outcome a new request toast does not render
+skip state-denied: fixture state is denied, an outcome a new request toast does not render
+skip state-expired: fixture state is expired, an outcome a new request toast does not render
+skip state-hook-failure: its hook failed, so nothing was shown
+skip state-stale: fixture state is stale, an outcome a new request toast does not render

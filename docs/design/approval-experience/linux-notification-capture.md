@@ -3,7 +3,7 @@ title: "Capturing approval notifications on Linux, headless and reproducibly"
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Recapture the integrated production notifier candidate; resolve the swaync virtual-pointer control failure before upgrading its body-click finding"
+next: "Resolve the swaync virtual-pointer control failure before measuring any swaync body click; capture the candidate's refusal feedback against a real CLI refusal"
 depends-on:
   - README.md
   - native-notification-gallery.md
@@ -18,7 +18,9 @@ summary: "The Linux notification capture sibling of the approval-experience umbr
 call**, not a copy of the owner's private hook. A real protocol pointer body click on mako
 closed the toast with reason 2, no action, empty notifier stdout and exit 0. Swaync input
 remains unresolved: both body and button control attempts left the toast visible. Neither
-baseline proves the forthcoming production notifier repair.
+baseline proves the notifier candidate. The candidate, `yolo internal approval-notify` built at
+`ff92fabc4`, has its own 9 + 9 captures and a measured lifecycle on both daemons, against a
+logging-only stub in place of `yolo`: [§4.2](#42-the-notifier-candidate).
 
 
 > **In short.** A real notification daemon, not an HTML imitation, renders each fixture's toast
@@ -105,15 +107,38 @@ $ scripts/approval-gallery/capture-linux.sh --reference-baseline --daemon mako \
 ```
 
 `--reference-baseline` generates only the documented `notify-send` call in the run directory.
-It does not reproduce the owner's answer mapping or stop traps. For a later candidate use
-`--hook <candidate entry point> --hook-source <source/commit identity> --renderer <candidate label>`
-instead, with a **distinct renderer label** so a repair cannot silently overwrite baseline evidence.
-The runner replaces only that renderer's entries and preserves other baselines in the platform
-manifest; mako PNGs and tool provenance are stored under `linux/mako/`. Use a new output tree
-when capturing a different renderer on the same daemon, to keep its image paths distinct.
-The hook receives fixture environment and the stub; it must reach the private bus without a real
-approval store. Run only after the notifier lead's candidate is integrated. These scripts do not
-build or prove that candidate themselves.
+It does not reproduce the owner's answer mapping or stop traps. The runner replaces only its
+own renderer's entries and preserves the others in the platform manifest; mako PNGs and tool
+provenance are stored under `linux/mako/`.
+
+**A different renderer needs its own image directory.** The manifest keys entries by renderer,
+but an image is a path. The runner refuses, before it creates anything, a renderer whose images
+would land in a directory the manifest gives to another renderer, and names the fix:
+`--image-subdir <dir>`. `--preflight` runs only these argument checks.
+
+**A hook that reads the request on stdin** is captured with `--stdin-event`:
+
+```console
+$ scripts/approval-gallery/capture-linux.sh --stdin-event --daemon mako \
+    --hook <script that execs the built candidate> --hook-source <build identity> \
+    --renderer "yolo-approval-notify to mako" --image-subdir yolo-approval-notify/mako \
+    --fixtures internal/approvalfixtures/fixtures \
+    --out docs/design/approval-experience/gallery/captures/linux \
+    --run-dir <short durable directory>
+```
+
+In that mode the hook gets no `YOLO_REQUEST_*` environment.
+[`request-event.sh`](../../../scripts/approval-gallery/request-event.sh) writes the schema-1
+`request-filed` event from the fixture's own request, with `filed` and `expires` moved to now
+and now plus 15 minutes, and the stub is passed as an absolute `YOLO_BIN`. A fixture that is
+not a new pending request is never re-timed into one: it is skipped and listed with its reason
+in `skips.txt` beside the images. The toast is withdrawn with SIGINT, because a user dismissal
+is an answer for this interface; the hook must exit 0 and its toast must leave the screen, or
+the fixture fails. The stub log is checked before the manifest is written.
+[`test-capture-bridge.sh`](../../../scripts/approval-gallery/test-capture-bridge.sh) tests the
+adapter and the refusals without a display. These scripts do not build the hook they are given.
+
+The rest of this section describes the baseline interface.
 
 For each fixture that has a `hook_env` and whose request records no hook failure, the script:
 
@@ -228,7 +253,11 @@ captures. This is no longer lifecycle-only evidence: for example the
 [force-push toast](gallery/captures/linux/mako/git-push-force.png) is an actual mako-rendered PNG.
 Mako's default appearance wraps the headline and body in a narrow blue toast; these are test
 pixels, not the owner's theme. The actions are not drawn as swaync-style buttons in this theme.
-No button behavior follows from that visual evidence.
+No button behavior follows from that visual evidence. **Mako's default theme also clips the
+body**, so a mako image is not the whole request: the
+[S3 toast](gallery/captures/linux/mako/s3-delete-objects-synthetic.png) shows one of three
+objects, and the [long-names toast](gallery/captures/linux/mako/git-push-long-names.png)
+ellipsizes the first ref and omits the second. The swaync baselines show every ref and object.
 
 Under the same private bus/headless compositor, the pointer measurement uses a persistent
 protocol device, not a daemon CLI action. It positions in body whitespace at `(1240,55)` on
@@ -261,6 +290,74 @@ public lifecycle test request (`rerun failed jobs`), not a fixture's final state
 folded as additional fixture visuals. All observations are Linux container/private-GUI evidence;
 none is Mac or rootless-host reachability proof.
 
+### 4.2 The notifier candidate
+
+Everything here is one build: `go build ./cmd/yolo` at
+`ff92fabc49abf243dc0b0601689c0bb39eab17c6`, `vcs.modified=false`, run as
+`exec <that binary> internal approval-notify`. Its `YOLO_BIN` was a stub that appends its
+arguments to a log and exits 0. **No request was filed, approved or denied, and no approval
+store, credential or owner hook was read.** The event came from the
+`circleci-rerun-workflow-synthetic` fixture (lifecycle) or from each pending fixture (visuals).
+
+**Where it ran.** Inside a jail, on the private bus of [§1](#1-the-stack). The candidate is
+host-only, and its one jail test is the `YOLO_VERSION` variable
+([`config.InJail`](../../../internal/config/load.go)). The hook runs under `env -i`, as a
+capture always has, so that variable is absent and the gate did not fire. This is therefore
+evidence about the candidate's D-Bus behavior, not about a host run or the host-only gate.
+
+**Visuals: 9 + 9.** Nine fixtures are a new pending request, and each has a
+[mako](gallery/captures/linux/yolo-approval-notify/mako/git-push-force.png) and a
+[swaync](gallery/captures/linux/yolo-approval-notify/swaync/git-push-force.png) capture under
+the renderers `yolo-approval-notify to mako` and `yolo-approval-notify to swaync`. The 14 + 14
+baseline entries and their 32 files are byte-identical to before. Seven fixtures are skipped per
+daemon and have no candidate capture: the five non-pending `state-*` outcomes, `state-hook-failure`
+and `circleci-run-list`. swaync draws three buttons, Allow once, Allow for 15 minutes and Deny,
+and the whole body. mako's default theme draws no buttons and clips the same two bodies as in
+[§4.1](#41-second-daemon-visuals-and-actual-pointer-evidence), so on that theme the request
+text is incomplete and the answers are reachable only through the daemon's own controls.
+
+**What it sent** (mako and swaync, from `dbus-monitor`): `Notify` with app name `yolo`,
+replaces-id 0, summary `yolo: <headline>`, the description as body, actions `once`, `15m`,
+`deny` with the three labels above, hints `urgency` 2 and `resident` true, expire timeout 0.
+No `default` action.
+
+**Lifecycle**, MEASURED with
+`measure-lifecycle.sh <daemon> <out> <run-dir> --candidate <hook> <fixture.json>`. Each row
+waits on the hook's exit, its `CloseNotification` call and a black frame. In every row the
+hook exited 0 with empty stdout and the toast left the screen.
+
+| Stimulus | Stub `yolo` received | mako 1.11.0 | swaync 0.12.6 |
+| :--- | :--- | :--- | :--- |
+| Action `once` | `approve <id>`, once | ✅ | ✅ |
+| Action `15m` | `approve <id> --for 15m`, once | ✅ | ✅ |
+| Action `deny` | `approve <id> --deny`, once | ✅ | ✅ |
+| User dismissal (`makoctl dismiss`, `swaync-client --close-latest`), reason 2, no `ActionInvoked` | `approve <id> --deny`, once | ✅ | ✅ |
+| Real pointer press on the body at `(1240,59)`, reason 2, no `ActionInvoked` | `approve <id> --deny`, once | ✅ | not measured |
+| SIGINT to the hook | nothing | ✅ | ✅ |
+| SIGTERM to the hook | nothing | ✅ | ✅ |
+| Request expiry, 8 seconds after filing | nothing | ✅ | ✅ |
+| The fixture's own expired request, not re-timed | nothing; exit 1, no `Notify` | ✅ | ✅ |
+| Empty stdin | nothing; exit 1, no `Notify` | ✅ | ✅ |
+
+The stub totals were one `approve`, one `--for 15m` and three `--deny` on mako, and one, one
+and two on swaync. The mako body press is the same persistent virtual pointer as
+[§4.1](#41-second-daemon-visuals-and-actual-pointer-evidence): on the baseline it closed the
+toast and answered nothing, and on the candidate it produces exactly `--deny`. No stimulus
+produced a grant that was not asked for.
+
+**Not measured.**
+
+- **swaync body click.** The pointer control still does not work on swaync, so the row is
+  skipped, not inferred.
+- **Refusal feedback.** The stub always exits 0, so the non-actionable follow-up for CLI exits
+  3, 5 and 6 never appeared. It has no native capture; only the Go tests cover it.
+- **No-request and hook-failure fixtures.** Neither shows a toast, so neither has a capture.
+- **Decided elsewhere, SIGKILL, a daemon restart, a real `yolo approve`.** No store ran.
+- **The host-only gate, a host desktop, macOS, the owner's theme.**
+
+Raw logs are under the workspace durable directory at `an2/lifecycle/<daemon>/`
+(`candidate-result.txt`, `notify-call.txt`, one `.dbus`, `.stub` and `.event.json` per step).
+
 ## 5. Limits
 
 - **Two daemon test themes captured.** swaync is the owner's daemon, while mako visuals and
@@ -291,3 +388,4 @@ none is Mac or rootless-host reachability proof.
 | LC-D2 | The hook runs against a stub `yolo` that only logs, so a capture can never decide a request | 2026-11-09 | [§2](#2-capturing-the-gallery) | ✅ |
 | LC-D3 | Runners write a manifest and never a fixture; `Fold` is the single writer, and a test fails while a manifest is unfolded | 2026-11-09 | [§2.1](#21-provenance) | ✅ |
 | LC-D4 | Each lifecycle row is labeled MEASURED or SOURCED; a source reading is never presented as a measurement | 2026-11-09 | [§4](#4-what-the-stack-measured) | ✅ |
+| LC-D5 | A renderer never writes into another renderer's image directory, and a stdin candidate is fed only fixtures that are a new pending request | 2026-11-11 | [§2](#2-capturing-the-gallery) | ✅ |

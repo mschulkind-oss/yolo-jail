@@ -11,10 +11,21 @@
 # which re-executes itself under `dbus-run-session` + `nix shell`.
 # <run-dir> holds sockets, so its path must be short (< ~80 chars).
 set -u
-[ "$#" -ge 3 ] && [ "$#" -le 4 ] || { echo "usage: $0 <swaync|mako> <out-dir> <short run-dir> [--pointer-only|--pointer-action]" >&2; exit 2; }
+[ "$#" -ge 3 ] && [ "$#" -le 6 ] || { echo "usage: $0 <swaync|mako> <out-dir> <short run-dir> [--pointer-only|--pointer-action|--candidate <stdin hook> <pending fixture.json>]" >&2; exit 2; }
 case $1 in swaync|mako) ;; *) echo "use swaync or mako" >&2; exit 2 ;; esac
 MODE=${4:-all}
-case $MODE in all|--pointer-only|--pointer-action) ;; *) echo "unknown mode: $MODE; use --pointer-only or --pointer-action" >&2; exit 2 ;; esac
+case $MODE in all|--pointer-only|--pointer-action|--candidate) ;; *) echo "unknown mode: $MODE; use --pointer-only, --pointer-action or --candidate" >&2; exit 2 ;; esac
+HERE=$(cd "$(dirname "$0")" && pwd)
+HOOK="" FIXTURE=""
+if [ "$MODE" = --candidate ]; then
+  # The candidate reads a schema-1 request-filed event on stdin and answers only through
+  # the absolute YOLO_BIN, here a stub that logs its arguments and decides nothing.
+  [ "$#" = 6 ] && [ -x "$5" ] && [ -f "$6" ] || { echo "--candidate needs an executable stdin hook and a fixture file: $0 $1 <out-dir> <run-dir> --candidate <hook> <fixture.json>" >&2; exit 2; }
+  HOOK=$(realpath "$5") FIXTURE=$(realpath "$6")
+  "$HERE/request-event.sh" "$FIXTURE" >/dev/null || { echo "--candidate needs a pending fixture; choose one request-event.sh accepts" >&2; exit 2; }
+elif [ "$#" -gt 4 ]; then
+  echo "only --candidate takes further arguments" >&2; exit 2
+fi
 if [ "$MODE" = --pointer-action ] && [ "$1" != swaync ]; then
   echo "--pointer-action targets swaync buttons only; use --pointer-only for mako" >&2; exit 2
 fi
@@ -129,6 +140,9 @@ waitexit() {
 count() { if [ "$DAEMON" = swaync ]; then swaync-client -c; else makoctl list | rg -c '^Notification'; fi; }
 # lastns is the notify-send of the latest send, never another one in the same PID namespace.
 lastns() { pgrep -n -x -P "$SENDPID" notify-send; }
+# closed_reason prints the REASON of the first NotificationClosed in a monitor log: the
+# second argument, never the id line before it (an id of 2 is not a dismissal).
+closed_reason() { awk '/member=NotificationClosed/ && !n {n=NR} n && NR==n+2 {print $2; exit}' "$1"; }
 
 
 # A single device must remain alive from absolute motion through release. Separate
@@ -217,6 +231,139 @@ EOC
 
 }
 
+if [ "$MODE" = --candidate ]; then
+  mkdir -p "$O/stub" "$O/home"
+  STUBLOG=$O/stub-yolo.log
+  printf '#!/bin/sh\necho "yolo $*" >>"%s"\n' "$STUBLOG" >"$O/stub/yolo"
+  chmod +x "$O/stub/yolo"
+  RID=$(jq -r .request.id "$FIXTURE")
+  R=$O/candidate-result.txt
+  FAILS=0
+  : >"$R"
+  : >"$O/stub-all.log"
+  check() { # what, want, got
+    if [ "$2" = "$3" ]; then echo "PASS $1: [$3]" >>"$R"; else echo "FAIL $1: want [$2] got [$3]" >>"$R"; FAILS=$((FAILS + 1)); fi
+  }
+  crun() { # name, event file: the hook as yolo would start it, with nothing else in its environment
+    (
+      env -i HOME="$O/home" PATH="$PATH" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        YOLO_BIN="$O/stub/yolo" "$HOOK" <"$2" >"$O/$1.stdout" 2>"$O/$1.stderr"
+      echo $? >"$O/$1.exit"
+    ) &
+    SENDPID=$!
+  }
+  chook() { pgrep -n -P "$SENDPID"; }
+  sig() { kill "-$1" "$(chook)"; }
+  await_exit() { timeout 120 bash -c 'until [ -s "$1" ]; do sleep 0.1; done' _ "$O/$1.exit"; }
+  bodyclick() { # a real pointer press in the toast's body whitespace, right of the text
+    box=$(magick "$O/$1_shown.png" -fuzz 1% -format '%@' info:)
+    w=${box%%x*}
+    h=$(echo "$box" | sed -E 's/^[0-9]+x([0-9]+)\+.*/\1/')
+    x=$(echo "$box" | sed -E 's/.*\+([0-9]+)\+([0-9]+)$/\1/')
+    y=$(echo "$box" | sed -E 's/.*\+([0-9]+)\+([0-9]+)$/\2/')
+    echo "toast bounding box=$box target=$((x + w - 30)),$((y + h / 2))" >"$O/pointer.cmd"
+    pointer_client "$((x + w - 30))" "$((y + h / 2))" >>"$O/pointer.cmd" 2>&1
+  }
+  cstep() { # name, the one stub line expected ("" for none), seconds to expiry, trigger...
+    n=$1 want=$2 ttl=$3
+    shift 3
+    : >"$STUBLOG"
+    rm -f "$O/$n.exit"
+    "$HERE/request-event.sh" "$FIXTURE" "$ttl" >"$O/$n.event.json" || return 1
+    mon_start "$n" || return 1
+    crun "$n" "$O/$n.event.json"
+    prev=""
+    if ! wait_visible "${n}_shown"; then
+      check "$n: toast shown" yes no
+      kill -INT "$(chook)" 2>/dev/null
+      mon_stop
+      return 1
+    fi
+    "$@" >"$O/$n.cmd" 2>&1
+    # Every candidate path ends by closing its own id, then exiting: wait on both events.
+    await_exit "$n" || check "$n: hook exited" yes no
+    await_log 'member=CloseNotification' "$O/$n.dbus" || check "$n: CloseNotification sent" yes no
+    wait_gone "${n}_after"
+    gone=$?
+    kill "${POINTERPID:-}" 2>/dev/null
+    POINTERPID=""
+    gdbus call --session -d org.freedesktop.Notifications -o /org/freedesktop/Notifications \
+      -m org.freedesktop.Notifications.GetServerInformation >/dev/null 2>&1
+    mon_stop
+    cp "$STUBLOG" "$O/$n.stub"
+    cat "$STUBLOG" >>"$O/stub-all.log"
+    check "$n: stub yolo calls" "$want" "$(cat "$O/$n.stub")"
+    check "$n: stub yolo call count" "$([ -n "$want" ] && echo 1 || echo 0)" "$(wc -l <"$O/$n.stub" | tr -d ' ')"
+    check "$n: hook exit" 0 "$(cat "$O/$n.exit" 2>/dev/null)"
+    check "$n: hook stdout is empty" "" "$(cat "$O/$n.stdout")"
+    check "$n: toast withdrawn" 0 "$gone"
+  }
+  action() { if [ "$DAEMON" = swaync ]; then swaync-client --action "$1"; else makoctl invoke "$2"; fi; }
+  dismiss() { if [ "$DAEMON" = swaync ]; then swaync-client --close-latest; else makoctl dismiss; fi; }
+  invoked() { rg -c 'member=ActionInvoked' "$O/$1.dbus" || true; }
+  [ "$DAEMON" != mako ] || pointer_client --build || exit 1
+
+  echo "== candidate: Allow once"
+  cstep c_once "yolo approve $RID" 900 action 0 once
+  # What the candidate actually put on the bus, as the daemon received it.
+  rg -A40 'member=Notify$' "$O/c_once.dbus" | sed -n '1,/^method return\|^signal\|^method call.*member=[^N]/p' >"$O/notify-call.txt"
+  check "Notify: offered action keys" "once 15m deny" "$(rg -o 'string "(once|15m|deny|hour|default)"' "$O/notify-call.txt" | sed -E 's/string "(.*)"/\1/' | tr '\n' ' ' | sed 's/ $//')"
+  check "Notify: default action entries" "" "$(rg -c 'string "default"' "$O/notify-call.txt" || true)"
+  check "Notify: expire timeout" "int32 0" "$(rg -o 'int32 -?[0-9]+' "$O/notify-call.txt" | tail -1)"
+  check "c_once: ActionInvoked signals" 1 "$(invoked c_once)"
+  echo "== candidate: Allow for 15 minutes"
+  cstep c_15m "yolo approve $RID --for 15m" 900 action 1 15m
+  echo "== candidate: Deny button"
+  cstep c_deny "yolo approve $RID --deny" 900 action 2 deny
+  echo "== candidate: user dismissal (reason 2)"
+  cstep c_dismiss "yolo approve $RID --deny" 900 dismiss
+  check "c_dismiss: close reason" 2 "$(closed_reason "$O/c_dismiss.dbus")"
+  check "c_dismiss: ActionInvoked signals" "" "$(invoked c_dismiss)"
+  if [ "$DAEMON" = mako ]; then
+    echo "== candidate: real pointer press on the body"
+    cstep c_body "yolo approve $RID --deny" 900 bodyclick c_body
+    check "c_body: close reason" 2 "$(closed_reason "$O/c_body.dbus")"
+    check "c_body: ActionInvoked signals" "" "$(invoked c_body)"
+  else
+    echo "SKIP c_body: no working pointer control exists for swaync in this stack; its body click is unmeasured" >>"$R"
+  fi
+  echo "== candidate: SIGINT (how yolo stops a hook)"
+  cstep c_sigint "" 900 sig INT
+  check "c_sigint: ActionInvoked signals" "" "$(invoked c_sigint)"
+  echo "== candidate: SIGTERM"
+  cstep c_sigterm "" 900 sig TERM
+  echo "== candidate: request expiry"
+  cstep c_expiry "" 8 true
+  check "c_expiry: ActionInvoked signals" "" "$(invoked c_expiry)"
+
+  echo "== candidate: refused inputs post nothing"
+  : >"$STUBLOG"
+  jq -c '{schema:1,event:"request-filed",source:.request.source,time:.request.filed,summary:"",request:.request}' \
+    "$FIXTURE" >"$O/c_stale.event.json" # the fixture's own, long-expired request, not re-timed
+  : >"$O/c_empty.event.json"
+  for n in c_stale c_empty; do
+    rm -f "$O/$n.exit"
+    mon_start "$n" || exit 1
+    crun "$n" "$O/$n.event.json"
+    await_exit "$n"
+    gdbus call --session -d org.freedesktop.Notifications -o /org/freedesktop/Notifications \
+      -m org.freedesktop.Notifications.GetServerInformation >/dev/null 2>&1
+    mon_stop
+    check "$n: hook exit" 1 "$(cat "$O/$n.exit")"
+    check "$n: Notify calls" "" "$(rg -c 'member=Notify$' "$O/$n.dbus" || true)"
+    check "$n: stub yolo calls" "" "$(cat "$STUBLOG")"
+    echo "$n stderr: $(cat "$O/$n.stderr")" >>"$R"
+  done
+  {
+    echo "stub yolo totals over the whole run (a logging-only stub: nothing was approved or denied):"
+    sort "$O/stub-all.log" | uniq -c
+  } >>"$R"
+  echo "failures=$FAILS" >>"$R"
+  echo done >"$O/DONE"
+  [ "$FAILS" = 0 ] || { echo "candidate lifecycle: $FAILS failed; see $R" >&2; exit 1; }
+  exit 0
+fi
+
 if [ "$MODE" != all ]; then
   pointer_client --build || exit 1
   echo "== real virtual-pointer $MODE: $DAEMON"
@@ -250,7 +397,7 @@ if [ "$MODE" != all ]; then
   if [ "$MODE" = --pointer-only ]; then
     if rg -q 'member=ActionInvoked' "$O/pointer.dbus" || [ -s "$O/pointer.stdout" ] ||
       [ "$(cat "$O/pointer.exit")" != 0 ] ||
-      ! { rg -A2 'member=NotificationClosed' "$O/pointer.dbus" | rg -q 'uint32 2'; }; then
+      [ "$(closed_reason "$O/pointer.dbus")" != 2 ]; then
       echo "unexpected pointer outcome; inspect $O/pointer.dbus before updating the measured finding" >&2
       exit 1
     fi

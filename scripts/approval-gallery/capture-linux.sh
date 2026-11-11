@@ -10,6 +10,7 @@
 # usage: capture-linux.sh --hook <on_request script> --fixtures <dir> --out <dir>
 #                         [--daemon swaync|mako] [--hook-source <source identity>]
 #                         [--renderer <label>] [--run-dir <durable sockets dir>] [--lifecycle]
+#                         [--stdin-event] [--image-subdir <dir under out>] [--preflight]
 # Or use --reference-baseline instead of --hook: reconstructs the PUBLIC documented call.
 #
 # <out> receives <fixture-id>.png (mako/<fixture-id>.png for mako) and manifest.json (paths in the manifest are
@@ -17,12 +18,22 @@
 # macOS manifest). With --lifecycle, also runs measure-lifecycle.sh for swaync
 # and mako into <run-dir>/lifecycle-raw (raw evidence for FINDINGS).
 #
+# --stdin-event is the candidate interface: the hook gets no YOLO_REQUEST_* environment.
+# It reads request-event.sh's schema-1 request-filed JSON on stdin and the stub as an
+# absolute YOLO_BIN, only for fixtures that are a new pending request; the rest are listed
+# in <image dir>/skips.txt. It is stopped with SIGINT, which must withdraw the toast.
+#
+# The manifest keys entries by renderer, but an image is a path: a renderer may not write
+# into a directory whose images the manifest gives to another renderer. --image-subdir puts
+# a new renderer's images in <out>/<dir>; --preflight runs only these argument checks and
+# creates nothing.
+#
 # The hook runs with a stub `yolo` first on PATH that only logs its arguments
 # to <run-dir>/work/stub-yolo.log; a real `yolo approve` is never run. Dependencies
 # come from nixpkgs via `nix shell` if they are not already on PATH.
 set -eu
 
-HOOK="" FIXTURES="" OUT="" RUN="" LIFECYCLE=0 DAEMON=swaync REFERENCE=0 RENDERER=""
+HOOK="" FIXTURES="" OUT="" RUN="" LIFECYCLE=0 DAEMON=swaync REFERENCE=0 RENDERER="" STDIN_EVENT=0 SUBDIR="" PREFLIGHT=0
 SOURCE="operator-supplied hook (identity unspecified)"
 while [ $# -gt 0 ]; do
   case $1 in
@@ -35,6 +46,9 @@ while [ $# -gt 0 ]; do
     --out) OUT=$2; shift 2 ;;
     --run-dir) RUN=$2; shift 2 ;;
     --lifecycle) LIFECYCLE=1; shift ;;
+    --stdin-event) STDIN_EVENT=1; shift ;;
+    --image-subdir) SUBDIR=$2; shift 2 ;;
+    --preflight) PREFLIGHT=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -43,11 +57,58 @@ if { [ -z "$HOOK" ] && [ "$REFERENCE" = 0 ]; } || [ -z "$FIXTURES" ] || [ -z "$O
   echo "usage: $0 --hook <script> --fixtures <dir> --out <dir> [--daemon swaync|mako] [--hook-source <identity>] [--renderer <label>] [--run-dir <dir>] [--lifecycle]; or use --reference-baseline instead of --hook" >&2
   exit 2
 fi
+# Every refusal below happens before a directory or file exists.
+if [ "$REFERENCE" = 1 ] && [ -n "$HOOK" ] && [ -z "${AGAL_INNER:-}" ]; then
+  echo "choose --hook or --reference-baseline, not both" >&2; exit 2
+fi
+if [ "$REFERENCE" = 1 ] && [ -z "${AGAL_INNER:-}" ] && { [ "$STDIN_EVENT" = 1 ] || [ -n "$SUBDIR" ]; }; then
+  echo "--stdin-event and --image-subdir describe a --hook under test, not --reference-baseline" >&2; exit 2
+fi
+case $SUBDIR in /* | *..*) echo "--image-subdir takes a relative directory under --out, got: $SUBDIR" >&2; exit 2 ;; esac
+if [ "$STDIN_EVENT" = 1 ] && { [ -z "$SUBDIR" ] || [ -z "$RENDERER" ]; }; then
+  # A candidate never shares an image path with a baseline, nor borrows its renderer label.
+  echo "--stdin-event needs its own --renderer <label> and --image-subdir <relative directory under --out>, distinct from the baseline images" >&2; exit 2
+fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ -z "$HOOK" ] || HOOK=$(realpath "$HOOK")
 FIXTURES=$(realpath "$FIXTURES")
+OUT=$(realpath -m "$OUT")
+if [ -z "$RENDERER" ]; then
+  if [ "$REFERENCE" = 1 ]; then RENDERER="public reference baseline: documented notify-send call to $DAEMON";
+  else RENDERER="operator-supplied hook to $DAEMON"; fi
+fi
+IMAGEOUT=$OUT
+[ "$DAEMON" != mako ] || IMAGEOUT=$OUT/mako
+RELDIR=$(basename "$OUT")
+[ "$DAEMON" != mako ] || RELDIR=$RELDIR/mako
+if [ -n "$SUBDIR" ]; then IMAGEOUT=$OUT/$SUBDIR RELDIR=$(basename "$OUT")/$SUBDIR; fi
+# The images this run writes are captures/$RELDIR/<id>.png. If the manifest already gives
+# any of those to another renderer, this run would replace that renderer's pixels while its
+# entries, and their provenance, stayed.
+refuse_foreign_images() {
+  [ -f "$OUT/manifest.json" ] || return 0
+  owner=$(jq -r --arg dir "captures/$RELDIR/" --arg renderer "$RENDERER" '
+    [.captures[][] | select(.renderer != $renderer) | select(.file | startswith($dir))
+     | select((.file | ltrimstr($dir)) | contains("/") | not) | .renderer] | unique | join("; ")' "$OUT/manifest.json") || return 1
+  [ -z "$owner" ] || {
+    echo "captures/$RELDIR/ holds the images of another renderer ($owner); writing \"$RENDERER\" there would overwrite them and leave their provenance claiming the new pixels. Give this renderer its own directory: --image-subdir <name>" >&2
+    return 1
+  }
+}
+if command -v jq >/dev/null 2>&1; then refuse_foreign_images || exit 2; fi
+# sway and the daemon put sockets under <run-dir>/work/xdg; a unix socket path holds 107 bytes.
+SOCKTAIL=/work/xdg/sway-ipc.4294967295.4194304.sock
+if [ -z "$RUN" ]; then RUNLEN=$(realpath -m "${YOLO_DURABLE_DIR:-$PWD/.yolo/durable}/agal.XXXXXX"); else RUNLEN=$(realpath -m "$RUN"); fi
+if [ $((${#RUNLEN} + ${#SOCKTAIL})) -gt 107 ]; then
+  echo "the run directory $RUNLEN is too long for the sockets sway creates under it (limit 107 bytes with $SOCKTAIL); pass a shorter one: --run-dir <short durable directory>" >&2
+  exit 2
+fi
+if [ "$PREFLIGHT" = 1 ]; then
+  command -v jq >/dev/null 2>&1 || { echo "--preflight needs jq on PATH to read $OUT/manifest.json; run it inside: nix shell nixpkgs#jq" >&2; exit 2; }
+  echo "preflight ok: \"$RENDERER\" writes captures/$RELDIR/<id>.png"
+  exit 0
+fi
 mkdir -p "$OUT"
-OUT=$(realpath "$OUT")
 if [ -z "$RUN" ]; then
   mkdir -p "${YOLO_DURABLE_DIR:-$PWD/.yolo/durable}"
   RUN=$(mktemp -d "${YOLO_DURABLE_DIR:-$PWD/.yolo/durable}/agal.XXXXXX")
@@ -56,7 +117,6 @@ mkdir -p "$RUN"
 RUN=$(realpath "$RUN")
 
 if [ "$REFERENCE" = 1 ]; then
-  [ -z "$HOOK" ] || { echo "choose --hook or --reference-baseline, not both" >&2; exit 2; }
   HOOK=$RUN/reference-hook.sh
   cat >"$HOOK" <<'EOH'
 #!/bin/sh
@@ -64,11 +124,6 @@ if [ "$REFERENCE" = 1 ]; then
 notify-send -u critical -a yolo -A once="Allow once" -A hour="Allow 1h" -A deny=Deny \
   "yolo: $YOLO_REQUEST_HEADLINE" "${YOLO_REQUEST_DESCRIPTION_MARKUP:-$YOLO_REQUEST_DESCRIPTION}"
 EOH
-fi
-
-if [ -z "$RENDERER" ]; then
-  if [ "$REFERENCE" = 1 ]; then RENDERER="public reference baseline: documented notify-send call to $DAEMON";
-  else RENDERER="operator-supplied hook to $DAEMON"; fi
 fi
 
 # Re-exec once inside a private session bus, with the tools on PATH.
@@ -79,7 +134,9 @@ if [ -z "${AGAL_INNER:-}" ]; then
   done
   args=("$0" --hook "$HOOK" --hook-source "$SOURCE" --renderer "$RENDERER" --daemon "$DAEMON" --fixtures "$FIXTURES" --out "$OUT" --run-dir "$RUN")
   [ "$LIFECYCLE" = 1 ] && args+=(--lifecycle)
-  export AGAL_INNER=1
+  [ "$STDIN_EVENT" = 1 ] && args+=(--stdin-event)
+  [ -n "$SUBDIR" ] && args+=(--image-subdir "$SUBDIR")
+  export AGAL_INNER=1 AGAL_REFERENCE=$REFERENCE # the inner run is handed the generated hook, not the flag
   if [ -n "$need" ]; then
     exec nix shell nixpkgs#sway nixpkgs#swaynotificationcenter nixpkgs#mako nixpkgs#grim \
       nixpkgs#libnotify nixpkgs#dbus nixpkgs#jq nixpkgs#imagemagick nixpkgs#wlrctl \
@@ -90,11 +147,8 @@ if [ -z "${AGAL_INNER:-}" ]; then
   exec dbus-run-session --config-file="$conf" -- "${args[@]}"
 fi
 
-IMAGEOUT=$OUT
-[ "$DAEMON" != mako ] || IMAGEOUT=$OUT/mako
+refuse_foreign_images || exit 2
 mkdir -p "$IMAGEOUT"
-RELDIR=$(basename "$OUT")
-[ "$DAEMON" != mako ] || RELDIR=$RELDIR/mako
 
 W=$RUN/work
 rm -rf "$W"
@@ -150,8 +204,11 @@ SWAYNC_STORE=$(dirname "$(dirname "$(readlink -f "$(command -v "$DAEMON")")")")
 SWAYNC_VER=$(basename "$SWAYNC_STORE" | sed 's/^[a-z0-9]*-//')
 SWAY_VER=$(sway --version | head -1 || true)
 NS_VER=$(notify-send --version | head -1 || true)
+[ "$STDIN_EVENT" = 0 ] || NS_VER="not used: the hook under test speaks D-Bus itself"
 GTK_VER=$(nix-store -qR "$SWAYNC_STORE" 2>/dev/null | sed -n 's#.*/[a-z0-9]*-\(gtk4-[0-9.]*\)$#\1#p' | head -1 || true)
 FONT=$(fc-match -s sans 2>/dev/null | head -1 || true)
+# mako draws with its own default, "monospace 10", not the sans the GTK daemon resolves.
+[ "$DAEMON" != mako ] || FONT="mako default font \"monospace 10\" resolves to: $(fc-match monospace 2>/dev/null | head -1 || echo unknown)"
 [ -n "$FONT" ] || FONT="fontconfig default sans (nix: $(nix-store -qR "$SWAYNC_STORE" 2>/dev/null | sed -n 's#.*/[a-z0-9]*-\(dejavu-fonts[a-z-]*-[0-9.]*\)$#\1#p' | head -1))"
 CAPTURED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 {
@@ -160,7 +217,8 @@ CAPTURED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "hook source: $SOURCE"
   echo "fixture commit: $COMMIT"
   echo "grim: $(readlink -f "$(command -v grim)")"
-  echo "notify-send: $(readlink -f "$(command -v notify-send)")"
+  [ "$STDIN_EVENT" = 1 ] || echo "notify-send: $(readlink -f "$(command -v notify-send)")"
+  [ "$STDIN_EVENT" = 0 ] || echo "hook input: schema-1 request-filed JSON on stdin (request-event.sh); YOLO_BIN is a logging-only stub"
   echo "font: $FONT"
   echo "gtk: ${GTK_VER:-unknown}"
 } >"$IMAGEOUT/tools.txt"
@@ -168,14 +226,22 @@ CAPTURED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 FAILED=""
 ENTRIES=$W/entries.jsonl
 : >"$ENTRIES"
+[ "$STDIN_EVENT" = 0 ] || : >"$IMAGEOUT/skips.txt"
 for f in "$FIXTURES"/*.json; do
+  if [ "$STDIN_EVENT" = 1 ]; then
+    # Every fixture is either rendered or listed with its reason; none is fed as a pending request it is not.
+    eid=$(jq -r .id "$f")
+    if ! "$HERE/request-event.sh" "$f" >"$W/$eid.event.json" 2>>"$IMAGEOUT/skips.txt"; then echo "skip (not a new pending request): $eid"; continue; fi
+  fi
   jq -e '.hook_env | type == "object"' "$f" >/dev/null 2>&1 || { echo "skip (no hook_env): $f"; continue; }
   # A request whose hook could not show anything has no toast to capture.
   if jq -e '(.request.hook_failure // "") != ""' "$f" >/dev/null 2>&1; then echo "skip (the hook showed nothing): $f"; continue; fi
   state=$(jq -r .state "$f")
-  note="Native headless sway with $DAEMON test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence."
+  note="Native headless sway with $DAEMON test config/default theme; public reference or supplied hook, not the owner's desktop pixels."
+  [ "${AGAL_REFERENCE:-0}" = 0 ] || note="$note Baseline only, not production notifier repair evidence."
   [ "$state" = pending ] || note="$note Shows the toast as filed; the $state outcome is not something a toast renders."
   id=$(jq -r .id "$f")
+  [ "$STDIN_EVENT" = 0 ] || note="Native headless sway with $DAEMON test config/default theme, not the owner's desktop pixels. The hook read a fixture-derived request-filed event on stdin and had a logging-only stub as YOLO_BIN: no request was filed or decided."
   echo "== $id"
   png=$IMAGEOUT/$id.png
   full=$W/$id.full.png
@@ -185,9 +251,14 @@ for f in "$FIXTURES"/*.json; do
   (
     args=(HOME="$W/home" PATH="$W/stub:$PATH" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
       WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR")
-    for k in $(jq -r '.hook_env | keys[] | select(startswith("YOLO_REQUEST_"))' "$f"); do
-      args+=("$k=$(jq -j --arg k "$k" '.hook_env[$k]' "$f")")
-    done
+    if [ "$STDIN_EVENT" = 1 ]; then
+      args+=(YOLO_BIN="$W/stub/yolo")
+      exec <"$W/$id.event.json"
+    else
+      for k in $(jq -r '.hook_env | keys[] | select(startswith("YOLO_REQUEST_"))' "$f"); do
+        args+=("$k=$(jq -j --arg k "$k" '.hook_env[$k]' "$f")")
+      done
+    fi
     mkdir -p "$W/home"
     if [ -x "$HOOK" ]; then exec env -i "${args[@]}" "$HOOK"; else exec env -i "${args[@]}" sh "$HOOK"; fi
   ) >"$W/$id.hook.out" 2>&1 &
@@ -217,11 +288,32 @@ for f in "$FIXTURES"/*.json; do
   # Crop to the toast: the background is solid black, so trim to the non-black box.
   magick "$full" -fuzz 1% -trim +repage -bordercolor black -border 10 "$png"
   optipng -quiet "$png" 2>/dev/null || true
+  if [ "$STDIN_EVENT" = 1 ]; then
+    # A user dismissal is an answer for this interface, so stop the hook the way yolo does.
+    # It must exit 0 and take its toast with it; the wait is on those events, the count a hang guard.
+    kill -INT "$HP" 2>/dev/null || true
+    rc=0
+    wait "$HP" 2>/dev/null || rc=$?
+    gone=""
+    for _ in $(seq 240); do
+      shot "$W/$id.after.png"
+      if [ "$(mean "$W/$id.after.png")" = 0 ]; then gone=1; break; fi
+      sleep 0.25
+    done
+    if [ "$rc" != 0 ] || [ -z "$gone" ]; then
+      echo "  FAILED: SIGINT did not withdraw the toast cleanly (exit $rc, gone=${gone:-0}); see $W/$id.hook.out" >&2
+      FAILED="$FAILED $id"
+      rm -f "$png"
+      if [ "$DAEMON" = swaync ]; then swaync-client -C >/dev/null 2>&1; else makoctl dismiss -a >/dev/null 2>&1; fi
+      continue
+    fi
+  else
   # Dismiss like a user would (close-latest): notify-send prints nothing, the hook answers nothing.
   if [ "$DAEMON" = swaync ]; then swaync-client --close-latest >/dev/null 2>&1; else makoctl dismiss >/dev/null 2>&1; fi
   for _ in $(seq 40); do kill -0 "$HP" 2>/dev/null || break; sleep 0.25; done
   if kill -0 "$HP" 2>/dev/null; then kill -INT "$HP" 2>/dev/null || true; fi
   wait "$HP" 2>/dev/null || true
+  fi
   jq -cn --arg id "$id" --arg os "$OSSTR" --arg dv "$SWAYNC_VER" \
     --arg theme "$DAEMON default theme (${GTK_VER:-no GTK}; no gsettings theme set)" \
     --arg at "$CAPTURED" --arg commit "$COMMIT" --arg comp "sway" --arg cv "$SWAY_VER" \
@@ -238,6 +330,12 @@ for f in "$FIXTURES"/*.json; do
         daemon_config:$config,hook_source:$source}}}' >>"$ENTRIES"
 done
 
+# Checked before the manifest is touched: a run that answered anything records no capture.
+if [ -s "$STUBLOG" ]; then
+  echo "FAILED: the hook ran yolo during a capture (nothing presses a button here); the manifest is unchanged. Inspect $W/*.hook.out, then re-run:" >&2
+  cat "$STUBLOG" >&2
+  exit 1
+fi
 if [ -f "$OUT/manifest.json" ]; then cp "$OUT/manifest.json" "$W/previous.json";
 else echo '{"schema":1,"platform":"linux","captures":{}}' >"$W/previous.json"; fi
 # Replace this renderer's entire run, preserving other daemons/baselines.
@@ -247,11 +345,6 @@ jq -s --arg renderer "$RENDERER" --slurpfile previous "$W/previous.json" '
       ($previous[0].captures | with_entries(.value |= map(select(.renderer != $renderer)))
        | with_entries(select(.value | length > 0)); .[$e.id] += [$e.entry]))}' \
   "$ENTRIES" >"$OUT/manifest.json"
-if [ -s "$STUBLOG" ]; then
-  echo "FAILED: the hook ran yolo during a capture (nothing presses a button here):" >&2
-  cat "$STUBLOG" >&2
-  exit 1
-fi
 
 if [ "$LIFECYCLE" = 1 ]; then
   kill "$DPID" "$SWAYPID" 2>/dev/null || true

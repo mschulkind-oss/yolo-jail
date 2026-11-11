@@ -1,0 +1,8 @@
+sway: /nix/store/x438l06y03ldc8jx4zix26g96445w09c-sway-1.12/bin/sway
+daemon: /nix/store/x3rxyr3vz2v59lwrpf97ji4n520a9w7r-SwayNotificationCenter-0.12.6
+hook source: yolo internal approval-notify, go build ./cmd/yolo at ff92fabc49abf243dc0b0601689c0bb39eab17c6 (vcs.modified=false); fixture-derived toy request-filed event on stdin, logging-only YOLO_BIN stub; not the owner's hook
+fixture commit: ff92fabc49abf243dc0b0601689c0bb39eab17c6
+grim: /nix/store/pcsy1cp83xdrcnqbyk9951vaj2ad2wky-grim-1.5.0/bin/grim
+hook input: schema-1 request-filed JSON on stdin (request-event.sh); YOLO_BIN is a logging-only stub
+font: DejaVuSans.ttf: "DejaVu Sans" "Book"
+gtk: gtk4-4.22.4

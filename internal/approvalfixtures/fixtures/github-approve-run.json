@@ -112,6 +112,58 @@
       "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence."
     },
     {
+      "platform": "linux",
+      "kind": "native-capture",
+      "renderer": "yolo-approval-notify to mako",
+      "file": "captures/linux/yolo-approval-notify/mako/github-approve-run.png",
+      "tested": "visual",
+      "provenance": {
+        "captured_at": "2026-11-11T05:45:15Z",
+        "commit": "ff92fabc49abf243dc0b0601689c0bb39eab17c6",
+        "compositor": "sway",
+        "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+        "compositor_version": "sway version 1.12",
+        "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+        "daemon": "mako",
+        "daemon_config": "default-timeout=0",
+        "daemon_version": "mako-1.11.0",
+        "fonts": "mako default font \"monospace 10\" resolves to: DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+        "hook_source": "yolo internal approval-notify, go build ./cmd/yolo at ff92fabc49abf243dc0b0601689c0bb39eab17c6 (vcs.modified=false); fixture-derived toy request-filed event on stdin, logging-only YOLO_BIN stub; not the owner's hook",
+        "libnotify_version": "not used: the hook under test speaks D-Bus itself",
+        "os": "Linux userland in a container",
+        "resolution": "1280x800",
+        "scale": "1",
+        "theme": "mako default theme (no GTK; no gsettings theme set)"
+      },
+      "note": "Native headless sway with mako test config/default theme, not the owner's desktop pixels. The hook read a fixture-derived request-filed event on stdin and had a logging-only stub as YOLO_BIN: no request was filed or decided."
+    },
+    {
+      "platform": "linux",
+      "kind": "native-capture",
+      "renderer": "yolo-approval-notify to swaync",
+      "file": "captures/linux/yolo-approval-notify/swaync/github-approve-run.png",
+      "tested": "visual",
+      "provenance": {
+        "captured_at": "2026-11-11T05:45:28Z",
+        "commit": "ff92fabc49abf243dc0b0601689c0bb39eab17c6",
+        "compositor": "sway",
+        "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+        "compositor_version": "sway version 1.12",
+        "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+        "daemon": "swaync",
+        "daemon_config": "{\"timeout\": 3}",
+        "daemon_version": "SwayNotificationCenter-0.12.6",
+        "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+        "hook_source": "yolo internal approval-notify, go build ./cmd/yolo at ff92fabc49abf243dc0b0601689c0bb39eab17c6 (vcs.modified=false); fixture-derived toy request-filed event on stdin, logging-only YOLO_BIN stub; not the owner's hook",
+        "libnotify_version": "not used: the hook under test speaks D-Bus itself",
+        "os": "Linux userland in a container",
+        "resolution": "1280x800",
+        "scale": "1",
+        "theme": "swaync default theme (gtk4-4.22.4; no gsettings theme set)"
+      },
+      "note": "Native headless sway with swaync test config/default theme, not the owner's desktop pixels. The hook read a fixture-derived request-filed event on stdin and had a logging-only stub as YOLO_BIN: no request was filed or decided."
+    },
+    {
       "platform": "macos",
       "kind": "missing",
       "renderer": "terminal-notifier 3",
