@@ -112,6 +112,24 @@ done
 out=$(pre --stdin-event --hook "$T/stub-yolo" --renderer "some candidate" --image-subdir mako)
 rc=$?
 if [ "$rc" = 2 ] && unchanged; then ok "--image-subdir may not name a baseline's directory either"; else bad "--image-subdir mako was accepted (exit $rc): $out"; fi
+# A spelling that names a baseline's directory is that directory: the guard compares the canonical path.
+for spelling in mako/ ./mako mako// .; do
+  out=$(pre --stdin-event --hook "$T/stub-yolo" --renderer "some candidate" --image-subdir "$spelling")
+  rc=$?
+  if [ "$rc" = 2 ] && unchanged; then ok "--image-subdir '$spelling' is refused as the baseline directory it names"; else bad "--image-subdir '$spelling' was accepted (exit $rc): $out"; fi
+done
+# A symlink inside the output directory that names a baseline's directory is the same directory.
+ln -s mako "$T/g/linux/alias"
+out=$(pre --stdin-event --hook "$T/stub-yolo" --renderer "some candidate" --image-subdir alias)
+rc=$?
+rm -f "$T/g/linux/alias"
+if [ "$rc" = 2 ] && unchanged; then ok "--image-subdir naming a symlink to a baseline directory is refused"; else bad "--image-subdir through a symlink to a baseline was accepted (exit $rc): $out"; fi
+# A symlink inside the output directory that leads out of it names a directory this run does not own.
+mkdir -p "$T/elsewhere" && ln -s "$T/elsewhere" "$T/g/linux/escape"
+out=$(pre --stdin-event --hook "$T/stub-yolo" --renderer "some candidate" --image-subdir escape)
+rc=$?
+rm -f "$T/g/linux/escape"
+if [ "$rc" = 2 ] && unchanged; then ok "--image-subdir through a symlink out of --out is refused"; else bad "--image-subdir escape was accepted (exit $rc): $out"; fi
 out=$(pre --stdin-event --hook "$T/stub-yolo" --renderer "some candidate" --image-subdir some-candidate/mako --daemon mako)
 rc=$?
 if [ "$rc" = 0 ] && unchanged; then ok "a candidate in its own image directory passes preflight and writes nothing"; else bad "a namespaced candidate was refused (exit $rc): $out"; fi

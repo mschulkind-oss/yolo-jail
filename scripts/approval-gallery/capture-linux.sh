@@ -81,7 +81,12 @@ IMAGEOUT=$OUT
 [ "$DAEMON" != mako ] || IMAGEOUT=$OUT/mako
 RELDIR=$(basename "$OUT")
 [ "$DAEMON" != mako ] || RELDIR=$RELDIR/mako
-if [ -n "$SUBDIR" ]; then IMAGEOUT=$OUT/$SUBDIR RELDIR=$(basename "$OUT")/$SUBDIR; fi
+if [ -n "$SUBDIR" ]; then
+  # Canonical relative to the resolved OUT, so every spelling and symlink of one directory is one path to the collision guard.
+  CANON=$(realpath -m --relative-to="$OUT" "$OUT/$SUBDIR")
+  case $CANON in .|..|../*) echo "--image-subdir $SUBDIR must name a directory below --out, not --out itself or a path outside it (it resolves to $CANON)" >&2; exit 2 ;; esac
+  SUBDIR=$CANON IMAGEOUT=$OUT/$CANON RELDIR=$(basename "$OUT")/$CANON
+fi
 # The images this run writes are captures/$RELDIR/<id>.png. If the manifest already gives
 # any of those to another renderer, this run would replace that renderer's pixels while its
 # entries, and their provenance, stayed.
