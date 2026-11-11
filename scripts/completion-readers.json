@@ -4829,6 +4829,7 @@
 "docs/reference/disk-footprint.md",
 "docs/reference/extension-point-principle.md",
 "docs/reference/gate-placement-principle.md",
+"docs/reference/git-broker.md",
 "docs/reference/git-identity.md",
 "docs/reference/happy-path-principle.md",
 "docs/reference/host-agent-environment.md",
@@ -9826,6 +9827,7 @@
 "TestTheNextStartCollectsARunDirADeadOwnerLeft": 38
 },
 "internal/gitbroker": {
+"TestARefusedRequestsLogLineNamesTheAuditCommand": 77,
 "TestATagAndANewBranchTakeATimedAnswer": 77,
 "TestAllowOnceCreationJoinsTheWorkingSet": 77,
 "TestAllowOnceSpendsOnlyOnItsExactPush": 77,

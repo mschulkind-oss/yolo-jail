@@ -935,6 +935,29 @@ expensive with every change to `internal/ghbroker`; land it first.
 - **Don't add a TLS-skip or a test-only env hatch** to the shipped binary; tests use an unexported
   seam. A hatch would be a second path around the scope's own trust.
 
+## Mac checks
+
+**W-GB1 — rootless Podman Git-stream round trip, at main `520b739e5db1` or later.** The nightly
+failure at [42833734953, shard 5](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42833734953/job/129892741730)
+was in `TestGitBrokerConfigBranch`: its second workspace's granted `git fetch` reported `fatal: bad
+object` although the host broker logged `git-upload-pack` exit 0 and 531 bytes out. Linux cannot settle
+the Mac Podman VM's jail-to-host stream.
+
+1. On the owner's Mac, use the rootless Podman machine used for the podman integration checks. Record
+   `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`; it must say
+   `true pasta` (or record the actual recognized rootless network command).
+2. From a clean yolo-jail checkout at main `520b739e5db1` or later, preserve the normal HOME and Go
+   caches and run:
+   `YOLO_RUNTIME=podman go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration`
+3. All five executions must pass. The no-grant fixture must fetch successfully, then refuse only the
+   push to `main`; there must be no `fatal: bad object` or `did not send all necessary objects`.
+4. If any execution fails, retain the full Go output. The test failure now also prints the fixture's
+   upstream object id, `git fsck` result, fake-ssh argv, host broker log and the git-broker crossing
+   byte counts. Report those together with the command and recorded Podman network mode.
+
+This witness distinguishes a damaged bare fixture from a missing/corrupted jail↔host response and
+settles whether the nightly's Mac-only transfer failure is reproducible on the current main tree.
+
 ## Blockers
 
 None. Every ruling the design rests on is in its [ledger](git-broker.md#12-decision-ledger) and
