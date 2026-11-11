@@ -25,6 +25,75 @@ func secretFixture(t *testing.T, body string) testconfig.Fixture {
 	return user
 }
 
+func TestConfigUnsetRemovesOnlyOnePrivateInlineCredential(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { AWS_ACCESS_KEY_ID = \"key-probe\", OTHER_KEY = \"keep-probe\" }\n")
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"unset", "env.secrets.set.AWS_ACCESS_KEY_ID", "--user"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the private-value remedy failed: rc %d:\n%s\n%s", rc, out.String(), errw.String())
+	}
+	got, err := os.ReadFile(user.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := configdoc.Parse(got, configdoc.TOML)
+	if err != nil {
+		t.Fatalf("the edited config parses: %v\n%s", err, got)
+	}
+	_, removed, _ := doc.Index.Value(configdoc.Step{Key: "env"}, configdoc.Step{Key: "secrets"}, configdoc.Step{Key: "set"}, configdoc.Step{Key: "AWS_ACCESS_KEY_ID"})
+	_, kept, _ := doc.Index.Value(configdoc.Step{Key: "env"}, configdoc.Step{Key: "secrets"}, configdoc.Step{Key: "set"}, configdoc.Step{Key: "OTHER_KEY"})
+	if removed || !kept || !strings.Contains(string(got), "OTHER_KEY") {
+		t.Errorf("the command must remove only the named private entry and keep unrelated credentials:\n%s", got)
+	}
+	if strings.Contains(out.String()+errw.String(), "key-probe") || strings.Contains(out.String()+errw.String(), "keep-probe") {
+		t.Errorf("the config edit printed a credential value:\n%s\n%s", out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "AWS_ACCESS_KEY_ID") || !strings.Contains(out.String(), `"<redacted>"`) || !strings.Contains(out.String(), "Written.") {
+		t.Errorf("the redacted diff must preserve the variable name and truthful write disclosure:\n%s", out.String())
+	}
+}
+
+func TestConfigEditDoesNotPrintPrivateInlineValuesFromDiffContext(t *testing.T) {
+	user := secretFixture(t, "env = { secrets = { set = { AWS_ACCESS_KEY_ID = \"private-context-probe\" } }, set = { LOG_LEVEL = \"info\" } }\n")
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env.set.LOG_LEVEL", "debug", "--user"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the unrelated public edit failed: rc %d:\n%s\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), "private-context-probe") {
+		t.Errorf("an unrelated public setting's diff exposed a private inline value:\n%s\n%s", out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `"debug"`) || !strings.Contains(out.String(), "Written.") {
+		t.Errorf("the ordinary public diff or its write disclosure disappeared:\n%s", out.String())
+	}
+	got, err := os.ReadFile(user.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "private-context-probe") {
+		t.Errorf("the public edit changed the private value instead of only redacting its disclosure:\n%s", got)
+	}
+}
+
+func TestConfigSetDoesNotPrintPrivateInlineValues(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { OTHER_KEY = \"keep-probe\" }\n")
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env.secrets.set.AWS_ACCESS_KEY_ID", "\"new-key-probe\"", "--user"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the private set edit failed: rc %d:\n%s\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), "new-key-probe") || strings.Contains(out.String()+errw.String(), "keep-probe") {
+		t.Errorf("the config diff printed a private value:\n%s\n%s", out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `"<redacted>"`) || !strings.Contains(out.String(), "Written.") {
+		t.Errorf("the private set diff must be redacted without hiding write completion:\n%s", out.String())
+	}
+	got, err := os.ReadFile(user.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "new-key-probe") || !strings.Contains(string(got), "keep-probe") {
+		t.Errorf("the edit did not persist both private values:\n%s", got)
+	}
+}
+
 func TestConfigSecretMovesOneDotenvLineToThePrivateFile(t *testing.T) {
 	user := secretFixture(t, "[env]\nfiles = [\"defaults.env\"]\n\n[env.secrets]\nfiles = [\"secrets.env\"]\n")
 	dir := filepath.Dir(user.Path)

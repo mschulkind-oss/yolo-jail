@@ -50,7 +50,7 @@ func TestSectionPacksReadsTheCompositionsWinner(t *testing.T) {
 	assigned := jsonx.NewOrderedMap()
 	assigned.Set(widgetToken, "es-token")
 	if failed, out := predict(assigned); failed == 0 ||
-		!strings.Contains(out, widgetToken+" is delivered by "+packload.FromEnvSources) {
+		!strings.Contains(out, widgetToken+" is delivered by "+packload.FromLegacyEnvSources) {
 		t.Errorf("env_sources beats the pack env, so the prediction must name it (failed=%d):\n%s", failed, out)
 	}
 	// A null removes the pack's token from every process, so nothing overrides the pointer.
@@ -79,7 +79,7 @@ func TestThePredictionNamesTheWinnerTheShadowLineNames(t *testing.T) {
 	r := &reporter{w: &buf}
 	(&Options{Workspace: ws, Getenv: func(string) string { return "" }}).sectionPacks(r, merged)
 	out := buf.String()
-	if !strings.Contains(out, widgetToken+" is delivered by "+packload.FromEnvSources) {
+	if !strings.Contains(out, widgetToken+" is delivered by "+packload.FromLegacyEnvSources) {
 		t.Errorf("the prediction must name env_sources, the source that wins WIDGET_TOKEN:\n%s", out)
 	}
 	if strings.Contains(out, "Shadowed") {
@@ -94,7 +94,7 @@ func TestThePredictionNamesTheWinnerTheShadowLineNames(t *testing.T) {
 		}
 		packs = append(packs, p)
 	}
-	scope := overrideScope(packs, merged, packload.ServedDaemons{}, ws, func(string) {},
+	scope, _ := overrideScope(packs, merged, packload.ServedDaemons{}, ws, func(string) {},
 		func() (map[string]packload.UserProfile, error) { return nil, nil })
 	want := "Shadowed " + widgetToken + ": your env_sources value wins over the tokenpack pack's value"
 	if lines := scope.ShadowLines(nil); len(lines) != 1 || lines[0] != want {

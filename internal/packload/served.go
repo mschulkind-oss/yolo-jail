@@ -195,14 +195,12 @@ func LoginLoopholes(packs []*Pack) map[string]LoginLoophole {
 // EmptyProfileStep is the step that keeps a login loophole from serving in one config layer
 // while another names its profile: the setting set to "" there, which wins over the table it
 // layers on, so the service serves nothing and every pointer at it is withheld
-// (UnconfiguredLogins). Both config spellings are named, since the step goes in whichever file
-// the reader means: a JSONC layer's and a TOML file's. It is the remedy a refusal over a
-// credential beside the pointer names, and the one a no-op `enabled: false` names.
+// (UnconfiguredLogins). The `allow` table is user-scope only; use its config command so the
+// named setting is changed without replacing unrelated loophole settings, and the advice works
+// for either TOML or a still-readable legacy config.
 func (l LoginLoophole) EmptyProfileStep() string {
-	return "set " + l.Loophole + "'s " + l.Setting + ` to "" in the config layer that should not ` +
-		`use it (` + "`" + `"loopholes": {"` + l.Loophole + `": {"settings": {"` + l.Setting +
-		`": ""}}}` + "`" + ` in a JSONC file, ` + "`" + l.Setting + ` = "" under [allow.` + l.Loophole +
-		`]` + "`" + ` in a TOML one), so its service serves nothing and its pointer is withheld`
+	return fmt.Sprintf("set %s's %s to an empty string in your user config with `yolo config set allow.%s.%s \"\" --user`, so its service serves nothing and its pointer is withheld",
+		l.Loophole, l.Setting, l.Loophole, l.Setting)
 }
 
 // AtHost returns s marked as the host notch's set (the host field says what that changes).

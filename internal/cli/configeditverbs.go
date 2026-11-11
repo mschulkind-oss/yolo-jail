@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -247,14 +249,15 @@ func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutatio
 		fmt.Fprintf(out, "%s\nNo change; no write.\n", result.Path)
 		return 0
 	}
+	hunks := redactConfigEditHunks(result.Plan.Hunks, target.ExpectedBytes(), target.Format, mutation)
 	if dryRun {
 		fmt.Fprintf(out, "%s\n", result.Path)
-		writeConfigEditHunks(out, result.Plan.Hunks)
+		writeConfigEditHunks(out, hunks)
 		fmt.Fprintln(out, "Dry run; nothing was written.")
 		return 0
 	}
 	fmt.Fprintf(out, "%s\n", result.Path)
-	writeConfigEditHunks(out, result.Plan.Hunks)
+	writeConfigEditHunks(out, hunks)
 	if target.Role == config.ExplicitEditUser {
 		fmt.Fprintln(out, "Written.")
 	} else {
@@ -297,6 +300,139 @@ func writeConfigEditPreexisting(errw io.Writer, result configedit.TargetedResult
 	for _, problem := range result.Preexisting {
 		fmt.Fprintf(errw, "warning: already in your config, and left as it is by this edit: %s\n", problem)
 	}
+}
+
+func redactConfigEditHunks(hunks []configedit.Hunk, before []byte, format configdoc.Format,
+	mutation configedit.Mutation) []configedit.Hunk {
+	values := privateEnvValues(before, format)
+	if privateEnvMutation(mutation.Path) {
+		values = append(values, nestedPrivateEnvMutationValues(mutation.Path, mutation.Value)...)
+	}
+	if len(values) == 0 {
+		return hunks
+	}
+	// Longer spellings first, so a quoted value is replaced as a unit before its raw content.
+	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	out := append([]configedit.Hunk(nil), hunks...)
+	for i := range out {
+		for _, value := range values {
+			if value == "" {
+				continue
+			}
+			out[i].Before = bytes.ReplaceAll(out[i].Before, []byte(value), []byte(`"<redacted>"`))
+			out[i].After = bytes.ReplaceAll(out[i].After, []byte(value), []byte(`"<redacted>"`))
+		}
+	}
+	return out
+}
+
+func privateEnvValues(data []byte, format configdoc.Format) []string {
+	if format != configdoc.TOML {
+		return nil
+	}
+	doc, err := configdoc.Parse(data, format)
+	if err != nil {
+		return nil
+	}
+	envValue, ok := doc.Values.Get("env")
+	if !ok {
+		return nil
+	}
+	env, ok := envValue.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	secretsValue, ok := env.Get("secrets")
+	if !ok {
+		return nil
+	}
+	secrets, ok := secretsValue.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	setValue, ok := secrets.Get("set")
+	if !ok {
+		return nil
+	}
+	set, ok := setValue.(*jsonx.OrderedMap)
+	if !ok {
+		return nil
+	}
+	var values []string
+	for _, name := range set.Keys() {
+		value, ok := set.Get(name)
+		if !ok {
+			continue
+		}
+		span, found, err := doc.Index.Value(configdoc.Step{Key: "env"}, configdoc.Step{Key: "secrets"},
+			configdoc.Step{Key: "set"}, configdoc.Step{Key: name})
+		if err != nil || !found || span.Start < 0 || span.End > len(data) || span.Start >= span.End {
+			continue
+		}
+		values = append(values, string(data[span.Start:span.End]))
+		if text, ok := value.(string); ok {
+			values = append(values, configEditStringSpellings(text)...)
+		}
+	}
+	return values
+}
+
+func privateEnvMutation(path []configdoc.Step) bool {
+	if len(path) >= 3 && path[0].Key == "env" && path[1].Key == "secrets" && path[2].Key == "set" {
+		return true
+	}
+	return len(path) == 2 && path[0].Key == "env" && path[1].Key == "secrets"
+}
+
+func nestedPrivateEnvMutationValues(path []configdoc.Step, value any) []string {
+	if len(path) >= 3 && path[0].Key == "env" && path[1].Key == "secrets" && path[2].Key == "set" {
+		return configEditValueSpellings(value)
+	}
+	if len(path) == 2 && path[0].Key == "env" && path[1].Key == "secrets" {
+		secrets, ok := value.(*jsonx.OrderedMap)
+		if !ok {
+			return nil
+		}
+		set, ok := secrets.Get("set")
+		if !ok {
+			return nil
+		}
+		return configEditValueSpellings(set)
+	}
+	return nil
+}
+
+func configEditValueSpellings(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return configEditStringSpellings(v)
+	case *jsonx.OrderedMap:
+		var out []string
+		for _, key := range v.Keys() {
+			item, _ := v.Get(key)
+			out = append(out, configEditValueSpellings(item)...)
+		}
+		return out
+	case []any:
+		var out []string
+		for _, item := range v {
+			out = append(out, configEditValueSpellings(item)...)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func configEditStringSpellings(value string) []string {
+	if value == "" {
+		return []string{`""`, `''`}
+	}
+	out := []string{strconv.Quote(value)}
+	if !strings.ContainsAny(value, "'\n\r") {
+		out = append(out, "'"+value+"'")
+	}
+	return out
 }
 
 func writeConfigEditHunks(out io.Writer, hunks []configedit.Hunk) {

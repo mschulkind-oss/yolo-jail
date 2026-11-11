@@ -36,7 +36,7 @@ func TestOverrideScopeHandsTheGateTheMCPClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := merged.(*jsonx.OrderedMap)
-	scope := overrideScope([]*packload.Pack{embeddedPackNamed(t, "claude")}, cfg, packload.ServedDaemons{}, t.TempDir(),
+	scope, _ := overrideScope([]*packload.Pack{embeddedPackNamed(t, "claude")}, cfg, packload.ServedDaemons{}, t.TempDir(),
 		func(string) {}, noProfiles)
 	if _, ok := scope.EnvSourcesFor("claude").Get("TAVILY_API_KEY"); !ok {
 		t.Error("the server's requires_env claims the private key for claude, which renders the MCP table")
@@ -52,7 +52,7 @@ func TestOverrideScopeHandsTheGateTheUnselectedClaims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := overrideScope(nil, merged.(*jsonx.OrderedMap), packload.ServedDaemons{}, t.TempDir(), func(string) {}, noProfiles)
+	scope, _ := overrideScope(nil, merged.(*jsonx.OrderedMap), packload.ServedDaemons{}, t.TempDir(), func(string) {}, noProfiles)
 	lines := strings.Join(scope.EnvSetLines(packload.DisclosureNotes{}), "\n")
 	if !strings.Contains(lines, "the zai provider, which this launch does not select, claims that name") {
 		t.Errorf("row 1's line names the unselected provider:\n%s", lines)

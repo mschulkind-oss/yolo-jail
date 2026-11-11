@@ -50,6 +50,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -221,7 +222,7 @@ func TestEnvOverrideRefusesTheMacosUserLaunch(t *testing.T) {
 			"must run BEFORE the backend is dispatched, not after the sandbox started")
 	}
 	got := stderr.String()
-	for _, want := range []string{"WIDGET_TOKEN is delivered by " + packload.FromEnvSources,
+	for _, want := range []string{"WIDGET_TOKEN is delivered by " + packload.FromConfiguredEnv,
 		"WIDGET_POINTER", "pack local", "Drop one."} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q, or the reader cannot tell which to drop:\n%s",
@@ -374,14 +375,99 @@ func TestEnvOverrideRefusesTheStaticPair(t *testing.T) {
 	cfg := awsAuthServedConfig(t, selected)
 	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
 		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})), nil), "\n")
-	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources,
-		"AWS_SECRET_ACCESS_KEY is delivered by " + packload.FromEnvSources, "Remove any one of"} {
+	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSecrets,
+		"AWS_SECRET_ACCESS_KEY is delivered by " + packload.FromEnvSecrets, "Remove any one of"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the pair refusal must say %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "AKIAEXAMPLE") || strings.Contains(got, "secret\n") {
 		t.Errorf("the refusal printed a credential VALUE:\n%s", got)
+	}
+}
+
+func TestEnvOverrideExplainsTheTOMLPrivateSourceWithoutLegacyGuidance(t *testing.T) {
+	o := overrideOptions(t)
+	o.Getenv = shellWith(nil)
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := awsAuthServedConfig(t, selected)
+
+	h := config.NewHydratedEnv()
+	h.SetPrivate("AWS_ACCESS_KEY_ID", "not-a-real-key", config.EnvPlace{
+		Private: true, Key: "env.secrets.files", Entry: "private.env",
+	})
+	h.SetPrivate("AWS_SECRET_ACCESS_KEY", "not-a-real-secret", config.EnvPlace{
+		Private: true, Key: "env.secrets.files", Entry: "private.env",
+	})
+	channel, err := o.composePackChannel(cfg, selected, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channel, nil), "\n")
+	for _, want := range []string{
+		packload.FromEnvSecretsFiles, "This is a private dotenv value", "Remove only this name's line", "does not change dotenv bytes",
+		"Remove any one of", "selected provider's platform is `aws-bedrock`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the private TOML refusal must give source-specific guidance containing %q:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{"env_sources", "JSONC", "not-a-real-key", "not-a-real-secret"} {
+		if strings.Contains(got, stale) {
+			t.Errorf("the private TOML refusal contains stale guidance or a secret (%q):\n%s", stale, got)
+		}
+	}
+}
+
+func TestEnvOverrideExplainsTOMLPrivateInlineSource(t *testing.T) {
+	o := overrideOptions(t)
+	o.Getenv = shellWith(nil)
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := awsAuthServedConfig(t, selected)
+
+	h := config.NewHydratedEnv()
+	h.SetPrivate("AWS_ACCESS_KEY_ID", "not-a-real-key", config.EnvPlace{Private: true, Key: "env.secrets.set"})
+	h.SetPrivate("AWS_SECRET_ACCESS_KEY", "not-a-real-secret", config.EnvPlace{Private: true, Key: "env.secrets.set"})
+	channel, err := o.composePackChannel(cfg, selected, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channel, nil), "\n")
+	for _, want := range []string{packload.FromEnvSecretsSet, "For this inline private value",
+		"yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the inline private refusal must give source-specific guidance containing %q:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{"dotenv value", "env_sources", "JSONC", "not-a-real-key", "not-a-real-secret"} {
+		if strings.Contains(got, stale) {
+			t.Errorf("the inline private refusal contains mismatched guidance or a secret (%q):\n%s", stale, got)
+		}
+	}
+}
+
+func TestEnvOverridePreservesLegacyEnvSourcesProvenance(t *testing.T) {
+	o := overrideOptions(t)
+	o.Getenv = shellWith(nil)
+	o.ProfileName = "bedrock"
+	selected := awsAuthSelected(t)
+	cfg := awsAuthServedConfig(t, selected)
+
+	h := config.NewHydratedEnv()
+	h.SetPrivate("AWS_ACCESS_KEY_ID", "not-a-real-key", config.EnvPlace{Private: true, Key: "env_sources"})
+	h.SetPrivate("AWS_SECRET_ACCESS_KEY", "not-a-real-secret", config.EnvPlace{Private: true, Key: "env_sources"})
+	channel, err := o.composePackChannel(cfg, selected, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channel, nil), "\n")
+	if !strings.Contains(got, "legacy env_sources") {
+		t.Errorf("a genuinely legacy source should retain its provenance:\n%s", got)
+	}
+	if strings.Contains(got, "[env.secrets]") || strings.Contains(got, "JSONC") {
+		t.Errorf("legacy provenance was confused with the TOML private set or file format:\n%s", got)
 	}
 }
 
@@ -621,7 +707,7 @@ func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
 			"stderr:\n%s", rc, stderr.String())
 	}
 	got := stderr.String()
-	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources, pointerVar} {
+	for _, want := range []string{"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSecrets, pointerVar} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, got)
 		}
@@ -758,7 +844,7 @@ func TestEnvOverrideNamesThePackContributionAndTheSecretChannel(t *testing.T) {
 	for _, want := range []string{
 		"pack aws-auth",
 		pointerVar,
-		"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSources,
+		"AWS_ACCESS_KEY_ID is delivered by " + packload.FromEnvSecrets,
 		// The gate the pointer rides, in the refusal's remedy: the provider's platform since
 		// OQ-BR8, not a profile name.
 		"selected provider's platform is `aws-bedrock`",
@@ -866,7 +952,7 @@ func TestEnvOverrideWarningDoesNotHideARefusal(t *testing.T) {
 	lines := o.checkEnvOverrides(cfg, "podman", selected, channelFor(t, o, cfg, selected,
 		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_SECRET_ACCESS_KEY": "secret"})), nil)
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "AWS_ACCESS_KEY_ID is delivered by "+packload.FromEnvSources) {
+	if !strings.Contains(joined, "AWS_ACCESS_KEY_ID is delivered by "+packload.FromEnvSecrets) {
 		t.Errorf("the static pair's refusal is missing:\n%s", joined)
 	}
 	if strings.Contains(joined, "~/.aws") {

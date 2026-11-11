@@ -66,8 +66,7 @@ func TestABedrockKeyLayerNamesTheProfileStepAndThenLaunches(t *testing.T) {
 				return
 			}
 			for _, want := range []string{"Refusing to launch", "AWS_ACCESS_KEY_ID is delivered by",
-				`set aws-auth's profile to ""`, `"loopholes": {"aws-auth": {"settings": {"profile": ""}}}`,
-				`profile = "" under [allow.aws-auth]`, "withheld"} {
+				`set aws-auth's profile to an empty string`, "`yolo config set allow.aws-auth.profile \"\" --user`", "withheld"} {
 				if !strings.Contains(got, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, got)
 				}

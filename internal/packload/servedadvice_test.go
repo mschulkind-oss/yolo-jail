@@ -11,7 +11,7 @@ import (
 func TestLoginLoopholeAdviceNamesTheLoopholeTable(t *testing.T) {
 	l := LoginLoophole{Pack: "cloud-pack", Loophole: "cloud-login", Setting: "profile"}
 	step := l.EmptyProfileStep()
-	if !strings.Contains(step, "under [allow.cloud-login]") || strings.Contains(step, "allow.cloud-pack") {
-		t.Errorf("the empty-profile step does not name the loophole's table: %s", step)
+	if !strings.Contains(step, "`yolo config set allow.cloud-login.profile \"\" --user`") || strings.Contains(step, "allow.cloud-pack") {
+		t.Errorf("the empty-profile step must edit only the user-scope setting through the CLI: %s", step)
 	}
 }

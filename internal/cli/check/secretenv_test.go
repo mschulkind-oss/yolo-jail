@@ -28,7 +28,7 @@ func TestSecretEnvGapWarnsOfAPrivateNameNothingClaims(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.toml"), []byte("[env.secrets]\nset = { STRIPE_KEY = \"s-probe\" }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	scope := overrideScope(nil, merged, packload.ServedDaemons{}, ws, func(string) {},
+	scope, _ := overrideScope(nil, merged, packload.ServedDaemons{}, ws, func(string) {},
 		func() (map[string]packload.UserProfile, error) { return nil, nil })
 	fails, warns := secretEnvGap(scope, config.ResolveEnv(ws, merged, func(string) {}), ws)
 	if len(fails) != 0 || len(warns) != 1 || !strings.Contains(warns[0].msg, "STRIPE_KEY: withheld from every process") {

@@ -62,8 +62,21 @@ import (
 // and a selected pack's env contribution" does not
 // (docs/reference/protocol-resolution.md#the-four-outcomes).
 const (
-	// FromEnvSources is the hydrated `env_sources` secret channel.
+	// FromEnvSources is the composition marker for its configured environment channel. Override
+	// callers refine it from hydrated provenance when that is available.
 	FromEnvSources = "env_sources (the secret channel)"
+	// FromConfiguredEnv is a configured environment source whose exact spelling is not
+	// available to the override caller.
+	FromConfiguredEnv = "the configured environment"
+	// FromLegacyEnvSources names the genuinely legacy env_sources input when its provenance is
+	// available. Keep it distinct from TOML's [env.secrets] private set.
+	FromLegacyEnvSources = "legacy env_sources"
+	// FromEnvSecrets is a TOML private environment source with no finer provenance.
+	FromEnvSecrets = "TOML [env.secrets]"
+	// FromEnvSecretsFiles and FromEnvSecretsSet identify the two private TOML mechanisms so
+	// a refusal can offer only the matching removal path.
+	FromEnvSecretsFiles = "TOML [env.secrets].files"
+	FromEnvSecretsSet   = "TOML [env.secrets].set"
 	// FromContainerArgv is the assembled container argv's `-e` pairs. It carries what the
 	// composed channel carries PLUS every pack-shipped loophole's jail_env, which reaches
 	// the jail nowhere else — so it is the one channel only the container launch sees.
@@ -365,7 +378,32 @@ func overrideFindingLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.En
 		stop = "or stop delivering pack " + pack + "'s contribution — it is delivered only " +
 			"while the `" + d.Profile + "` profile is active, so deselect that profile or the pack"
 	}
-	return append(lines, remedy+drop+", "+stop+".")
+	last := remedy + drop + ", " + stop + "."
+	switch {
+	case hasEnvSource(removals, FromEnvSecretsFiles):
+		last += " This is a private dotenv value from `[env.secrets].files`; `yolo config unset` " +
+			"edits inline values only and does not change dotenv bytes. Remove only this name's line from its source file."
+	case hasEnvSource(removals, FromEnvSecretsSet):
+		last += " For this inline private value, run `yolo config unset env.secrets.set.<NAME>` " +
+			"with the scope that contains it (`--user`, `--project`, or `--local`)."
+	case hasPrivateEnvSource(removals):
+		last += " This is a private TOML value; verify whether it is inline `[env.secrets].set` or " +
+			"dotenv-backed `[env.secrets].files` before removing it. `yolo config unset` edits inline values only, not dotenv bytes."
+	}
+	return append(lines, last)
+}
+
+func hasEnvSource(removals []string, source string) bool {
+	for _, removal := range removals {
+		if strings.Contains(removal, " from "+source) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrivateEnvSource(removals []string) bool {
+	return hasEnvSource(removals, FromEnvSecrets)
 }
 
 // describeOrigin keeps an empty origin from rendering as an empty phrase: a caller that knows

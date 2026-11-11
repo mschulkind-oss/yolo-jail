@@ -116,8 +116,38 @@ func (c *packChannel) jailOriginLookup(o *Options, argvPairs map[string]string) 
 		if !ok || origin == packload.FromLaunchEnv {
 			return "", false
 		}
+		if origin == packload.FromEnvSources {
+			origin = envOverrideEnvOrigin(c.userEnv, name)
+		}
 		return origin, true
 	}
+}
+
+func envOverrideEnvOrigin(h *config.HydratedEnv, name string) string {
+	if h == nil {
+		return packload.FromConfiguredEnv
+	}
+	places := h.Places(name)
+	for _, place := range places {
+		if place.Private && h.IsPrivate(name) {
+			switch place.Key {
+			case "env_sources":
+				return packload.FromLegacyEnvSources
+			case "env.secrets.files":
+				return packload.FromEnvSecretsFiles
+			case "env.secrets.set":
+				return packload.FromEnvSecretsSet
+			default:
+				return packload.FromEnvSecrets
+			}
+		}
+	}
+	for _, place := range places {
+		if place.Key == "env_sources" {
+			return packload.FromLegacyEnvSources
+		}
+	}
+	return packload.FromConfiguredEnv
 }
 
 // hostFileDirsDeliver reports whether a source-bearing DIRECTORY host_files entry renders

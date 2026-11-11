@@ -164,7 +164,7 @@ func TestAMixedBedrockLaunchNamesALaunchOnEitherAlone(t *testing.T) {
 		t.Fatalf("one agent holding both: findings = %+v, want one", all)
 	}
 	single := strings.Join(all[0].Lines, "\n")
-	if strings.Contains(single, "cannot mix") || !strings.Contains(single, `profile = ""`) {
+	if strings.Contains(single, "cannot mix") || !strings.Contains(single, `yolo config set allow.aws-auth.profile "" --user`) {
 		t.Errorf("one agent holding both must keep the profile step:\n%s", single)
 	}
 }

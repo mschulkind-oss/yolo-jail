@@ -90,6 +90,27 @@ func withEnvSources(merged *jsonx.OrderedMap, vars map[string]string) *jsonx.Ord
 	return merged
 }
 
+func privateOverriddenPack(t *testing.T, agentBin, profile string) string {
+	t.Helper()
+	dir := t.TempDir()
+	manifest := `{
+  "name": "private-widgetpack",
+  "contributes": [
+    {"kind": "program", "bin": "` + agentBin + `", "via": "npm", "package": "@example/` + agentBin + `"},
+    {"kind": "provider", "name": "` + profile + `", "api_key_env_name": "` + widgetToken + `",
+     "endpoints": {"openai": {"base_url": "https://api.example.test/v1"}}},
+    {"kind": "profile", "name": "` + profile + `", "provider": "` + profile + `"},
+    {"kind": "env", "profile": "` + profile + `",
+     "vars": {"` + widgetPointer + `": "http://127.0.0.1:1461/credentials"},
+     "overridden_by": [{"vars": ["` + widgetToken + `"], "because": "the widget client sends WIDGET_TOKEN first"}]}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 // withEnvSecrets returns merged with vars in the private set, `[env.secrets]` `set` — the
 // channel a provider-claimed name reaches a jail by (secret-env-scoping.md): a claimed name in
 // the public set is refused on its own, before any override is weighed.
@@ -184,7 +205,7 @@ func TestSectionPacksPredictsTheOverrideOfADeliveredClaimedCredential(t *testing
 	delivered := withEnvSecrets(useProfiles("someagent", "gatedprofile"),
 		map[string]string{widgetToken: "frozen-token-value"})
 	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, delivered)
-	if r.failed == 0 || !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromEnvSources) {
+	if r.failed == 0 || !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromEnvSecrets) {
 		t.Errorf("the selected provider's own token is delivered beside the pointer it overrides, "+
 			"so the launch refuses and `check` must FAIL:\n%s", buf.String())
 	}
@@ -210,7 +231,7 @@ func TestSectionPacksPredictsTheOverrideRefusal(t *testing.T) {
 	// two accounts of one problem and has to reconcile them.
 	for _, want := range []string{
 		widgetPointer,
-		widgetToken + " is delivered by " + packload.FromEnvSources,
+		widgetToken + " is delivered by " + packload.FromLegacyEnvSources,
 		"the widget client sends WIDGET_TOKEN first",
 		"Drop one.",
 	} {
@@ -383,7 +404,7 @@ func TestSectionPacksReadsTheOverrideFromEnvSources(t *testing.T) {
 		t.Fatalf("an override hydrated from env_sources beside a pack contribution must "+
 			"FAIL:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), packload.FromEnvSources) {
+	if !strings.Contains(buf.String(), packload.FromLegacyEnvSources) {
 		t.Errorf("the refusal must name env_sources as the override's origin, or the reader "+
 			"cannot find the declaration:\n%s", buf.String())
 	}
@@ -411,6 +432,27 @@ func TestSectionPacksPredictsTheHostFilesGrant(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "A host_files entry renders ~/.widget/config into the jail.") {
 		t.Errorf("the prediction must name the rendered destination:\n%s", buf.String())
+	}
+}
+
+func TestSectionPacksGivesTOMLPrivateOverrideGuidance(t *testing.T) {
+	pack := privateOverriddenPack(t, "someagent", "gatedprofile")
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+
+	merged := withEnvSecrets(useProfiles("someagent", "gatedprofile"), map[string]string{widgetToken: "not-a-real-secret"})
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, merged)
+	got := buf.String()
+	for _, want := range []string{packload.FromEnvSecretsSet, "For this inline private value", "yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the check prediction must give actionable private-set guidance containing %q:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{"legacy env_sources", "JSONC", "dotenv value", "not-a-real-secret"} {
+		if strings.Contains(got, stale) {
+			t.Errorf("the TOML private-set prediction contains stale guidance or a value (%q):\n%s", stale, got)
+		}
 	}
 }
 
@@ -446,7 +488,7 @@ func TestEnvOverrideGapWordsItTheWayTheLaunchDoes(t *testing.T) {
 		packload.ProfilesOnly(map[string]string{"someagent": "gatedprofile"}),
 		func(name string) (string, bool) {
 			if name == widgetToken {
-				return packload.FromEnvSources, true
+				return packload.FromLegacyEnvSources, true
 			}
 			return "", false
 		}, nil)
@@ -479,9 +521,9 @@ func TestSectionPacksReportsOneRefusalAsOneFail(t *testing.T) {
 			r.failed, r.warned, buf.String())
 	}
 	want := `  [FAIL] Refusing to launch: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares OVERRIDES it — the agent would silently use that instead.
-       -> WIDGET_TOKEN is delivered by env_sources (the secret channel).
+       -> WIDGET_TOKEN is delivered by legacy env_sources.
           The pack says: the widget client sends WIDGET_TOKEN first
-          Drop one. Remove WIDGET_TOKEN from env_sources (the secret channel), or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
+          Drop one. Remove WIDGET_TOKEN from legacy env_sources, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
 `
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("the refusal's report shape changed:\n--- got ---\n%s\n--- want (a substring) ---\n%s",
@@ -565,7 +607,7 @@ func TestSectionPacksPredictsTheOverrideOfAPlatformGateALaterEntryFires(t *testi
 	if r.failed == 0 {
 		t.Fatalf("a later entry's platform gate beside its delivered override must FAIL the check:\n%s", buf.String())
 	}
-	if !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromEnvSources) {
+	if !strings.Contains(buf.String(), widgetToken+" is delivered by "+packload.FromLegacyEnvSources) {
 		t.Errorf("the prediction must carry the launch's own words:\n%s", buf.String())
 	}
 }
@@ -609,7 +651,7 @@ func TestSectionPacksPredictsTheOverrideOfAPlatformGatedContribution(t *testing.
 	if failed == 0 {
 		t.Fatalf("a platform-gated contribution beside its delivered override must FAIL the check:\n%s", out)
 	}
-	if !strings.Contains(out, widgetToken+" is delivered by "+packload.FromEnvSources) {
+	if !strings.Contains(out, widgetToken+" is delivered by "+packload.FromLegacyEnvSources) {
 		t.Errorf("the prediction must carry the launch's own words:\n%s", out)
 	}
 	// The control: a profile over a provider of no platform delivers no contribution.

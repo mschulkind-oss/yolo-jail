@@ -116,7 +116,8 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 	userProfiles func() (map[string]packload.UserProfile, error)) (errs, warns []overrideGapFinding, scope *packload.CredentialScope) {
 	// A login service with no profile serves nothing, as at launch (ServedDaemons.WithoutUnconfiguredLogins).
 	served = served.WithoutUnconfiguredLogins(packs, loopholes.ConfiguredSetting(merged))
-	scope = overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
+	var hydrated *config.HydratedEnv
+	scope, hydrated = overrideScope(packs, merged, served, workspace, configWarn, userProfiles)
 	findings := packload.EnvOverrideFindings(packs, scope.Selection(), func(name string) (string, bool) {
 		// THE LAUNCH'S OWN ANSWER (run/profilechannel.go's deliverySource, read through
 		// jailOriginLookup), minus the two channels named above: the winner of the one ordered
@@ -127,6 +128,9 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 		// winner the launch's shadow line names too (packload's envshadow.go), since both read this
 		// composition.
 		if e, ok := scope.Delivered(name); ok {
+			if e.Origin == packload.FromEnvSources {
+				return envOverrideEnvOrigin(hydrated, name), true
+			}
 			return e.Origin, true
 		}
 		return "", false
@@ -154,7 +158,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 // this composition's winner came from, which is the winner the line names.
 func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	workspace string, configWarn func(string),
-	userProfiles func() (map[string]packload.UserProfile, error)) *packload.CredentialScope {
+	userProfiles func() (map[string]packload.UserProfile, error)) (*packload.CredentialScope, *config.HydratedEnv) {
 	// The hydrated secret channel. A dotenv file that cannot be read degrades to "delivered
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
@@ -196,7 +200,34 @@ func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served pack
 		MCPAgents:        packload.MCPAgents(packs),
 		UnselectedClaims: packload.UnselectedProviderClaims(packs),
 	})
-	return scope
+	return scope, hydrated
+}
+
+func envOverrideEnvOrigin(h *config.HydratedEnv, name string) string {
+	if h == nil {
+		return packload.FromConfiguredEnv
+	}
+	places := h.Places(name)
+	for _, place := range places {
+		if place.Private && h.IsPrivate(name) {
+			switch place.Key {
+			case "env_sources":
+				return packload.FromLegacyEnvSources
+			case "env.secrets.files":
+				return packload.FromEnvSecretsFiles
+			case "env.secrets.set":
+				return packload.FromEnvSecretsSet
+			default:
+				return packload.FromEnvSecrets
+			}
+		}
+	}
+	for _, place := range places {
+		if place.Key == "env_sources" {
+			return packload.FromLegacyEnvSources
+		}
+	}
+	return packload.FromConfiguredEnv
 }
 
 // overrideNote joins a finding's detail lines into one note. The launch indents them under
