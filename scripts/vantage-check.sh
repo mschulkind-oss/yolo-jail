@@ -16,4 +16,4 @@ set -euo pipefail
 # PINNED, not @latest: a new upstream release must not turn a document nobody changed red, and
 # `just done` relies on a document's check depending only on the document. Raise the pin in its
 # own commit; changing this file sends `just done` to the full gate.
-uvx vantage-check@0.10.0 "$@" </dev/null 2>&1 | cat
+uvx vantage-check@0.11.0 "$@" </dev/null 2>&1 | cat
