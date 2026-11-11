@@ -16,8 +16,8 @@ import (
 
 // stageBundle writes a complete flake bundle at root: flake.nix, flake.lock and, when
 // withBinaries, the prebuilt bin/linux-<arch>/ helper set plus the bin/darwin-<arch>/ guest
-// set. It is the exact shape scripts/stage-source-bundle.sh produces, which is what makes the
-// prebuilt branch below a test of the real layout rather than of a stub.
+// set and host yolo. It is the exact shape scripts/stage-source-bundle.sh produces, which makes
+// the prebuilt branch below a test of the real layout rather than of a stub.
 func stageBundle(t *testing.T, withBinaries bool) string {
 	t.Helper()
 	// Resolve where the fixture is minted, because macOS temp roots can be symlinks.
@@ -27,6 +27,12 @@ func stageBundle(t *testing.T, withBinaries bool) string {
 }
 
 func stageBundleAt(t *testing.T, root string, withBinaries bool) {
+	t.Helper()
+	stageBundleAtForArch(t, root, withBinaries, goruntime.GOARCH)
+}
+
+// stageBundleAtForArch lets a Linux test exercise the Mac CI bundle's arm64 layout.
+func stageBundleAtForArch(t *testing.T, root string, withBinaries bool, arch string) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -40,7 +46,7 @@ func stageBundleAt(t *testing.T, root string, withBinaries bool) {
 	if !withBinaries {
 		return
 	}
-	binDir := prebuiltBinDir(root)
+	binDir := filepath.Join(root, "bin", "linux-"+arch)
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -53,12 +59,18 @@ func stageBundleAt(t *testing.T, root string, withBinaries bool) {
 			t.Fatal(err)
 		}
 	}
-	guestBinDir := macosuser.PrebuiltGuestBinDir(root)
+	guestBinDir := filepath.Join(root, "bin", "darwin-"+arch)
 	if err := os.MkdirAll(guestBinDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range macosuser.GuestBinaries {
-		if err := os.WriteFile(filepath.Join(guestBinDir, name), []byte("binary"), 0o755); err != nil {
+	// GuestBinaries excludes yolo: the guest stages the pinned host binary separately. A
+	// complete bundle still needs that executable host helper beside the guest-only set.
+	for _, name := range append([]string{"yolo"}, macosuser.GuestBinaries...) {
+		body := []byte("binary")
+		if name == "yolo" {
+			body = yoloStandInScript()
+		}
+		if err := os.WriteFile(filepath.Join(guestBinDir, name), body, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
