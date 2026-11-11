@@ -444,7 +444,7 @@ func TestSectionPacksGivesTOMLPrivateOverrideGuidance(t *testing.T) {
 	r := &reporter{w: &buf}
 	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r, merged)
 	got := buf.String()
-	for _, want := range []string{packload.FromEnvSecretsSet, "For this inline private value", "yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local"} {
+	for _, want := range []string{packload.FromEnvSecretsSet, "For this inline private value", "yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local", "--file <path>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the check prediction must give actionable private-set guidance containing %q:\n%s", want, got)
 		}

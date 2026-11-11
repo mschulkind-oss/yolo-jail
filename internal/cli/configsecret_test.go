@@ -12,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
 
@@ -53,23 +54,131 @@ func TestConfigUnsetRemovesOnlyOnePrivateInlineCredential(t *testing.T) {
 }
 
 func TestConfigEditDoesNotPrintPrivateInlineValuesFromDiffContext(t *testing.T) {
-	user := secretFixture(t, "env = { secrets = { set = { AWS_ACCESS_KEY_ID = \"private-context-probe\" } }, set = { LOG_LEVEL = \"info\" } }\n")
-	var out, errw bytes.Buffer
-	if rc := runConfigEditWith([]string{"set", "env.set.LOG_LEVEL", "debug", "--user"}, &out, &errw, configEditWorkspace()); rc != 0 {
-		t.Fatalf("the unrelated public edit failed: rc %d:\n%s\n%s", rc, out.String(), errw.String())
+	const token = "private-context-probe"
+	user := secretFixture(t, "env = { set = { LOG_LEVEL = \"info\" } }\n")
+	value := map[string]any{
+		"set":     map[string]any{"LOG_LEVEL": "debug"},
+		"secrets": map[string]any{"set": map[string]any{"TOKEN": token}},
 	}
-	if strings.Contains(out.String()+errw.String(), "private-context-probe") {
-		t.Errorf("an unrelated public setting's diff exposed a private inline value:\n%s\n%s", out.String(), errw.String())
+	plan, err := configedit.PlanEdit([]byte("env = { set = { LOG_LEVEL = \"info\" } }\n"), configdoc.TOML,
+		configedit.Mutation{Action: configedit.Set, Path: []configdoc.Step{{Key: "env"}}, Value: value})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Hunks) == 0 || !bytes.Contains(plan.Hunks[0].After, []byte(token)) {
+		t.Fatalf("unredacted-plan precondition failed: the env ancestor hunk must contain the nested private value: %+v", plan.Hunks)
+	}
+
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env", `{ set = { LOG_LEVEL = "debug" }, secrets = { set = { TOKEN = "` + token + `" } } }`, "--user"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the enclosing public edit failed: rc %d:\n%s\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), token) {
+		t.Errorf("an enclosing env edit exposed a nested private value:\n%s\n%s", out.String(), errw.String())
 	}
 	if !strings.Contains(out.String(), `"debug"`) || !strings.Contains(out.String(), "Written.") {
-		t.Errorf("the ordinary public diff or its write disclosure disappeared:\n%s", out.String())
+		t.Errorf("the ordinary public change or write disclosure disappeared:\n%s", out.String())
 	}
 	got, err := os.ReadFile(user.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "private-context-probe") {
-		t.Errorf("the public edit changed the private value instead of only redacting its disclosure:\n%s", got)
+	if !strings.Contains(string(got), token) {
+		t.Errorf("the edit did not preserve the private value:\n%s", got)
+	}
+}
+
+func TestConfigSetDoesNotPrintEscapedPrivateValue(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { TOKEN = \"old-private-probe\" }\n")
+	const escaped = "escape-private-probe\\u001B"
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env.secrets.set.TOKEN", `"` + escaped + `"`, "--user", "--dry-run"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the escaped private set dry-run failed: rc %d:\\n%s\\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), "escape-private-probe") || strings.Contains(out.String()+errw.String(), "old-private-probe") {
+		t.Errorf("TOML-escaped private values appeared in the diff:\\n%s\\n%s", out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `"<redacted>"`) || !strings.Contains(out.String(), "Dry run; nothing was written.") {
+		t.Errorf("the escaped-value diff must be redacted and retain dry-run disclosure:\\n%s", out.String())
+	}
+	got, err := os.ReadFile(user.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "old-private-probe") || strings.Contains(string(got), "escape-private-probe") {
+		t.Errorf("dry-run changed the source config:\\n%s", got)
+	}
+}
+
+func TestConfigEditPreservesPublicValueEqualToPrivateValue(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { TOKEN = \"1\" }\n\n[env.set]\nLOG_LEVEL = \"0\"\n")
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env.set.LOG_LEVEL", `"1"`, "--user", "--dry-run"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the public-value dry-run failed: rc %d:\\n%s\\n%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), `+"1"`) || strings.Contains(out.String(), `+"<redacted>"`) {
+		t.Errorf("the private value collision redacted a public diff value:\\n%s", out.String())
+	}
+	got, err := os.ReadFile(user.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `TOKEN = "1"`) || !strings.Contains(string(got), `LOG_LEVEL = "0"`) {
+		t.Errorf("the dry-run changed the source config:\\n%s", got)
+	}
+}
+
+func TestConfigEditRedactsJSONCPrivatePreviousAndContextValues(t *testing.T) {
+	user := secretFixture(t, "")
+	if err := os.Remove(user.Path); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(filepath.Dir(user.Path), "config.jsonc")
+	const previous = "jsonc-previous-private-probe"
+	if err := os.WriteFile(legacy, []byte(`{"env":{"secrets":{"set":{"TOKEN":"`+previous+`"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if rc := runConfigEditWith([]string{"set", "env.secrets.set.TOKEN", `"jsonc-new-private-probe"`, "--file", legacy, "--dry-run"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the JSONC private scalar edit failed: rc %d:\\n%s\\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), previous) || strings.Contains(out.String()+errw.String(), "jsonc-new-private-probe") {
+		t.Errorf("the JSONC edit disclosed a previous or new private value:\\n%s\\n%s", out.String(), errw.String())
+	}
+	unchanged, err := os.ReadFile(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(unchanged, []byte(previous)) || bytes.Contains(unchanged, []byte("jsonc-new-private-probe")) {
+		t.Errorf("the JSONC dry-run changed its source:\\n%s", unchanged)
+	}
+
+	const context = "jsonc-context-private-probe"
+	contextDoc := []byte(`{"env":{"set":{"LOG_LEVEL":"info"},"secrets":{"set":{"TOKEN":"` + context + `"}}}}`)
+	if err := os.WriteFile(legacy, contextDoc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value := `{ set = { LOG_LEVEL = "debug" }, secrets = { set = { TOKEN = "` + context + `" } } }`
+	planValue := `{"set":{"LOG_LEVEL":"debug"},"secrets":{"set":{"TOKEN":"` + context + `"}}}`
+	parsed, err := configdoc.Parse([]byte(planValue), configdoc.JSONC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := configedit.PlanEdit(contextDoc, configdoc.JSONC,
+		configedit.Mutation{Action: configedit.Set, Path: []configdoc.Step{{Key: "env"}}, Value: parsed.Values})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Hunks) == 0 || !bytes.Contains(plan.Hunks[0].Before, []byte(context)) || !bytes.Contains(plan.Hunks[0].After, []byte(context)) {
+		t.Fatalf("unredacted JSONC context precondition failed: both hunk sides must contain the private value: %+v", plan.Hunks)
+	}
+	out.Reset()
+	errw.Reset()
+	if rc := runConfigEditWith([]string{"set", "env", value, "--file", legacy, "--dry-run"}, &out, &errw, configEditWorkspace()); rc != 0 {
+		t.Fatalf("the JSONC enclosing env dry-run failed: rc %d:\\n%s\\n%s", rc, out.String(), errw.String())
+	}
+	if strings.Contains(out.String()+errw.String(), context) || !strings.Contains(out.String(), `"debug"`) {
+		t.Errorf("the JSONC enclosing edit leaked private context or hid the public change:\\n%s\\n%s", out.String(), errw.String())
 	}
 }
 

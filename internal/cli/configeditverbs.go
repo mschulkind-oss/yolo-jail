@@ -249,15 +249,23 @@ func applyConfigEdit(workspace string, target config.ResolvedEditTarget, mutatio
 		fmt.Fprintf(out, "%s\nNo change; no write.\n", result.Path)
 		return 0
 	}
-	hunks := redactConfigEditHunks(result.Plan.Hunks, target.ExpectedBytes(), target.Format, mutation)
+	hunks, safeToDisplay := redactConfigEditHunks(result.Plan.Hunks, target.ExpectedBytes(), result.Plan.Updated, target.Format)
 	if dryRun {
 		fmt.Fprintf(out, "%s\n", result.Path)
-		writeConfigEditHunks(out, hunks)
+		if safeToDisplay {
+			writeConfigEditHunks(out, hunks)
+		} else {
+			fmt.Fprintln(out, "Diff omitted because private config values could not be safely classified.")
+		}
 		fmt.Fprintln(out, "Dry run; nothing was written.")
 		return 0
 	}
 	fmt.Fprintf(out, "%s\n", result.Path)
-	writeConfigEditHunks(out, hunks)
+	if safeToDisplay {
+		writeConfigEditHunks(out, hunks)
+	} else {
+		fmt.Fprintln(out, "Diff omitted because private config values could not be safely classified.")
+	}
 	if target.Role == config.ExplicitEditUser {
 		fmt.Fprintln(out, "Written.")
 	} else {
@@ -302,135 +310,99 @@ func writeConfigEditPreexisting(errw io.Writer, result configedit.TargetedResult
 	}
 }
 
-func redactConfigEditHunks(hunks []configedit.Hunk, before []byte, format configdoc.Format,
-	mutation configedit.Mutation) []configedit.Hunk {
-	values := privateEnvValues(before, format)
-	if privateEnvMutation(mutation.Path) {
-		values = append(values, nestedPrivateEnvMutationValues(mutation.Path, mutation.Value)...)
+// redactConfigEditHunks suppresses only private-value spans intersecting the displayed hunks.
+// It verifies each hunk against both source documents so coordinate or parse uncertainty never
+// falls back to printing a possibly private diff.
+func redactConfigEditHunks(hunks []configedit.Hunk, before, after []byte, format configdoc.Format) ([]configedit.Hunk, bool) {
+	beforeSpans, ok := privateEnvValueSpans(before, format)
+	if !ok {
+		return nil, false
 	}
-	if len(values) == 0 {
-		return hunks
+	afterSpans, ok := privateEnvValueSpans(after, format)
+	if !ok {
+		return nil, false
 	}
-	// Longer spellings first, so a quoted value is replaced as a unit before its raw content.
-	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
-	out := append([]configedit.Hunk(nil), hunks...)
-	for i := range out {
-		for _, value := range values {
-			if value == "" {
-				continue
-			}
-			out[i].Before = bytes.ReplaceAll(out[i].Before, []byte(value), []byte(`"<redacted>"`))
-			out[i].After = bytes.ReplaceAll(out[i].After, []byte(value), []byte(`"<redacted>"`))
+	out := make([]configedit.Hunk, len(hunks))
+	delta, previousEnd := 0, 0
+	for i, hunk := range hunks {
+		if hunk.Start < previousEnd || hunk.Start < 0 || hunk.End < hunk.Start || hunk.End > len(before) ||
+			!bytes.Equal(hunk.Before, before[hunk.Start:hunk.End]) {
+			return nil, false
 		}
+		afterStart := hunk.Start + delta
+		afterEnd := afterStart + len(hunk.After)
+		if afterStart < 0 || afterEnd > len(after) || !bytes.Equal(hunk.After, after[afterStart:afterEnd]) {
+			return nil, false
+		}
+		out[i] = configedit.Hunk{
+			Start: hunk.Start, End: hunk.End,
+			Before: redactHunkSpan(hunk.Before, hunk.Start, hunk.End, beforeSpans),
+			After:  redactHunkSpan(hunk.After, afterStart, afterEnd, afterSpans),
+		}
+		delta += len(hunk.After) - (hunk.End - hunk.Start)
+		previousEnd = hunk.End
 	}
-	return out
+	return out, true
 }
 
-func privateEnvValues(data []byte, format configdoc.Format) []string {
-	if format != configdoc.TOML {
-		return nil
-	}
+func privateEnvValueSpans(data []byte, format configdoc.Format) ([]configdoc.Span, bool) {
 	doc, err := configdoc.Parse(data, format)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	envValue, ok := doc.Values.Get("env")
 	if !ok {
-		return nil
+		return nil, true
 	}
 	env, ok := envValue.(*jsonx.OrderedMap)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	secretsValue, ok := env.Get("secrets")
 	if !ok {
-		return nil
+		return nil, true
 	}
 	secrets, ok := secretsValue.(*jsonx.OrderedMap)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	setValue, ok := secrets.Get("set")
 	if !ok {
-		return nil
+		return nil, true
 	}
 	set, ok := setValue.(*jsonx.OrderedMap)
 	if !ok {
-		return nil
+		return nil, false
 	}
-	var values []string
+	spans := make([]configdoc.Span, 0, set.Len())
 	for _, name := range set.Keys() {
-		value, ok := set.Get(name)
-		if !ok {
-			continue
-		}
 		span, found, err := doc.Index.Value(configdoc.Step{Key: "env"}, configdoc.Step{Key: "secrets"},
 			configdoc.Step{Key: "set"}, configdoc.Step{Key: name})
 		if err != nil || !found || span.Start < 0 || span.End > len(data) || span.Start >= span.End {
+			return nil, false
+		}
+		spans = append(spans, span)
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
+	return spans, true
+}
+
+func redactHunkSpan(hunk []byte, sourceStart, sourceEnd int, privateSpans []configdoc.Span) []byte {
+	redacted := []byte(`"<redacted>"`)
+	out := append([]byte(nil), hunk...)
+	for i := len(privateSpans) - 1; i >= 0; i-- {
+		span := privateSpans[i]
+		start := max(span.Start, sourceStart)
+		end := min(span.End, sourceEnd)
+		if start >= end {
 			continue
 		}
-		values = append(values, string(data[span.Start:span.End]))
-		if text, ok := value.(string); ok {
-			values = append(values, configEditStringSpellings(text)...)
-		}
-	}
-	return values
-}
-
-func privateEnvMutation(path []configdoc.Step) bool {
-	if len(path) >= 3 && path[0].Key == "env" && path[1].Key == "secrets" && path[2].Key == "set" {
-		return true
-	}
-	return len(path) == 2 && path[0].Key == "env" && path[1].Key == "secrets"
-}
-
-func nestedPrivateEnvMutationValues(path []configdoc.Step, value any) []string {
-	if len(path) >= 3 && path[0].Key == "env" && path[1].Key == "secrets" && path[2].Key == "set" {
-		return configEditValueSpellings(value)
-	}
-	if len(path) == 2 && path[0].Key == "env" && path[1].Key == "secrets" {
-		secrets, ok := value.(*jsonx.OrderedMap)
-		if !ok {
-			return nil
-		}
-		set, ok := secrets.Get("set")
-		if !ok {
-			return nil
-		}
-		return configEditValueSpellings(set)
-	}
-	return nil
-}
-
-func configEditValueSpellings(value any) []string {
-	switch v := value.(type) {
-	case string:
-		return configEditStringSpellings(v)
-	case *jsonx.OrderedMap:
-		var out []string
-		for _, key := range v.Keys() {
-			item, _ := v.Get(key)
-			out = append(out, configEditValueSpellings(item)...)
-		}
-		return out
-	case []any:
-		var out []string
-		for _, item := range v {
-			out = append(out, configEditValueSpellings(item)...)
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func configEditStringSpellings(value string) []string {
-	if value == "" {
-		return []string{`""`, `''`}
-	}
-	out := []string{strconv.Quote(value)}
-	if !strings.ContainsAny(value, "'\n\r") {
-		out = append(out, "'"+value+"'")
+		localStart, localEnd := start-sourceStart, end-sourceStart
+		next := make([]byte, 0, len(out)-(localEnd-localStart)+len(redacted))
+		next = append(next, out[:localStart]...)
+		next = append(next, redacted...)
+		next = append(next, out[localEnd:]...)
+		out = next
 	}
 	return out
 }

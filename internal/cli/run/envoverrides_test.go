@@ -436,7 +436,7 @@ func TestEnvOverrideExplainsTOMLPrivateInlineSource(t *testing.T) {
 	}
 	got := strings.Join(o.checkEnvOverrides(cfg, "podman", selected, channel, nil), "\n")
 	for _, want := range []string{packload.FromEnvSecretsSet, "For this inline private value",
-		"yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local"} {
+		"yolo config unset env.secrets.set.<NAME>", "--user", "--project", "--local", "--file <path>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the inline private refusal must give source-specific guidance containing %q:\n%s", want, got)
 		}

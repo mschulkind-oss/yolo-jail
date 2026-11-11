@@ -385,7 +385,7 @@ func overrideFindingLines(pack string, d packdecl.EnvOverrideDecl, o packdecl.En
 			"edits inline values only and does not change dotenv bytes. Remove only this name's line from its source file."
 	case hasEnvSource(removals, FromEnvSecretsSet):
 		last += " For this inline private value, run `yolo config unset env.secrets.set.<NAME>` " +
-			"with the scope that contains it (`--user`, `--project`, or `--local`)."
+			"with its scope (`--user`, `--project`, or `--local`), or select the declaring included config with `--file <path>`."
 	case hasPrivateEnvSource(removals):
 		last += " This is a private TOML value; verify whether it is inline `[env.secrets].set` or " +
 			"dotenv-backed `[env.secrets].files` before removing it. `yolo config unset` edits inline values only, not dotenv bytes."
