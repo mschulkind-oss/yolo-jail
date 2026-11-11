@@ -909,6 +909,47 @@ func TestFetchThroughTheBroker(t *testing.T) {
 	}
 }
 
+// TestFetchIntoEmptyDestinationThroughTheBroker matches the integration fixture's transfer:
+// an empty seed commit is cloned bare, and a separately initialized empty destination fetches
+// it through the real helper and TLS broker before checking the fetched object graph.
+func TestFetchIntoEmptyDestinationThroughTheBroker(t *testing.T) {
+	f := newFixture(t, "")
+	if err := os.RemoveAll(f.bare); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(f.root, "empty-seed")
+	mustGit(t, f.root, "init", "-q", "-b", "main", seed)
+	mustGit(t, seed, "commit", "-q", "--allow-empty", "-m", "seed")
+	mustGit(t, f.root, "clone", "-q", "--bare", seed, f.bare)
+	upstream := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+
+	if err := os.RemoveAll(f.ws); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, f.root, "init", "-q", "-b", "main", f.ws)
+	mustGit(t, f.ws, "remote", "add", "origin", origin)
+	if _, err := f.git("cat-file", "-e", upstream+"^{commit}"); err == nil {
+		t.Fatal("empty destination already contains the upstream commit before fetching")
+	}
+	out, err := f.git("fetch", "origin")
+	if err != nil {
+		t.Fatalf("fetch into empty destination: %v\n%s", err, out)
+	}
+	if got := mustGit(t, f.ws, "rev-parse", "FETCH_HEAD"); got != upstream {
+		t.Fatalf("FETCH_HEAD=%s, want upstream commit %s", got, upstream)
+	}
+	if _, err := run(t, f.ws, gitEnv(), "cat-file", "-e", upstream+"^{commit}"); err != nil {
+		t.Fatalf("fetched upstream commit is unavailable: %v", err)
+	}
+	tree := mustGit(t, f.ws, "rev-parse", upstream+"^{tree}")
+	if _, err := run(t, f.ws, gitEnv(), "cat-file", "-e", tree+"^{tree}"); err != nil {
+		t.Fatalf("fetched upstream tree %s is unavailable: %v", tree, err)
+	}
+	if out, err := run(t, f.ws, gitEnv(), "fsck", "--full", "--no-reflogs"); err != nil {
+		t.Fatalf("client repository fsck: %v\n%s", err, out)
+	}
+}
+
 func (f *fixture) localCommit() {
 	f.t.Helper()
 	if err := os.WriteFile(filepath.Join(f.ws, "new"), []byte("new\n"), 0o644); err != nil {
