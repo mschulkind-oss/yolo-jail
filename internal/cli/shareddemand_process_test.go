@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func sharedDemandTestProcess(t *testing.T, mode string, extra ...string) *exec.Cmd {
@@ -355,11 +356,33 @@ func TestSharedDemandSchedulerStopDetachesBeforeDemandStateUnlockWithProcessChil
 	ticks := make(chan time.Time, 1)
 	schedulerDone := make(chan error, 1)
 	ownerTicks := make(chan time.Time, 1)
+	// The owner's own ready event, not a probe of worker.lock: a probe takes that lock to read it
+	// free, and the owner's no-wait acquire then loses to its own observer on a loaded machine.
+	ownerReady := make(chan struct{})
 	go func() {
 		defer close(schedulerDone)
-		schedulerDone <- runPreparationWorker(ctx, preparationRoot(), run.SelfExecPath(), ownerTicks, func(ownerCtx context.Context) error { return runPreparationScheduler(ownerCtx, ticks, io.Discard) })
+		schedulerDone <- runPreparationWorkerReady(ctx, preparationRoot(), run.SelfExecPath(), ownerTicks,
+			func(ownerCtx context.Context) error { return runPreparationScheduler(ownerCtx, ticks, io.Discard) },
+			func(preparationWorker) { close(ownerReady) })
 	}()
-	awaitPreparationOwner(t, preparationRoot(), schedulerDone, stop)
+	// Every bound below is a hang guard that turns a stuck event into a red test, never a budget
+	// the code has to beat.
+	hangGuard := testsupport.ReadinessBudget(t)
+	t.Cleanup(func() {
+		stop()
+		select {
+		case <-schedulerDone:
+		case <-time.After(hangGuard):
+			t.Error("preparation owner did not exit after cancellation")
+		}
+	})
+	select {
+	case <-ownerReady:
+	case err := <-schedulerDone:
+		t.Fatalf("preparation owner exited before it was ready: %v", err)
+	case <-time.After(hangGuard):
+		t.Fatal("preparation owner did not become ready")
+	}
 	ownerTicks <- time.Now()
 	ticks <- f.fx.now
 	childConn, pid := f.child(t)
@@ -390,13 +413,21 @@ func TestSharedDemandSchedulerStopDetachesBeforeDemandStateUnlockWithProcessChil
 	}
 	defer state.Release()
 	stop()
+	// The pass condition is the scheduler's own return while this test still holds state.lock.
+	// Its cleanup deadline (sharedDemandCleanupBound) is what ends its wait for that lock, so the
+	// return cannot come sooner than that bound and, on a loaded machine, comes well after it:
+	// how long it takes is not asserted. Without the deadline the scheduler waits on the lock
+	// for as long as it is held, and only the hang guard ends the test.
 	select {
 	case err := <-schedulerDone:
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("scheduler stop: %v", err)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("scheduler did not detach before demand state unlocked after the one-second cleanup deadline")
+	case <-time.After(hangGuard):
+		t.Fatal("scheduler did not detach while demand state stayed locked: its cleanup deadline never ended the wait")
+	}
+	if !pidlock.Held(filepath.Join(dir, "state.lock")) {
+		t.Fatal("demand state was unlocked before the scheduler returned, so its return proves no detach")
 	}
 	if err := syscall.Kill(pid, 0); err != nil {
 		t.Fatalf("scheduler stop killed the original child still owned by the fresh requester: %v", err)
@@ -413,7 +444,7 @@ func TestSharedDemandSchedulerStopDetachesBeforeDemandStateUnlockWithProcessChil
 		if result.delivery.Key == "" || result.freshFailure() != "" {
 			t.Fatalf("fresh requester did not settle through the valid demand guard: %+v\n%s", result, requesterOutput.String())
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("fresh requester did not settle after the valid demand became readable")
 	}
 	select {
@@ -422,7 +453,7 @@ func TestSharedDemandSchedulerStopDetachesBeforeDemandStateUnlockWithProcessChil
 		if err != nil {
 			t.Fatalf("shared worker exited: %v\n%s", err, mustRead(t, backgroundAdvanceLog()))
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("shared worker did not finish after its child was released")
 	}
 }
