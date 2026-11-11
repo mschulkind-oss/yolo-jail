@@ -97,7 +97,7 @@ removes folders older than 24 hours. Every run and refusal is also recorded on t
 - **It runs nothing on its own.** Only you running the line starts a command.
 - **Full-screen programs do not work.** The output is a pipe, so there is no color, pager or
   full-screen display.
-- **It does not restart the jail.** It can deliver the `yolo check` after a config edit; the
+- **It does not restart the jail.** It can deliver the `yolo config check` after a config edit; the
   restart is still yours.
 - **It cannot stop what your shell does first.** Your shell reads the line before yolo does, so
   start it with bare `yolo host-run`, with no `;`, `&&`, `|`, `>` or `$(` anywhere.

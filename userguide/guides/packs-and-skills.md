@@ -22,7 +22,7 @@ That leaves `packs = ["claude", "guardrails"]` in the file (in a legacy `config.
 `"packs": [...]`). `yolo pack ls` lists the packs you selected and what each delivers.
 
 A project's own config cannot select packs. The project folder is writable from inside the
-jail, so an agent could otherwise hand itself new skills, programs or host access. Run `yolo check`
+jail, so an agent could otherwise hand itself new skills, programs or host access. Run `yolo config check`
 after you edit the list, and the next launch picks it up; an agent pack needs no image rebuild.
 
 With no packs, a jail is a shell with yolo's built-in tools and no coding agent, and the launch says

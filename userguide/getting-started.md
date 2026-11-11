@@ -474,7 +474,9 @@ yolo check
 `yolo check` looks at Nix, the runtime, your config and the jail's build. Each row starts with
 `[PASS]`, `[WARN]` or `[FAIL]`, and the run ends with a Summary line. **Fix every `[FAIL]`**: a
 failure stops the check before it builds anything, and the row's note names the fix. The first run
-also builds the jail's image, which takes a while; `yolo check --no-build` is the fast version.
+also builds the jail's image, which takes a while; `yolo check --no-build` skips only the image
+build while leaving the broad readiness check in place. To validate config edits without those
+environment checks, use `yolo config check`.
 Optionally, `yolo init` adds a small `yolo-jail.toml` pointer file to the project, which is where the
 project's own settings go later; you do not need one to start.
 
@@ -485,7 +487,7 @@ A healthy fresh machine still shows a few warnings. These are expected:
 | `No '…yolo-jail' image loaded` | The check builds the image, but only a launch loads it into the runtime | Nothing: your first launch loads it |
 | `nix min-free = 0 — the daemon's automatic GC is OFF` | Nix never cleans up its own store unless you set a floor | Optional: add the `min-free` and `max-free` lines the note shows, sized for your disk |
 | `loophole claude-oauth-broker: … not yet generated`, or `… does not exist — run Claude and /login first` | The helper that keeps a shared Claude login fresh has not run yet | Nothing: it sets itself up on your first launch and login |
-| `Skipped nix build (--no-build)` | You ran the fast check | Nothing |
+| `Skipped nix build (--no-build)` | The flag skips the image build; this remains a broad readiness check | This row says nothing about config validity |
 | On a Mac, with yolo 0.10.0: `No OCI conversion tool for Apple Container` | An outdated check, removed in the release after 0.10.0: yolo builds its own image copier and uses nothing on your PATH | Ignore it; you do not need skopeo |
 | On a Mac: `Podman Machine: not configured` | Podman is installed, but you use Apple Container | Ignore it |
 | On a Mac: `A package must be built from source …` | Part of the image is in no binary cache | Keep the runtime running: the launch builds it in a temporary container |
@@ -502,7 +504,8 @@ And these need fixing before you launch:
 | `… installed but not answering` | The runtime did not answer within a minute: it may be busy or still starting. On a Mac, `podman machine list` shows whether the machine is running; wait for it, then run `yolo check` again, and restart it if it still does not answer. On Linux, `podman info` shows why |
 | `No packs are configured, so this jail has no coding agent` | [Choose an agent](#choose-an-agent) |
 
-Run `yolo check` again after every edit to your config.
+Run `yolo config check` after every edit to your config. Use `yolo check` when diagnosing machine,
+runtime, image or service readiness.
 
 ### Launch
 

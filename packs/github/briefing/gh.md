@@ -54,7 +54,7 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   Run `yolo request github repos OWNER/REPO`, which writes this project's config (if it refuses
   because the config file is read-only here or cannot take the key, ask the user to run the same
   command on the host, in this workspace).
-  Then run `yolo check --no-build`, and ask the user to run `yolo config apply` on the host, in
+  Then run `yolo config check`, and ask the user to run `yolo config apply` on the host, in
   this workspace, and answer y to the repository-scope prompt. In a jail started by this yolo,
   the running broker takes the repository at its next call; an older one needs a restart.
   Nothing changes before that y.

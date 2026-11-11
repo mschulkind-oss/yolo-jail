@@ -160,7 +160,7 @@ Add it to your user config, beside your agent:
 }
 ```
 
-A local folder is read in place, so there is nothing to fetch. Run `yolo check`.
+A local folder is read in place, so there is nothing to fetch. Run `yolo config check`.
 
 ### Step 5: launch, and confirm it took effect
 

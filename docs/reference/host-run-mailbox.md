@@ -479,7 +479,7 @@ jail is a valid test bed for everything but the cross-uid backends.
 - **No unattended host execution.** No grant, no allowlist, no "run this again later", and no
   notification button ([BB-D91](../design/boundary-broker.md#BB-D91), ruled "no for now").
 - **No proof that an agent asked.** A line runs because a human ran it ([HX-P7](#HX-P7)).
-- **No restart.** host-run can deliver the `yolo check` after a config edit; a restart ends the
+- **No restart.** host-run can deliver the `yolo config check` after a config edit; a restart ends the
   asking session and stays a human's job.
 - **No full-screen programs.** Stdout is a pipe: no color, no pager, no TUI.
 - **No input from the jail, and nothing sent to the host through the mailbox.**

@@ -1,11 +1,13 @@
 # Troubleshooting
 
-Start with `yolo check`. It checks the runtime, Nix, your config, the jail image, running jails and,
-where they apply, GPUs, the Mac VM and the Claude login service, and each failing row names its fix:
+Start with `yolo check`. It checks machine, runtime, config and launch readiness, and each failing row
+names its fix. After a config edit alone, use `yolo config check` for config validity; it is not a
+readiness check.
 
 ```bash
-yolo check              # the full check, including the image build
-yolo check --no-build   # the fast version
+yolo check              # the full readiness check, including the image build
+yolo check --no-build   # all readiness sections except the image build
+yolo config check       # config validity only
 ```
 
 [Getting Started](../getting-started.md#check-the-setup) explains the rows a healthy new machine

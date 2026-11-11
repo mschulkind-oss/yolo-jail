@@ -32,8 +32,10 @@ proved over your user config the way a launch layers it, and touches nothing els
 
 ## Change it with a command
 
-You rarely need to edit a file by hand. Each command writes the right file, keeps your comments,
-and runs the same checks as `yolo check`:
+You rarely need to edit a file by hand. Each command writes the right file and keeps your comments.
+For config validity after an edit, use `yolo config check`; `yolo check` is the broader machine and
+launch-readiness report. Successful public workspace `yolo config set/add/unset` writes run the
+config check automatically.
 
 | To | Run | Where |
 |---|---|---|
@@ -84,13 +86,18 @@ The files merge in the order above, later files winning. Legacy JSONC/JSON lists
 files with `include_if_found`, which skips a file that is missing, handy for a gitignored overrides
 file.
 
-After **every** edit to any of these files, run:
+After **hand-editing** any of these files, run:
 
 ```bash
-yolo check
+yolo config check
 ```
 
-When `yolo check` or a launch refuses a setting, the message starts with the file and line the
+This fast, config-only check makes no persistent writes; selected-pack validation may use private
+temporary staging that is removed afterward. It does not establish machine or launch readiness.
+From inside a jail it cannot verify host paths and mounts, and a skipped fetched pack is not
+validated. Use `yolo check` when diagnosing machine, runtime, image or service readiness.
+
+When `yolo config check`, `yolo check` or a launch refuses a setting, the message starts with the file and line the
 setting is written on, and the column its value starts at, so you can open that file at that spot:
 
 ```text
@@ -243,8 +250,7 @@ On `macos-user` every launch starts fresh, so there is no running jail to update
 
 **When an agent edits the config from inside the jail**, the workflow is:
 
-1. The agent makes the change with `yolo request` or `yolo config set --project` (or edits the file) and runs `yolo check --no-build`, the fast check, to validate
-   it.
+1. The agent makes the change with `yolo request` or `yolo config set --project` (or edits the file) and runs `yolo config check` for config validity. In a jail, host paths and mounts remain unverified; skipped fetched packs are not validated.
 2. The agent asks you to run `yolo config apply` on the host. Eligible mount and GitHub repository-
    scope changes can reach a supported running jail; the command names anything that still needs a
    restart.

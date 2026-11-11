@@ -9,14 +9,16 @@ When something inside the jail misbehaves, work this triage tree top to bottom.
 Each step points at a live command — run its `--help` for detail rather than
 guessing flags.
 
-## 1. Validate the config first
+## 1. Check readiness first
 
 ```
-yolo check --no-build
+yolo check
 ```
 
-This is the fast in-jail preflight: it validates `yolo-jail.jsonc` and the
-entrypoint without rebuilding the image. A `[FAIL]` here explains most
+This is the broad in-jail readiness report: it checks config and the entrypoint
+alongside the runtime and environment. It is not the config-edit check. After a
+config edit, use `yolo config check` for config validity; it does not establish
+that the jail is ready. A `[FAIL]` in this readiness report explains most
 "why won't it start / why did provisioning break" symptoms. Fix reported
 failures before anything else.
 

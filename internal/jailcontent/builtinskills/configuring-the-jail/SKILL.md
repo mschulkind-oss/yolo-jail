@@ -23,22 +23,27 @@ no verb reaches, or in a workspace still on the legacy `yolo-jail.jsonc`.
 
 ## You already know the loop — here's what it leaves out
 
-The always-on briefing already states the rule: **edit → `yolo check --no-build`
+The always-on briefing already states the rule: **edit → `yolo config check`
 → fix any `[FAIL]` → then STOP and ask the human to run `yolo config apply` on
-the host, in this workspace.** That command uses the launch's same approval
+the host, in this workspace.** This is a fast, config-only check with no
+persistent writes; selected-pack validation may stage privately under a temporary
+directory. It is not a machine-readiness test. In a jail, host paths and mounts
+cannot be verified, and a skipped fetched pack is not validated. `yolo check`
+remains the broader readiness report. Approval is still required; this check
+never approves a change. `yolo config apply` uses the launch's same approval
 gate; approved read-only and user-scope read-write mounts under `/ctx`, and a
 running GitHub broker's repository scope, can apply live, while other changes
-wait for the next restart. It never restarts the jail or offers to do so. Assume that. This skill covers the parts
-that rule leaves out.
+wait for the next restart. It never restarts the jail or offers to do so. This
+skill covers the parts that rule leaves out.
 
 ### When the config file is read-only
 
 If the project sets `workspace_readonly` at all, yolo also makes the workspace
 config file **read-only inside the jail**, so an agent cannot edit its own
-sandbox. Your briefing says so, and `yolo check --no-build` prints a line naming
-the file. Then write out the exact edit and ask the human to apply it on the host,
-run `yolo check` there, and run `yolo config apply`; that command reports whether
-the change takes effect live or remains pending for a restart. Do not route the
+sandbox. Your briefing says so, and `yolo check` reports this broad readiness
+condition. Then write out the exact edit and ask the human to apply it on the host,
+run `yolo config check` there, and run `yolo config apply`; that command reports
+whether the change takes effect live or remains pending for a restart. Do not route the
 change through the local config file, an included file, or a new config file
 beside the locked one: those are not locked, and using them to get round the
 lock undoes the protection the human chose, and the config diff at the next
@@ -83,7 +88,7 @@ wildcard, more than one: `*/*` is every repository the host login can reach,
 with `yolo request github repos OWNER/REPO` (`yolo request git push <branch>` and
 `yolo request git new_branches` are the same verb for git), which edits the
 project's config; if it refuses because the file is read-only here, ask the human
-to run the same command on the host. After it, run `yolo check --no-build` and ask the human to run
+to run the same command on the host. After it, run `yolo config check` and ask the human to run
 `yolo config apply` on the host in this workspace. Its existing approval prompt
 records the trust; a running broker that supports live scope takes the change
 at its next request. When live scope is not available, the change remains pending for the next restart. The
@@ -132,7 +137,7 @@ Merge edge cases that surprise people:
   inherited entry: `"mcp_servers": { "foo": null }` removes an inherited server;
   the same trick disables an inherited preset.
 
-## Two representative edits (then run `yolo check --no-build`)
+## Two representative edits (then run `yolo config check`)
 
 Add a CLI tool or runtime — the preferred, no-rebuild path:
 

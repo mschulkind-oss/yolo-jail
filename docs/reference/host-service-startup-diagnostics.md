@@ -166,8 +166,9 @@ to run on this machine; the full host-code disclosure still precedes the daemon 
 
 Any non-accepted result refuses the launch: `Refusing to launch: host service '<name>' refused
 startup (<class>): <reason>`, then `Remedy:` and a closing step. A `configuration` refusal closes
-with "correct the settings, run `yolo check --no-build`, then retry"; any other class closes with
-the retry alone, and a remedy already naming `yolo check --no-build` is not repeated. A settings
+with "correct the settings, run `yolo config check` for shared config validity, then run
+`yolo check --no-build` to rerun the service's settings validator, then retry"; any other class
+closes with the retry alone, and a remedy already naming `yolo check --no-build` is not repeated. A settings
 map that cannot even be resolved is refused the same way with class `settings-resolution`.
 
 ### Publication

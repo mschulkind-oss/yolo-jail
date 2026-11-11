@@ -480,7 +480,8 @@ resolution on an MCP cold start — not for the loader.
 
 Rule of thumb: **project runtimes → `mise.toml`; every-jail native packages →
 `yolo-jail.jsonc "packages"` (rebuild); the runtime/version substrate itself →
-`flake.nix` (rebuild).** After *any* `yolo-jail.jsonc` edit, run `yolo check`
+`flake.nix` (rebuild).** After *any* `yolo-jail.jsonc` edit, run `yolo config check` to validate the config.
+For a changed baked package set, also run `yolo check` on the host for image and machine readiness
 before restarting.
 
 ---

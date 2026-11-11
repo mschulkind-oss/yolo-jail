@@ -401,8 +401,8 @@ Class-2 guidance depends on this, and the boundary is sharper than it looks:
   keys it re-reads have **live briefing text and frozen enforcement** — a jail can describe a
   limit it is not applying.
 - **In-jail, config loading returns the assembled snapshot verbatim** and never re-reads the
-  workspace config, while **`yolo check` bypasses that loader and validates the raw files.** That
-  split is what makes the documented "edit → `yolo check --no-build`" loop work at all.
+  workspace config, while **`yolo config check` bypasses that loader and validates the raw files.** That
+  split is what makes the documented "edit → `yolo config check`" loop work at all.
 - **The approval prompt only fires on fresh launch**, after the attach branch has returned, so
   attaching never re-checks config — see [`config-safety.md`](config-safety.md).
 

@@ -57,7 +57,7 @@ comments cite them by number.
 
 1. **Agents CAN edit the config** — they need to request packages for their work.
 2. **Humans MUST approve changes** — no silent config modifications.
-3. **Agents MUST self-validate edits** — run `yolo check` after every config change.
+3. **Agents MUST self-validate edits** — run `yolo config check` after every config change; it checks config validity, not launch readiness.
 4. **The flow is natural** — no special commands or flags in the ordinary path.
 5. **Non-interactive use still works** — through an explicit per-launch opt-in, never
    through an implicit yes.

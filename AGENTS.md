@@ -241,10 +241,13 @@ The mechanics behind each of these are in
   it, asks, prints the one command, or names who can. A message that only reports is a defect
   ([`happy-path-principle.md`](docs/reference/happy-path-principle.md); not to be confused with
   [`fill-the-matrix-principle.md`](docs/reference/fill-the-matrix-principle.md)).
-- **Run `yolo check` after every edit** to [`yolo-jail.toml`](yolo-jail.toml) (`yolo-jail.jsonc` where a
-  workspace has not converted) or `~/.config/yolo-jail/config.toml` (legacy `config.jsonc`), before asking a
-  human to restart. `yolo check --no-build` is the fast in-jail preflight. The y/N startup diff prompt is
-  not a substitute.
+- **After a config edit**, run `yolo config check`: it is fast, config-only, and makes no persistent
+  writes (selected-pack validation may stage privately under a temporary directory). In a jail, it
+  cannot verify host paths and mounts, and a skipped fetched pack is not validated.
+  Use `yolo check` for machine, runtime, image or service readiness; inside a jail its default
+  does not build, while explicit `--build` still does. Disk inventory and reclaim belong to
+  `yolo stores` and `yolo prune`. The y/N startup diff prompt is not a substitute for config
+  validation.
 - **Config is TOML; legacy JSONC is read for a few releases** ([RC-D19](docs/design/readable-config.md#decision-ledger)).
   One format per scope, a TOML file beside a legacy one is refused, and a launch offers
   `yolo config migrate` (`convert_later` in a legacy user file silences it). **Advice names a verb, not a

@@ -41,14 +41,17 @@ Launch flags, placed before `--`:
 ```bash
 yolo init-user-config        # create your user config in ~/.config/yolo-jail/, full of commented examples
 yolo init                    # write this project's yolo-jail.toml pointer file
-yolo check                   # check Nix, the runtime, your config, and build the image
-yolo check --no-build        # the fast version; the one to run inside a jail
+yolo check                   # broad readiness: Nix, the runtime, config, and image
+yolo check --no-build        # all readiness sections except the image build
+yolo config check            # fast, read-only config validation only
 yolo config-ref              # every config key, with types, defaults and examples
 yolo update --check          # is a newer yolo out? installs nothing
 yolo update                  # install it the same way yolo was installed
 ```
 
-`yolo doctor` is another name for `yolo check`. Run `yolo check` after every config edit.
+`yolo doctor` is another name for the broad `yolo check`. After a config edit, run
+`yolo config check`; `yolo check` is for machine and launch readiness. For disk inventory and
+reclaim, use `yolo stores` and `yolo prune`.
 [Upgrade](../getting-started.md#upgrade) covers `yolo update` for each way of installing yolo.
 
 ## Inspect what yolo builds
@@ -67,7 +70,9 @@ yolo config why <key>        # the effective value, every file and line that set
 
 ## Change the config
 
-These write the right file, keep your comments, and run `yolo check` on the result.
+These write the right file and keep your comments. After a config edit, use `yolo config check`
+for config validity; `yolo check` is the broader readiness report. Public workspace `config set`,
+`add` and `unset` writes run that config check automatically.
 [Configuration](configuration.md#change-it-with-a-command) says which run on the host and which in
 a jail.
 

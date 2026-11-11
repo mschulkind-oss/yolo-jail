@@ -315,7 +315,7 @@ BEDROCK_RUNTIME_API_KEY=replace-with-your-bedrock-runtime-api-key
 
 The value above is a fake placeholder. A Bedrock API key is a Bedrock-specific bearer token, not an AWS access-key pair. `api_key_env_name` names the variable the provider claims; the [credential gate](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/providers.md#the-credential-gate) delivers a claimed variable to agents selecting any provider that claims the same name. The shipped native `bedrock` provider does not claim `AWS_BEARER_TOKEN_BEDROCK` (the shipped `bedrock-key` provider does), so these dedicated Runtime and Mantle names keep the manual keys separate from native Bedrock. If you deliberately reuse `AWS_BEARER_TOKEN_BEDROCK`, agents selecting `bedrock-key` receive that shared value too. Do not combine a bearer key with the `aws-auth` pointer for the same Bedrock client; an agent on `bedrock-key` is never given the pointer. You do not need `--with-credentials` for this profile-gated delivery. Keep the provider and endpoint in user scope: a workspace config cannot declare an external `base_url`. Leave out `platform: "aws-bedrock"`: that marker selects the native Bedrock derive, not this generic endpoint route.
 
-After saving the user config, run `yolo check` to validate it. Then use this profile with an agent that speaks one of the configured protocols:
+After saving the user config, run `yolo config check` to validate it. Then use this profile with an agent that speaks one of the configured protocols:
 
 ```bash
 yolo -p runtime-api-key -- pi       # OpenAI Chat Completions
@@ -614,7 +614,7 @@ checked.
 
 ## After a change
 
-Run `yolo check` after editing your config. A new key or a new `-p` choice reaches a running jail
+Run `yolo config check` after editing your config. A new key or a new `-p` choice reaches a running jail
 the next time you run `yolo` in it. Adding or removing a provider pack needs a fresh jail:
 `yolo stop`, then launch again.
 

@@ -35,7 +35,7 @@ Wrapped plugin first-mod (from /home/you/src/first-mod)
     hooks          runs code at agent lifecycle events   ⚠ RUNS CODE  (hooks/hooks.json)
 ```
 
-Then select it in your user config, `~/.config/yolo-jail/config.jsonc`, and run `yolo check`:
+Then select it in your user config, `~/.config/yolo-jail/config.jsonc`, and run `yolo config check`:
 
 ```jsonc
 {

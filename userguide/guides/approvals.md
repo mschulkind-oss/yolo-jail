@@ -38,7 +38,7 @@ Access a project holds for good comes from two files, and each has a command tha
    yolo request journal read
    ```
 
-   It writes the line, runs `yolo check`, and names the step that approves it.
+   It writes the line. Run `yolo config check` to validate it, then use the step below to approve it.
 
 3. **You approve it on your machine**, in the project, where the request shows in the same
    prompt that approves any config change:
