@@ -216,7 +216,7 @@ func (r *report) verifyCheck(yolo, version, versionHash, keg string) {
 		r.ok("`yolo check` (exit %d) found the flake bundle beside the binary, at %s, and failed only where a Mac with no container runtime and no Nix does", rc, bundle)
 	}
 
-	unknown, errs := checkBundle(bundle)
+	unknown, errs := checkBundle(bundle, version)
 	for _, e := range errs {
 		r.fail(e)
 	}

@@ -23,6 +23,8 @@ const testFormula = "mschulkind-oss/tap/yolo-jail"
 // directory and environment it was run in.
 type stubMachine struct {
 	root, keg, bundle, log string
+	// release is the version the tap carries: the formula's, the keg's and the binary's.
+	release string
 
 	// What the stubs answer; a test edits these before install.
 	checkJSON []byte
@@ -33,13 +35,20 @@ type stubMachine struct {
 
 func newStubMachine(t *testing.T) *stubMachine {
 	t.Helper()
+	return newStubMachineAt(t, "0.11.0")
+}
+
+// newStubMachineAt is the stub machine with the tap carrying release.
+func newStubMachineAt(t *testing.T, release string) *stubMachine {
+	t.Helper()
 	root := resolvedTempDir(t)
 	m := &stubMachine{
 		root:      root,
-		keg:       filepath.Join(root, "prefix", "Cellar", "yolo-jail", "0.11.0"),
+		release:   release,
+		keg:       filepath.Join(root, "prefix", "Cellar", "yolo-jail", release),
 		log:       filepath.Join(root, "log"),
-		version:   "yolo-jail 0.11.0+g0123456789ab",
-		linkedKeg: `"0.11.0"`,
+		version:   "yolo-jail " + release + "+g0123456789ab",
+		linkedKeg: `"` + release + `"`,
 	}
 	m.bundle = filepath.Join(m.keg, "share", "yolo-jail")
 	writeFile(t, filepath.Join(m.bundle, "flake.nix"), "{}", 0o644)
@@ -49,9 +58,9 @@ func newStubMachine(t *testing.T) *stubMachine {
 	writeFile(t, filepath.Join(m.bundle, "bin/darwin-arm64/yolo"), fakeMachO(t, macho.CpuArm64), 0o755)
 	writeFile(t, filepath.Join(m.bundle, "bin/darwin-arm64/yolo-jaild"), fakeMachO(t, macho.CpuArm64), 0o755)
 	for link, target := range map[string]string{
-		"prefix/bin/yolo":        "../Cellar/yolo-jail/0.11.0/bin/yolo",
-		"prefix/share/yolo-jail": "../Cellar/yolo-jail/0.11.0/share/yolo-jail",
-		"prefix/opt/yolo-jail":   "../Cellar/yolo-jail/0.11.0",
+		"prefix/bin/yolo":        "../Cellar/yolo-jail/" + release + "/bin/yolo",
+		"prefix/share/yolo-jail": "../Cellar/yolo-jail/" + release + "/share/yolo-jail",
+		"prefix/opt/yolo-jail":   "../Cellar/yolo-jail/" + release,
 	} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(link)), 0o755); err != nil {
 			t.Fatal(err)
@@ -65,7 +74,7 @@ func newStubMachine(t *testing.T) *stubMachine {
 			t.Fatal(err)
 		}
 	}
-	m.checkJSON, m.checkRC = bareMacCheck(t, "0.11.0+g0123456789ab", m.bundle)
+	m.checkJSON, m.checkRC = bareMacCheck(t, release+"+g0123456789ab", m.bundle)
 	return m
 }
 
@@ -74,8 +83,8 @@ func newStubMachine(t *testing.T) *stubMachine {
 func (m *stubMachine) install(t *testing.T) {
 	t.Helper()
 	info := `{"formulae":[{"name":"yolo-jail","full_name":"` + testFormula + `",` +
-		`"versions":{"stable":"0.11.0","head":null,"bottle":false},"revision":0,` +
-		`"installed":[{"version":"0.11.0"}],"linked_keg":` + m.linkedKeg + `}],"casks":[]}`
+		`"versions":{"stable":"` + m.release + `","head":null,"bottle":false},"revision":0,` +
+		`"installed":[{"version":"` + m.release + `"}],"linked_keg":` + m.linkedKeg + `}],"casks":[]}`
 	writeFile(t, filepath.Join(m.root, "brew.json"), info, 0o644)
 	writeFile(t, filepath.Join(m.root, "check.json"), string(m.checkJSON), 0o644)
 	writeFile(t, filepath.Join(m.root, "brewbin", "brew"), `#!/bin/sh
@@ -102,7 +111,7 @@ case "$*" in
   ls -A > '`+filepath.Join(m.log, "ls")+`'
   env > '`+filepath.Join(m.log, "env")+`'
   if [ -r /proc/$$/environ ]; then cat /proc/$$/environ > '`+filepath.Join(m.log, "environ")+`'; fi
-  echo 'yolo-jail 0.11.0 | darwin/arm64 | host' >&2
+  echo 'yolo-jail `+m.release+` | darwin/arm64 | host' >&2
   cat '`+filepath.Join(m.root, "check.json")+`'
   exit `+strconv.Itoa(m.checkRC)+` ;;
 *) echo "stub yolo: $*" >&2; exit 2 ;;
@@ -309,6 +318,54 @@ func TestRunFailsEachBrokenInstall(t *testing.T) {
 			}
 		})
 	}
+}
+
+// publishedGuestOnlyDarwinDirs reshapes the stub's bundle into what the v0.17.1 release
+// archives hold under share/yolo-jail/bin: both darwin dirs carrying the macos-user guest
+// set and no host yolo, as v0.17.1's scripts/stage-source-bundle.sh staged them
+// (GUEST_BINARIES) one day before PH-D2 added the host yolo. The names are the published
+// yolo-jail_0.17.1_darwin_arm64.tar.gz's own listing.
+func publishedGuestOnlyDarwinDirs(t *testing.T, m *stubMachine) {
+	t.Helper()
+	for dir, cpu := range map[string]macho.Cpu{"darwin-amd64": macho.CpuAmd64, "darwin-arm64": macho.CpuArm64} {
+		if err := os.RemoveAll(filepath.Join(m.bundle, "bin", dir)); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"yolo-jaild", "yolo-log", "yolo-ps", "yolo-serial"} {
+			writeFile(t, filepath.Join(m.bundle, "bin", dir, name), fakeMachO(t, cpu), 0o755)
+		}
+	}
+}
+
+// TestRunJudgesTheDarwinHostYoloByTheReleaseTheTapCarries is run()'s hand-off of the
+// tap's version to the bundle check. The tap carried v0.17.1 when this checker began
+// requiring a darwin host yolo, and every tap run went red against a release that was
+// staged correctly. The same bundle under a later version is a release that lost its
+// host yolo, and stays a failure.
+func TestRunJudgesTheDarwinHostYoloByTheReleaseTheTapCarries(t *testing.T) {
+	t.Run("v0.17.1 as published passes", func(t *testing.T) {
+		m := newStubMachineAt(t, "0.17.1")
+		publishedGuestOnlyDarwinDirs(t, m)
+		m.install(t)
+		rc, out := runChecker(t, "-formula", testFormula, "-expect-version", "v0.17.1")
+		if rc != 0 || !strings.Contains(out, "The tap install works.") {
+			t.Errorf("run = %d over v0.17.1's published bundle:\n%s", rc, out)
+		}
+	})
+	t.Run("the same bundle in a later release fails", func(t *testing.T) {
+		m := newStubMachineAt(t, "0.17.2")
+		publishedGuestOnlyDarwinDirs(t, m)
+		m.install(t)
+		rc, out := runChecker(t, "-formula", testFormula)
+		if rc != 1 {
+			t.Errorf("run = %d, want 1", rc)
+		}
+		for _, want := range []string{"FAIL  the bundle has no bin/darwin-amd64/yolo", "FAIL  the bundle has no bin/darwin-arm64/yolo"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the report does not say %q:\n%s", want, out)
+			}
+		}
+	})
 }
 
 // TestRunReadsTheExpectationFromTheEvent pins the workflow's mode: with

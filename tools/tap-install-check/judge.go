@@ -374,18 +374,62 @@ var platformDirs = map[string]func(string) error{
 	"darwin-arm64": machoOf(macho.CpuArm64),
 }
 
-// checkBundle requires the flake bundle beside the binary to be what
-// scripts/stage-source-bundle.sh stages: flake.nix, flake.lock, and prebuilt
-// executables of the right format under bin/<os>-<arch>/, the Linux pid1 for both
-// arches among them. Returns every problem and the directories it did not recognize,
-// which the caller reports rather than counting as checked.
-func checkBundle(dir string) (unknown []string, errs []error) {
+// lastReleaseWithoutDarwinHostYolo is the newest published release staged before PH-D2
+// (docs/design/pinned-host-helpers.md) put the host yolo into the bundle's darwin dirs.
+// Its archives carry bin/darwin-<arch>/ holding the macos-user guest set alone, so the
+// presence of a darwin dir does not tell such a release from a later one that lost its
+// host yolo; only the version does. A constant, never raised: every release after it is
+// staged by a scripts/stage-source-bundle.sh that refuses a darwin dir without yolo.
+var lastReleaseWithoutDarwinHostYolo = [3]int{0, 17, 1}
+
+// plainRelease is X.Y.Z and nothing else, the only shape darwinHostYoloRequired excuses.
+var plainRelease = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)$`)
+
+// darwinHostYoloRequired reports whether a bundle of this release version must carry
+// bin/darwin-<arch>/yolo. Only a plain X.Y.Z at or below lastReleaseWithoutDarwinHostYolo
+// is excused; a prerelease, or anything else that does not parse, is held to the
+// current layout.
+func darwinHostYoloRequired(version string) bool {
+	m := plainRelease.FindStringSubmatch(version)
+	if m == nil {
+		return true
+	}
+	for i, last := range lastReleaseWithoutDarwinHostYolo {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil || n > last {
+			return true
+		}
+		if n < last {
+			return false
+		}
+	}
+	return false
+}
+
+// darwinHostBinaries are the pinned host helper of each Mac arch (PH-D2), required of
+// every release darwinHostYoloRequired names.
+var darwinHostBinaries = []string{
+	"bin/darwin-amd64/yolo",
+	"bin/darwin-arm64/yolo",
+}
+
+// checkBundle requires the flake bundle beside the binary to be what the
+// scripts/stage-source-bundle.sh of release version stages: flake.nix, flake.lock, and
+// prebuilt executables of the right format under bin/<os>-<arch>/, the Linux pid1 for
+// both arches among them and, after lastReleaseWithoutDarwinHostYolo, the darwin host
+// yolo for both. Returns every problem and the directories it did not recognize, which
+// the caller reports rather than counting as checked.
+func checkBundle(dir, version string) (unknown []string, errs []error) {
 	for _, f := range []string{"flake.nix", "flake.lock"} {
 		if info, err := os.Stat(filepath.Join(dir, f)); err != nil || !info.Mode().IsRegular() {
 			errs = append(errs, fmt.Errorf("the bundle has no %s: %s", f, filepath.Join(dir, f)))
 		}
 	}
-	for _, rel := range requiredPrefixBinaries {
+	required := requiredPrefixBinaries
+	if darwinHostYoloRequired(version) {
+		required = append(append([]string(nil), required...), darwinHostBinaries...)
+	}
+	for _, rel := range required {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			errs = append(errs, fmt.Errorf("the bundle has no %s", rel))
 		}
@@ -399,13 +443,6 @@ func checkBundle(dir string) (unknown []string, errs []error) {
 		if !ok || !e.IsDir() {
 			unknown = append(unknown, "bin/"+e.Name())
 			continue
-		}
-		// A darwin dir carries the host yolo, the one the launcher is (PH-D2). A release that
-		// predates the darwin dirs has none to check, which the caller's list already allows.
-		if strings.HasPrefix(e.Name(), "darwin-") {
-			if _, err := os.Stat(filepath.Join(dir, "bin", e.Name(), "yolo")); err != nil {
-				errs = append(errs, fmt.Errorf("the bundle has no bin/%s/yolo", e.Name()))
-			}
 		}
 		files, err := os.ReadDir(filepath.Join(dir, "bin", e.Name()))
 		if err != nil {

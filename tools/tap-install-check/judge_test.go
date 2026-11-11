@@ -403,28 +403,88 @@ func TestCheckBundle(t *testing.T) {
 		return dir
 	}
 
+	// current is any release staged after PH-D2; the bundle checks below hold to it.
+	const current = "0.18.0"
+
 	t.Run("what stage-source-bundle.sh stages", func(t *testing.T) {
-		unknown, errs := checkBundle(good(t))
+		unknown, errs := checkBundle(good(t), current)
 		if len(errs) != 0 || len(unknown) != 0 {
 			t.Errorf("a good bundle: unknown=%v errs=%v", unknown, errs)
 		}
 	})
+	// v0.17.1's archives: both darwin dirs, holding the macos-user guest set and no host
+	// yolo. The names are the published yolo-jail_0.17.1_darwin_arm64.tar.gz's listing,
+	// which is what that tag's stage-source-bundle.sh (GUEST_BINARIES) stages.
+	published0171 := func(t *testing.T) string {
+		dir := good(t)
+		for d, cpu := range map[string]macho.Cpu{"darwin-amd64": macho.CpuAmd64, "darwin-arm64": macho.CpuArm64} {
+			if err := os.RemoveAll(filepath.Join(dir, "bin", d)); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"yolo-jaild", "yolo-log", "yolo-ps", "yolo-serial"} {
+				writeFile(t, filepath.Join(dir, "bin", d, name), fakeMachO(t, cpu), 0o755)
+			}
+		}
+		return dir
+	}
+	t.Run("v0.17.1 as published: darwin guest dirs with no host yolo", func(t *testing.T) {
+		if unknown, errs := checkBundle(published0171(t), "0.17.1"); len(errs) != 0 || len(unknown) != 0 {
+			t.Errorf("unknown=%v errs=%v", unknown, errs)
+		}
+	})
+	// The excuse is the version's alone: the old layout still has every other rule.
+	t.Run("v0.17.1 with an ELF among its darwin guest binaries", func(t *testing.T) {
+		dir := published0171(t)
+		writeFile(t, filepath.Join(dir, "bin/darwin-arm64/yolo-jaild"), fakeELF(t, elf.EM_AARCH64), 0o755)
+		_, errs := checkBundle(dir, "0.17.1")
+		if joined := errors.Join(errs...); joined == nil || !strings.Contains(joined.Error(), "bin/darwin-arm64/yolo-jaild: not a Mach-O executable") {
+			t.Errorf("checkBundle = %v, want the wrong format refused", joined)
+		}
+	})
+	t.Run("v0.17.1 with no pid1 for arm64", func(t *testing.T) {
+		dir := published0171(t)
+		os.Remove(filepath.Join(dir, "bin/linux-arm64/yolo-entrypoint"))
+		_, errs := checkBundle(dir, "0.17.1")
+		if joined := errors.Join(errs...); joined == nil || !strings.Contains(joined.Error(), "no bin/linux-arm64/yolo-entrypoint") {
+			t.Errorf("checkBundle = %v, want the missing pid1 refused", joined)
+		}
+	})
 	// A published version that predates the darwin guest dirs ships only the Linux ones.
-	t.Run("a bundle with no darwin guest dirs", func(t *testing.T) {
+	noDarwinDirs := func(t *testing.T) string {
 		dir := good(t)
 		for _, d := range []string{"bin/darwin-arm64", "bin/darwin-amd64"} {
 			if err := os.RemoveAll(filepath.Join(dir, d)); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if unknown, errs := checkBundle(dir); len(errs) != 0 || len(unknown) != 0 {
+		return dir
+	}
+	t.Run("a bundle with no darwin guest dirs, from a release that predates them", func(t *testing.T) {
+		if unknown, errs := checkBundle(noDarwinDirs(t), "0.11.0"); len(errs) != 0 || len(unknown) != 0 {
 			t.Errorf("unknown=%v errs=%v", unknown, errs)
 		}
 	})
+	// After PH-D2 neither shape is a release: a Mac launch has no helper to pin.
+	for name, shape := range map[string]func(*testing.T) string{
+		"v0.17.1's layout":             published0171,
+		"a bundle with no darwin dirs": noDarwinDirs,
+	} {
+		for _, version := range []string{"0.17.2", "0.18.0-rc1", "0.17.1-rc1", "1.0.0"} {
+			t.Run(name+" in release "+version, func(t *testing.T) {
+				_, errs := checkBundle(shape(t), version)
+				joined := errors.Join(errs...)
+				for _, want := range []string{"no bin/darwin-amd64/yolo", "no bin/darwin-arm64/yolo"} {
+					if joined == nil || !strings.Contains(joined.Error(), want) {
+						t.Errorf("checkBundle = %v, want an error saying %q", joined, want)
+					}
+				}
+			})
+		}
+	}
 	t.Run("a directory it does not know is reported, not passed", func(t *testing.T) {
 		dir := good(t)
 		writeFile(t, filepath.Join(dir, "bin/linux-riscv64/yolo"), "x", 0o755)
-		unknown, errs := checkBundle(dir)
+		unknown, errs := checkBundle(dir, current)
 		if len(errs) != 0 || len(unknown) != 1 || unknown[0] != "bin/linux-riscv64" {
 			t.Errorf("unknown=%v errs=%v, want bin/linux-riscv64 reported", unknown, errs)
 		}
@@ -460,12 +520,39 @@ func TestCheckBundle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := good(t)
 			tc.mutate(t, dir)
-			_, errs := checkBundle(dir)
+			_, errs := checkBundle(dir, current)
 			joined := errors.Join(errs...)
 			if joined == nil || !strings.Contains(joined.Error(), tc.want) {
 				t.Errorf("checkBundle = %v, want an error saying %q", joined, tc.want)
 			}
 		})
+	}
+}
+
+// TestDarwinHostYoloRequired pins which releases are excused from PH-D2's host yolo:
+// plain versions up to 0.17.1, and nothing that only resembles one.
+func TestDarwinHostYoloRequired(t *testing.T) {
+	for version, want := range map[string]bool{
+		"0.11.0":                   false,
+		"0.17.0":                   false,
+		"0.17.1":                   false,
+		"0.9.99":                   false,
+		"0.17.2":                   true,
+		"0.18.0":                   true,
+		"0.18.0-rc1":               true,
+		"0.17.2-rc1":               true,
+		"1.0.0":                    true,
+		"0.17.1-rc1":               true,
+		"0.17.1_1":                 true,
+		"0.17.1+g7f62a4":           true,
+		"0.17":                     true,
+		"v0.17.1":                  true,
+		"":                         true,
+		"99999999999999999999.0.0": true,
+	} {
+		if got := darwinHostYoloRequired(version); got != want {
+			t.Errorf("darwinHostYoloRequired(%q) = %v, want %v", version, got, want)
+		}
 	}
 }
 
