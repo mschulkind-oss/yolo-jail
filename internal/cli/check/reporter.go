@@ -43,6 +43,8 @@ type reporter struct {
 	// a consumer can attribute one without re-deriving the section order.
 	section  string
 	version  string
+	mode     string
+	scope    string
 	findings []Finding
 	// configWarned is every message configWarn has graded, so a config loader's finding read
 	// by two sections is one row and one count (configWarn).

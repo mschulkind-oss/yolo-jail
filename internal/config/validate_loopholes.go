@@ -598,7 +598,7 @@ func userSwitchesNothingNote(name string, userBlock *jsonx.OrderedMap, sources *
 	msg := "config.loopholes." + name + ".enabled switches nothing: the loophole " + pytext.Repr(name) +
 		" runs whenever its pack is selected. Remove the key; to stop it running, take its pack out " +
 		"of `packs`."
-	if l, login := packload.LoginLoopholes(packload.Embedded())[name]; login {
+	if l, login := packload.LoginLoopholes(embeddedPackDeclarationsFromFS(packload.EmbeddedFS()))[name]; login {
 		msg += " To keep it from serving where this file is in force, " + l.EmptyProfileStep() + "."
 	}
 	if sources != nil {

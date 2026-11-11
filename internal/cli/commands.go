@@ -1202,6 +1202,8 @@ var checkKnownFlags = []string{"--build", "--no-build", "--accept-config-changes
 func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 	opts := check.NewDefaultOptions()
 	opts.Color = true
+	opts.Getenv = os.Getenv
+	opts.Build = check.DefaultBuildEnabled(os.Getenv)
 	// The orphan-cleanup prompt's input. Missing until 2026-09-16, which made that
 	// prompt UNREACHABLE: check.Options.Stdin defaulted to nil, the prompt printed,
 	// the nil branch answered "N" every time, and the report then prescribed the
@@ -1696,25 +1698,27 @@ workspace config, the jail image, the configured packs, the loopholes, and any
 running jails. One section per area; exit is non-zero if any section FAILs.
 
 Flags:
-  --build                  Build the jail image if it is missing or stale (the default).
-  --no-build               Skip the image build entirely. This is the fast preflight to run
-                           after editing yolo-jail.jsonc, and the one to use inside a jail.
+  --build                  Build the jail image if it is missing or stale (host default).
+                           Inside a jail, the default skips the build; --build opts in.
+  --no-build               Skip only the image build. Use ` + "`yolo config check`" + ` for a
+                           config-only check after editing configuration.
   --accept-config-changes  Pre-approve workspace config changes and record the host snapshot.
 ` + outputFormatUsage + `
   --help, -h               Show this help. Answered before any section runs, so asking what
                            check does never triggers a nix build.
 
-The JSON document carries every GRADED finding — its section, its pass/warn/fail
-status, its message and its remediation note — plus the three counts. The dim
+The JSON document carries every GRADED finding — its section, its pass/warn/fail/skip
+status, its message and its remediation note — plus the four counts and mode/scope metadata. The dim
 informational lines and the section prose are not in it: they carry no grade to
 act on, and they stay in the text form, which is where they were written for a
 reader. ` + "`--format json`" + ` changes the rendering only: every section still runs,
 including the image build.
 
 Examples:
-  yolo check --no-build               # the fast preflight, and the one to use in a jail
+  yolo config check                    # config syntax and semantics only
+  yolo check --no-build                # full readiness check without an image build
   yolo check --no-build --format json # the same findings, for a script or an agent
-  yolo doctor                         # the same command under its alias
+  yolo doctor                          # the same broad command under its alias
 
 ` + "`yolo config-ref`" + ` is the schema the config sections validate against.`
 

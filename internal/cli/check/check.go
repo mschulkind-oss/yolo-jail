@@ -59,6 +59,8 @@ func Check(opts Options) int {
 	// color goes with it — there is no terminal to decorate. The sections are
 	// unchanged and still run; only where their prose lands changes.
 	r := newReporter(outfmt.Sink(o.Stdout, o.Format), color && !outfmt.IsJSON(o.Format))
+	r.mode = "full"
+	r.scope = "machine+workspace"
 
 	// Ensure global storage — best-effort; check should still run the probes
 	// even on a hard fs error, so the error is ignored (it never fails in normal
@@ -273,10 +275,8 @@ func Check(opts Options) int {
 	}
 	r.blank()
 
-	// --- Disk usage ---
-	r.sectionHeader("Disk usage")
-	o.checkDiskUsage(r, merged)
-	r.blank()
+	// --- Scope ---
+	o.sectionScope(r)
 
 	// --- Durable dir: what accumulates there, which yolo reports and never deletes (OQ-DS2) ---
 	o.sectionDurableDir(r, workspace)
@@ -566,6 +566,10 @@ func (s *configSources) orNone() configSources {
 // workspaceConfig, their provenance, parseFailed). A parse failure sets parseFailed
 // so the caller early-exits with the fail-only summary.
 func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.OrderedMap, *jsonx.OrderedMap, *configSources, bool) {
+	return o.sectionConfigFilesWithStrictness(r, workspace, true)
+}
+
+func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string, strict bool) (*jsonx.OrderedMap, *jsonx.OrderedMap, *configSources, bool) {
 	r.sectionHeader("Config Files")
 	// The file the format-aware reader reads (config.toml, else the legacy names), not
 	// paths.UserConfigPath, which knows only the legacy names and so reported a TOML user's
@@ -581,7 +585,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// launch would say; the check says them too, after the line naming the file.
 	var loadNotices []string
 	notice := func(msg string) { loadNotices = append(loadNotices, msg) }
-	userConfig, userSrc, err := config.UserScopeConfigWithSources(true, notice)
+	userConfig, userSrc, err := config.UserScopeConfigWithSources(strict, notice)
 	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
@@ -612,7 +616,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// reported no workspace config at all.
 	wsPath, _ := config.ResolveReadableWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
 	localPath, _ := config.ResolveReadableWorkspaceConfigPath(workspace, config.WorkspaceLocalConfigName)
-	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, notice)
+	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, strict, notice)
 	src.workspace = wsSrc
 	if err != nil {
 		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).

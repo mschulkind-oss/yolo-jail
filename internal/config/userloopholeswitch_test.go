@@ -34,8 +34,7 @@ func TestAUserScopeSwitchOfAPackLoopholeSwitchesNothing(t *testing.T) {
 	errs, warns := ValidateConfig(cfg, ws, resolver)
 	all := strings.Join(warns, "\n")
 	for _, want := range []string{"config.loopholes.aws-auth.enabled", layer, "switches nothing",
-		"runs whenever its pack is selected",
-		`"loopholes": {"aws-auth": {"settings": {"profile": ""}}}`, `profile = "" under [allow.aws-auth]`} {
+		"runs whenever its pack is selected", `yolo config set allow.aws-auth.profile "" --user`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("the warning does not say %q:\n%s", want, all)
 		}

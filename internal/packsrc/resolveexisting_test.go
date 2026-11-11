@@ -36,16 +36,16 @@ func TestResolveExistingChecksNothingOut(t *testing.T) {
 		t.Skipf("grammar does not accept a local git transport: %v", err)
 	}
 
-	if _, err := store.ResolveExisting(a, "p"); err == nil || !strings.Contains(err.Error(), "pack install") {
-		t.Errorf("never fetched: err = %v, want the fetch command named", err)
+	if _, err := store.ResolveExisting(a, "p"); err == nil || !errors.Is(err, ErrNotFetched) || !strings.Contains(err.Error(), "pack install") {
+		t.Errorf("never fetched: err = %v, want ErrNotFetched and the fetch command named", err)
 	}
 
 	commit, err := store.Sync(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ResolveExisting(a, "p"); err == nil || !strings.Contains(err.Error(), "not checked out") {
-		t.Errorf("fetched, no tree: err = %v, want a not-checked-out error", err)
+	if _, err := store.ResolveExisting(a, "p"); err == nil || !errors.Is(err, ErrNotCheckedOut) || !strings.Contains(err.Error(), "not checked out") {
+		t.Errorf("fetched, no tree: err = %v, want ErrNotCheckedOut", err)
 	}
 	if trees := treesIn(t, store); len(trees) != 0 {
 		t.Fatalf("ResolveExisting checked out %v", trees)
@@ -80,6 +80,40 @@ func TestResolveExistingChecksNothingOut(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tree, treeCompleteMarker)); err == nil {
 		t.Error("ResolveExisting completed the tree")
+	}
+}
+
+func TestResolveExistingClassifiesMissingFetchedRevision(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"pack.json": `{}`})
+	store := &Store{Dir: t.TempDir(), Getenv: noStagedTree}
+	present := mustParse(t, "git+file://"+repo+"?ref=main")
+	if _, err := store.Sync(present); err != nil {
+		t.Fatal(err)
+	}
+	missing := mustParse(t, "git+file://"+repo+"?ref=missing")
+	if err := os.MkdirAll(filepath.Dir(store.stampPath(missing)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.stampPath(missing), []byte("successful fetch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolveExisting(missing, "p"); !errors.Is(err, ErrRevisionMissing) {
+		t.Fatalf("ResolveExisting error = %v, want ErrRevisionMissing", err)
+	}
+}
+
+func TestResolveExistingClassifiesUnavailableGit(t *testing.T) {
+	store := &Store{Dir: t.TempDir(), Git: filepath.Join(t.TempDir(), "missing-git"), Getenv: noStagedTree}
+	addr := mustParse(t, "git+https://example.invalid/o/r//p?ref=main")
+	mirror := store.mirrorPath(addr.Repo)
+	if err := os.MkdirAll(mirror, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mirror, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolveExisting(addr, "p"); !errors.Is(err, ErrGitUnavailable) {
+		t.Fatalf("ResolveExisting error = %v, want ErrGitUnavailable", err)
 	}
 }
 

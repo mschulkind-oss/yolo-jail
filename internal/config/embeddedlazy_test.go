@@ -31,10 +31,10 @@ func TestLinkingConfigMaterializesNoPacks(t *testing.T) {
 	}
 }
 
-// TestConfigCodeThatReadsNoPackCreatesNothing drives ordinary config code that has no
-// reason to read a pack, with both places a tree could land redirected at empty temp dirs,
-// then proves the probe is live by running code that DOES read one.
-func TestConfigCodeThatReadsNoPackCreatesNothing(t *testing.T) {
+// TestConfigNoPackReadsAndSelectedPackDeclarationsStayCacheFree drives ordinary config code with
+// both places a tree could land redirected at empty temp dirs, then proves selected declarations
+// are read from the immutable source without creating a persistent materialization.
+func TestConfigNoPackReadsAndSelectedPackDeclarationsStayCacheFree(t *testing.T) {
 	// Resolved where minted: the loader resolves its base through symlinks, and darwin's
 	// t.TempDir() is under the /var -> /private/var symlink.
 	resolved := func() string {
@@ -61,20 +61,20 @@ func TestConfigCodeThatReadsNoPackCreatesNothing(t *testing.T) {
 		}
 	}
 
-	// Positive control: the first real reader loads, into the cache base and nowhere else.
-	// resolveSelectedPacks, which the host_files and writable_home_dirs reservations share
-	// since OQ-BH15 (it was the shipped-set builtinSurfacePaths before).
+	// Positive control: a selected embedded declaration is actually resolved from the immutable
+	// source, but the config path remains read-only and materializes no cache tree.
 	selectionHome(t, `["claude"]`)
-	_, _ = resolveSelectedPacks()
-	if !packload.EmbeddedLoaded() {
-		t.Fatal("resolveSelectedPacks did not load the embedded packs; the negative assertions " +
-			"above cannot tell lazy from never")
+	packs, complete := resolveSelectedPacks()
+	if !complete || len(packs) == 0 {
+		t.Fatal("resolveSelectedPacks did not return the selected embedded declaration")
 	}
-	root, fallback := packload.EmbeddedLocation()
-	if fallback || filepath.Dir(root) != cache {
-		t.Errorf("tree at %s (fallback=%v), want one under the cache base %s", root, fallback, cache)
+	if packload.EmbeddedLoaded() {
+		t.Fatal("resolveSelectedPacks materialized the persistent embedded cache")
+	}
+	if entries, _ := os.ReadDir(cache); len(entries) != 0 {
+		t.Errorf("the embedded cache gained %d entries while resolving declarations", len(entries))
 	}
 	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
-		t.Errorf("TMPDIR gained %d entries although the cache base was usable", len(entries))
+		t.Errorf("TMPDIR gained %d entries while resolving declarations", len(entries))
 	}
 }

@@ -2,9 +2,8 @@
 // preflight probe the doctor cares about — container runtime, nix, macOS
 // plumbing, global storage, config validation, entrypoint dry-run, GPU, KVM,
 // image build, container image presence, running jails, loopholes (+ broker
-// creds freshness / per-jail service liveness), disk usage, and inline
-// loopholes — and prints a PASS/WARN/FAIL report ending in a pass/warn/fail
-// summary (exit 0 = no failures, 1 = any fail).
+// creds freshness / per-jail service liveness), and inline loopholes — and prints a
+// PASS/WARN/FAIL report ending in a pass/warn/fail summary (exit 0 = no failures, 1 = any fail).
 //
 // The pure diagnostic engines it leans on live elsewhere:
 // internal/nixdiag (nix-build classifier, dry-run parser, builder-config
@@ -447,4 +446,9 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 // flag).
 func NewDefaultOptions() Options {
 	return Options{Build: true, IsMacOS: paths.IsMacOS}
+}
+
+// DefaultBuildEnabled is the in-jail --build default, using inJail's single YOLO_VERSION detector.
+func DefaultBuildEnabled(getenv func(string) string) bool {
+	return !(&Options{Getenv: getenv}).inJail()
 }

@@ -24,7 +24,8 @@ func TestConfigSetEditsAUserConfigThatHasPackSources(t *testing.T) {
 	}
 	user, ws := genericFixture(t, "# keep user\npacks = [\"work/x\"]\n\n[pack_sources]\nwork = { path = '"+
 		filepath.ToSlash(src)+"', bare = true }\n", configdoc.TOML, "# keep project\n")
-	// The write is the claim; the post-write check that follows reports this machine, not the edit.
+	// The write is the claim; the config-only post-write check that follows validates the config,
+	// not machine readiness.
 	rc, out, errs := runConfigVerb(t, "set", "update_check", "false", "--user")
 	assertPublicPostWriteCheck(t, rc, out, errs)
 	if !strings.Contains(out, "Written") {

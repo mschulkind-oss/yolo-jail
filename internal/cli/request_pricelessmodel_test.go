@@ -174,22 +174,10 @@ func TestUnsetScalarIsNotRefusedForAPricelessModelItLeaves(t *testing.T) {
 	}
 }
 
-// assertMergedConfigAccepted reads the post-write check's verdict on the merged config. On a
-// machine with a container runtime the section passes; on one without (the macOS CI runner has
-// neither Apple Container nor podman) the section stops at "No runtime available" by design
-// (check.sectionMergedConfig, HE-D2), so the check is read for the absence of a finding about
-// the priceless model instead. The launch's own validation is asserted separately.
+// assertMergedConfigAccepted reads the config-only post-write check's verdict on the merged config.
 func assertMergedConfigAccepted(t *testing.T, out string) {
 	t.Helper()
-	if strings.Contains(out, "[PASS] Merged config is semantically valid") {
-		return
-	}
-	if !strings.Contains(out, "No runtime available — see Container Runtime above") {
-		t.Fatalf("the post-write check neither accepted the merged config nor stopped at a missing runtime: %q", out)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "[FAIL]") && (strings.Contains(line, "price") || strings.Contains(line, "claude-haiku-5-5")) {
-			t.Fatalf("the post-write check refused the priceless model: %q", line)
-		}
+	if !strings.Contains(out, "[PASS] Merged config is semantically valid") {
+		t.Fatalf("the post-write config check did not accept the merged config: %q", out)
 	}
 }

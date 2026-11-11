@@ -21,7 +21,7 @@ import (
 // LoadProfiles', warnings discarded, the way these readers call LoadPacks: validation
 // reports a malformed entry as an error of its own.
 //
-// Embedded is left unset: SelectPacks fills it from the process's one materialization.
+// Embedded is left unset: the caller supplies the closure's immutable shipped-pack lookup.
 func UserScopeSelection() packload.Selection {
 	return SelectionWithSelectableProfiles(UserScopeConfigOrEmpty, func(set []*packload.Pack) map[string]string {
 		return ConfigProfileTable(UserScopeConfigOrEmpty(), set)

@@ -19,7 +19,10 @@ package config
 // embedded set.
 
 import (
-	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -50,7 +53,8 @@ func resolveSelectedPacks() (packs []*packload.Pack, complete bool) {
 	if err != nil {
 		return nil, false
 	}
-	return SelectedPackDeclarations(entries, UserScopeSelection(), nil)
+	resolved := SelectedPackDeclarationsDetailed(entries, UserScopeSelection(), nil, packload.EmbeddedFS())
+	return resolved.Packs(), resolved.Complete()
 }
 
 // UserScopeSelectedPacks is resolveSelectedPacks for a reader outside this package: the
@@ -68,39 +72,64 @@ func UserScopeSelectedPacks() (packs []*packload.Pack, complete bool) {
 // is threaded to the pack store as ResolvePackSpec.Getenv; nil reads the real environment.
 func SelectedPackDeclarations(entries []PackEntry, selection packload.Selection,
 	getenv func(string) string) (packs []*packload.Pack, complete bool) {
-	if len(entries) == 0 {
-		return nil, true
+	resolved := SelectedPackDeclarationsDetailed(entries, selection, getenv, packload.EmbeddedFS())
+	return resolved.Packs(), resolved.Complete()
+}
+
+// UserScopeSelectedPackResolution returns the same read-only selection result with per-entry
+// failures retained for a report that must distinguish skipped coverage from readable invalid
+// declarations. It performs no fetch, checkout, or persistent embedded-pack materialization.
+func UserScopeSelectedPackResolution() (PackSelection, []string, error) {
+	entries, problems, err := LoadPackEntries()
+	if err != nil {
+		return PackSelection{}, problems, err
 	}
-	// The one resolver (ResolvePack), in declaration mode, writing nothing into the store:
-	// validation (and so `yolo check`) must write nothing there. A fetched pack whose tree is not
-	// checked out yet is therefore unresolvable HERE and reserves nothing, although the launch's
-	// staging will check it out: that launch's own deriver (WritableHomeDirs over the staged set)
-	// then drops the entry the pack's dir covers, and the next validation, with the tree in place,
-	// refuses it. A nil getenv (validation's) makes the store fall back to the real environment,
-	// which is how a nested launch's local packs resolve through the staged-tree fallback. A local
-	// pack's links are followed, as at every notch (OQ-NC9), so a dotfile-deployed pack reserves
-	// its dirs here as it does in the launch.
-	//
-	// THE SELECTION CLOSURE through the one selection function (SelectPacks, notch-convergence
-	// item 6): a pack a selected pack's live `needs` pulls in is selected too
-	// (docs/reference/wire-bridge.md §3.1), and so is a service pack an active profile's `via`
-	// names (docs/design/wire-bridge-gateway.md WG-I11), exactly as the launch stages them.
-	sel, _ := SelectPacks(entries, PackSelectSpec{
+	return SelectedPackDeclarationsDetailed(entries, UserScopeSelection(), nil, packload.EmbeddedFS()), problems, nil
+}
+
+// SelectedPackDeclarationsDetailed resolves the same selection while retaining per-pack failures
+// for a caller that must report partial validation coverage.
+func SelectedPackDeclarationsDetailed(entries []PackEntry, selection packload.Selection,
+	getenv func(string) string, embeddedFS fs.FS) PackSelection {
+	return SelectedPackDeclarationsDetailedWithStore(entries, selection, getenv, embeddedFS, "", "")
+}
+
+// SelectedPackDeclarationsDetailedWithStore exposes the store's executable and directory seams
+// for tests of the exact local Git reads performed by declaration validation.
+func SelectedPackDeclarationsDetailedWithStore(entries []PackEntry, selection packload.Selection,
+	getenv func(string) string, embeddedFS fs.FS, storeDir, git string) PackSelection {
+	embedded := func(name string) (*packload.Pack, bool) {
+		return embeddedPackDeclarationFromFS(embeddedFS, name)
+	}
+	selected, _ := SelectPacks(entries, PackSelectSpec{
 		Resolve: func(entry PackEntry) (*packload.Pack, error) {
-			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, Getenv: getenv})
+			if entry.Embedded() {
+				name := entry.EmbeddedName
+				if name == "" {
+					name = entry.Name
+				}
+				root := filepath.Join(string(filepath.Separator), "embedded", name)
+				p, problems, err := packload.ReadSelectedPackFS(embeddedFS, name, root, entry.Name, entry.Only, entry.Exclude)
+				if err != nil {
+					return nil, err
+				}
+				if len(problems) > 0 || p == nil || p.Decl == nil {
+					return nil, fmt.Errorf("pack %s declaration problems: %s", entry.Name, strings.Join(problems, "; "))
+				}
+				p.Official = true
+				return p, nil
+			}
+			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, StoreDir: storeDir, Git: git, Getenv: getenv})
 			if err != nil {
 				return nil, err
 			}
 			if res.Pack == nil || len(res.Problems) > 0 {
-				return nil, errPackHasProblems
+				return nil, fmt.Errorf("pack %s declaration problems: %s", entry.Name, strings.Join(res.Problems, "; "))
 			}
 			return res.Pack, nil
 		},
-		Selection: selection,
+		Selection:      selection,
+		EmbeddedLookup: embedded,
 	})
-	return sel.Packs(), sel.Complete()
+	return selected
 }
-
-// errPackHasProblems marks an entry resolveSelectedPacks cannot reserve for: its manifest has
-// problems, which validation reports elsewhere, louder.
-var errPackHasProblems = errors.New("pack manifest has problems")

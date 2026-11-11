@@ -47,7 +47,7 @@ func TestRunConfigEditAutomaticBothScopeDefaultsToProject(t *testing.T) {
 			if after, _ := os.ReadFile(user.Path); !bytes.Equal(after, userBefore) {
 				t.Fatalf("automatic Both-scope edit changed winning User bytes: %q", after)
 			}
-			if !strings.Contains(out, "Written. Run `yolo check`") {
+			if !strings.Contains(out, "Written. Run `yolo config check`") {
 				t.Fatalf("automatic Project edit omitted owed post-write steps: %q", out)
 			}
 		})
@@ -118,7 +118,7 @@ func TestRunConfigEditSetAndAddUseResolvedTargetsInBothFormats(t *testing.T) {
 
 			rc, out, errw := runConfigEditCapture(t, project.Root,
 				[]string{"set", tc.projectPath, "4", "--project"})
-			if rc != 0 || errw != "" || !strings.Contains(out, "Written. Run `yolo check`") {
+			if rc != 0 || errw != "" || !strings.Contains(out, "Written. Run `yolo config check`") {
 				t.Fatalf("set rc=%d stdout=%q stderr=%q", rc, out, errw)
 			}
 			gotProject, err := os.ReadFile(project.Path)
@@ -390,13 +390,13 @@ func runConfigEditCapture(t *testing.T, workspace string, args []string) (int, s
 	return rc, out.String(), errw.String()
 }
 
-// `yolo config set|add|unset` runs `yolo check` right after a project edit, so the line before
+// `yolo config set|add|unset` runs `yolo config check` right after a project edit, so the line before
 // that check must not tell the reader to run it.
 func TestProjectWrittenLineDoesNotAskForTheCheckThatFollows(t *testing.T) {
-	if got := projectWrittenLine(true); strings.Contains(got, "yolo check") {
+	if got := projectWrittenLine(true); strings.Contains(got, "yolo config check") {
 		t.Errorf("projectWrittenLine(true) = %q; the check runs next, so it must not ask for one", got)
 	}
-	if got := projectWrittenLine(false); !strings.Contains(got, "Run `yolo check`") {
+	if got := projectWrittenLine(false); !strings.Contains(got, "Run `yolo config check`") {
 		t.Errorf("projectWrittenLine(false) = %q; with no check after it, it must ask for one", got)
 	}
 }

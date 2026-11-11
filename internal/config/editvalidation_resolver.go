@@ -8,6 +8,12 @@ import (
 
 type explicitPackLoopholeResolver struct{ packs []*packload.Pack }
 
+// SelectedPackLoopholeResolver returns a config-only resolver over declarations already read for
+// the user selection. It does not discover live services or execute their health checks.
+func SelectedPackLoopholeResolver(packs []*packload.Pack) LoopholeResolver {
+	return explicitPackLoopholeResolver{packs: packs}
+}
+
 func (r explicitPackLoopholeResolver) Known() (map[string]LoopholeInfo, bool) {
 	known := map[string]LoopholeInfo{}
 	for _, pack := range r.packs {

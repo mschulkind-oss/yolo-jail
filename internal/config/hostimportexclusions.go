@@ -109,7 +109,7 @@ func shippedHostImportSurfaces() map[string]bool {
 		codecImpl, codecKnown := codec.LookupCodec(surface.Codec)
 		out[address] = surface.HasHostLayer() && codecKnown && codecImpl != nil && surface.Kind() == codec.KindObject
 	}
-	for _, pack := range packload.Embedded() {
+	for _, pack := range embeddedPackDeclarationsFromFS(packload.EmbeddedFS()) {
 		surfaces, _ := pack.Surfaces()
 		for _, surface := range surfaces {
 			address := surface.Agent + "/" + surface.Name

@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
@@ -287,19 +286,11 @@ func projectWrittenLine(postWriteCheck bool) string {
 	if postWriteCheck {
 		return "Written. The host must run `yolo config apply` to approve the workspace change."
 	}
-	return "Written. Run `yolo check` in this workspace; the host must run `yolo config apply` to approve the workspace change."
+	return "Written. Run `yolo config check` in this workspace; the host must run `yolo config apply` to approve the workspace change."
 }
 
 func runConfigPostWriteCheck(workspace string, out, errw io.Writer) int {
-	opts, ok := checkOptions([]string{"check", "--no-build"}, errw)
-	if !ok {
-		return 2
-	}
-	opts.Workspace = workspace
-	opts.Stdout = out
-	opts.Stderr = errw
-	opts.Color = colorForWriter(out)
-	return check.Check(opts)
+	return runConfigCheckAt(nil, workspace, out, errw)
 }
 
 // writeConfigEditPreexisting warns, one line each, of a problem the config already had, which the

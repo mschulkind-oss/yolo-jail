@@ -313,6 +313,7 @@ func TestPruneOptionsWiring(t *testing.T) {
 }
 
 func TestCheckOptionsWiring(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
 	opts, ok := checkOptions([]string{"check"}, io.Discard)
 	if !ok {
 		t.Fatal("a bare `yolo check` was refused")
@@ -320,6 +321,19 @@ func TestCheckOptionsWiring(t *testing.T) {
 	if opts.Format != outfmt.Text {
 		t.Errorf("default format = %q, want %q", opts.Format, outfmt.Text)
 	}
+	if !opts.Build {
+		t.Error("host `yolo check` must keep its default image build")
+	}
+	t.Setenv("YOLO_VERSION", "test-jail")
+	inJail, ok := checkOptions([]string{"check"}, io.Discard)
+	if !ok || inJail.Build {
+		t.Errorf("in-jail `yolo check` default Build=%t, ok=%t; want skipped", inJail.Build, ok)
+	}
+	inJailBuild, ok := checkOptions([]string{"check", "--build"}, io.Discard)
+	if !ok || !inJailBuild.Build {
+		t.Errorf("explicit in-jail --build Build=%t, ok=%t; want enabled", inJailBuild.Build, ok)
+	}
+	t.Setenv("YOLO_VERSION", "")
 	for _, args := range [][]string{
 		{"check", "--format", "json"},
 		{"check", "--format=json"},

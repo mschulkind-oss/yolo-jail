@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
@@ -36,6 +37,8 @@ Edit and inspect yolo's own configuration. Generated config surfaces are
 managed separately by 'yolo surface'.
 
 Subcommands:
+  check [--format json | --json]
+                           Validate the user and workspace config; not a readiness check.
   set <key> <value> [target] [--dry-run]
                            Set one typed value in a readable config file; may create
                            a missing standard Project/Local TOML target.
@@ -130,6 +133,8 @@ func configRunW(args []string, out, errw io.Writer) int {
 	case "ls", "render", "diff", "reset", "promote", "capture":
 		fmt.Fprintf(errw, "yolo config %s has moved to yolo surface %s; use `yolo surface %s` instead.\n", verb, verb, verb)
 		return 2
+	case "check":
+		return runConfigCheck(args[1:], out, errw)
 	case "set", "add", "unset":
 		if helpRequested(args[1:], "--file") {
 			writeCLIUsage(out, colorForWriter(out), configEditUsage)
@@ -166,6 +171,44 @@ func configRunW(args []string, out, errw io.Writer) int {
 	// let its stderr/stdout printers independently check their own TTY and NO_COLOR gates.
 	color := verb == "apply" || colorForWriter(out)
 	return run(t, rest, out, errw, color)
+}
+
+func runConfigCheck(args []string, out, errw io.Writer) int {
+	return runConfigCheckAt(args, configEditWorkspace(), out, errw)
+}
+
+func runConfigCheckAt(args []string, workspace string, out, errw io.Writer) int {
+	format := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--help", "-h":
+			check.ConfigCheckHelp(out)
+			return 0
+		case "--json":
+			format = "json"
+		case "--format":
+			if i+1 >= len(args) {
+				fmt.Fprintln(errw, "yolo config check: --format requires the value json")
+				return 2
+			}
+			i++
+			if args[i] != "json" {
+				fmt.Fprintf(errw, "yolo config check: unsupported format %q; use json\n", args[i])
+				return 2
+			}
+			format = "json"
+		default:
+			fmt.Fprintf(errw, "yolo config check: unexpected argument %q\n", args[i])
+			return 2
+		}
+	}
+	opts := check.NewDefaultOptions()
+	opts.Workspace = workspace
+	opts.Stdout = out
+	opts.Stderr = errw
+	opts.Format = format
+	opts.Color = true
+	return check.ConfigCheck(opts)
 }
 
 // configColorVerbs is every `yolo config` verb that prints in color, each handed the

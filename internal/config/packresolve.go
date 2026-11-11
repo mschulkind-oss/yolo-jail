@@ -60,6 +60,10 @@ type ResolvePackSpec struct {
 	// nothing into the pack store, instead of Store.Resolve, which may check a commit out of the
 	// local mirror.
 	ReadOnlyStore bool
+	// StoreDir and Git override the pack store location/executable for read-only resolver tests.
+	// Production leaves them empty and uses the normal paths.
+	StoreDir string
+	Git      string
 	// Getenv is threaded to the pack store, whose staged-tree fallback reads YOLO_PACK_ROOT (how
 	// a nested launch resolves the local packs its outer launch delivered). Nil reads the real
 	// environment.
@@ -135,7 +139,11 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		if err != nil {
 			return fail(err)
 		}
-		store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: spec.Getenv, Ctx: spec.Ctx,
+		storeDir := spec.StoreDir
+		if storeDir == "" {
+			storeDir = paths.PacksDir()
+		}
+		store := &packsrc.Store{Dir: storeDir, Git: spec.Git, Getenv: spec.Getenv, Ctx: spec.Ctx,
 			NoWait: spec.NoWait, Detached: spec.Detached}
 		var res *packsrc.Resolved
 		if entry.AllowDefaultRef && addr.Ref == "" {

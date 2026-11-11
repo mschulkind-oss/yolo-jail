@@ -26,6 +26,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -308,7 +309,7 @@ func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
 	if readable {
 		entries, problems = lowerReadablePackEntries(userCfg, sources)
 	} else if v, present := userCfg.Get(packsKey); present && v != nil {
-		entries, problems = checkPacks(v)
+		entries, problems = checkPacksWithEmbeddedNames(v, packload.EmbeddedNames())
 	}
 	// THE CONVENTIONAL LOCAL PACK, appended LAST. See localPackEntry for why it is here at
 	// all and why it composes last; it is appended after the configured entries — including
@@ -485,6 +486,16 @@ func HasConfiguredPack(entries []PackEntry) bool {
 // and a problem string per entry it could not. A non-list value yields one problem
 // and no entries.
 func checkPacks(v any) ([]PackEntry, []string) {
+	return checkPacksWithLowerer(v, checkPackEntry)
+}
+
+func checkPacksWithEmbeddedNames(v any, embeddedNames []string) ([]PackEntry, []string) {
+	return checkPacksWithLowerer(v, func(raw any, itemPath string) (PackEntry, string) {
+		return checkPackEntryWithEmbeddedNames(raw, itemPath, embeddedNames)
+	})
+}
+
+func checkPacksWithLowerer(v any, lower func(any, string) (PackEntry, string)) ([]PackEntry, []string) {
 	list, ok := asList(v)
 	if !ok {
 		return nil, []string{"config." + packsKey + ": expected a list of pack entries"}
@@ -494,7 +505,7 @@ func checkPacks(v any) ([]PackEntry, []string) {
 	seenName := map[string]int{}
 	seenLocal := map[string]int{}
 	for i, raw := range list {
-		entry, problem := checkPackEntry(raw, fmt.Sprintf("config.%s[%d]", packsKey, i))
+		entry, problem := lower(raw, fmt.Sprintf("config.%s[%d]", packsKey, i))
 		if problem != "" {
 			problems = append(problems, problem)
 			continue
@@ -663,10 +674,17 @@ func lowerPackSource(source, name, itemPath string) (PackEntry, string) {
 }
 
 func lowerPackSourceWithEmbeddedNames(source, name, itemPath string, embeddedNames []string) (PackEntry, string) {
-	return lowerPackSourceWithNames(source, name, itemPath, func() []string { return embeddedNames })
+	return lowerPackSourceWithNamesAndRename(source, name, itemPath, func() []string { return embeddedNames },
+		func(old string) (string, bool) { return renamedEmbeddedPackFromFS(old, packload.EmbeddedFS()) })
 }
 
 func lowerPackSourceWithNames(source, name, itemPath string, embeddedNames func() []string) (PackEntry, string) {
+	return lowerPackSourceWithNamesAndRename(source, name, itemPath, embeddedNames,
+		func(old string) (string, bool) { return packload.RenamedPack(old, packload.Embedded()) })
+}
+
+func lowerPackSourceWithNamesAndRename(source, name, itemPath string, embeddedNames func() []string,
+	renamedPack func(string) (string, bool)) (PackEntry, string) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return PackEntry{}, itemPath + ".source: must not be empty"
@@ -696,7 +714,7 @@ func lowerPackSourceWithNames(source, name, itemPath string, embeddedNames func(
 		// A FORMER NAME of a shipped pack (packdecl.Formerly; provider-enablement.md OQ-PE3) is
 		// refused naming the pack that took it over, never aliased: the list of everything that
 		// ships would bury the one name that answers.
-		if now, renamed := packload.RenamedPack(source, packload.Embedded()); renamed {
+		if now, renamed := renamedPack(source); renamed {
 			return PackEntry{}, fmt.Sprintf("%s.source: %q is now %q; write %q", itemPath, source, now, now)
 		}
 		return PackEntry{}, itemPath + ".source: " + unknownEmbeddedMessageFromNames(source, available)
@@ -850,16 +868,25 @@ func useProfileCLIs() (map[string]bool, bool) {
 	if err != nil {
 		return nil, false
 	}
-	embedded := packload.Embedded()
-	// EmbeddedNames reads the embed.FS directly, so a non-empty name list beside an
-	// empty materialized set means materialization failed — a yolo bug, not a user
-	// condition. Reporting "nothing is installed" from it would turn every key into a
-	// false fatal, so it is an unknowable universe instead.
-	if len(embedded) == 0 && len(packload.EmbeddedNames()) > 0 {
+	fsys := packload.EmbeddedFS()
+	names := packload.EmbeddedNames()
+	// This namespace asks about every shipped program, read directly from the immutable embed.FS
+	// without materializing the persistent embedded-pack cache.
+	if len(names) > 0 && fsys == nil {
 		return nil, false
 	}
 	seen := map[string]bool{}
-	for _, p := range embedded {
+	for _, name := range names {
+		info, err := fs.Stat(fsys, name)
+		if err != nil || !info.IsDir() {
+			return nil, false
+		}
+		root := filepath.Join(string(filepath.Separator), "embedded", name)
+		p, problems, err := packload.ReadSelectedPackFS(fsys, name, root, name, nil, nil)
+		if err != nil || len(problems) > 0 || p == nil || p.Decl == nil {
+			return nil, false
+		}
+		p.Official = true
 		for _, bin := range p.InstallBins() {
 			seen[bin] = p.Decl.HoldsProviderSets(bin)
 		}
@@ -874,7 +901,7 @@ func useProfileCLIs() (map[string]bool, bool) {
 		// surface wants (the staged-tree fallback is how a nested launch's local packs resolve).
 		// A local pack's links are followed, as at every notch (OQ-NC9), so a dotfile-deployed
 		// pack does not make it step aside.
-		res, err := ResolvePack(entry, ResolvePackSpec{})
+		res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true})
 		if err != nil || res.Pack == nil || len(res.Problems) > 0 {
 			return nil, false
 		}

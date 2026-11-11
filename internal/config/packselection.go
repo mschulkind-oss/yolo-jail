@@ -34,9 +34,13 @@ type PackSelectSpec struct {
 	// rest of the selection still resolves, so a reporting verb can name all of them.
 	FailFast bool
 	// Selection is the closure's profile input (UseProfiles, UserProfiles). Its Embedded field is
-	// ignored and filled from packload.Embedded(): a need or a via may add only a pack yolo ships
-	// (WB-D9, WG-I7), and there is one embedded materialization per process (row B7).
+	// ignored and filled from EmbeddedLookup: a need or a via may add only a pack yolo ships
+	// (WB-D9, WG-I7). Nil lookup uses the process cache; config-only validation supplies a
+	// source-backed lookup so it never materializes that cache.
 	Selection packload.Selection
+	// EmbeddedLookup supplies the immutable shipped declaration source. Nil uses the process cache;
+	// config-only validation provides a source-backed lookup so it never materializes that cache.
+	EmbeddedLookup func(string) (*packload.Pack, bool)
 	// Announce, when set, receives each cause line of the closure before the pack it names is
 	// joined (WB-D12: a pack no config line named never joins a launch silently).
 	Announce func(cause string)
@@ -114,7 +118,11 @@ func (s PackSelection) Complete() bool {
 // that did not resolve cannot contribute a need; the selection is then incomplete, which the
 // result says.
 func SelectPacks(entries []PackEntry, spec PackSelectSpec) (PackSelection, error) {
-	return selectPacksWithEmbeddedLookup(entries, spec, embeddedPackLookup())
+	embedded := spec.EmbeddedLookup
+	if embedded == nil {
+		embedded = embeddedPackLookup()
+	}
+	return selectPacksWithEmbeddedLookup(entries, spec, embedded)
 }
 
 func selectPacksWithEmbeddedLookup(entries []PackEntry, spec PackSelectSpec, embedded func(string) (*packload.Pack, bool)) (PackSelection, error) {

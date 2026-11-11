@@ -189,6 +189,32 @@ func failRowJail(line string) string {
 	return ""
 }
 
+// TestYoloConfigCheckValidWorkspace proves the built CLI's config-only command accepts a valid
+// workspace without relying on broad host-readiness probes.
+func TestYoloConfigCheckValidWorkspace(t *testing.T) {
+	requireJail(t)
+	dir := tempProject(t)
+	t.Setenv("YOLO_WORKSPACE", dir)
+	r := runYoloCLI(t, dir, "config", "check")
+	if r.rc != 0 || !strings.Contains(r.combined(), "Merged config is semantically valid") {
+		t.Fatalf("config check valid workspace rc=%d:\n%s", r.rc, r.combined())
+	}
+	if strings.Contains(r.combined(), "Container Runtime") || strings.Contains(r.combined(), "Nix not found") {
+		t.Fatalf("config check ran a readiness section:\n%s", r.combined())
+	}
+}
+
+// TestYoloConfigCheckInvalidWorkspace proves the public CLI fails on semantic config errors.
+func TestYoloConfigCheckInvalidWorkspace(t *testing.T) {
+	requireJail(t)
+	dir := writeProject(t, `{"network": {"mode": "bridg"}}`)
+	t.Setenv("YOLO_WORKSPACE", dir)
+	r := runYoloCLI(t, dir, "config", "check")
+	if r.rc != 1 || !strings.Contains(r.combined(), "config.network.mode") {
+		t.Fatalf("config check invalid workspace rc=%d:\n%s", r.rc, r.combined())
+	}
+}
+
 // TestYoloCheckInvalidConfigFails confirms `yolo check --no-build` fails fast on a
 // bad network.mode, surfacing the config.network.mode error from validate.go.
 func TestYoloCheckInvalidConfigFails(t *testing.T) {

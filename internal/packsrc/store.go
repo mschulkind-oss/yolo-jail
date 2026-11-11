@@ -662,6 +662,9 @@ func (s *Store) revParse(mirror, rev string) (string, error) {
 	if err == nil {
 		return strings.TrimSpace(out), nil
 	}
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("%w: %w", ErrGitUnavailable, err)
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 {
 		return "", nil
@@ -729,6 +732,14 @@ var ErrNotFetched = errors.New("not fetched into the pack store")
 // caller must not.
 var ErrNotCheckedOut = errors.New("not checked out in the pack store")
 
+// ErrRevisionMissing marks a fetched store that lacks the configured revision. It is distinct
+// from malformed store data and Git failures so read-only validation can report partial coverage.
+var ErrRevisionMissing = errors.New("revision missing from the pack store")
+
+// ErrGitUnavailable marks the local Git executable being unavailable, not a Git failure while
+// inspecting a readable store.
+var ErrGitUnavailable = errors.New("git executable unavailable")
+
 // storeMiss is an error carrying one of the sentinels above under its own message.
 type storeMiss struct {
 	msg  string
@@ -757,6 +768,9 @@ func (s *Store) resolveCommit(mirror string, a Addr) (string, error) {
 	for _, cand := range []string{a.Ref, "refs/heads/" + a.Ref, "refs/tags/" + a.Ref} {
 		sha, err := s.revParse(mirror, cand)
 		if err != nil {
+			if errors.Is(err, ErrGitUnavailable) {
+				return "", fmt.Errorf("could not read ref %q in the pack mirror of %s: %w", a.Ref, a.Repo, err)
+			}
 			return "", fmt.Errorf("could not read ref %q in the pack mirror of %s: %s", a.Ref, a.Repo, oneLine(err))
 		}
 		if sha != "" {
@@ -773,8 +787,7 @@ func (s *Store) resolveCommit(mirror string, a Addr) (string, error) {
 			"failed: %s", a.Ref, a.Repo, oneLine(perr))
 	}
 	if s.fetchedRef(a) {
-		return "", fmt.Errorf("ref %q not found on the remote %s: the pack mirror was fetched "+
-			"and has no such branch, tag or commit — check the pack's ?ref=", a.Ref, a.Repo)
+		return "", fmt.Errorf("%w: ref %q not found on the remote %s: the pack mirror was fetched and has no such branch, tag or commit — check the pack's ?ref=", ErrRevisionMissing, a.Ref, a.Repo)
 	}
 	return "", &storeMiss{kind: ErrNotFetched, msg: fmt.Sprintf("ref %q not found in the pack "+
 		"mirror of %s — the next host launch fetches it, or run `yolo pack install` to fetch it "+

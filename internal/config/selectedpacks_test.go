@@ -91,6 +91,114 @@ func TestWritableHomeDirsDropsOnlyTheSelectedPacksDirs(t *testing.T) {
 	}
 }
 
+func TestSelectedPackDeclarationsFailReadableFetchedManifest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := gitPackRepo(t, map[string]string{"tools/pack/pack.json": `{malformed`}, nil)
+	source := "git+file://" + repo + "//tools/pack?ref=main"
+	addr, err := packsrc.Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &packsrc.Store{Dir: paths.PacksDir(), Getenv: noPackRoot}
+	if _, err := store.Sync(addr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Resolve(addr, "broken"); err != nil {
+		t.Fatal(err)
+	}
+	selection := SelectedPackDeclarationsDetailed([]PackEntry{{Source: source, Name: "broken"}},
+		packload.Selection{}, noPackRoot, packload.EmbeddedFS())
+	if selection.Complete() || len(selection.Unresolved) != 1 {
+		t.Fatalf("malformed cached declaration result = %+v, want one unresolved pack", selection)
+	}
+	if strings.Contains(selection.Unresolved[0].Err.Error(), "not fetched") ||
+		!strings.Contains(selection.Unresolved[0].Err.Error(), "pack broken declaration problems") {
+		t.Fatalf("readable invalid manifest was not retained as a declaration failure: %v", selection.Unresolved[0].Err)
+	}
+}
+
+func TestSelectedPackDeclarationsReadCachedFetchedPackWithoutWritesOrEmbeddedCache(t *testing.T) {
+	packload.ReleaseEmbedded()
+	defer packload.ReleaseEmbedded()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := gitPackRepo(t, map[string]string{
+		"tools/pack/pack.json": `{"name":"fetched","contributes":[]}`,
+	}, nil)
+	source := "git+file://" + repo + "//tools/pack?ref=main"
+	addr, err := packsrc.Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeDir := paths.PacksDir()
+	store := &packsrc.Store{Dir: storeDir, Getenv: noPackRoot}
+	if _, err := store.Sync(addr); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := store.Resolve(addr, "fetched")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(resolved.Root, "pack.json")
+	before, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	trace := filepath.Join(t.TempDir(), "git-argv.log")
+	fakeGit := filepath.Join(t.TempDir(), "git-readonly")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$YOLO_TEST_GIT_TRACE\"\nexec \"$YOLO_TEST_REAL_GIT\" \"$@\"\n"
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOLO_TEST_GIT_TRACE", trace)
+	t.Setenv("YOLO_TEST_REAL_GIT", gitPath)
+	entry := PackEntry{Source: strings.Replace(source, "?ref=main", "?ref=refs/heads/main", 1), Name: "fetched"}
+	selection := SelectedPackDeclarationsDetailedWithStore([]PackEntry{entry}, packload.Selection{}, noPackRoot,
+		packload.EmbeddedFS(), storeDir, fakeGit)
+	if !selection.Complete() || len(selection.Packs()) != 1 || selection.Packs()[0].Name != "fetched" {
+		t.Fatalf("cached fetched selection = %+v, want one fully read pack", selection)
+	}
+	argv, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Split(strings.TrimSpace(string(argv)), "\n")
+	if len(commands) == 0 {
+		t.Fatal("read-only resolution invoked no Git command")
+	}
+	for _, command := range commands {
+		if !strings.Contains(command, "rev-parse") && !strings.Contains(command, "ls-tree") {
+			t.Errorf("read-only pack resolution ran disallowed Git argv %q", command)
+		}
+		if strings.Contains(command, "fetch") || strings.Contains(command, "checkout") || strings.Contains(command, "clone") {
+			t.Errorf("read-only pack resolution attempted a write/network Git operation: %q", command)
+		}
+	}
+	after, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) || afterInfo.Size() != beforeInfo.Size() || !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+		t.Errorf("read-only resolution changed cached pack bytes/stat: before=%q/%v after=%q/%v", before, beforeInfo.ModTime(), after, afterInfo.ModTime())
+	}
+	if packload.EmbeddedLoaded() {
+		t.Error("selected embedded lookup materialized the persistent cache")
+	}
+}
+
 // A shared (machine-scope) dir is reserved exactly like a writable one, for the pack that
 // selects it and for nobody else.
 func TestWritableHomeDirsReservesTheSelectedPacksSharedDirs(t *testing.T) {
