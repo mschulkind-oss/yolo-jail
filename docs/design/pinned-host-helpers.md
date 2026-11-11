@@ -109,7 +109,7 @@ launcher on `PATH`, not the stable `flake-bundle` symlink, and not a copy yolo m
   already uses for the keeper. It matters for Homebrew, whose `bin/yolo` is built separately from
   the bundle's copy ([`update-homebrew.sh`](../../tools/release-wiring/update-homebrew.sh) builds it
   with `-s -w`): same stamp, different bytes, same build.
-- **macOS bundles gain a host `yolo`.** Today a darwin bundle carries only the guest set
+- **macOS bundles gain a host `yolo`.** Before PH-D2 a darwin bundle carried only the guest set
   (`yolo-jaild yolo-serial yolo-ps yolo-log`, [`stage-source-bundle.sh`](../../scripts/stage-source-bundle.sh)).
   The darwin directories also get `yolo`, as a separate host list: the guest list is what a guest
   runs, and stays unchanged. `assemble` then takes the macOS launcher out of the bundle as it already
@@ -398,7 +398,7 @@ Report: the output. A failure means a running helper's generation could be reape
 | PH-D10 | The user config stays unpinned; `3f58db1cc`'s own-table read and the config-apply note cover the skew, and the note drops its "may still run" hedge | 2026-11-10 | [§6](#6-what-stays-unpinned-the-user-config) | yes |
 | PH-D11 | The pin's recorded identity is device and inode, size and modification time in nanoseconds, read through the Unix `stat`; the pin's path has every symlink resolved, the file's own included | 2026-11-10 | [§3.2](#32-when-it-is-resolved) | yes |
 | PH-D12 | "Same build" at pin resolution compares the bundle stamp's version (normalized) and commit with the launcher's stamped version and commit; a field absent or `unknown` on either side is not compared, so an unstamped launcher or an older bundle is not refused on it | 2026-11-10 | [§3.1](#31-where-it-comes-from) | yes |
-| PH-D13 | The install-check tool requires the darwin host `yolo` only in a bundle that has darwin directories, so a published release from before PH-D2 still passes | 2026-11-10 | [§3.1](#31-where-it-comes-from) | yes |
+| PH-D13 | The install-check tool excuses from the darwin host `yolo` only a plain `X.Y.Z` at or below 0.17.1, the last release staged before PH-D2, so a published release from before PH-D2 still passes; every later release, a prerelease included, must carry it for both Mac arches. The version decides, not the darwin directories: a directory's presence cannot tell 0.17.1 from a later release that lost its host `yolo`, because 0.17.1 already ships both darwin directories, holding the guest set alone | 2026-11-10 | [§3.1](#31-where-it-comes-from) | candidate: in the tree, not yet run against the tap |
 | PH-D14 | The generation reaper reads the process table through `prune.ProcessExes`, which reads it on macOS too (the development-bundle reader declines there); a missing reader is "could not ask"; it is read once per sweep, at listing time | 2026-11-10 | [§4](#4-keeping-the-bundle-alive-while-a-helper-runs-from-it) | yes |
 | PH-D15 | A daemon process writes its start line only after its name is known to dispatch, so a usage error writes none; `--settings-check` is a check like `--self-check` and writes none; the keeper writes its line through its own log writer | 2026-11-10 | [§5](#5-the-start-line) | yes |
 | PH-D16 | Every non-dry-run launch whose bundle resolved resolves a pin, an attach included, because an attach that finds the jail gone continues into a fresh launch in the same run; `yolo config apply`'s context injector resolves its pin from its own bundle when it needs one | 2026-11-10 | [§3.2](#32-when-it-is-resolved), [§3.5](#35-attach-and-join) | yes |
