@@ -1,7 +1,7 @@
 ---
 status: accepted
-stage: DECIDED
-next: "Root dispatches one serial implementation worker in this tree, then reviews the candidate once"
+stage: BUILT
+next: "Root reviews and integrates the bounded candidate, then runs combined gates and native capture"
 depends-on:
   - linux-approval-notifier.md
 tags: [implementation-plan, approvals, linux]
@@ -16,6 +16,30 @@ per-request staged scope after the singleton/current-CLI conflict was escalated.
 Precedence: the design wins on behavior, the tree wins on fact, this plan is advice
 except for marked constraints. A non-cosmetic disagreement is a stop-and-report, not a
 reason to broaden approval authority. No implementer starts from an unsettled product premise.
+
+## Bounded implementation evidence
+
+Implemented from main `017ea6df9`. The initial test-first command failed with missing
+vendored godbus; after adding the pinned dependency, it failed with undefined `Run`,
+`Dependencies` and `Notification`, before production code existed. The focused consumer,
+adapter and race tests then passed. The CLI/store cases prove Allow once, Deny, exits
+3/5/6, exact-use grants, absence of working entries on refusal, and the real CLI audit.
+The over-ceiling case files a narrower two-minute policy and clicks the offered 15m action;
+a normal GitHub PR duration can succeed and is not asserted to be refused.
+
+- [`notifier_test.go`](../../../internal/approvalnotify/notifier_test.go): authenticated actions,
+  typed reason-2 Deny, owner changes, expiry, cleanup ordering, refusal feedback and failures.
+- [`bus_test.go`](../../../internal/approvalnotify/bus_test.go): actual godbus call boundary,
+  explicit address, no-auto-start flags, typed signals queued during Notify, wire signatures.
+- [`main_test.go`](../../../internal/approvalnotify/main_test.go): production entry SIGINT/SIGTERM
+  and the unchanged hook runner's decided/expired/jail-ended withdrawal, with event readiness.
+- [`internalapprovalnotify_test.go`](../../../internal/cli/internalapprovalnotify_test.go):
+  hidden dispatch and the real host approval subprocess/store boundary.
+
+Native integrated capture, nested-jail verification, combined completion census and landing
+remain root-owned. Tests read no source files outside their package, but import the existing
+brokerhook/store and CLI authority packages; root regenerates the combined census once.
+No SIGKILL cleanup, singleton lifecycle, Mac rendering or P-5 through P-9 wording is claimed.
 
 ## Grounding and reuse
 
@@ -56,7 +80,7 @@ reason to broaden approval authority. No implementer starts from an unsettled pr
 | `internal/cli/internalapprovalnotify_test.go` (new) | Production entry dispatch, host-only and invalid-input boundary tests |
 | `go.mod`, `go.sum`, `vendor/` | Public godbus v5.2.2, vendored for hermetic Nix |
 | These two docs | Stamp implementation evidence and remaining staged scope, no full acceptance claim |
-| `native-notification-gallery.md` | Only P-1/P-2/P-4 implementation status, linked evidence; preserve baseline and NG-D5 |
+| [`native-notification-gallery.md`](native-notification-gallery.md) | Only P-1/P-2/P-4 implementation status, linked evidence; preserve baseline and NG-D5 |
 
 No new binary: the existing shipped `yolo` reaches the command on host and jail;
 host-only checking refuses jail invocation. Hence flake/source-bundle binary lists do

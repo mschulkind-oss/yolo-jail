@@ -298,6 +298,15 @@ better-worded toast that still leaves a dismissed request pending is still broke
 | P-8 | Drop the headline from the body's first line when the title already shows it | The notifier, or a `DESCRIPTION` variant without the headline | C-2 |
 | P-9 | State the next step without internal paths in a not-confirmable refusal | `yolo approve`'s refusal text | C-7 |
 
+**Bounded Linux implementation status.** The optional
+[per-request notifier](linux-approval-notifier.md) now has tested P-1 reason-2 Deny,
+partial P-2 withdrawal on handled SIGINT/SIGTERM, expiry and decided-elsewhere/jail-ended
+stops, and P-4 non-actionable CLI-refusal feedback. The
+[implementation evidence](linux-approval-notifier-plan.md#bounded-implementation-evidence)
+is protocol and real CLI/store evidence, not desktop proof. SIGKILL cleanup and the singleton
+remain absent; these baseline images do not prove the new notifier. NG-D5 stays open until
+the integrated candidate is re-captured. P-5 through P-9 remain unchanged.
+
 **Proof.** Each change is proven by re-running the capture and lifecycle scripts against the
 changed hook or notifier. Both before and after are then in the gallery. P-5, P-7 and P-9 change
 yolo's own output, so the capture test regenerates the real fixtures and the change shows up as a
@@ -305,9 +314,10 @@ fixture diff.
 
 ## 5. What this does not cover
 
-- **No renderer is built here.** The toast notifier of
+- **No full notifier acceptance here.** The optional Linux per-request implementation
+  above is tested, but the singleton of
   [`boundary-broker.md` §6](../boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification)
-  stays the design; this doc supplies its evidence.
+  remains unbuilt; this gallery still supplies baseline evidence, not integrated native proof.
 - **No change to the owner's script.** Findings about it are reported to the owner; the dotfiles
   are theirs.
 - **No Mac evidence.** [`mac-capture-runner.md`](mac-capture-runner.md) owns it.

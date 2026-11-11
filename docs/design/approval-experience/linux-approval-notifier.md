@@ -1,7 +1,7 @@
 ---
 status: accepted
-stage: DECIDED
-next: "Implement the opt-in per-request Linux slice from linux-approval-notifier-plan.md; then capture the integrated candidate"
+stage: BUILT
+next: "Review and integrate the bounded notifier, then capture the integrated candidate"
 depends-on:
   - ../boundary-broker.md
   - native-notification-gallery.md
@@ -11,9 +11,13 @@ tags: [design, approvals, notifications, linux]
 # A Linux doorbell that only calls the host approval CLI
 
 **Status:** 2026-11-09. Grounded at `62b8bbda375acda7caa3f675a4844aa020e8b060`.
-No first-party renderer is implemented by this planning commit. The supervisor approved
-this incremental scope: opt-in per-request delivery through the existing `on_request`,
-not automatic activation and not completion of the per-user singleton.
+The opt-in per-request renderer is implemented in
+[`internal/approvalnotify`](../../../internal/approvalnotify/), with consumer-loop, godbus-adapter,
+signal and existing-hook lifecycle tests.
+[`internalapprovalnotify_test.go`](../../../internal/cli/internalapprovalnotify_test.go) drives
+its subprocess decision runner through the current CLI/store boundary. This is bounded
+protocol evidence, not native capture or completion of the per-user singleton.
+The supervisor approved optional delivery through the existing `on_request`, not automatic activation.
 
 > **In short.** A first-party Linux hook can own its D-Bus notification and forward
 > deliberate answers through `yolo approve`, without acquiring any approval authority.
@@ -26,7 +30,7 @@ not automatic activation and not completion of the per-user singleton.
 ## Contract and staged scope
 
 BB-D11 supplies the transport; BB-D75 supplies the existing optional hook and CLI-only
-answer boundary; BB-D98 / OQ-BB10 supply the unchanged no-notifier behavior.
+answer boundary; BB-D98 / [OQ-BB10](../boundary-broker.md#OQ-BB10) supply the unchanged no-notifier behavior.
 The brokerstore remains the sole decision authority. The hook's stdout never means consent.
 
 The user may explicitly configure `on_request = 'exec yolo internal approval-notify'`.
@@ -43,7 +47,7 @@ capability before posting. The notification is critical, resident, timeout zero,
 `approve <id>`, `approve <id> --for 15m`, `approve <id> --deny`, without a shell.
 The current CLI may refuse `--for`; the notifier must report that refusal, not substitute
 Allow once. Removed Add/Remember are not restored. This fixed first-slice list is not an
-implementation of the future `approvals.buttons` configuration in §6.4.
+implementation of the future `approvals.buttons` configuration in [§6.4](../boundary-broker.md#64-choosing-a-duration).
 
 Every signal is checked for interface, path, correctly typed payload, issued notification
 id, and current server owner. The owner must also be the owner that issued the id:
@@ -77,7 +81,7 @@ HTTP listener or new authorization surface is introduced.
 
 BB-D71's auto-started per-user singleton, cross-source watch, lock, broker-restart survival,
 and reshow/replacement remain unbuilt. This hook holds its own connection, but does not
-meet that singleton lifecycle. It is deliberately optional, not a rewrite of §6.
+meet that singleton lifecycle. It is deliberately optional, not a rewrite of [§6](../boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification).
 
 NG-D5 still requires native re-capture of the integrated candidate. Fake transport and
 CLI/store tests demonstrate bounded protocol behavior, not desktop appearance or full

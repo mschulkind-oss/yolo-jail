@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalnotify"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/circleciclassify"
@@ -44,10 +45,12 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <background-advance|preparation-scheduler|capture-materialize|capture-run|config-dump|ctx-attach|daemon|darwin-bootstrap|dev-bundle-reap|discard-rm|fork-build-jail|footer|image-copy|installer-check|log-append|macos-user-profile|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|pack-tree-reap|probe-services|refresh-programs|refresh-servers|bundle-dir|scratch-rm|update-check|validate-sandbox-tmpdir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <approval-notify|background-advance|preparation-scheduler|capture-materialize|capture-run|config-dump|ctx-attach|daemon|darwin-bootstrap|dev-bundle-reap|discard-rm|fork-build-jail|footer|image-copy|installer-check|log-append|macos-user-profile|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|pack-tree-reap|probe-services|refresh-programs|refresh-servers|bundle-dir|scratch-rm|update-check|validate-sandbox-tmpdir> [args...]")
 		return 2
 	}
 	switch args[0] {
+	case "approval-notify":
+		return approvalnotify.Main(args[1:])
 	case claudesecurity.Verb:
 		// The selected Claude launcher's write-only Keychain compatibility adapter.
 		return claudesecurity.Main(args[1:])
