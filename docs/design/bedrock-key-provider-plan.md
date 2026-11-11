@@ -12,7 +12,7 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 
 # Bedrock-key provider: implementation plan
 
-**Status:** 2026-11-11. The provider and remedy were built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. Source follow-up `b35cff4e6`: `internal/packload/envoverride.go` and its run/check callers distinguish TOML `[env.secrets].files` and `.set` from legacy `env_sources`, give each source only its matching removal guidance, and use the scoped `yolo config set` command for the aws-auth profile. Config-edit diffs redact private inline values without hiding ordinary changes or the write disclosure; synthetic regression tests cover removal, setting, and public-edit context. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal. Rerun W-BK2 with a synthetic static pair after `b35cff4e6` reaches main to verify the corrected provenance and removal guidance on macos-user.
+**Status:** 2026-11-11. The provider and remedy were built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. Source follow-up `b35cff4e6` first landed on main as `674c55288`; its source-span security repair is committed in this worker tree as `ba2883f7c` and awaits integration. The run/check callers distinguish TOML `[env.secrets].files` and `.set` from legacy `env_sources`, with source-matched removal guidance and the scoped `yolo config set` command for the aws-auth profile. Config-edit diffs redact only classified private-value spans in both TOML and JSONC before/after hunks, including nested ancestor edits and encoded values, while preserving equal public values; included configs name the `--file` route. Synthetic regressions cover these cases. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal. Rerun W-BK2 after `ba2883f7c` (or its landing equivalent) reaches main.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
 (rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D7 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
 The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
@@ -291,7 +291,7 @@ defect against `d95b06451`.
 
 #### W-BK2 follow-up — synthetic static-pair refusal wording
 
-At main `b35cff4e6` or later, use the same isolated workspace and the installed `yolo` built from that main. Do not use a real AWS pair. Add a synthetic pair to the workspace's private set; each edit must display a redacted diff, say `Written.`, and never print either sentinel:
+At main `674c55288` or later, including the source-span repair committed in this worker tree as `ba2883f7c` (or its landing equivalent), use the same isolated workspace and the installed `yolo` built from that main. Do not use a real AWS pair. Add a synthetic pair to the workspace's private set; each edit must display a redacted diff, say `Written.`, and never print either sentinel:
 
 ```
 yolo config set env.secrets.set.AWS_ACCESS_KEY_ID '"not-a-real-access-key"' --project
