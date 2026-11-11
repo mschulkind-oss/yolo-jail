@@ -1,0 +1,8 @@
+sway: /nix/store/x438l06y03ldc8jx4zix26g96445w09c-sway-1.12/bin/sway
+daemon: /nix/store/0zd31bp0r7rajzwjjyrfjrp36disibbb-mako-1.11.0
+hook source: native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook
+fixture commit: 62b8bbda375acda7caa3f675a4844aa020e8b060
+grim: /nix/store/pcsy1cp83xdrcnqbyk9951vaj2ad2wky-grim-1.5.0/bin/grim
+notify-send: /nix/store/hf9wcn7jhcynf4ihndzbscbknx97in30-libnotify-0.8.8/bin/notify-send
+font: DejaVuSans.ttf: "DejaVu Sans" "Book"
+gtk: unknown

@@ -25,6 +25,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/circleci-rerun-workflow-synthetic.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "git-push-force": [
@@ -49,6 +73,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/git-push-force.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -75,6 +123,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/git-push-long-names.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "git-push-new-branch": [
@@ -99,6 +171,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/git-push-new-branch.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -125,6 +221,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/git-push-working-set-miss.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "github-approve-run": [
@@ -149,6 +269,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/github-approve-run.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -175,6 +319,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/github-pr-comment.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "github-workflow-run": [
@@ -199,6 +367,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/github-workflow-run.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -225,6 +417,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/s3-delete-objects-synthetic.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "state-allowed-once": [
@@ -249,6 +465,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/state-allowed-once.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence. Shows the toast as filed; the allowed outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -275,6 +515,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/state-decided-elsewhere.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence. Shows the toast as filed; the decided-elsewhere outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "state-denied": [
@@ -299,6 +563,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/state-denied.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence. Shows the toast as filed; the denied outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ],
@@ -325,6 +613,30 @@
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
         }
+      },
+      {
+        "file": "captures/linux/mako/state-expired.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence. Shows the toast as filed; the expired outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
+        }
       }
     ],
     "state-stale": [
@@ -349,6 +661,30 @@
           "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
           "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
           "daemon_config": "{\"timeout\": 3}"
+        }
+      },
+      {
+        "file": "captures/linux/mako/state-stale.png",
+        "renderer": "public reference baseline: documented notify-send call to mako",
+        "tested": "visual",
+        "note": "Native headless sway with mako test config/default theme; public reference or supplied hook, not the owner's desktop pixels. Baseline only, not production notifier repair evidence. Shows the toast as filed; the stale outcome is not something a toast renders.",
+        "provenance": {
+          "os": "Linux userland in a container",
+          "daemon": "mako",
+          "daemon_version": "mako-1.11.0",
+          "theme": "mako default theme (no GTK; no gsettings theme set)",
+          "scale": 1,
+          "captured_at": "2026-11-11T05:21:47Z",
+          "commit": "62b8bbda375acda7caa3f675a4844aa020e8b060",
+          "compositor": "sway",
+          "compositor_version": "sway version 1.12",
+          "compositor_mode": "headless (WLR_BACKENDS=headless, pixman)",
+          "libnotify_version": "notify-send 0.8.8",
+          "resolution": "1280x800",
+          "fonts": "DejaVuSans.ttf: \"DejaVu Sans\" \"Book\"",
+          "crop": "trimmed to the non-black bounding box plus 10px, from a full-output grim screenshot",
+          "daemon_config": "default-timeout=0",
+          "hook_source": "native-notification-gallery.md section 2.1 documented Linux notify call; reference reconstruction, not private owner hook"
         }
       }
     ]

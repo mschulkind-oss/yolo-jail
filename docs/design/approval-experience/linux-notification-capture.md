@@ -3,7 +3,7 @@ title: "Capturing approval notifications on Linux, headless and reproducibly"
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Add a second daemon (mako with the owner's config, or dunst) to the capture matrix, and drive a real pointer click to turn finding d from SOURCED into MEASURED"
+next: "Recapture the integrated production notifier candidate; resolve the swaync virtual-pointer control failure before upgrading its body-click finding"
 depends-on:
   - README.md
   - native-notification-gallery.md
@@ -13,17 +13,19 @@ summary: "The Linux notification capture sibling of the approval-experience umbr
 
 # Capturing approval notifications on Linux, headless and reproducibly
 
-**Status:** 2026-11-09. Built and run once inside the jail:
-[`capture-linux.sh`](../../../scripts/approval-gallery/capture-linux.sh) produced the 14 Linux captures
-in [`gallery/captures/linux/`](gallery/captures/linux/manifest.json), and
-[`measure-lifecycle.sh`](../../../scripts/approval-gallery/measure-lifecycle.sh) the lifecycle
-measurements in [§4](#4-what-the-stack-measured). No pointer click was driven.
+**Status:** 2026-11-11. MEASURED: the original 14 swaync baseline captures remain;
+14 additional real mako captures use a reconstruction of the **public documented Linux notify
+call**, not a copy of the owner's private hook. A real protocol pointer body click on mako
+closed the toast with reason 2, no action, empty notifier stdout and exit 0. Swaync input
+remains unresolved: both body and button control attempts left the toast visible. Neither
+baseline proves the forthcoming production notifier repair.
+
 
 > **In short.** A real notification daemon, not an HTML imitation, renders each fixture's toast
 > in a compositor with no screen. A private D-Bus session bus, a headless sway, swaync and
 > `notify-send` all come from nixpkgs, so the stack needs no host desktop and no root. The same
 > stack records the D-Bus traffic for every way a toast can end. That is how this doc found that
-> dismissing the owner's toast answers nothing, and that a killed notifier leaves a live toast
+> dismissing the baseline toast answers nothing, and that a killed notifier leaves a live toast
 > behind.
 
 **Why it matters.** The umbrella's AE-R2 says HTML replicas are not native evidence. A Linux
@@ -59,12 +61,16 @@ whole stack.
 | Daemon | swaync with config `{"timeout": 3}` and the default stylesheet | SwayNotificationCenter 0.12.6, GTK 4.22.4 |
 | Notifier | the hook under test, which calls `notify-send` | libnotify 0.8.8 |
 | Screenshot | `grim` on the whole output, then `magick -trim` to the toast plus a 10-pixel border | grim 1.5.0 |
-| Second daemon (lifecycle only) | mako, with a test `default-timeout=3000` | mako 1.11.0 |
+| Second daemon (visual and pointer) | mako, default theme, test `default-timeout=0`; earlier expiry measurements used `3000` | mako 1.11.0 |
+| Pointer client | Generated persistent `zwlr_virtual_pointer_v1` client: absolute motion and primary button press/release; compositor roundtrip and daemon method-reply barriers | wayland 1.26.0; wlr-protocols 2022-09-05 |
 | Font | DejaVu Sans, which swaync's closure brings in | — |
 
 All of it comes from `nixpkgs` through `nix shell`, resolved at run time and not pinned. The
 script records the store path of every tool it ran in
-[`tools.txt`](gallery/captures/linux/tools.txt) next to the captures.
+[`tools.txt`](gallery/captures/linux/tools.txt) and
+[`linux/mako/tools.txt`](gallery/captures/linux/mako/tools.txt) next to the captures.
+The pointer client needs `cc`, `wayland-scanner`, the Wayland development output and
+`wlr-protocols`; its Nix output links and generated client stay in the durable run directory.
 
 **Why sway and swaync.** The owner's desktop runs swaync under sway. sway, swaync, grim and
 notify-send all worked on the first try, so neither cage nor weston was needed. A plain sway draws
@@ -89,16 +95,36 @@ $ scripts/approval-gallery/capture-linux.sh \
 $ YOLO_UPDATE_APPROVAL_FIXTURES=1 go test ./internal/approvalfixtures/
 ```
 
+The reproducible public-reference invocation for the second daemon is:
+
+```console
+$ scripts/approval-gallery/capture-linux.sh --reference-baseline --daemon mako \
+    --fixtures internal/approvalfixtures/fixtures \
+    --out docs/design/approval-experience/gallery/captures/linux \
+    --run-dir <short durable directory>
+```
+
+`--reference-baseline` generates only the documented `notify-send` call in the run directory.
+It does not reproduce the owner's answer mapping or stop traps. For a later candidate use
+`--hook <candidate entry point> --hook-source <source/commit identity> --renderer <candidate label>`
+instead, with a **distinct renderer label** so a repair cannot silently overwrite baseline evidence.
+The runner replaces only that renderer's entries and preserves other baselines in the platform
+manifest; mako PNGs and tool provenance are stored under `linux/mako/`. Use a new output tree
+when capturing a different renderer on the same daemon, to keep its image paths distinct.
+The hook receives fixture environment and the stub; it must reach the private bus without a real
+approval store. Run only after the notifier lead's candidate is integrated. These scripts do not
+build or prove that candidate themselves.
+
 For each fixture that has a `hook_env` and whose request records no hook failure, the script:
 
 1. Builds an environment holding only the fixture's `YOLO_REQUEST_*` values (one key at a time,
    because values can hold newlines), a throwaway `HOME`, and the bus, display and runtime
    variables the daemon needs, and runs the hook in it with `env -i`.
 2. Puts a **stub `yolo` first on that `PATH`**. The stub only logs its arguments, and the run
-   fails if the log is not empty, since nothing presses a button during a capture.
+   fails if the log is not empty, since nothing presses a button during a visual capture. The public reference never invokes it.
 3. Takes screenshots until two consecutive frames are identical and not all black. It crops the
    frame to the toast.
-4. Dismisses the toast the way a user would (`swaync-client --close-latest`). It waits for the
+4. Dismisses the toast the way a user would (`swaync-client --close-latest` or `makoctl dismiss`). It waits for the
    hook to exit, and sends it SIGINT if it is still running.
 5. Writes one manifest entry. Each entry has the file, the renderer, `tested: visual`, a note that
    this is the default theme and not the owner's desktop (and, for a fixture whose state is not
@@ -126,6 +152,13 @@ The seven keys
 | `scale` | `1` | Wrapping and truncation depend on it |
 | `captured_at` | UTC time of the run | — |
 | `commit` | the yolo commit whose fixtures were rendered | It ties the picture to the request text |
+
+The mako entries in the Linux manifest also record `hook_source`: a public-reference reconstruction identified by
+the documented call and fixture commit `62b8bbda375acda7caa3f675a4844aa020e8b060`. It is not
+the private owner hook or a candidate source identity. Its renderer is explicitly
+`public reference baseline: documented notify-send call to mako`, with `tested: visual`.
+All 14 entries are native pixels, not previews; macOS remains missing, and the two skipped
+fixtures acquire no capture.
 
 The Linux manifest adds `compositor`, `compositor_version`, `compositor_mode`, `libnotify_version`,
 `resolution`, `fonts`, `crop` and `daemon_config`. A manifest is
@@ -179,7 +212,7 @@ Unless a row says otherwise, it is swaync 0.12.6 with libnotify 0.8.8.
 | a | What does the owner's call send? | Three actions (`once`, `hour`, `deny`), urgency 2 (critical), expire timeout -1. It sends no `default` action and no `resident` or `transient` hint. | MEASURED |
 | b | What does a user's dismissal do? | The daemon emits `NotificationClosed` with reason 2 (dismissed). `notify-send` **prints nothing and exits 0**, so the hook answers nothing and the request stays pending until it expires. The close button, a swipe, and a middle or right click are all reason 2 (`notification.vala:177,218,235`). mako gives the same result. | MEASURED; the gesture list SOURCED |
 | c | What does pressing a button do? | `ActionInvoked` with the key, then `NotificationClosed(2)`. `notify-send` prints the key and exits 0, then sends a redundant `CloseNotification`, which produces a second close with reason 3. | MEASURED |
-| d | What does a body click do? | A primary click runs `click_default_action`. This toast has no `default` action, so nothing is invoked. It is not resident, so it is dismissed with reason 2 and the hook answers nothing (`notification.vala:173-177,426,461-485`). No click was delivered: the headless seat has no pointer capability, and neither `swaymsg seat … cursor` nor `wlrctl` produced one. | SOURCED only |
+| d | What does a swaync body click do? | A primary click runs `click_default_action`. This toast has no `default` action, so nothing is invoked. It is not resident, so it is dismissed with reason 2 and the hook answers nothing (`notification.vala:173-177,426,461-485`). The original run delivered no pointer. The expansion witnesses a persistent virtual pointer and an on-toast cursor, but neither a body click nor an action-button control produced a close/action. That failed control prevents a semantic claim; see [§4.1](#41-second-daemon-visuals-and-actual-pointer-evidence). | SOURCED only |
 | e1 | What does SIGINT to the notifier do? (This is how yolo stops a hook.) | `notify-send` sends `CloseNotification`, the daemon emits reason 3, and the toast disappears. stdout is empty and the exit is 0. | MEASURED |
 | e2 | What do SIGKILL or SIGTERM do? | **The toast stays on screen with live buttons.** Pressing "Allow once" on it emits `ActionInvoked` with no one listening. libnotify installs its SIGINT handler only after the notification is shown, and it has no SIGTERM handler (`notify-send.c:154-164,561-562`). | SIGKILL MEASURED; SIGTERM SOURCED |
 | f | Does a critical toast expire? | **No.** With `timeout: 3` it is still on screen after 6 seconds, because `timeout-critical` defaults to 0 (`config.json.in:21`, `notification.vala:797-803`). A normal-urgency toast leaves the screen at 3 seconds but stays in the notification center with its buttons, and no close is signaled (`notiDaemon.vala:33-38`). mako, with the test timeout, expired even a critical toast with reason 1. | MEASURED |
@@ -188,14 +221,54 @@ Unless a row says otherwise, it is swaync 0.12.6 with libnotify 0.8.8.
 The gallery doc weighs these against the umbrella's five rules
 ([`native-notification-gallery.md` §2.2](native-notification-gallery.md#22-findings-against-the-five-rules)).
 
+### 4.1 Second-daemon visuals and actual pointer evidence
+
+The [mako manifest](gallery/captures/linux/manifest.json) contains 14 independent **visual**
+captures. This is no longer lifecycle-only evidence: for example the
+[force-push toast](gallery/captures/linux/mako/git-push-force.png) is an actual mako-rendered PNG.
+Mako's default appearance wraps the headline and body in a narrow blue toast; these are test
+pixels, not the owner's theme. The actions are not drawn as swaync-style buttons in this theme.
+No button behavior follows from that visual evidence.
+
+Under the same private bus/headless compositor, the pointer measurement uses a persistent
+protocol device, not a daemon CLI action. It positions in body whitespace at `(1240,55)` on
+the 1280×800 output, then sends primary press/release. The mako test disables expiry so a close
+cannot be mistaken for a three-second timeout. The generated client is compiled **before**
+posting; the monitor waits for its `NameAcquired` signal, and success waits for a close signal,
+not an elapsed-time budget. Polling delays only pace observation, and generous timeouts fail hangs.
+
+| Daemon | Observed outcome | Evidence status |
+| :--- | :--- | :--- |
+| mako 1.11.0 | `NotificationClosed(id=1, reason=2)`, no `ActionInvoked`; notifier stdout empty, exit 0; toast gone | MEASURED: [before](gallery/captures/linux/mako/lifecycle/pointer_before.png), [after](gallery/captures/linux/mako/lifecycle/pointer_after.png) |
+| swaync 0.12.6 | Persistent virtual pointer registered on `seat0` with pointer capability 1; cursor witnessed in toast body. Both body and first-action-button control remained visible without close/action before the failure guard | Input blocker, **not** measured dismissal semantics; row d remains SOURCED |
+
+Raw logs are retained under the workspace durable directory at `approval62/pointer/` and
+`approval62/control/`; the mako `pointer-result.txt`, `pointer.dbus`, `pointer.cmd` and PNGs
+record the successful run. The swaync logs and `pointer-delivered.png` record failed input
+controls. Next step for swaync is to verify toolkit input delivery with a working button control
+(or use a different private compositor backend), then repeat the body test. Do not infer an
+unchanged/no-op semantic outcome from a failed positive control.
+
+Inside the stack's private bus and tool environment, repeat the bounded pointer check with:
+
+```console
+$ scripts/approval-gallery/measure-lifecycle.sh mako <durable evidence dir> <short durable socket dir> --pointer-only
+$ scripts/approval-gallery/measure-lifecycle.sh swaync <durable control dir> <short durable socket dir> --pointer-action
+```
+
+The mako screenshots inherit the version/theme/scale/source identity above, but measure the
+public lifecycle test request (`rerun failed jobs`), not a fixture's final state. They are not
+folded as additional fixture visuals. All observations are Linux container/private-GUI evidence;
+none is Mac or rootless-host reachability proof.
+
 ## 5. Limits
 
-- **One daemon captured.** swaync is the owner's daemon. mako was measured for lifecycle only,
-  with a test timeout rather than the owner's config. dunst, GNOME Shell and KDE Plasma are
+- **Two daemon test themes captured.** swaync is the owner's daemon, while mako visuals and
+  pointer measurements use a test config rather than the owner's config. dunst, GNOME Shell and KDE Plasma are
   unmeasured, and the umbrella's [§4.2](README.md#42-native-constraints-are-part-of-the-design) table about them remains source-backed context.
-- **No pointer.** Row d rests on source. Driving it needs a seat with pointer capability, such as
-  wlroots' virtual-pointer protocol from a client that implements it, or a nested non-headless
-  backend.
+- **Swaync pointer control unresolved.** Mako has a measured real body click, but row d for
+  swaync still rests on source because its button control failed. A persistent virtual device
+  fixes the absent capability, not necessarily GTK input delivery.
 - **Not the owner's pixels.** Every capture carries that note. A capture on the owner's own
   desktop would need a host-side run, which this work does not perform (AE-R6).
 - **Unpinned versions.** Each run records its versions. A later run may draw differently, and
