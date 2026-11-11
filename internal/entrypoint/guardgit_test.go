@@ -117,6 +117,9 @@ func (f *gitGuardFixture) refuse(dir string, args ...string) {
 func TestGuardGitCleanRefusesStateWipes(t *testing.T) {
 	cases := [][]string{
 		{"clean", "-fdx"}, {"clean", "-fdX"}, {"clean", "-ffdx"},
+		{"--no-literal-pathspecs", "clean", "-fdx"},
+		{"--attr-source=HEAD", "clean", "-fdx"},
+		{"--attr-source", "HEAD", "clean", "-fdx"},
 		{"clean", "-fdx", "--", ".yolo"}, {"clean", "-fdx", ".yolo/home"},
 		{"clean", "-fdx", ".yolo/durable"}, {"clean", "-fdx", "."},
 		{"clean", "-fdx", "junk", ".yolo"}, {"clean", "-fdx", "*"},

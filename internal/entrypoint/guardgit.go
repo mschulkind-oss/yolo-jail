@@ -18,12 +18,12 @@ _yg_git_find() {
   _yg_gc=0 _yg_clean= _yg_complex=${GIT_ICASE_PATHSPECS:-}
   while [ "$#" -gt 0 ]; do
     case $1 in
-      -C|-c|--git-dir|--work-tree|--namespace|--config-env)
+      -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source)
         [ "$#" -ge 2 ] || return
         shift 2; _yg_gc=$((_yg_gc + 2)); continue ;;
       --icase-pathspecs) _yg_complex=1 ;;
-      -C?*|-c?*|--git-dir=*|--work-tree=*|--namespace=*|--config-env=*|--exec-path=*|--super-prefix=*) ;;
-      --no-pager|--paginate|-p|-P|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--no-optional-locks|--no-lazy-fetch|--no-advice) ;;
+      -C?*|-c?*|--git-dir=*|--work-tree=*|--namespace=*|--config-env=*|--exec-path=*|--super-prefix=*|--attr-source=*) ;;
+      --no-pager|--paginate|-p|-P|--bare|--no-replace-objects|--literal-pathspecs|--no-literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--no-optional-locks|--no-lazy-fetch|--no-advice) ;;
       clean) _yg_clean=1; return ;;
       *) return ;;
     esac
