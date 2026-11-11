@@ -1,8 +1,8 @@
 ---
 title: "Service conformance: reuse the proof, not the classifier"
 status: accepted
-stage: DECIDED
-next: "Implement the bounded test kit in service-conformance-plan.md"
+stage: BUILT
+next: "Independent review and combined-tree gates; retain partial §19 scope"
 depends-on:
   - service-mediation.md
   - ../pack-brokers.md
@@ -11,8 +11,10 @@ tags: [design, testing, broker, packs]
 
 # Service conformance: reuse the proof, not the classifier
 
-**Status:** 2026-11-10. Bounded direction authorized by the task; contracts verified at
-`62b8bbda375acda7caa3f675a4844aa020e8b060`. No kit code built yet.
+**Status:** 2026-11-11. Bounded kit implemented from `017ea6df9`, with focused
+checks passing. The new assertion package and S3/tasks adapters are test-only;
+independent review and combined-tree landing gates remain. Evidence and fixture
+corrections are recorded in [the plan](service-conformance-plan.md#implementation-evidence).
 
 > **In short.** A reusable test kit checks service-supplied examples against the existing
 > classifier and approval/execution path. It supplies assertions, never classification,
@@ -58,7 +60,9 @@ fragments, and an optional expected error substring. The kit runs them in listed
 failing at the first mismatch with the step name. A callback returns observations from
 actual fixtures/store snapshots; it cannot supply an expected outcome as its observation.
 Execution-step callbacks, rather than a generic service factory, keep process/credential
-ownership with the adapter. Empty scripts and missing actions/names are kit errors.
+ownership with the adapter. Empty scripts and missing actions/names/verdicts are kit errors. An error expectation
+cannot also expect the success verdict `runs` or `approved`; `refused` with an expected
+error remains valid.
 
 Counts and output assertions are shared; fixture-specific object-byte, upstream request-log,
 audit and credential assertions stay with the adapter. A request log is not inferred from

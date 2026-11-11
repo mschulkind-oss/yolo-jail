@@ -1,8 +1,8 @@
 ---
 title: "Service conformance: bounded implementation hand-off"
 status: accepted
-stage: DECIDED
-next: "One implementation worker builds the assertion package and two test adapters"
+stage: BUILT
+next: "Independent review and root combined census/landing gates"
 depends-on:
   - service-conformance.md
 tags: [plan, testing, broker, packs]
@@ -11,7 +11,8 @@ tags: [plan, testing, broker, packs]
 # Service conformance: bounded implementation hand-off
 
 **Status:** 2026-11-10. Written against `62b8bbda375acda7caa3f675a4844aa020e8b060`;
-source seams and baseline command below verified. No implementation yet.
+source seams and baseline command below verified. Implemented locally on 2026-11-11
+from `017ea6df9`; focused gates pass. Independent review and root landing gates remain.
 **Design:** [service-conformance.md](service-conformance.md).
 
 Precedence: design wins on behavior; tree wins on cosmetic fact; this plan is advice unless
@@ -180,7 +181,7 @@ uses the actual built CLI. Report this path difference, never call it a second f
 | :--- | :--- |
 | Global `--endpoint-url http://127.0.0.1:1`, unsupported `s3 sync`, uncovered bucket, malformed name | S3 shim rc 64; request log, writes and pending count unchanged; class checked by classification table |
 | Empty canonical argv / canonical NUL / changed returned stdin digest | Synthetic malicious subprocess answer through `ClassifyCLI` twice and handler act; named core error; no write/pending/grant |
-| Undeclared resource type / repeated type / wrong parent / top root `team:beta` | Same actual caller; core-validation refusal and no effects; preserve valid base chain for each independent mutation |
+| Undeclared resource type / repeated type / wrong parent / uncovered top root `team:gamma` | Same actual caller; core-validation refusal and no effects; preserve valid base chain for each independent mutation |
 | Expired exact approval | Actual host approve first; advance only store clock; act refused with lapsed-allow diagnostic; original grant not spent; no writes |
 | Withdraw write ceiling after approval | Change only fixture user config `all.change` to `all.blocked` (tasks), or remove `all.put_objects` (S3); handler/shim act refuses, use retained, no writes; also host approve on a pending call after withdrawal must fail |
 | Oversized classifier response | Pinned synthetic subprocess emits 65537 bytes; actual ClassifyCLI and handler refuse; no writes/pending |
@@ -224,3 +225,54 @@ go test -short -run 'TestPackCLIClassifierValidatesCanonicalResourceAndDoesNotEx
 
 Result: `ok github.com/mschulkind-oss/yolo-jail/internal/callbroker 11.848s`.
 This establishes existing contracts only, not proof of the unbuilt kit.
+
+
+## Implementation evidence
+
+The five fenced Go files implement the exact kit API, shared lifecycle and two adapters.
+Existing helpers, S3/core fixtures, production code and declarations are unchanged.
+
+| Check | Actual result / consumer path |
+| :--- | :--- |
+| Checker red | `go test ./internal/callbrokerconformance` failed on undefined kit symbols before `kit.go` existed |
+| Additional checker red | Missing step verdict and success-plus-error expectations ran callbacks; exact large-number comparison accepted two different JSON numbers; regressions failed before fixes |
+| Checker green | `go test ./internal/callbrokerconformance` passed: JSON value/array ordering, exact numbers, determinism, negative errors, missing/malformed expectations, step counts/verdict/errors/leaks/order |
+| S3 rows | `TestConformanceS3Classifications` passed R1/R2/R3/W1/W2, recursive/equals normalization, four refusal answers, longest/malformed roots through actual `ClassifyCLI` subprocesses |
+| Shared lifecycle | `TestConformanceS3Lifecycle` and `TestConformanceSyntheticLifecycle` passed one shared nine-step table; counts come from pending-state records and grant uses, effects from actual fixtures |
+| S3 boundary | `TestConformanceS3ShimRefusals` passed endpoint/sync/uncovered-bucket/malformed-name controls through generated shim/front; request log, writes and pending stay unchanged |
+| Tasks boundary | `TestConformanceSyntheticClassifications` passed read, update-pr and update-a1 with actual declared read lookup and read audit; no write or request filed |
+| Malicious classifier | `TestConformanceSyntheticInvalidAnswers` passed empty argv/NUL/digest/resource/repeated-type/parent/uncovered-root/schema/65537-byte controls through pinned subprocess twice, then handler act; zero effects/requests/grants |
+| Stale approval | `TestConformanceSyntheticStaleApproval` passed actual host approval then fake-clock expiry/ceiling withdrawal, retaining one use; approval after withdrawal fails |
+| Completed response | `TestConformanceSyntheticCompletedOversizedResponse` passed actual executor write, completed-write error, spent grant/request, withheld partial output, inspect-host-state guidance, `ran` audit and replay asking |
+
+The focused consumer command `go test -short -run 'TestConformance' ./internal/callbroker`
+passed. The planned existing S3/build-environment/expiry regression selection passed;
+`GOOS=darwin go vet ./internal/callbrokerconformance ./internal/callbroker` passed.
+`just format` and `git diff --check` passed. No full gate, completion census, nested
+launch, native-host run or live AWS call was performed in this task.
+
+**Actual path difference:** S3 acts use the generated shim and authenticated front;
+S3 evaluate/ask use the selected handler. Tasks use the actual handler entry, not a
+second front, and both approval adapters invoke the built host `yolo approve`.
+Neither adapter infers an observation from expected counts. Completed output rejection
+is evidence of a write that occurred, not a safe no-effect refusal.
+
+**Approved factual correction:** the existing tasks fixture covers both `team:alpha`
+and `team:beta`. The uncovered-root control therefore uses `team:gamma`, with an
+explicit fixture-root precondition, preserving the fixture unchanged. The repeated-type
+chain is rejected first by the parent-chain check; it is not independent proof of a
+later duplicate-type branch. Unknown schema fields produce the actual strict-JSON
+error. These two error-substring assertions initially failed, then passed with the
+actual caller diagnostics; no production behavior was changed to make them green.
+
+**New cross-package readers for root's combined census:** the S3 conformance tests reuse
+`newS3E2E`, which reads `packs/aws-s3` to generate the shim and loads its selected
+loophole declaration, and builds `cmd/yolo` and `internal/s3fixture/cmd/s3fixture`.
+The tasks conformance tests reuse the selected fixture's generated pack/config/input
+and `internal/callbroker/testdata/classifier`; their approver helper builds `cmd/yolo`
+through unchanged `callBrokerTestBuild` and its original build environment/shared caches.
+No new production reader or arbitrary pack-discovery mechanism was added.
+
+**Remaining §19 limits:** no standalone author command, arbitrary-pack discovery,
+every-pack block-loading report, exhaustive lookup proof, second real service,
+HTTP-front proof, new nested/native-host proof or native AWS compatibility evidence.
