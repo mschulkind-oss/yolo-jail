@@ -101,7 +101,7 @@ host state, and replay needs a new approval. This is the existing completed-resp
 ## 4. Evidence and exclusions
 
 Report each covered case by row/control name, command result and actual consumer path.
-Do not claim full §19: this slice does not provide a general author command, automatic
+Do not claim full [§19](../pack-brokers.md#19-what-done-looks-like): this slice does not provide a general author command, automatic
 arbitrary-pack discovery, a block-loading report for every pack, exhaustive lookup checks,
 an HTTP proof, a new nested-launch proof or live AWS compatibility. Existing nested S3
 coverage remains separate evidence, not a test the new kit ran.
@@ -116,5 +116,5 @@ isolated credential home. All service endpoints and credentials are local/synthe
 | :--- | :--- | :--- |
 | SC-D1 | Reuse assertions over callbacks; no production classifier abstraction | Bounded task; SM-D5 remains intact |
 | SC-D2 | Demonstrate with shipped S3 and test-only synthetic tasks | Bounded task; no second real service |
-| SC-D3 | Exercise actual classifier, host approval and executor callers | Service recipe §9; pack-brokers §19 |
-| SC-D4 | Report partial coverage, not completion of the general author kit | Bounded task; pack-brokers §19 |
+| SC-D3 | Exercise actual classifier, host approval and executor callers | [Service recipe §9](service-mediation.md#9-the-test-checklist); [pack-brokers §19](../pack-brokers.md#19-what-done-looks-like) |
+| SC-D4 | Report partial coverage, not completion of the general author kit | Bounded task; [pack-brokers §19](../pack-brokers.md#19-what-done-looks-like) |

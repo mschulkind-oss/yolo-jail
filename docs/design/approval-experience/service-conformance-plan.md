@@ -107,7 +107,7 @@ forbidden substrings; no implicit normalization of credential-containing output.
 ## Task — implement and demonstrate (one coherent code commit)
 
 **Settled, do not re-open:** shared assertions only; S3 plus test-only tasks; production
-classify/approval/executor callers; no real AWS; partial §19 coverage only.
+classify/approval/executor callers; no real AWS; partial [§19](../pack-brokers.md#19-what-done-looks-like) coverage only.
 
 **Preconditions:** clean tree after the plan commit; baseline test below passes; optional
 matched yolo must be built from this candidate. Existing helpers are read-only.
@@ -213,7 +213,7 @@ then leave no staged/dirty files; root handles review and landing.
 
 **Commit:** `test(callbroker): reusable bounded service conformance kit`.
 **Report:** SHA, files/stat, red and green command results, per-case coverage and actual
-consumer paths, remaining §19 limitations, cross-package readers, no-staged-files evidence.
+consumer paths, remaining [§19](../pack-brokers.md#19-what-done-looks-like) limitations, cross-package readers, no-staged-files evidence.
 
 ## Baseline evidence
 
@@ -273,6 +273,6 @@ and `internal/callbroker/testdata/classifier`; their approver helper builds `cmd
 through unchanged `callBrokerTestBuild` and its original build environment/shared caches.
 No new production reader or arbitrary pack-discovery mechanism was added.
 
-**Remaining §19 limits:** no standalone author command, arbitrary-pack discovery,
+**Remaining [§19](../pack-brokers.md#19-what-done-looks-like) limits:** no standalone author command, arbitrary-pack discovery,
 every-pack block-loading report, exhaustive lookup proof, second real service,
 HTTP-front proof, new nested/native-host proof or native AWS compatibility evidence.
