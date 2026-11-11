@@ -93,7 +93,7 @@ func TestSelectedCLIForwarderReachesAuthenticatedCoreHandlerWithoutWriteAuthorit
 	if err != nil {
 		t.Fatalf("locate Go compiler for fixture forwarder: %v", err)
 	}
-	build := exec.Command(goTool, "build", "-o", binary, "../../cmd/yolo")
+	build := callBrokerTestBuild(goTool, binary, "../../cmd/yolo")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build fixture's real forwarder binary: %v %s", err, output)
 	}

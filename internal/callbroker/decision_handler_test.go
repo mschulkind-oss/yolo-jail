@@ -29,8 +29,12 @@ import (
 // TestMain builds a small portable Go classifier fixture once. It remains the selected,
 // checksum-pinned executable invoked through the production Classifier path.
 var testClassifierPath string
+var callBrokerBuildEnv []string
 
 func TestMain(m *testing.M) {
+	// Fixture HOME changes belong to the executed CLI, not its compiler. Keep the
+	// owner's effective Go environment, including HOME-derived caches and GOENV.
+	callBrokerBuildEnv = os.Environ()
 	dir, err := os.MkdirTemp("", "callbroker-classifier-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create classifier fixture directory:", err)
@@ -50,7 +54,7 @@ func TestMain(m *testing.M) {
 		_ = os.RemoveAll(dir)
 		os.Exit(2)
 	}
-	build := exec.Command(goTool, "build", "-o", testClassifierPath, "./testdata/classifier")
+	build := callBrokerTestBuild(goTool, testClassifierPath, "./testdata/classifier")
 	output, err := build.CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "build portable classifier fixture: %v\n%s", err, output)
@@ -60,6 +64,12 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+func callBrokerTestBuild(goTool, output, pkg string) *exec.Cmd {
+	cmd := exec.Command(goTool, "build", "-o", output, pkg)
+	cmd.Env = append([]string(nil), callBrokerBuildEnv...)
+	return cmd
 }
 
 func callBrokerTestGoTool() (string, error) {

@@ -54,9 +54,12 @@ const s3Root = "s3://bkt/team/"
 
 func newS3E2E(t *testing.T) *s3E2E {
 	t.Helper()
+	return newS3E2EWithBuild(t, (*exec.Cmd).CombinedOutput)
+}
+
+func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E2E {
+	t.Helper()
 	home := shortCallBrokerTempDir(t)
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Cleanup(packload.ReleaseEmbedded)
 	goTool, err := callBrokerTestGoTool()
 	if err != nil {
@@ -69,15 +72,17 @@ func newS3E2E(t *testing.T) *s3E2E {
 	yolo := os.Getenv("YOLO_TEST_MATCHED_YOLO")
 	if yolo == "" {
 		yolo = filepath.Join(bin, "yolo")
-		if out, err := exec.Command(goTool, "build", "-o", yolo, "../../cmd/yolo").CombinedOutput(); err != nil {
+		if out, err := build(callBrokerTestBuild(goTool, yolo, "../../cmd/yolo")); err != nil {
 			t.Fatalf("build yolo: %v %s", err, out)
 		}
 	}
 	// The host program: the fixture binary under the name `aws`, a copy, never a link, so
 	// its basename stays `aws` after the executor resolves it.
-	if out, err := exec.Command(goTool, "build", "-o", filepath.Join(bin, "aws"), "../s3fixture/cmd/s3fixture").CombinedOutput(); err != nil {
+	if out, err := build(callBrokerTestBuild(goTool, filepath.Join(bin, "aws"), "../s3fixture/cmd/s3fixture")); err != nil {
 		t.Fatalf("build fake host aws: %v %s", err, out)
 	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	hostPath := bin + string(os.PathListSeparator) + filepath.Dir(yolo) + string(os.PathListSeparator) + os.Getenv("PATH")
 	t.Setenv("PATH", hostPath)
 

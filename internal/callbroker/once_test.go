@@ -466,7 +466,7 @@ func TestSelectedCLIForwarderHostApproveOnceReportsCompletedOversizedWrite(t *te
 		if err != nil {
 			t.Fatalf("locate Go compiler for fixture forwarder: %v", err)
 		}
-		build := exec.Command(goTool, "build", "-o", binary, "../../cmd/yolo")
+		build := callBrokerTestBuild(goTool, binary, "../../cmd/yolo")
 		if out, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("build forwarder: %v %s", err, out)
 		}
