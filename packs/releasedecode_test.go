@@ -318,6 +318,12 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.17.1", pack: "bedrock", problem: `unknown field "inherits"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("inherits")},
+	// Measured against v0.17.1: guardrails' git entry declares `guard` (packdecl.Contribution.Guard),
+	// which that reader's guard set (mv and rm only) refuses as a problem line. It is not a skipped
+	// field: the reader keeps the rest of the manifest, so no repair is needed. An old jail keeps its
+	// staged pack tree on attach, and a fresh launch pairs the new tree with the new binaries.
+	{release: "v0.17.1", pack: "guardrails", problem: `knows those of mv and rm only, not "git"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a
