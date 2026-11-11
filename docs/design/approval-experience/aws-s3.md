@@ -13,7 +13,7 @@ summary: "The first mediated AWS service: an aws-s3 pack on the existing CLI cal
 
 # AWS S3 vertical: five object operations through the host's own `aws`, and nothing else
 
-**Status:** 2026-11-09. Every decision is ledgered. Slice 1 is built: `packs/aws-s3`, `internal/s3classify`, `internal/s3fixture` and the end-to-end tests. Evidence checked against `04f300a9e`. The build hand-off is [`aws-s3-plan.md`](aws-s3-plan.md).
+**Status:** 2026-11-10. Every decision is ledgered. Slice 1 is built: `packs/aws-s3`, `internal/s3classify`, `internal/s3fixture` and the end-to-end tests. Slice-1 evidence checked against `04f300a9e`. S3-D5's full-check warning is built locally in an unpushed change based on `62b8bbda3`. **MEASURED:** `TestCheckWarnsForAWSS3WithUnnarrowedAWSAuth` drives the production `Check` caller with selected, narrowed and absent-pack cases, without AWS or an API call. Native-host verification remains unperformed. The build hand-off is [`aws-s3-plan.md`](aws-s3-plan.md).
 
 > **In short.** S3 is mediated, not delegated: the jail's `aws` is a forwarder, a classifier
 > with no credential admits five exact object operations on roots the human declared, and the
@@ -206,8 +206,18 @@ only when no other S3-capable credential reaches the jail. Nothing else is claim
 | Credential in output | **Bounded.** Declared env values are redacted; SSO and file credentials are not redactable, and the admitted verbs do not print them |
 | Unauthenticated network access to S3 | **Not a bypass.** It reaches only what is public |
 
-**Backlog.** A `yolo check` warning when `aws-s3` and an `aws-auth` profile that could reach S3
-are selected together. Not in slice 1.
+**Diagnostic ([S3-D5](#S3-D5)).** Full `yolo check` warns when the selected packs include
+both `aws-s3` and `aws-auth`, and the supplied `aws-auth` setting explicitly selects
+`unnarrowed = true`. It reports a **possible** bypass, not proof of S3 permission: directly
+delivered credentials let an SDK or an `aws` binary reached by absolute path bypass the wrapped
+CLI if the profile permits S3. Run `yolo config why allow.aws-auth.unnarrowed` on the host to
+review the selected mode; if broker-only S3 access is wanted, ask the AWS administrator for a
+profile or role without S3 permissions. Keeping the intended auth route is valid.
+
+The warning runs only in the full diagnostic, not `yolo config check` or routine launches. It
+reads configuration, not credentials or IAM permissions, and changes no auth route or grant.
+A narrowed role is outside this warning's trigger, **not** evidence that its permissions exclude
+S3. This warning is built locally and unpushed; native-host verification is still unperformed.
 
 ## 7. Evidence and acceptance
 
@@ -265,7 +275,7 @@ their reasons rather than filed as questions.
 | <a id="S3-D2"></a>S3-D2 | **A new pack `aws-s3`, not an extension of `aws-auth`.** Different trust model (mediation versus delegation); `aws-auth` is unchanged; selecting one never selects the other | 2026-11-09 | [§1](#1-goal-and-non-goals) | — |
 | <a id="S3-D3"></a>S3-D3 | **The front grammar is the stream forms of `aws s3` plus `s3api head-object`.** Host-file paths are never accepted, because the executor runs on the host and a jail-named path would read or write host files, so put and get go through stdin and stdout. Every global option is refused, so nothing from the jail shapes endpoint, profile, region or signing | 2026-11-09 | [§3](#3-the-classification-table) | — |
 | <a id="S3-D4"></a>S3-D4 | **Roots are declared** (`s3://B` or `s3://B/R/`; `s3://B/` is not a root); the longest covering root string is the chain top; coverage is a string-prefix test; a root that does not parse covers nothing | 2026-11-09 | [§4.2](#42-roots-and-coverage) | — |
-| <a id="S3-D5"></a>S3-D5 | **Bypasses are listed and the claim is bounded:** the broker governs calls through the jail's `aws`, and confines S3 only when no other S3-capable credential reaches the jail. Backlog: a `yolo check` warning when `aws-s3` and an `aws-auth` profile that could reach S3 are both selected | 2026-11-09 | [§6](#6-bypass-analysis-and-the-confinement-claim) | — |
+| <a id="S3-D5"></a>S3-D5 | **Bypasses are listed and the claim is bounded:** the broker governs calls through the jail's `aws`, and confines S3 only when no other S3-capable credential reaches the jail. Full `yolo check` warns for selected `aws-s3` plus explicitly un-narrowed `aws-auth`; it does not inspect IAM permissions, read credentials, alter auth or grants, or run on routine launches | 2026-11-09 | [§6](#6-bypass-analysis-and-the-confinement-claim) | Built locally, unpushed; production caller test measured, native-host verification unperformed |
 | <a id="S3-D6"></a>S3-D6 | **Cells:** `put_objects` (`working_set` and `all`, `max_for` 1 h, asks), `delete_objects` (`all` only, 15 min cap, asks). No default runs unasked in slice 1; reads need the read grant | 2026-11-09 | [§4.3](#43-cells-and-grants) | — |
 | <a id="S3-D7"></a>S3-D7 | **The fake is `internal/s3fixture` and verifies SigV4**, so the fixture proves the host credential is applied host-side. It is not live AWS compatibility evidence | 2026-11-09 | [§7](#7-evidence-and-acceptance) | — |
 | <a id="S3-D8"></a>S3-D8 | **Selecting `aws-s3` owns the jail's whole `aws` command:** every non-S3 `aws` invocation is refused. Mediated tools have no unmediated twin of the same name, as `gh` and `circleci` already work; a different name (`aws-s3 …`) would leave the agent's habitual `aws` free to reach a credential directly. A user who wants an unmediated in-jail `aws` with their own credentials does not select this pack | 2026-11-09 | [§3.1](#31-admitted-forms) | — |
