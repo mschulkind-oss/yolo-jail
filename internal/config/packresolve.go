@@ -173,10 +173,11 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		stage.Dest = spec.Dest
 		out.Staged, err = packstage.Stage(stage)
 		loadFrom = spec.Dest
-	case filtered && entry.IsLocal():
-		// Read the selected view directly for a local pack. Declaration-mode staging used to
-		// remove its filtered temporary tree before callers could inspect nested loophole
-		// metadata; the path-backed reader retains the filtered view without a copy.
+	case filtered && !entry.Embedded():
+		// Read the selected view directly for a local or fetched pack. Declaration-mode staging used
+		// to remove its filtered temporary tree before callers could inspect nested loophole
+		// metadata; the path-backed reader retains the filtered view without a copy. A fetched
+		// pack's store checkout is read the same way: followsSymlinks is false for it.
 		out.Staged, err = packstage.Check(stage)
 		if err == nil {
 			out.Pack, out.Problems, err = packload.ReadSelectedPackPath(root, packName, entry.Only, entry.Exclude, followsSymlinks(entry))

@@ -23,17 +23,19 @@ func (s *Store) ResolvePackDefault(addr Addr, name, stagedName, source, lockPath
 		// (docs/reference/pack-system.md#pack-identity), so a rename never reads as an unpinned pack.
 		pin, ok = lock.BySource(source)
 	}
-	if !ok {
+	// A pin written for another source is no pin for this one: the state an absent pin is, which
+	// `yolo pack install` repairs.
+	if !ok || pin.Source != source {
 		if delivered, ok := s.stagedPackDir(stagedName); ok {
 			return &Resolved{Root: delivered, StagedFrom: delivered}, nil
 		}
 		return nil, fmt.Errorf("pack %s: no matching default-branch pin in the pack lock — run `yolo pack install` or write an explicit ?ref=: %w", name, ErrDefaultRefUnavailable)
 	}
-	if pin.Source != source || pin.Ref == "" || !isFullSHA(pin.Commit) {
+	if pin.Ref == "" || !isFullSHA(pin.Commit) {
 		if delivered, ok := s.stagedPackDir(stagedName); ok {
 			return &Resolved{Root: delivered, StagedFrom: delivered}, nil
 		}
-		return nil, fmt.Errorf("pack %s: no matching default-branch pin in the pack lock: its entry is malformed or does not match its source — run `yolo pack install` or write an explicit ?ref=", name)
+		return nil, fmt.Errorf("pack %s: no matching default-branch pin in the pack lock: its entry is malformed — run `yolo pack install` or write an explicit ?ref=", name)
 	}
 	lockedAddress, err := ParsePackAddress(pin.Source)
 	if err != nil || lockedAddress.Ref != "" || lockedAddress.Repo != addr.Repo || lockedAddress.Path != addr.Path {

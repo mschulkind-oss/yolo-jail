@@ -229,10 +229,19 @@ func (o *Options) nixRepairNote() string {
 		o.nixInstallLines() + nixRecheck
 }
 
+// configRecheck is the re-check a config finding's next step ends with: the config-only report
+// re-runs its own verb, and the broad check re-runs `yolo check`.
+func configRecheck(mode string) string {
+	if mode == "config" {
+		return "then: yolo config check"
+	}
+	return recheck
+}
+
 // configNote is the next step for a config finding: where to edit, and the re-check. A message
 // config validation located already leads with the file and line it was written at
 // (config.Sources.Annotate); an unlocated one names only the key, so the note names the files.
-func configNote(msg, workspace string) string {
+func configNote(msg, workspace, again string) string {
 	where := "Fix it where this says it was written"
 	switch {
 	case config.LocatedInLaunchCopy(msg):
@@ -247,7 +256,7 @@ func configNote(msg, workspace string) string {
 		wsPath, _ := config.ResolveReadableWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
 		where = "Fix it in " + wsPath + " or " + userConfigFile()
 	}
-	return where + " (`yolo config-ref` documents every key), " + recheck
+	return where + " (`yolo config-ref` documents every key), " + again
 }
 
 // userConfigFile is the user config file a check message sends the user to edit: the one the

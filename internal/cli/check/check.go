@@ -599,7 +599,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
-		msg, note := configReadFailure(err)
+		msg, note := configReadFailure(err, configRecheck(r.mode))
 		r.fail(msg, note)
 		failed = true
 	} else if o.PathExists(userPath) {
@@ -631,7 +631,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 	if err != nil {
 		// It names the file it could not read, an include's name being the agent's to choose (WW-D30).
 		workspaceConfig = jsonx.NewOrderedMap()
-		msg, note := configReadFailure(err)
+		msg, note := configReadFailure(err, configRecheck(r.mode))
 		r.fail(termsafe.VisibleLines(msg), termsafe.VisibleLines(note))
 		failed = true
 	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
@@ -665,17 +665,17 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 // config name that is there but cannot be read (RC-D59, docs/design/readable-config.md#RC-D59)
 // FAILs with the launch's own sentence of fact, and its next step is the note; anything else is
 // named in the file it names.
-func configReadFailure(err error) (msg, note string) {
+func configReadFailure(err error, again string) (msg, note string) {
 	var ce *config.ConfigError
 	if errors.As(err, &ce) && ce.Fact != "" && ce.Step != "" {
 		// A step of several lines (commands alone on their own lines) takes the re-check as a
 		// line of its own, not glued to its last sentence.
 		if strings.Contains(ce.Step, "\n") {
-			return ce.Fact, ce.Step + "\n" + recheck
+			return ce.Fact, ce.Step + "\n" + again
 		}
-		return ce.Fact, strings.TrimSuffix(ce.Step, ".") + "; " + recheck
+		return ce.Fact, strings.TrimSuffix(ce.Step, ".") + "; " + again
 	}
-	return err.Error(), "Fix it in the file this names, " + recheck
+	return err.Error(), "Fix it in the file this names, " + again
 }
 
 // reportWorkspaceFile names this workspace's per-workspace file (config/workspacefile.go) and
@@ -766,14 +766,14 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	// writes a workspace's includes and names them, so every rune a terminal acts on is escaped
 	// (docs/design/workspace-widening.md WW-D30).
 	for _, msg := range warnings {
-		r.warn(termsafe.VisibleLines(msg), configNote(msg, workspace))
+		r.warn(termsafe.VisibleLines(msg), configNote(msg, workspace, configRecheck(r.mode)))
 	}
 	if len(errors) > 0 || runtimeBlocked || runtimeFinding != "" {
 		if runtimeFinding != "" {
 			r.fail(runtimeFinding, o.runtimeFindingNote(merged))
 		}
 		for _, msg := range errors {
-			r.fail(termsafe.VisibleLines(msg), configNote(msg, workspace))
+			r.fail(termsafe.VisibleLines(msg), configNote(msg, workspace, configRecheck(r.mode)))
 		}
 		o.printRetiredBrokeredMoves(r)
 		r.blank()

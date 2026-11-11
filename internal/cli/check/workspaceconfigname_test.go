@@ -99,7 +99,7 @@ func TestConfigNoteNamesTheWorkspaceConfigTheLoaderReads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	note := configNote("config.definitely_not_a_key: unknown key", ws)
+	note := configNote("config.definitely_not_a_key: unknown key", ws, recheck)
 	if want := "Fix it in " + filepath.Join(ws, "yolo-jail.json") + " or "; !strings.HasPrefix(note, want) {
 		t.Errorf("the next step does not name the workspace's yolo-jail.json (want prefix %q): %q",
 			want, note)

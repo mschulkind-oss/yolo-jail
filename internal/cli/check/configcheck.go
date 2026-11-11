@@ -96,10 +96,10 @@ func ConfigCheck(opts Options) int {
 	collisionFindings := selectedPackCollisionFindings(selection.Packs())
 	r.sectionHeader("Merged Configuration")
 	for _, msg := range warnings {
-		r.warn(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace))
+		r.warn(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace, configRecheck(r.mode)))
 	}
 	for _, msg := range errors {
-		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace))
+		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace, configRecheck(r.mode)))
 	}
 	if len(errors) == 0 && len(collisionFindings) == 0 {
 		r.ok("Merged config is semantically valid")

@@ -408,7 +408,7 @@ func assertPublicPostWriteCheck(t *testing.T, rc int, out, errw string) {
 	if !strings.Contains(out, "Config Check") || !strings.Contains(out, "Summary") {
 		t.Fatalf("public write did not emit the production post-write check report: rc=%d stdout=%q stderr=%q", rc, out, errw)
 	}
-	if !strings.Contains(out, "Checks config parsing and semantics") || strings.Contains(out, "Container Runtime") {
+	if !strings.Contains(out, "machine readiness is outside config validation") || strings.Contains(out, "Container Runtime") {
 		t.Fatalf("public write did not use the config-only post-write path: stdout=%q stderr=%q", out, errw)
 	}
 	failed := strings.Contains(errw, "post-write check did not pass")
