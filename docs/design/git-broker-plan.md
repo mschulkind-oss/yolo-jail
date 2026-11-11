@@ -937,7 +937,8 @@ expensive with every change to `internal/ghbroker`; land it first.
 
 ## Mac checks
 
-**W-GB1 — rootless Podman Git-stream round trip, at main `520b739e5db1` or later.** The nightly
+**W-GB1 — rootless Podman Git-stream round trip, at main `2da5c65e8` or later (the reviewed main
+baseline is `3b1be0bc15d1`).** The nightly
 failure at [42833734953, shard 5](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42833734953/job/129892741730)
 was in `TestGitBrokerConfigBranch`: its second workspace's granted `git fetch` reported `fatal: bad
 object` although the host broker logged `git-upload-pack` exit 0 and 531 bytes out. Linux cannot settle
@@ -946,17 +947,22 @@ the Mac Podman VM's jail-to-host stream.
 1. On the owner's Mac, use the rootless Podman machine used for the podman integration checks. Record
    `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`; it must say
    `true pasta` (or record the actual recognized rootless network command).
-2. From a clean yolo-jail checkout at main `520b739e5db1` or later, preserve the normal HOME and Go
+2. From a clean yolo-jail checkout at main `2da5c65e8` or later, preserve the normal HOME and Go
    caches and run:
-   `YOLO_RUNTIME=podman go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration`
-3. All five executions must pass. The no-grant fixture must fetch successfully, then refuse only the
-   push to `main`; there must be no `fatal: bad object` or `did not send all necessary objects`.
-4. If any execution fails, retain the full Go output. The test failure now also prints the fixture's
-   upstream object id, `git fsck` result, fake-ssh argv, host broker log and the git-broker crossing
-   byte counts. Report those together with the command and recorded Podman network mode.
+   `YOLO_SETUP=podman-self go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration`
+3. Require five explicit `--- PASS: TestGitBrokerConfigBranch` results and no `--- SKIP:` result.
+   The test records fetch and push exit statuses separately, checks the fetched upstream commit and
+   client-side `git fsck`, and enables packet tracing only for the fixture fetch. The no-grant fixture
+   must fetch successfully, then refuse only the push to `main`.
+4. If any execution fails, retain the full Go output and report it with the command and recorded
+   Podman network mode. The test's evidence includes the fixture's upstream object id, host bare
+   repository `git fsck`, fake-SSH argv, broker log, client-side commit/fsck results, fixture packet
+   trace, and host-side crossing socket-write counts. The crossing counts are not proof of client
+   receipt or object storage; these observations narrow the cause but cannot alone distinguish every
+   transport, negotiation/helper, or client object-store failure.
 
-This witness distinguishes a damaged bare fixture from a missing/corrupted jail↔host response and
-settles whether the nightly's Mac-only transfer failure is reproducible on the current main tree.
+This witness determines whether the nightly's Mac-specific transfer failure recurs on the current
+main tree; it does not retroactively establish the cause of the original failure if it passes.
 
 ## Blockers
 
