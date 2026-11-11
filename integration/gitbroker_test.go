@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,6 +147,38 @@ func gitBrokerDaemonLog(t *testing.T) string {
 		return "\n(no host daemon log at " + p + ": " + err.Error() + ")"
 	}
 	return "\n--- " + p + " ---\n" + string(b)
+}
+
+// gitBrokerFixtureDiagnostics preserves the host-side evidence when the jail cannot read
+// the fixture's upstream: whether the bare repository is complete, which fake ssh command ran,
+// and how many bytes crossed the jail/host boundary for git-broker.
+func gitBrokerFixtureDiagnostics(t *testing.T, fx gitBrokerFixture) string {
+	t.Helper()
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nfixture upstream=%s bare=%s\n", fx.upstream, fx.bare)
+	if argv, err := os.ReadFile(fx.argvLog); err == nil {
+		fmt.Fprintf(&b, "--- fake ssh argv (%s) ---\n%s", fx.argvLog, argv)
+	} else {
+		fmt.Fprintf(&b, "(no fake ssh argv log at %s: %v)\n", fx.argvLog, err)
+	}
+	cmd := exec.Command("git", "fsck", "--full", "--no-reflogs")
+	cmd.Dir = fx.bare
+	cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
+	out, err := cmd.CombinedOutput()
+	fmt.Fprintf(&b, "--- git fsck --full --no-reflogs (err=%v) ---\n%s", err, out)
+	p := filepath.Join(paths.GlobalStorageUnder(os.Getenv("HOME")), "logs", "crossings.log")
+	if data, readErr := os.ReadFile(p); readErr == nil {
+		var relevant []string
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			if strings.Contains(line, "service=git-broker") {
+				relevant = append(relevant, line)
+			}
+		}
+		fmt.Fprintf(&b, "--- git-broker crossings (%s) ---\n%s\n", p, strings.Join(relevant, "\n"))
+	} else {
+		fmt.Fprintf(&b, "(no crossing log at %s: %v)\n", p, readErr)
+	}
+	return b.String()
 }
 
 // gitInJail is the jail half's git: the workspace is the host's, so its owner may not be the
@@ -346,7 +379,7 @@ func TestGitBrokerConfigBranch(t *testing.T) {
 	fx.recordScope(t, "git@fixture.test:o/r.git")
 	out, head := launch(fx, "with the grant")
 	if kvLine(out, "RCA") != "0" {
-		t.Fatalf("with the grant, the push to main failed:\n%s%s", out, gitBrokerDaemonLog(t))
+		t.Fatalf("with the grant, the push to main failed:\n%s%s%s", out, gitBrokerDaemonLog(t), gitBrokerFixtureDiagnostics(t, fx))
 	}
 	if got := hostGit(t, fx.bare, "rev-parse", "refs/heads/main"); got != head || head == "" || got == fx.upstream {
 		t.Fatalf("the upstream's main is %s, want the jail's HEAD %q%s", got, head, gitBrokerDaemonLog(t))
@@ -369,7 +402,7 @@ func TestGitBrokerConfigBranch(t *testing.T) {
 	without.recordScope(t, "git@fixture.test:o/r.git")
 	out, _ = launch(without, "without the grant")
 	if kvLine(out, "RCA") != "1" || !strings.Contains(out, "(needs approval: r-") {
-		t.Fatalf("without the grant, the push to main was not refused:\n%s%s", out, gitBrokerDaemonLog(t))
+		t.Fatalf("without the grant, the push to main was not refused:\n%s%s%s", out, gitBrokerDaemonLog(t), gitBrokerFixtureDiagnostics(t, without))
 	}
 	if got := hostGit(t, without.bare, "rev-parse", "refs/heads/main"); got != without.upstream {
 		t.Fatalf("without the grant, the upstream's main moved to %s", got)
