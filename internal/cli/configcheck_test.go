@@ -33,12 +33,20 @@ func TestConfigCheckDispatchValidInvalidAndJSON(t *testing.T) {
 		t.Fatalf("valid JSON config check rc=%d:\n%s", rc, jsonOut.String())
 	}
 	var report struct {
-		Mode     string `json:"mode"`
-		Scope    string `json:"scope"`
-		Passed   int    `json:"passed"`
-		Warned   int    `json:"warned"`
-		Failed   int    `json:"failed"`
-		Skipped  int    `json:"skipped"`
+		Mode  string `json:"mode"`
+		Scope struct {
+			Sources    string `json:"sources"`
+			NotChecked []struct {
+				Area   string `json:"area"`
+				Reason string `json:"reason"`
+				Verb   string `json:"verb"`
+			} `json:"not_checked"`
+			NotReached []string `json:"not_reached"`
+		} `json:"scope"`
+		Passed   int `json:"passed"`
+		Warned   int `json:"warned"`
+		Failed   int `json:"failed"`
+		Skipped  int `json:"skipped"`
 		Findings []struct {
 			Section string `json:"section"`
 			Status  string `json:"status"`
@@ -48,10 +56,16 @@ func TestConfigCheckDispatchValidInvalidAndJSON(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &report); err != nil {
 		t.Fatalf("config check JSON: %v\n%s", err, jsonOut.String())
 	}
-	if report.Mode != "config" || report.Scope == "" || len(report.Findings) == 0 {
-		t.Fatalf("JSON mode/scope/findings = %q/%q/%d", report.Mode, report.Scope, len(report.Findings))
+	if report.Mode != "config" || report.Scope.Sources != "user+workspace" || len(report.Scope.NotChecked) == 0 || len(report.Findings) == 0 {
+		t.Fatalf("JSON mode/scope/findings = %q/%+v/%d", report.Mode, report.Scope, len(report.Findings))
 	}
 	textReport := text.String()
+	for _, entry := range report.Scope.NotChecked {
+		want := entry.Area + ": " + entry.Reason + " — " + entry.Verb
+		if !strings.Contains(textReport, want) {
+			t.Errorf("JSON scope entry %q is absent from text report", want)
+		}
+	}
 	for _, finding := range report.Findings {
 		if !strings.Contains(textReport, finding.Section) || !strings.Contains(textReport, finding.Message) {
 			t.Errorf("JSON finding %q in %q is absent from the text report", finding.Message, finding.Section)
@@ -76,7 +90,7 @@ func TestConfigCheckDispatchValidInvalidAndJSON(t *testing.T) {
 }
 
 func TestConfigCheckSkipsUnavailableFetchedPackAndKeepsOtherFailures(t *testing.T) {
-	workspace := testconfig.WorkspaceFormat(t, configdoc.TOML, "unknown_config_key = true\n")
+	workspace := testconfig.WorkspaceFormat(t, configdoc.JSONC, `{"unknown_config_key":true}`)
 	user := testconfig.UserFormat(t, configdoc.JSONC, `{"packs":["git+https://example.invalid/acme/packs//tool?ref=v1"]}`)
 	t.Setenv("HOME", user.Root)
 	t.Setenv("YOLO_VERSION", "")

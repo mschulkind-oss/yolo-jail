@@ -448,7 +448,7 @@ func pathUnderOrEqual(child, base string) bool {
 // validateMounts checks the `mounts` key: each element's shape, the existence warning, and
 // for the read-write form the trust predicate, the refusal set and the duplicate-destination
 // rule (docs/reference/context-mounts.md#the-config-shape).
-func validateMounts(config *jsonx.OrderedMap, workspace string, errs, warns *[]string, edit ...*editValidationContext) {
+func validateMounts(config *jsonx.OrderedMap, workspace string, errs, warns *[]string, skipHostPathFacts bool, edit ...*editValidationContext) {
 	mountsV, present := config.Get(mountsKey)
 	if !present || mountsV == nil {
 		return
@@ -470,22 +470,24 @@ func validateMounts(config *jsonx.OrderedMap, workspace string, errs, warns *[]s
 		resolvedHost := expandAndResolve(m.Host)
 		// An OPTIONAL element's missing source is no finding here: the launch prints its one
 		// skip line and `yolo check` reports it as information (context-mounts.md#optional-mounts).
-		if !pathExists(resolvedHost) && !m.Optional {
+		if !skipHostPathFacts && !pathExists(resolvedHost) && !m.Optional {
 			add(warns, fmt.Sprintf("%s: host path does not exist and will be skipped: %s",
 				where, resolvedHost))
 		}
 	}
-	validateMountScope(config, workspace, errs, edit...)
-	validateRWMountSources(config, workspace, errs)
-	// A bare element's destination is the basename of its RESOLVED source, which only the
-	// host can compute: in the jail's own workspace the sources are host paths that are not
-	// here, so the comparison would be between names the host never uses. The host run has
-	// already made it.
-	if !(inJail() && jailOwnWorkspace(workspace)) {
-		if len(edit) != 0 && edit[0] != nil {
-			validateMountDestinations(config, errs, edit[0].packs)
-		} else {
-			validateMountDestinations(config, errs)
+	if !skipHostPathFacts {
+		validateMountScope(config, workspace, errs, edit...)
+		validateRWMountSources(config, workspace, errs)
+		// A bare element's destination is the basename of its RESOLVED source, which only the
+		// host can compute: in the jail's own workspace the sources are host paths that are not
+		// here, so the comparison would be between names the host never uses. The host run has
+		// already made it.
+		if !(inJail() && jailOwnWorkspace(workspace)) {
+			if len(edit) != 0 && edit[0] != nil {
+				validateMountDestinations(config, errs, edit[0].packs)
+			} else {
+				validateMountDestinations(config, errs)
+			}
 		}
 	}
 }

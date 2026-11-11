@@ -41,11 +41,13 @@ type reporter struct {
 	skipped int
 	// section is the header most recently printed, stamped onto each finding so
 	// a consumer can attribute one without re-deriving the section order.
-	section  string
-	version  string
-	mode     string
-	scope    string
-	findings []Finding
+	section         string
+	version         string
+	mode            string
+	scope           string
+	scopeNotChecked []ScopeEntry
+	scopeNotReached []string
+	findings        []Finding
 	// configWarned is every message configWarn has graded, so a config loader's finding read
 	// by two sections is one row and one count (configWarn).
 	configWarned map[string]bool
@@ -56,6 +58,27 @@ func newReporter(w io.Writer, color bool) *reporter {
 }
 
 func (r *reporter) line(s string) { fmt.Fprintln(r.w, s) }
+
+func (r *reporter) setScopeNotChecked(entries []ScopeEntry) {
+	r.scopeNotChecked = append([]ScopeEntry(nil), entries...)
+}
+
+func (r *reporter) setScopeNotReached(areas []string) {
+	r.scopeNotReached = append([]string(nil), areas...)
+}
+
+func (r *reporter) renderScopeNotChecked() {
+	for _, entry := range r.scopeNotChecked {
+		line := entry.Area + ": " + entry.Reason
+		if entry.Verb != "" {
+			line += " — " + entry.Verb
+		}
+		r.dim(line)
+	}
+	for _, area := range r.scopeNotReached {
+		r.dim("Not reached: " + area)
+	}
+}
 
 func (r *reporter) blank() { fmt.Fprintln(r.w) }
 

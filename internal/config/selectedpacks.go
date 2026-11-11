@@ -109,7 +109,7 @@ func SelectedPackDeclarationsDetailedWithStore(entries []PackEntry, selection pa
 					name = entry.Name
 				}
 				root := filepath.Join(string(filepath.Separator), "embedded", name)
-				p, problems, err := packload.ReadSelectedPackFS(embeddedFS, name, root, entry.Name, entry.Only, entry.Exclude)
+				p, problems, err := packload.ReadSelectedPackFS(embeddedFS, name, root, name, entry.Only, entry.Exclude)
 				if err != nil {
 					return nil, err
 				}

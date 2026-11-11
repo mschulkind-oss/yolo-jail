@@ -358,42 +358,14 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		r.fail("a dev override names a program no pack builds from its tree", line)
 	}
 
-	// Config-surface exclusivity over the SELECTED set — the check that would otherwise be
-	// learned at launch. FATAL here for the same reason the footprint collision below is: the
-	// launch refuses it, so reporting it as a warning would mean `yolo check` passing on a
-	// config that cannot start a jail. Over `loaded` rather than Embedded() because the
-	// interesting case is a user's pack against a shipped one.
-	for _, c := range packload.ConfigSurfaceCollisions(loaded) {
-		r.fail("config surface "+c.Target+" has more than one owner",
-			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
-	}
-
-	// Agent-NAME exclusivity over the same selected set, and fatal here for the same reason:
-	// the launch refuses it (the seventh pre-flight in internal/cli/run/packs.go), so
-	// reporting it as a warning would mean `yolo check` passing on a config that cannot start
-	// a jail. Over `loaded` rather than Embedded() because the interesting case is a user's
-	// own agent pack against a shipped one — two packs that both want to be `claude`.
-	// Program-PROVIDER exclusivity over the same selected set (PS-D18), fatal for the same
-	// reason: the launch refuses it beside the agent-name pre-flight.
-	for _, c := range packload.ProgramProviderCollisions(loaded) {
-		r.fail("program "+c.Target+" has more than one provider",
-			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+	for _, finding := range selectedPackCollisionFindings(loaded) {
+		r.fail(finding.message, finding.note)
 	}
 	// And each need another selected pack satisfies, in the launch's own words (OQ-PS5).
 	for _, n := range packload.ResolveProgramNeeds(loaded) {
 		if line := n.ProvidedLine(); line != "" {
 			r.ok(line)
 		}
-	}
-	for _, c := range packload.AgentNameCollisions(loaded) {
-		r.fail("agent name "+c.Target+" has more than one owning pack",
-			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
-	}
-	// Two entries given one namespace or one landing, and two packs delivering one skill name
-	// (docs/reference/pack-system.md#pack-name-clashes): the launch and `yolo host apply` refuse both, so a
-	// check that passed them would pass a config that cannot start.
-	for _, c := range packload.NameCollisions(loaded) {
-		r.fail("pack name collision", c)
 	}
 	for _, w := range packload.DefaultNamespaceRenames(loaded,
 		packload.ConvertedConfigIn(filepath.Dir(paths.UserConfigPath()))) {

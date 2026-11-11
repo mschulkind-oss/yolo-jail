@@ -163,12 +163,24 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	stage := packstage.Spec{Root: root, Only: entry.Only, Exclude: entry.Exclude,
 		FollowSymlinks: followsSymlinks(entry)}
 	loadFrom := root
+	packName := entry.Name
+	if entry.EmbeddedName != "" {
+		packName = entry.EmbeddedName
+	}
 	var err error
 	switch {
 	case spec.Dest != "":
 		stage.Dest = spec.Dest
 		out.Staged, err = packstage.Stage(stage)
 		loadFrom = spec.Dest
+	case filtered && entry.IsLocal():
+		// Read the selected view directly for a local pack. Declaration-mode staging used to
+		// remove its filtered temporary tree before callers could inspect nested loophole
+		// metadata; the path-backed reader retains the filtered view without a copy.
+		out.Staged, err = packstage.Check(stage)
+		if err == nil {
+			out.Pack, out.Problems, err = packload.ReadSelectedPackPath(root, packName, entry.Only, entry.Exclude, followsSymlinks(entry))
+		}
 	case filtered:
 		// The filters can drop the manifest itself, or a file whose presence is a problem, so the
 		// declaration is the filtered copy's — deleted before return, since only the declaration
@@ -191,15 +203,13 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	// A USE READ (packload.LoadDirForUse): every notch and verb acts on what this resolves, so a
 	// contribution this build cannot read is skipped and named in Pack.SkewNotes rather than
 	// failing the pack (docs/reference/patched-forks.md PF-D68). Each caller says so its own way.
-	packName := entry.Name
-	if entry.EmbeddedName != "" {
-		packName = entry.EmbeddedName
-	}
 	load := packload.LoadDirForUse
 	if followsSymlinks(entry) {
 		load = packload.LoadDirForLocalUse
 	}
-	out.Pack, out.Problems = load(loadFrom, packName)
+	if out.Pack == nil {
+		out.Pack, out.Problems = load(loadFrom, packName)
+	}
 	if !entry.Embedded() && out.Pack != nil && out.Pack.Decl != nil && out.Pack.Decl.SelectedByDefault {
 		out.Problems = append(out.Problems, selectedByDefaultProblem(entry.Name))
 	}

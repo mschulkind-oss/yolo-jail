@@ -46,14 +46,27 @@ type Finding struct {
 	Note string `json:"note,omitempty"`
 }
 
+// ScopeEntry is one area the command did not examine, with its reason and the command that owns it.
+type ScopeEntry struct {
+	Area   string `json:"area"`
+	Reason string `json:"reason"`
+	Verb   string `json:"verb"`
+}
+
+// ReportScope is the coverage contract shared by text and JSON reports.
+type ReportScope struct {
+	Sources    string       `json:"sources,omitempty"`
+	NotChecked []ScopeEntry `json:"not_checked"`
+	NotReached []string     `json:"not_reached"`
+}
+
 // Report is one `yolo check --format json` document.
 type Report struct {
 	Version string `json:"version"`
 	// Mode names the validation contract (full readiness check or config-only validation).
 	Mode string `json:"mode,omitempty"`
-	// Scope names the config sources the command evaluated; it is additive metadata, not a
-	// change to the findings stream.
-	Scope string `json:"scope,omitempty"`
+	// Scope records exactly what the run did not examine, separately from graded findings.
+	Scope ReportScope `json:"scope"`
 	// Failed is the field that decides the exit code, and it is first among the
 	// counts for that reason: exit is non-zero iff any section FAILED. Warnings
 	// never fail the command.
@@ -90,7 +103,7 @@ func (r *reporter) report() Report {
 	return Report{
 		Version:  r.version,
 		Mode:     r.mode,
-		Scope:    r.scope,
+		Scope:    ReportScope{Sources: r.scope, NotChecked: append([]ScopeEntry{}, r.scopeNotChecked...), NotReached: append([]string{}, r.scopeNotReached...)},
 		Passed:   r.passed,
 		Warned:   r.warned,
 		Failed:   r.failed,

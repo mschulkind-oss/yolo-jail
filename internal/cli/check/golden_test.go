@@ -47,6 +47,10 @@ Resource Groups
 Merged Configuration
   - No runtime available — see Container Runtime above
 
+Scope
+  - Disk usage: inventory and reclaim are separate from readiness checks — yolo stores / yolo prune
+  - Not reached: packs and subsequent readiness checks
+
 Summary
   3 failed, 5 warnings
 

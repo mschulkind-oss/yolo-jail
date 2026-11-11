@@ -126,6 +126,8 @@ func Check(opts Options) int {
 	// --- Config Files ---
 	userConfig, workspaceConfig, src, parseFailed := o.sectionConfigFiles(r, workspace)
 	if parseFailed {
+		r.setScopeNotReached([]string{"merged configuration, packs, and subsequent readiness checks"})
+		o.sectionScope(r)
 		r.summaryFailOnly()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -157,6 +159,8 @@ func Check(opts Options) int {
 
 	// --- Merged Configuration ---
 	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig, src, runtimeFailReported); exit {
+		r.setScopeNotReached([]string{"packs and subsequent readiness checks"})
+		o.sectionScope(r)
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -170,6 +174,8 @@ func Check(opts Options) int {
 	// would do destructive-ish work (a surprise nix build) on an unhealthy host
 	// (re-audit §C).
 	if r.failed > 0 {
+		r.setScopeNotReached([]string{"packs and subsequent readiness checks"})
+		o.sectionScope(r)
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -183,6 +189,8 @@ func Check(opts Options) int {
 	// Content addressed to an agent no selected pack provides: skipped, never refused (FS-D6).
 	o.sectionPackAudiences(r)
 	if r.failed > 0 {
+		r.setScopeNotReached([]string{"entrypoint and subsequent readiness checks"})
+		o.sectionScope(r)
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -731,10 +739,13 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	warnings = append(warnings, capWarns...)
 	// The launch's undeclared-profile refusal, predicted over the same selection
 	// (profiledeclarations.go).
-	errors = append(errors, profileDeclarationGap(merged, config.UserScopeSelectedPacks,
-		func(selected []*packload.Pack) (map[string]packload.UserProfile, error) {
-			return config.LoadSelectableProfiles(nil, merged, selected)
-		})...)
+	errors = append(errors, func() []string {
+		packs, complete := config.UserScopeSelectedPacks()
+		return profileDeclarationGap(merged, packs, complete,
+			func(selected []*packload.Pack) (map[string]packload.UserProfile, error) {
+				return config.LoadSelectableProfiles(nil, merged, selected)
+			}, func() []*packload.Pack { return packload.Embedded() })
+	}()...)
 	// A `brokered` source no selected pack brokers: this check's warning alone, never a
 	// launch's, since a committed entry would print it at every launch of every contributor
 	// who selects no such pack (docs/design/workspace-widening.md WW-D22).

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -56,33 +57,67 @@ func ConfigCheck(opts Options) int {
 
 	// Reuse the broad check's source-reading and provenance path. This only reads config and
 	// emits disclosure; machine probes remain below the separate Check entrypoint.
-	userConfig, workspaceConfig, src, parseFailed := opts.sectionConfigFilesWithStrictness(r, opts.Workspace, false)
+	userConfig, workspaceConfig, src, parseFailed := opts.sectionConfigFilesWithStrictness(r, opts.Workspace, true)
+	if parseFailed {
+		r.setScopeNotReached([]string{"merged config semantics", "selected-pack declarations and cross-pack checks"})
+		r.sectionHeader("Scope")
+		r.setScopeNotChecked(configCheckScopeEntries(opts.inJail()))
+		r.renderScopeNotChecked()
+		r.blank()
+		return finishConfigCheck(opts, r)
+	}
 	merged := mergeScopes(userConfig, workspaceConfig, src, opts.Workspace)
-	selection, packProblems, packErr := config.UserScopeSelectedPackResolution()
+	selection, _, packErr := config.UserScopeSelectedPackResolution()
 	var resolver config.LoopholeResolver
-	if packErr == nil && len(packProblems) == 0 && selection.Complete() {
+	if packErr == nil {
+		// Keep validating declarations that were readable. An unavailable sibling is reported
+		// below as partial coverage; it must not turn known module settings into unknown names.
 		resolver = config.SelectedPackLoopholeResolver(selection.Packs())
 	}
-	errors, warnings := config.ValidateConfig(merged, opts.Workspace, resolver)
+	validationOptions := config.ValidationOptions{SkipLocalCloneGit: true, SkipHostPathFacts: opts.inJail()}
+	errors, warnings := config.ValidateConfigWithOptions(merged, opts.Workspace, resolver, validationOptions)
 	if source := src.orNone().merged; source != nil {
 		errors = source.Annotate(errors)
 		warnings = source.Annotate(warnings)
 	}
+	launch := &config.CapabilityLaunch{
+		Packs: func() ([]*packload.Pack, bool) { return selection.Packs(), selection.Complete() },
+		ProfileSets: func(packs []*packload.Pack) map[string][]string {
+			return packload.ProfileSets(config.ConfigProfileSets(merged, packs))
+		},
+	}
+	capErrors, capWarnings := capabilityGap(merged, opts.Getenv(allowUnmetCapabilitiesEnv), launch)
+	errors = append(errors, capErrors...)
+	warnings = append(warnings, capWarnings...)
+	errors = append(errors, profileDeclarationGap(merged, selection.Packs(), selection.Complete(),
+		func(selected []*packload.Pack) (map[string]packload.UserProfile, error) {
+			return config.LoadSelectableProfiles(nil, merged, selected)
+		}, func() []*packload.Pack { return selection.Packs() })...)
+	collisionFindings := selectedPackCollisionFindings(selection.Packs())
+	r.sectionHeader("Merged Configuration")
 	for _, msg := range warnings {
 		r.warn(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace))
 	}
 	for _, msg := range errors {
 		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace))
 	}
-	if len(errors) == 0 && !parseFailed {
+	if len(errors) == 0 && len(collisionFindings) == 0 {
 		r.ok("Merged config is semantically valid")
+	}
+	r.sectionHeader("Selected Packs")
+	for _, finding := range collisionFindings {
+		r.fail(finding.message, finding.note)
 	}
 	configPackCoverage(r, selection, packErr)
 
 	r.sectionHeader("Scope")
-	r.dim("Checks config parsing and semantics for user and workspace config")
-	r.dim("Does not check runtime, Nix, programs, services, image readiness, or disk usage")
+	r.setScopeNotChecked(configCheckScopeEntries(opts.inJail()))
+	r.renderScopeNotChecked()
 	r.blank()
+	return finishConfigCheck(opts, r)
+}
+
+func finishConfigCheck(opts Options, r *reporter) int {
 	r.sectionHeader("Summary")
 	parts := []string{r.styledCount(r.failed, "failed", ansiRed)}
 	if r.warned > 0 {
@@ -111,7 +146,8 @@ func configPackCoverage(r *reporter, selection config.PackSelection, loadErr err
 		if errors.Is(unresolved.Err, packsrc.ErrNotFetched) ||
 			errors.Is(unresolved.Err, packsrc.ErrNotCheckedOut) ||
 			errors.Is(unresolved.Err, packsrc.ErrRevisionMissing) ||
-			errors.Is(unresolved.Err, packsrc.ErrGitUnavailable) {
+			errors.Is(unresolved.Err, packsrc.ErrGitUnavailable) ||
+			errors.Is(unresolved.Err, packsrc.ErrDefaultRefUnavailable) {
 			note := unresolved.Err.Error()
 			if errors.Is(unresolved.Err, packsrc.ErrGitUnavailable) {
 				note += "; install or repair Git, then rerun `yolo config check`"
@@ -126,6 +162,22 @@ func configPackCoverage(r *reporter, selection config.PackSelection, loadErr err
 	if selection.ClosureErr != nil {
 		r.fail("Selected pack closure could not be validated", selection.ClosureErr.Error())
 	}
+}
+
+func configCheckScopeEntries(inJail bool) []ScopeEntry {
+	entries := []ScopeEntry{
+		{Area: "Runtime availability and executable resolution", Reason: "machine readiness is outside config validation", Verb: "yolo check"},
+		{Area: "Nix", Reason: "machine readiness is outside config validation", Verb: "yolo check"},
+		{Area: "Image, services, and loophole liveness", Reason: "machine readiness is outside config validation", Verb: "yolo check"},
+		{Area: "Entrypoint dry-run", Reason: "it renders more than the selected declarations", Verb: "yolo check"},
+		{Area: "Config-change approval", Reason: "approval is separate from validation", Verb: "yolo check --accept-config-changes"},
+		{Area: "Local-clone repository status", Reason: "Git outside an existing fetched-pack store is not run by config validation", Verb: "yolo check"},
+		{Area: "Disk inventory and reclaim", Reason: "not part of config validation", Verb: "yolo stores / yolo prune"},
+	}
+	if inJail {
+		entries = append(entries, ScopeEntry{Area: "Host paths and mounts", Reason: "this is a generated snapshot; host facts are unverified", Verb: "run `yolo config check` on the host"})
+	}
+	return entries
 }
 
 // ConfigCheckHelp is the public help text for the config-only command.

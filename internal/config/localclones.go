@@ -51,7 +51,7 @@ func (e *LocalClonesError) Error() string {
 // LocalClonesProblem is the user config's `local_clones` refusal, nil when the key is absent or every entry
 // registers a clone.
 func LocalClonesProblem() error {
-	if problems := localClonesProblems(UserScopeConfigOrEmpty()); len(problems) > 0 {
+	if problems := localClonesProblems(UserScopeConfigOrEmpty(), true, true); len(problems) > 0 {
 		return &LocalClonesError{Problems: problems}
 	}
 	return nil
@@ -62,7 +62,7 @@ func LocalClonesProblem() error {
 // keeps its first, explicit-first, registration. A broken `local_clones` value is a LocalClonesError, and no map.
 func LocalClones() ([]packsrc.LocalClone, error) {
 	user := UserScopeConfigOrEmpty()
-	if problems := localClonesProblems(user); len(problems) > 0 {
+	if problems := localClonesProblems(user, true, true); len(problems) > 0 {
 		return nil, &LocalClonesError{Problems: problems}
 	}
 	var out []packsrc.LocalClone
@@ -128,7 +128,7 @@ func localCloneEntries(cfg *jsonx.OrderedMap) []string {
 // localClonesProblems is every reason cfg's `local_clones` value registers less than it says: its shape, and each
 // entry that is not absolute, does not exist, is in no clone, or whose clone has no remote. Each names the next
 // step.
-func localClonesProblems(cfg *jsonx.OrderedMap) []string {
+func localClonesProblems(cfg *jsonx.OrderedMap, inspectHostPaths, inspectGit bool) []string {
 	v, present := cfg.Get(localClonesKey)
 	if !present || v == nil {
 		return nil
@@ -148,9 +148,22 @@ func localClonesProblems(cfg *jsonx.OrderedMap) []string {
 			continue
 		}
 		s = strings.TrimSpace(s)
-		if why := localCloneProblem(expandUser(s)); why != "" {
-			out = append(out, "config."+localClonesKey+": the entry "+pyReprValue(s)+" "+why+" — fix the path, "+
-				"clone the repository there, or remove the entry from "+where+".")
+		path := expandUser(s)
+		if !filepath.IsAbs(path) {
+			out = append(out, "config."+localClonesKey+": the entry "+pyReprValue(s)+" is not an absolute path (a relative one would name a different directory from each place yolo runs), so write it from / or ~/ — fix the path, clone the repository there, or remove the entry from "+where+".")
+			continue
+		}
+		if !inspectHostPaths {
+			continue
+		}
+		if why := localClonePathProblem(path); why != "" {
+			out = append(out, "config."+localClonesKey+": the entry "+pyReprValue(s)+" "+why+" — fix the path, clone the repository there, or remove the entry from "+where+".")
+			continue
+		}
+		if inspectGit {
+			if why := localCloneRepositoryProblem(path); why != "" {
+				out = append(out, "config."+localClonesKey+": the entry "+pyReprValue(s)+" "+why+" — fix the path, clone the repository there, or remove the entry from "+where+".")
+			}
 		}
 	}
 	return out
@@ -193,7 +206,7 @@ func gitRead(dir string, args ...string) (string, error) {
 }
 
 // validateLocalClones refuses a workspace value, and the user value's problems (localClonesProblems).
-func validateLocalClones(config *jsonx.OrderedMap, workspace string, errs *[]string, edit ...*editValidationContext) {
+func validateLocalClones(config *jsonx.OrderedMap, workspace string, errs *[]string, skipHostPathFacts, skipGit bool, edit ...*editValidationContext) {
 	if wsCfg, err := loadValidationWorkspaceConfig(workspace, edit...); err == nil && wsCfg != nil {
 		if wsValue, atWorkspace := wsCfg.Get(localClonesKey); atWorkspace && wsValue != nil && WorkspaceUserScopeOnlyKey(localClonesKey) {
 			add(errs, "config."+localClonesKey+": user-scope only — it points yolo at clones on this machine, and a "+
@@ -210,13 +223,20 @@ func validateLocalClones(config *jsonx.OrderedMap, workspace string, errs *[]str
 	if userConfig == nil {
 		userConfig = jsonx.NewOrderedMap()
 	}
-	for _, p := range localClonesProblems(userConfig) {
+	for _, p := range localClonesProblems(userConfig, !skipHostPathFacts, !skipGit) {
 		add(errs, p)
 	}
 }
 
 // localCloneProblem is why path registers no clone, "" when it does.
 func localCloneProblem(path string) string {
+	if why := localClonePathProblem(path); why != "" {
+		return why
+	}
+	return localCloneRepositoryProblem(path)
+}
+
+func localClonePathProblem(path string) string {
 	if !filepath.IsAbs(path) {
 		return "is not an absolute path (a relative one would name a different directory from each place yolo " +
 			"runs), so write it from / or ~/"
@@ -230,6 +250,10 @@ func localCloneProblem(path string) string {
 	case !fi.IsDir():
 		return "is not a directory"
 	}
+	return ""
+}
+
+func localCloneRepositoryProblem(path string) string {
 	top, remotes, ok := gatherClone(path)
 	if !ok {
 		return "is not inside a git clone"

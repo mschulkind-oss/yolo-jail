@@ -68,6 +68,13 @@ type LoopholeResolver interface {
 	Known() (map[string]LoopholeInfo, bool)
 }
 
+// ValidationOptions adjusts only environment facts that are not available to a config-only
+// check. The full check uses the default options and retains its existing host validation.
+type ValidationOptions struct {
+	SkipLocalCloneGit bool
+	SkipHostPathFacts bool
+}
+
 // ValidateConfig returns (errors, warnings) in a fixed append order (a frozen
 // contract — the order must not drift). workspace is used for mount-path
 // existence checks (config.mounts). resolver supplies known loopholes
@@ -76,7 +83,19 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	return validateConfigWithEditContext(config, workspace, resolver, nil)
 }
 
-func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver, edit *editValidationContext) (errors []string, warnings []string) {
+// ValidateConfigWithOptions is the same shared validator with explicitly omitted host-only facts
+// for the config-only command. It does not select an alternate semantic validator.
+func ValidateConfigWithOptions(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver,
+	options ValidationOptions) (errors []string, warnings []string) {
+	return validateConfigWithEditContext(config, workspace, resolver, nil, options)
+}
+
+func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver,
+	edit *editValidationContext, options ...ValidationOptions) (errors []string, warnings []string) {
+	var validationOptions ValidationOptions
+	if len(options) > 0 {
+		validationOptions = options[0]
+	}
 	readableInput := config
 	config, projection := projectReadableB2ForValidation(config)
 	if workspace == "" {
@@ -102,7 +121,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateRepoPath(config, errs, warns)
 	validateAgentsRetired(config, errs, warns)
 	validatePackages(config, errs)
-	validateMounts(config, workspace, errs, warns, edit)
+	validateMounts(config, workspace, errs, warns, validationOptions.SkipHostPathFacts, edit)
 	validateAllowMounts(config, errs)
 	validateWorkspaceAllow(config, workspace, errs, edit)
 	if edit == nil {
@@ -178,7 +197,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateHostFiles(config, workspace, errs, edit)
 	validateHostWrappers(config, workspace, errs, edit)
 	validateShareHostFonts(config, workspace, errs, edit)
-	validateLocalClones(config, workspace, errs, edit)
+	validateLocalClones(config, workspace, errs, validationOptions.SkipHostPathFacts, validationOptions.SkipLocalCloneGit, edit)
 	validateHostApplyOnLaunch(config, workspace, errs, edit)
 	validateMCPSignInScope(config, workspace, errs, edit)
 	validateHostManagement(config, workspace, errs, edit)

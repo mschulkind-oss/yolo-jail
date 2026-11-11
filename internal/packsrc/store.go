@@ -736,6 +736,10 @@ var ErrNotCheckedOut = errors.New("not checked out in the pack store")
 // from malformed store data and Git failures so read-only validation can report partial coverage.
 var ErrRevisionMissing = errors.New("revision missing from the pack store")
 
+// ErrDefaultRefUnavailable marks an omitted-ref pack whose default branch cannot be validated
+// because no durable pin has been installed. It is partial coverage, not a malformed pack.
+var ErrDefaultRefUnavailable = errors.New("default-ref pack has no installed lock pin")
+
 // ErrGitUnavailable marks the local Git executable being unavailable, not a Git failure while
 // inspecting a readable store.
 var ErrGitUnavailable = errors.New("git executable unavailable")

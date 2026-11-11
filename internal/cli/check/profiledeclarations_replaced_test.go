@@ -25,10 +25,10 @@ func TestCheckRefusesAReplacedProviderNameNamingTheNewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := doc.Values
-	got := profileDeclarationGap(cfg, func() ([]*packload.Pack, bool) { return packs, true },
+	got := profileDeclarationGap(cfg, packs, true,
 		func(selected []*packload.Pack) (map[string]packload.UserProfile, error) {
 			return config.SelectableProfiles(map[string]packload.UserProfile{}, cfg, selected)
-		})
+		}, func() []*packload.Pack { return packs })
 	want := `openrouter is named "or" in your config (providers.openrouter.name): -p or`
 	if !strings.Contains(strings.Join(got, "\n"), want) {
 		t.Fatalf("check predicted %q, want it to name %q", got, want)

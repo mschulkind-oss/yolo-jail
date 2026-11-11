@@ -2,6 +2,7 @@ package check
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,6 +115,23 @@ func TestCheckNoRuntimeGolden(t *testing.T) {
 	// so exit must be 1.
 	if exit != 1 {
 		t.Errorf("exit = %d, want 1", exit)
+	}
+}
+
+func TestCheckJSONDisclosesScopeOnAnEarlyFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	opts := baseOptions(t, &out)
+	opts.Format = "json"
+	if exit := Check(opts); exit != 1 {
+		t.Fatalf("Check exit = %d, want 1", exit)
+	}
+	var report Report
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal check report: %v\n%s", err, out.String())
+	}
+	if report.Scope.Sources != "machine+workspace" || len(report.Scope.NotChecked) != 1 || report.Scope.NotChecked[0].Area != "Disk usage" || len(report.Scope.NotReached) == 0 {
+		t.Fatalf("early-failure JSON scope = %+v", report.Scope)
 	}
 }
 

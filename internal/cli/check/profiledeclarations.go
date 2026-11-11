@@ -23,10 +23,13 @@ import (
 // unreadable pack itself. The same for a profiles file that does not load. userProfiles is the
 // launch's selection namespace over the selection (config.SelectableProfiles), so a provider
 // selected by its own name is declared here as it is at the launch.
-func profileDeclarationGap(cfg *jsonx.OrderedMap, packs func() ([]*packload.Pack, bool),
-	userProfiles func(selected []*packload.Pack) (map[string]packload.UserProfile, error)) []string {
-	selected, complete := packs()
+func profileDeclarationGap(cfg *jsonx.OrderedMap, packs []*packload.Pack, complete bool,
+	userProfiles func(selected []*packload.Pack) (map[string]packload.UserProfile, error),
+	universe func() []*packload.Pack) []string {
+	selected := packs
 	if !complete {
+		// An unreadable selected pack may declare the profile, so do not claim an undeclared
+		// profile while the selection is incomplete.
 		return nil
 	}
 	declared, err := userProfiles(selected)
@@ -35,7 +38,7 @@ func profileDeclarationGap(cfg *jsonx.OrderedMap, packs func() ([]*packload.Pack
 	}
 	fold := config.ConfigProfileFold(cfg, selected)
 	problems := config.UndeclaredProfileProblems(fold, 0, declared, config.ReplacedNameRefusals(cfg, selected, declared),
-		selected, packload.Embedded())
+		selected, universe())
 	out := make([]string, len(problems))
 	for i, p := range problems {
 		out[i] = "packs: " + p
