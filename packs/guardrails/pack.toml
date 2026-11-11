@@ -1,5 +1,5 @@
 name = "guardrails"
-description = "Habits worth enforcing: tools a launch refuses in favour of a better one, and `mv`/`rm` guards that refuse to touch the workspace's .yolo, in a jail and in what `yolo host --` starts. Opt in by adding \"guardrails\" to packs."
+description = "Habits worth enforcing: tools a launch refuses in favour of a better one, and `mv`/`rm`/`git clean` guards that refuse to touch the workspace's .yolo, in a jail and in what `yolo host --` starts. Opt in by adding \"guardrails\" to packs."
 
 [[blocked_tool]]
 bin = "grep"
@@ -27,6 +27,11 @@ message = "refuses to move the workspace's .yolo (this workspace's agent homes) 
 bin = "rm"
 guard = "workspace-state"
 message = "refuses to delete the workspace's .yolo (this workspace's agent homes), anything in it, or a directory holding it; your own files under $YOLO_DURABLE_DIR delete freely."
+
+[[blocked_tool]]
+bin = "git"
+guard = "workspace-state"
+message = "refuses git clean scopes that can delete this workspace's .yolo state or durable directory; dry-runs and explicit ordinary paths (including your files under $YOLO_DURABLE_DIR) pass. Use git clean -n to inspect first."
 
 # Where each package name came from, one line per manager, checked 2026-10-02. Each package
 # installs `rg` on PATH: /usr/bin/rg in the file lists, bin/rg in Homebrew's formula

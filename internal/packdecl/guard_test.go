@@ -19,7 +19,7 @@ func TestGuardDecodes(t *testing.T) {
 func TestGuardRefusesWhatNoGuardCouldRender(t *testing.T) {
 	for name, c := range map[string]struct{ entry, want string }{
 		"unknown path set": {`{"kind":"blocked-tool","bin":"rm","guard":"home"}`, "not a path set yolo knows"},
-		"unknown tool":     {`{"kind":"blocked-tool","bin":"cp","guard":"workspace-state"}`, "knows those of mv and rm only"},
+		"unknown tool":     {`{"kind":"blocked-tool","bin":"cp","guard":"workspace-state"}`, "knows those of mv and rm and git only"},
 		"flags beside":     {`{"kind":"blocked-tool","bin":"rm","guard":"workspace-state","flags":["-r"]}`, `does not take "flags"`},
 		"replacement":      {`{"kind":"blocked-tool","bin":"mv","guard":"workspace-state","replacement":"x"}`, `does not take "replacement"`},
 		"other kind":       {`{"kind":"intercept","bin":"rm","forward":["yolo"],"guard":"workspace-state"}`, `does not take "guard"`},

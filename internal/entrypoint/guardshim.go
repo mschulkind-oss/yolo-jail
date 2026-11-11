@@ -14,7 +14,8 @@ import (
 
 // guardshim.go renders a GUARD (a term coined in docs/design/workspace-state-safety.md §3.3,
 // declared by a blocked-tool entry's `guard`, packdecl/guard.go): a shim that runs the real
-// `mv` or `rm` unless an argument names the workspace's `.yolo`, something under it outside
+// `mv` or `rm` unless an argument names protected state, or `git` unless clean's scope
+// can remove it: the workspace's `.yolo`, something under it outside
 // the durable dir, or a directory containing `.yolo`, and refuses only then.
 //
 // HOW A PATH IS JUDGED. Each argument's PARENT is resolved with `cd -P … && pwd -P` (the
@@ -52,6 +53,9 @@ func guardScript(tool, realBin, workspace string) string {
 		"so nothing in it is safe to " + verb + ". To start without it, ask the human for " +
 		"`yolo --fresh-home`. Your own files under " + dur + " are yours to " + verb +
 		". (YOLO_BYPASS_SHIMS=1 bypasses this shim.)"
+	if tool == "git" {
+		why += " Use `git clean -n` to inspect, then clean an explicit path outside protected state."
+	}
 	var b strings.Builder
 	w := func(s string) { b.WriteString(s); b.WriteByte('\n') }
 	w("#!/bin/sh")
@@ -63,7 +67,10 @@ func guardScript(tool, realBin, workspace string) string {
 	w("_yg_show=" + shquote.Quote(state))
 	w("_yg_why=" + shquote.Quote(why))
 	b.WriteString(guardBody)
-	if tool == "mv" {
+	if tool == "git" {
+		w("_yg_git_real=" + realBin)
+		b.WriteString(guardGit)
+	} else if tool == "mv" {
 		b.WriteString(guardMv)
 	} else {
 		b.WriteString(guardRm)

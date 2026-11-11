@@ -20,6 +20,9 @@ import (
 // is refused only when the move would replace `.yolo` or a parent of it, or would overwrite
 // something that already exists inside `.yolo` outside the durable dir. A move that only adds
 // a new name inside `.yolo` passes: it destroys nothing the launch wrote.
+// For `git`, ordinary commands and clean dry-runs pass; destructive clean scopes are
+// judged by the same rule. Wildcard, magic and case-insensitive pathspecs are refused
+// conservatively when the worktree can reach protected state.
 const GuardWorkspaceState = "workspace-state"
 
 // KnownGuards is the closed list of path sets a guard may name.
@@ -28,7 +31,7 @@ var KnownGuards = []string{GuardWorkspaceState}
 // GuardBins are the tools a guard can stand in front of: the shim parses each one's own
 // options (which take a value, where `--` ends them, which operand is the destination), so a
 // tool whose grammar it does not know cannot be guarded.
-var GuardBins = []string{"mv", "rm"}
+var GuardBins = []string{"mv", "rm", "git"}
 
 // guardProblems checks a blocked-tool contribution that sets `guard`.
 func guardProblems(label string, c Contribution) []string {

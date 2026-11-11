@@ -238,10 +238,10 @@ func TestGuardBypassVariableRunsTheRealTool(t *testing.T) {
 	}
 }
 
-// TestGuardrailsPackShipsMvAndRmGuards pins the whole chain from the shipped manifest to a
+// TestGuardrailsPackShipsWorkspaceStateGuards pins the whole chain from the shipped manifest to a
 // rendered guard: packload carries `guard`, config's normalization keeps it, and the renderer
 // writes a guard (not a plain block) for each.
-func TestGuardrailsPackShipsMvAndRmGuards(t *testing.T) {
+func TestGuardrailsPackShipsWorkspaceStateGuards(t *testing.T) {
 	var guardrails *packload.Pack
 	for _, p := range packload.Embedded() {
 		if p.Name == "guardrails" {
@@ -261,7 +261,7 @@ func TestGuardrailsPackShipsMvAndRmGuards(t *testing.T) {
 	for _, s := range scripts {
 		got[s.Name] = s.Content
 	}
-	for _, tool := range []string{"mv", "rm"} {
+	for _, tool := range []string{"mv", "rm", "git"} {
 		body := got[tool]
 		if !strings.Contains(body, "_yg_ws=/workspace") || !strings.Contains(body, "exec /bin/"+tool+` "$@"`) ||
 			!strings.Contains(body, "yolo --fresh-home") {
@@ -270,7 +270,7 @@ func TestGuardrailsPackShipsMvAndRmGuards(t *testing.T) {
 	}
 	for _, e := range entries {
 		m := e.(*jsonx.OrderedMap)
-		if n, _ := m.Get("name"); n == "mv" || n == "rm" {
+		if n, _ := m.Get("name"); n == "mv" || n == "rm" || n == "git" {
 			if msg, _ := m.Get("message"); msg == nil || msg == "" {
 				t.Errorf("%v carries no message for the briefing to list", n)
 			}
@@ -284,7 +284,7 @@ func TestRenderGuardSkipsWhatItCannotRender(t *testing.T) {
 	}{
 		{"no workspace", `{"name":"rm","guard":"workspace-state"}`, "", "no workspace"},
 		{"unknown path set", `{"name":"rm","guard":"elsewhere"}`, "/w", "does not know"},
-		{"unknown tool", `{"name":"cp","guard":"workspace-state"}`, "/w", "knows those of mv and rm only"},
+		{"unknown tool", `{"name":"cp","guard":"workspace-state"}`, "/w", "knows those of mv and rm and git only"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			decoded, err := jsonx.Decode([]byte("[" + tc.entry + "]"))

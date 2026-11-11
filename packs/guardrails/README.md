@@ -11,6 +11,23 @@ reach an agent up front. The blocker
 prints its own message and its own alternative at the moment it refuses, which is
 where that information belongs. This file is for whoever edits these rules.
 
+## Workspace-state guards
+
+`mv`, `rm` and `git clean` run normally unless they can remove this launch's workspace
+state. The workspace's `.yolo`, its parents and the durable directory itself are protected;
+your own files below `.yolo/durable` remain yours to remove. This is an opt-in PATH speed
+bump, not a security boundary. `YOLO_BYPASS_SHIMS=1` bypasses it, and a user blocked-tool
+entry of the same name replaces the pack entry whole.
+
+For Git, other commands and clean dry-runs pass unchanged. The guard respects global
+options such as chained `-C`, `--git-dir`, `--work-tree` and `-c`. Use `git clean -n` to
+inspect first, then clean an explicit ordinary path, for example `git clean -fdx -- build`.
+Broad destructive cleans that reach protected state are refused, including `-fdx`, `-fdX`
+and interactive removal. Wildcard, escaped, magic and case-insensitive pathspecs are
+conservatively refused when the worktree can reach protected state, as are unknown clean
+options (an abbreviation can negate dry-run). No exclusions are
+injected: `-X` would give an exclusion the opposite effect.
+
 ## Git's optional index locks
 
 The pack sets `GIT_OPTIONAL_LOCKS=0`. Git skips optional work that takes an index lock, such as

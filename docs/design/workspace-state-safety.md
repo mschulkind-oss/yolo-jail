@@ -192,9 +192,21 @@ never by reading a link's target. It reaches every agent that runs the jail's sh
 jail's PATH, on every setup including `yolo host --`, which the guardrails pack already covers.
 It does not reach a shell function that outranks PATH (Claude Code defines `grep` and `find` as
 functions; whether it defines `mv` or `rm` is unmeasured), `python -c 'shutil.move(...)'`,
-`rsync --delete`, `git clean`, or an agent's own file tool. It ships in the opt-in guardrails pack, so
+`rsync --delete`, Git aliases or an agent's own file tool. It ships in the opt-in guardrails pack, so
 "nothing is blocked by default" still holds; a workspace without that pack meets the README and
 the briefing only ([SD-D12](#SD-D12)).
+
+**The Git clean guard.** The same `workspace-state` guard also stands in front of `git`.
+Other Git commands and clean dry-runs pass unchanged. Git resolves its own global options
+(including chained `-C`, `--git-dir`, `--work-tree` and `-c`); a destructive clean is refused
+when its scope names protected state, a parent holding it, or the durable directory itself.
+Explicit ordinary paths and contents below the durable directory pass. The guard does not
+inject `-e .yolo`: with `-X`, an exclusion can select ignored state for deletion instead.
+Wildcard, escaped, magic and case-insensitive pathspecs are conservatively refused in a
+worktree that can reach protected state; unknown clean options are also refused because
+an abbreviation can negate dry-run. The next step is `git clean -n`, then an explicit
+safe path. This is a bypassable PATH speed bump, not a security boundary: aliases, direct
+binary paths and other deletion tools remain outside it.
 
 **Claude Code `PreToolUse` hook: not pursued** ([SD-D6](#SD-D6)). yolo renders no such hook
 today (`PreToolUse` appears in no `packs/*/pack.toml` and no non-test file under `internal/`),
