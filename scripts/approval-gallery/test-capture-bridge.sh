@@ -7,10 +7,12 @@
 # Without a binary it builds ./cmd/yolo from this checkout. Needs jq. Uses no bus, no
 # display and no approval store: the candidate is run with env -i and a logging-only stub.
 set -u
+for tool in jq realpath; do command -v "$tool" >/dev/null || { echo "test-capture-bridge.sh needs $tool on PATH (nix shell nixpkgs#jq nixpkgs#coreutils)" >&2; exit 2; }; done
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 FIX=$ROOT/internal/approvalfixtures/fixtures
-T=$(mktemp -d)
+# Under the jail the scratch tree goes in the durable directory, so its sockets stay short and off /tmp.
+if [ -n "${YOLO_DURABLE_DIR:-}" ]; then mkdir -p "$YOLO_DURABLE_DIR" && T=$(mktemp -d "$YOLO_DURABLE_DIR/bridge.XXXXXX"); else T=$(mktemp -d); fi
 trap 'rm -rf "$T"' EXIT
 FAILS=0
 ok() { echo "ok   $1"; }

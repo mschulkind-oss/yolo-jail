@@ -371,6 +371,9 @@ lint-ci: lint
     # `vantage-check index` lists it, so check the index (the design-doc skill's compaction rule).
     python3 scripts/test-check-answered-questions.py
     python3 scripts/check-answered-questions.py
+    # The capture bridge's regressions need jq and GNU realpath; they run on Linux only, and say so
+    # on darwin rather than passing there.
+    if [ "$(uname -s)" = Linux ]; then bash scripts/approval-gallery/test-capture-bridge.sh; else echo "skip: scripts/approval-gallery/test-capture-bridge.sh is Linux-only (uname: $(uname -s))"; fi
 
 # Format code (Go: gofmt on tracked files; vendor/ is upstream code and never reformatted)
 format:
