@@ -76,7 +76,7 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 		text = strings.ReplaceAll(text, ",\n  or `.yolo/setups/<setup>/home/.pi` on Apple Container", "")
 		if facts.Briefing.Mechanism == "macos-user" {
 			text = strings.ReplaceAll(text, "Use this when a change must be **baked into how the jail is built** so it", "Use this when a change must be part of the permanent environment configuration so it")
-			text = replaceSection(text, "## Two representative edits (then run `yolo check --no-build`)", "## Some files in your home are GENERATED — don't hand-edit them", "## Two representative edits (then run `yolo check --no-build`)\n\nUse **jail-mechanics** for the exact current package delivery and change steps.\n\n")
+			text = replaceSection(text, representativeEditsHeading, "## Some files in your home are GENERATED — don't hand-edit them", "## Two representative edits (then run `yolo config check`)\n\nUse **jail-mechanics** for the exact current package delivery and change steps.\n\n")
 			text = replaceSection(text, "### 2. A `mounts` entry lands at `/ctx/<basename>` — of the RESOLVED path", "### 3. A string `mounts` entry is read-only, and `:ro` is NOT a suffix you write", "")
 			text = replaceSection(text, "### 3. A string `mounts` entry is read-only, and `:ro` is NOT a suffix you write", "### 4. An in-jail `yolo check` CANNOT judge a `mounts` path", "")
 			text = replaceSection(text, "### 4. An in-jail `yolo check` CANNOT judge a `mounts` path", "### 6. Host `~` is NOT jail `/home/agent` — dotfiles do not project into the jail", "")
@@ -114,7 +114,7 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 			if !facts.WorkspaceConfigPresent {
 				localState += " The resolved workspace config was not present when this launch was prepared."
 			}
-			text = replaceSection(text, "### Which file — and how the layers merge", "## Two representative edits (then run `yolo check --no-build`)",
+			text = replaceSection(text, "### Which file — and how the layers merge", representativeEditsHeading,
 				"### Which file — and how the layers merge\n\nThe user-scope configuration is `"+userConfig+"`. The workspace configuration this launch reads is `"+facts.ConfigPath+"` (`"+configName(facts)+"`). "+state+" "+localState+" The user config is the machine-wide base; workspace files add project-specific settings.\n\n")
 		}
 	}
@@ -141,9 +141,7 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 		} else {
 			text = replaceSection(text, aclStart, "## 3. A tool is blocked or shimmed", "")
 		}
-		text = strings.ReplaceAll(text, "validates `yolo-jail.jsonc`", "validates the resolved workspace config `"+configName(facts)+"`")
 		if facts.Briefing.Mechanism == "macos-user" {
-			text = strings.ReplaceAll(text, "This is the fast in-jail preflight: it validates the resolved workspace config `"+configName(facts)+"` and the\nentrypoint without rebuilding the image.", "This command checks the resolved workspace config `"+configName(facts)+"` and entrypoint.")
 			text = replaceSection(text, "## 5. A port isn't reachable → establish the DIRECTION first", "## 6. \"My fix isn't taking effect\" → you're running stale code", "")
 		} else if networkSharesHost(appliedNetworkMode(facts)) {
 			text = replaceSection(text, "## 5. A port isn't reachable → establish the DIRECTION first", "## 6. \"My fix isn't taking effect\" → you're running stale code",
@@ -154,6 +152,11 @@ func renderExistingBuiltin(name string, facts FactSheet) ([]byte, error) {
 	}
 	return []byte(text), nil
 }
+
+// representativeEditsHeading anchors the configuring skill's "Two representative
+// edits" section by the part of its heading that does not name a command, so a
+// reworded check in the heading cannot silently drop the applied config facts.
+const representativeEditsHeading = "## Two representative edits"
 
 // substituteBuiltinPaths rewrites embedded prose without reprocessing inserted fact values.
 func substituteBuiltinPaths(text, workspace, home string) string {
