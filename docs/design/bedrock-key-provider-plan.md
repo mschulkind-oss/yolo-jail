@@ -14,7 +14,7 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 
 **Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`; built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. The Traps section records where the build overrode this plan.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
-(rulings OQ-BK1 to OQ-BK5 and BK-D1 to BK-D6 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
+(rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D6 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
 The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
 (`stage: BUILT`), so nothing here waits on it.
 
@@ -147,7 +147,7 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 
 ### Task 2 — ship `bedrock-key` and narrow `bedrock` (after 1)
 
-- **Settled, do not re-open** (OQ-BK1, OQ-BK4, BK-D2): `bedrock-key` ships in `packs/bedrock`, platform
+- **Settled, do not re-open** ([OQ-BK1](bedrock-key-provider.md#OQ-BK1), [OQ-BK4](bedrock-key-provider.md#OQ-BK4), BK-D2): `bedrock-key` ships in `packs/bedrock`, platform
   `aws-bedrock`, `api_key_env_name = ["AWS_BEARER_TOKEN_BEDROCK"]`, the region block as `bedrock`'s, and a
   `bridge` variant via `wire-bridge`. `bedrock` claims exactly `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
   `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`. No alias, no migration line.
@@ -166,7 +166,7 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 
 ### Task 3 — the mixed-launch remedy (after 2)
 
-- **Settled, do not re-open** (OQ-BK5): `-p claude=bedrock-key,codex=bedrock` stays refused by the
+- **Settled, do not re-open** ([OQ-BK5](bedrock-key-provider.md#OQ-BK5)): `-p claude=bedrock-key,codex=bedrock` stays refused by the
   launch-wide override check; the remedy says one launch cannot mix an agent on `bedrock` with one on
   `bedrock-key`, and names a launch on either alone. It must not offer the empty-profile step there.
 - **Detection (planner's, cheap):** the override is "mixed" when every overriding var is claimed by some
@@ -207,15 +207,15 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
   drop the statement that native `bedrock` claims the bearer.
 - `docs/reference/providers.md` (the credential gate) and `docs/reference/agent-credentials.md` (what
   refuses and what warns) — the served-pointer rule; `bedrock` no longer claims the bearer.
-- `docs/design/bedrock-plumbing.md` §6.3 — the hand-written provider is now shipped; link the design.
+- `docs/design/bedrock-plumbing.md` [§6.3](bedrock-plumbing.md#63-a-hand-written-api-key-provider-documentation-only) — the hand-written provider is now shipped; link the design.
 - `docs/design/bedrock-key-provider.md` — status line and the `Built` column.
 - No key value in any message: every new line names variables only (BK-D4).
 
 ## Don't
 
-- Don't add a provider key (`login`, `aws_auth`) — rejected, OQ-BK2.
-- Don't alias `bedrock` to `bedrock-key` or add a migration line — rejected, OQ-BK4.
-- Don't add a per-agent override pre-flight — rejected, OQ-BK5.
+- Don't add a provider key (`login`, `aws_auth`) — rejected, [OQ-BK2](bedrock-key-provider.md#OQ-BK2).
+- Don't alias `bedrock` to `bedrock-key` or add a migration line — rejected, [OQ-BK4](bedrock-key-provider.md#OQ-BK4).
+- Don't add a per-agent override pre-flight — rejected, [OQ-BK5](bedrock-key-provider.md#OQ-BK5).
 - Don't touch or warn about the `--user-layer` recipe — BK-D5.
 - Don't promise an attach with the other provider — the design leaves it unpromised.
 
@@ -251,7 +251,7 @@ set = { AWS_BEARER_TOKEN_BEDROCK = "not-a-real-key" }
 
 The key value is a placeholder: no witness sends a request, and no line may print it.
 
-### W-BK1 — `bedrock-key` opens no aws-auth doorway (OQ-BK2, CN-D22)
+### W-BK1 — `bedrock-key` opens no aws-auth doorway ([OQ-BK2](bedrock-key-provider.md#OQ-BK2), CN-D22)
 
 1. In the workspace:
 
@@ -261,13 +261,14 @@ The key value is a placeholder: no witness sends a request, and no line may prin
 
    Expected: exit 0. Stderr has a line starting `Not started: the aws-auth jail daemon, because no agent's
    selected provider is on platform "aws-bedrock" and claims a variable its pointer sets` and ending
-   `` select one (`-p <agent>=bedrock`) to start it (providers.md OQ-CN7).``. Stderr has NO line starting
+   `` select one (`-p <agent>=bedrock`) to start it`` and the providers.md reference to
+   [OQ-CN7](../reference/providers.md#oq-cn7). Stderr has NO line starting
    `Opened the "aws-auth" doorway`, and no line contains `not-a-real-key`.
 
-Report: the exit code and every stderr line naming `aws-auth`. Settles: OQ-BK2's Built column at the
+Report: the exit code and every stderr line naming `aws-auth`. Settles: [OQ-BK2](bedrock-key-provider.md#OQ-BK2)'s Built column at the
 macos-user notch.
 
-### W-BK2 — `bedrock` still opens it (OQ-BK4, the control)
+### W-BK2 — `bedrock` still opens it ([OQ-BK4](bedrock-key-provider.md#OQ-BK4), the control)
 
 1. In the same workspace:
 
@@ -282,7 +283,7 @@ Report: the exit code and the `aws-auth` lines. Settles: that the narrowing left
 macos-user. If W-BK1 passes and this fails, the rule is withholding from a claiming provider: file it as a
 defect against `d95b06451`.
 
-### W-BK3 — one launch cannot mix them (OQ-BK5)
+### W-BK3 — one launch cannot mix them ([OQ-BK5](bedrock-key-provider.md#OQ-BK5))
 
 1. In the same workspace:
 
@@ -294,4 +295,4 @@ defect against `d95b06451`.
    `One launch cannot mix them`, and `` `yolo -p bedrock-key` or `yolo -p bedrock` ``; no line contains
    `profile = ""` or `not-a-real-key`.
 
-Report: the exit code and the full refusal. Settles: OQ-BK5's remedy at the macos-user notch.
+Report: the exit code and the full refusal. Settles: [OQ-BK5](bedrock-key-provider.md#OQ-BK5)'s remedy at the macos-user notch.
