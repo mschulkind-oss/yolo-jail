@@ -154,15 +154,6 @@ func (o *Options) detectRuntimeForListing() string {
 	return ""
 }
 
-// detectRuntime is the runtime of the setup a launch would select with no workspace config,
-// else "podman".
-func (o *Options) detectRuntime() string {
-	if v := o.configuredRuntimeName(nil); v != "" {
-		return v
-	}
-	return "podman"
-}
-
 // listRunningJailNames returns (names, errorMessage).
 // errorMessage is non-empty only when listing genuinely failed.
 func (o *Options) listRunningJailNames(rt string) ([]string, string) {

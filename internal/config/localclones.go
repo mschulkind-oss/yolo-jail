@@ -228,14 +228,6 @@ func validateLocalClones(config *jsonx.OrderedMap, workspace string, errs *[]str
 	}
 }
 
-// localCloneProblem is why path registers no clone, "" when it does.
-func localCloneProblem(path string) string {
-	if why := localClonePathProblem(path); why != "" {
-		return why
-	}
-	return localCloneRepositoryProblem(path)
-}
-
 func localClonePathProblem(path string) string {
 	if !filepath.IsAbs(path) {
 		return "is not an absolute path (a relative one would name a different directory from each place yolo " +
