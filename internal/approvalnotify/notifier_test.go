@@ -44,6 +44,8 @@ type fakeBus struct {
 	notifications []Notification
 	lost          chan struct{}
 	err           error
+	// duringNotify runs inside Notify, before it answers, to model a stop mid-round-trip.
+	duringNotify func()
 }
 
 func (b *fakeBus) Owner(context.Context) (string, error) { return b.owner, b.err }
@@ -59,9 +61,16 @@ func (b *fakeBus) Subscribe(context.Context) error {
 	}
 	return b.err
 }
-func (b *fakeBus) Notify(_ context.Context, _ string, n Notification) (uint32, error) {
+func (b *fakeBus) Notify(c context.Context, _ string, n Notification) (uint32, error) {
 	if b.failAt == "notify" || (b.failAt == "feedback" && len(b.notifications) > 0) {
 		return 0, errors.New("Notify failed")
+	}
+	if b.duringNotify != nil {
+		b.duringNotify()
+	}
+	// Like godbus, a cancelled context fails the call and the id is never learned.
+	if err := c.Err(); err != nil {
+		return 0, err
 	}
 	b.notifications = append(b.notifications, n)
 	b.posted <- n
@@ -193,6 +202,18 @@ func TestHandledStopWithdrawsBeforeConnectionCloses(t *testing.T) {
 		})
 	}
 }
+
+// A stop that lands while Notify is in flight must still learn the id and withdraw it.
+func TestHandledStopDuringPostWithdrawsTheIssuedID(t *testing.T) {
+	f := newNotifierFixture(t)
+	f.bus.duringNotify = func() { f.cancel() }
+	f.start()
+	f.waitDone()
+	f.assertDecisions(nil)
+	if !reflect.DeepEqual(f.bus.closed, []uint32{41}) || !reflect.DeepEqual(f.bus.lifecycle, []string{"withdraw", "connection-close"}) {
+		t.Fatalf("cleanup ids=%v lifecycle=%v", f.bus.closed, f.bus.lifecycle)
+	}
+}
 func TestOwnerReplacementNeverInheritsAnID(t *testing.T) {
 	for _, changeSignal := range []bool{false, true} {
 		t.Run(fmt.Sprint(changeSignal), func(t *testing.T) {
@@ -299,9 +320,12 @@ func TestCLIRefusalWithdrawsAndPostsNonActionableFeedback(t *testing.T) {
 			if len(f.bus.notifications) != want {
 				t.Fatalf("toasts %d", len(f.bus.notifications))
 			}
+			if f.bus.notifications[0].Feedback {
+				t.Fatal("the request notification is marked as feedback")
+			}
 			if want == 2 {
 				n := f.bus.notifications[1]
-				if len(n.Actions) != 0 || strings.Contains(n.Body, "<b>") || !strings.Contains(n.Body, "&lt;b&gt;") || !strings.Contains(n.Body, "host `yolo approve`") || len(n.Body) > textLimit+200 {
+				if !n.Feedback || len(n.Actions) != 0 || strings.Contains(n.Body, "<b>") || !strings.Contains(n.Body, "&lt;b&gt;") || !strings.Contains(n.Body, "host `yolo approve`") || len(n.Body) > textLimit+200 {
 					t.Fatalf("feedback %+v", n)
 				}
 			}

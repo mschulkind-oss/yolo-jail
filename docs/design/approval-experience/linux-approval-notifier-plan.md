@@ -28,13 +28,18 @@ The over-ceiling case files a narrower two-minute policy and clicks the offered 
 a normal GitHub PR duration can succeed and is not asserted to be refused.
 
 - [`notifier_test.go`](../../../internal/approvalnotify/notifier_test.go): authenticated actions,
-  typed reason-2 Deny, owner changes, expiry, cleanup ordering, refusal feedback and failures.
+  typed reason-2 Deny, owner changes, expiry, cleanup ordering, refusal feedback and failures,
+  and a stop during the post that still withdraws the returned id.
 - [`bus_test.go`](../../../internal/approvalnotify/bus_test.go): actual godbus call boundary,
-  explicit address, no-auto-start flags, typed signals queued during Notify, wire signatures.
+  explicit address, no-auto-start flags, typed signals queued during Notify, wire signatures,
+  and the feedback hints (normal urgency, not resident, finite expiry).
 - [`main_test.go`](../../../internal/approvalnotify/main_test.go): production entry SIGINT/SIGTERM
   and the unchanged hook runner's decided/expired/jail-ended withdrawal, with event readiness.
+  The socket helper is pinned under a macOS-length TMPDIR on every platform, and a cancelled
+  `Decision` interrupts the CLI (a trapped SIGINT) rather than killing it.
 - [`internalapprovalnotify_test.go`](../../../internal/cli/internalapprovalnotify_test.go):
-  hidden dispatch and the real host approval subprocess/store boundary.
+  hidden dispatch, including an absent private address reaching the production dial, and the
+  real host approval subprocess/store boundary.
 
 Native integrated capture, nested-jail verification, combined completion census and landing
 remain root-owned. Tests read no source files outside their package, but import the existing

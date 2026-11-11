@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -59,8 +60,11 @@ func entry(args []string, in io.Reader, errout io.Writer, getenv func(string) st
 
 // Decision executes exactly the supported host CLI argv without a shell, retaining
 // only bounded diagnostics while draining both streams to avoid subprocess deadlock.
+// A cancelled decision is interrupted, not killed, so the CLI can finish the write it is in.
 func Decision(ctx context.Context, bin string, args []string) (int, string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = decisionWaitDelay
 	out := &boundedOutput{}
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -73,6 +77,9 @@ func Decision(ctx context.Context, bin string, args []string) (int, string, erro
 	}
 	return 0, string(out.data), err
 }
+
+// decisionWaitDelay bounds the wait after an interrupt before Go kills the CLI.
+const decisionWaitDelay = 5 * time.Second
 
 type boundedOutput struct{ data []byte }
 

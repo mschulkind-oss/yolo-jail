@@ -58,11 +58,19 @@ func (b *dbusBus) Notify(ctx context.Context, owner string, n Notification) (uin
 	if actions == nil {
 		actions = []string{}
 	}
-	hints := map[string]dbus.Variant{"urgency": dbus.MakeVariant(byte(2)), "resident": dbus.MakeVariant(true)}
+	// The request keeps the desktop until answered; feedback is normal and expires.
+	urgency, resident, expiry := byte(2), true, int32(0)
+	if n.Feedback {
+		urgency, resident, expiry = 1, false, feedbackExpiryMillis
+	}
+	hints := map[string]dbus.Variant{"urgency": dbus.MakeVariant(urgency), "resident": dbus.MakeVariant(resident)}
 	var id uint32
-	err := b.call(ctx, owner, "Notify", "yolo", uint32(0), "", n.Summary, n.Body, actions, hints, int32(0)).Store(&id)
+	err := b.call(ctx, owner, "Notify", "yolo", uint32(0), "", n.Summary, n.Body, actions, hints, expiry).Store(&id)
 	return id, err
 }
+
+const feedbackExpiryMillis int32 = 10000
+
 func (b *dbusBus) CloseNotification(ctx context.Context, owner string, id uint32) error {
 	if id == 0 {
 		return nil

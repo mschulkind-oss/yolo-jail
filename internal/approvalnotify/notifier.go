@@ -22,10 +22,15 @@ const notificationInterface = "org.freedesktop.Notifications"
 const notificationPath dbus.ObjectPath = "/org/freedesktop/Notifications"
 const textLimit = 4096
 
+// postRoundTrip bounds one Notify call that is deliberately not cancellable by a handled stop.
+const postRoundTrip = 5 * time.Second
+
 // Notification is the wire presentation, not an approval decision.
 type Notification struct {
 	Summary, Body string
 	Actions       []string
+	// Feedback marks a non-actionable follow-up: it offers no actions and is never an answer.
+	Feedback bool
 }
 
 // Bus holds one private connection for one request.
@@ -113,7 +118,11 @@ func Run(ctx context.Context, e brokerstore.EventView, d Dependencies) (result e
 		return failure(fmt.Errorf("subscribe: %w", err))
 	}
 	q := e.Request
-	id, err := b.Notify(ctx, owner, Notification{Summary: plain("yolo: " + q.Headline), Body: markup(q.Description), Actions: []string{"once", "Allow once", "15m", "Allow for 15 minutes", "deny", "Deny"}})
+	// A stop during the post must still learn the id, or the deferred withdraw cannot close it.
+	// The round trip is bounded, so a stalled bus cannot hold the hook.
+	post, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), postRoundTrip)
+	id, err := b.Notify(post, owner, Notification{Summary: plain("yolo: " + q.Headline), Body: markup(q.Description), Actions: []string{"once", "Allow once", "15m", "Allow for 15 minutes", "deny", "Deny"}})
+	cancelPost()
 	if err != nil {
 		return failure(fmt.Errorf("Notify: %w", err))
 	}
@@ -224,7 +233,7 @@ func Run(ctx context.Context, e brokerstore.EventView, d Dependencies) (result e
 			diagnostic := fmt.Errorf("yolo approve exited %d: %s", status, plain(out))
 			if status == 3 || status == 5 || status == 6 {
 				body := markup(out) + "\nUse host `yolo approve` to inspect and answer pending requests."
-				if _, err := b.Notify(ctx, owner, Notification{Summary: "yolo: approval not applied", Body: body}); err != nil {
+				if _, err := b.Notify(ctx, owner, Notification{Summary: "yolo: approval not applied", Body: body, Feedback: true}); err != nil {
 					diagnostic = fmt.Errorf("%w; refusal feedback: %v", diagnostic, err)
 				}
 			}

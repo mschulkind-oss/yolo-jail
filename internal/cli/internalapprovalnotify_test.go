@@ -31,10 +31,15 @@ func TestInternalApprovalNotifyDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []string{"arguments", "jail", "invalid-json", "expired", "missing-address"} {
+	for _, kind := range []string{"arguments", "jail", "invalid-json", "expired", "missing-address", "absent-bus"} {
 		t.Run(kind, func(t *testing.T) {
 			cmd := exec.Command(exe, testAsYoloArg, "internal", "approval-notify")
-			cmd.Env = append(os.Environ(), "YOLO_VERSION=", "YOLO_BIN="+exe, "DBUS_SESSION_BUS_ADDRESS=")
+			address := ""
+			absentBus := filepath.Join(t.TempDir(), "absent-bus.sock")
+			if kind == "absent-bus" {
+				address = "unix:path=" + absentBus
+			}
+			cmd.Env = append(os.Environ(), "YOLO_VERSION=", "YOLO_BIN="+exe, "DBUS_SESSION_BUS_ADDRESS="+address)
 			input := `{}`
 			switch kind {
 			case "arguments":
@@ -56,9 +61,13 @@ func TestInternalApprovalNotifyDispatch(t *testing.T) {
 			if err == nil || !strings.Contains(string(out), "host `yolo approve`") || strings.Contains(string(out), "unknown internal") {
 				t.Fatalf("dispatch err=%v out=%s", err, out)
 			}
-			expected := map[string]string{"arguments": "takes no arguments", "jail": "requires the Linux host", "invalid-json": "invalid request JSON", "expired": "unexpired pending", "missing-address": "DBUS_SESSION_BUS_ADDRESS is missing"}[kind]
+			expected := map[string]string{"arguments": "takes no arguments", "jail": "requires the Linux host", "invalid-json": "invalid request JSON", "expired": "unexpired pending", "missing-address": "DBUS_SESSION_BUS_ADDRESS is missing", "absent-bus": "connect to supplied bus"}[kind]
 			if !strings.Contains(string(out), expected) {
 				t.Fatalf("want %q got %s", expected, out)
+			}
+			// The production entry dials exactly the supplied private address, never a session bus.
+			if kind == "absent-bus" && !strings.Contains(string(out), absentBus) {
+				t.Fatalf("did not name the supplied bus %s: %s", absentBus, out)
 			}
 		})
 	}

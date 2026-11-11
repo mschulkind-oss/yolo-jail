@@ -55,15 +55,59 @@ func TestApprovalNotifyEntryProcess(t *testing.T) {
 	rc := entry(nil, os.Stdin, os.Stderr, os.Getenv, "linux", false, func(context.Context, string) (Bus, error) { return b, nil })
 	os.Exit(rc)
 }
+
+// sunPathMax is the longest AF_UNIX path that binds on the tighter platform: darwin's sun_path
+// is 104 bytes including the NUL. macTMPDIRLen is the length of macOS's $TMPDIR.
+const (
+	sunPathMax   = 103
+	macTMPDIRLen = 48
+)
+
+// processSocketDir mints the events socket directory under TMPDIR without the test name:
+// t.TempDir() appends the test name, which overflows sun_path under a macOS-length TMPDIR.
+func processSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(os.TempDir(), "yj-an-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
 func processListener(t *testing.T) (net.Listener, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "events.sock")
+	path := filepath.Join(processSocketDir(t), "events.sock")
+	if len(path) > sunPathMax {
+		t.Fatalf("socket path is %d bytes, over the %d-byte sun_path limit: %s; set TMPDIR shorter", len(path), sunPathMax, path)
+	}
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { l.Close() })
 	return l, path
+}
+
+// TestProcessSocketBindsUnderAMacLengthTMPDIR pins the helper under the TMPDIR length the
+// darwin runner has, on every platform, so a Linux run reproduces the darwin bind failure.
+func TestProcessSocketBindsUnderAMacLengthTMPDIR(t *testing.T) {
+	base, err := os.MkdirTemp(os.TempDir(), "yj-tmp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	dir := base
+	if pad := macTMPDIRLen - len(base) - 1; pad > 0 {
+		dir = filepath.Join(base, strings.Repeat("t", pad))
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TMPDIR", dir)
+	_, path := processListener(t)
+	if !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		t.Fatalf("socket %s is not under TMPDIR %s", path, dir)
+	}
 }
 func acceptEvents(t *testing.T, l net.Listener) (net.Conn, *bufio.Reader) {
 	t.Helper()
@@ -202,6 +246,52 @@ func TestEntryRejectsInvalidEnvironmentAndInput(t *testing.T) {
 				t.Fatalf("rc=%d dialed=%v err=%s", rc, called, &diagnostic)
 			}
 		})
+	}
+}
+
+// TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt pins the cancellation signal: the
+// fixture traps SIGINT and reports it, which a SIGKILL could never do.
+func TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	if err := syscall.Mkfifo(ready, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "approve")
+	script := "#!/bin/sh\ntrap 'kill $! 2>/dev/null; printf interrupted; exit 7' INT\nsleep 30 </dev/null >/dev/null 2>&1 &\nprintf 'ready\n' > \"$1\"\nwait\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		status int
+		out    string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		status, out, err := Decision(ctx, bin, []string{ready})
+		done <- result{status, out, err}
+	}()
+	// The script opens the fifo for writing only after its trap is installed.
+	r, err := os.Open(ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(r).ReadString('\n')
+	r.Close()
+	if err != nil || strings.TrimSpace(line) != "ready" {
+		t.Fatalf("fixture not ready: %q %v", line, err)
+	}
+	cancel()
+	select {
+	case got := <-done:
+		if got.err != nil || got.status != 7 || !strings.Contains(got.out, "interrupted") {
+			t.Fatalf("status=%d out=%q err=%v; want the CLI interrupted and exiting 7", got.status, got.out, got.err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Decision did not return after cancellation")
 	}
 }
 func TestDecisionBoundsOutputAndReportsStartFailure(t *testing.T) {

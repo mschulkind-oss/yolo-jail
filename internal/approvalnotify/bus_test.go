@@ -136,6 +136,23 @@ func TestGodbusAdapterAuthenticatesAndRegistersBeforeNotify(t *testing.T) {
 		t.Fatal(c.order)
 	}
 }
+
+// Feedback is a finite, normal, non-resident follow-up; only the request holds the desktop.
+func TestGodbusFeedbackIsNormalAndFinite(t *testing.T) {
+	c := &wireConn{owner: ":1.7", ctx: context.Background()}
+	b, err := dialBus(context.Background(), "unix:path=/fixture", func(string) (connection, error) { return c, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Notify(context.Background(), ":1.7", Notification{Summary: "s", Body: "b", Feedback: true}); err != nil {
+		t.Fatal(err)
+	}
+	n := c.calls[0]
+	hints := n.args[6].(map[string]dbus.Variant)
+	if hints["urgency"].Value() != byte(1) || hints["resident"].Value() != false || n.args[7] != feedbackExpiryMillis {
+		t.Fatalf("feedback wire hints=%v timeout=%v", hints, n.args[7])
+	}
+}
 func TestGodbusMissingAddressDoesNotConnect(t *testing.T) {
 	called := false
 	_, err := dialBus(context.Background(), "", func(string) (connection, error) { called = true; return nil, nil })

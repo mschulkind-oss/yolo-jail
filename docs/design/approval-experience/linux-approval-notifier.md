@@ -41,7 +41,7 @@ connection for that request's life, using only the supplied `DBUS_SESSION_BUS_AD
 no address guessing, session discovery, `dbus-launch`, or server activation is allowed.
 
 The connection checks the current `org.freedesktop.Notifications` owner and the `actions`
-capability before posting. The notification is critical, resident, timeout zero, with no
+capability before posting. The request notification is critical, resident, timeout zero, with no
 `default` action. Explicit keys are `once`, `15m`, `deny`; labels are Allow once, Allow for
 15 minutes, Deny. They invoke the absolute hook-provided `YOLO_BIN` with respectively
 `approve <id>`, `approve <id> --for 15m`, `approve <id> --deny`, without a shell.
@@ -58,10 +58,12 @@ Server loss, connection loss and unrecognized signals never decide anything.
 
 Handled SIGINT/SIGTERM, the request expiry, and the existing hook runner's stop when a
 request is decided elsewhere all withdraw the issued id while the same connection is
-still open. Withdrawal does not invoke Deny. An accepted button invokes the CLI once;
+still open. A stop that lands during the post still withdraws the id the post returns, and
+the post itself is bounded. A stop that reaches an in-flight `yolo approve` interrupts it
+(SIGINT, with a bounded wait) rather than killing it. Withdrawal does not invoke Deny. An accepted button invokes the CLI once;
 its success is authoritative only through the CLI/store. On exits 3, 5 or 6, a short
 non-actionable follow-up carries the CLI's refusal and next step, escaped for the desktop
-markup dialect. The original actionable notification is withdrawn. The refusal's status
+markup dialect. The follow-up is normal urgency, not resident, and expires after ten seconds. The original actionable notification is withdrawn. The refusal's status
 and text remain available through the existing hook failure mechanism. No feedback toast
 is interpreted as an answer, and its closure cannot deny the original request.
 
