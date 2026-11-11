@@ -269,6 +269,32 @@ func TestConfigSecretDropWorksAcrossScopes(t *testing.T) {
 	}
 }
 
+func TestConfigSecretDropWorksAcrossScopesThroughWorkspaceSymlink(t *testing.T) {
+	user := secretFixture(t, "[env.secrets]\nset = { FOO = \"user-value\" }\n")
+	ws, _ := os.Getwd()
+	project := filepath.Join(ws, "yolo-jail.toml")
+	if err := os.WriteFile(project, []byte("[env]\nset = { FOO = \"repo-value\" }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Symlink(ws, alias); err != nil {
+		t.Fatal(err)
+	}
+	// A shell can retain the user-facing /var spelling while the graph resolves the
+	// workspace through /private (or an equivalent symlinked TMPDIR on Linux).
+	t.Setenv("PWD", alias)
+	var out, errw bytes.Buffer
+	if rc := configRunW([]string{"secret", "FOO", "--drop", "--project"}, &out, &errw); rc != 0 {
+		t.Fatalf("the remedy fails across a symlinked workspace, rc %d: %s", rc, errw.String())
+	}
+	if got, _ := os.ReadFile(project); strings.Contains(string(got), "FOO") {
+		t.Errorf("--drop removed the project's public copy:\n%s", got)
+	}
+	if got, _ := os.ReadFile(user.Path); !strings.Contains(string(got), "user-value") || strings.Contains(string(got), "repo-value") {
+		t.Errorf("the user's private value is kept:\n%s", got)
+	}
+}
+
 // Review minor 6: a dotenv file that is a link is neither written through nor replaced.
 func TestConfigSecretRefusesADotenvFileThatIsALink(t *testing.T) {
 	user := secretFixture(t, "[env]\nfiles = [\"defaults.env\"]\n\n[env.secrets]\nfiles = [\"secrets.env\"]\n")

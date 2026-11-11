@@ -273,11 +273,10 @@ func resolveEditTarget(workspace string, intent EditMutationIntent, choice EditT
 		if len(selected.roles) != 1 || len(selected.formats) != 1 {
 			return ResolvedEditTarget{}, fmt.Errorf("named config file %s has conflicting reader roles or formats", choice.File)
 		}
-		namedPath, resolveErr := filepath.Abs(choice.File)
+		namedPath, resolveErr := namedConfigLogicalPath(choice.File)
 		if resolveErr != nil {
 			return ResolvedEditTarget{}, resolveErr
 		}
-		namedPath = filepath.Clean(namedPath)
 		if !selected.logicalPaths[namedPath] && namedPath != selected.physical {
 			return ResolvedEditTarget{}, fmt.Errorf("named config file %s was not read as a logical file by the scoped config graph", choice.File)
 		}
@@ -504,6 +503,20 @@ func readableEditTargetRule(path []string) (SchemaKey, bool) {
 func cloneEditMutationIntent(intent EditMutationIntent) EditMutationIntent {
 	intent.Key = append([]configdoc.Step(nil), intent.Key...)
 	return intent
+}
+
+func namedConfigLogicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
+	if err != nil {
+		return "", fmt.Errorf("resolve named config parent %s: %w", filepath.Dir(absolute), err)
+	}
+	// Resolve directory aliases such as macOS's /var -> /private/var, but leave
+	// the named leaf untouched so a file symlink is not mistaken for its target.
+	return filepath.Clean(filepath.Join(parent, filepath.Base(absolute))), nil
 }
 
 type editTargetReadObservation struct {
