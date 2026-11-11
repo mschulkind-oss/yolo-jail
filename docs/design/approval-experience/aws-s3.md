@@ -208,10 +208,11 @@ only when no other S3-capable credential reaches the jail. Nothing else is claim
 
 **Diagnostic ([S3-D5](#S3-D5)).** Full `yolo check` warns when the selected packs include
 both `aws-s3` and `aws-auth`, and the supplied `aws-auth` setting explicitly selects
-`unnarrowed = true`. It reports a **possible** bypass, not proof of S3 permission: directly
+`unnarrowed = true` with a `profile` set (no profile, no credential, so no warning). It reports a **possible** bypass, not proof of S3 permission: directly
 delivered credentials let an SDK or an `aws` binary reached by absolute path bypass the wrapped
 CLI if the profile permits S3. Run `yolo config why allow.aws-auth.unnarrowed` on the host to
-review the selected mode; if broker-only S3 access is wanted, ask the AWS administrator for a
+review the selected mode (a legacy JSONC user config keeps the switch at
+`loopholes.aws-auth.settings.unnarrowed`, and the warning names that key there); if broker-only S3 access is wanted, ask the AWS administrator for a
 profile or role without S3 permissions. Keeping the intended auth route is valid.
 
 The warning runs only in the full diagnostic, not `yolo config check` or routine launches. It
