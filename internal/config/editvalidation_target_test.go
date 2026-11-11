@@ -65,6 +65,44 @@ func TestResolveEditTargetUsesSchemaDefaultsAndReaderRoles(t *testing.T) {
 	}
 }
 
+func TestResolveEditTargetKeepsConsumedLeafSymlinkUnderAliasedParent(t *testing.T) {
+	realHome := t.TempDir()
+	homeAlias := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(realHome, homeAlias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeAlias)
+	t.Setenv("YOLO_VERSION", "")
+	userDir := filepath.Join(realHome, ".config", "yolo-jail")
+	real := filepath.Join(userDir, "real.toml")
+	logical := filepath.Join(homeAlias, ".config", "yolo-jail", paths.UserConfigTOMLName)
+	writeTargetFixture(t, real, "[allow.git]\nalways = ['fetch']\n")
+	if err := os.Symlink(real, logical); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveEditTarget(t.TempDir(), targetIntent([]configdoc.Step{{Key: "allow"}, {Key: "git"}, {Key: "always"}}), EditTargetChoice{Kind: EditTargetFile, File: logical})
+	if err != nil {
+		t.Fatalf("consumed config symlink was rejected through its aliased parent: %v", err)
+	}
+	physical, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LogicalPath != logical || got.PhysicalPath != physical {
+		t.Fatalf("target = logical %q physical %q, want %q / %q", got.LogicalPath, got.PhysicalPath, logical, physical)
+	}
+
+	unconsumed := filepath.Join(filepath.Dir(logical), "unconsumed.toml")
+	if err := os.Symlink(real, unconsumed); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveEditTarget(t.TempDir(), targetIntent([]configdoc.Step{{Key: "allow"}, {Key: "git"}, {Key: "always"}}), EditTargetChoice{Kind: EditTargetFile, File: unconsumed})
+	if err == nil || !strings.Contains(err.Error(), "was not read as a logical file") {
+		t.Fatalf("unconsumed symlink alias under the aliased parent was accepted: %v", err)
+	}
+}
+
 func TestResolveEditTargetRejectsJSONCSourceChangedBeforePreimageBinding(t *testing.T) {
 	for _, tc := range []struct {
 		name, before, fresh, local string

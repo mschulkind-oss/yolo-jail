@@ -280,9 +280,6 @@ func resolveEditTarget(workspace string, intent EditMutationIntent, choice EditT
 		if !selected.logicalPaths[namedPath] && namedPath != selected.physical {
 			return ResolvedEditTarget{}, fmt.Errorf("named config file %s was not read as a logical file by the scoped config graph", choice.File)
 		}
-		if selected.logicalPaths[namedPath] {
-			selected.logical = namedPath
-		}
 		role, ok = scopeForReadRole(selected.role())
 		if !ok {
 			return ResolvedEditTarget{}, fmt.Errorf("named config file %s has no editable reader role", choice.File)
@@ -333,9 +330,13 @@ func resolveEditTarget(workspace string, intent EditMutationIntent, choice EditT
 			if verifyErr := verifyProspectiveSelection(prospective); verifyErr != nil {
 				return ResolvedEditTarget{}, verifyErr
 			}
+			logical, logicalErr := namedConfigLogicalPath(prospective.logical)
+			if logicalErr != nil {
+				return ResolvedEditTarget{}, logicalErr
+			}
 			selected = editTargetFile{
 				logical: prospective.logical, physical: prospective.logical,
-				logicalPaths: map[string]bool{prospective.logical: true},
+				logicalPaths: map[string]bool{logical: true},
 				roles:        map[editReadRole]bool{prospective.role: true},
 				formats:      map[configdoc.Format]bool{prospective.format: true},
 			}
@@ -596,11 +597,11 @@ func editTargetFiles(sources *Sources, audit []editTargetReadObservation) (map[s
 			if entry.physical == "" {
 				entry = editTargetFile{logical: f.path, physical: physical, logicalPaths: map[string]bool{}, roles: map[editReadRole]bool{}, formats: map[configdoc.Format]bool{}}
 			}
-			logical, err := filepath.Abs(f.path)
+			logical, err := namedConfigLogicalPath(f.path)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolve consumed config logical path %s: %w", f.path, err)
 			}
-			entry.logicalPaths[filepath.Clean(logical)] = true
+			entry.logicalPaths[logical] = true
 			entry.roles[f.role] = true
 			entry.formats[f.format] = true
 			files[physical] = entry
