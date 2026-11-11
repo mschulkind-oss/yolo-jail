@@ -14,7 +14,7 @@ summary: "Tree-grounded hand-off for the first mediated S3 slice: an aws-s3 pack
 
 # AWS S3 slice 1: build hand-off
 
-**Status:** 2026-11-10. Tasks 1, 2 and 3 are built (classifier, dispatch and pack; fixture service and fake host CLI; in-process and nested-jail end-to-end tests). S3-D5's diagnostic is built locally in an unpushed change based on `62b8bbda3`; the remaining [Ships with](#ships-with) backlog is prefix-scoped `get-object` and multipart. **MEASURED:** `TestCheckWarnsForAWSS3WithUnnarrowedAWSAuth` exercises the production full-check caller with paired un-narrowed, narrowed and absent selections; no AWS or API calls. Native-host verification of this warning is unperformed. The slice-1 hand-off was written against `04f300a9e`. **Design:** [`aws-s3.md`](aws-s3.md); recipe: [`service-mediation.md`](service-mediation.md).
+**Status:** 2026-11-10. Tasks 1, 2 and 3 are built (classifier, dispatch and pack; fixture service and fake host CLI; in-process and nested-jail end-to-end tests). S3-D5's diagnostic is built and integrated in `main` at `b913b6b7d`, with the legacy-key and no-profile repair at `f83f75164` (based on `62b8bbda3`); the remaining [Ships with](#ships-with) backlog is prefix-scoped `get-object` and multipart. **MEASURED:** `TestCheckWarnsForAWSS3WithUnnarrowedAWSAuth` exercises the production full-check caller with paired un-narrowed, narrowed and absent selections; no AWS or API calls. Native-host verification of this warning is unperformed. The slice-1 hand-off was written against `04f300a9e`. **Design:** [`aws-s3.md`](aws-s3.md); recipe: [`service-mediation.md`](service-mediation.md).
 Precedence: the design wins on behavior, the tree wins on cosmetic fact, this plan is advice and the first thing to be wrong. Stop and report, without committing, when a test does not fail as predicted, a named symbol is gone, a fix needs a file outside the task's fence, or a gate fails outside the task's scope.
 
 **Hard rule for every task:** no real AWS. No account, no credential, no network call to an AWS endpoint. Every credential is a synthetic literal; every endpoint is `127.0.0.1`.
@@ -100,7 +100,7 @@ Then `integration/aws_s3_broker_test.go` covering (a), (b), (c) and one refusal 
 
 - [`aws-s3.md`](aws-s3.md) and [`service-mediation.md`](service-mediation.md) (the design and recipe).
 - `yolo check` already reports a call-broker pack's host program presence.
-- S3-D5 is built locally and unpushed: `internal/cli/check/awss3bypass.go`, called only from the full `Check` pipeline in `check.go`, warns for selected `aws-s3` plus explicitly un-narrowed `aws-auth`. `awss3bypass_test.go` drives that caller and verifies paired un-narrowed, narrowed-role/session-policy, false/unspecified and absent-pack cases, and that `ConfigCheck` does not emit it. It reads no credentials, inspects no IAM permissions and changes no auth route or grant; native-host verification is unperformed.
+- S3-D5 is built and integrated in `main` (`b913b6b7d`, with `f83f75164`): `internal/cli/check/awss3bypass.go`, called only from the full `Check` pipeline in `check.go`, warns for selected `aws-s3` plus explicitly un-narrowed `aws-auth`. `awss3bypass_test.go` drives that caller and verifies paired un-narrowed, narrowed-role/session-policy, false/unspecified and absent-pack cases, and that `ConfigCheck` does not emit it. It reads no credentials, inspects no IAM permissions and changes no auth route or grant; native-host verification is unperformed.
 - Backlog: prefix-scoped `get-object` with output to stdout; multipart.
 
 ## Don't
