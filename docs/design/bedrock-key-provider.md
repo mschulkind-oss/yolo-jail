@@ -3,7 +3,7 @@ title: "The Bedrock API key is a provider you select, not a layer you pass"
 date: 2026-11-07
 status: accepted
 stage: BUILT
-next: "Graduate the built design into docs/reference/providers.md"
+next: "Rerun W-BK2 on macos-user with a static pair to verify the corrected private-set refusal guidance"
 depends-on:
   - bedrock-plumbing.md
   - providers-and-profiles-redesign.md
@@ -13,7 +13,7 @@ summary: "A Bedrock API key becomes a provider named bedrock-key that an owner s
 
 # The Bedrock API key is a provider you select, not a layer you pass
 
-**Status:** 2026-11-10. Built and merged at `e946cfc39`; the provider and remedy are in main. Evidence verified at `5a69dd0b4`. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4` on darwin/arm64 with installed yolo `0.17.1+197.g5a69dd0b4075`; the placeholder cases passed, and the real static pair exposed the expected aws-auth override refusal recorded below. All five questions were ruled by the owner on 2026-11-09 and folded into the body; the key file's home follows [`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
+**Status:** 2026-11-11. Built and merged at `e946cfc39`; the provider and remedy are in main. Evidence verified at `5a69dd0b4`. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4` on darwin/arm64 with installed yolo `0.17.1+197.g5a69dd0b4075`; the placeholder cases passed, and the real static pair exposed the expected aws-auth override refusal recorded below. Follow-up `b35cff4e6` distinguishes TOML `[env.secrets].files` from `.set` in the refusal, gives each only its matching removal guidance, and redacts private inline values in config-edit diffs while preserving ordinary changes and write disclosure. Linux regression tests pass; rerun W-BK2 with a synthetic static pair on macos-user after that commit reaches main. All five questions were ruled by the owner on 2026-11-09 and folded into the body; the key file's home follows [`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
 
 > **In short.** The key is already a credential a provider can claim; what it lacks is a provider
 > of its own and a rule that keeps `aws-auth`'s pointer away from that provider. Both come from
@@ -75,10 +75,11 @@ The second is not a courtesy. **A bearer delivered beside the pointer refuses th
 hatch.** `packs/aws-auth` declares the bearer a certain override of its pointer
 ([`packs/aws-auth/pack.toml:9`](../../packs/aws-auth/pack.toml)); the env-override pre-flight
 evaluates every certain override as a refusal
-([`internal/cli/run/envoverrides.go:34-37`](../../internal/cli/run/envoverrides.go)), and the
-refusal's remedy is exactly the layer's second line: set the profile to `""` in the layer that
-should not use it (`LoginLoophole.EmptyProfileStep`,
-[`internal/packload/served.go:201`](../../internal/packload/served.go)). The existing test of this
+([`internal/cli/run/envoverrides.go:34-37`](../../internal/cli/run/envoverrides.go)). To keep the
+static credential while withholding the pointer, set only the user-scope profile with
+`yolo config set allow.aws-auth.profile "" --user`; the refusal no longer suggests editing a
+legacy JSONC layer or removing unrelated credentials (`LoginLoophole.EmptyProfileStep`,
+[`internal/packload/served.go:195-207`](../../internal/packload/served.go)). The existing test of this
 layer launches only with the profile emptied or the loophole disabled
 ([`internal/cli/run/bedrockkeylayer_test.go:21-29`](../../internal/cli/run/bedrockkeylayer_test.go)).
 
@@ -337,7 +338,7 @@ Verified 2026-11-07 at `2bbdd801f`.
 | the platform gate fires per agent; a CLI-less pack's gated env serves whichever agent's selection satisfies it | [`internal/packload/packload.go:898-925`](../../internal/packload/packload.go) |
 | a certain override refuses with no hatch; an uncertain one warns | [`internal/cli/run/envoverrides.go:22-37`](../../internal/cli/run/envoverrides.go) |
 | the override check evaluates a contribution delivered to any agent against launch-wide delivery | [`internal/packload/envoverride.go:126-162`](../../internal/packload/envoverride.go) |
-| the refusal's remedy for a login loophole: profile `""` in the layer | [`internal/packload/served.go:195-207`](../../internal/packload/served.go), [`envoverride.go:174-180`](../../internal/packload/envoverride.go) |
+| the refusal's remedy for a login loophole: set only its user-scope profile with `yolo config set allow.<pack>.<setting> "" --user` | [`internal/packload/served.go:195-207`](../../internal/packload/served.go), [`envoverride.go:174-180`](../../internal/packload/envoverride.go) |
 | the layer launches only with the profile emptied or the loophole disabled; the refusal never prints the value | [`internal/cli/run/bedrockkeylayer_test.go:13-29,68-80`](../../internal/cli/run/bedrockkeylayer_test.go) |
 | the launch resolves `-p` and `active_provider` against the user's providers composed with the packs' | [`internal/cli/run/profilechannel.go:173-189`](../../internal/cli/run/profilechannel.go), [`internal/config/providersemantic_selection.go:148-171`](../../internal/config/providersemantic_selection.go) |
 | when a TOML config joins the namespace without the `active_provider` key | [`internal/config/providersemantic_selection.go:107-145`](../../internal/config/providersemantic_selection.go) |

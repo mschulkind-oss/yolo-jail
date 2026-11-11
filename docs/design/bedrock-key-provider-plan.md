@@ -3,7 +3,7 @@ title: "Bedrock-key provider: implementation plan"
 date: 2026-11-10
 status: accepted
 stage: BUILT
-next: "Correct the env-override refusal's stale env.secrets remedy and re-run W-BK2 with a static pair"
+next: "Rerun W-BK2 on macos-user with a static pair to verify the corrected private-set and config-command refusal guidance"
 depends-on:
   - bedrock-key-provider.md
   - secret-env-scoping.md
@@ -12,7 +12,7 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 
 # Bedrock-key provider: implementation plan
 
-**Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`; built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. The Traps section records where the build overrode this plan. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal.
+**Status:** 2026-11-11. The provider and remedy were built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. Source follow-up `b35cff4e6`: `internal/packload/envoverride.go` and its run/check callers distinguish TOML `[env.secrets].files` and `.set` from legacy `env_sources`, give each source only its matching removal guidance, and use the scoped `yolo config set` command for the aws-auth profile. Config-edit diffs redact private inline values without hiding ordinary changes or the write disclosure; synthetic regression tests cover removal, setting, and public-edit context. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal. Rerun W-BK2 with a synthetic static pair after `b35cff4e6` reaches main to verify the corrected provenance and removal guidance on macos-user.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
 (rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D7 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
 The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
@@ -289,6 +289,33 @@ defect against `d95b06451`.
 
 *Run 2026-11-10 at main `5a69dd0b4`* on macos-user: **passes with the placeholder**: aws-auth's doorway opened and no not-started notice appeared. With a static pair in the private set and the aws-auth profile active, the launch was instead refused by the certain override check. That refusal is expected under [BK-D5](bedrock-key-provider.md#BK-D5) and [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger), not a failed provider gate; the witness's SSO control requires the placeholder-only fixture.
 
+#### W-BK2 follow-up — synthetic static-pair refusal wording
+
+At main `b35cff4e6` or later, use the same isolated workspace and the installed `yolo` built from that main. Do not use a real AWS pair. Add a synthetic pair to the workspace's private set; each edit must display a redacted diff, say `Written.`, and never print either sentinel:
+
+```
+yolo config set env.secrets.set.AWS_ACCESS_KEY_ID '"not-a-real-access-key"' --project
+yolo config set env.secrets.set.AWS_SECRET_ACCESS_KEY '"not-a-real-secret"' --project
+```
+
+Then run the W-BK2 launch:
+
+```
+yolo --setup seatbelt-self -p claude=bedrock -- true
+```
+
+Expected: nonzero exit before the sandbox starts. The refusal names both variables as delivered by `TOML [env.secrets].set`, says the pair is a certain override, and includes the inline-only `yolo config unset env.secrets.set.<NAME>` remedy with the scope options. It also names `yolo config set allow.aws-auth.profile "" --user` as the route that withholds the pointer. Neither synthetic value appears in stdout or stderr.
+
+Remove only the two synthetic values using the advised scope; each diff must remain redacted, report `Written.`, and leave the workspace config valid:
+
+```
+yolo config unset env.secrets.set.AWS_ACCESS_KEY_ID --project
+yolo config unset env.secrets.set.AWS_SECRET_ACCESS_KEY --project
+```
+
+Report: the refusal exit and relevant source/remedy lines, each edit's redacted diff and write notice, and confirmation that neither sentinel appeared. This verifies the certain refusal and its current TOML advice under macos-user; the Linux tests separately pin that each `unset` removes only its named value.
+
+
 ### W-BK3 — one launch cannot mix them ([OQ-BK5](bedrock-key-provider.md#OQ-BK5))
 
 1. In the same workspace:
@@ -305,11 +332,13 @@ Report: the exit code and the full refusal. Settles: [OQ-BK5](bedrock-key-provid
 
 *Run 2026-11-10 at main `5a69dd0b4`* on macos-user: **passes with the placeholder**; the refusal named that one launch cannot mix the routes. With the real static pair and active aws-auth profile, the earlier certain-override refusal fired instead, so the mixed-route remedy was not reached. The override is the intended [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) guard, not evidence that the mix was accepted.
 
-The run also exposed a source-owned refusal wording defect: with the real pair in the current
-`[env.secrets] files` channel and the aws-auth pointer active, the refusal called the source
-`env_sources (the secret channel)` and offered the legacy JSONC form first; it named no `yolo config`
-verb. No credential values appeared. The behavior remains the certain refusal required by
-[OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger); the wording needs a code fix to name
-the current TOML channel and an actionable config command. This docs-only handoff does not change
-that source. No new owner-policy question is filed: [BK-D5](bedrock-key-provider.md#BK-D5) retains
-`bedrock`'s pair claim and [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) prohibits delivering it beside the pointer.
+The run also exposed a source-owned refusal wording defect: a pair from `[env.secrets].files` was labeled
+`env_sources (the secret channel)` and offered the legacy JSONC form first, without a `yolo config` verb.
+The follow-up fixes that wording without changing the certain refusal required by
+[OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger): refusals now distinguish private dotenv
+files from inline `[env.secrets].set`, state that `yolo config unset` does not edit dotenv bytes, and give
+the inline-only command. Config-edit diffs redact existing and newly set inline private values while
+preserving the ordinary diff and `Written.` disclosure. Synthetic-value regression tests cover the removal,
+set, and unrelated-public-edit paths; no credential values were read. No new owner-policy question is filed:
+[BK-D5](bedrock-key-provider.md#BK-D5) retains `bedrock`'s pair claim and
+[OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) prohibits delivering it beside the pointer.
