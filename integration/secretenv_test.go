@@ -7,7 +7,20 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
+
+// secretMoveAdvice is the copyable move a public provider key's refusal names for the place the
+// launch runs (remedyCommand, internal/config/envsecretsrefusal.go): inside a jail the user-scope
+// edit goes through the host-run line, on the host the direct command.
+func secretMoveAdvice() string {
+	if config.InJail() {
+		return "Move it to the private set: yolo host-run -C " + config.JailWorkspace() +
+			" --name config-secret -- yolo config secret ZAI_API_KEY --user"
+	}
+	return "Move it to the private set: yolo config secret ZAI_API_KEY --user"
+}
 
 // secret-env-scoping.md §3.4 rows 1, 3 and 4 end to end: a bare shell holds the public set only, the
 // agent whose selected provider claims a private key receives it in its agent env file, and a
@@ -45,9 +58,9 @@ func TestAPublicProviderKeyRefusesTheLaunch(t *testing.T) {
 	if r.rc == 0 || strings.Contains(r.stdout, "SHOULD-NOT-RUN") {
 		t.Fatalf("a provider key in the public set must refuse the launch:\n%s", r.combined())
 	}
-	if !strings.Contains(r.stderr, "Move it to the private set: yolo config secret ZAI_API_KEY --user") ||
+	if !strings.Contains(r.stderr, secretMoveAdvice()) ||
 		strings.Contains(r.combined(), "zai-probe") {
-		t.Errorf("the refusal names the move and never the value:\n%s", r.combined())
+		t.Errorf("the refusal names the move for this place and never the value:\n%s", r.combined())
 	}
 }
 
@@ -98,8 +111,8 @@ func TestAnAttachRefusesAPublicProviderKey(t *testing.T) {
 	if r.rc == 0 || strings.Contains(r.stdout, "SHOULD-NOT-RUN") {
 		t.Fatalf("an attach over a public provider key must refuse:\n%s", r.combined())
 	}
-	if !strings.Contains(r.stderr, "Move it to the private set: yolo config secret ZAI_API_KEY --user") ||
+	if !strings.Contains(r.stderr, secretMoveAdvice()) ||
 		strings.Contains(r.combined(), "zai-probe") {
-		t.Errorf("the attach's refusal names the move and never the value:\n%s", r.combined())
+		t.Errorf("the attach's refusal names the move for this place and never the value:\n%s", r.combined())
 	}
 }
