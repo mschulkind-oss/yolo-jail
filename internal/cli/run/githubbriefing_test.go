@@ -43,11 +43,18 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		"A repository this workspace has no remote for stays out of scope until the user approves it.",
 		"Run `yolo request github repos OWNER/REPO`, which writes this project's config",
 		"ask the user to run the same command on the host, in this workspace",
-		"Then run `yolo check --no-build`, and ask the user to run `yolo config apply` on the host, in this workspace, and answer y to the repository-scope prompt.",
+		"Then run `yolo config check`, and ask the user to run `yolo config apply` on the host, in this workspace, and answer y to the repository-scope prompt.",
 		"In a jail started by this yolo, the running broker takes the repository at its next call; an older one needs a restart. Nothing changes before that y.",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the github briefing lacks %q:\n%s", want, prose)
+		}
+	}
+	// The retired route: the repository-scope check is `yolo config check` (config only), not the
+	// shape check `yolo check --no-build`, which skips no readiness section the agent needs here.
+	for _, gone := range []string{"Then run `yolo check --no-build`, and ask the user"} {
+		if strings.Contains(flat, gone) {
+			t.Errorf("the github briefing still names the retired route %q:\n%s", gone, prose)
 		}
 	}
 
