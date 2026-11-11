@@ -3,7 +3,7 @@ title: "The Bedrock API key is a provider you select, not a layer you pass"
 date: 2026-11-07
 status: accepted
 stage: BUILT
-next: "Graduate into docs/reference/providers.md once merged and the Mac checks in bedrock-key-provider-plan.md are reported"
+next: "Graduate the built design into docs/reference/providers.md"
 depends-on:
   - bedrock-plumbing.md
   - providers-and-profiles-redesign.md
@@ -13,9 +13,7 @@ summary: "A Bedrock API key becomes a provider named bedrock-key that an owner s
 
 # The Bedrock API key is a provider you select, not a layer you pass
 
-**Status:** 2026-11-10. Built on a branch, not yet merged: `d95b06451` (provider, rule, remedy), `e2eacec79` (integration); plan [`bedrock-key-provider-plan.md`](bedrock-key-provider-plan.md). Evidence verified at `2bbdd801f`. All five questions ruled
-by the owner on 2026-11-09 and folded into the body; the key file's home follows
-[`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
+**Status:** 2026-11-10. Built and merged at `e946cfc39`; the provider and remedy are in main. Evidence verified at `5a69dd0b4`. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4` on darwin/arm64 with installed yolo `0.17.1+197.g5a69dd0b4075`; the placeholder cases passed, and the real static pair exposed the expected aws-auth override refusal recorded below. All five questions were ruled by the owner on 2026-11-09 and folded into the body; the key file's home follows [`secret-env-scoping.md`](secret-env-scoping.md), the same pattern as every provider's key.
 
 > **In short.** The key is already a credential a provider can claim; what it lacks is a provider
 > of its own and a rule that keeps `aws-auth`'s pointer away from that provider. Both come from
@@ -30,9 +28,11 @@ plus a flag, and the layer exists only to hold two facts the provider table coul
 gate rule — a served env contribution reaches an agent only when its provider claims a variable
 the contribution sets.
 
-**Cost.** Selecting `bedrock` means SSO and only SSO: a bearer in `[env] sources` is not used for it,
-and a launch with no SSO credential is refused by the ordinary credential pre-flight. One launch may
-not mix an agent on `bedrock` with one on `bedrock-key`; separate launches in one workspace may.
+**Cost.** `bedrock` does not claim the bearer; it retains the static AWS pair and SSO pointer
+claims. A delivered pair and active aws-auth pointer cannot share a launch, because the pair would
+silently take precedence over narrowed SSO credentials. One launch may not mix an agent on
+`bedrock` with one on `bedrock-key`; separate launches can choose different providers when their
+credential inputs do not conflict.
 
 **Start at [The design](#the-design)** — the provider, the claims, and the two guarantees.
 
@@ -170,13 +170,13 @@ authoring `bedrock-key` would also have to override `providers.bedrock.api_key_e
 ([`credentialscope.go:672-675`](../../internal/packload/credentialscope.go)), a detail nothing would
 tell them.
 
-**Selecting `bedrock` means SSO, and only SSO** ([OQ-BK4](#decision-ledger)). A bearer in
-`[env] sources` is simply not used for an agent on `bedrock`: it is not in that provider's claim
-list, so the gate withholds it and the disclosure names it. A user who selects `bedrock` with a bearer
-and no SSO credential is refused by the ordinary credential pre-flight, which lists the names
-`bedrock` claims and where it looked, exactly as for any provider whose key never arrived. There is
-no alias from `bedrock` to `bedrock-key`, no extra refusal sentence and no migration path: no
-configs of that shape exist to migrate.
+**Selecting `bedrock` does not select the bearer** ([OQ-BK4](#decision-ledger)). A bearer in
+`[env] sources` is not used for an agent on `bedrock`: it is not in that provider's claim list,
+so the gate withholds it and the disclosure names it. `bedrock` does still claim the static AWS
+credential pair, the session token, `AWS_PROFILE` and the container-credentials pointer. When
+`aws-auth` is configured to serve that pointer, a static pair delivered in the same launch is a
+certain override: the launch refuses before the session rather than silently using the long-lived
+pair instead of the narrowed, refreshed SSO credentials ([OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger)). This is the existing credential-isolation rule, not a failure of the `bedrock-key` gate. With no served pointer, the static pair remains an accepted credential under `bedrock`'s claim; `bedrock-key` is the route that accepts either the bearer or pair without claiming the SSO pointer. There is no alias from `bedrock` to `bedrock-key`, no special bearer refusal sentence and no migration path: no configs of that shape exist to migrate.
 
 ### How G1 holds: the credential gate
 
@@ -234,11 +234,18 @@ somewhere, and the check does not ask whether one agent holds both. The refusal'
 changes, because emptying the SSO profile is the wrong advice for this launch: it says that one launch
 cannot mix an agent on `bedrock` with one on `bedrock-key`, and names a launch on either alone.
 
-**Separate launches in the same workspace may each use a different one.** Every fresh launch composes
-its own environment: the gate runs anew, the shared and per-agent env files are rewritten whole on
-every entry ([CN-D7](../reference/providers.md#CN-D7)), and the aws-auth daemon is started only when
-some agent's selection delivers its pointer ([P3](#premises)). So `yolo stop`, then `yolo -p bedrock-key`
-after a jail that ran on `bedrock`, or the reverse, needs nothing this design does not already carry.
+**Separate launches in the same workspace may each use a different one when their credential
+inputs do not conflict.** Every fresh launch composes its own environment: the gate runs anew, the
+shared and per-agent env files are rewritten whole on every entry ([CN-D7](../reference/providers.md#CN-D7)),
+and the aws-auth daemon is started only when some agent's selection delivers its pointer ([P3](#premises)).
+A shared bearer file works for this: `bedrock-key` claims it and `bedrock` does not. A shared static
+pair is different: both providers claim it, so a `bedrock` launch with an active aws-auth pointer
+refuses under [BK-D5](#BK-D5) and [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger).
+That refusal preserves the isolation rule; yolo does not conditionally hide the static pair from one
+provider under the current claims model. To use the SSO route in that situation, keep the pair out
+of that launch's private set; to use the pair without aws-auth's pointer, `bedrock-key` provides the
+route that does not claim the pointer. The current design does not scope one private file to only
+one of these providers.
 
 What this doc does **not** promise is an attach into a running jail with the other provider. An attach
 composes against the daemons the running jail started at boot and never starts one
@@ -268,8 +275,9 @@ deleting a file, or not; yolo never edits it.
 | Situation | What the person sees |
 | :--- | :--- |
 | `-p bedrock-key` with no key file loaded | the credential pre-flight's refusal naming `AWS_BEARER_TOKEN_BEDROCK` and the `[env] sources` it consulted ([`internal/cli/run/providerpreflight.go:56`](../../internal/cli/run/providerpreflight.go)); the value is never printed |
-| key file loaded, `-p bedrock` (SSO) | the launch runs on SSO; the bearer is withheld from every process and the disclosure names it |
-| `-p claude=bedrock-key,codex=bedrock` in one launch | **refused**, as today, by the launch-wide override check ([P4](#premises)); the remedy sentence says one launch cannot mix the two and names a launch on either alone ([two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch)) |
+| key file loaded, `-p bedrock` (SSO) | with no static pair delivered, the launch runs on SSO; the bearer is withheld from every process and the disclosure names it |
+| static pair and an active aws-auth pointer in the same launch | **refused** by the certain override rule ([OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger)); the static pair would be used before the narrowed pointer credentials |
+| `-p claude=bedrock-key,codex=bedrock` in one launch | **refused**, as today, by the launch-wide override check ([P4](#premises)); the remedy says one launch cannot mix the two and names a launch on either alone ([two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch)) |
 | `-p bedrock` with a bearer and no SSO credential | the ordinary credential pre-flight refusal, naming the five names `bedrock` claims and where it looked; the bearer is not used for `bedrock` ([the claims](#the-claims-and-why-bedrock-must-narrow)) |
 
 ## Non-goals
@@ -307,14 +315,14 @@ The owner's rulings of 2026-11-09 first (BK-D6 carries [OQ-BK3](#OQ-BK3)'s), the
 | <a id="OQ-BK1"></a>[OQ-BK1](#OQ-BK1) | **`bedrock-key` ships in `packs/bedrock`, beside the narrowed `bedrock`.** The owner: *"the narrowing is the half nobody would guess, and shipping both halves is the only way it is always present together."* | 2026-11-09 | [The provider](#the-provider) | `d95b06451` |
 | <a id="OQ-BK2"></a>[OQ-BK2](#OQ-BK2) | **A served pointer reaches only an agent whose provider claims a variable it sets; the gate reads the declared claims, and no new provider key expresses it.** The owner: *"the pointer variable is already in bedrock's claim list and absent from bedrock-key's; the gate only has to read what is declared."* | 2026-11-09 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | `d95b06451` |
 | <a id="BK-D6"></a><a id="OQ-BK3"></a>BK-D6 ([OQ-BK3](#OQ-BK3)) | **The key file goes in the user config's `[env.secrets]`, its reach decided by the claim**, the same pattern as every provider in [`secret-env-scoping.md`](secret-env-scoping.md); `yolo -p bedrock-key` and `yolo active-provider` are the whole recipe, and no layer or flag is needed. The owner: *"obviously A. that's the point of the design, no?"* | 2026-11-09 | [How G1 holds](#how-g1-holds-the-credential-gate) | user guide recipe, with this status line |
-| <a id="OQ-BK4"></a>[OQ-BK4](#OQ-BK4) | **Narrow, with no migration path.** Selecting `bedrock` uses SSO and only SSO; a bearer in `[env] sources` is not used for it; the ordinary credential pre-flight refusal stands, with no alias and no special line. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | `d95b06451` |
+| <a id="OQ-BK4"></a>[OQ-BK4](#OQ-BK4) | **Narrow, with no migration path from the bearer.** Selecting `bedrock` never uses `AWS_BEARER_TOKEN_BEDROCK`; the ordinary credential pre-flight stands when its claimed credentials are absent. The retained static AWS pair claim is stated separately in [BK-D5](#BK-D5), and a pair delivered beside the aws-auth pointer is refused under [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger). No alias or special bearer refusal line is added. The owner: *"We don't need any happy path here … for migrating configs, because nobody has any configs."* May be superseded by [`secret-env-scoping.md`](secret-env-scoping.md), which the owner named as "the other design going on" | 2026-11-09 | [The claims](#the-claims-and-why-bedrock-must-narrow) | `d95b06451` |
 | <a id="OQ-BK5"></a>[OQ-BK5](#OQ-BK5) | **Not in one launch; yes in one jail or workspace.** One launch may not mix an agent on `bedrock` with one on `bedrock-key` (refused as today, with the corrected remedy sentence); separate launches in the same workspace may each use a different one, by stop and relaunch. An attach with the other provider is not promised until its pre-flight placement is verified. The owner: *"in the same jail/workspace? yes, in the same launch? no."* | 2026-11-09 | [Two providers in one workspace](#two-providers-in-one-workspace-never-in-one-launch) | `d95b06451` |
 | <a id="BK-D1"></a>BK-D1 | **User-declared providers are selectable, and the help says so.** The launch, `yolo active-provider` and `yolo check` already resolve a user's `providers` entry by name ([P1](#premises)). The two strings that say "one a selected pack declares" are corrected to "one a selected pack or your `providers` table declares"; no selection code changes | 2026-11-07 | [Selection](#selection) | `config_ref.txt`, with this status line |
 | <a id="BK-D2"></a>BK-D2 | **`bedrock-key` is on platform `aws-bedrock`.** Every Bedrock fact keys on the platform; a second value would duplicate them to switch off one pointer | 2026-11-07 | [Alternatives](#alternatives-considered) | `d95b06451` |
 | <a id="BK-D3"></a>BK-D3 | **The pointer rule ([OQ-BK2](#decision-ledger)'s form) lives in the per-agent gate every notch shares** (`gateFiresFor`), never in a notch's composition, so jail, macos-user and host give one answer | 2026-11-07 | [How G2 holds](#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it) | `d95b06451` |
 | <a id="BK-D4"></a>BK-D4 | **No message this design adds prints a credential value.** Refusals and disclosures name variables and files, as the existing ones do | 2026-11-07 | [Failure paths](#failure-paths-stated) | `d95b06451` |
-| <a id="BK-D5"></a>BK-D5 | **`bedrock-key` also takes a static key pair.** It claims `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` beside the bearer, so a key file holding an IAM key pair works with `-p bedrock-key`; it still claims neither `AWS_PROFILE` nor the pointer, so aws-auth stays out of such a launch and the key pair overrides nothing. `bedrock` keeps its claim on the pair too. The owner: *"why don't swe suport access/secret? I want to"* | 2026-11-10 | [The claims](#the-claims-and-why-bedrock-must-narrow) | ✅ `TestBedrockKeyReceivesAStaticKeyPair`, `TestABedrockKeyLaunchWithAKeyPairTripsNoOverride` |
-| <a id="BK-D5"></a>BK-D5 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | nothing to build |
+| <a id="BK-D5"></a>BK-D5 | **`bedrock-key` also takes a static key pair.** It claims `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` beside the bearer, so a key file holding an IAM key pair works with `-p bedrock-key`; it still claims neither `AWS_PROFILE` nor the pointer, so aws-auth stays out of a `bedrock-key` launch and the pair does not override anything there. `bedrock` retains its claim on the pair; where that pair is delivered beside aws-auth's pointer, the existing certain-override refusal applies ([OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger)). The owner: *"why don't swe suport access/secret? I want to"* | 2026-11-10 | [The claims](#the-claims-and-why-bedrock-must-narrow) | ✅ `TestBedrockKeyReceivesAStaticKeyPair`, `TestABedrockKeyLaunchWithAKeyPairTripsNoOverride` |
+| <a id="BK-D7"></a>BK-D7 | **The layer recipe is not removed or warned about.** It stays a working spelling; the owner retires it by deleting a file | 2026-11-07 | [The layer](#what-happens-to-the---user-layer-recipe) | nothing to build |
 
 ## Appendix: evidence
 

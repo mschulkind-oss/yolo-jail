@@ -2,16 +2,15 @@
 title: "A jail's host helpers should run the build that launched it, and say which build that is"
 date: 2026-11-10
 status: accepted
-stage: DECIDED
-next: "Built; the owner's Mac agent runs the Mac checks W-PH1 to W-PH5"
+stage: BUILT
+next: "Graduate this built design into the system reference"
 tags: [design, host-services, keeper, daemons, install, bundles, logging]
 summary: "Every host-side process that serves one jail or one launch (keeper, host daemons, launch-owned services, yolo host's private daemons, removers) is exec'd from one pinned file, the host-OS yolo inside the bundle the launch resolved, checked unchanged before every exec, so it runs the launch's build for the jail's whole life or does not run at all. Each such daemon writes a start line naming its build, commit, pid, jail and executable. The user config stays shared and unpinned; the 3f58db1cc own-table read and the config-apply note cover that skew."
 ---
 
 # A jail's host helpers should run the build that launched it, and say which build that is
 
-**Status:** 2026-11-10. Built. Every rule below is decided; no question is open. Evidence
-verified against `e5a75f551`.
+**Status:** 2026-11-10. Built; source verified at `e5a75f551`. MEASURED: the owner's Mac ran W-PH1 to W-PH5 at main `5a69dd0b4` on darwin/arm64 with installed yolo `0.17.1+197.g5a69dd0b4075`, Apple Container CLI 1.1.0 and podman machine `applehv`; W-PH2 and W-PH3 passed on `podman-self`, W-PH4 passed with its explicit Seatbelt setup, and W-PH5 printed `ok`. Apple Container cannot run W-PH2's git-broker witness because git-broker is inert on that backend.
 
 > **In short.** A host helper's build should be a property of the launch that started it, not of
 > whatever file sits at a path when the helper happens to start or restart. One pinned file per
@@ -309,9 +308,10 @@ What covers that skew, unchanged by this design:
 Linux runs the keeper's own self-execs through `/proc/self/exe`, so the nested jail and the
 integration suite never reach the pin-path exec, its `stat` check, or the darwin bundle. These
 witnesses settle them on a Mac, at main `2590e19cc` or later. Run each from a fresh workspace under
-`/Users/Shared/yolo/<x>` with `yolo` installed from that main by `just install` (W-PH4 uses the
-`seatbelt-self` setup; the others use a container setup, Apple Container or podman). Paste every
-output named under "report". Commands below use `darwin-arm64`; on Intel read `darwin-amd64`.
+`/Users/Shared/yolo/<x>` with `yolo` installed from that main by `just install`. W-PH2 and W-PH3
+require `podman-self` because Apple Container carries no container→host connection for git-broker;
+W-PH4 uses `seatbelt-self`. Paste every output named under "report". Commands below use
+`darwin-arm64`; on Intel read `darwin-amd64`.
 
 ### W-PH1: the darwin bundle carries the host yolo, and the launcher is that file (PH-D2)
 
@@ -322,11 +322,11 @@ output named under "report". Commands below use `darwin-arm64`; on Intel read `d
 
 Report: both outputs. Settles PH-D2 on macOS.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes**.
+*Run 2026-11-10 at main `5a69dd0b4`* (darwin/arm64, installed build `0.17.1+197.g5a69dd0b4075`): **passes**. The directory contains the host `yolo` beside the guest binaries, and `cmp` printed `same`.
 
 ### W-PH2: a container jail's helpers run from the pin and say so (PH-D1, PH-D3, PH-D4, PH-D9)
 
-1. Start a jail in the workspace with `yolo -- sh -c 'echo $YOLO_VERSION; sleep 600'` and leave it running.
+1. Start a jail in the workspace with `yolo --setup podman-self -- sh -c 'echo $YOLO_VERSION; sleep 600'` and leave it running.
 2. In another terminal: `ps -axo pid,args | grep 'internal daemon' | grep -v grep`
    Every line, the `jail-keeper` and `git-broker` included, starts with a path under
    `~/.local/share/yolo-jail/flake-bundles/<generation>/bin/darwin-arm64/yolo`, never `$GOBIN/yolo`
@@ -339,7 +339,7 @@ Report: both outputs. Settles PH-D2 on macOS.
 
 Report: the outputs of steps 2–4 and the jail's `$YOLO_VERSION`. Settles PH-D3, PH-D4 and PH-D9 off Linux.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes on `podman-self`**. On Apple Container, git-broker is inert (no container→host connection), so steps 2–3 cannot pass there; this witness should name podman.
+*Run 2026-11-10 at main `5a69dd0b4`* on `podman-self`: **passes**. The jail version and every listed helper (jail-keeper, host-processes, serial, git-broker, github-broker, aws-auth, openai-auth-broker and claude-oauth-broker) matched the darwin bundle path; the git-broker start line matched build, commit and jail. Apple Container was also tried, but git-broker is inert there, so steps 2–3 require podman.
 
 ### W-PH3: a restart after the pin changed gives up (PH-D6, PH-D18)
 
@@ -358,19 +358,19 @@ With the W-PH2 jail still running:
 Report: steps 3 and 4. A restart (a second start line) fails it. Settles PH-D6 and PH-D18 off Linux.
 End with `yolo stop` in the workspace.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#1-w-ph2-and-w-ph3-ran-on-podman)): **passes** on `podman-self`: the "not restarting it" line, no second start line, no broker process.
+*Run 2026-11-10 at main `5a69dd0b4`* on `podman-self`: **passes**. After the pinned file's modification time changed, the broker logged the give-up reason and stop step; no second start line or broker process remained.
 
 ### W-PH4: macos-user helpers run from the pin, and a dry run still plans (PH-D4, PH-D21)
 
-1. In a `seatbelt-self` workspace: `yolo -- sh -c 'sleep 300'`, and while it runs:
+1. In a fresh workspace, start with `yolo --setup seatbelt-self -- sh -c 'sleep 300'`, and while it runs:
    `grep -h 'helper start:' ~/.local/share/yolo-jail/logs/launch-service-*.log ~/.local/share/yolo-jail/logs/host-service-*.log | tail -5`
    Lines from this session show `exe=` under the bundle's `bin/darwin-arm64/yolo` and `jail=` this
    session's key.
-2. `yolo run --dry-run; echo "rc=$?"` in the same workspace prints the plan and `rc=0`.
+2. `yolo run --setup seatbelt-self --dry-run; echo "rc=$?"` in the same workspace prints the plan and `rc=0`.
 
 Report: both outputs. Settles PH-D4 for macos-user and PH-D21.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#2-w-ph4s-dry-run-and-the-workspaces-default-setup)): **passes**. Step 2 as written exits 1 in a workspace whose default is `apple-container-self`; `yolo run --setup seatbelt-self --dry-run` prints the plan and exits 0, so the step needs that `--setup`.
+*Run 2026-11-10 at main `5a69dd0b4`*: **passes**. The helper start lines used the pinned bundle path. In a workspace defaulting to `apple-container-self`, the dry run needed the explicit `--setup seatbelt-self`; that command printed the plan and exited 0.
 
 ### W-PH5: the generation reaper's process reader works on macOS (PH-D8, PH-D14)
 
@@ -379,7 +379,7 @@ Report: both outputs. Settles PH-D4 for macos-user and PH-D21.
 
 Report: the output. A failure means a running helper's generation could be reaped on macOS.
 
-*Run 2026-11-10 at `5a69dd0b4`*: **passes** (`ok`).
+*Run 2026-11-10 at main `5a69dd0b4`*: **passes**; `go test -count=1 -run TestProcessExesNamesTheRunningBinary ./internal/prune` printed `ok`.
 
 ## Decision Ledger
 

@@ -3,7 +3,7 @@ title: "Bedrock-key provider: implementation plan"
 date: 2026-11-10
 status: accepted
 stage: BUILT
-next: "Landed at `e946cfc39`; the owner's Mac agent runs W-BK1 to W-BK3 at main and files a lab report"
+next: "Correct the env-override refusal's stale env.secrets remedy and re-run W-BK2 with a static pair"
 depends-on:
   - bedrock-key-provider.md
   - secret-env-scoping.md
@@ -12,9 +12,9 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 
 # Bedrock-key provider: implementation plan
 
-**Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`; built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. The Traps section records where the build overrode this plan.
+**Status:** 2026-11-10. Completed against the tree, written against `bc3d3d8e4`; built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. The Traps section records where the build overrode this plan. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
-(rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D6 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
+(rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D7 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
 The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
 (`stage: BUILT`), so nothing here waits on it.
 
@@ -216,7 +216,7 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 - Don't add a provider key (`login`, `aws_auth`) — rejected, [OQ-BK2](bedrock-key-provider.md#OQ-BK2).
 - Don't alias `bedrock` to `bedrock-key` or add a migration line — rejected, [OQ-BK4](bedrock-key-provider.md#OQ-BK4).
 - Don't add a per-agent override pre-flight — rejected, [OQ-BK5](bedrock-key-provider.md#OQ-BK5).
-- Don't touch or warn about the `--user-layer` recipe — BK-D5.
+- Don't touch or warn about the `--user-layer` recipe — [BK-D7](bedrock-key-provider.md#BK-D7).
 - Don't promise an attach with the other provider — the design leaves it unpromised.
 
 ## Mac checks
@@ -249,7 +249,9 @@ unnarrowed = true
 set = { AWS_BEARER_TOKEN_BEDROCK = "not-a-real-key" }
 ```
 
-The key value is a placeholder: no witness sends a request, and no line may print it.
+The key value is a placeholder: no witness sends a request, and no line may print it. Keep the
+static pair out of this fixture: W-BK2 measures the SSO control, and W-BK3 measures the mixed
+provider refusal without also triggering the separate static-pair override.
 
 ### W-BK1 — `bedrock-key` opens no aws-auth doorway ([OQ-BK2](bedrock-key-provider.md#OQ-BK2), CN-D22)
 
@@ -268,7 +270,7 @@ The key value is a placeholder: no witness sends a request, and no line may prin
 Report: the exit code and every stderr line naming `aws-auth`. Settles: [OQ-BK2](bedrock-key-provider.md#OQ-BK2)'s Built column at the
 macos-user notch.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes**, with the placeholder and with the owner's real static key pair.
+*Run 2026-11-10 at main `5a69dd0b4`* on macos-user: **passes** with the placeholder and with the owner's real static pair in the private set. It printed the not-started notice and did not open the aws-auth doorway; no credential value appeared.
 
 ### W-BK2 — `bedrock` still opens it ([OQ-BK4](bedrock-key-provider.md#OQ-BK4), the control)
 
@@ -285,7 +287,7 @@ Report: the exit code and the `aws-auth` lines. Settles: that the narrowing left
 macos-user. If W-BK1 passes and this fails, the rule is withholding from a claiming provider: file it as a
 defect against `d95b06451`.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes with the placeholder. With the owner's real static key pair in the private set, refused** by the aws-auth override check, because `bedrock` claims the pair too ([BK-D5](bedrock-key-provider.md#BK-D5)). Owner decision.
+*Run 2026-11-10 at main `5a69dd0b4`* on macos-user: **passes with the placeholder**: aws-auth's doorway opened and no not-started notice appeared. With a static pair in the private set and the aws-auth profile active, the launch was instead refused by the certain override check. That refusal is expected under [BK-D5](bedrock-key-provider.md#BK-D5) and [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger), not a failed provider gate; the witness's SSO control requires the placeholder-only fixture.
 
 ### W-BK3 — one launch cannot mix them ([OQ-BK5](bedrock-key-provider.md#OQ-BK5))
 
@@ -301,4 +303,13 @@ defect against `d95b06451`.
 
 Report: the exit code and the full refusal. Settles: [OQ-BK5](bedrock-key-provider.md#OQ-BK5)'s remedy at the macos-user notch.
 
-*Run 2026-11-10 at `5a69dd0b4`* ([lab report](../lab-reports/2026-11-10-mac-pinned-helpers-and-bedrock-key.md#3-a-static-key-pair-in-the-private-set-blocks-every-bedrock-launch)): **passes with the placeholder.** With the real pair, the override refusal fires instead and the "cannot mix" remedy never shows.
+*Run 2026-11-10 at main `5a69dd0b4`* on macos-user: **passes with the placeholder**; the refusal named that one launch cannot mix the routes. With the real static pair and active aws-auth profile, the earlier certain-override refusal fired instead, so the mixed-route remedy was not reached. The override is the intended [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) guard, not evidence that the mix was accepted.
+
+The run also exposed a source-owned refusal wording defect: with the real pair in the current
+`[env.secrets] files` channel and the aws-auth pointer active, the refusal called the source
+`env_sources (the secret channel)` and offered the legacy JSONC form first; it named no `yolo config`
+verb. No credential values appeared. The behavior remains the certain refusal required by
+[OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger); the wording needs a code fix to name
+the current TOML channel and an actionable config command. This docs-only handoff does not change
+that source. No new owner-policy question is filed: [BK-D5](bedrock-key-provider.md#BK-D5) retains
+`bedrock`'s pair claim and [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) prohibits delivering it beside the pointer.
