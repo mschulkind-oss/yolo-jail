@@ -149,9 +149,9 @@ func gitBrokerDaemonLog(t *testing.T) string {
 	return "\n--- " + p + " ---\n" + string(b)
 }
 
-// gitBrokerFixtureDiagnostics preserves the host-side evidence when the jail cannot read
-// the fixture's upstream: whether the bare repository is complete, which fake ssh command ran,
-// and how many bytes crossed the jail/host boundary for git-broker.
+// gitBrokerFixtureDiagnostics preserves host-side evidence when the jail cannot read the
+// fixture's upstream: bare-repository integrity, fake-SSH argv, and host-side crossing socket-write
+// counters, which do not establish what the client received or stored.
 func gitBrokerFixtureDiagnostics(t *testing.T, fx gitBrokerFixture) string {
 	t.Helper()
 	var b strings.Builder
@@ -174,7 +174,7 @@ func gitBrokerFixtureDiagnostics(t *testing.T, fx gitBrokerFixture) string {
 				relevant = append(relevant, line)
 			}
 		}
-		fmt.Fprintf(&b, "--- git-broker crossings (%s) ---\n%s\n", p, strings.Join(relevant, "\n"))
+		fmt.Fprintf(&b, "--- git-broker host crossing socket-write counters (not client receipt evidence) (%s) ---\n%s\n", p, strings.Join(relevant, "\n"))
 	} else {
 		fmt.Fprintf(&b, "(no crossing log at %s: %v)\n", p, readErr)
 	}
@@ -363,24 +363,55 @@ func TestGitBrokerCreateBranch(t *testing.T) {
 // push, and its main does not move.
 func TestGitBrokerConfigBranch(t *testing.T) {
 	const userCfg = `{"packs": ["git"], "brokered": {"git": {"grant_kinds": ["branch"], "grants": [` + gitReadGrant + `]}}}`
-	const push = "g fetch -q origin && g checkout -q -b work origin/main && g commit -q --allow-empty -m agent && g push origin HEAD:main"
 	launch := func(fx gitBrokerFixture, step string) (string, string) {
 		t.Helper()
-		r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", gitInJail + ghScript(push, "g rev-parse HEAD | sed 's/^/HEAD=/'")}, fx.opts...)
+		// Capture fetch separately from the policy-sensitive push. Packet tracing is limited to
+		// this fake-SSH fixture; client object checks run before the jail is torn down.
+		script := fmt.Sprintf(`fetch_rc=0
+GIT_TRACE_PACKET=1 g fetch -q origin || fetch_rc=$?
+echo FETCH_RC=$fetch_rc
+cat_file_rc=0
+g cat-file -e '%s^{commit}' || cat_file_rc=$?
+echo CLIENT_UPSTREAM_RC=$cat_file_rc
+fsck_rc=0
+g fsck --full || fsck_rc=$?
+echo CLIENT_FSCK_RC=$fsck_rc
+prep_rc=0
+push_rc=skipped
+if [ "$fetch_rc" -eq 0 ]; then
+  g checkout -q -b work origin/main && g commit -q --allow-empty -m agent || prep_rc=$?
+  echo PREP_RC=$prep_rc
+  if [ "$prep_rc" -eq 0 ]; then
+    g push origin HEAD:main
+    push_rc=$?
+  fi
+fi
+echo PUSH_RC=$push_rc
+g rev-parse HEAD | sed 's/^/HEAD=/'`, fx.upstream)
+		r := runCommand(t, fx.dir, []string{"run", "--", "bash", "-lc", gitInJail + ghScript(script)}, fx.opts...)
 		t.Logf("%s: rc %d\n%s", step, r.rc, r.combined())
 		if r.rc != 0 {
 			t.Fatalf("%s: the launch failed: rc %d\n%s%s", step, r.rc, r.combined(), gitBrokerDaemonLog(t))
 		}
 		return r.combined(), kvLine(r.stdout, "HEAD")
 	}
+	checkRoundTrip := func(fx gitBrokerFixture, out, step, wantPushRC string) {
+		t.Helper()
+		for _, check := range []struct{ key, want string }{
+			{"FETCH_RC", "0"}, {"CLIENT_UPSTREAM_RC", "0"}, {"CLIENT_FSCK_RC", "0"}, {"PREP_RC", "0"}, {"PUSH_RC", wantPushRC},
+		} {
+			if got := kvLine(out, check.key); got != check.want {
+				t.Fatalf("%s: %s=%q, want %q; host diagnostics follow\n%s%s%s", step, check.key, got, check.want, out,
+					gitBrokerDaemonLog(t), gitBrokerFixtureDiagnostics(t, fx))
+			}
+		}
+	}
 
 	fx := newGitBrokerFixtureWith(t, userCfg,
 		`{"brokered": {"git": {"grants": [{"kind": "branch", "repo": "fixture.test/o/r", "branch": "main"}]}}}`)
 	fx.recordScope(t, "git@fixture.test:o/r.git")
 	out, head := launch(fx, "with the grant")
-	if kvLine(out, "RCA") != "0" {
-		t.Fatalf("with the grant, the push to main failed:\n%s%s%s", out, gitBrokerDaemonLog(t), gitBrokerFixtureDiagnostics(t, fx))
-	}
+	checkRoundTrip(fx, out, "with the grant", "0")
 	if got := hostGit(t, fx.bare, "rev-parse", "refs/heads/main"); got != head || head == "" || got == fx.upstream {
 		t.Fatalf("the upstream's main is %s, want the jail's HEAD %q%s", got, head, gitBrokerDaemonLog(t))
 	}
@@ -401,7 +432,8 @@ func TestGitBrokerConfigBranch(t *testing.T) {
 	without := newGitBrokerFixtureWith(t, userCfg, `{}`)
 	without.recordScope(t, "git@fixture.test:o/r.git")
 	out, _ = launch(without, "without the grant")
-	if kvLine(out, "RCA") != "1" || !strings.Contains(out, "(needs approval: r-") {
+	checkRoundTrip(without, out, "without the grant", "1")
+	if !strings.Contains(out, "(needs approval: r-") {
 		t.Fatalf("without the grant, the push to main was not refused:\n%s%s%s", out, gitBrokerDaemonLog(t), gitBrokerFixtureDiagnostics(t, without))
 	}
 	if got := hostGit(t, without.bare, "rev-parse", "refs/heads/main"); got != without.upstream {
