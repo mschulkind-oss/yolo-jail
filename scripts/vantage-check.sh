@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run vantage-check, at a pinned release, on a pipe of its own. `just lint-ci` calls this, never
+# Run vantage-check, at its latest release, on a pipe of its own. `just lint-ci` calls this, never
 # `uvx vantage-check` directly.
 #
 # vantage-check leaves its stdout and stderr in non-blocking mode (O_NONBLOCK) when it
@@ -13,7 +13,6 @@
 # that pipe, and the gate's shared output stays blocking. pipefail keeps vantage-check's
 # own exit status.
 set -euo pipefail
-# PINNED, not @latest: a new upstream release must not turn a document nobody changed red, and
-# `just done` relies on a document's check depending only on the document. Raise the pin in its
-# own commit; changing this file sends `just done` to the full gate.
-uvx vantage-check@0.11.0 "$@" </dev/null 2>&1 | cat
+# UNPINNED, by the owner's ruling (2026-11-10, CAC-D16): @latest makes uvx check for a new
+# release on every run, so the gate always runs vantage-check's current rules.
+uvx vantage-check@latest "$@" </dev/null 2>&1 | cat

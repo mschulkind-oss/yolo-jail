@@ -716,12 +716,12 @@ class CallSites(unittest.TestCase):
         self.assertIn("python3 scripts/test-go-packages.py", body)
         self.assertIn("python3 scripts/test-completion-check.py", body)
 
-    def test_the_markdown_checker_is_pinned(self):
-        # An upstream release must not turn an unchanged document red; changing the pin is a
-        # scripts/ change, which runs the full gate.
+    def test_the_markdown_checker_runs_its_latest_release(self):
+        # The owner's ruling (CAC-D16, 2026-11-10): no pin, so the gate runs vantage-check's
+        # current rules.
         wrapper = (REPO / "scripts" / "vantage-check.sh").read_text()
-        self.assertRegex(wrapper, r"uvx vantage-check@\d+\.\d+\.\d+ ")
-        self.assertNotIn("vantage-check@latest", wrapper)
+        self.assertIn("uvx vantage-check@latest ", wrapper)
+        self.assertNotRegex(wrapper, r"vantage-check@\d")
 
     def test_the_readers_file_names_real_packages_and_tests(self):
         doc = json.loads((REPO / "scripts" / "completion-readers.json").read_text())

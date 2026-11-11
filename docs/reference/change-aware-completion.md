@@ -93,7 +93,7 @@ names what ran, what was inherited from the baseline, and what `just done` never
      gained or lost a direct entry ([CAC-D10](#CAC-D10)), and on every change every **scanning**
      test ([CAC-D15](#CAC-D15));
    - `gofmt -l` on the changed Go files;
-   - for documents: the [Vantage wrapper](../../scripts/vantage-check.sh), at a pinned release, on
+   - for documents: the [Vantage wrapper](../../scripts/vantage-check.sh), at its latest release, on
      changed Markdown ([CAC-D14](#CAC-D14), [CAC-D16](#CAC-D16)); the guide's closed-tree and
      whole-guide checks when `userguide/` changed; and the changelog extraction tests when
      `CHANGELOG.md` changed.
@@ -205,7 +205,7 @@ the rows below; git history keeps it.
 | <a id="CAC-D13"></a>CAC-D13 | **A HEAD whose tree equals a verified tree under the same context runs no check.** That record is an actual green for exactly these inputs |
 | <a id="CAC-D14"></a>CAC-D14 | **Every changed Markdown file outside a Go package directory gets the Vantage check**, `docs/` included, which `check-ci` does not check. A check that skipped known-bad files would hide new findings in them |
 | <a id="CAC-D15"></a>CAC-D15 | **Every scanning test runs on every selective check.** A recorded set went stale between census runs: deleting a cited document selected none of the citation test, and `just done` would have recorded a tree `check-ci` rejects. Go's test cache skips them when nothing they read changed |
-| <a id="CAC-D16"></a>CAC-D16 | **The Vantage wrapper runs a pinned release, never `@latest`.** An upstream release must not turn a document nobody changed red. Raising the pin changes `scripts/`, so that commit runs the full gate (`test_the_markdown_checker_is_pinned`) |
+| <a id="CAC-D16"></a>CAC-D16 | **The Vantage wrapper runs `vantage-check@latest`, with no pin.** The owner, 2026-11-10: *"remove the vantage check pin entirely"*. It reverses the earlier pin, which held the gate on 0.10.0 after 0.11.0 dropped a warning this project ignores. The cost is accepted: a new upstream release can turn a document nobody changed red, and `just done` then reports it (`test_the_markdown_checker_runs_its_latest_release`) |
 | <a id="CAC-D17"></a>CAC-D17 | **`scripts/completion-readers.json` is exempt from the global-input rule.** It is reader-selection data read fresh, not a gate input; treating it as global forced a nine-minute full gate on every census refresh. Every other `scripts/` path and every genuine global input still runs the full gate |
 | <a id="CAC-D18"></a>CAC-D18 | **The local route tests the changed packages and leaves the importer closure's tests to CI**, authorized by the owner 2026-10-12. Lint still covers the closure. Go's test cache invalidates for every package a change reaches, so running the closure's suite made `just done` cost what the gate it narrows costs |
 
@@ -222,4 +222,4 @@ place the exact values are stated.
 | Context keys | `GOVERSION`, `GOOS`, `GOARCH`, `GOROOT`, `GOFLAGS`, `CGO_ENABLED`, `GOEXPERIMENT`, `GOAMD64`, `GOARM64`, `GOTOOLCHAIN`, `GOWORK`, `CC`, plus staticcheck's path and version | `GO_ENV_KEYS` |
 | Lint passes | `go vet` and staticcheck for linux and darwin; darwin staticcheck excludes SA4023 | `LINT_PASSES` |
 | Global inputs | `GLOBAL_FILES`, and the prefixes `vendor/`, `.github/`, `scripts/` | `scripts/completion-check.py` |
-| Vantage pin | `vantage-check@0.10.0` | `scripts/vantage-check.sh` |
+| Vantage release | `vantage-check@latest`, unpinned | `scripts/vantage-check.sh` |
