@@ -3,7 +3,7 @@ title: "Who may talk to the approval queue: a terminal-delivered secret, never a
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Rule OQ-BT1; meanwhile the read-only experiment adopts the requirements in §8"
+next: "Rule OQ-BT1 before mutation; complete the remaining real-host, browser and desktop-opener checks for the built read-only slice"
 depends-on:
   - README.md
 tags: [design, approvals, queue, browser, security, trust-boundary]
@@ -12,10 +12,15 @@ summary: "The browser trust boundary for the optional approval queue (W2). Loopb
 
 # Who may talk to the approval queue: a terminal-delivered secret, never an ambient one
 
-**Status:** 2026-11-09. Nothing built. Evidence checked against yolo `04f300a9e`. UNMEASURED: no
-connection from a jail to a host listener has been observed from the host side; the source-address
-claim in [§3](#3-why-loopback-binding-and-peer-checks-are-not-a-boundary) is inferred from the
-forwarding mechanism and is test T2's to measure.
+**Status:** Read-only bootstrap, Host/Origin checks, header-token authentication, rendering
+hardening and the bootstrap race alarm are built in
+[`internal/approvalqueue`](../../../internal/approvalqueue/), checked against source at
+`62b8bbda3`. The earlier design evidence was checked at `04f300a9e`. No mutation route or
+mutation tests are implemented. The [umbrella's test evidence](README.md#54-the-read-only-queue-as-built-yolo-approve---web)
+distinguishes implemented unit/static checks from outstanding real-host, real-browser and desktop
+proof. UNMEASURED: no connection from a jail to a host listener has been observed from the host
+side; the source-address claim in [§3](#3-why-loopback-binding-and-peer-checks-are-not-a-boundary)
+is inferred from the forwarding mechanism and is test T2's to measure.
 
 > **In short.** Anything a jail can do on the host's loopback, it can do to the queue, so the
 > queue trusts only a secret the jail never sees: a per-launch token minted in the queue's memory,
@@ -59,11 +64,14 @@ authorize building any mutation route.
 
 **Verdict.**
 
-1. The read-only experiment adopts [§8](#8-the-read-only-slice-requirements) now, in full. It is a
-   hardened version of the plan of a URL-carried token swapped for a cookie: the code rides in the
-   URL *fragment*, and the cookie is replaced by a header token.
-2. A mutation route may exist only after every test marked *mutation gate* in
-   [§7](#7-test-plan) passes, including the ones that need a real jail on a rootless host.
+1. The read-only experiment implements [§8](#8-the-read-only-slice-requirements). It is a
+   hardened version of the earlier URL-carried-token/cookie plan: the code rides in the
+   URL *fragment*, and the cookie is replaced by a header token. Implementation does not close
+   the outstanding runtime evidence gates.
+2. A mutation route may exist only after [OQ-BT1](#OQ-BT1) is settled and every test marked
+   *mutation gate* in [§7](#7-test-plan) passes, including the ones that need a real jail on a
+   rootless host. The bootstrap shape in [§4.2](#42-the-flow) is already ruled and built;
+   it is not an additional owner question.
 3. No CLI change is needed for either slice ([§6.1](#61-provenance-a-browser-decision-is-a-host-decision)).
 
 ### Non-goals
@@ -284,8 +292,9 @@ send a header. It reconnects with the same token; a 401 sends the page to the "g
 
 ## 6. The mutation slice: per-action binding
 
-Designed now so the read-only slice does not foreclose it; **built only after the mutation gate in
-[§7](#7-test-plan) passes.** Nothing below adds a CLI surface.
+Designed now so the read-only slice does not foreclose it; **not implemented.** Building it waits
+on [OQ-BT1](#OQ-BT1), and enabling it waits on the mutation gate in [§7](#7-test-plan).
+Nothing below adds a CLI surface.
 
 **Offered actions, by source.** The listing's per-source `authority` field
 ([`watch.go`](../../../internal/brokerstore/watch.go#L257)) is `core` or `deny-only`.
@@ -349,6 +358,11 @@ is wanted later, it is a named question in [boundary-broker.md](../boundary-brok
 
 ## 7. Test plan
 
+**Delivery evidence.** This is the test plan, not a table of passes. The detailed
+[read-only evidence report](README.md#54-the-read-only-queue-as-built-yolo-approve---web) records
+which portions have automated coverage and which remain unrun. T14–T21 are planned, not
+implemented. No runtime tests were newly run for this documentation check.
+
 **Where they run.** *Unit*: Go `httptest` with a fake `yolo` that records argv and environment and
 returns chosen exit codes. *Browser*: a headless browser in CI against the real binary. *Real jail*:
 a real jail on a rootless podman host, reported with `podman info --format
@@ -390,8 +404,9 @@ line, a closed connection, an injected clock), never on elapsed time.
 
 ## 8. The read-only slice requirements
 
-The read-only experiment implements exactly this, and has no mutation route at all: no handler for
-`/api/decision`, no code path that runs `yolo approve` with an id.
+The read-only experiment implements the behavior below, with outstanding test evidence identified
+in item 12. It has no mutation route: no handler for `/api/decision`, no code path that runs
+`yolo approve` with an id.
 
 1. **Listener:** `127.0.0.1`, port 0 by default; a non-loopback `--listen` refused.
 2. **Start:** refuse unless standard output is a terminal, naming the fix. Open the browser on a
@@ -421,8 +436,12 @@ The read-only experiment implements exactly this, and has no mutation route at a
     argv values masked behind a per-value Show, as
     [`request-history-and-privacy.md` §6](request-history-and-privacy.md#6-what-a-read-only-view-may-show) rules.
 11. **Logging:** peer address may be logged; code, token and `Authorization` never.
-12. **Tests:** T1 to T13 and L1 to L5. T3 to T13 and L1 to L3 and L5 run in CI; T1, T2 and T12's `yolo host-run` case need a real
-    host and a real jail on a rootless host, and the slice's first report says which have run.
+12. **Tests:** T1 to T13 and L1 to L5. Unit/static coverage exists for T3, T4, T6–T13 and
+    L1–L3/L5, but not every browser or mounted-view portion of those tests has run. T1/T2 require
+    real-host/rootless or native Mac evidence; T5 and the in-browser portions of T6/T8/T9/T10,
+    T11's mounted/residue search, T12's `yolo host-run` case and L4's real desktop opener remain
+    unverified. Follow the [umbrella's evidence table](README.md#54-the-read-only-queue-as-built-yolo-approve---web),
+    not a blanket read-only pass claim.
 
 ## 9. Risks
 

@@ -3,7 +3,7 @@ title: "Four partial records of past requests, none complete: what a view may sh
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "File the proposed host-history question in boundary-broker.md; meanwhile the read-only queue adopts §6 and §7"
+next: "Route the draft host-history extension through boundary-broker.md; finish the existing eviction-count and last-seen-detail requirements"
 depends-on:
   - README.md
 tags: [design, approvals, history, privacy, audit, queue]
@@ -12,9 +12,13 @@ summary: "The request-history-and-privacy sibling of the approval-experience con
 
 # Four partial records of past requests, none complete: what a view may show, keep and claim
 
-**Status:** 2026-11-09. Nothing built. Evidence read at yolo `04f300a9e`, and recorded 2026-11-09
-from yolo `04f300a9e` in a throwaway home (sanitized: workspace `/home/example/code/app`,
-repositories `example/app` and `git.example.test/example/app`).
+**Status:** Observed-only memory history and the pending-request display/masking are built in
+[`internal/approvalqueue`](../../../internal/approvalqueue/), checked against source at
+`62b8bbda3`. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
+throwaway home (sanitized: workspace `/home/example/code/app`, repositories `example/app` and
+`git.example.test/example/app`). Comprehensive host history is not implemented. The existing
+requirements to count evictions and retain full last-seen request detail are also not implemented;
+[§12](#12-what-done-looks-like) separates delivery from remaining acceptance work.
 
 > **In short.** No surface yolo has today can answer "what happened to every request" for a
 > host user, so the queue must say exactly what it saw and since when. It may show a pending
@@ -58,10 +62,10 @@ redaction and retention, and which completeness claims are honest. It changes no
 1. **The queue reads only the CLI JSON surface** in the read-only slice: no `yolo audit`, no
    store files, no approvals twin ([RH-D1](#RH-D1)).
 2. **Pending requests show every field**, with values after body, field, header and input flags
-   masked until clicked, and the command digest always visible ([RH-D2](#RH-D2), a proposed change
-   to the lead's ruling; [§6.1](#61-the-display-ruling-tested)).
-3. **Observed history lives in the queue's memory only**, capped at 200 entries, with evictions
-   counted on the page ([RH-D3](#RH-D3)).
+   masked until clicked, and the command digest always visible ([RH-D2](#RH-D2), the proposed adjustment
+   implemented in the read-only queue; [§6.1](#61-the-display-ruling-tested)).
+3. **Observed history lives in the queue's memory only**, capped at 200 entries. Counting and
+   displaying evictions remains a requirement, not built behavior ([RH-D3](#RH-D3)).
 4. **Claims are limited to [§7](#7-honest-completeness-claims)'s list**; "complete history" is
    never one of them ([RH-D4](#RH-D4)).
 5. **A host history view needs the CLI to expose ended records**; that is a question for
@@ -188,8 +192,9 @@ these facts are why that rule covers every field, not only the ones yolo labels 
 | Observed history | queue memory | the queue process; at most 200 entries | [RH-D3](#RH-D3) |
 
 **Decision ([RH-D3](#RH-D3)): the queue persists nothing.** History is in memory, capped at 200
-entries keyed by request or grant id; the oldest entry is evicted first, and the page shows
-"N older entries dropped". The browser stores no history either: `sessionStorage` holds the
+entries keyed by request or grant id; the oldest entry is evicted first. The required
+"N older entries dropped" count is not built: the current page labels the start, 200-entry cap
+and gaps, without an eviction total. The browser stores no history either: `sessionStorage` holds the
 session token alone, and data routes are `no-store`
 ([`browser-trust-boundary.md` §8](browser-trust-boundary.md#8-the-read-only-slice-requirements)).
 
@@ -218,7 +223,7 @@ yolo already draws this line: every push surface it owns uses `summaryArgv` (the
 summary, the twin's command), and only pull surfaces carry full values. A self-updating page is a
 push surface, so it takes the same default.
 
-**Decision ([RH-D2](#RH-D2), a proposed change to the lead's ruling):**
+**Decision ([RH-D2](#RH-D2), proposed adjustment to the lead's ruling, implemented for pending requests):**
 
 - Every field is shown, as ruled, **except the value following a secret-bearing flag**, which
   shows as `--body=[hidden: 47 characters, sha256 1a2b3c4d] Show`, modeled on yolo's own elision
@@ -247,7 +252,7 @@ more.
 | Long values wrap in a scrolling box; never truncated | an elided ref is a hidden ref |
 | Every request and history entry shows its **workspace** and source | grants are held by workspace ([README §2.2](README.md#22-authority-facts-every-surface-must-preserve)); one view spans every workspace on the machine |
 | `deny-only` sources and `source_status` shown beside the request | the CLI can refuse to allow them (exit 6) |
-| History entries keep the request as last seen and follow the same masking | a decided request's body is no less secret |
+| History entries must keep the request as last seen and follow the same masking (not implemented: current entries contain summary/outcome metadata, not full request detail) | a decided request's body is no less secret |
 | No field becomes a link, including repositories and refs | [`browser-trust-boundary.md` §5](browser-trust-boundary.md#5-browser-hardening-and-safe-rendering) |
 
 **Cross-workspace.** `yolo approve --json` lists every workspace's requests, and the host user may
@@ -386,20 +391,40 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 
 ## 12. What done looks like
 
-- A request carrying `--body=SECRET` paints as `--body=[hidden: …]` with the command digest
-  visible; **Show** reveals it; switching tabs and back masks it again.
-- A request filed and decided while the queue was down never appears as decided; one dropped by a
-  snapshot reads "no longer pending; outcome not observed".
-- After 201 observed entries the page says "1 older entry dropped".
-- Restarting the queue empties history, and the header says "observed since" the new start.
-- No string on the page says "complete", "ran" or "succeeded" about a request.
+**Built source and automated coverage**, not new live-browser proof:
+
+- Pending values after secret-bearing flags are masked with length/hash and Show/Hide;
+  digests stay visible. [`mask_test.go`](../../../internal/approvalqueue/model/mask_test.go)
+  pins the list and spellings to yolo's `summaryArgv`. The page implements re-masking on
+  visibility change; [`web_test.go`](../../../internal/approvalqueue/web/web_test.go) checks
+  the static rendering constraints, not a real tab-switch interaction.
+- The reducer reconciles missed transitions without inventing denial or expiry, keeps at most
+  200 entries and labels history as observed since start with watch gaps.
+  [`reduce_test.go`](../../../internal/approvalqueue/model/reduce_test.go) covers the cap and
+  recorded watcher gap; [`publish.go`](../../../internal/approvalqueue/model/publish.go)
+  publishes the limits. No queue/browser history persistence is implemented.
+- Allow and use remain distinct from execution; the page explicitly says history is **not**
+  complete. A disclaimer containing "complete" is not a completeness claim.
+
+**Existing requirements still unmet:**
+
+- After 201 distinct observed entries, show "1 older entry dropped". The current reducer
+  evicts but has no eviction counter in its published history.
+- Retain the full request as last seen, with the same per-value masking as pending detail.
+  Current history entries show identifiers, source/workspace/jail, label, time and outcome only.
+- Exercise Show/Hide, tab-switch re-masking and restart behavior in a real browser against the
+  real host path; the [umbrella's runtime evidence gaps](README.md#54-the-read-only-queue-as-built-yolo-approve---web)
+  remain open.
+- Comprehensive history needs the host interface considered in
+  [§8](#8-what-a-host-history-view-would-need). The extension is drafted, not filed or authorized
+  by this document, and the queue must not work around it by reading store/audit files.
 
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="RH-D1"></a>RH-D1 | The read-only queue reads only `yolo approve --json` and `--watch --json`; no audit, store or twin | 2026-11-09 | [§1](#1-scope-and-verdict) | — |
-| <a id="RH-D2"></a>RH-D2 | Pending requests in full, except values after `summaryArgv`'s flags, masked with length and hash and revealed per value by click; digests always visible; re-mask when hidden (proposed change to the lead's ruling) | 2026-11-09 | [§6.1](#61-the-display-ruling-tested) | — |
-| <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | — |
-| <a id="RH-D4"></a>RH-D4 | The queue makes only the claims in the may-say table; never complete history, never inferred outcomes, never execution from use | 2026-11-09 | [§7](#7-honest-completeness-claims) | — |
-| <a id="RH-D5"></a>RH-D5 | Comprehensive host history waits on a CLI extension, `--ended` first and audit events second, asked in boundary-broker.md | 2026-11-09 | [§8](#8-what-a-host-history-view-would-need) | — |
+| <a id="RH-D1"></a>RH-D1 | The read-only queue reads only `yolo approve --json` and `--watch --json`; no audit, store or twin | 2026-11-09 | [§1](#1-scope-and-verdict) | Yes: CLI supervisor |
+| <a id="RH-D2"></a>RH-D2 | Pending requests in full, except values after `summaryArgv`'s flags, masked with length and hash and revealed per value by click; digests always visible; re-mask when hidden (proposed change to the lead's ruling) | 2026-11-09 | [§6.1](#61-the-display-ruling-tested) | Yes: pending display/masking; real-browser proof outstanding |
+| <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | Partial: memory/cap/eviction built; dropped count not built |
+| <a id="RH-D4"></a>RH-D4 | The queue makes only the claims in the may-say table; never complete history, never inferred outcomes, never execution from use | 2026-11-09 | [§7](#7-honest-completeness-claims) | Observed-outcome labels and gap disclaimers built |
+| <a id="RH-D5"></a>RH-D5 | Comprehensive host history waits on a CLI extension; `--ended` first and audit events second are candidates drafted for boundary-broker.md | 2026-11-09 | [§8](#8-what-a-host-history-view-would-need) | No: draft authority/API question only |

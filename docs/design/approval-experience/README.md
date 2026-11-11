@@ -2,23 +2,34 @@
 title: "Make approvals understandable and broad without creating a second authority"
 date: 2026-11-05
 status: draft
-stage: SKETCH
-next: "Investigate notifier and capture logistics, queue/privacy boundaries, and the S3 recipe in parallel"
+stage: DESIGN
+next: "Complete the remaining evidence and engineering work in the siblings; browser mutation waits on OQ-BT1 in browser-trust-boundary.md"
 tags: [design, approvals, notifications, brokers, packs, aws]
-summary: "Umbrella for a constellation of approval-experience proposals: a native toast gallery built from authentic captures, an optional browser request queue that acts only through yolo approve, and repeatable fine-grained service mediation proved first on AWS S3, with the complete service wishlist preserved."
+summary: "Umbrella for approval-experience work: built Linux gallery evidence, an experimental host-only read-only queue, and bounded S3 mediation; native Mac evidence, browser mutation, comprehensive history and a second-adapter recipe proof remain outstanding."
 vantage:
   status-chip: true
 ---
 
 # Make approvals understandable and broad without creating a second authority
 
-**Status:** Checked 2026-11-05 against baseline commit `5d369f5f33b3d064ad0ae1e9c267cdca03a7c961`.
+**Status:** Delivery claims checked against source at `62b8bbda3`. The first-slice commits below
+are ancestors of the supplied last-verified remote commit `77df9ca0d`; this is ancestry evidence,
+not a fresh server or release check.
 
-This is the spine of a growing constellation of design proposals, not a shipped-system reference or implementation plan. Nothing proposed here is built.
+This is the spine of a growing constellation of designs with delivered first slices, not a
+shipped-system reference or a claim that every acceptance outcome is met. The fixture gallery and
+authentic Linux captures, the experimental host-only read-only queue, and bounded S3 CLI mediation
+are built. Native Mac evidence, browser mutation, comprehensive history and proof of a repeatable
+second adapter remain outstanding.
 
 **Thesis.** Keep `brokerstore` as the sole approval authority while improving how people see requests and expanding the services that can be mediated. Coordinate three workstreams—authentic native-notification evidence, an optional CLI-backed browser queue, and a repeatable service-mediation recipe beginning with a bounded AWS S3 vertical—under shared trust and evidence boundaries.
 
-**Needs your ruling:** None. The owner intent in [1.1](#11-settled-owner-intent) is settled; remaining uncertainties are engineering investigations routed to [the proposed siblings](#7-proposed-sibling-map). No service account, credential access, capture run, configuration edit, implementation or publication is authorized by this document.
+**Needs your ruling:** None in this umbrella. The owner intent in [1.1](#11-settled-owner-intent)
+is settled. The mutation-only choice stays open in the browser sibling as
+[OQ-BT1](browser-trust-boundary.md#OQ-BT1); the host-history extension remains a
+[draft for the owning authority](request-history-and-privacy.md#83-proposed-for-boundary-brokermd),
+not a filed owner question here. This document itself authorizes no service account, credential
+access, capture run, configuration edit, implementation or publication.
 
 ## 1. Recommendation and scope
 
@@ -28,22 +39,28 @@ Develop three workstreams under one set of rules:
 2. **Optional browser request queue (W2).** Outstanding requests and past requests and approvals, rich detail before any decision, live updates; shipped separately over generic yolo interfaces and started in development by one command against the real host machinery.
 3. **Repeatable service mediation (W3).** One bounded AWS/S3 vertical that proves a recipe (classification table, scope vocabulary, account-free fixture service, test checklist) which later services follow mostly by filling in tables.
 
-**The honest first slice** is three independent deliverables: a gallery baseline that captures the owner's *current* toasts, a read-only queue experiment over `yolo approve --json` and `--watch --json`, and an S3 pack exercised end to end by a local fixture service. A missing Mac capture runner does not block S3 classification work; an unsettled browser trust boundary does not block the gallery.
+**The delivered first slice** comprises three independent deliverables: a fixture gallery with
+native Linux baseline captures, a host-only read-only queue over `yolo approve --json` and
+`--watch --json`, and an S3 pack exercised end to end by a local fixture service. Their code landed
+in `8170793c4`, `5ed824bb9`, `e88886990` (gallery), `304d61f13`, `5f919bd0b`, `831047237` (queue)
+and `2e9dc7f70`, `81a7bc2ec` (S3). Their limits and the remaining acceptance work are in
+[10](#10-observable-success-and-next-investigations). A missing Mac capture does not block Linux
+notifier or S3 engineering; an unsettled browser mutation boundary does not block the gallery.
 
 **Terms used here.** *Storybook* means an example gallery, not the JavaScript Storybook product, a frontend framework or a packaging format. *Request authority* is the host `brokerstore` plus `yolo approve`, the only thing that turns a request into a grant. *Fixture set* is the shared collection of sanitized representative requests with provenance labels. *Native capture* is a screenshot of a real OS notification server rendering a fixture, with environment provenance; anything else is a *preview*. *Live state channel* carries queue updates from host to browser and is distinct from *development asset reload*, which refreshes code. *Mediation* is brokered classify–decide–execute of a service operation as in [pack-brokers.md](../pack-brokers.md); *credential delegation* hands a jail credentials it then uses directly.
 
 ### 1.1 Settled owner intent
 
-The rulings below are settled owner intent. Mechanisms in later sections are proposals until substantiated. **Built** refers to the new work requested here, not the existing broker foundation.
+The rulings below are settled owner intent. Mechanisms in later sections are proposals except where the delivery evidence identifies a built slice. **Built** refers to the new work requested here, not the existing broker foundation.
 
 | ID | Ruling | Date | Settled in | Built |
 | --- | --- | --- | --- | --- |
 | AE-R1 | Start with one overarching document that a constellation of approval improvements hangs from. | 2026-11-05 | This document; [7](#7-proposed-sibling-map) | This document |
-| AE-R2 | Show varied real approval examples beside authentic Linux/macOS notifications, including Git and CircleCI. HTML replicas are not native evidence; this task owes no captures. | 2026-11-05 | [4](#4-workstream-1-native-notifications-and-the-example-gallery) | No |
-| AE-R3 | Optional queue for outstanding and past requests, rich detail and live updates; preferably separately shipped over generic yolo interfaces, with a development command as a valid first slice. Arrival/navigation is unresolved; WebSocket is a suggestion, and live updates differ from asset reload. | 2026-11-05 | [5](#5-workstream-2-an-optional-browser-request-queue) | No |
-| AE-R4 | Fine-grained service permissions and wrapping starting with AWS S3, perhaps EC2 and a justified third AWS service, with repeatable permission/classification/scope/testing machinery so many integrations can ship. No broad authorization inferred from product names. | 2026-11-05 | [6](#6-workstream-3-service-mediation-that-scales-beyond-one-adapter) | No |
-| AE-R5 | The complete generic service wishlist is preserved in the umbrella, grouped, with gaps and uncertainty explicit. The private dashboard integration is an internal pack never published to the public repository. | 2026-11-05 | [6.3](#63-complete-coverage-inventory) | No |
-| AE-R6 | Public documents use generic product names and generalized engineer workflows. This task performs no credential, configuration, host, capture, implementation or publication actions. | 2026-11-05 | [1.2](#12-non-goals-and-privacy) | No |
+| AE-R2 | Show varied real approval examples beside authentic Linux/macOS notifications, including Git and CircleCI. HTML replicas are not native evidence; this task owes no captures. | 2026-11-05 | [4](#4-workstream-1-native-notifications-and-the-example-gallery) | Fixture gallery and native Linux baseline; no Mac captures |
+| AE-R3 | Optional queue for outstanding and past requests, rich detail and live updates; preferably separately shipped over generic yolo interfaces, with a development command as a valid first slice. Arrival/navigation is unresolved; WebSocket is a suggestion, and live updates differ from asset reload. | 2026-11-05 | [5](#5-workstream-2-an-optional-browser-request-queue) | Experimental read-only queue in yolo; observed-only memory history, no mutation or comprehensive history |
+| AE-R4 | Fine-grained service permissions and wrapping starting with AWS S3, perhaps EC2 and a justified third AWS service, with repeatable permission/classification/scope/testing machinery so many integrations can ship. No broad authorization inferred from product names. | 2026-11-05 | [6](#6-workstream-3-service-mediation-that-scales-beyond-one-adapter) | Bounded S3 CLI mediation and account-free fixture; broader services and second-adapter proof outstanding |
+| AE-R5 | The complete generic service wishlist is preserved in the umbrella, grouped, with gaps and uncertainty explicit. The private dashboard integration is an internal pack never published to the public repository. | 2026-11-05 | [6.3](#63-complete-coverage-inventory) | Inventory preserved here; private implementation not claimed |
+| AE-R6 | Public documents use generic product names and generalized engineer workflows. This task performs no credential, configuration, host, capture, implementation or publication actions. | 2026-11-05 | [1.2](#12-non-goals-and-privacy) | Public fixture sanitization; no private runtime or publication claim |
 
 ### 1.2 Non-goals and privacy
 
@@ -69,13 +86,13 @@ The remedies proposed here were checked against the existing machinery below; no
 | [pack-brokers.md](../pack-brokers.md) | Core/classifier/executor contracts, resource types/roots/cells, dry-run and access prediction, store/approvals/wait/audit/on_request, and the requirement for local fixture services. The HTTP front slice is partially built. | Efficient, repeatable application of those contracts across many services. |
 | [`packs/git`](../../../packs/git/pack.toml), [`packs/github`](../../../packs/github/pack.toml) | Real call brokers with host-held credentials and audited calls. | Representative fixtures for the gallery and queue; extend only from verified gaps. |
 | [`packs/circleci`](../../../packs/circleci/pack.toml) with [`internal/circleciclassify/classifier.go`](../../../internal/circleciclassify/classifier.go) | Explicit project-scoped approved-root `run list` only; a fake host CLI integration fixture uses the real classifier. | No write path (rerun, run approve, pipeline create) and no live Cloud/Server auth proof; write toasts are synthetic. |
-| [`packs/aws-auth`](../../../packs/aws-auth/pack.toml) | Minting and narrowing AWS SSO credentials before they reach a jail. | A credential broker, not command-by-command approval; S3 mediation is new work and must not silently widen this route. |
+| [`packs/aws-auth`](../../../packs/aws-auth/pack.toml) | Minting and narrowing AWS SSO credentials before they reach a jail. | A credential broker, not command-by-command approval; the built [`aws-s3` pack](../../../packs/aws-s3/pack.toml) is a distinct mediated route and does not change it. |
 
 ### 2.1 The gaps the owner feels
 
-1. **Presentation.** The owner sees functional but poor toasts. Inspected repository paths contain no shipped OS-native actionable renderer or approval screenshot harness, while the existing design describes a renderer and `on_request` can invoke an external notifier. The origin of the notifier behind the owner's observed toasts is unverified; identify and capture that setup rather than dismissing the observation.
+1. **Presentation.** The gallery now has a shared fixture/capture harness and genuine Linux captures from a headless sway/swaync stack, not the owner's desktop pixels. The [gallery sibling](native-notification-gallery.md) identifies and measures the external notifier baseline. A shipped yolo-native actionable renderer and native Mac capture evidence are still missing; screenshots do not establish every action or lifecycle behavior.
 2. **Overview.** The current CLI does not provide a comprehensive history view. Its watch stream is not a durable event log: it can miss transient states, pruning emits no event, and working-set changes emit no events. Audit details are adapter-provided, so there is no universal history API to lean on.
-3. **Coverage.** The inspected paths include Git and GitHub broker implementations, a narrow CircleCI read-only classifier, and an AWS SSO credential broker. This investigation did not establish the complete set of mediated surfaces or broad wishlist coverage; verify further paths before making total-absence claims. The reusable service recipe remains to be demonstrated.
+3. **Coverage.** Verified paths include Git and GitHub brokers, a narrow CircleCI read-only classifier, AWS SSO credential delegation and bounded S3 CLI mediation. This is not broad wishlist coverage. The S3 fixture walks the first service recipe; the conformance kit and second-adapter proof remain outstanding in [service mediation](service-mediation.md).
 4. **Stale prose.** Some text in [pack-brokers.md](../pack-brokers.md) says `approve` knows only two sources; current code revalidates selected generic callbroker adapters too. Siblings must not copy that gap.
 
 ### 2.2 Authority facts every surface must preserve
@@ -106,7 +123,7 @@ flowchart LR
         hook["on_request notifier hook"]
         toast["Native toast (D-Bus / terminal-notifier)"]
     end
-    subgraph queue["Optional web request queue (proposed, separate service)"]
+    subgraph queue["Optional web request queue (built read-only; mutation proposed)"]
         q["Queue and history view in browser"]
     end
     subgraph gallery["Gallery (evidence, no authority)"]
@@ -121,7 +138,7 @@ flowchart LR
     toast -- "explicit action, via host" --> cli
     cli <--> store
     q -- "snapshot + events" --> cli
-    q -- "decisions only via local CLI, after trust boundary" --> cli
+    q -. "proposed decisions via local CLI, after mutation gate" .-> cli
     fx --> toast
     fx --> q
     fx -- "test requests" --> prod
@@ -175,7 +192,7 @@ macOS retains `terminal-notifier` ≥ 3 and an eventual signed helper app. Multi
 | Git | Single and multiple refs, old/new targets, push options, long names, partially covered scope. | Supported broker requests supply representative fixtures. |
 | GitHub | Resource-specific writes, long content, exact versus broader available actions. | Broker support does not establish native renderer support. |
 | CircleCI | Project-scoped `run list` (current); rerun, run-approval and pipeline-creation stories (synthetic, marked). | `run list` is the narrow implemented path; do not fabricate a prompt where policy needs none. |
-| S3 and later services | Multiple resources, sensitive paths, destructive-looking operations, changed scope. | Synthetic until the operation is implemented and validated by W3. |
+| S3 and later services | Multiple resources, sensitive paths, destructive-looking operations, changed scope. | The supported S3 operation table is built; multi-object delete and unimplemented later-service stories stay synthetic. |
 | Cross-cutting states | Denial, expiry, stale action, decision elsewhere, unavailable actions, truncation, sensitive-data redaction. | Screenshots alone do not prove decision or withdrawal behavior. |
 
 Capture provenance, OS and notification-server versions, theme, scaling and redaction rules belong to the gallery and capture siblings, not this umbrella. Success means a reader identifies the operation and consequence without mistaking an abbreviated toast for complete scope; when detail cannot fit, the toast offers a safe route to fuller detail rather than concealing the limit or broadening the action.
@@ -186,7 +203,7 @@ Capture provenance, OS and notification-server versions, theme, scaling and reda
 
 ### 5.1 Prove the queue before settling how people arrive
 
-A separately shipped optional service, started in development by one command against the real host machinery. It reads `yolo approve --json` for the snapshot and `yolo approve --watch --json` for events, and reconciles by periodic re-snapshot because the watch stream is lossy by design: reconnects, pruning and working-set changes cannot be reconstructed from events. Rich detail means the full host-derived request: argv, repository, resource chain, set, policy ceiling, source revalidation status, workspace-wide grant reach, duration, use limits and time remaining.
+The optional service was proposed as separately shipped; the experimental read-only implementation is part of yolo and starts with `yolo approve --web` or `just dev-approvals`. It reads `yolo approve --json` for the snapshot and `yolo approve --watch --json` for events, and reconciles by periodic re-snapshot because the watch stream is lossy by design: reconnects, pruning and working-set changes cannot be reconstructed from events. The built view shows every field the CLI JSON provides, including argv, repository, set, source revalidation status, workspace-wide grant reach, grant use limits and time remaining. The desired resource chains, policy ceiling and answer duration are not all exposed by that interface; the [history/privacy field map](request-history-and-privacy.md#41-the-json-surface) records its limits.
 
 How the engineer reaches the page (toast link, terminal hint, menu item, automatic browser launch) is deliberately unresolved by owner ruling for the general case; the read-only experiment of [5.4](#54-the-read-only-queue-as-built-yolo-approve---web) prints a link and opens the browser from its own terminal. WebSocket is a reasonable live state channel; server-sent events or polling are acceptable and the sibling chooses against real interaction needs. The live channel is separate from development asset reload, and neither carries authority.
 
@@ -202,7 +219,7 @@ Before the queue offers Allow or Deny, even in development, the trust boundary s
 - safe rendering of request text, with no shell execution or active content derived from it;
 - per-action request binding, source-aware available actions, stale-state handling, and faithful CLI exit-code interpretation.
 
-Read-only access also needs a privacy boundary: "no approve button" does not make request details public to anything that can reach the listener. A fixture-only browser demo can proceed while host-connected privacy is unresolved; the history and privacy sibling settles what a host-connected read-only view may expose. The sidecar invokes the CLI with structured arguments, never exposes raw store paths, and never invents a remote approval protocol for convenience.
+Read-only access also needs a privacy boundary: "no approve button" does not make request details public to anything that can reach the listener. The built host-connected view uses the authentication in [the browser sibling](browser-trust-boundary.md#8-the-read-only-slice-requirements) and the display/retention rules in [history and privacy](request-history-and-privacy.md); its outstanding real-host and browser checks are listed in [5.4](#54-the-read-only-queue-as-built-yolo-approve---web). The sidecar invokes the CLI with structured arguments, never exposes raw store paths, and never invents a remote approval protocol for convenience.
 
 ### 5.3 Honest history and decision outcomes
 
@@ -260,7 +277,7 @@ Trust-boundary test plan, read-only rows (the `T` and `L` numbers are those of [
 | T2 peer address and uid the queue sees from a jail | **not run**: same |
 | T5 another origin's page fetching state and stream | **not run**: needs a browser |
 
-Also checked: no route other than `POST /api/session` accepts a POST, no cookie is ever set, and masking agrees with a verbatim copy of yolo's `summaryArgv` argument by argument. The mutation rows (T14 to T21) are not written, because there is nothing to test. Not measured: the queue has not been run against a live host store with real jails filing requests.
+Also checked: no route other than `POST /api/session` accepts a POST, no cookie is ever set, and masking agrees with a verbatim copy of yolo's `summaryArgv` argument by argument. The mutation rows (T14 to T21) remain a plan: no mutation route or corresponding tests are implemented. Not measured: the queue has not been run against a live host store with real jails filing requests.
 
 **Fixtures.** `internal/approvalqueue/testdata/` holds output recorded from yolo built at commit `04f300a9e`, run against a throwaway home directory and sanitized (paths rewritten to `/home/example/code/app`, repositories to `example/app`, jail ids derived from fake container names), in the host-like environment `env -i HOME=<throwaway> PATH=/usr/bin:/bin` that makes `yolo approve` run outside a jail:
 
@@ -290,7 +307,7 @@ CLI interception is not comprehensive confinement if a jailed process holds cred
 
 [`packs/aws-auth`](../../../packs/aws-auth/pack.toml) mints and narrows SSO credentials; it is not a command-by-command approval broker, and this proposal does not silently change its route. Credential delegation and mediated operations are different trust models, and the AWS sibling must say which operations use which.
 
-**S3 first** because object storage has natural resource roots (bucket, prefix, object version), and choosing a deliberately bounded initial operation set can prove the classification and execution recipe. A pack executor for object-store signing is already contemplated. The sibling chooses that set; exact verbs, bucket/key/version identity, multi-object effects, CLI expansion, endpoint/account/region selection, signing location (host executor versus narrowed SSO route) and direct-access bypass are its investigations. S3 as a product name grants nothing.
+**S3 first** because object storage has natural resource roots (bucket, prefix, object version). The [S3 sibling](aws-s3.md) now owns the built bounded operation table, host-CLI execution/signing, endpoint/account/region selection and direct-access bypass analysis. Its [plan](aws-s3-plan.md) owns the remaining backlog, including broader operation shapes. This fixture vertical demonstrates the first classification/execution recipe, not live AWS compatibility. S3 as a product name grants nothing.
 
 **EC2 selectively**: only operations a generalized workflow needs, each classified individually, with secondary effects represented honestly. A tag or instance ID is not proof that every related operation is bounded. No "all AWS": each service is its own classification table.
 
@@ -306,7 +323,7 @@ Listing is not support, chosen scope, or authorization to use any account. **Cur
 | | GitHub | Yes (real broker) | Representative write fixtures; native presentation unproven |
 | | GitLab, including privately hosted deployments | Not found in inspected paths | Deployment identity, base URL and token model are classification questions, not a product name |
 | | CircleCI | Narrow (project-scoped `run list`) | Writes (rerun, run approve, pipeline create) are synthetic gallery stories only; no live Cloud/Server auth proof |
-| AWS | S3 | No per-operation mediation found in inspected paths (SSO credential broker only) | First vertical, [6.2](#62-aws-s3-first-ec2-selectively-a-third-service-only-for-a-reason) |
+| AWS | S3 | Bounded CLI mediation ([`packs/aws-s3`](../../../packs/aws-s3/pack.toml)) | Account-free fixture vertical built; not live AWS/real CLI compatibility or broad AWS coverage; [scope and bypass limits](aws-s3.md) |
 | | EC2 | Not found in inspected paths | Selective operations only |
 | | Third AWS service | Not found in inspected paths | CloudWatch Logs candidate; AWS sibling recommends after research |
 | Observability and incident response | Grafana | Not found in inspected paths | Dashboards and alert rules; separate viewing/querying from configuration |
@@ -331,18 +348,20 @@ Listing is not support, chosen scope, or authorization to use any account. **Cur
 
 ## 7. Proposed sibling map
 
-A linked label is a sibling that exists (draft); an unlinked one is still a proposed name; each sibling owns one reader question and states acceptance outcomes. A sibling that extends existing machinery links the authority it extends.
+A linked label is an existing sibling; an unlinked one is still a proposed name. Each sibling
+owns one reader question and states its delivery evidence and remaining acceptance outcomes.
+A sibling that extends existing machinery links the authority it extends.
 
 | Proposed sibling | Reader question it owns | Must settle before dependent implementation |
 | --- | --- | --- |
-| [Native notification gallery](native-notification-gallery.md) (draft; fixtures in [`internal/approvalfixtures/fixtures/`](../../../internal/approvalfixtures/fixtures/), page at [`gallery/index.html`](gallery/index.html), served by `just dev-storybook`) | What do requests look like natively, and what should change? | Fixture format and provenance labels; the owner's current renderer identity and baseline capture |
-| [Linux notification capture](linux-notification-capture.md) (draft) | How is a headless session bus plus daemon stack built and captured reproducibly? | Daemon matrix, screen metadata, theme and scaling provenance; capture outputs use the gallery fixture format |
-| [Mac capture runner](mac-capture-runner.md) (draft) | How are macOS notifications rendered, authorized and captured, and how do action collapse and withdrawal behave? | GUI session logistics; `terminal-notifier` measurements; capture outputs use the gallery fixture format |
-| [Web request queue experiment](web-request-queue.md) (draft) | Can one command show a live, detailed, read-only queue against the real store? | Reconcile strategy for the lossy watch stream; live channel choice |
-| [Browser trust boundary](browser-trust-boundary.md) (draft) | How does the queue prove a decision came from the host user and never from a jail or untrusted content? | Investigate now; tested boundary required before any mutation path |
-| [Request history and privacy](request-history-and-privacy.md) (draft) | What past-request data exists, what is retained, redacted or shown, including in read-only views? | Investigate now; audit fields per adapter, redaction and retention rules, completeness claims |
-| [Service mediation machinery](service-mediation.md) (draft) | What is the repeatable recipe: classification table, scope vocabulary, fixture service, test checklist? | Format and checklist before the second service starts; HTTP front slice status |
-| [AWS S3 vertical](aws-s3.md) (built; [plan](aws-s3-plan.md)) | Which S3 operations, roots and cells ship first, executed and signed how? | Credential model relative to `aws-auth`; bypass analysis; negative scope tests |
+| [Native notification gallery](native-notification-gallery.md) (fixtures in [`internal/approvalfixtures/fixtures/`](../../../internal/approvalfixtures/fixtures/), page at [`gallery/index.html`](gallery/index.html), served by `just dev-storybook`) | What do requests look like natively, and what should change? | Existing fixture format and Linux baseline; remaining native Mac and action/lifecycle evidence |
+| [Linux notification capture](linux-notification-capture.md) | How is a headless session bus plus daemon stack built and captured reproducibly? | Daemon matrix, screen metadata, theme and scaling provenance; capture outputs use the gallery fixture format |
+| [Mac capture runner](mac-capture-runner.md) | How are macOS notifications rendered, authorized and captured, and how do action collapse and withdrawal behave? | GUI session logistics; `terminal-notifier` measurements; capture outputs use the gallery fixture format |
+| [Web request queue experiment](web-request-queue.md) | Can one command show a live, detailed, read-only queue against the real store? | Existing read-only reconciliation and live stream; remaining live-host and browser proof |
+| [Browser trust boundary](browser-trust-boundary.md) | How does the queue prove a decision came from the host user and never from a jail or untrusted content? | Read-only bootstrap, auth and hardening built; open mutation choice and trust tests before any decision route |
+| [Request history and privacy](request-history-and-privacy.md) | What past-request data exists, what is retained, redacted or shown, including in read-only views? | Observed memory history and pending display built; full history interface and unmet display/retention requirements remain |
+| [Service mediation machinery](service-mediation.md) | What is the repeatable recipe: classification table, scope vocabulary, fixture service, test checklist? | Format and checklist before the second service starts; HTTP front slice status |
+| [AWS S3 vertical](aws-s3.md) ([plan](aws-s3-plan.md)) | Which S3 operations, roots and cells ship first, executed and signed how? | Existing bounded CLI slice; preserve credential bypass limits and separate live compatibility from fixture proof |
 | AWS EC2 and third service | Which further AWS operations are justified, and what does the third service teach the recipe? | Follows the S3 recipe |
 | Service adapters (one per scheduled service) | What does this service's classification table look like? | Follows the machinery sibling |
 | Private internal dashboard pack (internal repository) | How does the private pack use the public extension contract, and what boundary does it actually have? | Lives outside the public repository entirely |
@@ -351,8 +370,8 @@ The umbrella owns intent, boundaries, inventory and ordering. Routing of this do
 
 ## 8. Dependencies and order
 
-1. **Start in parallel:** investigate the current notifier and gallery evidence; develop the fixture format and queue experiment; begin host privacy/security and browser-boundary investigations; begin Linux/macOS capture logistics; and develop the mediation recipe alongside the S3 vertical.
-2. **Fixture-dependent outputs:** native capture production and gallery comparisons consume the shared fixture format once defined. Research into capture environments can proceed now.
+1. **Continue in parallel:** Linux notifier correctness and capture expansion; native Mac capture; remaining queue runtime checks; history interface investigation; and service recipe work. The shared fixtures, Linux baseline, read-only queue and first S3 vertical already exist; none needs rebuilding merely because another workstream is gated.
+2. **Fixture-dependent outputs:** new native captures and gallery comparisons consume the existing shared fixture format and preserve its provenance labels.
 3. **Queue and trust:** queue experience, host privacy/history, and browser trust investigations can proceed in parallel. Mutation remains gated on a tested host-user boundary; comprehensive history claims remain gated on provenance and privacy findings.
 4. **After the S3 recipe is walked once:** use its observed gaps to inform a nonbinding AWS third-service recommendation and EC2 scope; schedule other adapters in recipe-shape order.
 5. **Any time, outside the public repository:** the private internal dashboard pack, once the extension contract it relies on is confirmed stable.
@@ -364,7 +383,7 @@ Settle before claiming: the browser trust boundary before host-connected mutatio
 | Alternative | Benefit | Why not preferred |
 | --- | --- | --- |
 | Build a native renderer into yolo now instead of a gallery | Visible improvement sooner | Designed blind without captures; [boundary-broker.md](../boundary-broker.md) already specifies the renderer and the gallery produces the evidence it needs |
-| Put the browser UI inside core yolo, or give it its own store or HTTP decision API | Fewer components; simpler prototype | A second authority, and it reopens the jail-reachability problem the CLI help warns about; the CLI is the intended seam, as herdr also assumes |
+| Give the browser UI its own store or HTTP decision authority | Fewer apparent components; simpler prototype | A second authority reopens the jail-reachability problem the CLI help warns about. The built queue lives in yolo but reads through the CLI seam and owns no decisions. |
 | Mutation in the first queue slice behind a boundary proven at the same time | One slice instead of two | Delays the first slice until the trust sibling settles; visibility and detail are what the owner asked to prove first |
 | Treat watch events as the history database | Simple | Missed transitions, pruning and absent working-set events make completeness claims false |
 | Use only screenshots or HTML previews | Cheap visual iteration | Neither proves safe actions; HTML does not prove native rendering; keep them as labeled partial evidence |
@@ -387,23 +406,25 @@ Settle before claiming: the browser trust boundary before host-connected mutatio
 
 ## 10. Observable success and next investigations
 
-| ID | Observable result | Owner |
-| --- | --- | --- |
-| AE-E1 | The owner opens the gallery and sees their real current toast beside the proposed one on both platforms, every Git and CircleCI example carrying truthful support and capture labels, with a written list of presentation changes justified by captures. | Native notification gallery; capture siblings |
-| AE-E2 | One command starts the queue against a real host store with fixture requests filed; the page shows pending requests with full detail and live updates; reconnect restores current state; historical coverage and gaps are visible rather than guessed. | Web request queue experiment; request history and privacy |
-| AE-E3 | Browser and CLI races produce one authoritative decision; stale actions cannot widen scope; a jail cannot approve through the service, shown by test. | Browser trust boundary |
-| AE-E4 | A selected S3 operation traverses real local mediation, classification, approval and execution fixtures without external accounts, with the classifier denying everything not in its table. | AWS S3 vertical |
-| AE-E5 | A second service adapter is written mostly by filling in a table, while its unknown operations, credentials and unsupported paths stay explicitly bounded. | Service mediation machinery |
-| AE-E6 | Public artifacts contain sanitized generic examples; private pack code and topology remain outside the repository. | Every sibling |
+| ID | Observable result | Evidence and remaining acceptance work | Owner |
+| --- | --- | --- | --- |
+| AE-E1 | The owner opens the gallery and sees their real current toast beside the proposed one on both platforms, every Git and CircleCI example carrying truthful support and capture labels, with a written list of presentation changes justified by captures. | **Partial:** fixture gallery and native Linux baseline exist. No native Mac captures; Linux baseline is headless, not desktop pixels. Notifier correctness and expanded action/lifecycle evidence remain. | Native notification gallery; capture siblings |
+| AE-E2 | One command starts the queue against a real host store with fixture requests filed; the page shows pending requests with full detail and live updates; reconnect restores current state; historical coverage and gaps are visible rather than guessed. | **Partial:** host-only read-only queue, reconciliation, full pending JSON detail and observed-only memory history are built and fixture-tested. A live host store with real jails has not been exercised; browser/runtime checks remain. History's eviction count and full last-seen request detail are not built. | Web request queue experiment; request history and privacy |
+| AE-E3 | Browser and CLI races produce one authoritative decision; stale actions cannot widen scope; a jail cannot approve through the service, shown by test. | **Not implemented:** no browser decision route or mutation tests. Read-only bootstrap/auth/race alarm exist, but do not prove mutation. [OQ-BT1](browser-trust-boundary.md#OQ-BT1) and mutation gates remain. | Browser trust boundary |
+| AE-E4 | A selected S3 operation traverses real local mediation, classification, approval and execution fixtures without external accounts, with the classifier denying everything not in its table. | **Built fixture vertical:** [`TestS3ShippedPackThroughRealMediation`](../../../internal/callbroker/s3_e2e_test.go) and [`TestAWSS3BrokerMediatesReadsAndAsksForWrites`](../../../integration/aws_s3_broker_test.go) exist. No new test run is claimed here; live AWS/real CLI compatibility and native Mac green are not established by this evidence. | AWS S3 vertical |
+| AE-E5 | A second service adapter is written mostly by filling in a table, while its unknown operations, credentials and unsupported paths stay explicitly bounded. | **Not demonstrated:** the first S3 example exists; a conformance kit and second-adapter proof do not. | Service mediation machinery |
+| AE-E6 | Public artifacts contain sanitized generic examples; private pack code and topology remain outside the repository. | **Public evidence:** committed fixtures and queue recordings are sanitized. This is not a private-pack implementation or publication claim. | Every sibling |
 
-**Next investigations (agent work, routed to siblings):**
+**Remaining work (routed to siblings):**
 
-- Identify the renderer and `on_request` configuration producing the owner's current toasts, and capture them as the baseline (gallery).
-- Measure `terminal-notifier` action collapse and withdrawal on real macOS (Mac capture runner).
-- Enumerate which audit and snapshot fields each existing adapter exposes, to bound what history the queue can show and what a read-only view may expose (history and privacy).
-- Design and test the host-user boundary for a browser decision path (browser trust boundary).
-- Decide whether S3 execution signs on the host executor or narrows the existing SSO route, and document the bypass risk either way (S3 vertical).
-- Confirm the current state of the HTTP front slice before any HTTP-fronted service is scheduled (mediation machinery).
-- Recommend the third AWS service from measured recipe gaps after S3 (AWS EC2 and third service).
+- Correct the notifier behaviors already identified by the [gallery](native-notification-gallery.md), then expand Linux pointer and second-daemon visual evidence; neither waits on a Mac.
+- Measure native notification rendering, action collapse and withdrawal on real macOS ([Mac capture runner](mac-capture-runner.md)).
+- Complete the real-host/rootless, real-browser and desktop-opener checks listed in [5.4](#54-the-read-only-queue-as-built-yolo-approve---web); source or nested-jail checks cannot substitute for them.
+- Preserve the built read-only bootstrap ruling; resolve only [OQ-BT1](browser-trust-boundary.md#OQ-BT1) before mutation engineering, then implement and pass the mutation tests.
+- Address the existing history/display acceptance gaps and route the [draft host-history extension](request-history-and-privacy.md#83-proposed-for-boundary-brokermd) through its owning authority before comprehensive history work.
+- Continue the accepted [S3 backlog](aws-s3-plan.md#tasks) and [service recipe](service-mediation.md) work; confirm HTTP-front readiness before scheduling an HTTP-fronted service. EC2 scope and a third AWS service remain selective, not an inferred commitment.
 
-No screenshots, runtime security results, live API compatibility or implementation are claimed by this design. The unresolved items above are engineering work, not owner questions to manufacture now.
+The delivered slices are not completion of the entire constellation. Native Mac and real-host/browser
+proof need their appropriate runtime environments; mutation needs the outstanding owner choice as
+well as tests; comprehensive history needs an agreed host interface. Independent Linux, queue and
+service engineering remains possible alongside those waits.
