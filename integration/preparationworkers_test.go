@@ -626,7 +626,7 @@ func reobserveTransientEmptyArguments(home string, p homeProcess, snapshot stopP
 			awaitHomeDeparture(home, p, deadline, probes)
 			return p, snapshot, false, true, true, nil
 		}
-		if homeErr != nil && !errors.Is(homeErr, errHomeObservationUnknown) {
+		if homeErr != nil && !errors.Is(homeErr, errHomeObservationUnknown) && !errors.Is(homeErr, errHomeEnvironmentCleared) {
 			return p, snapshot, false, false, true, fmt.Errorf("revalidating %s HOME ownership while argv was empty: %w", p, homeErr)
 		}
 		if homeErr == nil && matches && len(snapshot.args) > 0 {
@@ -4367,6 +4367,51 @@ func TestStopHomeProcessesWaitsOutAnEmptyArgvUnderUncertainHOME(t *testing.T) {
 	stopped, err := stopHomeProcessesWithinWithProbes(home, 2*time.Second, 0, probes)
 	if err != nil || len(stopped) != 0 || killCalls != 0 || inspectCalls < 3 {
 		t.Fatalf("stop=%v, %v (inspections=%d signals=%d); want the exiting process waited out, unsignalled", stopped, err, inspectCalls, killCalls)
+	}
+}
+
+// A previously classified HOME-owned process may read with both argv and its environment empty
+// while exiting. The same identity is observed once more until disappearance, and is never signalled.
+func TestStopHomeProcessesWaitsForOwnedEmptyArgvWithClearedHOMEToDisappear(t *testing.T) {
+	const home = "/test/home"
+	const pid = 5162
+	const startTime = "876562"
+	cleared := fmt.Errorf("%w: process environment was cleared", errHomeEnvironmentCleared)
+	listed := homeProcess{
+		pid: pid, ppid: 1, args: []string{"/bin/worker"}, startTime: startTime, homeMatched: true,
+	}
+	liveEmpty := stopProcessSnapshot{
+		startTime: startTime, state: "R", stateFound: true, flagsFound: true,
+		lateStartTime: startTime, lateStartTimeFound: true,
+	}
+	listCalls, inspectCalls, homeCalls, killCalls := 0, 0, 0, 0
+	probes := stopProcessProbes{
+		list: func(string) []homeProcess {
+			listCalls++
+			if listCalls == 1 {
+				return []homeProcess{listed}
+			}
+			return nil
+		},
+		inspect: func(int) (stopProcessSnapshot, error) {
+			inspectCalls++
+			if inspectCalls == 1 {
+				return liveEmpty, nil
+			}
+			return stopProcessSnapshot{gone: true}, nil
+		},
+		home: func(int, string) (bool, error) {
+			homeCalls++
+			return false, cleared
+		},
+		kill: func(int, syscall.Signal) error { killCalls++; return nil },
+	}
+	stopped, err := stopHomeProcessesWithinWithProbes(home, time.Second, 0, probes)
+	if err != nil || len(stopped) != 0 || killCalls != 0 {
+		t.Fatalf("stop=%v, err=%v, signals=%d; want successful unsignalled wait for disappearance", stopped, err, killCalls)
+	}
+	if listCalls < 2 || inspectCalls != 2 || homeCalls != 1 {
+		t.Fatalf("censuses=%d inspections=%d HOME observations=%d; want one owned empty-argv observation, then disappearance and a fresh census", listCalls, inspectCalls, homeCalls)
 	}
 }
 
