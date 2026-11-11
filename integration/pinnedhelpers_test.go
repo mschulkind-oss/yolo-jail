@@ -27,6 +27,13 @@ func TestAHostDaemonRunsAndLogsThePinnedBuild(t *testing.T) {
 	dir := fx.dir
 	cname := jailName(dir)
 
+	// This launch is a host launch, so the outer jail's YOLO_VERSION must not reach it: the
+	// nested launcher would take it as its own version (version.Get) and the jail and the pinned
+	// daemon would disagree on build. Unset, not empty: some readers treat an empty value as
+	// in-jail (withHostSemantics). t.Setenv restores the outer value when the test ends.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
+
 	const release = "release-pin"
 	first := startYoloBackground(t, "first", dir,
 		`echo VERSION-IS-$YOLO_VERSION; for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.2; done`,
