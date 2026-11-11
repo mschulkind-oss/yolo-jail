@@ -964,6 +964,8 @@ the Mac Podman VM's jail-to-host stream.
 This witness determines whether the nightly's Mac-specific transfer failure recurs on the current
 main tree; it does not retroactively establish the cause of the original failure if it passes.
 
+*Run 2026-11-11 at `77df9ca0d`* ([lab report](../lab-reports/2026-11-11-mac-capture-runner.md#4-w-gb1)): `true pasta`. As written, `YOLO_RUNTIME=podman` skips all five, because the suite reads `YOLO_SETUP`. With `YOLO_SETUP=podman-self`, **all five pass**, with no `bad object`: the nightly failure did not reproduce. `520b739e5db1` is not on main; the diagnostic is `3b1be0bc1`.
+
 ## Blockers
 
 None. Every ruling the design rests on is in its [ledger](git-broker.md#12-decision-ledger) and

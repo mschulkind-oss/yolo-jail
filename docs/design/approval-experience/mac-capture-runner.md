@@ -275,6 +275,8 @@ Each check is: **Run**, **Observe**, **Witness** (what goes in the lab report), 
 - **Pass:** terminal-notifier 3.0 or later is on `PATH`. A 2.x is a failure of the setup, not of a
   check ([§6.2](../boundary-broker.md#62-macos): "A 2.x is no notifier").
 
+*Run 2026-11-11 at `77df9ca0d`* ([lab report](../../lab-reports/2026-11-11-mac-capture-runner.md)): **M-0 done**: terminal-notifier 3.1.0 and alerter 26.5 are installed. M-1 to M-13 could not run, because the screen was locked and the session had no Screen Recording access. alerter 26.5 takes only double-dash options, so M-11's `al` and M-13's hook fail with a parse error as written, and so does the owner's real hook ([§2](../../lab-reports/2026-11-11-mac-capture-runner.md#2-the-owners-hook-posts-nothing-on-this-mac)).
+
 ### M-1. Gallery capture
 
 - **Run:** for each fixture whose `prompt` is `request`, in light appearance and Alerts style:
