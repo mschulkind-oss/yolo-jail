@@ -937,7 +937,7 @@ expensive with every change to `internal/ghbroker`; land it first.
 
 ## Mac checks
 
-**W-GB1 — rootless Podman Git-stream round trip, at main `2da5c65e8` or later (the reviewed main
+**W-GB1 — rootless Podman Git-stream round trip, at main `287479402` or later (the reviewed main
 baseline is `3b1be0bc15d1`).** The nightly
 failure at [42833734953, shard 5](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42833734953/job/129892741730)
 was in `TestGitBrokerConfigBranch`: its second workspace's granted `git fetch` reported `fatal: bad
@@ -947,7 +947,7 @@ the Mac Podman VM's jail-to-host stream.
 1. On the owner's Mac, use the rootless Podman machine used for the podman integration checks. Record
    `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`; it must say
    `true pasta` (or record the actual recognized rootless network command).
-2. From a clean yolo-jail checkout at main `2da5c65e8` or later, preserve the normal HOME and Go
+2. From a clean yolo-jail checkout at main `287479402` or later, preserve the normal HOME and Go
    caches and run:
    `YOLO_SETUP=podman-self go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration`
 3. Require five explicit `--- PASS: TestGitBrokerConfigBranch` results and no `--- SKIP:` result.
@@ -964,7 +964,31 @@ the Mac Podman VM's jail-to-host stream.
 This witness determines whether the nightly's Mac-specific transfer failure recurs on the current
 main tree; it does not retroactively establish the cause of the original failure if it passes.
 
-*Run 2026-11-11 at `77df9ca0d`* ([lab report](../lab-reports/2026-11-11-mac-capture-runner.md#4-w-gb1)): `true pasta`. As written, `YOLO_RUNTIME=podman` skips all five, because the suite reads `YOLO_SETUP`. With `YOLO_SETUP=podman-self`, **all five pass**, with no `bad object`: the nightly failure did not reproduce. `520b739e5db1` is not on main; the diagnostic is `3b1be0bc1`.
+**Run 2026-11-11 on the owner's Mac, at main `77df9ca0d`: five passes at the reviewed baseline;
+the stated minimum has not run.** The facts are the Mac agent's, from its report (in git history,
+added by commit `7577cbbf7`); its two logs stay on the Mac, in `/Users/Shared/yolo/evidence/`, as
+`2026-11-11-gb1-77df9ca0d.log` and `2026-11-11-gb1-77df9ca0d-yolo-runtime-skipped.log`.
+
+- **Machine and network.** macOS 26.5 (build 25F71), arm64. Step 1's `podman info` printed
+  `true pasta`.
+- **Result.** `YOLO_SETUP=podman-self go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration`
+  passed all five, at 46.1 to 46.3 s each and 254 s in total. No run printed `bad object` or
+  `did not send all necessary objects`.
+- **The older witness text skipped.** The Mac agent read this witness as it stood before its
+  2026-11-10 correction. It then named `520b739e5db1`, which is not a commit on main (the same
+  change is on main as `3b1be0bc15d1`), and step 2 said `YOLO_RUNTIME=podman`. That spelling
+  skipped all five:
+  *"the git-broker chain needs podman, and this runtime is "container""*. SOURCED at `77df9ca0d`:
+  the suite unsets the removed `YOLO_RUNTIME` and takes its runtime from `YOLO_SETUP`, falling
+  back to Apple Container on a Mac that has it. Step 3's "no `--- SKIP:`" rule now refuses such
+  a run.
+- **Which test ran.** `77df9ca0d` contains the reviewed baseline `3b1be0bc15d1` but not
+  `287479402`. So these five passes do not include step 3's separate fetch and push exit
+  statuses, the fetched-commit check, the client-side `git fsck` or the packet trace.
+- **What it settles.** The nightly's failure did not recur in five runs on this Mac's rootless
+  Podman at that commit. It does not withdraw the nightly's `bad object` observation, and it does
+  not establish what caused it.
+- **Still to run.** Steps 1 to 4 as written, at main `287479402` or later.
 
 ## Blockers
 

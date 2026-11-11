@@ -3,16 +3,20 @@ title: "Mac capture runner: what a macOS approval notification looks like, and w
 date: 2026-11-09
 status: draft
 stage: SKETCH
-next: "Landed at `2dd3d8e8f`; the owner's Mac agent runs M-0 to M-13 at main and files a lab report"
+next: "M-0 ran 2026-11-11 at main `77df9ca0d`; M-1 to M-13 wait for an unlocked screen, Screen Recording for the Mac agent's session, and the owner's go-ahead on the settings they change"
 tags: [design, approvals, notifications, macos, mac-checks, gallery]
 summary: "How the owner's Mac agent renders the shared approval fixtures as real macOS notifications, captures them for the gallery with provenance, and measures what terminal-notifier 3 and the owner's current alerter and dialog baseline print on every press, dismissal and withdrawal."
 ---
 
 # Mac capture runner: what a macOS approval notification looks like, and what it does when pressed, dismissed or withdrawn
 
-**Status:** 2026-11-09. Nothing captured, nothing measured. Every behavior below marked *expected*
-comes from [boundary-broker.md §6.2](../boundary-broker.md#62-macos) (SOURCED there) or from
-AppleScript's documented semantics, and is what the checks exist to confirm or break.
+**Status:** 2026-11-11. M-0 ran on the owner's Mac at main `77df9ca0d` ([§7](#7-run-record)).
+Nothing is captured, and M-1 to M-13 have not run: no press, dismissal or withdrawal has been
+measured. Every behavior below marked *expected* comes from
+[boundary-broker.md §6.2](../boundary-broker.md#62-macos) (SOURCED there) or from AppleScript's
+documented semantics, and is what the checks exist to confirm or break. One native fact is in:
+on this Mac the owner's own approval hook posts nothing
+([§7.2](#72-the-owners-hook-posts-nothing-on-this-mac)).
 
 > **In short.** macOS approval notifications are settled by measurement on a real logged-in Mac,
 > never argued from a Linux facsimile. One set of numbered checks both produces the gallery's macOS
@@ -102,12 +106,19 @@ body click and is held to the same rule.
 
 | Requirement | Why | How the agent checks it |
 | --- | --- | --- |
-| A logged-in GUI user at the console, screen unlocked, display awake | A notification posted with no GUI session is refused (exit 4, *expected*) or shown on nobody's screen | `who` lists a `console` line for the user; `pmset -g assertions` shows no display sleep |
+| A logged-in GUI user at the console, screen unlocked, display awake | A notification posted with no GUI session is refused (exit 4, *expected*) or shown on nobody's screen | `who` lists a `console` line for the user; `pmset -g assertions` shows no display sleep; the session dictionary (`CGSessionCopyCurrentDictionary`) does not carry `CGSSessionScreenIsLocked = 1` |
 | Commands run from a terminal app inside that session, not over SSH alone | An SSH-only shell may lack the GUI bootstrap context; [M-8](#m-8-exit-3-and-exit-4) measures exactly that | The agent's shell is a child of the terminal app (`ps -o ppid= -p $$` walks up to it) |
-| Notifications allowed for the posting tool | Otherwise exit 3 (*expected*) | System Settings › Notifications lists the tool with *Allow notifications* on; the first post's authorization prompt is accepted once |
+| Notifications allowed for the posting tool | Otherwise exit 3 (*expected*) | System Settings › Notifications lists the tool with *Allow notifications* on; the first post's authorization prompt is accepted once. `terminal-notifier -diagnose` prints the authorization and the style without the GUI |
 | Focus (Do Not Disturb) off, except in [M-9](#m-9-focus-and-style) | Focus hides or queues notifications | Control Center shows no Focus active; record `focus: off` |
 | Accessibility permission for the terminal app | Pressing buttons, opening Options and sending keystrokes is driven through System Events | `osascript -e 'tell application "System Events" to get name of every process'` succeeds |
 | Screen Recording permission for the terminal app | `screencapture` of another app's window, and window names, need it | A test `screencapture -x /tmp/t.png` shows other apps' content, not only the desktop |
+
+**Who grants these.** Only the owner can unlock the screen, grant Screen Recording or
+Accessibility, and agree to the settings a check changes (a posting tool's notification style and
+permission, Focus, appearance). The Mac agent never grants itself any of them and changes no
+setting without that go-ahead: where one is missing it records the check as "cannot run yet" and
+says what is missing, as the 2026-11-11 run did
+([§7.3](#73-what-m-1-to-m-13-still-need)).
 
 **Who presses the buttons.** The Mac agent drives every press itself: it finds the element through
 System Events (the `NotificationCenter` process's UI elements), then clicks its centre with a real
@@ -246,16 +257,21 @@ tn() {  # tn <label> [extra flags...]
 ```
 
 > [!WARNING]
-> The 3.x flag spellings (`-action` repeated, `-group`, `-remove`) are taken from
-> [boundary-broker.md §6.2](../boundary-broker.md#62-macos) and the 2.x lineage and are not verified
-> for 3.x. [M-0](#m-0-environment-and-inventory) saves `terminal-notifier -help`; where a spelling
-> differs, use the 3.x one, and record the difference in the lab report — it is itself a finding
-> the macOS design needs.
+> The flag spellings (`-action` repeated, `-group`, `-remove`) were written from
+> [boundary-broker.md §6.2](../boundary-broker.md#62-macos) and the 2.x lineage. The 2026-11-11
+> run read terminal-notifier 3.1.0's help and found all three
+> ([§7.1](#71-2026-11-11-at-main-77df9ca0d-m-0-only)). That is the help's text, read on the Mac,
+> and not yet a notification posted with them. [M-0](#m-0-environment-and-inventory) saves
+> `terminal-notifier -help` on every run; where a spelling differs, use the installed one, and
+> record the difference in the lab report — it is itself a finding the macOS design needs.
 
 ## 4. Mac checks
 
-**Commit:** at main `2dd3d8e8f` or later; record the SHA in
-every capture's `commit` and in the lab report. **Build:** none — the checks use the checkout's
+**Commit:** at main `2dd3d8e8f` or later; record the SHA in every capture's `commit` and in the
+lab report. [M-11](#m-11-baseline-alerter) and
+[M-13](#m-13-the-baseline-hook-end-to-end-under-yolos-stop-sequence) changed on 2026-11-11 to
+alerter's double-dash flags, so run them as this document states them on the main being tested.
+**Build:** none — the checks use the checkout's
 fixtures and the posting tools, not a yolo binary. **Order:** M-0 first; the rest in any order,
 each restoring what it changed.
 
@@ -265,9 +281,12 @@ Each check is: **Run**, **Observe**, **Witness** (what goes in the lab report), 
 
 - **Run:** `sw_vers`; `uname -m`; `brew list --versions terminal-notifier alerter`;
   `command -v terminal-notifier alerter cliclick jq`; `terminal-notifier -help > $RUN/out/tn-help.txt 2>&1`;
+  `terminal-notifier -diagnose > $RUN/out/tn-diagnose.txt 2>&1`; alerter's help text, when alerter
+  is installed, saved as `$RUN/out/alerter-help.txt`;
   the appearance and scale reads of [§2.2](#22-appearance-scale-and-style). Find the posting
   apps' bundle identifiers with `mdls -name kMDItemCFBundleIdentifier` on each `.app` the
-  package installed. Record each tool's notification settings in System Settings (allowed, style).
+  package installed; a tool with no `.app` has none of its own, so record the sender it posts as.
+  Record each tool's notification settings in System Settings (allowed, style).
   If terminal-notifier is absent or older than 3.0, `brew install terminal-notifier`.
 - **Observe:** which baseline path the owner's hook takes on this Mac: alerter if `command -v alerter`
   finds it, else the dialog.
@@ -275,7 +294,8 @@ Each check is: **Run**, **Observe**, **Witness** (what goes in the lab report), 
 - **Pass:** terminal-notifier 3.0 or later is on `PATH`. A 2.x is a failure of the setup, not of a
   check ([§6.2](../boundary-broker.md#62-macos): "A 2.x is no notifier").
 
-*Run 2026-11-11 at `77df9ca0d`* ([lab report](../../lab-reports/2026-11-11-mac-capture-runner.md)): **M-0 done**: terminal-notifier 3.1.0 and alerter 26.5 are installed. M-1 to M-13 could not run, because the screen was locked and the session had no Screen Recording access. alerter 26.5 takes only double-dash options, so M-11's `al` and M-13's hook fail with a parse error as written, and so does the owner's real hook ([§2](../../lab-reports/2026-11-11-mac-capture-runner.md#2-the-owners-hook-posts-nothing-on-this-mac)).
+*Run 2026-11-11 at `77df9ca0d`:* **done, and the setup passes** (terminal-notifier 3.1.0). The
+inventory is in [§7.1](#71-2026-11-11-at-main-77df9ca0d-m-0-only).
 
 ### M-1. Gallery capture
 
@@ -314,7 +334,11 @@ Each check is: **Run**, **Observe**, **Witness** (what goes in the lab report), 
 
 - **Run:** `tn M-4`, click the notification body (not Options, not close).
 - **Observe:** `stdout`, `exit`; whether an app is activated or a window opened.
-- **Witness:** `stdout` byte for byte (is it `@CONTENTCLICKED`?), exit code, what was activated.
+- **Witness:** `stdout` byte for byte, exit code, what was activated. Say which it is:
+  `@CONTENTCLICKED` (the older lineage's word), `@ACTIONCLICKED` (the outcome 3.1.0's help names
+  beside `@CLOSED` and `@TIMEOUT`, [§7.1](#71-2026-11-11-at-main-77df9ca0d-m-0-only)), or
+  something else. The help is not a measurement of a click, so neither word is expected over the
+  other.
 - **Pass:** the output is none of the three action labels. If it equals one, rule 3 is broken and
   the report says so first.
 
@@ -405,10 +429,17 @@ Run only if M-0 found alerter; otherwise record "not installed; the baseline is 
 not install it. This is the path [boundary-broker.md §6.2](../boundary-broker.md#62-macos) rejected
 (the deprecated `NSUserNotification`); it is measured as the baseline, not as a candidate.
 
+**`al` is a normalized reference, not what the owner's hook posts today.** The hook spells these
+flags with a single dash (`-title`, `-closeLabel`). alerter 26.5 takes only double-dash options
+and rejects that call, so on the owner's Mac the hook posts nothing
+([§7.2](#72-the-owners-hook-posts-nothing-on-this-mac)). `al` is the same call in the spelling
+alerter 26.5 accepts, so M-11 measures what that call shows and answers: the nearest thing to what
+the hook would post once its spelling is corrected. Every M-11 capture's manifest `note` says so.
+
 ```sh
-al() {  # the baseline's alerter call, verbatim in shape
-  launch "$1" alerter -title "yolo: $YOLO_REQUEST_HEADLINE" -message "$YOLO_REQUEST_DESCRIPTION" \
-    -actions "Allow once,Allow 1h,Deny" -closeLabel Ignore &
+al() {  # the baseline's alerter call, in the double-dash spelling alerter 26.5 accepts
+  launch "$1" alerter --title "yolo: $YOLO_REQUEST_HEADLINE" --message "$YOLO_REQUEST_DESCRIPTION" \
+    --actions "Allow once,Allow 1h,Deny" --close-label Ignore &
 }
 ```
 
@@ -419,7 +450,7 @@ al() {  # the baseline's alerter call, verbatim in shape
 - **Observe:** output and exit per run; whether it posts at all on this release; whether SIGINT
   removes it from the screen and from Notification Center.
 - **Witness:** captures, outputs byte for byte, exit codes, before and after screenshots for the
-  SIGINT run, `alerter -version` or the package version.
+  SIGINT run, `alerter --version` or the package version.
 - **Pass:** a measurement. Flag first any run whose output is exactly `Allow once`, `Allow 1h` or
   `Deny` without that action having been chosen.
 
@@ -459,14 +490,18 @@ text through `on run argv`, and record which.)
 ### M-13. The baseline hook end to end, under yolo's stop sequence
 
 The owner's hook is a personal script; the check uses this generic stand-in with the same mapping.
+Its alerter branch uses the double-dash spelling, as [M-11](#m-11-baseline-alerter)'s `al` does,
+so it measures the mapping from a posted notification to a `yolo approve` call. It does not
+measure the owner's hook as written: that was run once on 2026-11-11 and posted nothing
+([§7.2](#72-the-owners-hook-posts-nothing-on-this-mac)).
 
 ```sh
 cat > "$RUN/baseline-hook.sh" <<'EOF'
 #!/bin/sh
-# stand-in for the owner's on_request hook on macOS
+# stand-in for the owner's on_request hook on macOS, with alerter 26.5's double-dash flags
 if command -v alerter >/dev/null; then
-  ans=$(alerter -title "yolo: $YOLO_REQUEST_HEADLINE" -message "$YOLO_REQUEST_DESCRIPTION" \
-        -actions "Allow once,Allow 1h,Deny" -closeLabel Ignore)
+  ans=$(alerter --title "yolo: $YOLO_REQUEST_HEADLINE" --message "$YOLO_REQUEST_DESCRIPTION" \
+        --actions "Allow once,Allow 1h,Deny" --close-label Ignore)
 else
   ans=$(osascript -e "display dialog \"$YOLO_REQUEST_DESCRIPTION\" buttons {\"Deny\",\"Allow 1h\",\"Allow once\"} default button \"Allow once\" giving up after 3500" \
         | sed -n 's/^button returned:\([^,]*\), gave up:false$/\1/p')
@@ -530,7 +565,9 @@ no capture keeps its `missing` entry, with the reason. A terminal-notifier captu
 exactly `terminal-notifier 3`, the string each fixture's macOS `missing` entry carries: folding
 replaces an entry by platform and renderer, so another spelling would leave the fixture both
 missing and captured, which validation refuses. A baseline entry's `renderer` says which baseline
-path drew it (alerter or the dialog), never just "baseline", and is added beside it.
+path drew it (alerter or the dialog), never just "baseline", and is added beside it. An alerter
+entry's `note` also says the call was the normalized one of [M-11](#m-11-baseline-alerter), since
+the owner's hook as written draws nothing to capture.
 
 When the report comes back, the `mac-handoff` skill's incoming steps apply: verify each claimed
 failure, fix forward, fold the M-2 to M-9 outcomes into
@@ -546,3 +583,110 @@ then retire the report.
 | Driving presses only with AXPress | Rejected as the default: an accessibility action can take a path a mouse click does not. AXPress is the fallback, and the witness says when it was used. |
 | Capturing the full screen always | Rejected as the default: it leaks the owner's desktop into a public file (AE-R6). Allowed only cropped, as a last resort. |
 | Testing the baseline through a real yolo request and the owner's real hook | Rejected: it needs a live request store and approves nothing real by design. The stand-in plus stub `yolo` measures the same mapping without either. |
+
+## 7. Run record
+
+One entry per run, newest first. A run's raw lab report is retired once its facts are here, and
+stays in git history.
+
+**How to read the evidence.** Every native fact below is the Mac agent's own measurement on the
+owner's Mac, taken from its report. The help texts and logs it saved stay on that Mac and are not
+in this repository, so none of it was re-checked from Linux. A fact marked SOURCED was re-read
+in this repository at the run's commit.
+
+### 7.1 2026-11-11, at main `77df9ca0d`: M-0 only
+
+macOS 26.5 (build 25F71), arm64, backing scale factor 2, appearance Light. Nothing was fixed,
+nothing was captured, and no system setting was changed. The raw report is in git history, added
+by commit `7577cbbf7`.
+
+| Check | Result |
+| :--- | :--- |
+| M-0 | **Done.** terminal-notifier 3.1.0 is on `PATH`, so the setup passes |
+| M-1 to M-13 | **Cannot run yet.** The screen was locked and the agent's session had no Screen Recording access ([§7.3](#73-what-m-1-to-m-13-still-need)) |
+| The owner's `on_request` hook, run once outside the numbered checks | **Posts nothing and answers nothing** ([§7.2](#72-the-owners-hook-posts-nothing-on-this-mac)) |
+
+**Inventory.**
+
+- `brew list --versions`: `terminal-notifier 3.1.0` and `alerter 26.5`. `jq` is at
+  `/opt/homebrew/bin/jq`. `cliclick` is not installed, so a press would fall back to AXPress
+  ([§2.1](#21-the-session)).
+- **Bundle identifiers.** terminal-notifier's is `fr.julienxx.oss.terminal-notifier`. alerter is a
+  bare binary with no `.app`; its `--sender` defaults to `com.apple.Terminal`.
+- **`terminal-notifier -diagnose`** reported `authorization authorized`, `alerts enabled`,
+  `alert style banners`, `lock screen enabled`, `previews when unlocked`, and *"No problems
+  found."* The style is Banners, so the Alerts style the gallery captures need
+  ([§2.2](#22-appearance-scale-and-style)) is not set yet.
+- **Baseline path.** `command -v alerter` finds it, so the owner's hook takes its alerter branch
+  and never reaches the dialog.
+- `who` lists two console sessions: the owner's, and `yolo-witness`.
+
+**terminal-notifier 3.1.0's help, against what [§3](#3-shared-tools) assumes.**
+
+- `-action` repeats or takes a comma-separated list, and `-group` and `-remove` exist, as `tn`
+  and [M-7](#m-7-withdrawal) variant a assume.
+- With `-action`, the help names the outcomes as *"the button title, … or one of
+  @ACTIONCLICKED, @CLOSED or @TIMEOUT"*. [M-4](#m-4-body-click) was written expecting
+  `@CONTENTCLICKED` for a body click. What a body click prints is still unmeasured.
+- `-timeout`: *"Prints @TIMEOUT and exits 6 if it expires"*; without it the help says the tool
+  waits indefinitely. [M-6](#m-6-no-timeout-banners-and-alerts) measures that.
+- `-sender` and `-appIcon` are listed as removed.
+- `-diagnose` exists, and reads authorization and style without the GUI, which
+  [M-8](#m-8-exit-3-and-exit-4) and [M-9](#m-9-focus-and-style) can use.
+
+**alerter 26.5 takes only double-dash options**, among them `--title`, `--message`, `--actions`,
+`--close-label` and `--version`. `alerter -closeLabel Ignore …` fails with *"Error: Unknown option
+'-closeLabel'. Did you mean '--close-label'?"*. M-11's `al` and M-13's stand-in were written with
+the single-dash spelling and would have measured that error; both now use the double-dash one.
+
+**Evidence, on the Mac:** `tn-help.txt`, `tn-diagnose.txt`, `alerter-help.txt` and
+`hook-real.out`, in `/Users/Shared/yolo/mac-capture/out/`.
+
+### 7.2 The owner's hook posts nothing on this Mac
+
+The user config sets `on_request = "~/.local/bin/yolo-approve-toast"`, a link into the owner's
+dotfiles. The script is the owner's and is not in this repository; nothing here changes it. macOS
+has no `notify-send`, so the script takes its alerter branch:
+
+```sh
+a=$(alerter -title "$title" -message "$YOLO_REQUEST_DESCRIPTION" \
+  -actions "Allow once,Allow 1h,Deny" -closeLabel Ignore)
+```
+
+- **alerter rejects the call.** That exact shape exits 64 with *"Error: At least one of
+  --message, --remove, or --list is required."* and posts nothing.
+- **The hook then exits 0.** The empty answer matches none of its `case` branches.
+- **End to end.** With the `git-push-new-branch` fixture's `hook_env` exported and a stub `yolo`
+  on `PATH` that only logs its arguments, `~/.local/bin/yolo-approve-toast` printed that error,
+  exited 0, and made no `yolo` call.
+- **yolo records no failure for it.** SOURCED at `77df9ca0d`, in
+  [`brokerhook.go`](../../../internal/brokerhook/brokerhook.go): the runner notes a failure on
+  the request only when the hook cannot start, exits non-zero or is killed, or runs into its
+  timeout. A hook that starts and exits 0 is recorded as having run.
+
+So a request filed on this Mac would wait with nothing on screen and no failure line in
+`yolo approve`, until someone answers it there or it expires. That last step is read from the
+source: the run used a stub `yolo` and filed no real request, so no pending request was watched.
+
+**What this does not show.** It is not a measurement of any macOS notification: none was posted.
+The hook's dialog branch, whose default button is *Allow once*, was not reached, because alerter
+is installed; [M-12](#m-12-baseline-the-modal-dialog) still has to measure it.
+
+### 7.3 What M-1 to M-13 still need
+
+- **The screen unlocked.** The session dictionary gave `CGSSessionScreenIsLocked = 1` for the
+  owner's console session.
+- **Screen Recording for the agent's session.** `screencapture -x` failed with *"could not create
+  image from display"*, and `CGWindowListCopyWindowInfo` returned names for only 2 of 27
+  on-screen windows. The session ran under a `tmux` server whose parent is `launchd`, not directly
+  under a terminal app ([§2.1](#21-the-session)); whether that is why the access is missing was
+  not established.
+- **Accessibility already works.** System Events answered for the `Finder` and
+  `NotificationCenter` processes.
+- **The owner's go-ahead on the settings the checks change:** the Alerts style for
+  terminal-notifier, its *Allow notifications* off and on
+  ([M-8](#m-8-exit-3-and-exit-4) variant a), Do Not Disturb ([M-9](#m-9-focus-and-style)) and
+  dark mode ([M-1](#m-1-gallery-capture)). None was changed in this run.
+
+The unlock, the Screen Recording grant and the go-ahead are the owner's to give
+([§2.1](#21-the-session)).

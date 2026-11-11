@@ -3,7 +3,7 @@ title: "What approval toasts look like today, and the fixture set that lets us p
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Run the Mac checks in mac-capture-runner.md, then land P-1 and P-2 in the toast notifier before any wording change"
+next: "Run M-1 to M-13 in mac-capture-runner.md once the owner unlocks the Mac and grants Screen Recording, then land P-1 and P-2 in the toast notifier before any wording change"
 depends-on:
   - README.md
   - ../boundary-broker.md
@@ -13,11 +13,12 @@ summary: "The native notification gallery sibling of the approval-experience umb
 
 # What approval toasts look like today, and the fixture set that lets us prove it
 
-**Status:** 2026-11-09. Fixture format, capture test and gallery generator built in
+**Status:** 2026-11-11. Fixture format, capture test and gallery generator built in
 [`internal/approvalfixtures`](../../../internal/approvalfixtures/fixture.go); the baseline is
 SOURCED from the owner's dotfiles and MEASURED where [the Linux capture runner](linux-notification-capture.md)
 drove it. Every fixture that prompts has a native Linux capture, and no fixture has Mac
-evidence.
+evidence. The one Mac observation so far is of the baseline itself: on the owner's Mac the hook
+posts nothing ([B-7](#b-7)).
 
 > **In short.** The owner's toasts are not yolo's: a personal `on_request` script posts a
 > three-button critical notification, and two of its behaviors break the umbrella's rules
@@ -140,7 +141,9 @@ accepts all of them.
   none to take, since its toast was never shown, and lists Linux as missing with that reason. A
   `state-*` capture shows the toast as it was filed, and its note says so: the outcome is not
   something a toast renders.
-- **macOS:** every fixture lists its capture as missing.
+- **macOS:** every fixture lists its capture as missing. The first Mac run, on 2026-11-11, took
+  none: the screen was locked and the Mac agent's session had no Screen Recording access
+  ([`mac-capture-runner.md` §7.3](mac-capture-runner.md#73-what-m-1-to-m-13-still-need)).
 
 ## 2. The owner's current toasts: the baseline
 
@@ -166,7 +169,9 @@ All SOURCED from the owner's configuration as of 2026-11-09 unless marked MEASUR
    grace ([`brokerhook.go`](../../../internal/brokerhook/brokerhook.go), `StopGrace`).
 6. **macOS.** The same script uses `alerter` if installed, else an `osascript` `display dialog`
    with buttons Deny / Allow 1h / Allow once, **default button "Allow once"**, giving up after
-   3500 seconds.
+   3500 seconds. MEASURED on the owner's Mac, 2026-11-11 (macOS 26.5 build 25F71, arm64, alerter
+   26.5, main `77df9ca0d`): alerter is installed, so the script takes the alerter branch, and
+   alerter rejects the script's single-dash flags, so nothing is posted ([B-7](#b-7)).
 
 **What happens to a toast once it is posted.** These results are Linux only: swaync 0.12.6 and
 libnotify 0.8.8, from [`linux-notification-capture.md` §4](linux-notification-capture.md#4-what-the-stack-measured),
@@ -217,6 +222,8 @@ does not repeat them.
   - The script's `osascript` dialog sets `default button "Allow once"`.
   - A keypress that was meant for another window can therefore grant.
   - The umbrella's [§4.2](README.md#42-native-constraints-are-part-of-the-design) also notes that a modal dialog is not a toast.
+  - The owner's Mac has alerter installed, so the script never reaches this dialog there
+    ([B-7](#b-7)). The hazard is still read from the script only, and unobserved.
 - **B-5. A refused click has no feedback.** This breaks rule 4. SOURCED from the script; the exit
   codes are MEASURED in the fixtures.
   - The script runs `yolo approve` and stops. On a refusal the user sees the toast disappear and
@@ -230,6 +237,20 @@ does not repeat them.
   - `notify-send` cannot reach a bus, the hook exits 1, and no toast appears.
   - Nothing falls back to another surface. That matches the umbrella's no-fallback rule, but the
     owner learns of it only from the CLI.
+- <a id="b-7"></a>**B-7. On the owner's Mac the baseline posts nothing, and yolo records no
+  failure.** Nothing is granted, so rule 3 holds; but the request is never shown, and unlike B-6
+  the failure is not visible in `yolo approve`.
+  MEASURED on the owner's Mac on 2026-11-11 by the Mac agent, in one run of the script with a
+  fixture's hook environment and a stub `yolo`; SOURCED for what yolo records. The details are in
+  [`mac-capture-runner.md` §7.2](mac-capture-runner.md#72-the-owners-hook-posts-nothing-on-this-mac).
+  - The script calls alerter with single-dash flags. alerter 26.5 takes only double-dash options,
+    exits 64 and posts nothing.
+  - The script then matches no answer, makes no `yolo approve` call and exits 0.
+  - yolo notes a hook failure only for a hook that cannot start, exits non-zero or is killed, or
+    times out ([`brokerhook.go`](../../../internal/brokerhook/brokerhook.go)). A hook that
+    printed an error and exited 0 is recorded like one that showed a prompt.
+  - This is one Mac and one alerter version, and no real request was filed. It is not evidence
+    of how any macOS notification looks or behaves.
 
 **Content.** All MEASURED from the Linux captures and the real fixtures.
 
@@ -320,7 +341,8 @@ fixture diff.
   remains unbuilt; this gallery still supplies baseline evidence, not integrated native proof.
 - **No change to the owner's script.** Findings about it are reported to the owner; the dotfiles
   are theirs.
-- **No Mac evidence.** [`mac-capture-runner.md`](mac-capture-runner.md) owns it.
+- **No Mac captures.** [`mac-capture-runner.md`](mac-capture-runner.md) owns the Mac checks and
+  their [run record](mac-capture-runner.md#7-run-record).
 - **No history or queue semantics.** The browser queue sibling reads the same fixtures.
 
 ## Decision Ledger
