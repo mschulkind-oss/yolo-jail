@@ -41,6 +41,15 @@ a normal GitHub PR duration can succeed and is not asserted to be refused.
   hidden dispatch, including an absent private address reaching the production dial, and the
   real host approval subprocess/store boundary.
 
+**Stop-repair follow-up (`9d5bcd413`).** After the captured candidate `ff92fabc4`, the stop
+boundary gained a 5 s `WaitDelay` on the CLI and a 5 s post bound that a handled stop cannot cancel.
+Its review was APPROVE with notes, and the notifier paths are unchanged at `4bb7ab1ce`. Open P2
+findings at that head: an interrupted CLI that exits 0 is reported as a start failure; no test
+queues an authenticated action together with a stop; the Decision test blocks on `os.Open` of its
+ready FIFO if the fixture never starts; and a stop observed before the post still posts and then
+withdraws. The stop limits are stated in [P-2 of the design](linux-approval-notifier.md#what-this-can-and-cannot-prove).
+None of these is a native-capture claim.
+
 Native integrated capture, nested-jail verification, combined completion census and landing
 remain root-owned. Tests read no source files outside their package, but import the existing
 brokerhook/store and CLI authority packages; root regenerates the combined census once.

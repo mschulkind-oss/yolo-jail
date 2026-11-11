@@ -16,7 +16,7 @@ The opt-in per-request renderer is implemented in
 signal and existing-hook lifecycle tests.
 [`internalapprovalnotify_test.go`](../../../internal/cli/internalapprovalnotify_test.go) drives
 its subprocess decision runner through the current CLI/store boundary. This is bounded
-protocol evidence, not native capture or completion of the per-user singleton.
+protocol evidence, not a native capture of the integrated candidate or completion of the per-user singleton.
 The supervisor approved optional delivery through the existing `on_request`, not automatic activation.
 
 > **In short.** A first-party Linux hook can own its D-Bus notification and forward
@@ -32,6 +32,7 @@ The supervisor approved optional delivery through the existing `on_request`, not
 BB-D11 supplies the transport; BB-D75 supplies the existing optional hook and CLI-only
 answer boundary; BB-D98 / [OQ-BB10](../boundary-broker.md#OQ-BB10) supply the unchanged no-notifier behavior.
 The brokerstore remains the sole decision authority. The hook's stdout never means consent.
+The posted text is cut to 4096 bytes before it is escaped, so an escaped body is at most about 6×4096 bytes (about 24 KiB) plus the fixed next-step wording; the bound is 6×, not 5×.
 
 The user may explicitly configure `on_request = 'exec yolo internal approval-notify'`.
 This document does not change user config, the personal hook, grants, source adapters,
@@ -75,9 +76,7 @@ HTTP listener or new authorization surface is introduced.
 ## What this can and cannot prove
 
 - **P-1:** typed dismissal reason 2 is Deny through the CLI, never inferred from empty output.
-- **P-2, partial:** handled stops and decided-elsewhere withdrawal close by id. SIGKILL,
-  OOM, and an uncatchable process death cannot run cleanup; a surviving broker-owned
-  notification registry or the BB-D71 singleton remains future work. No every-stop claim.
+- **P-2, partial:** handled SIGINT/SIGTERM and decided-elsewhere withdrawal close the issued id while the connection is open. The time bounds are not one number. Under the broker hook runner, a stop is SIGINT to the whole process group, then a group SIGKILL after `StopGrace` (2 s), so the notifier's 5 s post bound and the CLI's 5 s `WaitDelay` are both capped at 2 s there. A direct SIGINT or SIGTERM with no follow-up kill may get the full 5 s. A post still stalled at the group kill has an unlearned id, so a toast it later shows may be orphaned and cannot be withdrawn. No every-handled-stop guarantee is claimed. SIGKILL, OOM and an uncatchable process death run no cleanup; a surviving broker-owned notification registry or the BB-D71 singleton remains future work. The D-Bus connect handshake is unbounded and outside every bound above. It takes no context on purpose: a context that ends closes the connection before the withdraw can run. A bounded connection would be a separate mechanism, and this limit does not block the present slice.
 - **P-4:** CLI refusal feedback is non-actionable and cannot widen a grant.
 - **P-3:** no default grant action on Linux; no claim about the private Mac hook or renderer.
 
@@ -85,7 +84,10 @@ BB-D71's auto-started per-user singleton, cross-source watch, lock, broker-resta
 and reshow/replacement remain unbuilt. This hook holds its own connection, but does not
 meet that singleton lifecycle. It is deliberately optional, not a rewrite of [§6](../boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification).
 
-NG-D5 still requires native re-capture of the integrated candidate. Fake transport and
+NG-D5 still requires native re-capture of the integrated candidate. The captured candidate
+in [§4.2 of the Linux capture](linux-notification-capture.md#42-the-notifier-candidate) is
+`ff92fabc4`; the stop-boundary repair (the 5 s `WaitDelay` and post bound) landed later, at
+`9d5bcd413`, and has no native capture. Fake transport and
 CLI/store tests demonstrate bounded protocol behavior, not desktop appearance or full
 P-2. P-5 through P-9 wording changes stay fenced until rule fixes are independently proven.
 The existing gallery images remain evidence of the owner's baseline, not this notifier.

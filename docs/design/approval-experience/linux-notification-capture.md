@@ -299,6 +299,11 @@ arguments to a log and exits 0. **No request was filed, approved or denied, and 
 store, credential or owner hook was read.** The event came from the
 `circleci-rerun-workflow-synthetic` fixture (lifecycle) or from each pending fixture (visuals).
 
+**Which code, and what is not in it.** That build predates `9d5bcd413`, the stop-boundary repair
+that added the CLI's 5 s `WaitDelay` and the 5 s bound on the post. None of the captures or
+lifecycle rows below exercised those bounds, so they are not evidence for the integrated notifier.
+The integrated candidate still needs its own native recapture.
+
 **Where it ran.** Inside a jail, on the private bus of [§1](#1-the-stack). The candidate is
 host-only, and its one jail test is the `YOLO_VERSION` variable
 ([`config.InJail`](../../../internal/config/load.go)). The hook runs under `env -i`, as a
