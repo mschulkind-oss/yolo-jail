@@ -2,8 +2,8 @@
 title: "Plan: repository binding for the github source, first slice"
 date: 2026-11-12
 status: accepted
-stage: DECIDED
-next: "Build Task 1 on the series branch; Tasks 1 to 8 land on main together, after the parent's gates on the combined tree"
+stage: BUILT
+next: "Parent: `just done` on the series, then one landing of Tasks 1 to 8 together; the host install and the owner's own config steps follow the landing and are not done here"
 depends-on:
   - github-write-scopes.md
 tags: [plan, github, broker, grants, config]
@@ -12,11 +12,22 @@ summary: "Hand-off for GW-D79's first slice as one series of eight commits: orig
 
 # Plan: repository binding for the github source, first slice
 
-**Status:** 2026-11-12. Written against `8cf2c548a`; `internal/` and `packs/` are byte-identical
+**Status:** 2026-11-12 (`0121997f1`). Tasks 1 to 8 are built as one series of commits and
+verified; the series awaits its one landing. MEASURED: `just check-ci` and the completion census
+at `0121997f1`, the full integration suite at `e0ad3eaa0` (production source identical to
+`0121997f1`), and one nested launch on a build of `8a819c29e` that accepted a `[repos.<name>]`
+table. UNMEASURED: native macOS, rootless reachability, a GitHub call under live authority,
+agent delivery, and the hand-run CLI smoke of [Landing](#landing) step 3. The
+[verification record](#verification-record) has the commands, counts and limits. Built here means
+the code and its tests are in the series. It does not mean a release, a host install, or any
+grant or config file changed.
+
+**Baseline.** Written against `8cf2c548a`; `internal/` and `packs/` were byte-identical
 to `45f576cb4` (`git diff --stat 45f576cb4 8cf2c548a` lists docs only). Completed from three
 read-only packets, each checked against the tree at that commit, then revised on the lead's
 integration guard and the config planner's closure addendum (run 25402925). Where a packet and
-the source disagree, the source was followed and the report says where.
+the source disagree, the source was followed and the report says where. The tasks below are kept
+as they were handed off; line numbers in them are the baseline's.
 
 **Design:** [`github-write-scopes.md`](github-write-scopes.md), [§8](github-write-scopes.md#8-which-repository-a-line-is-for),
 [the first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice),
@@ -28,10 +39,11 @@ file is advice. **Stop and report, do not commit**, when: a red test does not fa
 test marked *pin* is red before any production change; a named file is dirty; a named symbol is
 gone; the fix needs a file outside the task's fence; a gate fails outside the task's scope.
 
-**What was run.** One red was observed, at `45f576cb4`:
-`TestUnqualifiedGitHubRequestsLowerToOriginOnly`, log and Go settings under
-`.yolo/durable/repo-scope-plan-20261112/`. **Every other red and every pin below is predicted
-from reading the source, not observed.** The implementer confirms each before changing code.
+**What was run before hand-off.** One red was observed, at `45f576cb4`:
+`TestUnqualifiedGitHubRequestsLowerToOriginOnly`. Every other red and every pin in the tasks was,
+at hand-off, predicted from reading the source, and the implementer confirmed each before
+changing code. That is the baseline only. What was run on the built series is in the
+[verification record](#verification-record).
 
 **One series, one publication.** Task 1 alone narrows what a listed repository receives with no
 spelling to ask for it back, so no task lands alone. All eight are commits on one branch in one
@@ -1997,6 +2009,57 @@ func TestConfigMigrateConvertsATOMLReposListAndIsThenDone(t *testing.T) {
   `git diff --check`.
 - **Commit.** `docs: repository binding for the github source; census`.
 
+## Verification record
+
+Run on the built series, 2026-11-12. Every command below exited 0 on the commit named.
+
+| What | Commit | Result |
+| :--- | :--- | :--- |
+| `just check-ci` | `0121997f1` | pass |
+| `python3 scripts/completion-census.py` | `0121997f1` | 18273 tests in 178 packages; 1071 reading tests in 43 packages. Its output is committed unedited with this record |
+| `go test -count=1 -timeout 0 ./integration` | `e0ad3eaa0` | `ok`, 1590.974s |
+| The widening integration tests, focused | `e0ad3eaa0` | pass |
+| `TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend` and `TestPinnedTLSWitnessEndedUnusedOnlyForCloseNotify`, 20 repeats; race, 5 repeats; `go vet`; the whole `internal/callbroker` package | `0121997f1` | pass |
+| `TestProductionFloorOperationCancellationReachesActualAdvance`, 20 repeats; race, 5 repeats; `go vet` | `c61e185da` | pass |
+| The two per-jail settings fixture tests in `hostservicelifecycle_test.go`, 20 repeats; race, 10 repeats; `go vet` | `600f6048f` | pass |
+| `just build-dev-bundle`, then its launcher by absolute path from a throwaway workspace | `8a819c29e` | A launch with a `[repos.lib]` table was accepted; the image built and booted; `/bin/yolo` in the jail reported `8a819c29e933`; the jail shut down normally |
+
+**Which source each result is for.**
+
+- `git diff --name-only e0ad3eaa0 0121997f1` lists four `_test.go` files, under `internal/cli`,
+  `internal/cli/run` and `internal/callbroker`. Production source is identical, so the integration
+  run stands for `0121997f1`. It was not repeated there.
+- `git diff --name-only 8a819c29e 0121997f1` lists those four, `integration/githubbroker_test.go`
+  and `userguide/guides/github.md`. The nested launch ran the production code of `0121997f1`.
+- `just check-ci` also passed on earlier commits of the series. Those runs are not a substitute
+  for the one at `0121997f1` and are not counted.
+
+**Not run, and not claimed.**
+
+- **[Landing](#landing) step 3 by hand.** The nested launch selected no broker and no agent pack.
+  Nobody ran `yolo request repos …` or `yolo config migrate --dry-run` by hand in it, and nobody
+  read a gate block or a scope file from it. Those surfaces are covered by permanent tests
+  instead: `TestRequestReposDeclaresANamedRepository` and its siblings,
+  `TestMigrateTurnsATOMLReposListIntoANamedTableWithItsRetainedWrites` and
+  `TestRealReadersSeeTheSameGrantsAfterTheTOMLReposMigration`,
+  `TestANamedRepositoryIsApprovedAtTheGateAndReachesTheBroker`,
+  `TestAStaleApprovalRecordNeverBecomesAScopeFile`, and the GitHub broker tests of the
+  integration suite. This record adds no condition; it only says the hand-run step was not done.
+- **Native macOS, rootless reachability, live GitHub authority, agent delivery.** None was
+  exercised. A nested jail cannot show broker reachability.
+- **Live state.** No config file, grant, approval record or broker store was changed.
+
+**Reds during the series.** Each red run was kept and its cause fixed in source before the next
+run. Three test-only commits replaced short time budgets with waits on events (`c61e185da`,
+`600f6048f`, `db19865f9`), and `c4ce6d8f8` and `0121997f1` made the write-withdrawal test require
+a positive TLS witness. The first red of that test was a 5-second wait expiring. Whether machine
+load caused it, or a forwarder that unwound only at teardown, was not settled, and no cause is
+claimed here.
+
+**Review.** One independent review covered the authority change and one the verbs, migration and
+refusal; their findings were repaired in the series, and six lower-priority ones are the first
+six items of the [Backlog](#backlog). One independent review of the TLS witness found no blocker.
+
 ## Landing
 
 The parent's, once, on the combined branch from a clean worktree:
@@ -2082,6 +2145,13 @@ the workspace's `origin` remote names, and a **named table** is a `[repos.<name>
 - **The named-request unset is TOML only.** `namedRepoUnset` returns early for any other format,
   so `yolo config unset repos.<name>.requests.<source>.<capability>` on a JSONC file takes the
   generic path.
+
+- **The read-withdrawal TLS test still passes on a time budget.**
+  `TestSelectedHTTPReadWithdrawalDuringPinnedTLSHandshakeCannotSend` in
+  [`http_host_test.go`](../../internal/callbroker/http_host_test.go) bounds both of its waits
+  with 5 seconds and has no witness that the TLS handshake succeeded before the refusal. Its
+  write counterpart got both in this series. The read test can go red under load, and can pass on
+  a failed handshake. Test-only; no production change is implied.
 
 ## Blockers
 
