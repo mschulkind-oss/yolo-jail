@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostrun"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -37,6 +38,8 @@ file that already holds [allow], then offer this workspace's approval of it thro
 
 Examples:
   yolo allow git fetch
+  yolo allow repos infra github.com/acme/infra   name a repository in your config (the user's own name)
+  yolo allow repos.infra.github on_request runs   allow github runs on that repository only
   yolo allow git on_request push
   yolo allow github always read
   yolo allow journal read
@@ -102,6 +105,10 @@ func allowRunW(args []string, out, errw io.Writer) int {
 			positionals = append(positionals, a)
 		}
 	}
+	// `repos` is the repository form, read ahead of every source and pack (GW-D77).
+	if len(positionals) > 0 && isReposWord(positionals[0]) {
+		return allowReposRun(positionals, dryRun, out, errw)
+	}
 	list := "always"
 	var source, capability string
 	switch len(positionals) {
@@ -126,7 +133,7 @@ func allowRunW(args []string, out, errw io.Writer) int {
 	if config.InJail() {
 		argv := append([]string{"yolo", "allow"}, positionals...)
 		fmt.Fprint(errw, "yolo allow writes your user config, which only the host can edit, and it is the human's own answer.\n"+
-			hostApprovalStep(strings.Join(argv, " ")))
+			hostApprovalStep(shquote.Join(argv)))
 		return 1
 	}
 
@@ -179,8 +186,13 @@ func allowRunW(args []string, out, errw io.Writer) int {
 		return 0
 	}
 
-	// THE STEP AFTER THE EDIT (RC-D17): a user grant acts in a workspace only once that
-	// workspace approves it, so the verb offers the approval here, through the one gate.
+	return allowOfferApproval(out, errw)
+}
+
+// allowOfferApproval is the step after a user allow is written (RC-D17): a user grant acts in a
+// workspace only once that workspace approves it, so the verb offers the approval here, through the
+// one gate.
+func allowOfferApproval(out, errw io.Writer) int {
 	approveWorkspace, inWorkspace := resolveWorkspaceRoot()
 	if !inWorkspace {
 		fmt.Fprintln(out, "This takes effect in a workspace when it approves it: run `yolo config apply` in that workspace.")

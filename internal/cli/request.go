@@ -35,6 +35,9 @@ Examples:
   yolo request github runs nightly.yml  a workflow the jail may run and re-run on the default branch,
                                        and cancel any run
   yolo request github approve_runs 'github-actions[bot]'  an actor whose held runs the jail may approve
+  yolo request repos infra github.com/acme/infra   name a repository for this project (--local: this
+                                       workspace's local file, not the project file)
+  yolo request repos.infra.github runs deploy.yml  the same request, on the repository named infra
   yolo request github repos acme/other  a repository beyond this one's own remotes
   yolo request journal read             the jail may read your user journal
   yolo request host-processes view postgres redis-server  the host processes the jail may see`
@@ -54,7 +57,7 @@ func requestRunW(args []string, out, errw io.Writer) int {
 // requestRunIn is the verb against a named workspace; "" is the one the verb resolves from where
 // it runs.
 func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
-	dryRun := false
+	dryRun, local := false, false
 	var positionals []string
 	for _, a := range args {
 		switch {
@@ -63,6 +66,8 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 			return 0
 		case a == "--dry-run":
 			dryRun = true
+		case a == "--local":
+			local = true
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(errw, "yolo request: unknown flag %q\n\n%s\n", a, requestUsage)
 			return 2
@@ -72,6 +77,14 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 	}
 	if len(positionals) < 2 {
 		fmt.Fprintln(errw, requestUsage)
+		return 2
+	}
+	// `repos` is the repository form, read ahead of every source and pack (GW-D77).
+	if isReposWord(positionals[0]) {
+		return requestReposRun(workspace, positionals, local, dryRun, out, errw)
+	}
+	if local {
+		fmt.Fprintf(errw, "yolo request: --local applies to `yolo request repos` only.\n\n%s\n", requestUsage)
 		return 2
 	}
 	source, capability := positionals[0], positionals[1]
@@ -99,12 +112,10 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 	if rc != 0 {
 		return rc
 	}
-	declared := declaredCapabilities(decl)
 	key := "requests." + configKeyComponent(source) + "." + configKeyComponent(capability)
 
-	verb, value := "", ""
-	switch {
-	case capability == "repos":
+	var verb, value string
+	if capability == "repos" {
 		if decl.Brokered.RemoteHost == brokerscope.AnyRemoteHost {
 			fmt.Fprintf(errw, "yolo request: %s reaches this workspace's own remotes on any host, so it takes no repository list.\n"+
 				"  Add the remote to the workspace instead (git remote add <name> <url>), then run `yolo check`.\n", source)
@@ -116,59 +127,24 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 			return 1
 		}
 		verb, value = "add", resource
-	case !slices.Contains(declared, capability):
-		fmt.Fprintf(errw, "yolo request: %s declares no capability %q. Declared: %s, and repos for a repository.\n"+
-			"  For example:  yolo request %s %s\n", source, capability, strings.Join(declared, ", "), source, declared[len(declared)-1])
-		return 1
-	case capability == decl.ReadCapability:
-		// The readable schema has no requests.<source>.<read capability> key: the read is the
-		// user's to allow for every project, so the step is the user's verb, on the host.
-		fmt.Fprintf(errw, "yolo request: %s %s is not requested by a project; your user config allows it for every project.\n"+
-			"  On the host:  yolo allow %s %s\n", source, capability, source, capability)
-		return 1
-	case requestGrantKind(decl, capability) == brokerscope.KindRuns:
-		if resource == "" || !brokerscope.ValidGrantWorkflow(resource) {
-			fmt.Fprintf(errw, "yolo request: %s %s takes one workflow file name, such as nightly.yml, or * for every workflow; got %q.\n"+
-				"  For example:  yolo request %s %s nightly.yml\n", source, capability, resource, source, capability)
+	} else {
+		var refusal string
+		verb, value, refusal = requestCapabilityEdit(decl, source, capability, resource)
+		if refusal != "" {
+			fmt.Fprint(errw, refusal)
 			return 1
 		}
-		verb, value = "add", resource
-	case requestGrantKind(decl, capability) == brokerscope.KindApproveRun:
-		if resource == "" || !brokerscope.ValidGrantActor(resource) {
-			fmt.Fprintf(errw, "yolo request: %s %s takes one GitHub login, such as 'github-actions[bot]', or * for every actor; got %q.\n"+
-				"  For example:  yolo request %s %s 'github-actions[bot]'\n", source, capability, resource, source, capability)
-			return 1
-		}
-		verb, value = "add", resource
-	case requestTakesRef(decl, capability):
-		if resource == "" || !brokerscope.ValidGrantRefPattern(resource) {
-			fmt.Fprintf(errw, "yolo request: %s %s takes one ref name git accepts, such as main or patch/*; got %q.\n"+
-				"  For example:  yolo request %s %s main\n", source, capability, resource, source, capability)
-			return 1
-		}
-		verb, value = "add", resource
-	default:
-		if resource != "" {
-			fmt.Fprintf(errw, "yolo request: %s %s is a yes/no request and takes no %q.\n"+
-				"  Run:  yolo request %s %s\n", source, capability, resource, source, capability)
-			return 1
-		}
-		verb, value = "set", "true"
 	}
 
 	if workspace == "" {
 		workspace = configEditWorkspace()
 	}
 	project := config.EditTargetChoice{Kind: config.EditTargetProject}
-	if verb == "add" {
-		rc = namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Append, value, project, dryRun, !dryRun, out, errw)
-	} else {
-		rc = namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Set, true, project, dryRun, !dryRun, out, errw)
-	}
+	rc = requestWriteEdit(workspace, key, verb, value, project, dryRun, out, errw)
 	if dryRun {
 		return rc
 	}
-	if rc != 0 && !requestWritten(workspace, source, capability, value) {
+	if rc != 0 && !requestWritten(workspace, []string{"requests", source, capability}, value) {
 		return rc
 	}
 
@@ -178,6 +154,62 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 	}
 	fmt.Fprintln(out, requestApprovalLine(skipped))
 	return rc
+}
+
+// requestCapabilityEdit is the edit a request for capability and resource makes on the broker decl:
+// verb "add" with the value appended, or "set" with "true" for a yes/no request. Otherwise refusal
+// is what to print, naming the request by subject (`github`, or `repos.infra.github`).
+func requestCapabilityEdit(decl config.ReadableBrokerDeclaration, subject, capability, resource string) (verb, value, refusal string) {
+	source := decl.Brokered.Source
+	cmd := "yolo request " + subject
+	declared := declaredCapabilities(decl)
+	switch {
+	case !slices.Contains(declared, capability):
+		hint := ""
+		if subject == source {
+			hint = ", and repos for a repository"
+		}
+		return "", "", fmt.Sprintf("yolo request: %s declares no capability %q. Declared: %s%s.\n"+
+			"  For example:  %s %s\n", subject, capability, strings.Join(declared, ", "), hint, cmd, declared[len(declared)-1])
+	case capability == decl.ReadCapability:
+		// The readable schema has no requests.<source>.<read capability> key: the read is the
+		// user's to allow for every project, so the step is the user's verb, on the host.
+		return "", "", fmt.Sprintf("yolo request: %s %s is not requested by a project; your user config allows it for every project.\n"+
+			"  On the host:  yolo allow %s %s\n", subject, capability, source, capability)
+	case requestGrantKind(decl, capability) == brokerscope.KindRuns:
+		if resource == "" || !brokerscope.ValidGrantWorkflow(resource) {
+			return "", "", fmt.Sprintf("yolo request: %s %s takes one workflow file name, such as nightly.yml, or * for every workflow; got %q.\n"+
+				"  For example:  %s %s nightly.yml\n", subject, capability, resource, cmd, capability)
+		}
+		return "add", resource, ""
+	case requestGrantKind(decl, capability) == brokerscope.KindApproveRun:
+		if resource == "" || !brokerscope.ValidGrantActor(resource) {
+			return "", "", fmt.Sprintf("yolo request: %s %s takes one GitHub login, such as 'github-actions[bot]', or * for every actor; got %q.\n"+
+				"  For example:  %s %s 'github-actions[bot]'\n", subject, capability, resource, cmd, capability)
+		}
+		return "add", resource, ""
+	case requestTakesRef(decl, capability):
+		if resource == "" || !brokerscope.ValidGrantRefPattern(resource) {
+			return "", "", fmt.Sprintf("yolo request: %s %s takes one ref name git accepts, such as main or patch/*; got %q.\n"+
+				"  For example:  %s %s main\n", subject, capability, resource, cmd, capability)
+		}
+		return "add", resource, ""
+	default:
+		if resource != "" {
+			return "", "", fmt.Sprintf("yolo request: %s %s is a yes/no request and takes no %q.\n"+
+				"  Run:  %s %s\n", subject, capability, resource, cmd, capability)
+		}
+		return "set", "true", ""
+	}
+}
+
+// requestWriteEdit writes one request into the file choice selects: an append to the list at key,
+// or the yes/no set to true.
+func requestWriteEdit(workspace, key, verb, value string, choice config.EditTargetChoice, dryRun bool, out, errw io.Writer) int {
+	if verb == "add" {
+		return namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Append, value, choice, dryRun, !dryRun, out, errw)
+	}
+	return namedVerbEditUnless(requestConvertFirst, workspace, key, configedit.Set, true, choice, dryRun, !dryRun, out, errw)
 }
 
 // requestApprovalLine is the host step after a written request. Approving the project's change
@@ -385,19 +417,22 @@ func requestGrantKind(decl config.ReadableBrokerDeclaration, capability string) 
 	return ""
 }
 
-// requestWritten reports whether the request is in the effective config after a post-write
-// check that did not pass: the file was written, so the verb still says what follows.
-func requestWritten(workspace, source, capability, value string) bool {
+// requestWritten reports whether the request at keys (its path in the composed config) holds value
+// after a post-write check that did not pass: the file was written, so the verb still says what follows.
+func requestWritten(workspace string, keys []string, value string) bool {
 	cfg, err := config.LoadReadableConfig(workspace, false, func(string) {})
 	if err != nil {
 		return false
 	}
-	got, ok := configValueAt(cfg, "requests", source, capability)
+	got, ok := configValueAt(cfg, keys...)
 	if !ok {
 		return false
 	}
 	if items, isList := got.([]any); isList {
 		return slices.Contains(items, any(value))
+	}
+	if text, isText := got.(string); isText {
+		return text == value
 	}
 	return value == "true" && got == true
 }

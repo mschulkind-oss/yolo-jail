@@ -428,6 +428,8 @@ func configWhySetCommand(steps []configdoc.Step, keys []string) string {
 		case len(keys) == 3 && (keys[2] == "always" || keys[2] == "on_request"):
 			return "yolo allow " + keys[1] + " " + keys[2] + " <capability>"
 		}
+	case "repos":
+		return configWhyReposSetCommand(keys, generic)
 	case "requests":
 		switch {
 		case len(keys) == 1:
@@ -447,6 +449,34 @@ func configWhySetCommand(steps []configdoc.Step, keys []string) string {
 		}
 	}
 	return generic
+}
+
+// configWhyReposSetCommand is the named verb for a `repos` key (GW-D77): the repository's line, its
+// request under a name, or its scoped allow in the user config. Other keys keep the generic verb.
+func configWhyReposSetCommand(keys []string, generic string) string {
+	switch {
+	case len(keys) == 3 && keys[2] == "repo":
+		return "yolo request repos " + keys[1] + " <host>/<path>"
+	case len(keys) == 5 && keys[2] == "requests":
+		return configWhyNamedRequestCommand(keys[1], keys[3], keys[4])
+	case len(keys) == 5 && keys[2] == "allow" && keys[4] == "always", len(keys) == 5 && keys[2] == "allow" && keys[4] == "on_request":
+		return "yolo allow repos." + keys[1] + "." + keys[3] + " " + keys[4] + " <capability>"
+	}
+	return generic
+}
+
+// configWhyNamedRequestCommand is the named request verb for capability under repos.<alias>.<source>.
+func configWhyNamedRequestCommand(alias, source, capability string) string {
+	cmd := "yolo request repos." + alias + "." + source
+	switch capability {
+	case "runs", "dispatch_workflows":
+		return cmd + " runs <workflow file>"
+	case "approve_runs":
+		return cmd + " approve_runs <actor login>"
+	case "push":
+		return cmd + " push <ref>"
+	}
+	return cmd + " " + capability
 }
 
 func configWhyValueOf(cfg *jsonx.OrderedMap, steps []configdoc.Step) any {

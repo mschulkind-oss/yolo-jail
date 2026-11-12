@@ -102,6 +102,10 @@
     `github.com/acme/*` for a pattern), and `[repos.infra.requests.github]` `runs = ["ci.yml"]` asks within
     the ceiling your `[repos.infra.allow.github]` sets.  A request above that ceiling is reported and
     skipped, never an error.  Only a `requests` or `repos` table in a file the workspace owns counts.
+    Edit with [bold]yolo request repos <alias> <host>/<path>[/bold] (`--local` for the workspace's local
+    file) and [bold]yolo request repos.<alias>.<source> <capability> [resource][/bold]; your user config
+    takes the name with [bold]yolo allow repos <alias> <host>/<path>[/bold] and the scoped ceiling with
+    [bold]yolo allow repos.<alias>.<source> [always|on_request] <capability>[/bold], on the host.
 
   [bold]active_provider[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): which provider each agent runs on.
     `claude = "bedrock"`, `claude = "bedrock/opus"` (a variant), `default = ...`

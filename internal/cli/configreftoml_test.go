@@ -43,7 +43,7 @@ func TestConfigRefTOMLSectionNamesOnlyReadableKeys(t *testing.T) {
 		"requests.git.push", "requests.git.push_tags", "requests.git.new_branches",
 		"requests.github.repos", "requests.github.create_pr", "requests.github.create_issue",
 		"requests.github.runs", "requests.github.approve_runs",
-		"packs",
+		"repos", "packs",
 	} {
 		if !readable[key] {
 			t.Errorf("%q is documented as a TOML key but the readable schema does not accept it", key)
@@ -77,6 +77,7 @@ func TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas(t *testing.T) {
 		}
 	}
 	for _, phrase := range []string{
+		"yolo request repos", "yolo allow repos",
 		"yolo config why", "yolo config migrate", "yolo config set", "yolo pack add",
 		"yolo pack remove", "yolo pack migrate", "yolo init", "yolo setup new",
 		"yolo config secret", "yolo config unsecret",
