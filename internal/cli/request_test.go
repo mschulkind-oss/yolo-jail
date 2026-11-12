@@ -26,10 +26,8 @@ func TestRequestWritesProjectThenChecks(t *testing.T) {
 	assertPublicPostWriteCheck(t, rc, out, errs)
 	rc, out, errs = captureStd(t, func() int { return registry["request"]([]string{"request", "git", "new_branches"}) })
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	rc, out, errs = captureStd(t, func() int { return registry["request"]([]string{"request", "github", "repos", "acme/other"}) })
-	assertPublicPostWriteCheck(t, rc, out, errs)
 	got := readFile(t, fx.project)
-	for _, want := range []string{`push = ["main", "release/*"]`, "new_branches = true", "[requests.github]", `repos = ["acme/other"]`} {
+	for _, want := range []string{`push = ["main", "release/*"]`, "new_branches = true"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("project file lacks %q:\n%s", want, got)
 		}
@@ -48,7 +46,8 @@ func TestRequestWritesProjectThenChecks(t *testing.T) {
 		{[]string{"request", "git", "new_branches", "main"}, []string{"yes/no", "yolo request git new_branches"}},
 		{[]string{"request", "git", "repos", "acme/other"}, []string{"git remote add"}},
 		{[]string{"request", "git", "fetch"}, []string{"yolo allow git fetch"}},
-		{[]string{"request", "github", "repos", "nope"}, []string{"OWNER/REPO", "yolo request github repos acme/other"}},
+		{[]string{"request", "github", "repos", "nope"}, []string{"OWNER/REPO", "yolo request repos <alias> github.com/OWNER/REPO"}},
+		{[]string{"request", "github", "repos", "acme/other"}, []string{"yolo request repos <alias> github.com/acme/other"}},
 	} {
 		rc, out, errs := captureStd(t, func() int { return registry["request"](tc.args) })
 		if rc != 1 {

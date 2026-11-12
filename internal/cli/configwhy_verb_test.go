@@ -14,7 +14,6 @@ func TestConfigWhyNamesTheVerbOfAnUnsetKey(t *testing.T) {
 		"allow.git.on_request":         "set it with `yolo allow git on_request <capability>`",
 		"allow.github":                 "set it with `yolo allow github <capability>`",
 		"requests.git.push":            "set it with `yolo request git push <ref>`",
-		"requests.github.repos":        "set it with `yolo request github repos <OWNER/REPO>`",
 		"requests.git.new_branches":    "set it with `yolo request git new_branches`",
 		"requests.github.runs":         "set it with `yolo request github runs <workflow file>`",
 		"requests.github.approve_runs": "set it with `yolo request github approve_runs <actor login>`",

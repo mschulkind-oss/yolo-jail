@@ -121,19 +121,20 @@ func requestRunIn(workspace string, args []string, out, errw io.Writer) int {
 				"  Add the remote to the workspace instead (git remote add <name> <url>), then run `yolo check`.\n", source)
 			return 1
 		}
-		if !brokerscope.ValidRepo(resource) {
-			fmt.Fprintf(errw, "yolo request: repos takes one OWNER/REPO, such as acme/other; got %q.\n"+
-				"  For example:  yolo request %s repos acme/other\n", resource, source)
-			return 1
+		// The repository form is retired (GW-D75): a repository is its own [repos.<name>] table.
+		repo := "OWNER/REPO"
+		if brokerscope.ValidRepo(resource) {
+			repo = resource
 		}
-		verb, value = "add", resource
-	} else {
-		var refusal string
-		verb, value, refusal = requestCapabilityEdit(decl, source, capability, resource)
-		if refusal != "" {
-			fmt.Fprint(errw, refusal)
-			return 1
-		}
+		fmt.Fprintf(errw, "yolo request: %s repos is retired; a repository is a named table now, so declare it with:\n"+
+			"  yolo request repos <alias> %s/%s\n", source, decl.Brokered.RemoteHost, repo)
+		return 1
+	}
+	var refusal string
+	verb, value, refusal = requestCapabilityEdit(decl, source, capability, resource)
+	if refusal != "" {
+		fmt.Fprint(errw, refusal)
+		return 1
 	}
 
 	if workspace == "" {

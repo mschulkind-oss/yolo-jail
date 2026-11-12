@@ -34,13 +34,13 @@ func TestRequestVerbOnJSONCWorkspaceMissingParentsCreatesThem(t *testing.T) {
 	ws := testconfig.WorkspaceFormat(t, configdoc.JSONC, "{\n  // keep this comment\n}\n")
 	withConfigEditCWD(t, ws.Root)
 
-	rc, out, errs := captureStd(t, func() int { return registry["request"]([]string{"request", "github", "repos", "acme/other"}) })
+	rc, out, errs := captureStd(t, func() int { return registry["request"]([]string{"request", "github", "runs", "nightly.yml"}) })
 	if strings.Contains(errs, "parent does not exist") {
 		t.Fatalf("the verb dead-ended on a missing parent: rc=%d stderr=%q", rc, errs)
 	}
 	assertPublicPostWriteCheck(t, rc, out, errs)
 	got := assertParsesWithComment(t, ws.Path)
-	if !strings.Contains(got, "acme/other") {
+	if !strings.Contains(got, "nightly.yml") {
 		t.Fatalf("request not written:\n%s", got)
 	}
 	if errs := launchErrors(t, ws.Root); len(errs) != 0 {
