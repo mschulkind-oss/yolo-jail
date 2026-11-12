@@ -32,3 +32,21 @@ func TestConfigWhyNamesTheVerbOfAnUnsetKey(t *testing.T) {
 		}
 	}
 }
+
+// GW-D75: the retired `requests.<source>.repos` key names the table that replaces it and the
+// migration for an old value, for any source, never the generic `yolo request <source> repos`.
+func TestConfigWhyNamesTheReposTableForTheRetiredKey(t *testing.T) {
+	newNamedVerbFixture(t, "", "")
+	for _, source := range []string{"github", "git"} {
+		key := "requests." + source + ".repos"
+		rc, out, errs := captureStd(t, func() int { return registry["config"]([]string{"config", "why", key}) })
+		for _, want := range []string{"yolo request repos <alias> <host>/<path>", "yolo config migrate"} {
+			if rc != 0 || !strings.Contains(out, want) {
+				t.Fatalf("config why %s rc=%d stdout=%q stderr=%q; want %q", key, rc, out, errs, want)
+			}
+		}
+		if strings.Contains(out, "yolo request "+source+" repos") {
+			t.Fatalf("config why %s names the retired generic verb: %q", key, out)
+		}
+	}
+}

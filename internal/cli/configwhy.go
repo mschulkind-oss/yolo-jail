@@ -400,6 +400,10 @@ func configWhyDefault(cfg *jsonx.OrderedMap, sources *config.Sources, steps []co
 	if replacement := config.RenamedKeyReplacement(keys); replacement != "" {
 		return configWhyPath(steps) + " was renamed, so use " + replacement + " instead"
 	}
+	if len(keys) == 3 && keys[0] == "requests" && keys[2] == "repos" {
+		return "`" + configWhyPath(steps) + "` is retired: a repository is its own [repos.<name>] table, set with " +
+			"`yolo request repos <alias> <host>/<path>`; `yolo config migrate` moves an old value"
+	}
 	return "`yolo config-ref` describes what an unset key means; set it with `" + configWhySetCommand(steps, keys) + "`"
 }
 
