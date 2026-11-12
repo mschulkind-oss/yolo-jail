@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,43 @@ func TestAFirstGrantOverARecordOfAGrantWithNoScopeIsShownAsAdded(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(r.ScopeCounts, ""), "grants: 1 added") {
 		t.Fatalf("counts %q do not count the grant as added", r.ScopeCounts)
+	}
+}
+
+// A legacy workspace entry is read from `brokered.<source>.repos` (WorkspaceRead.Entry), so a
+// change to one names that authored key; a source whose workspace lists no entry has no authored
+// key, and its next step stays the canonical repos table.
+func TestALegacyEntryChangeNamesTheKeyItWasReadFrom(t *testing.T) {
+	h := newBrokeredHost(t)
+	write(t, filepath.Join(h.ws, ".git", "config"), "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n")
+	write(t, h.userCfg, `{"brokered": {"forge": {"grants": [{"kind": "read", "repo": "*"}]}}}`)
+	broker := []ScopeBroker{{Source: "forge", Label: "forge-broker", RemoteHost: "github.com"}}
+	scope := func(workspaceConfig string) (*ScopeCheck, ChangeReport) {
+		t.Helper()
+		write(t, filepath.Join(h.ws, WorkspaceConfigName), workspaceConfig)
+		read, err := ReadWorkspaceForGate(h.ws)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check := NewScopeCheck(h.ws, broker, read)
+		r, err := ScopeChanges(h.ws, check)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return check, r
+	}
+	_, r := scope(`{"brokered": {"forge": {"repos": ["org/lib"]}}}`)
+	if len(r.EntryEdits) != 1 || r.EntryEdits[0].Key != "brokered.forge.repos" ||
+		!slices.Equal(r.EntryEdits[0].Files, []string{WorkspaceConfigName}) {
+		t.Fatalf("the added legacy entry does not name its authored key and file: %#v", r.EntryEdits)
+	}
+	check, r := scope(`{}`)
+	if len(check.Sources) != 1 || check.Sources[0].EntryKey != "" {
+		t.Fatalf("a source with no authored entry carries a key: %#v", check.Sources)
+	}
+	for _, edit := range r.EntryEdits {
+		if strings.Contains(edit.Key, "brokered.") {
+			t.Errorf("a workspace with no entry names the retired key: %q", edit.Key)
+		}
 	}
 }

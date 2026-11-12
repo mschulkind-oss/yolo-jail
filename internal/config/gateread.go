@@ -373,6 +373,12 @@ func NewScopeCheck(workspace string, brokers []ScopeBroker, read *WorkspaceRead)
 			s.Read = brokerscope.ReadAllRemotes(workspace)
 		} else {
 			s.Read, s.Entry = brokerscope.ReadRemotes(workspace, b.RemoteHost), read.Entry(b.Source)
+			// read.Entry reads the authored `brokered.<source>.repos` key and nothing else, so an
+			// entry it returned is under that key: a change to one names the key it is written in.
+			// With no entry the key stays unknown, and the next step is the canonical repos table.
+			if len(s.Entry) > 0 {
+				s.EntryKey = brokeredReposPath(b.Source)
+			}
 		}
 		// The user config's own grants first (BB-D107), then the workspace's, each once: both
 		// join only at this gate, and the user's are marked as theirs on the block's line.
