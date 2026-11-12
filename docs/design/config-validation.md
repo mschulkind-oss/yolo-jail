@@ -18,7 +18,7 @@ UNMEASURED by this re-check, which read the commits and the tree and ran nothing
 
 **Costs.** One new verb. `yolo check` goldens change (disk section retired, scope block added). The JSON report gains two additive fields. Help text, canonical skills, and config-edit guidance are updated. Successful public workspace `config set/add/unset` writes run the new config check instead of a second broad post-write readiness check. The passive disk-bloat WARN in `yolo check` is lost.
 
-**Start at:** [2. Decisions](#2-decisions) · **Needs your ruling:** None. · **Reads with:** [`docs/design/config-validation-plan.md`](config-validation-plan.md) (companion implementation plan, written by the planner).
+**Start at:** [2. Decisions](#2-decisions) · **Needs your ruling:** None. · **Reads with:** [10. Build invariants](#10-build-invariants), which carries what the retired companion implementation plan pinned beyond this design; git history keeps the plan itself.
 
 ## 1. Problem
 
@@ -192,7 +192,7 @@ The skill files in the workspace are generated copies. The edit goes in their ca
 | A5 | The in-jail condition is detectable by the mechanism the disk section already uses for its skip. | The plan names the detector. Behaviour is unchanged. |
 | A6 | The read-only Git probes keep `config check` near one second for a config with fetched packs. Unmeasured. | Record the sample for evidence. Do not claim an SLO, add a timeout that turns into a pass, or weaken pack validation based solely on the measurement. |
 
-These are implementation constraints and evidence items, not owner questions. The completed plan records the live call sites and the exact adjustments needed to meet CV-D2 without a second validator or an all-or-nothing fallback.
+These are implementation constraints and evidence items, not owner questions. The build resolved them against the live call sites without a second validator or an all-or-nothing fallback; [10. Build invariants](#10-build-invariants) records the rules it pinned.
 
 ## 8. Risks
 
@@ -225,6 +225,17 @@ These are observable and structural. Wall time is recorded as evidence only (AC1
 | AC10 | No guidance surface or help string recommends `--no-build` for config edits. The canonical skill templates and the rendered copies agree. |
 
 Native macOS staged reachability cannot be proven from a nested jail. AC9 on a macOS host is for the Mac agent to run.
+
+## 10. Build invariants
+
+The build was handed off through a companion implementation plan, now retired. These are the rules it pinned that the sections above do not already state. Break one and a call-site guard below should fail.
+
+- **The call-site guards.** `TestCheckOptionsWiring` (`internal/cli/outputformat_test.go`) and the production-dispatch tests in `internal/cli/configcheck_test.go` fail if `configRunW` loses the `config check` route, if that route enters `Check` or storage initialization, or if `Format` starts choosing work. `TestEverySectionIsWired` (`internal/cli/check/sectionwiring_test.go`) keeps the broad report's sections wired. `assertPublicPostWriteCheck` (`internal/cli/configeditdispatch_test.go`) pins the automatic post-write check of [CV-D10](#2-decisions). The real-CLI proof of AC9 is `TestYoloConfigCheckValidWorkspace` and `TestYoloConfigCheckInvalidWorkspace` in `integration/cli_test.go`. Change their expectations in place; never weaken them.
+- **The test seam is not purity.** The broad check's `SkipEnsureStorage` seam is a test convenience, not evidence that production `yolo check` skips storage. `config check` must not call storage ensure at all.
+- **A temporary file is not a config-determined verdict.** A probe that writes only to temporary output is still environment readiness if its verdict depends on anything outside [3.1](#31-the-membership-rule)'s inputs. That is why the entrypoint dry-run, which uses a temporary home but renders every embedded pack surface, is excluded whole.
+- **Selection semantics are shared, not reimplemented.** `config check` uses `SelectedPackDeclarations`' selection and closure. It never loads every shipped pack to reserve a name or infer agent membership. A local pack's symlinks are followed exactly as [OQ-NC9](../plans/notch-convergence.md#7-decision-ledger) ruled; this verb adds no path canonicalization and no symlink guessing.
+- **The post-write check keeps the write's contract.** The written-file disclosure, the final error line, the exit code and the host approval requirement of a public workspace edit are unchanged by routing its check through `config check`.
+- **Fences.** No flags beyond `--json`, `--format json` and `--help`. No config schema expansion and no switch on agent membership. No second semantic validator, and no "offline" shortcut that skips a readable declaration.
 
 ## Appendix: seed material for the plan
 
