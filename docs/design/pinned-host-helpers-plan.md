@@ -28,7 +28,7 @@ gone, the fix needs a file outside the task's fence, or a gate fails outside the
 | `scripts/matched-bundle.py` | `assemble` (~`:199`) takes the darwin launcher from the bundle; `_binary_lists`, `_validate_bundle_contents` |
 | `scripts/test_matched_bundle.py` | cases for the darwin host yolo |
 | `internal/reporoot/reporoot.go` | `darwinBinaries` (~`:60`) gains `yolo`; `validateBundle` already refuses with `ReinstallSteps` |
-| `tools/tap-install-check/judge.go` | `requiredPrefixBinaries` (~`:361`) expects the darwin host yolo |
+| `tools/tap-install-check/judge.go` | `requiredPrefixBinaries` (~`:361`) is the Linux pid1 pair only; `darwinHostBinaries` (~`:411`) joins it when `darwinHostYoloRequired` (~`:392`) says the bundle's version must carry the darwin host `yolo` (PH-D13) |
 | `internal/cli/run/scratchremoval.go` | `Options.selfExecArgv` (~`:131`) execs the pin when not in keeper mode on Linux |
 | `internal/cli/run/keeperspawn.go` | `realSpawnKeeper` (~`:80`) execs the pin |
 | `internal/cli/run/keeper_other.go` | `keeperSelfExe` returns the plan's pin path |
