@@ -115,7 +115,12 @@ func TestLaunchInputFixtureDaemon(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = os.WriteFile(marker+".shutdown", body, 0o600); err != nil {
+		// Written whole, then renamed: the tests wait for this name to exist and read
+		// it at once, and os.WriteFile creates the file before writing its bytes.
+		if err = os.WriteFile(marker+".shutdown.tmp", body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.Rename(marker+".shutdown.tmp", marker+".shutdown"); err != nil {
 			t.Fatal(err)
 		}
 		for {
