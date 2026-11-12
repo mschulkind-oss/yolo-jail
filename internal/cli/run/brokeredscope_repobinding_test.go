@@ -85,7 +85,7 @@ func staleRecordSeed(t *testing.T, o *Options) {
 // hands the broker what the workspace approves now. Each subtest is its own launch.
 func TestAStaleApprovalRecordNeverBecomesAScopeFile(t *testing.T) {
 	const workspace = "[requests.github]\nruns = [\"*\"]\napprove_runs = [\"github-actions[bot]\"]\n\n[repos.notes]\nrepo = \"github.com/o/other\"\n"
-, func(t *testing.T) {
+	t.Run("accepted: the stale o/other grants are removed and never handed", func(t *testing.T) {
 		o, buf, marker := staleRecordFixture(t, workspace)
 		staleRecordSeed(t, o)
 		o.AcceptConfigChanges = true
