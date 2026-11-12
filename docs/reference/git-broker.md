@@ -171,8 +171,9 @@ Each connection is checked in this order before any upstream is contacted:
    workspace's remote URLs verbatim (`brokerscope.FormRemoteURL`): every `url` and `pushurl` of
    every remote, on any host, as shown to the human at the config-change gate. A remote joins
    only at that gate: `git remote add` in the workspace, then the launch prompt or
-   `yolo config apply` on the host. For github.com, a project's `yolo request github repos`
-   entry also widens git's read scope.
+   `yolo config apply` on the host. For github.com, a project's named `[repos.<name>]` table
+   (`yolo request repos <alias> github.com/<path>`) also widens git's read scope, to that
+   repository's two URLs, and never adds a push.
 3. **The read grant and the scope match.** A push, any SSH call, and an HTTPS fetch that will
    need a credential are refused unless a read grant covers the remote's repository identity and
    the URL is in scope. Matching is exact, with only these equivalences
@@ -409,7 +410,7 @@ decisions and spent grants into the same log. Revoking a working-set entry is no
 | :--- | :--- |
 | No broker endpoint in the jail | The helper says the endpoint is missing and names `yolo check` on the host |
 | No read grant | Refused at once, saying nothing ran and naming how to add the read grant on the host, and whether this jail's broker takes it live or needs a relaunch |
-| Remote out of scope | Refused at once, naming the approved scope and the gate: `git remote add` (or, for github.com, `yolo request github repos`), then `yolo config apply` |
+| Remote out of scope | Refused at once, naming the approved scope and the gate: `git remote add` (or, for github.com, `yolo request repos <alias> github.com/<path>`), then `yolo config apply` |
 | Transport not brokered | Refused, naming the SSH or HTTPS URL to set with `git remote set-url` |
 | No `ssh` on the host's launch PATH, or one the placement rule refuses | Refused, naming the host install or the reason |
 | The host has no SSH key the server accepts | Refused, naming `ssh-add -l` and `ssh -T <dest>` on the host |

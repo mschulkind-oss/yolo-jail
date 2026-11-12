@@ -80,7 +80,7 @@ a jail.
 yolo allow git fetch                  # let every project's jail use your git login for this
 yolo allow git on_request push        # let a project ask for it
 yolo request git push main            # a project asks, in its own config
-yolo request github repos acme/lib   # ... for a repository beyond its own remotes
+yolo request repos lib github.com/acme/lib   # ... for a repository beyond its own remotes
 yolo active-provider claude bedrock   # which provider an agent runs on
 yolo config set <key> <value> [--user|--project|--local]   # also: config add, config unset
 yolo config migrate [--dry-run]       # convert JSONC config files to TOML, once

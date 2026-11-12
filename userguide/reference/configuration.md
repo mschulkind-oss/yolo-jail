@@ -42,7 +42,7 @@ config check automatically.
 | select or drop an agent or other pack | `yolo pack add claude`, `yolo pack remove claude` | host |
 | let every project's jail use a login | `yolo allow git fetch`, `yolo allow github always read` | host |
 | let a project ask for more than that | `yolo allow git on_request push` | host |
-| ask for it from a project | `yolo request git push main`, `yolo request github repos acme/lib` | host or jail |
+| ask for it from a project | `yolo request git push main`, `yolo request repos lib github.com/acme/lib` | host or jail |
 | choose which provider an agent runs on | `yolo active-provider claude bedrock` | host |
 | set, add to or remove any other key | `yolo config set machine.resources.cpus 4 --project`, `yolo config add`, `yolo config unset` | host (user scope), either (project) |
 | find which file set a key | `yolo config why <key>` | either |

@@ -41,7 +41,7 @@ always = ["read"]
 > `"brokered": { "github": { "grants": [{ "kind": "read", "repo": "*" }] } }`, a project's extra
 > repositories are `brokered.github.repos`, and the write grants below are `brokered.github.grant_kinds`
 > in your user config and `brokered.github.grants` entries in the project's. `yolo config migrate`
-> converts all of it to the `[allow.github]` and `[requests.github]` lines on this page.
+> converts all of it to the `[allow.github]`, `[requests.github]` and `[repos.<name>]` lines on this page.
 
 Selecting the pack puts yolo's `gh` in front of the jail's own copy and starts the broker, in
 every project, and on its own it **grants nothing**: without the read grant, every call is
@@ -69,9 +69,9 @@ of `packs`, or the next launch asks again.
 
 The broker only works on **this project's own GitHub repositories**: the `github.com` remotes in
 the project's `.git/config`, such as `origin` and `upstream`, and any repository the project's
-config lists, [below](#adding-a-repository-the-project-has-no-remote-for), a specific one, or,
-with a wildcard, every repository it can reach. With no such entry it never reaches your other
-repositories, even though your login can.
+config names in a `[repos.<name>]` table, [below](#adding-a-repository-the-project-has-no-remote-for),
+and, with a `*` in its owner or repository segment, the repositories that pattern matches.
+With no such entry it never reaches your other repositories, even though your login can.
 
 Because an agent can edit `.git/config` and the project's config, yolo asks you to approve that
 list. The first launch of a project with a GitHub remote shows it at the top of the usual
@@ -99,69 +99,75 @@ that launch with `--accept-config-changes`, or ahead of time on your machine wit
 
 ### Adding a repository the project has no remote for
 
-A project sometimes needs another repository, such as a library it depends on. Run this in the
-project (add `--dry-run` to see the edit first):
+A project sometimes needs another repository, such as a library it depends on. Name it as its own
+`[repos.<name>]` table, the name being yours to choose and the `repo` line the repository's host and
+path. Run this in the project (add `--dry-run` to see the edit first):
 
 ```bash
-yolo request github repos you/lib
+yolo request repos lib github.com/you/lib
 ```
 
-It writes `repos = ["you/lib"]` under `[requests.github]` in the project's `yolo-jail.toml`, runs
-`yolo check`, and names the host step, `yolo config apply`. For a repository the project should not
-commit, write it in `yolo-jail.local.toml` beside it instead:
+It writes this table to the project's `yolo-jail.toml`, runs `yolo check`, and names the host step,
+`yolo config apply`:
 
-```bash
-yolo config add requests.github.repos '"you/lib"' --local
+```toml
+[repos.lib]
+repo = "github.com/you/lib"
 ```
 
-The agent can add it too. When it asks for a repository outside the list, the refusal tells it
-to run `yolo request github repos <owner/repo>` and to ask you to run `yolo config apply` on your
-machine. Nothing changes until you do: that command, or the next launch, shows the repository as a
-row of the prompt, naming the file it came from, and asks you to approve it. A running jail takes
-it at once, with no restart:
+For a repository the project should not commit, add `--local` to write the table in
+`yolo-jail.local.toml` beside it instead. yolo does not git-ignore that file, so check your
+`.gitignore` before keeping a private repository there.
 
-```text
-github-broker repository scope, read from /home/you/code/app/.git/config and yolo-jail.toml:
-    you/app  remote "origin"   unchanged
-  + you/lib  yolo-jail.toml  added
-```
+The agent can ask for one too. When it asks for a repository outside the project's remotes and its
+`[repos.<name>]` tables, the refusal names `yolo request repos <alias> github.com/<owner>/<repo>`
+and asks you to approve it on your machine. Nothing changes until you do: `yolo config apply`, or the
+next launch, shows the repository as a row of the repository-scope prompt, naming the file it came
+from, and asks you to approve it. A running jail takes an approved repository at its next call,
+with no restart.
 
-After `y`, that project can reach `you/lib` exactly as it reaches its own remotes, and the launch
-names the scope in one line:
+After `y`, that project can reach the repository as it reaches its own remotes, and no other project
+gets it. No entry allows a command across your whole account, such as a search with no `--repo`.
+`yolo config-ref` has the details.
 
-```text
-github-broker: scope for this workspace: you/app (remote "origin"), you/lib (yolo-jail.toml)
-```
+### What a named repository may do
 
-No other project gets it. yolo does not git-ignore `yolo-jail.local.toml`, so check your
-`.gitignore` before keeping a private repository there. No entry allows a command across your
-whole account, such as a search with no `--repo`. `yolo config-ref` has the details.
+A `[repos.<name>]` table adds the repository its `repo` line names, or, with no `repo` line, the
+clone's remote of the same name. It reaches that repository and no other, under these rules:
 
-### Every repository, or every repository of one owner
+- **Unqualified lines are for `origin`.** A `[requests.github]` line in the project's config
+  applies to the clone's `origin` remote and to nothing else. Any other repository is reached
+  through its own table.
+- **Reading needs the broad read grant.** A named repository is read under the same broad grant as
+  your own repositories, the one `yolo allow github always read` gives on your machine. A table
+  cannot grant a read.
+- **Writes are named in the table.** A write to a named repository needs a line under its own
+  `[repos.<name>.requests.github]`, such as `runs = ["ci.yml"]`, and that line is only as wide as
+  your ceiling. Your ceiling is `[repos.<name>.allow.github]` in your user config, which lists the
+  write capabilities for the repository its `repo` line admits (`always` or `on_request`). The
+  ceiling never adds a repository, and your `[allow.github]` still applies to it.
+- **A changed `repo` line is a new repository.** Pointing a name at another repository, or an
+  `origin` that resolves elsewhere, makes the gate show the old and the new and ask again.
+- **A table waits for your approval.** A new or changed table takes effect only once you approve it:
+  at the next launch's prompt, or at `yolo config apply` on your machine. `yolo config migrate`
+  writes the tables for an old list, and approves none of them.
 
-When a project needs reach beyond a fixed list, list a wildcard instead. `*/*` is every
-repository your login can reach, `you/*` is every repository under one owner, and `*/lib` is that
-repository name under any owner:
+### Every repository of one owner
+
+A `repo` line may put `*` in the owner or repository segment, and never in the host. A `*` is a
+whole segment: `github.com/you/*` is every repository under one owner, and `github.com/*/lib` is
+that repository name under any owner. A partial glob, such as `github.com/you*/*`, is refused.
 
 ```toml
 # yolo-jail.toml, or yolo-jail.local.toml
-[requests.github]
-repos = ["*/*"]
+[repos.mine]
+repo = "github.com/you/*"
 ```
 
-A wildcard is a whole segment between the slashes: `*/*`, `you/*` and `*/lib` are entries, and a
-partial glob such as `you*/*` is a mistake that `yolo check` refuses.
-
-It is approved the same way, and the prompt says what you are approving rather than leaving you to
-decode the token:
-
-```text
-  + */*  yolo-jail.toml  added (every repository on github.com)
-```
-
-A wildcard widens which repositories the agent can reach, and nothing else. Writes still need a
-grant or your approval, as everywhere. It also does not allow a command that acts across your
-whole account rather than on a repository, such as `gh search code` with no `--repo`,
+Such a pattern is approved at the same gate as any other entry, and the gate says in plain words
+what it admits. A wildcard widens which repositories the agent can reach, and nothing else. Writes
+still need a grant or your approval, as everywhere. It also does not allow a command that acts
+across your whole account rather than on a repository, such as `gh search code` with no `--repo`,
 `gh repo list` or `gh status`: those are refused whatever the scope holds.
 
 The wildcard is a workspace entry like any other: the project's own config file, or the local one
