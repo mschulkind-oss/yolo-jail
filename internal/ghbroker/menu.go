@@ -30,6 +30,19 @@ func pendingMenu(t writeTarget, argv []string, id string) approvalwait.Menu {
 	return m
 }
 
+// originOnlyRequest is the sentence a pending message adds when its menu holds the unqualified
+// project request for capability on repo. That command is for the workspace's origin alone
+// (GW-D79), and the scope file does not say which repository the origin is, so the message states
+// the condition and names the named-table form for any other repository.
+func originOnlyRequest(repo, capability, value string) string {
+	unqualified := "yolo request " + Source + " " + capability
+	if value != "" {
+		unqualified += " " + value
+	}
+	return " The project request in the menu below (`" + unqualified + "`) covers this workspace's origin alone, " +
+		"so use it only when " + repo + " is that origin" + otherRepoRequest(capability, value) + "."
+}
+
 // pendingMessage is the refusal of the write argv to t while request id waits for the host,
 // note being the notifier's failure clause, if any.
 func pendingMessage(t writeTarget, argv []string, id, note string) string {
@@ -37,10 +50,17 @@ func pendingMessage(t writeTarget, argv []string, id, note string) string {
 	if t.Kind == targetMerge {
 		lead += " A merge always asks, per PR."
 	}
+	switch t.Kind {
+	case targetCreatePR:
+		lead += originOnlyRequest(t.Repo, "create_pr", "")
+	case targetCreateIssue:
+		lead += originOnlyRequest(t.Repo, "create_issue", "")
+	}
 	if a, ok := runsOf(argv, t); ok {
 		switch a.Op {
 		case runsDispatch:
-			lead += " A runs grant covers a run on the default branch only; a run on any other ref still asks."
+			lead += " A runs grant covers a run on the default branch only; a run on any other ref still asks." +
+				originOnlyRequest(t.Repo, "runs", a.Dispatch.Workflow)
 		case runsRerun:
 			lead += " A runs grant naming the run's workflow file (`yolo request " + Source + " runs <workflow file>`" + otherRepoRequest("runs", "<workflow file>") + ", then " +
 				"`yolo config apply` on the host) covers re-running a run of the default branch of " + t.Repo + " itself; " +

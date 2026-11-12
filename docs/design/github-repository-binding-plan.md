@@ -2045,6 +2045,44 @@ workspace's local file and request `runs = ["*"]` for `mschulkind-oss/yolo-jail`
 - Don't match a pattern on an unmarked grant, and don't mark a grant lowered from a legacy entry.
 - Don't land, tag or push any task alone. Don't edit this repository's own config files.
 
+## Backlog
+
+Known gaps in the series as built so far, read from the source. None widens what a grant covers,
+none blocks landing, and none is fixed in this series. Two terms: the **origin** is the repository
+the workspace's `origin` remote names, and a **named table** is a `[repos.<name>]` table.
+
+- **Unsetting a named table's repo line ignores another file's repo line and the user target.**
+  `namedRepoLineUnsetRefusal` in [`configeditverbs.go`](../../internal/cli/configeditverbs.go)
+  refuses `yolo config unset repos.<name>.repo` when the composed config holds requests under the
+  name and the clone has no remote of that name. It does not ask whether another workspace file
+  still writes `repos.<name>.repo`, so removing a local file's retarget of a project table is
+  refused, and the unset commands it prints for that file remove nothing. It has no branch for a
+  user-config target either.
+- **The advice for an entry kept in a legacy JSONC file loops.** `notPlainRepoReason` in
+  [`reposbinding.go`](../../internal/configmigrate/reposbinding.go) offers
+  `yolo request repos <alias> <host>/<path>` for a pattern entry left in a JSONC file's `brokered`
+  table. `requestConvertFirst` in [`request.go`](../../internal/cli/request.go) refuses that verb
+  on a JSONC file holding `brokered` and names `yolo config migrate`, which keeps the file again.
+  The entry has to be removed first.
+- **The advice for a retired `requests.<source>.repos` entry stops one step short.** The same
+  function, and `noHostReason` beside it, name
+  `yolo config unset 'requests.<source>.repos[<n>]'`. The key is still present afterward, and
+  [`readableallow.go`](../../internal/config/readableallow.go) refuses the key whenever it is
+  present, so `yolo config migrate` has to run again. No test runs that unset on a file holding
+  the key, TOML or JSONC.
+- **An unqualified list written twice in one file is refused, not merged.** The `place` closure in
+  [`lower.go`](../../internal/configmigrate/lower.go) merges two writes of one key only for a
+  named table's request line. A legacy grant and a `requests.<source>.<capability>` list that
+  lower to the same unqualified key are reported as not converted with "keep one of the two",
+  though both are needed. It fails closed.
+- **A copied line can be credited to the wrong file.** `place` records the old key as written in
+  the file being converted, and `lowerRetainedRequests` then adds the files that really write the
+  line. With more than one JSONC file, the transcript of one file can name a line as its own that
+  another file wrote. No test converts retained writes across several JSONC files.
+- **The named-request unset is TOML only.** `namedRepoUnset` returns early for any other format,
+  so `yolo config unset repos.<name>.requests.<source>.<capability>` on a JSONC file takes the
+  generic path.
+
 ## Blockers
 
 None. No design question is open.
