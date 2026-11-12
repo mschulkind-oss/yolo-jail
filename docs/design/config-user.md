@@ -3,7 +3,7 @@ title: "Your config, one screen: packs, logins, and which setup each agent runs 
 date: 2026-10-25
 status: accepted
 stage: BUILT
-next: "Re-spell §6's repository request in the form github-write-scopes.md GW-D75 ruled, then graduate into the readable-config system doc"
+next: "Graduate into the readable-config system doc"
 tags: [config, packs, providers, profiles, broker, grants, conventions, design]
 summary: "The user config as one annotated file, today and proposed, then one section per part of it. Every section is ruled. Part of the readable-config redesign; the ledger of rulings is in the front door and the evidence is in the appendix."
 ---
@@ -290,8 +290,10 @@ push = ["main"]
 new_branches = true
 
 [requests.github]
-create_pr = true
-repos = ["acme/shared"]           # beyond this repository's own remotes
+create_pr = true                  # on origin, the repository this clone came from
+
+[repos.shared]                    # a repository beyond this one's own remotes, by a name
+repo = "github.com/acme/shared"   #   yolo request repos shared github.com/acme/shared
 ```
 
 **A request outside your ceiling is not an error.** Two people share a repository and one allows
@@ -311,16 +313,19 @@ skipped one as `– git: push to main (not allowed on request by your config)`; 
 vocabulary. The four ruled grant kinds map onto these keys ([appendix A.6](#a6-the-grant-kinds-mapped)).
 
 **Approved 2026-10-25: `fetch` reaches the project's own repositories**, as approved at launch,
-plus what the project's `requests.github.repos` names, and nothing else. An agent that wants
+plus each repository a project's `[repos.<name>]` table names, and nothing else. The table is
+[GW-D75](github-write-scopes.md#GW-D75)'s spelling, which retired the `requests.github.repos`
+list; a file still holding that list is refused naming the table and `yolo config migrate`. An agent that wants
 another repository adds it to the project file and goes through the normal route: `yolo check`,
 `yolo config apply`, the prompt that names the repository, your `y`. No mechanism bypasses that
 prompt, and this is not an exception to it.
 
 ```console
 $ git -C /workspace/vendor/other fetch
-fatal: the remote https://github.com/acme/other is not in this workspace's approved scope ...
-  request it with `yolo request github repos acme/other` in the workspace, then ask the user to run
-  `yolo config apply` on the host and approve it at the config-change gate
+fatal: the remote https://github.com/acme/other is not in this workspace's approved scope (...), so nothing
+  ran and the host's ssh was not started. A remote joins the scope only at the config-change gate on the
+  host: request it with `yolo request repos <alias> github.com/acme/other` in the workspace (or add a
+  remote with `git remote add <name> <url>`), then ask the user to run `yolo config apply` on the host ...
 ```
 
 **A public repository passes through without asking** (ruled 2026-10-25,
@@ -511,7 +516,7 @@ kind answers [OQ-BB23](boundary-broker.md#OQ-BB23)
 with "as a ceiling, never as a grant", its leaning. A GitHub
 `create_pr` or `create_issue` request is accepted by the config and refused at use until a jail's write request can reach
 `yolo approve`, whose delivery is not built (`internal/ghbroker/window.go`). `always = ["fetch"]`
-reaches what today's `{"kind": "read", "repo": "*"}` reaches: the project's remotes plus `repos`,
+reaches what today's `{"kind": "read", "repo": "*"}` reaches: the project's remotes plus its `[repos.<name>]` tables,
 approved at launch.
 
 ### A.7 Models under the providers doc
