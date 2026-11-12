@@ -172,7 +172,7 @@ wrapped mod gets no code-running line at launch, in `yolo pack footprint`, or at
 `flat` delivery drops its module without naming it ([plugin.go:186-200](../../internal/hostskills/plugin.go#L186-L200)).
 
 **Under way.** The fix that reports Claude's default locations is the footer research's first build step, which
-[the roadmap](../plans/roadmap.md#the-queue) reports under way. It is not on main when this is written. It
+[the roadmap](../plans/roadmap.md#buildable-now-by-an-agent) reports under way. It is not on main when this is written. It
 reports a hooks file under the same words as a command hook, *"runs code at agent lifecycle events"* (READ, in
 the change waiting to land).
 

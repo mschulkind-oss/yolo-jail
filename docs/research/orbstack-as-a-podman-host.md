@@ -201,7 +201,7 @@ coverage rather than an automatic reversion to the retired backend.
 
 ## Open questions
 
-1. 🔒 **OQ-ORB1: Should OrbStack setup create a yolo-owned machine or use a user-selected one?**
+1. 💬 **OQ-ORB1: Should OrbStack setup create a yolo-owned machine or use a user-selected one?**
 
    The happy path needs a first-party way to reach a working setup. A public setup/repair command
    and its authority to create, claim or change a machine and Podman connection are not ruled.

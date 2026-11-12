@@ -68,7 +68,7 @@ provider switches, seven plain-words labels, three bridged routes and the templa
 - reads the notch from `config.InJail()` ([footer.go:167-172](../../internal/footer/footer.go#L167-L172));
 - reads the billing route from the agent's env by three rules in order
   ([footer.go:186-225](../../internal/footer/footer.go#L186-L225));
-- always exits 0 and prints nothing on failure ([footer.go:473-484](../../internal/footer/footer.go#L473-L484)).
+- always exits 0 and prints nothing on failure ([footer.go:470-481](../../internal/footer/footer.go#L470-L481)).
 
 At the host, with no tables in the env, it also reads your user config on every run
 ([hostfooter.go:54-115](../../internal/cli/hostfooter.go#L54-L115), READ).
