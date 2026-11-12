@@ -954,7 +954,11 @@ func TestSelectedHTTPReadWithdrawalDuringPinnedTLSHandshakeCannotSend(t *testing
 
 func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testing.T) {
 	const original = `{"operationName":"Rename","title":"ready"}`
+	// hangGuard only turns a hang into a red test. It is not a budget the broker has
+	// to beat: every pass condition below is an event (handshake entered, forwarder returned).
+	const hangGuard = 90 * time.Second
 	var block, writes atomic.Bool
+	var gated, resumed atomic.Int32
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -968,11 +972,13 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 		writes.Store(true)
 	}), func() {
 		if block.Load() {
+			gated.Add(1)
 			select {
 			case entered <- struct{}{}:
 			default:
 			}
 			<-release
+			resumed.Add(1)
 		}
 	})
 	h, f := selectedHTTPWriteFixture(t, origin, executor, []byte(original))
@@ -994,14 +1000,42 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 		message string
 	}
 	finished := make(chan result, 1)
+	// returned closes when the forwarder goroutine is gone, whether it produced a
+	// result or the frame helper ended it with t.Fatal (which sends no result).
+	returned := make(chan struct{})
+	gateState := func() string {
+		return fmt.Sprintf("gated handshakes=%d resumed=%d writes=%v", gated.Load(), resumed.Load(), writes.Load())
+	}
+	// Registered after every fixture, so it runs before the deferred gate release above
+	// and before any fixture t.Cleanup: the handshake hook is released and the forwarder
+	// is gone before the TLS server, the front or the store are torn down.
+	defer func() {
+		releaseGate()
+		select {
+		case <-returned:
+		case <-time.After(hangGuard):
+			t.Errorf("forwarder still live %s after the TLS gate was released; fixtures are torn down under it: %s", hangGuard, gateState())
+		}
+	}()
 	go func() {
+		defer close(returned)
 		rc, message := forward("act", call)
 		finished <- result{rc, message}
 	}()
+	early := func() string {
+		select {
+		case got := <-finished:
+			return fmt.Sprintf("rc=%d message=%q", got.rc, got.message)
+		default:
+			return "no result (the frame helper failed the test from the forwarder)"
+		}
+	}
 	select {
 	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("prepared write never reached the TLS handshake")
+	case <-returned:
+		t.Fatalf("prepared write returned before reaching the gated TLS handshake: %s; %s", early(), gateState())
+	case <-time.After(hangGuard):
+		t.Fatalf("prepared write neither reached the TLS handshake nor returned within the %s hang guard: %s", hangGuard, gateState())
 	}
 	_, granted, err := loopholegrant.Read(f.grantPath)
 	if err != nil || granted == nil {
@@ -1013,15 +1047,20 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 		t.Fatal(err)
 	}
 	releaseGate()
-	response := result{}
+	select {
+	case <-returned:
+	case <-time.After(hangGuard):
+		t.Fatalf("forwarder did not return within the %s hang guard after the TLS gate was released: %s", hangGuard, gateState())
+	}
+	var response result
 	select {
 	case response = <-finished:
-	case <-time.After(5 * time.Second):
-		t.Fatal("TLS handshake did not complete after release")
+	default:
+		t.Fatalf("forwarder ended without a result after the TLS gate was released: %s", gateState())
 	}
 	_, grants, err := f.store.List()
 	if response.rc == 0 || writes.Load() || err != nil || len(grants) != 1 || grants[0].Uses != 1 {
-		t.Fatalf("withdrawn during TLS preparation: rc=%d message=%q writes=%v grants=%+v err=%v", response.rc, response.message, writes.Load(), grants, err)
+		t.Fatalf("withdrawn during TLS preparation: rc=%d message=%q grants=%+v err=%v; %s", response.rc, response.message, grants, err, gateState())
 	}
 }
 
