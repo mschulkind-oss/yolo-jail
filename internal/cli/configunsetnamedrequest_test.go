@@ -3,10 +3,14 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -30,10 +34,9 @@ func TestPublicConfigUnsetRemovesANamedRepositoryRequest(t *testing.T) {
 
 	rc, out, errs = captureStd(t, func() int { return Main([]string{"yolo", "config", "unset", key}) })
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	want := strings.Replace(namedRequestUnsetProject, "create_pr = true\n", "", 1)
-	if got := readFile(t, fx.project); got != want {
-		t.Fatalf("unset %s left the project file as:\n%s\nwant:\n%s", key, got, want)
-	}
+	want := readFile(t, fx.project)
+	assertNamedRequestTable(t, want, "create_pr", map[string]any{"runs": []any{"deploy.yml", "ci.yml"}},
+		"[repos.infra]", `repo = "github.com/acme/infra"`, "[repos.infra.requests.github]", `runs = ["deploy.yml", "ci.yml"]`)
 
 	rc, out, errs = captureStd(t, func() int { return Main([]string{"yolo", "config", "unset", key}) })
 	if rc != 0 || !strings.Contains(out, "No change; no write.") {
@@ -47,10 +50,40 @@ func TestPublicConfigUnsetRemovesANamedRepositoryRequest(t *testing.T) {
 		return Main([]string{"yolo", "config", "unset", "repos.infra.requests.github.runs[0]", "--project"})
 	})
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	got := readFile(t, fx.project)
-	if strings.Contains(got, "deploy.yml") || !strings.Contains(got, `runs = ["ci.yml"]`) ||
-		!strings.Contains(got, "[repos.infra]\nrepo = \"github.com/acme/infra\"\n") {
-		t.Fatalf("unset runs[0] did not remove deploy.yml alone:\n%s", got)
+	assertNamedRequestTable(t, readFile(t, fx.project), "deploy.yml", map[string]any{"runs": []any{"ci.yml"}},
+		"[repos.infra]", `repo = "github.com/acme/infra"`, "[repos.infra.requests.github]")
+}
+
+// assertNamedRequestTable checks a file after an unset: the removed key is written nowhere, the
+// github table under repos.infra parses to exactly want, and each line in kept is still a whole
+// line of the file, byte for byte. The blank space the editor leaves where the removed line was is
+// the editor's layout, and is not asserted here.
+func assertNamedRequestTable(t *testing.T, text, removed string, want map[string]any, kept ...string) {
+	t.Helper()
+	if strings.Contains(text, removed) {
+		t.Fatalf("the file still writes %s:\n%s", removed, text)
+	}
+	lines := strings.Split(text, "\n")
+	for _, line := range kept {
+		if !slices.Contains(lines, line) {
+			t.Fatalf("the file lost or rewrote the line %q:\n%s", line, text)
+		}
+	}
+	doc, err := configdoc.Parse([]byte(text), configdoc.TOML)
+	if err != nil {
+		t.Fatalf("the file no longer parses: %v\n%s", err, text)
+	}
+	value, _ := configValueAt(doc.Values, "repos", "infra", "requests", "github")
+	table, _ := value.(*jsonx.OrderedMap)
+	if table == nil {
+		t.Fatalf("the file holds no [repos.infra.requests.github] table:\n%s", text)
+	}
+	got := map[string]any{}
+	for _, key := range table.Keys() {
+		got[key], _ = table.Get(key)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("[repos.infra.requests.github] holds %v, want %v:\n%s", got, want, text)
 	}
 }
 
@@ -63,10 +96,8 @@ func TestPublicConfigUnsetRemovesANamedRepositoryRequestList(t *testing.T) {
 		return Main([]string{"yolo", "config", "unset", "repos.infra.requests.github.runs"})
 	})
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	want := strings.Replace(namedRequestUnsetProject, "runs = [\"deploy.yml\", \"ci.yml\"]\n", "", 1)
-	if got := readFile(t, fx.project); got != want {
-		t.Fatalf("unset runs left the project file as:\n%s\nwant:\n%s", got, want)
-	}
+	assertNamedRequestTable(t, readFile(t, fx.project), "runs", map[string]any{"create_pr": true},
+		"[repos.infra]", `repo = "github.com/acme/infra"`, "[repos.infra.requests.github]", "create_pr = true")
 	if readFile(t, fx.userConfig) != userBefore || readFile(t, fx.fragment) != fragmentBefore {
 		t.Fatal("a project unset wrote the user config")
 	}
@@ -85,9 +116,8 @@ func TestPublicConfigUnsetRemovesANamedRepositoryRequestFromTheLocalFile(t *test
 		return Main([]string{"yolo", "config", "unset", "repos.infra.requests.github.runs", "--local"})
 	})
 	assertPublicPostWriteCheck(t, rc, out, errs)
-	if got := readFile(t, local); got != "[repos.infra.requests.github]\ncreate_issue = true\n" {
-		t.Fatalf("unset --local left the local file as:\n%s", got)
-	}
+	assertNamedRequestTable(t, readFile(t, local), "runs", map[string]any{"create_issue": true},
+		"[repos.infra.requests.github]", "create_issue = true")
 	if got := readFile(t, fx.project); got != namedRequestUnsetProject {
 		t.Fatalf("unset --local wrote the project file:\n%s", got)
 	}
