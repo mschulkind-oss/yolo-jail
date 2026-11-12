@@ -955,6 +955,55 @@ func TestConfigApplyReplacesGrants(t *testing.T) {
 	}
 }
 
+// The mirror of TestConfigApplyReplacesGrants, for the other direction: the live file holds a
+// config-derived grant the workspace no longer asks for, and the apply revokes it. This is the
+// only path that removes a config-derived grant from a running jail.
+func TestConfigApplyRemovesAGrantTheGateNoLongerApproves(t *testing.T) {
+	o, buf, _ := brokeredFixtureGrants(t)
+	if _, err := config.WriteWorkspaceBootBaseline(o.Workspace, "podman-self", jsonx.NewOrderedMap()); err != nil {
+		t.Fatal(err)
+	}
+	user := gbOn()
+	brokered, _ := grantKindsConfig("gbsrc", "create-branch").Get("brokered")
+	user.Set("brokered", brokered)
+	writeUserConfigOf(t, user)
+	answer(o, "y")
+	f := liveScopeFile{Path: "/scope/1", LiveScope: true, File: brokerscope.File{Source: "gbsrc",
+		Form: brokerscope.FormRemoteURL, Repos: []string{"git@github.com:o/r.git"},
+		Grants: []brokerscope.Grant{{Kind: "create-branch", Repo: "github.com/o/r"}}}}
+	swapSeam(t, &liveScopeFilesSeam, func(_ context.Context, source, _, _ string) ([]liveScopeFile, error) {
+		if source != "gbsrc" {
+			return nil, nil
+		}
+		return []liveScopeFile{f}, nil
+	})
+	var replaced []brokerscope.Grant
+	called := false
+	swapSeam(t, &replaceScopeReposSeam, func(_ context.Context, _ string, _ brokerscope.File, _ []string, grants []brokerscope.Grant) error {
+		called, replaced = true, grants
+		return nil
+	})
+	// The workspace asks for no grant, so the gate approves none, and the live one must go.
+	read, err := config.ReadWorkspaceForGate(o.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := config.ComposeWithWorkspaceRead(o.Workspace, read.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc := o.liveApply(merged, "podman", "yolo-ws", nil, applyMode{running: true}); rc != 0 {
+		t.Fatalf("rc = %d, want 0\n%s", rc, buf.String())
+	}
+	want := []brokerscope.Grant{{Kind: "read", Repo: "*"}}
+	if !called || !reflect.DeepEqual(replaced, want) {
+		t.Fatalf("the live file's grants became %v (called %v), want %v", replaced, called, want)
+	}
+	if !strings.Contains(buf.String(), "-grant create-branch github.com/o/r") || !strings.Contains(buf.String(), "applied now") {
+		t.Errorf("no applied-now line removing the grant:\n%s", buf.String())
+	}
+}
+
 // A broker that cannot take live scope: recorded, at next restart.
 func TestConfigApplyScopeOnAnOldBrokerWaits(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
