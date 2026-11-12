@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -975,9 +974,8 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 		err     error
 	}
 	type endResult struct {
-		n      int
-		err    error
-		sealed int
+		n   int
+		err error
 	}
 	var witnessMu sync.Mutex
 	var gatedConn net.Conn
@@ -1016,12 +1014,12 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 				gatedHandshake <- handshakeResult{state.Version, err}
 			}
 		},
-		ended: func(conn net.Conn, n int, err error, sealed int) {
+		ended: func(conn net.Conn, n int, err error) {
 			witnessMu.Lock()
 			isGated := gatedConn != nil && conn == gatedConn
 			witnessMu.Unlock()
 			if isGated {
-				gatedEnd <- endResult{n, err, sealed}
+				gatedEnd <- endResult{n, err}
 			}
 		},
 	}
@@ -1130,15 +1128,14 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 	case <-time.After(hangGuard):
 		t.Fatalf("no TLS handshake result for the gated write connection within the %s hang guard: %s; %s", hangGuard, outcome, gateState())
 	}
-	// 2. The client then closed that connection with a sealed close_notify and no request
-	// bytes. Only the prepared request's close sends one: a handshake that the client
-	// abandoned, context expiry included, closes the socket bare. In TLS 1.3 the client's
-	// sealed records are its Finished and then that alert, and a clean io.EOF from the
-	// TLS layer after a second sealed record can only be close_notify.
+	// 2. The client then closed that connection with no request bytes. Only the prepared
+	// request's close sends a close_notify, which the server reads as a clean io.EOF. A
+	// handshake the client abandoned, context expiry included, closes the socket bare,
+	// and the witness reports that as a non-EOF error (pinnedTLSWitnessEndedUnused).
 	select {
 	case got := <-gatedEnd:
-		if got.n != 0 || got.err != io.EOF || got.sealed < 2 {
-			t.Fatalf("gated write connection was not closed unused by a completed TLS preparation (first server read n=%d err=%v, sealed client records=%d; want n=0 io.EOF and at least 2): %s; %s", got.n, got.err, got.sealed, outcome, gateState())
+		if !pinnedTLSWitnessEndedUnused(got.n, got.err) {
+			t.Fatalf("gated write connection was not closed unused by a completed TLS preparation (first server read n=%d err=%v; want n=0 and a close_notify io.EOF): %s; %s", got.n, got.err, outcome, gateState())
 		}
 	case <-time.After(hangGuard):
 		t.Fatalf("gated write connection was never read to its end within the %s hang guard: %s; %s", hangGuard, outcome, gateState())

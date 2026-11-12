@@ -9,7 +9,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -44,10 +46,10 @@ type pinnedTLSWitness struct {
 	// and verified the client's Finished, which the client sends only after it verified
 	// the server certificate against its pinned roots and name.
 	handshake func(conn net.Conn, state tls.ConnectionState, err error)
-	// ended reports the first Read the HTTP server makes on a handshaken connection:
-	// its byte count and error, and how many sealed (outer type 23) records the client
-	// had sent by then. n > 0 means the client sent application bytes.
-	ended func(conn net.Conn, n int, err error, sealedRecords int)
+	// ended reports the first Read the HTTP server makes on a handshaken connection: its
+	// byte count and error. n > 0 means the client sent application bytes; see
+	// pinnedTLSWitnessEndedUnused for what a clean end means.
+	ended func(conn net.Conn, n int, err error)
 }
 
 // fixturePinnedHTTPServerWithTLSWitness is fixturePinnedHTTPServer with the same real
@@ -89,7 +91,9 @@ func startPinnedHTTPServer(t *testing.T, handler http.Handler, handshakeGate fun
 		ctx, cancel := context.WithCancel(context.Background())
 		listener := &pinnedTLSWitnessListener{Listener: server.Listener, witness: witness, ctx: ctx, cancel: cancel,
 			ready: make(chan net.Conn), done: make(chan struct{})}
-		listener.config = &tls.Config{Certificates: []tls.Certificate{*leaf}, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		// Session tickets are disabled so the server writes no NewSessionTicket the client
+		// never reads; unread bytes could turn a raw close into a reset instead of a FIN.
+		listener.config = &tls.Config{Certificates: []tls.Certificate{*leaf}, SessionTicketsDisabled: true, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			if witness.gate != nil {
 				witness.gate(hello.Conn)
 			}
@@ -157,7 +161,7 @@ func (l *pinnedTLSWitnessListener) accept() {
 
 func (l *pinnedTLSWitnessListener) secure(raw net.Conn) {
 	defer l.work.Done()
-	counted := &tlsRecordCountingConn{Conn: raw}
+	counted := &tlsRawEOFConn{Conn: raw}
 	secured := tls.Server(counted, l.config)
 	if err := secured.HandshakeContext(l.ctx); err != nil {
 		if l.witness.handshake != nil {
@@ -199,7 +203,7 @@ func (l *pinnedTLSWitnessListener) Close() error {
 // handshake again, and the first Read it makes is reported to the witness.
 type pinnedTLSWitnessConn struct {
 	net.Conn
-	counted *tlsRecordCountingConn
+	counted *tlsRawEOFConn
 	witness *pinnedTLSWitness
 	first   sync.Once
 }
@@ -208,47 +212,109 @@ func (c *pinnedTLSWitnessConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	c.first.Do(func() {
 		if c.witness.ended != nil {
-			c.witness.ended(c.counted, n, err, c.counted.sealedRecords())
+			c.witness.ended(c.counted, n, err)
 		}
 	})
 	return n, err
 }
 
-// tlsRecordCountingConn counts the sealed records (outer content type 23) the client
-// sends, by walking the plaintext five-byte record headers of the inbound stream.
-type tlsRecordCountingConn struct {
+// errTLSRawTransportClosed replaces a raw io.EOF. crypto/tls reports a bare io.EOF at a
+// record boundary as io.EOF, the same error a close_notify produces, so the raw close is
+// renamed before it reaches the TLS layer.
+var errTLSRawTransportClosed = errors.New("fixture raw transport closed without TLS shutdown alert")
+
+// tlsRawEOFConn passes reads through and maps a raw io.EOF to errTLSRawTransportClosed.
+type tlsRawEOFConn struct {
 	net.Conn
-	mu     sync.Mutex
-	header []byte
-	skip   int
-	sealed int
 }
 
-func (c *tlsRecordCountingConn) Read(p []byte) (int, error) {
+func (c *tlsRawEOFConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
-	c.mu.Lock()
-	for _, b := range p[:n] {
-		if c.skip > 0 {
-			c.skip--
-			continue
-		}
-		c.header = append(c.header, b)
-		if len(c.header) == 5 {
-			if c.header[0] == 23 {
-				c.sealed++
-			}
-			c.skip = int(c.header[3])<<8 | int(c.header[4])
-			c.header = c.header[:0]
-		}
+	if err == io.EOF {
+		err = errTLSRawTransportClosed
 	}
-	c.mu.Unlock()
 	return n, err
 }
 
-func (c *tlsRecordCountingConn) sealedRecords() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.sealed
+// pinnedTLSWitnessEndedUnused is the withdrawal witness's predicate on the server's first
+// read of a handshaken connection. Only a decrypted close_notify reads as a clean io.EOF
+// with no bytes; a raw close reads as errTLSRawTransportClosed.
+func pinnedTLSWitnessEndedUnused(n int, err error) bool {
+	return n == 0 && err == io.EOF
+}
+
+// TestPinnedTLSWitnessEndedUnusedOnlyForCloseNotify is the negative arm of the withdrawal
+// witness. After a completed handshake, the predicate the withdrawal test applies holds
+// after a close_notify and fails after a bare socket close. No application bytes are
+// sent, and the fixture handler must see no request in either arm.
+func TestPinnedTLSWitnessEndedUnusedOnlyForCloseNotify(t *testing.T) {
+	// hangGuard only turns a hang into a red test. Each pass condition is an event.
+	const hangGuard = 90 * time.Second
+	type readEnd struct {
+		n   int
+		err error
+	}
+	for _, tc := range []struct {
+		name        string
+		closeNotify bool
+	}{
+		{name: "bare socket close after a completed handshake", closeNotify: false},
+		{name: "close_notify after a completed handshake", closeNotify: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handshakes := make(chan error, 1)
+			ends := make(chan readEnd, 1)
+			var requests atomic.Int32
+			witness := &pinnedTLSWitness{
+				handshake: func(_ net.Conn, _ tls.ConnectionState, err error) { handshakes <- err },
+				ended:     func(_ net.Conn, n int, err error) { ends <- readEnd{n, err} },
+			}
+			_, executor, origin := fixturePinnedHTTPServerWithTLSWitness(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				requests.Add(1)
+			}), witness)
+			parsed, err := url.Parse(origin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
+			defer cancel()
+			raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", parsed.Port()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer raw.Close()
+			client := tls.Client(raw, &tls.Config{RootCAs: executor.roots, ServerName: "fixture.example", MinVersion: tls.VersionTLS13})
+			if err := client.HandshakeContext(ctx); err != nil {
+				t.Fatalf("pinned client handshake: %v", err)
+			}
+			select {
+			case err := <-handshakes:
+				if err != nil {
+					t.Fatalf("server handshake failed: %v", err)
+				}
+			case <-time.After(hangGuard):
+				t.Fatalf("no server handshake result within the %s hang guard", hangGuard)
+			}
+			if tc.closeNotify {
+				if err := client.Close(); err != nil {
+					t.Fatalf("close_notify: %v", err)
+				}
+			} else if err := raw.Close(); err != nil {
+				t.Fatalf("raw close: %v", err)
+			}
+			select {
+			case got := <-ends:
+				if pinnedTLSWitnessEndedUnused(got.n, got.err) != tc.closeNotify {
+					t.Fatalf("first server read n=%d err=%v: predicate=%v, want %v", got.n, got.err, !tc.closeNotify, tc.closeNotify)
+				}
+			case <-time.After(hangGuard):
+				t.Fatalf("server never read the connection to its end within the %s hang guard", hangGuard)
+			}
+			if requests.Load() != 0 {
+				t.Fatalf("fixture handler received %d requests on a connection that sent none", requests.Load())
+			}
+		})
+	}
 }
 
 func TestPinnedHTTPExecutorCapsResponseAndRedactsExactKnownToken(t *testing.T) {
