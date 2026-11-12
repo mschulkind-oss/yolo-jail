@@ -428,8 +428,10 @@ profile = 'my-sso-profile'
 unnarrowed = true
 `)
 	workspace := t.TempDir()
-	write(t, filepath.Join(workspace, paths.WorkspaceConfigTOMLName), `[requests.github]
-repos = ['acme/shared']
+	write(t, filepath.Join(workspace, paths.WorkspaceConfigTOMLName), `[repos.shared]
+repo = 'github.com/acme/shared'
+[requests.github]
+runs = ['ci.yml']
 `)
 	effective, src, err := LoadConfigWithoutWorkspaceFileWithSources(workspace, true, func(string) {})
 	if err != nil {

@@ -721,6 +721,9 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 				if strings.HasPrefix(target.Origin, "brokered.") && source.EntryKey == "" {
 					source.EntryKey = brokeredReposPath(broker.Source)
 				}
+				if strings.HasPrefix(target.Origin, "repos.") && source.EntryKey == "" {
+					source.EntryKey = target.Origin + ".repo"
+				}
 			}
 			for _, entry := range current.Entry {
 				source.Entry = appendReadableEntry(source.Entry, entry)

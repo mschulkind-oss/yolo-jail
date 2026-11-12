@@ -348,3 +348,23 @@ func TestARepoLineWithMixedCaseNamesIsAccepted(t *testing.T) {
 		t.Fatalf("a mixed-case repo line is refused: %v", check.Fatal)
 	}
 }
+
+func TestTheOldReposKeyIsRefusedNamingItsTableAndTheMigration(t *testing.T) {
+	workspace := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin, "[requests.github]\nrepos = [\"other/lib\"]\n", "")
+	check, _ := repoScopeCheck(t, workspace)
+	if check.Fatal == nil {
+		t.Fatal("requests.github.repos was accepted; it is retired (GW-D75)")
+	}
+	for _, want := range []string{"requests.github.repos", "[repos.<name>]", "github.com/other/lib", "yolo config migrate"} {
+		if !strings.Contains(check.Fatal.Error(), want) {
+			t.Fatalf("the refusal lacks %q: %v", want, check.Fatal)
+		}
+	}
+	for _, s := range check.Sources {
+		for _, g := range s.Grants {
+			if g.Kind != brokerscope.KindRead {
+				t.Fatalf("the refused key still granted %v", g)
+			}
+		}
+	}
+}

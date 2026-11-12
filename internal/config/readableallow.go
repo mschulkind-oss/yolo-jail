@@ -135,10 +135,8 @@ type ReadableBrokerPolicy struct {
 	Always              []string
 	OnRequest           []string
 	Repos               []ReadableRepoRequest
-	// RepoPath survives an empty repository list so removals retain their authored remediation key.
-	RepoPath         string
-	AlwaysOrigins    []string
-	OnRequestOrigins []string
+	AlwaysOrigins       []string
+	OnRequestOrigins    []string
 }
 
 // ReadableRepoRequest is a requested concrete OWNER/REPO in the declared source's namespace.
@@ -534,26 +532,10 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			path := "requests." + name + "." + key
 			value := readableValue(table, key)
 			if key == "repos" {
-				policy.RepoPath = path
 				if policy.RemoteHost == brokerscope.AnyRemoteHost {
 					return plan, fmt.Errorf("%s: declared remote_host %q cannot accept OWNER/REPO additions; request repositories through a selected named-host source", path, brokerscope.AnyRemoteHost)
 				}
-				repos, e := readableStringList(value, path)
-				if e != nil {
-					return plan, e
-				}
-				for i, repo := range repos {
-					if !brokerscope.ValidRepo(repo) {
-						return plan, fmt.Errorf("%s[%d]: %q is not a concrete OWNER/REPO; wildcards are not requests", path, i, repo)
-					}
-					if !selected[policy.Pack] {
-						continue
-					}
-					policy.Repos = appendReadableRepo(policy.Repos, ReadableRepoRequest{Repository: repo, Path: path, Files: cloneOrigins(input.WorkspaceOrigins[path])})
-					plan.Requests = append(plan.Requests, ReadableRequestResult{Path: path, Files: cloneOrigins(input.WorkspaceOrigins[path]), Capability: "repos", Value: repo,
-						Status: ReadableRequestGranted, Reason: "repository identity is scope input only; each selected consumer's own read allowance still applies"})
-				}
-				continue
+				return plan, retiredReposKeyError(path, policy.RemoteHost, value)
 			}
 			shape, known := readableRequestShape(policy, key)
 			setting, settingFound, settingAmbiguous := readableSettingByKey(settings[policy.Pack], key)
@@ -730,7 +712,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		}
 		input.ReadCapabilities = append(input.ReadCapabilities, readCapability)
 		observed := ReadableObservedSource{Source: policy.Source, Label: policy.Label, RemoteHost: policy.RemoteHost,
-			EntryKey: policy.RepoPath, Read: cloneBrokerScopeRead(remotes), Targets: cloneReadableRepositories(targets)}
+			Read: cloneBrokerScopeRead(remotes), Targets: cloneReadableRepositories(targets)}
 		input.ObservedSources = append(input.ObservedSources, observed)
 		readAlways := slices.Contains(policy.Always, policy.ReadCapability)
 		readRequested := slices.Contains(policy.OnRequest, policy.ReadCapability) && readableReadRequestedFromResults(input.Requests, policy.Source, policy.ReadCapability)
@@ -887,7 +869,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			grants[i] = decisions[i].Grant
 		}
 		input.Sources = append(input.Sources, ReadableGateSource{Source: policy.Source, Label: policy.Label, RemoteHost: policy.RemoteHost,
-			EntryKey: policy.RepoPath, Read: cloneBrokerScopeRead(remotes), Entry: entries, Targets: readTargets, Grants: grants, Decisions: decisions})
+			Read: cloneBrokerScopeRead(remotes), Entry: entries, Targets: readTargets, Grants: grants, Decisions: decisions})
 	}
 	return input, nil
 }
@@ -2030,6 +2012,18 @@ func legacyKind(policy ReadableBrokerPolicy, capability string) string {
 	}
 	return ""
 }
+
+// retiredReposKeyError refuses `requests.<source>.repos` (GW-D75). The repository it names is the
+// first one listed, under the host the source reads, so the next step is a copyable [repos.<name>]
+// table and the migration that converts the old list.
+func retiredReposKeyError(path, host string, value any) error {
+	repo := "OWNER/REPO"
+	if list := stringList(value); len(list) > 0 {
+		repo = list[0]
+	}
+	return fmt.Errorf("%s is retired; declare each repository as its own table, [repos.<name>] with repo = %q, and run `yolo config migrate`", path, host+"/"+repo)
+}
+
 func stringList(value any) []string { values, _ := readableStringList(value, "request"); return values }
 func appendReadableRepo(requests []ReadableRepoRequest, request ReadableRepoRequest) []ReadableRepoRequest {
 	return readableRepo(requests, request)

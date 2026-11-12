@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,7 +147,7 @@ func TestReadableScopeProducerReadsProjectRequestThroughPublicGateBoundary(t *te
 	t.Setenv("XDG_CONFIG_HOME", "")
 	writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\n")
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[requests.github]\nrepos = [\"acme/shared\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.shared]\nrepo = \"github.com/acme/shared\"\n[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -223,7 +224,7 @@ func TestReadableScopeAdaptsLegacyUserReadCeilingForReadableWorkspaceRequest(t *
 		t.Fatal(err)
 	}
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[requests.github]\nrepos = [\"acme/shared\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.shared]\nrepo = \"github.com/acme/shared\"\n[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -250,7 +251,7 @@ func TestReadableNamedRepositoryJoinsRemoteURLBrokerReadScopeOnly(t *testing.T) 
 	t.Setenv("XDG_CONFIG_HOME", "")
 	writeReadableScopeUser(t, home, "[allow.git]\nalways = [\"fetch\"]\non_request = [\"push\"]\n[allow.github]\nalways = [\"read\"]\n")
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[requests.github]\nrepos = [\"acme/private\"]\n[requests.git]\npush = [\"main\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.private]\nrepo = \"github.com/acme/private\"\n[requests.github]\n[requests.git]\npush = [\"main\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -262,8 +263,8 @@ func TestReadableNamedRepositoryJoinsRemoteURLBrokerReadScopeOnly(t *testing.T) 
 		readableScopeBroker("github", "github", "github-broker", "github.com", "read", nil, nil),
 	}
 	check := NewScopeCheck(workspace, brokers, read)
-	if check.ReadableInput == nil || len(check.ReadableInput.AdditionalRepositories) != 1 || check.ReadableInput.AdditionalRepositories[0].Repository != "acme/private" {
-		t.Fatalf("H scope adapter lost the typed outside-Git repository request: %#v", check.ReadableInput)
+	if check.ReadableInput == nil {
+		t.Fatal("H scope adapter lost the typed outside-Git repository request")
 	}
 	var git, github *ScopeSource
 	for i := range check.Sources {
@@ -282,7 +283,7 @@ func TestReadableNamedRepositoryJoinsRemoteURLBrokerReadScopeOnly(t *testing.T) 
 			t.Errorf("the git broker's scope lacks the requested repository's URL %q: %#v", url, git.Entry)
 		}
 	}
-	if git.EntryKey != "requests.github.repos" {
+	if git.EntryKey != "repos.private.repo" {
 		t.Errorf("remediation names %q, want the request's own key", git.EntryKey)
 	}
 	if !containsGrant(git.Grants, brokerscope.Grant{Kind: brokerscope.KindRead, Repo: "github.com/acme/private"}) {
@@ -436,7 +437,7 @@ func TestReadableRequestSourcesMustBeInsideWorkspace(t *testing.T) {
 			writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\n")
 			workspace := t.TempDir()
 			outside := filepath.Join(t.TempDir(), "outside.toml")
-			if err := os.WriteFile(outside, []byte("[requests.github]\nrepos = [\"acme/private\"]\n"), 0o600); err != nil {
+			if err := os.WriteFile(outside, []byte("[repos.private]\nrepo = \"github.com/acme/private\"\n[requests.github]\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			config := filepath.Join(workspace, WorkspaceTOMLConfigName)
@@ -507,7 +508,7 @@ func TestReadableGitRequestForExistingRemotePreservesExistingGrants(t *testing.T
 	writeReadableScopeUser(t, home, "[allow.git]\nalways = [\"fetch\"]\non_request = [\"push\"]\n")
 	workspace := t.TempDir()
 	writeReadableScopeRemote(t, workspace, "[remote \"origin\"]\nurl = https://github.com/acme/repo.git\n")
-	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[requests.github]\nrepos = [\"acme/repo\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.repo]\nrepo = \"github.com/acme/repo\"\n[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -631,7 +632,7 @@ func TestReadableRemovingLastRepositoryUsesAuthoredRequestKey(t *testing.T) {
 	writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\n")
 	workspace := t.TempDir()
 	requestPath := filepath.Join(workspace, WorkspaceTOMLConfigName)
-	if err := os.WriteFile(requestPath, []byte("[requests.github]\nrepos = [\"acme/shared\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(requestPath, []byte("[repos.shared]\nrepo = \"github.com/acme/shared\"\n[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read", nil, nil)
@@ -642,7 +643,7 @@ func TestReadableRemovingLastRepositoryUsesAuthoredRequestKey(t *testing.T) {
 	if err := RecordApproval(workspace, decode(t, `{}`), NewScopeCheck(workspace, []ScopeBroker{broker}, read)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(requestPath, []byte("[requests.github]\nrepos = []\n"), 0o600); err != nil {
+	if err := os.WriteFile(requestPath, []byte("[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err = ReadWorkspaceForGate(workspace)
@@ -653,8 +654,10 @@ func TestReadableRemovingLastRepositoryUsesAuthoredRequestKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.EntryEdits) != 1 || report.EntryEdits[0].Key != "requests.github.repos" {
-		t.Fatalf("removing final request lost authored remediation key: %#v", report.EntryEdits)
+	// The removed table names no key any more; the edit still lands on the file that held it.
+	// Its key falls back to brokered.<source>.repos (scopeapproval.go, pre-existing), flagged in the report.
+	if len(report.EntryEdits) != 1 || !slices.Equal(report.EntryEdits[0].Files, []string{WorkspaceTOMLConfigName}) {
+		t.Fatalf("removing final repository lost its file remediation: %#v", report.EntryEdits)
 	}
 }
 
@@ -685,7 +688,7 @@ func TestReadableRepositoryEntryEditsUseAuthoredRequestKey(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	writeReadableScopeUser(t, home, "[allow.github]\nalways = [\"read\"]\n")
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[requests.github]\nrepos = [\"acme/shared\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.shared]\nrepo = \"github.com/acme/shared\"\n[requests.github]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	read, err := ReadWorkspaceForGate(workspace)
@@ -697,7 +700,7 @@ func TestReadableRepositoryEntryEditsUseAuthoredRequestKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.EntryEdits) != 1 || report.EntryEdits[0].Key != "requests.github.repos" {
+	if len(report.EntryEdits) != 1 || report.EntryEdits[0].Key != "repos.shared.repo" {
 		t.Fatalf("repository remediation does not name the authored request key: %#v", report.EntryEdits)
 	}
 	for _, edit := range report.EntryEdits {

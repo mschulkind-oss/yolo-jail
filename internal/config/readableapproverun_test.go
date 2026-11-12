@@ -25,7 +25,7 @@ func githubApproveDeclarations() []config.ReadableBrokerDeclaration {
 func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["approve_runs"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/extra"],"approve_runs":["github-actions[bot]","*"]}}}`),
+		Workspace:     readableMap(t, `{"repos":{"extra":{"repo":"github.com/acme/extra"}},"requests":{"github":{"approve_runs":["github-actions[bot]","*"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubApproveDeclarations()})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
 func TestReadableApproveRunsOutsideTheCeilingIsSkipped(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["runs"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/private"],"approve_runs":["octocat"]}}}`),
+		Workspace:     readableMap(t, `{"repos":{"private":{"repo":"github.com/acme/private"}},"requests":{"github":{"approve_runs":["octocat"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubApproveDeclarations()})
 	if err != nil {
 		t.Fatal(err)

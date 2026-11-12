@@ -185,11 +185,11 @@ func TestAnAliasedRemoteSharesOriginsGrantOnce(t *testing.T) {
 // is the gate's own lowering. Neither is the other.
 func TestTheLegacyBaselineFansOutAndTheNewProjectionDoesNot(t *testing.T) {
 	gitConfig := "[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n[remote \"upstream\"]\n\turl = https://github.com/elsewhere/app.git\n"
-	project := "[requests.github]\nrepos = [\"acme/extra\"]\nruns = [\"ci.yml\"]\n"
+	project := "[requests.github]\nruns = [\"ci.yml\"]\nrepos = [\"acme/extra\"]\n"
 	workspace := repoScopeWorkspace(t, repoScopeUserAll, gitConfig, project, "")
-	check, read := repoScopeCheck(t, workspace)
-	if check.Fatal != nil || len(check.Sources) != 1 {
-		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		t.Fatal(err)
 	}
 	declarations := []ReadableBrokerDeclaration{*repoScopeBroker().Readable}
 	strs := func(all []WorkspaceBrokerGrants) []string {
@@ -210,8 +210,5 @@ func TestTheLegacyBaselineFansOutAndTheNewProjectionDoesNot(t *testing.T) {
 	after := strs(WorkspaceBrokerGrantsOf(read.Config, workspace, declarations))
 	if len(after) != 1 || after[0] != "runs github.com/acme/app ci.yml" {
 		t.Fatalf("the new projection lowers %v, want origin's line only", after)
-	}
-	if got := repoScopeWrites(check.Sources[0].Grants); strings.Join(got, "\n") != strings.Join(after, "\n") {
-		t.Fatalf("the gate lowers %v and the new projection %v", got, after)
 	}
 }

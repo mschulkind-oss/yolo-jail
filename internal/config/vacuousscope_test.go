@@ -126,7 +126,7 @@ func TestAVacuousBrokerScopeAsksNothingAndRecordsNothing(t *testing.T) {
 				return
 			}
 			if err := os.WriteFile(filepath.Join(ws, WorkspaceTOMLConfigName),
-				[]byte("[requests."+source+"]\nrepos = [\"acme/requested\"]\n"), 0o600); err != nil {
+				[]byte("[repos.requested]\nrepo = \"github.com/acme/requested\"\n[requests."+source+"]\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}, func(source string) bool { return source == "github" }, func(string) string { return "acme/requested" }},

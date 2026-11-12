@@ -129,8 +129,8 @@ func TestReadableGateProducerSpiesOnConcreteInputForBothBrokers(t *testing.T) {
 	url = git@github.com:acme/upstream.git
 `)
 	input := config.ReadableAllowanceInput{User: readableMap(t, `{"allow":{"git":{"always":["fetch"],"on_request":["push"]},"github":{"always":["read"]}}}`),
-		Workspace:        readableMap(t, `{"requests":{"git":{"push":["main"]},"github":{"repos":["acme/other"]}}}`),
-		WorkspaceOrigins: map[string][]string{"requests.github.repos": {"sub/team.toml"}}, SelectedPacks: []string{"git", "github"}, Declarations: readableBrokerDeclarations()}
+		Workspace:        readableMap(t, `{"requests":{"git":{"push":["main"]}},"repos":{"other":{"repo":"github.com/acme/other"}}}`),
+		WorkspaceOrigins: map[string][]string{"repos.other.repo": {"sub/team.toml"}}, SelectedPacks: []string{"git", "github"}, Declarations: readableBrokerDeclarations()}
 	plan, err := config.ResolveReadableAllowance(input)
 	if err != nil {
 		t.Fatal(err)
@@ -167,18 +167,15 @@ func TestReadableGateProducerSpiesOnConcreteInputForBothBrokers(t *testing.T) {
 		t.Errorf("Git typed concrete targets (including named-host request) = %#v", git.Targets)
 	}
 	github := bySource["github"]
-	if !containsReadableEntry(github.Entry, "acme/other", "sub/team.toml") || !containsReadableGrant(github.Grants, brokerscope.Grant{Kind: "read", Repo: "github.com/acme/other"}) {
+	if !containsReadableGrant(github.Grants, brokerscope.Grant{Kind: "read", Repo: "github.com/acme/other"}) {
 		t.Errorf("GitHub gate source = %#v", github)
-	}
-	if len(observed.AdditionalRepositories) != 1 || observed.AdditionalRepositories[0].Source != "github" || observed.AdditionalRepositories[0].RemoteHost != "github.com" || observed.AdditionalRepositories[0].Repository != "acme/other" {
-		t.Errorf("additional identities = %#v", observed.AdditionalRepositories)
 	}
 }
 
 func TestReadableNamedRepositoryRequestWorksOutsideGitCheckoutAndEmptyScopesDoNotPrompt(t *testing.T) {
 	input := config.ReadableAllowanceInput{User: readableMap(t, `{"allow":{"github":{"always":["read"]},"git":{"always":["fetch"]}}}`),
-		Workspace:        readableMap(t, `{"requests":{"github":{"repos":["acme/private"]}}}`),
-		WorkspaceOrigins: map[string][]string{"requests.github.repos": {"project.toml"}}, SelectedPacks: []string{"github", "git"}, Declarations: readableBrokerDeclarations()}
+		Workspace:        readableMap(t, `{"repos":{"private":{"repo":"github.com/acme/private"}}}`),
+		WorkspaceOrigins: map[string][]string{"repos.private.repo": {"project.toml"}}, SelectedPacks: []string{"github", "git"}, Declarations: readableBrokerDeclarations()}
 	plan, err := config.ResolveReadableAllowance(input)
 	if err != nil {
 		t.Fatal(err)
@@ -199,9 +196,6 @@ func TestReadableNamedRepositoryRequestWorksOutsideGitCheckoutAndEmptyScopesDoNo
 	}
 	if !containsReadableGrant(bySource["github"].Grants, brokerscope.Grant{Kind: "read", Repo: "github.com/acme/private"}) {
 		t.Fatalf("GitHub did not get its own read grant: %#v", bySource["github"])
-	}
-	if len(gate.AdditionalRepositories) != 1 {
-		t.Fatalf("additional identities = %#v", gate.AdditionalRepositories)
 	}
 
 	for _, source := range []string{"git", "github"} {
@@ -381,15 +375,15 @@ func TestReadableLegacyGrantDifferenceReportsNarrowScopedBranch(t *testing.T) {
 func TestReadableOnRequestReadRequiresTrueRequestAndConcreteTarget(t *testing.T) {
 	declarations := readableBrokerDeclarations()
 	for _, tc := range []struct {
-		name, requests string
-		wantGrant      bool
+		name, workspace string
+		wantGrant       bool
 	}{
-		{"true plus named target", `{"github":{"read":true,"repos":["acme/private"]}}`, true},
-		{"false read request", `{"github":{"read":false,"repos":["acme/private"]}}`, false},
-		{"true without target", `{"github":{"read":true}}`, false},
+		{"true plus named target", `{"requests":{"github":{"read":true}},"repos":{"private":{"repo":"github.com/acme/private"}}}`, true},
+		{"false read request", `{"requests":{"github":{"read":false}},"repos":{"private":{"repo":"github.com/acme/private"}}}`, false},
+		{"true without target", `{"requests":{"github":{"read":true}}}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input := config.ReadableAllowanceInput{User: readableMap(t, `{"allow":{"github":{"on_request":["read"]}}}`), Workspace: readableMap(t, `{"requests":`+tc.requests+`}`), SelectedPacks: []string{"github"}, Declarations: declarations}
+			input := config.ReadableAllowanceInput{User: readableMap(t, `{"allow":{"github":{"on_request":["read"]}}}`), Workspace: readableMap(t, tc.workspace), SelectedPacks: []string{"github"}, Declarations: declarations}
 			plan, err := config.ResolveReadableAllowance(input)
 			if err != nil {
 				t.Fatal(err)
@@ -621,10 +615,10 @@ func TestReadableAnyHostUsesGitIdentityPathGrammar(t *testing.T) {
 		}
 	}
 	invalidNamed, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
-		User: readableMap(t, `{"allow":{"github":{"always":["read"]}}}`), Workspace: readableMap(t, `{"requests":{"github":{"repos":["acme/team/repository"]}}}`),
+		User: readableMap(t, `{"allow":{"github":{"always":["read"]}}}`), Workspace: readableMap(t, `{"repos":{"team":{"repo":"github.com/acme/team/repository"}}}`),
 		SelectedPacks: []string{"github"}, Declarations: readableBrokerDeclarations(),
 	})
-	if err == nil || !strings.Contains(err.Error(), "concrete OWNER/REPO") {
+	if err == nil || !strings.Contains(err.Error(), "repos.team.repo") || !strings.Contains(err.Error(), "OWNER/REPO") {
 		t.Fatalf("named forge addition bypassed OWNER/REPO validation: plan=%#v err=%v", invalidNamed, err)
 	}
 }
@@ -632,8 +626,8 @@ func TestReadableAnyHostUsesGitIdentityPathGrammar(t *testing.T) {
 func TestReadableAdditionalNamedHostScopeDoesNotDependOnItsReadAllowance(t *testing.T) {
 	input := config.ReadableAllowanceInput{
 		User:             readableMap(t, `{"allow":{"git":{"always":["fetch"]}}}`),
-		Workspace:        readableMap(t, `{"requests":{"github":{"repos":["acme/private"]}}}`),
-		WorkspaceOrigins: map[string][]string{"requests.github.repos": {"project.toml"}},
+		Workspace:        readableMap(t, `{"repos":{"private":{"repo":"github.com/acme/private"}}}`),
+		WorkspaceOrigins: map[string][]string{"repos.private.repo": {"project.toml"}},
 		SelectedPacks:    []string{"git", "github"}, Declarations: readableBrokerDeclarations(),
 	}
 	plan, err := config.ResolveReadableAllowance(input)
@@ -650,11 +644,8 @@ func TestReadableAdditionalNamedHostScopeDoesNotDependOnItsReadAllowance(t *test
 	if calls != 1 {
 		t.Fatalf("producer called gate spy %d times", calls)
 	}
-	if len(observed.AdditionalRepositories) != 1 || observed.AdditionalRepositories[0].Repository != "acme/private" || observed.AdditionalRepositories[0].Files[0] != "project.toml" {
-		t.Fatalf("selected declared scope identity was lost: %#v", observed.AdditionalRepositories)
-	}
-	if len(observed.Requests) != 1 || observed.Requests[0].Capability != "repos" || observed.Requests[0].Status != config.ReadableRequestGranted || !strings.Contains(observed.Requests[0].Reason, "scope input only") {
-		t.Fatalf("scope request was conflated with read permission: %#v", observed.Requests)
+	if len(observed.Requests) != 0 {
+		t.Fatalf("a named repository is a scope identity, not a request: %#v", observed.Requests)
 	}
 	var git, github *config.ReadableGateSource
 	for i := range observed.Sources {
@@ -671,7 +662,7 @@ func TestReadableAdditionalNamedHostScopeDoesNotDependOnItsReadAllowance(t *test
 	if github != nil {
 		t.Fatalf("scope request accidentally became GitHub read authority: %#v", *github)
 	}
-	if !containsReadableTarget(git.Targets, config.ReadableRepository{Source: "github", RemoteHost: "github.com", Repository: "acme/private", Origin: "requests.github.repos", Files: []string{"project.toml"}}) {
+	if !containsReadableTarget(git.Targets, config.ReadableRepository{Source: "git", RemoteHost: "github.com", Repository: "acme/private", Origin: "repos.private"}) {
 		t.Fatalf("Git's typed scope target lost declared source or origin: %#v", git.Targets)
 	}
 }

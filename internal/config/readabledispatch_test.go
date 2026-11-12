@@ -44,7 +44,7 @@ func writeOriginWorkspace(t *testing.T, repo string) string {
 func TestReadableDispatchWorkflowsRequestBecomesAGrantPerTarget(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["runs"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/extra"],"runs":["nightly-macos.yml","*"]}}}`),
+		Workspace:     readableMap(t, `{"repos":{"extra":{"repo":"github.com/acme/extra"}},"requests":{"github":{"runs":["nightly-macos.yml","*"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubDispatchDeclarations()})
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestReadableDispatchWorkflowsRequestBecomesAGrantPerTarget(t *testing.T) {
 func TestReadableDispatchWorkflowsOutsideTheCeilingIsSkipped(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["create_pr"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/private"],"runs":["nightly.yml"]}}}`),
+		Workspace:     readableMap(t, `{"repos":{"private":{"repo":"github.com/acme/private"}},"requests":{"github":{"runs":["nightly.yml"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubDispatchDeclarations()})
 	if err != nil {
 		t.Fatal(err)

@@ -496,8 +496,8 @@ api_key_env_name = 'ZAI_KEY'
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, paths.WorkspaceConfigTOMLName), `[providers.zai.models."model.with.dot"]
 name = 'Project model label'
-[requests.github]
-repos = ['acme/shared']
+[repos.shared]
+repo = 'github.com/acme/shared'
 `)
 	if _, err := LoadReadableWorkspaceConfig(dir, true, nil); err != nil {
 		t.Fatalf("existing shared model fact/request was refused: %v", err)
