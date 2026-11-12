@@ -261,6 +261,14 @@ func ReadableSchemaKeys() []SchemaKey {
 		// one) or a workspace-scope setting: typed by the selected pack's declarations
 		// (ResolveReadableAllowance, ResolveLoopholeGrants), as `allow.*.*` is.
 		{Path: "requests.*.*", Scope: workspace, Type: SchemaTypeAny},
+		// A named repository (GW-D76, GW-D79): `repo` is its identity, `requests.<broker>` its own
+		// write lines, read by ResolveReadableAllowance; a broker's value is typed there, per the
+		// capability it names, so the walk stops at the any row.
+		{Path: "repos", Scope: both, Type: SchemaTypeObject},
+		{Path: "repos.*", Scope: both, Type: SchemaTypeObject},
+		{Path: "repos.*.repo", Scope: both, Type: SchemaTypeString},
+		{Path: "repos.*.requests", Scope: workspace, Type: SchemaTypeObject},
+		{Path: "repos.*.requests.*", Scope: workspace, Type: SchemaTypeAny},
 		{Path: "requests.github.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.github.repos.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.create_pr", Scope: workspace, Type: SchemaTypeBoolean},

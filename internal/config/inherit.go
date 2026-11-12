@@ -444,6 +444,11 @@ var readableInheritCensus = map[string]readableInheritDisposition{
 	// reader refuses it. A nested workspace's own config carries its own.
 	"requests": {keyDisposition: keyDisposition{
 		reason: "one project's request, approved at its own gate; as inherited user scope it would apply to every workspace an inner launch opens, and user scope refuses it"}},
+	// `repos` is the project's named repositories and their requests (GW-D76): workspace-scope
+	// requests, and a user table only for its repo line. As inherited user scope they would name
+	// a repository every workspace an inner launch opens reads.
+	"repos": {keyDisposition: keyDisposition{
+		reason: "one project's named repositories, approved at its own gate; as inherited user scope they would name a repository every workspace an inner launch opens reads"}},
 }
 
 // InheritDisposition returns the census entry for a key, and ok=false for a key the census

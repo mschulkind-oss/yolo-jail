@@ -134,6 +134,32 @@ func workspaceBrokerGrants(cfg *jsonx.OrderedMap, workspace string, declarations
 				}
 			}
 		}
+		// A named table's requests for this source land on its own repository (GW-D76), never on
+		// the unqualified lines' targets; the reason is said where it cannot be placed.
+		if repos, ok := asMap(readableValue(cfg, "repos")); ok && policy.RemoteHost != brokerscope.AnyRemoteHost {
+			for _, name := range repos.Keys() {
+				namedTable, _ := asMap(readableValue(repos, name))
+				namedRequests, _ := asMap(readableValue(namedTable, "requests"))
+				asked, ok := asMap(readableValue(namedRequests, source))
+				if !ok {
+					continue
+				}
+				target, err := namedRequestTarget(workspace, policy, namedRepoOf(name, namedTable))
+				if err != nil {
+					got.Unplaced = appendReadableDifference(got.Unplaced, source+" repos."+name+": "+err.Error())
+					continue
+				}
+				for _, capability := range asked.Keys() {
+					kind := legacyKind(policy, capability)
+					if capability == d.ReadCapability || inList(d.PendingCapabilities, capability) || kind == "" {
+						continue
+					}
+					for _, placed := range readableRequestGrants(kind, readableValue(asked, capability), []ReadableRepository{target}) {
+						add(placed.Grant)
+					}
+				}
+			}
+		}
 		legacy, _ := rawWorkspaceReadableGrants(read, source, d.Brokered.Grants)
 		for _, grant := range legacy {
 			if grant.Kind == brokerscope.KindRead {

@@ -83,6 +83,10 @@ type ReadableRequestResult struct {
 	Value      any
 	Status     ReadableRequestStatus
 	Reason     string
+	// Source and Table are set for a request under a named `[repos.<name>]` table (GW-D76): the
+	// broker it asks and the table's name. A legacy `requests.<source>.*` request leaves both empty.
+	Source string
+	Table  string
 }
 
 type ReadableTableTombstone struct {
@@ -92,9 +96,12 @@ type ReadableTableTombstone struct {
 
 // ReadableAllowancePlan is the semantic result before actual remotes are read.
 type ReadableAllowancePlan struct {
-	TableTombstones    []ReadableTableTombstone
-	Sources            []ReadableBrokerPolicy
-	Requests           []ReadableRequestResult
+	TableTombstones []ReadableTableTombstone
+	Sources         []ReadableBrokerPolicy
+	Requests        []ReadableRequestResult
+	// NamedRepos are the `[repos.<name>]` tables, read by ProduceReadableGateInput against each
+	// source the workspace names them for.
+	NamedRepos         []ReadableNamedRepo
 	PackSettings       map[string]map[string]any
 	PackSettingOrigins map[string]map[string][]string
 	// LoopholeGrants is each selected grant-declaring loophole's ceiling, request and standing
@@ -167,12 +174,14 @@ type ReadableObservedSource struct {
 }
 
 // ReadableRepository is a scope identity, not permission, with declared source/host provenance.
+// Pattern marks a `<owner>/*`-style repository from a named table: its grants are marked (GW-D80).
 type ReadableRepository struct {
 	Source     string
 	RemoteHost string
 	Repository string
 	Origin     string
 	Files      []string
+	Pattern    bool
 }
 
 // ReadableReadCapability preserves declared read capability state apart from concrete repository
@@ -568,17 +577,8 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				return plan, fmt.Errorf("%s has no declared broker kind; declared capabilities are %s", path, strings.Join(readableCapabilities(policy), ", "))
 			}
 			if shape == SchemaTypeList {
-				kind := legacyKind(policy, key)
-				for index, name := range stringList(value) {
-					if kind == brokerscope.KindRuns && !brokerscope.ValidGrantName(kind, name) {
-						return plan, fmt.Errorf("%s[%d]: %q is not a workflow a grant can name: write the workflow's file name in .github/workflows, such as \"nightly.yml\" (not its path, numeric id or display name), or \"*\" for every workflow in the repository", path, index, name)
-					}
-					if kind == brokerscope.KindApproveRun && !brokerscope.ValidGrantName(kind, name) {
-						return plan, fmt.Errorf("%s[%d]: %q is not an actor a grant can name: write the GitHub login that triggers the runs, such as \"github-actions[bot]\" (letters, digits and hyphens, with `[bot]` after an app's name), or \"*\" for every actor", path, index, name)
-					}
-					if kind != brokerscope.KindRuns && kind != brokerscope.KindApproveRun && !brokerscope.ValidGrantRefPattern(name) {
-						return plan, fmt.Errorf("%s[%d]: %q is not a ref name a grant can take: write a short name git accepts, such as \"main\" or \"v1.0\", optionally with one `*` matching any run of characters, such as \"patch/*\" or \"v*\"", path, index, name)
-					}
+				if err := validateReadableRequestNames(path, legacyKind(policy, key), value); err != nil {
+					return plan, err
 				}
 			}
 			if !selected[policy.Pack] {
@@ -605,6 +605,9 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				plan.Sources[i] = policy
 			}
 		}
+	}
+	if err := readableNamedRepos(&plan, input, brokers, selected); err != nil {
+		return plan, err
 	}
 	plan.LoopholeGrants, err = ResolveLoopholeGrants(LoopholeGrantInput{User: input.User, Workspace: input.Workspace,
 		Declarations: selectedGrants, UserOrigins: input.UserOrigins, WorkspaceOrigins: input.WorkspaceOrigins})
@@ -663,6 +666,17 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				targets = appendReadableRepository(targets, additional)
 			}
 		}
+		// A named table's repository reads with this source's own read grant (GW-D76). It joins no
+		// unqualified request line, so it is in readTargets and never in requestTargets.
+		namedRead := namedReadTargets(plan.NamedRepos, policy)
+		readTargets := cloneReadableRepositories(targets)
+		for _, target := range namedRead {
+			readTargets = appendReadableRepository(readTargets, target)
+		}
+		namedRequests, err := namedRequestTargets(workspace, policy, plan.NamedRepos, input.Requests)
+		if err != nil {
+			return ReadableGateInput{}, err
+		}
 		readCapability := ReadableReadCapability{Source: policy.Source, Label: policy.Label, Capability: policy.ReadCapability,
 			Always: slices.Contains(policy.Always, policy.ReadCapability), OnRequest: slices.Contains(policy.OnRequest, policy.ReadCapability),
 			AlwaysFiles: cloneOrigins(policy.AlwaysOrigins), OnRequestFiles: cloneOrigins(policy.OnRequestOrigins)}
@@ -684,19 +698,25 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		if originErr != nil && readAllowed && readableLowersAnUnqualifiedGrant(policy, input.Requests) {
 			return ReadableGateInput{}, originErr
 		}
-		if !readAllowed || len(targets) == 0 {
+		if !readAllowed || len(readTargets) == 0 || len(targets) == 0 {
 			for i := range input.Requests {
 				request := &input.Requests[i]
-				if request.Status == ReadableRequestGranted && request.Capability != "repos" && request.Capability != policy.ReadCapability && strings.HasPrefix(request.Path, "requests."+policy.Source+".") {
-					request.Status = ReadableRequestSkipped
-					if !readAllowed {
-						request.Reason = "the broker requires its own always read capability before a write request can take effect; add " + policy.ReadCapability + " to allow." + policy.Source + ".always"
-					} else {
-						request.Reason = "the workspace has no concrete repository target for this request"
-					}
+				if request.Status != ReadableRequestGranted || request.Capability == "repos" || request.Capability == policy.ReadCapability || !readableRequestOfSource(*request, policy.Source) {
+					continue
+				}
+				if request.Table != "" && readAllowed && len(readTargets) > 0 {
+					continue // a named table's request lands on its own repository, in readTargets
+				}
+				request.Status = ReadableRequestSkipped
+				if !readAllowed {
+					request.Reason = "the broker requires its own always read capability before a write request can take effect; add " + policy.ReadCapability + " to allow." + policy.Source + ".always"
+				} else {
+					request.Reason = "the workspace has no concrete repository target for this request"
 				}
 			}
-			continue
+			if !readAllowed || len(readTargets) == 0 {
+				continue
+			}
 		}
 		var decisions []ReadableGrantDecision
 		var readOrigins, readFiles []string
@@ -715,10 +735,14 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				}
 			}
 		}
-		for _, target := range targets {
+		for _, target := range readTargets {
 			files := append(cloneOrigins(readFiles), target.Files...)
-			for _, origin := range readOrigins {
-				decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: brokerscope.KindRead, Repo: target.RemoteHost + "/" + target.Repository}, origin, files)
+			origins := readOrigins
+			if strings.HasPrefix(target.Origin, "repos.") {
+				origins = append(cloneOrigins(readOrigins), target.Origin)
+			}
+			for _, origin := range origins {
+				decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: brokerscope.KindRead, Repo: target.RemoteHost + "/" + target.Repository, RepoPattern: target.Pattern}, origin, files)
 			}
 		}
 		for _, capability := range policy.Always {
@@ -734,8 +758,12 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			}
 		}
 		for _, request := range input.Requests {
-			if request.Status != ReadableRequestGranted || !strings.HasPrefix(request.Path, "requests."+policy.Source+".") || request.Capability == policy.ReadCapability || slices.Contains(policy.PendingCapabilities, request.Capability) {
+			if request.Status != ReadableRequestGranted || !readableRequestOfSource(request, policy.Source) || request.Capability == policy.ReadCapability || slices.Contains(policy.PendingCapabilities, request.Capability) {
 				continue
+			}
+			placeOn := requestTargets
+			if request.Table != "" {
+				placeOn = []ReadableRepository{namedRequests[request.Table]}
 			}
 			ceilingOrigin := "allow." + policy.Source + ".on_request"
 			ceilingFiles := policy.OnRequestOrigins
@@ -746,7 +774,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
-			for _, placed := range readableRequestGrants(kind, request.Value, requestTargets) {
+			for _, placed := range readableRequestGrants(kind, request.Value, placeOn) {
 				files := append(cloneOrigins(ceilingFiles), request.Files...)
 				files = append(files, placed.Target.Files...)
 				decisions = appendReadableGrant(decisions, placed.Grant, ceilingOrigin, files)
@@ -770,12 +798,15 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		for _, repo := range policy.Repos {
 			entries = appendReadableEntry(entries, EntryRepo{Repo: repo.Repository, Files: cloneOrigins(repo.Files)})
 		}
+		for _, repo := range namedRead {
+			entries = appendReadableEntry(entries, EntryRepo{Repo: repo.Repository, Files: cloneOrigins(repo.Files)})
+		}
 		grants := make([]brokerscope.Grant, len(decisions))
 		for i := range decisions {
 			grants[i] = decisions[i].Grant
 		}
 		input.Sources = append(input.Sources, ReadableGateSource{Source: policy.Source, Label: policy.Label, RemoteHost: policy.RemoteHost,
-			EntryKey: policy.RepoPath, Read: cloneBrokerScopeRead(remotes), Entry: entries, Targets: targets, Grants: grants, Decisions: decisions})
+			EntryKey: policy.RepoPath, Read: cloneBrokerScopeRead(remotes), Entry: entries, Targets: readTargets, Grants: grants, Decisions: decisions})
 	}
 	return input, nil
 }
@@ -1783,7 +1814,9 @@ func readableRequestGrants(kind string, value any, targets []ReadableRepository)
 	if brokerscope.GrantTakesName(kind) {
 		for _, target := range targets {
 			for _, name := range stringList(value) {
-				out = append(out, readableTargetGrant{brokerscope.RefGrant(kind, target.RemoteHost+"/"+target.Repository, name), target})
+				grant := brokerscope.RefGrant(kind, target.RemoteHost+"/"+target.Repository, name)
+				grant.RepoPattern = target.Pattern
+				out = append(out, readableTargetGrant{grant, target})
 			}
 		}
 		return out
@@ -1792,7 +1825,7 @@ func readableRequestGrants(kind string, value any, targets []ReadableRepository)
 		return nil
 	}
 	for _, target := range targets {
-		out = append(out, readableTargetGrant{brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}, target})
+		out = append(out, readableTargetGrant{brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository, RepoPattern: target.Pattern}, target})
 	}
 	return out
 }
@@ -2164,4 +2197,21 @@ func shipsOffSwitch(declarations []ReadablePackDeclaration, pack string) bool {
 		}
 	}
 	return false
+}
+
+// validateReadableRequestNames checks a list request's names against the grant kind they name:
+// a workflow file, an actor, or a ref pattern (readableRequestNames' refusals, unchanged).
+func validateReadableRequestNames(path, kind string, value any) error {
+	for index, name := range stringList(value) {
+		if kind == brokerscope.KindRuns && !brokerscope.ValidGrantName(kind, name) {
+			return fmt.Errorf("%s[%d]: %q is not a workflow a grant can name: write the workflow's file name in .github/workflows, such as \"nightly.yml\" (not its path, numeric id or display name), or \"*\" for every workflow in the repository", path, index, name)
+		}
+		if kind == brokerscope.KindApproveRun && !brokerscope.ValidGrantName(kind, name) {
+			return fmt.Errorf("%s[%d]: %q is not an actor a grant can name: write the GitHub login that triggers the runs, such as \"github-actions[bot]\" (letters, digits and hyphens, with `[bot]` after an app's name), or \"*\" for every actor", path, index, name)
+		}
+		if kind != brokerscope.KindRuns && kind != brokerscope.KindApproveRun && !brokerscope.ValidGrantRefPattern(name) {
+			return fmt.Errorf("%s[%d]: %q is not a ref name a grant can take: write a short name git accepts, such as \"main\" or \"v1.0\", optionally with one `*` matching any run of characters, such as \"patch/*\" or \"v*\"", path, index, name)
+		}
+	}
+	return nil
 }

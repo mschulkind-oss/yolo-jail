@@ -37,8 +37,10 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 		return readableScopeFailure(workspace, brokers, err), true
 	}
 	_, userHasAllow := user.Get("allow")
+	_, userHasRepos := user.Get("repos")
 	_, workspaceHasRequests := read.Config.Get("requests")
-	identityRequired := userHasAllow || workspaceHasRequests
+	_, workspaceHasRepos := read.Config.Get("repos")
+	identityRequired := userHasAllow || userHasRepos || workspaceHasRequests || workspaceHasRepos
 	if !identityRequired {
 		return nil, false
 	}
@@ -220,6 +222,12 @@ func filterReadablePlanToActiveBrokers(plan *ReadableAllowancePlan, brokers []Sc
 	plan.Sources = sources
 	requests := plan.Requests[:0]
 	for _, request := range plan.Requests {
+		if request.Table != "" {
+			if active[request.Source] {
+				requests = append(requests, request)
+			}
+			continue
+		}
 		path := strings.TrimPrefix(request.Path, "requests.")
 		source, _, found := strings.Cut(path, ".")
 		if found && active[source] {
@@ -499,6 +507,7 @@ func containsStringAny(values []any, want string) bool {
 
 func readableWorkspaceOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
+	readableNamedOrigins(origins, config, sources)
 	var raw any
 	if config != nil {
 		raw, _ = config.Get("requests")
@@ -537,7 +546,7 @@ func readableGrantProvenance(source string, decision ReadableGrantDecision, inpu
 			if len(parts) == 4 || userKey == "" {
 				userKey = origin
 			}
-		case strings.HasPrefix(origin, "requests.") && requestKey == "":
+		case (strings.HasPrefix(origin, "requests.") || strings.HasPrefix(origin, "repos.")) && requestKey == "":
 			requestKey = origin
 		case strings.HasPrefix(origin, "brokered.") && brokeredKey == "":
 			brokeredKey = origin
@@ -579,6 +588,10 @@ func readableGrantProvenance(source string, decision ReadableGrantDecision, inpu
 				files = request.Files
 				break
 			}
+		}
+		if files == nil && strings.HasPrefix(requestKey, "repos.") {
+			// A named table's read has no request: its repo line's file is the decision's.
+			files = decision.Files
 		}
 		return false, located(files, requestKey, "")
 	case brokeredKey != "":
