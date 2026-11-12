@@ -106,6 +106,13 @@ func allowReposNamed(positionals []string, dryRun bool, out, errw io.Writer) int
 			broker, capability, strings.Join(declared, ", "), alias, broker, declared[0])
 		return 1
 	}
+	if capability == decl.ReadCapability {
+		// The read is allowed for every repository by the broad list alone (GW-D80); a repository's
+		// ceiling holds no read, so it is refused here before anything is written.
+		fmt.Fprintf(errw, "yolo allow: %s %s is not allowed under a name: the read is allowed for every repository by your broad list.\n"+
+			"  On the host:  yolo allow %s always %s\n", broker, capability, broker, capability)
+		return 1
+	}
 	if userRepoLine(alias) == "" {
 		fmt.Fprintf(errw, "yolo allow: repos.%s names no repository in your user config. Declare it first:\n"+
 			"  yolo allow repos %s <host>/<path>\n", alias, alias)

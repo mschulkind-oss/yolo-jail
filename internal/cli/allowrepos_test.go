@@ -92,3 +92,40 @@ func TestAllowReposInJailNamesTheQuotedHostCommand(t *testing.T) {
 		t.Fatal("an in-jail allow repos edited the user config")
 	}
 }
+
+// A repository's ceiling never holds the broker's read: the read is allowed for every repository by
+// the broad `[allow.<broker>]` list alone (GW-D80). A scoped read is refused before anything is
+// written, naming the broad allow; the broad read itself is unchanged.
+func TestAllowReposRefusesAScopedReadWithoutWriting(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", "")
+	recordAllowGate(t, false)
+	if rc, out, errs := captureStd(t, func() int {
+		return Main([]string{"yolo", "allow", "repos", "mine", "github.com/mschulkind/*"})
+	}); rc != 0 {
+		t.Fatalf("declaring the name rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	for _, args := range [][]string{
+		{"yolo", "allow", "repos.mine.github", "always", "read"},
+		{"yolo", "allow", "repos.mine.github", "on_request", "read"},
+		{"yolo", "allow", "repos.mine.github", "read"},
+	} {
+		before := readFile(t, fx.userConfig) + readFile(t, fx.fragment)
+		rc, out, errs := captureStd(t, func() int { return Main(args) })
+		if rc != 1 {
+			t.Fatalf("%v rc=%d, want 1; stdout=%q stderr=%q", args, rc, out, errs)
+		}
+		if !strings.Contains(errs, "yolo allow github always read") {
+			t.Fatalf("%v refusal lacks the broad allow: %q", args, errs)
+		}
+		if after := readFile(t, fx.userConfig) + readFile(t, fx.fragment); after != before {
+			t.Fatalf("%v was refused and still wrote the user config", args)
+		}
+	}
+	rc, out, errs := captureStd(t, func() int { return Main([]string{"yolo", "allow", "github", "always", "read"}) })
+	if rc != 0 {
+		t.Fatalf("the broad read rc=%d stdout=%q stderr=%q", rc, out, errs)
+	}
+	if !strings.Contains(readFile(t, fx.userConfig)+readFile(t, fx.fragment), "[allow.github]") {
+		t.Fatal("the broad read was not written")
+	}
+}
