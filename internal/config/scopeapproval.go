@@ -460,8 +460,13 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// EntryEdit is a changed `brokered.<source>.repos` entry, for the next step a decline and a
-// refusal name: the key, and the workspace-relative files the change is in.
+// reposTableRemediation is the next step a changed repository entry names when the authored key
+// is not known: the canonical table and the verb that writes one (GW-D75). It never names the
+// retired `requests.<source>.repos` or `brokered.<source>.repos` key.
+const reposTableRemediation = "[repos.<name>] repo, set with yolo request repos <alias> <host>/<path>"
+
+// EntryEdit is a changed repository entry, for the next step a decline and a refusal name: the
+// key, and the workspace-relative files the change is in.
 type EntryEdit struct {
 	Key   string
 	Files []string
@@ -654,7 +659,7 @@ func scopeBlock(s ScopeSource, cur []scopeRepo, prev []string, had bool,
 	for _, r := range prev {
 		inPrev[s.key(r)] = true
 	}
-	edit.Key = brokeredReposPath(s.Source)
+	edit.Key = reposTableRemediation
 	if s.EntryKey != "" {
 		edit.Key = s.EntryKey
 	}
@@ -914,7 +919,7 @@ func ApprovedGrants(workspace, source string) []brokerscope.Grant {
 
 // ReadWithoutScope names, by loophole label, each in-play source whose read grant applies but
 // whose workspace names no repository (ScopeSource.ReadWithoutScope), mapped to the workspace key
-// that would list one (its EntryKey, else `brokered.<source>.repos`). A launch hands it to the
+// that would list one (its EntryKey, else reposTableRemediation). A launch hands it to the
 // spawn beside ApprovedGrants, so the broker's line names the missing remote instead of a grant
 // the user already holds. nil when no source is in that state.
 func (s *ScopeCheck) ReadWithoutScope() map[string]string {
@@ -931,7 +936,7 @@ func (s *ScopeCheck) ReadWithoutScope() map[string]string {
 		}
 		key := src.EntryKey
 		if key == "" {
-			key = BrokeredReposKey(src.Source)
+			key = reposTableRemediation
 		}
 		out[src.Label] = key
 	}

@@ -654,10 +654,13 @@ func TestReadableRemovingLastRepositoryUsesAuthoredRequestKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The removed table names no key any more; the edit still lands on the file that held it.
-	// Its key falls back to brokered.<source>.repos (scopeapproval.go, pre-existing), flagged in the report.
+	// The removed table names no key any more, so the edit names the canonical table and the
+	// command that writes one, never the retired brokered.<source>.repos key.
 	if len(report.EntryEdits) != 1 || !slices.Equal(report.EntryEdits[0].Files, []string{WorkspaceTOMLConfigName}) {
 		t.Fatalf("removing final repository lost its file remediation: %#v", report.EntryEdits)
+	}
+	if key := report.EntryEdits[0].Key; !strings.Contains(key, "[repos.<name>] repo") || !strings.Contains(key, "yolo request repos <alias> <host>/<path>") {
+		t.Fatalf("removal remediation key = %q, want the [repos.<name>] repo line and yolo request repos", key)
 	}
 }
 
