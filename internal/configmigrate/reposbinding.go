@@ -121,6 +121,34 @@ func (in legacyRepos) add(source, kind string, value any) {
 	in.lines[source] = append(in.lines[source], requestLine{kind: kind, value: value})
 }
 
+// unionNamedRequest is the value a named table's request line holds once a second value lands on
+// the same line: a list's refs join in order without repeats, and a yes/no kind stays true. ok is
+// false for any other path or pair, which keep the refusal they had. The copied unqualified line
+// and an explicit grant on the same repository are both the old reader's union (GW-D80).
+func unionNamedRequest(path []string, prior, value any) (any, bool) {
+	if len(path) != 5 || path[0] != "repos" || path[2] != "requests" {
+		return nil, false
+	}
+	switch p := prior.(type) {
+	case bool:
+		v, ok := value.(bool)
+		return p || v, ok
+	case []any:
+		list, ok := value.([]any)
+		if !ok {
+			return nil, false
+		}
+		out := append([]any(nil), p...)
+		for _, item := range list {
+			if !containsValue(out, item) {
+				out = append(out, item)
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
 func containsValue(list []any, v any) bool {
 	for _, item := range list {
 		if item == v {

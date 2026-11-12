@@ -151,8 +151,13 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		out.inert = append(out.inert, DroppedInert{Path: dotted(path), Value: describe(value), Why: why})
 	}
 	place := func(newPath []string, value any, oldPath []string) bool {
-		if _, present := get(out.values, newPath); present {
-			return false
+		if prior, present := get(out.values, newPath); present {
+			merged, ok := unionNamedRequest(newPath, prior, value)
+			if !ok {
+				return false
+			}
+			put(out.values, newPath, merged)
+			return true
 		}
 		put(out.values, newPath, value)
 		out.origins[strings.Join(newPath, "\x00")] = oldPath
