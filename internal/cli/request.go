@@ -38,7 +38,7 @@ Examples:
   yolo request repos infra github.com/acme/infra   name a repository for this project (--local: this
                                        workspace's local file, not the project file)
   yolo request repos.infra.github runs deploy.yml  the same request, on the repository named infra
-  yolo request github repos acme/other  a repository beyond this one's own remotes
+  yolo request repos infra github.com/acme/other  a repository beyond this one's own remotes
   yolo request journal read             the jail may read your user journal
   yolo request host-processes view postgres redis-server  the host processes the jail may see`
 

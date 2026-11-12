@@ -594,7 +594,7 @@ func TestTheBrokerRunsAnEntrysRepositoryAndNamesTheEntryForAnother(t *testing.T)
 
 	code, _, errOut := serve("pr", "view", "1", "-R", "other/private")
 	flat := strings.Join(strings.Fields(errOut), " ")
-	for _, want := range []string{"run `yolo request github repos other/private`, which adds it to the `repos` list in this project's config",
+	for _, want := range []string{"run `yolo request repos <alias> github.com/other/private`, which adds it as a `[repos.<alias>]` table in this project's config",
 		"run `yolo check --no-build`", "ask the user to restart the jail and approve the repository scope at launch",
 		"Nothing sent through gh adds a repository", "(o/r, org/lib)"} {
 		if code != ExitUsage || !strings.Contains(flat, want) {
@@ -621,7 +621,7 @@ func TestTheBrokerRunsAnEntrysRepositoryAndNamesTheEntryForAnother(t *testing.T)
 	b2.Serve(Request{Argv: []string{"pr", "view", "1", "-R", "other/private"}}, "jail-1", func([]byte) {},
 		func(p []byte) { errOut2.Write(p) })
 	if !strings.Contains(strings.Join(strings.Fields(errOut2.String()), " "),
-		"run `yolo request github repos other/private`") {
+		"run `yolo request repos <alias> github.com/other/private`") {
 		t.Errorf("without the names, the refusal does not name the verb:\n%s", errOut2.String())
 	}
 }

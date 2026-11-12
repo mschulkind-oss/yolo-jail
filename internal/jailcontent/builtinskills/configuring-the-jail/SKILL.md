@@ -80,12 +80,12 @@ loophole's read (the github pack's `github-broker`) is always the human's:
 workspace config; it is only a `[WARN]` in here but refuses the next host
 launch. `yolo loopholes list` shows each kind's standing here.
 
-Its repository list is the other way round: `brokered.<source>.repos`
-(`brokered.github.repos` for the github pack) is a workspace key you may write,
+Its repository list is the other way round: each repository is a `[repos.<name>]`
+table, `repo = "github.com/OWNER/REPO"`, a workspace key you may write,
 listing a repository the project has no remote for — or, with a whole-segment
 wildcard, more than one: `*/*` is every repository the host login can reach,
 `OWNER/*` is one owner's, and `*/REPO` is that name under any owner. Write it
-with `yolo request github repos OWNER/REPO` (`yolo request git push <branch>` and
+with `yolo request repos <name> github.com/OWNER/REPO` (`yolo request git push <branch>` and
 `yolo request git new_branches` are the same verb for git), which edits the
 project's config; if it refuses because the file is read-only here, ask the human
 to run the same command on the host. After it, run `yolo config check` and ask the human to run

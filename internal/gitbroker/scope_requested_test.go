@@ -13,7 +13,7 @@ func TestOutOfScopeRefusalNamesTheRequestVerbForGitHub(t *testing.T) {
 	f := brokerscope.File{LiveScope: true}
 	for _, remote := range []string{"https://github.com/acme/private.git", "git@github.com:acme/private.git", "ssh://git@github.com/acme/private"} {
 		got := outOfScope(remote, f)
-		if !strings.Contains(got, "`yolo request github repos acme/private`") {
+		if !strings.Contains(got, "`yolo request repos <alias> github.com/acme/private`") {
 			t.Errorf("%s: the refusal does not name the request verb:\n%s", remote, got)
 		}
 		if !strings.Contains(got, "config-change gate") || !strings.Contains(got, "not in this workspace's approved scope") {

@@ -613,7 +613,7 @@ func outOfScope(remote string, f brokerscope.File) string {
 	// this one's read scope alike (RC-D26); any other host joins only as a remote.
 	if id, err := gitproto.Identity(remote); err == nil {
 		if repo, ok := strings.CutPrefix(id, brokerscope.GitHubHost+"/"); ok && brokerscope.ValidRepo(repo) {
-			add = "request it with `yolo request github repos " + repo + "` in the workspace (or add a remote with `git remote add <name> <url>`)"
+			add = "request it with `yolo request repos <alias> github.com/" + repo + "` in the workspace (or add a remote with `git remote add <name> <url>`)"
 		}
 	}
 	return "the remote " + remote + " is not in this workspace's approved scope (" + scope + "), so nothing ran and " +

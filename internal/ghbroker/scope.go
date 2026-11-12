@@ -159,7 +159,7 @@ func (s Scope) describe() string {
 }
 
 // widenAdvice is the one way a repository outside the scope gets in (WW-D5, WW-D6): the agent
-// runs `yolo request github repos <owner/repo>`, which writes the project's config entry, runs
+// runs `yolo request repos <alias> github.com/<owner/repo>`, which writes the project's config entry, runs
 // `yolo check` on it and names the host step; the user then approves the repository scope. Where
 // the broker takes live scope that is `yolo config apply` on the host, in this workspace, which
 // the running broker sees at its next request (docs/design/live-config-apply.md §6); elsewhere
@@ -178,8 +178,8 @@ func (s Scope) widenAdvice(repo string) string {
 			"repository scope there; this jail's running broker takes it at its next call"
 	}
 	return "A repository joins this jail's scope only when the user approves it " + approves + ". To " +
-		"ask for " + repo + ", run `yolo request " + Source + " repos " + repo + "`, which adds it to " +
-		"the `repos` list in this project's config. Then run `yolo check --no-build`, and " + ask +
+		"ask for " + repo + ", run `yolo request repos <alias> " + SourceHost + "/" + repo + "`, which adds it as " +
+		"a `[repos.<alias>]` table in this project's config. Then run `yolo check --no-build`, and " + ask +
 		". Nothing sent through gh adds a repository."
 }
 

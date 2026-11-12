@@ -251,8 +251,8 @@ func TestTheJailSkillTellsTheTruthAboutTheBrokeredKeysAndTheLocalFile(t *testing
 	}
 	flat := strings.Join(strings.Fields(string(raw)), " ")
 	for _, want := range []string{
-		"`brokered.<source>.repos` (`brokered.github.repos` for the github pack) is a workspace key you may write",
-		"Write it with `yolo request github repos OWNER/REPO`",
+		"each repository is a `[repos.<name>]` table, `repo = \"github.com/OWNER/REPO\"`, a workspace key you may write",
+		"Write it with `yolo request repos <name> github.com/OWNER/REPO`",
 		"ask the human to run the same command on the host",
 		"`yolo config apply` on the host in this workspace",
 		"Approval is still required; this check never approves a change.",
