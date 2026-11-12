@@ -64,5 +64,5 @@ or a note for the planner to check; no behavior is decided here.
 - **Repository binding first.** [GW-D79](github-write-scopes.md#GW-D79) proposes building the GitHub
   side of repository binding (origin-only lowering, named `[repos.<name>]` tables, the scoped ceiling,
   the `requests.github.repos` migration) ahead of the work kinds. Its first slice is the
-  [Current support and the repository-only first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice). A planner bounds
-  that slice first; this sketch stays not buildable until GW-D79 is ruled.
+  [Current support and the repository-only first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice). A planner completes
+  this sketch against the tree, bounding that slice first; until then it stays not buildable.
