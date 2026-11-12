@@ -10,7 +10,7 @@ summary: "The suite-speed investigation, changes built so far, measurement recip
 
 # The suite got slower because tests were added, and the suite got run more often
 
-**Current status, 2026-10-09.** The refreshed recipe-1 and recipe-3 measurements are recorded at [the 2026-10-08 retake](#retaken-2026-10-08-on-the-clean-source-tree). All five commands passed, but the warm unit time and the three-run integration median both exceed their targets. Host-wide idleness was not verified, so this is not a valid target-acceptance check. The plan remains partly built: [OQ-TS2](#OQ-TS2) and [OQ-TS4](#OQ-TS4) remain open, and the next source work is a bounded audit of the remaining waits and dominant package setups.
+**Current status, 2026-10-09.** The refreshed recipe-1 and recipe-3 measurements are recorded at [the 2026-10-08 retake](#retaken-2026-10-08-on-the-clean-source-tree). All five commands passed, but the warm unit time and the three-run integration median both exceed their targets. Host-wide idleness was not verified, so this is not a valid target-acceptance check. The plan remains partly built: [OQ-TS4](#OQ-TS4) remains open ([OQ-TS2](#OQ-TS2) was ruled and built 2026-11-03), and the next source work is a bounded audit of the remaining waits and dominant package setups.
 
 **Status:** 2026-09-27. Evidence measured 2026-09-27 against `71114ecc` and its parents.
 Five work items are ruled and being built, and some have landed, among them the **integration**
@@ -25,8 +25,9 @@ test-cache hit (6.4 s); the unit target does not (69.0 s, `internal/cli/run` 67.
 integration one (498.0 s, one run); and nothing of the five items as written is left, the misses
 coming from tests added since. Four questions each
 asked for one more lever. [OQ-TS1](#decision-ledger) and [OQ-TS3](#decision-ledger) were answered 2026-09-29, both as
-leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) and
-[OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them.
+leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) was
+ruled by the owner on 2026-11-03, not as leaned, and built in `101f766b8`.
+[OQ-TS4](#OQ-TS4) is still open, and none of the five work items waits on it.
 
 > **In short (the 09-27 baseline).** No existing test got slower. The time went into tests added since mid-August,
 > several of which wait on real clocks, and into running the full suite 28 to 34 times a day.
@@ -38,7 +39,7 @@ and about 5 h went to the integration suite. Measured the same day.
 
 **Start at [Where the time goes](#where-the-time-goes).** Each work item fixes one row there.
 
-**Needs your ruling:** [OQ-TS2](#OQ-TS2), [OQ-TS4](#OQ-TS4).
+**Needs your ruling:** [OQ-TS4](#OQ-TS4).
 
 **Reads with:** [`integration-parallelism.md`](integration-parallelism.md) (the parked plan to run
 tests in parallel inside the suite, which this plan does not reopen),
@@ -518,7 +519,7 @@ passes `-count=10` alone). `internal/cli` took 1574 s.
 
 ## Open Questions
 
-1. 💬 <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
+1. <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
    `ci.yml` has no `concurrency` block, so each push to a pull request runs the whole workflow again
    while the earlier run keeps going. At 1085 s for the x64 integration job, that adds up.
 
@@ -529,7 +530,9 @@ passes `-count=10` alone). `internal/cli` took 1574 s.
    leave a landed commit that was never checked.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Ruled by the owner on 2026-11-03, not as leaned: one run per workflow and ref, `main`
+   > included, so a newer push cancels the older run. Built in `101f766b8`; the comment above
+   > `ci.yml`'s `concurrency` block records the ruling.
 
 2. 💬 <a id="OQ-TS4"></a>**OQ-TS4: Should the darwin lint pass run in CI only, and not in the local
    `just check-ci`?** That pass has cost 43 s since 09-13. Taking it out of the local gate would cut

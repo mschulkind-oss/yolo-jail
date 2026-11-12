@@ -1,7 +1,7 @@
 ---
 title: "Approve a config change once, on the host, and let the running jail take what it can"
 date: 2026-10-18
-status: accepted
+status: in-review
 stage: DECIDED
 next: "After CI on this landed tree, verify rootless M1 on both architectures; retain the real-broker, remount-parity and native-Mac obligations"
 tags: [design, config, approval, attach, mounts, github, broker, live-apply, podman, macos-user, apple-container]
@@ -10,7 +10,7 @@ summary: "A host command, `yolo config apply`, runs the launch's own config-chan
 
 # Approve a config change once, on the host, and let the running jail take what it can
 
-**Status:** 2026-10-18. Every question was ruled the same day. The patch-branch code entered the integrated history in merge `08e6566c4`; live-apply code entered in merge `6f7c72a25`, and the inspected-mount-record repair followed in `388ea8a1b`. The later `4e7b9b92b` commit is a documentation-only heading repair, not the implementation merge. The final live-closure review accepted the bounded repair. v1 and its review repairs are built; the command's briefing re-render from the effective
+**Status:** 2026-10-18. Every question filed then was ruled the same day; [OQ-LA7](#OQ-LA7), filed with the next-session moves, is open. The patch-branch code entered the integrated history in merge `08e6566c4`; live-apply code entered in merge `6f7c72a25`, and the inspected-mount-record repair followed in `388ea8a1b`. The later `4e7b9b92b` commit is a documentation-only heading repair, not the implementation merge. The final live-closure review accepted the bounded repair. v1 and its review repairs are built; the command's briefing re-render from the effective
 config is not ([LA-D7](#LA-D7)), nor are the later slices of [§13](#13-sequencing) other than
 [LA-S4a](#LA-S4a), the next-session moves, built 2026-11-06 ([LA-D18](#LA-D18) to
 [LA-D22](#LA-D22)); [OQ-LA7](#OQ-LA7) is open on it, and the build follows its leaning.
@@ -656,8 +656,8 @@ v1 is items 1 to 3 ([OQ-LA1](#decision-ledger)); item 4 is staged on the
 
 ## 14. Open question
 
-<a id="OQ-LA7-question"></a>**[OQ-LA7](#OQ-LA7): an attach that does not approve a change still
-delivers it to the session's inputs.**
+### <a id="OQ-LA7-question"></a>💬 [OQ-LA7](#OQ-LA7): an attach that does not approve a change still delivers it to the session's inputs
+
 Motivation: an attach composes the per-entry channel from the config as it is now. That is true of
 `env_sources` and providers today, and since [LA-D18](#LA-D18) of the MCP and LSP tables, the
 blocked tools and the mise tools too. A non-interactive attach asks nothing, and an interactive one

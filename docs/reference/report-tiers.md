@@ -33,8 +33,8 @@ revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
 **Needs your ruling:** [OQ-RO8](#OQ-RO8) (whether the dry run's exit follows its ruling or its
 code). [OQ-RO9](#OQ-RO9) was ruled in review on 2026-10-05: a launch's disclosure shows a build
-line by its digest, and every act that builds prints the line in full first. That ruling is not
-built yet, so the launch stream below still describes the full line on every launch.
+line by its digest, and every act that builds prints the line in full first. That ruling was
+built on 2026-10-08 in `d180f627a`.
 
 Two commands in yolo produce long output for three different readers: `yolo host apply`, which
 renders pack surfaces into a real `$HOME`, and a container launch. A **report tier** *(coined

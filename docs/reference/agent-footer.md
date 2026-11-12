@@ -22,11 +22,17 @@ summary: "How yolo puts two facts into every agent's footer that has a hook: wha
 # The agent footer — billing route and notch in every agent's status line
 
 **Status:** Verified 2026-10-16 against `8e65f344`. Graduated from the design doc
-`docs/reference/agent-footer.md`, which git history keeps. MEASURED: each agent's hook
+`docs/design/agent-footer.md`, deleted in `eb202147a` (git history keeps it). MEASURED: each agent's hook
 ([Evidence](#evidence)), the renderer's output and cost at both notches, the host apply's
-writes in a scratch home, and the macos-user marker on a Mac (`TestMacosUserFooterSaysJail` in the
+writes in a scratch home, and the macos-user marker on a Mac (then `TestMacosUserFooterSaysJail` in the
 scheduled `macos-user.yml` workflow). UNMEASURED: any footer under a live agent session, because no
 test may start an agent ([What has and has not been observed](#what-has-and-has-not-been-observed)).
+
+**Not re-verified since named setups.** Since `3bd66c7cf` (2026-11-04) the footer prints the
+launch's setup name, read from `YOLO_SETUP`, and the `guest` notch and its `YOLO_CONFINEMENT`
+marker are retired, so [The notch](#the-notch) describes the retired dial and is owed a
+re-verification against [named setups](../design/named-setups.md). The Mac test above is now
+`TestMacosUserFooterSaysItsSetup`.
 
 No agent's footer knows what yolo routed it to or where yolo put it, so both facts come from yolo.
 One core command renders them, and each agent pack adds that text beside what its agent's footer

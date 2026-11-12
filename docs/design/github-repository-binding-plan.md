@@ -3,7 +3,7 @@ title: "Plan: repository binding for the github source, first slice"
 date: 2026-11-12
 status: accepted
 stage: BUILT
-next: "Parent: `just done` on the series, then one landing of Tasks 1 to 8 together; the host install and the owner's own config steps follow the landing and are not done here"
+next: "Nothing in this plan: the series is landed on main; the host install and the owner's own config steps follow the landing and are not done here"
 depends-on:
   - github-write-scopes.md
 tags: [plan, github, broker, grants, config]
@@ -13,7 +13,7 @@ summary: "Hand-off for GW-D79's first slice as one series of eight commits: orig
 # Plan: repository binding for the github source, first slice
 
 **Status:** 2026-11-12 (`0121997f1`). Tasks 1 to 8 are built as one series of commits and
-verified; the series awaits its one landing. MEASURED: `just check-ci` and the completion census
+verified; the series is landed on main (its docs commit is `28757f5a0`). MEASURED: `just check-ci` and the completion census
 at `0121997f1`, the full integration suite at `e0ad3eaa0` (production source identical to
 `0121997f1`), and one nested launch on a build of `8a819c29e` that accepted a `[repos.<name>]`
 table. UNMEASURED: native macOS, rootless reachability, a GitHub call under live authority,

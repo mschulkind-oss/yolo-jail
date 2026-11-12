@@ -3,7 +3,7 @@ title: "Where GitHub Copilot CLI keeps its login, and why one manifest line cann
 date: 2026-09-29
 status: in-review
 stage: DESIGN
-next: "Rule OQ-CT1 together with the keychain design: accepting that design answers it (the keychain route first, the copilotTokens copy only where the route is off)"
+next: "Record OQ-CT1's answer from the accepted keychain design (KC-D1: the keychain route first, the copilotTokens copy only where the route is off) and compact the question"
 depends-on:
   - ../design/keychain-from-a-jail.md
 tags: [copilot, authentication, credentials, packs, research, measured]
@@ -17,10 +17,10 @@ vantage:
 **Status:** 2026-09-29 — measured from the shipped package bytes. Copilot was never run: no
 login, no `--version`, no API call. One ruling is owed, [OQ-CT1](#OQ-CT1). The maintainer's
 direction on it asked for a keychain design first, and that design,
-[`keychain-from-a-jail.md`](../design/keychain-from-a-jail.md), came back on 2026-09-29: accepting
-it answers this question.
-
-**Needs your ruling:** [OQ-CT1](#OQ-CT1), together with the keychain design.
+[`keychain-from-a-jail.md`](../design/keychain-from-a-jail.md), came back on 2026-09-29 and has
+since been accepted, with all of its own questions ruled by 2026-11-03. Its
+[KC-D1](../design/keychain-from-a-jail.md#KC-D1) answers this question, but the answer is not yet
+recorded at [OQ-CT1](#OQ-CT1), so the question still shows as open.
 
 **The ask:** the backlog item "Copilot logs in once per machine, not once per workspace", which is
 the `copilot` half of gap [G16](../plans/setup-support-gaps.md#2-ranked-gap-backlog). The

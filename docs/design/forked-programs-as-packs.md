@@ -472,7 +472,7 @@ series applies and builds. For forks that declare `patches`, and only those, it 
 this route's rules, [§9](#9-failure-modes)'s *"never rebuild on a timer"* among them; its
 [PF-D8](../reference/patched-forks.md#PF-D8) names each one, and its open questions are its own.
 
-1. <a id="OQ-FP11"></a>**[OQ-FP11](#OQ-FP11): does a Mac's fork build install its base's `node_floor` before the build line?**
+1. <a id="OQ-FP11"></a>💬 **[OQ-FP11](#OQ-FP11): does a Mac's fork build install its base's `node_floor` before the build line?**
    The user config's `mise_tools` are already excluded by [OQ-FP10](#14-decision-ledger).
    A base's floor above the darwin floor's Node remains the parity question.
    [Background and full option mechanics](#mac-fork-toolchain-background) preserve the original

@@ -1,7 +1,7 @@
 ---
 title: "Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out"
 date: 2026-10-01
-status: in-review
+status: accepted
 stage: DECIDED
 next: "The maintainer approves or rewords the direction's ruled sentences drafted in §9, and files the Results section's defects 3 and 4; one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, re-runs §7's two-jail check by hand on container 1.5.0, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]

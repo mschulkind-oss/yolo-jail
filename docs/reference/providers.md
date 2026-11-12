@@ -59,7 +59,9 @@ tags: [providers, profiles, packs, derives, selection, deselection, zai, cerebra
 
 # The provider system — catalog, composition, and selection
 
-**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. It is also the as-built home
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc as it stood then. Sections
+added since, such as the bedrock-key provider (`983fa1073`) and provider `inherits`, were written
+with their changes and are not covered by that verification. It is also the as-built home
 of the profile-variant design (`profiles-as-pack-variants.md`, retired): its surviving rulings
 are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. What has been
 watched running, by area:

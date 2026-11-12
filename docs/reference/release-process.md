@@ -1,4 +1,12 @@
+---
+status: current
+stage: CURRENT
+tags: [release, ci, gates]
+---
+
 # Release process: the exact-commit pre-tag release gate
+
+**Status:** evergreen. The body was not re-verified when this header was added.
 
 `just release` submits the current clean, full `HEAD` SHA as data to `release-request.yml` on `main`; it does not create a local tag or substitute a newer main commit. It takes no version: it releases CHANGELOG.md's newest dated section, the `## [X.Y.Z] - YYYY-MM-DD` heading the release-prep commit renamed from `[Unreleased]`, and prints the version it chose before dispatching ([PTG-D3](#PTG-D3)). The host checks the notes, the version's tag and main ancestry. Dispatch acceptance is not publication success.
 

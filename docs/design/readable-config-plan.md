@@ -2,7 +2,7 @@
 title: "Readable config: component implementation plan"
 date: 2026-10-26
 status: accepted
-stage: DECIDED
+stage: BUILT
 next: "Graduate the design to a system doc and retire this plan; everything else is built (readable-config.md's ledger)"
 depends-on:
   - readable-config.md
@@ -12,10 +12,15 @@ depends-on:
   - config-migration.md
   - pack-manifests.md
 tags: [config, packs, migration, editing, plan]
-summary: "Tree-grounded implementation handoff for the readable-config redesign, now largely built: TOML configs and pack.toml manifests are read at runtime, the named verbs and migrate commands exist, and the shipped packs are converted. §1 records what is built and the remainder still owed; §2–§9 are the hand-off as written."
+summary: "Tree-grounded implementation handoff for the readable-config redesign, now largely built: TOML configs and pack.toml manifests are read at runtime, the named verbs and migrate commands exist, and the shipped packs are converted. §1 records what is built; §2–§9 are the hand-off as written."
 ---
 
 # Readable config: component implementation plan
+
+**Status:** 2026-11-06 — every step of this plan is built; the old readers' removal is a later
+release's work ([RC-D19](readable-config.md#RC-D19)), not this plan's. MEASURED: this repository's
+own config was converted by `yolo config migrate`, which proved the conversion equal
+(`ef88653e5`).
 
 **Written against:** `c729692223d8d8a884887875b44da5639a154448`, 2026-10-26; the
 [verified implementation state](#verified-implementation-state) was re-checked 2026-10-30 against
@@ -79,10 +84,9 @@ this list is the state by component.
   in `yolo config-ref`, the user guide and the pack READMEs; and the TOML integration tests.
 - **Legacy window.** Legacy JSONC configs and `pack.json` manifests are still read, as
   [RC-D19](readable-config.md#RC-D19) rules; the old reader's removal is a later release's work.
-- **Not built:**
-  - this repository's own `yolo-jail.jsonc` is not converted, which waits on the owner installing
-    a TOML-reading `yolo` on the host first ([RC-D22](readable-config.md#RC-D22)); the shipped
-    loophole manifests are `loophole.toml` ([RC-D28](readable-config.md#RC-D28)).
+- **Not built:** nothing. This repository's own config was converted to `yolo-jail.toml` on
+  2026-10-30 (`ef88653e5`); the shipped loophole manifests are `loophole.toml`
+  ([RC-D28](readable-config.md#RC-D28)).
 
 ## 2. First-landed contracts
 

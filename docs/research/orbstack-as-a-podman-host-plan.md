@@ -3,7 +3,7 @@ title: "OrbStack Podman host — checked build handoff"
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Build the independently settled jail-stdin slice; setup ownership waits on [OQ-ORB1](orbstack-as-a-podman-host.md#OQ-ORB1)"
+next: "Build component C (host services), then D (native proof); setup ownership (A) waits on [OQ-ORB1](orbstack-as-a-podman-host.md#OQ-ORB1). B0, the jail-stdin slice, was built on 2026-10-08 (d0feeb3b8)"
 depends-on:
   - orbstack-as-a-podman-host.md#OQ-ORB1
 tags: [plan, macos, orbstack, podman]
@@ -15,6 +15,7 @@ vantage:
 # OrbStack Podman host — checked build handoff
 
 **Status:** 2026-10-06. Source map checked against `d5bc7a4188badeb56e1a2cb5591916bf69249723`.
+B0 was built on 2026-10-08 in `d0feeb3b8`; its native OrbStack proof is UNMEASURED.
 The [research](orbstack-as-a-podman-host.md) owns behavior and evidence; this plan is implementation
 advice, and is the first thing to correct when the tree moves. Precedence: research rulings win on
 behavior, the current tree wins on facts, this handoff is advice.

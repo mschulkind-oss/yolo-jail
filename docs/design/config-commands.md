@@ -2,8 +2,8 @@
 title: "Who writes the file: one command instead of 'edit your config', and the format it writes"
 date: 2026-10-25
 status: accepted
-stage: DECIDED
-next: "Give the shipped loophole manifests their TOML form, or rule that they stay JSONC"
+stage: BUILT
+next: "Graduate into the readable-config system doc, with the readable-config family"
 tags: [config, cli, editing, toml, jsonc, design]
 summary: "About sixty places tell a person or an agent to hand-edit a config file. This doc shows the command each would print instead, what it does to the file (one hunk, every other byte untouched), the verbs, and the format underneath. Each section ends with its question. Part of the readable-config redesign."
 ---
@@ -11,8 +11,8 @@ summary: "About sixty places tell a person or an agent to hand-edit a config fil
 # Who writes the file: one command instead of "edit your config", and the format it writes
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
-good and I want to move forward"*). Built by 2026-10-30 except that the shipped loophole manifests are still JSONC; the
-[ledger](readable-config.md#decision-ledger) names each. Legacy JSONC is still read for a few
+good and I want to move forward"*). Built by 2026-10-30, the shipped loophole manifests' TOML form included (`9839d26d3`, RC-D28), and
+shipped in v0.16.0 (`a95fd217d`); the [ledger](readable-config.md#decision-ledger) names each. UNMEASURED by this re-check, which read the commits and the tree and ran nothing. Legacy JSONC is still read for a few
 releases: a launch offers `yolo config migrate`, and `"convert_later": true` in the old user file
 stops the offer. The sessions below are what a
 person or an agent would see.

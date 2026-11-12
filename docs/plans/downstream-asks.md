@@ -1,9 +1,9 @@
 ---
 title: "What a downstream pack consumer is still waiting on from yolo"
 date: 2026-10-13
-status: in-review
-stage: DESIGN
-next: "Asks 6 and 8 are built (2026-10-16); ask 10 was declined 2026-10-15"
+status: accepted
+stage: CURRENT
+next: "Nothing is owed: every ask is landed, declined or settled, and no question is open."
 depends-on:
   - ../reference/patched-forks.md#OQ-PFK6
   - ../reference/patched-forks.md#OQ-PFK7

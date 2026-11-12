@@ -2,15 +2,15 @@
 title: "Installing and managing Claude Code mods in yolo, compared with what yolo built for pi extensions"
 date: 2026-10-03
 status: in-review
-stage: SKETCH
-next: "Rule OQ-MOD1 to OQ-MOD3. Meanwhile build step 1, a hooks-module line on the plugin disclosure fix already under way, step 2, a user-guide page, and step 3, the jail delivering a plugin that sits at a pack's root with no skills folder; no ruling holds any of them"
+stage: DESIGN
+next: "Rule OQ-MOD1 to OQ-MOD3, which hold build-order steps 4 to 6. Steps 1 to 3 (the hooks-module line, the user-guide page, and the jail delivering a root plugin with no skills folder) were built on 2026-10-03"
 tags: [research, claude, mods, plugins, hooks-modules, marketplaces, packs, pi, extensions, seed-directory]
 summary: "yolo needs much less for Claude Code mods than it built for pi extensions. Claude installs, pins, updates and cleans up its own plugins, and a mod installs as a plugin. So yolo should carry Claude's settings, not build a second installer. Most of that already works: your host settings reach every jail, a pack can add a marketplace and enable a plugin, and `yolo config promote` spreads an in-jail install to every jail. What is missing: the plugin disclosure cannot see a mod on main, no user-guide page says any of this, a mod with no skills folder reaches the host but never a jail, a mod's own repository cannot be a `packs` entry without a wrapper, the host's installed plugin files never reach a jail, and an organization policy can silently block yolo's whole plugin route. Three rulings are owed."
 ---
 
 # Installing and managing Claude Code mods in yolo, compared with what yolo built for pi extensions
 
-**Status:** 2026-10-03, research. Nothing in the tree changes. The maintainer asked: *"Is there anything we need
+**Status:** 2026-10-03, research. The research itself changed nothing in the tree; build-order steps 1 to 3 landed the same day (the hooks-module line is `043f8e08b`). The maintainer asked: *"Is there anything we need
 to add to make the Claude Code mods easier to install and manage, similarly to how we did something for pi
 extensions?"*
 

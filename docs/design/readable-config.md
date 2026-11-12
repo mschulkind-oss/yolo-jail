@@ -1,8 +1,8 @@
 ---
 title: "Config that reads right the first time: the front door"
 date: 2026-10-24
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 next: "Graduate to a system doc. OQ-RC8's refusal of a fetched pack still on pack.json belongs to the release that removes the old reader"
 tags: [config, packs, manifest, providers, profiles, broker, grants, format, toml, migration, editing, readability, design]
 summary: "The front door to the readable-config redesign: the thesis, the principles, the five documents (each one annotated config file with its questions), and the ledger of rulings made so far. The maintainer's config takes 178 lines to say about 20 things and is misread by its author; reshaped it is under 60, yolo can edit it one hunk at a time, and one command converts every file."
@@ -12,7 +12,10 @@ vantage:
 
 # Config that reads right the first time: the front door
 
-**Status:** accepted 2026-10-25, the five documents with it (the maintainer, after reading every
+**Status:** 2026-11-06 — every ruling is built except [OQ-RC8](#decision-ledger)'s refusal of a
+fetched `pack.json`, which belongs to the release that removes the old reader
+([RC-D19](#RC-D19)); the last rulings landed in `5d2499271`. Accepted 2026-10-25, the five
+documents with it (the maintainer, after reading every
 one: *"it all sounds good and I want to move forward"*). Built in large part by 2026-10-30: yolo
 reads TOML configs and `pack.toml` manifests at launch, check and apply, the named verbs edit
 them, and every shipped pack is a `pack.toml`. Legacy JSONC is still read for a few releases

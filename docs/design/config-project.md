@@ -2,8 +2,8 @@
 title: "A project's file: what it installs, what it asks for, and what it turns off"
 date: 2026-10-25
 status: accepted
-stage: DECIDED
-next: "Convert this repository's own yolo-jail.jsonc with yolo config migrate once the owner has installed a yolo that reads TOML"
+stage: BUILT
+next: "Graduate into the readable-config system doc, with the readable-config family"
 tags: [config, workspace, install, grants, mounts, design]
 summary: "The project config as annotated files, today and proposed: install, needs, mounts, ports, environment, and the local file. Every section is ruled. Part of the readable-config redesign."
 ---
@@ -11,8 +11,8 @@ summary: "The project config as annotated files, today and proposed: install, ne
 # A project's file: what it installs, what it asks for, and what it turns off
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
-good and I want to move forward"*). Built by 2026-10-30; this repository's own file is still the legacy `yolo-jail.jsonc`, whose
-conversion waits on the owner. Legacy JSONC is still read for a few releases: a launch offers
+good and I want to move forward"*). Built by 2026-10-30 and shipped in v0.16.0 (`a95fd217d`); this repository's own file was
+converted to `yolo-jail.toml` (`ef88653e5`). UNMEASURED by this re-check, which read the commits and the tree and ran nothing. Legacy JSONC is still read for a few releases: a launch offers
 `yolo config migrate`, and `"convert_later": true` in the old user file stops the offer. The
 "today" files are this repository's and a composite
 team project's.

@@ -2,7 +2,7 @@
 title: "What may a macos-user test assume about its host?"
 date: 2026-10-18
 status: accepted
-stage: DECIDED
+stage: BUILT
 next: "Done on hardware 2026-10-19 (§12, all conditions met); owed only a macos-user.yml run and the ownership-enabled volume, neither a developer Mac's to give"
 tags: [design, macos-user, testing, privilege, seatbelt, measurement]
 summary: "The macos-user suite takes no privilege beyond the run-as rule yolo installs; a closed unified log store is a countable policy skip, and mise shims remain ahead of the floor. The answered decisions and implementation are recorded, and native-Mac runtime is verified: on the host of record the suite exits 0 (150 passed, 4 skipped, 0 failed) and the narrow-sudo cell passes, leaving only a macos-user.yml run and an ownership-enabled volume owed."
@@ -13,7 +13,9 @@ summary: "The macos-user suite takes no privilege beyond the run-as rule yolo in
 **Status:** 2026-10-18. All four rulings are compacted into the [Decision Ledger](#decision-ledger). The fixture changes in original commits `98715e67b` and `41dd11e3f`, and subsequent recovery fixes, are in the current source ancestry. Portable guard hardening is in `cab34b522` and `201c4009e`; the `201c4009e` commit itself only changes the test. The earlier `4e7b9b92b` commit changed a documentation heading, not the suite code. Linux and darwin compile/test evidence is recorded in the handoff. **NATIVE-MAC RUNTIME IS NOW
 VERIFIED:** 2026-10-19 at `c3a38e634`, on the host of record, `-run '^TestMacosUser'` exits 0 —
 150 passed, 4 skipped, 0 failed — and the narrow-sudo cell passes beside it
-([§12](#12-what-done-looks-like)).
+([§12](#12-what-done-looks-like)). MEASURED: the suite and the narrow-sudo cell on a developer Mac,
+2026-10-19. UNMEASURED: a `macos-user.yml` run, and an ownership-enabled volume for the third
+relocation case.
 
 
 > **In short.** The suite may assume only what the backend itself asks a host for. A test that

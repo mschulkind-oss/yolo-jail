@@ -3,7 +3,7 @@ title: "One jail, several profiles: each session reads its own agent config"
 date: 2026-10-18
 status: accepted
 stage: BUILT
-next: "Run the Mac checks in §13; declare codex, claude, copilot or opencode once its unlock in §7 lands"
+next: "Declare codex, claude, copilot or opencode once its unlock in §7 lands; the Mac checks in §13 passed on 2026-11-07"
 tags: [design, profiles, attach, sessions, pi, pi-subagents, providers, concurrency]
 summary: "An attach renders the attaching entry's profile into files every running pi session reads later, so a second session on another provider (or a bare attach of an unrelated agent on the default profile) changes what the first session's pi-subagents children run on, while the first session's provider policy still forbids that provider. The fix keys every profile-dependent read on the session: each exec already carries a session id that its whole process tree inherits, so the attach writes its environment into a per-session entry snapshot, and the session's own boot pass renders a pack's profile-dependent files into a per-session copy of the program's config dir, which stock pi follows through PI_CODING_AGENT_DIR. Shared state (logins, session history, packages, caches) stays one copy, linked into every session's dir."
 ---
@@ -25,7 +25,8 @@ runs an agent.
 now declares its directory ([SP-D37](#SP-D37)). Because pi and omp read one variable, each
 program's launcher now binds the variable to its own pack's home ([SP-D36](#SP-D36)). Codex,
 Claude, Copilot and opencode stay undeclared, each for a measured reason ([§7](#7-what-this-does-not-cover)).
-UNMEASURED: the bindings on a real Mac ([§13](#13-mac-checks)).
+MEASURED on a Mac (2026-11-07, `4b26d1dfc`, under `seatbelt-self`): the bindings pass every
+[§13](#13-mac-checks) check, except that check 1 lists `pi` before `oh-omp`.
 
 > **In short.** A profile is a property of a session's process tree, not of the jail. A pi session's
 > profile breaks today because every later entry re-renders the files its children read. Key each

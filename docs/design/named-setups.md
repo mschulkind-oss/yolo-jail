@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Build 6a-ii: per-setup homes bound by pathname after the no-link check (OQ-SU7 ruled); slice 11 is independent"
+next: "Build slices 11d to 11f (one machine-wide yolo ps, its --setup narrowing, one yolo stores inventory); the plan owns slice state"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -14,10 +14,12 @@ vantage:
 
 # Named setups: one name chooses every wall
 
-**Status:** 2026-11-06. Setup naming and per-setup state remain the accepted direction, while
+**Status:** 2026-11-06, re-checked against the plan 2026-11-12. Setup naming and per-setup state remain the accepted direction, while
 [OQ-SU5](#OQ-SU5) is ruled: an existing home moves silently once no jail of the workspace runs. The listing commands are
 designed in [§12](#12-listing-what-runs-yolo-ps-and-yolo-stores) (one machine-wide list across every
-technology, ruled 2026-11-06 as [OQ-SU6](#decision-ledger)); none of it is built.
+technology, ruled 2026-11-06 as [OQ-SU6](#decision-ledger)). Of the plan's slice 11, 11a, 11b and 11c
+are built, and `yolo stop`, `ps`, `stores` and `setup list` act per setup (slice 6b, `e83501cd5`);
+the one machine-wide list itself (11d to 11f) is not built.
 A private 6a/6b prototype has focused synthetic-only closure of three held-bind findings; a separate
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
 A self-process `--preserve-fds` countercontrol also shows the raw source descriptor available to
@@ -25,8 +27,9 @@ guest code, so direct pass-through is not an acceptable production fix. Neither 
 production source, and the legacy-home adoption red remains. See
 [plan Slice 6a](named-setups-plan.md#slice-6a--one-home-and-run-state-per-setup-after-4b-5-and-9-launch-path).
 [OQ-SU7](#OQ-SU7) is ruled (2026-11-06): bind-source custody is required on no backend, and the
-swap race it would close is an accepted risk ([§9](#9-state-per-setup)). Binding per-setup homes
-(6a-ii) builds to that ruling.
+swap race it would close is an accepted risk ([§9](#9-state-per-setup)). Per-setup homes (6a-ii)
+and the setup-qualified run state (6a-iii) are built to that ruling and landed on main at
+`e67b3c81f` (2026-11-09); see the [plan's implementation status](named-setups-plan.md).
 
 > **In short.** The question "where does this agent run?" has one answer: the name of a setup, a
 > set of technology-named values in which no field's value depends on another's, and none on your OS.

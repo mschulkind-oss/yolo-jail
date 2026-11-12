@@ -30,12 +30,12 @@ covers:
   - internal/loopholes/guestrun.go
   - .github/workflows/macos-user.yml
 tags: [macos-user, provisioning, packages, mise, floor, stage, backend-parity]
-summary: "macos-user provisions itself with a native nix floor and a Seatbelt-confined stage. The stage now also runs the declared-program readiness act when the host cannot prove a selected program present, using the same generated bootstrap and install-only launcher as container jails. This authority records what each path delivers, the current fixture tests and the native Mac verification still pending."
+summary: "macos-user provisions itself with a native nix floor and a Seatbelt-confined stage. The stage now also runs the declared-program readiness act when the host cannot prove a selected program present, using the same generated bootstrap and install-only launcher as container jails. This authority records what each path delivers, its tests, and which native Mac checks have run."
 ---
 
 # macos-user provisions itself — a native floor, then a confined stage
 
-**Status:** CURRENT as of 2026-10-06; source and fixture tests checked, native execution pending. The `lsp_servers` passages
+**Status:** CURRENT as of 2026-10-06; source and fixture tests checked. Native execution was partly measured on 2026-11-11 (`macos-user.yml` run 43120634525). The `lsp_servers` passages
 were updated on 2026-09-25 for the deletion of the LSP install recipes
 ([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)): yolo installs no
 language server on any backend now, so that key no longer starts, feeds or is checked by the
@@ -45,7 +45,7 @@ updated on 2026-09-30 for [AR-L3](agent-program-runtimes.md#ar-l3),
 [PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only. The per-session
 file names, the liveness record and the CA files were added on 2026-10-04
 ([`<session>`](#the-session-key), [PS-D10](../design/provisioner-sets.md#PS-D10)), read from code and
-unit tests only. The [guest pack tree](#the-guest-pack-tree--one-per-launch-never-replaced) and the JD rows were added on 2026-10-16, checked against `8e65f3444`, when the jail-daemon plan graduated here; its native behavior is UNMEASURED. Program readiness joined the same stage on 2026-10-06 ([JR-D2](program-readiness.md#JR-D2)); permanent fixture-based tests run in the macOS CI job, but a green native run and manual hardware verification are still pending.
+unit tests only. The [guest pack tree](#the-guest-pack-tree--one-per-launch-never-replaced) and the JD rows were added on 2026-10-16, checked against `8e65f3444`, when the jail-daemon plan graduated here; its native behavior is partly MEASURED ([what is still owed](#the-guest-pack-tree-is-unmeasured-natively)). Program readiness joined the same stage on 2026-10-06 ([JR-D2](program-readiness.md#JR-D2)); its fixture-based tests passed natively in run 43120634525 on 2026-11-11, and manual hardware verification is still pending.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
 config asks for anything, and an imperative **stage** that runs inside the jail before the
@@ -676,8 +676,8 @@ runs from this tree.
 | `mise_tools` | installed by the stage | **installed**: the floor puts `mise` on the sandbox PATH, `MISE_DATA_DIR` names a real machine-wide store, and the stage runs `mise install` | no warning — the gap is closed |
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
 | `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
-| agent CLIs, `via: installer` | the launcher execs the vendor installer | a missing selected program admits the stage and runs its own launcher install-only before the target; `curl` and `bash` remain at `/usr/bin` | fixture-based readiness tests are in macOS CI; native result pending |
-| agent CLIs, `via: npm` | the launcher execs `npm install -g` | on a missing declared program, the host admits the stage and the generated bootstrap invokes its launcher in install-only mode before the target; the Node floor remains provided by the native floor | fixture-based refusal, bypass, cold install and warm-hit tests are in `integration/macosuserprogramreadiness_test.go`; native execution is pending the macOS CI run |
+| agent CLIs, `via: installer` | the launcher execs the vendor installer | a missing selected program admits the stage and runs its own launcher install-only before the target; `curl` and `bash` remain at `/usr/bin` | fixture-based readiness tests are in macOS CI; passed natively in run 43120634525 (2026-11-11) |
+| agent CLIs, `via: npm` | the launcher execs `npm install -g` | on a missing declared program, the host admits the stage and the generated bootstrap invokes its launcher in install-only mode before the target; the Node floor remains provided by the native floor | fixture-based refusal, bypass, cold install and warm-hit tests are in `integration/macosuserprogramreadiness_test.go`; passed natively in `macos-user.yml` run 43120634525 (2026-11-11) |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
 
 `rg -n '"via": "(installer|npm)"' packs/*/pack.json` is the split; do not write the membership
@@ -787,11 +787,11 @@ it was scheduled to do.
 
 **What no instrument covers:**
 
-- **Native program readiness execution remains pending.** Fixture-based admission, cold install,
+- **Manual hardware verification of program readiness.** Fixture-based admission, cold install,
   warm hit, refusal and bypass tests live in `integration/macosuserprogramreadiness_test.go`;
-  the existing `.github/workflows/macos-user.yml` `^TestMacosUser` job selects them. These tests
-  do not start an agent or contact a registry/API. No Mac CI result or manual hardware verification
-  is claimed here yet.
+  the existing `.github/workflows/macos-user.yml` `^TestMacosUser` job selects them, and they
+  passed natively in run 43120634525 on 2026-11-11. These tests do not start an agent or contact a
+  registry/API. No manual hardware verification is claimed here yet.
 - **Whether a real `sandbox-exec` rejection takes the continue branch.** The fault injection
   the runbook prescribes (`chmod 000 /usr/bin/sandbox-exec`) is a global, SIP-adjacent mutation
   no test should make, and the stage argv names `/usr/bin/sandbox-exec` absolutely so no PATH
@@ -816,15 +816,17 @@ marker in the log and the red console line — before the verdict.
 
 ### The guest pack tree is unmeasured natively
 
-**UNMEASURED:** [JD-10](#JD-10)'s guest pack tree is implemented and passes the source and
-parent gates, but no native macOS run has exercised it; the full integration gate skips every
-native macos-user test. What a native run still has to show: the tree's ownership and modes,
+**Partly MEASURED:** [JD-10](#JD-10)'s guest pack tree is implemented and passes the source and
+parent gates; the full integration gate skips every native macos-user test. `macos-user.yml` run
+43120634525 (2026-11-11) passed the module-dir daemon test and the pack-tree removal tests
+named below. What a native run still has to show: the tree's ownership and modes,
 Seatbelt execution from it, the collision refusal, and two overlapping launches A and B with
 distinct trees, where B changes and then drops a module while A's daemon reads and restarts from
 A's original bytes, and a later capture touches neither tree. The earlier single-session evidence
 covers only the original daemon start. `TestMacosUserRunsAModuleDirJailDaemonInTheGuest` is the
-Mac test for the module-dir shape, not yet run on hardware, and
-`TestMacosUserANormalExitLeavesNoStagedPackTree` is the one for [JD-12](#JD-12)'s ordinary exit.
+Mac test for the module-dir shape, `TestMacosUserANormalExitLeavesNoStagedPackTree` is the one
+for [JD-12](#JD-12)'s ordinary exit, and `TestMacosUserASessionsLingeringProcessDoesNotKeepItsPackTree`
+is the one for [JD-13](#JD-13)'s handoff; each passed natively in that run.
 Whether macOS starts its own per-user agents as the sandbox account during a launch, which would
 keep a tree until `yolo prune --apply`, is also unmeasured. The native proof is on
 [the roadmap](../plans/roadmap.md).
@@ -875,7 +877,7 @@ Rulings a future change would otherwise undo, kept with the IDs source comments 
 | <a id="oq-p5"></a>[`OQ-P5`](#oq-p5) — **wire** the two LSP install variables; do not restore the retired warning | A warning is what you leave when the gap stays; this one did not have to. Both variables now cross into the bootstrap env **and** the session env file, from the one recipe table both backends share. |
 | <a id="JD-4"></a>`JD-4` — **the wire bridge keeps its host half on macos-user**; whether its jail daemon should move into the guest is **a maintainer follow-up, not decided** | Its jail daemon publishes at `/run/yolo-services`, which the guest has no counterpart of, and the bridge is already served launch-owned (NC-D65). Moving it would retire that host half. As built the guest declines it, now by JD-9's rule (a). Open, and owned by the maintainer: [the roadmap](../plans/roadmap.md) carries it. |
 | <a id="JD-9"></a>`JD-9` — **the one guest rule for a pack service's daemon**: declined only when (a) the service serves a protocol adaptation and this launch admits its host half, or (b) it declares an `endpoint`; everything else runs confined in the guest. *Implementation decision under the maintainer's 2026-10-04 delegation; reversible.* | (a) is the wire bridge, whose admitted host half already serves its address; (b) is a file under `/run/yolo-services`, a container path with no sandbox counterpart. Everything else follows [`OQ-DP8`](../design/declaration-parity.md#decision-ledger)'s *"if you would have run it in the jail container, you run it on the guest"*, with confinement preferred: a worker declaring both halves runs its jail half here and its host half is not started. The old rule declined every service's daemon, which ran most of them nowhere. Built in `loopholes.JailDaemonsRunIn` over `launchservice.ServiceJailDaemons`, read by the launch and `yolo check`. |
-| <a id="JD-10"></a>`JD-10` — **each launch's `{jail_loophole_dir}` resolves into its own sealed guest pack tree**, keyed by the host pack tree's leaf, exclusively reserved and never replaced. *Implementation decision under the maintainer's 2026-10-04 delegation; reversible.* | A reusable workspace tree let a later launch change or drop the module an earlier launch's daemon restarts from. When the tree is removed is [JD-12](#JD-12). The keeper, privileges, keychain behavior and the decline rules are unchanged. Native behavior is [unmeasured](#the-guest-pack-tree-is-unmeasured-natively). |
+| <a id="JD-10"></a>`JD-10` — **each launch's `{jail_loophole_dir}` resolves into its own sealed guest pack tree**, keyed by the host pack tree's leaf, exclusively reserved and never replaced. *Implementation decision under the maintainer's 2026-10-04 delegation; reversible.* | A reusable workspace tree let a later launch change or drop the module an earlier launch's daemon restarts from. When the tree is removed is [JD-12](#JD-12). The keeper, privileges, keychain behavior and the decline rules are unchanged. Native behavior is [partly measured](#the-guest-pack-tree-is-unmeasured-natively). |
 | <a id="JD-12"></a>`JD-12` — **a guest pack tree is removed once no sandbox-account process may still hold it**, proven from the public process table with no root, and claimed while its launch runs so `yolo prune --apply` can reap one a launch had to keep. *Implementation decision, 2026-10-16, under the same delegation; reversible.* | JD-10 first kept every tree after any dispatch, because no artifact proved the guest ended, so every launch leaked one and printed a paragraph. Process ancestry plus start time is that proof: every guest process is the sandbox account's, and none can start before its launch reserves the tree. Unknown still keeps the bytes. |
 | <a id="JD-13"></a>`JD-13` — **a guest pack tree whose holders outlive the launch's wait is handed, with its claim, to a detached host-user reaper that removes it once they exit**, giving up after 30 minutes. *Implementation decision, 2026-10-17, under the same delegation; reversible.* | Found on the maintainer's Mac: `yolo -- pi --version` exited cleanly and kept its tree because two sandbox-account processes were still running. Processes in sessions of their own escape the session's process group, so the build act's group ending ([PPX-D49](pi-extensions.md#PPX-D49)) cannot reach them, and the shared account's processes are not the launch's to kill. |
 | **P1** — a backend either provides a mechanism or **refuses it out loud** | Rendering the config for a mechanism that does nothing is the failure this whole mechanism exists to end, and it has produced an instance per imperative key on this backend. |

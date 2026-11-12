@@ -1,7 +1,7 @@
 ---
 title: "Three backends, one pipeline, and no census — why a mechanism goes missing quietly"
 date: 2026-08-24
-status: accepted
+status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
 stage: DESIGN
@@ -26,7 +26,7 @@ executable without its `Cell` type ([§4.1](#41-what-shipped-instead-the-census-
 Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
-**Needs your ruling:** none. [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building) was ruled in review on 2026-10-05: build it (A), and it is built ([§4.2](#42-what-was-built-2026-10-05-and-what-it-found)), the macos-user notice block reading its lines from the table at run time ([BP-D19](#BP-D19)). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
+**Needs your ruling:** the five silent drops [§4.2](#42-what-was-built-2026-10-05-and-what-it-found) records as "not a ruled decline", which this doc's `next` names and which are not yet filed as questions. [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building) was ruled in review on 2026-10-05: build it (A), and it is built ([§4.2](#42-what-was-built-2026-10-05-and-what-it-found)), the macos-user notice block reading its lines from the table at run time ([BP-D19](#BP-D19)). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
 
 > [!NOTE]
 > **2026-09-09: [OQ-BP-2](#decision-ledger) was answered by CODE, not by a ruling** — skills and briefings have been

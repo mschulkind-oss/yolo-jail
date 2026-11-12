@@ -2,8 +2,8 @@
 title: "Pack manifests: the same rules, shown on the maintainer's own packs"
 date: 2026-10-25
 status: accepted
-stage: DECIDED
-next: "Give the shipped loophole manifests their TOML form"
+stage: BUILT
+next: "Nothing is owed: the shipped loophole manifests took their TOML form on 2026-10-30 (RC-D28)"
 tags: [packs, manifest, toml, conventions, design]
 summary: "Each of the maintainer's twelve packs, before and after: a manifest-less folder for the simple ones, a short TOML manifest for the rest, models declared once, and flags that add instead of replace. Every section is ruled. Part of the readable-config redesign."
 ---
@@ -12,11 +12,12 @@ summary: "Each of the maintainer's twelve packs, before and after: a manifest-le
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
 good and I want to move forward"*). Built by 2026-10-30, and every shipped pack is a `pack.toml`, a model said once
-(`every_model`, `twin_of`, `compact_at`) included ([RC-D29](readable-config.md#RC-D29)), except that the shipped loophole
-manifests are still JSONC; the [ledger](readable-config.md#decision-ledger) names each. A legacy
+(`every_model`, `twin_of`, `compact_at`) included ([RC-D29](readable-config.md#RC-D29)), and the shipped loophole
+manifests are `loophole.toml` since `9839d26d3` ([RC-D28](readable-config.md#RC-D28)); the [ledger](readable-config.md#decision-ledger) names each. A legacy
 `pack.json` is still read for a few releases, and `yolo pack migrate` converts one. The "today"
 manifests are the maintainer's twelve
-packs, read on 2026-10-24.
+packs, read on 2026-10-24. MEASURED (2026-11-12, in the tree): no `pack.json` and no loophole
+`manifest.jsonc` is left under `packs/`; no runtime observation is recorded in this doc.
 
 **How to read this.** [§1](#1-a-small-pack-luna-worker) to [§4](#4-flags-that-add-and-a-model-said-once)
 are the shape, pack by pack; [§5](#5-the-migration) is when it lands. Every section is approved;

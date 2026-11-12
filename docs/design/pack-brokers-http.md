@@ -1,8 +1,8 @@
 ---
 title: "Pack broker HTTP calls stay within the selected host decision"
 date: 2026-11-06
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 next: "Seal the plan's Task 2 interpreter closure, then Task 4 (publication and native per-cell proof); keep publication off until then"
 tags: [design, broker, packs, http]
 summary: "G3 core is partially integrated; private delivery is proposed and unverified; G4 remains unactivated."

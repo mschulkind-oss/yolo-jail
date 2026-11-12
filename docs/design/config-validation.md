@@ -1,9 +1,8 @@
 ---
 title: Config validation — a fast, read-only `yolo config check` beside the broad `yolo check`
 status: accepted
-stage: DECIDED
-owes: build
-next: "Build from the completed implementation plan; keep the accepted behavior and shared-validator contract"
+stage: BUILT
+next: "Graduate to a reference doc"
 date: 2026-11-11
 ---
 
@@ -11,7 +10,9 @@ date: 2026-11-11
 
 **Claim.** "Is my config edit valid?" and "is this machine ready to launch a jail?" are two questions, and today one command answers both. This design gives the first question its own read-only verb, `yolo config check`, and leaves `yolo check` as the broad readiness report. It also removes the disk-usage walk from `yolo check` and makes the build flags unnecessary in normal use.
 
-**Status (2026-11-11).** Accepted design, not built. The original evidence packet records its tree at `2c2c26f7f`; the planner verified the relevant live seams against `3dbf49baa` while completing the companion plan. The owner's "five minutes" is a report, not a measurement, and no measurement singles out any one section as dominant.
+**Status:** 2026-11-12 — built: `yolo config check` landed in `b4d4e267c` (2026-11-10), with the
+integration cases `TestYoloConfigCheckValidWorkspace` and `TestYoloConfigCheckInvalidWorkspace`.
+UNMEASURED by this re-check, which read the commits and the tree and ran nothing. The original evidence packet records its tree at `2c2c26f7f`; the planner verified the relevant live seams against `3dbf49baa` while completing the companion plan. The owner's "five minutes" is a report, not a measurement, and no measurement singles out any one section as dominant.
 
 > **In short.** After any config change, run `yolo config check`. It parses, merges and validates the config and the selected packs' declarations with the same validator `yolo check` uses. It writes nothing persistent, never touches the network, a container runtime, Nix or credentials, and states what it did not look at. Its only subprocesses are the read-only `git` lookups that validator already makes to read a fetched pack from the local store. A fetched pack that is not in the local store is reported as not validated, not as a failure. `yolo check` stays the machine-and-workspace readiness report, minus disk accounting (that is `yolo stores` / `yolo prune`), and no longer needs `--no-build` inside a jail.
 

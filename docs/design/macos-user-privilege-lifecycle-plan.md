@@ -3,7 +3,7 @@ title: "Plan: passwordless macos-user start and stop, through one run-as-_yoloja
 date: 2026-10-15
 status: accepted
 stage: BUILT
-next: "Push the lane branch and run `gh workflow run macos-user.yml` (task 9's narrow-sudo step is the first measurement); then the owner's Mac check, which needs its own authorization"
+next: "Run `gh workflow run macos-user.yml` for task 9's narrow-sudo step on macOS CI; then the owner's Mac check, which needs its own authorization"
 depends-on:
   - macos-user-privilege-lifecycle.md#OQ-MP10
 tags: [plan, macos-user, privileges, sudo, lifecycle]
@@ -13,11 +13,12 @@ summary: "Code-grounded hand-off for OQ-MP10's reduced grant: every root sudo on
 # Plan: passwordless macos-user start and stop
 
 **Status:** 2026-10-15. Completed against the tree, written against `4d0214a14`.
-**2026-10-16: tasks 1 to 10 are built on the lane branch, not yet merged to main.** The decisions
+**2026-10-16: tasks 1 to 10 are built and in main** (commits `5072b0941` and `a4ef8073b`). The decisions
 the build took beyond this plan are [PL-10 onward](#implementation-decisions-taken-here).
-Nothing was measured: passwordless startup is **UNMEASURED** until
-[task 9](#task-9--integration-and-the-narrow-sudo-ci-step)'s step runs on macOS CI and the
-[owner's check](#the-owners-mac) runs on a real Mac.
+MEASURED: the narrow-sudo cell passed on a developer Mac on 2026-10-19
+([macos-user-suite-on-a-developer-mac.md §12](macos-user-suite-on-a-developer-mac.md#12-what-done-looks-like)).
+UNMEASURED: [task 9](#task-9--integration-and-the-narrow-sudo-ci-step)'s step on macOS CI, and the
+[owner's check](#the-owners-mac) on a real Mac.
 
 **Design:** [`macos-user-privilege-lifecycle.md`](macos-user-privilege-lifecycle.md), the ruling
 in [OQ-MP10](macos-user-privilege-lifecycle.md#decision-ledger) and

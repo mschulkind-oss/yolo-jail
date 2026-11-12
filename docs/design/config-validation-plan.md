@@ -1,13 +1,16 @@
 ---
 title: "Config validation implementation plan"
 status: accepted
-stage: DECIDED
-next: "Implement the shared config-only validation path from the accepted design; refresh the source map against the integration base first"
+stage: BUILT
+next: "Nothing: every task landed; retire this plan when its design graduates"
 depends-on:
   - config-validation.md
 ---
 
 # Plan: `yolo config check`
+
+**Status:** 2026-11-12 — every task landed; Task 4's real-CLI proof is `b4d4e267c`, with
+`TestYoloConfigCheckValidWorkspace` and `TestYoloConfigCheckInvalidWorkspace`. UNMEASURED by this re-check, which read the commits and the tree and ran nothing.
 
 **Completed:** 2026-11-11. Written against `3dbf49baa8d076ec4185526290ac2195e53f6c8b`.
 **Design:** [Config validation](config-validation.md).

@@ -5,26 +5,26 @@ status: in-review
 stage: DESIGN
 next: "Rule OQ-TP11, whether the jail-daemon disclosure reaches a pack service's daemon; OQ-TP10 is fully built since 2026-10-08"
 tags: [trust, packs, security, inventory]
-summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack, which also names each loophole jail daemon the launch runs."
+summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack, which also names each loophole jail daemon the launch runs. An eleventh, OQ-TP11, is open."
 ---
 
 # Every path by which someone else's content runs in your jail
 
 **Status:** 2026-09-30 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
-and again 2026-09-14.** Ten questions filed and **all ten settled** (seven ruled, three retired), so
-what is owed is work, not a ruling.
+and again 2026-09-14.** The first ten questions are **all settled** (seven ruled, three retired), and their work is
+built; an eleventh, [OQ-TP11](#OQ-TP11), filed 2026-09-30, is open and owes a ruling.
 
 **Needs your ruling:** [OQ-TP11](#OQ-TP11), whether the jail-daemon disclosure reaches a pack service's daemon.
 
 > [!IMPORTANT]
-> **ONE RULING IS PARTLY BUILT, and it is the only outstanding item:**
-> [`OQ-TP10`](#decision-ledger).
-> Its plugin half **shipped 2026-09-17** (`c28bfde7`): a wrapped plugin's hooks and servers get a
+> **ONE QUESTION IS OPEN, and it is the only outstanding item:** [OQ-TP11](#OQ-TP11).
+> [`OQ-TP10`](#decision-ledger) is fully built. Its plugin half **shipped 2026-09-17** (`c28bfde7`): a
+> wrapped plugin's hooks and servers get a
 > fourth disclosure class, `disclosureJailExec`, rendered as one counted line per pack at the spawn
 > boundary. **Its `jail_daemon` half shipped 2026-09-30**: the same line names each loophole jail
-> daemon the launch's jail runs. What is left is the `boot.log` itemization it named, which has no
-> host-side sink. A pack **service's** jail daemon is named by no launch line either, and the
-> inventory has no row for it. Everything else here is settled record.
+> daemon the launch's jail runs. Its itemization shipped 2026-10-08 (`0a63b5eb3`). A pack
+> **service's** jail daemon is named by no launch line, and the inventory has no row for it; that
+> is [OQ-TP11](#OQ-TP11). Everything else here is settled record.
 > [Outstanding work](#outstanding-work) has what a builder of the rest needs.
 
 Every code anchor below was re-checked against the tree on 2026-09-06, and the ones that named code

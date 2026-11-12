@@ -1,8 +1,8 @@
 ---
 title: "Legacy configs keep working: every config that launched last release launches unchanged, and means the same"
 date: 2026-11-03
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 next: "Build LC-D12, the message sweep, last and alone; no ruling is owed"
 depends-on:
   - readable-config.md
@@ -15,7 +15,7 @@ vantage:
 
 # Legacy configs keep working: every config that launched last release launches unchanged, and means the same
 
-**Status:** 2026-11-06; design. Every row is built but [LC-D12](#LC-D12), the message sweep,
+**Status:** 2026-11-06; every question is ruled. Every row is built but [LC-D12](#LC-D12), the message sweep,
 which goes last and alone; each row's Built column names its evidence and any part still open
 ([LC-D4](#LC-D4)'s `yolo check`). Evidence: a read-only census of every
 legacy spelling v0.15.1 (`b6b057a06`) accepted, run against HEAD (`2fc63bdde`) with both binaries

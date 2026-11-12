@@ -1,7 +1,8 @@
 ---
+title: "Authorize native startup once, without giving the launcher a root shell"
 status: accepted
 stage: BUILT
-next: "Push the lane branch and run `gh workflow run macos-user.yml` (its narrow-sudo step is the first measurement); then the owner's Mac check, which needs its own authorization"
+next: "Run `gh workflow run macos-user.yml` for its narrow-sudo step on macOS CI; then the owner's Mac check, which needs its own authorization"
 verified: 2026-10-09
 tags: [macos-user, privileges, security, lifecycle, sudo]
 summary: "Ruled contract: after one administrator setup, routine native startup and exit never ask for a sudo password. Setup installs one rule, `(_yolojail) NOPASSWD: /usr/bin/env`, for one enrolled host user per Mac; the host user writes and removes every per-launch file in a host-owned staging root under /Users/Shared; no root helper. The helper design is kept as the fallback. Keychain, workspace and lifetime policies remain independent."
@@ -20,10 +21,12 @@ fallback, kept in case a later fact breaks the condition; they are not the plan.
 [implementation plan](macos-user-privilege-lifecycle-plan.md) was written against the tree on
 2026-10-15. **2026-10-16: the owner authorized building it** ([MP-B1](#decision-ledger)); that
 covers the source change only, not installing anything on a Mac. **2026-10-16: the source change
-is built on the lane branch, not yet merged to main** (the plan's tasks 1 to 10). Nothing was
-measured: passwordless startup stays **UNMEASURED** until `macos-user.yml`'s narrow-sudo step runs
-on macOS CI and [the owner's Mac check](macos-user-privilege-lifecycle-plan.md#the-owners-mac)
-runs, which needs its own authorization.
+is built and in main** (the plan's tasks 1 to 10; commit `5072b0941`). MEASURED: the narrow-sudo
+cell passed on a developer Mac on 2026-10-19
+([the suite design's §12](macos-user-suite-on-a-developer-mac.md#12-what-done-looks-like)).
+UNMEASURED: `macos-user.yml`'s narrow-sudo step on macOS CI, and
+[the owner's Mac check](macos-user-privilege-lifecycle-plan.md#the-owners-mac), which needs its
+own authorization.
 
 > **In short.** Yolo manages the agent's environment; its native macOS confinement option should
 > authorize bounded routine operations at administrator setup, not ask for a password at every
@@ -508,9 +511,9 @@ not an acceptance shortcut or unlock-policy ruling here.
 
 [OQ-MP10](#decision-ledger) is ruled and its condition held as `_yolojail`
 ([walkthrough point 2](#points-settled-in-the-walkthrough-2026-10-15)). The code-grounded
-[implementation plan](macos-user-privilege-lifecycle-plan.md) is built on the lane branch
-(2026-10-16, not yet merged to main): next run its macOS CI step and, with the owner's
-authorization, its check on a real Mac.
+[implementation plan](macos-user-privilege-lifecycle-plan.md) is built and in main
+(2026-10-16), and its narrow-sudo cell passed on a developer Mac on 2026-10-19: next run its
+macOS CI step and, with the owner's authorization, its check on a real Mac.
 
 **Why this is on the critical path.** The owner wants an agent able to start and stop
 `macos-user` jails with nobody at a password prompt, so that it can test and develop that

@@ -2,15 +2,15 @@
 title: "Claude Code's hooks modules: moving yolo's Claude footer from a status-line command into an extension"
 date: 2026-10-03
 status: in-review
-stage: SKETCH
-next: "Rule OQ-CM1 to OQ-CM3. Then build step 1, the plugin disclosure fix, which is worth doing whatever is ruled, and take one live look at the prototype's status entry beside Claude's own hints"
+stage: DESIGN
+next: "Rule OQ-CM1 to OQ-CM3, and take one live look at the prototype's status entry beside Claude's own hints. Step 1, the plugin disclosure fix, was built on 2026-10-03 (465de3b48)"
 tags: [research, claude, footer, statusline, extensions, hooks-modules, plugins, packs, wire-bridge]
 summary: "Claude Code 2.1.287 added hooks modules, which its changelog calls Claude Mods: a plugin runs a TypeScript or JavaScript module inside Claude and can draw a status entry under the prompt, add text to the hint line, or draw a band above the prompt. Most of yolo's Claude footer can move into one. The plugin runs `yolo internal footer` once per session for the billing route and the notch, which are fixed for the process, and redraws the model and effort level from Claude's own events. That ends the process Claude starts on every refresh. It should also bring back the keyboard hints Claude hides whenever any status line is set (inferred from Claude's docs, not seen live), puts yolo's segment beside a user's own status line instead of being replaced by it, and lets a fix reach the host, where today's command is frozen after its first fill. The costs: a version floor (2.1.287), an early-access API that Anthropic can switch off remotely, a model id where the status line had a display name, no effort level until the first request, and a status entry Claude draws in its warning style, a ⚠ in the warning color, read from the binary and not yet seen live. It ships through the plugin route yolo already has, a plugin in the claude pack's skills folder. But yolo's code-running disclosure cannot see a hooks module today, and must be fixed first. A prototype passes `claude plugin validate --strict`, `tsc`, and six `claude plugin test` cases that open no network connection. Three rulings are owed."
 ---
 
 # Claude Code's hooks modules: moving yolo's Claude footer from a status-line command into an extension
 
-**Status:** 2026-10-03, research. Nothing in the tree changes. The maintainer asked: *"Claude Code just added
+**Status:** 2026-10-03, research. The research itself changed nothing in the tree; build-order step 1 landed the same day in `465de3b48`. The maintainer asked: *"Claude Code just added
 JavaScript or TypeScript extensions. I want you to explore how much of what we did for the status bar can be moved
 over to extensions and improved by doing that."*
 

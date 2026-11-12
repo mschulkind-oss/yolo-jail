@@ -3,7 +3,7 @@ title: "Running yolo on OrbStack without a Docker backend: podman inside an OrbS
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Rule [OQ-ORB1](#OQ-ORB1) for setup ownership; then build the independent stdin slice from the checked handoff"
+next: "Rule [OQ-ORB1](#OQ-ORB1) for setup ownership. The independent stdin slice was built on 2026-10-08 (d0feeb3b8); its OrbStack proof is unmeasured"
 tags: [research, macos, orbstack, podman, backend]
 summary: "Checked post-release build handoff for yolo's environment on OrbStack: keep Podman, split setup, jail I/O, daemon reachability and native CI, and require an OrbStack-specific Mac proof."
 vantage:
@@ -13,8 +13,10 @@ vantage:
 # Running yolo on OrbStack without a Docker backend
 
 **Status:** 2026-10-06, support is queued after 0.12.0. The maintainer requires a working setup,
-with Podman preferred and Docker allowed if needed. No support implementation is built; the
-measurements below remain the original research, not verification of the proposed changes.
+with Podman preferred and Docker allowed if needed. Of the support implementation, only the
+jail-stdin slice is built (`d0feeb3b8`, 2026-10-08), and its OrbStack SSH-proxy proof is
+UNMEASURED; the measurements below remain the original research, not verification of the
+proposed changes.
 - **MEASURED** on one Mac (M4, macOS 26.5) with the OrbStack trial install from
   [the runtime comparison](macos-vm-runtime-comparison.md), one run each.
 - **SOURCED** from this repository's code, with the file named.

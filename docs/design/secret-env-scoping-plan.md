@@ -11,7 +11,7 @@ tags: [credentials, env_sources, providers, credential-gate, config, plan]
 
 # Secret env scoping: implementation plan
 
-**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Built, Tasks 1 to 8; the [Mac checks](#mac-checks) are owed.
+**Status:** 2026-11-09. Completed against the tree, written against `b36be7d53`. Built, Tasks 1 to 8. MEASURED: the jail notch and `yolo host`, on Linux. UNMEASURED: macos-user and Apple Container; the [Mac checks](#mac-checks) are owed.
 **Design:** [`secret-env-scoping.md`](secret-env-scoping.md), `status: accepted`, no question open
 (rulings [SE-D2](secret-env-scoping.md#SE-D2) and [SE-D12](secret-env-scoping.md#SE-D12) to
 [SE-D15](secret-env-scoping.md#SE-D15)).

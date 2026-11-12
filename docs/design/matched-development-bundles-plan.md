@@ -1,15 +1,15 @@
 ---
 title: "Plan: emit and run a matched development bundle"
 status: accepted
-stage: DECIDED
-next: "Start with the launch-path regression: a missing helper refuses without invoking a build"
+stage: BUILT
+next: "Nothing is owed: every task is built, and the design is BUILT"
 depends-on:
   - matched-development-bundles.md
 ---
 
 # Plan: emit and run a matched development bundle
 
-**Status:** 2026-10-21. Completed against the tree, written against `e7b52b944d369432a4a19aff303b0b8dd68860dd`.
+**Status:** 2026-10-21. Completed against the tree, written against `e7b52b944d369432a4a19aff303b0b8dd68860dd`. Built: `024fc14bc` produced the matched development bundles, and the [design](matched-development-bundles.md) records the build, its [`OQ-MDB1`](matched-development-bundles.md#OQ-MDB1) fallback included, as BUILT on 2026-10-30. UNMEASURED here: this plan records no run of its own.
 **Design:** [`matched-development-bundles.md`](matched-development-bundles.md). The design wins on behavior; the tree wins on facts; this plan is advice and the first thing to be wrong. Never twist code to match a stale path here. Stop and report if a named symbol is gone, a test does not fail as predicted, another writer has dirtied a fenced file, or the change needs a file outside the map.
 
 ## Map

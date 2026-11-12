@@ -21,10 +21,9 @@ summary: "How a jail launch leaves the environment ready: the provisioning stage
 **Status:** Verified 2026-10-16 against `8e65f344`. Graduated from the design doc
 `docs/reference/program-readiness.md`, which git history keeps. MEASURED on container backends: unit
 tests against a fake npm, an integration test in a real container, and a nested jail installing a
-real npm package, online and in an empty network namespace. UNMEASURED: native macos-user
-execution. Its fixture-based integration tests are in the macOS CI workflow, but no recorded native
-run has passed them, and no Linux test proves Seatbelt execution
-([macos-user](#on-macos-user)).
+real npm package, online and in an empty network namespace. MEASURED on macos-user: the
+fixture-based integration tests passed natively in `macos-user.yml` run 43120634525 (2026-11-11)
+([macos-user](#on-macos-user)). No Linux test proves Seatbelt execution.
 
 At the jail notch, a launch is a **readiness act**: before your command runs, the provisioning stage
 installs every program a selected pack declares that is not already installed. `yolo -- true` is
@@ -233,8 +232,8 @@ floor — remain.
 Pinned on Linux by `TestMacosUserReadinessAdmissionFailsTowardTheConfinedStage` and
 `TestBuildPlanStartsStageForAnAbsentSelectedProgram`; the fixture integration tests
 (`integration/macosuserprogramreadiness_test.go`: an absent program installed before the target,
-the refusal and the bypass) run in `.github/workflows/macos-user.yml`. **Still owed:** a recorded
-green native run of those tests.
+the refusal and the bypass) run in `.github/workflows/macos-user.yml`, and they passed natively
+in run 43120634525 on 2026-11-11.
 
 ## What this does not license
 
@@ -278,7 +277,7 @@ comments and sibling docs cite.
 | <a id="OQ-JR2"></a>[`OQ-JR2`](#OQ-JR2) | **Answered by [HP-DIR2](host-agent-environment.md#HP-DIR2): every program a selected pack declares, once per home.** *"we construct an environment. We do not sniff the command line."* Narrowing readiness to what a launch might run needs exactly that signal, or the agent registry this project deleted |
 | <a id="OQ-JR3"></a>[`OQ-JR3`](#OQ-JR3) | **What `yolo apply --at jail` does**: decided as an implementation choice, [JR-D1](#JR-D1) |
 | <a id="JR-D1"></a>JR-D1 | *Implementation decision; reversible.* **`yolo apply --at jail` runs the launch's readiness act with no target command**, the same path `yolo -- true` takes. Delegating to the launch adds no second path to the same work, and makes `yolo apply` perform each notch's readiness act ([NC-D1](../plans/notch-convergence.md#7-decision-ledger): *"host is supposed to act like everywhere else"*), the meaning [`yolo-as-environment-manager.md` §3.1](what-yolo-is.md) gave the verb (`applyjailmessage_test.go`) |
-| <a id="JR-D2"></a>JR-D2 | *Implementation decision; reversible.* **On macos-user, the host admits the confined stage if a selected launcher-backed program is absent or its presence is unknown; a proven hit needs no stage.** Once admitted, the bootstrap runs the same act with the same refusal and bypass. Native Mac result pending |
+| <a id="JR-D2"></a>JR-D2 | *Implementation decision; reversible.* **On macos-user, the host admits the confined stage if a selected launcher-backed program is absent or its presence is unknown; a proven hit needs no stage.** Once admitted, the bootstrap runs the same act with the same refusal and bypass. Passed natively in `macos-user.yml` run 43120634525 (2026-11-11) |
 | <a id="JR-D3"></a>JR-D3 | *Implementation decision; reversible.* **The bypass is `YOLO_ALLOW_MISSING_PROGRAMS`: any non-empty value lets the launch continue, loudly, listing each program it could not install.** Its spelling is one `internal/paths` constant (`paths.AllowMissingProgramsEnv`) beside `YOLO_ALLOW_MISSING_PROVIDERS`, whose shape it follows; the launcher forwards it, as it forwards `YOLO_ALLOW_UNREACHABLE_SERVICES`. "Programs", not "agents": readiness keys on a declared program. Amended by [PF-D83](patched-forks.md#PF-D83) for a patch series that does not apply |
 | <a id="JR-D4"></a>JR-D4 | *Implementation decision; reversible.* **The act installs each program by running that program's own launcher in install-only mode, never a second installer.** The installer launcher's install-only run used to fall through to its due update; it skips it, so the act is install-only |
 | <a id="JR-D5"></a>JR-D5 | *Implementation decision; reversible.* **The act asks for exactly the programs the boot wrote a launcher for**; a program with no build for this platform keeps the generator's line rather than refusing the launch |

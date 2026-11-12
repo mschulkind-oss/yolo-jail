@@ -1,7 +1,7 @@
 ---
 title: "An active Pi profile must constrain supported model calls, not saved logins"
 date: 2026-10-06
-status: in-review
+status: accepted
 stage: BUILT
 next: "Maintainer review of the extension's leaks (§3.4); then graduate to a reference doc"
 tags: [pi, profiles, credentials, openai-auth, packs]
@@ -13,7 +13,7 @@ summary: "An active Pi profile set is enforced by a Pi extension yolo ships, whi
 **Status:** 2026-10-08. Owner policy is settled ([OQ-PAS1](#decision-ledger)); the enforcement point
 is ruled ([OQ-PAS2](#decision-ledger): an extension yolo ships, never a Pi fork) and built as
 [`yolo-provider-policy.js`](../../packs/pi/home/.pi/agent/extensions/yolo-provider-policy.js) ([PAS-D1](#decision-ledger)).
-It was measured inside stock npm Pi 1.0.1's own runtime and yolo's Pi 1.0.4 build, offline, with no model called.
+MEASURED: inside stock npm Pi 1.0.1's own runtime and yolo's Pi 1.0.4 build, offline, with no model called.
 The [startup flag repair](model-lists-and-pickers.md#1411-pis-provider-flag-travels-only-with-an-explicit-model-built-2026-10-07) remains separate and does not restrict calls.
 
 > **In short.** An active profile set must deny normal supported Pi calls to other providers even

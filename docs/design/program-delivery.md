@@ -16,14 +16,15 @@ compacted 2026-09-06; cross-checked against its sibling designs 2026-09-24. Ever
 is ruled and sits in the [Decision Ledger](#decision-ledger), and **these are open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
 [§10](#10-what-i-would-build-in-order) still have a subject, [OQ-PD20](#oq-pd20), which asks whether `$GOBIN` stays a boot-catalog
 orphan class that `programs.autoprune` removes now that yolo installs nothing there, and
-[OQ-PD21](#oq-pd21), which asks whether a pack may pin an agent CLI against P6's *Pin: none*, and
-[OQ-PD23](#decision-ledger), which settles ordinary CLI/MCP preparation once per machine. **In the tree:** the receipts and the boot orphan catalog
+[OQ-PD21](#oq-pd21), which asks whether a pack may pin an agent CLI against P6's *Pin: none*.
+[OQ-PD23](#decision-ledger), which settles ordinary CLI/MCP preparation once per machine, is ruled
+(2026-10-13); its ledger row records the implementation as pending. **In the tree:** the receipts and the boot orphan catalog
 (`af46c9b4`), the mise half (`a16403e2`), the [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) tolerance (`0a4d241c`), the offline
 reconcile (`43f28ce8`), the removal act and `yolo programs` (`3a4f1bbf`, `c127f4ad`, `3ac165e4`),
 evergreen agent updates with B2's PATH move and A7's version prune (merge `208a5e43`), and install
 capture slices one to seven (merge `18524ff9`). **Not built:** [§10](#10-what-i-would-build-in-order) steps three and five
-(held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)), `macos-user`'s materialize, and
-copilot's installer flip. The MCP/LSP transitive refresh SHIPPED 2026-09-09
+(held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)), and `macos-user`'s materialize;
+copilot's installer flip shipped on 2026-10-05 ([OQ-NI1](#OQ-NI1)). The MCP/LSP transitive refresh SHIPPED 2026-09-09
 (`entrypoint.RefreshServers`, pinned by `TestGeneratedLauncherCallsTheServerRefresh`), which closed the last gap in step six. Every fact below is labelled **MEASURED** (observed in this development
 jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEASURED**. Every SHA
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of

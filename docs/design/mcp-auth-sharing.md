@@ -15,6 +15,8 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 Codex's native key hashes empty headers, its native match returns only name and stored URL, and its stored entry has no sign-in header provenance. Unknown native entries are therefore preserved but never promoted or shared; fresh native sign-in harvest remains unsupported until native-origin proof exists. Empty SAVE/LOAD headers and client-ID metadata do not prove origin. No native B1/B2, rootless, macOS, or cross-backend behavior is claimed. Tasks 13–15 remain separate; the accepted design and decision ledger below are unchanged.
 
+**Built since (2026-11-06):** the [plan](mcp-auth-sharing-plan.md)'s first phase D slice, Claude adoption for `sign_in = "once"`, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (the plan's ID-19 and ID-20; `30e7bf16d`). [OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) were ruled on 2026-11-09; the one sign-in at Linux `yolo host` (the plan's ID-21) and the header route are not built.
+
 **Earlier blocked candidate (superseded):** The first detached Task 12 candidate could promote a workspace-only sign-in into user scope. Its source was not integrated. This record is historical; current source boundary is stated above.
 
 

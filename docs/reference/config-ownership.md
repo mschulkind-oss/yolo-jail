@@ -30,7 +30,7 @@ summary: "Who owns an agent's config file is declared by the user-scope `host_ma
 # Config ownership — `host_management`, adoption, and promotion out of capture
 
 **Status:** Verified 2026-10-16 against `8e65f344`. Graduated from the design doc
-`docs/reference/config-ownership.md`, deleted the same day (git history keeps it).
+`docs/design/config-ownership-and-promotion.md`, deleted the same day in `60168f077` (git history keeps it).
 Two questions are open and block nothing ([Open questions](#open-questions)); the measured
 behavior no ruling has closed is in [Known gaps](#known-gaps).
 

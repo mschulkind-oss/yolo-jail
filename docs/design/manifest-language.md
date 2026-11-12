@@ -3,11 +3,11 @@ title: "The manifest language: declarations stay inert data, and the syntax shou
 date: 2026-09-20
 status: accepted
 tags: [packs, manifest, config, format, lua, starlark, design]
-summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, state the agent name once per pack, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both and rules neither yet: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
+summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, state the agent name once per pack, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both; the readable-config redesign ruled them on 2026-10-25 (the model change, in TOML) and it is built. The options it weighed: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
 vantage:
   status-chip: true
-stage: DECIDED
-next: "Every question is ruled or moot; the work is the readable-config build, which owns the manifest change"
+stage: BUILT
+next: "Every question is ruled or moot, and the readable-config build shipped the manifest change: nothing is owed here"
 ---
 
 # The manifest language: declarations stay inert data, and the syntax should stop fighting us
@@ -15,9 +15,10 @@ next: "Every question is ruled or moot; the work is the readable-config build, w
 **Status:** 2026-10-25 — [`OQ-M1`](#OQ-M1) and [`OQ-M2`](#OQ-M2) ruled in the readable-config
 redesign ([ledger](readable-config.md#decision-ledger)), and [`OQ-M3`](#OQ-M3) closed as moot by
 the same ruling, when the maintainer accepted that redesign;
-[`OQ-M4`](#8-decision-ledger) was decided as an implementation choice ([MN-D1](#MN-D1)). Nothing built: re-checked
-2026-09-30, every shipped manifest is still one flat `contributes` list tagged by `kind`, and
-`packs/claude` still repeats `"agent": "claude"` on its own contributions. Re-checked against the tree
+[`OQ-M4`](#8-decision-ledger) was decided as an implementation choice ([MN-D1](#MN-D1)). Built by 2026-10-30 through the readable-config build: every shipped pack manifest is a
+`pack.toml` ([`pack-manifests.md`](pack-manifests.md)), and every shipped loophole manifest a
+`loophole.toml` since `9839d26d3`. MEASURED (2026-11-12, in the tree): no `pack.json` is left under
+`packs/`. Re-checked against the tree
 and the sibling rulings 2026-09-24: the identity lever in [§3](#3-what-is-actually-free-to-change)
 now follows [`OQ-D5`](slots-and-contributions.md#7-decision-ledger) (declared once per pack, never derived),
 which that doc ruled on 2026-09-20. Sibling to
@@ -303,8 +304,8 @@ Neither restructuring reaches this doc's ~0.40 threshold, so the rule as written
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="OQ-M1"></a>[OQ-M1](#OQ-M1) | **Yes: grouped by kind, the pack's identity stated once, in the same break as the configs.** Ruled 2026-10-25 as lever P3 of [OQ-RC19](readable-config.md#decision-ledger), landing under [OQ-RC5](readable-config.md#decision-ledger); the `exposes` split is not the break it waits for | 2026-10-25 | [`pack-manifests.md` §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once) | — |
-| <a id="OQ-M2"></a>[OQ-M2](#OQ-M2) | **TOML, with the model change.** Ruled 2026-10-25 by [OQ-RC2](readable-config.md#decision-ledger) for every file a person writes, manifests included; option E was no fix on its own, and the model change ([OQ-M1](#OQ-M1)) is what rides with it | 2026-10-25 | [`pack-manifests.md`](pack-manifests.md) | — |
+| <a id="OQ-M1"></a>[OQ-M1](#OQ-M1) | **Yes: grouped by kind, the pack's identity stated once, in the same break as the configs.** Ruled 2026-10-25 as lever P3 of [OQ-RC19](readable-config.md#decision-ledger), landing under [OQ-RC5](readable-config.md#decision-ledger); the `exposes` split is not the break it waits for | 2026-10-25 | [`pack-manifests.md` §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once) | ✅ by 2026-10-30: every shipped pack manifest is a `pack.toml` ([`pack-manifests.md`](pack-manifests.md)) |
+| <a id="OQ-M2"></a>[OQ-M2](#OQ-M2) | **TOML, with the model change.** Ruled 2026-10-25 by [OQ-RC2](readable-config.md#decision-ledger) for every file a person writes, manifests included; option E was no fix on its own, and the model change ([OQ-M1](#OQ-M1)) is what rides with it | 2026-10-25 | [`pack-manifests.md`](pack-manifests.md) | ✅ by 2026-10-30: every shipped pack manifest is a `pack.toml` ([`pack-manifests.md`](pack-manifests.md)) |
 | <a id="OQ-M3"></a>[OQ-M3](#OQ-M3) | **Moot: a manifest is a literal TOML file, so nothing is executed to be read.** The question mattered only if [OQ-M2](#OQ-M2) picked a code syntax; it picked TOML ([OQ-RC2](readable-config.md#decision-ledger)). Closed 2026-10-25 when the maintainer accepted the readable-config redesign; a code syntax proposed again reopens it with M5 as the condition | 2026-10-25 | [`pack-manifests.md`](pack-manifests.md) | nothing to build |
 | OQ-M4 | **No: the user and workspace config keep JSONC whatever [OQ-M2](#OQ-M2) rules.** Decided as an implementation choice, [MN-D1](#MN-D1), reversible; moving them would be a proposal of its own | 2026-09-30 | [§3](#3-what-is-actually-free-to-change) | nothing to build |
 | <a id="MN-D1"></a>MN-D1 | *Implementation decision, [OQ-M4](#8-decision-ledger).* **The user and workspace config keep JSONC, whatever [OQ-M2](#OQ-M2) rules for manifests.** The user config is settings, with no claims to enumerate, so the rule this doc exists to protect ([M2](#2-principles)) does not reach it. yolo already deleted the one scripted user config it had, `config.lua`, because it had no user ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). And coupling the two would make the manifest ruling wait on a rewrite of every user's config. Reversible: a proposal to move the user config would start from the manifest's ruling rather than wait for it. **Reversed 2026-10-25:** the configs move to TOML ([OQ-RC2](readable-config.md#decision-ledger)) | 2026-09-30 | [§3](#3-what-is-actually-free-to-change) | nothing to build |

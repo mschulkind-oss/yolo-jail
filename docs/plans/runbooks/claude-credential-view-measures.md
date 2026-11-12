@@ -10,13 +10,15 @@ summary: "The measures the Claude credential view owes before the interception c
 
 # RUNBOOK — the Claude credential view's measures, M1 to M11 and H1 to H5, on a real host
 
-**Status:** A procedure. None of it has run yet. It is what
+**Status:** A procedure. Its Mac half ran on 2026-10-24 and 2026-10-25, through
+[the Mac session runbook](mac-claude-login-session.md#results) and recorded in
+[its lab report](../../lab-reports/2026-10-25-mac-claude-login-session.md) (`6dbce2e7f`): M11
+passed in account mode (in self mode only with two workarounds), H1 to H3 and H5 passed at
+`yolo host` on a Mac, and H4, C1 and C2 failed there. No run of Parts A to C on Linux or of the
+day on a rootless host is recorded, and this doc's [Results](#results) table is still empty. It is what
 [OQ-CL1](../../design/claude-login-without-interception.md#11-decision-ledger)'s ruled order puts between the
 built view and the deletion of the interception: the measures pass, the view runs a day on a real
 rootless host, then the interception goes ([CL-D7](../../design/claude-login-without-interception.md#CL-D7)).
-
-That none of it has run was last checked on 2026-09-30, against the host broker's log, which
-records no view write.
 
 **Audience:** the maintainer, on the **host**. No automated test may run any of this: every step
 needs a real Claude Code session on a real login ([`AGENTS.md`](../../../AGENTS.md#testing), "No

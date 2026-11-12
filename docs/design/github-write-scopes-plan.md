@@ -3,7 +3,7 @@ title: "Building the GitHub work kinds: the plan's seed"
 date: 2026-10-30
 status: draft
 stage: SKETCH
-next: "Wait for github-write-scopes.md to be accepted; then a planner completes this against the tree"
+next: "A planner completes this against the tree; github-write-scopes.md is accepted, with every question ruled"
 depends-on:
   - github-write-scopes.md#OQ-GW1
   - github-write-scopes.md#OQ-GW2
@@ -23,8 +23,9 @@ summary: "What the design of the GitHub work kinds happened to surface about the
 
 # Building the GitHub work kinds: the plan's seed
 
-**Status:** 2026-10-30 — seeded during design; not a hand-off, and incomplete until
-[`github-write-scopes.md`](github-write-scopes.md) is accepted. The design wins on behavior.
+**Status:** 2026-10-30 — seeded during design; not a hand-off. Still incomplete:
+[`github-write-scopes.md`](github-write-scopes.md) is now accepted, and a planner has yet to
+complete this against the tree. The design wins on behavior.
 
 What the design work surfaced, and nothing it went looking for. Each entry is settled-but-boring
 or a note for the planner to check; no behavior is decided here.

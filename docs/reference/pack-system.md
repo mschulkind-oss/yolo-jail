@@ -32,7 +32,7 @@ covers:
   - packs/
 tags: [packs, config, kinds, manifest, prism, trust, disclosure]
 stage: DESIGN
-next: "Rule OQ-PK1, whose options and leaning were drafted 2026-10-01 (the leaning: shipped packs whose contributions all stay inside the jail, executable kinds included); mcp-presets-removal.md's step 3, the key's retirement, waits on the ruling (steps 1 and 2 were built 2026-10-05, MP-D8)"
+next: "Rule the open questions OQ-ST2 (its unruled sub-question), OQ-AL3, OQ-AL4, OQ-DR1, OQ-ACP4 and OQ-PK3. OQ-PK1 was ruled on 2026-10-23 (no pack at workspace scope for now), and its workspace subset moved to design/workspace-packs.md"
 ---
 
 # The pack system — how a jail gets everything in it
@@ -2785,8 +2785,9 @@ defaults < host < workspace < config-overlay < config-list < capture-overlay < l
   agent's own project-scope file, which the agent also reads outside the jail, or edit a
   `stateful` surface inside the jail, which the capture overlay keeps for that workspace without
   any config declaring it. The slot is kept rather than deleted because
-  [`OQ-PK1`](#oq-pk1), which packs a workspace config may declare, is the open question that
-  decides whether a workspace may declare such keys at all. Whoever gives it a producer also owns
+  [`OQ-PK1`](#oq-pk1), which packs a workspace config may declare, was ruled on 2026-10-23 as
+  "none for now", and [`workspace-packs.md`](../design/workspace-packs.md) now owns the open
+  question that decides whether a workspace may declare such keys at all. Whoever gives it a producer also owns
   [`OQ-CO8`](config-ownership.md#oq-co8)'s condition: a
   workspace config is writable from inside the jail, so this layer must never reach a real home.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns, in

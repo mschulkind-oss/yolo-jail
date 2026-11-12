@@ -1,10 +1,10 @@
 ---
 title: "yolo is a package manager whose backends differ per environment — and the pack contract cannot say so yet"
 date: 2026-09-11
-status: in-review
+status: accepted
 tags: [packs, program, requires, provisioning, notch, nix, npm, brew, capture, host, guest]
-summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. The user's override shipped 2026-10-06 (PS-D11 to PS-D13): a user-scope `provisioners` order re-ranks the recipes packs ship, at the host. A confirm-gated host install shipped ahead of it on the pack-first precedence, which the default order keeps: each pack's own recipe comes first at every notch, and another provisioner serves an agent only where the user's override ranks it up (OQ-PS6, answered 2026-09-30 by OQ-PS1's ruling). Three compound questions were carved into their real decisions on 2026-09-11, and a 2026-09-30 triage answered or decided seven more; what is still open is the maintainer's. Split three ways on 2026-09-20: this file is the model and the questions, the survey and the measurements are siblings."
-stage: DESIGN
+summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. The user's override shipped 2026-10-06 (PS-D11 to PS-D13): a user-scope `provisioners` order re-ranks the recipes packs ship, at the host. A confirm-gated host install shipped ahead of it on the pack-first precedence, which the default order keeps: each pack's own recipe comes first at every notch, and another provisioner serves an agent only where the user's override ranks it up (OQ-PS6, answered 2026-09-30 by OQ-PS1's ruling). Three compound questions were carved into their real decisions on 2026-09-11, and a 2026-09-30 triage answered or decided seven more; the rest were ruled by 2026-10-23, and none is open. Split three ways on 2026-09-20: this file is the model and the questions, the survey and the measurements are siblings."
+stage: DECIDED
 next: "Confirm PS-D14 to PS-D17 on a Mac (the login keychain read, the trustd lookup, a Go 1.27 client in the separate account, a real MDM CA with git, Node and uv); then build PS-D2's nix closure into the floor, the one half of the shipped override (PS-D13) still unbuilt"
 vantage:
   status-chip: true
@@ -38,7 +38,7 @@ labelled **MEASURED**, **READ FROM CODE** or **NOT MEASURED**; claims inherited 
 keep their own 2026-08-02 / 2026-08-23 verification dates and say so
 ([§14](#14-facts-verified-for-this-doc)). **Three questions are ruled** —
 [`OQ-PS4`](#decision-ledger), [`OQ-PS3`](#decision-ledger), [`OQ-PS2`](#decision-ledger) — and
-the rest are open, all of them the maintainer's. The number of open questions went **up** on
+the rest were open then; every one has been settled since, the last on 2026-10-23. The number of open questions went **up** on
 2026-09-11 because splitting a compound question into its real decisions is the point.
 **The five Mac measurements RAN on 2026-09-11**, on hardware this doc could not reach when it was
 written — they corrected four of the five items that asked them, one of them opened
@@ -50,7 +50,7 @@ environment and never provisions or activates the workspace's runtime): [`OQ-PS1
 whose `packages:` half is answered no, and [`OQ-PS10`](#decision-ledger), [`OQ-NX4`](#OQ-NX4),
 [`OQ-NX5`](#decision-ledger) and [`OQ-NX8`](#OQ-NX8), whose host halves follow from it. Each keeps a
 remaining question. [`OQ-PS1`](#decision-ledger) and [`OQ-NX5`](#decision-ledger) were ruled the same day; the
-other three still need a ruling.
+other three have been settled since: [`OQ-PS10`](#decision-ledger) as [`PS-D2`](#PS-D2) on 2026-09-30, the other two on 2026-10-23.
 **[`OQ-NX4`](#OQ-NX4) was researched and restated the same day**: the locator variables a
 non-container notch needs, the corporate-certificate trap, and an extension-point design are
 [§16](#16-locator-variables-on-a-non-container-notch-researched-2026-09-29), and the research
@@ -70,7 +70,7 @@ reversed, and the user's nix is no longer a host provisioner yolo would install.
 ([`PS-D13`](#PS-D13)).
 [`PS-D8`](#PS-D8) records the fix for the defect [`OQ-PS9`](#decision-ledger)'s answer named, also built
 that day: `detectManager` probes nix instead of returning it by elimination. [`OQ-PS11`](#OQ-PS11) and the
-rename it gates, [`OQ-PS5`](#OQ-PS5), were restated with lettered options and stay open.
+rename it gates, [`OQ-PS5`](#OQ-PS5), were restated with lettered options and ruled on 2026-10-23.
 **[`PS-D10`](#PS-D10), 2026-10-04, built [`OQ-PS14`](#OQ-PS14) (a) and [`OQ-PS15`](#OQ-PS15) (a) on
 their leanings** under the maintainer's 2026-10-04 delegation, for macos-user: each launch trusts
 the CAs this Mac's System keychain trusts for TLS, and names them. **Both were ruled on 2026-10-23,

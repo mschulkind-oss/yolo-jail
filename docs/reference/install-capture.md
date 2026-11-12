@@ -29,7 +29,7 @@ a real claude capture coming out relocatable (2026-10-01). The relocation rewrit
 Linux only, against temp directories standing in for the two macOS homes. UNMEASURED: a
 `macos-user` launch materializing from the staged store ([H4](#h4)), the Seatbelt denial probe
 during a capture ([the Mac checks](#mac-checks)), and uid mapping on a real rootless host. Graduated
-from `docs/reference/install-capture.md`, whose own status line called it "not a graduation candidate
+from `docs/plans/install-capture.md`, deleted in `dffa38006`, whose own status line called it "not a graduation candidate
 until a Mac has run H4"; that run is carried here as an owed check rather than a gate.
 
 **Install capture** runs a vendor installer once, in a throwaway jail, records what it left in

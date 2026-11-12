@@ -65,6 +65,11 @@ moved here on 2026-10-16 with the one item still open,
 were written against `8e65f3444` on 2026-10-16, when the host-tool-provisioning and host notch
 readiness designs graduated into them, with both ledgers moved here; what only a real host can
 still confirm is [listed](#host-floor-unmeasured), UNMEASURED.
+**Stale since 2026-11-04:** `--at` is refused on every parser since `f678594a5`
+(`internal/cli/atremoved.go`), and the `confinement` key since `8b83df228`, both replaced by
+[named setups](../design/named-setups.md). [The command surface](#the-command-surface) and the
+other passages that spell `--at host` or `confinement: host` describe retired spellings and are
+owed a re-verification.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user

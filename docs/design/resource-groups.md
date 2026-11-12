@@ -1,12 +1,12 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Complete a tree-grounded implementation plan for the explicitly opted-in, disabled-by-default Linux-first path; keep authority and device proof as limits on claims, not blockers to safe implementation work."
+next: "Follow the implementation plan (resource-groups-plan.md): keep mapped execution refused until native delegation, actual placement and device evidence are proven; keep authority and device proof as limits on claims, not blockers to safe implementation work."
 ---
 
 # Owner-managed resource groups can bound combined workspace work only when placement and enforcement are proven
 
-**Status:** 2026-11-04. Owner direction and request-authorized v1 choices are recorded; implementation is authorized but not built. Source seams were checked at `c62ca3ce089e7062c4932186e9c59a6c09441ea7`; Linux authority, actual placement, and device behavior remain unproven.
+**Status:** 2026-11-04. Owner direction and request-authorized v1 choices are recorded; implementation is partly built: the default-off selection, finite-policy planning and a fake-only admission boundary are integrated (`93139b1f6`), and no production caller places or enforces anything ([the plan](resource-groups-plan.md)). Source seams were checked at `c62ca3ce089e7062c4932186e9c59a6c09441ea7`; Linux authority, actual placement, and device behavior remain unproven.
 
 > **In short.** Resource-group behavior is off unless the owner opts in and maps work; the unconfigured launch path does not probe or change host groups. For opted-in Linux work, Yolo must verify actual placement before startup and may split a finite delegated allowance between shared agent and batch children using a 5/95 default that the owner can override.
 

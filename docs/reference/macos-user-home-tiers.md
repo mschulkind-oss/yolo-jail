@@ -36,6 +36,12 @@ macOS 26.5 arm64) and run nightly in CI since. [What is measured, and by
 what](#what-is-measured-and-by-what) separates a hardware measurement from a Linux unit gate
 from a claim that is still an argument.
 
+**Stale in part since 2026-11-03.** [Slice 12a](../design/macos-user-model-plan.md#MMP-D25)
+(`610d94b42`) gave each workspace its own `HOME` in account mode, and `57ed9e5ae` (2026-11-06)
+moved that home under `<workspace>/.yolo/setups/<name>/home` (`paths.SetupHomeState`). The title,
+the summary below and the passages that name `<workspace>/.yolo/home` or a constant account
+`HOME` describe the pre-12a layout and are owed a re-verification.
+
 > **In short.** Today, `HOME` on `macos-user` is the constant `/Users/_yolojail`, and it is the
 > **machine** tier. The **workspace** tier is inside it, as symlinks: every directory the podman
 > argv binds from `<workspace>/.yolo/home` is a symlink from the account home into that same

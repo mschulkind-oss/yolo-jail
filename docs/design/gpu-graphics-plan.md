@@ -1,15 +1,15 @@
 ---
 title: "Build the selected graphics-driver tree"
 status: accepted
-stage: DECIDED
-next: "Implement the two disjoint source lanes, then hand the committed pair to integration acceptance"
+stage: BUILT
+next: "Both source lanes are built; a real Linux GPU host owes the acceptance its External limit names"
 depends-on:
   - gpu-graphics.md
 ---
 
 # Plan: build the selected graphics-driver tree
 
-**Status:** Completed against `e02bb526bc5b4d59fa5ba7293163cdee44f3ff78`, 2026-10-28. The [design](gpu-graphics.md) wins on behavior. This plan records the settled shared contract and tree map; integration owns the combined candidate and hardware-limited acceptance.
+**Status:** Completed against `e02bb526bc5b4d59fa5ba7293163cdee44f3ff78`, 2026-10-28. The [design](gpu-graphics.md) wins on behavior. This plan records the settled shared contract and tree map; integration owns the combined candidate and hardware-limited acceptance. Both lanes are built (commit `6dda57495` and its follow-ups). MEASURED: unit, fixture and integration tests. UNMEASURED: a real GPU host, per the External limit below.
 
 ## Map and ownership
 

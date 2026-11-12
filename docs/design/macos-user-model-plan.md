@@ -2,7 +2,7 @@
 title: "Plan: rebuild macos-user on one deny-by-default profile, run as you by default"
 status: accepted
 stage: DECIDED
-next: "Run witness W1b on a Mac (W1's fixes, MMP-D30 to D34; the relaunch delivers copies, MMP-D35, built and awaiting witness W1c) to land slice 12a; then close the account mode's shared /tmp (MMP-D29, ruled); slice 11 waits on OQ-MM10"
+next: "Close the account mode's shared /tmp (MMP-D29, ruled); then slices 11, 12b and 13. Slice 12a is in main, W1b ran on a Mac 2026-11-03 and W1c passed 2026-11-04; OQ-MM10 was ruled 2026-11-03"
 depends-on:
   - macos-user-model.md
 tags: [macos-user, seatbelt, plan, safehouse, home, parity]
@@ -12,16 +12,17 @@ vantage:
 
 # Plan: rebuild macos-user on one deny-by-default profile, run as you by default
 
-**Status:** 2026-11-03. Slices 1 to 10 are built, and 12a is built and unit-tested on Linux.
-W1 ran on a Mac and failed; its findings are fixed but one (an unchanged relaunch copies its
-delivered files), and witness W1b re-runs them ([Mac checks](#mac-checks)); then 11 (waiting on
-[OQ-MM10](macos-user-model.md#OQ-MM10)), 12b and 13. Loopback and the shared `/tmp` are ruled and
+**Status:** 2026-11-04. Slices 1 to 10 and 12a are built and in main. W1 ran on a Mac and
+failed; its fixes were re-run by witness W1b on 2026-11-03, and W1c, the one W1b left failing (an
+unchanged relaunch keeps its delivered files), passed on 2026-11-04
+([the lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#13-2026-11-04-w1c-w-su5-claude--p-on-bedrock-and-just-done);
+[Mac checks](#mac-checks)). Next are the account mode's shared `/tmp` ([MMP-D29](#MMP-D29)), then
+11 ([OQ-MM10](macos-user-model.md#OQ-MM10), ruled 2026-11-03), 12b and 13. Loopback and the shared `/tmp` are ruled and
 built ([MMP-D14](#MMP-D14), [MMP-D18](#MMP-D18)); Homebrew's visibility is the one profile
 parameter still at the prototype's value ([Blockers](#blockers)). With 12a the production default,
 the second account, runs under the deny-by-default profile with a home per workspace, and a second
 workspace launches beside a running session instead of being refused ([MMP-D25](#MMP-D25)). The
-account mode's temp dirs are an implementation decision that may want your ruling
-([MMP-D29](#MMP-D29)).
+account mode's temp dirs were ruled by the owner on 2026-11-03 ([MMP-D29](#MMP-D29)).
 
 **Design:** [macos-user's model](macos-user-model.md#7-the-ruled-model-two-modes-one-profile). The
 measured starting point is the
@@ -955,7 +956,7 @@ and its plan with it; git history keeps both.
 
 ### Slice 11 — the rerun gate, then the default flips (after 6 to 10 and 12a; human Mac run)
 
-- **Waits on [OQ-MM10](macos-user-model.md#OQ-MM10):** what an absent `macos_user_mode` means on
+- **Ruled by [OQ-MM10](macos-user-model.md#OQ-MM10), 2026-11-03:** what an absent `macos_user_mode` means on
   a Mac set up for the account. Nothing in 12a does.
 - **Preconditions (stop and ask if any fails):**
   1. The maintainer has ruled loopback, the shared `/tmp`, and Homebrew's visibility, in the design

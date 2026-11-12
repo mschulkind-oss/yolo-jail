@@ -2,7 +2,7 @@
 title: "Where the GitHub line is drawn: which writes run unasked, per user and per workspace"
 date: 2026-10-30
 status: accepted
-stage: DESIGN
+stage: DECIDED
 next: "Write the implementation plan from the ruled design; GW-D58's invariant is ruled"
 depends-on:
   - boundary-broker.md
@@ -11,6 +11,10 @@ summary: "Which of the agent's gh writes run unasked is a 2x2: the user's config
 ---
 
 # Where the GitHub line is drawn: which writes run unasked, per user and per workspace
+
+**Status:** 2026-11-12 — every question is ruled. The repository-binding slice is built (commit
+`28757f5a0` records it); the work-kind cells and Git lines under a repository name are not.
+[Current support](#current-support-and-the-repository-only-first-slice) has the detail.
 
 The GitHub broker runs some of the agent's `gh` writes unasked and holds the rest for a human.
 Where that line sits is four small tables: two files, two sets of items.

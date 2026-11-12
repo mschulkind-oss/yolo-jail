@@ -1,13 +1,18 @@
 ---
-status: in-review
-stage: SKETCH
-next: "Feeds the grant inventory walkthrough in ../design/macos-user-privilege-lifecycle.md (OQ-MP10); keep keychain policy in its existing design"
+status: deprecated
+stage: SUPERSEDED
+next: "None owed. OQ-MP10 consumed this assessment on 2026-10-15, and ../design/macos-user-privilege-lifecycle.md carries the ruled and built contract; keychain policy stays in its existing design"
 verified: 2026-10-07
 tags: [macos-user, sandvault, privileges, sudo, keychain]
 summary: "SandVault authorizes passwordless runtime operations during privileged setup. Its pattern can address yolo's repeated prompts, but its rules do not cover yolo's dynamic session artifacts and must not be copied as broad root access. Its dedicated-keychain fix also informs reported first-login failures."
 ---
 
 # SandVault's macOS privileges and what yolo can reuse
+
+**Status:** 2026-10-15 — superseded by
+[the privilege lifecycle](../design/macos-user-privilege-lifecycle.md), whose [`OQ-MP10`](../design/macos-user-privilege-lifecycle.md#decision-ledger) ruled the
+grants on SandVault's model and whose contract is built on main (`5072b0941`). Kept as the
+SandVault source evidence that design and the keychain design cite.
 
 Yolo manages an agent's environment, with a separate macOS account and Apple's Seatbelt sandbox
 as one confinement option. This comparison concerns that option's privilege lifecycle, not a

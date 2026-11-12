@@ -3,7 +3,7 @@ title: "Ask before you act: the jail reads its own access, and a dry run answers
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Build task 1 (shared GitHub decision and inert evaluate path), then file-before-act and git independently of pack-broker rulings"
+next: "Build Task 4 of the plan (the own-jail readout and grant snapshot) once it is authorized, then Task 5 (the prediction-divergence tripwire)"
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
@@ -14,8 +14,12 @@ summary: "An agent in a jail cannot tell, before it acts, whether a git push, a 
 
 # Ask before you act: the jail reads its own access, and a dry run answers with the broker's own decision
 
-**Status:** 2026-11-04. Nothing built. Evidence read at `3ccc28def` on 2026-11-04; no `yolo` or
-agent CLI was run.
+**Status:** 2026-11-12 — partly built. The plan's Tasks 1 to 3 are in main: GitHub act and
+evaluate decisions, status and pre-ask (`4a2fafb3e`), and Git ref-update prediction and pre-ask
+(`af8d5e976`), behind `yolo access`. Task 4 (the own-jail readout and grant snapshot) and Task 5
+(the prediction-divergence tripwire) are not built; see the
+[plan](access-introspection-plan.md). The design was written from evidence read at `3ccc28def` on
+2026-11-04.
 
 > **In short.** A prediction is only worth having if it cannot disagree with the decision it
 > predicts. So the prediction is not a second implementation: it is the broker's own pipeline run in

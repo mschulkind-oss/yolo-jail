@@ -2,7 +2,7 @@
 title: "Two presets, seven hardcodings, and a backend that can have neither"
 date: 2026-09-12
 status: accepted
-stage: DESIGN
+stage: BUILT
 next: "Every step of §13 is built, step 3 (retiring mcp_presets) and OQ-MP9's boot check on 2026-10-23 (MP-D10, MP-D11), so what is left is graduating the built design into mcp-configuration.md"
 depends-on:
   - ../reference/pack-system.md#OQ-PK1

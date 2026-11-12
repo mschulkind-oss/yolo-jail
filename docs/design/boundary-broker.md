@@ -3,7 +3,7 @@ title: "Reads run, writes ring the doorbell: GitHub access across the jail bound
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Complete review and land the bounded GitHub exact-Allow-once request-path candidate; continue BB-D76/79 afterward"
+next: "Rule OQ-BB23 (whether the user config may grant write kinds to every workspace); continue BB-D76/79's resource model"
 depends-on:
   - agent-event-watchers.md
 tags: [design, credentials, github, gh, git, approvals, notifications, loopholes, audit, broker]
@@ -24,12 +24,15 @@ sections verified against `f9fcd599a`; **the GitHub read path, step 1's first so
 **the widening entry built 2026-10-01** ([BB-D33](#BB-D33), [BB-D52](#BB-D52); the
 `brokered` key in `internal/config/brokered.go`, run end to end against a fake host `gh` by
 `integration/githubbroker_test.go`), and **the user-scope sets and host store/`yolo approve` slice built 2026-10-13**.
-The bounded GitHub exact-Allow-once slice is implemented in the private Stage2 candidate: production
+The bounded GitHub exact-Allow-once slice is in main (`a71c83693`, 2026-10-28): production
 writes file a request, the host log exposes its id and `yolo approve`, and the handler spends only a
 digest-bound one-use grant before dispatch. A configured `on_request` hook is optional, and its
-output alone is not consent. This does not implement BB-D76/79's timed-resource grants or working-set
-Add, and the broader resource model remains the next design step. See [§7](#7-grants-and-the-request-store).
-Notifications, explicit admission rules, macOS and the git source are not built. Revised
+output alone is not consent. GitHub writes that a create grant or the working set covers run
+unasked since 2026-10-30 (`146a9edb3`); the rest of BB-D76/79's resource model remains the next
+design step. See [§7](#7-grants-and-the-request-store).
+The git source is built and documented in its [reference doc](../reference/git-broker.md), and an
+opt-in Linux notifier is built (`ff92fabc4`). The macOS notifier and explicit admission rules are
+not built. Revised
 around the maintainer's brief of that day; first sketched
 2026-08-05. [OQ-BB1](#15-decision-ledger), [OQ-BB2](#15-decision-ledger), [OQ-BB3](#15-decision-ledger), [OQ-BB4](#15-decision-ledger),
 [OQ-BB6](#15-decision-ledger), [OQ-BB7](#15-decision-ledger), [OQ-BB8](#15-decision-ledger), [OQ-BB9](#15-decision-ledger) and OQ-C were ruled on
@@ -57,7 +60,7 @@ use's report (2026-10-03) brought
 [BB-D64](#BB-D64) to [BB-D68](#BB-D68): `--jq` and `--template` run, the broker answers
 `gh auth status`, a write says at once that nothing waits, the forwarder's shim says what it is,
 and the github pack briefs every agent. Still unbuilt: production delivery readiness, explicit admission rules, the
-notifiers, the ping, and every production write. (`internal/broker` and the `yolo broker` verb mean the
+macOS notifier and the ping. (`internal/broker` and the `yolo broker` verb mean the
 Claude OAuth singleton; see **broker** in [§1.3](#13-terms).) The research behind
 [§5](#5-which-set-the-classifier) and [§6](#6-the-doorbell-a-persistent-desktop-notification) is
 dated 2026-09-28 and marked MEASURED, SOURCED or INFERRED throughout
@@ -2543,7 +2546,7 @@ covered:
     > workspace still never widens past the user's ceiling ([OQ-BB16](#OQ-BB16)); it requests,
     > within it, and the human's y admits ([BB-D96](#BB-D96)).
 
-11. <a id="OQ-BB23"></a>**[OQ-BB23](#OQ-BB23): May the user config grant other kinds to every workspace?**
+11. 💬 <a id="OQ-BB23"></a>**[OQ-BB23](#OQ-BB23): May the user config grant other kinds to every workspace?**
     [BB-D105](#BB-D105) puts read access for every workspace in the user config. The same form
     could carry a write kind, such as `{"kind": "create-branch", "repo": "*"}`, letting every
     workspace create branches in its own repositories without a grant in each workspace file.
@@ -2552,6 +2555,8 @@ covered:
     - **A — Read only, as built.** A write grant stays per workspace ([BB-D96](#BB-D96)).
     - **B — Any kind the user's `grant_kinds` lists, with `"repo": "*"`**, still shown at each
       workspace's approval.
+
+    <!-- vantage: question id=OQ-BB23 leaning="A, not now. OQ-BB22 ruled that the specific write grants live in the workspace config, and nothing yet asks for a write in every workspace at once." -->
 
     _Leaning:_ **A, not now.** [OQ-BB22](#OQ-BB22) ruled that the specific write grants live in
     the workspace config, and nothing yet asks for a write in every workspace at once.

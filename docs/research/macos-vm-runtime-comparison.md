@@ -1,9 +1,9 @@
 ---
 title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple Container, Podman Machine on libkrun and on applehv, and OrbStack, measured without yolo"
 date: 2026-10-03
-status: in-review
-stage: DESIGN
-next: "The maintainer decides between OrbStack as a podman host (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here; it needs no Docker-API backend, orbstack-as-a-podman-host.md) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4); no open shared-folder stack tried in §6 beat VZ, and NFS, the one candidate left, needs sudo. Also owed (§4.4): the maintainer files the Feedback Assistant request drafted in §4.3; and a krunkit 1.3.2 run at its debug log level, failing which the Lima krunkit driver, to find out why libkrun's reporting returned nothing"
+status: accepted
+stage: DECIDED
+next: "Owed (§4.4): the maintainer files the Feedback Assistant request drafted in §4.3; and a krunkit 1.3.2 run at its debug log level, failing which the Lima krunkit driver, to find out why libkrun's reporting returned nothing. The OrbStack direction was ruled on 2026-10-06 (ORB-D1 to ORB-D3, orbstack-as-a-podman-host.md), and VM-local volumes carries its own questions (vm-local-volumes.md)"
 tags: [research, macos, apple-container, podman, libkrun, orbstack, virtiofs, memory, postgres, benchmark]
 summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. No open alternative tried beat VZ's shared folder: libkrun with permissionSemantics=complete tied it, and QEMU with a macOS virtiofsd port was slower even at its most aggressive caching. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
 vantage:
@@ -19,7 +19,9 @@ vantage:
 - **Not run:** Docker Desktop. The maintainer ruled it out (2026-10-03): its licence makes it
   *"non-viable to even test … for commercial work."*
 - **INFERRED:** every reading of the numbers that a row does not show directly.
-- Nothing is ruled.
+- This document files no question. The OrbStack direction was ruled on 2026-10-06 as
+  ORB-D1 to ORB-D3 in [orbstack-as-a-podman-host.md](orbstack-as-a-podman-host.md#decision-ledger),
+  and VM-local volumes has its own design, [vm-local-volumes.md](../design/vm-local-volumes.md).
 
 It follows [the macOS backend benchmark](macos-backend-performance.md) and
 [why Apple Container's file work is slow](apple-container-file-cost.md). The earlier question of

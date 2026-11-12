@@ -1,7 +1,7 @@
 ---
 status: current
 stage: CURRENT
-next: "Read the first scheduled macos-user.yml run's install cells (OQ-CI7, built 2026-10-05) and record what each measured on darwin, then re-verify this doc against the tree"
+next: "Read the install cells of a scheduled macos-user.yml run (OQ-CI7, built 2026-10-05; all passed on 2026-10-18, run 39124950172) and record what each measured on darwin, then re-verify this doc against the tree"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -22,9 +22,11 @@ summary: "How the integration suite tests agent-CLI installation without letting
 
 **Status:** verified 2026-09-23 against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
-schedule (run 35620029721). **Not measured on macOS yet:** [OQ-CI7](#OQ-CI7), ruled on
+schedule (run 35620029721). **Not yet recorded for macOS:** [OQ-CI7](#OQ-CI7), ruled on
 2026-10-05 and built the same day, gives the macos-user nightly one real vendor-install job per
-pack ([The darwin install job](#the-darwin-install-job)), and no scheduled run has reported since.
+pack ([The darwin install job](#the-darwin-install-job)). Scheduled runs have reported since:
+every darwin vendor-install job passed on the scheduled runs of 2026-10-18 (run 39124950172) and
+2026-11-06 (run 42236176823), but what each cell measured is not yet recorded here.
 The podman macOS nightly runs no vendor install. Its warmup, skipped there from 2026-08-23 to
 2026-09-25, was MEASURED on the eight nightlies of 2026-09-26 to 2026-09-29 and stays
 ([Suite warmup](#suite-warmup), [OQ-CI8](#oq-ci8)).

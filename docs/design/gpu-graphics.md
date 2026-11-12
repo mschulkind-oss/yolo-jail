@@ -1,13 +1,13 @@
 ---
 title: "A GPU container needs the driver tree its libraries expect"
 status: accepted
-stage: DECIDED
-next: "Build from the [completed implementation plan](gpu-graphics-plan.md), then hand off to integration acceptance"
+stage: BUILT
+next: "A real Linux GPU host verifies the generated tree and tests Mesa 26.2.5 with it present; then graduate"
 ---
 
 # A GPU container needs the driver tree its libraries expect
 
-**Status:** 2026-10-28. Accepted against source base `e02bb526`; implementation is present in the combined source, while GPU-host acceptance remains outstanding.
+**Status:** 2026-10-28. Accepted against source base `e02bb526`; built 2026-10-27 (commit `6dda57495`, the boot step and its manifest). MEASURED: unit, fixture and integration tests. UNMEASURED: a real GPU host, which must still verify the tree and test Mesa 26.2.5 with it present.
 
 > **In short.** When GPU support is enabled, a Linux container boot should expose the selected graphics driver's actual library and data outputs at the conventional runtime paths. Device passthrough and driver-tree exposure are separate requirements.
 

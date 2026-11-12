@@ -3,7 +3,7 @@ title: "Git through the host's login, one ref at a time: the second brokered sou
 date: 2026-10-23
 status: accepted
 stage: DECIDED
-next: "Build GB-D28 (remove yolo approve --add and --remember for git), then graduate into docs/reference/git-broker.md, first moving the plan's ID-1 to ID-13 there because source comments cite them"
+next: "Graduate into docs/reference/git-broker.md, first moving the plan's ID-1 to ID-13 there because source comments cite them, and removing the reference's rows that still document yolo approve --add and --remember"
 depends-on: []
 tags: [design, credentials, git, github, broker, approvals, loopholes, audit]
 summary: "The second source behind the boundary broker, after gh: git fetch and push from a jail that holds no credential. Fetching is standing; read-only allows no push of any kind (ruled 2026-10-23). Creating a branch takes a create-branch grant: the user's own config allows the kind, the workspace config names the repository, and the grant joins at the config-change approval; a branch created under it joins the workspace's working set, where the agent then pushes freely. Long-lived access to an existing branch (such as main) is that branch in the working set, declared in config by a branch grant granted the same way (ruled 2026-10-24); there is no separate push grant. A push to any other ref asks a human per ref: Allow once, Allow push for 15 minutes, Add the ref to the working set, or Deny. Step 1 of the maintainer's 2026-10-23 path: it first factors the source-neutral broker core out of the github-broker, then adds git as a second source on it. Ruled 2026-10-23: git crosses as a brokered transport, every remote form rewritten to the host broker, which connects upstream the way the host already does (SSH keys or agent, or git's credential helper), for any git server; a working-set branch stays until it is deleted or revoked; the source is off until the user includes it. Nothing is open; the step-1 build is git-broker-plan.md."
@@ -27,9 +27,9 @@ Split out of [`boundary-broker.md`](boundary-broker.md) the day the maintainer l
 five-step path ([§1.5 there](boundary-broker.md#15-the-maintainers-path-2026-10-23)), whose step 1
 this doc designs. Evidence verified against `9f77afa19`.
 **How the built system works now** is in the reference
-[`docs/reference/git-broker.md`](../reference/git-broker.md), verified 2026-11-06. This doc stays
-until [GB-D28](#GB-D28), the removal of `yolo approve --add` and `--remember` for git, is built:
-both flags are still parsed and answered.
+[`docs/reference/git-broker.md`](../reference/git-broker.md), verified 2026-11-06.
+[GB-D28](#GB-D28), the removal of `yolo approve --add` and `--remember` for git, was built
+2026-11-06 (commit `86c0666cb`): both flags are now refused, so this doc is ready to graduate.
 
 > **In short.** A jail's git should fetch and push the way a person's does, through the host's
 > own keys or credential helper, without the credential ever entering the jail. Fetching is free;

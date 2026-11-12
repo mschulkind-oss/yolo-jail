@@ -821,7 +821,7 @@ with one right answer, are in the ledger below. One question the review raised i
 maintainer owns, and it is filed here. The implementation already follows its leaning, which is
 what [WW-D11](#WW-D11) said; graduation waits for the ruling.
 
-1. <a id="OQ-WW1"></a>**[OQ-WW1](#OQ-WW1): Should renaming a remote ask?**
+1. 💬 <a id="OQ-WW1"></a>**[OQ-WW1](#OQ-WW1): Should renaming a remote ask?**
    Raised in review, 2026-10-05. The sources record keys a remote by its name
    ([§3.2](#32-the-gate)), so a rename, or a second remote for an approved repository, asks once
    as *source changed*. That holds wherever the broker runs, with no entry too. Before this

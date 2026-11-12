@@ -1,8 +1,8 @@
 ---
 title: "Which model ids yolo ships, how an org shapes the list, and what each picker shows"
 date: 2026-09-25
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 next: "OQ-MM1, both halves of OQ-MM3, OQ-ML4 and OQ-ML5 are built (MM-D44, ML-D12); one known gap: on the first launch after upgrading, a stale own-login saved model with no tier word is not cleared (MM-D44). MM-D41's opt-in supplied-list warning is implemented and parent-gate checked without changing list rendering or enforcement. OQ-MM6 is built (MM-D35 to MM-D40); live Claude/Copilot/Pi/AWS turns remain unmeasured. A nested-jail check of `yolo host -p pi=` with a provider-only profile (§14.11) is still owed. No question in this doc is open"
 tags: [providers, profiles, models, aliases, pickers, packs, bedrock, currency]
 summary: "Where yolo must pick model ids itself (the 2026-09-25 ruling on OQ-BR3: only where an agent cannot just fall back to its own default), how those picks ship in a built-in pack that comes with yolo rather than in core, how a company pack adds to or narrows a model list, how each agent's picker renders the result, and how the list stays current without yolo keeping a catalog."
@@ -608,8 +608,8 @@ empty string: it excludes that key from the canonical-id pass but retains it in 
 secondary fact pass. Section-caller, evaluator precedence controls and unchanged Codex-render
 tests pin the vendorless row and conflicting same-id facts. The 2026-10-08 parent whole-tree and
 applicable integration gates passed, and independent source and documentation review is complete;
-[OQ-MM1](#OQ-MM1) (ruled 2026-10-15) is not yet built on claude,
-nor is [OQ-MM3](#OQ-MM3) (ruled the same day), so this overall design remains partly built. The warning
+[OQ-MM1](#OQ-MM1) and [OQ-MM3](#OQ-MM3), ruled 2026-10-15, were built on 2026-10-16 (merge `560c83e5e`);
+the nested and live checks the frontmatter's `next:` names are still owed, so the design stays DECIDED. The warning
 does not imply an agent must fail: its own default or a literal profile model may still work.
 
 **The missing fact is the maker filter, not another catalog.** `callableModels` in the claude,
@@ -1543,9 +1543,9 @@ opencode's menu is not narrowed with the switch off ([MM-D5](#MM-D5)) was built 
 `yolo check` warning with the production-caller, compatibility and derive-parity evidence in
 [§7.4](#74-the-empty-effective-list-check-decided-mechanism-2026-10-08). It preserves the existing
 provider lists and launch policy. The parent whole-tree and applicable integration gates passed;
-independent source and documentation review is complete. [OQ-MM1](#OQ-MM1) was ruled 2026-10-15 and is unbuilt
-on claude's native profile; [OQ-MM3](#OQ-MM3), ruled the same day, is unbuilt in the parts its
-ledger row names.
+independent source and documentation review is complete. [OQ-MM1](#OQ-MM1) and [OQ-MM3](#OQ-MM3), ruled 2026-10-15, were
+built on claude's native profile on 2026-10-16 (merge `560c83e5e`; their ledger rows name the
+tests).
 pi's native Bedrock selection (Bedrock step 2's, built beside this) still writes its
 `enabledModels` scope under an `only`, a restatement of the list its registration already makes
 exact. opencode's native `amazon-bedrock` row, the other place the two met, now takes the

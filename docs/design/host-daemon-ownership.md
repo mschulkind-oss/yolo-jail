@@ -2,7 +2,7 @@
 title: "No singleton: a host-side daemon belongs to the jail that asked for it"
 date: 2026-09-19
 status: accepted
-stage: DESIGN
+stage: BUILT
 next: "HD-R1 is merged into main. Measure where a nested jail cannot: a first launch on a real rootless podman host (the broker CA mounted, a Claude refresh through the jail's own broker, the at-launch catch-up against a real login, a killed credential daemon restarted and reached over the forwarded loopback), an upgrade with an older yolo's machine-wide daemons still running (HD-D26: the launch proceeds beside them, one line each, and the older jails keep working), and CI's macos-user job (the HD10 experiment: one broker for the pair, the workspace keeper's, the survivor still working, none left). No question is live."
 tags: [design, loopholes, daemons, lifecycle, ownership, credentials, host]
 summary: "RULED 2026-09-20, BUILT 2026-10-06 and finished 2026-10-16 (HD-R1): host_daemon.scope 'host' is retired (refused by the authoring decoder, read as per-jail across the version boundary, HD-D17), and every host daemon is spawned by the launch that wanted it and ends with that jail. The scope's own justification — that a second broker would race the single-use refresh token — was false in the code: each credential daemon serializes on a flock whose path is a function of the home or the state file, never of the process, so N copies in one home take the same kernel lock. A jail's end detaches a credential daemon (the manifest's detach key) so a refresh in flight finishes. macos-user takes a per-workspace spawn guard (HD-D4). yolo host-daemon reports and stops what the jails run. An older yolo's machine-wide daemon is left serving the jails it launched, and a launch proceeds beside it (HD-D26, the owner's 2026-10-16 call). Built 2026-10-16 from the 2026-10-15 rulings: an at-launch catch-up refresh of Claude's login with no timer (OQ-HD9, HD-D29), a reported, bounded restart of a host daemon that dies mid-session by the yolo that spawned it (OQ-HD5, HD-D25, HD-D28), and the request-scoped-forwarder requirement stated on the jail-daemon declarations (OQ-HD4)."
@@ -12,8 +12,10 @@ vantage:
 
 # No singleton: a host-side daemon belongs to the jail that asked for it
 
-**Status:** 2026-10-16 — **[`HD-R1`](#HD-R1) IS BUILT, brought up to date with main and finished on
-branch `hd-r1-land`, awaiting the maintainer's merge.** `host_daemon.scope: "host"` is refused by
+**Status:** 2026-10-16 — **[`HD-R1`](#HD-R1) IS BUILT and merged into main** (the finish's merge
+is `caac84a16`). UNMEASURED: a first launch on a real rootless podman host, an upgrade beside an
+older yolo's machine-wide daemons, and CI's macos-user job, as the frontmatter's next lists; no
+question is live. `host_daemon.scope: "host"` is refused by
 the authoring decoder, naming the fix, and read as per-jail with a warning across the version
 boundary ([`HD-D17`](#HD-D17)), and the three shipped credential daemons are each jail's own, started by its
 launch and stopped with it; a jail's end detaches them (the manifest key `detach`,
@@ -43,7 +45,7 @@ taken for the ruling are dated 2026-09-20 and marked.
 > argument for the ruling is made from them, and because a host-wide daemon an older yolo started
 > may still be running on a machine (it is reported and stoppable, never started:
 > [`HD-D14`](#HD-D14)). Sections headed **Under the ruling** describe the built tree. `rg -n
-> '"detach": true' packs/` returns the three credential daemons; `ScopeHost` and
+> '^detach = true' packs/` returns the credential daemons; `ScopeHost` and
 > `startHostSingleton` are gone.
 
 > **In short.** The scope rests on a premise that is false in the code. `ScopeHost`'s own

@@ -28,6 +28,9 @@ grant, branch creation and the working set across a relaunch, a branch declared 
 Allow once, and Allow for a time). UNMEASURED: the HTTPS upstream runs only in package tests
 against a local server, and no run against a real forge, a real SSH agent or a real host
 credential helper is recorded.
+**Stale since `86c0666cb` (2026-11-06):** that commit built [GB-D28](../design/git-broker.md#GB-D28),
+so `yolo approve --add` and `--remember` are now refused (`internal/cli/approveremoved_test.go`);
+the passages below that still describe them as answers are owed a re-verification.
 
 The git broker lets an agent in a jail run `git fetch`, `git pull`, `git ls-remote` and
 `git push` against the workspace's real remotes while the jail holds no git credential. The
@@ -50,8 +53,8 @@ files one request that a human answers with `yolo approve` on the host. Every ca
 | The human's answers | `internal/cli` (`approve.go`, `approveremember.go`) |
 | The pack: the rewrite, the helper's placement, the loophole manifest, the agent briefing | `packs/git` |
 
-**Reads with:** [`git-broker.md`](../design/git-broker.md) (the design and its ruling ledger,
-still open for the removal of `--add` and `--remember`, see [The answers](#the-answers)),
+**Reads with:** [`git-broker.md`](../design/git-broker.md) (the design and its ruling ledger;
+its removal of `--add` and `--remember` is built, see [The answers](#the-answers)),
 [`boundary-broker.md`](../design/boundary-broker.md) (the broker model this source sits on and
 its [terms](../design/boundary-broker.md#13-terms)),
 [`loophole-transport.md`](loophole-transport.md) (the jail-to-host leg), and the user guides
@@ -357,12 +360,12 @@ the entries before filing, so a push they cover never asks again while they last
 ([GB-D26](../design/git-broker.md#GB-D26)).
 
 > [!IMPORTANT]
-> **The code and a ruling disagree here.** [GB-D28](../design/git-broker.md#GB-D28) (2026-11-02)
+> **The two rows above are removed.** [GB-D28](../design/git-broker.md#GB-D28) (2026-11-02)
 > ruled `--add` and `--remember` removed, refused as unknown flags naming `--for` and the
 > project request, carrying [OQ-GW2](../design/github-write-scopes.md#OQ-GW2) to git and
-> superseding [RC-D39](../design/readable-config.md#RC-D39). Both flags are still parsed and
-> answered as above. The removal is unbuilt and stays with the design doc; entries added with
-> `--add` stay until revoked either way.
+> superseding [RC-D39](../design/readable-config.md#RC-D39). Built in `86c0666cb`: both flags
+> are refused with the usage exit and decide nothing. Entries added with `--add` before then stay
+> until revoked.
 
 ### When a push that asked is refused
 
@@ -473,7 +476,7 @@ the values themselves are stated.
 ## Why it's this way
 
 The rulings a maintainer would otherwise undo. Each id resolves in the design doc's ledger,
-which stays until [GB-D28](../design/git-broker.md#GB-D28) is built.
+which stays until it graduates here; [GB-D28](../design/git-broker.md#GB-D28), the last build it waited on, is built (`86c0666cb`).
 
 | ID | Ruling |
 | :--- | :--- |
@@ -490,4 +493,4 @@ which stays until [GB-D28](../design/git-broker.md#GB-D28) is built.
 | [GB-D20](../design/git-broker.md#GB-D20) | A spent Allow once is not refunded when the upstream connection drops |
 | [GB-D25](../design/git-broker.md#GB-D25) | Branch and tag grants take one-`*` refspec patterns and `repo = "*"`; the two layers are the whole gate |
 | [GB-D26](../design/git-broker.md#GB-D26) | `--for` and `--add` record working-set entries, not command grants; `--add` never applies to a tag or a new branch |
-| [GB-D28](../design/git-broker.md#GB-D28) | Ruled: `--add` and `--remember` are removed for git. Not built; see [The answers](#the-answers) |
+| [GB-D28](../design/git-broker.md#GB-D28) | Ruled: `--add` and `--remember` are removed for git. Built in `86c0666cb`; see [The answers](#the-answers) |

@@ -1,11 +1,11 @@
 ---
 title: "Agent Safehouse — the neighbouring tool, and what yolo should take from it"
 date: 2026-09-18
-status: in-review
+status: accepted
 tags: [research, macos, seatbelt, macos-user, packs, threat-model, comparison]
 summary: "Agent Safehouse confines an agent that runs AS YOU, by enumerating what it may touch; yolo-jail gives the agent a different machine and a different identity, so there is nothing of yours to enumerate. On the one axis where they build the same artifact — the macos-user Seatbelt profile — theirs is decisively tighter and ours is barely tested, and that is the adoption surface. Their per-agent prose is the better human artifact and the worse machine one: measured on their own repo, the enforced half moved 106 commits to the documented half's 3, and their opencode investigation documents a program three major versions and one whole reimplementation behind the profile that ships beside it."
-stage: DESIGN
-next: "None owed; every question is ruled and built"
+stage: DECIDED
+next: "Every question is ruled (OQ-AS1 to OQ-AS3, 2026-10-29). The one adoption left unbuilt is §8.3, disclosing the Seatbelt profile on a live launch"
 vantage:
   status-chip: true
 ---
@@ -26,7 +26,7 @@ incremental denies, and [§8.4](#84-pin-the-agent-launch-argv--tiny-cost-real-bu
 [§3.1](#31-the-base-posture-is-inverted) moved with them. **Re-checked 2026-09-24:** the [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)
 suite has since executed on a macOS runner, and all fifteen cases pass.
 
-**Needs your ruling:** [OQ-AS1](#OQ-AS1) (how far the `macos-user` Seatbelt profile moves toward deny-default), [OQ-AS2](#OQ-AS2) (whether yolo publishes a per-agent investigation series), [OQ-AS3](#OQ-AS3) (whether `mounts` and `env_sources` become user-scope-only).
+**Ruled 2026-10-29:** [OQ-AS1](#OQ-AS1) (account mode keeps `(allow default)`; self mode has been deny-default since `a84a18ca3`), [OQ-AS2](#OQ-AS2) (no per-agent investigation series yet), [OQ-AS3](#OQ-AS3) (a workspace env file must resolve inside the workspace, built in `a244c9e90`). [§8.3](#83-disclose-the-profile-on-a-real-launch--small-cost-clear-ruling-behind-it) is not built.
 
 **Reads with — Claude Code's built-in sandbox**, the other neighbor (bubblewrap on Linux,
 Seatbelt on macOS, wrapped around Bash commands only). It denies listed operations and leaves the
@@ -946,7 +946,7 @@ Re-check these before quoting them; everything here moved within the last six mo
    workspace, no. read only mounts are there by design."* A workspace config's `env_sources` file
    entry must resolve inside the workspace, and a path outside it is refused, naming user config
    as the place for it. Read-only `mounts` stay allowed from a workspace config, by design.
-   Built in `51b3dae94` (`[env] files` in TOML too). Evidence: [§9.1](#91-the-scope-rule-applied-unevenly-mounts-and-env_sources).
+   Built in `a244c9e90` (`[env] files` in TOML too). Evidence: [§9.1](#91-the-scope-rule-applied-unevenly-mounts-and-env_sources).
 
 ## 13. Sources
 

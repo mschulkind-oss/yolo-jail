@@ -1,17 +1,18 @@
 ---
 title: "Who may hand a jail a writable host path from inside a workspace — scope, trust, or both?"
 date: 2026-09-25
-status: superseded
-stage: DESIGN
-next: "Superseded by RC-D24 in readable-config.md; delete once the build lands and links are repointed"
+status: deprecated
+stage: SUPERSEDED
+next: "Superseded by RC-D24 in readable-config.md, built in 6eb6bde9a; delete once inbound links are repointed"
 tags: [trust, config, scope, workspace, mounts, consent, gate-placement, icebox]
-summary: "The maintainer asked whether yolo should add a mise-style trust layer so a workspace config can declare read-write context mounts, and whether such grants should be allowed only in the untracked local file. Neither half works alone. The local file answers the cloned-repo author and not the in-jail agent, because the local file is writable from inside the jail, even under `workspace_readonly`. A trust record answers the agent, but on a cloned repo it becomes the prompt that OQ-TP9 and the Safehouse comparison both said not to build. The recommendation is to combine them, with each gating a different actor. Grants are refused in the committed file. They are admitted from the local file only once the human approves the grant set on the host, in a host-side record keyed on the workspace path and a hash of the grant set. Whether that approval is a new `yolo trust` verb or a labeled section of the existing config-change prompt is OQ-WT5, whose leaning moved to the prompt on 2026-09-30. They stay free in user config. The tracked-file check is demoted to a warning. Proposed and iceboxed; the maintainer has not decided whether to build it (OQ-WT1). The other seven questions were decided as implementation choices on 2026-09-30."
+summary: "The maintainer asked whether yolo should add a mise-style trust layer so a workspace config can declare read-write context mounts, and whether such grants should be allowed only in the untracked local file. Neither half works alone. The local file answers the cloned-repo author and not the in-jail agent, because the local file is writable from inside the jail, even under `workspace_readonly`. A trust record answers the agent, but on a cloned repo it becomes the prompt that OQ-TP9 and the Safehouse comparison both said not to build. The recommendation is to combine them, with each gating a different actor. Grants are refused in the committed file. They are admitted from the local file only once the human approves the grant set on the host, in a host-side record keyed on the workspace path and a hash of the grant set. Whether that approval is a new `yolo trust` verb or a labeled section of the existing config-change prompt is OQ-WT5, whose leaning moved to the prompt on 2026-09-30. They stay free in user config. The tracked-file check is demoted to a warning. Superseded: OQ-WT1 and OQ-WT5 were ruled on 2026-10-29 as RC-D24 in the readable-config redesign (a project may request a writable mount once the user's config allows it), and that was built. The other seven questions were decided as implementation choices on 2026-09-30."
 ---
 
 # Who may hand a jail a writable host path from inside a workspace — scope, trust, or both?
 
-**Status:** 2026-09-25 — iceboxed candidate; the maintainer has not decided whether to build it. Nothing
-built. Evidence checked against the tree at `71acddac` plus the working tree on this date. It cites symbols, not
+**Status:** 2026-10-29 — superseded by [RC-D24](readable-config.md#RC-D24), which ruled [OQ-WT1](#OQ-WT1)
+and [OQ-WT5](#OQ-WT5) and was built in `6eb6bde9a`; kept for the argument until its links are repointed.
+First filed 2026-09-25 as an iceboxed candidate. Evidence checked against the tree at `71acddac` plus the working tree on this date. It cites symbols, not
 line numbers. **Triaged 2026-09-30** against `927bb54d`: seven questions were decided as implementation choices
 ([WT-D1](#WT-D1) to [WT-D7](#WT-D7)), two remain the maintainer's, and [OQ-WT5](#OQ-WT5) was restated after
 two later rulings on agent-editable workspace state.
@@ -39,8 +40,8 @@ prompt, which already asks about every edit to the local file.
 **Start at [§2](#2-two-actors-and-the-one-thing-each-can-write).** The rest falls out of which actor can write
 which file.
 
-**Needs your ruling:** [OQ-WT1](#OQ-WT1) (whether to build this at all) and [OQ-WT5](#OQ-WT5) (how the human
-approves a grant; restated 2026-09-30). [OQ-WT2](#decision-ledger), [OQ-WT3](#decision-ledger), [OQ-WT4](#decision-ledger),
+**Needs your ruling:** nothing. [OQ-WT1](#OQ-WT1) (whether to build this at all) and [OQ-WT5](#OQ-WT5) (how the human
+approves a grant) were ruled 2026-10-29 as [RC-D24](readable-config.md#RC-D24). [OQ-WT2](#decision-ledger), [OQ-WT3](#decision-ledger), [OQ-WT4](#decision-ledger),
 [OQ-WT6](#decision-ledger), [OQ-WT7](#decision-ledger), [OQ-WT8](#decision-ledger) and [OQ-WT9](#decision-ledger) were decided as implementation
 choices on 2026-09-30, each reversible and each holding under either answer to [OQ-WT5](#OQ-WT5). [OQ-AS3](../research/agent-safehouse.md#OQ-AS3)
 is filed in `agent-safehouse.md`, and this doc pairs with it rather than absorbing it ([WT-D6](#WT-D6)).
@@ -403,7 +404,7 @@ mounts is [OQ-AS3](../research/agent-safehouse.md#OQ-AS3)'s to decide.
 
 ### 4.9 The consent step: a prompt section, or a command
 
-Moved here verbatim from [OQ-WT5](#OQ-WT5), which is open. *Restated 2026-09-30.* This was first asked as the
+Moved here verbatim from [OQ-WT5](#OQ-WT5), since ruled ([RC-D24](readable-config.md#RC-D24)). *Restated 2026-09-30.* This was first asked as the
 direnv shape (refuse and name the verb) against the mise shape (a prompt at launch). Two later rulings put
 agent-editable workspace state into the config-change prompt rather than a command of its own.
 [OQ-BB7](boundary-broker.md#15-decision-ledger) (2026-09-29) did so for the repositories a broker may reach with the host's

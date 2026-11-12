@@ -2,7 +2,7 @@
 title: "Copilot's keychain, from a jail: a Secret Service inside, the real keychain outside"
 date: 2026-09-29
 status: accepted
-stage: DESIGN
+stage: DECIDED
 next: "Run witness W-KC5 on a Mac: does Copilot accept its own login as COPILOT_GITHUB_TOKEN (§6 step 6; the route is built, unmeasured); confirm Copilot's login service name with a real login (§6 step 4); open a plan sketch"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
 summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. Ruled 2026-10-10: one Copilot login serves the host and every jail, and it is the host Copilot's own keychain item; only the login is machine-wide; every program in a jail gets the keychain; and the keychain is always the host's, on every backend. The host side touches only items yolo created and the host Copilot's own login item, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Ruled 2026-11-03: macos-user's native clients, which have no seam, get values per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN."

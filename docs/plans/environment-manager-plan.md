@@ -1,24 +1,28 @@
 ---
 title: "Environment-manager implementation plan"
-status: accepted
-stage: DECIDED
-next: "Record 7.1's Mac measurement in the Phase 7 box: TestMacosUserGuestNotchLaunchesTheSandbox passed on the scheduled macos-user job on 2026-10-11 (run 38143926912) and 2026-10-15; 7.2 (Linux guest) still waits on user-stories Q7"
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing owed here: Phase 7 and the confinement key were replaced by named setups (docs/design/named-setups.md); the Linux guest is its reserved landlock-yolo-account setup (MT-R2) and user-stories Q7"
 depends-on:
   - ../design/environment-manager-user-stories.md
 ---
 
 # Environment-manager implementation plan
 
-**Status:** 2026-07-31 — a plan; **build status re-verified against the tree 2026-08-23**, rows
-corrected 2026-09-24, re-checked 2026-09-30. Phases 0–6 and 9 are built and 8 is built but for
-8.2, which is moot. **Phase 7, the `guest` notch, is half built (2026-10-04).** 7.1, macOS
-`guest`, is built and unmeasured on a Mac: `confinement: "guest"` or `--at guest` launches the
-macos-user backend with no `runtime` key, decided by [EMP-D1](#EMP-D1) and [EMP-D2](#EMP-D2).
-7.2, Linux `guest`, has no code: a Linux launch refuses it (`refuseUnbuiltNotch`,
-`internal/cli/run/run.go`), as does `yolo apply --at guest` there (`internal/cli/apply.go`;
-[EMP-D3](#EMP-D3)), and it also waits on
-[user-stories Q7](../design/environment-manager-user-stories.md#Q7), whether Linux `guest`
-stays a promise. Sequences the environment-manager design (the vision — finalized, the maintainer is happy with it;
+**Status:** 2026-11-12 — superseded in part by
+[named setups](../design/named-setups.md), and kept for its phase record and its
+[ledger](#decision-ledger), which [`what-yolo-is.md`](../reference/what-yolo-is.md) cites. Build
+status was re-verified against the tree 2026-08-23, rows corrected 2026-09-24, re-checked
+2026-09-30. Phases 0–6 and 9 are built and 8 is built but for 8.2, which is moot. **Phase 7, the
+`guest` notch, no longer exists as a launch input.** 7.1, macOS `guest`, was built 2026-10-04 and
+measured on a Mac (`TestMacosUserGuestNotchLaunchesTheSandbox` passed on the scheduled
+`macos-user` job, run 38143926912, 2026-10-11); then on 2026-11-04 `f678594a5` refused `--at`
+and `8b83df228` the `confinement` key, each naming setups instead, so the Mac half is now the `seatbelt-self` and
+`seatbelt-yolo-account` setups and [EMP-D1](#EMP-D1) to [EMP-D5](#EMP-D5) describe retired
+spellings. 7.2, Linux `guest`, has no code; named setups reserve it as `landlock-yolo-account`
+([MT-R2](../design/named-setups.md#decision-ledger)), and it still waits on
+[user-stories Q7](../design/environment-manager-user-stories.md#Q7), whether a Linux guest stays a
+promise. The body below is the record as of 2026-10-04 and is not re-verified against named setups. Sequences the environment-manager design (the vision — finalized, the maintainer is happy with it;
 graduated 2026-10-16 into [`what-yolo-is.md`](../reference/what-yolo-is.md)) into buildable phases.
 
 > **Build status — verified against the tree 2026-08-23; rows 1, 5 and 6 corrected 2026-09-24.**
@@ -35,7 +39,7 @@ graduated 2026-10-16 into [`what-yolo-is.md`](../reference/what-yolo-is.md)) int
 > | **4** — `yolo host apply` | ✅ **SHIPPED**, 4.3 included | `internal/cli/applyhostdeps.go` resolves a pack's `program` AND `requires` into the host's real dep state and offers the install; its own package comment records that it **replaces** the static "not run by `apply --host` yet" line this row used to cite, which was *"true and useless: the gate is real, but the line never said WHICH binary was missing"* |
 > | **5** — `--sealed` + closure | ✅ **SHIPPED** — 5.1/5.2/5.4, and **5.3 on 2026-09-12** (`4223ca95`, `yolo config promote`) | none — `applySealed`'s refusal now names `yolo config promote` as a command beside `yolo config reset` |
 > | **6** — dep provisioning | ✅ **SHIPPED** — 6.1/6.2/6.3 (`internal/depcheck/`, `yolo check-deps`), and **6.4's offer by 2026-09-12** (`f94b2c97`, the `yolo host apply --assert` dependency gate) | the offer is ONE prompt, not batched by elevation class; that batching was [`OQ-EM1`](../reference/what-yolo-is.md#why-its-this-way)'s, answered 2026-09-30: not owed |
-> | **7** — the `guest` notch | ⚠️ **PARTIAL** — 7.1 (macOS) built 2026-10-04, unmeasured on a Mac; 7.2 (Linux) not built | see below |
+> | **7** — the `guest` notch | ⚠️ **SUPERSEDED** — 7.1 (macOS) built 2026-10-04 and measured on a Mac 2026-10-11, then replaced by named setups (`f678594a5`, `8b83df228`); 7.2 (Linux) not built, reserved as `landlock-yolo-account` | see below |
 > | **8** — self-describing briefing | ⚠️ **PARTIAL** — 8.1 shipped (`confinementHeader`, `internal/jailcontent/briefing.go`); **8.2 is MOOT** | the `jail-startup` built-in no longer exists |
 > | **9** — agent autonomy | ✅ **SHIPPED** 2026-08-01 | none |
 >

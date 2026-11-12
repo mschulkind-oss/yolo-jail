@@ -2,8 +2,8 @@
 title: "Your config, one screen: packs, logins, and which setup each agent runs on"
 date: 2026-10-25
 status: accepted
-stage: DECIDED
-next: "Build git fetch of requested repositories, as the front door's ledger names it"
+stage: BUILT
+next: "Re-spell §6's repository request in the form github-write-scopes.md GW-D75 ruled, then graduate into the readable-config system doc"
 tags: [config, packs, providers, profiles, broker, grants, conventions, design]
 summary: "The user config as one annotated file, today and proposed, then one section per part of it. Every section is ruled. Part of the readable-config redesign; the ledger of rulings is in the front door and the evidence is in the appendix."
 ---
@@ -11,9 +11,10 @@ summary: "The user config as one annotated file, today and proposed, then one se
 # Your config, one screen: packs, logins, and which setup each agent runs on
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
-good and I want to move forward"*). Built by 2026-10-30 except git fetch of a project's requested repositories; catalog facts at
+good and I want to move forward"*). Built by 2026-10-30, git fetch of a project's requested repositories included
+([RC-D26](readable-config.md#RC-D26), `b56e4967e`), and shipped in v0.16.0 (`a95fd217d`); catalog facts at
 launch (C7) and a model said once reach a launch ([RC-D29](readable-config.md#RC-D29)). The
-[ledger](readable-config.md#decision-ledger) names each. Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
+[ledger](readable-config.md#decision-ledger) names each. UNMEASURED by this re-check, which read the commits and the tree and ran nothing. Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
 and `"convert_later": true` in the old user file stops the offer. The "today" file is the maintainer's effective config as
 this jail inherited it, condensed.
 

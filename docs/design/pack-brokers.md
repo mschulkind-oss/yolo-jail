@@ -1,8 +1,8 @@
 ---
 title: "Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run"
 date: 2026-11-04
-status: in-review
-stage: DESIGN
+status: accepted
+stage: DECIDED
 next: "Combined-tree review and nested conformance of the selected call broker, including timed pack answers (BX-D17, BX-D18)"
 depends-on:
   - boundary-broker.md
@@ -15,7 +15,7 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 # Pack brokers: a third-party pack brokers its own service through core's grants, approvals and dry run
 
-**Status:** 2026-11-05. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and full nested conformance remain. The separate [HTTP contract](pack-brokers-http.md) is accepted and has a completed build plan; its runtime front/executor remain unimplemented. Neither live authentication nor positive real grants are established. Timed pack answers are built: `yolo approve <id> --for <duration>` covers each write of a call, capped by the smallest `max_for` of its cells ([BX-D17](#BX-D17)) and stored all-or-none ([BX-D18](#BX-D18), [BX-D19](#BX-D19)); [OQ-BX7](#OQ-BX7) ruled out permanent Add.
+**Status:** 2026-11-06. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue, but combined-tree review, verification and full nested conformance remain. The separate [HTTP contract](pack-brokers-http.md) is accepted and has a build plan, whose Task 3 is built: a selected launch starts the HTTP front (`c20d9fad8`); the rest of that plan remains. Neither live authentication nor positive real grants are established. Timed pack answers are built: `yolo approve <id> --for <duration>` covers each write of a call, capped by the smallest `max_for` of its cells ([BX-D17](#BX-D17)) and stored all-or-none ([BX-D18](#BX-D18), [BX-D19](#BX-D19)); [OQ-BX7](#OQ-BX7) ruled out permanent Add.
 
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or

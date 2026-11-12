@@ -64,6 +64,11 @@ section and a writable `$YOLO_DURABLE_DIR`, and fake-seed delivery and directory
 recorded HOLDS in [run 37133569003](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003),
 2026-10-03. UNMEASURED: real Claude authentication on Apple Container; owed:
 [a native seed regression check](#the-owed-apple-container-seed-gate).
+**Stale since `57ed9e5ae` (2026-11-06):** each named setup now keeps its own home under
+`<workspace>/.yolo/setups/<name>/home` (`paths.SetupHomeState`), and `<workspace>/.yolo/home` is
+only the legacy home a launch moves from (`paths.LegacyHomeState`). The passages below that name
+`.yolo/home` as the per-workspace overlay source are owed a re-verification against
+[named setups](../design/named-setups.md).
 
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
 container create out of four ingredients: a **read-only home skeleton of this jail's own**

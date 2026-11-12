@@ -13,8 +13,8 @@ summary: "How a yolo knows which config it has, the order of releases, what `yol
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
 good and I want to move forward"*). Built by 2026-10-30, the folds included
 ([RC-D30](readable-config.md#RC-D30)); the old reader's removal and the fetched-pack refusal belong to a later
-release, and the TOML release is not tagged yet (the [ledger](readable-config.md#decision-ledger)
-names each). Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
+release, and the TOML release shipped as v0.16.0 (`a95fd217d`, 2026-11-02; the
+[ledger](readable-config.md#decision-ledger) names each). Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
 and `"convert_later": true` in the old user file stops the offer. The transcripts are what a person would see under the
 leanings.
 
