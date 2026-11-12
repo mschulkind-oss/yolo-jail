@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
@@ -170,14 +172,21 @@ func runConfigEditWithMode(args []string, out, errw io.Writer, workspace string,
 		printConfigEditHostRun(errw, workspace, args)
 		return 1
 	}
-	mutation, err = configEditUnsetMutation(target.Format, key, target.AuthoredPath(), target.ExpectedBytes())
-	if err != nil {
-		fmt.Fprintf(errw, "cannot unset config key %q in selected file %q: %v; edit the value manually in that file, then run `yolo check` in this workspace", positionals[0], target.LogicalPath, err)
-		if target.Role != config.ExplicitEditUser {
-			fmt.Fprint(errw, "; run `yolo config apply` on the host to approve workspace changes")
-		}
-		fmt.Fprintln(errw)
+	mutation, named, refusal := namedRepoUnset(workspace, target.Format, target.AuthoredPath(), target.ExpectedBytes(), choice)
+	if refusal != "" {
+		fmt.Fprintf(errw, "cannot unset config key %q in selected file %q: %s", positionals[0], target.LogicalPath, refusal)
 		return 1
+	}
+	if !named {
+		mutation, err = configEditUnsetMutation(target.Format, key, target.AuthoredPath(), target.ExpectedBytes())
+		if err != nil {
+			fmt.Fprintf(errw, "cannot unset config key %q in selected file %q: %v; edit the value manually in that file, then run `yolo check` in this workspace", positionals[0], target.LogicalPath, err)
+			if target.Role != config.ExplicitEditUser {
+				fmt.Fprint(errw, "; run `yolo config apply` on the host to approve workspace changes")
+			}
+			fmt.Fprintln(errw)
+			return 1
+		}
 	}
 	mutation.Path = append([]configdoc.Step(nil), key...)
 	if !configEditPathPresent(target.ExpectedBytes(), target.Format, target.AuthoredPath()) {
@@ -560,6 +569,179 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 		return configedit.Mutation{}, fmt.Errorf("the selected config schema does not define a removal for this key")
 	}
 	return mutation, nil
+}
+
+// namedRepoUnset plans an unset under a TOML `[repos.<name>]` table, where the schema stops at the
+// broker's any row (`repos.*.requests.*`) and so names no removal. A request the file holds,
+// `repos.<name>.requests.<source>.<capability>`, is removed whole, or one item of its list with a
+// trailing index; removing a line never needs the declaration that typed it. A request the file
+// does not hold is a no-op only when a selected broker declares it, so a misspelled key is refused
+// rather than reported as already absent. The repo line itself is not planned here, only refused
+// while requests would lose the repository it names (namedRepoLineUnsetRefusal).
+// named is false for every other key; a non-empty refusal is complete, with its next step.
+func namedRepoUnset(workspace string, format configdoc.Format, path []configdoc.Step, data []byte,
+	choice config.EditTargetChoice) (mutation configedit.Mutation, named bool, refusal string) {
+	if format != configdoc.TOML || len(path) < 3 || path[0].IsIndex || path[0].Key != "repos" || path[1].IsIndex {
+		return configedit.Mutation{}, false, ""
+	}
+	name := path[1].Key
+	unset := func(steps ...string) string {
+		parts := make([]string, len(steps))
+		for i, step := range steps {
+			parts[i] = configKeyComponent(step)
+		}
+		argv := []string{"yolo", "config", "unset", strings.Join(parts, ".")}
+		switch choice.Kind {
+		case config.EditTargetLocal:
+			argv = append(argv, "--local")
+		case config.EditTargetFile:
+			argv = append(argv, "--file", choice.File)
+		}
+		return shquote.Join(argv)
+	}
+	if len(path) == 3 && !path[2].IsIndex && path[2].Key == "repo" {
+		return configedit.Mutation{}, false, namedRepoLineUnsetRefusal(workspace, name, data, unset)
+	}
+	leaf, index := path, -1
+	if len(path) == 6 && path[5].IsIndex {
+		leaf, index = path[:5], path[5].Index
+	}
+	if len(leaf) != 5 || leaf[2].IsIndex || leaf[2].Key != "requests" || leaf[3].IsIndex || leaf[4].IsIndex {
+		return configedit.Mutation{}, false, ""
+	}
+	source, capability := leaf[3].Key, leaf[4].Key
+	subject := "repos." + name + ".requests." + source + "." + capability
+	whole := unset("repos", name, "requests", source, capability)
+	remove := configedit.Mutation{Action: configedit.Remove, Path: append([]configdoc.Step(nil), path...)}
+
+	value, present, err := configEditAuthoredValue(data, format, leaf)
+	if err != nil {
+		return configedit.Mutation{}, false, ""
+	}
+	if present {
+		items, isList := value.([]any)
+		switch {
+		case index >= 0 && !isList:
+			return configedit.Mutation{}, true, fmt.Sprintf("%s is not a list, so it has no item [%d]; nothing was written.\n"+
+				"  Remove the whole line:  %s\n", subject, index, whole)
+		case index >= len(items) && isList:
+			return configedit.Mutation{}, true, fmt.Sprintf("%s holds %d items, so it has no item [%d]; nothing was written.\n"+
+				"  Remove the whole line:  %s\n", subject, len(items), index, whole)
+		case !isList && !configEditIsScalar(value):
+			return configedit.Mutation{}, true, fmt.Sprintf("%s is a table, which no request is; nothing was written.\n"+
+				"  Edit that file by hand, then run `yolo config check` in this workspace.\n", subject)
+		}
+		return remove, true, ""
+	}
+
+	if !bareConfigKey.MatchString(name) {
+		return configedit.Mutation{}, true, fmt.Sprintf("%q is not a name: a [repos.<name>] table takes letters, digits, - or _; nothing was written.\n"+
+			"  For example:  %s\n", name, unset("repos", "infra", "requests", source, capability))
+	}
+	if _, held, _ := configEditAuthoredValue(data, format, path[:2]); !held {
+		return configedit.Mutation{}, true, fmt.Sprintf("that file holds no [repos.%s] table, so no request under that name; nothing was written.\n"+
+			"  The repositories it names: %s.\n", name, namedReposIn(data, format))
+	}
+	brokers, _, err := allowSelectedBrokers()
+	if err != nil {
+		return configedit.Mutation{}, true, fmt.Sprintf("cannot read what the selected packs declare: %v; nothing was written.\n"+
+			"  Run `yolo check` to see which pack is broken.\n", err)
+	}
+	var sources []string
+	for _, decl := range brokers {
+		if decl.Brokered.Source != source {
+			sources = append(sources, decl.Brokered.Source)
+			continue
+		}
+		declared := declaredCapabilities(decl)
+		switch {
+		case !slices.Contains(declared, config.CanonicalCapability(source, capability)):
+			return configedit.Mutation{}, true, fmt.Sprintf("%s declares no capability %q, and that file holds no such line; nothing was written.\n"+
+				"  Declared: %s.\n  For example:  %s\n", source, capability, strings.Join(declared, ", "),
+				unset("repos", name, "requests", source, declared[len(declared)-1]))
+		case capability == decl.ReadCapability:
+			return configedit.Mutation{}, true, fmt.Sprintf("%s %s is not requested by a project; your user config allows it for every project. Nothing was written.\n"+
+				"  On the host:  yolo allow %s %s\n", source, capability, source, capability)
+		}
+		return remove, true, ""
+	}
+	sort.Strings(sources)
+	listed := "none"
+	if len(sources) > 0 {
+		listed = strings.Join(sources, ", ")
+	}
+	return configedit.Mutation{}, true, fmt.Sprintf("no selected pack declares a broker named %q, and that file holds no such line; nothing was written.\n"+
+		"  The brokers the selected packs declare: %s.\n", source, listed)
+}
+
+// namedReposIn lists the names of the `[repos.<name>]` tables data holds, "none" with none.
+func namedReposIn(data []byte, format configdoc.Format) string {
+	value, _, _ := configEditAuthoredValue(data, format, []configdoc.Step{{Key: "repos"}})
+	tables, _ := value.(*jsonx.OrderedMap)
+	if tables == nil || tables.Len() == 0 {
+		return "none"
+	}
+	names := append([]string(nil), tables.Keys()...)
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// namedRepoLineUnsetRefusal refuses to unset `repos.<name>.repo` while the workspace still holds a
+// request under that name which would be left with no repository: with no repo line a name is the
+// clone's remote of that name on the broker's host (config's namedRequestTarget, GW-D76), so the
+// unset stands only when every broker with a request has that remote. It is "" when the unset may
+// go on. unset spells the command that removes one key from the selected file.
+func namedRepoLineUnsetRefusal(workspace, name string, data []byte, unset func(steps ...string) string) string {
+	// The effective config holds a request any workspace file writes; when it cannot be read the
+	// selected file alone is asked.
+	var root *jsonx.OrderedMap
+	if cfg, err := config.LoadReadableConfig(workspace, false, func(string) {}); err == nil {
+		root = cfg
+	} else if doc, parseErr := configdoc.Parse(data, configdoc.TOML); parseErr == nil {
+		root = doc.Values
+	}
+	value, _ := configValueAt(root, "repos", name, "requests")
+	requests, _ := value.(*jsonx.OrderedMap)
+	if requests == nil {
+		return ""
+	}
+	brokers, _, _ := allowSelectedBrokers()
+	var commands []string
+	orphaned := false
+	for _, source := range requests.Keys() {
+		table, _ := requests.Get(source)
+		lines, _ := table.(*jsonx.OrderedMap)
+		if lines == nil || lines.Len() == 0 {
+			continue
+		}
+		for _, capability := range lines.Keys() {
+			commands = append(commands, unset("repos", name, "requests", source, capability))
+		}
+		if !cloneRemoteNamesRepo(workspace, name, source, brokers) {
+			orphaned = true
+		}
+	}
+	if !orphaned {
+		return ""
+	}
+	return fmt.Sprintf("repos.%s still holds requests, and this clone has no remote named %s to name their repository once the repo line is gone; nothing was written.\n"+
+		"  Remove each request first:\n    %s\n", name, name, strings.Join(commands, "\n    "))
+}
+
+// cloneRemoteNamesRepo reports whether the clone has a remote called name on the host source's
+// broker serves, which is the repository a `[repos.<name>]` table with no repo line names.
+func cloneRemoteNamesRepo(workspace, name, source string, brokers []config.ReadableBrokerDeclaration) bool {
+	for _, decl := range brokers {
+		if decl.Brokered.Source != source || decl.Brokered.RemoteHost == brokerscope.AnyRemoteHost {
+			continue
+		}
+		for _, remote := range brokerscope.ReadRemotes(workspace, decl.Brokered.RemoteHost).Remotes {
+			if remote.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isAllowPackSetting reports whether path is `allow.<pack>.<setting>`: exactly three keys, the

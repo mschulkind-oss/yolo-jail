@@ -7,7 +7,8 @@ import (
 
 // The generic config verbs write a named repository's line, and refuse every key a named repository
 // cannot take, without writing the file (GW-D76). The requests under a name are written by
-// `yolo request repos.<alias>.<source>`, not by the generic set.
+// `yolo request repos.<alias>.<source>`, not by the generic set; the generic unset removes one
+// (configunsetnamedrequest_test.go), and refuses a capability the broker does not declare.
 func TestPublicConfigOnANamedRepositoryWritesItsLineAndRefusesBadKeys(t *testing.T) {
 	fx := newNamedVerbFixture(t, "[repos.infra]\nrepo = \"github.com/acme/infra\"\n", requestReposAllow)
 
@@ -28,7 +29,7 @@ func TestPublicConfigOnANamedRepositoryWritesItsLineAndRefusesBadKeys(t *testing
 		{"yolo", "config", "set", "repos.infra.requests.nope.runs", "deploy.yml"},
 		{"yolo", "config", "set", "repos.infra.requests.github.runz", "x"},
 		{"yolo", "config", "add", "repos.infra.requests.github.runs", "deploy.yml"},
-		{"yolo", "config", "unset", "repos.infra.requests.github.create_pr"},
+		{"yolo", "config", "unset", "repos.infra.requests.github.runz"},
 	} {
 		before := readFile(t, fx.project)
 		rc, out, errs := captureStd(t, func() int { return Main(argv) })
