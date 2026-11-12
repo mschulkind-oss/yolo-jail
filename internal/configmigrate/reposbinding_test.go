@@ -139,3 +139,31 @@ func TestMigrateLeavesATOMLFileWithoutTheOldKeyAsItIs(t *testing.T) {
 		t.Fatalf("planning wrote the project file:\n%s", got)
 	}
 }
+
+// A legacy pattern entry is not converted: a table for it would be a live grant equal to an inert
+// one (GW-D80). The JSONC file holding it stays whole, unconverted and still read, with the reason
+// and the next step.
+func TestMigrateKeepsAJSONCFileWithALegacyPatternEntryWhole(t *testing.T) {
+	env(t)
+	ws := realDir(t)
+	namedRemotes(t, ws, "origin", "https://github.com/acme/app.git")
+	jsonc := `{"brokered": {"github": {"repos": ["acme/*"]}}}` + "\n"
+	jsoncPath := filepath.Join(ws, "yolo-jail.jsonc")
+	write(t, jsoncPath, jsonc)
+	p := plan(t, Request{Workspace: ws})
+	if len(p.NotConverted) != 1 || p.NotConverted[0].File != jsoncPath ||
+		!strings.Contains(p.NotConverted[0].Reason, "yolo request") {
+		t.Fatalf("not converted = %+v", p.NotConverted)
+	}
+	for _, tg := range p.Targets {
+		if tg.Old == jsoncPath {
+			t.Fatalf("the file with the pattern entry was converted:\n%s", tg.Bytes)
+		}
+	}
+	if text := targetText(p); strings.Contains(text, "repos") {
+		t.Fatalf("a TOML companion was written for the pattern entry:\n%s", text)
+	}
+	if got, _ := os.ReadFile(jsoncPath); string(got) != jsonc {
+		t.Fatalf("planning changed the file:\n%s", got)
+	}
+}

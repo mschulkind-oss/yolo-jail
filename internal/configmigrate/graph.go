@@ -87,6 +87,9 @@ type File struct {
 	// packRenames are the `[requests.<pack>]` tables a TOML project file names a renamed
 	// configured pack by, respelled to the converted name (withRenamedPackRequests).
 	packRenames map[string]string
+	// retainedRepo is why a JSONC project file stays whole and unconverted: a `brokered` repos
+	// list holds an entry with no named table (markUnsafeLegacyRepos). "" for every other file.
+	retainedRepo NotConverted
 }
 
 type includeEdge struct {
@@ -266,6 +269,7 @@ func Discover(req Request) (*Graph, error) {
 	g.markRespelled()
 	g.markRemovedSetupKeys()
 	g.markLegacyRepos()
+	g.markUnsafeLegacyRepos()
 	return g, nil
 }
 
@@ -313,6 +317,38 @@ func (g *Graph) markLegacyRepos() {
 					f.Role, f.legacyRepos = RoleRespell, true
 					break
 				}
+			}
+		}
+	}
+}
+
+// markUnsafeLegacyRepos retains each project JSONC file whose `brokered.<source>.repos` list holds
+// an entry that is not a plain owner/repo: that entry has no named table (GW-D80), so the file is
+// kept whole, unconverted and still read, and the plan names the entry.
+func (g *Graph) markUnsafeLegacyRepos() {
+	for _, f := range g.Files {
+		if f.Role != RoleConvert || f.Scope != ScopeProject || f.doc == nil {
+			continue
+		}
+		brokered, ok := mapAt(f.doc.Values, "brokered")
+		if !ok {
+			continue
+		}
+		for _, source := range brokered.Keys() {
+			table, ok := mapAt(brokered, source)
+			if !ok {
+				continue
+			}
+			list, _ := table.Get("repos")
+			entries, _ := list.([]any)
+			for _, entry := range entries {
+				text, _ := entry.(string)
+				if plainRepoEntry(text) {
+					continue
+				}
+				f.Role = RoleRead
+				f.retainedRepo = NotConverted{File: f.Logical, Path: "brokered." + source + ".repos", Reason: notPlainRepoReason(text, source)}
+				break
 			}
 		}
 	}

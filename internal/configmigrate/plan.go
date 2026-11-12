@@ -377,6 +377,9 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			p.Targets = append(p.Targets, t)
 			newBytes[f] = t.Bytes
 		default:
+			if f.retainedRepo.Reason != "" {
+				p.NotConverted = append(p.NotConverted, f.retainedRepo)
+			}
 			newBytes[f] = f.Bytes
 		}
 	}

@@ -145,6 +145,16 @@ func ownerRepoName(repo string) string {
 	return nameUnsafe.ReplaceAllString(strings.Join(parts[len(parts)-2:], "-"), "-")
 }
 
+// plainRepoEntry is an owner/repo entry: a pattern or wildcard has no named table.
+func plainRepoEntry(text string) bool {
+	return !strings.Contains(text, "*") && strings.Count(text, "/") == 1 && !strings.HasPrefix(text, "/")
+}
+
+// notPlainRepoReason is why an entry that is not plain stays in its old file, with its next step.
+func notPlainRepoReason(text, source string) string {
+	return fmt.Sprintf("%q is not a plain owner/repo; a pattern or wildcard entry has no named table (GW-D80). Leave it in this file, which yolo keeps reading, and name the repository with `yolo request %s <host>/<path>`", text, source)
+}
+
 // repoTable is one named table a `requests.<source>.repos` entry or a non-origin remote converts
 // to: repo is its `repo` line, "" for a remote's table; lines are the copies it takes.
 type repoTable struct {
@@ -164,9 +174,9 @@ func (in *legacyRepos) convert(source string, entries []any, logical string) ([]
 	path := "requests." + source + ".repos"
 	for _, entry := range entries {
 		text, _ := entry.(string)
-		if strings.Contains(text, "*") || strings.Count(text, "/") != 1 || strings.HasPrefix(text, "/") {
+		if !plainRepoEntry(text) {
 			kept = append(kept, entry)
-			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: fmt.Sprintf("%q is not a plain owner/repo; a pattern or wildcard entry has no named table (GW-D80). Leave it in this file, which yolo keeps reading, and name the repository with `yolo request %s <host>/<path>`", text, source)})
+			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: notPlainRepoReason(text, source)})
 			continue
 		}
 		host := in.hosts[source]
