@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -147,8 +148,8 @@ func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, user
 
 // validateGateReadableAllowance reports what the launch's config-change gate would refuse in the
 // readable broker authority (readableScopeCheckWithSettings → ReadableAuthorityError), so
-// `yolo config check` and `yolo check` never call valid a config a launch refuses: the retired
-// `requests.<source>.repos` list (GW-D75) among them. It runs the gate's own resolution
+// `yolo config check` and `yolo check` do not call valid a config a launch refuses for the
+// retired `requests.<source>.repos` list (GW-D75). It runs the gate's own resolution
 // (resolveGateReadableAllowance) over the selected packs' declarations, as a config edit's
 // validation does (BuildReadableSemanticInputs), which is why only the unedited path (edit == nil) calls it.
 // Nothing when the config names none of the keys the gate resolves, or when a read it needs
@@ -180,7 +181,12 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	for _, p := range packs {
 		selected = append(selected, p.Name)
 	}
-	if _, _, _, err := resolveGateReadableAllowance(workspace, user, userSources, read, selected, declarations, settings); err != nil {
+	_, _, _, err = resolveGateReadableAllowance(workspace, user, userSources, read, selected, declarations, settings)
+	// Only the retired key is reported. These declarations come from the selected packs, not
+	// from the launch's running scope brokers (call brokers such as aws-s3 among them), so any
+	// other resolution error here may be one the launch does not raise.
+	var retired *RetiredReposKeyError
+	if errors.As(err, &retired) {
 		add(errs, err.Error())
 	}
 }

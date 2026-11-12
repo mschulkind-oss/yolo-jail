@@ -2021,8 +2021,13 @@ func retiredReposKeyError(path, host string, value any) error {
 	if list := stringList(value); len(list) > 0 {
 		repo = list[0]
 	}
-	return fmt.Errorf("%s is retired; declare each repository as its own table, [repos.<name>] with repo = %q, and run `yolo config migrate`", path, host+"/"+repo)
+	return &RetiredReposKeyError{msg: fmt.Sprintf("%s is retired; declare each repository as its own table, [repos.<name>] with repo = %q, and run `yolo config migrate`", path, host+"/"+repo)}
 }
+
+// RetiredReposKeyError is the refusal of a retired `requests.<source>.repos` list (GW-D75).
+type RetiredReposKeyError struct{ msg string }
+
+func (e *RetiredReposKeyError) Error() string { return e.msg }
 
 func stringList(value any) []string { values, _ := readableStringList(value, "request"); return values }
 func appendReadableRepo(requests []ReadableRepoRequest, request ReadableRepoRequest) []ReadableRepoRequest {
