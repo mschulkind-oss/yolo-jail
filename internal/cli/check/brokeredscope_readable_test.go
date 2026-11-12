@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -62,11 +63,13 @@ func checkScopeReadableBroker(t *testing.T, source, brokerName, owner, remoteHos
 		t.Fatal(err)
 	}
 	inactiveSource, inactiveReadCapability, inactiveRemoteHost := "github", "read", "github.com"
-	inactiveConfig := ""
 	if source == "github" {
 		inactiveSource, inactiveReadCapability, inactiveRemoteHost = "git", "fetch", "*"
-		inactiveConfig = "[requests.git]\npush = [\"main\"]\n"
 	}
+	// The inactive broker's own write request, valid for the `branch` kind its manifest declares
+	// and inside the user's ceiling: only the broker not starting keeps it out of the gate.
+	inactiveRequestPath := "requests." + inactiveSource + ".push"
+	inactiveConfig := "[requests." + inactiveSource + "]\npush = [\"main\"]\n"
 	inactiveManifest := fmt.Sprintf(`{"name":"inactive-broker","transport":"loopback-tls","lifecycle":"spawned","host_daemon":{"cmd":["/bin/true","{socket}","{repository_scope}"],"publishes":"socket"},"brokered":{"source":%q,"remote_host":%q,"grants":["branch"],"read_capability":%q,"kind_capabilities":{"branch":"push"}},"platforms":["windows"]}`, inactiveSource, inactiveRemoteHost, inactiveReadCapability)
 	if err := os.WriteFile(filepath.Join(inactiveModule, "manifest.jsonc"), []byte(inactiveManifest), 0o600); err != nil {
 		t.Fatal(err)
@@ -156,9 +159,29 @@ func checkScopeReadableBroker(t *testing.T, source, brokerName, owner, remoteHos
 			t.Fatalf("inactive selected broker reached a readable capability decision: %+v", source)
 		}
 	}
+	// A named repository's read scope is shared by every host-Git source, so the inactive broker's
+	// WRITE request is the boundary: no request result, grant or decision may come from it.
 	for _, request := range got.ReadableInput.Requests {
-		if request.Path == "requests."+inactiveSource+".repos" || request.Path == "requests."+inactiveSource+".push" {
+		if request.Path == inactiveRequestPath || request.Source == inactiveSource {
 			t.Fatalf("inactive selected broker request reached the gate: %+v", request)
+		}
+	}
+	for _, gateSource := range got.ReadableInput.Sources {
+		for _, decision := range gateSource.Decisions {
+			for _, origin := range decision.Origins {
+				if strings.HasPrefix(origin, "requests."+inactiveSource+".") {
+					t.Fatalf("inactive selected broker request became a grant decision: %+v", decision)
+				}
+			}
+		}
+		if source == "github" {
+			// The inactive git request asks for a branch push; the active github fixture declares
+			// no such kind, so any branch grant here came from the inactive request.
+			for _, grant := range gateSource.Grants {
+				if grant.Kind == "branch" {
+					t.Fatalf("inactive selected broker request became a grant: %+v", grant)
+				}
+			}
 		}
 	}
 	for _, repository := range got.ReadableInput.AdditionalRepositories {

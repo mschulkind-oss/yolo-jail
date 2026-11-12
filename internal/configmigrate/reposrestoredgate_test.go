@@ -10,9 +10,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// gateCheckOf reads the workspace through the launch's gate reader and builds the github scope
-// check the launch builds from the shipped declaration.
-func gateCheckOf(t *testing.T, ws string) *config.ScopeCheck {
+// gateScopeCheck reads the workspace through the launch's gate reader and builds the github scope
+// check the launch builds from the shipped declaration, fatal or not.
+func gateScopeCheck(t *testing.T, ws string) *config.ScopeCheck {
 	t.Helper()
 	decls, _, err := config.ReadableDeclarationsForPacks(packload.Embedded())
 	if err != nil {
@@ -22,15 +22,22 @@ func gateCheckOf(t *testing.T, ws string) *config.ScopeCheck {
 	if err != nil {
 		t.Fatalf("the workspace does not read through the gate: %v", err)
 	}
-	check := config.NewScopeCheck(ws, []config.ScopeBroker{shippedGitHubScopeBroker(t, decls)}, read)
+	return config.NewScopeCheck(ws, []config.ScopeBroker{shippedGitHubScopeBroker(t, decls)}, read)
+}
+
+// gateCheckOf is gateScopeCheck for a workspace the launch accepts: one source and no refusal.
+func gateCheckOf(t *testing.T, ws string) *config.ScopeCheck {
+	t.Helper()
+	check := gateScopeCheck(t, ws)
 	if check == nil || check.Fatal != nil || len(check.Sources) != 1 {
 		t.Fatalf("scope check: %+v", check)
 	}
 	return check
 }
 
-// A narrowed record approved before a legacy repos list is migrated: the migration restores the
-// list's writes as the gate's ask, never as approval. The approved record keeps the narrow grants
+// A narrowed record approved before a legacy repos list is migrated: the launch refuses the
+// retired key until the migration runs, and the migration restores the list's writes as the
+// gate's ask, never as approval. The approved record keeps the narrow grants
 // until the owner accepts the migrated scope.
 func TestMigratedRetainedWritesAskAfterTheNarrowedScopeWasApproved(t *testing.T) {
 	home := env(t)
@@ -49,15 +56,27 @@ func TestMigratedRetainedWritesAskAfterTheNarrowedScopeWasApproved(t *testing.T)
 		t.Fatalf("the narrowed record already holds %s: %v", otherWrite, got)
 	}
 
-	// The legacy local list arrives: the gate asks for it before the migration runs.
+	// The legacy local list arrives: the launch refuses the retired key, naming the migration,
+	// before the migration runs (GW-D77), and the approved record is as it was.
+	approvedBefore := grantStringsOf(config.ApprovedGrants(ws, "github"))
 	localPath := filepath.Join(ws, oracleLocal)
 	write(t, localPath, "[requests.github]\nrepos = [\"other/lib\"]\n")
-	before, err := config.ScopeChanges(ws, gateCheckOf(t, ws))
-	if err != nil {
-		t.Fatal(err)
+	refused := gateScopeCheck(t, ws)
+	if refused == nil || refused.Fatal == nil {
+		t.Fatalf("the launch does not refuse the retired requests.github.repos key: %+v", refused)
 	}
-	if !before.ScopeChanged {
-		t.Fatalf("the gate does not ask for the legacy list's writes before the migration")
+	for _, want := range []string{"requests.github.repos", "[repos.<name>]", "github.com/other/lib", "yolo config migrate"} {
+		if !strings.Contains(refused.Fatal.Error(), want) {
+			t.Fatalf("the refusal does not name %q: %v", want, refused.Fatal)
+		}
+	}
+	for _, source := range refused.Sources {
+		if len(source.Grants) > 0 {
+			t.Fatalf("the refused source carries grants: %+v", source.Grants)
+		}
+	}
+	if got := grantStringsOf(config.ApprovedGrants(ws, "github")); strings.Join(got, "\n") != strings.Join(approvedBefore, "\n") {
+		t.Fatalf("the refusal moved the approved record: %v, was %v", got, approvedBefore)
 	}
 
 	// THE MIGRATION does not approve anything.
@@ -72,7 +91,7 @@ func TestMigratedRetainedWritesAskAfterTheNarrowedScopeWasApproved(t *testing.T)
 		t.Fatalf("the migration approved %s: %v", otherWrite, got)
 	}
 
-	// After the migration the gate asks for the same writes, with the same added line.
+	// After the migration the gate asks for the restored writes, as an added line.
 	after, err := config.ScopeChanges(ws, gateCheckOf(t, ws))
 	if err != nil {
 		t.Fatal(err)

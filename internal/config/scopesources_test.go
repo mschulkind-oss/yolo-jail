@@ -16,9 +16,15 @@ import (
 // pinned in internal/cli/run.
 
 // entryScope is one github source whose remotes are remotes and whose entry is entry.
+// entryScope is a github source read from a legacy JSONC workspace file: its entries are the
+// `brokered.github.repos` list, so it carries that authored key exactly as the legacy reader
+// does for a source with a brokered target (scopeCheckFromReadable). A source with no authored
+// key names the canonical [repos.<name>] table instead (GW-D75), which
+// TestReadableRemovingLastRepositoryUsesAuthoredRequestKey pins.
 func entryScope(remotes []brokerscope.Remote, entry ...EntryRepo) *ScopeCheck {
 	return &ScopeCheck{Sources: []ScopeSource{{Source: "github", Label: "github-broker", RemoteHost: "github.com",
-		Read: brokerscope.Read{GitConfig: "/w/.git/config", Remotes: remotes}, Entry: entry}}}
+		Read: brokerscope.Read{GitConfig: "/w/.git/config", Remotes: remotes}, Entry: entry,
+		EntryKey: brokeredReposPath("github")}}}
 }
 
 // acceptReporter is a ReportPrompter and an AcceptedReporter that records what each was shown.
@@ -121,7 +127,10 @@ func TestAnEntryIsARowNamingItsFileAndTheGateReturnsWhatItApproved(t *testing.T)
 // built on its leaning). The decline's next step names the entry's file.
 func TestAChangeOfSourceAsks(t *testing.T) {
 	ws := approvalWorkspace(t)
-	both := entryScope([]brokerscope.Remote{origin}, EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc"}})
+	// k/r stays listed in every case: the legacy reader knows the authored key only from a
+	// `brokered.github.repos` entry the file still holds, so the edit names that key.
+	kept := EntryRepo{Repo: "k/r", Files: []string{"yolo-jail.jsonc"}}
+	both := entryScope([]brokerscope.Remote{origin}, EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc"}}, kept)
 	if err := RecordApproval(ws, decode(t, `{}`), both); err != nil {
 		t.Fatal(err)
 	}
@@ -130,13 +139,13 @@ func TestAChangeOfSourceAsks(t *testing.T) {
 		row   string
 		files string
 	}{
-		"the entry removed under a remote": {githubScope(origin),
+		"the entry removed under a remote": {entryScope([]brokerscope.Remote{origin}, kept),
 			`~ o/r  remote "origin" (was remote "origin", yolo-jail.jsonc)  source changed`, "yolo-jail.jsonc"},
 		"a second file for an approved repository": {entryScope([]brokerscope.Remote{origin},
-			EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc", "yolo-jail.local.jsonc"}}),
+			EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc", "yolo-jail.local.jsonc"}}, kept),
 			`(was remote "origin", yolo-jail.jsonc)  source changed`, "yolo-jail.jsonc,yolo-jail.local.jsonc"},
 		"a remote renamed": {entryScope([]brokerscope.Remote{{Name: "upstream", Repo: "o/r"}},
-			EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc"}}),
+			EntryRepo{Repo: "o/r", Files: []string{"yolo-jail.jsonc"}}, kept),
 			`~ o/r  remote "upstream", yolo-jail.jsonc (was remote "origin", yolo-jail.jsonc)  source changed`, "yolo-jail.jsonc"},
 	} {
 		p := &reportPrompter{accept: false}
@@ -237,15 +246,16 @@ func TestARecordedFileLabelIsEscapedInASourceChangedRow(t *testing.T) {
 }
 
 // WW-D26: a removed entry's row takes its file from the sources record, so the decline names the
-// file the entry was removed from.
+// file the entry was removed from. org/kept stays listed, so the legacy key is still authored.
 func TestARemovedEntryNamesTheFileItWasIn(t *testing.T) {
 	ws := approvalWorkspace(t)
+	kept := EntryRepo{Repo: "org/kept", Files: []string{"yolo-jail.jsonc"}}
 	if err := RecordApproval(ws, decode(t, `{}`), entryScope([]brokerscope.Remote{origin},
-		EntryRepo{Repo: "org/lib", Files: []string{"yolo-jail.local.jsonc"}})); err != nil {
+		EntryRepo{Repo: "org/lib", Files: []string{"yolo-jail.local.jsonc"}}, kept)); err != nil {
 		t.Fatal(err)
 	}
 	p := &reportPrompter{accept: false}
-	if ok, err := CheckConfigAndScopeChanges(ws, decode(t, `{}`), githubScope(origin), true, false, p); ok || err != nil {
+	if ok, err := CheckConfigAndScopeChanges(ws, decode(t, `{}`), entryScope([]brokerscope.Remote{origin}, kept), true, false, p); ok || err != nil {
 		t.Fatalf("ok=%v err=%v, want asked and declined", ok, err)
 	}
 	if !strings.Contains(strings.Join(p.got.ScopeBlock, "\n"), "- org/lib") {
