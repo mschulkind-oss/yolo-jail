@@ -152,7 +152,7 @@ func (e *env) exchange() string {
 
 func bearer(tok string) map[string]string { return map[string]string{"Authorization": "Bearer " + tok} }
 
-func loadHostile(t *testing.T, h *hub.Hub) {
+func hostileState(t *testing.T) model.StateView {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "testdata", "approve-json-populated.json"))
 	if err != nil {
@@ -162,6 +162,14 @@ func loadHostile(t *testing.T, h *hub.Hub) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return st
+}
+
+// loadHostile feeds the hostile fixture as three separate hub inputs, so a reader woken by
+// Changed may see the state between them.
+func loadHostile(t *testing.T, h *hub.Hub) {
+	t.Helper()
+	st := hostileState(t)
 	h.Apply(model.SnapshotOK{State: st, FetchStart: base})
 	h.Apply(model.WatchStarted{At: base})
 	h.Apply(model.SnapshotOK{State: st, FetchStart: base, FromWatch: true})
@@ -681,9 +689,11 @@ func TestStreamSendsWholeStateOnConnectOnChangeAndOnAnInterval(t *testing.T) {
 	// Two more with no change at all: the interval keeps it alive.
 	readEvent(t, br)
 	readEvent(t, br)
-	// A change arrives as whole state.
-	loadHostile(t, e.hub)
-	for {
+	// A change arrives as whole state. Loading is three hub inputs and each one wakes the
+	// stream, so the stream may publish between them; drive them one at a time so every
+	// in-between state is read deterministically instead of raced.
+	next := func() model.Published {
+		t.Helper()
 		var got model.Published
 		data := readEvent(t, br)
 		if !isASCII(data) {
@@ -692,11 +702,26 @@ func TestStreamSendsWholeStateOnConnectOnChangeAndOnAnInterval(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &got); err != nil {
 			t.Fatal(err)
 		}
-		if len(got.Pending) == 6 {
-			if got.Freshness.State != model.FreshLive {
-				t.Fatalf("freshness %+v", got.Freshness)
-			}
-			break
+		return got
+	}
+	st := hostileState(t)
+	e.hub.Apply(model.SnapshotOK{State: st, FetchStart: base})
+	// Until the snapshot shows up, messages are interval re-sends of the empty state.
+	got := next()
+	for len(got.Pending) == 0 {
+		got = next()
+	}
+	// A snapshot with no watch yet is whole state, and honestly stale.
+	if len(got.Pending) != 6 || got.Freshness.State != model.FreshStale {
+		t.Fatalf("before the watch: %d pending, freshness %+v", len(got.Pending), got.Freshness)
+	}
+	e.hub.Apply(model.WatchStarted{At: base})
+	e.hub.Apply(model.SnapshotOK{State: st, FetchStart: base, FromWatch: true})
+	// Every message stays whole state; the watch's snapshot turns it live.
+	for got.Freshness.State != model.FreshLive {
+		got = next()
+		if len(got.Pending) != 6 {
+			t.Fatalf("partial state on the stream: %d pending", len(got.Pending))
 		}
 	}
 	// Close ends the stream.
