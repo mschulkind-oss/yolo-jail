@@ -217,6 +217,9 @@ type ReadableGateInput struct {
 	PackSettings           map[string]map[string]any
 	PackSettingOrigins     map[string]map[string][]string
 	TableTombstones        []ReadableTableTombstone
+	// ScopedCeilings are the user `[repos.<name>.allow.<source>]` tables, so provenance names the
+	// table and file that admitted a grant (GW-D64).
+	ScopedCeilings []ReadableScopedCeiling
 	// Differences require an explicit no-write migration/gate decision; never ignore them and claim equivalence.
 	Differences []string
 }
@@ -633,6 +636,11 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 	for i := range input.TableTombstones {
 		input.TableTombstones[i].Files = cloneOrigins(input.TableTombstones[i].Files)
 	}
+	for _, c := range plan.ScopedCeilings {
+		c.Always, c.OnRequest = slices.Clone(c.Always), slices.Clone(c.OnRequest)
+		c.AlwaysFiles, c.OnRequestFiles = cloneOrigins(c.AlwaysFiles), cloneOrigins(c.OnRequestFiles)
+		input.ScopedCeilings = append(input.ScopedCeilings, c)
+	}
 	for _, policy := range plan.Sources {
 		if policy.CallBroker != nil || policy.RemoteHost == brokerscope.AnyRemoteHost {
 			continue
@@ -673,6 +681,16 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			for _, additional := range input.AdditionalRepositories {
 				targets = appendReadableRepository(targets, additional)
 			}
+			// A named table's literal repository is one the workspace names, so it is a target too (RC-D26);
+			// a pattern names no repository a fetch can spell, so it is none.
+			for _, named := range plan.NamedRepos {
+				if named.Repository == "" || named.Pattern {
+					continue
+				}
+				host, owned, _ := strings.Cut(named.Repository, "/")
+				targets = appendReadableRepository(targets, ReadableRepository{Source: policy.Source, RemoteHost: host, Repository: owned,
+					Origin: "repos." + named.Name, Files: cloneOrigins(named.Files)})
+			}
 		}
 		// A named table's repository reads with this source's own read grant (GW-D76). It joins no
 		// unqualified request line, so it is in readTargets and never in requestTargets.
@@ -684,6 +702,20 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		namedRequests, err := namedRequestTargets(workspace, policy, plan.NamedRepos, input.Requests)
 		if err != nil {
 			return ReadableGateInput{}, err
+		}
+		// A named table with no repo line names the repository its remote of that name points at, so a
+		// request the gate skips still says which repository it is (RC-D26 remedy). An unresolvable
+		// remote stays unnamed here; the granted path reports it.
+		for i := range input.Requests {
+			request := &input.Requests[i]
+			if request.Table == "" || request.Source != policy.Source || request.Repository != "" {
+				continue
+			}
+			if j := slices.IndexFunc(plan.NamedRepos, func(n ReadableNamedRepo) bool { return n.Name == request.Table }); j >= 0 {
+				if target, err := namedRequestTarget(workspace, policy, plan.NamedRepos[j]); err == nil {
+					request.Repository = target.RemoteHost + "/" + target.Repository
+				}
+			}
 		}
 		readCapability := ReadableReadCapability{Source: policy.Source, Label: policy.Label, Capability: policy.ReadCapability,
 			Always: slices.Contains(policy.Always, policy.ReadCapability), OnRequest: slices.Contains(policy.OnRequest, policy.ReadCapability),
@@ -1165,6 +1197,9 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 		i := readableBrokerIndex(plan.Sources, source)
 		if i < 0 {
 			continue
+		}
+		if err := scopedCeilingReadProblem(t.name, plan.Sources[i]); err != nil {
+			return nil, true, err
 		}
 		scopedKinds, err := readablePolicyGrantKinds(plan.Sources[i], declarations)
 		if err != nil {

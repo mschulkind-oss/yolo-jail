@@ -118,3 +118,30 @@ func TestAScopedCeilingIsRefusedDirectlyUnderAllow(t *testing.T) {
 		t.Fatalf("a list directly under repos.jail.allow: fatal %v, want a refusal naming [allow.github]", check.Fatal)
 	}
 }
+
+// A repository's ceiling lists write capabilities only: the read capability is every workspace's,
+// so a scoped list that holds it is refused where it is written, and the message names the broad
+// list that gives it (GW-D64, GW-D80).
+func TestAScopedCeilingRefusesTheReadCapability(t *testing.T) {
+	for _, list := range []string{"always", "on_request"} {
+		t.Run(list, func(t *testing.T) {
+			user := repoScopeUserAll + "[repos.jail]\nrepo = \"github.com/acme/app\"\n[repos.jail.allow.github]\n" + list + " = [\"read\"]\n"
+			workspace := repoScopeWorkspace(t, user, repoScopeOrigin, repoScopeOriginLines, "")
+			check, _ := repoScopeCheck(t, workspace)
+			if check.Fatal == nil || !strings.Contains(check.Fatal.Error(), "repos.jail.allow.github."+list) || !strings.Contains(check.Fatal.Error(), "yolo allow github always read") {
+				t.Fatalf("fatal %v, want a refusal naming repos.jail.allow.github.%s and yolo allow github always read", check.Fatal, list)
+			}
+		})
+	}
+}
+
+// The same refusal holds where the runtime reads a ceiling: BrokeredGrantKindsForRepo gives no kinds
+// for the identity and names the same next step, so no write is made under a read the ceiling holds.
+func TestAScopedCeilingRefusesTheReadCapabilityAtRunTime(t *testing.T) {
+	writeScopedCeilingUser(t, "on_request = ['create_pr']\n",
+		"[repos.jail]\nrepo = 'github.com/o/r'\n\n[repos.jail.allow.github]\nalways = ['read']\non_request = ['runs']\n")
+	kinds, canonical, err := BrokeredGrantKindsForRepo("github", "github.com/o/r")
+	if err == nil || !canonical || len(kinds) != 0 || !strings.Contains(err.Error(), "yolo allow github always read") {
+		t.Fatalf("kinds %v, canonical %t, err %v: want no kinds and an error naming yolo allow github always read", kinds, canonical, err)
+	}
+}

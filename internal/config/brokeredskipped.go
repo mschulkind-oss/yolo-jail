@@ -48,11 +48,19 @@ func (s BrokeredSkippedRequest) AllowCommand() string {
 // conflictNote says a name the workspace and the user both give names two repositories, so the
 // report offers no remedy for it: writing the user's name again would retarget it (GW-D76).
 func (s BrokeredSkippedRequest) conflictNote() string {
-	if s.Table == "" || s.Repository == "" || s.UserRepository == "" || s.Repository == s.UserRepository {
+	if s.Table == "" || s.Repository == "" || s.UserRepository == "" || s.Repository == s.UserRepository || repoLineCovers(s.UserRepository, s.Repository) {
 		return ""
 	}
 	return fmt.Sprintf("repos.%s is your config's name for %s, not %s: name this project's repository another name",
 		termsafe.Visible(s.Table), termsafe.Visible(s.UserRepository), termsafe.Visible(s.Repository))
+}
+
+// repoLineCovers reports whether the user's repo line admits repository by host and whole segments,
+// the rule a scoped ceiling admits a repository by (GW-D80): a pattern covers, a name differing only in case is the same.
+func repoLineCovers(userLine, repository string) bool {
+	host := namedRepoHost(userLine)
+	return scopedCeilingAdmits(ReadableScopedCeiling{Host: host, Repository: strings.TrimPrefix(userLine, host+"/")},
+		ReadableRepository{RemoteHost: namedRepoHost(repository), Repository: strings.TrimPrefix(repository, namedRepoHost(repository)+"/")})
 }
 
 // remedies are the commands the report offers, the scoped allow first. A named request whose user

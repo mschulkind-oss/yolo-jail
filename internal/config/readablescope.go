@@ -538,8 +538,15 @@ func readableWorkspaceOrigins(config *jsonx.OrderedMap, sources *Sources) map[st
 // config's `allow.<source>.on_request` (or `.always`) ceiling admits it: the ceiling lets the
 // workspace ask, and the workspace asked. The label is empty when no file is known.
 func readableGrantProvenance(source string, decision ReadableGrantDecision, input ReadableGateInput) (fromUser bool, label string) {
-	var userKey, requestKey, brokeredKey string
+	var userKey, requestKey, brokeredKey, scopedKey string
+	var scopedFiles []string
 	for _, origin := range decision.Origins {
+		if files, ok := scopedCeilingOriginFiles(origin, input.ScopedCeilings); ok {
+			if scopedKey == "" {
+				scopedKey, scopedFiles = origin, files
+			}
+			continue
+		}
 		switch {
 		case strings.HasPrefix(origin, "allow."):
 			parts := strings.SplitN(origin, ".", 4)
@@ -596,8 +603,33 @@ func readableGrantProvenance(source string, decision ReadableGrantDecision, inpu
 		return false, located(files, requestKey, "")
 	case brokeredKey != "":
 		return false, located(decision.Files, brokeredKey, "")
+	case scopedKey != "":
+		// A scoped always grant is the user's, labelled with the table's own file (GW-D64).
+		shown := make([]string, len(scopedFiles))
+		for i, f := range scopedFiles {
+			shown[i] = tildePath(f)
+		}
+		return true, located(shown, scopedKey, "")
 	}
 	return false, ""
+}
+
+// scopedCeilingOriginFiles reports whether origin is a user scoped ceiling's list key,
+// `repos.<name>.allow.<source>.<list>`, and the user file that list is written in.
+func scopedCeilingOriginFiles(origin string, ceilings []ReadableScopedCeiling) ([]string, bool) {
+	for _, c := range ceilings {
+		prefix := "repos." + c.Name + ".allow." + c.Source + "."
+		if !strings.HasPrefix(origin, prefix) {
+			continue
+		}
+		switch origin[len(prefix):] {
+		case "always":
+			return c.AlwaysFiles, true
+		case "on_request":
+			return c.OnRequestFiles, true
+		}
+	}
+	return nil, false
 }
 
 func readableUserOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
@@ -621,6 +653,7 @@ func readableUserOrigins(config *jsonx.OrderedMap, sources *Sources) map[string]
 			origins[strings.Join(path, ".")] = scopeSourceFiles(sources, path...)
 		}
 	}
+	readableNamedOrigins(origins, config, sources)
 	return origins
 }
 
@@ -697,7 +730,7 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 			// the one forge whose URLs are known here. Any other stays unrepresentable, with the notice.
 			var unrepresentable, requestedOnly []ReadableRepository
 			for _, target := range current.Targets {
-				if broker.RemoteHost == brokerscope.AnyRemoteHost && strings.HasPrefix(target.Origin, "requests.") && !hasMatchingRemoteTarget(current.Targets, target) {
+				if broker.RemoteHost == brokerscope.AnyRemoteHost && (strings.HasPrefix(target.Origin, "requests.") || strings.HasPrefix(target.Origin, "repos.")) && !hasMatchingRemoteTarget(current.Targets, target) {
 					if urls := brokerscope.RequestedRepoURLs(target.RemoteHost, target.Repository); len(urls) > 0 {
 						requestedOnly = append(requestedOnly, target)
 						for _, u := range urls {

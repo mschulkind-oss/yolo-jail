@@ -324,3 +324,27 @@ func TestAReposTableAloneSelectsTheReadableScope(t *testing.T) {
 		t.Fatalf("the named repository is not in the scope: %#v", check.Sources[0].Entry)
 	}
 }
+
+// A repo line's host is a host, not a path or an account: a repo line that does not start with a
+// lowercase host is refused where it is written, naming the line and the form that resolves (GW-D76).
+func TestARepoLineWithAMalformedHostIsRefused(t *testing.T) {
+	for _, line := range []string{"GitHub.com/acme/infra", "user@github.com/acme/infra", "acme/infra/extra"} {
+		t.Run(line, func(t *testing.T) {
+			workspace := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin, "[repos.infra]\nrepo = \""+line+"\"\n", "")
+			check, _ := repoScopeCheck(t, workspace)
+			if check.Fatal == nil || !strings.Contains(check.Fatal.Error(), "repos.infra.repo") || !strings.Contains(check.Fatal.Error(), "github.com/acme/infra") {
+				t.Fatalf("fatal %v, want a refusal naming repos.infra.repo and github.com/acme/infra", check.Fatal)
+			}
+		})
+	}
+}
+
+// Pin beside the malformed-host refusal: a mixed-case owner and repository are GitHub's own spelling
+// and resolve as the identity they name.
+func TestARepoLineWithMixedCaseNamesIsAccepted(t *testing.T) {
+	workspace := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin, "[repos.infra]\nrepo = \"github.com/Acme/Infra\"\n", "")
+	check, _ := repoScopeCheck(t, workspace)
+	if check.Fatal != nil {
+		t.Fatalf("a mixed-case repo line is refused: %v", check.Fatal)
+	}
+}

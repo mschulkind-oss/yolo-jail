@@ -706,3 +706,74 @@ func TestReadableRepositoryEntryEditsUseAuthoredRequestKey(t *testing.T) {
 		}
 	}
 }
+
+// A named repository reaches the git broker as the two URLs its github.com identity spells, and the
+// read grant its table makes; the requested-only rows carry no push. A pattern repo line is a
+// pattern, not a repository, so it names no URL and no note (RC-D26).
+func TestANamedRepositoryReachesTheGitBrokerAsItsTwoURLsAndNoPush(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	writeReadableScopeUser(t, home, "[allow.git]\nalways = [\"fetch\"]\non_request = [\"push\"]\n[allow.github]\nalways = [\"read\"]\n")
+	brokers := []ScopeBroker{
+		readableScopeBroker("git", "git", "git-broker", "*", "fetch", []string{"branch"}, map[string]string{"branch": "push"}),
+		readableScopeBroker("github", "github", "github-broker", "github.com", "read", nil, nil),
+	}
+	t.Run("a literal repository", func(t *testing.T) {
+		workspace := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.notes]\nrepo = \"github.com/example/notes\"\n[requests.git]\npush = [\"main\"]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		read, err := ReadWorkspaceForGate(workspace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check := NewScopeCheck(workspace, brokers, read)
+		var git *ScopeSource
+		for i := range check.Sources {
+			if check.Sources[i].Source == "git" {
+				git = &check.Sources[i]
+			}
+		}
+		if git == nil || git.Read.Problem != "" {
+			t.Fatalf("the git broker is missing or calls the named repository unrepresentable: %#v", check.Sources)
+		}
+		for _, url := range []string{"https://github.com/example/notes", "git@github.com:example/notes.git"} {
+			if !readableScopeEntry(git.Entry, url, WorkspaceTOMLConfigName) {
+				t.Errorf("the git broker's scope lacks %q: %#v", url, git.Entry)
+			}
+		}
+		if !containsGrant(git.Grants, brokerscope.Grant{Kind: brokerscope.KindRead, Repo: "github.com/example/notes"}) {
+			t.Fatalf("the named repository gained no read grant on the git broker: %#v", git.Grants)
+		}
+		for _, g := range git.Grants {
+			if g.Kind != brokerscope.KindRead {
+				t.Errorf("the named repository gained a %q grant on the git broker: %s", g.Kind, g.String())
+			}
+		}
+	})
+	t.Run("a pattern repository", func(t *testing.T) {
+		workspace := t.TempDir()
+		if err := os.WriteFile(filepath.Join(workspace, WorkspaceTOMLConfigName), []byte("[repos.org]\nrepo = \"github.com/example/*\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		read, err := ReadWorkspaceForGate(workspace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check := NewScopeCheck(workspace, brokers, read)
+		for _, s := range check.Sources {
+			if s.Source != "git" {
+				continue // the named-host broker serves its own host's pattern, as it always has
+			}
+			if s.Read.Problem != "" {
+				t.Errorf("a pattern repository is called unrepresentable on %s: %q", s.Source, s.Read.Problem)
+			}
+			for _, e := range s.Entry {
+				if strings.Contains(e.Repo, "*") || strings.Contains(e.Repo, "example/") {
+					t.Errorf("a pattern repository put %q in %s's scope", e.Repo, s.Source)
+				}
+			}
+		}
+	})
+}

@@ -167,3 +167,78 @@ func TestAScopedAlwaysLowersOnlyOnItsAdmittedIdentities(t *testing.T) {
 		t.Fatalf("writes are %v, want %v", got, want)
 	}
 }
+
+// A scoped admission is the workspace's grant: its label names the request that asked and its file,
+// and the user table that admitted it stays in the provenance as proof, not as the user's grant.
+func TestAScopedAdmissionIsLabelledWithTheWorkspacesRequest(t *testing.T) {
+	workspace := repoScopeWorkspace(t, repoScopeUserScoped, repoScopeOrigin, "[requests.github]\nruns = [\"*\"]\n", "")
+	check, _ := repoScopeCheck(t, workspace)
+	if check.Fatal != nil || len(check.Sources) != 1 {
+		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	}
+	s := check.Sources[0]
+	grant := brokerscope.Grant{Kind: brokerscope.KindRuns, Repo: "github.com/acme/app", Workflow: "*"}
+	label := s.GrantOrigins[grant.String()]
+	for _, want := range []string{WorkspaceTOMLConfigName, "requests.github.runs"} {
+		if !strings.Contains(label, want) {
+			t.Errorf("the grant's label is %q, want it to name %s", label, want)
+		}
+	}
+	if containsGrant(s.UserGrants, grant) {
+		t.Errorf("a scoped admission of the workspace's request is listed as the user's grant: %#v", s.UserGrants)
+	}
+}
+
+// A scoped always grant is the user's grant, labelled with the user table and its file.
+func TestAScopedAlwaysGrantIsTheUsersWithItsFile(t *testing.T) {
+	user := "[allow.github]\nalways = [\"read\"]\n[repos.jail]\nrepo = \"github.com/acme/app\"\n[repos.jail.allow.github]\nalways = [\"create_pr\"]\n"
+	gitConfig := repoScopeOrigin + "[remote \"upstream\"]\n\turl = https://github.com/elsewhere/app.git\n"
+	workspace := repoScopeWorkspace(t, user, gitConfig, "", "")
+	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read", []string{"create-pr"}, map[string]string{"create-pr": "create_pr"})
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := NewScopeCheck(workspace, []ScopeBroker{broker}, read)
+	if check.Fatal != nil || len(check.Sources) != 1 {
+		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	}
+	s := check.Sources[0]
+	grant := brokerscope.Grant{Kind: "create-pr", Repo: "github.com/acme/app"}
+	if !containsGrant(s.UserGrants, grant) {
+		t.Fatalf("the scoped always grant is not the user's: user grants %#v", s.UserGrants)
+	}
+	if label := s.GrantOrigins[grant.String()]; !strings.Contains(label, "config.toml") || !strings.Contains(label, "repos.jail.allow.github.always") {
+		t.Errorf("the grant's label is %q, want the user's file and its key", label)
+	}
+}
+
+// A user table that holds a broker's read floor is the broker's broad policy only: with an explicit
+// unqualified read request the read reaches the origin and the named table's repository, and the
+// table's own request lowers its one grant there. Without the explicit request nothing is granted.
+func TestAScopedRequestReadsOnlyUnderTheBrokersOwnReadFloor(t *testing.T) {
+	user := "[allow.github]\non_request = [\"read\", \"runs\"]\n"
+	project := "[repos.tools]\nrepo = \"github.com/example/tools\"\n[repos.tools.requests.github]\nruns = [\"lint.yml\"]\n"
+	workspace := repoScopeWorkspace(t, user, repoScopeOrigin, project, "")
+	check, _ := repoScopeCheck(t, workspace)
+	for _, s := range check.Sources {
+		if len(s.Grants) != 0 {
+			t.Fatalf("a named table read with no read floor: grants %v", repoScopeWrites(s.Grants))
+		}
+	}
+	workspace = repoScopeWorkspace(t, user, repoScopeOrigin, project+"\n[requests.github]\nread = true\n", "")
+	check, _ = repoScopeCheck(t, workspace)
+	if check.Fatal != nil || len(check.Sources) != 1 {
+		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	}
+	grants := check.Sources[0].Grants
+	for _, want := range []brokerscope.Grant{
+		{Kind: brokerscope.KindRead, Repo: "github.com/acme/app"},
+		{Kind: brokerscope.KindRead, Repo: "github.com/example/tools"},
+		{Kind: brokerscope.KindRuns, Repo: "github.com/example/tools", Workflow: "lint.yml"},
+	} {
+		if !containsGrant(grants, want) {
+			t.Errorf("grants %v lack %s", repoScopeWrites(grants), want.String())
+		}
+	}
+}

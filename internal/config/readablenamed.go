@@ -30,6 +30,9 @@ type ReadableScopedCeiling struct {
 	Repository string
 	Always     []string
 	OnRequest  []string
+	// AlwaysFiles and OnRequestFiles are the user config files each list is written in.
+	AlwaysFiles    []string
+	OnRequestFiles []string
 }
 
 // scopedCeilingAdmits reports whether c's repo line admits target: the same host, and each segment
@@ -112,11 +115,16 @@ func parseNamedRepo(path, value string) (repository string, pattern bool, err er
 	}
 	switch {
 	case brokerscope.ValidRepo(rest):
-		return value, false, nil
 	case brokerscope.ValidPattern(rest) && strings.Contains(rest, "*"):
-		return value, true, nil
+		pattern = true
+	default:
+		return "", false, fmt.Errorf("%s = %q: write OWNER/REPO after the host, such as \"github.com/acme/infra\"; a `*` may stand for a whole owner or repository segment", path, value)
 	}
-	return "", false, fmt.Errorf("%s = %q: write OWNER/REPO after the host, such as \"github.com/acme/infra\"; a `*` may stand for a whole owner or repository segment", path, value)
+	// The grant grammar is the one a repo line becomes: a host it would not spell as written is refused.
+	if !brokerscope.ValidGrant(brokerscope.Grant{Kind: brokerscope.KindRead, Repo: value, RepoPattern: pattern}) {
+		return "", false, fmt.Errorf("%s = %q: write the host too, in lowercase, such as \"github.com/acme/infra\"", path, value)
+	}
+	return value, pattern, nil
 }
 
 // validateNamedName refuses the names a `[repos.<name>]` table cannot take.
@@ -229,8 +237,28 @@ func readableScopedCeiling(plan *ReadableAllowancePlan, name, line string, table
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		if i := readableBrokerIndex(resolved.Sources, key); i >= 0 {
+			if err := scopedCeilingReadProblem(name, resolved.Sources[i]); err != nil {
+				return err
+			}
 			plan.ScopedCeilings = append(plan.ScopedCeilings, ReadableScopedCeiling{Name: name, Source: key, Host: namedRepoHost(line),
-				Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: resolved.Sources[i].Always, OnRequest: resolved.Sources[i].OnRequest})
+				Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: resolved.Sources[i].Always, OnRequest: resolved.Sources[i].OnRequest,
+				AlwaysFiles:    cloneOrigins(input.UserOrigins["repos."+name+".allow."+key+".always"]),
+				OnRequestFiles: cloneOrigins(input.UserOrigins["repos."+name+".allow."+key+".on_request"])})
+		}
+	}
+	return nil
+}
+
+// scopedCeilingReadProblem refuses a repository's ceiling that lists the read capability in either
+// list: reading is every workspace's, under the broker's broad list, so the next step is that list.
+func scopedCeilingReadProblem(name string, policy ReadableBrokerPolicy) error {
+	for _, list := range []struct {
+		name  string
+		holds []string
+	}{{"always", policy.Always}, {"on_request", policy.OnRequest}} {
+		if slices.Contains(list.holds, policy.ReadCapability) {
+			return fmt.Errorf("repos.%s.allow.%s.%s: a repository's ceiling lists write capabilities only; reading is for every workspace: yolo allow %s always %s",
+				name, policy.Source, list.name, policy.Source, policy.ReadCapability)
 		}
 	}
 	return nil
@@ -430,6 +458,10 @@ func readableNamedOrigins(origins map[string][]string, config *jsonx.OrderedMap,
 		}
 		origins["repos."+name] = scopeSourceFiles(sources, "repos", name)
 		for _, key := range table.Keys() {
+			if key == "allow" {
+				readableNamedAllowOrigins(origins, name, table, sources)
+				continue
+			}
 			if key != "requests" {
 				origins["repos."+name+"."+key] = scopeSourceFiles(sources, "repos", name, key)
 				continue
@@ -449,6 +481,25 @@ func readableNamedOrigins(origins map[string][]string, config *jsonx.OrderedMap,
 					origins[strings.Join(path, ".")] = scopeSourceFiles(sources, path...)
 				}
 			}
+		}
+	}
+}
+
+// readableNamedAllowOrigins records the file each list of a `[repos.<name>.allow.<source>]` table is
+// written in, `repos.<name>.allow.<source>.<list>`, the origin a scoped ceiling's grant carries.
+func readableNamedAllowOrigins(origins map[string][]string, name string, table *jsonx.OrderedMap, sources *Sources) {
+	allow, ok := asMap(readableValue(table, "allow"))
+	if !ok {
+		return
+	}
+	for _, source := range allow.Keys() {
+		lists, ok := asMap(readableValue(allow, source))
+		if !ok {
+			continue
+		}
+		for _, list := range lists.Keys() {
+			path := []string{"repos", name, "allow", source, list}
+			origins[strings.Join(path, ".")] = scopeSourceFiles(sources, path...)
 		}
 	}
 }

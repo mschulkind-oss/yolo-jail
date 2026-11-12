@@ -138,3 +138,50 @@ func TestAReadWorkspaceForGateRefusesANamedRequestFromOutsideTheWorkspace(t *tes
 		t.Fatalf("a named request from outside the workspace was not refused: %v", err)
 	}
 }
+
+// A user pattern that covers the workspace's repository by host and whole segments is no conflict:
+// the user's own table admits it, so the report offers the scoped allow for the name, not a rename.
+func TestANamedSkipUnderAUserPatternIsNotAConflict(t *testing.T) {
+	ws := skippedBrokerFixture(t, "[repos.infra]\nrepo = \"github.com/acme/*\"\n\n[allow.github]\nalways = [\"read\"]\n", namedSkipRequests)
+	merged, err := LoadConfig(ws, true, discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warns := ValidateConfig(merged, ws, nil)
+	var block string
+	for _, w := range warns {
+		if strings.Contains(w, "repos.infra.github") {
+			block = w
+		}
+	}
+	if strings.Contains(block, "your config's name") {
+		t.Fatalf("a user pattern that covers the repository is reported as a conflict:\n%s", block)
+	}
+	if !strings.Contains(block, "yolo allow repos.infra.github on_request runs") {
+		t.Fatalf("the report lacks the scoped allow for the name:\n%s", block)
+	}
+}
+
+// A table that names its repository only by its remote alias is skipped with the resolved identity,
+// so the report can name the repository the alias points at (GW-D76).
+func TestAnAliasSkipNamesTheResolvedRepository(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	writeReadableScopeUser(t, home, repoScopeUserScoped)
+	workspace := repoScopeWorkspace(t, "", repoScopeOrigin+"[remote \"upstream\"]\n\turl = https://github.com/elsewhere/app.git\n",
+		"[repos.upstream.requests.github]\nruns = [\"ci.yml\"]\n", "")
+	check, _ := repoScopeCheck(t, workspace)
+	var skipped *ReadableRequestResult
+	for i := range check.ReadableInput.Requests {
+		if check.ReadableInput.Requests[i].Path == "repos.upstream.requests.github.runs" {
+			skipped = &check.ReadableInput.Requests[i]
+		}
+	}
+	if skipped == nil || skipped.Repository != "github.com/elsewhere/app" {
+		t.Fatalf("the skipped alias request names %#v, want the resolved github.com/elsewhere/app", skipped)
+	}
+	if got := strings.Join(brokeredSkippedGateLines(check), "\n"); !strings.Contains(got, "yolo allow repos upstream github.com/elsewhere/app") {
+		t.Fatalf("the gate lines lack the declaration for the alias:\n%s", got)
+	}
+}
