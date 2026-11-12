@@ -35,8 +35,8 @@ upgrade gives up instead of running the new build.
 
 **Needs your ruling:** None.
 
-**Reads with:** [`pinned-host-helpers-plan.md`](pinned-host-helpers-plan.md) (the build plan, by
-file), [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) (the keeper, and
+**Reads with:** [§11](#11-build-invariants) (what the retired build plan pinned beyond this
+design), [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) (the keeper, and
 [JL-D5](jail-lifetime-last-session-wins.md#JL-D5), whose Linux inode rule this generalizes),
 [`host-daemon-ownership.md`](host-daemon-ownership.md) (per-jail daemons and the restart policy,
 [HD-D25](host-daemon-ownership.md#HD-D25)), [`installed-launcher-provenance.md`](installed-launcher-provenance.md)
@@ -302,6 +302,34 @@ What covers that skew, unchanged by this design:
   [§3.4](#34-the-check-before-every-exec) and does not restart it.
 - A housekeeping sweep keeps a generation a detached daemon still runs from, and declines when it
   cannot read the process table.
+
+## 11. Build invariants
+
+The build was handed off through a companion plan, now retired; git history keeps its file map and
+per-task gates. These are the rules it pinned that the sections above do not already state.
+
+- **One bundle root, one comparison.** The pin's bundle root is taken from `reporoot.Resolve`'s
+  result, never re-derived from `os.Executable()` or from `paths.FlakeBundleDir`, the stable symlink
+  an install moves. "Same build" is the existing build-stamp comparison (`keeperBuildStamp`, compared
+  the way `reporoot.validateLauncherIdentity` compares the launcher), not a second one.
+- **The Linux keeper keeps its own inode.** The pin changes only what the keeper is spawned *from*.
+  Rewriting the keeper's own self-execs to the pin's path would lose the survives-deletion property
+  of [JL-D5](jail-lifetime-last-session-wins.md#JL-D5); `TestAKeepersSelfExecsRunItsOwnInode` pins it.
+- **The give-up is a cause on the existing path.** A changed or missing pin adds a cause to the
+  supervisor's existing give-up in `daemonSupervisor.run` and `Running.Supervise`, not a second path.
+- **A test proves pinning only through an injected pin.** On Linux `os.Executable()` returns the
+  replaced path after `just install`, so a test that execs "the current binary" by path proves
+  nothing; tests point the pin at a copy. An integration test reads the daemon log under its run's
+  own state directory, never under `~`, which is the outer jail's live home.
+- **The start line stays out of the doctor output.** `internaldaemon.Run` is also reached by
+  `--self-check` from `yolo check`, whose output tests compare; that is why [PH-D15](#decision-ledger)
+  writes no line there.
+- **What pins the build.** `internal/helperpin` (`helperpin_test.go`) holds resolution, the identity
+  check and the start-line format. `TestTheKeepersSelfExecsGoThroughItsOwnBinary` is the source scan of
+  [PH-D22](#decision-ledger). `TestAGenerationAProcessRunsFromIsKept` and
+  `TestAnUnreadableProcessTableReapsNothing` pin [PH-D8](#decision-ledger), and
+  `TestProcessExesNamesTheRunningBinary` its macOS reader (W-PH5). `TestAHostDaemonRunsAndLogsThePinnedBuild`
+  in `integration/pinnedhelpers_test.go` is the end-to-end witness of [PH-D23](#decision-ledger).
 
 ## Mac checks
 
