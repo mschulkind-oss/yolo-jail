@@ -23,7 +23,7 @@ summary: "A build-only development artifact pairs the host launcher with every h
 
 **Needs your ruling:** None. The owner ruled [OQ-MDB1](#OQ-MDB1) on 2026-10-30; it is recorded with the earlier rulings below.
 
-**Reads with:** [`matched-development-bundles-plan.md`](matched-development-bundles-plan.md) (completed implementation map and gates), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the existing image and mounted-prefix contract).
+**Reads with:** [§9](#9-build-invariants) (what the retired build plan pinned beyond this design), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (the existing image and mounted-prefix contract).
 
 ---
 
@@ -141,3 +141,13 @@ The design is built when all of the following hold:
 ## 8. Open questions
 
 None open.
+
+## 9. Build invariants
+
+The build was handed off through a companion plan, now retired; git history keeps its file map, task gates and report lists. These are the rules it pinned that the sections above do not already state.
+
+- **The wrapper is in its own snapshot.** The bounded input manifest of [§2](#2-the-matched-artifact-contract) also names `scripts/dev-wrapper.sh` and `scripts/matched-bundle.py`, so a change to the wrapper or the bundle assembler changes the snapshot identity.
+- **Install stamps stay install-only.** A development build carries an explicit development classification (`KindDevelopment`, read before `KindArchive`) and sets no install `SourceDir` or `SourceBranch` stamp; `scripts/test_matched_bundle.py` asserts the latter. Tests of updater suppression go through the caller that decides automatic checks, notices and prompts, not only the classifier.
+- **`YOLO_REPO_ROOT` is migrated by role, not renamed.** Its former uses are source selection, child-environment filtering, the update conflict diagnostic, the CI and integration harness, and prose. Each moves to its own replacement, and no alias may silently override an adjacent bundle. Because CI and the harness once set it, a green run proves the new selection only when it runs the production launcher by its path and reads the reported bundle provenance.
+- **The no-build refusal is pinned at the production call site.** `TestLiveCheckoutBuildsThePrefix` drives `resolveJailPrefix` and asserts the refusal names the build-only command; `TestResolveGuestBinariesRefusesWhenTheSourceShipsNone` and `TestResolveGuestBinariesRefusesACheckoutWithAStrayPartialDir` do the same for the macos-user guest set. A test of a callee alone does not count: these fail if a builder is wired back into the launch.
+- **The default Mac VM is proven only on a native Mac.** macOS Podman CI shares `/nix`, and a nested jail cannot see the host VM's share list, so neither proves acceptance item 4. Only a native Mac run on a default Podman Machine without a `/nix` share does; Linux, Apple Container and the shared-`/nix` nightly do not substitute for it.
