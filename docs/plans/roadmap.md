@@ -254,7 +254,8 @@ sharing host credentials. Keep [storage relocation](shared-tool-store-relocation
     reference](../reference/git-broker.md) is written, and [its design](../design/git-broker.md) graduates once
     [GB-D28](../design/git-broker.md#GB-D28)'s removal of `yolo approve --add` and `--remember` is built.
     [Which writes to a PR or issue run unasked](../design/github-write-scopes.md) is ruled, including the same removal
-    for GitHub; complete [its plan](../design/github-write-scopes-plan.md) against the tree. [Workspace widening](../design/workspace-widening.md)
+    for GitHub; complete [its plan](../design/github-write-scopes-plan.md) against the tree. Its first slice, repository binding, has
+    [its own hand-off](../design/github-repository-binding-plan.md). [Workspace widening](../design/workspace-widening.md)
     graduates once [OQ-WW1](../design/workspace-widening.md#OQ-WW1) is ruled. Also asked for on 2026-10-09:
     [image paste in every agent](../design/image-paste.md), where [how far Ctrl+V is consumed](../design/image-paste.md#OQ-PA2)
     shapes the key handling, with [closing macos-user's possibly open pasteboard](../design/image-paste.md#OQ-PA1) and

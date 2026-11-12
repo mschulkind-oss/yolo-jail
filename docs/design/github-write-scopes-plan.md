@@ -66,3 +66,4 @@ or a note for the planner to check; no behavior is decided here.
   the `requests.github.repos` migration) ahead of the work kinds. Its first slice is the
   [Current support and the repository-only first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice). A planner completes
   this sketch against the tree, bounding that slice first; until then it stays not buildable.
+  That slice's hand-off is [`github-repository-binding-plan.md`](github-repository-binding-plan.md).
