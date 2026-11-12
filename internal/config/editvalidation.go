@@ -274,6 +274,11 @@ func validateEditContext(ctx *editValidationContext, preexisting []string) (Vali
 	if len(errs) != 0 {
 		return ValidatedExplicitEditResult{}, &EditProblemsError{Problems: errs}
 	}
+	if ctx.semantic == nil && len(tolerated) != 0 {
+		// The semantic inputs failed on a problem the config already had, so this edit cannot be
+		// checked over it: refuse naming that problem, whose text carries its own next step.
+		return ValidatedExplicitEditResult{}, &EditProblemsError{Problems: tolerated}
+	}
 	if ctx.semantic == nil {
 		return ValidatedExplicitEditResult{}, fmt.Errorf("validate planned readable F/G semantics: typed consumer did not run")
 	}
