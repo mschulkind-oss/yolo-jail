@@ -101,7 +101,10 @@ type ReadableAllowancePlan struct {
 	Requests        []ReadableRequestResult
 	// NamedRepos are the `[repos.<name>]` tables, read by ProduceReadableGateInput against each
 	// source the workspace names them for.
-	NamedRepos         []ReadableNamedRepo
+	NamedRepos []ReadableNamedRepo
+	// ScopedCeilings are the user `[repos.<name>.allow.<source>]` tables that resolved, which the gate
+	// reads per identity (GW-D64).
+	ScopedCeilings     []ReadableScopedCeiling
 	PackSettings       map[string]map[string]any
 	PackSettingOrigins map[string]map[string][]string
 	// LoopholeGrants is each selected grant-declaring loophole's ceiling, request and standing
@@ -584,7 +587,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			if !selected[policy.Pack] {
 				continue
 			}
-			if !slices.Contains(policy.Always, key) && !slices.Contains(policy.OnRequest, key) {
+			if !slices.Contains(policy.Always, key) && !slices.Contains(policy.OnRequest, key) && !scopedCeilingHolds(input.User, policy.Source, key) {
 				plan.Requests = append(plan.Requests, ReadableRequestResult{Path: path, Files: cloneOrigins(input.WorkspaceOrigins[path]), Capability: key, Value: value,
 					Status: ReadableRequestSkipped, Reason: outsideCeilingReason(name)})
 				continue
@@ -757,7 +760,30 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}, "allow."+policy.Source+".always."+capability, append(cloneOrigins(policy.AlwaysOrigins), target.Files...))
 			}
 		}
-		for _, request := range input.Requests {
+		// A scoped always token lowers on each target in this workspace's scope that its repo line admits
+		// (GW-D64): a user table adds no identity of its own, so it reaches no repository the scope lacks.
+		for _, c := range plan.ScopedCeilings {
+			if c.Source != policy.Source {
+				continue
+			}
+			for _, capability := range c.Always {
+				if capability == policy.ReadCapability || slices.Contains(policy.PendingCapabilities, capability) {
+					continue
+				}
+				kind := legacyKind(policy, capability)
+				if kind == "" || brokerscope.GrantTakesName(kind) {
+					continue
+				}
+				for _, target := range targets {
+					if scopedCeilingAdmits(c, target) {
+						decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository, RepoPattern: target.Pattern},
+							"repos."+c.Name+".allow."+policy.Source+".always", cloneOrigins(target.Files))
+					}
+				}
+			}
+		}
+		for i := range input.Requests {
+			request := input.Requests[i]
 			if request.Status != ReadableRequestGranted || !readableRequestOfSource(request, policy.Source) || request.Capability == policy.ReadCapability || slices.Contains(policy.PendingCapabilities, request.Capability) {
 				continue
 			}
@@ -767,6 +793,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			}
 			ceilingOrigin := "allow." + policy.Source + ".on_request"
 			ceilingFiles := policy.OnRequestOrigins
+			broad := slices.Contains(policy.Always, request.Capability) || slices.Contains(policy.OnRequest, request.Capability)
 			if slices.Contains(policy.Always, request.Capability) {
 				ceilingOrigin, ceilingFiles = "allow."+policy.Source+".always", policy.AlwaysOrigins
 			}
@@ -774,11 +801,28 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
+			admitted := false
 			for _, placed := range readableRequestGrants(kind, request.Value, placeOn) {
-				files := append(cloneOrigins(ceilingFiles), request.Files...)
+				origin, files := ceilingOrigin, cloneOrigins(ceilingFiles)
+				if !broad {
+					// The broad ceiling does not hold the token: only a user table that admits this
+					// identity does, and its provenance names that table (GW-D64).
+					c, list, ok := scopedCeilingAdmitting(plan.ScopedCeilings, policy.Source, placed.Target, request.Capability)
+					if !ok {
+						continue
+					}
+					origin, files = "repos."+c.Name+".allow."+policy.Source+"."+list, nil
+				}
+				admitted = true
+				files = append(files, request.Files...)
 				files = append(files, placed.Target.Files...)
-				decisions = appendReadableGrant(decisions, placed.Grant, ceilingOrigin, files)
+				decisions = appendReadableGrant(decisions, placed.Grant, origin, files)
 				decisions = appendReadableGrant(decisions, placed.Grant, request.Path, files)
+			}
+			if !broad && !admitted {
+				// Skipped and reported, never fatal: no ceiling admits any identity this request lands on.
+				input.Requests[i].Status = ReadableRequestSkipped
+				input.Requests[i].Reason = outsideCeilingReason(policy.Source)
 			}
 		}
 

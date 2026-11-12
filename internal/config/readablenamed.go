@@ -20,6 +20,68 @@ type ReadableNamedRepo struct {
 	Files      []string
 }
 
+// ReadableScopedCeiling is one user `[repos.<name>.allow.<source>]` table (GW-D64) after it resolved:
+// the host and owner/repo (or owner/*) its repo line admits, and the always and on_request lists it
+// holds. It admits a request or an always grant only on an identity it admits (scopedCeilingAdmits).
+type ReadableScopedCeiling struct {
+	Name       string
+	Source     string
+	Host       string
+	Repository string
+	Always     []string
+	OnRequest  []string
+}
+
+// scopedCeilingAdmits reports whether c's repo line admits target: the same host, and each segment
+// of c's repository is `*` or the target's own segment. A workspace pattern target is admitted only
+// by a ceiling whose segments cover its `*` segments too, so a literal owner or repository never
+// admits a wildcard (GW-D80).
+func scopedCeilingAdmits(c ReadableScopedCeiling, target ReadableRepository) bool {
+	if c.Host != target.RemoteHost {
+		return false
+	}
+	cOwner, cRepo, ok := strings.Cut(c.Repository, "/")
+	tOwner, tRepo, ok2 := strings.Cut(target.Repository, "/")
+	return ok && ok2 && segmentCovers(cOwner, tOwner) && segmentCovers(cRepo, tRepo)
+}
+
+func segmentCovers(ceiling, name string) bool {
+	return ceiling == "*" || strings.EqualFold(ceiling, name)
+}
+
+// scopedCeilingAdmitting is the first of ceilings for source that admits target and holds capability,
+// always before on_request, with the list it holds it in.
+func scopedCeilingAdmitting(ceilings []ReadableScopedCeiling, source string, target ReadableRepository, capability string) (ReadableScopedCeiling, string, bool) {
+	for _, c := range ceilings {
+		if c.Source != source || !scopedCeilingAdmits(c, target) {
+			continue
+		}
+		if slices.Contains(c.Always, capability) {
+			return c, "always", true
+		}
+		if slices.Contains(c.OnRequest, capability) {
+			return c, "on_request", true
+		}
+	}
+	return ReadableScopedCeiling{}, "", false
+}
+
+// scopedCeilingHolds reports whether any user `[repos.<name>.allow.<source>]` table lists capability,
+// on any identity. The plan keeps such a request alive for the gate, which decides per identity; an
+// unreadable table holds nothing here, and its own error is reported where it is resolved.
+func scopedCeilingHolds(user *jsonx.OrderedMap, source, capability string) bool {
+	tables, err := scopedCeilingTables(user, source)
+	if err != nil {
+		return false
+	}
+	for _, t := range tables {
+		if slices.Contains(stringList(readableValue(t.table, "always")), capability) || slices.Contains(stringList(readableValue(t.table, "on_request")), capability) {
+			return true
+		}
+	}
+	return false
+}
+
 // namedRepoHost is the host a named repository is on, "" with no repo line.
 func namedRepoHost(repository string) string {
 	host, _, _ := strings.Cut(repository, "/")
@@ -73,7 +135,7 @@ func readableNamedRepos(plan *ReadableAllowancePlan, input ReadableAllowanceInpu
 		if _, _, err := parseNamedRepo("repos."+name+".repo", line); err != nil {
 			return err
 		}
-		if err := readableScopedCeiling(name, line, table, input, brokers); err != nil {
+		if err := readableScopedCeiling(plan, name, line, table, input, brokers); err != nil {
 			return err
 		}
 	}
@@ -112,10 +174,11 @@ func readableNamedRepos(plan *ReadableAllowancePlan, input ReadableAllowanceInpu
 }
 
 // readableScopedCeiling checks one user `[repos.<name>]` table's `allow` (GW-D64): each key is a
-// broker's own table, `[repos.<name>.allow.<broker>]`, whose repo line is on that broker's host and
-// whose lists resolve as the broker's `[allow.<broker>]` does. A list written directly under
-// `allow` names no broker and is refused, as the broad list is refused under `[allow]`.
-func readableScopedCeiling(name, line string, table *jsonx.OrderedMap, input ReadableAllowanceInput, brokers map[string]ReadableBrokerPolicy) error {
+// broker's own table, `[repos.<name>.allow.<broker>]`, whose lists resolve as the broker's
+// `[allow.<broker>]` does, and records each as a ReadableScopedCeiling. Its repo line on another host
+// is not a refusal: it admits nothing on this broker's host. A list written directly under `allow`
+// names no broker and is refused, as the broad list is refused under `[allow]`.
+func readableScopedCeiling(plan *ReadableAllowancePlan, name, line string, table *jsonx.OrderedMap, input ReadableAllowanceInput, brokers map[string]ReadableBrokerPolicy) error {
 	value := readableValue(table, "allow")
 	if value == nil {
 		return nil
@@ -136,9 +199,6 @@ func readableScopedCeiling(name, line string, table *jsonx.OrderedMap, input Rea
 		if broker.CallBroker != nil || broker.RemoteHost == brokerscope.AnyRemoteHost {
 			return fmt.Errorf("%s: %s takes no repository ceiling; a repository's ceiling names a host-served broker", path, key)
 		}
-		if namedRepoHost(line) != broker.RemoteHost {
-			return fmt.Errorf("%s: %s serves %s, and repos.%s names %s; a ceiling under a name admits only the host its broker serves", path, key, broker.RemoteHost, name, namedRepoHost(line))
-		}
 		own, ok := asMap(readableValue(allow, key))
 		if !ok {
 			return fmt.Errorf("%s: expected a table", path)
@@ -148,9 +208,14 @@ func readableScopedCeiling(name, line string, table *jsonx.OrderedMap, input Rea
 				return fmt.Errorf("%s.%s: a repository's ceiling holds only always and on_request", path, capability)
 			}
 		}
-		if _, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(key, own),
-			SelectedPacks: input.SelectedPacks, Declarations: input.Declarations, PackSettings: input.PackSettings}); err != nil {
+		resolved, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(key, own),
+			SelectedPacks: input.SelectedPacks, Declarations: input.Declarations, PackSettings: input.PackSettings})
+		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
+		}
+		if i := readableBrokerIndex(resolved.Sources, key); i >= 0 {
+			plan.ScopedCeilings = append(plan.ScopedCeilings, ReadableScopedCeiling{Name: name, Source: key, Host: namedRepoHost(line),
+				Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: resolved.Sources[i].Always, OnRequest: resolved.Sources[i].OnRequest})
 		}
 	}
 	return nil
@@ -228,7 +293,7 @@ func readableNamedRequests(plan *ReadableAllowancePlan, input ReadableAllowanceI
 			result := ReadableRequestResult{Path: reqPath, Files: cloneOrigins(input.WorkspaceOrigins[reqPath]), Capability: capability,
 				Value: capValue, Source: source, Table: name}
 			switch {
-			case !slices.Contains(policy.Always, capability) && !slices.Contains(policy.OnRequest, capability):
+			case !slices.Contains(policy.Always, capability) && !slices.Contains(policy.OnRequest, capability) && !scopedCeilingHolds(input.User, source, capability):
 				result.Status, result.Reason = ReadableRequestSkipped, outsideCeilingReason(source)
 			case shape == SchemaTypeList && len(stringList(capValue)) == 0 || shape == SchemaTypeBoolean && capValue == false:
 				result.Status, result.Reason = ReadableRequestSkipped, "an empty list or false request asks for no grants"
