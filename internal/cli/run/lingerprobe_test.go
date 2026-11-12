@@ -4,6 +4,8 @@ package run
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -19,6 +21,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/lingerprobe"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
@@ -50,6 +53,31 @@ func perfFile(t *testing.T, ws string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// lingerFailureEvidence is what the quiet-quit test prints beside its stderr assertion, which
+// names the blocked call but not the process that made it. It holds the fixture's resolved
+// command, the root pid's exe and start time, what /proc shows of the tree now (before
+// cleanup kills it), and the perf log the test already read. It only reads: a pid it cannot
+// see is reported as gone, so the report never fails in its place.
+func lingerFailureEvidence(perfLog, cmdPath string, pid int) string {
+	s := lingerprobe.Sampler{Root: "/proc"}
+	var b strings.Builder
+	fmt.Fprintf(&b, "fixture cmd.Path=%q root pid=%d\n", cmdPath, pid)
+	exe, err := os.Readlink(filepath.Join(s.Root, strconv.Itoa(pid), "exe"))
+	if err != nil {
+		exe = "unreadable (" + err.Error() + ")"
+	}
+	fmt.Fprintf(&b, "root exe=%s\n", exe)
+	if st, ok := s.Stat(pid); ok {
+		fmt.Fprintf(&b, "root stat: comm=%s state=%s ppid=%d starttime=%d\n", st.Comm, st.State, st.PPID, st.StartTime)
+	} else {
+		fmt.Fprintf(&b, "root stat: pid %d is gone or unreadable\n", pid)
+	}
+	fmt.Fprintf(&b, "tree: %s\n", s.Sample(pid).Line())
+	b.WriteString("--- host-perf.log (as read at the assertion) ---\n")
+	b.WriteString(perfLog)
+	return b.String()
 }
 
 // THE SPLIT, through the production call site (teardownAfterExit → recordWindowA)
@@ -230,6 +258,36 @@ func waitForFile(t *testing.T, ws, want string) {
 	t.Fatalf("host-perf.log never showed %q:\n%s", want, perfFile(t, ws))
 }
 
+// The quiet-quit test's stderr assertion names the blocked call, not the process that made
+// it, so its failure report carries the evidence that does (lingerFailureEvidence). Both
+// cases read the real /proc: the test's own process, and a pid no process holds, which must
+// be named as gone rather than abort the report.
+func TestLingerFailureEvidenceNamesTheProcessOrItsAbsence(t *testing.T) {
+	const perfLog = "mark   shutdown.window_a.exit_file_seen\n"
+	self := os.Getpid()
+	got := lingerFailureEvidence(perfLog, "/usr/bin/dd", self)
+	for _, want := range []string{
+		`fixture cmd.Path="/usr/bin/dd"`,
+		fmt.Sprintf("pid=%d", self),
+		"exe=",
+		"starttime=",
+		fmt.Sprintf("pid %d ", self),
+		"--- host-perf.log (as read at the assertion) ---\n" + perfLog,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("live evidence missing %q:\n%s", want, got)
+		}
+	}
+
+	const missingPID = 1<<31 - 1 // beyond any pid_max: no /proc entry exists
+	gone := lingerFailureEvidence(perfLog, "/usr/bin/dd", missingPID)
+	for _, want := range []string{"gone or unreadable", "tree: no process readable", perfLog} {
+		if !strings.Contains(gone, want) {
+			t.Errorf("missing-process evidence missing %q:\n%s", want, gone)
+		}
+	}
+}
+
 // THE WHOLE CHAIN on a quiet launch: startLingerProbe (onStarted's call) arms on
 // the container id, the exit file fires it, the samples reach host-perf.log AS
 // THEY ARE TAKEN (a SIGKILL later loses none of them), and at the teardown the
@@ -291,18 +349,269 @@ func TestLingeringClientIsSampledAndNamedAtAQuietQuit(t *testing.T) {
 		}
 	}
 	got := errb.String()
-	for _, line := range []string{
+	lines := []string{
 		"yolo: shutdown.window_a took 1.690s",
 		"yolo: podman stayed 1.6s after its container was removed, blocked in " + want,
-	} {
+	}
+	if os.Getenv(quietQuitMismatchEnv) != "" {
+		// Child-only: no run prints this line, so the failure branch below runs on this session.
+		lines = append(lines, "yolo: forced quiet-quit mismatch (child only)")
+	}
+	for _, line := range lines {
 		if !strings.Contains(got, line) {
-			t.Errorf("stderr missing %q:\n%s", line, got)
+			t.Errorf("stderr missing %q:\n%s\n%s", line, got, lingerFailureEvidence(file, client.Path, client.Process.Pid))
 		}
 	}
 	settled := perfFile(t, ws)
 	time.Sleep(150 * time.Millisecond)
 	if after := perfFile(t, ws); after != settled {
 		t.Errorf("the probe wrote after the report printed:\n%s", strings.TrimPrefix(after, settled))
+	}
+}
+
+// quietQuitMismatchEnv marks the child run that TestQuietQuitFailureReportCarriesTheProcessEvidence
+// starts: the quiet-quit test then expects one stderr line no run prints, so its failure branch
+// runs on the real session and writes the report this parent test reads.
+const quietQuitMismatchEnv = "YOLO_TEST_QUIETQUIT_FORCED_MISMATCH"
+
+// THE CALL SITE of lingerFailureEvidence: the quiet-quit test's failure branch must print the
+// process evidence and the perf log it read. The child is the same compiled test binary, run
+// on that one test only; the forced line is the only difference from a passing run.
+func TestQuietQuitFailureReportCarriesTheProcessEvidence(t *testing.T) {
+	if os.Getenv(quietQuitMismatchEnv) != "" {
+		t.Fatal("the forced-mismatch child must not start another child")
+	}
+	out, runErr := runForcedQuietQuitChild(t, os.Environ())
+	skipReason, problem := forcedQuietQuitVerdict(out, runErr)
+	if problem != "" {
+		t.Fatalf("%s:\n%s", problem, out)
+	}
+	if skipReason != "" {
+		t.Skipf("the quiet-quit test could not run here, so its failure branch was not exercised: %s", skipReason)
+	}
+	report := out
+	for _, want := range []string{
+		`stderr missing "yolo: forced quiet-quit mismatch (child only)"`,
+		"yolo: shutdown.window_a took 1.690s",
+		"fixture cmd.Path=",
+		"root pid=",
+		"root exe=",
+		"tree: ",
+		"--- host-perf.log (as read at the assertion) ---\n",
+		"mark   shutdown.window_a.exit_file_seen",
+		"end    shutdown.window_a.client_exit  dur=1.648s",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the failure report missing %q:\n%s", want, report)
+		}
+	}
+}
+
+// THE CALLER UNDER A MISSING FIXTURE: with no dd on PATH the quiet-quit test skips before its
+// assertion, so TestQuietQuitFailureReportCarriesTheProcessEvidence must SKIP too, naming dd,
+// instead of failing on the child's clean exit. Both cases run the parent test as a child of
+// this binary: the first with PATH naming an empty directory, the second with the real PATH,
+// where the forced failure must produce its report and the parent must PASS. If PTY setup
+// fails before dd, or probe startup fails after it, the nested parent SKIPs with that
+// prerequisite. The missing-dd wrapper verifies the skip and passes; the positive wrapper
+// skips because the failure report was not exercised.
+func TestQuietQuitDiagnosticSkipsWhenItsFixtureIsMissing(t *testing.T) {
+	if os.Getenv(quietQuitMismatchEnv) != "" {
+		t.Fatal("the forced-mismatch child must not start another child")
+	}
+	const parent = "TestQuietQuitFailureReportCarriesTheProcessEvidence"
+	runParent := func(t *testing.T, env []string) (string, error) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), quietQuitChildTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+parent+"$", "-test.count=1", "-test.v=true")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			t.Fatalf("the parent run hung past the guard:\n%s", out)
+		}
+		return string(out), err
+	}
+	t.Run("a missing dd skips the parent", func(t *testing.T) {
+		out, err := runParent(t, withEnvVar(os.Environ(), "PATH", t.TempDir()))
+		status, messages := selectedTestOutcome(out, parent)
+		reason := strings.Join(messages, "\n")
+		switch {
+		case err != nil || status != "SKIP":
+			t.Fatalf("the parent run exited %v with outcome %q, want a clean SKIP:\n%s", err, status, out)
+		case strings.Contains(reason, "dd:"):
+			// the fixture reached dd and found none
+		case quietQuitPrerequisiteSkip(reason):
+			// the fixture stopped before dd, so there is no dd reason to name
+		default:
+			t.Errorf("parent skipped with %q, want the dd skip or a fixture prerequisite:\n%s", reason, out)
+		}
+	})
+	t.Run("the real PATH passes the parent with its report", func(t *testing.T) {
+		if _, err := exec.LookPath("dd"); err != nil {
+			t.Skip("no dd on this machine: the positive run needs the fixture")
+		}
+		out, err := runParent(t, os.Environ())
+		status, messages := selectedTestOutcome(out, parent)
+		reason := strings.Join(messages, "\n")
+		switch {
+		case err == nil && status == "PASS":
+		case err == nil && status == "SKIP" && quietQuitPrerequisiteSkip(reason):
+			t.Skipf("the quiet-quit fixture cannot be set up here, so the report was not exercised: %s", reason)
+		default:
+			t.Fatalf("the parent run exited %v with outcome %q, want PASS or a prerequisite SKIP:\n%s", err, status, out)
+		}
+	})
+}
+
+// quietQuitPrerequisiteSkip reports whether a skip message names a fixture the quiet-quit test
+// could not set up on this machine: no pty, a refused ioctl, no dd, or an unarmed probe.
+func quietQuitPrerequisiteSkip(reason string) bool {
+	for _, marker := range []string{"no pty:", "unlockpt:", "ptsname:", "open slave:", "dd:", "linger probe failed to start"} {
+		if strings.Contains(reason, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// quietQuitTestName is the quiet-quit test whose failure branch the forced child drives.
+const quietQuitTestName = "TestLingeringClientIsSampledAndNamedAtAQuietQuit"
+
+// quietQuitChildTimeout is a hang guard for a child test run, not a budget: the children's own
+// waits are event-driven and bounded.
+const quietQuitChildTimeout = 3 * time.Minute
+
+// runForcedQuietQuitChild runs the quiet-quit test in a child of this test binary with the forced
+// mismatch set, under env, and returns its verbose output and exit error. A child past the guard
+// fails the caller.
+func runForcedQuietQuitChild(t *testing.T, env []string) (string, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), quietQuitChildTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+quietQuitTestName+"$", "-test.count=1", "-test.v=true")
+	cmd.Env = append(env, quietQuitMismatchEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the forced-mismatch child hung past the guard:\n%s", out)
+	}
+	return string(out), err
+}
+
+// forcedQuietQuitVerdict reads the forced child's outcome from the selected test's own status line.
+// A SKIP that exits clean is the test saying it could not run here (its fixture or probe was
+// missing): it returns the skip messages and no problem. A FAIL that exits non-zero is the
+// expected failing run and returns neither. Anything else is a problem: a PASS (the forced line
+// never reached the failure branch), a FAIL with no exit error, a SKIP that exited non-zero, or
+// no status at all (a crash or an early stop).
+func forcedQuietQuitVerdict(out string, runErr error) (skipReason, problem string) {
+	status, messages := selectedTestOutcome(out, quietQuitTestName)
+	var exit *exec.ExitError
+	switch {
+	case status == "SKIP" && runErr == nil:
+		return strings.Join(messages, "; "), ""
+	case status == "SKIP":
+		return "", "the forced-mismatch child skipped and then exited " + runErr.Error()
+	case status == "FAIL" && errors.As(runErr, &exit):
+		return "", ""
+	case status == "FAIL":
+		return "", "the forced-mismatch child failed without an exit error: " + runErr.Error()
+	case status == "PASS":
+		return "", "the forced-mismatch child passed: its forced line never reached the failure branch"
+	default:
+		return "", "the forced-mismatch child printed no outcome for the selected test; it crashed or stopped early"
+	}
+}
+
+// selectedTestOutcome returns the final status (PASS, FAIL or SKIP) that -test.v printed for the
+// top-level test name, and the indented messages it logged after its own "=== RUN" line. Only a
+// column-0 status line counts, so an indented subtest line or another test's line never stands in.
+func selectedTestOutcome(out, name string) (status string, messages []string) {
+	lines := strings.Split(out, "\n")
+	run, end := -1, -1
+	for i, line := range lines {
+		if line == "=== RUN   "+name {
+			run = i
+		}
+		for _, s := range []string{"PASS", "FAIL", "SKIP"} {
+			if strings.HasPrefix(line, "--- "+s+": "+name+" (") {
+				status, end = s, i
+			}
+		}
+	}
+	if run < 0 || end < run {
+		return "", nil
+	}
+	for _, line := range lines[run+1 : end] {
+		if strings.HasPrefix(line, "    ") {
+			messages = append(messages, strings.TrimSpace(line))
+		}
+	}
+	return status, messages
+}
+
+// withEnvVar returns env with key set to value, replacing any earlier entry for key.
+func withEnvVar(env []string, key, value string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, key+"=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, key+"="+value)
+}
+
+// The forced child's verdict is read from the selected test's own column-0 status line and
+// nothing else: only a clean SKIP of that test is a skip, and every other outcome is either the
+// expected failing run or a problem the parent must fail on.
+func TestForcedQuietQuitVerdictReadsOnlyTheSelectedTestsOutcome(t *testing.T) {
+	const name = quietQuitTestName
+	exited := exec.Command(os.Args[0], "-test.nosuchflag").Run() // this binary's own flag error: a real *exec.ExitError, as a failing child gives, with no tool looked up on PATH
+	var exitErr *exec.ExitError
+	if !errors.As(exited, &exitErr) {
+		t.Fatalf("the test binary's flag error gave %v, want a *exec.ExitError", exited)
+	}
+	for _, tc := range []struct {
+		desc    string
+		out     string
+		runErr  error
+		skip    string
+		problem bool
+	}{
+		{"the selected test's own skip is propagated",
+			"=== RUN   " + name + "\n    lingerprobe_test.go:306: dd: not found\n--- SKIP: " + name + " (0.00s)\nPASS\n",
+			nil, "lingerprobe_test.go:306: dd: not found", false},
+		{"another test's skip is not this test's skip",
+			"=== RUN   TestOther\n--- SKIP: TestOther (0.00s)\n=== RUN   " + name + "\n--- PASS: " + name + " (0.01s)\nPASS\n",
+			nil, "", true},
+		{"an indented subtest line is not the test's status",
+			"=== RUN   " + name + "\n    --- SKIP: " + name + " (0.00s)\n",
+			nil, "", true},
+		{"a SKIP mentioned mid-line is not a status line",
+			"=== RUN   " + name + "\nnote: --- SKIP: " + name + " (0.00s)\n",
+			nil, "", true},
+		{"a skip that exits non-zero is a problem",
+			"=== RUN   " + name + "\n--- SKIP: " + name + " (0.00s)\n",
+			exited, "", true},
+		{"a failure that also logged a skip is the expected failing run, never a skip",
+			"=== RUN   " + name + "\n    lingerprobe_test.go:9: dd: not found\n--- FAIL: " + name + " (0.00s)\nFAIL\n",
+			exited, "", false},
+		{"a pass is an unexpected success",
+			"=== RUN   " + name + "\n--- PASS: " + name + " (0.00s)\nPASS\n",
+			nil, "", true},
+		{"output with no status for the test is a problem",
+			"=== RUN   " + name + "\npanic: runtime error\n",
+			exited, "", true},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			skip, problem := forcedQuietQuitVerdict(tc.out, tc.runErr)
+			if skip != tc.skip {
+				t.Errorf("skip = %q, want %q", skip, tc.skip)
+			}
+			if (problem != "") != tc.problem {
+				t.Errorf("problem = %q, want a problem: %v", problem, tc.problem)
+			}
+		})
 	}
 }
 
