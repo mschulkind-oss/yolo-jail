@@ -222,7 +222,7 @@ func TestLoadRWMountsReadsTheUserScopeAlone(t *testing.T) {
 	}
 }
 
-// A --user-layer is user scope (workspace-config-trust.md §4.1's table), so its read-write
+// A --user-layer is user scope (docs/design/readable-config.md appendix A.4's table), so its read-write
 // element is honored like the user config's own.
 func TestLoadRWMountsHonorsAUserLayer(t *testing.T) {
 	h := newMountsHost(t)

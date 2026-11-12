@@ -81,6 +81,8 @@ the TOML spelling and proved conversion of shared model facts, model names and w
   folder.
 - [OQ-PP1](providers-and-profiles-redesign.md#OQ-PP1) by [OQ-RC3](#decision-ledger), ruled.
 - [OQ-BB23](boundary-broker.md#OQ-BB23) by `push = true` at user scope: a ceiling, never a grant.
+- [OQ-WT1](#OQ-WT1) and [OQ-WT5](#OQ-WT5), where a writable host path may be declared, by
+  [RC-D24](#RC-D24); the retired design's argument and ledger are [Appendix A](#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace).
 - **Reversed:** [MN-D1](pack-manifests.md#MN-D1) (2026-09-30), that the configs keep JSONC
   and moving them "would be a proposal of its own". [OQ-RC2](#decision-ledger) was that proposal,
   ruled TOML on 2026-10-25.
@@ -144,7 +146,7 @@ the TOML spelling and proved conversion of shared model facts, model names and w
 | <a id="RC-D27"></a>RC-D27 | **The migration drops a written value only when it equals what the readers answer for an absent key, only from the one file that writes it, and folds nothing yet.** A lane decision (W5-E, 2026-10-30), implementing [OQ-RC18](#decision-ledger). "Default" is `config.WrittenDefaults()`, the table `resolveNetModeSource`, `PerfLoggingEnabled`, `BriefingProvenance` and `UpdateCheckEnabled` answer from; there is no second list, and `TestWrittenDefaultsAreWhatTheReadersAnswerForAnAbsentKey` fails if a reader leaves it. The equality proof fills every default on both sides before comparing, so a drop that changed meaning is a printed difference and writes nothing. A key two files write is kept, because dropping the higher layer's value would let the lower one through. A comment above a dropped key stays, in order, like every comment ([§4 item 3](config-migration.md#4-what-yolo-config-migrate-does)); a table the drop empties is not written. Folding a fact repeated across a provider's models into `every_model`, and dropping a `vendor` that follows from the id, waited until a launch carried `every_model` ([RC-D29](#RC-D29)); both are built under [RC-D30](#RC-D30) | 2026-10-30 | [`config-migration.md` §4](config-migration.md#4-what-yolo-config-migrate-does) | `TestConfigMigrateDropsWrittenDefaultsAndKeepsTheProof` |
 | <a id="RC-D26"></a>RC-D26 | **A requested repository joins git's READ scope only, as two exact URLs, for github.com alone, approved at the same gate.** A lane decision (W5-A, 2026-10-30), building [OQ-RC16](#decision-ledger) within its ruling: nothing widens beyond what a project's `requests.github.repos` already puts in front of the human. The git broker's scope is exact remote URLs, so a requested `OWNER/REPO` becomes `https://github.com/OWNER/REPO` and `git@github.com:OWNER/REPO.git`, each a row of the gate's block under the request's own key and file, plus the read grant `github.com/OWNER/REPO` from `allow.git`. The scope matches a trailing `.git` or slash on the HTTPS URL as it already does the SSH URL's, and no other spelling. Every other grant kind a project or the user's config offers on such a repository is dropped, so a request widens fetch and never a push. Only github.com, the one forge whose URLs a request can name; any other host stays a `git remote add`. The refusal of a private github.com repository outside the scope names `yolo request github repos OWNER/REPO`, with `git remote add` as the other way in | 2026-10-30 | [`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins) | `TestAReadableRequestedRepoJoinsGitsReadScopeAtTheGateAndNeverItsPushes`, `TestRequestedRepoURLsMatchTheirSpellingsOnly` |
 | <a id="RC-D25"></a>RC-D25 | **A pack manifest says "none" with `false`, and a deletion with `unset`.** A lane decision (W3-M1b, 2026-10-30), applying [RC-D6](#RC-D6) and [RC-D23](#RC-D23) to the last three legacy values a grouped `pack.toml` could not say. `install = false`, `install = { default = false, … }` or `install.<manager> = false` is no install hint for that manager, where an unwritten manager still takes the bin. `options.<name> = false` declares a provider option with no default, legacy JSON's `null`; `""` stays a real default. A config surface row's `unset = ["/tui/notice"]` lists the keys its `managed` patch deletes, as RFC 6901 pointers like config-list's `path`, since real keys hold dots. `false` and not a reserved string, because a package name and an option default are strings | 2026-10-30 | [`pack-manifests.md` §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once) | built `8ebc2abcc`; `TestMigrateWritesNoHintForUnnamedManagers` |
-| <a id="RC-D24"></a>RC-D24 | **A project may request a writable mount, once your config allows it.** The maintainer, 2026-10-29: *"rw mount should be allowed, but needs to be enabled like our git grants at the user level before a workspace can request it. should slot into the same toml redesign stuff. don't need to backport that to old configs. then it's approved like a config diff is, but with scary red color or something. from the workspace's config."* `[allow.mounts] on_request = ["write"]` in user config is the ceiling; a project's `mounts` entry with `write = true` is the request, from the committed or the local file; the config-change prompt approves it with the writable mount shown in red. Without the user line the entry is refused, naming the line to add. TOML configs only: the JSONC reader keeps refusing a read-write mount from a workspace. Supersedes [OQ-WT1](workspace-config-trust.md#OQ-WT1) and [OQ-WT5](workspace-config-trust.md#OQ-WT5) | 2026-10-29 | [`config-project.md` §1](config-project.md#1-the-file), [`config-user.md` §2](config-user.md#2-the-file-proposed) | built `6eb6bde9a`; `TestAnAllowedWorkspaceRequestIsBoundReadWrite` |
+| <a id="RC-D24"></a>RC-D24 | **A project may request a writable mount, once your config allows it.** The maintainer, 2026-10-29: *"rw mount should be allowed, but needs to be enabled like our git grants at the user level before a workspace can request it. should slot into the same toml redesign stuff. don't need to backport that to old configs. then it's approved like a config diff is, but with scary red color or something. from the workspace's config."* `[allow.mounts] on_request = ["write"]` in user config is the ceiling; a project's `mounts` entry with `write = true` is the request, from the committed or the local file; the config-change prompt approves it with the writable mount shown in red. Without the user line the entry is refused, naming the line to add. TOML configs only: the JSONC reader keeps refusing a read-write mount from a workspace. Supersedes [OQ-WT1](#OQ-WT1) and [OQ-WT5](#OQ-WT5); the argument behind it is [Appendix A](#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace) | 2026-10-29 | [`config-project.md` §1](config-project.md#1-the-file), [`config-user.md` §2](config-user.md#2-the-file-proposed) | built `6eb6bde9a`; `TestAnAllowedWorkspaceRequestIsBoundReadWrite` |
 | OQ-RC21 | **A public repository outside the scope passes through without asking: the broker tries with no credential first, and a fetch that lends nothing owes no prompt.** Ruled by taking the leaning: *"A: the broker exists to lend your logins; a fetch that lends none is not its concern, and the prompt protects what it protects either way."* A private repository outside the scope is still refused naming the request to add | 2026-10-25 | [`config-user.md` §6](config-user.md#6-what-a-jail-may-do-with-your-logins) | the public pass-through, `627f9dae7`; `TestHTTPSPublicFetchWithoutReadGrantOrApprovedURL`. A private github.com repository outside the scope is refused naming `yolo request github repos OWNER/REPO` ([RC-D26](#RC-D26)), `b56e4967e`; `TestOutOfScopeRefusalNamesTheRequestVerbForGitHub` |
 | OQ-RC19 | **The manifest shape is approved, all six levers: `home/` laid in file by file, overlays in their own files, grouped by kind with the identity once, contributions state only what they change (`replace = true` otherwise), a model declared once for every agent, the obvious unwritten.** Ruled by taking the leaning: *"Approve all six: the four smallest packs become folders, and the two largest keep every fact in a fifth of the lines."* Same round, the install hint's `all` (*"what does all mean here?"*) became `default`, and unwritten it is the bin name (*"have it just default to the bin name if not given"*) | 2026-10-25 | [`pack-manifests.md` §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once) | built: grouped by kind, `home/` and overlay files, append unless `replace = true`, and unwritten defaults are built, `8ae8f4628`; `TestLoadDirDiscoversGroupedPackTOML`. a model said once (`every_model`, `twin_of`, `compact_at`) reaching a launch is built ([RC-D29](#RC-D29)), `586331867`; `TestProviderTableIsByteIdenticalForEveryExistingConfigAndShippedPack`, `TestReadableRowsLowerIntoTheAliasMapAndFlatFacts`, `TestEveryModelFillsOnlyWhatALegacyAliasLeavesUnsaid`, `TestPackReadableRowsComposeAndAUserPriceMergesPerRate`, `TestAReadableRowOverAPackAliasForAnotherIDRefuses`, `TestComposedProvidersLowersReadableRowsWithTheCatalogsFacts` |
 | OQ-RC5 | **Manifests change in the same break as the configs; `yolo pack migrate` runs beside `yolo config migrate`.** Ruled by taking the leaning: *"A: one break, and the migrate command does the moving; packs are the bigger files and the same rules apply."* Closes [OQ-M1](pack-manifests.md#OQ-M1) and [OQ-M2](pack-manifests.md#OQ-M2) | 2026-10-25 | [`pack-manifests.md` §5](pack-manifests.md#5-the-migration) | built `af2d1cc5c`; `TestPackMigrateRewritesTheManifestAndMovesFiles` |
@@ -189,3 +191,208 @@ the TOML spelling and proved conversion of shared model facts, model names and w
 | <a id="RC-D3"></a>RC-D3 | **Plural for a collection the user fills, singular for one thing.** Review comment: *"why is this plural and mcp singular?"* `mcp.<name>` becomes `mcp_servers.<name>` (today's name), `[[mount]]` becomes `[[mounts]]`; all-singular would collide the selection with the declarations | 2026-10-24 | [`config-user.md` §3](config-user.md#3-principles) | built `00e1d05f6`; `TestReadableTOMLMCPServerTableAndOffRemoval` |
 | <a id="RC-D2"></a>RC-D2 | **Not `as_you`.** Review comment: *"I hate the name 'as_you'."* The section's name was then ruled `allow` ([OQ-RC4](#decision-ledger)) | 2026-10-24 | [`config-user.md` §2](config-user.md#2-the-file-proposed) | nothing to build; the section is `allow` ([OQ-RC4](#decision-ledger)) |
 | <a id="RC-D1"></a>RC-D1 | **The `profile` key keeps its job.** Review comment on the draft's `use`: *"awful name … isn't this a profile?"* It is the agent-to-setup selection, and PP-D10's reason (the key mirrors `-p`) stands; its name was later ruled `active_provider` ([OQ-RC14](#decision-ledger)) | 2026-10-24 | [`config-user.md` §2](config-user.md#2-the-file-proposed) | built `4d96756cb`; `TestLegacyProfileKeyStillSelectsFromJSONC`, under the name `active_provider` ([OQ-RC14](#decision-ledger)) |
+
+## Appendix A: Background to RC-D24, a writable host path from a workspace
+
+[RC-D24](#RC-D24) answered a question an earlier design, *Who may hand a jail a writable host path from inside a workspace* (filed
+2026-09-25, iced, triaged 2026-09-30), had argued without a ruling: who may hand a jail a writable
+host path from inside a workspace, by scope, by a host-side trust record, or both. That design is
+retired into this appendix. Its facts were checked at `71acddac` and `927bb54d`, and are stated
+here as they held then, in the JSONC config they were argued over. How a writable mount works today
+is [`context-mounts.md`](../reference/context-mounts.md#a-project-may-request-one-once-your-config-allows-it).
+
+### A.1 What held when it was argued
+
+**The local file was workspace scope, everywhere.** `config.LoadWorkspaceConfig` loaded the
+committed file (`yolo-jail.jsonc`, or its `yolo-jail.json` fallback) and then the local file
+(`yolo-jail.local.jsonc`, or its `.json` fallback) with one shared cycle set, the local file
+winning. Every workspace-scope refusal read the merged result, and
+`TestValidateCacheRelocationsWorkspaceLocalScopeAlsoRejected` and
+`TestWorkspaceLocalConfigProviderAddressIsRefusedToo` pinned the local-file case. `yolo check` read
+both files, because a 2026-09-08 measurement found an unknown key in the local file passing check
+and then refusing the launch. The local file carried no extra authority, and no less.
+
+**Nothing kept the local file untracked.** No production code asked git about it. `yolo init`
+appended only `.yolo/` to `.gitignore`; this repository's `.gitignore` ignored
+`yolo-jail.local.jsonc` but not the `.json` fallback the loader also read; `yolo apply --sealed`
+called the file "gitignored, machine-local" without checking. `.yolo/` alone was un-committable by
+construction, through the self-ignoring `.gitignore` `paths.EnsureWorkspaceStateDir` writes.
+
+**The local file was writable from inside the jail, even under `workspace_readonly`.**
+`workspaceReadonlyMountArgs` bound `:ro` the listed paths and the committed file the loader read,
+and no other config file. The local file under either name, the committed file's unread spelling,
+and any `include_if_found` target inside the workspace stayed writable, and an absent one could be
+created. So an in-jail agent could always write a local file the next host launch merged; the
+config-change gate ([`config-safety.md`](../reference/config-safety.md) P2) was what stood
+between that write and the launch.
+
+**The approval gate was already a per-workspace, content-keyed, host-side consent record.** It kept
+its record under `paths.ApprovalsDir()`, keyed by container name and never mounted into a jail
+([OQ-D1](../reference/config-safety.md#oq-d1)); compared canonical JSON of the resolved config, so a
+changed include re-asked; asked a fresh workspace on its first launch
+([OQ-S3](../reference/config-safety.md#oq-s3)); refused without a TTY unless
+`--accept-config-changes`, a flag so it cannot be inherited ([OQ-D2](../reference/config-safety.md#oq-d2));
+and ran on every backend. So "add a trust layer" could not mean "add a content-keyed consent
+record". What the gate lacked was **differentiation**: a diff adding a package and a diff adding a
+writable host path got the same y/N. Every user-scope-only key existed because somebody judged the
+gate not enough for it ("A key that would be unsafe to read from the workspace is refused by scope
+validation instead", config-safety).
+
+**The scope table, for the keys that reach the host:**
+
+| Key | Workspace scope then | Why (from the refusal text) |
+|---|---|---|
+| `mounts` (ro only) | allowed, behind the approval gate | none; [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) asks |
+| `env_sources` | allowed, behind the approval gate | none; [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) asks |
+| `devices`, `gpu`, `kvm`, `network` | allowed, behind the approval gate | not argued anywhere found |
+| `cache_relocations` (rw host mount) | refused | agent-editable, so no rw host mounts |
+| source-bearing `host_files` | refused | travels with the repo and is agent-editable |
+| provider `base_url` | refused | decides where inference, and hydrated credentials, go |
+| `programs` | refused | authorizes deleting binaries from the workspace home |
+| `agent_updates` | refused | would let an agent freeze its own updates |
+| `packs`, `profiles`/`use_profiles`, `adapters` | inexpressible and refused | what runs and where inference goes |
+| loophole install, `env`, `doctor_cmd`, `settings` | refused | agent-editable; `env` and `doctor_cmd` reach a host daemon |
+| `host_wrappers`, `host_apply_on_launch`, `host_management`, `promotion_target` | refused | acts on the real home or host `PATH`, machine-wide |
+| `perf_logging` | refused | read before workspace config loads |
+
+**Evidence**, by symbol: the loaders in `internal/config/load.go` (`LoadJSONCWithIncludes` refuses a
+`/` or `~` include and resolves relative ones, `..` included); `workspaceConfigNames` in
+`internal/cli/configtarget.go`; `workspaceLoopholeEntries`; the approval gate's
+`CheckConfigChanges`, `ApprovalSnapshotPath` and `AcceptConfigChangesFlag` in `snapshot.go`; the
+scope validators in `internal/config/validate.go` and beside it; `validateMounts`,
+`validateEnvSources`, `validateDevices`, `validateGPU`, `validateKVM` and `validateNetwork`, which
+checked shape only; and `internal/config/inherit.go`, where `mounts` and `cache_relocations` are not
+inherited by a nested jail and `env_sources` is.
+
+### A.2 Two actors, and the one thing each can write
+
+[Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)
+asks whether the actor could already do the guarded act, and
+[its corollary](../reference/gate-placement-principle.md#the-corollary-that-generates-the-real-work) asks
+us to name the actor:
+
+| Actor | Can write | Could it already hand out a writable host path? |
+|---|---|---|
+| **The human**, on the host | every file | yes; it can write user config. A gate on it is theatre |
+| **A repo author** (cloned repo, pulled branch, dependency submodule) | the committed file, and anything it includes | **no** |
+| **The in-jail agent** | the committed file (unless `workspace_readonly` is set), **always** the local file, and in-workspace includes | **no** |
+
+Both non-human actors fail Test 1, so a gate on each passes it. This is where such a gate parts
+company with the one [OQ-TP9](trust-paths.md#decision-ledger) deleted, which guarded an act already
+needing a user-scope write. The Safehouse comparison's advice to prefer a scope rule over a prompt
+([§9 item 1](../research/agent-safehouse.md#9-negative-space--what-not-to-adopt)) **holds for the
+repo author and fails for the agent**: "the local file only" is a scope rule, and the agent can
+write the local file. For the agent, only a place outside the workspace (user config) or a record
+the agent cannot write (host-side) works.
+
+The failure rule was fixed by [OQ-TP6](trust-paths.md#decision-ledger): **a grant from an untrusted
+source refuses the launch**, never dropped and never downgraded to read-only, with no `YOLO_ALLOW_*`
+hatch, because an untrusted grant is not broken config.
+
+### A.3 The options weighed
+
+- **A, scope only:** grants only in the local file. Stops the author, **not the agent**. A
+  tracked-file check cannot be made sound: no repository (a later `git add .` commits it), another
+  VCS, a removed ignore line, the `.json` fallback, a symlinked file, an include, or no `git` binary
+  each defeats a point-in-time probe, so its honest severity is a warning. The withdrawn
+  auto-merged user `config.local.jsonc`, replaced by `--user-layer` because such a file "activates
+  because a file EXISTS, invisibly at the call site" (`userlayer.go`), cut against giving the local
+  file more authority by its name. **Variant A′** moved the local file under `.yolo/`, which settles
+  git tracking but is still jail-writable.
+- **B, a host-side trust record** written by a `yolo trust` verb. Stops the agent; stops the author
+  only by prompting, which on a cloned repo is the y reflex [OQ-S1](../reference/config-safety.md#oq-s1)
+  warns of.
+- **C, both, one mechanism per actor:** refused in the committed file, trust-gated in the local
+  file, free in user config. The design's recommendation, iced until a writable mount was wanted;
+  under it the maintainer's *"never in a git-committed file"* became a refusal rather than a
+  prompt. RC-D24 relaxed that to a request behind the user's ceiling.
+- **D, user scope only,** as `cache_relocations`. Stops both with no new mechanism, at the cost of
+  the declaration no longer sitting with the workspace.
+
+| | Repo author | In-jail agent | New mechanism | Human friction | CI |
+|---|---|---|---|---|---|
+| A | stopped | **not stopped** | none, or a lint | none | unchanged |
+| B | prompted | stopped | record + verb | a `yolo trust` per change | setup step |
+| C | stopped | stopped | record + verb | a `yolo trust` per change, local file only | setup step |
+| D | stopped | stopped | none | edit `~/.config` | unchanged |
+
+Two later rulings bore on it. [OQ-EW1](agent-event-watchers.md#14-decision-ledger) (2026-09-29)
+refused a host-run helper from workspace config entirely, and
+[OQ-BB7](boundary-broker.md#15-decision-ledger) (2026-09-29) let agent-editable workspace state widen
+what a host broker may reach once the config-change prompt approves it, built as the approval
+record's scope part ([BB-D30](boundary-broker.md#BB-D30)). That moved the consent step's leaning
+from a `yolo trust` command to a labeled section of the config-change prompt
+([OQ-WT5](#OQ-WT5)). RC-D24 then ruled neither C nor D: a ceiling in user config, as the git grants
+work, and the request approved in the prompt, shown in red.
+
+### A.4 What RC-D24 kept, and what it dropped
+
+Kept, and how a writable mount works today
+([`context-mounts.md`](../reference/context-mounts.md#a-project-may-request-one-once-your-config-allows-it)):
+
+| File | A writable mount there |
+|---|---|
+| user config, and a `--user-layer` | honored; user scope needs no consent (Test 1) |
+| the project's own TOML file, committed or local | a request: refused without the user's `[allow.mounts]` ceiling, approved in the config-change prompt with it |
+| a file either one includes | refused, so the file a human reviews is the file that asks |
+| a JSONC workspace file | refused |
+
+- **A request is read from the file that declares it, never the merged map**, because the merge
+  records no provenance; a builder that cannot say where an element came from cannot apply the
+  table.
+- **Disclosure is unconditional:** the per-mount launch line prints whatever approved it, as an
+  [OQ-RO3](../reference/report-tiers.md#why-its-this-way) disclosure, which is also the answer to
+  the "activates invisibly" objection.
+- **No env var** approves one, for the reason [OQ-D2](../reference/config-safety.md#oq-d2) gave;
+  **no consent record lives in the workspace**, `.yolo/` included, which the jail can write; and
+  **the verdict is the same on every backend**, even one that cannot deliver the mount.
+
+Dropped as superseded by RC-D24's "No `yolo trust` command": the `yolo trust` verb with its
+`--show`, `--revoke` and `--yes` forms; the separate trust record keyed on the workspace and a hash
+of the grant set; the refusal that named the verb; the toll a human paid to trust a path they typed
+themselves; and the risks that only that verb carried. None was built.
+
+### A.5 What else a workspace grant could unlock
+
+Only the writable mount was ever proposed ([WT-D5](#WT-D5)). The other candidates, sorted by whether
+the key's refusal says "agent-editable", which a consent the agent cannot give answers, or names a
+structural reason, which it cannot:
+
+| Candidate | The refusal's reason | Could consent answer it? |
+|---|---|---|
+| `cache_relocations` | agent-editable | yes |
+| source-bearing `host_files` | agent-editable, travels with the repo | yes |
+| provider `base_url` | agent-editable; steers inference and credentials | yes, but it is an exfiltration channel |
+| ro `mounts`, `env_sources` | none | only if [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) moves them |
+| `programs`, `agent_updates` | agent-editable | technically; the payoff is unclear |
+| `packs` ([OQ-MP7](mcp-presets-removal.md#decision-ledger)'s safe subset) | install-shaped | a different question: a subset a **committed** file may declare |
+| `host_wrappers`, `host_apply_on_launch`, `host_management`, `promotion_target` | machine-wide | **no** |
+| `perf_logging` | read before workspace config loads | **no**; the ordering is structural |
+| loophole install, `env`, `doctor_cmd`, `settings` | reach a host daemon | not proposed: host execution needs its own ruling |
+
+### A.6 The retired design's ledger
+
+| ID | Ruling | Date | Now |
+|---|---|---|---|
+| <a id="OQ-WT1"></a>[OQ-WT1](#OQ-WT1) | Whether to build the trust design at all. **Neither C nor D: a workspace may request a writable mount, from the committed or the local file, once the user's config allows writable-mount requests**, as the git grants work; TOML only | 2026-10-29 | ruled as [RC-D24](#RC-D24); built |
+| <a id="OQ-WT5"></a>[OQ-WT5](#OQ-WT5) | How the human approves a grant. **(A), in red:** in the config-change prompt like any config diff, the writable mount highlighted in red. No `yolo trust` command | 2026-10-29 | ruled as [RC-D24](#RC-D24); built |
+| <a id="WT-D1"></a>[WT-D1](#WT-D1) | A grant is honored only from a workspace file's own top level; one in an `include_if_found` target is refused, because a relative include, `..` included, may name a file outside the workspace | 2026-09-30 | kept: RC-D24's build refuses a request from an included file |
+| <a id="WT-D2"></a>[WT-D2](#WT-D2) | A git probe of the local file warns and never refuses, because [A.3](#a3-the-options-weighed) shows the property cannot be kept | 2026-09-30 | superseded: RC-D24 admits the committed file too, so tracking carries no authority |
+| <a id="WT-D3"></a>[WT-D3](#WT-D3) | The consent covers the grant set, not the whole local file, so a package edit does not re-ask | 2026-09-30 | superseded: the one config-change prompt approves the request with the rest of the diff |
+| <a id="WT-D4"></a>[WT-D4](#WT-D4) | One edit is consented to once: the config part and the grant part are written together, or neither | 2026-09-30 | kept: the prompt is the one consent |
+| <a id="WT-D5"></a>[WT-D5](#WT-D5) | Version 1 admits one grant, the writable mount; every other key in [A.5](#a5-what-else-a-workspace-grant-could-unlock) keeps its refusal, and moving one is its own question | 2026-09-30 | kept |
+| <a id="WT-D6"></a>[WT-D6](#WT-D6) | The design paired with [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) and did not absorb it; AS3 stays the question of whether ro `mounts` and `env_sources` leave workspace scope | 2026-09-30 | kept |
+| <a id="WT-D7"></a>[WT-D7](#WT-D7) | Inside a jail, consent for the jail's own workspace is refused naming the host; for another workspace it governs only the launches that jail makes ([P1](trust-paths.md#p1-trust-flows-downward-and-a-parent-controlling-its-child-is-not-a-finding), [Test 2](../reference/gate-placement-principle.md#test-2--the-blast-radius-test-trusted-relative-to-what)) | 2026-09-30 | kept: in-jail `yolo check` disables `--accept-config-changes` as host-only |
+
+### A.7 Lessons from mise and direnv
+
+- **mise.** `mise trust` marks a file trusted; in normal mode "safe" files load without trust and
+  execution commands auto-trust their config. **Paranoid mode** binds approval to content, disables
+  auto-trust, and exempts global config as operator-owned
+  (<https://mise.jdx.dev/cli/trust.html>, <https://mise.jdx.dev/paranoid.html>, fetched
+  2026-09-25). *Lesson:* the global exemption is Test 1; the content binding is what the approval
+  gate already does; auto-trust on execution is what yolo refuses.
+- **direnv.** An `.envrc` is blocked until `direnv allow` and again after any edit; the allow record
+  is a file under `$XDG_DATA_HOME/direnv/allow` named by SHA-256 over the path and contents
+  (<https://direnv.net/man/direnv.1.html>, fetched 2026-09-25). *Lesson:* key on path plus content,
+  and keep the record outside the directory it governs.

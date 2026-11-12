@@ -129,7 +129,7 @@ see how it goes"* ([OQ-BB6](boundary-broker.md#15-decision-ledger)).
 >
 > **Where `.git/config` is locked, the equivalence fails.** If `workspace_readonly` locks
 > `.git/config`, the agent cannot add a remote. The local file is writable from inside the jail
-> even then ([`workspace-config-trust.md`](workspace-config-trust.md)), so there the entry is a new
+> even then ([the retired trust design's facts](readable-config.md#a1-what-held-when-it-was-argued)), so there the entry is a new
 > agent input. It is still behind the y. [§7](#7-risks) carries this case.
 
 ### 1.3 What it changes in standing records
@@ -557,7 +557,7 @@ flowchart LR
     now refused ([§3.1](#31-the-entry)), but the text should not lead the agent there.
   - **The read-only case.** Under `workspace_readonly` the launch mounts the committed file
     read-only (`workspaceReadonlyMountArgs`, `mounts.go`), and the local file stays writable,
-    creating it included ([`workspace-config-trust.md`](workspace-config-trust.md)).
+    creating it included ([the retired trust design's facts](readable-config.md#a1-what-held-when-it-was-argued)).
   - The local file is not git-ignored by yolo, so the text never says it *is* ignored.
   - **It names the exact files.** The launch already knows which file the loader reads, and the
     scope file carries both names ([§3.3](#33-what-the-broker-gets)). So the text never tells an
@@ -666,7 +666,7 @@ The trust argument rests on which of these files a jail can write. One row per f
 | File | Who writes it | Read by |
 | :--- | :--- | :--- |
 | `yolo-jail.jsonc`, or its `yolo-jail.json` fallback | The human or the agent. The jail can write it unless `workspace_readonly` has an entry, which mounts it read-only (`mounts.go`) | The loader, at the launch, the gate and `yolo check` |
-| `yolo-jail.local.jsonc`, or its `.json` fallback | The human or the agent, always, and the jail can create it ([`workspace-config-trust.md`](workspace-config-trust.md)) | The same loader |
+| `yolo-jail.local.jsonc`, or its `.json` fallback | The human or the agent, always, and the jail can create it ([the retired trust design's facts](readable-config.md#a1-what-held-when-it-was-argued)) | The same loader |
 | A file either one includes, inside the workspace | The human or the agent, unless a `workspace_readonly` entry covers it | The same loader |
 | `.git/config` | The human or the agent, unless a `workspace_readonly` entry covers it | `brokerscope.ReadRemotes`, at the gate |
 | The approval record's parts, the sources record included | Host yolo alone: a y, `--accept-config-changes`, or host `yolo check --accept-config-changes`. They sit under `paths.ApprovalsDir()`, which is never mounted ([OQ-D1](../reference/config-safety.md#oq-d1)), and an in-jail `yolo check --accept-config-changes` warns and writes no part ([OQ-S2](../reference/config-safety.md#oq-s2)) | The gate |
@@ -740,7 +740,7 @@ enabled and one GitHub remote.
   design does not change that.
 - **Extending `workspace_readonly`'s self-lock to the local file.** The local file is writable
   under it today for every key, which is
-  [`workspace-config-trust.md`](workspace-config-trust.md)'s subject.
+  the subject of [RC-D24's background](readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace).
 - **Approving the exact object the launch runs.** The launch runs a strict config read before the
   gate, and the gate approves a separate later read, for every key. That gap predates this design.
   [WW-P2](#WW-P2) keeps the scope out of it, and the rest is a separate design.
@@ -774,7 +774,7 @@ enabled and one GitHub remote.
 | A human presses y without reading | The block comes first, is labeled as the scope, and names each file. The count line sits at the question. Remotes already have this exposure, and [BB-D31](boundary-broker.md#BB-D31) states the limit |
 | A scripted `--accept-config-changes` admits an agent's entry unread | Both flag paths print the block before recording, and every launch line names each repository and its source |
 | **A cloned project's committed config asks for the user's private repositories.** This channel is new: a repository's author could never set the user's remotes | Two human acts in a fresh clone: `yolo loopholes enable` on the host in that project ([OQ-BB13](boundary-broker.md#15-decision-ledger)), then a y (or the flag) to a block naming `yolo-jail.jsonc` as the source. In a project where the broker is already on, a pull that adds an entry meets the y alone |
-| **An approved committed entry rides every later read-write window** | Accepted as the maintainer's *"whatever that access is"*. The window's notification names the repositories it covers ([`boundary-broker.md` §6.3](boundary-broker.md#63-what-the-notification-shows)). workspace-config-trust's *"never in a git-committed file"* was said of standing writable grants, and a window is not one |
+| **An approved committed entry rides every later read-write window** | Accepted as the maintainer's *"whatever that access is"*. The window's notification names the repositories it covers ([`boundary-broker.md` §6.3](boundary-broker.md#63-what-the-notification-shows)). The retired trust design's *"never in a git-committed file"* was said of standing writable grants, and a window is not one |
 | Where `workspace_readonly` locks `.git/config`, the entry is a new agent input | It is still behind the y. A lock covering the local file is a [non-goal](#5-non-goals) here |
 | An agent-chosen file name redraws the block | Every label is escaped ([WW-P3](#WW-P3)) |
 | An agent swaps a config file for a link out of the workspace between a check and the read | Containment is decided on the open that reads the bytes, beneath an `os.Root` on the workspace, never by a check before it ([WW-D17](#WW-D17)) |

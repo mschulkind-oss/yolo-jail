@@ -52,8 +52,8 @@ deciding, and it judges the resolved target of every access, never the link.
 config keys that add mounts), [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the
 Seatbelt argument this generalizes), [`gate-placement-principle.md`](gate-placement-principle.md)
 (why a declared read-write mount is disclosed rather than gated).
-[`../design/workspace-config-trust.md`](../design/workspace-config-trust.md) owns which config
-files may declare a read-write element, and
+[RC-D24](../design/readable-config.md#RC-D24) rules which config files may declare a read-write
+element ([its background](../design/readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace)), and
 [`../design/declaration-parity.md`](../design/declaration-parity.md) owns the parity rulings
 (DP-D15, DP-L1) this builds on. `yolo config-ref` is the authority for the key's syntax.
 
@@ -246,7 +246,7 @@ workspace scoping and the [config-change diff prompt](config-safety.md).
 
 #### A project may request one, once your config allows it
 
-[RC-D24](../design/readable-config.md#RC-D24) supersedes [`OQ-WT1`](../design/workspace-config-trust.md#OQ-WT1) with one exception. A
+[RC-D24](../design/readable-config.md#RC-D24) supersedes [`OQ-WT1`](../design/readable-config.md#OQ-WT1) with one exception. A
 **request** is a `mounts` table with `write = true` written by a project's TOML config file
 itself, `yolo-jail.toml` or `yolo-jail.local.toml`. A file either one includes cannot request
 one, and neither can a TOML file a JSONC config includes, so the file a human reviews is the
@@ -725,8 +725,6 @@ host or CI.
 ## Unbuilt and unmeasured
 
 - **A pack rw `mount`** is not built, and waits for a pack that needs one ([CX-D3](#CX-D3)).
-- **Where an rw element may be declared** waits on
-  [`OQ-WT1`](../design/workspace-config-trust.md#OQ-WT1); until then, user scope only.
 - **MEASURED on a Mac 2026-10-18, two volume kinds of three** ([`OQ-CX8`](#oq-cx8)'s other half;
   on a developer Mac (macOS 26.5, arm64); `macos-user.yml` has not confirmed it, its runner
   having no second volume —

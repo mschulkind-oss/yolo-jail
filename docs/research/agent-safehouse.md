@@ -851,7 +851,7 @@ equivalent logic is already Go and already tested.
 *([OQ-AS3](#OQ-AS3) was opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
 section, and verified against `internal/config` before filing.)*
 
-*Paired 2026-09-25 with [`workspace-config-trust.md`](../design/workspace-config-trust.md), which
+*Paired 2026-09-25 with a trust design, since retired into [RC-D24's background](../design/readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace), which
 adds a third answer — grants allowed in the local file only against a host-side trust record —
 and argues that [§9](#9-negative-space--what-not-to-adopt) item 1's scope rule holds against the repo author but not against the in-jail
 agent, who can write the local file.*

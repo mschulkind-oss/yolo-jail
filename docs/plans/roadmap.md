@@ -49,8 +49,7 @@ needs a ruling or a Mac sits in the others.
    [pinned host helpers](../design/pinned-host-helpers.md); [matched development bundles](../design/matched-development-bundles.md);
    [the MCP presets removal](../design/mcp-presets-removal.md); and [secret env scoping](../design/secret-env-scoping.md)'s
    rule into [the credential gate](../reference/providers.md#the-credential-gate).
-   Retire [workspace config trust](../design/workspace-config-trust.md), superseded and built, and
-   [the downstream asks](downstream-asks.md), all settled.
+   Retire [the downstream asks](downstream-asks.md), all settled.
 
 4. [Finish ongoing launch preparation and explicit update-and-wait](../design/launch-update-preparation.md) — its
    independent combined-source review is agent work, and the platform acceptance after it is not; the
