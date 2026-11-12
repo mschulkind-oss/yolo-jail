@@ -108,34 +108,56 @@ func TestProductionFloorOperationCancellationReachesActualAdvance(t *testing.T) 
 	entered := make(chan context.Context, 1)
 	originalChild := forkBuildChild
 	forkBuildChild = func(ctx context.Context, _ time.Duration, _ string, _ forkBuild, _ captureStreams, _ bool) (int, bool) {
-		entered <- ctx
+		select {
+		case entered <- ctx:
+		case <-ctx.Done():
+		}
 		<-ctx.Done()
 		return 130, false
 	}
-	t.Cleanup(func() { forkBuildChild = originalChild })
 	result := make(chan error, 1)
+	joined := make(chan struct{})
+	// Registered after the fixture's own cleanups, so it runs before them: the operation is cancelled
+	// and has RETURNED before the child seam, the fixture's seams or its directories are taken from
+	// under it, on a failure path too. The join is unbounded on purpose; an operation that ignores its
+	// cancellation is a hang the test binary's own timeout reports with every goroutine's stack.
+	t.Cleanup(func() {
+		cancel()
+		<-joined
+		forkBuildChild = originalChild
+	})
 	go func() {
+		defer close(joined)
 		_, err := floor.PreparePatched(operation, program, true)
 		result <- err
 	}()
+	// A failure guard for a hang only, never a budget the advance has to beat: the advance runs real
+	// git work before its child, and a loaded machine decides how long that takes.
+	const hangGuard = 90 * time.Second
 	select {
 	case childCtx := <-entered:
 		if childCtx.Value(operationScopeTestKey{}) != "cancel-operation" {
 			t.Errorf("actual serving child lost the operation value: %v", childCtx.Value(operationScopeTestKey{}))
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("production serving advance never entered its cancellable child runner")
+	case err := <-result:
+		t.Fatalf("production serving advance returned before its cancellable child runner was cancelled "+
+			"(child runner entered: %t): %v", len(entered) > 0, err)
+	case <-time.After(hangGuard):
+		t.Fatalf("production serving advance neither entered its cancellable child runner nor returned within %s", hangGuard)
 	}
 	cancel()
-	forkBuildChild = originalChild
 	select {
 	case err := <-result:
 		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
 			t.Errorf("cancelled Floor preparation error = %v, want independent context cancellation", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled production serving advance did not return")
+	case <-time.After(hangGuard):
+		t.Fatalf("cancelled production serving advance did not return within %s", hangGuard)
 	}
+	// The retry below needs the fixture's own child; the seam is swapped back only now that the
+	// cancelled operation is known to have returned.
+	<-joined
+	forkBuildChild = originalChild
 	if act.Interrupted() {
 		t.Error("ordinary operation cancellation marked the act interrupted")
 	}
