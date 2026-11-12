@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -322,9 +323,10 @@ func (g *Graph) markLegacyRepos() {
 	}
 }
 
-// markUnsafeLegacyRepos retains each project JSONC file whose `brokered.<source>.repos` list holds
-// an entry that is not a plain owner/repo: that entry has no named table (GW-D80), so the file is
-// kept whole, unconverted and still read, and the plan names the entry.
+// markUnsafeLegacyRepos retains each project JSONC file whose `brokered.<source>` table holds a
+// repository no named table can carry: a `repos` entry that is not a plain owner/repo, or a
+// `grants` entry whose repo is a pattern or wildcard (GW-D80). The file is kept whole, unconverted
+// and still read, and the plan names the entry; no TOML companion is written for the rest of it.
 func (g *Graph) markUnsafeLegacyRepos() {
 	for _, f := range g.Files {
 		if f.Role != RoleConvert || f.Scope != ScopeProject || f.doc == nil {
@@ -339,19 +341,40 @@ func (g *Graph) markUnsafeLegacyRepos() {
 			if !ok {
 				continue
 			}
-			list, _ := table.Get("repos")
-			entries, _ := list.([]any)
-			for _, entry := range entries {
-				text, _ := entry.(string)
-				if plainRepoEntry(text) {
-					continue
-				}
+			if path, reason := unsafeLegacyRepo(source, table); reason != "" {
 				f.Role = RoleRead
-				f.retainedRepo = NotConverted{File: f.Logical, Path: "brokered." + source + ".repos", Reason: notPlainRepoReason(text, source)}
+				f.retainedRepo = NotConverted{File: f.Logical, Path: "brokered." + source + "." + path, Reason: reason}
 				break
 			}
 		}
 	}
+}
+
+// unsafeLegacyRepo is the first key of one `brokered.<source>` table, and why, that a named table
+// cannot carry: a `repos` entry that is not a plain owner/repo, or a `grants` entry whose repo
+// holds a `*`. "" reason when the table holds none.
+func unsafeLegacyRepo(source string, table *jsonx.OrderedMap) (string, string) {
+	list, _ := table.Get("repos")
+	entries, _ := list.([]any)
+	for _, entry := range entries {
+		text, _ := entry.(string)
+		if !plainRepoEntry(text) {
+			return "repos", notPlainRepoReason(text, source)
+		}
+	}
+	grants, _ := table.Get("grants")
+	items, _ := grants.([]any)
+	for _, item := range items {
+		grant, ok := item.(*jsonx.OrderedMap)
+		if !ok {
+			continue
+		}
+		repo, _ := grant.Get("repo")
+		if text, _ := repo.(string); strings.Contains(text, "*") {
+			return "grants", notPlainRepoReason(text, source)
+		}
+	}
+	return "", ""
 }
 
 // UserSetupFile is the first user-scope file of the graph that writes `setup`, "" when none

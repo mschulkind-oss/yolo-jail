@@ -50,6 +50,9 @@ type Target struct {
 	// Unaliased are the providers this file's conversion gave variants and no alias: each is
 	// selected as provider/variant only, and the transcript names the alias command (RC-D62).
 	Unaliased []UnaliasedProvider
+	// brokerSources are the broker sources whose old spelling this target rewrites in a project
+	// file: the sources the before side projects under their old reach (addWorkspaceBrokerGrantsBySource).
+	brokerSources []string
 }
 
 // UnaliasedProvider is a provider a conversion wrote variants for, in a file that gives it no
@@ -239,10 +242,11 @@ func Plan(g *Graph) (*MigrationPlan, error) {
 // planOptions are the conversions a plan makes only while the proof holds.
 type planOptions struct {
 	fold, twinOf bool
-	// legacyBrokerGrants is set on the BEFORE side of a conversion that rewrites the workspace's
-	// config file: that side projects the workspace's unqualified request lines as they reached
-	// every remote, so the proof compares the grants the old file gave (addWorkspaceBrokerGrants).
-	legacyBrokerGrants bool
+	// legacyBrokerSources are the broker sources whose old spelling a conversion rewrites in a
+	// project file. The BEFORE side projects exactly these as the old file reached them, the
+	// unqualified request lines on every remote, so the proof compares the grants the old file
+	// gave (addWorkspaceBrokerGrantsBySource). Every other source projects as the new file does.
+	legacyBrokerSources map[string]bool
 }
 
 // providerTableLayer is the equality check's layer for the provider table a launch resolves.
@@ -358,9 +362,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 			if f.legacyRepos {
 				var rewrote []string
 				var skipped []NotConverted
+				before := t.Bytes
 				if t.Bytes, rewrote, skipped, err = withLegacyReposConverted(t.Bytes, f.Logical, &legacy); err != nil {
 					return nil, fmt.Errorf("%s: convert the repos lists: %w", f.Logical, err)
 				}
+				t.brokerSources = rewrittenRepoSources(before, t.Bytes)
 				t.Rewrote = append(t.Rewrote, rewrote...)
 				p.NotConverted = append(p.NotConverted, skipped...)
 			}
@@ -407,9 +413,12 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	// The workspace's config is rewritten only when a target writes it; the before side then
 	// reads the old reach. A file no target writes keeps the projection both sides share.
 	beforeOpts := opts
+	beforeOpts.legacyBrokerSources = map[string]bool{}
 	for _, t := range p.Targets {
 		if t.File != nil && t.File.Scope == ScopeProject {
-			beforeOpts.legacyBrokerGrants = true
+			for _, source := range t.brokerSources {
+				beforeOpts.legacyBrokerSources[source] = true
+			}
 		}
 	}
 	before, err := readCanonical(g, userBefore, layerBefore, workspaceBefore, remotes, view, "", true, beforeOpts, packs)
@@ -549,7 +558,58 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 	t.Bytes, t.Comments, t.Respelled, t.Dropped, t.Folded, t.Twins = data, len(comments), respelled, dropped, folded, l.twins
 	t.Inert = l.inert
 	t.Unaliased = unaliasedProviders(l.values, l.variants)
+	if f.Scope == ScopeProject {
+		t.brokerSources = oldSpellingSources(f)
+	}
 	return t, l.skipped, nil
+}
+
+// oldSpellingSources are the broker sources a JSONC project file spells in its old form: each
+// source named by its `brokered` or `requests` table. The whole file is rewritten, so the unqualified
+// lines of every such source change meaning (GW-D79), not only its converted grants.
+func oldSpellingSources(f *File) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, key := range []string{"brokered", "requests"} {
+		table, ok := mapAt(f.doc.Values, key)
+		if !ok {
+			continue
+		}
+		for _, source := range table.Keys() {
+			if !seen[source] {
+				seen[source] = true
+				out = append(out, source)
+			}
+		}
+	}
+	return out
+}
+
+// rewrittenRepoSources are the sources whose `requests.<source>.repos` list withLegacyReposConverted
+// changed: the list before and after differ, which holds exactly when an entry became a named table.
+func rewrittenRepoSources(before, after []byte) []string {
+	var out []string
+	for _, source := range legacyRepoSources(before) {
+		if repoListOf(before, source) != repoListOf(after, source) {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+// repoListOf is the `requests.<source>.repos` value of a TOML document, "" when it has none.
+func repoListOf(data []byte, source string) string {
+	doc, err := configdoc.Parse(data, configdoc.TOML)
+	if err != nil {
+		return "<unparseable>"
+	}
+	requests, _ := mapAt(doc.Values, "requests")
+	table, _ := mapAt(requests, source)
+	list, ok := table.Get("repos")
+	if !ok {
+		return ""
+	}
+	return jsonx.MustDumpsCompact(list)
 }
 
 // respellFile rewrites a TOML file's include entries that name a converted file, byte for byte
@@ -919,6 +979,23 @@ func mergeAdjacentTables(entries []any) []any {
 // scope that wrote them, which the merged read no longer knows.
 var loweredRoots = []string{"env_sources", "env", "brokered", "requests", "allow", "loopholes", "profile", "profiles", "active_provider"}
 
+// addWorkspaceBrokerGrantsBySource is addWorkspaceBrokerGrants with the old reach chosen per
+// source: each source in legacy is projected as LegacyWorkspaceBrokerGrantsOf projects it, every
+// other declared source as WorkspaceBrokerGrantsOf does. A source's entry is its own, so the two
+// calls add disjoint entries.
+func addWorkspaceBrokerGrantsBySource(grants, ws *jsonx.OrderedMap, remoteWorkspace string, declarations []config.ReadableBrokerDeclaration, legacy map[string]bool) {
+	var affected, rest []config.ReadableBrokerDeclaration
+	for _, d := range declarations {
+		if legacy[d.Brokered.Source] {
+			affected = append(affected, d)
+		} else {
+			rest = append(rest, d)
+		}
+	}
+	addWorkspaceBrokerGrants(grants, ws, remoteWorkspace, affected, true)
+	addWorkspaceBrokerGrants(grants, ws, remoteWorkspace, rest, false)
+}
+
 // readCanonical reads one side through the launch's readers (config.ReadMigrationGraph). The old
 // side (remotes non-nil or mirror empty) is lowered; the new side is the readers' output with
 // the staging root taken back out of every anchored path.
@@ -1035,7 +1112,11 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	if mirror != "" && strings.HasPrefix(workspace, mirror+string(filepath.Separator)) {
 		remoteWorkspace = strings.TrimPrefix(workspace, mirror)
 	}
-	addWorkspaceBrokerGrants(s.grants, s.grantWorkspace, remoteWorkspace, brokers, lowerOld && opts.legacyBrokerGrants)
+	var legacySources map[string]bool
+	if lowerOld {
+		legacySources = opts.legacyBrokerSources
+	}
+	addWorkspaceBrokerGrantsBySource(s.grants, s.grantWorkspace, remoteWorkspace, brokers, legacySources)
 	s.grantLegacyUser = !readable && config.UserConfigIsLegacyAt(userTop)
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)
