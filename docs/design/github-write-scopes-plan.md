@@ -61,3 +61,8 @@ or a note for the planner to check; no behavior is decided here.
   and the `pr review --approve` row in `workingset_test.go`'s target table.
 - **Docs that restate today's line:** the `description` in the github pack's `loophole.toml`,
   [BB-D111](boundary-broker.md#BB-D111)'s prose, and the pack's agent briefing.
+- **Repository binding first.** [GW-D79](github-write-scopes.md#GW-D79) proposes building the GitHub
+  side of repository binding (origin-only lowering, named `[repos.<name>]` tables, the scoped ceiling,
+  the `requests.github.repos` migration) ahead of the work kinds. Its first slice is the
+  [Current support and the repository-only first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice). A planner bounds
+  that slice first; this sketch stays not buildable until GW-D79 is ruled.
