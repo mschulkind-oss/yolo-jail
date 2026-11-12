@@ -23,8 +23,7 @@ func TestLaunchBrokeredScopeUsesSelectedReadableDeclaration(t *testing.T) {
 		{"git", "git-broker", "git-owner", "*", "fetch", "branch", "push", `push = ["main"]`, true, 2, nil},
 		{"github", "github-broker", "github-owner", "github.com", "read", "create-pr", "create_pr", `create_pr = true`, true, 1, nil},
 		{"git", "git-broker", "git-owner", "*", "fetch", "branch", "push", `push = ["main"]`, false, 0, boolPtr(false)},
-		{"github", "github-broker", "github-owner", "github.com", "read", "create-pr", "create_pr", `repos = ["acme/outside"]
-create_pr = true`, false, 1, boolPtr(true)},
+		{"github", "github-broker", "github-owner", "github.com", "read", "create-pr", "create_pr", "create_pr = true\n[repos.outside]\nrepo = \"github.com/acme/outside\"\n", false, 1, boolPtr(true)},
 	} {
 		t.Run(fmt.Sprintf("%s/remote=%t", tc.source, tc.hasRemote), func(t *testing.T) {
 			checkLaunchReadableBrokerScope(t, tc.source, tc.brokerName, tc.owner, tc.remoteHost, tc.readCapability, tc.grantKind, tc.capability, tc.request, tc.hasRemote, tc.wantGrants, tc.wantScopeChanged)
@@ -63,10 +62,10 @@ func checkLaunchReadableBrokerScope(t *testing.T, source, brokerName, owner, rem
 		t.Fatal(err)
 	}
 	inactiveSource, inactiveReadCapability, inactiveRemoteHost := "github", "read", "github.com"
-	inactiveRequest := `repos = ["acme/inactive"]`
+	inactiveConfig := ""
 	if source == "github" {
 		inactiveSource, inactiveReadCapability, inactiveRemoteHost = "git", "fetch", "*"
-		inactiveRequest = `push = ["main"]`
+		inactiveConfig = "[requests.git]\npush = [\"main\"]\n"
 	}
 	inactiveManifest := fmt.Sprintf(`{"name":"inactive-broker","transport":"loopback-tls","lifecycle":"spawned","host_daemon":{"cmd":["/bin/true","{socket}","{repository_scope}"],"publishes":"socket"},"brokered":{"source":%q,"remote_host":%q,"grants":["branch"],"read_capability":%q,"kind_capabilities":{"branch":"push"}},"platforms":["windows"]}`, inactiveSource, inactiveRemoteHost, inactiveReadCapability)
 	if err := os.WriteFile(filepath.Join(inactiveModule, "manifest.jsonc"), []byte(inactiveManifest), 0o600); err != nil {
@@ -107,7 +106,7 @@ func checkLaunchReadableBrokerScope(t *testing.T, source, brokerName, owner, rem
 			t.Fatal(err)
 		}
 	}
-	workspaceConfig := fmt.Sprintf("[requests.%s]\n%s\n\n[requests.%s]\n%s\n", source, request, inactiveSource, inactiveRequest)
+	workspaceConfig := fmt.Sprintf("[requests.%s]\n%s\n\n%s", source, request, inactiveConfig)
 	if err := os.WriteFile(filepath.Join(workspace, config.WorkspaceTOMLConfigName), []byte(workspaceConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}

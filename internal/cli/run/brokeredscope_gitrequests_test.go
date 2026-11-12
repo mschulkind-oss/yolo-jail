@@ -71,7 +71,7 @@ func TestAReadableRequestedRepoJoinsGitsReadScopeAtTheGateAndNeverItsPushes(t *t
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(o.Workspace, config.WorkspaceTOMLConfigName),
-			[]byte("[requests.github]\nrepos = [\""+repo+"\"]\n"), 0o600); err != nil {
+			[]byte("[repos.outside]\nrepo = \"github.com/"+repo+"\"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		return o, buf, gitMarker
