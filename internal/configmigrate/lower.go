@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,6 +64,9 @@ type loweringContext struct {
 	scope Scope
 	// drop records an old key the lowering converts to nothing (lowered.inert); lower sets it.
 	drop func(path []string, value any, why string)
+	// copied records the unqualified line a named table's line is a copy of (lowered.named);
+	// lower sets it.
+	copied func(at []string, from string)
 	// remotes are the workspace's remote repositories as host/owner/repo, lowercased, each once.
 	remotes []string
 	// keepUnconverted keeps every old key the lowering cannot convert at its old spelling (the
@@ -89,6 +93,9 @@ type lowered struct {
 	values  *jsonx.OrderedMap
 	origins map[string][]string
 	skipped []NotConverted
+	// named are, per `repos.<name>.requests.<source>.<capability>` line the lowering wrote, the
+	// old keys it was made from, each with its file: what the transcript prints beside the line.
+	named map[string][]string
 	// inert are the old keys converted to nothing because they say nothing a launch reads.
 	inert []DroppedInert
 	twins []Twin
@@ -141,7 +148,23 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 	// The lowering places the old file's own tables and then edits them (a null respelled or
 	// removed), so it works on a copy: the old file's values are read again after it.
 	old = jsonx.DeepCopyMap(old)
-	out := lowered{values: jsonx.NewOrderedMap(), origins: map[string][]string{}}
+	out := lowered{values: jsonx.NewOrderedMap(), origins: map[string][]string{}, named: map[string][]string{}}
+	madeFrom := func(newPath []string, from string) {
+		if len(newPath) != 5 || newPath[0] != "repos" || newPath[2] != "requests" {
+			return
+		}
+		key := dotted(newPath)
+		if !slices.Contains(out.named[key], from) {
+			out.named[key] = append(out.named[key], from)
+		}
+	}
+	ctx.copied = madeFrom
+	inFile := func(oldPath []string) string {
+		if file == "" {
+			return dotted(oldPath)
+		}
+		return dotted(oldPath) + " in " + file
+	}
 	skip := func(path []string, value any, reason string) {
 		out.skipped = append(out.skipped, NotConverted{File: file, Path: dotted(path), Reason: reason})
 		if ctx.keepUnconverted {
@@ -158,12 +181,16 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 				return false
 			}
 			put(out.values, newPath, merged)
+			madeFrom(newPath, inFile(oldPath))
 			return true
 		}
 		put(out.values, newPath, value)
 		out.origins[strings.Join(newPath, "\x00")] = oldPath
+		madeFrom(newPath, inFile(oldPath))
 		return true
 	}
+	// A named table's repo line is written once in the file, whichever key declares it.
+	declared := map[string]string{}
 	var profiles any
 	hasProfiles := false
 	for _, key := range old.Keys() {
@@ -214,7 +241,7 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			// the reset TOML spells as an empty env.files.
 			value = envResetSpelling(value)
 		case "brokered":
-			lowerBrokered(value, ctx, place, skip)
+			lowerBrokered(value, ctx, declared, place, skip)
 			continue
 		case "runtime", "confinement", "macos_user_mode":
 			lowerRemovedSetupKey(key, value, ctx, file, place, skip)
@@ -224,7 +251,10 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			// placed under requests.<pack> (a request-scope setting, LC-D17), so neither hides the
 			// other; a leaf written twice is reported, never dropped in silence.
 			if tbl, ok := value.(*jsonx.OrderedMap); ok && !ctx.userScoped() {
-				lowerProjectRequests(tbl, place, skip)
+				// A file's own `repos` list converts once every other key is placed
+				// (lowerRetainedRequests). The old side keeps the list as written:
+				// lowerLegacyRepos lowers it there, for every format.
+				lowerProjectRequests(tbl, !ctx.keepUnconverted && ctx.repos != nil, place, skip)
 				continue
 			}
 		case "repos":
@@ -258,6 +288,12 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 		for _, nc := range dropped {
 			skip(nc.path, nc.value, nc.reason)
 		}
+	}
+	if requests, ok := mapAt(old, "requests"); ok && ctx.scope == ScopeProject && ctx.repos != nil {
+		lowerRetainedRequests(requests, ctx, declared, place, skip, func(n NotConverted) {
+			n.File = file
+			out.skipped = append(out.skipped, n)
+		})
 	}
 	// A ceiling only a switch file gives (§6's switch row) has no user file writing the
 	// loophole; the top-level file carries it.
@@ -498,7 +534,7 @@ func lowerEnvSources(value any, place func([]string, any, []string) bool, skip f
 // the repository it names is the workspace's one remote repository; any other grant would widen
 // or narrow what may be pushed (readable-config-plan.md §7) and is left at its old spelling. A
 // user file's brokered table becomes allow.<source> instead (lowerUserBrokered).
-func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+func lowerBrokered(value any, ctx loweringContext, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	sources, ok := value.(*jsonx.OrderedMap)
 	if !ok {
 		skip([]string{"brokered"}, value, "brokered must be an object")
@@ -508,8 +544,6 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 		lowerUserBrokered(sources, ctx, place, skip)
 		return
 	}
-	// A named table's repo line is written once in the file, whichever source or list declares it.
-	declared := map[string]string{}
 	for _, source := range sources.Keys() {
 		sv, _ := sources.Get(source)
 		table, ok := sv.(*jsonx.OrderedMap)
@@ -522,7 +556,7 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 			oldPath := []string{"brokered", source, key}
 			switch key {
 			case "repos":
-				lowerBrokeredRepos(source, v, ctx, oldPath, declared, place, skip)
+				lowerBrokeredRepos(source, v, ctx, oldPath, legacyJSONCList, declared, place, skip)
 			case "grants":
 				lowerGrants(source, v, ctx, declared, place, skip)
 			default:
@@ -533,10 +567,11 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 	}
 }
 
-// lowerBrokeredRepos converts a project's brokered.<source>.repos list to the named tables a TOML
+// lowerBrokeredRepos converts a JSONC project file's repository list, brokered.<source>.repos or
+// requests.<source>.repos (oldPath, with list the tag of that key), to the named tables a TOML
 // file's requests.<source>.repos list becomes (reposbinding.go), each with a copy of the lines the
 // merged workspace writes unqualified. An entry that stays keeps its old spelling with its reason.
-func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath []string, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath []string, list repoListFile, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	entries, ok := value.([]any)
 	if !ok {
 		skip(oldPath, value, "repos must be a list")
@@ -546,7 +581,7 @@ func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath [
 		skip(oldPath, value, "the workspace's repositories are not known here; "+noSpellingYet)
 		return
 	}
-	tables, kept, notConverted := ctx.repos.convert(source, entries, "", legacyJSONCList)
+	tables, kept, notConverted := ctx.repos.convert(source, entries, "", list)
 	var reasons []string
 	for _, n := range notConverted {
 		reasons = append(reasons, n.Reason)
@@ -561,7 +596,9 @@ func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath [
 			at := []string{"repos", t.name, "requests", source, l.kind}
 			if !place(at, l.value, oldPath) {
 				reasons = append(reasons, dotted(at)+" is already written in this file; keep one of the two")
+				continue
 			}
+			ctx.copied(at, l.from(source))
 		}
 	}
 	if len(kept) > 0 || len(reasons) > 0 {
@@ -1073,8 +1110,47 @@ func addCeilingKinds(values *jsonx.OrderedMap, ceiling map[string][]string) {
 	}
 }
 
-// lowerProjectRequests places a project's `requests` table one pack's kind at a time.
-func lowerProjectRequests(tbl *jsonx.OrderedMap, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+// lowerRetainedRequests writes the named tables a JSONC project file's `requests` table asks for
+// beyond its own lines (GW-D79, GW-D80): each `requests.<source>.repos` list becomes the tables a
+// TOML file's list becomes, and the unqualified write lines of a source the conversion narrows to
+// origin are copied onto a table for each other remote on the host, so the rewrite keeps every
+// write the old file reached. The old side keeps a list as written (lowerLegacyRepos lowers it)
+// and takes the same remote tables. note reports a remote whose table cannot be named.
+func lowerRetainedRequests(requests *jsonx.OrderedMap, ctx loweringContext, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string), note func(NotConverted)) {
+	for _, source := range requests.Keys() {
+		table, ok := mapAt(requests, source)
+		if !ok {
+			continue
+		}
+		if list, has := table.Get("repos"); has && !ctx.keepUnconverted {
+			lowerBrokeredRepos(source, list, ctx, []string{"requests", source, "repos"}, tomlRequestsList, declared, place, skip)
+		}
+		tables, notConverted := ctx.repos.unqualifiedRemoteTables(source, table)
+		for _, n := range notConverted {
+			note(n)
+		}
+		for _, t := range tables {
+			if t.repo != "" {
+				if reason := declareRepoTable(t.name, t.repo, declared, []string{"requests", source}, place); reason != "" {
+					note(NotConverted{Path: "requests." + source, Reason: reason})
+					continue
+				}
+			}
+			for _, l := range t.lines {
+				at := []string{"repos", t.name, "requests", source, l.kind}
+				if !place(at, l.value, []string{"requests", source, l.kind}) {
+					note(NotConverted{Path: "requests." + source + "." + l.kind, Reason: dotted(at) + " is already written in this file; keep one of the two"})
+					continue
+				}
+				ctx.copied(at, l.from(source))
+			}
+		}
+	}
+}
+
+// lowerProjectRequests places a project's `requests` table one pack's kind at a time. With
+// reposLater a pack's `repos` list is left for lowerRetainedRequests, which converts it.
+func lowerProjectRequests(tbl *jsonx.OrderedMap, reposLater bool, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	for _, pack := range tbl.Keys() {
 		v, _ := tbl.Get(pack)
 		at := []string{"requests", pack}
@@ -1086,6 +1162,9 @@ func lowerProjectRequests(tbl *jsonx.OrderedMap, place func([]string, any, []str
 			continue
 		}
 		for _, kind := range inner.Keys() {
+			if reposLater && kind == "repos" {
+				continue
+			}
 			kv, _ := inner.Get(kind)
 			kat := []string{"requests", pack, kind}
 			if !place(kat, kv, kat) {

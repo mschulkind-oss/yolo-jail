@@ -61,6 +61,11 @@ func (p *MigrationPlan) Transcript() string {
 			continue
 		}
 		fmt.Fprintf(&b, "  (%d lines → %d; %d %s kept, in order)\n", countLines(t.File.Bytes), countLines(t.Bytes), t.Comments, plural(t.Comments, "comment", "comments"))
+		// Every write the converted file keeps under a name, with its repository and the old
+		// keys it was made from (GW-D80).
+		for _, line := range t.Rewrote {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
 		for _, d := range t.Dropped {
 			fmt.Fprintf(&b, "  %q: %s dropped: it is the default\n", d.Path, d.Value)
 		}

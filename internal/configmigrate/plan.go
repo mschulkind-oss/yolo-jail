@@ -45,7 +45,10 @@ type Target struct {
 	// place, so a converted workspace's requests stand (LG-D16): `allow.<pack>.on_request: <kind>`.
 	Ceiling []string
 	// Rewrote are the removed setup keys a TOML file rewritten in place converted, each as
-	// `<old> → <new>` (withRemovedSetupKeysConverted).
+	// `<old> → <new>` (withRemovedSetupKeysConverted), and every named write the conversion
+	// retains: for a TOML file the lines its `repos` list became (withLegacyReposConverted), for
+	// a converted JSONC file each `repos.<name>.requests.<source>.<capability>` line it writes,
+	// with its repository and the old keys it was made from (retainedNamedWrites).
 	Rewrote []string
 	// Unaliased are the providers this file's conversion gave variants and no alias: each is
 	// selected as provider/variant only, and the transcript names the alias command (RC-D62).
@@ -560,6 +563,7 @@ func convertFile(f *File, remotes []string, view *userView, writers writerCounts
 	t.Unaliased = unaliasedProviders(l.values, l.variants)
 	if f.Scope == ScopeProject {
 		t.brokerSources = oldSpellingSources(f)
+		t.Rewrote = retainedNamedWrites(l.values, l.named, repos)
 	}
 	return t, l.skipped, nil
 }

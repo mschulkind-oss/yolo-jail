@@ -3,6 +3,7 @@ package configmigrate
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -10,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // requestLine is one unqualified `requests.<source>.<kind>` value the merged workspace writes,
@@ -17,6 +19,8 @@ import (
 type requestLine struct {
 	kind  string
 	value any
+	// files are the project files that write the line, in discovery order.
+	files []string
 }
 
 // legacyRepos is what a TOML project file's `requests.<source>.repos` list converts against:
@@ -27,6 +31,14 @@ type legacyRepos struct {
 	lines   map[string][]requestLine
 	hosts   map[string]string
 	taken   map[string]string
+	// writes are, per named-host source that declares `unqualified_requests = "origin"`, the
+	// capabilities whose unqualified lines lower a write grant: the lines the conversion narrows.
+	writes map[string]map[string]bool
+	// fanout are the sources a JSONC file being converted writes such a line for. Its rewrite
+	// moves the line from every remote on the host to origin alone, so the other remotes take a
+	// table of copies (unqualifiedRemoteTables). A source only TOML files write lines for is not
+	// in it: those files are not rewritten, and their lines keep the reach they have.
+	fanout map[string]bool
 }
 
 // namedRemote is a git remote of the workspace: its name and its repository as host/owner/repo.
@@ -51,11 +63,23 @@ func workspaceRemoteNames(workspace string) []namedRemote {
 // legacyReposOf gathers what withLegacyReposConverted needs from the graph: the merged
 // workspace's unqualified writes, and the names the workspace's `repos` tables already take.
 func (g *Graph) legacyReposOf(remotes []namedRemote, declarations []config.ReadableBrokerDeclaration) legacyRepos {
-	in := legacyRepos{remotes: remotes, lines: map[string][]requestLine{}, hosts: map[string]string{}, taken: map[string]string{}}
+	in := legacyRepos{remotes: remotes, lines: map[string][]requestLine{}, hosts: map[string]string{}, taken: map[string]string{},
+		writes: map[string]map[string]bool{}, fanout: map[string]bool{}}
 	for _, d := range declarations {
-		if d.CallBroker == nil && d.Brokered.RemoteHost != brokerscope.AnyRemoteHost {
-			in.hosts[d.Brokered.Source] = d.Brokered.RemoteHost
+		if d.CallBroker != nil || d.Brokered.RemoteHost == brokerscope.AnyRemoteHost {
+			continue
 		}
+		in.hosts[d.Brokered.Source] = d.Brokered.RemoteHost
+		if d.Brokered.UnqualifiedRequests != loopholedecl.UnqualifiedRequestsOrigin {
+			continue
+		}
+		writes := map[string]bool{}
+		for _, capability := range d.KindCapabilities {
+			if capability != d.ReadCapability && !slices.Contains(d.PendingCapabilities, capability) {
+				writes[capability] = true
+			}
+		}
+		in.writes[d.Brokered.Source] = writes
 	}
 	for _, r := range remotes {
 		in.taken[r.name] = r.repo
@@ -87,7 +111,10 @@ func (g *Graph) legacyReposOf(remotes []namedRemote, declarations []config.Reada
 					continue
 				}
 				v, _ := table.Get(kind)
-				in.add(source, kind, v)
+				in.add(source, kind, v, f.Logical)
+				if f.Role == RoleConvert && in.writes[source][kind] {
+					in.fanout[source] = true
+				}
 			}
 		}
 	}
@@ -95,11 +122,14 @@ func (g *Graph) legacyReposOf(remotes []namedRemote, declarations []config.Reada
 }
 
 // add merges one unqualified line into the workspace's writes: a list's refs join in order and
-// without repeats, any other value takes the later file's word.
-func (in legacyRepos) add(source, kind string, value any) {
+// without repeats, any other value takes the later file's word. file is the file writing it.
+func (in legacyRepos) add(source, kind string, value any, file string) {
 	for i, l := range in.lines[source] {
 		if l.kind != kind {
 			continue
+		}
+		if !slices.Contains(l.files, file) {
+			in.lines[source][i].files = append(l.files, file)
 		}
 		list, isList := value.([]any)
 		prior, priorIsList := l.value.([]any)
@@ -118,7 +148,7 @@ func (in legacyRepos) add(source, kind string, value any) {
 	if list, ok := value.([]any); ok {
 		value = append([]any(nil), list...)
 	}
-	in.lines[source] = append(in.lines[source], requestLine{kind: kind, value: value})
+	in.lines[source] = append(in.lines[source], requestLine{kind: kind, value: value, files: []string{file}})
 }
 
 // unionNamedRequest is the value a named table's request line holds once a second value lands on
@@ -211,8 +241,9 @@ const (
 	// legacyJSONCList is a `brokered.<source>` table of a legacy JSONC file: yolo keeps reading it
 	// with the entry in it (RC-D19's window).
 	legacyJSONCList repoListFile = iota
-	// tomlRequestsList is a TOML file's `requests.<source>.repos`: the launch refuses the file
-	// while the key holds an entry (GW-D77), so a retained entry has to leave it.
+	// tomlRequestsList is a `requests.<source>.repos` key: the launch refuses the file while the
+	// key holds an entry (GW-D77), so a retained entry has to leave it. The refusal is the key's,
+	// in a TOML file and in a legacy JSONC one alike, so a JSONC file's list takes this tag too.
 	tomlRequestsList
 )
 
@@ -278,12 +309,23 @@ func (in *legacyRepos) convert(source string, entries []any, logical string, fil
 		}
 		tables = append(tables, repoTable{name: name, repo: repo, source: source, lines: in.lines[source]})
 	}
-	if len(in.lines[source]) == 0 {
-		return tables, kept, skipped
+	remoteTables, reasons := in.remoteTables(source, in.lines[source], logical, path)
+	return append(tables, remoteTables...), kept, append(skipped, reasons...)
+}
+
+// remoteTables are the tables that keep lines on each remote of the workspace other than origin:
+// before GW-D79 every unqualified line of source also reached each remote on source's host. A
+// remote on another host was never reached and takes no table. path is the old key a table that
+// cannot be named is reported under.
+func (in *legacyRepos) remoteTables(source string, lines []requestLine, logical, path string) ([]repoTable, []NotConverted) {
+	if len(lines) == 0 {
+		return nil, nil
 	}
-	// Before GW-D79 every unqualified line also reached each other remote of the workspace.
+	var tables []repoTable
+	var skipped []NotConverted
+	host := in.hosts[source]
 	for _, r := range in.remotes {
-		if r.name == "origin" {
+		if r.name == "origin" || (host != "" && !strings.HasPrefix(r.repo, host+"/")) {
 			continue
 		}
 		if r.name == "all" {
@@ -294,7 +336,7 @@ func (in *legacyRepos) convert(source string, entries []any, logical string, fil
 				skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: fmt.Sprintf("the name %s is taken by another repository in this workspace; run `yolo request repos <alias> %s`, then `yolo config migrate` again", name, r.repo)})
 				continue
 			}
-			tables = append(tables, repoTable{name: name, repo: r.repo, source: source, lines: in.lines[source]})
+			tables = append(tables, repoTable{name: name, repo: r.repo, source: source, lines: lines})
 			continue
 		}
 		if owner, taken := in.taken[r.name]; taken && owner != r.repo {
@@ -302,9 +344,93 @@ func (in *legacyRepos) convert(source string, entries []any, logical string, fil
 			continue
 		}
 		in.taken[r.name] = r.repo
-		tables = append(tables, repoTable{name: r.name, remote: r.repo, source: source, lines: in.lines[source]})
+		tables = append(tables, repoTable{name: r.name, remote: r.repo, source: source, lines: lines})
 	}
-	return tables, kept, skipped
+	return tables, skipped
+}
+
+// unqualifiedRemoteTables are the remote tables a converted JSONC file takes for the unqualified
+// write lines it holds under `requests.<source>`, whether or not any file lists a repository:
+// table is the file's `requests.<source>` table. The copies are the merged workspace's write
+// lines of source, as a listed repository's are. It is nil for a source no converted file
+// narrows (fanout) and for a table holding no such line.
+func (in *legacyRepos) unqualifiedRemoteTables(source string, table *jsonx.OrderedMap) ([]repoTable, []NotConverted) {
+	if !in.fanout[source] {
+		return nil, nil
+	}
+	holds := false
+	for _, kind := range table.Keys() {
+		holds = holds || in.writes[source][kind]
+	}
+	if !holds {
+		return nil, nil
+	}
+	var lines []requestLine
+	for _, l := range in.lines[source] {
+		if in.writes[source][l.kind] {
+			lines = append(lines, l)
+		}
+	}
+	return in.remoteTables(source, lines, "", "requests."+source)
+}
+
+// from is where a copied line came from, as the transcript prints it: its key and the files
+// writing it.
+func (l requestLine) from(source string) string {
+	return "requests." + source + "." + l.kind + " in " + strings.Join(l.files, ", ")
+}
+
+// retainedNamedWrites are the transcript's lines for a converted file: one per
+// `repos.<name>.requests.<source>.<capability>` line of values, with the value written, the
+// repository it is for (the table's repo line, or the remote the table is named for), and the old
+// keys it was made from (from, by dotted new path).
+func retainedNamedWrites(values *jsonx.OrderedMap, from map[string][]string, in *legacyRepos) []string {
+	repos, ok := mapAt(values, "repos")
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, name := range repos.Keys() {
+		table, ok := mapAt(repos, name)
+		if !ok {
+			continue
+		}
+		requests, ok := mapAt(table, "requests")
+		if !ok {
+			continue
+		}
+		var notes []string
+		if repo, ok := table.Get("repo"); ok {
+			notes = append(notes, fmt.Sprint(repo))
+		} else if in != nil {
+			for _, r := range in.remotes {
+				if r.name == name {
+					notes = append(notes, "remote "+name+" = "+r.repo)
+					break
+				}
+			}
+		}
+		for _, source := range requests.Keys() {
+			asked, ok := mapAt(requests, source)
+			if !ok {
+				continue
+			}
+			for _, kind := range asked.Keys() {
+				v, _ := asked.Get(kind)
+				key := "repos." + name + ".requests." + source + "." + kind
+				line := key + " = " + jsonx.MustDumpsCompact(v)
+				all := notes
+				if made := from[key]; len(made) > 0 {
+					all = append(append([]string(nil), notes...), "from "+strings.Join(made, " and "))
+				}
+				if len(all) > 0 {
+					line += " (" + strings.Join(all, "; ") + ")"
+				}
+				out = append(out, line)
+			}
+		}
+	}
+	return out
 }
 
 // withLegacyReposConverted rewrites, in the TOML document data, each `requests.<source>.repos`
