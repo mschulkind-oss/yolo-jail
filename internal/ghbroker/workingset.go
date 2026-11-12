@@ -13,7 +13,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
-	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -104,7 +103,7 @@ func (b *Broker) userGrantCovers(t writeTarget, argv []string, named string) (st
 		held = approveRunGrantHeld(f.Grants, t.Repo, named)
 	}
 	for _, g := range f.Grants {
-		if kind != GrantRuns && kind != GrantApproveRun && g.Kind == kind && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, t.Repo)) {
+		if kind != GrantRuns && kind != GrantApproveRun && g.Kind == kind && grantRepoCovers(g, t.Repo) {
 			held = true
 		}
 	}

@@ -80,7 +80,7 @@ func runsOf(argv []string, t writeTarget) (runsAction, bool) {
 // the look at a re-run before its run is read.
 func runsGrantHeld(grants []brokerscope.Grant, repo, workflow string) bool {
 	for _, g := range grants {
-		if g.Kind == GrantRuns && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, repo)) &&
+		if g.Kind == GrantRuns && grantRepoCovers(g, repo) &&
 			(workflow == "" || g.Workflow == brokerscope.AnyWorkflow || g.Workflow == workflow) {
 			return true
 		}

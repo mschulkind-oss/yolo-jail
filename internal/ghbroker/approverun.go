@@ -83,7 +83,7 @@ func numericID(s string) bool {
 // run is read, which only says a grant could cover it.
 func approveRunGrantHeld(grants []brokerscope.Grant, repo, actor string) bool {
 	for _, g := range grants {
-		if g.Kind == GrantApproveRun && (g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, repo)) &&
+		if g.Kind == GrantApproveRun && grantRepoCovers(g, repo) &&
 			(actor == "" || g.Actor == brokerscope.AnyActor || strings.EqualFold(g.Actor, actor)) {
 			return true
 		}

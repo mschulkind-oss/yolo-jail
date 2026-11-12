@@ -57,6 +57,31 @@ func sameRepo(grantRepo, repo string) bool {
 	return strings.EqualFold(grantRepo, SourceHost+"/"+repo)
 }
 
+// grantRepoCovers reports whether grant g's repository admits repo, an `OWNER/REPO`. A grant
+// written before RepoPattern keeps its exact meaning: AnyRepo, or the same identity (sameRepo). A
+// marked grant admits by pattern on SourceHost alone, and only once brokerscope.ValidGrant
+// accepts it, so a marked `*` or exact spelling is never honored as the legacy one is (GW-D80).
+func grantRepoCovers(g brokerscope.Grant, repo string) bool {
+	if !g.RepoPattern {
+		return g.Repo == brokerscope.AnyRepo || sameRepo(g.Repo, repo)
+	}
+	if !brokerscope.ValidGrant(g) {
+		return false
+	}
+	host, pattern, _ := strings.Cut(g.Repo, "/")
+	return host == SourceHost && brokerscope.Admits(pattern, repo)
+}
+
+// readCovers reports whether a read grant covers repo, by grantRepoCovers.
+func (s Scope) readCovers(repo string) bool {
+	for _, g := range s.grants {
+		if g.Kind == brokerscope.KindRead && grantRepoCovers(g, repo) {
+			return true
+		}
+	}
+	return false
+}
+
 // unread is the first of repos no read grant covers, and whether there is one. A command that
 // names no repository still needs a read grant of some kind: a selected pack's broker grants
 // nothing until one says so (BB-D108).
@@ -68,7 +93,7 @@ func (s Scope) unread(repos []string) (string, bool) {
 		return "any repository", true
 	}
 	for _, r := range repos {
-		if !brokerscope.ReadCovers(s.grants, r, sameRepo) {
+		if !s.readCovers(r) {
 			return SourceHost + "/" + r, true
 		}
 	}
