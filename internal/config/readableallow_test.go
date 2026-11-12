@@ -841,14 +841,6 @@ func containsReadableTarget(targets []config.ReadableRepository, want config.Rea
 func containsReadableGrant(grants []brokerscope.Grant, want brokerscope.Grant) bool {
 	return containsValue(grants, want)
 }
-func containsReadableEntry(entries []config.EntryRepo, repo, origin string) bool {
-	for _, entry := range entries {
-		if strings.EqualFold(entry.Repo, repo) && containsValue(entry.Files, origin) {
-			return true
-		}
-	}
-	return false
-}
 func containsValue[T comparable](values []T, want T) bool {
 	for _, value := range values {
 		if value == want {

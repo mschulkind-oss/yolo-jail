@@ -536,7 +536,7 @@ var configKeys = map[string]Entry{
 		MacosUser: honored("the macos-user arm's startLoopholesDisclosed reaches " +
 			"startLoopholesMatching (loopholesruntime.go), which writes the same scope file " +
 			"(writeScopeFiles); loopholeAllow admits every loophole on this backend"),
-		Guide: []string{"`requests.github.repos`"},
+		Guide: []string{"`[repos.<name>]` tables"},
 	},
 	"on_request": {
 		PodmanLinux: honored("the GitHub broker's host daemon (ghbroker.Main) reads it from the user " +
