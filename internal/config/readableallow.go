@@ -1073,14 +1073,107 @@ func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canon
 	return grantKindsOf(user, source), false, nil
 }
 
+// BrokeredGrantKindsForRepo is the grant kinds a source's broker may act on for repo, a concrete
+// `<host>/<owner>/<repo>`: the broad kinds BrokeredGrantKindsUsingReadablePolicy gives, and the kinds
+// of each user `[repos.<name>.allow.<source>]` whose repo line admits repo (GW-D64). It rereads the
+// user config at every call and resolves only this source's tables, so another broker's table
+// cannot fail this call. Any error, or a repo that is not a concrete identity, gives no kinds. A
+// scoped table with no broad `allow.<source>` makes the source canonical, so the legacy grant_kinds
+// fallback is not read beside it.
+func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical bool, err error) {
+	host, owned, _ := strings.Cut(repo, "/")
+	if !brokerscope.ValidRepo(owned) || host == "" {
+		return nil, true, fmt.Errorf("%q is not a concrete repository identity", repo)
+	}
+	broad, broadCanonical, err := BrokeredGrantKindsUsingReadablePolicy(source)
+	if err != nil {
+		return nil, true, err
+	}
+	user, sources, err := UserScopeConfigWithSources(true, func(string) {})
+	if err != nil {
+		return nil, true, err
+	}
+	tables, err := scopedCeilingTables(user, source)
+	if err != nil {
+		return nil, true, err
+	}
+	if len(tables) == 0 {
+		return broad, broadCanonical, nil
+	}
+	selected, declarations, settings, err := readableBrokerSelection(user, sources)
+	if err != nil {
+		return nil, true, err
+	}
+	if broadCanonical {
+		kinds = append(kinds, broad...)
+	}
+	for _, t := range tables {
+		plan, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(source, t.table),
+			SelectedPacks: selected, Declarations: declarations, PackSettings: settings})
+		if err != nil {
+			return nil, true, fmt.Errorf("repos.%s.allow.%s: %w", t.name, source, err)
+		}
+		i := readableBrokerIndex(plan.Sources, source)
+		if i < 0 {
+			continue
+		}
+		scopedKinds, err := readablePolicyGrantKinds(plan.Sources[i], declarations)
+		if err != nil {
+			return nil, true, err
+		}
+		if pHost, pattern, _ := strings.Cut(t.line, "/"); pHost == host && brokerscope.Admits(pattern, owned) {
+			kinds = append(kinds, scopedKinds...)
+		}
+	}
+	return kinds, true, nil
+}
+
+// scopedCeiling is one user `[repos.<name>]` table's `allow.<source>`, with its repo line.
+type scopedCeiling struct {
+	name, line string
+	table      *jsonx.OrderedMap
+}
+
+// scopedCeilingTables are the user `[repos.<name>.allow.<source>]` tables, in the config's order.
+func scopedCeilingTables(user *jsonx.OrderedMap, source string) ([]scopedCeiling, error) {
+	repos, err := readableTable(user, "repos")
+	if err != nil {
+		return nil, err
+	}
+	var out []scopedCeiling
+	for _, name := range repos.Keys() {
+		table, ok := asMap(readableValue(repos, name))
+		if !ok {
+			continue
+		}
+		allow, ok := asMap(readableValue(table, "allow"))
+		if !ok {
+			continue
+		}
+		value, found := allow.Get(source)
+		if !found {
+			continue
+		}
+		own, ok := asMap(value)
+		if !ok {
+			return nil, fmt.Errorf("repos.%s.allow.%s: expected a table", name, source)
+		}
+		line, _ := readableValue(table, "repo").(string)
+		out = append(out, scopedCeiling{name: name, line: line, table: own})
+	}
+	return out, nil
+}
+
 // ownAllowanceOnly is user with its `allow` table narrowed to allow.<source>, the only entry a
 // broker's write authority reads. A running broker rereads the user config at every call, and
 // outlives the yolo that started it: a newer `yolo allow` can write another source's table in
 // capability names this broker's packs do not declare (2026-11-09: `allow.github.on_request`
 // respelled `dispatch_workflows` as `runs`), and resolving that entry here would withdraw this
 // source's grants over a table that does not govern them. allow.<source> itself is still
-// resolved in full, so an entry of its own this yolo cannot validate still fails closed. user is
-// left untouched.
+// resolved in full, so an entry of its own this yolo cannot validate still fails closed. The user
+// `repos` tables are left out too: their repository ceilings are read by BrokeredGrantKindsForRepo,
+// per identity, and a table for another source or host must not fail this one. user is left
+// untouched.
 func ownAllowanceOnly(user, allow *jsonx.OrderedMap, source string) *jsonx.OrderedMap {
 	own := jsonx.NewOrderedMap()
 	if value, ok := allow.Get(source); ok {
@@ -1088,6 +1181,9 @@ func ownAllowanceOnly(user, allow *jsonx.OrderedMap, source string) *jsonx.Order
 	}
 	narrowed := jsonx.NewOrderedMap()
 	for _, key := range user.Keys() {
+		if key == "repos" {
+			continue
+		}
 		value, _ := user.Get(key)
 		if key == "allow" {
 			value = own
@@ -1125,6 +1221,9 @@ type UserBrokerAuthority struct {
 	Source     string
 	Read       bool
 	GrantKinds []string
+	// Scoped are the user `[repos.<name>.allow.<source>]` tables, rendered as their name, repo line
+	// and lists, sorted: two user configs whose repository ceilings differ never compare equal (GW-D64).
+	Scoped []string
 	// Problem is the readable resolver's refusal, "" when it resolved.
 	Problem string
 }
@@ -1183,6 +1282,15 @@ func UserBrokerAuthorityOf(user *jsonx.OrderedMap, selected []string, declaratio
 			}
 		}
 		sort.Strings(a.GrantKinds)
+		if tables, err := scopedCeilingTables(user, source); err != nil {
+			a.Problem = err.Error()
+		} else {
+			for _, t := range tables {
+				a.Scoped = append(a.Scoped, fmt.Sprintf("repos.%s %s always=%v on_request=%v", t.name, t.line,
+					stringList(readableValue(t.table, "always")), stringList(readableValue(t.table, "on_request"))))
+			}
+			sort.Strings(a.Scoped)
+		}
 		out = append(out, a)
 	}
 	return out

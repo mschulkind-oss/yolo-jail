@@ -267,6 +267,10 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "repos", Scope: both, Type: SchemaTypeObject},
 		{Path: "repos.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "repos.*.repo", Scope: both, Type: SchemaTypeString},
+		// A user's ceiling for one named repository (GW-D64): `allow.<broker>` lists under the table,
+		// read by BrokeredGrantKindsForRepo and checked by the gate as [allow.<broker>] is.
+		{Path: "repos.*.allow", Scope: user, Type: SchemaTypeObject},
+		{Path: "repos.*.allow.*", Scope: user, Type: SchemaTypeAny},
 		{Path: "repos.*.requests", Scope: workspace, Type: SchemaTypeObject},
 		{Path: "repos.*.requests.*", Scope: workspace, Type: SchemaTypeAny},
 		{Path: "requests.github.repos", Scope: workspace, Type: SchemaTypeList},

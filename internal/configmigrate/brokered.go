@@ -46,6 +46,13 @@ func brokerGrants(user *jsonx.OrderedMap, declarations []config.ReadableBrokerDe
 			kinds = append(kinds, k)
 		}
 		entry.Set("grant_kinds", kinds)
+		if len(a.Scoped) > 0 {
+			scoped := make([]any, 0, len(a.Scoped))
+			for _, s := range a.Scoped {
+				scoped = append(scoped, s)
+			}
+			entry.Set("scoped", scoped)
+		}
 		if a.Problem != "" {
 			entry.Set("problem", a.Problem)
 		}

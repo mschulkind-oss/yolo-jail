@@ -110,7 +110,7 @@ func (b *Broker) userGrantCovers(t writeTarget, argv []string, named string) (st
 	if !held {
 		return "", false
 	}
-	kinds, _, err := config.BrokeredGrantKindsUsingReadablePolicy(Source)
+	kinds, _, err := config.BrokeredGrantKindsForRepo(Source, SourceHost+"/"+t.Repo)
 	if err != nil || !slices.Contains(kinds, kind) {
 		return "", false
 	}

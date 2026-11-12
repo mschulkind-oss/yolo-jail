@@ -73,6 +73,9 @@ func readableNamedRepos(plan *ReadableAllowancePlan, input ReadableAllowanceInpu
 		if _, _, err := parseNamedRepo("repos."+name+".repo", line); err != nil {
 			return err
 		}
+		if err := readableScopedCeiling(name, line, table, input, brokers); err != nil {
+			return err
+		}
 	}
 	workspace, err := readableTable(input.Workspace, "repos")
 	if err != nil {
@@ -106,6 +109,61 @@ func readableNamedRepos(plan *ReadableAllowancePlan, input ReadableAllowanceInpu
 		}
 	}
 	return nil
+}
+
+// readableScopedCeiling checks one user `[repos.<name>]` table's `allow` (GW-D64): each key is a
+// broker's own table, `[repos.<name>.allow.<broker>]`, whose repo line is on that broker's host and
+// whose lists resolve as the broker's `[allow.<broker>]` does. A list written directly under
+// `allow` names no broker and is refused, as the broad list is refused under `[allow]`.
+func readableScopedCeiling(name, line string, table *jsonx.OrderedMap, input ReadableAllowanceInput, brokers map[string]ReadableBrokerPolicy) error {
+	value := readableValue(table, "allow")
+	if value == nil {
+		return nil
+	}
+	allow, ok := asMap(value)
+	if !ok {
+		return fmt.Errorf("repos.%s.allow: expected a table", name)
+	}
+	for _, key := range allow.Keys() {
+		path := "repos." + name + ".allow." + key
+		if key == "always" || key == "on_request" {
+			return fmt.Errorf("%s: a capability list belongs under a broker's table, as [allow.github] holds the broad list for every workspace; write [repos.%s.allow.<broker>] (such as [repos.%s.allow.github]) for this repository", path, name, name)
+		}
+		broker, known := brokers[key]
+		if !known {
+			return fmt.Errorf("%s names no declared broker source; declared names: %s", path, strings.Join(readableBrokerNames(brokers), ", "))
+		}
+		if broker.CallBroker != nil || broker.RemoteHost == brokerscope.AnyRemoteHost {
+			return fmt.Errorf("%s: %s takes no repository ceiling; a repository's ceiling names a host-served broker", path, key)
+		}
+		if namedRepoHost(line) != broker.RemoteHost {
+			return fmt.Errorf("%s: %s serves %s, and repos.%s names %s; a ceiling under a name admits only the host its broker serves", path, key, broker.RemoteHost, name, namedRepoHost(line))
+		}
+		own, ok := asMap(readableValue(allow, key))
+		if !ok {
+			return fmt.Errorf("%s: expected a table", path)
+		}
+		for _, capability := range own.Keys() {
+			if capability != "always" && capability != "on_request" {
+				return fmt.Errorf("%s.%s: a repository's ceiling holds only always and on_request", path, capability)
+			}
+		}
+		if _, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(key, own),
+			SelectedPacks: input.SelectedPacks, Declarations: input.Declarations, PackSettings: input.PackSettings}); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+// scopedAllowOnly is a user config holding only `allow.<source>` as table, the one entry a
+// repository's ceiling resolves through: the broker's own declaration validates its lists.
+func scopedAllowOnly(source string, table *jsonx.OrderedMap) *jsonx.OrderedMap {
+	only := jsonx.NewOrderedMap()
+	only.Set(source, table)
+	user := jsonx.NewOrderedMap()
+	user.Set("allow", only)
+	return user
 }
 
 // readableNamedRequests checks and records one table's requests, each under the broker it names.
