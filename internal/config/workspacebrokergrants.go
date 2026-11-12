@@ -138,8 +138,15 @@ func workspaceBrokerGrants(cfg *jsonx.OrderedMap, workspace string, declarations
 		// the unqualified lines' targets; the reason is said where it cannot be placed.
 		if repos, ok := asMap(readableValue(cfg, "repos")); ok && policy.RemoteHost != brokerscope.AnyRemoteHost {
 			for _, name := range repos.Keys() {
-				namedTable, _ := asMap(readableValue(repos, name))
-				namedRequests, _ := asMap(readableValue(namedTable, "requests"))
+				namedTable, ok := asMap(readableValue(repos, name))
+				if !ok {
+					continue
+				}
+				// A repo-only table declares its repository and asks nothing under it.
+				namedRequests, ok := asMap(readableValue(namedTable, "requests"))
+				if !ok {
+					continue
+				}
 				asked, ok := asMap(readableValue(namedRequests, source))
 				if !ok {
 					continue
