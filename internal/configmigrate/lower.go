@@ -77,6 +77,9 @@ type loweringContext struct {
 	twinOf bool
 	// twinsOnly, when not nil, limits twinOf to these dotted row paths (convertModelRows).
 	twinsOnly map[string]bool
+	// repos is the workspace's named-repository state a project's brokered repos and grants convert
+	// against (reposbinding.go); nil outside a workspace's conversion.
+	repos *legacyRepos
 }
 
 // lowered is one lowering's result: the new-vocabulary values, the old path each new path came
@@ -494,6 +497,8 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 		lowerUserBrokered(sources, ctx, place, skip)
 		return
 	}
+	// A named table's repo line is written once in the file, whichever source or list declares it.
+	declared := map[string]string{}
 	for _, source := range sources.Keys() {
 		sv, _ := sources.Get(source)
 		table, ok := sv.(*jsonx.OrderedMap)
@@ -506,15 +511,9 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 			oldPath := []string{"brokered", source, key}
 			switch key {
 			case "repos":
-				if _, ok := renameReplacement("brokered.*.repos"); !ok {
-					skip(oldPath, v, "the rename table has no row for it")
-					continue
-				}
-				if !place([]string{"requests", source, "repos"}, v, oldPath) {
-					skip(oldPath, v, "requests."+source+".repos is already written in this file")
-				}
+				lowerBrokeredRepos(source, v, ctx, oldPath, declared, place, skip)
 			case "grants":
-				lowerGrants(source, v, ctx, place, skip)
+				lowerGrants(source, v, ctx, declared, place, skip)
 			default:
 				d, _ := renameDescriptorFor(oldPath)
 				skip(oldPath, v, unconvertedReason(d))
@@ -523,7 +522,61 @@ func lowerBrokered(value any, ctx loweringContext, place func([]string, any, []s
 	}
 }
 
-func lowerGrants(source string, value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+// lowerBrokeredRepos converts a project's brokered.<source>.repos list to the named tables a TOML
+// file's requests.<source>.repos list becomes (reposbinding.go), each with a copy of the lines the
+// merged workspace writes unqualified. An entry that stays keeps its old spelling with its reason.
+func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath []string, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+	entries, ok := value.([]any)
+	if !ok {
+		skip(oldPath, value, "repos must be a list")
+		return
+	}
+	if ctx.repos == nil {
+		skip(oldPath, value, "the workspace's repositories are not known here; "+noSpellingYet)
+		return
+	}
+	tables, kept, notConverted := ctx.repos.convert(source, entries, "")
+	var reasons []string
+	for _, n := range notConverted {
+		reasons = append(reasons, n.Reason)
+	}
+	for _, t := range tables {
+		if t.repo != "" {
+			if reason := declareRepoTable(t.name, t.repo, declared, oldPath, place); reason != "" {
+				reasons = append(reasons, reason)
+			}
+		}
+		for _, l := range t.lines {
+			at := []string{"repos", t.name, "requests", source, l.kind}
+			if !place(at, l.value, oldPath) {
+				reasons = append(reasons, dotted(at)+" is already written in this file; keep one of the two")
+			}
+		}
+	}
+	if len(kept) > 0 || len(reasons) > 0 {
+		// A kept list is written back as a list even when empty: a null is no spelling of it.
+		if kept == nil {
+			kept = []any{}
+		}
+		skip(oldPath, kept, strings.Join(reasons, "; "))
+	}
+}
+
+// declareRepoTable writes the repo line of the named table name, unless this file declared it
+// already for repo; it says why when another value holds the line.
+func declareRepoTable(name, repo string, declared map[string]string, oldPath []string, place func([]string, any, []string) bool) string {
+	if declared[name] == repo {
+		return ""
+	}
+	at := []string{"repos", name, "repo"}
+	if !place(at, repo, oldPath) {
+		return dotted(at) + " is already written in this file; keep one of the two"
+	}
+	declared[name] = repo
+	return ""
+}
+
+func lowerGrants(source string, value any, ctx loweringContext, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	list, ok := value.([]any)
 	base := []string{"brokered", source, "grants"}
 	if !ok {
@@ -535,27 +588,42 @@ func lowerGrants(source string, value any, ctx loweringContext, place func([]str
 	var reasons []string
 	values := map[string]any{}
 	var order []string
+	wanted := map[string]string{}
+	var wantedOrder []string
 	for i, entry := range list {
 		at := dotted(base) + "[" + strconv.Itoa(i) + "]"
 		reason := declReason
 		if reason == "" {
-			reason = grantRequest(entry, declaration, ctx, func(key, ref string) {
-				prior, seen := values[key]
-				if !seen {
-					order = append(order, key)
-				}
-				if ref == "" {
-					// A yes/no kind: one grant or several say the same `= true`.
-					values[key] = true
-					return
-				}
-				refs, _ := prior.([]any)
-				values[key] = append(refs, ref)
+			reason = grantRequest(entry, declaration, ctx, grantSink{
+				add: func(key, ref string) {
+					prior, seen := values[key]
+					if !seen {
+						order = append(order, key)
+					}
+					if ref == "" {
+						// A yes/no kind: one grant or several say the same `= true`.
+						values[key] = true
+						return
+					}
+					refs, _ := prior.([]any)
+					values[key] = append(refs, ref)
+				},
+				declare: func(name, repo string) {
+					if _, seen := wanted[name]; !seen {
+						wanted[name] = repo
+						wantedOrder = append(wantedOrder, name)
+					}
+				},
 			})
 		}
 		if reason != "" {
 			leftover = append(leftover, entry)
 			reasons = append(reasons, at+": "+reason)
+		}
+	}
+	for _, name := range wantedOrder {
+		if reason := declareRepoTable(name, wanted[name], declared, base, place); reason != "" {
+			reasons = append(reasons, reason)
 		}
 	}
 	for _, key := range order {
@@ -596,11 +664,18 @@ func projectBrokerDeclaration(source string) (config.ReadableBrokerDeclaration, 
 // user's to change, and leaving it costs nothing, since this yolo reads the old file.
 const noSpellingYet = "this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"
 
-// grantRequest converts one grant through add, or says why it cannot. The kind converts through
+// grantSink receives what a grant converts to: add one requests line (key is its dotted path, ref
+// its name, "" for a yes/no kind), and declare the named table a grant on another repository needs.
+type grantSink struct {
+	add     func(key, ref string)
+	declare func(name, repo string)
+}
+
+// grantRequest converts one grant into sink, or says why it cannot. The kind converts through
 // the declaring pack's kind_capabilities (RC-D60): a kind that names something (a branch, a
 // tag, a workflow, an actor) adds its name to the list requests.<source>.<capability>, and a
 // yes/no kind (create-branch, create-pr, create-issue) adds "", which is `= true`.
-func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx loweringContext, add func(key, ref string)) string {
+func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx loweringContext, sink grantSink) string {
 	m, ok := entry.(*jsonx.OrderedMap)
 	if !ok {
 		return "a grant must be an object"
@@ -640,10 +715,39 @@ func grantRequest(entry any, declaration config.ReadableBrokerDeclaration, ctx l
 	if m.Len() != want || !hasRepo {
 		return "a " + strconv.Quote(kindText) + " grant with keys other than " + keys + " has no request spelling; " + noSpellingYet
 	}
-	if !soleRemote(ctx.remotes, repoText) {
-		return grantScopeReason(ctx.remotes, repoText)
+	if declaration.Brokered.RemoteHost == brokerscope.AnyRemoteHost {
+		if !soleRemote(ctx.remotes, repoText) {
+			return grantScopeReason(ctx.remotes, repoText)
+		}
+		sink.add(dotted([]string{"requests", declaration.Brokered.Source, capability}), refText)
+		return ""
 	}
-	add(dotted([]string{"requests", declaration.Brokered.Source, capability}), refText)
+	return namedHostGrant(repoText, declaration.Brokered.Source, capability, refText, ctx, sink)
+}
+
+// namedHostGrant converts a grant on a named host (GW-D79, GW-D80): a grant on the origin
+// repository is the unqualified request, which names every remote; a grant on another repository
+// is a line of that repository's named table, declared for it when it is not declared yet.
+func namedHostGrant(repo, source, capability, ref string, ctx loweringContext, sink grantSink) string {
+	if ctx.repos == nil {
+		return "the workspace's repositories are not known here; " + noSpellingYet
+	}
+	if repo == brokerscope.AnyRepo {
+		return grantScopeReason(ctx.remotes, repo)
+	}
+	if strings.Contains(repo, "*") || strings.Count(repo, "/") != 2 {
+		return notPlainRepoReason(repo, source)
+	}
+	if origin := ctx.repos.originRepo(); origin != "" && strings.EqualFold(origin, repo) {
+		sink.add(dotted([]string{"requests", source, capability}), ref)
+		return ""
+	}
+	name, ok := ctx.repos.claimRepoName(repo)
+	if !ok {
+		return fmt.Sprintf("the name %s is taken by another repository in this workspace; run `yolo request repos <alias> %s`, then `yolo config migrate` again", name, repo)
+	}
+	sink.declare(name, repo)
+	sink.add(dotted([]string{"repos", name, "requests", source, capability}), ref)
 	return ""
 }
 

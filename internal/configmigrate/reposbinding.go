@@ -145,6 +145,31 @@ func ownerRepoName(repo string) string {
 	return nameUnsafe.ReplaceAllString(strings.Join(parts[len(parts)-2:], "-"), "-")
 }
 
+// claimRepoName is the named table a repository takes, claimed for it: its short name, else its
+// owner-repo name when the short one is another repository's or is `all`, which a remote may not
+// take as a table name (GW-D80). ok is false when the owner-repo name is taken by another repository too.
+func (in *legacyRepos) claimRepoName(repo string) (name string, ok bool) {
+	name = repoTableName(repo)
+	if owner, taken := in.taken[name]; name == "all" || (taken && owner != repo) {
+		name = ownerRepoName(repo)
+	}
+	if owner, taken := in.taken[name]; taken && owner != repo {
+		return name, false
+	}
+	in.taken[name] = repo
+	return name, true
+}
+
+// originRepo is the repository of the workspace's remote named origin, "" when there is none.
+func (in *legacyRepos) originRepo() string {
+	for _, r := range in.remotes {
+		if r.name == "origin" {
+			return r.repo
+		}
+	}
+	return ""
+}
+
 // plainRepoEntry is an owner/repo entry: a pattern or wildcard has no named table.
 func plainRepoEntry(text string) bool {
 	return !strings.Contains(text, "*") && strings.Count(text, "/") == 1 && !strings.HasPrefix(text, "/")
@@ -186,16 +211,12 @@ func (in *legacyRepos) convert(source string, entries []any, logical string) ([]
 			continue
 		}
 		repo := host + "/" + text
-		name := repoTableName(repo)
-		if owner, taken := in.taken[name]; taken && owner != repo {
-			name = ownerRepoName(repo)
-		}
-		if owner, taken := in.taken[name]; taken && owner != repo {
+		name, ok := in.claimRepoName(repo)
+		if !ok {
 			kept = append(kept, entry)
 			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: fmt.Sprintf("the name %s is taken by another repository in this workspace; run `yolo request repos <alias> %s`, then `yolo config migrate` again", name, repo)})
 			continue
 		}
-		in.taken[name] = repo
 		tables = append(tables, repoTable{name: name, repo: repo, source: source, lines: in.lines[source]})
 	}
 	if len(in.lines[source]) == 0 {
@@ -207,7 +228,14 @@ func (in *legacyRepos) convert(source string, entries []any, logical string) ([]
 			continue
 		}
 		if r.name == "all" {
-			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: "a remote named all has no named table yet; leave the old file, which yolo keeps reading"})
+			// `all` is reserved as a table name, so the remote's writes take its owner-repo table,
+			// which names the repository itself.
+			name, ok := in.claimRepoName(r.repo)
+			if !ok {
+				skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: fmt.Sprintf("the name %s is taken by another repository in this workspace; run `yolo request repos <alias> %s`, then `yolo config migrate` again", name, r.repo)})
+				continue
+			}
+			tables = append(tables, repoTable{name: name, repo: r.repo, source: source, lines: in.lines[source]})
 			continue
 		}
 		if owner, taken := in.taken[r.name]; taken && owner != r.repo {
@@ -334,23 +362,32 @@ func lowerLegacyRepos(values *jsonx.OrderedMap, in *legacyRepos) {
 }
 
 // addNamedRepos sets each table of source in repos as lowerLegacyRepos spells it.
+// A table another source already holds keeps its repo line and gains this source's lines.
 func addNamedRepos(repos *jsonx.OrderedMap, source string, tables []repoTable) {
-	{
-		for _, t := range tables {
-			named := jsonx.NewOrderedMap()
-			if t.repo != "" {
-				named.Set("repo", t.repo)
-			}
-			if len(t.lines) > 0 {
-				written := jsonx.NewOrderedMap()
-				for _, l := range t.lines {
-					written.Set(l.kind, l.value)
-				}
-				requests := jsonx.NewOrderedMap()
-				requests.Set(source, written)
-				named.Set("requests", requests)
-			}
+	for _, t := range tables {
+		named, ok := mapAt(repos, t.name)
+		if !ok {
+			named = jsonx.NewOrderedMap()
 			repos.Set(t.name, named)
+		}
+		if t.repo != "" {
+			named.Set("repo", t.repo)
+		}
+		if len(t.lines) == 0 {
+			continue
+		}
+		requests, ok := mapAt(named, "requests")
+		if !ok {
+			requests = jsonx.NewOrderedMap()
+			named.Set("requests", requests)
+		}
+		written, ok := mapAt(requests, source)
+		if !ok {
+			written = jsonx.NewOrderedMap()
+			requests.Set(source, written)
+		}
+		for _, l := range t.lines {
+			written.Set(l.kind, l.value)
 		}
 	}
 }

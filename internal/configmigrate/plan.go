@@ -327,7 +327,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf}, f.Logical).values)
+			writers.add(lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf, repos: &legacy}, f.Logical).values)
 		default:
 			writers.add(f.doc.Values)
 		}
@@ -335,7 +335,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	for _, f := range g.Files {
 		switch f.Role {
 		case RoleConvert:
-			t, skipped, err := convertFile(f, remotes, view, writers, opts)
+			t, skipped, err := convertFile(f, remotes, view, writers, opts, &legacy)
 			if err != nil {
 				return nil, err
 			}
@@ -493,8 +493,8 @@ func oldTop(g *Graph) string {
 }
 
 // convertFile makes one old file's TOML.
-func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions) (Target, []NotConverted, error) {
-	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf}, f.Logical)
+func convertFile(f *File, remotes []string, view *userView, writers writerCounts, opts planOptions, repos *legacyRepos) (Target, []NotConverted, error) {
+	l := lower(f.doc.Values, loweringContext{scope: f.Scope, remotes: remotes, user: view, twinOf: opts.twinOf, repos: repos}, f.Logical)
 	dropped := dropDefaults(l.values, writers)
 	l.inert = append(l.inert, dropNullDefaults(l.values, f.doc.Values, writers)...)
 	var folded []FoldedFact
@@ -960,21 +960,27 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	// spelling. The read-back (g nil) reads it as written, against the raw hash the plan keeps.
 	legacyBase := g != nil && g.baseUser != "" && userTop == g.baseUser && layer == "" && !readable
 	if lowerOld {
+		// The workspace's named-repository state, as the rewrite makes it (convertFile): a JSONC
+		// project's repos and grants and a TOML project's repos list lower against the same names.
+		var repos *legacyRepos
+		if g != nil && workspace != "" {
+			in := g.legacyReposOf(workspaceRemoteNames(workspace), brokers)
+			repos = &in
+		}
 		s.user, _ = canonicalOld(read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
-		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
+		s.project, _ = canonicalOld(read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf, repos: repos})
 		twins := fileTwins(map[string]bool{}, read.User, loweringContext{scope: ScopeUser, remotes: remotes, user: view, twinOf: opts.twinOf})
 		twins = fileTwins(twins, read.Workspace, loweringContext{scope: ScopeProject, remotes: remotes, user: view, twinOf: opts.twinOf})
-		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, twinOf: opts.twinOf, twinsOnly: twins})
+		s.composed, _ = canonicalOld(read.Composed, loweringContext{scope: ScopeProject, remotes: remotes, user: view, merged: true, twinOf: opts.twinOf, twinsOnly: twins, repos: repos})
 		if view != nil {
 			renamePackRequests(s.project, view.renamedPacks)
 			renamePackRequests(s.composed, view.renamedPacks)
 		}
-		if g != nil && workspace != "" {
-			// The old `requests.<source>.repos` lists, lowered as the rewritten files spell them
-			// (lowerLegacyRepos), so the proof compares the same spelling on both sides.
-			in := g.legacyReposOf(workspaceRemoteNames(workspace), brokers)
-			lowerLegacyRepos(s.project, &in)
-			lowerLegacyRepos(s.composed, &in)
+		if repos != nil {
+			// The old `requests.<source>.repos` lists of TOML files, lowered as the rewritten files
+			// spell them (lowerLegacyRepos), so the proof compares the same spelling on both sides.
+			lowerLegacyRepos(s.project, repos)
+			lowerLegacyRepos(s.composed, repos)
 		}
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.
