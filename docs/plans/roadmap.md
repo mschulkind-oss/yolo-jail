@@ -83,7 +83,7 @@ needs a ruling or a Mac sits in the others.
 
 9. File as 💬 questions the owner calls that have no filed home, so they can be routed and ruled:
    [the setup census's silent drops](../design/backend-parity.md#42-what-was-built-2026-10-05-and-what-it-found);
-   whether [integration sharding](integration-parallelism.md) unparks; the maintainer's review of
+   the maintainer's review of
    [the pi extension's leaks](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close),
    with whether to ask pi-subagents for a registry several extensions can share; the sign-off on
    [the color pass](cli-visual-polish.md)'s frozen `yolo run` progress golden; approving
@@ -228,7 +228,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md#Q2), [array-append pinning](BACKLOG.md#E5),
     [the pack system's other calls](../reference/pack-system.md), [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [where the workspace layer's links are
     ignored](../reference/agent-briefings.md),
-    [the suite's remaining lever](test-suite-speed.md#OQ-TS4), [the I/O priority default](../design/io-priority.md#OQ-IO7),
+    [the suite's remaining lever](test-suite-speed.md#OQ-TS4), [whether integration sharding gets a local recipe](test-suite-speed.md#OQ-TS5), [the I/O priority default](../design/io-priority.md#OQ-IO7),
     [the AWS doorway's fetched host half](../design/host-notch-services.md#OQ-HS5),
     [the dry run's exit](../reference/report-tiers.md), which the code sets to 1 where the ruling says 0, and
     [the declaration-parity call](../design/declaration-parity.md#OQ-DP10).

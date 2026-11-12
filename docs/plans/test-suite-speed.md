@@ -27,7 +27,10 @@ coming from tests added since. Four questions each
 asked for one more lever. [OQ-TS1](#decision-ledger) and [OQ-TS3](#decision-ledger) were answered 2026-09-29, both as
 leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) was
 ruled by the owner on 2026-11-03, not as leaned, and built in `101f766b8`.
-[OQ-TS4](#OQ-TS4) is still open, and none of the five work items waits on it.
+[OQ-TS4](#OQ-TS4) is still open, and none of the five work items waits on it. [OQ-TS5](#OQ-TS5),
+whether integration sharding gets a local recipe, came with the
+[integration sharding](#integration-sharding-separate-processes-not-tparallel) section this plan
+absorbed on 2026-11-12.
 
 > **In short (the 09-27 baseline).** No existing test got slower. The time went into tests added since mid-August,
 > several of which wait on real clocks, and into running the full suite 28 to 34 times a day.
@@ -39,10 +42,11 @@ and about 5 h went to the integration suite. Measured the same day.
 
 **Start at [Where the time goes](#where-the-time-goes).** Each work item fixes one row there.
 
-**Needs your ruling:** [OQ-TS4](#OQ-TS4).
+**Needs your ruling:** [OQ-TS4](#OQ-TS4), [OQ-TS5](#OQ-TS5).
 
-**Reads with:** [`integration-parallelism.md`](integration-parallelism.md) (the parked plan to run
-tests in parallel inside the suite, which this plan does not reopen),
+**Reads with:** [Integration sharding](#integration-sharding-separate-processes-not-tparallel)
+(why the integration suite is serial, the measured four-shard run, and the parked in-process
+`t.Parallel` plan, which this plan does not reopen),
 [AGENTS.md Workflow step 4](../../AGENTS.md#workflow) (the rule that committing and landing are
 separate, which this plan's orchestration rules build on).
 
@@ -413,8 +417,8 @@ file. The fixes are to tests and harnesses. None of them changes production beha
 These items must not do three things:
 
 - Add `t.Parallel()` inside `integration/`. That package is serial by rule
-  ([AGENTS.md](../../AGENTS.md#testing)), and [`integration-parallelism.md`](integration-parallelism.md)
-  explains why.
+  ([AGENTS.md](../../AGENTS.md#testing)), and
+  [Why the suite is serial](#why-the-suite-is-serial-and-why-it-cannot-just-flip) explains why.
 - Drop the darwin lint pass. [OQ-TS4](#OQ-TS4) asks about moving it, and until that is ruled it stays.
 - Weaken what any sped-up test asserts. Shortening a wait is allowed. Removing the check that followed
   the wait is not.
@@ -437,8 +441,9 @@ run, not how the code is written.
 
 ## Out of scope
 
-- Running tests in parallel inside `integration/`. [`integration-parallelism.md`](integration-parallelism.md)
-  covers that, and it stays parked.
+- Running tests in parallel inside `integration/`.
+  [The in-process alternative](#the-in-process-alternative-bounded-tparallel-parked) covers that,
+  and it stays parked. Separate shard processes are [OQ-TS5](#OQ-TS5).
 - The CI runners' cold nix store. Its cause is inferred, not measured, so there is nothing to fix yet.
 - Model turn latency. It did not change.
 - A variable that skips the store-changing integration tests outside a landing
@@ -517,6 +522,110 @@ items 1–5 pass. `just done` failed on one load flake,
 `TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains` (a TempDir cleanup race; it
 passes `-count=10` alone). `internal/cli` took 1574 s.
 
+## Integration sharding: separate processes, not `t.Parallel`
+
+Absorbed 2026-11-12 from the integration-parallelism plan, which was parked on 2026-07-20 and
+re-checked 2026-08-23 and 2026-09-30. It was deferred deliberately: CI runners are free, so
+integration wall time is a convenience rather than a cost, and the fast local loop
+(`just test-fast`) never runs the container tests, which `requireJail` skips under
+`testing.Short()`. It pays off only when someone runs the full container suite locally and wants
+it faster than serial. Whether to give that a recipe is [OQ-TS5](#OQ-TS5).
+
+### Why the suite is serial, and why it cannot just flip
+
+`integration/` runs strictly serially, and `integration/harness_test.go` carries the rule that
+nothing in it may call `t.Parallel()`. Loading the image once in `TestMain` is necessary but not
+sufficient for parallelism, because **every** `yolo run` re-enters the shared load path: the
+image-load sentinel `last-load-<runtime>` lives at one global path under `paths.BuildDir()`
+(`image.LoadSentinelPath`, written from `AutoLoadImage` in `internal/image/autoload.go`), and
+tests with `packages:` configs (`packages_test.go`) trigger extra `--impure` image rebuilds and
+`podman load`s on that sentinel and the shared nix build root. Two tests in parallel would race on
+both.
+
+### What changed under it by 2026-09-30
+
+- **The shared state is now locked, not isolated.** `requireJail` calls `isolateHome`, which
+  points `HOME` at a per-test temp dir, and each `go test` process gets a yolo state dir of its own
+  (`integration/runstore_test.go`). But `build`, the load sentinel and the GC roots, is linked back
+  to the machine's on purpose, because the image reaper must see every jail's images. The sentinel
+  is written under a lock in `internal/image/autoload.go`, and image copies take the machine-wide
+  lock in `internal/image/copylock.go`.
+- **Separate test processes may overlap safely.** `integration/machinelock_test.go` is a cross-run
+  readers-writer lock: every container test holds it shared, and the tests that take machine state
+  over (`requireJailExclusive`) hold it exclusive. It was added after the overlapping-run failures
+  of 2026-09-27 ([Concurrency](#concurrency-overlapping-runs-fail-and-the-failures-cost-more-than-the-runs)).
+- **In-process parallelism would hit a Go rule.** `isolateHome` sets `HOME` with `t.Setenv`, and
+  Go's `testing` package refuses `t.Setenv` in a test that calls `t.Parallel()`, so in-process
+  parallelism needs `HOME` passed per command instead. The machine lock's bookkeeping is also one
+  package variable (`heldMachineLock`) because the tests run serially.
+- **CI already shards the macOS suite across jobs.** `.github/workflows/nightly-macos.yml` runs
+  separate shard jobs. Their number was doubled on 2026-09-13 after shards hit the 50-minute cap and
+  raised with a 75-minute cap on 2026-09-15 (`7b59711f`); since 2026-11-02 the partition is balanced
+  on measured per-test durations by [`scripts/nightly-shard.py`](../../scripts/nightly-shard.py),
+  not round-robin. That is sharding across runners, not `t.Parallel()`, and it is the one place
+  where integration wall time has cost evidence rather than convenience.
+- **The cheaper win landed first.** The launch merges from the timing analysis cut container count
+  with no parallelism risk (`c4ae68a`: the zbar trio, the cli blocked-tool trio, six isolation
+  probes and the gated cgroup pair, merged into `packages_test.go`, `cli_test.go`,
+  `isolation_test.go` and `cgroup_test.go`).
+
+### Four shards against one serial run, 2026-10-01
+
+**MEASURED** in a jail at `d4e435a3` (nested podman), with the four in-jail variables unset and
+`YOLO_TEST_REAL_PACK_INSTALLS` unset. The machine was not idle: other agents' workflows ran beside
+both runs, so both walls are upper bounds. The shards were cut round-robin from
+`go test -list . ./integration` order (291 tests), and each shard was its own
+`go test -count=1 -timeout 0 -json -run '^(<its names>)$' ./integration` process, all four started
+together:
+
+| Run | Wall | Per process | Outcome | Load average (1 min) |
+| :--- | :--- | :--- | :--- | :--- |
+| Serial, one process | **498.0 s** | — | 246 passed, 45 skipped | 9 at start, 26 at end |
+| Four shards | **240.0 s** | 240.0, 140.9, 134.6 and 158.2 s | 245 passed, 45 skipped, 1 failed | 18 at start, 43 at end |
+
+The one failure was `TestCaptureRecordsAnInstallerIntoTheStore`, which read the capture manifest's
+exclusion list while that session had a change to the list uncommitted; it passed alone once its
+assertion was updated, so it is not a sharding fault. No test failed for sharing the machine.
+
+- **The wall halved, and the shards were not balanced.** The four processes spent 674 s between
+  them, 35% more than the serial run's 498 s, which is what four jail launches at once cost on a
+  shared machine. Shard 0 set the wall: it drew `TestTheSlotReapsLeftoverScratchVolumes` (78.4 s)
+  and `TestPackRendersConfigAndLauncher` (54.2 s here, against 9.5 s serial), while the other three
+  finished 82 to 105 s earlier. Round-robin by name is not balance by time.
+- **The cross-run lock serialized what it should.** The exclusive tests' waits
+  (`waited <n>s for another integration run's exclusive test`) summed to 59.7, 23.7, 13.7 and
+  15.0 s per shard. Some may have been waits on other agents' runs, which take the same lock.
+
+So separate shard processes already work, without any in-process `t.Parallel`, and nothing had to
+change for it.
+
+### The in-process alternative: bounded `t.Parallel`, parked
+
+The original plan, kept as the alternative [OQ-TS5](#OQ-TS5) is weighed against:
+
+1. **Give each test its own global-storage root** (point `HOME` at a per-test `t.TempDir()` in the
+   harness's `runCommand`), so the sentinel, nix build root and image cache stop being shared.
+   Container names already cannot collide: they derive from the per-test workspace through
+   `naming.FromWorkspace`. The crux is cost: a per-test global storage could reload the image per
+   test, so the isolation must be surgical (keep the loaded image shared, isolate the sentinel and
+   build-root writes), or accept the reload only for the `packages:` tests. Measure before
+   committing.
+2. **Bounded `t.Parallel()`**, capped with `go test -p N` or a semaphore in the harness. **N is
+   bound by memory, not cores**: each jail is a real container or VM (Apple Container runs a VM per
+   container), so 32 cores do not mean 32 jails. Start at N=4 and tune against runner memory.
+3. **Update AGENTS.md** from "no `t.Parallel()`" to "bounded `t.Parallel()` with per-test global
+   storage, capped by `-p N` sized to memory", keeping the real invariant: no unbounded fan-out,
+   and shared-state isolation as a precondition.
+4. **Verify** in a nested jail at N>1: no sentinel or build-root races, no container-name
+   collisions, no out-of-memory kill. Re-run several times, since races are probabilistic.
+
+### Its risks
+
+- A naive per-test global storage could *increase* total work through repeated image loads.
+- Apple Container's per-VM memory footprint is the real cap; an over-eager N runs the runner out of
+  memory, the class of failure CI's "Free disk space" purge guards against (`9cf52bc`).
+- Failure attribution stays clear: each test still stands alone.
+
 ## Open Questions
 
 1. <a id="OQ-TS2"></a>**OQ-TS2: Should `ci.yml` set `concurrency: cancel-in-progress`?** Today
@@ -544,6 +653,24 @@ passes `-count=10` alone). `internal/cli` took 1574 s.
    landing gate is the one that must not miss darwin-only files. On a warm cache the pass costs close
    to nothing. Running the lint passes in parallel gets much of the cold cost back
    without dropping it.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+3. 💬 <a id="OQ-TS5"></a>**OQ-TS5: Should the integration suite get a local sharding recipe?** Four
+   separate shard processes ran the Linux suite in 240.0 s against 498.0 s serial on 2026-10-01,
+   with no test failing for sharing the machine
+   ([the run](#four-shards-against-one-serial-run-2026-10-01)). No `just` recipe runs it that way
+   today; only the macOS nightly shards. A recipe would halve a full local run, at the cost of the
+   extra machine load four launches at once add.
+
+   <!-- vantage: question id=OQ-TS5 leaning="The candidate is a Justfile recipe that runs separate go test shard processes balanced by recorded per-test times, as the macOS nightly's nightly-shard.py partition does, with no t.Parallel inside integration/. TS-D1 favors adding throughput over limiting it." -->
+
+   _Leaning:_ The candidate is a `Justfile` recipe that runs separate `go test` shard processes
+   balanced by recorded per-test times, the way the macOS nightly's
+   [`nightly-shard.py`](../../scripts/nightly-shard.py) partition does, with no `t.Parallel()`
+   inside `integration/`; it replaces [the in-process plan](#the-in-process-alternative-bounded-tparallel-parked).
+   [TS-D1](#TS-D1) favors adding throughput over limiting it.
 
    **Answer:**
    > _(empty — fill in when decided)_
