@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,6 +225,11 @@ func lower(old *jsonx.OrderedMap, ctx loweringContext, file string) lowered {
 			// other; a leaf written twice is reported, never dropped in silence.
 			if tbl, ok := value.(*jsonx.OrderedMap); ok && !ctx.userScoped() {
 				lowerProjectRequests(tbl, place, skip)
+				continue
+			}
+		case "repos":
+			if tbl, ok := value.(*jsonx.OrderedMap); ok {
+				placeNamedRepos(tbl, out.values, place, skip)
 				continue
 			}
 		}
@@ -926,6 +932,36 @@ func get(m *jsonx.OrderedMap, path []string) (any, bool) {
 		}
 	}
 	return cur, true
+}
+
+// placeNamedRepos places a file's own `repos` tables beside what its brokered repos lists already
+// wrote (lowerBrokeredRepos). A table nothing wrote takes its whole value; one partly written
+// merges leaf by leaf, an identical leaf is written once, and only a leaf another value holds is
+// refused, so the two never refuse each other as a whole (GW-D80).
+func placeNamedRepos(tbl, into *jsonx.OrderedMap, place func([]string, any, []string) bool, skip func([]string, any, string)) {
+	var placeLeaf func(path []string, value any)
+	placeLeaf = func(path []string, value any) {
+		prior, present := get(into, path)
+		if sub, isTable := value.(*jsonx.OrderedMap); present && isTable {
+			if _, priorTable := prior.(*jsonx.OrderedMap); priorTable {
+				for _, k := range sub.Keys() {
+					v, _ := sub.Get(k)
+					placeLeaf(append(append([]string(nil), path...), k), v)
+				}
+				return
+			}
+		}
+		if present && reflect.DeepEqual(prior, value) {
+			return
+		}
+		if !place(path, value, path) {
+			skip(path, value, dotted(path)+" is already written in this file; keep one of the two")
+		}
+	}
+	for _, name := range tbl.Keys() {
+		v, _ := tbl.Get(name)
+		placeLeaf([]string{"repos", name}, v)
+	}
 }
 
 func put(m *jsonx.OrderedMap, path []string, value any) {
