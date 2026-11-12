@@ -631,9 +631,11 @@ func TestGitHubBrokerAnAttachKeepsTheRunningScope(t *testing.T) {
 	}
 }
 
-// writeWorkspaceEntry rewrites the fixture workspace's yolo-jail.jsonc with a
-// `brokered.github.repos` entry listing repos (docs/design/workspace-widening.md §3.1), as an
-// agent in the jail would. The pack selection and the loophole's switch are the user config's
+// writeWorkspaceEntry rewrites the fixture workspace's yolo-jail.jsonc with a legacy
+// `brokered.github.repos` entry listing repos (docs/design/workspace-widening.md §3.1). The
+// fixture stays in that legacy JSONC spelling on purpose: it covers the compatibility window in
+// which the old list is still read, while the broker's advice names the `[repos.<name>]` table.
+// The pack selection and the loophole's switch are the user config's
 // and the per-workspace file's, which this leaves alone.
 func (fx githubBrokerFixture) writeWorkspaceEntry(t *testing.T, repos ...string) {
 	t.Helper()
@@ -651,9 +653,10 @@ func (fx githubBrokerFixture) writeWorkspaceEntry(t *testing.T, repos ...string)
 // the next fresh launch asks about, naming the config file as its source. With no terminal and
 // no flag the launch refuses; with --accept-config-changes it prints the scope block, records
 // the union, and the launch line names each repository and its source. The listed repository
-// then reads like a remote's; one outside the scope is refused, telling the agent to add it to
-// the `repos` list under `brokered.github` in the workspace's own config file; and an
-// account-wide command is refused saying no entry can add it. The entry never appears as JSON
+// then reads like a remote's; one outside the scope is refused, telling the agent to request a
+// named `[repos.<name>]` table with `yolo request repos <alias> <host>/<path>` and have the user
+// approve it on the host; and an account-wide command is refused saying no `[repos.<name>]`
+// table can add it. The entry never appears as JSON
 // lines at the gate. This workspace's entry adds nothing to another workspace's scope, since
 // each launch reads its own config.
 func TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace(t *testing.T) {
@@ -678,7 +681,7 @@ func TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace(t *testing.T
 	r = runYolo(t, fx.dir, ghScript(
 		"gh pr view 3 -R yolo-lib/lib", // A: the approved entry
 		"gh pr view 4 -R yolo-other/x", // B: outside, says where to add it
-		"gh search code foo",           // C: account-wide, no entry can add it
+		"gh search code foo",           // C: account-wide, no `[repos.<name>]` table can add it
 	), fx.opts...)
 	if r.rc != 0 {
 		t.Fatalf("the launch failed: rc %d\n%s%s", r.rc, r.combined(), brokerDaemonLog(t))
@@ -707,7 +710,7 @@ func TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace(t *testing.T
 		!strings.Contains(flat, "ask the user to run `yolo config apply` on the host, in this workspace, and approve the repository scope there") {
 		t.Errorf("a repository outside the scope answered %q, want 64 saying where to add it:\n%s", got, out)
 	}
-	if got := kvLine(r.stdout, "RCC"); got != "64" || !strings.Contains(out, "`brokered.github.repos` entry can add") {
-		t.Errorf("an account-wide search answered %q, want 64 saying no entry can add it:\n%s", got, out)
+	if got := kvLine(r.stdout, "RCC"); got != "64" || !strings.Contains(out, "no `[repos.<name>]` table can add") {
+		t.Errorf("an account-wide search answered %q, want 64 saying no `[repos.<name>]` table can add it:\n%s", got, out)
 	}
 }
