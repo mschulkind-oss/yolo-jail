@@ -152,7 +152,7 @@ clone's remote of the same name. It reaches that repository and no other, under 
   at the next launch's prompt, or at `yolo config apply` on your machine. `yolo config migrate`
   writes the tables for an old list, and approves none of them.
 
-### Every repository of one owner
+### Every repository, or every repository of one owner
 
 A `repo` line may put `*` in the owner or repository segment, and never in the host. A `*` is a
 whole segment: `github.com/you/*` is every repository under one owner, and `github.com/*/lib` is
