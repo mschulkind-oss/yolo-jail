@@ -413,3 +413,47 @@ func TestServeAccessStdinBinding(t *testing.T) {
 		}
 	}
 }
+
+// GW-D80: the access status carries the pattern marker of a scope grant, so a grant the gate
+// approved as a pattern and one an older build recorded on the same spelling are told apart by
+// whoever reads the status. `repo` keeps its spelling for both.
+func TestAccessStatusMarksAPatternScopeGrantApartFromALegacyOne(t *testing.T) {
+	b, _ := windowFixture(t)
+	rawScopeGrants(t, b, scopeFileGrants(t, `[{"kind":"read","repo":"*"},`+
+		`{"kind":"runs","repo":"github.com/o/*","workflow":"legacy.yml"},`+
+		`{"kind":"runs","repo":"github.com/o/*","workflow":"live.yml","repo_pattern":true}]`))
+	status, err := b.accessStatus(context.Background(), paths.JailShortHash(b.authority.scope.Container))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		ScopeGrants []struct {
+			Kind        string `json:"kind"`
+			Repo        string `json:"repo"`
+			Name        string `json:"name"`
+			RepoPattern bool   `json:"repo_pattern"`
+		} `json:"scope_grants"`
+	}
+	body := marshalAccess(status)
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	marked := map[string]bool{}
+	for _, g := range decoded.ScopeGrants {
+		if g.Kind == "runs" {
+			if g.Repo != "github.com/o/*" {
+				t.Errorf("a runs grant's repo is %q, want the spelling it was recorded with", g.Repo)
+			}
+			marked[g.Name] = g.RepoPattern
+		}
+	}
+	if pattern, ok := marked["live.yml"]; !ok || !pattern {
+		t.Errorf("the grant approved as a pattern is not marked: %s", body)
+	}
+	if pattern, ok := marked["legacy.yml"]; !ok || pattern {
+		t.Errorf("the legacy grant is missing or marked: %s", body)
+	}
+	if strings.Contains(string(body), `"repo_pattern":false`) {
+		t.Errorf("an unmarked grant carries the marker field: %s", body)
+	}
+}

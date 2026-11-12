@@ -54,6 +54,10 @@ type accessScopeGrant struct {
 	Kind string `json:"kind"`
 	Repo string `json:"repo"`
 	Name string `json:"name,omitempty"`
+	// RepoPattern is the grant's own marker (brokerscope.Grant.RepoPattern, GW-D80): Repo is a
+	// pattern the gate approved, which covers every repository it admits. An unmarked grant on the
+	// same spelling is one an older build recorded, and covers nothing.
+	RepoPattern bool `json:"repo_pattern,omitempty"`
 }
 type accessGrant struct {
 	ID       string    `json:"id"`
@@ -138,7 +142,7 @@ func (b *Broker) accessStatus(ctx context.Context, jail string) (AccessStatus, e
 		if name == "" {
 			name = grant.Actor
 		}
-		out.ScopeGrants = append(out.ScopeGrants, accessScopeGrant{Kind: safe(grant.Kind), Repo: safe(grant.Repo), Name: safe(name)})
+		out.ScopeGrants = append(out.ScopeGrants, accessScopeGrant{Kind: safe(grant.Kind), Repo: safe(grant.Repo), Name: safe(name), RepoPattern: grant.RepoPattern})
 	}
 	requests, grants, working, now, err := b.store.InspectContext(ctx)
 	if err != nil {

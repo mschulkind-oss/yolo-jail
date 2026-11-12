@@ -128,3 +128,31 @@ func TestAccessNoJailNamesHostReadout(t *testing.T) {
 		t.Fatalf("host advice %q", buf[:n])
 	}
 }
+
+// GW-D80: a scope grant the gate approved as a pattern is live, and one an older build recorded on
+// the same spelling is inert. The readout spells the marked one as the gate does (`pattern:`), so
+// the two never read alike.
+func TestAccessStatusSpellsAPatternGrantApartFromALegacyOne(t *testing.T) {
+	out, _ := accessFiles(t)
+	renderAccessStatus(out, []byte(`{"schema":"yolo.access/1","source":"github","state":"running","read":"granted","next":"",`+
+		`"repositories":["o/*"],"scope_grants":[`+
+		`{"kind":"runs","repo":"github.com/o/*","name":"legacy.yml"},`+
+		`{"kind":"runs","repo":"github.com/o/*","name":"live.yml","repo_pattern":true}],`+
+		`"requests":[],"grants":[],"working_set":[],"limits":{"pending":0,"pending_cap":3}}`))
+	if _, err := out.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"approved runs grant for github.com/o/* legacy.yml",
+		"approved runs grant for pattern:github.com/o/* live.yml",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the readout lacks %q:\n%s", want, text)
+		}
+	}
+}

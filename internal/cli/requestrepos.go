@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
@@ -192,7 +193,7 @@ func requestReposNamed(workspace string, positionals []string, dryRun bool, out,
 	if rc != 0 && !requestWritten(workspace, keys, value) {
 		return rc
 	}
-	skipped := !requestNamedWithinCeiling(workspace, alias, source, capability)
+	skipped := !requestNamedWithinCeiling(workspace, alias, source, decl.Brokered.RemoteHost, capability)
 	if skipped {
 		reportNamedRequestSkipped(out, workspaceRepoLine(workspace, alias), alias, source, capability,
 			requestDescription(capability, value))
@@ -217,13 +218,24 @@ func refuseReposAliasForm(alias, capability string, rest []string, brokers []con
 	return 1
 }
 
-// workspaceNamesRepo reports whether alias names a repository this workspace declares, or a remote
-// of its clone on host (a name with no repo line takes that remote).
+// workspaceNamedRepos is the `repos` table of the workspace's own files, project and local, nil
+// when it has none or the files do not read. The user config's `[repos.<name>]` tables are never
+// in it: a user's name is a ceiling, not an identity a workspace line resolves (GW-D73).
+func workspaceNamedRepos(workspace string) *jsonx.OrderedMap {
+	read, err := config.ReadWorkspaceForGate(workspace)
+	if err != nil {
+		return nil
+	}
+	repos, _ := configValueAt(read.Config, "repos")
+	table, _ := repos.(*jsonx.OrderedMap)
+	return table
+}
+
+// workspaceNamesRepo reports whether alias names a repository this workspace declares in its own
+// files, or a remote of its clone on host (a name with no repo line takes that remote).
 func workspaceNamesRepo(workspace, alias, host string) bool {
-	if cfg, err := config.LoadReadableConfig(workspace, false, func(string) {}); err == nil {
-		if _, ok := configValueAt(cfg, "repos", alias); ok {
-			return true
-		}
+	if _, ok := configValueAt(workspaceNamedRepos(workspace), alias); ok {
+		return true
 	}
 	for _, r := range brokerscope.ReadRemotes(workspace, host).Remotes {
 		if r.Name == alias {
@@ -233,36 +245,36 @@ func workspaceNamesRepo(workspace, alias, host string) bool {
 	return false
 }
 
-// workspaceRepoLine is the repo line the workspace's [repos.<alias>] names, "" with none.
+// workspaceRepoLine is the repo line the workspace's own [repos.<alias>] names, "" with none.
 func workspaceRepoLine(workspace, alias string) string {
-	cfg, err := config.LoadReadableConfig(workspace, false, func(string) {})
-	if err != nil {
-		return ""
-	}
-	line, _ := configValueAt(cfg, "repos", alias, "repo")
+	line, _ := configValueAt(workspaceNamedRepos(workspace), alias, "repo")
 	text, _ := line.(string)
 	return text
 }
 
-// requestNamedWithinCeiling reports whether the user config allows the capability on the named
-// repository: its scoped `[repos.<alias>.allow.<broker>]` table, or the broad allow, which covers
-// every repository.
-func requestNamedWithinCeiling(workspace, alias, source, capability string) bool {
+// workspaceRepoIdentity is the repository alias names in this workspace, as a repo line: its own
+// table's line, or `<host>/<owner>/<repo>` of the clone's remote of that name; "" with neither.
+func workspaceRepoIdentity(workspace, alias, host string) string {
+	if line := workspaceRepoLine(workspace, alias); line != "" {
+		return line
+	}
+	for _, r := range brokerscope.ReadRemotes(workspace, host).Remotes {
+		if r.Name == alias {
+			return host + "/" + r.Repo
+		}
+	}
+	return ""
+}
+
+// requestNamedWithinCeiling reports whether the user config allows the capability on the repository
+// alias names: the broad allow, which covers every repository, or a user
+// `[repos.<name>.allow.<broker>]` table whose repo line admits that repository, whatever its name
+// (GW-D64, config.ScopedCeilingAllowsRequest).
+func requestNamedWithinCeiling(workspace, alias, source, host, capability string) bool {
 	if requestWithinCeiling(workspace, source, capability) {
 		return true
 	}
-	cfg, err := config.LoadReadableConfig(workspace, false, func(string) {})
-	if err != nil {
-		return true
-	}
-	for _, list := range []string{"always", "on_request"} {
-		if got, ok := configValueAt(cfg, "repos", alias, "allow", source, list); ok {
-			if items, isList := got.([]any); isList && slices.Contains(items, any(capability)) {
-				return true
-			}
-		}
-	}
-	return false
+	return config.ScopedCeilingAllowsRequest(source, workspaceRepoIdentity(workspace, alias, host), capability)
 }
 
 // reportNamedRequestSkipped says a request under a name is outside the user's ceiling, so the project

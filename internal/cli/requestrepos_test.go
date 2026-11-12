@@ -157,3 +157,63 @@ func TestConfigWhyNamesTheReposVerbs(t *testing.T) {
 		}
 	}
 }
+
+// GW-D73, GW-D77: a request under a name is for a repository THIS WORKSPACE names, by its own
+// `[repos.<alias>]` table or a remote of its clone. A name only the user config declares is the
+// user's ceiling, never the workspace's identity: the verb refuses before it writes, naming the
+// declaration.
+func TestRequestReposAliasRefusesANameOnlyTheUserConfigDeclares(t *testing.T) {
+	fx := newNamedVerbFixture(t, "", requestReposAllow+"\n[repos.mine]\nrepo = \"github.com/me/tools\"\n\n[repos.mine.allow.github]\non_request = [\"runs\"]\n")
+	projectBefore, userBefore, fragmentBefore := readFile(t, fx.project), readFile(t, fx.userConfig), readFile(t, fx.fragment)
+
+	rc, out, errs := captureStd(t, func() int {
+		return Main([]string{"yolo", "request", "repos.mine.github", "runs", "ci.yml"})
+	})
+	if rc != 1 {
+		t.Fatalf("rc=%d, want 1; stdout=%q stderr=%q", rc, out, errs)
+	}
+	for _, want := range []string{"repos.mine names no repository in this workspace", "yolo request repos mine <host>/<path>"} {
+		if !strings.Contains(errs, want) {
+			t.Fatalf("the refusal lacks %q: %q", want, errs)
+		}
+	}
+	if got := readFile(t, fx.project); got != projectBefore {
+		t.Fatalf("a refused request wrote the project file:\n%s", got)
+	}
+	if readFile(t, fx.userConfig) != userBefore || readFile(t, fx.fragment) != fragmentBefore {
+		t.Fatal("a refused request edited the user config")
+	}
+}
+
+// GW-D64: the user's ceiling for a repository is matched by the repository its table admits, never
+// by the table's name. A user table under another name that admits the workspace's repository
+// allows the request; a user table under the same name for another repository does not.
+func TestRequestReposAliasCeilingMatchesTheRepositoryNotTheName(t *testing.T) {
+	const project = "[repos.infra]\nrepo = \"github.com/acme/infra\"\n"
+	const broad = "[allow.github]\nalways = [\"read\"]\n\n"
+	for _, tc := range []struct {
+		name, user  string
+		wantSkipped bool
+	}{
+		{"another name, the same repository", broad + "[repos.mine]\nrepo = \"github.com/acme/infra\"\n\n[repos.mine.allow.github]\non_request = [\"runs\"]\n", false},
+		{"another name, a pattern admitting it", broad + "[repos.mine]\nrepo = \"github.com/acme/*\"\n\n[repos.mine.allow.github]\non_request = [\"runs\"]\n", false},
+		{"the same name, another repository", broad + "[repos.infra]\nrepo = \"github.com/other/thing\"\n\n[repos.infra.allow.github]\non_request = [\"runs\"]\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newNamedVerbFixture(t, project, tc.user)
+			userBefore, fragmentBefore := readFile(t, fx.userConfig), readFile(t, fx.fragment)
+			_, out, errs := captureStd(t, func() int {
+				return Main([]string{"yolo", "request", "repos.infra.github", "runs", "deploy.yml"})
+			})
+			if got := readFile(t, fx.project); !strings.Contains(got, `runs = ["deploy.yml"]`) {
+				t.Fatalf("the request was not written:\n%s\nstdout=%q stderr=%q", got, out, errs)
+			}
+			if skipped := strings.Contains(out, "runs without it"); skipped != tc.wantSkipped {
+				t.Fatalf("reported skipped = %t, want %t: stdout=%q stderr=%q", skipped, tc.wantSkipped, out, errs)
+			}
+			if readFile(t, fx.userConfig) != userBefore || readFile(t, fx.fragment) != fragmentBefore {
+				t.Fatal("the report changed the user config")
+			}
+		})
+	}
+}

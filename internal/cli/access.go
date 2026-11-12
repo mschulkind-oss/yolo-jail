@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitremote"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -154,9 +155,10 @@ func renderAccessStatus(out *os.File, body []byte) {
 		Read         string   `json:"read"`
 		Repositories []string `json:"repositories"`
 		ScopeGrants  []struct {
-			Kind string `json:"kind"`
-			Repo string `json:"repo"`
-			Name string `json:"name"`
+			Kind        string `json:"kind"`
+			Repo        string `json:"repo"`
+			Name        string `json:"name"`
+			RepoPattern bool   `json:"repo_pattern"`
 		} `json:"scope_grants"`
 		Requests []struct {
 			ID      string `json:"id"`
@@ -189,7 +191,13 @@ func renderAccessStatus(out *os.File, body []byte) {
 		fmt.Fprintf(out, "  repository: %s\n", termsafe.Visible(repo))
 	}
 	for _, grant := range r.ScopeGrants {
-		fmt.Fprintf(out, "  approved %s grant for %s %s\n", termsafe.Visible(grant.Kind), termsafe.Visible(grant.Repo), termsafe.Visible(grant.Name))
+		// A grant approved as a pattern is spelled as the gate spells it (brokerscope.Grant.String),
+		// so it never reads like the inert grant an older build recorded on the same repository.
+		repo := termsafe.Visible(grant.Repo)
+		if grant.RepoPattern {
+			repo = brokerscope.PatternRepoPrefix + repo
+		}
+		fmt.Fprintf(out, "  approved %s grant for %s %s\n", termsafe.Visible(grant.Kind), repo, termsafe.Visible(grant.Name))
 	}
 	for _, g := range r.Grants {
 		fmt.Fprintf(out, "  grant %s: %s, expires %s\n", termsafe.Visible(g.ID), termsafe.Visible(g.Kind), termsafe.Visible(g.Expires))

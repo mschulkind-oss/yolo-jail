@@ -546,7 +546,7 @@ func lowerBrokeredRepos(source string, value any, ctx loweringContext, oldPath [
 		skip(oldPath, value, "the workspace's repositories are not known here; "+noSpellingYet)
 		return
 	}
-	tables, kept, notConverted := ctx.repos.convert(source, entries, "")
+	tables, kept, notConverted := ctx.repos.convert(source, entries, "", legacyJSONCList)
 	var reasons []string
 	for _, n := range notConverted {
 		reasons = append(reasons, n.Reason)
@@ -747,7 +747,7 @@ func namedHostGrant(repo, source, capability, ref string, ctx loweringContext, s
 		return grantScopeReason(ctx.remotes, repo)
 	}
 	if strings.Contains(repo, "*") || strings.Count(repo, "/") != 2 {
-		return notPlainRepoReason(repo, source)
+		return notPlainRepoReason(repo, source, legacyJSONCList)
 	}
 	if origin := ctx.repos.originRepo(); origin != "" && strings.EqualFold(origin, repo) {
 		sink.add(dotted([]string{"requests", source, capability}), ref)

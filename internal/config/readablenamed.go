@@ -85,6 +85,43 @@ func scopedCeilingHolds(user *jsonx.OrderedMap, source, capability string) bool 
 	return false
 }
 
+// ScopedCeilingAllowsRequest reports whether a user `[repos.<name>.allow.<source>]` table admits
+// repo and lists capability, in `always` or `on_request`. repo is a repo line, `<host>/<owner>/<repo>`
+// or a whole-segment pattern. The table is matched by the repository its own repo line admits
+// (scopedCeilingAdmits), never by its name (GW-D64). It is the report `yolo request` prints, not
+// authority: the gate decides again from the same tables. An unreadable user config, a repo that
+// is no repo line, and a table whose line is none each allow nothing.
+func ScopedCeilingAllowsRequest(source, repo, capability string) bool {
+	repository, pattern, err := parseNamedRepo("repo", repo)
+	if err != nil {
+		return false
+	}
+	user, _, err := UserScopeConfigWithSources(false, func(string) {})
+	if err != nil {
+		return false
+	}
+	tables, err := scopedCeilingTables(user, source)
+	if err != nil {
+		return false
+	}
+	host := namedRepoHost(repository)
+	target := ReadableRepository{Source: source, RemoteHost: host, Repository: strings.TrimPrefix(repository, host+"/"), Pattern: pattern}
+	for _, t := range tables {
+		line, _, err := parseNamedRepo("repo", t.line)
+		if err != nil {
+			continue
+		}
+		ceiling := ReadableScopedCeiling{Name: t.name, Source: source, Host: namedRepoHost(line), Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/")}
+		if !scopedCeilingAdmits(ceiling, target) {
+			continue
+		}
+		if slices.Contains(stringList(readableValue(t.table, "always")), capability) || slices.Contains(stringList(readableValue(t.table, "on_request")), capability) {
+			return true
+		}
+	}
+	return false
+}
+
 // userNamedRepository is the repo line the user's `[repos.<name>]` table names, "" when the user
 // config declares no such table or no line for it.
 func userNamedRepository(user *jsonx.OrderedMap, name string) string {

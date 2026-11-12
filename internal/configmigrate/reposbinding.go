@@ -203,9 +203,39 @@ func plainRepoEntry(text string) bool {
 	return !strings.Contains(text, "*") && strings.Count(text, "/") == 1 && !strings.HasPrefix(text, "/")
 }
 
-// notPlainRepoReason is why an entry that is not plain stays in its old file, with its next step.
-func notPlainRepoReason(text, source string) string {
-	return fmt.Sprintf("%q is not a plain owner/repo; a pattern or wildcard entry has no named table (GW-D80). Leave it in this file, which yolo keeps reading, and name the repository with `yolo request %s <host>/<path>`", text, source)
+// repoListFile is the kind of file a repository list is written in, which decides what a
+// retained entry's reason may say about the file.
+type repoListFile int
+
+const (
+	// legacyJSONCList is a `brokered.<source>` table of a legacy JSONC file: yolo keeps reading it
+	// with the entry in it (RC-D19's window).
+	legacyJSONCList repoListFile = iota
+	// tomlRequestsList is a TOML file's `requests.<source>.repos`: the launch refuses the file
+	// while the key holds an entry (GW-D77), so a retained entry has to leave it.
+	tomlRequestsList
+)
+
+// declareRepoVerb is the command that declares a repository as its own `[repos.<alias>]` table.
+const declareRepoVerb = "`yolo request repos <alias> <host>/<path>`"
+
+// notPlainRepoReason is why an entry that is not plain stays in its old file, with its next step:
+// the verb that declares a repository, and what the file holding the entry needs.
+func notPlainRepoReason(text, source string, file repoListFile) string {
+	why := fmt.Sprintf("%q is not a plain owner/repo; a pattern or wildcard entry has no named table (GW-D80). ", text)
+	if file == tomlRequestsList {
+		return why + fmt.Sprintf("yolo refuses this file while the entry is in it: remove it with `yolo config unset 'requests.%s.repos[<n>]'`, and name the repository with %s if the project still needs it", source, declareRepoVerb)
+	}
+	return why + "Leave it in this file, which yolo keeps reading, or name the repository with " + declareRepoVerb
+}
+
+// noHostReason is why an entry of source's list stays when no broker declares a host for source.
+func noHostReason(source string, file repoListFile) string {
+	why := "no broker declares a host for " + source + "; "
+	if file == tomlRequestsList {
+		return why + fmt.Sprintf("yolo refuses this file while the entry is in it: select the pack that declares %s and run `yolo config migrate` again, or remove the entry with `yolo config unset 'requests.%s.repos[<n>]'`", source, source)
+	}
+	return why + "leave the old file, which yolo keeps reading"
 }
 
 // repoTable is one named table a `requests.<source>.repos` entry or a non-origin remote converts
@@ -219,8 +249,9 @@ type repoTable struct {
 
 // convert names the tables the entries of source's `repos` list become, the list's entries that
 // stay (a wildcard, or a name taken by another identity), and the reason each stays. A name is
-// claimed as it is given, so a later entry or remote cannot take it.
-func (in *legacyRepos) convert(source string, entries []any, logical string) ([]repoTable, []any, []NotConverted) {
+// claimed as it is given, so a later entry or remote cannot take it. file is the kind of file the
+// list is written in, for the reason a retained entry gives.
+func (in *legacyRepos) convert(source string, entries []any, logical string, file repoListFile) ([]repoTable, []any, []NotConverted) {
 	var tables []repoTable
 	var kept []any
 	var skipped []NotConverted
@@ -229,13 +260,13 @@ func (in *legacyRepos) convert(source string, entries []any, logical string) ([]
 		text, _ := entry.(string)
 		if !plainRepoEntry(text) {
 			kept = append(kept, entry)
-			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: notPlainRepoReason(text, source)})
+			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: notPlainRepoReason(text, source, file)})
 			continue
 		}
 		host := in.hosts[source]
 		if host == "" {
 			kept = append(kept, entry)
-			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: "no broker declares a host for " + source + "; leave the old file, which yolo keeps reading"})
+			skipped = append(skipped, NotConverted{File: logical, Path: path, Reason: noHostReason(source, file)})
 			continue
 		}
 		repo := host + "/" + text
@@ -295,7 +326,7 @@ func withLegacyReposConverted(data []byte, logical string, in *legacyRepos) ([]b
 		table, _ := mapAt(requests, source)
 		list, _ := table.Get("repos")
 		entries, _ := list.([]any)
-		tables, kept, reasons := in.convert(source, entries, logical)
+		tables, kept, reasons := in.convert(source, entries, logical, tomlRequestsList)
 		skipped = append(skipped, reasons...)
 		for _, t := range tables {
 			if t.repo != "" {
@@ -373,7 +404,7 @@ func lowerLegacyRepos(values *jsonx.OrderedMap, in *legacyRepos) {
 			continue
 		}
 		entries, _ := list.([]any)
-		tables, kept, _ := in.convert(source, entries, "")
+		tables, kept, _ := in.convert(source, entries, "", tomlRequestsList)
 		if len(tables) > 0 {
 			repos, ok := mapAt(values, "repos")
 			if !ok {

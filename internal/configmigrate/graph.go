@@ -359,7 +359,7 @@ func unsafeLegacyRepo(source string, table *jsonx.OrderedMap) (string, string) {
 	for _, entry := range entries {
 		text, _ := entry.(string)
 		if !plainRepoEntry(text) {
-			return "repos", notPlainRepoReason(text, source)
+			return "repos", notPlainRepoReason(text, source, legacyJSONCList)
 		}
 	}
 	grants, _ := table.Get("grants")
@@ -371,7 +371,7 @@ func unsafeLegacyRepo(source string, table *jsonx.OrderedMap) (string, string) {
 		}
 		repo, _ := grant.Get("repo")
 		if text, _ := repo.(string); strings.Contains(text, "*") {
-			return "grants", notPlainRepoReason(text, source)
+			return "grants", notPlainRepoReason(text, source, legacyJSONCList)
 		}
 	}
 	return "", ""

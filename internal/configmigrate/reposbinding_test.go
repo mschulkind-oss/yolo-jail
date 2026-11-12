@@ -167,3 +167,66 @@ func TestMigrateKeepsAJSONCFileWithALegacyPatternEntryWhole(t *testing.T) {
 		t.Fatalf("planning changed the file:\n%s", got)
 	}
 }
+
+// A pattern entry stays where it is, and its reason names the verb that declares a repository,
+// `yolo request repos <alias> <host>/<path>`, never a `yolo request <source> <host>/<path>` no
+// command spells. What the file needs differs by format: a legacy JSONC file is still read with
+// the entry in it; a TOML file holding `requests.<source>.repos` is refused at load (GW-D77), so
+// its reason says the entry has to leave the file.
+func TestARetainedPatternEntryNamesTheDeclaringVerbAndWhatItsFileNeeds(t *testing.T) {
+	const verb = "`yolo request repos <alias> <host>/<path>`"
+	reasonOf := func(t *testing.T, ws, path string) string {
+		t.Helper()
+		g, err := Discover(Request{UserConfigDir: filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail"), Workspace: ws})
+		if err != nil {
+			t.Fatalf("Discover: %v", err)
+		}
+		p, _ := Plan(g)
+		if p == nil {
+			t.Fatal("no plan")
+		}
+		for _, n := range p.NotConverted {
+			if n.Path == path {
+				return n.Reason
+			}
+		}
+		t.Fatalf("no not-converted entry at %s: %+v", path, p.NotConverted)
+		return ""
+	}
+
+	t.Run("a legacy JSONC file is kept and still read", func(t *testing.T) {
+		home := env(t)
+		write(t, filepath.Join(home, ".config", "yolo-jail", "config.toml"), reposUserTOML)
+		ws := realDir(t)
+		namedRemotes(t, ws, "origin", "https://github.com/acme/app.git")
+		write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"brokered": {"github": {"repos": ["acme/*"]}}}`+"\n")
+		reason := reasonOf(t, ws, "brokered.github.repos")
+		for _, want := range []string{verb, "which yolo keeps reading"} {
+			if !strings.Contains(reason, want) {
+				t.Errorf("reason lacks %q:\n%s", want, reason)
+			}
+		}
+		if strings.Contains(reason, "yolo request github <host>") {
+			t.Errorf("reason names a command that does not exist:\n%s", reason)
+		}
+	})
+
+	t.Run("a TOML file is refused until the entry leaves it", func(t *testing.T) {
+		home := env(t)
+		write(t, filepath.Join(home, ".config", "yolo-jail", "config.toml"), reposUserTOML)
+		ws := realDir(t)
+		namedRemotes(t, ws, "origin", "https://github.com/acme/app.git")
+		write(t, filepath.Join(ws, oracleProject), "[requests.github]\nrepos = [\"acme/*\"]\n")
+		reason := reasonOf(t, ws, "requests.github.repos")
+		for _, want := range []string{verb, "yolo refuses this file while the entry is in it", "yolo config unset 'requests.github.repos[<n>]'"} {
+			if !strings.Contains(reason, want) {
+				t.Errorf("reason lacks %q:\n%s", want, reason)
+			}
+		}
+		for _, wrong := range []string{"yolo request github <host>", "keeps reading"} {
+			if strings.Contains(reason, wrong) {
+				t.Errorf("reason says %q of a file yolo refuses:\n%s", wrong, reason)
+			}
+		}
+	})
+}
