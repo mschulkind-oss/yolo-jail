@@ -20,5 +20,7 @@ lua = "5.4.9"
 push = ["main"]
 
 [requests.github]
-runs = ["release-request.yml", "nightly-macos.yml", "macos-user.yml", "apple-container.yml"]
+# Unqualified lines apply to origin (mschulkind-oss/yolo-jail) and to no other repository: every
+# workflow there may be run and re-run on the default branch. Named repositories get no writes.
+runs = ["*"]
 approve_runs = ["github-actions[bot]"]
