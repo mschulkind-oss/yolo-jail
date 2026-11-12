@@ -587,12 +587,29 @@ it came from, so the owner can narrow it on purpose. Before approval, the owner 
 configuration verbs to remove retained write requests, or unwanted repository scope. This slice
 does not make narrowing the default; that would reverse a ruling. A legacy `"*"` grant covers
 repositories not yet declared, so copying it to the currently declared names is not proved equal
-to it. The planner must verify equality against those future targets or bound the case; this design
-claims no equality for it. This workspace's `requests.github.repos` is not migrated by this design,
+to it, and this design claims no equality for it. The build bounds the case ([GW-D80](#GW-D80)):
+such a grant is not converted, and its old file is kept and still read, with its reason and next step. This workspace's `requests.github.repos` is not migrated by this design,
 and no migration is performed.
 
-**Unverified.** How a stored host approval behaves once its request is no longer lowered for an
-identity was not checked. The build must confirm such an approval is not effective.
+**Stored approvals.** Checked against the tree for the plan
+([Task 4](github-repository-binding-plan.md#task-4-stored-authority-regression-tests-after-3-test-only)):
+the approval record is only the gate's comparison baseline and is replaced at each approval, so a
+grant no longer lowered for an identity never reaches a broker from it. A running jail keeps the
+scope it was approved with until a fresh launch or `yolo config apply`; editing a file revokes
+nothing live. A human's stored per-command and per-resource answers are keyed by concrete
+identity and stay subject to the live scope and the read grant.
+
+**Bounds of the slice** ([GW-D80](#GW-D80)), each fail-closed and none a new grant:
+
+- Origin-only lowering applies to the `github` source declared on `github.com`. Another
+  named-host source keeps today's reach for unqualified lines; the `[repos.<name>]` tables serve
+  every named-host source.
+- A workspace's `repo` is concrete; wildcards are the user config's, where `repo` is required.
+- A scoped ceiling lists write capabilities. Read stays in `[allow.<broker>] always`, and is
+  refused under a name, naming that line.
+- Git lines under a name are refused, naming `yolo request git`.
+- The migration preserves grants on listed repositories. A remote other than `origin` loses the
+  unqualified lines by [OQ-GW13](#OQ-GW13), shown at the gate as removed.
 
 ## Open Questions
 
@@ -672,3 +689,4 @@ None open. The ruled questions are in the [Decision Ledger](#decision-ledger).
 | <a id="GW-D77"></a>GW-D77 | **The verbs and the refusals for [GW-D76](#GW-D76).** The first word after `yolo request` or `yolo allow` is the key path, `requests` or `allow` left out: `yolo request repos <name> <host>/<path> [--local]` declares; `yolo request repos.<name> <git key> [resource]` writes `[repos.<name>.requests]`; `yolo request repos.<name>.github <key> [resource]` writes `[repos.<name>.requests.github]`; `yolo allow repos <name> <host>/<path>` and `yolo allow repos.<name>.github on_request <token>` (or `always`, and `repos.<name>` for git) on the host. A line under a name neither declared nor a remote is refused naming `yolo request repos`; `repos` is a word of both verbs ahead of every source, so no pack may be named it. `requests.<source>.repos` is refused at load naming `[repos.<name>]` `repo = "github.com/OWNER/REPO"` and `yolo config migrate`, and `yolo request github repos` naming `yolo request repos`, through the rename table (`internal/config/renames.go`); the `repository`, `[repositories]` and `for` spellings were never built and need none. **`origin`'s GitHub lines have one home**, applying [GW-D69](#GW-D69): `[repos.origin.requests.github]` says what the unqualified `[requests.github]` says ([OQ-GW13](#OQ-GW13)) and is refused naming it; `[repos.origin.requests]` git lines mean `origin` alone, which unqualified `[requests.git]` (every remote) cannot say, and are accepted. Supersedes [GW-D74](#GW-D74) | 2026-11-03 | [§8](#8-which-repository-a-line-is-for) | — |
 | <a id="GW-D78"></a>GW-D78 | **Owner, 2026-11-06:** *"Do we really need 'Cancel Run'? Is that really so different than starting a run? Can we just have 'Runs' be a category?"* The `dispatch-workflow` kind becomes **`runs`** (readable `allow.github.on_request = ["runs"]`, `requests.github.runs = ["<file>"]`, `yolo request github runs <file>`), and one grant naming a workflow file or `*` on a repository covers three things unasked: a dispatch on the default branch exactly as [GW-D14](#GW-D14) rules it; `gh run rerun <id>` (with `--failed`, `--debug`, or `--job <id>` in place of the id) of a run the broker reads (`repos/{o}/{r}/actions/runs/{id}`, through `actions/jobs/{id}` for `--job`) to have `head_repository` the repository itself, `head_branch` its default branch and `path` `.github/workflows/<file>` with a file the grant names, since a rerun executes its own commit's workflow file and that is the default branch's; and `gh run cancel <id>` of any run in the repository, under any `runs` grant on it, since cancelling executes no code. A rerun of another branch or a fork, `workflow enable`/`disable`, `run delete` and the `gh api` spellings of rerun and cancel still ask; `approve-run` stays its own kind. The former spellings `dispatch-workflow` and `dispatch_workflows` are read as `runs` wherever a file, a scope file or a verb writes them, so an existing grant keeps working and now also reruns and cancels, the widening the owner's question rules; nothing is rewritten. Supersedes [GW-D51](#GW-D51) | 2026-11-06 | [§7](#7-repository-level-grants-and-what-is-refused-outright) | built |
 | <a id="GW-D79"></a>GW-D79 | **Implementation decision: repository binding is the first buildable slice of the ruled contract.** Build the GitHub side of repository binding first, ahead of the work-kind cells and the Git tables: unqualified `[requests.github]` lines lower to origin's concrete identity only; other repositories enter by `[repos.<name>]`, read-only unless their own table asks; the user's `[repos.<name>.allow.github]` is additive; a scalar `repo` retargets a name behind a fresh identity gate; `requests.github.repos` migrates with grant equality, printing retained writes. Engineering sequencing of [OQ-GW13](#OQ-GW13), [OQ-GW15](#OQ-GW15) and [GW-D75](#GW-D75); no new policy. This workspace's boundary is `mschulkind-oss/yolo-jail` only (owner, 2026-11-12); the design changes no active grant or configuration file. | 2026-11-12 | [§8](#8-which-repository-a-line-is-for), [first slice](#current-support-and-the-repository-only-first-slice) | — |
+| <a id="GW-D80"></a>GW-D80 | **Implementation decision: the first slice's bounds**, found completing [the plan](github-repository-binding-plan.md) against the tree; each refuses or keeps today's behavior, and none widens. Origin-only lowering applies to the `github` source declared on `github.com`, other named-host sources keeping today's reach for unqualified lines; a workspace `repo` is concrete, and a user `repo` is required and may be a pattern; a scoped ceiling lists write capabilities only, read staying in `[allow.<broker>] always`; Git lines under a name are refused until the Git tables are built; the migration preserves grants on listed repositories and writes no table for a remote; a legacy `"*"` repository grant and a legacy wildcard `repos` entry are not converted, their old file kept and still read. A stored approval is not effective once its request is no longer lowered: the record is a comparison baseline, and a running jail's scope changes only at a fresh launch or `yolo config apply` | 2026-11-12 | [first slice](#current-support-and-the-repository-only-first-slice) | — |
