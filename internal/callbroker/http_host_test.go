@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -955,7 +957,8 @@ func TestSelectedHTTPReadWithdrawalDuringPinnedTLSHandshakeCannotSend(t *testing
 func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testing.T) {
 	const original = `{"operationName":"Rename","title":"ready"}`
 	// hangGuard only turns a hang into a red test. It is not a budget the broker has
-	// to beat: every pass condition below is an event (handshake entered, forwarder returned).
+	// to beat: every pass condition below is an event (handshake entered, forwarder
+	// returned, the gated connection's handshake result, its close).
 	const hangGuard = 90 * time.Second
 	var block, writes atomic.Bool
 	var gated, resumed atomic.Int32
@@ -964,23 +967,71 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 	var releaseOnce sync.Once
 	releaseGate := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseGate()
-	_, executor, origin := fixturePinnedHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// The witness binds every later event to the ONE connection that was gated. block is
+	// set only by beforeHTTPCommit, after the ask and the act's own lookup reads, so their
+	// handshakes are never the gated connection and cannot stand in for it.
+	type handshakeResult struct {
+		version uint16
+		err     error
+	}
+	type endResult struct {
+		n      int
+		err    error
+		sealed int
+	}
+	var witnessMu sync.Mutex
+	var gatedConn net.Conn
+	var otherHandshakes, otherHandshakeFailures int
+	gatedHandshake := make(chan handshakeResult, 1)
+	gatedEnd := make(chan endResult, 1)
+	witness := &pinnedTLSWitness{
+		gate: func(conn net.Conn) {
+			if !block.Load() {
+				return
+			}
+			gated.Add(1)
+			witnessMu.Lock()
+			first := gatedConn == nil
+			if first {
+				gatedConn = conn
+			}
+			witnessMu.Unlock()
+			if first {
+				entered <- struct{}{}
+			}
+			<-release
+			resumed.Add(1)
+		},
+		handshake: func(conn net.Conn, state tls.ConnectionState, err error) {
+			witnessMu.Lock()
+			isGated := gatedConn != nil && conn == gatedConn
+			if !isGated {
+				otherHandshakes++
+				if err != nil {
+					otherHandshakeFailures++
+				}
+			}
+			witnessMu.Unlock()
+			if isGated {
+				gatedHandshake <- handshakeResult{state.Version, err}
+			}
+		},
+		ended: func(conn net.Conn, n int, err error, sealed int) {
+			witnessMu.Lock()
+			isGated := gatedConn != nil && conn == gatedConn
+			witnessMu.Unlock()
+			if isGated {
+				gatedEnd <- endResult{n, err, sealed}
+			}
+		},
+	}
+	_, executor, origin := fixturePinnedHTTPServerWithTLSWitness(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.EscapedPath() == "/items/a1" {
 			_, _ = w.Write([]byte(`{"id":"a1","project":{"id":"team:alpha"}}`))
 			return
 		}
 		writes.Store(true)
-	}), func() {
-		if block.Load() {
-			gated.Add(1)
-			select {
-			case entered <- struct{}{}:
-			default:
-			}
-			<-release
-			resumed.Add(1)
-		}
-	})
+	}), witness)
 	h, f := selectedHTTPWriteFixture(t, origin, executor, []byte(original))
 	forward := selectedHTTPHostFrame(t, h)
 	call := HTTPCall{Method: "POST", Path: "/graphql", BodyPresent: true, Body: []byte(original)}
@@ -1004,7 +1055,9 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 	// result or the frame helper ended it with t.Fatal (which sends no result).
 	returned := make(chan struct{})
 	gateState := func() string {
-		return fmt.Sprintf("gated handshakes=%d resumed=%d writes=%v", gated.Load(), resumed.Load(), writes.Load())
+		witnessMu.Lock()
+		defer witnessMu.Unlock()
+		return fmt.Sprintf("gated handshakes=%d resumed=%d writes=%v ungated handshakes=%d (failed %d)", gated.Load(), resumed.Load(), writes.Load(), otherHandshakes, otherHandshakeFailures)
 	}
 	// Registered after every fixture, so it runs before the deferred gate release above
 	// and before any fixture t.Cleanup: the handshake hook is released and the forwarder
@@ -1061,6 +1114,39 @@ func TestSelectedHTTPWriteWithdrawalDuringPinnedTLSHandshakeCannotSpend(t *testi
 	_, grants, err := f.store.List()
 	if response.rc == 0 || writes.Load() || err != nil || len(grants) != 1 || grants[0].Uses != 1 {
 		t.Fatalf("withdrawn during TLS preparation: rc=%d message=%q grants=%+v err=%v; %s", response.rc, response.message, grants, err, gateState())
+	}
+	// A nonzero rc with nothing written and nothing spent is also what a FAILED or
+	// timed-out TLS preparation produces (the handler context is 30s, shorter than the
+	// hang guard). So the refusal counts as a withdrawal only with positive proof that
+	// the gated write connection's TLS preparation SUCCEEDED and was then abandoned unused.
+	outcome := fmt.Sprintf("rc=%d message=%q", response.rc, response.message)
+	// 1. The server's Handshake returned nil on the gated connection: the client verified
+	// the pinned certificate and name and sent its Finished.
+	select {
+	case got := <-gatedHandshake:
+		if got.err != nil || got.version != tls.VersionTLS13 {
+			t.Fatalf("gated write connection did not complete a TLS 1.3 handshake (version=%#x err=%v), so the refusal is a TLS failure and not a withdrawal: %s; %s", got.version, got.err, outcome, gateState())
+		}
+	case <-time.After(hangGuard):
+		t.Fatalf("no TLS handshake result for the gated write connection within the %s hang guard: %s; %s", hangGuard, outcome, gateState())
+	}
+	// 2. The client then closed that connection with a sealed close_notify and no request
+	// bytes. Only the prepared request's close sends one: a handshake that the client
+	// abandoned, context expiry included, closes the socket bare. In TLS 1.3 the client's
+	// sealed records are its Finished and then that alert, and a clean io.EOF from the
+	// TLS layer after a second sealed record can only be close_notify.
+	select {
+	case got := <-gatedEnd:
+		if got.n != 0 || got.err != io.EOF || got.sealed < 2 {
+			t.Fatalf("gated write connection was not closed unused by a completed TLS preparation (first server read n=%d err=%v, sealed client records=%d; want n=0 io.EOF and at least 2): %s; %s", got.n, got.err, got.sealed, outcome, gateState())
+		}
+	case <-time.After(hangGuard):
+		t.Fatalf("gated write connection was never read to its end within the %s hang guard: %s; %s", hangGuard, outcome, gateState())
+	}
+	// 3. The broker itself reports the refusal as a preparation that failed before the
+	// spend (httpWriteFailure), not as a failure after preparation.
+	if !strings.Contains(response.message, "No HTTP request bytes were transmitted and Allow once was not spent") {
+		t.Fatalf("withdrawal was not reported as a refusal before spend: %s; %s", outcome, gateState())
 	}
 }
 

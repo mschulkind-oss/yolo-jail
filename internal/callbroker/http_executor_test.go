@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,6 +25,40 @@ import (
 )
 
 func fixturePinnedHTTPServer(t *testing.T, handler http.Handler, handshakeGate ...func()) (*httptest.Server, httpExecutor, string) {
+	t.Helper()
+	var gate func()
+	if len(handshakeGate) != 0 {
+		gate = handshakeGate[0]
+	}
+	return startPinnedHTTPServer(t, handler, gate, nil)
+}
+
+// pinnedTLSWitness observes the fixture server's side of each accepted TLS connection.
+// Every callback names the connection by the same net.Conn value, so a test can bind an
+// event to the one connection it gated and ignore every other (a lookup read, say).
+type pinnedTLSWitness struct {
+	// gate runs inside GetCertificate, before the server has answered the ClientHello.
+	gate func(conn net.Conn)
+	// handshake reports the server's Handshake result, once per accepted connection.
+	// err is nil only after Handshake returned nil: in TLS 1.3 the server has then read
+	// and verified the client's Finished, which the client sends only after it verified
+	// the server certificate against its pinned roots and name.
+	handshake func(conn net.Conn, state tls.ConnectionState, err error)
+	// ended reports the first Read the HTTP server makes on a handshaken connection:
+	// its byte count and error, and how many sealed (outer type 23) records the client
+	// had sent by then. n > 0 means the client sent application bytes.
+	ended func(conn net.Conn, n int, err error, sealedRecords int)
+}
+
+// fixturePinnedHTTPServerWithTLSWitness is fixturePinnedHTTPServer with the same real
+// certificate, pinned root and name, served through a listener that completes each TLS
+// handshake itself so the witness sees the result. Nothing about the trust is relaxed.
+func fixturePinnedHTTPServerWithTLSWitness(t *testing.T, handler http.Handler, witness *pinnedTLSWitness) (*httptest.Server, httpExecutor, string) {
+	t.Helper()
+	return startPinnedHTTPServer(t, handler, nil, witness)
+}
+
+func startPinnedHTTPServer(t *testing.T, handler http.Handler, handshakeGate func(), witness *pinnedTLSWitness) (*httptest.Server, httpExecutor, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -39,15 +74,48 @@ func fixturePinnedHTTPServer(t *testing.T, handler http.Handler, handshakeGate .
 		t.Fatal(err)
 	}
 	server := httptest.NewUnstartedServer(handler)
-	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{encoded}, PrivateKey: key}}}
-	if len(handshakeGate) != 0 && handshakeGate[0] != nil {
-		server.TLS.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			handshakeGate[0]()
-			return &server.TLS.Certificates[0], nil
+	if witness == nil {
+		server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{encoded}, PrivateKey: key}}}
+		if handshakeGate != nil {
+			server.TLS.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+				handshakeGate()
+				return &server.TLS.Certificates[0], nil
+			}
 		}
+		server.StartTLS()
+		t.Cleanup(server.Close)
+	} else {
+		leaf := &tls.Certificate{Certificate: [][]byte{encoded}, PrivateKey: key}
+		ctx, cancel := context.WithCancel(context.Background())
+		listener := &pinnedTLSWitnessListener{Listener: server.Listener, witness: witness, ctx: ctx, cancel: cancel,
+			ready: make(chan net.Conn), done: make(chan struct{})}
+		listener.config = &tls.Config{Certificates: []tls.Certificate{*leaf}, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if witness.gate != nil {
+				witness.gate(hello.Conn)
+			}
+			return leaf, nil
+		}}
+		// The listener is swapped in before Start, which serves whatever server.Listener
+		// holds at that moment; the server itself speaks plain HTTP over the connections
+		// this listener has already secured.
+		server.Listener = listener
+		listener.work.Add(1)
+		go listener.accept()
+		server.Start()
+		t.Cleanup(func() {
+			server.Close()
+			joined := make(chan struct{})
+			go func() {
+				listener.work.Wait()
+				close(joined)
+			}()
+			select {
+			case <-joined:
+			case <-time.After(90 * time.Second):
+				t.Error("pinned TLS witness listener goroutines still live after Close; a handshake gate was not released before teardown")
+			}
+		})
 	}
-	server.StartTLS()
-	t.Cleanup(server.Close)
 	parsed, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +126,129 @@ func fixturePinnedHTTPServer(t *testing.T, handler http.Handler, handshakeGate .
 		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
 	}
 	return server, httpExecutor{resolve: resolver, roots: roots}, "https://fixture.example:" + parsed.Port()
+}
+
+// pinnedTLSWitnessListener accepts loopback connections, runs each server-side TLS
+// handshake on its own goroutine (so one gated handshake cannot stall the others), and
+// hands only handshaken connections to the HTTP server.
+type pinnedTLSWitnessListener struct {
+	net.Listener
+	config  *tls.Config
+	witness *pinnedTLSWitness
+	ctx     context.Context
+	cancel  context.CancelFunc
+	ready   chan net.Conn
+	done    chan struct{}
+	closing sync.Once
+	work    sync.WaitGroup
+}
+
+func (l *pinnedTLSWitnessListener) accept() {
+	defer l.work.Done()
+	for {
+		raw, err := l.Listener.Accept()
+		if err != nil {
+			return
+		}
+		l.work.Add(1)
+		go l.secure(raw)
+	}
+}
+
+func (l *pinnedTLSWitnessListener) secure(raw net.Conn) {
+	defer l.work.Done()
+	counted := &tlsRecordCountingConn{Conn: raw}
+	secured := tls.Server(counted, l.config)
+	if err := secured.HandshakeContext(l.ctx); err != nil {
+		if l.witness.handshake != nil {
+			l.witness.handshake(counted, tls.ConnectionState{}, err)
+		}
+		_ = raw.Close()
+		return
+	}
+	if l.witness.handshake != nil {
+		l.witness.handshake(counted, secured.ConnectionState(), nil)
+	}
+	select {
+	case l.ready <- &pinnedTLSWitnessConn{Conn: secured, counted: counted, witness: l.witness}:
+	case <-l.done:
+		_ = secured.Close()
+	}
+}
+
+func (l *pinnedTLSWitnessListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.ready:
+		return conn, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *pinnedTLSWitnessListener) Close() error {
+	var err error
+	l.closing.Do(func() {
+		close(l.done)
+		l.cancel()
+		err = l.Listener.Close()
+	})
+	return err
+}
+
+// pinnedTLSWitnessConn is deliberately not a *tls.Conn: the HTTP server then does not
+// handshake again, and the first Read it makes is reported to the witness.
+type pinnedTLSWitnessConn struct {
+	net.Conn
+	counted *tlsRecordCountingConn
+	witness *pinnedTLSWitness
+	first   sync.Once
+}
+
+func (c *pinnedTLSWitnessConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.first.Do(func() {
+		if c.witness.ended != nil {
+			c.witness.ended(c.counted, n, err, c.counted.sealedRecords())
+		}
+	})
+	return n, err
+}
+
+// tlsRecordCountingConn counts the sealed records (outer content type 23) the client
+// sends, by walking the plaintext five-byte record headers of the inbound stream.
+type tlsRecordCountingConn struct {
+	net.Conn
+	mu     sync.Mutex
+	header []byte
+	skip   int
+	sealed int
+}
+
+func (c *tlsRecordCountingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.mu.Lock()
+	for _, b := range p[:n] {
+		if c.skip > 0 {
+			c.skip--
+			continue
+		}
+		c.header = append(c.header, b)
+		if len(c.header) == 5 {
+			if c.header[0] == 23 {
+				c.sealed++
+			}
+			c.skip = int(c.header[3])<<8 | int(c.header[4])
+			c.header = c.header[:0]
+		}
+	}
+	c.mu.Unlock()
+	return n, err
+}
+
+func (c *tlsRecordCountingConn) sealedRecords() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sealed
 }
 
 func TestPinnedHTTPExecutorCapsResponseAndRedactsExactKnownToken(t *testing.T) {
