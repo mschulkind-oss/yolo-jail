@@ -14,7 +14,8 @@ summary: "Hand-off for GW-D79's first slice as one series of eight commits: orig
 
 **Status:** 2026-11-12. Written against `8cf2c548a`; `internal/` and `packs/` are byte-identical
 to `45f576cb4` (`git diff --stat 45f576cb4 8cf2c548a` lists docs only). Completed from three
-read-only packets, each checked against the tree at that commit.
+read-only packets, each checked against the tree at that commit, then revised on the lead's
+integration guard (declared opt-in, explicit old-meaning projection, remotes preserved, patterns).
 
 **Design:** [`github-write-scopes.md`](github-write-scopes.md), [§8](github-write-scopes.md#8-which-repository-a-line-is-for),
 [the first slice](github-write-scopes.md#current-support-and-the-repository-only-first-slice),
@@ -46,7 +47,8 @@ config file, a grant, an approval record, the broker store, or this repository's
 | Path | Change | Task |
 | :--- | :--- | :--- |
 | `internal/config/readableallow.go` | origin-only lowering in `ProduceReadableGateInput` (`~:717-736`); `repos` tables in `ResolveReadableAllowance` (`:207`); scoped ceiling at the gate stage; identity-aware run-time ceiling beside `BrokeredGrantKindsUsingReadablePolicy` (`:986`); `UserBrokerAuthorityOf` (`:1088`) carries scoped tables | 1, 2, 3 |
-| `internal/config/workspacebrokergrants.go` | second caller narrows remotes to origin; keeps the old key's fan-out for the proof; projects named tables | 1, 2 |
+| `internal/config/workspacebrokergrants.go` | second caller narrows exactly as the gate does and projects named tables; a separate, explicit old-reach projection beside it for the migration's before side | 1, 2 |
+| `internal/loopholedecl/brokered.go` and its TOML decode, `packs/github/loopholes/github-broker/loophole.toml` (`:39`) | the declared opt-in `unqualified_requests = "origin"` | 1 |
 | `internal/config/schema.go` (`:238-274`), `inherit.go` (`:411`), `removals.go` (`:38`), `mountsrequest.go` (`:116`) | `repos.*` rows and the four censuses they feed | 2, 3 |
 | `internal/config/readablescope.go`, `gateread.go`, `brokeredskipped.go` | `identityRequired` (`:41`), rows and provenance for `repos.<name>`, the path-string consumers, the contained-file walk | 2, 3 |
 | `internal/config/reposcope_origin_test.go`, `reposcope_tables_test.go`, `reposcope_ceiling_test.go` | new | 1, 2, 3 |
@@ -59,7 +61,7 @@ config file, a grant, an approval record, the broker store, or this repository's
 | `internal/configmigrate/brokered.go` (`:41`) | user-authority entry carries scoped ceilings | 3 |
 | `internal/cli/request.go`, `allow.go`, `configwhy.go`, `config_ref.txt` | the `repos` words, help, `config why`, config-ref | 5 |
 | `internal/cli/requestrepos_test.go`, `allowrepos_test.go` | new | 5 |
-| `internal/configmigrate/lower.go`, `plan.go`, `graph.go` | named-table lowering, in-place TOML role, retained-write lines | 6 |
+| `internal/configmigrate/lower.go`, `plan.go`, `graph.go`, `brokered.go` (`:86`) | named-table and remote-table lowering, in-place TOML role, retained-write lines, the before side reads the old-reach projection | 6 |
 | `internal/configmigrate/reposbinding_test.go`, `internal/cli/configmigraterepos_test.go` | new | 6 |
 | `internal/config/renames.go` (`:53-56`), `removals.go` (`:80-81`), `readableallow.go` (`:513`), `internal/cli/request.go` (`:107`), `configwhy.go` (`:437`) | the refusal | 7 |
 | `internal/ghbroker/scope.go:137`, `internal/gitbroker/broker.go:616`, `internal/brokerscope/requested.go:4`, `internal/setupcensus/configkeys.go:539`, `packs/github/briefing/gh.md:54`, `packs/github/README.md:61-73`, `internal/jailcontent/builtinskills/configuring-the-jail/SKILL.md:88`, `internal/cli/config_ref.txt` | text naming the old spelling | 7 |
@@ -135,10 +137,17 @@ config file, a grant, an approval record, the broker store, or this repository's
 - **`gitRemotes` names remotes `ra`, `rb`** (`configmigrate_test.go:44`). After Task 1 an
   unqualified named-host line with no `origin` is unplaced, so four migration tests report
   inequality.
-- **The proof goes vacuous if the projection forgets the old key.** `readCanonical`
-  (`plan.go:~990`) hands the raw workspace map to `WorkspaceBrokerGrantsOf`. If that function
-  gives a `requests.<source>.repos` entry read only, both sides agree while the migration drops
-  every retained write.
+- **The proof goes vacuous if both sides read the new meaning.** `readCanonical`
+  (`plan.go:~990`) hands the raw workspace map to `WorkspaceBrokerGrantsOf` for both sides. Once
+  that function narrows, both sides agree while the migration drops every retained write. The
+  before side reads the old-reach projection instead; the normal projection is never left old to
+  make the proof pass.
+- **The old reach applies only while an old spelling is present.** If the before side used it
+  for a file already converted, a second `yolo config migrate` would write the remote tables
+  again.
+- **A pattern in a write grant's `Repo` is inert.** `sameRepo` (`ghbroker/scope.go:56`) is an
+  exact compare; only scope membership uses `brokerscope.Admits` (`scope.go:108`). A write line
+  under a pattern table must be refused, never accepted and dropped.
 - **Lines are copied from the merged workspace into the file that held the entry.** This
   repository's shape: the project file asks, the local file lists. Copying same-file lines only
   converts that shape to read-only, silently.
@@ -160,11 +169,12 @@ Quoted from the design; the engineering bounds are [GW-D80](github-write-scopes.
 
 1. "Each unqualified `[requests.github]` line, list or boolean, lowers to grants on one concrete
    identity, the `<host>/<path>` that `origin` resolves to, and on no other target."
-2. **Which source narrows.** The selected `[brokered]` declaration whose config source is
-   `github` and whose declared `remote_host` is `brokerscope.GitHubHost`: the table the design
-   names, read from the declaration, never from a pack name. Any other named-host source keeps
-   today's fan-out for its unqualified lines. `repos.<name>.requests.<broker>` and
-   `.allow.<broker>` are generic over every selected named-host source.
+2. **Which source narrows.** A `[brokered]` declaration opts in with
+   `unqualified_requests = "origin"`. The shipped `github` broker declares it; core names no pack,
+   source or tool. A selected named-host source that does not declare it, a third-party one on
+   `github.com` included, keeps today's fan-out for its unqualified lines. The key is refused on
+   an any-host source. `repos.<name>.requests.<broker>` and `.allow.<broker>` are generic over
+   every selected named-host source.
 3. One shared `[repos.<name>]` table. `repo` is `<host>/<path>`; `repo = "acme/infra"` is refused
    naming `github.com/acme/infra`. No `repo` line means the clone's remote of that name; no such
    remote is an error naming the remotes and `yolo request repos <name> <host>/<path>`.
@@ -173,8 +183,12 @@ Quoted from the design; the engineering bounds are [GW-D80](github-write-scopes.
 5. `[repos.origin.requests.github]` is refused naming `[requests.github]`. `all` is refused as a
    name. An unknown key under any `repos.<name>` is refused. `requests` under a name is
    workspace-only, `allow` user-only.
-6. A workspace `repo` is concrete in this slice; a wildcard there is refused. A user `repo` takes
-   whole-segment wildcards in the owner and repository segments, never the host, and is required.
+6. `repo` may put the whole-segment wildcard in the owner and repository segments, never the
+   host, in a workspace and in the user config. A workspace pattern table is read scope, exactly
+   what a legacy `brokered.<source>.repos` pattern entry is today, with `WildcardNote`'s words on
+   its gate row. A write line under a workspace pattern table is refused at validation, naming a
+   table with a concrete `repo`: each line lowers to one concrete identity in this slice. A user
+   `repo` is required.
 7. A declared name equal to a remote's name pins it: the table's lines and its read go to the
    declared repository; the remote stays in read scope as a remote; unqualified lines stay the
    remote's.
@@ -185,12 +199,14 @@ Quoted from the design; the engineering bounds are [GW-D80](github-write-scopes.
    naming `yolo request git <capability>`.
 10. A scalar `repo` that retargets a name, or an `origin` that resolves elsewhere, is a new
     identity: the gate shows old and new and asks again.
-11. Migration preserves each grant that reaches a *listed* repository, as an explicit printed
-    line. A non-origin remote's loss of the unqualified lines is [OQ-GW13](github-write-scopes.md#OQ-GW13)'s
-    ruling, shown at the gate as removed; the migration writes no table for a remote. A legacy
-    grant with `repo = "*"` and a legacy wildcard `brokered.<source>.repos` entry are **not
-    converted**: the old file is kept and still read, with today's reason and next step. No
-    equality is claimed for them.
+11. The migration preserves the whole set of write grants the old spelling reached: on each
+    listed repository **and on each remote other than `origin`**, as explicit printed lines. A
+    legacy pattern `brokered.<source>.repos` entry becomes a pattern table, read scope as before.
+    A legacy grant with `repo = "*"` is **not converted**: it covers repositories nobody has
+    declared, so no table equals it; its old file is kept and still read, with today's reason
+    and next step. A TOML workspace that holds no old spelling is not rewritten: its other
+    remotes lose the unqualified lines by [OQ-GW13](github-write-scopes.md#OQ-GW13), shown at
+    the gate as removed, and `yolo request repos.<remote>.github …` asks for them back.
 12. A config edit revokes nothing in a running jail. It takes effect at a fresh launch's gate or
     at host `yolo config apply`. No message says otherwise. Stored broker records are never
     rewritten, expired or revoked by a launch or a migration; `yolo approve --revoke` is the way.
@@ -208,8 +224,10 @@ green gates, and every other test that failed with its old assertion quoted.
   `github.com`: error, not a skip. It names the next step … An unqualified line never falls back
   to another repository."
 - **Tests first.** New `internal/config/reposcope_origin_test.go`, package `config`; imports
-  `os`, `path/filepath`, `sort`, `strings`, `testing`, `brokerscope`. First the test already
-  observed red:
+  `os`, `path/filepath`, `sort`, `strings`, `testing`, `brokerscope`. The file does not compile
+  until `loopholedecl.Brokered` has the opt-in field: add the field and its decode first, with no
+  reader, then confirm the reds. First the test observed red at `45f576cb4` (there with the
+  broker built inline):
 
 ```go
 func TestUnqualifiedGitHubRequestsLowerToOriginOnly(t *testing.T) {
@@ -226,8 +244,7 @@ func TestUnqualifiedGitHubRequestsLowerToOriginOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kinds := map[string]string{"runs": "runs", "approve-run": "approve_runs"}
-	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read", []string{"runs", "approve-run"}, kinds)
+	broker := repoScopeBroker()
 	check := NewScopeCheck(workspace, []ScopeBroker{broker}, read)
 	if check.Fatal != nil || len(check.Sources) != 1 {
 		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
@@ -252,7 +269,10 @@ func TestUnqualifiedGitHubRequestsLowerToOriginOnly(t *testing.T) {
 ```go
 func repoScopeBroker() ScopeBroker {
 	kinds := map[string]string{"runs": "runs", "approve-run": "approve_runs"}
-	return readableScopeBroker("github", "github", "github-broker", "github.com", "read", []string{"runs", "approve-run"}, kinds)
+	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read", []string{"runs", "approve-run"}, kinds)
+	// What packs/github declares: its unqualified requests are for origin.
+	broker.Readable.Brokered.UnqualifiedRequests = "origin"
+	return broker
 }
 
 // repoScopeWorkspace writes the user config, the clone's git config and the two workspace
@@ -348,20 +368,76 @@ func TestTheWorkspaceGrantProjectionAgreesWithTheGate(t *testing.T) {
 }
 ```
 
+```go
+const repoScopeTwoRemotes = "[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n[remote \"upstream\"]\n\turl = https://github.com/elsewhere/app.git\n"
+
+// A named-host source whose declaration does not opt in keeps today's reach on every remote.
+func TestANamedHostSourceThatDoesNotOptInKeepsItsFanOut(t *testing.T) {
+	workspace := repoScopeWorkspace(t, repoScopeUserAll, repoScopeTwoRemotes, repoScopeOriginLines, "")
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := repoScopeBroker()
+	broker.Readable.Brokered.UnqualifiedRequests = ""
+	check := NewScopeCheck(workspace, []ScopeBroker{broker}, read)
+	if check.Fatal != nil || len(check.Sources) != 1 {
+		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	}
+	want := []string{"approve-run github.com/acme/app github-actions[bot]", "approve-run github.com/elsewhere/app github-actions[bot]",
+		"runs github.com/acme/app *", "runs github.com/elsewhere/app *"}
+	if got := repoScopeWrites(check.Sources[0].Grants); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("a source that did not opt in lowers %v, want %v", got, want)
+	}
+}
+
+// The reach before GW-D79, kept as its own function for the migration's before side: every
+// unqualified line on every remote and every listed repository, whatever the declaration says.
+func TestTheOldReachProjectionStillFansOut(t *testing.T) {
+	workspace := repoScopeWorkspace(t, repoScopeUserAll, repoScopeTwoRemotes, repoScopeOriginLines+"repos = [\"other/lib\"]\n", "")
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, w := range OldReachWorkspaceBrokerGrantsOf(read.Config, workspace, []ReadableBrokerDeclaration{*repoScopeBroker().Readable}) {
+		for _, g := range w.Grants {
+			got = append(got, g.String())
+		}
+	}
+	sort.Strings(got)
+	want := []string{"approve-run github.com/acme/app github-actions[bot]", "approve-run github.com/elsewhere/app github-actions[bot]",
+		"approve-run github.com/other/lib github-actions[bot]", "runs github.com/acme/app *", "runs github.com/elsewhere/app *", "runs github.com/other/lib *"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("the old reach is %v, want %v", got, want)
+	}
+}
+```
+
   Red: `go test -count=1 -run 'TestUnqualifiedGitHubRequests' ./internal/config`. Observed for
   the first: `an unqualified request reached a repository other than origin: runs github.com/elsewhere/app *`
   and the same for `approve-run github.com/elsewhere/app github-actions[bot]`. Predicted for
   `…WithoutAnOriginAreAnError`, both cases: `no error: an unqualified line fell back to another repository`.
-  `TestTheWorkspaceGrantProjectionAgreesWithTheGate` is a **pin**, green before and after.
-- **Change.** One origin lookup for the narrowed source, used by both callers. In
-  `ProduceReadableGateInput` the error fires only when the source has an unqualified request that
-  would lower a grant (granted, not read, not pending, mapped to a kind); it is checked after the
-  "read not allowed" skip, replaces the "no concrete repository target" skip (`:668-680`) for
-  that source, and surfaces through `readableScopeFailure`. In `WorkspaceBrokerGrantsOf`, which
-  returns no error, a missing origin goes in `Unplaced`. There, entries of
-  `requests.<source>.repos` **keep taking every unqualified non-read line**: that function is
-  now the only reader of the old key's old meaning, for the migration proof; say so in its doc
-  comment. The gate gives a listed entry read only.
+  `TestTheWorkspaceGrantProjectionAgreesWithTheGate` and
+  `TestANamedHostSourceThatDoesNotOptInKeepsItsFanOut` are **pins**, green before and after.
+  `TestTheOldReachProjectionStillFansOut` is red until the function exists (it does not compile),
+  then green.
+- **Change.**
+  - `loopholedecl.Brokered` gains the opt-in (decode beside `pending_capabilities`; validation
+    refuses any value but `origin`, and the key on `AnyRemoteHost`). `packs/github`'s manifest
+    sets it. `ReadableBrokerPolicy` carries it from the declaration.
+  - One origin lookup, used by both callers for an opted-in source. In
+    `ProduceReadableGateInput` the error fires only when the source has an unqualified request
+    that would lower a grant (granted, not read, not pending, mapped to a kind); it is checked
+    after the "read not allowed" skip, replaces the "no concrete repository target" skip
+    (`:668-680`) for that source, and surfaces through `readableScopeFailure`.
+    `WorkspaceBrokerGrantsOf` narrows identically, listed entries included; it returns no error,
+    so a missing origin goes in `Unplaced`.
+  - `OldReachWorkspaceBrokerGrantsOf` (name cheap), same signature: today's body of
+    `WorkspaceBrokerGrantsOf` moved verbatim, fanning every unqualified non-read line over every
+    remote on the host and every listed entry, whatever the declaration opts into. Its doc
+    comment says it is the reach before GW-D79, read only by the migration's before side. No
+    caller in this task.
 - **Rewrites, not repairs.**
 
 | Test | Old assertion | New |
@@ -371,9 +447,10 @@ func TestTheWorkspaceGrantProjectionAgreesWithTheGate(t *testing.T) {
 | `TestPlanConvertsADispatchWorkflowGrant` (`configmigrate_test.go:150`), `TestPlanConvertsAnApproveRunGrant` (`:172`), the github kinds of `TestEveryMappedGrantKindOfEveryShippedBrokerConverts` (`projectgrants_test.go:84`), `TestTheProofNamesAWorkspaceGrantTheConversionChanges` (`workspacegrants_test.go:38`) | remote `ra` | the fixture's sole remote is named `origin`; assertions unchanged. `lower.go` is not edited: a sole remote not named `origin` now reports inequality and writes nothing |
 
 - **Gates.** `go test -count=1 ./internal/config ./internal/cli/... ./internal/configmigrate ./internal/ghbroker`.
-- **Fences.** `internal/config`; `internal/configmigrate/*_test.go` fixtures only. Not `lower.go`,
-  `packs/`, `internal/ghbroker`, a schema row or a verb.
-- **Commit.** `feat(config): lower unqualified github requests to origin only (GW-D79)`.
+- **Fences.** `internal/config`; `internal/loopholedecl` (the one field); the one manifest line;
+  `internal/configmigrate/*_test.go` fixtures only. Not `lower.go`, `internal/ghbroker`, a schema
+  row or a verb. `internal/loopholedecl/testdata/legacy-shipped/*` is not edited.
+- **Commit.** `feat(config): a broker may declare its unqualified requests are for origin; github does (GW-D79)`.
 
 ### Task 2: `[repos.<name>]` tables (after 1)
 
@@ -529,6 +606,57 @@ func TestRequestsAndAllowUnderANameAreEachRefusedInTheOthersFile(t *testing.T) {
 }
 ```
 
+  Same file:
+
+```go
+// A pattern table is the read scope the legacy pattern entry was, and takes no write line.
+func TestAPatternTableIsTheReadScopeALegacyPatternEntryWas(t *testing.T) {
+	scope := func(workspace string) (grants, entries []string) {
+		check, _ := repoScopeCheck(t, workspace)
+		if check.Fatal != nil || len(check.Sources) != 1 {
+			t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+		}
+		for _, g := range check.Sources[0].Grants {
+			grants = append(grants, g.String())
+		}
+		for _, e := range check.Sources[0].Entry {
+			entries = append(entries, e.Repo)
+		}
+		sort.Strings(grants)
+		sort.Strings(entries)
+		return grants, entries
+	}
+	legacy := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin, "", "")
+	if err := os.WriteFile(filepath.Join(legacy, "yolo-jail.jsonc"), []byte(`{"brokered": {"github": {"repos": ["acme/*"]}}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantGrants, wantEntries := scope(legacy)
+	if !strings.Contains(strings.Join(wantEntries, "\n"), "acme/*") {
+		t.Fatalf("the legacy fixture holds no pattern entry: %v", wantEntries)
+	}
+	table := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin, "[repos.acme]\nrepo = \"github.com/acme/*\"\n", "")
+	gotGrants, gotEntries := scope(table)
+	if strings.Join(gotGrants, "\n") != strings.Join(wantGrants, "\n") || strings.Join(gotEntries, "\n") != strings.Join(wantEntries, "\n") {
+		t.Fatalf("a pattern table gives grants %v entries %v; the legacy entry gave %v and %v", gotGrants, gotEntries, wantGrants, wantEntries)
+	}
+
+	withWrite := repoScopeWorkspace(t, repoScopeUserAll, repoScopeOrigin,
+		"[repos.acme]\nrepo = \"github.com/acme/*\"\n[repos.acme.requests.github]\nruns = [\"ci.yml\"]\n", "")
+	read, err := ReadWorkspaceForGate(withWrite)
+	text := ""
+	if err != nil {
+		text = err.Error()
+	} else if check := NewScopeCheck(withWrite, []ScopeBroker{repoScopeBroker()}, read); check.Fatal != nil {
+		text = check.Fatal.Error()
+	}
+	for _, want := range []string{"repos.acme.requests.github", "github.com/acme/*", "yolo request repos"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("a write line under a pattern table: the refusal does not name %q: %s", want, text)
+		}
+	}
+}
+```
+
   New `internal/cli/run/brokeredscope_repos_test.go`: copy
   `TestAReadableRequestedRepoIsApprovedAtTheGateAndReachesTheBroker`'s "accepted" case
   (`brokeredscope_requests_test.go:33-94`) with its setup closure, as
@@ -537,7 +665,7 @@ func TestRequestsAndAllowUnderANameAreEachRefusedInTheOthersFile(t *testing.T) {
   shows `acme/outside`; `config.ApprovedScope(o.Workspace, "github")` is `acme/outside`; the
   handed scope file's `Repos` is `acme/outside`). It fails if the launch's call site is deleted.
 
-  Red: `go test -count=1 -run 'TestARepos|TestANamed|TestATable|TestARetargeted|TestRequestsAndAllow' ./internal/config ./internal/cli/run`.
+  Red: `go test -count=1 -run 'TestARepos|TestANamed|TestATable|TestARetargeted|TestRequestsAndAllow|TestAPattern' ./internal/config ./internal/cli/run`.
   Predicted: each fails at the strict load, `repos` matching no schema row; the launch test
   prints `an accepted gate refused`. The project-file half of `TestRequestsAndAllow…` and the
   `all` case can be green early for the wrong reason; they prove nothing until the first subtest
@@ -564,6 +692,9 @@ func TestRequestsAndAllowUnderANameAreEachRefusedInTheOthersFile(t *testing.T) {
     `readableRequestsOutsideProblems` (`gateread.go:59`) also walks `repos`;
     `WorkspaceBrokerGrantsOf` projects named tables. No lowering emits `AnyRepo` or a pattern in
     a non-read grant's `Repo`.
+  - A workspace pattern `repo` produces the scope entry and read grant the legacy
+    `brokered.<source>.repos` pattern entry produces (`WorkspaceRead.Entry`), through the same
+    code, with `brokerscope.WildcardNote` on the row. A `requests` subtable under it is refused.
   - `editvalidation_semantics.go:20-100`: add `repos` to its raw-scope roots, beside `requests`
     and `allow`, so an edit verb's semantic check sees the table.
   - The old `requests.<source>.repos` key keeps loading; its refusal is Task 7's.
@@ -1207,14 +1338,15 @@ func TestAllowReposDeclaresAUserNameAndItsScopedCeiling(t *testing.T) {
 | Old | New |
 | :--- | :--- |
 | TOML or JSONC `requests.<S>.repos = ["o/r"]` | `[repos.<name>] repo = "<host>/o/r"`, and under `[repos.<name>.requests.<S>]` a copy of every non-read, non-`repos` line the **merged workspace** writes under `[requests.<S>]`. The entry leaves the list; an emptied list is removed |
-| JSONC `brokered.<S>.repos`, concrete entry | the same table, no copied lines (legacy grants name their repository); replaces the placement at `lower.go:512` |
+| each remote on the host other than `origin`, when the file set holds an old spelling and the merged workspace writes an unqualified non-read line | `[repos.<remote name>.requests.<S>]` with a copy of each such line and no `repo` line, in the file the conversion already writes (the one holding the old key; for a JSONC conversion, the converted file holding the lines). A remote named `all` gets a declared `owner-repo` table instead |
+| JSONC `brokered.<S>.repos`, concrete or pattern entry | the same table, `repo` keeping the pattern; no copied lines (legacy grants name their repository); replaces the placement at `lower.go:512` |
 | JSONC `brokered.<S>.grants[i]`, `repo` is origin's identity | unqualified `requests.<S>.<capability>`, whatever the remote count; replaces `soleRemote` for named-host sources |
 | JSONC `brokered.<S>.grants[i]`, another concrete `repo` | `[repos.<name>]` declared if absent, the line under `[repos.<name>.requests.<S>]` |
-| `repo = "*"` grant; wildcard `brokered.<S>.repos` entry | not converted, today's `grantScopeReason` text and old file kept |
+| JSONC `brokered.<S>.grants[i]`, `repo = "*"` | not converted, today's `grantScopeReason` text and old file kept |
 | anything for `AnyRemoteHost` (git) | unchanged; `soleRemote` and `grantScopeReason` as today |
 
   The name is the repository's last segment with each character outside `[A-Za-z0-9_-]`
-  replaced by `-`; `owner-repo` when that is taken by another identity in the workspace's
+  replaced by `-` (`OWNER/*` takes the owner, `*/*` takes `any`); `owner-repo` when that is taken by another identity in the workspace's
   tables, equals a remote of this clone that points elsewhere, or is `all`. A name still taken is
   not converted, the reason naming `yolo request repos <alias> <host>/<path>`. A TOML
   `requests.<S>.repos` entry cannot hold a wildcard: the resolver refuses it today
@@ -1410,6 +1542,76 @@ func TestMigrateRewritesALinkedTOMLFileWithoutTouchingItsTarget(t *testing.T) {
 }
 ```
 
+  Same file:
+
+```go
+// Before GW-D79 every unqualified line also reached each other remote. A converted workspace
+// keeps those writes as lines of a table named for the remote, printed like the rest.
+func TestMigrateKeepsTheWritesAnotherRemoteHad(t *testing.T) {
+	home := env(t)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	write(t, filepath.Join(dir, "config.toml"), reposUserTOML)
+	ws := realDir(t)
+	namedRemotes(t, ws, "origin", "https://github.com/acme/app.git", "upstream", "https://github.com/acme/up.git")
+	project := "[requests.github]\nruns = [\"nightly.yml\"]\n"
+	write(t, filepath.Join(ws, "yolo-jail.toml"), project)
+	localPath := filepath.Join(ws, "yolo-jail.local.toml")
+	write(t, localPath, "[requests.github]\nrepos = [\"other/lib\"]\n")
+
+	p := plan(t, Request{UserConfigDir: dir, Workspace: ws})
+	if !p.Equal || len(p.NotConverted) > 0 {
+		t.Fatalf("plan unequal or incomplete: %+v %+v", p.Differences, p.NotConverted)
+	}
+	text := string(target(t, p, localPath).Bytes)
+	for _, want := range []string{"[repos.upstream.requests.github]", "[repos.lib.requests.github]", `repo = "github.com/other/lib"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the rewritten local file lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, `runs = ["nightly.yml"]`) != 2 {
+		t.Fatalf("want the line once under each table:\n%s", text)
+	}
+	if strings.Contains(text, "github.com/acme/up") {
+		t.Fatalf("a remote's table was given a repo line:\n%s", text)
+	}
+	for _, want := range []string{`"runs github.com/acme/app nightly.yml"`, `"runs github.com/acme/up nightly.yml"`, `"runs github.com/other/lib nightly.yml"`} {
+		if !strings.Contains(p.canonical.grants, want) {
+			t.Fatalf("the proof's grants lack %s: %s", want, p.canonical.grants)
+		}
+	}
+	transcript := p.Transcript()
+	for _, want := range []string{"github.com/acme/up", "repos.upstream.requests.github.runs"} {
+		if !strings.Contains(transcript, want) {
+			t.Fatalf("the transcript does not print the retained write (%s):\n%s", want, transcript)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, "yolo-jail.toml")); string(got) != project {
+		t.Fatalf("planning wrote the project file:\n%s", got)
+	}
+}
+
+// A legacy pattern entry is read scope, and stays one under a table.
+func TestMigrateCarriesALegacyPatternEntryToAPatternTable(t *testing.T) {
+	env(t)
+	ws := realDir(t)
+	namedRemotes(t, ws, "origin", "https://github.com/acme/app.git")
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"brokered": {"github": {"repos": ["acme/*"]}}}`+"\n")
+	p := plan(t, Request{Workspace: ws})
+	if !p.Equal || len(p.NotConverted) > 0 {
+		t.Fatalf("plan unequal or incomplete: %+v %+v", p.Differences, p.NotConverted)
+	}
+	text := targetText(p)
+	for _, want := range []string{"[repos.acme]", `repo = "github.com/acme/*"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the converted file lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "[repos.acme.requests") {
+		t.Fatalf("a pattern table was given a write line:\n%s", text)
+	}
+}
+```
+
   New `internal/cli/configmigraterepos_test.go`, the verb a user runs:
 
 ```go
@@ -1473,17 +1675,21 @@ func TestConfigMigrateConvertsATOMLReposListAndIsThenDone(t *testing.T) {
 }
 ```
 
-  Red: `go test -count=1 -run 'TestMigrate(Turns|Places|Rewrites)' ./internal/configmigrate` and
+  Red: `go test -count=1 -run 'TestMigrate(Turns|Places|Rewrites|Keeps|Carries)' ./internal/configmigrate` and
   `go test -count=1 -run TestConfigMigrateConvertsATOMLReposList ./internal/cli`. Predicted:
   `targets = []; want the local file alone`; `plan unequal or incomplete` naming
   `this workspace has more than one remote`; `target` finds none; the dry run prints no retained
-  write. `TestMigrateLeavesALegacyWildcardRepositoryGrantInTheOldFile` is a **pin**.
+  write; `…KeepsTheWritesAnotherRemoteHad`: `the rewritten local file lacks "[repos.upstream.requests.github]"`;
+  `…CarriesALegacyPatternEntry…`: the text lacks `[repos.acme]`.
+  `TestMigrateLeavesALegacyWildcardRepositoryGrantInTheOldFile` is a **pin**.
 - **Change.** `lower.go` (`lowerBrokered :486`, `lowerGrants`, `grantRequest`): the table above,
   with Task 1's origin lookup in place of `soleRemote` for named-host sources. `graph.go`: mark
   the TOML files. `plan.go`: the in-place rewrite beside `withRemovedSetupKeysConverted`, and one
-  transcript line per retained write (identity, file, key) carried on the `Target`. The proof is
-  unchanged code: its before side is Task 1's projection of the old key, its after side Task 2's
-  projection of the tables.
+  transcript line per retained write (identity, file, key) carried on the `Target`.
+  `addWorkspaceBrokerGrants` (`brokered.go:86`): the before side calls
+  `OldReachWorkspaceBrokerGrantsOf` when its workspace map holds `requests.<S>.repos` or a legacy
+  `brokered.<S>` table, and the normal projection otherwise; the after side always calls the
+  normal one.
 - **Stop** if the proof reports equal while a target file lacks a retained line.
 - **Cheap.** The `Target` field that carries the lines (a new one beside `Rewrote`, or
   `Rewrote`); helper names.
@@ -1512,8 +1718,7 @@ func TestConfigMigrateConvertsATOMLReposListAndIsThenDone(t *testing.T) {
   key does. `renames.go:53-54, 56` re-point from `requests.github.repos` to `repos.*.repo`.
   `request.go:107`'s `repos` arm becomes the refusal; `configwhy.go:437`'s arm goes. Not refused:
   legacy `brokered.<S>.repos` in a JSONC file (RC-D19's window); `git`, which keeps its own
-  `remote_host` refusal (`readableallow_test.go:75`). `WorkspaceBrokerGrantsOf` keeps reading the
-  old key.
+  `remote_host` refusal (`readableallow_test.go:75`). `OldReachWorkspaceBrokerGrantsOf` keeps reading the old key.
 - **Rewrites.**
   - `internal/cli/request_test.go:29-32, 50-51`; `jsoncmissingparent_test.go:37` (use
     `github runs nightly.yml`); `configwhy_verb_test.go:17`; `configreftoml_test.go:44`;
@@ -1587,7 +1792,10 @@ workspace's local file and request `runs = ["*"]` for `mschulkind-oss/yolo-jail`
 
 ## Don't
 
-- Don't narrow every named-host source. Only the declaration in settled item 2 narrows.
+- Don't narrow every named-host source. Only a declaration that opts in narrows.
+- Don't leave `WorkspaceBrokerGrantsOf` on the old meaning. The gate and the normal projection
+  agree; the old reach is its own function with one caller.
+- Don't accept a write line under a pattern table.
 - Don't select targets by repository wildcard, and don't treat `runs = ["*"]` as one.
 - Don't branch on a pack name, add an agent or tool-name switch at boot, or add a GitHub-only
   repository key.
