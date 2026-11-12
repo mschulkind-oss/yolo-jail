@@ -471,7 +471,7 @@ func renderRecipe(file string, facts FactSheet) string {
 			fmt.Fprintf(&b, "3. %s\n4. Restart the jail from `%s` so the new user-scope settings are loaded.\n", changetiming.HostCommand("yolo config apply", facts.HostWorkspace, false), facts.HostWorkspace)
 		}
 	case "packs-and-loopholes.md":
-		fmt.Fprintf(&b, "Selected packs for this jail: %s. Edit the packs list in `%s`, run `yolo check` there, then start a fresh `yolo` launch from `%s`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.\n", strings.Join(facts.Packs, ", "), facts.UserConfigPath, facts.HostWorkspace)
+		fmt.Fprintf(&b, "Selected packs for this jail: %s. Edit the packs list in `%s`, run `yolo check` there, then start a fresh `yolo` launch from `%s`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, name each repository in its own `[repos.<name>]` table with `yolo request repos <alias> <host>/OWNER/REPO` (a legacy JSONC config still lists them under `brokered.<source>.repos`); its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.\n", strings.Join(facts.Packs, ", "), facts.UserConfigPath, facts.HostWorkspace)
 	case "skills-and-briefing.md":
 		fmt.Fprintf(&b, "1. Edit the skill or briefing source, not its staged copy.\n2. Delivery is %s; the map lists exact paths and lifetimes.\n", facts.SkillsDelivery)
 		if facts.Host {

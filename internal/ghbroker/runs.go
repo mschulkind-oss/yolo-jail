@@ -221,7 +221,8 @@ func (b *Broker) runsCovered(ctx context.Context, t writeTarget, argv []string, 
 	}
 	if _, held := b.userGrantCovers(t, argv, run.Workflow); !held {
 		stderr([]byte("github-broker: " + named + " is a run of " + run.Workflow + ", which no runs grant of this workspace names, " +
-			"so re-running it asks (`yolo request github runs " + run.Workflow + "`, then `yolo config apply` on the host, grants it)\n"))
+			"so re-running it asks (`yolo request github runs " + run.Workflow + "`" + otherRepoRequest("runs", run.Workflow) +
+			", then `yolo config apply` on the host, grants it)\n"))
 		return nil, "", false
 	}
 	return argv, run.Workflow, true

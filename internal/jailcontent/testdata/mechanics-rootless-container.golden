@@ -393,7 +393,7 @@ Run `yolo config drift` to see what is pending now. The command's own result is 
 ===== jail-mechanics/recipes/packs-and-loopholes.md =====
 # packs and loopholes
 
-Selected packs for this jail: claude. Edit the packs list in `/home/test/.config/yolo-jail/config.jsonc`, run `yolo check` there, then start a fresh `yolo` launch from `/home/test/project`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, edit `brokered.<source>.repos`; its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.
+Selected packs for this jail: claude. Edit the packs list in `/home/test/.config/yolo-jail/config.jsonc`, run `yolo check` there, then start a fresh `yolo` launch from `/home/test/project`; workspace `yolo config apply` does not apply user-scope pack changes. For brokered repository scope, name each repository in its own `[repos.<name>]` table with `yolo request repos <alias> <host>/OWNER/REPO` (a legacy JSONC config still lists them under `brokered.<source>.repos`); its timing is shown for `brokered` in the workspace-config recipe. A loophole has no switch of its own: it runs whenever its pack is selected.
 
 ===== jail-mechanics/recipes/restart.md =====
 # restart

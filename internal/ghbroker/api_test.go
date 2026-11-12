@@ -178,9 +178,9 @@ func TestEveryAccountWideRefusalNamesANextStep(t *testing.T) {
 			continue
 		}
 		// It says the workspace entry cannot add it, naming the key, never an undefined term.
-		if !strings.Contains(d.Reason, c.want) || !strings.Contains(d.Reason, "`brokered.github.repos` entry can add") ||
+		if !strings.Contains(d.Reason, c.want) || !strings.Contains(d.Reason, "`[repos.<name>]` table can add") ||
 			strings.Contains(d.Reason, "widening") {
-			t.Errorf("gh %s: reason %q, want it to say no `brokered.github.repos` entry can add it and name %q",
+			t.Errorf("gh %s: reason %q, want it to say no `[repos.<name>]` table can add it and name %q",
 				c.argv, d.Reason, c.want)
 		}
 	}

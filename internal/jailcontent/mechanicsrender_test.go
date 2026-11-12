@@ -338,7 +338,7 @@ func TestRenderBuiltinSkillsUsesOnlySuppliedFacts(t *testing.T) {
 		}
 	}
 	loopholes := string(got["jail-mechanics/recipes/packs-and-loopholes.md"])
-	if !strings.Contains(loopholes, "brokered.<source>.repos") || strings.Contains(loopholes, "yolo loopholes enable") {
+	if !strings.Contains(loopholes, "`[repos.<name>]` table with `yolo request repos <alias> <host>/OWNER/REPO`") || strings.Contains(loopholes, "yolo loopholes enable") {
 		t.Errorf("packs/loopholes recipe invented a host switch command:\n%s", loopholes)
 	}
 

@@ -134,7 +134,7 @@ func approveRunHint(argv []string, t writeTarget) string {
 		return ""
 	}
 	return fmt.Sprintf(" A lasting right to approve run %s, and every run the same actor triggers from %s itself, is an approve-run grant "+
-		"naming that actor's login (`yolo request github approve_runs <actor>`, such as `yolo request github approve_runs 'github-actions[bot]'`, "+
+		"naming that actor's login (`yolo request github approve_runs <actor>`, such as `yolo request github approve_runs 'github-actions[bot]'`"+otherRepoRequest("approve_runs", "<actor>")+", "+
 		"then `yolo config apply` on the host); a run from a fork still asks.", a.RunID, t.Repo)
 }
 
@@ -158,7 +158,7 @@ func (b *Broker) approveRunCovered(ctx context.Context, t writeTarget, argv []st
 	if _, held := b.userGrantCovers(t, argv, run.Actor); !held {
 		stderr([]byte("github-broker: run " + a.RunID + " was triggered by " + run.Actor + ", whom no approve-run grant " +
 			"of this workspace names, so approving it asks (`yolo request github approve_runs '" + run.Actor +
-			"'`, then `yolo config apply` on the host, grants it)\n"))
+			"'`" + otherRepoRequest("approve_runs", "'"+run.Actor+"'") + ", then `yolo config apply` on the host, grants it)\n"))
 		return "", false
 	}
 	return run.Actor, true

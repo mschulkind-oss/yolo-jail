@@ -609,8 +609,8 @@ func TestTheBrokerRunsAnEntrysRepositoryAndNamesTheEntryForAnother(t *testing.T)
 
 	for _, argv := range [][]string{{"search", "code", "foo"}, {"search", "code", "foo repo:x/y", "--repo", "o/r"}} {
 		code, _, errOut = serve(argv...)
-		if code != ExitUsage || !strings.Contains(errOut, "`brokered.github.repos` entry can add") {
-			t.Errorf("gh %v: code %d, want 64 saying no `brokered.github.repos` entry can add it:\n%s", argv, code, errOut)
+		if code != ExitUsage || !strings.Contains(errOut, "`[repos.<name>]` table can add") {
+			t.Errorf("gh %v: code %d, want 64 saying no `[repos.<name>]` table can add it:\n%s", argv, code, errOut)
 		}
 	}
 

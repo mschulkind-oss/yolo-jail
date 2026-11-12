@@ -84,6 +84,20 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			if err != nil {
 				t.Fatalf("loophole.toml does not decode strictly: %v", err)
 			}
+			// The other intended delta is that module's description (GW-D75): the frozen fixture
+			// names the retired `brokered.github.repos` and `brokered.github.grants` keys, the
+			// shipped text the `[repos.<name>]` table and `yolo allow github read`. Only those two
+			// phrases may differ.
+			if key == "github__github-broker" {
+				canonical := strings.NewReplacer(
+					"any its config lists under brokered.github.repos", "any its config names in a [repos.<name>] table",
+					"a read grant in config (brokered.github.grants;", "a read grant in the user config (yolo allow github read;",
+				).Replace(want.Description)
+				if canonical == want.Description || strings.Contains(canonical, "brokered.") {
+					t.Fatalf("the github broker's legacy description no longer holds the retired keys this delta names: %s", want.Description)
+				}
+				want.Description = canonical
+			}
 			if !reflect.DeepEqual(want, got) {
 				wv, gv := reflect.ValueOf(*want), reflect.ValueOf(*got)
 				for i := 0; i < wv.NumField(); i++ {

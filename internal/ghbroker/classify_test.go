@@ -352,7 +352,7 @@ func TestClassifyEmptyScopeRunsOnlyScopeFreeReads(t *testing.T) {
 	}
 	d := Classify([]string{"pr", "view", "1"}, "o/r", empty)
 	if d.Outcome != OutcomeOutOfScope || !strings.Contains(d.Reason, "no approved GitHub remote and no approved "+
-		"`brokered.github.repos` entry") {
+		"`[repos.<name>]` table") {
 		t.Fatalf("a read in an empty scope: %+v", d)
 	}
 }

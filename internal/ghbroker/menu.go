@@ -42,11 +42,11 @@ func pendingMessage(t writeTarget, argv []string, id, note string) string {
 		case runsDispatch:
 			lead += " A runs grant covers a run on the default branch only; a run on any other ref still asks."
 		case runsRerun:
-			lead += " A runs grant naming the run's workflow file (`yolo request " + Source + " runs <workflow file>`, then " +
+			lead += " A runs grant naming the run's workflow file (`yolo request " + Source + " runs <workflow file>`" + otherRepoRequest("runs", "<workflow file>") + ", then " +
 				"`yolo config apply` on the host) covers re-running a run of the default branch of " + t.Repo + " itself; " +
 				"a run of any other branch, or of a fork, still asks."
 		case runsCancel:
-			lead += " Any runs grant on " + t.Repo + " (`yolo request " + Source + " runs <workflow file>`, then " +
+			lead += " Any runs grant on " + t.Repo + " (`yolo request " + Source + " runs <workflow file>`" + otherRepoRequest("runs", "<workflow file>") + ", then " +
 				"`yolo config apply` on the host) covers cancelling its runs."
 		}
 	}

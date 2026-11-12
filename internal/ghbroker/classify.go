@@ -159,14 +159,14 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 	}
 	d.Repos = sr.repos
 	if sr.account {
-		// No `brokered.github.repos` entry admits an account-wide command (OQ-BB9, ruled A: an
-		// entry adds whole repositories), so the message says so rather than naming one.
+		// No `[repos.<name>]` table admits an account-wide command (OQ-BB9, ruled A: a
+		// table adds whole repositories), so the message says so rather than naming one.
 		d.Outcome, d.AccountWide = OutcomeOutOfScope, true
 		d.Reason = "`gh " + p.cmd.path + "` names no repository the broker can check: it reads or " +
-			"writes across the account, which no scope admits and no `" + entryKey + "` entry can add. " +
+			"writes across the account, which no scope admits and no `" + reposTable + "` table can add. " +
 			"This jail's repository scope is " + scope.describe() + "."
 		if sr.why != "" {
-			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". No `" + entryKey + "` entry can add a " +
+			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". No `" + reposTable + "` table can add a " +
 				"command across the account. This jail's repository scope is " + scope.describe() + "."
 		}
 		switch {
@@ -182,7 +182,7 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		if !scope.Contains(r) {
 			d.Outcome = OutcomeOutOfScope
 			d.Reason = r + " is outside this jail's repository scope (" + scope.describe() + "). " +
-				scope.widenAdvice(r)
+				scope.widenAdvice(r, isWorkflowRunCommand(p.cmd.path))
 			return d
 		}
 	}
@@ -196,6 +196,12 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 	}
 	d.Outcome, d.Set = OutcomeWindowed, SetReadWrite
 	return d
+}
+
+// isWorkflowRunCommand reports whether path is a command a runs grant can cover: a dispatch, a
+// re-run or a cancel (runsOf).
+func isWorkflowRunCommand(path string) bool {
+	return path == "workflow run" || path == "run rerun" || path == "run cancel"
 }
 
 func inReadOnly(path string) bool {

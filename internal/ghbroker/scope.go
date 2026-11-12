@@ -137,16 +137,34 @@ func (s Scope) Contains(repo string) bool {
 	return false
 }
 
-// entryKey is the workspace config key a repository joins the scope through. This package is
-// the github pack's broker, so it names its source literally (WW-D13).
-const entryKey = "brokered." + Source + ".repos"
+// reposTable is the workspace config table a repository joins the scope through (GW-D75): the
+// shared `[repos.<name>]` table every host-Git source reads, written by `yolo request repos`.
+const reposTable = "[repos.<name>]"
+
+// namedRequest is the project command that requests capability, with value when it takes one, on
+// a repository a `[repos.<alias>]` table names. The unqualified `yolo request github` lines are
+// for the workspace's origin alone (GW-D79), so a hint for any other repository names this form.
+func namedRequest(capability, value string) string {
+	cmd := "yolo request repos.<alias>." + Source + " " + capability
+	if value != "" {
+		cmd += " " + value
+	}
+	return cmd
+}
+
+// otherRepoRequest is the clause a lasting-grant hint adds after the unqualified command: the
+// form to use when the repository is not the workspace's origin.
+func otherRepoRequest(capability, value string) string {
+	return "; for a repository other than this workspace's origin, `" + namedRequest(capability, value) +
+		"` on its `[repos.<alias>]` table instead"
+}
 
 // describe renders the scope for a message. A wildcard entry is shown for what it admits,
 // not just its token, so an out-of-scope message never reads as a list of ordinary
 // repositories when one of them is every repository.
 func (s Scope) describe() string {
 	if len(s.repos) == 0 {
-		return "empty: this workspace has no approved GitHub remote and no approved `" + entryKey + "` entry"
+		return "empty: this workspace has no approved GitHub remote and no approved `" + reposTable + "` table"
 	}
 	shown := make([]string, len(s.repos))
 	for i, r := range s.repos {
@@ -170,17 +188,25 @@ func (s Scope) describe() string {
 // advice can never send the agent to create a `yolo-jail.toml` beside a `yolo-jail.jsonc`, or a
 // second top-level `brokered` that would replace the first (WW-D24). It names no host path and
 // no user config.
-func (s Scope) widenAdvice(repo string) string {
+//
+// workflow says the refused command runs, re-runs or cancels a workflow run: the table alone is
+// no runs grant, so the advice names the table's own runs request too.
+func (s Scope) widenAdvice(repo string, workflow bool) string {
 	approves, ask := "at a fresh launch", "ask the user to restart the jail and approve the repository scope at launch"
 	if s.live {
 		approves = "on the host"
 		ask = "ask the user to run `yolo config apply` on the host, in this workspace, and approve the " +
 			"repository scope there; this jail's running broker takes it at its next call"
 	}
+	runs := ""
+	if workflow {
+		runs = " The table alone is no runs grant: to have " + repo + "'s workflow runs covered rather than asked " +
+			"each time, also run `" + namedRequest("runs", "<workflow file>") + "` before that approval."
+	}
 	return "A repository joins this jail's scope only when the user approves it " + approves + ". To " +
 		"ask for " + repo + ", run `yolo request repos <alias> " + SourceHost + "/" + repo + "`, which adds it as " +
 		"a `[repos.<alias>]` table in this project's config. Then run `yolo check --no-build`, and " + ask +
-		". Nothing sent through gh adds a repository."
+		"." + runs + " Nothing sent through gh adds a repository."
 }
 
 // ValidRepo reports whether s is exactly `owner/repo`: two segments, each a GitHub name,
