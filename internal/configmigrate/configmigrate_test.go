@@ -45,8 +45,13 @@ func gitRemotes(t *testing.T, ws string, urls ...string) {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString("[core]\n\tbare = false\n")
+	// The first remote is origin: an unqualified GitHub request line is for origin alone (GW-D79).
 	for i, u := range urls {
-		b.WriteString("[remote \"r" + string(rune('a'+i)) + "\"]\n\turl = " + u + "\n")
+		name := "origin"
+		if i > 0 {
+			name = "r" + string(rune('a'+i))
+		}
+		b.WriteString("[remote \"" + name + "\"]\n\turl = " + u + "\n")
 	}
 	write(t, filepath.Join(ws, ".git", "config"), b.String())
 	write(t, filepath.Join(ws, ".git", "HEAD"), "ref: refs/heads/main\n")

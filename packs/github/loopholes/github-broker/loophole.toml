@@ -39,6 +39,10 @@ doctor_cmd = ["yolo", "internal", "daemon", "github-broker", "--self-check"]
 [brokered]
 source = "github"
 remote_host = "github.com"
+# Its unqualified `[requests.github]` lines are for the clone's origin remote alone (GW-D79): a
+# repository reaches the broker through origin or a `[repos.<name>]` table, never through a
+# sibling remote.
+unqualified_requests = "origin"
 credential_paths = ["$GH_CONFIG_DIR", "$XDG_CONFIG_HOME/gh", "~/.config/gh"]
 # The user grant kinds this source defines beside `read` (OQ-BB19, BB-D76, BB-D96): a workspace
 # grant of one, within the kinds the user config allows (`allow.github` or the legacy

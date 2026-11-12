@@ -70,6 +70,16 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			if err != nil {
 				t.Fatalf("legacy fixture does not decode: %v", err)
 			}
+			// The one intended delta from the historical JSONC is the github broker's opt-in
+			// (GW-D79): its unqualified request lines are for origin. The fixture stays frozen;
+			// the expectation names the delta, so deleting or changing the opt-in fails here, and
+			// no other module may differ from its history.
+			if key == "github__github-broker" {
+				if want.Brokered == nil {
+					t.Fatal("the github broker's legacy fixture has no brokered block")
+				}
+				want.Brokered.UnqualifiedRequests = loopholedecl.UnqualifiedRequestsOrigin
+			}
 			got, err := loopholedecl.LoadDir(dir)
 			if err != nil {
 				t.Fatalf("loophole.toml does not decode strictly: %v", err)

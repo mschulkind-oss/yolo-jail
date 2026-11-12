@@ -239,6 +239,10 @@ func Plan(g *Graph) (*MigrationPlan, error) {
 // planOptions are the conversions a plan makes only while the proof holds.
 type planOptions struct {
 	fold, twinOf bool
+	// legacyBrokerGrants is set on the BEFORE side of a conversion that rewrites the workspace's
+	// config file: that side projects the workspace's unqualified request lines as they reached
+	// every remote, so the proof compares the grants the old file gave (addWorkspaceBrokerGrants).
+	legacyBrokerGrants bool
 }
 
 // providerTableLayer is the equality check's layer for the provider table a launch resolves.
@@ -383,7 +387,15 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	if g.layer != nil {
 		userBefore, layerBefore, workspaceBefore = g.Request.baseUserTop(), g.layer.Logical, ""
 	}
-	before, err := readCanonical(g, userBefore, layerBefore, workspaceBefore, remotes, view, "", true, opts, packs)
+	// The workspace's config is rewritten only when a target writes it; the before side then
+	// reads the old reach. A file no target writes keeps the projection both sides share.
+	beforeOpts := opts
+	for _, t := range p.Targets {
+		if t.File != nil && t.File.Scope == ScopeProject {
+			beforeOpts.legacyBrokerGrants = true
+		}
+	}
+	before, err := readCanonical(g, userBefore, layerBefore, workspaceBefore, remotes, view, "", true, beforeOpts, packs)
 	if err != nil {
 		return nil, fmt.Errorf("read the old config: %w", err)
 	}
@@ -993,7 +1005,7 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 	if mirror != "" && strings.HasPrefix(workspace, mirror+string(filepath.Separator)) {
 		remoteWorkspace = strings.TrimPrefix(workspace, mirror)
 	}
-	addWorkspaceBrokerGrants(s.grants, s.grantWorkspace, remoteWorkspace, brokers)
+	addWorkspaceBrokerGrants(s.grants, s.grantWorkspace, remoteWorkspace, brokers, lowerOld && opts.legacyBrokerGrants)
 	s.grantLegacyUser = !readable && config.UserConfigIsLegacyAt(userTop)
 	for _, m := range []*jsonx.OrderedMap{s.user, s.project, s.composed} {
 		m.Delete(convertLaterKey)

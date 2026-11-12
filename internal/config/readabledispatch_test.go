@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,21 +16,40 @@ import (
 // `requests.github.runs = ["<file>"]` in the project's, become one grant per
 // target repository naming the workflow.
 
+// githubDispatchDeclarations is the github broker as packs/github declares it: its unqualified
+// request lines are for origin.
 func githubDispatchDeclarations() []config.ReadableBrokerDeclaration {
 	return []config.ReadableBrokerDeclaration{{Pack: "github", Label: "github-broker",
-		Brokered:       loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs"}},
+		Brokered: loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs"},
+			UnqualifiedRequests: loopholedecl.UnqualifiedRequestsOrigin},
 		ReadCapability: "read", KindCapabilities: map[string]string{"create-pr": "create_pr", "create-issue": "create_issue", "runs": "runs"}}}
+}
+
+// writeOriginWorkspace is a workspace whose clone has one remote, origin, on github.com at repo,
+// and returns its path. The unqualified request lines of a github-declared source reach that
+// repository and no other.
+func writeOriginWorkspace(t *testing.T, repo string) string {
+	t.Helper()
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig := "[remote \"origin\"]\n\turl = https://github.com/" + repo + ".git\n"
+	if err := os.WriteFile(filepath.Join(workspace, ".git", "config"), []byte(gitConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return workspace
 }
 
 func TestReadableDispatchWorkflowsRequestBecomesAGrantPerTarget(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["runs"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/private"],"runs":["nightly-macos.yml","*"]}}}`),
+		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/extra"],"runs":["nightly-macos.yml","*"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubDispatchDeclarations()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate, err := config.ProduceReadableGateInput(t.TempDir(), plan)
+	gate, err := config.ProduceReadableGateInput(writeOriginWorkspace(t, "acme/private"), plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +62,11 @@ func TestReadableDispatchWorkflowsRequestBecomesAGrantPerTarget(t *testing.T) {
 	} {
 		if !containsReadableGrant(gate.Sources[0].Grants, want) {
 			t.Fatalf("the gate carries %+v, want %+v among them", gate.Sources[0].Grants, want)
+		}
+	}
+	for _, g := range gate.Sources[0].Grants {
+		if g.Kind == "runs" && g.Repo != "github.com/acme/private" {
+			t.Fatalf("a dispatch line reached %s, which is not origin: %+v", g.Repo, g)
 		}
 	}
 }

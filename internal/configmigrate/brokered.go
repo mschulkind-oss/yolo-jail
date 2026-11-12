@@ -80,11 +80,17 @@ func brokerGrants(user *jsonx.OrderedMap, declarations []config.ReadableBrokerDe
 }
 
 // addWorkspaceBrokerGrants adds to grants, per source, the concrete grants the scope projection
-// makes from the workspace config ws (config.WorkspaceBrokerGrantsOf), over the remotes of the
-// workspace at remoteWorkspace: the old `brokered.<source>.grants` on one side and the new
-// `requests.<source>.*` on the other, compared as a set of kind, repository and name (RC-D60).
-func addWorkspaceBrokerGrants(grants, ws *jsonx.OrderedMap, remoteWorkspace string, declarations []config.ReadableBrokerDeclaration) {
-	for _, w := range config.WorkspaceBrokerGrantsOf(ws, remoteWorkspace, declarations) {
+// makes from the workspace config ws over the remotes of the workspace at remoteWorkspace: the old
+// `brokered.<source>.grants` on one side and the new `requests.<source>.*` on the other, compared
+// as a set of kind, repository and name (RC-D60). legacy selects config.LegacyWorkspaceBrokerGrantsOf,
+// the BEFORE side of a conversion that rewrites this workspace file, whose unqualified lines still
+// reach every remote; every other side reads config.WorkspaceBrokerGrantsOf.
+func addWorkspaceBrokerGrants(grants, ws *jsonx.OrderedMap, remoteWorkspace string, declarations []config.ReadableBrokerDeclaration, legacy bool) {
+	project := config.WorkspaceBrokerGrantsOf
+	if legacy {
+		project = config.LegacyWorkspaceBrokerGrantsOf
+	}
+	for _, w := range project(ws, remoteWorkspace, declarations) {
 		v, _ := grants.Get(w.Source)
 		entry, ok := v.(*jsonx.OrderedMap)
 		if !ok {

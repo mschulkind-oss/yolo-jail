@@ -114,6 +114,9 @@ type ReadableBrokerPolicy struct {
 	Ambiguous           bool
 	KindCapabilities    map[string]string
 	PendingCapabilities []string
+	// UnqualifiedRequests is the declared `unqualified_requests` (loopholedecl.Brokered): origin
+	// when this source's unqualified request lines are for the clone's origin remote alone.
+	UnqualifiedRequests string
 	Always              []string
 	OnRequest           []string
 	Repos               []ReadableRepoRequest
@@ -640,6 +643,19 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			remotes = brokerscope.ReadRemotes(workspace, policy.RemoteHost)
 		}
 		targets := readableTargets(policy, remotes)
+		// The unqualified request lines reach the targets their declaration allows: every remote
+		// on the host, or for a source declaring origin, origin alone (GW-D79). The read grants and
+		// the user's always ceiling keep every target.
+		requestTargets := targets
+		var originErr error
+		if policy.UnqualifiedRequests == loopholedecl.UnqualifiedRequestsOrigin {
+			origin, err := readableOriginTarget(policy, remotes)
+			if err != nil {
+				requestTargets, originErr = nil, err
+			} else {
+				requestTargets = []ReadableRepository{origin}
+			}
+		}
 		if policy.RemoteHost == brokerscope.AnyRemoteHost {
 			// Canonical named-host identities are available to this consumer as scope inputs;
 			// the transport adapter must still resolve exact URLs at the same human gate.
@@ -665,6 +681,9 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		readAlways := slices.Contains(policy.Always, policy.ReadCapability)
 		readRequested := slices.Contains(policy.OnRequest, policy.ReadCapability) && readableReadRequestedFromResults(input.Requests, policy.Source, policy.ReadCapability)
 		readAllowed := readAlways || readRequested
+		if originErr != nil && readAllowed && readableLowersAnUnqualifiedGrant(policy, input.Requests) {
+			return ReadableGateInput{}, originErr
+		}
 		if !readAllowed || len(targets) == 0 {
 			for i := range input.Requests {
 				request := &input.Requests[i]
@@ -727,7 +746,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
-			for _, placed := range readableRequestGrants(kind, request.Value, targets) {
+			for _, placed := range readableRequestGrants(kind, request.Value, requestTargets) {
 				files := append(cloneOrigins(ceilingFiles), request.Files...)
 				files = append(files, placed.Target.Files...)
 				decisions = appendReadableGrant(decisions, placed.Grant, ceilingOrigin, files)
@@ -1223,7 +1242,8 @@ func readableDeclarations(input ReadableAllowanceInput) (map[string][]loopholede
 		}
 		settings[declaration.Pack] = append(settings[declaration.Pack], declaration.Settings...)
 		policy := ReadableBrokerPolicy{Pack: declaration.Pack, Label: declaration.Label, Source: b.Source, RemoteHost: b.RemoteHost,
-			ReadCapability: declaration.ReadCapability, KindCapabilities: mapping, PendingCapabilities: pending}
+			ReadCapability: declaration.ReadCapability, KindCapabilities: mapping, PendingCapabilities: pending,
+			UnqualifiedRequests: b.UnqualifiedRequests}
 		if previous, found := brokers[b.Source]; found {
 			previousSelected, currentSelected := selected[previous.Pack], selected[declaration.Pack]
 			switch {
@@ -1714,6 +1734,38 @@ func appendReadableEntry(entries []EntryRepo, entry EntryRepo) []EntryRepo {
 	}
 	entry.Files = cloneOrigins(entry.Files)
 	return append(entries, entry)
+}
+
+// readableOriginTarget is the one repository an opted-in source's unqualified request lines are
+// for: the clone's remote named origin on the source's host. A remote named origin on another
+// host is no origin here, so the lookup fails rather than falling back to another remote (GW-D79).
+func readableOriginTarget(policy ReadableBrokerPolicy, remotes brokerscope.Read) (ReadableRepository, error) {
+	var names []string
+	for _, remote := range remotes.Remotes {
+		names = append(names, remote.Name)
+		if remote.Name == "origin" && brokerscope.ValidRepo(remote.Repo) {
+			return ReadableRepository{Source: policy.Source, RemoteHost: policy.RemoteHost, Repository: remote.Repo, Origin: "remote origin"}, nil
+		}
+	}
+	remoteList := "none"
+	if len(names) > 0 {
+		remoteList = strings.Join(names, ", ")
+	}
+	return ReadableRepository{}, fmt.Errorf("the unqualified [requests.%s] lines are for the clone's origin remote, and the clone has no origin on %s (its remotes there: %s); give the clone an origin on %s, or name the repository in [repos.<name>]",
+		policy.Source, policy.RemoteHost, remoteList, policy.RemoteHost)
+}
+
+// readableLowersAnUnqualifiedGrant reports whether a granted unqualified request of policy's source
+// would lower a grant: the same test the request loop applies before it places a grant.
+func readableLowersAnUnqualifiedGrant(policy ReadableBrokerPolicy, requests []ReadableRequestResult) bool {
+	for _, request := range requests {
+		if request.Status == ReadableRequestGranted && strings.HasPrefix(request.Path, "requests."+policy.Source+".") &&
+			request.Capability != policy.ReadCapability && !slices.Contains(policy.PendingCapabilities, request.Capability) &&
+			legacyKind(policy, request.Capability) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // readableTargetGrant is one grant a request makes, with the target it is made on.

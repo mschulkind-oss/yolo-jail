@@ -65,7 +65,15 @@ type Brokered struct {
 	ReadCapability      string
 	KindCapabilities    map[string]string
 	PendingCapabilities []string
+	// UnqualifiedRequests is `origin` when the source's unqualified request lines (`[requests.<source>]`)
+	// are for the clone's `origin` remote alone, and "" when they reach every remote on the host
+	// (GW-D79). Only a source on one host may declare it; the empty value is today's reach.
+	UnqualifiedRequests string
 }
+
+// UnqualifiedRequestsOrigin is the `unqualified_requests` value that narrows a source's
+// unqualified request lines to the workspace's `origin` remote.
+const UnqualifiedRequestsOrigin = "origin"
 
 // AnyRemoteHost is the `remote_host` that declares a source on any host. It is the token alone,
 // never a glob: `*.com` is refused. brokerscope.AnyRemoteHost is the same token, for the code
@@ -81,12 +89,13 @@ const (
 	keyReadCapability      = "read_capability"
 	keyKindCapabilities    = "kind_capabilities"
 	keyPendingCapabilities = "pending_capabilities"
+	keyUnqualifiedRequests = "unqualified_requests"
 )
 
 // brokeredKeys is the block's census. Like a settings declaration it has one voice,
 // refusal, in both decoders: an unknown key in a fence is a fence that silently does not
 // exist, which is the direction the version-boundary tolerance must not fail in.
-var brokeredKeys = []string{keySource, keyRemoteHost, keyCredentialPaths, keyGrants, keyReadCapability, keyKindCapabilities, keyPendingCapabilities}
+var brokeredKeys = []string{keySource, keyRemoteHost, keyCredentialPaths, keyGrants, keyReadCapability, keyKindCapabilities, keyPendingCapabilities, keyUnqualifiedRequests}
 
 var (
 	sourceRE     = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -131,6 +140,16 @@ func parseBrokered(manifestPath string, raw any) (*Brokered, error) {
 			"workspace, on any host", manifestPath)
 	}
 	b.RemoteHost = host
+	if v := getOrNil(m, keyUnqualifiedRequests); v != nil {
+		value, _ := v.(string)
+		if value != UnqualifiedRequestsOrigin {
+			return nil, Errorf("%s: 'brokered.unqualified_requests' must be %q, the only value it takes", manifestPath, UnqualifiedRequestsOrigin)
+		}
+		if host == AnyRemoteHost {
+			return nil, Errorf("%s: 'brokered.unqualified_requests' is refused on a source with remote_host \"*\": its scope is every remote URL, so there is no one origin to narrow to", manifestPath)
+		}
+		b.UnqualifiedRequests = value
+	}
 	if v := getOrNil(m, keyCredentialPaths); v != nil {
 		list, isList := v.([]any)
 		if !isList || !AllStrings(list) {

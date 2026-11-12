@@ -13,9 +13,11 @@ import (
 // ["approve_runs"]` in the user's config, and `requests.github.approve_runs = ["<login>"]` in
 // the project's, become one grant per target repository naming the actor.
 
+// githubApproveDeclarations is the github broker as packs/github declares it.
 func githubApproveDeclarations() []config.ReadableBrokerDeclaration {
 	return []config.ReadableBrokerDeclaration{{Pack: "github", Label: "github-broker",
-		Brokered:       loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs", "approve-run"}},
+		Brokered: loopholedecl.Brokered{Source: "github", RemoteHost: "github.com", Grants: []string{"create-pr", "create-issue", "runs", "approve-run"},
+			UnqualifiedRequests: loopholedecl.UnqualifiedRequestsOrigin},
 		ReadCapability: "read", KindCapabilities: map[string]string{"create-pr": "create_pr", "create-issue": "create_issue",
 			"runs": "runs", "approve-run": "approve_runs"}}}
 }
@@ -23,12 +25,12 @@ func githubApproveDeclarations() []config.ReadableBrokerDeclaration {
 func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
 	plan, err := config.ResolveReadableAllowance(config.ReadableAllowanceInput{
 		User:          readableMap(t, `{"allow":{"github":{"always":["read"],"on_request":["approve_runs"]}}}`),
-		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/private"],"approve_runs":["github-actions[bot]","*"]}}}`),
+		Workspace:     readableMap(t, `{"requests":{"github":{"repos":["acme/extra"],"approve_runs":["github-actions[bot]","*"]}}}`),
 		SelectedPacks: []string{"github"}, Declarations: githubApproveDeclarations()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate, err := config.ProduceReadableGateInput(t.TempDir(), plan)
+	gate, err := config.ProduceReadableGateInput(writeOriginWorkspace(t, "acme/private"), plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +43,11 @@ func TestReadableApproveRunsRequestBecomesAGrantPerTarget(t *testing.T) {
 	} {
 		if !containsReadableGrant(gate.Sources[0].Grants, want) {
 			t.Fatalf("the gate carries %+v, want %+v among them", gate.Sources[0].Grants, want)
+		}
+	}
+	for _, g := range gate.Sources[0].Grants {
+		if g.Kind == "approve-run" && g.Repo != "github.com/acme/private" {
+			t.Fatalf("an approve-run line reached %s, which is not origin: %+v", g.Repo, g)
 		}
 	}
 }

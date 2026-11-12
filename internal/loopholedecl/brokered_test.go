@@ -168,3 +168,29 @@ func TestBrokeredGrants(t *testing.T) {
 		}
 	}
 }
+
+// A source declares that its unqualified request lines are for origin only; the value is the one
+// it takes, and a source on any host has no one origin to narrow to.
+func TestBrokeredUnqualifiedRequestsDecodesOnlyOriginOnOneHost(t *testing.T) {
+	hostDaemon := `"host_daemon": {"cmd": ["d", "{socket}", "{repository_scope}"], "publishes": "socket"},`
+	m, err := decodeBrokered(t, hostDaemon+`
+		"brokered": {"source": "github", "remote_host": "github.com", "unqualified_requests": "origin"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Brokered.UnqualifiedRequests != UnqualifiedRequestsOrigin {
+		t.Fatalf("unqualified_requests decoded as %q", m.Brokered.UnqualifiedRequests)
+	}
+	for name, c := range map[string]struct{ body, want string }{
+		"any other value": {`"remote_host": "github.com", "unqualified_requests": "all"`, "brokered.unqualified_requests"},
+		"not a string":    {`"remote_host": "github.com", "unqualified_requests": true`, "brokered.unqualified_requests"},
+		"any host":        {`"remote_host": "*", "unqualified_requests": "origin"`, "remote_host \"*\""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeBrokered(t, hostDaemon+`"brokered": {"source": "git", `+c.body+`}`)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err %v, want it to mention %q", err, c.want)
+			}
+		})
+	}
+}

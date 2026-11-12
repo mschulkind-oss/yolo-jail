@@ -76,7 +76,7 @@ func TestTheWorkspaceGrantLayerComparesKindRepoAndName(t *testing.T) {
 	}
 	project := func(text string) string {
 		grants := mustJSON(t, "{}")
-		addWorkspaceBrokerGrants(grants, mustJSON(t, text), ws, declarations)
+		addWorkspaceBrokerGrants(grants, mustJSON(t, text), ws, declarations, false)
 		text, err := config.SnapshotJSON(grants)
 		if err != nil {
 			t.Fatal(err)
@@ -92,9 +92,9 @@ func TestTheWorkspaceGrantLayerComparesKindRepoAndName(t *testing.T) {
 		t.Fatalf("the same grants in either spelling project differently:\n  old: %s\n  new: %s", a, b)
 	}
 	declarationsGrants := mustJSON(t, "{}")
-	addWorkspaceBrokerGrants(declarationsGrants, mustJSON(t, old), ws, declarations)
+	addWorkspaceBrokerGrants(declarationsGrants, mustJSON(t, old), ws, declarations, false)
 	dropped := mustJSON(t, "{}")
-	addWorkspaceBrokerGrants(dropped, mustJSON(t, `{"requests": {"git": {"push": ["main"], "new_branches": true}}}`), ws, declarations)
+	addWorkspaceBrokerGrants(dropped, mustJSON(t, `{"requests": {"git": {"push": ["main"], "new_branches": true}}}`), ws, declarations, false)
 	diffs := diffValues(brokerGrantsLayer, declarationsGrants, dropped)
 	if len(diffs) != 1 || diffs[0].Path != "git.workspace_grants" {
 		t.Fatalf("a dropped branch was not named at git.workspace_grants: %+v", diffs)

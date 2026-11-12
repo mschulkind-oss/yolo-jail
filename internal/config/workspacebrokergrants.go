@@ -5,6 +5,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // WorkspaceBrokerGrants is what one workspace config's own words grant one broker source, as the
@@ -24,13 +25,28 @@ type WorkspaceBrokerGrants struct {
 // `requests.<source>.*`, each capability expanded through the declaring pack's
 // kind_capabilities over the scope's targets (readableRequestGrants). The targets are the
 // workspace's remotes, read from its git config, plus `requests.<source>.repos` and
-// `brokered.<source>.repos`.
+// `brokered.<source>.repos`. A source declaring `unqualified_requests = "origin"` lowers its
+// unqualified request lines to origin alone, as the gate does (GW-D79).
 //
 // It is what the project asks for, before any ceiling: the user's `allow.<source>` or
 // `grant_kinds` gates both spellings alike, and is the user config's own fact. A read grant is
 // left out the same way: it is the user's (BB-D107). A source the config asks nothing of is left
 // out.
 func WorkspaceBrokerGrantsOf(cfg *jsonx.OrderedMap, workspace string, declarations []ReadableBrokerDeclaration) []WorkspaceBrokerGrants {
+	return workspaceBrokerGrants(cfg, workspace, declarations, true)
+}
+
+// LegacyWorkspaceBrokerGrantsOf is WorkspaceBrokerGrantsOf before `unqualified_requests` narrowed
+// anything: every unqualified request line reaches every remote on the host and every listed
+// repository. It is the migration's BEFORE side only, the baseline a conversion must preserve
+// the writes of. It grants nothing and is never the gate's projection.
+func LegacyWorkspaceBrokerGrantsOf(cfg *jsonx.OrderedMap, workspace string, declarations []ReadableBrokerDeclaration) []WorkspaceBrokerGrants {
+	return workspaceBrokerGrants(cfg, workspace, declarations, false)
+}
+
+// workspaceBrokerGrants is the projection both exported functions share; narrow selects the
+// declared origin narrowing, so the two can differ only there.
+func workspaceBrokerGrants(cfg *jsonx.OrderedMap, workspace string, declarations []ReadableBrokerDeclaration, narrow bool) []WorkspaceBrokerGrants {
 	if cfg == nil {
 		return nil
 	}
@@ -50,6 +66,9 @@ func WorkspaceBrokerGrantsOf(cfg *jsonx.OrderedMap, workspace string, declaratio
 		}
 		policy := ReadableBrokerPolicy{Source: source, RemoteHost: d.Brokered.RemoteHost,
 			KindCapabilities: d.KindCapabilities, PendingCapabilities: d.PendingCapabilities}
+		if narrow {
+			policy.UnqualifiedRequests = d.Brokered.UnqualifiedRequests
+		}
 		entries := read.Entry(source)
 		if policy.RemoteHost != brokerscope.AnyRemoteHost {
 			if table != nil {
@@ -73,6 +92,18 @@ func WorkspaceBrokerGrantsOf(cfg *jsonx.OrderedMap, workspace string, declaratio
 		}
 		targets := readableTargets(policy, remotes)
 
+		// An origin-declaring source's unqualified lines reach origin alone; without an origin they
+		// reach nothing, and the reason is said for each line that would have lowered a grant.
+		requestTargets, originReason := targets, ""
+		if policy.UnqualifiedRequests == loopholedecl.UnqualifiedRequestsOrigin {
+			origin, err := readableOriginTarget(policy, remotes)
+			if err != nil {
+				requestTargets, originReason = nil, err.Error()
+			} else {
+				requestTargets = []ReadableRepository{origin}
+			}
+		}
+
 		got := WorkspaceBrokerGrants{Source: source}
 		add := func(g brokerscope.Grant) {
 			if g.Kind == brokerscope.KindRead {
@@ -93,7 +124,12 @@ func WorkspaceBrokerGrantsOf(cfg *jsonx.OrderedMap, workspace string, declaratio
 				if kind == "" {
 					continue
 				}
-				for _, placed := range readableRequestGrants(kind, readableValue(table, capability), targets) {
+				value := readableValue(table, capability)
+				if originReason != "" && len(readableRequestGrants(kind, value, targets)) > 0 {
+					got.Unplaced = appendReadableDifference(got.Unplaced, source+" "+capability+": "+originReason)
+					continue
+				}
+				for _, placed := range readableRequestGrants(kind, value, requestTargets) {
 					add(placed.Grant)
 				}
 			}
