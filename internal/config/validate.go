@@ -135,6 +135,10 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateCallBrokerConfig(workspace, config, resolver, errs, warns, edit)
 	validateLoopholeGrants(config, workspace, errs, warns, edit)
 	validateBrokeredRequests(config, workspace, warns, edit)
+	if edit == nil {
+		// An edit's validation resolves the same authority in validateProvidersForExplicit.
+		validateGateReadableAllowance(config, workspace, errs)
+	}
 	validateWorkspaceFile(workspace, errs, warns)
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)

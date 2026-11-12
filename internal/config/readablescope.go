@@ -7,6 +7,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -96,6 +97,33 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 			declarations = append(declarations, declaration)
 		}
 	}
+	plan, user, carriedRead, err := resolveGateReadableAllowance(workspace, user, userSources, read,
+		selectedPacks, declarations, selectedSettings)
+	if err != nil {
+		return readableScopeFailure(workspace, brokers, err), true
+	}
+	collectLegacyReadableRepositories(&plan, read, brokers)
+	filterReadablePlanToActiveBrokers(&plan, brokers)
+	gate, err := ProduceReadableGateInput(workspace, plan)
+	if err != nil {
+		return readableScopeFailure(workspace, brokers, err), true
+	}
+	applyLegacyReadableWorkspace(read, user, brokers, &gate)
+	check := scopeCheckFromReadable(workspace, brokers, gate)
+	markCarriedBrokerRead(check, carriedRead)
+	return check, true
+}
+
+// resolveGateReadableAllowance is the readable resolution the launch's config-change gate runs
+// (readableScopeCheckWithSettings), and the one `yolo config check` and `yolo check` run to
+// predict it (validateGateReadableAllowance): the user's ceiling, a legacy user config's
+// allowance and a carried read grant folded in, then ResolveReadableAllowance over the workspace's
+// gate read. A non-nil error is what the launch refuses for. It returns the user config as
+// resolved, carried grant included, and which sources carried one.
+func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, userSources *Sources, read *WorkspaceRead,
+	selectedPacks []string, declarations []ReadableBrokerDeclaration, selectedSettings []ReadablePackDeclaration,
+) (ReadableAllowancePlan, *jsonx.OrderedMap, map[string]bool, error) {
+	_, userHasAllow := user.Get("allow")
 	detachedSettings := make([]ReadablePackDeclaration, len(selectedSettings))
 	for i, pack := range selectedSettings {
 		detachedSettings[i] = pack.clone()
@@ -114,19 +142,47 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 		PackSettings: detachedSettings,
 		UserOrigins:  userOrigins, WorkspaceOrigins: workspaceOrigins,
 	})
-	if err != nil {
-		return readableScopeFailure(workspace, brokers, err), true
+	return plan, user, carriedRead, err
+}
+
+// validateGateReadableAllowance reports what the launch's config-change gate would refuse in the
+// readable broker authority (readableScopeCheckWithSettings → ReadableAuthorityError), so
+// `yolo config check` and `yolo check` never call valid a config a launch refuses: the retired
+// `requests.<source>.repos` list (GW-D75) among them. It runs the gate's own resolution
+// (resolveGateReadableAllowance) over the selected packs' declarations, as a config edit's
+// validation does (BuildReadableSemanticInputs), which is why only the unedited path (edit == nil) calls it.
+// Nothing when the config names none of the keys the gate resolves, or when a read it needs
+// fails: each such failure is reported by its own validator.
+func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	named := false
+	for _, key := range []string{"allow", "repos", "requests"} {
+		if _, present := config.Get(key); present {
+			named = true
+		}
 	}
-	collectLegacyReadableRepositories(&plan, read, brokers)
-	filterReadablePlanToActiveBrokers(&plan, brokers)
-	gate, err := ProduceReadableGateInput(workspace, plan)
-	if err != nil {
-		return readableScopeFailure(workspace, brokers, err), true
+	if !named {
+		return
 	}
-	applyLegacyReadableWorkspace(read, user, brokers, &gate)
-	check := scopeCheckFromReadable(workspace, brokers, gate)
-	markCarriedBrokerRead(check, carriedRead)
-	return check, true
+	user, userSources, err := LoadReadableUserScopeConfigWithSources(true, func(string) {})
+	if err != nil {
+		return
+	}
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		return
+	}
+	packs := nonNilPacks(func() []*packload.Pack { p, _ := resolveSelectedPacks(); return p }())
+	declarations, settings, err := ReadableDeclarationsForPacks(packs)
+	if err != nil || len(declarations) == 0 {
+		return
+	}
+	selected := make([]string, 0, len(packs))
+	for _, p := range packs {
+		selected = append(selected, p.Name)
+	}
+	if _, _, _, err := resolveGateReadableAllowance(workspace, user, userSources, read, selected, declarations, settings); err != nil {
+		add(errs, err.Error())
+	}
 }
 
 // withCarriedBrokerRead is user with each declared broker's read capability in
