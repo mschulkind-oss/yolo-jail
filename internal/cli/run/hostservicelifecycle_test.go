@@ -185,6 +185,12 @@ func TestLaunchPreflightValidatorInputIsPrivateAndAlwaysRemoved(t *testing.T) {
 	}
 }
 
+// exitingDaemonHangGuard is the readiness deadline for the fixtures below whose daemon records its
+// settings input and then exits non-zero. The startup path returns on that exit itself (the child's
+// Wait closing the exited channel), so this is never a budget the shell and stat(1) must beat on a
+// loaded machine: it only turns a daemon that never exits into a failure instead of a hang.
+const exitingDaemonHangGuard = 90 * time.Second
+
 // TestPerJailPrivateSnapshotIsRemovedWhenTheSpawnFails: a settings-check-enabled per-jail daemon
 // whose spawn fails — the executable is missing, or it exits before readiness — leaves no private
 // snapshot behind, and never had the stable settings path written for it. The exiting daemon proves
@@ -218,7 +224,7 @@ func TestPerJailPrivateSnapshotIsRemovedWhenTheSpawnFails(t *testing.T) {
     "publishes": "socket"
   }
 }`, name, cmd))
-			o, output := lifecycleOptions(t, 2*time.Second)
+			o, output := lifecycleOptions(t, exitingDaemonHangGuard)
 			cname := "yolo-snapshot-fail-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 			handles := o.startLoopholesMatching(set, cname, "podman", settingsConfig(name, "candidate-profile"),
 				func(string) bool { return true })
@@ -266,13 +272,16 @@ func TestLegacyPerJailManifestKeepsTheStableSettingsPath(t *testing.T) {
     "publishes": "socket"
   }
 }`, name, recordSettingsInput+"; exit 3", marker))
-	o, output := lifecycleOptions(t, 2*time.Second)
+	o, output := lifecycleOptions(t, exitingDaemonHangGuard)
 	cname := "yolo-legacy-settings-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	handles := o.startLoopholesMatching(set, cname, "podman", settingsConfig(name, "legacy-profile"),
 		func(string) bool { return true })
 	if len(handles) != 0 {
 		t.Fatalf("exiting fixture daemon reported started:\n%s", output.String())
+	}
+	if len(o.startupOutcomes) != 1 || o.startupOutcomes[0].Kind != hostservice.StartupKindProcessExited {
+		t.Fatalf("exiting fixture daemon: outcomes=%+v, want its observed exit\n%s", o.startupOutcomes, output.String())
 	}
 	_, path, body := readSnapshotMarker(t, marker)
 	stable := loopholes.SettingsFileFor(name)
