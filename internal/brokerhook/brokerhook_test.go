@@ -25,6 +25,8 @@ type fixture struct {
 	filing brokerstore.Request
 	// skew moves the store's clock forward, so a test can expire a request.
 	skew atomic.Int64
+	// grace, unless nil, decides when a stopped hook's StopGrace ends (graceClock).
+	grace *graceClock
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -72,6 +74,9 @@ func (f *fixture) runFor(t *testing.T, command string, log *syncBuffer, timeout,
 	r := &Runner{Store: f.store, Start: "start", Command: command, Interval: interval, Timeout: timeout, Log: log}
 	if clock != nil {
 		r.afterFunc = clock.afterFunc
+	}
+	if f.grace != nil {
+		r.graceTimer = f.grace.timer
 	}
 	done := make(chan struct{})
 	go func() { r.Run(ctx); close(done) }()
@@ -131,6 +136,40 @@ func (c *limitClock) runOut(t *testing.T) []time.Duration {
 	}
 	return limits
 }
+
+// graceClock stands in for the StopGrace clock a stopped hook's SIGKILL waits on: the
+// grace ends only when the test calls end, so what a hook does on its SIGINT is seen
+// however slowly a loaded machine runs it, with no real clock racing it to the SIGKILL.
+type graceClock struct {
+	started chan time.Duration // each grace clock's length, as it is started
+	over    chan time.Time     // closed by end
+	once    sync.Once
+}
+
+func newGraceClock() *graceClock {
+	return &graceClock{started: make(chan time.Duration, 16), over: make(chan time.Time)}
+}
+
+func (c *graceClock) timer(d time.Duration) (<-chan time.Time, func() bool) {
+	c.started <- d
+	return c.over, func() bool { return true }
+}
+
+// await returns the length of the next grace clock started: the runner has sent a stopped
+// hook its SIGINT and now waits on the grace. The bound only turns a hang into a failure.
+func (c *graceClock) await(t *testing.T) time.Duration {
+	t.Helper()
+	select {
+	case d := <-c.started:
+		return d
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for a stopped hook's grace clock to start")
+		return 0
+	}
+}
+
+// end ends every grace clock, started or still to start.
+func (c *graceClock) end() { c.once.Do(func() { close(c.over) }) }
 
 type syncBuffer struct {
 	mu sync.Mutex

@@ -183,28 +183,32 @@ func TestAHookStillRunningAtExpiryRecordsNoFailure(t *testing.T) {
 }
 
 // A hook is stopped with SIGINT to its process group first, so a trap in it can close the
-// notification it showed, and only then, after StopGrace, with SIGKILL.
+// notification it showed, and only then, after StopGrace, with SIGKILL. The grace is the
+// test's to end and it does not, so the trap runs however slowly a loaded machine runs it;
+// had the group been SIGKILLed first, or without waiting on the grace, the trap would never
+// run.
 func TestAStoppedHookGetsSIGINTFirst(t *testing.T) {
 	f := newFixture(t)
+	f.grace = newGraceClock()
 	var log syncBuffer
 	closed := filepath.Join(f.dir, "closed")
 	started := filepath.Join(f.dir, "started")
 	hook := f.script(t, "hook", "trap \x27echo closed >\""+closed+"\"; exit 0\x27 INT\ncat >/dev/null\ntouch \x27"+started+"\x27\nwhile :; do sleep 1; done\n")
 	stop := f.run(t, hook, &log)
 	defer stop()
+	defer f.grace.end() // runs before stop, so a failed test still lets the runner finish
 	q, err := f.store.File(f.filing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the hook to start", func() bool { _, err := os.Stat(started); return err == nil })
-	begun := time.Now()
 	if _, err := f.store.Decide(q.ID, "pending", brokerstore.Decision{Deny: true}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the hook\x27s INT trap to run", func() bool { b, _ := os.ReadFile(closed); return string(b) == "closed\n" })
-	if took := time.Since(begun); took >= StopGrace {
-		t.Fatalf("the INT trap ran after %s, not before the SIGKILL at StopGrace (%s)", took, StopGrace)
+	if d := f.grace.await(t); d != StopGrace {
+		t.Fatalf("a stopped hook's grace is %s, want StopGrace (%s)", d, StopGrace)
 	}
+	waitFor(t, "the hook\x27s INT trap to run", func() bool { b, _ := os.ReadFile(closed); return string(b) == "closed\n" })
 	stop()
 	if got := f.request(t, q.ID).HookFailure; got != "" {
 		t.Fatalf("a hook stopped by its request\x27s decision recorded %q", got)
@@ -249,27 +253,34 @@ func TestTheOneLinerNotifierGetsTheSIGINT(t *testing.T) {
 // A hook that ignores SIGINT is still killed, everything it started included, once
 // StopGrace has passed: "kill everything it started" holds, and the stop is bounded. The
 // backgrounded child also ignores SIGINT, as a non-interactive shell starts every
-// background job.
+// background job. The grace is the test's to end: the child outlives the SIGINT while the
+// grace runs, and dies once it ends.
 func TestAHookIgnoringSIGINTIsKilledAfterTheGrace(t *testing.T) {
 	f := newFixture(t)
+	f.grace = newGraceClock()
 	var log syncBuffer
 	child := filepath.Join(f.dir, "child")
 	hook := f.script(t, "hook", "trap \x27\x27 INT\ncat >/dev/null\nsleep 300 >/dev/null 2>&1 &\necho $! >\x27"+child+"\x27\nwait\n")
 	stop := f.run(t, hook, &log)
 	defer stop()
+	defer f.grace.end() // runs before stop, so a failed test still lets the runner finish
 	q, err := f.store.File(f.filing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pid := readPid(t, child)
-	begun := time.Now()
 	if _, err := f.store.Decide(q.ID, "pending", brokerstore.Decision{Deny: true}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the hook\x27s child to die", func() bool { return !alive(pid) })
-	if took := time.Since(begun); took < StopGrace/2 || took > StopGrace+3*time.Second {
-		t.Fatalf("a hook ignoring SIGINT was killed after %s, want about StopGrace (%s)", took, StopGrace)
+	if d := f.grace.await(t); d != StopGrace {
+		t.Fatalf("a stopped hook's grace is %s, want StopGrace (%s)", d, StopGrace)
 	}
+	// The SIGINT has been sent and ignored; nothing more is sent until the grace ends.
+	if !alive(pid) {
+		t.Fatal("the hook\x27s child was killed before its grace ended")
+	}
+	f.grace.end()
+	waitFor(t, "the hook\x27s child to die", func() bool { return !alive(pid) })
 }
 
 // A request filed and decided between two polls has no question left to ask: its filing

@@ -91,6 +91,11 @@ type Runner struct {
 	// its stop; nil is time.AfterFunc. A test sets it to decide when that clock runs out, so
 	// a hook is stopped only once the test has seen it start, however slowly it starts.
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
+	// graceTimer starts the StopGrace clock after a stopped hook's SIGINT, returning the
+	// channel that fires when the grace is over and the clock's stop; nil is time.NewTimer.
+	// A test sets it to decide when the grace ends, so what the hook does on SIGINT is
+	// seen however slowly it runs, with no real clock racing it to the SIGKILL.
+	graceTimer func(d time.Duration) (fired <-chan time.Time, stop func() bool)
 }
 
 var (
@@ -421,13 +426,17 @@ func (r *Runner) fire(ctx context.Context, q brokerstore.Request) {
 			return // the group is already gone
 		}
 		r.logf("the hook for %s was stopped because %v", q.ID, why)
-		grace := time.NewTimer(StopGrace)
-		defer grace.Stop()
+		graceTimer := r.graceTimer
+		if graceTimer == nil {
+			graceTimer = func(d time.Duration) (<-chan time.Time, func() bool) { t := time.NewTimer(d); return t.C, t.Stop }
+		}
+		graceOver, stopGrace := graceTimer(StopGrace)
+		defer stopGrace()
 		tick := time.NewTicker(stopPoll)
 		defer tick.Stop()
 		for syscall.Kill(-pgid, 0) == nil {
 			select {
-			case <-grace.C:
+			case <-graceOver:
 				_ = syscall.Kill(-pgid, syscall.SIGKILL)
 				return
 			case <-tick.C:
