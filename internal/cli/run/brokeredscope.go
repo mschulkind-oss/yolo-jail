@@ -286,17 +286,17 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 			// Unless the read grant DOES apply and the workspace names no repository for it: the
 			// gate approved nothing because there is nothing to serve, so the line names the
 			// missing remote and how to add one, never the grant the user already holds.
-			if entryKey, held := o.readWithoutScope[lp.Name]; held && approved {
+			if _, held := o.readWithoutScope[lp.Name]; held && approved {
 				if form == brokerscope.FormRemoteURL {
 					out.printf("[dim]%s: your read grant applies, but this workspace has no remote, so the "+
 						"broker has no repository to serve and every call through it is refused; add one with "+
 						"`git remote add`, and the next launch asks about it[/dim]", lp.Name)
 				} else {
 					out.printf("[dim]%s: your read grant applies, but this workspace has no remote on %s and "+
-						"no `%s` entry, so the broker has no repository to serve and every call through it is "+
-						"refused; add a remote with `git remote add` (or list the repository under `%s`), and "+
-						"the next launch asks about it[/dim]", lp.Name, lp.Brokered.RemoteHost,
-						richtext.Escape(entryKey), richtext.Escape(entryKey))
+						"no `[repos.<name>]` entry, so the broker has no repository to serve and every call through it is "+
+						"refused; add a remote with `git remote add` (or name the repository with "+
+						"`yolo request repos <alias> %s/<path>`), and the next launch asks about it[/dim]",
+						lp.Name, lp.Brokered.RemoteHost, lp.Brokered.RemoteHost)
 				}
 				continue
 			}
@@ -313,9 +313,9 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 			continue
 		}
 		if len(approvedRepos) == 0 {
-			out.printf("[dim]%s: this workspace has no approved remote on %s and no approved `%s` "+
+			out.printf("[dim]%s: this workspace has no approved remote on %s and no approved `[repos.<name>]` "+
 				"entry, so its repository scope is empty; only commands that name no repository run[/dim]",
-				lp.Name, lp.Brokered.RemoteHost, config.BrokeredReposKey(lp.Brokered.Source))
+				lp.Name, lp.Brokered.RemoteHost)
 			continue
 		}
 		shown := make([]string, len(approvedRepos))

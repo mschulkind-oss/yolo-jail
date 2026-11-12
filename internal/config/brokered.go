@@ -492,9 +492,6 @@ func brokeredRootsPath(source string) string {
 	return brokeredKey + "." + source + "." + brokeredRootsKey
 }
 
-// BrokeredReposKey is brokeredReposPath for callers outside the package.
-func BrokeredReposKey(source string) string { return brokeredReposPath(source) }
-
 // brokeredSetsPath is `brokered.<source>.sets`, the user-scope half of the key (BB-D23).
 func brokeredSetsPath(source string) string {
 	return brokeredKey + "." + source + "." + brokeredSetsKey

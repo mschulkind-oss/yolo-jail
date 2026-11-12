@@ -58,7 +58,7 @@ applies, the next fresh launch of a workspace with a GitHub remote asks once, in
 `.git/config`. With no terminal, pass `--accept-config-changes`, or run
 `yolo check --accept-config-changes` on the host first.
 
-To add a repository the workspace has no remote for, run `yolo request github repos org/lib` in the
+To add a repository the workspace has no remote for, run `yolo request repos lib github.com/org/lib` in the
 project, which writes the workspace's own config and runs `yolo check`. In a legacy JSONC project,
 list it by hand in `yolo-jail.jsonc`, or `yolo-jail.local.jsonc` for one the project should not
 commit. The next
@@ -70,7 +70,7 @@ approve it; `yolo config-ref` documents the key:
 ```
 
 An agent may add one: a repository outside the scope is refused with a message telling the agent
-to run `yolo request github repos <owner/repo>` and to ask you to run `yolo config apply` on the host and approve it; the running
+to run `yolo request repos <alias> github.com/<owner>/<repo>` and to ask you to run `yolo config apply` on the host and approve it; the running
 jail takes it without a restart.
 
 An entry may be a whole-segment wildcard instead of one repository: `*/*` is every repository the
@@ -84,7 +84,7 @@ run: account-wide commands stay refused.
 | :--- | :--- |
 | Runs | the read-only set, against an approved repository: `pr view/list/diff/status/checks`, `issue view/list/status`, `run view/list/watch`, `workflow view/list`, `repo view/read-file/read-dir`, `release view/list`, `label list`, `secret list`, `search` with an in-scope `--repo`, `api` GET under `repos/OWNER/REPO`, and more |
 | Pending write | Filed for exact host approval; see `yolo approve <id>` in the broker log or host CLI; `on_request` is optional |
-| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no `brokered.github.repos` entry admits |
+| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no `[repos.<name>]` entry admits |
 | Exit 69 | no broker in this jail, or no `gh` or login on the host |
 
 stdout, stderr and the exit code of a command that runs cross verbatim, and `--jq` and

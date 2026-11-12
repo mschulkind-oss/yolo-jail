@@ -164,9 +164,9 @@ func TestAHeldReadGrantOverNoRemoteNamesTheMissingRemote(t *testing.T) {
 						"and the next launch asks about it"
 					if host != "*" {
 						want = "gb: your read grant applies, but this workspace has no remote on github.com and no " +
-							"`brokered.gbsrc.repos` entry, so the broker has no repository to serve and every call " +
-							"through it is refused; add a remote with " + addRemote + " (or list the repository under " +
-							"`brokered.gbsrc.repos`), and the next launch asks about it"
+							"`[repos.<name>]` entry, so the broker has no repository to serve and every call " +
+							"through it is refused; add a remote with " + addRemote + " (or name the repository with " +
+							"`yolo request repos <alias> github.com/<path>`), and the next launch asks about it"
 					}
 					if !strings.Contains(out, want) {
 						t.Fatalf("the launch does not name the missing remote as\n  %s\n%s", want, out)
@@ -219,9 +219,9 @@ func TestAReadableReadAllowanceOverNoRemoteNamesTheMissingRemote(t *testing.T) {
 					t.Fatalf("an allowed read was reported missing:\n%s", out)
 				}
 				want := "github-broker: your read grant applies, but this workspace has no remote on github.com and no " +
-					"`brokered.github.repos` entry, so the broker has no repository to serve and every call through " +
-					"it is refused; add a remote with " + addRemote + " (or list the repository under " +
-					"`brokered.github.repos`), and the next launch asks about it"
+					"`[repos.<name>]` entry, so the broker has no repository to serve and every call through " +
+					"it is refused; add a remote with " + addRemote + " (or name the repository with " +
+					"`yolo request repos <alias> github.com/<path>`), and the next launch asks about it"
 				if !strings.Contains(out, want) {
 					t.Fatalf("the launch does not name the missing remote as\n  %s\n%s", want, out)
 				}

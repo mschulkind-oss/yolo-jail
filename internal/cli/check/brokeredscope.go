@@ -94,7 +94,7 @@ func describeScope(s config.ScopeSource) string {
 		return "none (no remote)"
 	}
 	if len(repos) == 0 {
-		return "none (no remote on " + s.RemoteHost + " and no `" + config.BrokeredReposKey(s.Source) + "` entry)"
+		return "none (no remote on " + s.RemoteHost + " and no `[repos.<name>]` entry)"
 	}
 	return strings.Join(repos, ", ")
 }

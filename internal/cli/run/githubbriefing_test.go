@@ -41,7 +41,7 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		// repository, that the user approves it with `yolo config apply`, and that nothing changes
 		// before then.
 		"A repository this workspace has no remote for stays out of scope until the user approves it.",
-		"Run `yolo request github repos OWNER/REPO`, which writes this project's config",
+		"Run `yolo request repos <alias> github.com/OWNER/REPO`, which writes this project's config",
 		"ask the user to run the same command on the host, in this workspace",
 		"Then run `yolo config check`, and ask the user to run `yolo config apply` on the host, in this workspace, and answer y to the repository-scope prompt.",
 		"In a jail started by this yolo, the running broker takes the repository at its next call; an older one needs a restart. Nothing changes before that y.",

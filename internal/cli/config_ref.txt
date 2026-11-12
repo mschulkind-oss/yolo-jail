@@ -522,7 +522,7 @@
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
 
-  [bold cyan]BROKERED LOOPHOLES: requests.github.repos, read grants, sets[/bold cyan]
+  [bold cyan]BROKERED LOOPHOLES: [repos.<name>], read grants, sets[/bold cyan]
     A brokered loophole, such as the github pack's github-broker or the git
     pack's git-broker, runs your host login's commands for the jail.  It runs
     them only against the workspace's repositories: its git remotes, and any
@@ -3656,7 +3656,7 @@
       this source, as in "grant_kinds": ["create-branch"].  Listing a kind grants
       nothing by itself.  A workspace file may NOT name grant_kinds.
     • [bold]repos[/bold] (WORKSPACE SCOPE): more repositories for this workspace, as in
-      "repos": ["org/lib"], with the entry rules `requests.github.repos` has.
+      "repos": ["org/lib"], with the entry rules a `[repos.<name>]` table's `repo` line has.
       "repos": null in the local file clears the list.  A `repos` list in the user
       config is a `yolo check` error.  The old form, "workspaces" keyed by a
       workspace's path, is retired: move each entry into its project's

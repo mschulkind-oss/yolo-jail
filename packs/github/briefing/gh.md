@@ -51,7 +51,7 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
   every call across the account. Raw `gh api graphql` is always refused; `gh`'s own commands
   (`gh pr view`, `gh issue list`, …) use GraphQL inside and work.
 - A repository this workspace has no remote for stays out of scope until the user approves it.
-  Run `yolo request github repos OWNER/REPO`, which writes this project's config (if it refuses
+  Run `yolo request repos <alias> github.com/OWNER/REPO`, which writes this project's config (if it refuses
   because the config file is read-only here or cannot take the key, ask the user to run the same
   command on the host, in this workspace).
   Then run `yolo config check`, and ask the user to run `yolo config apply` on the host, in
