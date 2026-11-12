@@ -209,16 +209,32 @@ func openRunTestPty(t *testing.T) (master, slave *os.File, name string) {
 	return m, s, name
 }
 
-// A stand-in for the lingering `podman run` client: `dd` on a pty slave, which
-// sits in read(0) exactly as the stdin hypothesis says podman does. (Not `cat`:
-// coreutils cat blocks in splice(0, …).)
+// lingerReadHelperEnv marks the child TestLingerReadHelperProcess runs as: the lingering client.
+const lingerReadHelperEnv = "YOLO_TEST_LINGER_READ_HELPER"
+
+// TestLingerReadHelperProcess is not a test: it is the body of the lingering client that
+// lingeringClient starts. It makes one raw read(2) on fd 0, the pty slave, and exits when that
+// read returns. Re-running this compiled test binary keeps the fixture free of any tool on PATH.
+func TestLingerReadHelperProcess(t *testing.T) {
+	if os.Getenv(lingerReadHelperEnv) == "" {
+		return
+	}
+	var b [1]byte
+	_, _ = syscall.Read(0, b[:])
+	os.Exit(0)
+}
+
+// A stand-in for the lingering `podman run` client: this test binary, blocked in read(0) on a
+// pty slave exactly as the stdin hypothesis says podman is. No external tool runs, so the
+// fixture is the same on every machine.
 func lingeringClient(t *testing.T) (*exec.Cmd, string) {
 	t.Helper()
 	master, slave, ptsName := openRunTestPty(t)
-	c := exec.Command("dd", "bs=1", "count=1", "of=/dev/null")
+	c := exec.Command(os.Args[0], "-test.run=^TestLingerReadHelperProcess$", "-test.count=1")
+	c.Env = append(os.Environ(), lingerReadHelperEnv+"=1")
 	c.Stdin, c.Stdout = slave, slave
 	if err := c.Start(); err != nil {
-		t.Skipf("dd: %v", err)
+		t.Fatalf("start the lingering client: %v", err)
 	}
 	slave.Close()
 	t.Cleanup(func() { _ = c.Process.Kill(); _ = c.Wait(); master.Close() })
@@ -226,25 +242,40 @@ func lingeringClient(t *testing.T) (*exec.Cmd, string) {
 	return c, ptsName
 }
 
-// waitBlockedInRead returns once pid is blocked in read(2) on fd 0, the state every caller's
-// "names the read" assertion is about. Start returns when dd has been exec'd, not when it
-// reaches its read: on a loaded runner a sample taken at once caught dd still loading its
-// locale ("open: /usr/lib/locale/…", CI run 36500602808), and the assertion failed on a
-// correct probe. /proc/<pid>/syscall's first field is the syscall number (unix.SYS_READ is
-// this arch's), the second its first argument.
+// waitBlockedInRead returns once some thread of pid is blocked in read(2) on fd 0, the state
+// every caller's "names the read" assertion is about. Start returns when the client is exec'd,
+// not when it reaches its read: a sample taken at once would catch it still loading (on CI a
+// locale open, run 36500602808), and the assertion would fail on a correct probe. The read is
+// not necessarily on the root thread: a Go program's read runs on whichever thread holds the
+// goroutine, so every task is checked. /proc/<pid>/task/<tid>/syscall's first field is the
+// syscall number (unix.SYS_READ is this arch's), the second its first argument.
 func waitBlockedInRead(t *testing.T, pid int) {
 	t.Helper()
-	want := strconv.Itoa(unix.SYS_READ)
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/syscall", pid))
-		if err != nil {
-			continue
-		}
-		if f := strings.Fields(string(b)); len(f) > 1 && f[0] == want && f[1] == "0x0" {
+		if anyTaskBlockedInRead(pid) {
 			return
 		}
 	}
 	t.Fatalf("pid %d never blocked in read(0): the lingering client did not reach its read", pid)
+}
+
+// anyTaskBlockedInRead reports whether a thread of pid is currently in read(2) on fd 0.
+func anyTaskBlockedInRead(pid int) bool {
+	tasks, err := os.ReadDir(filepath.Join("/proc", strconv.Itoa(pid), "task"))
+	if err != nil {
+		return false
+	}
+	want := strconv.Itoa(unix.SYS_READ)
+	for _, task := range tasks {
+		b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "task", task.Name(), "syscall"))
+		if err != nil {
+			continue
+		}
+		if f := strings.Fields(string(b)); len(f) > 1 && f[0] == want && f[1] == "0x0" {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForFile(t *testing.T, ws, want string) {
@@ -407,67 +438,60 @@ func TestQuietQuitFailureReportCarriesTheProcessEvidence(t *testing.T) {
 	}
 }
 
-// THE CALLER UNDER A MISSING FIXTURE: with no dd on PATH the quiet-quit test skips before its
-// assertion, so TestQuietQuitFailureReportCarriesTheProcessEvidence must SKIP too, naming dd,
-// instead of failing on the child's clean exit. Both cases run the parent test as a child of
-// this binary: the first with PATH naming an empty directory, the second with the real PATH,
-// where the forced failure must produce its report and the parent must PASS. If PTY setup
-// fails before dd, or probe startup fails after it, the nested parent SKIPs with that
-// prerequisite. The missing-dd wrapper verifies the skip and passes; the positive wrapper
-// skips because the failure report was not exercised.
-func TestQuietQuitDiagnosticSkipsWhenItsFixtureIsMissing(t *testing.T) {
+// THE CALLER WITH NO EXTERNAL FIXTURE: the quiet-quit client is this test binary's own raw
+// reader, so with PATH naming an empty directory (no dd, no other tool) the quiet-quit
+// diagnostic must still PASS with its report, and TestLingeringClientOwnsItsReadWithoutDd must
+// PASS too. Both run as children of this binary under that PATH, so a fixture that needs a tool
+// from PATH SKIPs here and fails the parent. A PTY or probe-startup prerequisite is still a SKIP
+// (quietQuitPrerequisiteSkip), and a SKIP the parent does not name fails it.
+func TestQuietQuitDiagnosticNeedsNoExternalFixture(t *testing.T) {
 	if os.Getenv(quietQuitMismatchEnv) != "" {
 		t.Fatal("the forced-mismatch child must not start another child")
 	}
-	const parent = "TestQuietQuitFailureReportCarriesTheProcessEvidence"
-	runParent := func(t *testing.T, env []string) (string, error) {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), quietQuitChildTimeout)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+parent+"$", "-test.count=1", "-test.v=true")
-		cmd.Env = env
-		out, err := cmd.CombinedOutput()
-		if ctx.Err() != nil {
-			t.Fatalf("the parent run hung past the guard:\n%s", out)
-		}
-		return string(out), err
+	runParent(t, "TestQuietQuitFailureReportCarriesTheProcessEvidence")
+}
+
+// THE OWNED FIXTURE, without PATH: the client that quiet-quit and the probe read is this binary,
+// not a tool looked up on PATH, so it must start (lingeringClient waits for its read) with no
+// tool on PATH and must be this test binary.
+func TestLingeringClientOwnsItsReadWithoutDd(t *testing.T) {
+	if os.Getenv(quietQuitMismatchEnv) != "" {
+		t.Fatal("the forced-mismatch child must not start another child")
 	}
-	t.Run("a missing dd skips the parent", func(t *testing.T) {
-		out, err := runParent(t, withEnvVar(os.Environ(), "PATH", t.TempDir()))
-		status, messages := selectedTestOutcome(out, parent)
-		reason := strings.Join(messages, "\n")
-		switch {
-		case err != nil || status != "SKIP":
-			t.Fatalf("the parent run exited %v with outcome %q, want a clean SKIP:\n%s", err, status, out)
-		case strings.Contains(reason, "dd:"):
-			// the fixture reached dd and found none
-		case quietQuitPrerequisiteSkip(reason):
-			// the fixture stopped before dd, so there is no dd reason to name
-		default:
-			t.Errorf("parent skipped with %q, want the dd skip or a fixture prerequisite:\n%s", reason, out)
-		}
-	})
-	t.Run("the real PATH passes the parent with its report", func(t *testing.T) {
-		if _, err := exec.LookPath("dd"); err != nil {
-			t.Skip("no dd on this machine: the positive run needs the fixture")
-		}
-		out, err := runParent(t, os.Environ())
-		status, messages := selectedTestOutcome(out, parent)
-		reason := strings.Join(messages, "\n")
-		switch {
-		case err == nil && status == "PASS":
-		case err == nil && status == "SKIP" && quietQuitPrerequisiteSkip(reason):
-			t.Skipf("the quiet-quit fixture cannot be set up here, so the report was not exercised: %s", reason)
-		default:
-			t.Fatalf("the parent run exited %v with outcome %q, want PASS or a prerequisite SKIP:\n%s", err, status, out)
-		}
-	})
+	client, _ := lingeringClient(t)
+	if client.Path != os.Args[0] {
+		t.Errorf("the lingering client is %q, want this test binary %q: the fixture must not run an external reader", client.Path, os.Args[0])
+	}
+}
+
+// runParent runs the named test as a child of this binary under an empty PATH and requires it to
+// PASS: the caller's fixture must need nothing from PATH. A SKIP is accepted only when its reason
+// names a prerequisite the test could not set up here.
+func runParent(t *testing.T, parent string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), quietQuitChildTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+parent+"$", "-test.count=1", "-test.v=true")
+	cmd.Env = withEnvVar(os.Environ(), "PATH", t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the parent run hung past the guard:\n%s", out)
+	}
+	status, messages := selectedTestOutcome(string(out), parent)
+	reason := strings.Join(messages, "\n")
+	switch {
+	case err == nil && status == "PASS":
+	case err == nil && status == "SKIP" && quietQuitPrerequisiteSkip(reason):
+		t.Skipf("%s cannot run here, so it was not exercised: %s", parent, reason)
+	default:
+		t.Fatalf("%s exited %v with outcome %q under an empty PATH, want PASS:\n%s", parent, err, status, out)
+	}
 }
 
 // quietQuitPrerequisiteSkip reports whether a skip message names a fixture the quiet-quit test
-// could not set up on this machine: no pty, a refused ioctl, no dd, or an unarmed probe.
+// could not set up on this machine: no pty, a refused ioctl, or an unarmed probe.
 func quietQuitPrerequisiteSkip(reason string) bool {
-	for _, marker := range []string{"no pty:", "unlockpt:", "ptsname:", "open slave:", "dd:", "linger probe failed to start"} {
+	for _, marker := range []string{"no pty:", "unlockpt:", "ptsname:", "open slave:", "linger probe failed to start"} {
 		if strings.Contains(reason, marker) {
 			return true
 		}
@@ -579,8 +603,8 @@ func TestForcedQuietQuitVerdictReadsOnlyTheSelectedTestsOutcome(t *testing.T) {
 		problem bool
 	}{
 		{"the selected test's own skip is propagated",
-			"=== RUN   " + name + "\n    lingerprobe_test.go:306: dd: not found\n--- SKIP: " + name + " (0.00s)\nPASS\n",
-			nil, "lingerprobe_test.go:306: dd: not found", false},
+			"=== RUN   " + name + "\n    lingerprobe_test.go:306: open slave: not found\n--- SKIP: " + name + " (0.00s)\nPASS\n",
+			nil, "lingerprobe_test.go:306: open slave: not found", false},
 		{"another test's skip is not this test's skip",
 			"=== RUN   TestOther\n--- SKIP: TestOther (0.00s)\n=== RUN   " + name + "\n--- PASS: " + name + " (0.01s)\nPASS\n",
 			nil, "", true},
@@ -594,7 +618,7 @@ func TestForcedQuietQuitVerdictReadsOnlyTheSelectedTestsOutcome(t *testing.T) {
 			"=== RUN   " + name + "\n--- SKIP: " + name + " (0.00s)\n",
 			exited, "", true},
 		{"a failure that also logged a skip is the expected failing run, never a skip",
-			"=== RUN   " + name + "\n    lingerprobe_test.go:9: dd: not found\n--- FAIL: " + name + " (0.00s)\nFAIL\n",
+			"=== RUN   " + name + "\n    lingerprobe_test.go:9: open slave: not found\n--- FAIL: " + name + " (0.00s)\nFAIL\n",
 			exited, "", false},
 		{"a pass is an unexpected success",
 			"=== RUN   " + name + "\n--- PASS: " + name + " (0.00s)\nPASS\n",
