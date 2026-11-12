@@ -21,7 +21,7 @@ next: "A real Linux GPU host verifies the generated tree and tests Mesa 26.2.5 w
 
 **Needs your ruling:** None.
 
-**Reads with:** [`gpu-graphics.md`](../research/gpu-graphics.md) (evidence and limits), [`gpu-graphics-plan.md`](gpu-graphics-plan.md) (completed source map and gates), [`ROCm passthrough`](../reference/rocm-passthrough.md) (device/memlock contracts), [`image delivery`](../reference/image-staging-vs-baking.md) (baked versus selected profile outputs).
+**Reads with:** [`gpu-graphics.md`](../research/gpu-graphics.md) (evidence and limits), [Build invariants](#build-invariants) (what the retired build plan pinned), [`ROCm passthrough`](../reference/rocm-passthrough.md) (device/memlock contracts), [`image delivery`](../reference/image-staging-vs-baking.md) (baked versus selected profile outputs).
 
 ## Provisioning contract
 
@@ -44,6 +44,20 @@ For an enabled GPU on Linux, `yolo check` reports selected resolved package name
 A supported package pin remains the existing [`packages` mechanism](../../userguide/guides/packages-and-tools.md#nix-packages-image-level); add graphics-specific discovery to the user guide only after the implementation contract is live. Do not add config keys. An in-jail check reads runtime provenance and guest paths. If provenance is absent, identify the selected package from the active baked or selected-profile manifest without claiming any path was exposed. A host check may report host GPU readiness, but must not describe host `/run` as the guest tree; direct the user to check inside the running jail for resolved package version and exposure. Store-profile diagnostics use the selected profile, never the baked manifest as a fallback when store delivery is active.
 
 This provisioner runs inside the Linux container-entrypoint boot path only, including Apple Container's Linux guest when the requested GPU flag is enabled. It does not create or alter paths on the host, macos-user, or native macOS. Apple Container has no GPU-device passthrough: exposing a driver tree there does not imply hardware access. The provisioner does not change device selection, privileges, seccomp, memlock, or GPU security policy. R4's reported card-node ioctl `EACCES` remains a separate, unproven issue; no privilege remedy is part of this design.
+
+## Build invariants
+
+The build was handed off through a companion plan, now retired; git history keeps its lane map and gate commands. These are the rules it pinned beyond the sections above.
+
+- **The boot signal follows the request.** The launch passes `YOLO_GPU_ENABLED=1` or `YOLO_GPU_ENABLED=0` from the requested `gpu.enabled`, never from host-confirmed device availability, and an explicit `0` overrides any inherited value. `internal/cli/run/assemble.go` keeps the two apart on purpose; the launch call-site tests pin both values when host GPU probing declines, including on Apple Container, where no device is passed through.
+- **The boot step's place is pinned.** The step is `configure_graphics_drivers` in `internal/entrypoint/bootsteps.go`, after `generate_store_packages` (which materializes the store profiles) and before `generate_ld_cache` and application bootstrap. It is marked `notDarwin`, because macos-user shares the step list and runs no container GPU exposure, and `notSessionPass`, as above. `bootsteps_test.go` pins both boot orders. Nothing is provisioned on the host or at image build time.
+- **The manifest's two homes.** The baked image carries `/etc/yolo-jail/graphics-drivers.json`; each store package profile carries `share/yolo-jail/graphics-drivers.json`. An entry's `lib` and `share` outputs may have different store roots. The `yolo check` side decodes this JSON itself and depends on no entrypoint API.
+- **A preexisting tree is checked at its root without following links.** It is wholly user-supplied, even when incomplete or dangling.
+- **Versions are re-evaluated, not remembered.** The Mesa `out` and `pkgsi686Linux.mesa` `out` candidates are a source evaluation of the locked nixpkgs and must be re-evaluated after a nixpkgs bump. Mesa 26.2.5 is not to be called stable. No NVIDIA record is emitted or promised until its graphics `lib` and `share` outputs are validated.
+- **What the tests cover.** The boot tests (`internal/entrypoint/graphics_test.go`, `graphics_behavior_test.go`) cover resolved 64-bit paths, distinct `lib` and `share` roots, optional 32-bit metadata, first-record selection, preexisting, incomplete and dangling trees, the disabled and no-driver no-ops, fatal invalid metadata or outputs, and no partial tree. The `yolo check` tests (`internal/cli/check/graphics_test.go`) go through the real `Check` call site and cover resolved name and version, present and absent paths, no driver, malformed or unreadable metadata, an absent optional 32-bit tree, a preexisting tree that differs from the selected outputs, and in-jail versus host facts; removing the call site must fail them. `integration/gpugraphics_test.go` is the combined case.
+- **R4 waits on evidence.** Capture ioctl and file-descriptor evidence for the reported card-node `EACCES` before considering any remedy.
+
+The graphics-specific user-guide pointer is live in [Devices and GPUs](../../userguide/guides/devices-and-gpus.md#mesa-graphics-libraries).
 
 ## Acceptance
 
