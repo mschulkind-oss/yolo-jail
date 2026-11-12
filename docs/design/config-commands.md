@@ -250,7 +250,7 @@ removes two-thirds of the lines whatever the format; TOML keeps its one-line tab
 rewrites it and JSONC grows back to 133 lines; YAML reads `python: 3.10` as the number 3.1, which
 a mise version is; and TOML is already vendored and used (`internal/tomlx`,
 `internal/agentcfg/codec`). Files only yolo reads stay JSON. This reverses
-[MN-D1](manifest-language.md#MN-D1) (2026-09-30), which kept the configs on JSONC until a
+[MN-D1](pack-manifests.md#MN-D1) (2026-09-30), which kept the configs on JSONC until a
 proposal said otherwise.
 
 ## 6. Principles

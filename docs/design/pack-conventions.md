@@ -49,7 +49,7 @@ widen), [`patched-extensions.md`](../reference/pi-extensions.md) (the tree and i
 [`pi-pack-extensions.md`](pi-pack-extensions.md) (the per-pack landing [OQ-PC3](#OQ-PC3) would
 amend), [`agent-briefings.md`](../reference/agent-briefings.md) (the audience rules
 [OQ-PC1](#OQ-PC1) bears on), [`loophole-system.md`](../reference/loophole-system.md) (the
-activation rulings [OQ-PC2](#OQ-PC2) bears on), [`manifest-language.md`](manifest-language.md)
+activation rulings [OQ-PC2](#OQ-PC2) bears on), [`pack-manifests.md` §7](pack-manifests.md#7-the-manifest-language-principles-alternatives-and-rulings)
 (syntax, per-kind defaults, and the posture spelling handed there),
 [`slots-and-contributions.md`](slots-and-contributions.md) (the agent named once per pack), and
 [`pack-conventions-plan.md`](pack-conventions-plan.md) (the implementation sketch, incomplete).
@@ -96,7 +96,7 @@ activation rulings [OQ-PC2](#OQ-PC2) bears on), [`manifest-language.md`](manifes
 - <a id="p1"></a>**P1. A convention is an expansion, not a mode.** It yields the contributions
   the pack could have written. Every reader after the expansion reads ordinary contributions, and
   none of them branches on whether one was written or implied. This is how
-  [`manifest-language.md`](manifest-language.md#2-principles)'s M2 (*"Compression removes
+  [`pack-manifests.md` §7.1](pack-manifests.md#71-principles-m1-to-m5)'s M2 (*"Compression removes
   repetition, never a distinct fact"*) holds: an implied claim is still a claim, enumerated where
   every claim is.
 - <a id="p2"></a>**P2. The pack that owns a layout declares its convention; core applies it by
@@ -169,12 +169,12 @@ Each convention also gets a `yolo features` name in the commit that builds it, b
 [PF-D71](../reference/patched-forks.md#PF-D71)'s rule, so a host can be asked before a pack relies on it.
 
 > [!NOTE]
-> This rule bears on [OQ-M1](manifest-language.md#OQ-M1). Its per-kind defaults for `into`,
+> This rule bears on [OQ-M1](pack-manifests.md#OQ-M1). Its per-kind defaults for `into`,
 > `path` and `codec`, built as omissions, are refused by every older yolo. Its grouping by kind
 > replaces every top-level key, so a yolo with the skip reads a regrouped manifest as an empty
 > pack, naming each key it ignored, and a release refuses it. Both conflict with that question's
 > premise, *"We don't need transitions"*, while the maintainer's hosts run different yolos. A
-> pointer sits in [OQ-M1's background](manifest-language.md#background-to-oq-m1); this doc does
+> pointer sits in [OQ-M1's background](pack-manifests.md#74-background-to-oq-m1); this doc does
 > not rule it.
 
 ## 3. Where packs repeat themselves
@@ -189,11 +189,11 @@ packs, and where each one is taken. Counts are in [Appendix A](#appendix-a-count
 | Briefing prose addressed to one agent | The maintainer's pi rules, the claude and pi packs' worktree notes | [C2](#42-c2-a-folder-named-after-an-agent-is-addressed-to-it), [OQ-PC1](#OQ-PC1) |
 | `{"kind": "loophole", "from": "loopholes/<name>"}` | Every loophole yolo ships, one per pack | [C3](#43-c3-a-loophole-folder-is-the-loophole), [OQ-PC2](#OQ-PC2) |
 | A `files` entry whose `into` ends in its `from` file's name | The pi pack's four extensions, opencode's plugin | Not proposed: pi's own extensions are a [non-goal](#8-non-goals), and opencode's is one line |
-| A posture `config` entry restating the `agent`, `name`, `path` and `codec` of its own pack's surface | Every shipped posture with a config patch | Handed to [OQ-M1](manifest-language.md#OQ-M1) ([§7](#7-considered-and-not-proposed)) |
-| A `config-overlay` wrapper, `{kind, surface, config: {managed: …}}`, around each overlay | The maintainer's packs; no shipped pack | [OQ-M1](manifest-language.md#OQ-M1)'s grouping by kind. Not here |
+| A posture `config` entry restating the `agent`, `name`, `path` and `codec` of its own pack's surface | Every shipped posture with a config patch | Handed to [OQ-M1](pack-manifests.md#OQ-M1) ([§7](#7-considered-and-not-proposed)) |
+| A `config-overlay` wrapper, `{kind, surface, config: {managed: …}}`, around each overlay | The maintainer's packs; no shipped pack | [OQ-M1](pack-manifests.md#OQ-M1)'s grouping by kind. Not here |
 | A bare `{"kind": "briefing"}` | The maintainer's `matt` | Removable today: it governs every unnamed `briefing/*.md`, which the implicit broadcast already delivers, and briefing prose is ordered by filename either way. No convention needed |
 | `agent` on every destination and surface of an agent pack | Every shipped agent pack | Ruled ([OQ-D5](slots-and-contributions.md#7-decision-ledger)); its build waits on [OQ-D6](slots-and-contributions.md#OQ-D6). Not re-asked |
-| `codec` matching the extension; `"scope": "workspace"` (already the default); `after` equal to `host:` plus `into` | Most surfaces; most `state` entries; every briefing destination | [OQ-M1](manifest-language.md#OQ-M1)'s defaults and the `exposes` rewrite. Not here |
+| `codec` matching the extension; `"scope": "workspace"` (already the default); `after` equal to `host:` plus `into` | Most surfaces; most `state` entries; every briefing destination | [OQ-M1](pack-manifests.md#OQ-M1)'s defaults and the `exposes` rewrite. Not here |
 | A provider's same-named profile; one `install_hints` value for every manager; a machine `state` and the hook whose `at` names it | Provider packs; `requires` entries; three agent packs | Not proposed ([§7](#7-considered-and-not-proposed)) |
 
 ## 4. The conventions
@@ -572,20 +572,20 @@ a field an author left out, and never makes a pack that a yolo with the skip ref
 | Shape | Verdict |
 | :--- | :--- |
 | A pack-wide `defaults` block for any field | **Rejected.** An older yolo ignores the block and says it did, but still uses the contributions it shaped, with other values: a patched extension built without its `build` line, a different tree under a different recipe. A default for a required field leaves the contribution refused |
-| Omission defaults: `codec` from the extension, `patches` from `into` | **Rejected here**; per-kind defaults are [OQ-M1](manifest-language.md#OQ-M1)'s, and [§2](#2-what-an-older-yolo-does-with-a-convention) records what they cost |
+| Omission defaults: `codec` from the extension, `patches` from `into` | **Rejected here**; per-kind defaults are [OQ-M1](pack-manifests.md#OQ-M1)'s, and [§2](#2-what-an-older-yolo-does-with-a-convention) records what they cost |
 | A patched extension addressed with `agents` and no `into` | **Rejected.** An older yolo refuses `agents` beside `source`, and the launch fails |
 | A new kind bundling a tree and its list entry | **Rejected.** A second name for one destination, whose combine rule would have to track `files` and `config-list` by hand |
 | `each`: one declaration fanned out to one claim per file of a folder | **Not proposed.** Route C covers the only folder with several writers in the corpus, pi's extensions. Revisit when a second agent's shared folder appears |
 | A provider implying its same-named profile | **Rejected.** It saves two lines per provider pack, all shipped, and a selector a user types belongs in the file that defines it; `openai-codex`'s profile is named `codex` in the packs that use it |
 | One `install_hints` value for every manager | **Rejected.** The value is per manager by nature, a shipped hint must cite a source per manager (`TestEveryShippedAndExampleInstallHintNamesItsSource`), and the skip-safe spelling would be a second field for one map |
-| **A posture naming a surface instead of restating it** (the first draft's C4: `"managed": {"pi/settings": {…}}` in place of each `config` entry) | **Handed to [OQ-M1](manifest-language.md#OQ-M1).** It is a second spelling of the pack's own declaration, not an expansion, so it is syntax ([§8](#8-non-goals)). Review found four costs. It saves 10 entries, all in packs yolo ships, which travel with their own binary. On a yolo with the skip but without it, the `guarded` half is kept without its keys, and the posture left behind validates empty (`validateAutonomyPosture`). So the host agent runs without yolo's guarded settings while the kept-without-field line says the restriction holds, which reverses [PF-D69](../reference/patched-forks.md#PF-D69)'s premise; every release refuses it outright. On another pack's surface it has no `path` and `codec` to carry, which the config engine requires and [NS-D21](../reference/pack-system.md#ns-d21) compares. And four readers decode posture entries, not `packdecl`. [OQ-M1](manifest-language.md#OQ-M1)'s rewrite of every posture would also make it a third spelling |
+| **A posture naming a surface instead of restating it** (the first draft's C4: `"managed": {"pi/settings": {…}}` in place of each `config` entry) | **Handed to [OQ-M1](pack-manifests.md#OQ-M1).** It is a second spelling of the pack's own declaration, not an expansion, so it is syntax ([§8](#8-non-goals)). Review found four costs. It saves 10 entries, all in packs yolo ships, which travel with their own binary. On a yolo with the skip but without it, the `guarded` half is kept without its keys, and the posture left behind validates empty (`validateAutonomyPosture`). So the host agent runs without yolo's guarded settings while the kept-without-field line says the restriction holds, which reverses [PF-D69](../reference/patched-forks.md#PF-D69)'s premise; every release refuses it outright. On another pack's surface it has no `path` and `codec` to carry, which the config engine requires and [NS-D21](../reference/pack-system.md#ns-d21) compares. And four readers decode posture entries, not `packdecl`. [OQ-M1](pack-manifests.md#OQ-M1)'s rewrite of every posture would also make it a third spelling |
 | A shared-dir hook implying its machine `state` | **Not proposed.** Three pairs, all in shipped packs. Found on the way, a lint bug: `Decode` checked only that a hook's `at` was present, and the match against the pack's machine `state` was made only at boot, so `yolo pack lint` and `yolo check` passed a pack whose boot then failed. Fixed by [PC-D15](#PC-D15) |
-| A manifest written in Lua or Starlark | [`manifest-language.md`](manifest-language.md)'s [OQ-M2](manifest-language.md#OQ-M2) and [OQ-M3](manifest-language.md#OQ-M3) |
+| A manifest written in Lua or Starlark | [`pack-manifests.md` §7](pack-manifests.md#7-the-manifest-language-principles-alternatives-and-rulings)'s [OQ-M2](pack-manifests.md#OQ-M2) and [OQ-M3](pack-manifests.md#OQ-M3) |
 
 ## 8. Non-goals
 
 - **Grouping by kind, the syntax, per-kind defaults, and the posture spelling**:
-  [`manifest-language.md`](manifest-language.md).
+  [`pack-manifests.md` §7](pack-manifests.md#7-the-manifest-language-principles-alternatives-and-rulings).
 - **Naming the agent once per pack**: ruled ([OQ-D5](slots-and-contributions.md#7-decision-ledger)), and its
   build waits on [OQ-D6](slots-and-contributions.md#OQ-D6).
 - **A registration that loads part of a tree, or reaches one posture.** The written entry does
@@ -721,7 +721,7 @@ to overrule. A decision under an open question applies only if that question is 
 | <a id="PC-D2"></a>PC-D2 | Under [OQ-PC3](#OQ-PC3) A: a written list entry of the **contributing pack** that loads a tree (`loadsTree`, [PPX-D36](../reference/pi-extensions.md#PPX-D36)), in any list or posture, replaces that tree's registration | [P5](#p5); `owningAgentPack` reads only the contributing pack's lists; lets a monorepo tree and a guarded-only tree live in the folder | — |
 | <a id="PC-D3"></a>PC-D3 | Under [OQ-PC3](#OQ-PC3) A: a tree deeper than a direct child of a registering slot is not registered; lint and `yolo check` warn, naming the direct-child form; never refused | A deeper tree can sit inside another pack's landing, and a new refusal on a use read refuses a launch | — |
 | <a id="PC-D4"></a>PC-D4 | The patched-tree lint names the list from the `register` of a registering slot the selected packs declare (the shipped packs, at `yolo pack lint`), not pi's surface. With none selected it names the entry `~/<into>` and no agent. The missing-`into` refusal gives no agent's path. Needs no ruling, and rides the [pi packages](../reference/pack-system.md#pi-packages) build | [P2](#p2): core's text names pi today, at `patchedtrees.go:199` and in the missing-`into` refusal's example in `patchedext.go` | — |
-| <a id="PC-D5"></a>PC-D5 | **Withdrawn in review, 2026-10-05: the posture spelling is handed to [OQ-M1](manifest-language.md#OQ-M1)** ([§7](#7-considered-and-not-proposed)) | It is syntax, and review found it reverses [PF-D69](../reference/patched-forks.md#PF-D69)'s premise for `guarded` on an older host | — |
+| <a id="PC-D5"></a>PC-D5 | **Withdrawn in review, 2026-10-05: the posture spelling is handed to [OQ-M1](pack-manifests.md#OQ-M1)** ([§7](#7-considered-and-not-proposed)) | It is syntax, and review found it reverses [PF-D69](../reference/patched-forks.md#PF-D69)'s premise for `guarded` on an older host | — |
 | <a id="PC-D6"></a>PC-D6 | Each convention gets a `yolo features` name in the commit that builds it; names provisional | [PF-D71](../reference/patched-forks.md#PF-D71)'s rule: a yolo without it would skip that use | — |
 | <a id="PC-D7"></a>PC-D7 | An implied contribution carries its rule and declaring pack, never serialized into a manifest; footprint, lint, `yolo check`, the launch and `yolo host apply` name it; JSON outputs carry `implied_by` | [P4](#p4) | — |
 | <a id="PC-D8"></a>PC-D8 | Lint prints a `note:` for a written contribution equal to what a convention implies, saying it can go once every host reads the convention; never a warning, exit status unchanged | The written form is the one an older host needs, so lint must not push authors off it | — |

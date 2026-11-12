@@ -94,10 +94,10 @@ The live questions have moved to the role model and the surface. In the role mod
 [`OQ-D1`–`OQ-D5`](slots-and-contributions.md#7-decision-ledger) were ruled 2026-09-20; what is open there
 is [`OQ-D6`–`OQ-D12`](slots-and-contributions.md#OQ-D6), filed 2026-09-21 when a build attempt
 stopped, with [`OQ-D6`](slots-and-contributions.md#OQ-D6) the blocker. The surface questions,
-[`OQ-M1`–`OQ-M4`](manifest-language.md#OQ-M1), are all open.
+[`OQ-M1`–`OQ-M4`](pack-manifests.md#OQ-M1), were ruled or closed on 2026-10-25.
 
 **Reads with:** [`slots-and-contributions.md`](slots-and-contributions.md) (**supersedes this
-doc's encoding**), [`manifest-language.md`](manifest-language.md) (the surface),
+doc's encoding**), [`pack-manifests.md` §7](pack-manifests.md#7-the-manifest-language-principles-alternatives-and-rulings) (the surface),
 [`agent-briefings.md`'s table of where each agent reads skills](../reference/agent-briefings.md#where-each-agent-reads-skills) (the measured
 formats), [`pi-extensions.md`](../reference/pi-extensions.md#17-the-pre-launch-refresh) (the fetch axis),
 [`mcp-configuration.md`](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin) (the one live consumer of the retired hook),
@@ -353,7 +353,7 @@ field shape [`slots-and-contributions.md`](slots-and-contributions.md) supersede
 [`OQ-D10`](slots-and-contributions.md#OQ-D10) and [`OQ-D12`](slots-and-contributions.md#OQ-D12)
 (its [`OQ-D1`–`OQ-D5`](slots-and-contributions.md#7-decision-ledger) are ruled, and D7, D8 and D11
 were decided as implementation choices on 2026-09-30) and the surface's
-[`OQ-M1`–`OQ-M3`](manifest-language.md#OQ-M1) ([`OQ-M4`](manifest-language.md#8-decision-ledger) is decided).
+[`OQ-M1`–`OQ-M3`](pack-manifests.md#OQ-M1) ([`OQ-M4`](pack-manifests.md#OQ-M4) is decided).
 
 The five earlier questions were ruled in review on 2026-09-19, and this review resolved
 the sixth — the alias-root layout — by **removing the overload that created it**. A `files`

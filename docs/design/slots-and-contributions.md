@@ -75,7 +75,7 @@ owner segment survives, and a pack's own declarations take its identity, [SC-D3]
 apart), [`stringly-typed-references-principle.md`](../reference/stringly-typed-references-principle.md)
 (what a name may reference), [`pi-pack-extensions.md`](pi-pack-extensions.md) (the concrete
 case, and the bug that forced this), [`pi-extensions.md`](../reference/pi-extensions.md#17-the-pre-launch-refresh) (the sibling fetch axis),
-[`manifest-language.md`](manifest-language.md) (the
+[`pack-manifests.md` §7](pack-manifests.md#7-the-manifest-language-principles-alternatives-and-rulings) (the
 sibling concern — the manifest's *surface*, or how many bytes say one fact).
 
 ---

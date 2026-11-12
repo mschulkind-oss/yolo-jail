@@ -29,8 +29,9 @@ the rulings are in the [ledger](readable-config.md#decision-ledger).
 
 **Reads with:** [`readable-config.md`](readable-config.md) (front door and ledger),
 [`config-migration.md`](config-migration.md) (`yolo pack migrate` and the release order),
-[`manifest-language.md`](manifest-language.md) and [`pack-conventions.md`](pack-conventions.md)
-(whose questions this takes over).
+[`pack-conventions.md`](pack-conventions.md) (whose questions this takes over), and
+[§7](#7-the-manifest-language-principles-alternatives-and-rulings) (the manifest-language analysis
+this doc absorbed: its principles, the syntaxes it weighed, and its rulings).
 
 ---
 
@@ -199,6 +200,78 @@ beside `yolo config migrate`, and a later release reads only the new ones
 6. **A pack is named by where it comes from**, never by its manifest
    ([`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped)).
 
+## 7. The manifest language: principles, alternatives and rulings
+
+The manifest-language analysis (2026-09-20) asked two independent questions: what the declaration
+*model* is, and what it is *written in*. It argued that the model change carries most of the gain
+under any syntax. The readable-config redesign ruled both on 2026-10-25 ([§7.5](#75-decision-ledger)):
+the model change, in TOML. This section keeps what that analysis settled; its measurements are in
+[A.5](#a5-the-2026-09-measurements).
+
+### 7.1 Principles M1 to M5
+
+> **The line that must not move.** [`pack-system.md`](../reference/pack-system.md): *"The claim
+> enumeration must be TOTAL. A crossing with no claim is a crossing that appears in **no report at
+> all**."* So: **compress repetition, never information.** Deriving a value a pack already states
+> removes redundancy; dropping a `mount` because a pack "conventionally" mounts something removes a
+> claim. The first is the goal; the second is forbidden in every syntax.
+
+- **M1. A declaration is inert data, never an effect.** The origin gate rests on it
+  ([`trust-paths.md`](trust-paths.md)): a pack that could run at boot would make shipping content
+  and executing code one grant.
+- **M2. The claim enumeration is total.** Compression removes repetition, never a distinct fact.
+- **M3. No bespoke language.** yolo does not invent a config language or maintain its parser.
+- **M4. Readable by someone who did not write it.** The audience for a pack file is a maintainer
+  and an agent, not the author alone.
+- **M5. Any computation is pure, sandboxed, and its RESULT is what is validated.** If a manifest
+  may ever compute, the value it produces is schema-checked and footprinted exactly as if it had
+  been written literally, so M2 survives by construction. This is the condition on which
+  [OQ-M3](#OQ-M3) reopens.
+
+### 7.2 The agent name is declared once, never derived
+
+A pack provides zero or one agents and names the one it provides, once per pack
+([`OQ-D5`](slots-and-contributions.md#7-decision-ledger), ruled 2026-09-20, which restates
+[`OQ-BA2`](../reference/agent-briefings.md#oq-ba2)'s refusal of a derived identity at pack scope).
+An earlier draft derived it from `program.bin`. Neither the pack's `name` nor its bin can be the
+source: `packs/omp` is named `omp` with bin `oh-omp`, and `oh-omp` is the agent its briefings and
+skills declare. The saving comes from deleting the per-contribution repeats either way.
+
+### 7.3 Alternatives weighed
+
+| Option | What it is | Verdict |
+| :--- | :--- | :--- |
+| A. JSON (JSONC), restructured | The model change only: group by kind, identity once, per-kind defaults | The syntax-free half; it carries the two largest sources of repetition (the `kind` tags and the repeated identity). Taken, in TOML ([OQ-M1](#OQ-M1)) |
+| B. Data-only Lua | A chunk returning a table, run in the existing pure sandbox (`internal/agentcfg/luahook`) | Not taken: the manifest becomes code executed to be read, a trust-model change even when sandboxed ([OQ-M3](#OQ-M3), M5) |
+| C. Starlark | Hermetic, deterministic config language with a Go implementation | Not taken: a new dependency, a second language beside Lua, and still config-as-code |
+| D. Jsonnet, CUE, Dhall | Full config languages | Not taken: heaviest dependencies, least familiar, overpowered for a file that should be data |
+| E. YAML or TOML alone | A syntax swap with no model change | No fix on its own: it moves the same repetition into another file. TOML rides *with* the model change ([OQ-M2](#OQ-M2)) |
+
+### 7.4 Background to [OQ-M1](#OQ-M1)
+
+"The model change" is three syntax-independent levers: group entries by kind, so the key is the
+kind; state the pack's agent once ([§7.2](#72-the-agent-name-is-declared-once-never-derived)); and
+give each kind defaults for `into`, `path` and `codec`. An older yolo reads a regrouped manifest as
+an empty pack and refuses defaults built as omissions
+([`pack-conventions.md` §2](pack-conventions.md#2-what-an-older-yolo-does-with-a-convention)),
+which is why a new manifest shape is a new file name ([§5](#5-the-migration)). That conflicted with
+the premise the analysis began from, the owner's *"We don't need transitions"* (2026-09-20), while
+hosts run different yolos; [OQ-RC5](readable-config.md#decision-ledger)'s one break with a migrate
+command is the answer. The same review
+handed this question a fourth lever, a posture naming a surface instead of restating it
+([`pack-conventions.md` §7](pack-conventions.md#7-considered-and-not-proposed)); the ruling took the
+TOML overlay form of [§3](#3-no-manifest-at-all) and [§4](#4-flags-that-add-and-a-model-said-once).
+
+### 7.5 Decision ledger
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-M1"></a>[OQ-M1](#OQ-M1) | **Yes: grouped by kind, the pack's identity stated once, in the same break as the configs.** Ruled as lever P3 of [OQ-RC19](readable-config.md#decision-ledger), landing under [OQ-RC5](readable-config.md#decision-ledger); the `exposes` split is not the break it waits for | 2026-10-25 | [§4](#4-flags-that-add-and-a-model-said-once) | ✅ by 2026-10-30: every shipped pack manifest is a `pack.toml` |
+| <a id="OQ-M2"></a>[OQ-M2](#OQ-M2) | **TOML, with the model change.** Ruled by [OQ-RC2](readable-config.md#decision-ledger) for every file a person writes, manifests included; option E was no fix on its own, and the model change ([OQ-M1](#OQ-M1)) rides with it | 2026-10-25 | [§7.3](#73-alternatives-weighed) | ✅ by 2026-10-30 |
+| <a id="OQ-M3"></a>[OQ-M3](#OQ-M3) | **Moot: a manifest is a literal TOML file, so nothing is executed to be read.** It mattered only if [OQ-M2](#OQ-M2) picked a code syntax. A code syntax proposed again reopens it, with [M5](#71-principles-m1-to-m5) as the condition | 2026-10-25 | [§7.1](#71-principles-m1-to-m5) | nothing to build |
+| <a id="OQ-M4"></a>[OQ-M4](#OQ-M4) | **No: the user and workspace config keep JSONC whatever [OQ-M2](#OQ-M2) rules.** Decided as an implementation choice, [MN-D1](#MN-D1). Reversed with it on 2026-10-25 | 2026-09-30 | [§7.5](#75-decision-ledger) | nothing to build |
+| <a id="MN-D1"></a>MN-D1 | *Implementation decision, [OQ-M4](#OQ-M4).* **The user and workspace config keep JSONC, whatever [OQ-M2](#OQ-M2) rules for manifests**: they are settings with no claims to enumerate, so M2 does not reach them, and yolo had already deleted its one scripted user config, `config.lua` ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). **Reversed 2026-10-25:** the configs move to TOML ([OQ-RC2](readable-config.md#decision-ledger)) | 2026-09-30 | [§7.5](#75-decision-ledger) | nothing to build |
+
 ## Appendix: evidence
 
 ### A.1 The twelve packs
@@ -254,12 +327,54 @@ written more than once, and a compressed size that stays flat.
 
 ### A.4 What this takes over
 
-[OQ-M1](manifest-language.md#OQ-M1) and [OQ-M2](manifest-language.md#OQ-M2) by
-[OQ-RC5](readable-config.md#decision-ledger) and [OQ-RC2](readable-config.md#decision-ledger), ruled TOML; [OQ-M3](manifest-language.md#OQ-M3)
-stays there. [OQ-PC1](pack-conventions.md#OQ-PC1) to [OQ-PC3](pack-conventions.md#OQ-PC3) by the
+[OQ-M1](#OQ-M1) and [OQ-M2](#OQ-M2) by
+[OQ-RC5](readable-config.md#decision-ledger) and [OQ-RC2](readable-config.md#decision-ledger), ruled TOML; [OQ-M3](#OQ-M3)
+is moot ([§7.5](#75-decision-ledger)). [OQ-PC1](pack-conventions.md#OQ-PC1) to [OQ-PC3](pack-conventions.md#OQ-PC3) by the
 `home/` folder. [`pack-conventions.md`](pack-conventions.md#appendix-a-counts) counted ten
 single-file `files` entries in `matt` on 2026-10-05 and found about five lines saved; that count
 covered pi-path entries only, where this one covers every copy-only entry across his packs, 39.
 Its rejections of a one-value `install_hints` and of a provider implying its profile were its own
 verdicts, not the maintainer's rulings; the second is now ruled the other way
 ([`config-user.md` §5](config-user.md#5-which-setup-each-agent-runs-on)).
+
+### A.5 The 2026-09 measurements
+
+The manifest-language analysis measured the JSON manifests first, with `gzip -c <file> | wc -c`
+over the real files on 2026-09-20:
+
+| File | raw | gzip | ratio |
+| :--- | ---: | ---: | ---: |
+| the user config, `config.jsonc` | 2 575 | 1 252 | 0.49 |
+| this repository's workspace config, `yolo-jail.jsonc` | 6 170 | 2 643 | 0.43 |
+| `packs/pi/pack.json` | 2 662 | 717 | 0.27 |
+| `packs/claude/pack.json` | 4 162 | 1 015 | 0.24 |
+| `README.md` (prose, for scale) | 17 761 | 7 104 | 0.40 |
+
+In `packs/claude/pack.json` the most frequent keys were `kind` (17, one per entry), `name` (8),
+`agent` (6), `config` (5), and `codec`, `path` and `managed` (4 each). Four causes: the pack
+repeated its own identity; a flat tagged union carried a `kind` tag per entry; keys spelled
+mechanism (`managed`, `computed`, `retireOnFirstRender`, `after`, `mode: rmw`) rather than intent;
+and there was no default for the common case.
+
+On 2026-09-22 the same manifest was restructured by hand per option A, both variants
+machine-checked fact-preserving and canonicalized like the baseline:
+
+| rendering | raw | gzip | ratio |
+| :--- | ---: | ---: | ---: |
+| baseline | 4142 | 1006 | 0.243 |
+| A1 (strict option A) | 3313 | 942 | 0.284 |
+| A2 (+ keyed by discriminator) | 2838 | 879 | 0.310 |
+| data-only Lua, A2's facts | 2227 | 841 | 0.378 |
+
+Neither restructuring reached the ~0.40 prose threshold the analysis had set, and three
+measurements showed that threshold unsound: prose at the manifest's size is 0.49, not 0.40, since
+the ratio rises with size; `jq -c` alone (minifying, no model change) reaches 0.368, because 44% of
+the baseline was indent whitespace; and A1 drops 20% of raw bytes but only 6.4% of gzip bytes, the
+signature of deleting repetition gzip had already predicted.
+
+> [!WARNING]
+> **Compression ratio is orthogonal to the complaint it was chosen to quantify.** The objection is
+> about what a human must read; deleting predicted repetition moves the number the wrong way. The
+> direction is robust across xz, bzip2 and gzip levels 1 to 9; the threshold is not. Do not
+> re-derive a byte-ratio gate for a manifest question. [A.3](#a3-the-compression-exercise) reaches
+> the same verdict from the maintainer's own packs.
