@@ -314,6 +314,11 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 		// rewritten in place as a respelled file is.
 		g.userTop.Role = RoleRespell
 	}
+	declarations, err := shippedBrokers()
+	if err != nil {
+		return nil, err
+	}
+	legacy := g.legacyReposOf(workspaceRemoteNames(g.Request.Workspace), declarations)
 	newBytes := map[*File][]byte{}
 	writers := writerCounts{}
 	// setupLeft counts the keys named setups replace that TOML files hold and this migration
@@ -349,6 +354,15 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 				}
 				p.NotConverted = append(p.NotConverted, skipped...)
 				setupLeft += len(skipped)
+			}
+			if f.legacyRepos {
+				var rewrote []string
+				var skipped []NotConverted
+				if t.Bytes, rewrote, skipped, err = withLegacyReposConverted(t.Bytes, f.Logical, &legacy); err != nil {
+					return nil, fmt.Errorf("%s: convert the repos lists: %w", f.Logical, err)
+				}
+				t.Rewrote = append(t.Rewrote, rewrote...)
+				p.NotConverted = append(p.NotConverted, skipped...)
 			}
 			if len(f.packRenames) > 0 {
 				if t.Bytes, err = withRenamedPackRequests(t.Bytes, f.packRenames); err != nil {
@@ -951,6 +965,13 @@ func readCanonical(g *Graph, userTop, layer, workspace string, remotes []string,
 		if view != nil {
 			renamePackRequests(s.project, view.renamedPacks)
 			renamePackRequests(s.composed, view.renamedPacks)
+		}
+		if g != nil && workspace != "" {
+			// The old `requests.<source>.repos` lists, lowered as the rewritten files spell them
+			// (lowerLegacyRepos), so the proof compares the same spelling on both sides.
+			in := g.legacyReposOf(workspaceRemoteNames(workspace), brokers)
+			lowerLegacyRepos(s.project, &in)
+			lowerLegacyRepos(s.composed, &in)
 		}
 		// The OLD spelling as the launch reads it, not its lowering: the proof is that the
 		// converted files resolve to the env the old ones resolve to.

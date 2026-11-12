@@ -81,6 +81,9 @@ type File struct {
 	// removedKeys marks a TOML file rewritten in place for a removed setup key it holds
 	// (markRemovedSetupKeys).
 	removedKeys bool
+	// legacyRepos marks a TOML project or local file holding `requests.<source>.repos` lists,
+	// rewritten in place as named tables (withLegacyReposConverted).
+	legacyRepos bool
 	// packRenames are the `[requests.<pack>]` tables a TOML project file names a renamed
 	// configured pack by, respelled to the converted name (withRenamedPackRequests).
 	packRenames map[string]string
@@ -262,6 +265,7 @@ func Discover(req Request) (*Graph, error) {
 	}
 	g.markRespelled()
 	g.markRemovedSetupKeys()
+	g.markLegacyRepos()
 	return g, nil
 }
 
@@ -291,6 +295,29 @@ func (g *Graph) markRemovedSetupKeys() {
 	}
 }
 
+// markLegacyRepos marks each project or local TOML file holding a `requests.<source>.repos` list:
+// the list is the old spelling of a named repository, and the file is rewritten in place
+// (withLegacyReposConverted). A JSONC file converts whole (lowerBrokered) and is not marked here.
+func (g *Graph) markLegacyRepos() {
+	for _, f := range g.Files {
+		if (f.Role != RoleRead && f.Role != RoleRespell) || f.Scope != ScopeProject || f.doc == nil {
+			continue
+		}
+		requests, ok := mapAt(f.doc.Values, "requests")
+		if !ok {
+			continue
+		}
+		for _, source := range requests.Keys() {
+			if table, ok := mapAt(requests, source); ok {
+				if _, has := table.Get("repos"); has {
+					f.Role, f.legacyRepos = RoleRespell, true
+					break
+				}
+			}
+		}
+	}
+}
+
 // UserSetupFile is the first user-scope file of the graph that writes `setup`, "" when none
 // does: a key named setups replace whose value names a setup is then left for its unset, never
 // converted, since the written `setup` decides whatever the old key says.
@@ -316,7 +343,7 @@ func setupWrittenReason(key, file string) string {
 func (g *Graph) Rewritten() []*File {
 	var out []*File
 	for _, f := range g.Files {
-		if f.removedKeys {
+		if f.removedKeys || f.legacyRepos {
 			out = append(out, f)
 		}
 	}
