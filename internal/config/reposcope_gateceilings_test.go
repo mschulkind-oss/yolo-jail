@@ -146,3 +146,24 @@ func TestAScopedCeilingProvenanceNamesTheAdmittingTable(t *testing.T) {
 		t.Fatalf("origins of the scoped grant are %v, want the admitting table named", got)
 	}
 }
+
+// A scoped always token is a boolean kind's grant on each in-scope identity its table admits, and
+// on no other: the table adds no identity of its own, and the other remote stays unwritten (GW-D64).
+func TestAScopedAlwaysLowersOnlyOnItsAdmittedIdentities(t *testing.T) {
+	user := "[allow.github]\nalways = [\"read\"]\n[repos.jail]\nrepo = \"github.com/acme/app\"\n[repos.jail.allow.github]\nalways = [\"create_pr\"]\n"
+	gitConfig := repoScopeOrigin + "[remote \"upstream\"]\n\turl = https://github.com/elsewhere/app.git\n"
+	workspace := repoScopeWorkspace(t, user, gitConfig, "", "")
+	broker := readableScopeBroker("github", "github", "github-broker", "github.com", "read", []string{"create-pr"}, map[string]string{"create-pr": "create_pr"})
+	read, err := ReadWorkspaceForGate(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := NewScopeCheck(workspace, []ScopeBroker{broker}, read)
+	if check.Fatal != nil || len(check.Sources) != 1 {
+		t.Fatalf("scope check: fatal %v, sources %#v", check.Fatal, check.Sources)
+	}
+	want := []string{"create-pr github.com/acme/app"}
+	if got := repoScopeWrites(check.Sources[0].Grants); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("writes are %v, want %v", got, want)
+	}
+}
