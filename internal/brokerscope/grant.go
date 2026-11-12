@@ -36,7 +36,16 @@ type Grant struct {
 	// triggered workflow runs, held at action_required, the broker may approve unasked, or
 	// AnyActor for every actor. A run from a fork is never covered, whatever the actor.
 	Actor string `json:"actor,omitempty"`
+	// RepoPattern says Repo is a pattern repository, `<host>/<owner>/<repo>` with the whole-segment
+	// wildcard in its owner or repository segment (GW-D80). Without it Repo is compared exactly,
+	// so a `*` in a grant written before this field matches nothing.
+	RepoPattern bool `json:"repo_pattern,omitempty"`
 }
+
+// PatternRepoPrefix marks a pattern grant's repository in Grant.String and the approval record.
+// ValidGrantRepo refuses a repository that starts with it, so no grant an older gate recorded
+// spells one.
+const PatternRepoPrefix = "pattern:"
 
 // KindRuns is the GitHub grant kind that names a workflow, or AnyWorkflow
 // (docs/design/github-write-scopes.md GW-D14, GW-D78): the broker may, unasked, run `gh workflow
@@ -265,9 +274,27 @@ const AnyRemoteNote = "every remote in scope now and any approved later"
 // matching `patch/*` on github.com/o/r". It is "" for a grant naming one ref or one workflow on
 // one repository, which reads plainly as it is, and for a kind that names nothing.
 func GrantNote(g Grant) string {
-	if !g.Wildcard() {
-		return ""
+	note := ""
+	if g.Wildcard() {
+		note = wildcardRefNote(g)
 	}
+	if !g.RepoPattern {
+		return note
+	}
+	host, pattern, _ := strings.Cut(g.Repo, "/")
+	reach := WildcardNote(pattern, host)
+	switch {
+	case reach == "":
+		return note
+	case note == "":
+		return reach
+	}
+	return note + "; " + reach
+}
+
+// wildcardRefNote is GrantNote for a grant whose name or repository is a wildcard, before the
+// reach of a pattern repository is added.
+func wildcardRefNote(g Grant) string {
 	if g.Kind == KindRuns {
 		return runsNote(g)
 	}
@@ -322,10 +349,14 @@ func approveRunNote(g Grant) string {
 // then ` <name>` for a kind that names something (GrantTakesName). No part can hold a space (ValidGrant), so the
 // spelling parses back (ParseGrant).
 func (g Grant) String() string {
-	if name := g.Name(); name != "" {
-		return g.Kind + " " + g.Repo + " " + name
+	repo := g.Repo
+	if g.RepoPattern {
+		repo = PatternRepoPrefix + repo
 	}
-	return g.Kind + " " + g.Repo
+	if name := g.Name(); name != "" {
+		return g.Kind + " " + repo + " " + name
+	}
+	return g.Kind + " " + repo
 }
 
 // ParseGrant reads a String spelling back, ok false for anything ValidGrant refuses.
@@ -333,9 +364,14 @@ func ParseGrant(s string) (Grant, bool) {
 	kind, rest, found := strings.Cut(s, " ")
 	kind = CanonicalGrantKind(kind)
 	repo, name, _ := strings.Cut(rest, " ")
-	g := Grant{Kind: kind, Repo: repo, Branch: name}
+	pattern := false
+	if marked, ok := strings.CutPrefix(repo, PatternRepoPrefix); ok {
+		repo, pattern = marked, true
+	}
+	g := Grant{Kind: kind, Repo: repo, Branch: name, RepoPattern: pattern}
 	if kind == KindTag || kind == KindRuns || kind == KindApproveRun {
 		g = RefGrant(kind, repo, name)
+		g.RepoPattern = pattern
 	}
 	return g, found && ValidGrant(g)
 }
@@ -344,7 +380,7 @@ func ParseGrant(s string) (Grant, bool) {
 // name, and a ref name or pattern exactly when the kind names one, in that kind's own field. It
 // says nothing of whether a source defines the kind or the user allows it.
 func ValidGrant(g Grant) bool {
-	if !validGrantKind(g.Kind) || !ValidGrantRepo(g.Repo) {
+	if !validGrantKind(g.Kind) || !validGrantRepoOf(g) {
 		return false
 	}
 	switch g.Kind {
@@ -423,13 +459,52 @@ func validGrantKind(s string) bool {
 	return true
 }
 
+// validGrantRepoOf reports whether g's repository is one g can name: a pattern repository when it
+// is marked, otherwise ValidGrantRepo's.
+func validGrantRepoOf(g Grant) bool {
+	if g.RepoPattern {
+		return validGrantPatternRepo(g.Repo)
+	}
+	return ValidGrantRepo(g.Repo)
+}
+
+// validGrantPatternRepo reports whether s is a pattern repository a marked grant can name:
+// `<host>/<owner>/<repo>` whose host is a named host (ValidGrantRepo's rule), whose owner and
+// repository segments are each a whole `*` or a literal name, and at least one of them a `*`. A
+// wildcard host, a partial segment, an exact identity and AnyRepo are refused: each is a
+// repository an unmarked grant already names.
+func validGrantPatternRepo(s string) bool {
+	host, rest, ok := strings.Cut(s, "/")
+	owner, name, ok2 := strings.Cut(rest, "/")
+	if !ok || !ok2 || strings.Contains(host, "*") || strings.Contains(name, "/") {
+		return false
+	}
+	wild := false
+	var literal [2]string
+	for i, seg := range []string{owner, name} {
+		switch {
+		case seg == AnyRepo:
+			wild = true
+			seg = "x"
+		case strings.Contains(seg, "*"):
+			return false
+		}
+		literal[i] = seg
+	}
+	return wild && ValidGrantRepo(host+"/"+literal[0]+"/"+literal[1])
+}
+
 // ValidGrantRepo reports whether s is a repository a grant can name: AnyRepo, or a repository
 // identity already in its reduced form (gitproto.Identity) whose host has a dot or a port. The
 // host rule is what tells `github.com/o/r` from an `OWNER/REPO` written without one: a bare
-// single-label host such as `gitserver` cannot be named, a limit stated in the refusal.
+// single-label host such as `gitserver` cannot be named, a limit stated in the refusal. A
+// repository starting with PatternRepoPrefix is refused: that spelling belongs to a marked grant.
 func ValidGrantRepo(s string) bool {
 	if s == AnyRepo {
 		return true
+	}
+	if strings.HasPrefix(s, PatternRepoPrefix) {
+		return false
 	}
 	id, err := gitproto.Identity("https://" + s)
 	if err != nil || id != s {
