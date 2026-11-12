@@ -97,6 +97,12 @@
     [bold]yolo request <source> <capability> [resource][/bold], which writes the project's
     file, runs `yolo check`, and names the host step (`yolo config apply`).
 
+  [bold]repos[/bold] — (table, [bold]WORKSPACE SCOPE[/bold]; your user config's `[repos.<name>]` of the same name sets its
+    ceiling): one repository under a short name: `[repos.infra]` `repo = "github.com/acme/infra"` (or
+    `github.com/acme/*` for a pattern), and `[repos.infra.requests.github]` `runs = ["ci.yml"]` asks within
+    the ceiling your `[repos.infra.allow.github]` sets.  A request above that ceiling is reported and
+    skipped, never an error.  Only a `requests` or `repos` table in a file the workspace owns counts.
+
   [bold]active_provider[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): which provider each agent runs on.
     `claude = "bedrock"`, `claude = "bedrock/opus"` (a variant), `default = ...`
     for every agent the table does not name, and `"native"` to leave an agent

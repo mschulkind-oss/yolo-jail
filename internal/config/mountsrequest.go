@@ -100,9 +100,10 @@ func validateAllowMounts(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-// withReadableScopeKeys is known plus the three readable-config tables a TOML scope may write
-// and the legacy key list does not hold: `allow`, the user-scope ceiling table, `requests`,
-// the workspace-scope ask (docs/design/readable-config.md RC-D12), and `active_provider`, the
+// withReadableScopeKeys is known plus the readable-config tables a TOML scope may write and the
+// legacy key list does not hold: `allow`, the user-scope ceiling table, `repos`, the named
+// repository tables (GW-D76), `requests`, the workspace-scope ask (docs/design/readable-config.md
+// RC-D12), and `active_provider`, the
 // user-scope selection (OQ-RC14), which validateActiveProvider judges. A launch's validation of a
 // composed config holding the user's [allow.mounts] (or any [allow.<name>], which the broker
 // allowance resolver judges) or a project's [requests.<name>] (which the same resolver judges
@@ -113,11 +114,12 @@ func validateAllowMounts(config *jsonx.OrderedMap, errs *[]string) {
 // `requests` in a JSONC user file, validateActiveProvider `active_provider` in a JSONC workspace
 // file).
 func withReadableScopeKeys(known map[string]struct{}) map[string]struct{} {
-	out := make(map[string]struct{}, len(known)+3)
+	out := make(map[string]struct{}, len(known)+4)
 	for k := range known {
 		out[k] = struct{}{}
 	}
 	out["allow"] = struct{}{}
+	out["repos"] = struct{}{}
 	out["requests"] = struct{}{}
 	out["active_provider"] = struct{}{}
 	// `pack_sources` names the trees a `<source>/<pack>` handle reads (OQ-RC15), and the pack

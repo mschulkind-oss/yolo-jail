@@ -85,8 +85,13 @@ type ReadableRequestResult struct {
 	Reason     string
 	// Source and Table are set for a request under a named `[repos.<name>]` table (GW-D76): the
 	// broker it asks and the table's name. A legacy `requests.<source>.*` request leaves both empty.
-	Source string
-	Table  string
+	// Repository is the repo line the workspace's table names ("" when it names none), and
+	// UserRepository the repo line the user's `[repos.<name>]` table names ("" when it has none):
+	// the skip report offers the declaration only when the user declares nothing for the name.
+	Source         string
+	Table          string
+	Repository     string
+	UserRepository string
 }
 
 type ReadableTableTombstone struct {

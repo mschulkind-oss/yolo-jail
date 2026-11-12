@@ -20,20 +20,66 @@ import (
 
 // BrokeredSkippedRequest is one project request outside the user's ceiling: the source as the
 // project wrote it under `requests`, the capability, and the values a valued capability carries.
+// Under a named `[repos.<name>]` table (Table is the name) the request is scoped to that table's
+// repository: Repository and UserRepository are the repo lines the workspace's table and the
+// user's table of the same name name, "" where a config names none.
 type BrokeredSkippedRequest struct {
 	Source, Capability string
 	Values             []string
+	Table              string
+	Repository         string
+	UserRepository     string
 }
 
-// AllowCommand is the command that puts the capability in the user's ceiling.
+// sourceName is the request's source as the project wrote it: `repos.<name>.<source>` under a name.
+func (s BrokeredSkippedRequest) sourceName() string {
+	if s.Table != "" {
+		return "repos." + s.Table + "." + s.Source
+	}
+	return s.Source
+}
+
+// AllowCommand is the command that puts the capability in the user's ceiling: for a named table,
+// the scoped ceiling of that name, so the broad one (every repository) is never offered for it.
 func (s BrokeredSkippedRequest) AllowCommand() string {
-	return "yolo allow " + s.Source + " on_request " + s.Capability
+	return "yolo allow " + s.sourceName() + " on_request " + s.Capability
+}
+
+// conflictNote says a name the workspace and the user both give names two repositories, so the
+// report offers no remedy for it: writing the user's name again would retarget it (GW-D76).
+func (s BrokeredSkippedRequest) conflictNote() string {
+	if s.Table == "" || s.Repository == "" || s.UserRepository == "" || s.Repository == s.UserRepository {
+		return ""
+	}
+	return fmt.Sprintf("repos.%s is your config's name for %s, not %s: name this project's repository another name",
+		termsafe.Visible(s.Table), termsafe.Visible(s.UserRepository), termsafe.Visible(s.Repository))
+}
+
+// remedies are the commands the report offers, the scoped allow first. A named request whose user
+// config declares no repository for its name also gets `yolo allow repos <name> <repository>`.
+func (s BrokeredSkippedRequest) remedies() []string {
+	if s.conflictNote() != "" {
+		return nil
+	}
+	out := []string{s.AllowCommand()}
+	if s.Table != "" && s.Repository != "" && s.UserRepository == "" {
+		out = append(out, "yolo allow repos "+s.Table+" "+s.Repository)
+	}
+	return out
+}
+
+// locationKeys are the config keys the request is written under, for the line it was written on.
+func (s BrokeredSkippedRequest) locationKeys() []string {
+	if s.Table != "" {
+		return []string{"repos", s.Table, "requests", s.Source, s.Capability}
+	}
+	return []string{"requests", s.Source, s.Capability}
 }
 
 // what is the request as the reports name it: source, capability and values, each escaped for a
 // terminal, since the project file is the agent's to write.
 func (s BrokeredSkippedRequest) what() string {
-	out := termsafe.Visible(s.Source) + " " + termsafe.Visible(s.Capability)
+	out := termsafe.Visible(s.sourceName()) + " " + termsafe.Visible(s.Capability)
 	if len(s.Values) > 0 {
 		shown := make([]string, len(s.Values))
 		for i, v := range s.Values {
@@ -53,8 +99,16 @@ func brokeredSkippedRequests(requests []ReadableRequestResult) []BrokeredSkipped
 		if r.Status != ReadableRequestSkipped || r.Capability == "repos" {
 			continue
 		}
-		source, capability, ok := strings.Cut(strings.TrimPrefix(r.Path, "requests."), ".")
-		if !ok || capability != r.Capability || r.Reason != outsideCeilingReason(source) {
+		source := r.Source
+		if r.Table == "" { // an older producer sets no source: the authored key says it
+			var capability string
+			var ok bool
+			source, capability, ok = strings.Cut(strings.TrimPrefix(r.Path, "requests."), ".")
+			if !ok || capability != r.Capability {
+				continue
+			}
+		}
+		if r.Reason != outsideCeilingReason(source) {
 			continue
 		}
 		var values []string
@@ -65,7 +119,8 @@ func brokeredSkippedRequests(requests []ReadableRequestResult) []BrokeredSkipped
 				}
 			}
 		}
-		out = append(out, BrokeredSkippedRequest{Source: source, Capability: capability, Values: values})
+		out = append(out, BrokeredSkippedRequest{Source: source, Capability: r.Capability, Values: values,
+			Table: r.Table, Repository: r.Repository, UserRepository: r.UserRepository})
 	}
 	return out
 }
@@ -73,12 +128,22 @@ func brokeredSkippedRequests(requests []ReadableRequestResult) []BrokeredSkipped
 // brokeredSkippedRequestMessage is `yolo check`'s (and a launch's) text for one skipped request,
 // the loophole message's shape with the approval step after the allow line.
 func brokeredSkippedRequestMessage(s BrokeredSkippedRequest) string {
-	return fmt.Sprintf("this project requests %s.\n"+
-		"  Your config does not allow %s on request, so this project runs without it.\n"+
-		"  To allow it for every project you work on (in your config, not this file), run on the host:\n"+
-		"    %s\n"+
-		"  then approve it for this workspace, if that command did not already ask:\n"+
-		"    yolo config apply", s.what(), termsafe.Visible(s.Capability), termsafe.Visible(s.AllowCommand()))
+	head := fmt.Sprintf("this project requests %s.\n  Your config does not allow %s on request, so this project runs without it.\n",
+		s.what(), termsafe.Visible(s.Capability))
+	if note := s.conflictNote(); note != "" {
+		return head + "  " + note
+	}
+	scope := "for every project you work on (in your config, not this file)"
+	if s.Table != "" {
+		scope = "on this repository"
+	}
+	var b strings.Builder
+	b.WriteString(head + "  To allow it " + scope + ", run on the host:\n")
+	for _, c := range s.remedies() {
+		b.WriteString("    " + termsafe.Visible(c) + "\n")
+	}
+	b.WriteString("  then approve it for this workspace, if that command did not already ask:\n    yolo config apply")
+	return b.String()
 }
 
 // brokeredSkippedHeading is the gate block's heading for the skipped requests.
@@ -96,8 +161,14 @@ func brokeredSkippedGateLines(scope *ScopeCheck) []string {
 	}
 	out := []string{brokeredSkippedHeading}
 	for _, s := range skipped {
-		out = append(out, "  – "+s.what()+" (not allowed on request by your config, so this project runs without it); to allow it, run on the host:",
-			"      "+termsafe.Visible(s.AllowCommand()))
+		if note := s.conflictNote(); note != "" {
+			out = append(out, "  – "+s.what()+" (not allowed on request by your config, so this project runs without it); "+note)
+			continue
+		}
+		out = append(out, "  – "+s.what()+" (not allowed on request by your config, so this project runs without it); to allow it, run on the host:")
+		for _, c := range s.remedies() {
+			out = append(out, "      "+termsafe.Visible(c))
+		}
 	}
 	return append(out, "  then approve it for this workspace:", "      yolo config apply")
 }
@@ -109,7 +180,9 @@ func brokeredSkippedGateLines(scope *ScopeCheck) []string {
 // by the legacy reader, as `yolo request` judges it; nothing to report then. Every read that
 // fails is reported by its own validator, so this one says nothing about it.
 func validateBrokeredRequests(config *jsonx.OrderedMap, workspace string, warns *[]string, edit ...*editValidationContext) {
-	if _, hasRequests := config.Get("requests"); !hasRequests || inJail() {
+	_, hasRequests := config.Get("requests")
+	_, hasNamed := config.Get("repos")
+	if !hasRequests && !hasNamed || inJail() {
 		return
 	}
 	var packs []*packload.Pack
@@ -152,7 +225,7 @@ func validateBrokeredRequests(config *jsonx.OrderedMap, workspace string, warns 
 		return // the readable allowance's own validation reports it
 	}
 	for _, s := range brokeredSkippedRequests(plan.Requests) {
-		add(warns, lineLocated(wsNode, brokeredSkippedRequestMessage(s), "requests", s.Source, s.Capability))
+		add(warns, lineLocated(wsNode, brokeredSkippedRequestMessage(s), s.locationKeys()...))
 	}
 }
 

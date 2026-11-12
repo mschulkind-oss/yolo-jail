@@ -82,6 +82,21 @@ func scopedCeilingHolds(user *jsonx.OrderedMap, source, capability string) bool 
 	return false
 }
 
+// userNamedRepository is the repo line the user's `[repos.<name>]` table names, "" when the user
+// config declares no such table or no line for it.
+func userNamedRepository(user *jsonx.OrderedMap, name string) string {
+	table, err := readableTable(user, "repos")
+	if err != nil {
+		return ""
+	}
+	entry, ok := asMap(readableValue(table, name))
+	if !ok {
+		return ""
+	}
+	line, _ := readableValue(entry, "repo").(string)
+	return line
+}
+
 // namedRepoHost is the host a named repository is on, "" with no repo line.
 func namedRepoHost(repository string) string {
 	host, _, _ := strings.Cut(repository, "/")
@@ -291,7 +306,7 @@ func readableNamedRequests(plan *ReadableAllowancePlan, input ReadableAllowanceI
 				}
 			}
 			result := ReadableRequestResult{Path: reqPath, Files: cloneOrigins(input.WorkspaceOrigins[reqPath]), Capability: capability,
-				Value: capValue, Source: source, Table: name}
+				Value: capValue, Source: source, Table: name, Repository: named.Repository, UserRepository: userNamedRepository(input.User, name)}
 			switch {
 			case !slices.Contains(policy.Always, capability) && !slices.Contains(policy.OnRequest, capability) && !scopedCeilingHolds(input.User, source, capability):
 				result.Status, result.Reason = ReadableRequestSkipped, outsideCeilingReason(source)

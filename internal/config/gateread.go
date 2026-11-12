@@ -56,8 +56,10 @@ func ReadWorkspaceForGate(workspace string) (*WorkspaceRead, error) {
 	if probs := brokeredOutsideProblems(src.node().key(brokeredKey)); len(probs) > 0 {
 		return nil, configErr("%s", probs[0])
 	}
-	if probs := readableRequestsOutsideProblems(src.node().key("requests")); len(probs) > 0 {
-		return nil, configErr("%s", probs[0])
+	for _, key := range []string{"requests", "repos"} {
+		if probs := readableScopeOutsideProblems(src.node().key(key), key); len(probs) > 0 {
+			return nil, configErr("%s", probs[0])
+		}
 	}
 	if cfg == nil {
 		cfg = jsonx.NewOrderedMap()
@@ -65,7 +67,9 @@ func ReadWorkspaceForGate(workspace string) (*WorkspaceRead, error) {
 	return &WorkspaceRead{Config: cfg, sources: src}, nil
 }
 
-func readableRequestsOutsideProblems(n *srcNode) []string {
+// readableScopeOutsideProblems names each file outside the workspace that wrote the readable scope
+// table key (requests or repos): the gate accepts those only from the workspace's own files.
+func readableScopeOutsideProblems(n *srcNode, key string) []string {
 	var out []string
 	seen := map[string]bool{}
 	var visit func(*srcNode)
@@ -78,7 +82,7 @@ func readableRequestsOutsideProblems(n *srcNode) []string {
 				continue
 			}
 			seen[writer.file.path] = true
-			out = append(out, writer.String()+": config.requests: written in a file outside this workspace; readable requests are accepted only from this workspace's own config files")
+			out = append(out, writer.String()+": config."+key+": written in a file outside this workspace; readable "+key+" are accepted only from this workspace's own config files")
 		}
 		keys := make([]string, 0, len(node.keys))
 		for key := range node.keys {

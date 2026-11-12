@@ -21,7 +21,7 @@ func validateExplicitRawReadableScopes(ctx *editValidationContext) error {
 		if source.value == nil {
 			continue
 		}
-		for _, root := range []string{"active_provider", "allow", "requests", "pack_sources"} {
+		for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources"} {
 			value, present := source.value.Get(root)
 			if present {
 				if err := validateRawReadableScopePath(value, []string{root}, source); err != nil {
@@ -87,11 +87,11 @@ func validateRawReadableScopePath(value any, path []string, source explicitRawSc
 }
 
 func reportUnknownKeysWithReadableFG(config *jsonx.OrderedMap, errs *[]string) {
-	allowed := make(map[string]struct{}, len(knownTopLevelConfigKeys)+4)
+	allowed := make(map[string]struct{}, len(knownTopLevelConfigKeys)+5)
 	for key := range knownTopLevelConfigKeys {
 		allowed[key] = struct{}{}
 	}
-	for _, root := range []string{"active_provider", "allow", "requests", "pack_sources"} {
+	for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources"} {
 		if _, recognized := readableSchemaRule([]string{root}); recognized {
 			allowed[root] = struct{}{}
 		}
