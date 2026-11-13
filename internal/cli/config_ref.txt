@@ -1643,13 +1643,13 @@
     keychain and your other processes; each launch gets its own TMPDIR (see
     macos_user_shared_tmp), and every such launch says so first.
 
-  [bold]macos_user_shared_tmp[/bold] (boolean): Open the shared /tmp to a run-as-you macos-user jail.  Default FALSE.
-    Under a setup that runs as you (seatbelt-self), the agent cannot read or write the shared /tmp
-    (/private/tmp): a tool that writes there fails with "Operation not permitted",
-    and the agent is told to use $TMPDIR, its launch's own temporary directory.
+  [bold]macos_user_shared_tmp[/bold] (boolean): Open the shared /tmp to a macos-user jail.  Default FALSE.
+    Under either Seatbelt setup (seatbelt-self or seatbelt-yolo-account), the agent cannot read or
+    write the shared /tmp (/private/tmp): a tool that writes there fails with "Operation not
+    permitted", and the agent is told to use $TMPDIR, its own temporary directory.
     true opens /tmp again, read and write, for tools that need it; the agent can
     then read the files your other programs leave there.  Every such launch says
-    so.  Only a Seatbelt setup that runs as you reads it.
+    so.  Only the Seatbelt setups read it.
 
     USER SCOPE ONLY.  It is read from your user config alone, so a workspace value is
     a `yolo check` error and is never consulted -- and /workspace is writable by
