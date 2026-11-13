@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -916,6 +917,10 @@ func runSharedPreparation(ctx context.Context, d preparationDemand, w io.Writer)
 		var program *npmCaptureRecord
 		var unsupportedNPM bool
 		var nodeFloorUnavailable *run.NodeFloorUnavailable
+		// zeroDemand: the monitor cancelled this production because it positively saw no demand
+		// for its identity. Its cancelled result belongs to no one: a request registered during the
+		// teardown is surviving demand, which the next batch produces for.
+		var zeroDemand atomic.Bool
 		if resolveErr != nil {
 			res = advanceResult{failed: true, problem: resolveErr.Error(), delivery: entrypoint.ForkDelivery{Reason: resolveErr.Error()}}
 		} else {
@@ -956,6 +961,7 @@ func runSharedPreparation(ctx context.Context, d preparationDemand, w io.Writer)
 						if timerErr != nil {
 							continue
 						} // unknown observation is not zero demand
+						zeroDemand.Store(true)
 						cancel()
 						return
 					}
@@ -1012,6 +1018,9 @@ func runSharedPreparation(ctx context.Context, d preparationDemand, w io.Writer)
 			<-monitorDone
 		}
 		release()
+		if zeroDemand.Load() && ctx.Err() == nil {
+			continue
+		}
 		err = withDemandState(ctx, dir, true, func() error {
 			pending, e := livePreparationDemands(dir)
 			if e != nil {
