@@ -169,8 +169,9 @@ func (f *Floor) ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 			// an older build in its home for the same reason. Not serving means its launcher LEAVES
 			// bin/, which ends every host agent's PATH (HE-D16): `yolo host` would not exec it, and an
 			// agent's own `<bin>` would still have found it there. The record goes with it, so the
-			// next Status says missing, and the install directory stays for the next install to
-			// prune: unlinking a launcher stops no agent already running.
+			// next Status says missing, and the install directory is retained until the explicit
+			// confirmed cleanup (RemoveRetainedVersions): unlinking a launcher stops no agent already
+			// running, and that agent may still load files from it.
 			f.say("could not install %s (%v); the installed %s is not the build the pack now asks for, "+
 				"so the floor no longer runs it", p.Bin(), err, st.Record.Version)
 			_ = os.Remove(f.Launcher(p.Bin()))
@@ -584,8 +585,7 @@ func (f *Floor) installSelected(ctx context.Context, p Program, patched *Patched
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	// THE PUBLISH, timed apart from the recipe: the loader check, the switch, and the prune of every
-	// older install directory, which for a build of thousands of files is a removal of thousands.
+	// THE PUBLISH, timed apart from the recipe: the loader check and the switch.
 	defer f.span(bin, "publish")()
 	// THE PROGRAM THE RECIPE LEFT, checked before the switch (HP-D15): whatever the recipe — an npm
 	// package's native build, a fork's, a capture the checks above could not see — a program asking
@@ -606,7 +606,7 @@ func (f *Floor) installSelected(ctx context.Context, p Program, patched *Patched
 	}
 	// THE SWITCH: the launcher, then the record that describes it. A reader between the two
 	// renames finds the new launcher and the old record, and the old record's files are still
-	// there (the previous version is kept, below), so it is never shown a broken entry.
+	// there (every older version is retained, below), so it is never shown a broken entry.
 	if err := writeAtomic(f.Launcher(bin), []byte(launcherScript(rec)), 0o700); err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
@@ -620,7 +620,10 @@ func (f *Floor) installSelected(ctx context.Context, p Program, patched *Patched
 	}
 	f.appendReceipt(receipt{Act: act, Bin: bin, Pack: p.Pack, Via: rec.Via, Declared: rec.Declared,
 		Version: rec.Version, Dir: dir})
-	f.pruneVersions(bin, rec, prev)
+	// EVERY OLDER COMPLETE INSTALL IS RETAINED (launch-update-preparation.md, "Explicit update and
+	// launch materialization"): a host session started on it may still load its files, and host
+	// sessions have no process-to-version liveness record, so no age or count proves one unused.
+	// Only the explicit confirmed cleanup deletes them (RemoveRetainedVersions).
 	return rec, nil
 }
 
@@ -647,22 +650,6 @@ func (f *Floor) removeIncomplete(bin string, keep *Record) {
 	}
 }
 
-// pruneVersions keeps the install just made and the one it replaced — an agent started a moment
-// ago may still be loading files from that one — and removes every older one.
-func (f *Floor) pruneVersions(bin string, cur, prev *Record) {
-	entries, err := os.ReadDir(f.programsDir(bin))
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		dir := filepath.Join(f.programsDir(bin), e.Name())
-		if dir == cur.Dir || (prev != nil && dir == prev.Dir) {
-			continue
-		}
-		_ = os.RemoveAll(dir)
-	}
-}
-
 // npmEnv is the environment npm runs with in the floor: installerEnv plus npm's own settings,
 // the prefix among them when there is one.
 func (f *Floor) npmEnv(nodeBin, prefix string) []string {
@@ -681,15 +668,39 @@ func (f *Floor) npmEnv(nodeBin, prefix string) []string {
 	return f.installerEnv(nodeBin, set...)
 }
 
+// selectPreparedNPM is the one exact PrepareNPM decision this floor operation holds for p, made
+// the first time it is asked with the Node in nodeBin. Asked again with ANOTHER Node — the install
+// running on the shipped Node while the decision was made on the installed record's — it never
+// re-decides: a selection is kept only when its Matches proves the new Node matches every producer
+// fact, and is otherwise nil, so the install falls back to the bounded installer.
 func (f *Floor) selectPreparedNPM(ctx context.Context, p Program, nodeBin string, fresh bool, bound time.Duration) (*PreparedNPM, error) {
 	if f.PrepareNPM == nil {
 		return nil, nil
 	}
-	if selected, ok := f.preparedNPM[p.Bin()]; ok {
-		return selected, nil
-	}
 	checkCtx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
+	if held, ok := f.preparedNPM[p.Bin()]; ok {
+		if held.nodeBin == nodeBin || held.selected == nil {
+			return held.selected, nil
+		}
+		matches := false
+		var err error
+		if held.selected.Matches != nil {
+			matches, err = held.selected.Matches(checkCtx, nodeBin)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if checkCtx.Err() != nil {
+			return nil, checkCtx.Err()
+		}
+		if !matches {
+			f.say("%s: its admitted capture was not proven on the Node it installs on (%s); installing it "+
+				"with the bounded host installer", p.Bin(), filepath.Join(nodeBin, "node"))
+			return nil, nil
+		}
+		return held.selected, nil
+	}
 	selected, err := f.PrepareNPM(checkCtx, p, nodeBin, fresh)
 	if err != nil {
 		return nil, err
@@ -698,9 +709,9 @@ func (f *Floor) selectPreparedNPM(ctx context.Context, p Program, nodeBin string
 		return nil, checkCtx.Err()
 	}
 	if f.preparedNPM == nil {
-		f.preparedNPM = map[string]*PreparedNPM{}
+		f.preparedNPM = map[string]preparedDecision{}
 	}
-	f.preparedNPM[p.Bin()] = selected
+	f.preparedNPM[p.Bin()] = preparedDecision{selected: selected, nodeBin: nodeBin}
 	return selected, nil
 }
 

@@ -30,7 +30,8 @@ type preparationControlCall struct {
 	reply   chan preparationResponse
 }
 
-func preparationBinaryDigest(path string) (string, error) {
+// preparationBinaryDigest is a var only so a test can count the hashes; nothing else reassigns it.
+var preparationBinaryDigest = func(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err

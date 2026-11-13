@@ -210,7 +210,7 @@ func TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry(t *testing.T) {
 	// Unset host_management is "none" (OQ-CO14): the step is the removal by hand.
 	for _, want := range []string{"floorcli — no floor entry",
 		"floorcli: yolo's floor still holds a copy it no longer keeps, which `yolo host` does not run — " +
-			"remove it by hand with `rm -rf "} {
+			"remove it by hand with `rm -f "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)
 		}
