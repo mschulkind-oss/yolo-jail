@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -95,6 +96,13 @@ type SessionRecord struct {
 	// agent spawns, so a held lock alone says only that one of them is still running;
 	// ListSessions reads a held session whose PID has exited as gone (SUP-D29).
 	PID int `json:"pid,omitempty"`
+	// Setup, Started and YoloVersion are the launch record's fields (named-setups.md SU-D11, the
+	// session half; SUP-D23): the setup the launch ran, when it opened the session (RFC 3339,
+	// UTC), and the yolo that opened it. Each is omitted when unknown, which a record an older
+	// yolo wrote always is; a listing then shows it as unknown.
+	Setup       string `json:"setup,omitempty"`
+	Started     string `json:"started,omitempty"`
+	YoloVersion string `json:"yolo_version,omitempty"`
 }
 
 // WriteSessionRecord writes r into a session dir, 0600, refusing to overwrite: a session writes
@@ -174,6 +182,11 @@ type Session struct {
 	Name      string
 	// PID is the record's PID, 0 when it names none.
 	PID int
+	// Setup, Started and YoloVersion are the record's (SessionRecord); "", the zero time and ""
+	// when it names none.
+	Setup       string
+	Started     time.Time
+	YoloVersion string
 }
 
 // ListSessions lists every session dir under base that belongs to this user, with its liveness
@@ -207,6 +220,10 @@ func ListSessions(base string) (sessions []Session, ok bool) {
 		s.Liveness = state
 		if r, found := readSessionRecord(dir); found {
 			s.Notch, s.Workspace, s.Name, s.PID = r.Notch, r.Workspace, r.Name, r.PID
+			s.Setup, s.YoloVersion = r.Setup, r.YoloVersion
+			if t, err := time.Parse(time.RFC3339, r.Started); err == nil {
+				s.Started = t.UTC()
+			}
 		}
 		// A held lock outlives its agent in any process the agent spawned (the lock is
 		// inherited), so a session whose recorded process has exited is gone to a listing. Not

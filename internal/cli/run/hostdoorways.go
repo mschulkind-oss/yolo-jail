@@ -52,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -82,6 +83,16 @@ type HostDoorways struct {
 	pin      *helperpin.Pin
 	jail     string
 	stopStep string
+	// setup is the launch's setup, which the session Start opens names (ForSetup).
+	setup setup.Setup
+}
+
+// ForSetup names the launch's setup, which the session Start opens records, so `yolo ps` lists
+// the launch under it (named-setups.md SU-D11). Called before Start.
+func (d *HostDoorways) ForSetup(s setup.Setup) {
+	if d != nil {
+		d.setup = s
+	}
 }
 
 // PinnedTo hands the doorways' host services the launch's pinned yolo
@@ -472,7 +483,7 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 		return nil, stop, nil, nil
 	}
 	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
-		reachSubject: agent, mountsNoWorkspace: true, helperPin: d.pin, keeperJailName: d.jail, helperStopRemedy: d.stopStep}
+		reachSubject: agent, mountsNoWorkspace: true, helperPin: d.pin, keeperJailName: d.jail, helperStopRemedy: d.stopStep, Setup: d.setup}
 	fillDefaults(o)
 	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
 	if err := o.refusePlacementOfDoorways(d.set, doorwayRefsOf(d.plans)); err != nil {
