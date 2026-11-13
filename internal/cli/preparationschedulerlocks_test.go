@@ -70,7 +70,7 @@ func TestPlainForkTimerAdmissionWaitsOnCASLockOutsideSchedulerStateLock(t *testi
 	pidlock.Flock = func(fd int, how int) error {
 		err := previousFlock(fd, how)
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			if target, _ := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); target == entryLock {
+			if sameFileAsPath(fd, entryLock) {
 				select {
 				case waiting <- struct{}{}:
 				default:
@@ -182,4 +182,14 @@ func TestOrdinaryTimerResolverContentionIsBusyNotFailed(t *testing.T) {
 	if runs.Load() != 2 {
 		t.Errorf("ordinary act ran %d times, want one per tick", runs.Load())
 	}
+}
+
+// sameFileAsPath reports whether fd is open on path, by device and inode: macOS has no
+// /proc/self/fd to read a descriptor's path from.
+func sameFileAsPath(fd int, path string) bool {
+	var byFD, byPath syscall.Stat_t
+	if syscall.Fstat(fd, &byFD) != nil || syscall.Stat(path, &byPath) != nil {
+		return false
+	}
+	return byFD.Dev == byPath.Dev && byFD.Ino == byPath.Ino
 }
