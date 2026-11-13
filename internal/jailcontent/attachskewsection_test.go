@@ -7,7 +7,7 @@ import (
 
 // TestTheAttachSkewSectionIsAnAcknowledgedAttachsAlone pins SK-D15's section: absent from every
 // briefing that carries no skew, and, for an attach that went ahead under the acknowledgment,
-// present near the top (after the confinement header, before the environment) and naming the
+// present near the top (after the confinement header, before the core) and naming the
 // version the jail was launched with, each contract tag it lacks with what that withholds, every
 // other difference, the withheld names and the host's remedy.
 func TestTheAttachSkewSectionIsAnAcknowledgedAttachsAlone(t *testing.T) {
@@ -26,9 +26,9 @@ func TestTheAttachSkewSectionIsAnAcknowledgedAttachsAlone(t *testing.T) {
 		Remedy:      "`yolo stop` from this workspace on the host",
 	}})
 	head := strings.Index(skewed, "## ⚠ This session runs in a jail that could not take what started it")
-	env := strings.Index(skewed, "## Environment")
+	env := strings.Index(skewed, coreAnchor)
 	if head < 0 || env < 0 || head > env {
-		t.Fatalf("the section is missing or below the environment (at %d, environment at %d):\n%s", head, env, skewed)
+		t.Fatalf("the section is missing or below the core (at %d, core at %d):\n%s", head, env, skewed)
 	}
 	section := skewed[head:env]
 	for _, want := range []string{

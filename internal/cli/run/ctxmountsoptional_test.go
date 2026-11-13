@@ -267,8 +267,15 @@ func TestTheBriefingMarksAnOptionalMountMayBeAbsent(t *testing.T) {
 	if len(got) != 1 || !got[0].Optional {
 		t.Fatalf("briefed %+v, want one optional entry", got)
 	}
-	body := jailcontent.BriefingContent(jailcontent.BriefingInput{Workspace: "/Users/Shared/yolo/p",
-		Mechanism: "macos-user", ContextDir: dir, ContextMounts: got})
+	// The mounts topic file of the jail-mechanics skill, which lists each mount
+	// (docs/design/briefing-diet.md).
+	var body string
+	for _, topic := range jailcontent.BriefingTopics(jailcontent.BriefingInput{Workspace: "/Users/Shared/yolo/p",
+		Mechanism: "macos-user", ContextDir: dir, ContextMounts: got}) {
+		if topic.File == "mounts.md" {
+			body = topic.Text()
+		}
+	}
 	if want := "- `" + dir + "/lib` (optional; may be absent; read-only;"; !strings.Contains(body, want) {
 		t.Errorf("the briefing lacks %q:\n%s", want, body)
 	}

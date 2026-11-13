@@ -48,15 +48,15 @@ func setupHeaderForTest(name, mechanism string, isMacOS bool) []string {
 
 func headerOf(t *testing.T, confinement, out string) string {
 	t.Helper()
-	i := strings.Index(out, "## Environment")
+	i := strings.Index(out, coreAnchor)
 	if confinement == "host" {
 		if i >= 0 {
-			t.Fatalf("the host notch's base describes a launch (## Environment):\n%s", out)
+			t.Fatalf("the host notch's base describes a launch (the core):\n%s", out)
 		}
 		return out
 	}
 	if i < 0 {
-		t.Fatalf("briefing has no ## Environment section:\n%s", out)
+		t.Fatalf("briefing has no core:\n%s", out)
 	}
 	return out[:i]
 }
@@ -120,7 +120,7 @@ func TestBriefingHeaderStatesTheAutonomyBit(t *testing.T) {
 // SETUP JAILS carry a selected name and fields, rather than a generic confinement-header label.
 func TestBriefingJailHeaderNamesTheSetup(t *testing.T) {
 	header := briefingHeader(t, "jail")
-	for _, want := range []string{"# YOLO Environment — setup jail", "setup **jail**: Podman", "inside a container", "Jail tooling:"} {
+	for _, want := range []string{"# YOLO Environment — setup jail", "setup **jail**: Podman", "inside a container"} {
 		if !strings.Contains(header, want) {
 			t.Errorf("setup jail header omits %q:\n%s", want, header)
 		}
@@ -155,7 +155,7 @@ func TestBriefingUnknownNotchDoesNotClaimAContainer(t *testing.T) {
 // the conflation cannot be introduced silently.
 func TestBriefingNetModeHostIsNotTheHostSetup(t *testing.T) {
 	// A jail with host NETWORKING is still a jail: container framing, network paragraph.
-	jailHostNet := BriefingContent(BriefingInput{Workspace: "/w", Setup: setupForHeaderTest("jail"), NetMode: "host"})
+	jailHostNet := reachable(BriefingInput{Workspace: "/w", Setup: setupForHeaderTest("jail"), NetMode: "host"})
 	if !strings.Contains(jailHostNet, "inside a container") {
 		t.Errorf("netMode=host must not change the confinement framing:\n%s", jailHostNet)
 	}
@@ -284,17 +284,31 @@ func TestBriefingHeaderMechanismChangesTheGuestAnswer(t *testing.T) {
 }
 
 // DP-B19's second half: the jail-without-a-container branch carried its own copy of the
-// "Jail tooling" line AND appended enforcementLines, which ends with the same line, so the
-// one backend whose header was rewritten to be honest printed it twice.
+// "Jail tooling" line AND appended enforcementLines, which ended with the same line, so the
+// one backend whose header was rewritten to be honest printed it twice. Since the briefing diet
+// (docs/design/briefing-diet.md §5) a launched notch's tooling line is in the jail-mechanics
+// index, once, and no header of one carries it; the host notch, which has no index of topics,
+// keeps it in its header, once.
 func TestBriefingHeaderStatesTheToolingLineOnce(t *testing.T) {
 	for _, tc := range []struct{ notch, mechanism string }{
 		{"jail", "macos-user"}, {"jail", "podman"}, {"guest", "podman"}, {"host", "podman"},
 	} {
-		header := strings.Join(setupHeaderForTest(tc.notch, tc.mechanism, false), "\n")
-		if n := strings.Count(header, "Jail tooling:"); n != 1 {
-			t.Errorf("%s/%s: `Jail tooling` appears %d times, want 1:\n%s",
-				tc.notch, tc.mechanism, n, header)
+		want := 0
+		if tc.notch == "host" {
+			want = 1
 		}
+		header := strings.Join(setupHeaderForTest(tc.notch, tc.mechanism, false), "\n")
+		if n := strings.Count(header, "Jail tooling:"); n != want {
+			t.Errorf("%s/%s: `Jail tooling` appears %d times in the header, want %d:\n%s",
+				tc.notch, tc.mechanism, n, want, header)
+		}
+	}
+	index, err := RenderBuiltinSkills(FactSheet{Briefing: BriefingInput{Workspace: "/w"}, WorkspacePath: "/workspace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(index["jail-mechanics/SKILL.md"]), "Jail tooling:"); n != 1 {
+		t.Errorf("the jail-mechanics index carries the tooling line %d times, want 1", n)
 	}
 }
 
@@ -323,13 +337,13 @@ func TestBriefingUnknownNotchFailsClosedWhateverTheMechanism(t *testing.T) {
 // existed that nothing had mounted. The section listing what was BOUND and the line
 // describing it now appear and disappear together.
 func TestBriefingDescribesCtxOnlyWhenSomethingIsMounted(t *testing.T) {
-	with := BriefingContent(BriefingInput{
+	with := reachable(BriefingInput{
 		Workspace: "/w", ContextMounts: []ContextMount{{Path: "/ctx/logs", Host: "/host/logs"}},
 	})
 	if !strings.Contains(with, "context mounts under `$YOLO_CONTEXT_DIR` are read-only unless marked read-write") {
 		t.Errorf("a jail WITH context mounts must still be told they are read-only unless marked:\n%s", with)
 	}
-	without := BriefingContent(BriefingInput{Workspace: "/w"})
+	without := reachable(BriefingInput{Workspace: "/w"})
 	if strings.Contains(without, "/ctx/") {
 		t.Errorf("a jail with no context mounts was told about a /ctx tree:\n%s", without)
 	}

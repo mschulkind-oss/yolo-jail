@@ -303,7 +303,7 @@ func TestShippedAgentPacksBriefOnlyTheirOwnAgentAboutWorktrees(t *testing.T) {
 		`rg -c -F "` + claude + `" /home/agent/.pi/agent/AGENTS.md || echo PI_LACKS_CLAUDE`,
 		`rg -c -F "` + claude + `" /home/agent/.codex/AGENTS.md || echo CODEX_LACKS_CLAUDE`,
 		`rg -c -F "` + pi + `" /home/agent/.codex/AGENTS.md || echo CODEX_LACKS_PI`,
-		`rg -c 'Storage classes' /home/agent/.codex/AGENTS.md && echo CODEX_STILL_BRIEFED`,
+		`rg -c 'What survives a restart' /home/agent/.codex/AGENTS.md && echo CODEX_STILL_BRIEFED`,
 	}, "; "))
 
 	for _, want := range []string{"CLAUDE_HAS_CLAUDE", "CLAUDE_LACKS_PI", "PI_HAS_PI",

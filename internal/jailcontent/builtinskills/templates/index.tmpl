@@ -1,6 +1,6 @@
 ---
 name: jail-mechanics
-description: "How this environment is wired and what to do after a change: confinement, host paths, what survives a restart, and exact next steps."
+description: "{{if .Host}}How this environment is wired and what to do after a change: host paths, config, and exact next steps.{{else}}This environment's facts, a file per topic: storage and what survives a restart, network and ports, mounts, asking the human, loopholes, blocked tools, limits; and next steps after a change.{{end}}"
 ---
 
 # This {{if .Host}}host{{else}}jail{{end}}
@@ -13,7 +13,20 @@ description: "How this environment is wired and what to do after a change: confi
 {{end}}{{end}}
 {{if .Host}}After editing host configuration, run `yolo host apply` from the host workspace.
 {{else}}Run `yolo config drift` to see what is pending now. The command's own result is authoritative if runtime probes narrow an expected outcome.
-{{end}}
+{{end}}{{if .Topics}}
+## Topics
+
+How each part of this jail works. Open the one your question is about.
+
+{{range .Topics}}- {{.Title}} → `topics/{{.File}}`
+{{end}}{{end}}
 ## Recipes
 {{range .Recipes}}- {{.Title}} → `recipes/{{.File}}`
 {{end}}
+## Tooling and other skills
+
+Jail tooling: `yolo --help`; config reference: `yolo config-ref`.
+{{if not .Host}}
+User-level skills dirs (`~/.<agent>/skills/`) are **read-only** in-jail (kernel-enforced); workspace-level ones (`{{if .WorkspacePath}}{{.WorkspacePath}}{{else}}the workspace{{end}}/.<agent>/skills/`) are writable — develop there, then ask the human to promote to the host.
+{{end}}
+Read **configuring-the-jail** before editing {{if .ConfigName}}`{{.ConfigName}}`{{else}}the config{{end}}, and **diagnosing-the-jail** when a command misbehaves. Their bodies load only when invoked.

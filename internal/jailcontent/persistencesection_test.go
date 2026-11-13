@@ -15,7 +15,7 @@ import (
 // in the maintainer's order, each home dir said to be the agents' and tools' own; and no
 // sentence may say the directory is still being designed.
 func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap(),
+	out := reachable(BriefingInput{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap(),
 		Durable: &DurableDir{Path: durable.ContainerJailPath}})
 	if !strings.Contains(out, "- **Home**: `/home/agent` (mostly read-only; see **Storage classes** below)") {
 		t.Errorf("the Home line does not point at the section:\n%s", environmentBlockOf(t, out))
@@ -98,7 +98,7 @@ func TestTheDurableLineNamesTheVariable(t *testing.T) {
 // variable is unset, and a briefing pointing at it would send the agent to nothing
 // (docs/reference/jail-home.md#durable-dir-failure-paths).
 func TestADurableDirThatCouldNotBeMadeIsSaidAndNotOffered(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap(),
+	out := reachable(BriefingInput{Workspace: "/w", Mechanism: "podman", Persistence: podmanShapedMap(),
 		Durable: &DurableDir{Unavailable: "`.yolo` is a symbolic link"}})
 	sec := persistenceSectionOf(t, out)
 	if !strings.Contains(sec, "**No durable directory this launch**: `.yolo` is a symbolic link. Tell the user. "+
@@ -117,7 +117,7 @@ func TestADurableDirThatCouldNotBeMadeIsSaidAndNotOffered(t *testing.T) {
 // it, as it was, "yolo never deletes it" stood one line above "lasts only as long as that
 // jail", and the enclosing yolo deletes that /tmp: two lifetimes, one false.
 func TestTheDurableCaveatReplacesTheLifetimeSentence(t *testing.T) {
-	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/tmp/n", Mechanism: "podman",
+	sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: "/tmp/n", Mechanism: "podman",
 		Persistence: podmanShapedMap(), Durable: &DurableDir{Path: durable.ContainerJailPath, Caveat: "Only as long as X."}}))
 	if !strings.Contains(sec, "Use any layout under it.\n⚠ Only as long as X. It sits in the workspace's `.yolo`, ") {
 		t.Errorf("the caveat is not where the lifetime sentence was:\n%s", sec)
@@ -132,7 +132,7 @@ func TestTheDurableCaveatReplacesTheLifetimeSentence(t *testing.T) {
 // /tmp survives the launch and is shared, so a name there must be unique.
 func TestTheMacosUserSectionIsTheDurableAnswerAtTheRealPath(t *testing.T) {
 	ws := "/Users/Shared/yolo/p"
-	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: ws, Mechanism: "macos-user",
+	sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: ws, Mechanism: "macos-user",
 		Home: "/Users/_yolojail", Durable: &DurableDir{Path: ws + "/.yolo/durable"}}))
 	for _, want := range []string{
 		"**`$YOLO_DURABLE_DIR`** (`" + ws + "/.yolo/durable`) is scratch space for",
@@ -176,7 +176,7 @@ func TestTheLockSaysWhyOnlyWhereTheHostSeesAnotherPath(t *testing.T) {
 		if c.mechanism != "macos-user" {
 			in.Persistence, in.Durable.Path = podmanShapedMap(), durable.ContainerJailPath
 		}
-		sec := persistenceSectionOf(t, BriefingContent(in))
+		sec := persistenceSectionOf(t, reachable(in))
 		if !strings.Contains(sec, "`git worktree add --lock") {
 			t.Errorf("%s: no `--lock` worktree line:\n%s", c.name, sec)
 		}
@@ -192,7 +192,7 @@ func TestTheLockSaysWhyOnlyWhereTheHostSeesAnotherPath(t *testing.T) {
 // it cannot find there, and nothing at all about yolo's own files in a home that has no
 // read-only rest. Each class bullet that differs is pinned whole, in order.
 func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/Users/u/p", Mechanism: "container",
+	out := reachable(BriefingInput{Workspace: "/Users/u/p", Mechanism: "container",
 		Persistence: appleContainerShapedMap(), Durable: &DurableDir{Path: durable.ContainerJailPath}})
 	sec := persistenceSectionOf(t, out)
 	order := []string{
@@ -246,7 +246,7 @@ func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
 func TestAPodmanTmpfsSectionGetsTheRAMClausesAndKeepsItsReadOnlyHome(t *testing.T) {
 	m := podmanShapedMap()
 	m.PerLaunchInRAM = true
-	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman",
+	sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: "/w", Mechanism: "podman",
 		Persistence: m, Durable: &DurableDir{Path: durable.ContainerJailPath}}))
 	for _, want := range []string{
 		"- **Per launch** (in RAM): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives " +

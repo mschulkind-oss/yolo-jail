@@ -16,10 +16,11 @@ import (
 	"testing"
 )
 
-// networkLineOf returns the briefing's "- **Network**:" line.
+// networkLineOf returns the network topic's "- **Network**:" paragraph: the full statement the
+// core's one-line summary points at.
 func networkLineOf(t *testing.T, in BriefingInput) string {
 	t.Helper()
-	for _, line := range strings.Split(BriefingContent(in), "\n") {
+	for _, line := range strings.Split(topicText(in, "network.md"), "\n") {
 		if strings.HasPrefix(line, "- **Network**:") {
 			return line
 		}
@@ -70,7 +71,7 @@ func TestBriefingFallsBackToNetModeWithoutAnAppliedMode(t *testing.T) {
 // not be handed a list of forwardings that are not happening — the same lie as the
 // network line, one section down.
 func TestBriefingAppliedHostModeSuppressesThePortSections(t *testing.T) {
-	body := BriefingContent(BriefingInput{
+	body := reachable(BriefingInput{
 		Workspace:        "/w",
 		NetMode:          "bridge",
 		AppliedNetMode:   "host",
@@ -93,7 +94,7 @@ func TestBriefingAppliedHostModeSuppressesThePortSections(t *testing.T) {
 // arrives here simply as a key that is not in the map.
 func TestBriefingStatesBackendDefaultResourceLimits(t *testing.T) {
 	line := ""
-	body := BriefingContent(BriefingInput{
+	body := reachable(BriefingInput{
 		Workspace: "/w",
 		Resources: map[string]any{"cpus": "4", "memory": "half of host RAM (min 4g)"},
 	})
@@ -116,7 +117,7 @@ func TestBriefingStatesBackendDefaultResourceLimits(t *testing.T) {
 
 	// And nothing applied means no line — the standing-bytes constraint the jail header
 	// golden protects one section up.
-	if body := BriefingContent(BriefingInput{Workspace: "/w"}); strings.Contains(body, "Resource limits") {
+	if body := reachable(BriefingInput{Workspace: "/w"}); strings.Contains(body, "Resource limits") {
 		t.Errorf("a jail with no applied limits gained a resource line:\n%s", body)
 	}
 }
@@ -126,13 +127,13 @@ func TestBriefingStatesBackendDefaultResourceLimits(t *testing.T) {
 // list produces no heading, rather than an "Additional Context Mounts" section
 // naming /ctx paths that do not exist in the jail.
 func TestBriefingOmitsTheMountsSectionWhenNoneWereBound(t *testing.T) {
-	bound := BriefingContent(BriefingInput{
+	bound := reachable(BriefingInput{
 		Workspace: "/w", ContextMounts: []ContextMount{{Path: "/ctx/sysadmin", Host: "/home/me/sysadmin"}},
 	})
 	if !strings.Contains(bound, "## Additional Context Mounts") || !strings.Contains(bound, "/ctx/sysadmin") {
 		t.Errorf("a bound mount must be listed:\n%s", bound)
 	}
-	refused := BriefingContent(BriefingInput{Workspace: "/w"})
+	refused := reachable(BriefingInput{Workspace: "/w"})
 	if strings.Contains(refused, "## Additional Context Mounts") {
 		t.Errorf("no bound mounts must leave no section:\n%s", refused)
 	}

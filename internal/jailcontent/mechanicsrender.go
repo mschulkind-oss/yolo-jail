@@ -207,9 +207,9 @@ func renderMechanicsSkill(facts FactSheet) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := map[string]string{
-		"jail-mechanics/SKILL.md":    string(indexMap["jail-mechanics/SKILL.md"]),
-		"jail-mechanics/host-map.md": string(indexMap["jail-mechanics/host-map.md"]),
+	files := map[string]string{}
+	for name, body := range indexMap {
+		files[name] = string(body)
 	}
 	for _, r := range mechanicsRecipes(facts) {
 		files["jail-mechanics/recipes/"+r.File] = renderRecipe(r.File, facts)
@@ -217,8 +217,29 @@ func renderMechanicsSkill(facts FactSheet) (map[string]string, error) {
 	return files, nil
 }
 
+// mechanicsTopics are the briefing's topic files for this sheet (briefingtopics.go): rendered from
+// the same BriefingInput the entry's core is, so the index never lists a topic the core does not
+// name. None at the host notch, whose briefing body is its header alone.
+func mechanicsTopics(facts FactSheet) []BriefingTopic {
+	if facts.Host {
+		return nil
+	}
+	return BriefingTopics(facts.Briefing)
+}
+
+// mechanicsTopicIndex is one Topics line of the index.
+type mechanicsTopicIndex struct{ Title, File string }
+
+// renderMechanicsIndexAndMap renders the applied-state files an entry and a live apply both
+// refresh: the index, the host map and every topic file. They are one set because the index lists
+// the topics: refreshing the index alone could name a topic file that is not there.
 func renderMechanicsIndexAndMap(facts FactSheet) (map[string][]byte, error) {
 	recipes := mechanicsRecipes(facts)
+	topics := mechanicsTopics(facts)
+	var topicIndex []mechanicsTopicIndex
+	for _, t := range topics {
+		topicIndex = append(topicIndex, mechanicsTopicIndex{Title: t.Title, File: t.File})
+	}
 	raw, err := builtinskills.FS.ReadFile("templates/index.tmpl")
 	if err != nil {
 		return nil, err
@@ -233,11 +254,16 @@ func renderMechanicsIndexAndMap(facts FactSheet) (map[string][]byte, error) {
 		HostWorkspace, WorkspacePath, ConfigPath, ConfigName string
 		ConfigLocked                                         bool
 		RestartCommand                                       string
+		Topics                                               []mechanicsTopicIndex
 		Recipes                                              []mechanicsRecipe
-	}{facts.Host, facts.HostWorkspace, facts.WorkspacePath, facts.ConfigPath, configName(facts), facts.Briefing.ConfigLocked, facts.RestartCommand, recipes}); err != nil {
+	}{facts.Host, facts.HostWorkspace, facts.WorkspacePath, facts.ConfigPath, configName(facts), facts.Briefing.ConfigLocked, facts.RestartCommand, topicIndex, recipes}); err != nil {
 		return nil, err
 	}
-	return map[string][]byte{"jail-mechanics/SKILL.md": index.Bytes(), "jail-mechanics/host-map.md": []byte(renderPathMap(facts))}, nil
+	out := map[string][]byte{"jail-mechanics/SKILL.md": index.Bytes(), "jail-mechanics/host-map.md": []byte(renderPathMap(facts))}
+	for _, t := range topics {
+		out["jail-mechanics/topics/"+t.File] = []byte(t.Text())
+	}
+	return out, nil
 }
 
 func configName(facts FactSheet) string {

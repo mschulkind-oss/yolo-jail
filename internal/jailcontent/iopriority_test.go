@@ -10,7 +10,7 @@ import (
 // it, and the disk may ignore it (docs/design/io-priority.md §5.2). Nothing passed, or a
 // value that names no class, means no line.
 func TestBriefingStatesThePassedIOPriorityOnItsOwnLine(t *testing.T) {
-	body := BriefingContent(BriefingInput{
+	body := reachable(BriefingInput{
 		Workspace:  "/w",
 		Resources:  map[string]any{"memory": "8g"},
 		IOPriority: "idle",
@@ -31,7 +31,7 @@ func TestBriefingStatesThePassedIOPriorityOnItsOwnLine(t *testing.T) {
 		t.Errorf("the kernel-enforced limits line names the priority: %q", limits)
 	}
 	for _, v := range []string{"", "normal", "realtime"} {
-		if body := BriefingContent(BriefingInput{Workspace: "/w", IOPriority: v}); strings.Contains(body, "Disk I/O priority") {
+		if body := reachable(BriefingInput{Workspace: "/w", IOPriority: v}); strings.Contains(body, "Disk I/O priority") {
 			t.Errorf("IOPriority=%q gained a line", v)
 		}
 	}
@@ -46,7 +46,7 @@ func TestTheBriefingNamesTheSchedulersThatIgnoreTheValue(t *testing.T) {
 		{"low", "disks whose scheduler is mq-deadline, kyber or none ignore it", ""},
 		{"idle", "disks whose scheduler is kyber or none ignore it", "mq-deadline"},
 	} {
-		body := BriefingContent(BriefingInput{Workspace: "/w", IOPriority: tc.p})
+		body := reachable(BriefingInput{Workspace: "/w", IOPriority: tc.p})
 		var line string
 		for _, l := range strings.Split(body, "\n") {
 			if strings.HasPrefix(l, "- **Disk I/O priority**") {
@@ -68,7 +68,7 @@ func TestTheBriefingNamesTheSchedulersThatIgnoreTheValue(t *testing.T) {
 // on the host, at the host's priority; an agent told "builds yield" would count those in
 // (docs/design/io-priority.md §2, Non-Goal 6).
 func TestTheBriefingScopesTheIOPriorityToTheJail(t *testing.T) {
-	body := BriefingContent(BriefingInput{Workspace: "/w", IOPriority: "low"})
+	body := reachable(BriefingInput{Workspace: "/w", IOPriority: "low"})
 	var line string
 	for _, l := range strings.Split(body, "\n") {
 		if strings.HasPrefix(l, "- **Disk I/O priority**") {
@@ -91,7 +91,7 @@ func TestTheMacosUserBriefingNamesTheDiskPolicy(t *testing.T) {
 		{"low", "`low` (IOPOL_UTILITY)"},
 		{"idle", "`idle` (IOPOL_THROTTLE)"},
 	} {
-		body := BriefingContent(BriefingInput{Workspace: "/Users/Shared/proj", Mechanism: "macos-user", IOPriority: tc.p})
+		body := reachable(BriefingInput{Workspace: "/Users/Shared/proj", Mechanism: "macos-user", IOPriority: tc.p})
 		var line string
 		for _, l := range strings.Split(body, "\n") {
 			if strings.HasPrefix(l, "- **Disk I/O priority**") {
@@ -111,11 +111,11 @@ func TestTheMacosUserBriefingNamesTheDiskPolicy(t *testing.T) {
 			}
 		}
 	}
-	if body := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "macos-user", IOPriority: "normal"}); strings.Contains(body, "Disk I/O priority") {
+	if body := reachable(BriefingInput{Workspace: "/w", Mechanism: "macos-user", IOPriority: "normal"}); strings.Contains(body, "Disk I/O priority") {
 		t.Error("an undeclared priority gained a line on macos-user")
 	}
 	// The container line is untouched by the mechanism it does not name.
-	if body := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", IOPriority: "low"}); !strings.Contains(body, "(best effort, level 7)") {
+	if body := reachable(BriefingInput{Workspace: "/w", Mechanism: "podman", IOPriority: "low"}); !strings.Contains(body, "(best effort, level 7)") {
 		t.Error("podman's line lost its Linux class")
 	}
 }

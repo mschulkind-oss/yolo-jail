@@ -10,8 +10,8 @@ func TestBriefingPointsToRenderedMechanicsInsteadOfLifecycleRules(t *testing.T) 
 		{Workspace: "/Users/Shared/yolo/proj", Mechanism: "macos-user"},
 		{Workspace: "/workspace", Mechanism: "podman"},
 	} {
-		briefing := BriefingContent(in)
-		if !strings.Contains(briefing, "read **jail-mechanics**") {
+		briefing := reachable(in)
+		if !strings.Contains(briefing, "Read the **jail-mechanics** skill") {
 			t.Errorf("briefing lacks mechanics pointer: %s", briefing)
 		}
 		for _, removed := range []string{"## Packages", "container-limit change", "restart the jail"} {
