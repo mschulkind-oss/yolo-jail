@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 )
 
 func keys(m map[string]struct{}) []string {
@@ -65,13 +66,15 @@ func TestParseContainerLsImages(t *testing.T) {
 }
 
 func TestParsePodmanPsRows(t *testing.T) {
-	stdout := "yolo-a-1111\tUp 2 hours\t2 hours ago\n" +
-		"yolo-b-2222\tUp 3 minutes\t3 minutes ago\n" +
+	stdout := "yolo-a-1111\tUp 2 hours\t1762437731\n" +
+		"yolo-b-2222\tUp 3 minutes\t<no value>\n" + // an unknown start time is the zero time
+		"yolo-c-3333\tUp 1 second\t0\n" +
 		"short\trow\n" // <3 fields, skipped
 	got := ParsePodmanPsRows(stdout)
 	want := []PsRow{
-		{"yolo-a-1111", "Up 2 hours", "2 hours ago"},
-		{"yolo-b-2222", "Up 3 minutes", "3 minutes ago"},
+		{"yolo-a-1111", "Up 2 hours", time.Unix(1762437731, 0).UTC()},
+		{"yolo-b-2222", "Up 3 minutes", time.Time{}},
+		{"yolo-c-3333", "Up 1 second", time.Time{}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %v, want %v", got, want)
@@ -104,8 +107,10 @@ func TestParseContainerLsRows(t *testing.T) {
 		t.Fatal("the measured `container ls --format json` shape did not parse")
 	}
 	want := []PsRow{
-		{Name: "yolo-su11-ac-f113f9bc", Status: "running since 2026-11-06T19:57:12Z"},
-		{Name: "yolo-ac-builder", Status: "running since 2026-10-09T22:39:57Z"},
+		{Name: "yolo-su11-ac-f113f9bc", Status: "running since 2026-11-06T19:57:12Z",
+			Started: time.Date(2026, 11, 6, 19, 57, 12, 0, time.UTC)},
+		{Name: "yolo-ac-builder", Status: "running since 2026-10-09T22:39:57Z",
+			Started: time.Date(2026, 10, 9, 22, 39, 57, 0, time.UTC)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %+v, want %+v", got, want)
@@ -162,22 +167,21 @@ func TestBakedYoloVersionFromInspectEnv(t *testing.T) {
 	}
 }
 
+// TestRenderPsTable: the five columns of named-setups.md §12.3, every one but PACKS padded to
+// its widest cell, the header included, with rows in the order given.
 func TestRenderPsTable(t *testing.T) {
-	containers := []PsContainer{
-		{Name: "yolo-a-1", Setup: "podman-self", Status: "Up 2 hours", Workspace: "/home/matt/a"},
-		{Name: "yolo-longer-name-2", Status: "Up 3m", Workspace: "/home/matt/b"},
+	rows := []PsTableRow{
+		{Workspace: "~/code/notes", Setup: "podman-self", Status: "running", Age: "2d", Packs: "pi"},
+		{Workspace: "~/old-thing", Setup: PsUnknownSetup, Status: "starting", Age: "4s", Packs: "?"},
 	}
-	got := RenderPsTable(containers)
-	// name col width = len("yolo-longer-name-2")=18, setup col = len("podman-self")=11, status col =
-	// len("Up 2 hours")=10. A row whose setup is not known prints `?` (named-setups.md §12.2).
-	want := "CONTAINER           SETUP        STATUS      WORKSPACE\n" +
-		"yolo-a-1            podman-self  Up 2 hours  /home/matt/a\n" +
-		"yolo-longer-name-2  ?            Up 3m       /home/matt/b"
-	if got != want {
+	want := "WORKSPACE     SETUP        STATUS    AGE  PACKS\n" +
+		"~/code/notes  podman-self  running   2d   pi\n" +
+		"~/old-thing   ?            starting  4s   ?"
+	if got := RenderPsTable(rows); got != want {
 		t.Errorf("table =\n%q\nwant\n%q", got, want)
 	}
 	if RenderPsTable(nil) != "" {
-		t.Error("no containers should render empty string")
+		t.Error("no rows should render empty string")
 	}
 }
 

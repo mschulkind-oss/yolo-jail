@@ -1172,16 +1172,43 @@ func runPs(args []string) int {
 	if !ok {
 		return 2
 	}
-	if refuseUnknownFlags("ps", args, []string{"--format", "--json", "--help", "-h", "ps"},
+	rest, only, rc := setupFlag("ps", args, os.Stderr)
+	if rc != 0 {
+		return rc
+	}
+	if refuseUnknownFlags("ps", rest, []string{"--format", "--json", "--help", "-h", "ps"},
 		os.Stderr) {
 		return 2
 	}
-	ws, err := os.Getwd()
-	if err != nil {
-		ws = "."
+	// YOLO_SETUP does not narrow the list (named-setups.md §12.1): every launch exports it into
+	// its session, so honoring it would narrow every `yolo ps` typed inside a jail. --setup does.
+	return psRun(psRealDeps(format, only))
+}
+
+// setupFlag takes `--setup <name>` out of a listing verb's args and resolves it as a launch resolves
+// one (named-setups.md §12.6, SUP-D27): through setup.Lookup over the built-ins and the user
+// config's setups, so an undefined name is refused with the launch's own message, exit 2. A setup
+// this machine cannot build is not refused: it lists nothing and says why.
+func setupFlag(verb string, args []string, errw io.Writer) (rest []string, only *setup.Setup, rc int) {
+	for i := 0; i < len(args); i++ {
+		fl, ok := readValueFlag(args, i, "--setup")
+		if !ok {
+			rest = append(rest, args[i])
+			continue
+		}
+		if fl.err != nil {
+			fmt.Fprintf(errw, "yolo %s: %v (a setup's name; `yolo setup list` names them)\n", verb, fl.err)
+			return nil, nil, 2
+		}
+		_, user, _ := config.SelectedSetupFromConfig()
+		s, err := setup.Lookup(fl.value, user)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo %s: %v\n", verb, err)
+			return nil, nil, 2
+		}
+		only, i = &s, fl.last
 	}
-	detect := listingDetect("ps", ws, os.Stderr)
-	return psRun(psRealDeps(psRunCmd, detect, format))
+	return rest, only, 0
 }
 
 // checkKnownFlags is check/doctor's whole flag surface. `--format` is parsed by
@@ -1256,7 +1283,7 @@ func detectListingRuntime(workspace string) string {
 
 // psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on
 // a spawn error OR non-zero exit — the tri-state "could not enumerate" that
-// pscmd must NOT collapse to "no jails" (else it prunes live jails' tracking
+// a probe must NOT collapse to "no jails" (else it prunes live jails' tracking
 // files, audit §D11).
 func psRunCmd(argv []string) (string, bool) {
 	cmd := exec.Command(argv[0], argv[1:]...)
