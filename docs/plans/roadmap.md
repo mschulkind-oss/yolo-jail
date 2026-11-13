@@ -78,7 +78,11 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [`--no-daemon` for in-jail `codex`](../research/codex-background-service.md#OQ-CDX3), since `codex agents` starts
    the daemon yolo turns off; [whose OpenAI login host pi uses](../design/pi-host-openai-auth.md), since its first
    refresh replaces yours; and [a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
-   which host apply never deletes and pi keeps loading, with [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
+   which host apply never deletes and pi keeps loading, with [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1). Also
+   [whether your own briefing prose is composed ahead of yolo's](../design/briefing-diet.md#OQ-BD1): a personal
+   pack's rules start 25 KB into every briefing today, where an agent that cuts a long file drops them. The
+   [plan's](../design/briefing-diet-plan.md) other two 0.18.0 tasks, which cut yolo's share to a tenth, wait on
+   no ruling.
 
 3. Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
    holds [the GitHub work-kinds plan](../design/github-write-scopes-plan.md)'s Task 2 (Task 1 is built);
