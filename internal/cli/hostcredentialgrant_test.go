@@ -418,12 +418,36 @@ set = { DEEPSEEK_API_KEY = "tok-ds" }
 	}
 	_, errs = hostGateLaunchWith(t, cfg, nil, nil, "pi")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	for _, want := range []string{"No declared profile selects deepseek", "`profiles`",
-		`"deepseek": {"provider": "deepseek"}`, "`yolo host -p deepseek -- pi`"} {
+	for _, want := range []string{"No declared profile selects deepseek", "[active_provider] table",
+		"`yolo active-provider pi deepseek`", "`yolo host -p deepseek -- pi`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("with no profile selecting deepseek the line must say to declare one (%q "+
 				"missing): %q", want, line)
 		}
+	}
+	// LC-D12: a TOML user config has no `profiles` key, so the line types out no legacy entry.
+	if strings.Contains(line, "`profiles`") || strings.Contains(line, `"provider": `) {
+		t.Errorf("a TOML user config's line names the legacy profiles entry: %q", line)
+	}
+}
+
+// The same line over a LEGACY user config types out that file's own `profiles` entry, which no
+// verb writes there (LC-D12's legacy-file branch).
+func TestHostGrantWithheldLineTypesTheProfilesEntryForALegacyUserConfig(t *testing.T) {
+	cfg := `{"packs": ["pi"],
+  "providers": {"deepseek": {"api_key_env_name": "DEEPSEEK_API_KEY",
+    "endpoints": {"openai": {"base_url": "https://api.deepseek.example"}}}},
+  "env": {"secrets": {"set": {"DEEPSEEK_API_KEY": "tok-ds"}}}}`
+	_, errs := hostGateLaunchWith(t, cfg, nil, nil, "pi")
+	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
+	for _, want := range []string{"No declared profile selects deepseek", "`profiles`", "config.jsonc",
+		`"deepseek": {"provider": "deepseek"}`, "`yolo host -p deepseek -- pi`"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("a legacy user config's line must type out its profiles entry (%q missing): %q", want, line)
+		}
+	}
+	if strings.Contains(line, "yolo active-provider") {
+		t.Errorf("a legacy user config's line names the TOML verb: %q", line)
 	}
 }
 

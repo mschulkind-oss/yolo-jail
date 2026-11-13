@@ -47,10 +47,10 @@ func TestWorkspaceEnableOfUninstalledLoopholeNamesThePackRoute(t *testing.T) {
 	}
 	msg := hits[0]
 	for _, want := range []string{
-		`"packs"`,          // the route that actually installs a pack loophole
-		"user-scope",       // ...and the fact this file cannot take it
-		"SHIPS IN A PACK",  // the condition under which that route is the one
-		userConfigHintPath, // where both halves have to be written
+		"`yolo pack add <pack>`", // the route that actually installs a pack loophole
+		"user-scope",             // ...and the fact this file cannot take it
+		"SHIPS IN A PACK",        // the condition under which that route is the one
+		userConfigHintPath,       // where both halves have to be written
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal must mention %q, so a reader can act on it:\n%s", want, msg)
@@ -80,7 +80,7 @@ func TestUserEnableOfUninstalledLoopholeCarriesTheSameRemedy(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("want exactly one unknown-name warning, got %v", warns)
 	}
-	if !strings.Contains(hits[0], `"packs"`) {
+	if !strings.Contains(hits[0], "`yolo pack add <pack>`") {
 		t.Errorf("the warning must name the pack route — otherwise a user who selected no "+
 			"pack is told only that their entry does nothing:\n%s", hits[0])
 	}
@@ -128,7 +128,7 @@ func TestRetiredLoopholeNameIsAnsweredWithItsReplacement(t *testing.T) {
 				t.Fatalf("want exactly one message about the retired name, got errs=%v warns=%v", errs, warns)
 			}
 			msg := hits[0]
-			for _, want := range []string{"RETIRED", "'audio'", `"packs": ["audio"]`} {
+			for _, want := range []string{"RETIRED", "'audio'", "`yolo pack add audio`"} {
 				if !strings.Contains(msg, want) {
 					t.Errorf("a retired loophole name must be answered with its replacement "+
 						"(missing %q):\n%s", want, msg)

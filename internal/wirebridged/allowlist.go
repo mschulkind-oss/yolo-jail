@@ -154,8 +154,8 @@ func (a *modelAllowlist) checksModel(agentOrRoute, model string, dup bool) (ok b
 	logf("%s: refused model %q, which is not on provider %s's list (wire-bridge-gateway.md Part 5)",
 		agentOrRoute, model, a.provider)
 	return false, fmt.Sprintf("wire-bridge: model %q is not on provider %s's list, and profile %s enforces "+
-		"it (enforce_models is on by default). Allowed: %s. Pick one of those, or set \"enforce_models\": false "+
-		"on the profile so the list only shapes the model menus", model, a.provider,
+		"it (enforce_models is on by default). Allowed: %s. Pick one of those, or turn the profile's `enforce_models` off "+
+		"so the list only shapes the model menus", model, a.provider,
 		strings.Join(quoteAll(a.profiles), ", "), listed)
 }
 

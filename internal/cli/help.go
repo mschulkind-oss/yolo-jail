@@ -73,7 +73,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"paste", "On the host: save the clipboard's image into the workspace and put its in-jail path on the clipboard"},
 	{"history", "What happened to this workspace's broker requests: answered how, when they ran, what to do next"},
 	{"init", "Scaffold yolo-jail.toml in the current workspace"},
-	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.jsonc"},
+	{"init-user-config", "Write user-level defaults at ~/.config/yolo-jail/config.toml"},
 	{"config", "Edit and inspect yolo's own configuration: 'config apply', 'config drift', 'config dump'"},
 	{"allow", "Allow a broker capability in your user config, then offer this workspace's approval"},
 	{"request", "Request a broker capability in this project's config, then check it"},

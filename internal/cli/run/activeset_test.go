@@ -343,7 +343,7 @@ func TestTheProfileKeysBareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 			o.noteUseProfiles(channel, packs, nil)
 			for _, want := range []string{"Profile list zai, openrouter (the profile key's list, naming no agent)",
 				"claude takes one profile", "ignores openrouter", "pi takes the whole list",
-				`"profile": {"<agent>": ["zai", "openrouter"]}`} {
+				"`yolo config set active_provider.<agent> '[\"zai\", \"openrouter\"]' --user`"} {
 				if !strings.Contains(stderr.String(), want) {
 					t.Errorf("the launch lines must say %q:\n%s", want, stderr.String())
 				}

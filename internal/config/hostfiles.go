@@ -604,7 +604,7 @@ func checkHostFileObject(m *jsonx.OrderedMap, itemPath, scope string, reserved m
 	case !entry.IsDir && entry.Source == "" && !entry.HasContent &&
 		entry.Managed == nil && entry.Defaults == nil:
 		return HostFileEntry{}, itemPath + ": nothing to compose — an entry needs at least one of " +
-			"'source', 'content', 'defaults', or 'managed' (use \"content\": \"\" to declare an empty file)"
+			"'source', 'content', 'defaults', or 'managed' (an empty 'content' declares an empty file)"
 	}
 
 	if probeSource && entry.Source != "" {

@@ -13,7 +13,7 @@ func TestTheRequiresKindIsRefusedNamingTheNextStep(t *testing.T) {
 	_, problems := Decode([]byte(`{"name":"p","contributes":[{"kind":"requires","bin":"rg"}]}`))
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, `kind "requires" has been REMOVED`) ||
-		!strings.Contains(joined, `write it as a "program" with no recipe`) {
+		!strings.Contains(joined, `write it as a "program" with no recipe: a [[program]] table with bin = "<bin>" and no via`) {
 		t.Fatalf("the old kind must be refused with the rewrite named; got %v", problems)
 	}
 	if KnownKind("requires") {

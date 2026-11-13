@@ -942,6 +942,11 @@ func TestRunForkBuildActRefusesBeforeItsToolchainAndOverAMissingPackage(t *testi
 		!strings.Contains(c.out.String(), "no aarch64-darwin build") || !strings.Contains(c.out.String(), "ripgrpe") {
 		t.Errorf("rc = %d, want a refusal naming the package:\n%s", rc, c.out.String())
 	}
+	// LC-D12: the Linux-only step is said in words true of either config format, never a JSON
+	// snippet a TOML config cannot hold.
+	if out := c.out.String(); !strings.Contains(out, LinuxOnlyPackageStep) || strings.Contains(out, `"name": `) {
+		t.Errorf("the refusal does not name the format-neutral Linux-only step:\n%s", out)
+	}
 	if strings.Contains(strings.Join(c.ran, "\n"), "capture-run") {
 		t.Error("the build line ran with a declared package missing")
 	}

@@ -46,7 +46,7 @@ func (l *Loophole) PlacementProblems(workspace string) []string {
 // when there is none to judge.
 //
 // A CONFIG loophole has no module dir at all — Path holds the synthetic
-// "<yolo-jail.jsonc:loopholes.name>" marker, which is not a path and must not be
+// "<workspace config:loopholes.name>" marker, which is not a path and must not be
 // resolved as one. Its `command` is checked by the config faces, which is where a
 // config entry belongs.
 //

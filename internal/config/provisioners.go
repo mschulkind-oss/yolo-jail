@@ -319,7 +319,8 @@ func depRequirementsOf(packs []*packload.Pack) map[string][]depcheck.Requirement
 func provisionersProblems(v any, reqs map[string][]depcheck.Requirement, complete bool) []string {
 	root, ok := v.(*jsonx.OrderedMap)
 	if !ok {
-		return []string{": expected an object of environments, e.g. {\"host\": [\"brew\", \"nix\"]} (got " +
+		return []string{": expected an object of environments, whose one entry this yolo reads is " +
+			"\"host\", written with `yolo config set " + provisionersKey + ".host '[\"brew\", \"nix\"]' --user` (got " +
 			pyReprValue(v) + ")"}
 	}
 	var out []string
@@ -384,7 +385,8 @@ func perPackageProblems(v any, reqs map[string][]depcheck.Requirement, complete 
 	at := "." + provisionersPerPackage
 	byBin, ok := v.(*jsonx.OrderedMap)
 	if !ok {
-		return []string{at + ": expected an object of binaries, e.g. {\"claude\": {\"host\": [\"brew\"]}} (got " +
+		return []string{at + ": expected an object of binaries, each with its own environments, written " +
+			"with `yolo config set " + provisionersKey + at + ".claude.host '[\"brew\"]' --user` (got " +
 			pyReprValue(v) + ")"}
 	}
 	var out []string
@@ -393,8 +395,8 @@ func perPackageProblems(v any, reqs map[string][]depcheck.Requirement, complete 
 		val, _ := byBin.Get(bin)
 		envs, ok := val.(*jsonx.OrderedMap)
 		if !ok {
-			out = append(out, binAt+": expected an object of environments, e.g. {\"host\": [\"brew\"]} (got "+
-				pyReprValue(val)+")")
+			out = append(out, binAt+": expected an object of environments, written with `yolo config set "+
+				provisionersKey+binAt+".host '[\"brew\"]' --user` (got "+pyReprValue(val)+")")
 			continue
 		}
 		if !packdecl.ValidBinName(bin) {

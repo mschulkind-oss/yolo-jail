@@ -2121,9 +2121,21 @@ func (c *hostComposition) credentialRemedy(claimants []string) string {
 		} else {
 			action = c.remedyAction(example, c.runsOn(example, declared), claimant)
 		}
+		userConfig := paths.UserConfigDisplayPath()
+		if filepath.Ext(userConfig) == ".toml" {
+			// A TOML user config has no `profiles` key: its own providers are selectable by name
+			// once it holds an [active_provider] table, which the verb writes (LC-D12).
+			return fmt.Sprintf("No declared profile selects %s: a provider your user config (%s) "+
+				"declares is selectable by its own name once that file has an [active_provider] table, "+
+				"which `yolo active-provider %s %s` writes (making %s %s's provider), then %s",
+				strings.Join(claimants, " or "), userConfig, shquote.Quote(c.agent), shquote.Quote(example),
+				example, c.agent, action)
+		}
+		// A legacy user config: no verb writes its `profiles` key, so the entry is typed out in
+		// that file's own JSON.
 		return fmt.Sprintf("No declared profile selects %s: declare one under `profiles` in %s "+
 			"(for example `%q: {\"provider\": %q}`), then %s",
-			strings.Join(claimants, " or "), paths.UserConfigDisplayPath(), example, example, action)
+			strings.Join(claimants, " or "), userConfig, example, example, action)
 	}
 	// The set kept, the claiming profile added (AP-D19), whenever a widened set composes.
 	for _, name := range candidates {

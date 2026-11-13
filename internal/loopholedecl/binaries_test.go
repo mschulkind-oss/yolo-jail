@@ -170,7 +170,8 @@ func TestBinariesRefusals(t *testing.T) {
 		}, "no argv names it"},
 		{"binaries is not a mapping", func(m map[string]any) {
 			m["binaries"] = []any{"toold"}
-		}, "'binaries' must be a mapping"},
+		}, "'binaries' must be a mapping of binary name to its builds, e.g. " +
+			`binaries.mytool."linux/amd64" = { url = "https://…", sha256 = "…" }`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

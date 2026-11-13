@@ -46,7 +46,7 @@ func configGrantRemoval(workspace string, files []string, source, kind, name str
 	if len(files) > 0 && files[0] != "" && filepath.Ext(files[0]) != ".toml" {
 		entry := "the grant"
 		if kind != "" {
-			entry = fmt.Sprintf("its {\"kind\": \"%s\", …} entry", termsafe.Visible(kind))
+			entry = fmt.Sprintf("its `%s` grant entry", termsafe.Visible(kind))
 		}
 		step = fmt.Sprintf("%s is in the deprecated JSONC format, which keeps %s under `brokered.%s.grants`: "+
 			"convert it first with `yolo config migrate` in %s (preview with `yolo config migrate --dry-run`), then %s",

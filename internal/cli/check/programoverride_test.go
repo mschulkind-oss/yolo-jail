@@ -19,7 +19,7 @@ func TestCheckFailsADevOverrideOfANonPackTreeProgram(t *testing.T) {
 	r := newReporter(&out, false)
 	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
 	got := stripANSI(out.String())
-	if r.failed == 0 || !strings.Contains(got, "programs.overrides.claude") || !strings.Contains(got, `"fork_of"`) {
+	if r.failed == 0 || !strings.Contains(got, "programs.overrides.claude") || !strings.Contains(got, `fork_of = "claude"`) {
 		t.Errorf("an override of claude (an npm program) must fail check, naming the key and a fork pack; "+
 			"failed=%d:\n%s", r.failed, got)
 	}

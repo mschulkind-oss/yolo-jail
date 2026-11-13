@@ -59,7 +59,7 @@ func TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch(t *testing.T) {
 			t.Errorf("A2's refusal does not name %q on its own line, so a user with a longer "+
 				"list cannot tell which entry to fix:\n%s", pkg, line)
 		}
-		if !strings.Contains(out, `"platforms": ["linux"]`) {
+		if !strings.Contains(out, `a "platforms" list holding only "linux"`) {
 			t.Errorf("the refusal does not offer the `platforms` escape hatch (A2 piece 2), "+
 				"which is the remedy for a package that is genuinely Linux-only:\n%s", out)
 		}

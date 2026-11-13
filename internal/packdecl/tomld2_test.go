@@ -278,7 +278,8 @@ func TestGroupedLaunchRejectsMalformedFieldsAndLegacyJSONStillRetiresLaunch(t *t
 			}
 		})
 	}
-	if _, problems := Decode([]byte(`{"contributes":[{"kind":"launch","bin":"pi"}]}`)); len(problems) == 0 || !strings.Contains(strings.Join(problems, "\n"), `kind "launch" has been REMOVED`) {
+	if _, problems := Decode([]byte(`{"contributes":[{"kind":"launch","bin":"pi"}]}`)); len(problems) == 0 || !strings.Contains(strings.Join(problems, "\n"), `kind "launch" has been REMOVED`) ||
+		!strings.Contains(strings.Join(problems, "\n"), `an [[autonomy.autonomous.launch]] table with bin = "<bin>" and flags = ["<flag>"]`) {
 		t.Fatalf("legacy JSON launch kind retirement changed: %v", problems)
 	}
 }

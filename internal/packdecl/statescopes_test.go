@@ -46,7 +46,7 @@ func TestTheHookRefusalOverAWorkspaceStateSaysChangeItsScope(t *testing.T) {
 	if want := m.UndeclaredHookStateProblem(".x-shared"); !strings.Contains(got, want) {
 		t.Fatalf("Decode does not refuse with the pack's sentence %q:\n%s", want, got)
 	}
-	if strings.Contains(got, `add {"kind": "state"`) {
+	if strings.Contains(got, `add a [[state]] table`) {
 		t.Errorf("advises adding a second state at a path the pack declares at workspace scope:\n%s", got)
 	}
 	if !strings.Contains(got, `"scope"`) || !strings.Contains(got, `"machine"`) {
@@ -60,7 +60,7 @@ func TestTheHookRefusalOverAWorkspaceStateSaysChangeItsScope(t *testing.T) {
 	}
 	// With no state at the path, adding one is still the advice, and following it is accepted.
 	none, _ := Decode([]byte(`{"name":"p","contributes":[]}`))
-	if s := none.UndeclaredHookStateProblem(".x-shared"); !strings.Contains(s, `add {"kind": "state"`) {
+	if s := none.UndeclaredHookStateProblem(".x-shared"); !strings.Contains(s, `add a [[state]] table with at = ".x-shared", scope = "machine"`) {
 		t.Errorf("with no state at the path, the advice no longer says to add one: %s", s)
 	}
 }

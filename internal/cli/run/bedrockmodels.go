@@ -52,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -226,11 +227,10 @@ func fetchedListRefusal(w packload.ListWant, agent, profile, why string) string 
 	}
 	return fmt.Sprintf("%s has no model to start on for profile %q: provider %q (%s, region %s) has no model "+
 		"list from a pack or your config, %s's pack says it has no %s catalog of its own, and yolo could not "+
-		"fetch the region's list: %s. Fix that and launch again; or name a model with \"model\" on profile %q, "+
-		"or give the provider a list with a pack's `models` contribution or \"providers.%s.models\" in "+
-		"~/.config/yolo-jail/config.jsonc",
+		"fetch the region's list: %s. Fix that and launch again; or name a model with `model` on profile %q, "+
+		"or give the provider a list with a pack's `models` contribution or `providers.%s.models` in %s",
 		agent, profile, w.Provider, w.Platform, w.Region, agent, w.Platform, strings.TrimRight(why, "."),
-		profile, w.Provider)
+		profile, w.Provider, paths.UserConfigDisplayPath())
 }
 
 // noteFetchedList says, once per launch, where provider's list came from, or why there is none.
@@ -253,9 +253,9 @@ func (o *Options) noteFetchedList(w packload.ListWant, ans awsauthdaemon.ModelLi
 			"model's maker for %s: a model sent to its Messages route is translated, a Claude model's too, and "+
 			"one sent to Bedrock's own invoke route is passed through as sent, which only a Claude model takes. "+
 			"Fix that and launch again, or give the provider a list with a pack's `models` contribution or "+
-			"\"providers.%s.models\" in ~/.config/yolo-jail/config.jsonc.[/yellow]",
+			"`providers.%s.models` in %s.[/yellow]",
 			w.Provider, w.Platform, w.Region, richtext.Escape(strings.TrimRight(ans.Note, ".")),
-			strings.Join(w.Agents, ", "), w.Provider)
+			strings.Join(w.Agents, ", "), w.Provider, richtext.Escape(paths.UserConfigDisplayPath()))
 	}
 	if o.fetchedListNotes == nil {
 		o.fetchedListNotes = map[string]bool{}

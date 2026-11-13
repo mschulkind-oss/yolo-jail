@@ -40,7 +40,7 @@ func TestModelCatalogIsRefusedWhereItNamesNoPackageFile(t *testing.T) {
 		{"a non-program kind", Contribution{Kind: KindSkills, From: "skills", Into: ".x/skills",
 			ModelCatalog: []string{"a.json"}}, `does not take "model_catalog"`},
 		{"an installer program", Contribution{Kind: KindProgram, Bin: "x", Via: "installer",
-			URL: "https://example.test/install.sh", ModelCatalog: []string{"a.json"}}, `needs "via": "npm"`},
+			URL: "https://example.test/install.sh", ModelCatalog: []string{"a.json"}}, `needs via = "npm"`},
 		{"an empty list", Contribution{Kind: KindProgram, Bin: "x", Via: "npm", Package: "p",
 			ModelCatalog: []string{}}, "an empty list"},
 	}

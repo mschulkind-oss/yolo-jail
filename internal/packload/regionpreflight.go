@@ -230,8 +230,8 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 				}
 			}
 			facts = append(facts, gap.files...)
-			remedy := fmt.Sprintf("    set one: \"providers\": {%q: {\"region\": \"<region>\"}} "+
-				"in your yolo config, or %s=<region> in an env_sources entry", name, gap.vars[0])
+			remedy := fmt.Sprintf("    set one: `yolo config set providers.%s.region <region> --user`, "+
+				"or %s=<region> in an env_sources entry", name, gap.vars[0])
 			for _, r := range gap.remedies {
 				remedy += ", or " + r
 			}

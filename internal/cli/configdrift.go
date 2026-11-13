@@ -121,7 +121,7 @@ func printUserScopeDriftLimit(pr richtext.Printer) {
 	}
 	pr.Printf("")
 	pr.Printf("[dim]Note: this compares the WORKSPACE config only. Your user-level config " +
-		"(~/.config/yolo-jail/config.jsonc on the host) reaches this jail as a generated, " +
+		"(in ~/.config/yolo-jail on the host) reaches this jail as a generated, " +
 		"filtered snapshot taken at launch, so an edit to it is not visible in here and not " +
 		"detectable as drift — it applies on the next launch. `yolo config dump` shows the " +
 		"effective config this jail is actually running under.[/dim]")

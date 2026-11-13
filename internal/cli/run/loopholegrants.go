@@ -277,7 +277,8 @@ type grantSummary struct {
 // withheldStep is the step that takes a withheld pack's grants in this project: the project's
 // own off, which it removes.
 func withheldStep(pack string) string {
-	return "remove this project's `requests." + pack + " = \"off\"` (or, in a legacy yolo-jail.jsonc, its `\"enabled\": false` under loopholes)"
+	return "remove this project's `requests." + pack + " = \"off\"` with `yolo config unset requests." + pack + " --project` " +
+		"(in a legacy workspace config, delete the false `enabled` under the loophole's `loopholes` entry)"
 }
 
 func summarizeGrants(lp *loopholes.Loophole, kinds map[string]config.LoopholeGrantStanding) grantSummary {

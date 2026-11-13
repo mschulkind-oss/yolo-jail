@@ -51,7 +51,7 @@ func TestTheStaleCopyStepUnderNoneRemovesWhatReconcileWould(t *testing.T) {
 	if strings.HasPrefix(got, "`yolo host apply --assert` removes") {
 		t.Errorf("under none the step is the apply, which writes nothing there: %q", got)
 	}
-	if !strings.Contains(got, `"host_management": "own"`) {
+	if !strings.Contains(got, "while `host_management` is \"own\"") {
 		t.Errorf("the step does not say when the apply would do it: %q", got)
 	}
 	m := regexp.MustCompile("remove them by hand with `([^`]+)`").FindStringSubmatch(got)

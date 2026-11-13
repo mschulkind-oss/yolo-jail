@@ -143,7 +143,7 @@ func BareListNote(list, whole, narrowed []string, keyed bool) string {
 			quoted[i] = fmt.Sprintf("%q", name)
 		}
 		source = "the profile key's list, naming no agent"
-		remedy = `"profile": {"<agent>": [` + strings.Join(quoted, ", ") + `]}`
+		remedy = "`yolo config set active_provider.<agent> '[" + strings.Join(quoted, ", ") + "]' --user`"
 	}
 	line := fmt.Sprintf("Profile list %s (%s): %s %s one profile (%s "+
 		"not declare provider_sets), so %s on %s alone and %s %s", strings.Join(list, ", "), source,
@@ -168,7 +168,7 @@ func SingleProviderSetRefusal(agent string, set []string) string {
 	return fmt.Sprintf("profiles %s are selected for %s, whose pack does not declare "+
 		"provider_sets, so yolo cannot hand it a list: it would start %s on %s and drop %s in "+
 		"silence — select one profile for it: `-p %s=%s` for one launch, or "+
-		"`\"profile\": {%q: %q}` in your config", strings.Join(set, ", "), agent, agent,
+		"`yolo active-provider %s %s` for every launch", strings.Join(set, ", "), agent, agent,
 		set[0], joinAnd(set[1:]), agent, set[0], agent, set[0])
 }
 

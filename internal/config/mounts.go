@@ -26,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // mountsKey is the one config key this file reads.
@@ -53,23 +54,40 @@ type ContextMount struct {
 	Spec string
 }
 
-// OptionalSpelling is the element as an object with "optional": true: the exact JSON a refusal
-// hands the user to paste in its place. It keeps the host as written, the destination when one
-// was written, and the mode, so the pasted element validates and lands where this one would.
+// OptionalSpelling is the element as an object with optional set: a TOML inline-table value
+// for `yolo config add mounts`, which reads its value as TOML whatever the format of the file it
+// writes, so one spelling serves a TOML and a legacy JSONC config alike (LC-D12). It keeps the
+// host as written, the destination when one was written, and the mode, so the added element
+// validates and lands where this one would.
 func (m ContextMount) OptionalSpelling() string {
 	mode := "ro"
 	if m.RW {
 		mode = "rw"
 	}
-	if m.At != "" {
-		return `{"host": ` + jsonString(m.Host) + `, "at": ` + jsonString(m.At) + `, "mode": "` + mode +
-			`", "optional": true}`
-	}
-	return `{"host": ` + jsonString(m.Host) + `, "mode": "` + mode + `", "optional": true}`
+	return mountObjectValue(m.Host, m.At, mode, true)
 }
 
-// jsonString is s as a JSON string literal. Not Go's %q, whose escapes (\x00,   left raw,
-// \a) are not all JSON: a path with an odd byte would hand the user a line that does not parse.
+// mountObjectValue is a `mounts` object element as a TOML inline table.
+func mountObjectValue(host, at, mode string, optional bool) string {
+	v := "{ host = " + jsonString(host)
+	if at != "" {
+		v += ", at = " + jsonString(at)
+	}
+	v += ", mode = " + jsonString(mode)
+	if optional {
+		v += ", optional = true"
+	}
+	return v + " }"
+}
+
+// MountAddCommand is the verb that adds the element value spells to the `mounts` list.
+func MountAddCommand(value string) string {
+	return shquote.Join([]string{"yolo", "config", "add", "mounts", value})
+}
+
+// jsonString is s as a quoted string literal valid in JSON and in TOML alike (a JSON string's
+// escapes are a subset of a TOML basic string's). Not Go's %q, whose escapes (\x00, \a) are
+// neither: a path with an odd byte would hand the user a line that does not parse.
 func jsonString(s string) string {
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -120,21 +138,19 @@ func ParseMountElement(v any, where string) (m ContextMount, problems []string) 
 			// `host`, so suggesting "host:/ctx/d" as the host would answer one error with
 			// another.
 			host, at := SplitMountString(strings.TrimSuffix(s, ":rw"))
-			suggestion := fmt.Sprintf(`{"host": %q, "mode": "rw"}`, host)
-			if at != "" {
-				suggestion = fmt.Sprintf(`{"host": %q, "at": %q, "mode": "rw"}`, host, at)
-			}
 			return m, []string{fmt.Sprintf("%s: %q ends in \":rw\", which is not a mode — "+
-				"a string entry is always read-only. A read-write mount is the object form: %s",
-				where, s, suggestion)}
+				"a string entry is always read-only. A read-write mount is the object form: remove "+
+				"this entry and add it as one with `%s`",
+				where, s, MountAddCommand(mountObjectValue(host, at, "rw", false)))}
 		}
 		if strings.HasSuffix(s, ":optional") {
 			// Refused as `:rw` is: a suffix is not an option, and parsed as a path it names a
 			// directory that does not exist, so the mount would vanish with a warning.
 			host, at := SplitMountString(strings.TrimSuffix(s, ":optional"))
 			return m, []string{fmt.Sprintf("%s: %q ends in \":optional\", which is not an option — "+
-				"a string entry is always required. An optional mount is the object form: %s",
-				where, s, ContextMount{Host: host, At: at}.OptionalSpelling())}
+				"a string entry is always required. An optional mount is the object form: remove "+
+				"this entry and add it as one with `%s`",
+				where, s, MountAddCommand(ContextMount{Host: host, At: at}.OptionalSpelling()))}
 		}
 		m.Host, m.At = SplitMountString(s)
 		if m.Host == "" {
@@ -144,7 +160,7 @@ func ParseMountElement(v any, where string) (m ContextMount, problems []string) 
 	}
 	obj, ok := asMap(v)
 	if !ok {
-		return m, []string{where + `: expected a string or an object {"host": ..., "mode": "ro"|"rw"}`}
+		return m, []string{where + ": expected a string or an object with a `host` and a `mode` (\"ro\" or \"rw\")"}
 	}
 	m.Spec, _ = jsonx.DumpsCompact(obj)
 	for _, k := range obj.Keys() {
@@ -173,8 +189,8 @@ func ParseMountElement(v any, where string) (m ContextMount, problems []string) 
 	writeV, hasWrite := obj.Get("write")
 	switch {
 	case hasWrite && hasMode:
-		problems = append(problems, where+`: "write" and "mode" both say the mode — keep one `+
-			`("write = true" in a TOML config, "mode": "rw" in a JSONC one)`)
+		problems = append(problems, where+`: "write" and "mode" both say the mode — remove one `+
+			"of the two keys")
 	case hasWrite:
 		b, ok := writeV.(bool)
 		if !ok {
@@ -227,7 +243,7 @@ func ParseMountElement(v any, where string) (m ContextMount, problems []string) 
 	// cache_relocations are the shaped tools for those cases (§2.1).
 	if m.RW && m.At != "" && !strings.HasPrefix(m.At, paths.ContainerContextDir+"/") {
 		problems = append(problems, fmt.Sprintf("%s: a read-write mount must land under %s/ "+
-			"(got \"at\": %q) — a writable bind anywhere else could shadow a home path or a "+
+			"(its at is %q) — a writable bind anywhere else could shadow a home path or a "+
 			"composed surface", where, paths.ContainerContextDir, m.At))
 	}
 	return m, problems

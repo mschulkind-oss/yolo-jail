@@ -252,7 +252,7 @@ func resolveConfigTarget(setupName string) (configTarget, string) {
 			// what that refusal rules out.
 			return configTarget{}, "--setup " + s.Name + " needs a workspace, and " + describeCwd() +
 				" resolves none — no launch record under .yolo and no " +
-				config.WorkspaceConfigName + " in it or above it. cd into the project you " +
+				paths.WorkspaceConfigTOMLName + " (or a legacy one) in it or above it. cd into the project you " +
 				"meant, or pass --setup host-self to ask about your real home."
 		}
 		t := jailConfigTarget(ws, "--setup "+s.Name)

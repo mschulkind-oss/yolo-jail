@@ -69,7 +69,7 @@ func TestProfileValidation(t *testing.T) {
 	  {"kind":"profile","name":"dev","requires_provider":"p"}]}`))
 	joined := strings.Join(probs, "; ")
 	if len(probs) != 2 || !strings.Contains(joined, `requires_provider`) ||
-		!strings.Contains(joined, `"provider": "p"`) {
+		!strings.Contains(joined, `[[profile]] table with name = "dev" and provider = "p"`) {
 		t.Errorf("the old field name must be refused with the migration, got %v", probs)
 	}
 

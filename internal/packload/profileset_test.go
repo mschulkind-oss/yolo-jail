@@ -100,7 +100,7 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 	}
 	// The single-provider refusal names the one-entry spellings that work.
 	msg := ProfileSetProblems(packs, nil, map[string][]string{"claude": {"zai", "openrouter"}}, resolved)[0]
-	for _, want := range []string{"`-p claude=zai`", `"profile": {"claude": "zai"}`, "drop openrouter"} {
+	for _, want := range []string{"`-p claude=zai`", "`yolo active-provider claude zai`", "drop openrouter"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, msg)
 		}
@@ -159,7 +159,7 @@ func TestABareListNarrowsForSingleProviderAgentsAndSaysSo(t *testing.T) {
 		}
 	}
 	if note := BareListNote(list, nil, []string{"claude"}, true); !strings.Contains(note,
-		`"profile": {"<agent>": ["zai", "openrouter"]}`) {
+		"`yolo config set active_provider.<agent> '[\"zai\", \"openrouter\"]' --user`") {
 		t.Errorf("the key's line must spell the per-agent list in the key:\n%s", note)
 	}
 }

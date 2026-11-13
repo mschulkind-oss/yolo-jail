@@ -75,7 +75,7 @@ func checkAdapters(v any) (map[string]string, []string) {
 	m, ok := asMap(v)
 	if !ok {
 		return nil, []string{"config." + adaptersKey +
-			`: expected an object of "<from>-><to>" → {"address": "<url>"}`}
+			": expected a table of \"<from>-><to>\" conversions, each with an `address` URL"}
 	}
 	var problems []string
 	out := map[string]string{}

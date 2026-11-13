@@ -594,7 +594,7 @@ func TestApproveListsPatternAndTagGrants(t *testing.T) {
 	}
 	var rc int
 	refusal := captureStderr(t, func() { rc = registry["approve"]([]string{"approve", "--revoke", tagID}) })
-	if rc != approveExitPolicy || !strings.Contains(refusal, `{"kind": "tag", …}`) || !strings.Contains(refusal, "refs/tags/v*") {
+	if rc != approveExitPolicy || !strings.Contains(refusal, "`tag` grant entry") || !strings.Contains(refusal, "refs/tags/v*") {
 		t.Fatalf("revoke %s: %d\n%s", tagID, rc, refusal)
 	}
 	js := captureStdout(t, func() {

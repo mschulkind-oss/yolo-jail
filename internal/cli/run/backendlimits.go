@@ -208,7 +208,7 @@ func backendLimits(rt string, packs []*packload.Pack, cfg *jsonx.OrderedMap, rel
 		"the terminal and pseudo-terminals (`/dev/tty`, `/dev/ptmx`, `/dev/ttys*`, `/dev/pty*`) "+
 		"and on each node listed in `devices`, so configuring a serial adapter, for one, fails "+
 		"until its node is listed. If you need one, ask the human to add its path (a serial "+
-		"adapter's `/dev/cu.*` node, say) to `devices` in yolo-jail.jsonc and relaunch; raw disks "+
+		"adapter's `/dev/cu.*` node, say) with `yolo config add devices <path> --project` and relaunch; raw disks "+
 		"and packet capture stay refused whatever is listed.")
 	return out
 }
@@ -236,7 +236,7 @@ const macosUserSharedTmpLimit = "The shared `/tmp` (`/private/tmp`) is closed to
 	"reading or writing it fails with \"Operation not permitted\". Use `$TMPDIR`, this session's " +
 	"own temporary directory, for temporary files and sockets; a tool that hardcodes `/tmp` " +
 	"needs its temp-dir option or variable pointed at `$TMPDIR`. If one cannot be, ask the human " +
-	"to set `\"macos_user_shared_tmp\": true` in their user config and relaunch."
+	"to run `yolo config set macos_user_shared_tmp true --user` and relaunch."
 
 // macosUserTmpLimit is macosUserSharedTmpLimit for a launch whose profile closes the shared
 // /tmp: macos-user in the run-as-you mode without the hatch. The account mode still runs the

@@ -552,7 +552,7 @@ func (o *Options) planMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packloa
 
 // macosCtxRefusal is the macos-user context-mount refusal, in the maintainer's output style: one
 // headline, the offending mounts, then the fixes as lines to copy — "mark it optional" among them
-// with the exact JSON for each `mounts` element that may be, which is every refused config
+// with the exact command for each `mounts` element that may be, which is every refused config
 // element whose reason is not a safety one (docs/reference/context-mounts.md#optional-mounts).
 func macosCtxRefusal(refused []macosuser.ContextRefusal) string {
 	noun := "context mount"
@@ -575,7 +575,7 @@ func macosCtxRefusal(refused []macosuser.ContextRefusal) string {
 	b += "\nFix one:\n"
 	b += "  copy the folder under " + macosuser.SharedRootDefault() + " (cp -R) and point the entry there\n"
 	if len(optional) > 0 {
-		b += "  mark it optional, replacing the `mounts` entry with:\n"
+		b += "  mark it optional: remove the `mounts` entry and add it back with (--user for one in your user config)\n"
 		for _, s := range optional {
 			b += "    " + s + "\n"
 		}
@@ -585,14 +585,14 @@ func macosCtxRefusal(refused []macosuser.ContextRefusal) string {
 	return b
 }
 
-// optionalSpellingOf is the "mark it optional" JSON for a refused config link: the element as
+// optionalSpellingOf is the "mark it optional" command for a refused config link: the element as
 // written (Named), its mode, and its jail path when it is not the default one.
 func optionalSpellingOf(l macosuser.ContextLink) string {
 	m := config.ContextMount{Host: l.NamedSource(), RW: l.RW}
 	if l.Dest != paths.ContainerContextDir+"/"+filepath.Base(l.Source) {
 		m.At = l.Dest
 	}
-	return m.OptionalSpelling()
+	return config.MountAddCommand(m.OptionalSpelling())
 }
 
 // noteMacosUserRWMounts is §2.4's disclosure on this backend: one line per read-write context

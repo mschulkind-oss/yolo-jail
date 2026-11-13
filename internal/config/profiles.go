@@ -256,7 +256,8 @@ func checkProfileSubagents(path string, raw any) (luahook.Subagents, string) {
 			rs, isMap := v.(*jsonx.OrderedMap)
 			if !isMap {
 				return luahook.Subagents{}, path + `.subagents.roles: expected an object mapping a ` +
-					`subagent role to a model, e.g. {"worker": "deepseek-floor"}`
+					`subagent role to a model: a key per role, such as worker, whose value is the model ` +
+					`it runs on, such as deepseek-floor`
 			}
 			for _, role := range rs.Keys() {
 				rv, _ := rs.Get(role)

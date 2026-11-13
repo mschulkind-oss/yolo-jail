@@ -193,8 +193,9 @@ func TestTheMissLineNamesTheProgramThePackThePathAndTheFix(t *testing.T) {
 	}
 	bare := h.New("/usr/bin"+sep+"/bin", nil, nil)
 	want := `rg (required by the guardrails pack) is not on this launch's PATH, /usr/bin:/bin, the PATH ` +
-		`yolo was started with. If rg is installed, add its folder to "host_path" in ` +
-		`~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.`
+		`yolo was started with. If rg is installed, add its folder with ` + "`yolo config add host_path <folder> --user` (`host_path` in " +
+		`~/.config/yolo-jail/config.toml); ~/.cargo/bin has one.`
+
 	if got := bare.MissLine(Miss{Bin: "rg", Requires: []string{"guardrails"}, Launch: true}); got != want {
 		t.Errorf("miss line =\n  %s\nwant\n  %s", got, want)
 	}
@@ -203,7 +204,7 @@ func TestTheMissLineNamesTheProgramThePackThePathAndTheFix(t *testing.T) {
 	got := marked.MissLine(Miss{Bin: "fd", Programs: []string{"a", "b"}})
 	for _, part := range []string{"fd (a program of the a and b packs) is not on the PATH yolo searched, ",
 		"/usr/bin:/bin, the PATH yolo was started with, then host_path's ~/.local/bin.",
-		`add its folder to "host_path"`} {
+		"add its folder with `yolo config add host_path <folder> --user`"} {
 		if !strings.Contains(got, part) {
 			t.Errorf("miss line lacks %q:\n%s", part, got)
 		}
@@ -220,7 +221,7 @@ func TestTheMissLineNamesTheProgramThePackThePathAndTheFix(t *testing.T) {
 	}
 	writeExe(t, brew, "fd")
 	if got := marked.MissLine(Miss{Bin: "fd", Programs: []string{"a", "b"}}); !strings.HasSuffix(got,
-		`add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; `+brew+" has one.") {
+		"add its folder with `yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.toml); "+brew+" has one.") {
 		t.Errorf("a hint folder outside the home holding the program is not named as written:\n%s", got)
 	}
 	if got := bare.MissLine(Miss{Bin: "x", Requires: []string{"a", "b", "c"}}); !strings.Contains(got,
@@ -255,7 +256,7 @@ func TestTheMissLineNamesEachRefusedHostPathEntry(t *testing.T) {
 	want := bin + ` is not on the PATH yolo searched, /usr/bin, the PATH yolo was started with. ` +
 		`host_path's entry "$HOME/.cargo/bin" is ignored: host_path expands no variable, so write it "~/.cargo/bin". ` +
 		`host_path's value "~/x" is ignored: host_path is a list of folders, so write it ["~/x"]. ` +
-		`If ` + bin + ` is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc.`
+		`If ` + bin + " is installed, add its folder with `yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.toml)."
 	if got := l.MissLine(Miss{Bin: bin}); got != want {
 		t.Errorf("MissLine =\n  %s\nwant\n  %s", got, want)
 	}

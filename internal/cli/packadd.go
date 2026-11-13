@@ -122,6 +122,14 @@ func packAdd(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo pack add: %v\n", err)
 		return 1
 	}
+	// A user config that writes no `packs` list yet (the one `yolo init-user-config` writes,
+	// or any file that never selected a pack) gets the list, holding this pack, as
+	// `yolo config add` does: the append would otherwise refuse a missing value.
+	mutation, target, ok := addMissingKey(workspace, target, mutation, handle,
+		config.EditTargetChoice{Kind: config.EditTargetUser}, errw)
+	if !ok {
+		return 1
+	}
 	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{DryRun: dryRun})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack add: refused: %v — nothing written. `yolo pack ls` lists the packs "+

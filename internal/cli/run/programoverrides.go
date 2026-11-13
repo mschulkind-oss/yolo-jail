@@ -23,6 +23,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/nofollow"
@@ -34,7 +35,17 @@ import (
 
 // overrideUserConfigKey is the key and file every override line names.
 func overrideUserConfigKey(bin string) string {
-	return "programs.overrides." + bin + " in ~/.config/yolo-jail/config.jsonc"
+	return "programs.overrides." + bin + " in " + userConfigTilde()
+}
+
+// userConfigTilde is the user config file that exists (paths.UserConfigDisplayPath), written
+// ~/… under the home, as the override lines have always spelled it (LC-D12).
+func userConfigTilde() string {
+	p := paths.UserConfigDisplayPath()
+	if home := strings.TrimRight(paths.Home(), "/"); home != "" && strings.HasPrefix(p, home+"/") {
+		return "~/" + strings.TrimPrefix(p, home+"/")
+	}
+	return p
 }
 
 // ProgramCheckout applies the user's override of f, a pack-tree program, when overrides names its
@@ -195,9 +206,9 @@ func NonPackTreeOverrideLines(packs []*packload.Pack, overrides map[string]confi
 			continue
 		}
 		out = append(out, overrideUserConfigKey(bin)+" names "+bin+", which pack "+d.pack+" delivers via \""+
-			d.via+"\"; an override builds only a program a pack builds from its own tree (via \"pack\") — to "+
-			"run your checkout of "+bin+", declare a fork pack of your own whose program has \"via\": \"source\", "+
-			"\"fork_of\": \""+d.pack+"\" and \"source\": \"git+file:///path/to/your/checkout?ref=<branch>\" "+
+			d.via+"\"; an override builds only a program a pack builds from its own tree (via = \"pack\") — to "+
+			"run your checkout of "+bin+", declare a fork pack of your own whose [[program]] has via = \"source\", "+
+			"fork_of = \""+d.pack+"\" and source = \"git+file:///path/to/your/checkout?ref=<branch>\" "+
 			"(docs/reference/pack-system.md, forks), select it, and remove this setting")
 	}
 	sort.Strings(out)

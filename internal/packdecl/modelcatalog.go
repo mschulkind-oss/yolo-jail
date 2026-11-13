@@ -23,7 +23,7 @@ func modelCatalogProblems(label string, c Contribution) []string {
 			label, c.Kind)}
 	}
 	if c.Via != "npm" {
-		return []string{fmt.Sprintf("%s: \"model_catalog\" needs \"via\": \"npm\" (this program's "+
+		return []string{fmt.Sprintf("%s: \"model_catalog\" needs via = \"npm\" (this program's "+
 			"via is %q) — its entries are relative to the directory npm installs the package "+
 			"into, and no other via has one", label, c.Via)}
 	}

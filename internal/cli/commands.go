@@ -853,8 +853,8 @@ const initUsage = `Usage: yolo init [--mount <path>]...
 
 Scaffold this workspace: write a three-line pointer file, yolo-jail.toml, and
 print the agent briefing. No git ignore file is written: .yolo/ ignores itself. A project needs no file to run, so no settings are written. An
-existing yolo-jail.toml, yolo-jail.jsonc or yolo-jail.json is never overwritten
-or shadowed — re-running init on a configured workspace just reprints the briefing.
+existing workspace config, in the TOML format or the legacy one, is never
+overwritten or shadowed — re-running init on a configured workspace just reprints the briefing.
 
 Flags:
   --mount, -m <path>  Mount a host path read-only into the jail, at
@@ -871,7 +871,7 @@ Examples:
 Every key the generated file can carry is documented by ` + "`yolo config-ref`" + `; the
 user-level defaults every workspace inherits are ` + "`yolo init-user-config`" + `.`
 
-// runInit runs `yolo init` (scaffold yolo-jail.jsonc + briefing). Parses
+// runInit runs `yolo init` (scaffold yolo-jail.toml + briefing). Parses
 // repeatable --mount/-m.
 func runInit(args []string) int {
 	// FIRST, before the scaffold. This is the command the whole per-subcommand
@@ -908,10 +908,11 @@ func runInit(args []string) int {
 
 const initUserConfigUsage = `Usage: yolo init-user-config
 
-Write the USER-level defaults at ~/.config/yolo-jail/config.jsonc — the settings
-every workspace on this machine inherits (packs, runtime, resources, loopholes),
-which a workspace's own yolo-jail.toml then narrows. An existing file is left
-untouched.
+Write the USER-level defaults at ~/.config/yolo-jail/config.toml — the settings
+every workspace on this machine inherits (packs, setup, mounts, grants), which a
+workspace's own yolo-jail.toml then narrows. Every key in it is commented out;
+choose your agent with ` + "`yolo pack add <pack>`" + `. An existing user config,
+in either format, is left untouched.
 
   --help, -h  Show this help. Answered before the file is written.
 
@@ -923,7 +924,7 @@ Examples:
 // runInitUserConfig runs `yolo init-user-config`.
 func runInitUserConfig(args []string) int {
 	// Before the write, for the same reason as `init`: this one creates
-	// ~/.config/yolo-jail/config.jsonc, so an unanswered --help edited the user's
+	// ~/.config/yolo-jail/config.toml, so an unanswered --help edited the user's
 	// machine-wide config. See subhelp.go.
 	if answerHelp("init-user-config", args, os.Stdout) {
 		return 0

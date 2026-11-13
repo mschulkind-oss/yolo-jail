@@ -62,9 +62,7 @@ func TestPackShippedRefusesJailEnvAndNamesTheEnvKind(t *testing.T) {
 		`"jail_env": {"PULSE_SERVER": "unix:/run/pulse/native", "PIPEWIRE_REMOTE": "pipewire-0"}`)
 	msg := wantOneProblemWith(t, problems,
 		"'jail_env' is not available to a pack-shipped loophole",
-		`"kind": "env"`,
-		`'PULSE_SERVER': 'unix:/run/pulse/native'`,
-		`'PIPEWIRE_REMOTE': 'pipewire-0'`,
+		`[[env]] table with vars = { PULSE_SERVER = "unix:/run/pulse/native", PIPEWIRE_REMOTE = "pipewire-0" }`,
 		"UNCONDITIONAL",
 		"OQ-LP5",
 	)
@@ -292,7 +290,7 @@ func TestPackShippedRefusesPublishesEndpoint(t *testing.T) {
 		`"host_daemon": {"cmd": ["python3", "{loophole_dir}/srv.py"], "publishes": "endpoint"}`)
 	wantOneProblemWith(t, problems,
 		"'host_daemon.publishes' is 'endpoint'",
-		`"publishes": "socket"`,
+		`publishes = "socket"`,
 		"transport belongs to the framework",
 		"{socket}",
 		"constant-time compare",
@@ -311,7 +309,7 @@ func TestPackShippedRefusesPublishesEndpoint(t *testing.T) {
 func TestPackShippedRefusesADefaultedPublishes(t *testing.T) {
 	problems := packProblems(t,
 		`"host_daemon": {"cmd": ["python3", "{loophole_dir}/srv.py"]}`)
-	wantOneProblemWith(t, problems, `"publishes": "socket"`, "'host_daemon.publishes' is 'endpoint'")
+	wantOneProblemWith(t, problems, `publishes = "socket"`, "'host_daemon.publishes' is 'endpoint'")
 }
 
 // The legal pack-shipped daemon: publishes socket, names {socket}, lives in its own
@@ -518,7 +516,7 @@ func TestLoadDirPackShippedIsStrictAndAppliesTheSubset(t *testing.T) {
 
 	writeManifest(t, mod, `{"name": "acme-proxy", "jail_env": {"A": "1"}}`)
 	_, err = loopholedecl.LoadDirPackShipped(mod)
-	if err == nil || !strings.Contains(err.Error(), `"kind": "env"`) {
+	if err == nil || !strings.Contains(err.Error(), `[[env]] table with vars = { A = "1" }`) {
 		t.Fatalf("subset half: err = %v, want the jail_env refusal naming the env kind", err)
 	}
 

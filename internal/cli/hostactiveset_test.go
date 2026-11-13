@@ -493,7 +493,7 @@ set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router" }
 				env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
 		}
 		for _, want := range []string{"(the profile key's list, naming no agent)", "on zai alone",
-			"ignores openrouter", `"profile": {"<agent>": ["zai", "openrouter"]}`} {
+			"ignores openrouter", "`yolo config set active_provider.<agent> '[\"zai\", \"openrouter\"]' --user`"} {
 			if !strings.Contains(errs, want) {
 				t.Errorf("%s: the launch must say %q:\n%s", key, want, errs)
 			}
@@ -843,7 +843,7 @@ set = { ZAI_API_KEY = "tok-zai", OPENROUTER_API_KEY = "tok-router", DEEPSEEK_API
 `
 	_, errs := hostGateLaunchWith(t, provider+keys, nil, []string{"-p", "pi=zai,openrouter"}, "pi")
 	line := scopeLine(t, errs, "DEEPSEEK_API_KEY")
-	for _, want := range []string{"No declared profile selects deepseek", `"deepseek": {"provider": "deepseek"}`,
+	for _, want := range []string{"No declared profile selects deepseek", "`yolo active-provider pi deepseek`",
 		"then to add the deepseek profile to pi's active set for one launch, keeping zai, openrouter: " +
 			"`yolo host -p pi=zai,openrouter,deepseek -- pi`"} {
 		if !strings.Contains(line, want) {

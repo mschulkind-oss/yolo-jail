@@ -652,14 +652,14 @@ var retiredKinds = map[Kind]string{
 	// docs/design/provisioner-sets.md OQ-PS11, ruled 2026-10-23 with no transition: "We don't
 	// have to support the old thing." A need is a `program` with no recipe now.
 	"requires": `kind "requires" has been REMOVED — write it as a "program" with no ` +
-		`recipe: {"kind": "program", "bin": "<bin>"} (no "via"), keeping any ` +
-		`"install_hints". It means what "requires" meant — the binary must be on PATH and ` +
+		`recipe: a [[program]] table with bin = "<bin>" and no via, keeping any ` +
+		`install hints. It means what "requires" meant — the binary must be on PATH and ` +
 		`yolo installs nothing for it — and another selected pack's "program" for the same ` +
 		`name now satisfies it`,
 	"launch": `kind "launch" has been REMOVED — its flags now live in the ` +
 		`"autonomy" kind's postures, where the confinement notch can withhold them: ` +
-		`{"kind": "autonomy", "autonomous": {"launch": [{"bin": "<bin>", ` +
-		`"flags": ["<flag>"]}]}}. A launch flag declared outside a posture was one no ` +
+		`an [[autonomy.autonomous.launch]] table with bin = "<bin>" and ` +
+		`flags = ["<flag>"]. A launch flag declared outside a posture was one no ` +
 		`notch could take away, which is what that policy exists to prevent; the ` +
 		`nested "launch" block inside a posture is a different thing and is the ` +
 		`replacement. (The kind's other half, the flag-ALIAS map, is gone with no ` +

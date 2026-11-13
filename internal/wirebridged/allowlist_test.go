@@ -161,7 +161,7 @@ func TestAViaRouteRefusesAModelOffANarrowedList(t *testing.T) {
 		t.Errorf("the refusal is not OpenAI-shaped: %s", body)
 	}
 	for _, want := range []string{`model "glm-5.3-flash" is not on provider zai's list`, `profile "pz"`,
-		"Allowed: glm-4.6, glm-5.3", `"enforce_models": false`} {
+		"Allowed: glm-4.6, glm-5.3", "turn the profile's `enforce_models` off"} {
 		if !strings.Contains(doc.Error.Message, want) {
 			t.Errorf("the refusal lacks %q: %s", want, doc.Error.Message)
 		}

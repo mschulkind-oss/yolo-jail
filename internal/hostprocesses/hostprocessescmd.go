@@ -53,8 +53,8 @@ func Main(argv []string) int {
 	// has none and refuse every request — a daemon reported as working that grants
 	// nothing. Failing to start says what happened; refusing everything does not.
 	if *retiredConfig != "" {
-		fmt.Fprintln(os.Stderr, "ERROR: --config is retired — this daemon no longer reads a "+
-			"yolo-jail.jsonc. Pass --settings <file>, the resolved settings file yolo writes "+
+		fmt.Fprintln(os.Stderr, "ERROR: --config is retired — this daemon no longer reads the "+
+			"workspace config. Pass --settings <file>, the resolved settings file yolo writes "+
 			"from loopholes.host-processes.settings; the manifest's host_daemon.cmd names it "+
 			"with the {settings} token.")
 		return 2

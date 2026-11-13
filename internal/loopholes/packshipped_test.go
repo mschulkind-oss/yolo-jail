@@ -35,7 +35,7 @@ func TestLoadPackLoopholeRefusesJailEnv(t *testing.T) {
 	if err == nil {
 		t.Fatal("a pack-shipped jail_env loaded")
 	}
-	for _, want := range []string{`"kind": "env"`, "PULSE_SERVER", "UNCONDITIONAL"} {
+	for _, want := range []string{`[[env]] table with vars = { PULSE_SERVER = "unix:/run/pulse/native" }`, "UNCONDITIONAL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not carry %q: %v", want, err)
 		}
@@ -121,7 +121,7 @@ func TestLoadPackLoopholeRefusesSelfPublishing(t *testing.T) {
 	// "is retired" rather than the message's old "BUNDLED with yolo": self-publishing was
 	// a real escape hatch for a bundled loophole until 2026-08-19, and the refusal now
 	// says the channel is gone rather than naming one to move into.
-	for _, want := range []string{`"publishes": "socket"`, "{socket}", "framework", "is retired"} {
+	for _, want := range []string{`publishes = "socket"`, "{socket}", "framework", "is retired"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not carry %q: %v", want, err)
 		}

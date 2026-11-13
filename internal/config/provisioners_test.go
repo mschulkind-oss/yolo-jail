@@ -70,6 +70,10 @@ func TestValidateProvisioners(t *testing.T) {
 	}
 	for _, tc := range []struct{ cfg, want string }{
 		{`{"provisioners": ["brew"]}`, "config.provisioners: expected an object of environments"},
+		// LC-D12: the shape is named by the verb that writes it, never a JSON snippet.
+		{`{"provisioners": ["brew"]}`, "`yolo config set provisioners.host '[\"brew\", \"nix\"]' --user`"},
+		{`{"provisioners": {"per_package": ["brew"]}}`, "`yolo config set provisioners.per_package.claude.host '[\"brew\"]' --user`"},
+		{`{"provisioners": {"per_package": {"claude": ["brew"]}}}`, "`yolo config set provisioners.per_package.claude.host '[\"brew\"]' --user`"},
 		{`{"provisioners": {"host": "brew"}}`, "config.provisioners.host: expected a list of provisioners"},
 		{`{"provisioners": {"host": ["npm"]}}`, "config.provisioners.host: 'npm' is not a provisioner; the names are pack, apt"},
 		{`{"provisioners": {"host": ["brew", "brew"]}}`, `"brew" is named twice`},

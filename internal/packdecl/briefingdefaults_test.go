@@ -117,7 +117,7 @@ func TestRepositoryInstructionFileIsRefusedAsABriefingSource(t *testing.T) {
 		for _, want := range []string{
 			"repository's own agent instructions",
 			"git mv",
-			`"from": "briefing/prose.md"`,
+			`from = "briefing/prose.md"`,
 			`drop "from"`,
 		} {
 			if !strings.Contains(probs, want) {

@@ -167,7 +167,7 @@ func writableMountRequestRefusal(m ContextMount) string {
 	userPath, _, toml, err := resolveUserConfigPath(paths.UserConfigPath())
 	lines := "[allow.mounts]\n    on_request = [\"write\"]"
 	if err != nil || userPath == "" {
-		userPath = paths.UserConfigPath()
+		userPath = paths.UserConfigDisplayPath()
 	} else if !toml {
 		lines = `"allow": {"mounts": {"on_request": ["write"]}}`
 	}

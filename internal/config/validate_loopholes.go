@@ -97,17 +97,17 @@ var retiredLoopholeNames = map[string]struct{ replacement, why string }{
 func loopholeNotInstalledRemedy(name string) string {
 	if r, retired := retiredLoopholeNames[name]; retired {
 		return "The loophole " + pytext.Repr(name) + " was RETIRED and replaced by " +
-			pytext.Repr(r.replacement) + " — " + r.why + ". Write the entry under the " +
-			"new name instead (" + `"loopholes": {"` + r.replacement + `": {"enabled": true}}` +
-			"), and select the pack that ships it in " + loopholeUserConfigHint() + ": " +
-			`"packs": ["` + r.replacement + `"]. ` + pytext.Repr(name) + " names nothing now."
+			pytext.Repr(r.replacement) + " — " + r.why + ". Select the pack that ships it with " +
+			"`yolo pack add " + r.replacement + "`, which writes " + loopholeUserConfigHint() +
+			", and move this entry's settings under the new name, `loopholes." + r.replacement +
+			"`. " + pytext.Repr(name) + " names nothing now."
 	}
 	return "Installing is user-scope, and there are two shapes of it — this file can do " +
 		"neither. If the loophole SHIPS IN A PACK (every loophole yolo itself ships " +
-		"does), the install is the selection: add " + `"packs": ["<pack>"]` + " to " +
-		loopholeUserConfigHint() + ", which is user-scope only, and leave the " +
-		`"enabled"` + " key where it is. If it ships in no pack, install it inline in " +
-		"that same file: " + `"loopholes": {"` + name + `": {"command": ["<host daemon argv>"]}}.`
+		"does), the install is the selection: `yolo pack add <pack>`, which writes " +
+		loopholeUserConfigHint() + ", and leave the `enabled` key where it is. If it " +
+		"ships in no pack, it is installed inline in that same file, as `loopholes." + name +
+		".command`, the host daemon's argv."
 }
 
 // validateLoopholes runs the `host_services = config.get("loopholes")` block

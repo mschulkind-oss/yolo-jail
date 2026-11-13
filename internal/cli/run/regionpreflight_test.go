@@ -59,7 +59,7 @@ func TestCheckProviderCredentialsAsksForTheRegion(t *testing.T) {
 	got := strings.Join(lines, "\n")
 	for _, want := range []string{`pack bedrock requires a region for provider "bedrock"`,
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set",
-		`"providers": {"bedrock": {"region": "<region>"}}`,
+		"`yolo config set providers.bedrock.region <region> --user`",
 		packload.FromEnvSources + ": none configured", packload.FromPackEnv, packload.FromProfileEnv,
 		// The region file the fill consulted (BR-DIR1): this launch environment names no HOME,
 		// so it says it read none.

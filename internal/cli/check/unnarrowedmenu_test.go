@@ -56,7 +56,7 @@ func TestCheckSaysTheSwitchLeavesOpencodesNarrowedMenuUnnarrowed(t *testing.T) {
 	for _, want := range []string{
 		`yolo does not narrow opencode's menu for provider "zai" to its list, because profile "zai-open" turns enforce_models off`,
 		"pack opencode says opencode's menu can show exactly a list only through a filter that also refuses",
-		`drop "enforce_models": false from profile "zai-open"`,
+		"turn `enforce_models` back on (it is on unless set off) in profile \"zai-open\"",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the check should say %q:\n%s", want, out)

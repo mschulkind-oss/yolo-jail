@@ -109,7 +109,7 @@ func userEnvFileBody(userEnv *jsonx.OrderedMap, channel *packChannel) []byte {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("# Auto-generated from yolo-jail.jsonc env config.\n")
+	b.WriteString("# Auto-generated from the yolo config's env settings.\n")
 	b.WriteString("# Override by editing this file or workspace .env (mise).\n")
 	if userEnv != nil {
 		for _, k := range userEnv.Keys() {

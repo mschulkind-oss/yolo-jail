@@ -288,6 +288,9 @@ func TestProgramPrebuiltOptInIsReadValidatedAndExclusive(t *testing.T) {
 	for body, want := range map[string]string{
 		`{"programs": {"overrides": {"chart": {"prebuilt": true, "path": "/x"}}}}`: `"prebuilt" and "path" cannot both be set`,
 		`{"programs": {"overrides": {"chart": {"prebuilt": "yes"}}}}`:              "config.programs.overrides.chart.prebuilt: expected true or false",
+		// LC-D12: the shapes are named by the verb that writes each, never a JSON snippet.
+		`{"programs": {"overrides": {"chart": "/x"}}}`: "`yolo config set programs.overrides.chart.prebuilt true --user`",
+		`{"programs": {"overrides": {"board": {}}}}`:   "`yolo config set programs.overrides.board.prebuilt true --user`",
 	} {
 		errs, _ := ValidateConfig(decode(t, body), ws, nil)
 		if !anyContains(errs, want) {

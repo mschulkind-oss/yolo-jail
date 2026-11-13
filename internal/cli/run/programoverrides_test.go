@@ -103,7 +103,7 @@ func TestProgramCheckoutResolvesThePathAndRefusesWhatItCannotBuild(t *testing.T)
 		if got.Checkout != "" {
 			t.Errorf("%s: the checkout was applied: %+v", name, got)
 		}
-		for _, w := range append(tc.want, "programs.overrides.board in ~/.config/yolo-jail/config.jsonc") {
+		for _, w := range append(tc.want, "programs.overrides.board in ~/.config/yolo-jail/config.toml") {
 			if !strings.Contains(why, w) {
 				t.Errorf("%s: refusal %q does not name %q", name, why, w)
 			}
@@ -222,8 +222,8 @@ func TestAnOverrideOfAProgramNoPackBuildsFromItsTreeIsRefused(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("refusals = %q, want pi's alone", lines)
 	}
-	for _, w := range []string{"programs.overrides.pi in ~/.config/yolo-jail/config.jsonc", `via "npm"`,
-		`"via": "source"`, `"fork_of": "fx"`, "git+file://", "remove this setting"} {
+	for _, w := range []string{"programs.overrides.pi in ~/.config/yolo-jail/config.toml", `via "npm"`,
+		`[[program]] has via = "source"`, `fork_of = "fx"`, `source = "git+file://`, "remove this setting"} {
 		if !strings.Contains(lines[0], w) {
 			t.Errorf("refusal %q does not name %q", lines[0], w)
 		}
@@ -243,7 +243,7 @@ func TestALaunchRefusesAnOverrideOfANonPackTreeProgram(t *testing.T) {
 		`{"packs":[{"source":"file://`+pack+`","name":"fx"}],"programs":{"overrides":{"pi":{"path":"`+dev+`"}}}}`)
 	argv, printed := fakePodmanLaunch(t, func(*Options) {})
 	if argv != nil || !strings.Contains(printed, "Refusing to launch: programs.overrides.pi") ||
-		!strings.Contains(printed, `"fork_of": "fx"`) {
+		!strings.Contains(printed, `fork_of = "fx"`) {
 		t.Errorf("the launch ran (argv %q) or did not refuse naming the fork pack:\n%s", argv, printed)
 	}
 }
@@ -284,12 +284,14 @@ func TestAPrebuiltOptInThatCanDoNothingIsReported(t *testing.T) {
 
 // AN ATTACH NAMES THE CHECKOUT the running jail's launch built, from its delivery record.
 func TestAnAttachNamesTheCheckoutItsJailRuns(t *testing.T) {
+	// A home with no user config, so the line names the TOML file a new one would be (LC-D12).
+	t.Setenv("HOME", t.TempDir())
 	var out strings.Builder
 	o := &Options{Stderr: &out, Getenv: func(string) string { return "" }}
 	digest := strings.Repeat("d", 64)
 	o.noteAttachForkBuilds(map[string]HandedFork{"x": {Key: "k", Checkout: "/home/me/code/x", CheckoutDigest: digest}})
 	if !strings.Contains(out.String(), "x: built from your checkout /home/me/code/x (programs.overrides.x in "+
-		"~/.config/yolo-jail/config.jsonc) — the build at tree digest "+digest[:12]) {
+		"~/.config/yolo-jail/config.toml) — the build at tree digest "+digest[:12]) {
 		t.Errorf("attach printed %q", out.String())
 	}
 }

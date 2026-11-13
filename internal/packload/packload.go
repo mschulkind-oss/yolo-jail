@@ -504,7 +504,7 @@ func retiredSurfaceHostGrants(decl *packdecl.Manifest) []string {
 		}
 		problems = append(problems, fmt.Sprintf("reads-host %q names this pack's own config "+
 			"surface %s/%s — a surface's host layer is declared ON THE SURFACE now: set "+
-			"\"readsHost\": true in its `config` body and drop this contribution. The kind "+
+			"readsHost = true in its `config` entry and drop this contribution. The kind "+
 			"itself stays, for host files that are not a surface's own twin.",
 			hf.From, s.Agent, s.Name))
 	}

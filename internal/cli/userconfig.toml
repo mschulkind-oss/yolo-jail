@@ -1,0 +1,31 @@
+# ───────────────────────────────────────────────────────────────
+# YOLO Jail user-level defaults.  First-time agents: run `yolo --help`
+# for an overview of commands, `yolo config-ref` for the full field
+# reference, and `yolo check` after every edit to this file.
+# ───────────────────────────────────────────────────────────────
+#
+# User-level defaults merged into every project config.
+# Lists are merged (deduplicated), scalars are overridden by workspace config.
+# Add or change a key with:  yolo config set <key> <value> --user
+#
+# Where the agent runs: a named setup (yolo setup list), such as
+# "podman-self", "apple-container-self" or "seatbelt-yolo-account" (a
+# sandboxed macOS account, no VM).  Absent: this OS's default.
+# --setup and YOLO_SETUP outrank it for one launch.
+# setup = "podman-self"
+# mounts = ["~/code/shared-lib:/ctx/shared-lib"]
+
+# Expose /dev/kvm inside the jail for nested hardware-accelerated VMs.
+# Requires your host user to be in the kvm group.  Linux only.
+# kvm = true
+
+# Choose your agent, and any other pack, with:  yolo pack add <pack>
+# Expose `journalctl` from the host inside the jail as `yolo-journalctl`:
+#   yolo pack add journal
+#   yolo allow journal read
+
+# [install]
+# nix = ["sqlite", "postgresql"]
+
+# [security]
+# blocked_tools = ["wget"]

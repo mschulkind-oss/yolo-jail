@@ -7,11 +7,12 @@ package config
 // element.
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
 )
 
 func TestAnOptionalObjectElementValidatesAndParsesAsOptional(t *testing.T) {
@@ -103,27 +104,30 @@ func TestAnOptionalStringSuffixIsRefusedWithTheObjectForm(t *testing.T) {
 	h := newMountsHost(t)
 	h.user(t, `{"mounts": ["`+src+`:/ctx/lib:optional"]}`)
 	errs, _ := h.validate(t)
-	want := `{"host": "` + src + `", "at": "/ctx/lib", "mode": "ro", "optional": true}`
-	if got := joined(errs); !strings.Contains(got, `ends in ":optional"`) || !strings.Contains(got, want) {
+	want := `yolo config add mounts '{ host = "` + src + `", at = "/ctx/lib", mode = "ro", optional = true }'`
+	got := joined(errs)
+	if !strings.Contains(got, `ends in ":optional"`) || !strings.Contains(got, want) {
 		t.Fatalf("errors = %q, want the :optional refusal suggesting %s", errs, want)
 	}
-	h.user(t, `{"mounts": [`+want+`]}`)
+	h.user(t, `{"mounts": [`+mountAddedBy(t, got)+`]}`)
 	if errs, _ := h.validate(t); len(errs) != 0 {
 		t.Fatalf("the suggestion does not validate: %q", errs)
 	}
 }
 
-// OptionalSpelling is JSON, not Go syntax: a host path with a quote, a backslash or a control
-// byte still yields a line encoding/json parses back to the same path.
-func TestOptionalSpellingIsValidJSON(t *testing.T) {
+// OptionalSpelling is a TOML value, not Go syntax: a host path with a quote, a backslash or a
+// control byte still yields a value the edit verb parses back to the same path.
+func TestOptionalSpellingIsValidTOML(t *testing.T) {
 	host := "/tmp/a\"b\\c\x01d e"
-	var back struct {
-		Host     string `json:"host"`
-		Optional bool   `json:"optional"`
-	}
 	s := ContextMount{Host: host}.OptionalSpelling()
-	if err := json.Unmarshal([]byte(s), &back); err != nil || back.Host != host || !back.Optional {
-		t.Fatalf("OptionalSpelling = %s: %v, parsed %+v", s, err, back)
+	doc, err := configdoc.Parse([]byte("value = "+s+"\n"), configdoc.TOML)
+	if err != nil {
+		t.Fatalf("OptionalSpelling = %s: %v", s, err)
+	}
+	v, _ := doc.Values.Get("value")
+	back, problems := ParseMountElement(v, "value")
+	if len(problems) != 0 || back.Host != host || !back.Optional {
+		t.Fatalf("OptionalSpelling = %s parsed %+v, %q", s, back, problems)
 	}
 }
 
@@ -140,8 +144,8 @@ func TestOptionalSpellingValidatesAndKeepsTheElement(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := ParseMounts(cfg)[0]
-		spelled := m.OptionalSpelling()
-		h.user(t, `{"mounts": [`+spelled+`]}`)
+		spelled := MountAddCommand(m.OptionalSpelling())
+		h.user(t, `{"mounts": [`+mountAddedBy(t, spelled)+`]}`)
 		if errs, _ := h.validate(t); len(errs) != 0 {
 			t.Fatalf("OptionalSpelling(%s) = %s does not validate: %q", el, spelled, errs)
 		}

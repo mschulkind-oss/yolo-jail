@@ -21,7 +21,7 @@ func TestWriteUserEnvFileBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# Auto-generated from yolo-jail.jsonc env config.\n" +
+	want := "# Auto-generated from the yolo config's env settings.\n" +
 		"# Override by editing this file or workspace .env (mise).\n" +
 		"export FOO=${FOO:-'bar'}\n" +
 		`export QUOTED=${QUOTED:-'it'\''s a '\''test'\'''}` + "\n"

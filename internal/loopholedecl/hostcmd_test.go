@@ -64,7 +64,7 @@ func TestAHostArgvIsRefusedWhereItsDoorwayCouldNotServe(t *testing.T) {
 			"must be a non-empty list of strings"},
 		"no caller token": {map[string]any{
 			"cmd": []any{"d", "{listen}"}, "listen": "127.0.0.1:1460",
-			"host_cmd": []any{"yolo", "d", "{listen}"}}, "'jail_daemon.caller_token' is not true"},
+			"host_cmd": []any{"yolo", "d", "{listen}"}}, "declare caller_token = true"},
 		"no listen": {map[string]any{"cmd": []any{"d"}, "caller_token": true,
 			"host_cmd": []any{"yolo", "d"}}, "'jail_daemon.listen' is not"},
 		"listen never named": {doorwayDaemon(map[string]any{"host_cmd": []any{"yolo", "d", "127.0.0.1:1460"}}),

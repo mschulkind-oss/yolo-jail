@@ -97,7 +97,7 @@ func TestALaunchLeftWithNothingToStartOnSaysWhyAndWhatToAdd(t *testing.T) {
 		t.Fatal("the launch composed with nothing for copilot to start on")
 	}
 	for _, want := range []string{`copilot has no model to start on for profile "bbp"`,
-		"aws sso login --profile stand-in-profile", `"model" on profile "bbp"`, `"providers.bb.models"`,
+		"aws sso login --profile stand-in-profile", "`model` on profile \"bbp\"", "`providers.bb.models`",
 		"`models` contribution"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal lacks %q:\n%s", want, err)
@@ -194,7 +194,7 @@ func TestNoListTellsClaudeAtTheBridgeWhatItMeansAndWhatToDo(t *testing.T) {
 	if strings.Contains(line, "translated rather than passed through") {
 		t.Errorf("the line says claude's Claude model is translated, which the invoke route does not do:\n%s", line)
 	}
-	for _, want := range []string{"passed through as sent", `"providers.bb.models"`, "launch again"} {
+	for _, want := range []string{"passed through as sent", "`providers.bb.models`", "launch again"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the line lacks %q:\n%s", want, line)
 		}

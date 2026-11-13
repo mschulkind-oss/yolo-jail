@@ -52,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // remedyGroup is one tier-3 group: a set of losses or blockers that share a fix.
@@ -711,12 +712,25 @@ func mcpEntryRemedy(home string, tables []droppedTable) string {
 	}
 	return fmt.Sprintf("declare it in %s — %s, each field of which "+
 		"`yolo config set <table>.<name>.<field> <value> --user` writes — which reaches every agent's files "+
-		"here as it reaches a jail's; or, for one agent's file alone, add a `config-overlay` to "+
-		"the `contributes` list in %s, for example "+
-		`{"kind": "config-overlay", "surface": %q, "config": {"managed": `+
-		`{%q: {"<name>": {…}}}}}`+
-		"%s", userConfigPathIn(home), manifest.EntryKindHomes(), localPackManifestPathIn(home),
+		"here as it reaches a jail's; or, for one agent's file alone, add an `[[overlay]]` table to "+
+		"%s, for example `[[overlay]]` with `surface = %q` and `set.%s.<name> = { … }`"+
+		"%s", userConfigPathIn(home), manifest.EntryKindHomes(), localPackManifestStep(home),
 		example.Surface, example.Table, scope)
+}
+
+// localPackManifestStep names the local pack's manifest an overlay goes in: its pack.toml, or,
+// when only a legacy pack.json is there, that file with the verb that converts it first, since a
+// pack.toml beside a pack.json is refused (LC-D12: name the file that exists).
+func localPackManifestStep(home string) string {
+	toml := localPackManifestPathIn(home)
+	legacy := filepath.Join(filepath.Dir(toml), "pack.json")
+	if _, err := os.Lstat(toml); err != nil {
+		if _, err := os.Lstat(legacy); err == nil {
+			return legacy + " once `yolo pack migrate " + shquote.Quote(filepath.Dir(toml)) +
+				"` has converted it to pack.toml"
+		}
+	}
+	return toml
 }
 
 // joinWords lists items the way a sentence does: "a", "a and b", "a, b and c".
@@ -765,15 +779,15 @@ func sortDroppedTables(tables []droppedTable) {
 	})
 }
 
-// localPackManifestPathIn is the conventional local pack's pack.json inside the home THIS
+// localPackManifestPathIn is the conventional local pack's pack.toml inside the home THIS
 // APPLY is rendering into, for userConfigPathIn's reason: paths.LocalPackDir reads $HOME, and a
 // report about a home it was handed must name a path in that home.
 func localPackManifestPathIn(home string) string {
 	rel, err := filepath.Rel(paths.Home(), paths.LocalPackDir())
 	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
-		return filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")
+		return filepath.Join(home, ".config", "yolo-jail", "local", "pack.toml")
 	}
-	return filepath.Join(home, rel, "pack.json")
+	return filepath.Join(home, rel, "pack.toml")
 }
 
 // userConfigPathIn is the user config file inside the home THIS APPLY is rendering into.

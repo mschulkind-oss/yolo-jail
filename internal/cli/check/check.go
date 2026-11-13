@@ -646,7 +646,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 		}
 		r.ok("Parsed workspace config: " + strings.Join(parsed, " + "))
 	} else {
-		r.ok("No workspace config found (yolo-jail.toml or yolo-jail.jsonc)")
+		r.ok("No workspace config found (yolo-jail.toml; a project needs none, and `yolo init` writes one)")
 	}
 	for _, msg := range loadNotices {
 		note := "Fix what it names, then run `yolo check` again."

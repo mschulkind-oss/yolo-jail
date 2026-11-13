@@ -76,13 +76,13 @@ func TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry(t *testing.T) {
 	if n := strings.Count(report, remedy); n != 1 {
 		t.Errorf("the remedy is stated once for the group; it appears %d times:\n%s", n, report)
 	}
-	for _, want := range []string{`"surface": "acme/lsp"`, `"lspServers"`, "`lspServers`"} {
+	for _, want := range []string{"`surface = \"acme/lsp\"`", "`set.lspServers.<name> = { … }`", "`lspServers`"} {
 		if !strings.Contains(remedy, want) {
 			t.Errorf("the remedy for an entry dropped from acme/lsp's `lspServers` does not "+
 				"name %s: %q", want, remedy)
 		}
 	}
-	for _, unwanted := range []string{"codex/config", `"mcp_servers"`, "`mcpServers`"} {
+	for _, unwanted := range []string{"codex/config", "set.mcp_servers", "`mcpServers`"} {
 		if strings.Contains(remedy, unwanted) {
 			t.Errorf("the remedy names %s, which lost nothing in this run (codex is not even "+
 				"selected): %q", unwanted, remedy)
@@ -120,7 +120,7 @@ func TestADeclinedApplyNamesTheTableThatWouldLoseTheEntry(t *testing.T) {
 	if !strings.Contains(declined, "lspServers.handmade") {
 		t.Fatalf("fixture premise: the prompt does not list the LSP server:\n%s", declined)
 	}
-	if n := strings.Count(declined, `"surface": "acme/lsp"`); n < 2 {
+	if n := strings.Count(declined, "`surface = \"acme/lsp\"`"); n < 2 {
 		t.Errorf("the prompt trailer and the abort line must both name the surface that loses "+
 			"the entry; acme/lsp's example appears %d time(s):\n%s", n, declined)
 	}

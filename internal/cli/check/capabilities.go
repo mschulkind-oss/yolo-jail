@@ -71,7 +71,7 @@ func capabilityGap(cfg *jsonx.OrderedMap, hatch string, launch *config.Capabilit
 	return []string{"config.required_capabilities declares " + named +
 		", and nothing this config or its selected packs declare satisfies it — this launch " +
 		"will be REFUSED. Satisfy it with `providers.<name>.capabilities` naming it, an " +
-		"`mcp_servers.<name>` entry with \"provides\": \"<capability>\", or a selected agent " +
+		"`mcp_servers.<name>.provides` naming it, or a selected agent " +
 		"whose pack declares it for the source the agent runs on (its built-in login, or the " +
 		"provider its profile selects); or drop the name; or set " +
 		allowUnmetCapabilitiesEnv + "=1 to launch anyway"}, nil

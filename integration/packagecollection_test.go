@@ -343,7 +343,7 @@ func TestPackagesEntryNamingNothingSaysWhichNameIsMissing(t *testing.T) {
 }
 
 // A skipped entry is named as the user wrote it, output and all, because the macos-user
-// refusal that follows tells the user to write {"name": "<pkg>", "platforms": ["linux"]},
+// refusal that follows tells the user to give that entry a "platforms" list holding only "linux",
 // and the base path ("cudaPackages.libcublas") filled in there would mark a different entry.
 // An unfree member is skipped on every system, which makes the case reachable on Linux;
 // NIXPKGS_ALLOW_UNFREE is cleared so an opted-in machine does not install it instead.

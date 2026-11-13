@@ -121,7 +121,7 @@ func unnarrowedMenuReport(r *reporter, packs []*packload.Pack, merged *jsonx.Ord
 				"also refuses every model off it, so yolo writes that filter only while the profile's "+
 				"enforce_models is on. With it off, %s's menu for %q is not held to the list: it can "+
 				"offer the models of %s's own catalog for that provider, and %s runs a model off the "+
-				"list when one is picked. To narrow the menu, drop \"enforce_models\": false from "+
+				"list when one is picked. To narrow the menu, turn `enforce_models` back on (it is on unless set off) in "+
 				"profile %q, which turns the list's refusals back on too",
 				m.Pack, m.Agent, m.Agent, m.Provider, m.Agent, m.Agent, m.Profile))
 	}

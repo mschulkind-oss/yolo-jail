@@ -103,7 +103,7 @@ func LoopholeSettingsFixStep(lp *loopholes.Loophole) string {
 		return "Correct " + where + " (`yolo config set allow." + lp.Pack + ".<setting> <value> --user` " +
 			"sets one), then run `yolo check --no-build`."
 	}
-	where := user + " or the workspace's yolo-jail.jsonc"
+	where := user + " or the workspace's legacy config"
 	if userOnly {
 		where = user
 	}

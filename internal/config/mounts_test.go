@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -99,7 +101,7 @@ func TestMountsValidationRefusesEveryMalformedElement(t *testing.T) {
 	for _, tc := range []struct {
 		name, element, want string
 	}{
-		{"a :rw string suffix", `"` + src + `:rw"`, `{"host": "` + src + `", "mode": "rw"}`},
+		{"a :rw string suffix", `"` + src + `:rw"`, `yolo config add mounts '{ host = "` + src + `", mode = "rw" }'`},
 		{"a :rw suffix after a destination", `"` + src + `:/ctx/d:rw"`, `is not a mode`},
 		{"an object with no mode", `{"host": "` + src + `"}`, `"mode" is required`},
 		{"an unknown mode", `{"host": "` + src + `", "mode": "write"}`, `must be "ro" or "rw"`},
@@ -126,26 +128,59 @@ func TestMountsValidationRefusesEveryMalformedElement(t *testing.T) {
 // is most likely to write, "host:/ctx/d:rw", used to be answered with an object whose
 // `host` was "host:/ctx/d" — which the object form refuses for its colon, so following the
 // message produced a second error. The suggestion splits the destination into `at`, and
-// pasting it into the config validates clean and keeps the destination the user wrote.
+// the element the suggested `yolo config add mounts` writes validates clean and keeps the
+// destination the user wrote. The suggestion is a verb, not a snippet (LC-D12): its value is
+// read as TOML whatever the file's format, so the element it adds is the same in either.
 func TestTheRWSuffixRefusalSuggestsAnObjectThatValidates(t *testing.T) {
 	src := mountSourceDir(t, "data")
 	for _, tc := range []struct{ name, element, want string }{
-		{"with a destination", src + ":/ctx/d:rw", `{"host": "` + src + `", "at": "/ctx/d", "mode": "rw"}`},
-		{"bare", src + ":rw", `{"host": "` + src + `", "mode": "rw"}`},
+		{"with a destination", src + ":/ctx/d:rw", `{ host = "` + src + `", at = "/ctx/d", mode = "rw" }`},
+		{"bare", src + ":rw", `{ host = "` + src + `", mode = "rw" }`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newMountsHost(t)
 			h.user(t, `{"mounts": ["`+tc.element+`"]}`)
 			errs, _ := h.validate(t)
-			if got := joined(errs); !strings.Contains(got, tc.want) {
+			got := joined(errs)
+			if !strings.Contains(got, "yolo config add mounts '"+tc.want+"'") {
 				t.Fatalf("errors = %q, want the suggestion %s", errs, tc.want)
 			}
-			h.user(t, `{"mounts": [`+tc.want+`]}`)
+			if strings.Contains(got, `"host": `) {
+				t.Fatalf("the refusal still spells the element as a JSON snippet: %q", got)
+			}
+			added := mountAddedBy(t, got)
+			h.user(t, `{"mounts": [`+added+`]}`)
 			if errs, _ := h.validate(t); len(errs) != 0 {
-				t.Fatalf("the suggested object %s does not validate: %q", tc.want, errs)
+				t.Fatalf("the element the suggestion adds, %s, does not validate: %q", added, errs)
 			}
 		})
 	}
+}
+
+// mountAddedBy is the element the first `yolo config add mounts '<value>'` in msg adds, as the
+// JSON a legacy file holds: its value parsed as the verb parses it, a TOML value.
+func mountAddedBy(t *testing.T, msg string) string {
+	t.Helper()
+	const verb = "yolo config add mounts '"
+	i := strings.Index(msg, verb)
+	if i < 0 {
+		t.Fatalf("no `yolo config add mounts` in %q", msg)
+	}
+	rest := msg[i+len(verb):]
+	j := strings.Index(rest, "'")
+	if j < 0 {
+		t.Fatalf("unterminated value in %q", msg)
+	}
+	doc, err := configdoc.Parse([]byte("value = "+rest[:j]+"\n"), configdoc.TOML)
+	if err != nil {
+		t.Fatalf("the suggested value %s is not TOML: %v", rest[:j], err)
+	}
+	v, _ := doc.Values.Get("value")
+	out, err := jsonx.DumpsCompact(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // The control for the table above: both forms, in both modes, validate clean.

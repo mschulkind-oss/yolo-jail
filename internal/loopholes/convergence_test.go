@@ -490,7 +490,7 @@ func TestConfigRecordsAreExemptFromTheOriginGate(t *testing.T) {
 	sentinel := filepath.Join(t.TempDir(), "ran")
 	lp := &Loophole{
 		Name: "from-config", Source: SourceConfig, Enabled: true,
-		Path:      "<yolo-jail.jsonc:loopholes.from-config>",
+		Path:      "<workspace config:loopholes.from-config>",
 		DoctorCmd: []string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel)}, DoctorCmdSet: true,
 	}
 	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)

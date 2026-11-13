@@ -2015,8 +2015,8 @@ func materializeForkToolchain(deps Deps, out printer, opts ForkBuildOptions) (*D
 	if len(d.Skipped) > 0 {
 		out.printf("[bold red]These packages have no %s build:[/bold red] %s\n"+
 			"The fork was not built, because a package you declared would have been missing from its "+
-			"build. Check the spelling, or mark it Linux-only ({\"name\": \"<pkg>\", \"platforms\": "+
-			"[\"linux\"]}), then run the build again.", darwinSystemLabel(d), strings.Join(d.Skipped, ", "))
+			"build. Check the spelling, or mark it Linux-only (%s), then run the build again.",
+			darwinSystemLabel(d), strings.Join(d.Skipped, ", "), LinuxOnlyPackageStep)
 		return nil, 1
 	}
 	return d, 0

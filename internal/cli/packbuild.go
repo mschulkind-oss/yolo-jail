@@ -184,7 +184,7 @@ func packBuild(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	if len(programs) == 0 && len(forks) == 0 && len(opts.packs) == 0 && !failed {
-		pr.Printf("[dim]nothing to build: no selected pack declares a program built from its own tree (\"via\": \"pack\")[/dim]")
+		pr.Printf("[dim]nothing to build: no selected pack declares a program built from its own tree (via = \"pack\")[/dim]")
 	}
 	if failed {
 		return 1

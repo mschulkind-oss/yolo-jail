@@ -314,8 +314,8 @@ type Miss struct {
 // MissLine is the miss line for m, "" in a jail, where the key it names does not exist:
 //
 //	rg (required by the guardrails pack) is not on this launch's PATH, /usr/bin:/bin, the PATH yolo
-//	was started with. If rg is installed, add its folder to "host_path" in
-//	~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.
+//	was started with. If rg is installed, add its folder with `yolo config add host_path <folder> --user`
+//	(`host_path` in ~/.config/yolo-jail/config.toml); ~/.cargo/bin has one.
 //
 // The caller adds its own prefix ("yolo host: "). The hint clause appears only when a hint folder
 // holds an executable of that name (Hint), and it changes nothing but this text.
@@ -349,8 +349,8 @@ func (l *Launch) MissLine(m Miss) string {
 		}
 		fmt.Fprintf(&b, ". host_path's %s %s is ignored: %s", what, r.Entry, r.Why)
 	}
-	fmt.Fprintf(&b, `. If %s is installed, add its folder to "host_path" in %s`, m.Bin,
-		l.tilde(paths.UserConfigPath()))
+	fmt.Fprintf(&b, ". If %s is installed, add its folder with `yolo config add host_path <folder> --user` (`host_path` in %s)", m.Bin,
+		l.tilde(paths.UserConfigDisplayPath()))
 	if hint := l.Hint(m.Bin); hint != "" {
 		fmt.Fprintf(&b, "; %s has one.", hint)
 	} else {

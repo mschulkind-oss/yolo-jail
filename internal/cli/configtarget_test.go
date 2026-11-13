@@ -647,7 +647,7 @@ func TestAtJailWithNoWorkspaceRefusesByName(t *testing.T) {
 			"home without saying so:\n%s", out.String())
 	}
 	got := errw.String()
-	for _, want := range []string{elsewhere, config.WorkspaceConfigName, "cd into the project"} {
+	for _, want := range []string{elsewhere, "yolo-jail.toml (or a legacy one)", "cd into the project"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, got)
 		}

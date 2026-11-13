@@ -100,7 +100,7 @@ func TestCheckHostLaunchPathSaysWhichPathItRead(t *testing.T) {
 		"[WARN] yolo-hp-missing — not on this PATH",
 		"yolo-hp-missing (required by the needpack pack) is not on the PATH yolo searched, " + pathDir +
 			", the PATH yolo was started with, then host_path's ~/tools/bin:~/absent/bin. If yolo-hp-missing " +
-			`is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.`,
+			`is installed, add its folder with ` + "`yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)
@@ -130,8 +130,8 @@ func TestCheckHostLaunchPathGivesAProgramWithNoBuildHereTheMissLine(t *testing.T
 	for _, want := range []string{
 		"yolo-hp-uptool — not on this PATH, and no build for this host",
 		"yolo-hp-uptool (a program of the needpack pack) is not on the PATH yolo searched, " + pathDir +
-			`, the PATH yolo was started with. If yolo-hp-uptool is installed, add its folder to "host_path" in ` +
-			"~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.",
+			`, the PATH yolo was started with. If yolo-hp-uptool is installed, add its folder with ` +
+			"`yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("section lacks %q:\n%s", want, out)

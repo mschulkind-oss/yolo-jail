@@ -72,8 +72,8 @@ func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
 		t.Errorf("the remedy does not name the user config the declaration goes in (%s): %q",
 			want, remedy)
 	}
-	if !strings.Contains(remedy, "config-overlay") {
-		t.Errorf("the remedy dropped the per-surface `config-overlay` alternative: %q", remedy)
+	if !strings.Contains(remedy, "`[[overlay]]` table") {
+		t.Errorf("the remedy dropped the per-surface `[[overlay]]` alternative: %q", remedy)
 	}
 	if strings.Contains(remedy, "reach jails only") {
 		t.Errorf("the remedy still says `mcp_servers` reaches jails only: %q", remedy)

@@ -98,7 +98,7 @@ func synthesizeConfigLoopholes(loopholesConfig *jsonx.OrderedMap) []*Loophole {
 		out = append(out, &Loophole{
 			Name:         name,
 			Description:  description,
-			Path:         "<yolo-jail.jsonc:loopholes." + name + ">",
+			Path:         "<workspace config:loopholes." + name + ">",
 			Enabled:      enabled,
 			Transport:    transport,
 			Lifecycle:    "spawned",

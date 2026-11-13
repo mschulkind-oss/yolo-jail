@@ -567,7 +567,7 @@ func encodeOverlayFields(label string, fields *jsonx.OrderedMap, sources map[str
 	}
 	body, ok := value.(*jsonx.OrderedMap)
 	if !ok || body.Len() != 1 {
-		return &UnrepresentableError{Path: label + ".config", Reason: "is not exactly {\"managed\": …}, the one overlay body grouped `set` says"}
+		return &UnrepresentableError{Path: label + ".config", Reason: "is not an object holding \"managed\" alone, the one overlay body grouped `set` says"}
 	}
 	managed, ok := body.Get("managed")
 	if !ok {

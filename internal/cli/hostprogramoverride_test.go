@@ -21,7 +21,7 @@ func TestYoloHostRefusesAProgramOverrideOfAnNpmAgent(t *testing.T) {
 		t.Fatalf("yolo host -- claude with an override of an npm agent: rc=%d execed=%v, want a refusal\n%s",
 			rc, got.execed, errw.String())
 	}
-	for _, want := range []string{"yolo host: refusing to launch", "programs.overrides.claude", `"via": "source"`, `"fork_of"`} {
+	for _, want := range []string{"yolo host: refusing to launch", "programs.overrides.claude", `via = "source"`, `fork_of = "claude"`} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("the refusal does not name %q:\n%s", want, errw.String())
 		}

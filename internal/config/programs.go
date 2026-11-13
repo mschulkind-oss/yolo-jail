@@ -172,8 +172,9 @@ func parseProgramOverride(bin string, v any, errs *[]string) (ProgramOverride, b
 	}
 	m, ok := asMap(v)
 	if !ok {
-		add(errs, "config."+field+": expected an object with a \"path\" to the program's directory, "+
-			"or \"prebuilt\": true")
+		add(errs, "config."+field+": expected an object with a \"path\" to the program's directory "+
+			"(`yolo config set "+field+"."+pathKey+" <dir> --user`), or with \"prebuilt\" set to true "+
+			"(`yolo config set "+field+"."+prebuiltKey+" true --user`)")
 		return ProgramOverride{}, false
 	}
 	if _, has := m.Get(retiredRunKey); has {
@@ -194,8 +195,8 @@ func parseProgramOverride(bin string, v any, errs *[]string) (ProgramOverride, b
 			return o, false
 		case b && hasPath:
 			add(errs, "config."+field+": \""+prebuiltKey+"\" and \""+pathKey+"\" cannot both be set — "+
-				"\"prebuilt\": true runs the pack's verified prebuilt artifact, and \"path\" builds your own "+
-				"checkout; keep the one you mean")
+				"\"prebuilt\" set to true runs the pack's verified prebuilt artifact, and \"path\" builds "+
+				"your own checkout; keep the one you mean")
 			return o, false
 		case b:
 			o.Prebuilt = true
@@ -206,8 +207,8 @@ func parseProgramOverride(bin string, v any, errs *[]string) (ProgramOverride, b
 	switch {
 	case !present || pv == nil:
 		add(errs, "config."+field+"."+pathKey+": required — your checkout of the program, which yolo "+
-			"builds in place of its pack's tree, an absolute path or one starting with ~/ (or \"prebuilt\": "+
-			"true to run the pack's prebuilt artifact)")
+			"builds in place of its pack's tree, an absolute path or one starting with ~/ (or \"prebuilt\" "+
+			"set to true to run the pack's prebuilt artifact: `yolo config set "+field+"."+prebuiltKey+" true --user`)")
 	default:
 		p, isStr := pv.(string)
 		switch {

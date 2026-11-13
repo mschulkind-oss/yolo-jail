@@ -748,14 +748,14 @@ func (m *Manifest) retiredFieldProblems() []string {
 			problems = append(problems, fmt.Sprintf(
 				"contributes[%d]: \"tier\" is no longer a contribution field — a tier decides what a "+
 					"skill is CALLED, which is one fact about the whole pack rather than one per "+
-					"destination. Move it to the manifest's top-level \"skills_tier\": %q", i, c.Tier))
+					"destination. Move it to the manifest's top-level skills_tier = %q", i, c.Tier))
 		}
 		if c.RequiresProvider != "" {
 			problems = append(problems, fmt.Sprintf(
 				"contributes[%d]: \"requires_provider\" is no longer a contribution field — "+
 					"a kind \"profile\" is a SELECTION over a provider, so the field is now "+
 					"spelled \"provider\" and MANDATORY (docs/reference/providers.md "+
-					"§5.2). Write {\"kind\": \"profile\", \"name\": %q, \"provider\": %q}",
+					"§5.2). Write a [[profile]] table with name = %q and provider = %q",
 				i, c.Name, c.RequiresProvider))
 		}
 		// The two body halves the profile kind carried and no kind carries any more. The
@@ -1528,7 +1528,7 @@ func mcpContributionProblems(label string, c Contribution) []string {
 	}
 	if len(c.Raw) == 0 {
 		add("kind \"mcp\" needs \"config\", the server's entry in mcp_servers' shape: " +
-			"{\"command\": \"<program>\", \"args\": [...]}")
+			"config = { command = \"<program>\", args = [...] }")
 		return problems
 	}
 	var entry map[string]json.RawMessage

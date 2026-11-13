@@ -247,7 +247,7 @@ func TestWorkspaceEnableUninstalledIsFatal(t *testing.T) {
 		filepath.Join(ws, WorkspaceConfigName),
 		"not installed",
 		userConfig,
-		`"loopholes": {"ghost": {"command": [`,
+		"`loopholes.ghost.command`",
 	} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("error %q does not carry %q", hits[0], want)

@@ -238,7 +238,7 @@ func parseSettings(manifestPath string, raw any, legacy bool) ([]Setting, error)
 		if !isMap {
 			return nil, Errorf(
 				"%s: '%s' must be a declaration object, e.g."+
-					` {"type": "string_list", "scope": "user", "default": []}`,
+					` { type = "string_list", scope = "user", default = [] }`,
 				manifestPath, path)
 		}
 		for _, k := range decl.Keys() {

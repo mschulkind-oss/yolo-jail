@@ -349,8 +349,8 @@ func UnmetCapabilityRefusal(missing []string, err error, held bool, where []stri
 	}
 	lines = append(lines,
 		"  A capability is satisfied by a declaration: `providers.<name>.capabilities` "+
-			"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with "+
-			"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the "+
+			"naming it (the agent has it natively there), an `mcp_servers.<name>.provides` "+
+			"naming it, or a selected agent whose pack declares it for the "+
 			"source the agent runs on: its built-in login, or the provider its profile selects.",
 		"Declare the satisfier, drop the name from required_capabilities, or launch anyway "+
 			"with "+AllowUnmetCapabilitiesEnv+"=1.")

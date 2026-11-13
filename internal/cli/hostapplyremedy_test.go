@@ -54,9 +54,9 @@ func TestHostApplyGroupsOneEntryLossAcrossAgentsUnderOneRemedy(t *testing.T) {
 		t.Errorf("the remedy must name the user config's `mcp_servers` and say it reaches every "+
 			"agent: %q", remedy)
 	}
-	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "local", "pack.json")) ||
-		!strings.Contains(remedy, "config-overlay") {
-		t.Errorf("the remedy must still name the per-surface config-overlay and its file: %q", remedy)
+	if !strings.Contains(remedy, filepath.Join(home, ".config", "yolo-jail", "local", "pack.toml")) ||
+		!strings.Contains(remedy, "`[[overlay]]` table") {
+		t.Errorf("the remedy must still name the per-surface `[[overlay]]` table and its file: %q", remedy)
 	}
 	// the remedy contract: grouping compresses the LINES, never the SET.
 	for _, name := range survey.DroppedEntryNames() {

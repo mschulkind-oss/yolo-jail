@@ -37,7 +37,7 @@ func (f *Floor) StaleCopyStep(owned bool, bins ...string) string {
 		args = append(args, f.Launcher(bin), f.recordPath(bin), f.programsDir(bin))
 	}
 	return "remove " + it + " by hand with `" + shquote.Join(args) + "` (`yolo host apply --assert` " +
-		"removes " + it + " only under `\"host_management\": \"own\"`, and writes nothing under " +
+		"removes " + it + " only while `host_management` is \"own\", and writes nothing while it is " +
 		"\"none\")"
 }
 

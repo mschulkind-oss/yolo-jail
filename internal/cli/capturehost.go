@@ -566,8 +566,8 @@ func captureChoicesStep(packs []*packload.Pack, bin string) string {
 		// The manifest line itself (rung 3): `yolo pack --help`, which this used to cite, does not
 		// document the `program` kind.
 		return "None of your packs installs a program with an installer, so nothing here needs a " +
-			"capture. A pack declares one in its pack.json as {\"kind\": \"program\", \"bin\": " +
-			"\"<name>\", \"via\": \"installer\", \"url\": \"<its install script>\"}."
+			"capture. A pack declares one in its pack.toml as a [[program]] table with bin = " +
+			"\"<name>\", via = \"installer\" and url = \"<its install script>\"."
 	}
 	sort.Strings(choices)
 	return fmt.Sprintf("A capture records what your packs install with an installer or build from a "+

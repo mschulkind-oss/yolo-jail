@@ -2577,7 +2577,7 @@ func ReservedBriefingSourceProblem(field, rel string) string {
 			"\"from\" naming it at %q", DefaultBriefingDir, shquote.Quote(clean), target, target)
 	}
 	return msg + fmt.Sprintf("Move the prose under %s/ with another name, e.g. `git mv %s %s`, "+
-		"then set \"from\": %q — or drop \"from\", and this contribution carries every "+
+		"then set from = %q — or drop \"from\", and this contribution carries every "+
 		"%s/*.md no other contribution names", DefaultBriefingDir, shquote.Quote(clean), target, target,
 		DefaultBriefingDir)
 }
@@ -3091,14 +3091,14 @@ func (m *Manifest) UndeclaredHookStateProblem(at string) string {
 		if d == at {
 			return fmt.Sprintf("\"at\" names %q, which this pack declares as a workspace-scope "+
 				"state, not a machine-scope one — set that state's \"scope\" to \"machine\" and give "+
-				"it a \"because\": \"<why every workspace shares it>\" (a second state at %q would "+
+				"it because = \"<why every workspace shares it>\" (a second state at %q would "+
 				"declare it at both scopes, which is refused), or point \"at\" at a machine state it "+
 				"declares", at, at)
 		}
 	}
 	return fmt.Sprintf("\"at\" names %q, which is no machine-scope state this pack declares — add "+
-		"{\"kind\": \"state\", \"at\": %q, \"scope\": \"machine\", \"because\": \"<why every "+
-		"workspace shares it>\"} to its contributes, or point \"at\" at a machine state it declares",
+		"a [[state]] table with at = %q, scope = \"machine\" and because = \"<why every "+
+		"workspace shares it>\" to its manifest, or point \"at\" at a machine state it declares",
 		at, at)
 }
 
@@ -3941,7 +3941,7 @@ func installerEnvProblems(label string, c Contribution) []string {
 	}
 	if len(c.InstallerEnv) == 0 {
 		return []string{field + ": an empty object sets nothing — omit the key, or name the " +
-			"variables the installer needs, e.g. {\"PREFIX\": \"~/.local\"}"}
+			"variables the installer needs, e.g. installer_env = { PREFIX = \"~/.local\" }"}
 	}
 	var problems []string
 	for _, k := range sortedKeys(c.InstallerEnv) {
@@ -4580,8 +4580,8 @@ func validateContribution(label string, c Contribution) []string {
 				"%s: kind %q does not take %q — a JSON Pointer to an array and the entries "+
 					"added to or removed from it are the \"config-list\" kind's whole body; no "+
 					"consumer reads them on this kind. To add entries to an array without replacing it, write "+
-					"{\"kind\": \"config-list\", \"surface\": \"<agent>/<name>\", "+
-					"\"path\": \"/<key>\", \"add\": [...]}", label, c.Kind, f.name))
+					"a [[config_list]] table with surface = \"<agent>/<name>\", "+
+					"path = \"/<key>\" and add = [...]", label, c.Kind, f.name))
 		}
 	}
 	// `agent`/`agents` are the AUDIENCE pair, and they are refused everywhere else for
@@ -5056,12 +5056,12 @@ func validateContribution(label string, c Contribution) []string {
 		switch {
 		case c.Adapts == nil:
 			problems = append(problems, label+": kind \"adapter\" needs \"adapts\" "+
-				"({\"from\": \"<protocol>\", \"to\": \"<protocol>\"}) — the pair it converts")
+				"(adapts = { from = \"<protocol>\", to = \"<protocol>\" }) — the pair it converts")
 		default:
 			if c.Adapts.From == "" || c.Adapts.To == "" {
 				problems = append(problems, label+": adapts needs both \"from\" and \"to\" — "+
 					"they are protocol names, spelled as a provider files an endpoint under "+
-					"them (e.g. {\"from\": \"openai\", \"to\": \"anthropic\"})")
+					"them (e.g. adapts = { from = \"openai\", to = \"anthropic\" })")
 			} else if c.Adapts.From == c.Adapts.To {
 				// A pair with one member converts nothing, and it is not inert: it would
 				// claim the pair, so a real adapter for it could never be selected beside it.

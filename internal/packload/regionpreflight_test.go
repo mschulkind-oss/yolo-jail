@@ -56,7 +56,7 @@ func TestProviderRegionGapsRefuseOnlyWhenNoRegionIsVisible(t *testing.T) {
 	got := strings.Join(facts, "\n")
 	for _, want := range []string{"pack cloudy", `provider "regional"`, `no "region"`,
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set",
-		`"providers": {"regional": {"region": "<region>"}}`, "AWS_REGION=<region> in an env_sources entry",
+		"`yolo config set providers.regional.region <region> --user`", "AWS_REGION=<region> in an env_sources entry",
 		"consulted for a region: each selected provider's composed entry"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the facts must say %q:\n%s", want, got)
@@ -223,7 +223,7 @@ func TestTheRegionRequirementKeysOnThePlatform(t *testing.T) {
 	user := userProviders(t, `{"mine":{"platform":"cloud"}}`)
 	got := strings.Join(ProviderRegionGaps(packs, compose(t, user, packs), asked(none, "mine"), nil, nil), "\n")
 	for _, want := range []string{`pack cloudy requires a region for provider "mine" (platform "cloud")`,
-		"neither AWS_REGION nor AWS_DEFAULT_REGION is set", `"providers": {"mine": {"region": "<region>"}}`} {
+		"neither AWS_REGION nor AWS_DEFAULT_REGION is set", "`yolo config set providers.mine.region <region> --user`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("a user provider of the platform must be required a region, saying %q:\n%s", want, got)
 		}

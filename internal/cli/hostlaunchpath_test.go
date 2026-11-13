@@ -121,7 +121,7 @@ func TestEveryHostCheckReadsHostPath(t *testing.T) {
 		readFileT(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc")),
 		`,"host_path":["~/tools/bin"]`, "", 1))
 	tail := `is not on %s, ` + pathDir + `, the PATH yolo was started with. If yolo-hp-tool is ` +
-		`installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.`
+		"installed, add its folder with `yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one."
 	checking := "yolo-hp-tool (required by the needpack pack) " + strings.Replace(tail, "%s", "the PATH yolo searched", 1)
 	launching := "yolo host: yolo-hp-tool (required by the needpack pack) " + strings.Replace(tail, "%s", "this launch's PATH", 1)
 
@@ -172,7 +172,7 @@ func TestAProgramWithNoBuildHereStillPrintsTheMissLine(t *testing.T) {
 	withTestFloor(t) // the production floor, so the program has no entry for the platform alone
 	putExe(t, filepath.Join(home, ".cargo", "bin"), "yolo-hp-uptool")
 	tail := `is not on %s, ` + pathDir + `, the PATH yolo was started with. If yolo-hp-uptool is ` +
-		`installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.`
+		"installed, add its folder with `yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one."
 	checking := "yolo-hp-uptool (a program of the needpack pack) " + strings.Replace(tail, "%s", "the PATH yolo searched", 1)
 	launching := "yolo host: yolo-hp-uptool (a program of the needpack pack) " + strings.Replace(tail, "%s", "this launch's PATH", 1)
 
@@ -202,8 +202,8 @@ func TestARefusedHostPathEntryIsNamedInTheMissLine(t *testing.T) {
 	home, pathDir := launchPathFixture(t, `,"host_management":"own","host_apply_on_launch":false,"host_path":["$HOME/.cargo/bin","~/tools/bin"]`, hpTool)
 	putExe(t, filepath.Join(home, ".cargo", "bin"), "yolo-hp-tool")
 	ignored := `. host_path's entry "$HOME/.cargo/bin" is ignored: host_path expands no variable, so write it ` +
-		`"~/.cargo/bin". If yolo-hp-tool is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ` +
-		`~/.cargo/bin has one.`
+		`"~/.cargo/bin". If yolo-hp-tool is installed, add its folder with ` + "`yolo config add host_path <folder> --user` " +
+		"(`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one."
 	if rc, report := runCheckDepsT(t); rc != 1 || !strings.Contains(report, "is not on the PATH yolo searched, "+pathDir+
 		", the PATH yolo was started with, then host_path's ~/tools/bin"+ignored) {
 		t.Errorf("check-deps rc=%d does not name the refused entry:\n%s", rc, report)
@@ -275,8 +275,8 @@ func TestTheExecReadsHostPathAndMissesWithTheMissLine(t *testing.T) {
 			rc, got.execed, errw.String())
 	}
 	want := "yolo host: notes-sync is not on this launch's PATH, " + bare + ", the PATH yolo was started " +
-		`with, then host_path's ~/tools/bin. If notes-sync is installed, add its folder to "host_path" in ` +
-		"~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.\n"
+		"with, then host_path's ~/tools/bin. If notes-sync is installed, add its folder with " +
+		"`yolo config add host_path <folder> --user` (`host_path` in ~/.config/yolo-jail/config.jsonc); ~/.cargo/bin has one.\n"
 	if !strings.Contains(errw.String(), want) {
 		t.Errorf("the exec's miss lacks the miss line\n  %s\ngot:\n%s", want, errw.String())
 	}

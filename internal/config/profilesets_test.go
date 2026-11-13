@@ -67,7 +67,7 @@ func TestTheSingleProviderListRefusalNamesTheFix(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("errs = %v, want one", errs)
 	}
-	for _, want := range []string{"`-p codex=codex`", `"profile": {"codex": "codex"}`, "drop zai"} {
+	for _, want := range []string{"`-p codex=codex`", "`yolo active-provider codex codex`", "drop zai"} {
 		if !strings.Contains(errs[0], want) {
 			t.Errorf("the refusal must name %q:\n%s", want, errs[0])
 		}

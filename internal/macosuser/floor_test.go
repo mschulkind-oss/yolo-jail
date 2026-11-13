@@ -164,3 +164,22 @@ func TestTheNativeBuildIsNarrated(t *testing.T) {
 		t.Errorf("the native build was not narrated:\n%s", buf.String())
 	}
 }
+
+// A declared package with no darwin build refuses the launch, and the refusal's Linux-only step
+// is said in words true of a TOML and a legacy config alike, never a JSON snippet (LC-D12).
+func TestAPackageWithNoDarwinBuildRefusesNamingTheFormatNeutralStep(t *testing.T) {
+	var rec []string
+	var buf bytes.Buffer
+	d := mockDeps(&rec)
+	d.Out = &buf
+	d.MaterializeDarwin = func(string, []any) (*Darwin, bool, error) {
+		return &Darwin{PathPrefix: []string{"/nix/store/floor/bin"}, Skipped: []string{"ripgrpe"}, System: "aarch64-darwin"}, true, nil
+	}
+	if rc := RunMacosUser(d, newOpts("/Users/Shared/yolo/proj")); rc != 1 {
+		t.Errorf("rc = %d, want 1\n%s", rc, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "ripgrpe") || !strings.Contains(out, LinuxOnlyPackageStep) || strings.Contains(out, `"name": `) {
+		t.Errorf("the refusal does not name the package and the format-neutral Linux-only step:\n%s", out)
+	}
+}

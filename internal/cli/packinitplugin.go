@@ -255,7 +255,7 @@ func pluginWrapperReadme(name, pluginName, packRoot, pluginAbs string) string {
 		"```toml\npacks = [\"file://" + packRoot + "\"]\n```\n\n" +
 		"## Two things to check\n\n" +
 		"1. **The destination.** `pack.toml` targets `.claude/skills`. Change `into` if you\n" +
-		"   want a different tool's dir — anything with `\"tier\": \"namespaced\"` must be a\n" +
+		"   want a different tool's dir — anything with `skills_tier = \"namespaced\"` must be a\n" +
 		"   dir whose tool reads `.claude-plugin/plugin.json`. A flat dir still gets the\n" +
 		"   plugin's skills; everything else it declares is refused by name.\n" +
 		"2. **It is a COPY.** `skills/" + pluginName + "` was copied from\n" +

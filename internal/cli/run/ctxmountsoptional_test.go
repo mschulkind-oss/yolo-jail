@@ -202,7 +202,7 @@ func TestMacosUserSelfModeRefusesAMountResolvingToTheHome(t *testing.T) {
 }
 
 // THE REFUSAL'S SHAPE: one headline, a blank line, the mounts, a blank line, then the fixes,
-// "mark it optional" with the exact JSON to paste for the element as written.
+// "mark it optional" with the exact command that adds the element as written, optional.
 func TestMacosUserRefusalOffersTheOptionalSpelling(t *testing.T) {
 	users := floortest.ResolvedTemp(t)
 	notes := filepath.Join(users, "alice", "notes")
@@ -219,8 +219,9 @@ func TestMacosUserRefusalOffersTheOptionalSpelling(t *testing.T) {
 	for _, want := range []string{
 		"Refusing the macos-user launch: it can't deliver 2 context mounts.\n\n  " + notes + " → /ctx/notes",
 		"\n\nFix one:\n",
-		`{"host": "` + notes + `", "mode": "ro", "optional": true}`,
-		`{"host": "` + notes + `", "at": "/ctx/n2", "mode": "ro", "optional": true}`,
+		"mark it optional: remove the `mounts` entry and add it back with",
+		`yolo config add mounts '{ host = "` + notes + `", mode = "ro", optional = true }'`,
+		`yolo config add mounts '{ host = "` + notes + `", at = "/ctx/n2", mode = "ro", optional = true }'`,
 		"copy the folder under " + macosuser.SharedRootDefault(),
 		"use a container setup: yolo --setup podman-self -- claude",
 	} {

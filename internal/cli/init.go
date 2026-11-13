@@ -18,7 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-//go:embed userconfig.jsonc
+//go:embed userconfig.toml
 var userConfigContent string
 
 //go:embed briefing.txt
@@ -85,17 +85,19 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 }
 
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at
-// USER_CONFIG_PATH unless a user config of either format exists.
+// ~/.config/yolo-jail/config.toml unless a user config of either format exists. It writes
+// TOML, the format every launch reads first, so a new user is not onboarded onto the legacy
+// format the launch then offers to convert (LC-D12, docs/design/legacy-config-compat.md).
 func InitUserConfig(out io.Writer, color bool) int {
-	// The legacy path on purpose: this writer creates the legacy JSONC defaults file.
-	p := paths.UserConfigPath()
+	// With no user config, the display path is the TOML file a first write creates; with
+	// one, in either format, it is that file, which is left alone: writing config.toml
+	// beside a config.jsonc makes a pair the reader refuses.
+	p := paths.UserConfigDisplayPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		printInitStatus(out, color, "bold red", fmt.Sprintf("Error creating config dir: %v", err))
 		return 1
 	}
-	// Any existing user config counts, in either format: writing config.jsonc beside a
-	// config.toml makes a pair the reader refuses.
-	if existing := paths.UserConfigDisplayPath(); fileExists(existing) {
+	if existing := p; fileExists(existing) {
 		fmt.Fprint(out, existing, " ", richtext.Render("[yellow]already exists.[/yellow]\n", color))
 		// The likeliest reason to run this again is a jail with no agent, so an existing
 		// file that selects no pack gets the same steps a new one does. One that cannot
@@ -103,7 +105,7 @@ func InitUserConfig(out io.Writer, color bool) int {
 		problems := 0
 		entries, err := config.LoadPacks(func(string) { problems++ })
 		if err == nil && problems == 0 && !config.HasConfiguredPack(entries) {
-			printUserConfigNextSteps(out, config.UserScopeSources().Locations("config.packs"))
+			printUserConfigNextSteps(out)
 		}
 		return 0
 	}
@@ -113,7 +115,7 @@ func InitUserConfig(out io.Writer, color bool) int {
 	}
 	printInitStatus(out, color, "green", "Created "+p)
 	// The template selects no pack, so this is always the case for a file just written.
-	printUserConfigNextSteps(out, nil)
+	printUserConfigNextSteps(out)
 	return 0
 }
 
@@ -128,27 +130,22 @@ func printInitStatus(out io.Writer, color bool, style, message string) {
 // config that selects no pack: as written, the next jail has no coding agent, and the
 // command used to end at `Created <path>` without saying so
 // (docs/reference/happy-path-principle.md, rule 2). Choosing the agent is the user's call,
-// so the step is the edit (rung 3), not a write made for them. The example agent is the one
-// the empty-packs notice names (config.NoPacksGuidance), so a new user hears one answer.
-//
-// It follows the line naming the file, so "that file" is the path the user just read.
-//
-// packsAt is where an existing user scope already writes an empty `packs` list
-// (config.Sources.Locations, highest precedence first). A second `packs` line added above
-// it would change nothing, the later key winning, so the step then names that list instead.
-func printUserConfigNextSteps(out io.Writer, packsAt []string) {
-	choose := "  1. Choose your agent: add this line to that file, right after the opening {\n" +
-		"       \"packs\": [\"claude\"],\n"
-	if len(packsAt) > 0 {
-		choose = "  1. Choose your agent: make the \"packs\" list at " + packsAt[0] + "\n" +
-			"       [\"claude\"]\n"
-	}
+// so the step is the verb that makes the edit, not a write made for them. The example agent
+// is the one the empty-packs notice names (config.NoPacksGuidance), so a new user hears one
+// answer. It names `yolo pack add`, never a `packs` line to paste: the verb writes the user
+// file that exists, in its own format, and appends to a `packs` list already there (LC-D12,
+// docs/design/legacy-config-compat.md).
+func printUserConfigNextSteps(out io.Writer) {
 	io.WriteString(out, "It selects no packs yet, so a jail has no coding agent. Next:\n"+
-		choose+
+		"  1. Choose your agent:  yolo pack add "+nextStepPack+"\n"+
 		"     (`yolo pack --help` says what other packs deliver)\n"+
 		"  2. Check the edit:  yolo check\n"+
-		"  3. From your project's directory, launch it:  yolo -- claude\n")
+		"  3. From your project's directory, launch it:  yolo -- "+nextStepPack+"\n")
 }
+
+// nextStepPack is the agent pack init-user-config's next steps name: the example the
+// empty-packs notice gives (config.NoPacksGuidance).
+const nextStepPack = "claude"
 
 // printBriefing renders the post-init agent briefing with {config_path}
 // interpolated. Rich markup → ANSI when color, stripped otherwise (info-parity).

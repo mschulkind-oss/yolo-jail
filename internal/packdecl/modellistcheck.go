@@ -32,7 +32,7 @@ func modelListCheckProblems(label string, check *ModelListCheck) []string {
 			problems = append(problems, ruleLabel+": needs a non-empty \"platform\"")
 		}
 		if rule.NativeEmptyOK && (rule.Via == nil || *rule.Via) {
-			problems = append(problems, ruleLabel+": \"native_empty_ok\" requires \"via\": false")
+			problems = append(problems, ruleLabel+": \"native_empty_ok\" requires via = false")
 		}
 		if rule.Makers != nil && len(rule.Makers) == 0 {
 			problems = append(problems, ruleLabel+": omit \"makers\" for no restriction, or supply at least one maker")

@@ -79,7 +79,7 @@ func TestInitStatusColorsThroughDispatch(t *testing.T) {
 			name:    "init-user-config create",
 			command: "init-user-config",
 			setup: func(t *testing.T, _, _ string) string {
-				p := paths.UserConfigPath()
+				p := filepath.Join(filepath.Dir(paths.UserConfigPath()), paths.UserConfigTOMLName)
 				must(t, os.MkdirAll(filepath.Dir(p), 0o755))
 				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 					t.Fatal(err)
@@ -117,7 +117,7 @@ func TestInitStatusColorsThroughDispatch(t *testing.T) {
 			name:    "init-user-config write error",
 			command: "init-user-config",
 			setup: func(t *testing.T, _, _ string) string {
-				p := paths.UserConfigPath()
+				p := filepath.Join(filepath.Dir(paths.UserConfigPath()), paths.UserConfigTOMLName)
 				must(t, os.MkdirAll(filepath.Dir(p), 0o755))
 				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 					t.Fatal(err)

@@ -382,6 +382,7 @@ func TestCheckProfilesRefusesSubagentsShapes(t *testing.T) {
 		{"default is not a string", `"subagents": {"default": 7}`, `config.profiles.or.subagents.default: expected a non-empty string`},
 		{"default is empty", `"subagents": {"default": ""}`, `config.profiles.or.subagents.default: expected a non-empty string`},
 		{"roles is not an object", `"subagents": {"roles": ["worker"]}`, `config.profiles.or.subagents.roles: expected an object`},
+		{"roles is not an object, said in either format's words (LC-D12)", `"subagents": {"roles": ["worker"]}`, `a key per role, such as worker`},
 		{"a role value is not a string", `"subagents": {"roles": {"worker": 7}}`,
 			`config.profiles.or.subagents.roles.worker: expected a non-empty string`},
 		{"a role value is empty", `"subagents": {"roles": {"worker": ""}}`,

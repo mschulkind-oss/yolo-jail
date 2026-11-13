@@ -268,7 +268,7 @@ func parseBinaries(manifestPath string, raw any) ([]Binary, error) {
 	m, ok := raw.(*jsonx.OrderedMap)
 	if !ok {
 		return nil, Errorf("%s: 'binaries' must be a mapping of binary name to its builds, "+
-			"e.g. {\"mytool\": {\"linux/amd64\": {\"url\": \"https://…\", \"sha256\": \"…\"}}}",
+			"e.g. binaries.mytool.\"linux/amd64\" = { url = \"https://…\", sha256 = \"…\" }",
 			manifestPath)
 	}
 	out := []Binary{}
@@ -286,7 +286,7 @@ func parseBinaries(manifestPath string, raw any) ([]Binary, error) {
 		builds, isMap := v.(*jsonx.OrderedMap)
 		if !isMap {
 			return nil, Errorf("%s: '%s' must be a mapping of '<goos>/<goarch>' to "+
-				"{\"url\": …, \"sha256\": …}", manifestPath, field)
+				"{ url = …, sha256 = … }", manifestPath, field)
 		}
 		if builds.Len() == 0 {
 			return nil, Errorf("%s: '%s' declares no build — name at least one platform, e.g. "+
@@ -328,7 +328,7 @@ func parseBinaryBuild(manifestPath, field, platform string, raw any) (BinaryBuil
 	}
 	m, isMap := raw.(*jsonx.OrderedMap)
 	if !isMap {
-		return BinaryBuild{}, Errorf("%s: '%s' must be a mapping {\"url\": …, \"sha256\": …}",
+		return BinaryBuild{}, Errorf("%s: '%s' must be a mapping { url = …, sha256 = … }",
 			manifestPath, field)
 	}
 	rawURL, _ := getOrNil(m, keyURL).(string)

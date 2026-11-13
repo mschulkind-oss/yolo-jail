@@ -247,7 +247,7 @@ func TestBackendLimitsNameTheLogAndDeviceSettings(t *testing.T) {
 		t.Errorf("the briefing still names the macos-log switch:\n%s", got)
 	}
 	if !strings.Contains(got, devLine) || !strings.Contains(got, "add its path") ||
-		!strings.Contains(got, "to `devices` in yolo-jail.jsonc") {
+		!strings.Contains(got, "`yolo config add devices <path> --project`") {
 		t.Errorf("the briefing lacks the device sentence with its next step:\n%s", got)
 	}
 	for _, rt := range []string{"podman", "container"} {

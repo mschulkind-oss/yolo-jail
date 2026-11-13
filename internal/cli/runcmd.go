@@ -99,7 +99,7 @@ Flags:
                      over a second names itself on stderr. The global --verbose/-v
                      (before the subcommand) prints the same report.
                      ASKING IS WHAT PRINTS: the always-on spellings — YOLO_TIMING=1
-                     or YOLO_VERBOSE=1 in the environment, "perf_logging": true in
+                     or YOLO_VERBOSE=1 in the environment, perf_logging = true in
                      the user config — record the same spans to the same file and
                      print nothing but one dim line naming it.
   --update, -u       Check this launch's build inputs now, reusing builds whose inputs
@@ -125,7 +125,7 @@ Flags:
                      environment variable so an approval cannot be inherited by
                      child processes or outlive the launch it was given for.
   --help, -h         Show this help. Answered before any config is loaded, so it
-                     still works when yolo-jail.jsonc does not parse.
+                     still works when the workspace config does not parse.
 
 Examples:
   yolo                                # an interactive shell in this workspace's jail

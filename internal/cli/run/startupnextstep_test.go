@@ -52,12 +52,12 @@ func TestLoopholeSettingsFixStepNamesTheKeyItsFileAndThePreflight(t *testing.T) 
 			t.Errorf("settings fix step lacks %q: %s", want, step)
 		}
 	}
-	if strings.Contains(step, "yolo-jail.jsonc") {
+	if strings.Contains(step, "workspace") {
 		t.Errorf("a user-scope setting's fix step names the workspace file, where it is refused: %s", step)
 	}
 	workspace := &loopholes.Loophole{Name: "svc", Settings: []loopholes.Setting{
 		{Key: "mode", Scope: loopholes.SettingScopeWorkspace}}}
-	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "yolo-jail.jsonc") {
+	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "the workspace's legacy config") {
 		t.Errorf("a workspace-scope setting's fix step does not name the workspace file: %s", step)
 	}
 }

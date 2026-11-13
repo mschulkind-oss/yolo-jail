@@ -35,7 +35,7 @@ Global Storage
 
 Config Files
   [PASS] No user config found: $HOME/.config/yolo-jail/config.toml
-  [PASS] No workspace config found (yolo-jail.toml or yolo-jail.jsonc)
+  [PASS] No workspace config found (yolo-jail.toml; a project needs none, and ` + "`yolo init`" + ` writes one)
 
 Resource Groups
   Resource groups: disabled (no workspace mapping)

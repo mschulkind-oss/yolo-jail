@@ -168,3 +168,25 @@ func TestHostMCPOmissionNamesTheVerbAndTheLiveUserConfig(t *testing.T) {
 		t.Errorf("omission names the legacy file: %s", omitted[0])
 	}
 }
+
+// The per-surface overlay goes in the local pack's manifest that exists: its pack.toml, or, when
+// only a legacy pack.json is there, that file once `yolo pack migrate` converts it, since a
+// pack.toml beside a pack.json is refused (LC-D12).
+func TestTheOverlayRemedyNamesTheLocalPackManifestThatExists(t *testing.T) {
+	home := verbAdviceHome(t, "")
+	local := filepath.Dir(localPackManifestPathIn(home))
+	if got := mcpEntryRemedy(home, nil); !strings.Contains(got, filepath.Join(local, "pack.toml")) ||
+		strings.Contains(got, "yolo pack migrate") {
+		t.Errorf("with no local pack the remedy must name its pack.toml: %s", got)
+	}
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "pack.json"), []byte(`{"name": "local"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := mcpEntryRemedy(home, nil)
+	if !strings.Contains(got, filepath.Join(local, "pack.json")+" once `yolo pack migrate ") {
+		t.Errorf("a legacy local pack's remedy must name its pack.json and the verb that converts it: %s", got)
+	}
+}

@@ -109,8 +109,8 @@ func TestEveryCaptureStopNamesItsNextStep(t *testing.T) {
 			noJail(t)
 		}, "nosuchtool", `yolo capture: no selected pack installs "nosuchtool"`,
 			`  None of your packs installs a program with an installer, so nothing here needs a ` +
-				`capture. A pack declares one in its pack.json as {"kind": "program", "bin": ` +
-				`"<name>", "via": "installer", "url": "<its install script>"}.`},
+				`capture. A pack declares one in its pack.toml as a [[program]] table with bin = ` +
+				`"<name>", via = "installer" and url = "<its install script>".`},
 		// A name a capture refuses, under a config it cannot read: the programs it takes are not
 		// known, and the step said "None of your packs installs a program with an installer".
 		{"a name that is not a program, with a config that cannot be read", func(t *testing.T) {

@@ -1079,8 +1079,9 @@ func reportShippedSurfaceClash(pr richtext.Printer, p *packload.Pack) {
 					"[dim]— selecting both is REFUSED at launch and by `yolo host apply` "+
 					"(a surface has one owner). Use `config-overlay` to contribute keys "+
 					"instead:[/dim]", id, shipped.Name)
-				pr.Printf("[dim]    { \"kind\": \"config-overlay\", \"surface\": \"%s\", "+
-					"\"config\": { \"managed\": { …your keys… } } }[/dim]", id)
+				pr.Printf("[dim]    [[overlay]][/dim]")
+				pr.Printf("[dim]    surface = \"%s\"[/dim]", id)
+				pr.Printf("[dim]    set.<key> = <value>[/dim]")
 			}
 		}
 	}

@@ -242,7 +242,7 @@ func TestANestedLaunchsModelListFetchFailsAsARealFetchFailure(t *testing.T) {
 	}
 	for _, want := range []string{`copilot has no model to start on for profile "bbp"`,
 		"yolo could not fetch the region's list: this nested launch takes its aws-auth credentials from " +
-			"the launching jail", `"providers.bb.models"`} {
+			"the launching jail", "`providers.bb.models`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal lacks %q:\n%s", want, err)
 		}

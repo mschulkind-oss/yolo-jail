@@ -84,7 +84,7 @@ declared there. Neither ends a create-branch, branch or tag grant
 written in the project's config: remove it there with
 ` + "`yolo config unset requests.git.<capability> --project`" + ` (or one entry of the
 list, ` + "`requests.git.push[<n>]`" + `), run in the project, then ` + "`yolo config apply`" + `; a
-project still on yolo-jail.jsonc converts first with ` + "`yolo config migrate`" + `. Or
+project still on the legacy JSONC format converts first with ` + "`yolo config migrate`" + `. Or
 take the capability out of ` + "`allow.git.on_request`" + ` in your user config
 (` + "`brokered.git.grant_kinds`" + ` in one still on JSONC).
 
@@ -601,7 +601,7 @@ func approveRevoke(ctx context.Context, stores []*brokerstore.Store, revoke, wor
 			"listed only while a jail of its project runs; the broker recorded nothing to revoke.\n"+
 			"Next: to take the branch out, run `yolo config unset 'requests.git.push[<n>]' --project` in the project, "+
 			"<n> being the branch's position from 0 as `yolo config why requests.git.push` lists it, then `yolo config apply` there "+
-			"(a stopped jail reads it at its next launch); a project still on yolo-jail.jsonc, where it is a {\"kind\": \"branch\", …} "+
+			"(a stopped jail reads it at its next launch); a project still on the legacy JSONC format, where it is a `branch` grant "+
 			"entry under `brokered.git.grants`, converts first with `yolo config migrate`. Run `yolo approve` to list the ids of running jails.\n",
 			termsafe.Visible(revoke))
 		return approveExitUnknownID

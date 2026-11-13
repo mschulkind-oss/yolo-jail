@@ -595,6 +595,13 @@ func hostCPUs(deps Deps) int {
 
 // DryRunUnpinnedSource is the stage source a dry-run plan names when the launch has no pinned yolo
 // (PinnedSelfExe answered ""): nothing is copied, and a live launch refuses instead.
+// LinuxOnlyPackageStep is how a refusal says to mark a package Linux-only, in words true of a
+// TOML and a legacy config alike (LC-D12): the entry lives in `install.nix` in the one and in
+// `packages` in the other, so no single snippet would paste into both.
+const LinuxOnlyPackageStep = "give the package's entry a \"platforms\" list holding only \"linux\" " +
+	"(the entry is in install.nix in a TOML config, in packages in a legacy one; " +
+	"`yolo config-ref` shows the table form)"
+
 const DryRunUnpinnedSource = "(no pinned yolo: this launch resolved none, or the pinned file is gone or replaced)"
 
 // buildPlan starts from the sandbox env, layers the composed channel (PackEnv: the launched
@@ -1184,7 +1191,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 			"so check the spelling first;\n" +
 			"  • mark it Linux-only and it becomes expected-absent here, still " +
 			"installed in a container:\n" +
-			"      {\"name\": \"<pkg>\", \"platforms\": [\"linux\"]}\n" +
+			"      " + LinuxOnlyPackageStep + "\n" +
 			"  • or use the Apple Container setup (" + appleContainerStep() + "), which " +
 			"builds them in a Linux VM."
 		if excluded := config.PackagesExcludedOn(opts.Config, config.PlatformDarwin); len(excluded) > 0 {

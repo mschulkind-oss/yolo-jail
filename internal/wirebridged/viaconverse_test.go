@@ -136,7 +136,7 @@ func TestAConverseModelOffANarrowedListIsRefusedInAWSsShape(t *testing.T) {
 		t.Errorf("X-Amzn-Errortype = %q, want ValidationException", typ)
 	}
 	for _, want := range []string{`model "us.anthropic.claude-opus-5-5" is not on provider bedrock's list`,
-		"Allowed: " + arn, `"enforce_models": false`} {
+		"Allowed: " + arn, "turn the profile's `enforce_models` off"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal lacks %q: %s", want, msg)
 		}

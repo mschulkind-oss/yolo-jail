@@ -1587,8 +1587,8 @@ func configCollisionReason(id string, packs, diverged []string) string {
 		"      [[overlay]]\n" +
 		"      surface = \"" + id + "\"\n" +
 		"      set.<key> = <value>\n" +
-		"    (in a legacy pack.json: { \"kind\": \"config-overlay\", \"surface\": \"" + id + "\", " +
-		"\"config\": { \"managed\": { …your keys… } } })\n" +
+		"    (in a legacy pack.json, the same overlay is a `config-overlay` contribution whose " +
+		"`config.managed` object holds your keys)\n" +
 		"    That leaves the owner's mode/path/codec alone, folds your keys in BELOW its " +
 		"managed layer (so the owner still wins a genuine conflict), and records which pack " +
 		"set which key (`yolo config diff " + agent + "`)."

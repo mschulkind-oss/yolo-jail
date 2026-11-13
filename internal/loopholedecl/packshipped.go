@@ -43,6 +43,7 @@ package loopholedecl
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
@@ -135,23 +136,32 @@ func (m *Manifest) packJailEnvProblems(manifestPath string) []string {
 	return []string{fmt.Sprintf(
 		"%s: 'jail_env' is not available to a pack-shipped loophole — declare the"+
 			" variables with the pack's `env` contribution kind instead:"+
-			" {\"kind\": \"env\", \"vars\": {%s}}, which the pack footprint already"+
+			" an [[env]] table with vars = { %s }, which the pack footprint already"+
 			" reports and collides on. Note the difference you are accepting: `env` is"+
 			" UNCONDITIONAL, while `jail_env` only applied when the loophole was active"+
 			" (OQ-LP5, still open in docs/design/loophole-packaging.md)",
 		manifestPath, envVarsHint(m.JailEnv))}
 }
 
-// envVarsHint renders the declared jail_env as the `env` kind's `vars` object, so
+// envVarsHint renders the declared jail_env as the `env` kind's `vars` inline table, in
+// pack.toml spelling, so
 // the refusal hands back the author's own keys rather than a schema sketch they
 // then have to fill in.
 func envVarsHint(env *EnvMap) string {
 	parts := make([]string, 0, env.Len())
 	for _, k := range env.Keys() {
 		v, _ := env.Get(k)
-		parts = append(parts, pytext.Repr(k)+": "+pytext.Repr(v))
+		parts = append(parts, tomlKey(k)+" = "+strconv.Quote(v))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// tomlKey spells an env var name as a TOML key: bare when it is a plain name, quoted otherwise.
+func tomlKey(k string) string {
+	if envVarNameRE.MatchString(k) {
+		return k
+	}
+	return strconv.Quote(k)
 }
 
 // packBindMountProblems applies the two bind-mount rules the pack-shipped subset still
@@ -488,7 +498,7 @@ func (m *Manifest) packPublishesProblems(manifestPath string) []string {
 	}
 	return []string{fmt.Sprintf(
 		"%s: 'host_daemon.publishes' is %s, and a pack-shipped loophole must declare"+
-			" \"publishes\": \"socket\" — the transport belongs to the framework, not to the"+
+			" publishes = \"socket\" — the transport belongs to the framework, not to the"+
 			" loophole. Bind a plain AF_UNIX socket at the path yolo substitutes into"+
 			" '%s' and yolo runs the TLS front over it and publishes the endpoint file"+
 			" for you, so the endpoint's file mode, its key persistence, its"+

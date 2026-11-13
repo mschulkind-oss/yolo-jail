@@ -1389,7 +1389,7 @@ func parseJailDaemonHostCmd(manifestPath string, m *jsonx.OrderedMap, callerToke
 		return nil, Errorf("%s: 'jail_daemon.host_cmd' is declared but 'jail_daemon.caller_token' "+
 			"is not true — the doorway it opens listens on the HOST's loopback, which every local "+
 			"process shares, so it must demand this launch's caller token; declare "+
-			"\"caller_token\": true", manifestPath)
+			"caller_token = true", manifestPath)
 	}
 	for _, s := range cmd {
 		for _, tok := range []string{TokenJailLoopholeDir, TokenLoopholeDir, TokenState,

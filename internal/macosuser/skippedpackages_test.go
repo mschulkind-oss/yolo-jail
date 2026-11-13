@@ -62,7 +62,7 @@ func TestRunAbortsOnAPackageWithNoDarwinBuild(t *testing.T) {
 		t.Errorf("the error does not raise the typo case:\n%s", got)
 	}
 	// And it must name the escape hatch, or the only way out is deleting the package.
-	if !strings.Contains(got, `"platforms": ["linux"]`) {
+	if !strings.Contains(got, LinuxOnlyPackageStep) {
 		t.Errorf("the error does not show the linux-only override:\n%s", got)
 	}
 }
