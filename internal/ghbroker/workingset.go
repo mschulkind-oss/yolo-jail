@@ -195,7 +195,7 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	runs := d
 	run := func(set, by string) error {
 		if err := b.audit.RequiredContext(ctx, brokeraudit.Event{Event: "covered-authorized", Service: Source, Jail: jail,
-			Workspace: b.workspace, Argv: runs.Argv, Repo: strings.Join(d.Repos, ","), Set: set, Grant: by,
+			Workspace: b.workspace, Argv: runs.Argv, Repo: strings.Join(d.Repos, ","), Set: set, Cell: ev.Cell, Grant: by,
 			Outcome: "authorized-before-dispatch"}); err != nil {
 			return err
 		}
@@ -269,14 +269,16 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 	if len(kinds) == 0 || resource == "" {
 		return 0, "", false
 	}
+	cell := ""
 	if facts != nil {
 		if !facts.workingFound || facts.failed != "" || facts.merged {
 			return 0, "", false
 		}
+		cell = facts.cell
 	} else if _, live, err := b.store.LiveWorkingKind(b.workspace, t.storeRepo(), resource, kinds...); err != nil || !live {
 		return 0, "", false
 	}
-	if facts == nil && (t.Kind == targetPR || t.Kind == targetIssue || t.Kind == targetIssueOrPR) {
+	if facts == nil && t.Verb != "" && t.Kind != targetMerge {
 		state, err := b.readIssue(ctx, t)
 		if err != nil {
 			stderr([]byte("github-broker: could not read whether " + t.describe() + " is still open (" + err.Error() +
@@ -286,18 +288,22 @@ func (b *Broker) coveredWrite(ctx context.Context, req Request, jail string, d D
 		if state.Merged {
 			// A PR leaves the working set on merge (BB-D97), and the write asks.
 			_, _ = b.store.EndWorkingResource(b.workspace, t.storeRepo(), resource, brokerstore.EndMerged,
-				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge)
+				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge, brokerstore.WorkingApprove)
 			stderr([]byte("github-broker: " + t.describe() + " is merged, so it has left this workspace's working set; this write asks\n"))
 			return 0, "", false
 		}
+		cell = cellOf(t, state.PR)
 	}
 	by := ""
-	e, covered, err := b.store.DispatchWorkingContext(ctx, b.workspace, t.storeRepo(), resource, kinds,
+	e, covered, err := b.store.DispatchWorkingMatchContext(ctx, b.workspace, t.storeRepo(), resource, kinds,
+		func(e brokerstore.WorkingEntry) bool { return entryCovers(e, t, cell) },
 		func(brokerstore.WorkingEntry) error { return gate() },
 		func(e brokerstore.WorkingEntry) error {
 			set := setWorkingSet
 			if e.Timed() {
 				set = setTimed
+			} else if cell != "" {
+				ev.Cell = workingSetCellPath(cell)
 			}
 			by = e.ID
 			return run(set, e.ID)
@@ -358,7 +364,7 @@ func (b *Broker) afterWrite(t writeTarget, argv []string, code int, out []byte, 
 				"the next write to it asks", what, t.Repo, n, err))
 			return
 		}
-		next := "comments, edits, reviews and closing it now run without asking; a merge still asks"
+		next := "comments, edits, reviews that do not approve, and closing it now run without asking; an approval or a merge still asks"
 		if kind == brokerstore.WorkingIssue {
 			next = "comments, edits and closing it now run without asking"
 		}
@@ -369,7 +375,7 @@ func (b *Broker) afterWrite(t writeTarget, argv []string, code int, out []byte, 
 			return
 		}
 		if _, err := b.store.EndWorkingResource(b.workspace, t.storeRepo(), t.resource(), brokerstore.EndMerged,
-			brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge); err != nil {
+			brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge, brokerstore.WorkingApprove); err != nil {
 			say("the merge ran, but " + t.describe() + "'s working-set entry could not be ended (" + err.Error() +
 				"); the next write to it reads that it is merged and asks")
 		}

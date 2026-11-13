@@ -193,8 +193,9 @@ type SourceAnswer struct {
 //     keeps it, `not-installed` included: that is a PATH miss, and a runtime installed off this
 //     PATH still runs its jails, so a miss alone never authorizes deleting a record that names it.
 //   - A record that names none (an older yolo's, or one that does not parse) goes only when EVERY
-//     container source answered, each either listed or not installed, and none listed it. One
-//     source that did not answer keeps every such record: its jails are unknown, and a record
+//     container source LISTED and none listed it. A source that did not answer keeps every such
+//     record, and so does one that is not installed (named-setups-plan.md slice 11d, SUP-D52):
+//     that too is a PATH miss, and the record cannot say it was not on that runtime. Its jails are unknown, and a record
 //     pruned here is a live jail's record lost — the Mac defect where a Podman-only `yolo ps`
 //     deleted every running Apple Container jail's file.
 //
@@ -210,7 +211,6 @@ func PruneStaleTrackingFiles(answers []SourceAnswer) []string {
 			for n := range a.Names {
 				running[n] = struct{}{}
 			}
-		case SourceNotInstalled:
 		default:
 			everyAnswered = false
 		}

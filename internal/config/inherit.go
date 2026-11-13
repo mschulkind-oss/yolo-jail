@@ -361,7 +361,7 @@ var inheritCensus = map[string]keyDisposition{
 	// `macos_log` joined them on 2026-10-09, for the same reason: the unified log is the
 	// `macos-log` loophole's now (packs/macos-log/README.md).
 	"macos_log": {reason: "RETIRED — the log moved to the macos-log loophole; emitting it would re-trigger the retirement error"},
-	// `mcp_presets` joined them on 2026-10-23 (docs/design/mcp-presets-removal.md §13 step 3):
+	// `mcp_presets` joined them on 2026-10-23 (docs/reference/mcp-configuration.md, the retired mcp_presets key):
 	// the browser is the chrome-devtools pack, and sequential-thinking is deleted.
 	"mcp_presets": {reason: "RETIRED — the browser is the chrome-devtools pack; emitting it would re-trigger the retirement error"},
 	// The three keys named setups replace joined them (docs/design/named-setups.md §10): the

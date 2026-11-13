@@ -225,8 +225,10 @@ const HostLoopbackEnvVar = "YOLO_HOST_LOOPBACK"
 
 const (
 	// HostLoopbackRequested: yolo put the forwarding option on this container's
-	// argv (--network=pasta:--map-host-loopback,… or the slirp4netns twin). An
-	// unreachable jail-facing service on such a launch is a fault.
+	// argv (--network=pasta:--map-host-loopback,… or the slirp4netns twin), or, on a
+	// Podman endpoint identified as an OrbStack machine, its daemons advertise
+	// host.orb.internal, OrbStack's name for the Mac's loopback (internal/cli/run's
+	// orbstackroute.go). An unreachable jail-facing service on such a launch is a fault.
 	HostLoopbackRequested = "requested"
 
 	// HostLoopbackShared: this jail shares the LAUNCHER'S network namespace —

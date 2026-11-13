@@ -201,7 +201,7 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("notAtHost")},
 	// Measured against v0.15.1 on 2026-10-23: chrome-devtools declares the boot_check hook
-	// (docs/design/mcp-presets-removal.md OQ-MP9, MP-D11), which v0.15.1's hook set lacks, as pi's
+	// (docs/reference/mcp-configuration.md OQ-MP9, MP-D11), which v0.15.1's hook set lacks, as pi's
 	// two hooks were unknown to v0.10.0.
 	{release: "v0.15.1", pack: "chrome-devtools", problem: `unknown hook "boot_check"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},

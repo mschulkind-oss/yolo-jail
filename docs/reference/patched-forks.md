@@ -60,9 +60,10 @@ summary: "A patched fork is a forked program whose pack names the upstream and a
 **Status:** Verified 2026-10-16 against `8e65f3444`. MEASURED: every `git` behavior in
 [applying the series](#5-applying-the-series), in scratch repositories with git 2.55.0; and Linux
 nested-jail runs of the patched-fork, patched-extension and next-launch-refresh integration tests,
-whose nested podman reported `rootless=false`. UNMEASURED: a real rootless host, every macOS
-backend, a patched fork's host-floor install with a real sealed build, and the motivating fork's
-migration against the maintainer's own series ([§14](#14-unbuilt-and-unmeasured)). The recovery
+whose nested podman reported `rootless=false`. UNMEASURED: a real rootless host, Apple Container
+and a podman machine, a patched fork's host-floor install with a real sealed build, and the motivating fork's
+migration against the maintainer's own series ([§14](#14-unbuilt-and-unmeasured)). The macos-user
+cells passed on a GitHub-hosted Mac on 2026-11-11 ([§14](#14-unbuilt-and-unmeasured)). The recovery
 hatches ([§8.5](#85-recovery-hatches) to [§8.7](#87-the-refusal-and-the-hatches-it-lists)) and the
 rules they amend were verified 2026-10-16 against `15c739590`, and `YOLO_SKIP_PATCHES` against
 `4a02ccfc5`, from the code and its unit tests.
@@ -1366,13 +1367,24 @@ keeps the plain-fork manifest where older users point and publishes the patched 
   There, a required build Apple Container cannot start is pending, never failed; exact artifact reuse
   precedes the capability query; and a retained build workspace is checked against its original
   backend before a new child is admitted.
-- **A patched fork on macos-user** ([PF-D97](#PF-D97)): built and pinned by Linux unit tests
-  with the act stood in; the three cells in `integration/macosuserpatchedfork_test.go` run only on
-  the `macos-user.yml` job, and no Mac has run them or a real fork's darwin build.
-- **A patched extension on macos-user**: built and delivered ([`pi-extensions.md`
-  PPX-D45](pi-extensions.md#PPX-D45)), unit-tested with the act stood in; the cells in
-  `integration/macosuserpatchedext_test.go` run only on the `macos-user.yml` job, and no Mac has run
-  them.
+- **A patched fork on macos-user** ([PF-D97](#PF-D97)): MEASURED on a GitHub-hosted Mac on
+  2026-11-11. The three cells in `integration/macosuserpatchedfork_test.go`
+  (`TestMacosUserLaunchBuildsAndRunsAPatchedFork`,
+  `TestMacosUserLaunchRefusesAConflictingSeriesAndNamesTheHatches` and
+  `TestMacosUserCachedGoodServesTheDarwinGoodBuild`) passed in both `macos-user.yml` runs that day,
+  [run 42951350259](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42951350259) at
+  `a4766cb6b` and [run 43120634525](https://github.com/mschulkind-oss/yolo-jail/actions/runs/43120634525)
+  at `2ba463f93`. Their fixture is hermetic: a local upstream and a build that writes a marker
+  script. A real fork's darwin build is still unobserved.
+- **A patched extension on macos-user** ([`pi-extensions.md` PPX-D45](pi-extensions.md#PPX-D45)):
+  MEASURED in the same two runs. The three cells in `integration/macosuserpatchedext_test.go`
+  (`TestMacosUserPatchedExtensionWithABuildIsBuiltAndDelivered`,
+  `TestMacosUserPatchedExtensionWithNoBuildLineIsDelivered` and
+  `TestMacosUserPatchedExtensionConflictRefusesAndSkipStartsWithoutIt`) passed, and so did the
+  build act's two cells in `integration/macosuserbuildact_test.go`
+  (`TestMacosUserPatchedExtensionBuildJailPrintsNoAgentSessionLine` and
+  `TestMacosUserPatchedExtensionFailedBuildLineIsSaidAsOne`). No pi loaded the delivered tree,
+  since no test starts an agent.
 
 ### Backlog: the local clone map
 

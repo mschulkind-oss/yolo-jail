@@ -1,8 +1,8 @@
 ---
 title: "CLI visual polish — color to guide the eye"
 status: accepted
-stage: DECIDED
-next: "With config help and init statuses colored additively, choose the next remaining Group C item; frozen run/banner updates still need human sign-off"
+stage: DESIGN
+next: "Group C color is done (2026-11-12); its glyph and status-column sub-items change plain bytes and remain; the frozen run progress lines wait on OQ-VP1"
 tags: [plan, cli, color, polish]
 ---
 
@@ -23,7 +23,7 @@ through the renderer (bold headers, cyan command names); `config render
 colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
 keeps its own richer private ANSI (background/inverse badges richtext lacks) —
 left as-is per the palette-gaps note. Config help and `init`/`init-user-config`
-status lines are now colored additively (2026-10-08); the remaining candidates are
+status lines are now colored additively (2026-10-08), and the Group C color halves (2026-11-12); the remaining candidates are
 listed below, with run-boot frozen lines still needing sign-off. The invariant's `NO_COLOR` clause, unbuilt until then, is
 enforced by one gate since 2026-09-26 — see
 [Implementation decisions](#implementation-decisions--no_color-2026-09-26), which also names
@@ -237,12 +237,14 @@ Highest value, low risk (text stays byte-identical after strip).
   **DONE (2026-10-08).** Created lines are green, `already exists` is yellow and
   errors are bold red. The richtext tags are rendered around trusted style text,
   leaving paths and filesystem errors literal and preserving stripped bytes.
-- [ ] **`yolo run` progress sub-steps** (`setupScript` in `run/command.go`) —
-  **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install / mise
-  upgrade / bootstrap` phase lines render as flat plain text against mise's own
+- [ ] **`yolo run` progress sub-steps** (`provision.Script` in `internal/provision/provision.go`) —
+  **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install` and
+  `↳ bootstrap` phase lines render as flat plain text against mise's own
   chatter; give them `[cyan]` or `[bold]` so each phase boundary reads as a
-  heading. **Caveat:** testdata/final_cmd_bash.txt + command_test.go pin these
-  exact bytes → deliberate golden update, human sign-off, NOT additive.
+  heading. **Caveat:** `internal/cli/run/testdata/final_cmd_bash.txt` (read by
+  `command_test.go` and `command_nocolor_test.go`) and
+  `internal/macosuser/testdata/runas_account_argvs.golden.json` pin these exact
+  bytes, so this is a deliberate golden update, waiting on [OQ-VP1](#OQ-VP1).
 - [ ] **`yolo` startup banner** — **Impact: low-med · Effort: low.** Fully
   monochrome. It is now TWO lines from two renderers, so this item is two edits:
   `internal/banner`'s `Startup` (the `yolo-jail <version> | <platform> |
@@ -256,22 +258,35 @@ Highest value, low risk (text stays byte-identical after strip).
 
 ### Group C — GREEN: already good, optional polish
 
-- [ ] **`yolo check` / doctor** — add scannable glyphs before badges
-  (`[PASS]`→green ✓, `[FAIL]`→red ✗, `[WARN]`→yellow `!`); dim the ` -> workspace`
-  tail of the running-jail rows (`check.go`) so the jail name pops; cyan the
-  config/storage paths in `ok()` lines. Keep check's private ANSI set (it's
-  richer than richtext — see palette gap #2). **Low effort, additive.**
-- [ ] **`yolo host-daemon status`** (was `broker status`) — dim/cyan the `pid file:`/`socket:`
-  PATH values (`internal/broker/brokercmd.go`) so label/value split is visible; add ✓/✗ glyphs before
-  live/present/ok; align trailing marks into a fixed status column for vertical
-  scanning. **Low effort, additive.**
-- [ ] **`yolo prune` mode banner** (`internal/prune/prunecmd.go`) — color the header mode
-  token so DRY-RUN vs APPLY is obvious at the top, not only in the far summary:
-  `[bold yellow]yolo prune (DRY-RUN)` vs `[bold red/green]yolo prune (APPLY)`.
-  Goldens pin `Color=false` → stripped bytes unchanged. **Low effort, additive.**
-- [ ] **`config-ref`** — optional: `[green]` for value literals
-  (Values:/Default: lines) and `[dim]` for annotation lines (Override:/
-  Auto-detect:) to add a third scan tier. Already GREEN; polish only.
+The color halves of the four items below are **DONE (2026-11-12)**. What is left of them is the
+glyphs and the status column, which are not additive: each adds or moves plain bytes, so every
+golden and every reader that parses the plain report moves with it. They stay open as separate
+sub-items.
+
+- [x] **`yolo check` / doctor, color** — **DONE 2026-11-12.** The ` -> workspace` tail of a
+  running-jail row (`sectionRunningJails` in `check.go`) is dim so the jail name pops, and the
+  config, storage, per-workspace-file and `flake.nix` paths in pass lines are cyan through the
+  reporter's `okPath`, which records the plain message so the JSON report carries no escape.
+  Check keeps its private ANSI set (palette gap #2). `TestOkPathColorsThePathAndKeepsThePlainBytes`,
+  `TestTheUserConfigFindingColorsItsPath` and `TestARunningJailsWorkspaceTailIsDim` pin the colors
+  and the stripped bytes.
+- [ ] **`yolo check` glyphs** — scannable glyphs before badges (`[PASS]`→green ✓,
+  `[FAIL]`→red ✗, `[WARN]`→yellow `!`). Changes the plain bytes.
+- [x] **`yolo host-daemon status`, color** — **DONE 2026-11-12.** The `pid file:` line the item
+  named is gone; each copy's line now reads `jail <id>: pid <n>, socket <path>, accepting`. The
+  socket path and an older yolo's stop command are cyan and `richtext.Escape`d
+  (`socketValue` in `internal/broker/brokercmd.go`); `TestStatusColorsItsSocketPathsAdditively`
+  pins it.
+- [ ] **`yolo host-daemon status` glyphs and column** — ✓/✗ glyphs before the accepting mark,
+  and the marks aligned into one status column. Changes the plain bytes.
+- [x] **`yolo prune` mode banner** (`internal/prune/prunecmd.go`) — **DONE 2026-11-12.** The
+  header is `[bold yellow]yolo prune (DRY-RUN)` and `[bold red]yolo prune (APPLY)`, red because
+  APPLY deletes. `TestTheModeBannerColorsItsMode` pins both; the existing color-gate tests pin
+  the plain bytes.
+- [x] **`config-ref`** — **DONE 2026-11-12** for the value tier: each `Default:` and `Values:`
+  label in `config_ref.txt` is `[green]`, and the reference's own tag table gained the tag
+  (`TestConfigRefValueLabelsAreGreen`). The `[dim]` annotation tier has nothing to color: the
+  reference holds no `Override:` or `Auto-detect:` line.
 
 ## Cross-cutting
 
@@ -279,6 +294,8 @@ Highest value, low risk (text stays byte-identical after strip).
   dim or cyan the path portion of `label: /some/path` lines so the label/value
   boundary is visible (host-daemon pid-file/socket, check storage/config paths,
   config-ref file paths; the builder conf paths went with `yolo builder`).
+  Host-daemon sockets and check's pass-line paths are done (Group C above);
+  config-ref's file paths are left.
 - [ ] **Consolidate tag→ANSI renderers.** Three-plus parallel tables exist:
   richtext's `ansiForTag`, configref.go's `tagReplacer`, cli/markup.go's
   `markupANSI`. `richtext.ansiForTag` already covers the full palette. Route the
@@ -307,5 +324,25 @@ golden update — call it out for human sign-off, don't fold it in silently.
    `--explain`~~ — all are colored with byte parity; config help completed
    2026-10-08.
 4. ~~init status lines~~ — colored additively through richtext (2026-10-08).
-5. Group C polish + cross-cutting path/glyph passes.
+5. Group C polish: color done 2026-11-12; glyphs, the status column and the cross-cutting passes remain.
 6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.
+
+## Open Questions
+
+1. 💬 <a id="OQ-VP1"></a>**[OQ-VP1](#OQ-VP1): May the frozen `yolo run` progress lines change bytes to take color?**
+
+   You start a jail and watch provisioning scroll. The `↳ mise install` and `↳ bootstrap` lines
+   that mark each phase are plain text in a stream of mise's own output, so the phase boundaries
+   are hard to find. Coloring them changes bytes two goldens pin, which this plan's invariant says
+   needs your sign-off.
+
+   - **A.** Sign off: the phase lines turn bold cyan under the same `NO_COLOR` gate the
+     `⚡ Executing` line already takes, and both goldens are updated in that one commit.
+   - **B.** Keep the bytes frozen, and the item is dropped.
+
+   <!-- vantage: question id=OQ-VP1 leaning="A. The phase lines are the one heading in that stream, the gate already exists for the lines beside them, and the golden update is a single reviewed commit." -->
+
+   _Leaning:_ A. The phase lines are the one heading in that stream, the gate already exists for the lines beside them, and the golden update is a single reviewed commit.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

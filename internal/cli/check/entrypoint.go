@@ -61,7 +61,7 @@ func (o *Options) runEntrypointPreflight(r *reporter, _, workspace string, merge
 	// under a summary saying two. It stays a warning, never a failure — §8's non-goal:
 	// a host file absent here is portability, not a typo.
 	//
-	// The public set only (secret-env-scoping.md §3.4): a private value never enters the boot
+	// The public set only (docs/reference/providers.md#the-two-env-sets-public-and-private): a private value never enters the boot
 	// environment, which every process inherits.
 	resolvedEnv := config.ResolveEnv(workspace, merged, r.configWarn).PublicValues()
 	for _, k := range resolvedEnv.Keys() {

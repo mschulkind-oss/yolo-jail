@@ -1,6 +1,6 @@
 package packload
 
-// mcpclaims.go is the MCP half of a claim (docs/design/secret-env-scoping.md SE-D13): an MCP
+// mcpclaims.go is the MCP half of a claim (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13): an MCP
 // server's `requires_env` claims a name for the agents whose config names that server, and the
 // credential gate delivers a PRIVATE value of that name to those agents only. It never makes a
 // public value a refusal (SE-D15); only a provider's claim does.
@@ -51,7 +51,7 @@ func MCPEnvClaims(servers *jsonx.OrderedMap) map[string][]string {
 }
 
 // MCPAgents is every agent whose config names the composed MCP servers
-// (secret-env-scoping-plan.md SEP-D5): the bins of every `[[program]]` a selected pack declares
+// (docs/reference/providers.md SEP-D5): the bins of every `[[program]]` a selected pack declares
 // whose pack ships a derive.lua, since each such agent's derive renders the one composed MCP
 // table. A program with no derive renders none. Sorted, deduplicated.
 func MCPAgents(packs []*Pack) []string {

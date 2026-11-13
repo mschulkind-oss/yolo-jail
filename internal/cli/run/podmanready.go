@@ -109,6 +109,11 @@ func (o *Options) waitForPodman(rt string) (ok bool, down runtimeDown) {
 	if res.Outcome == runtime.PodmanReady && !res.Machine {
 		o.acceptPodmanFacts(res.Info)
 	}
+	if res.Outcome == runtime.PodmanReady && res.Machine {
+		// The one fact a macOS launch reads from the machine's answer: is it OrbStack's
+		// (orbstackroute.go)?
+		o.acceptMachineFacts(res.Info)
+	}
 	sp.End()
 	if res.Outcome == runtime.PodmanReady {
 		return true, runtimeDown{}

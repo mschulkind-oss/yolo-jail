@@ -15,8 +15,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
-// policy.go is what covers a pushed ref (docs/design/git-broker.md §5 and §5.1, GB-D12, GB-D13,
-// GB-D25, docs/design/git-broker-plan.md ID-9 and ID-11):
+// policy.go is what covers a pushed ref (docs/reference/git-broker.md and §5.1, GB-D12, GB-D13,
+// GB-D25, docs/reference/git-broker.md ID-9 and ID-11):
 //
 //   - a creation (old id all zeros) under refs/heads/ is covered by an approved `create-branch`
 //     grant on the repository, or on `*`, while the user's own config still lists the kind;

@@ -1,6 +1,6 @@
 package cli
 
-// hostpin.go is `yolo host`'s use of the PINNED HELPER (docs/design/pinned-host-helpers.md, PH-D3,
+// hostpin.go is `yolo host`'s use of the PINNED HELPER (docs/reference/pinned-host-helpers.md, PH-D3,
 // PH-D4, PH-D6): the one host yolo a launch starts its helpers from. `yolo host` resolves it
 // lazily, at the first moment it is about to start a helper (a doorway, a launch-owned service or
 // worker, a private daemon), so a binary-only launch that starts none resolves none and keeps

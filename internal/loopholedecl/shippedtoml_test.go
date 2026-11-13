@@ -86,12 +86,15 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			}
 			// The other intended delta is that module's description (GW-D75): the frozen fixture
 			// names the retired `brokered.github.repos` and `brokered.github.grants` keys, the
-			// shipped text the `[repos.<name>]` table and `yolo allow github read`. Only those two
-			// phrases may differ.
+			// shipped text the `[repos.<name>]` table and `yolo allow github read`. The third is the
+			// working set's cells (github-write-scopes.md GW-D42): its members' comments and edits run
+			// unasked, an approval asks. Only those phrases may differ.
 			if key == "github__github-broker" {
 				canonical := strings.NewReplacer(
 					"any its config lists under brokered.github.repos", "any its config names in a [repos.<name>] table",
 					"a read grant in config (brokered.github.grants;", "a read grant in the user config (yolo allow github read;",
+					"and writes to a PR or issue in the workspace's working set", "and comments and edits on a PR or issue in the workspace's working set",
+					"run unasked, a merge excepted;", "run unasked, an approval and a merge excepted;",
 				).Replace(want.Description)
 				if canonical == want.Description || strings.Contains(canonical, "brokered.") {
 					t.Fatalf("the github broker's legacy description no longer holds the retired keys this delta names: %s", want.Description)

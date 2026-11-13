@@ -38,6 +38,16 @@ type fakeMachine struct {
 	scratch syscall.Errno
 	now     time.Time
 	probes  []string // every `podman info` asked, "<seam>: <argv>"
+	// answer is what a running machine's `podman info` prints; "" is podmanInfoFixture.
+	answer string
+}
+
+// info is the machine's `podman info` answer.
+func (m *fakeMachine) info() string {
+	if m.answer != "" {
+		return m.answer
+	}
+	return podmanInfoFixture
 }
 
 // asMac makes o a macOS launch whose only runtime on PATH is podman, reaching runtime selection
@@ -63,7 +73,7 @@ func (m *fakeMachine) asMac(p gatePath, stdout, stderr *bytes.Buffer) *Options {
 			return ExecResult{Ran: true, Timeout: true}
 		}
 		m.now = m.now.Add(m.answersAfter)
-		return ExecResult{Ran: true, RC: 0, Stdout: podmanInfoFixture}
+		return ExecResult{Ran: true, RC: 0, Stdout: m.info()}
 	}
 	o.PodmanReadiness = yoloruntime.ReadySeams{
 		Attempt: func(argv []string, deadline time.Time, _ <-chan struct{}) yoloruntime.Attempt {
@@ -80,7 +90,7 @@ func (m *fakeMachine) asMac(p gatePath, stdout, stderr *bytes.Buffer) *Options {
 				return yoloruntime.Attempt{Pid: 4242, Duration: left}
 			}
 			m.now = m.now.Add(m.answersAfter)
-			return yoloruntime.Attempt{Exited: true, RC: 0, Stdout: podmanInfoFixture, Pid: 4242,
+			return yoloruntime.Attempt{Exited: true, RC: 0, Stdout: m.info(), Pid: 4242,
 				Duration: m.answersAfter}
 		},
 		Now: func() time.Time { return m.now },

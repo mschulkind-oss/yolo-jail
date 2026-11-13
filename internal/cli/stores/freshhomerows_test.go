@@ -79,12 +79,12 @@ func TestTheRunWorkspacesFreshHomeIsListedWithNoJailRunning(t *testing.T) {
 	}
 	o, _ := testOptions(t)
 	o.Workspace = ws
-	rows := freshHomeStores(o, "podman")
+	rows := freshHomeStores(o)
 	if len(rows) != 1 || rows[0].Path != fresh || !strings.Contains(rows[0].Note, shquote.Join([]string{"rm", "-r", fresh})) {
 		t.Errorf("rows: %+v", rows)
 	}
 	o.Workspace = ""
-	if rows := freshHomeStores(o, "podman"); len(rows) != 0 {
+	if rows := freshHomeStores(o); len(rows) != 0 {
 		t.Errorf("with no workspace and no jail, rows: %+v", rows)
 	}
 
@@ -96,7 +96,7 @@ func TestTheRunWorkspacesFreshHomeIsListedWithNoJailRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.Workspace = other
-	if rows := freshHomeStores(o, "podman"); len(rows) != 0 {
+	if rows := freshHomeStores(o); len(rows) != 0 {
 		t.Errorf("a linked .yolo was read: %+v", rows)
 	}
 }

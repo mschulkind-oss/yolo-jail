@@ -3,7 +3,7 @@ title: "One keyed build for every pi extension: in parallel, published by rename
 date: 2026-10-05
 status: in-review
 stage: DESIGN
-next: "Build scheduler/freshness slices; ordinary capture replacement has a settled architecture and source-interface dependency"
+next: "Rule OQ-XB2; the scheduler/freshness slices are source-built in the ongoing-preparation candidate, whose runtime and platform acceptance remain"
 tags: [pi, extensions, packs, builds, parallelism, locks, updates, startup]
 summary: "A record of the maintainer's request for parallel pi extension builds and the implemented capture route: unmodified extensions use the patched-tree pipeline with an empty patch series, per-key locks and read-only per-launch copies. It records the built-tree next-launch behavior implemented in Podman's source-built slice 1, runtime-checked only on Linux rootful nested Podman, and what remains unbuilt or unmeasured; it does not imply native/performance/migration slice 2. It also records the startup measurements."
 vantage:
@@ -782,7 +782,12 @@ jiti's path-and-hash cache key). A machine-wide one is ruled out by
    built trees ([XB-D58](#XB-D58) to [XB-D65](#XB-D65)). Rootless Podman and native macOS runtime
    behavior remain UNMEASURED; Darwin evidence is static vet/compile only. This does not imply
    native/performance/migration slice 2. Apple Container's check-only advance, the host's update/report,
-   and patched-fork and captured-program timing remain unbuilt.
+   and patched-fork and captured-program timing are now source-built in the combined
+   [ongoing-preparation](launch-update-preparation.md) candidate, pinned by
+   `TestPreparationAppleSchedulerChecksLinuxWithoutBuild`, `TestHostPreparationTimingThroughLaunchAndApply`
+   and `TestPreparationProgramTimerAdvancesWithoutAnotherLaunch`; their runtime and platform
+   acceptance is that design's, and no further slice here is buildable on Linux before
+   [OQ-XB2](#OQ-XB2) is ruled.
 4. **Under (c)**: the unmodified git source and the fallback ([XB-D1](#XB-D1)–[XB-D3](#XB-D3),
    [XB-D7](#XB-D7), [XB-D8](#XB-D8)), then the npm source ([XB-D5](#XB-D5), [XB-D6](#XB-D6),
    [XB-D11](#XB-D11)), then the maintainer's five migrated, each keeping its old string as its

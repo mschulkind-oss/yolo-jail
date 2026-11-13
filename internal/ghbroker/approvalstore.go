@@ -37,6 +37,10 @@ func RequestEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
 	switch t.Kind {
 	case targetPR:
 		e.Kind = brokerstore.WorkingPR
+		if t.Verb == verbApprove {
+			// An approval is its own cell, and a timed answer covers that cell alone (GW-D10).
+			e.Kind = brokerstore.WorkingApprove
+		}
 	case targetIssue, targetIssueOrPR:
 		// An issues/{n} write is a PR's or an issue's; the two share one number space and one
 		// coverage, so the label is the only difference.
@@ -71,6 +75,8 @@ func DescribeEntry(e brokerstore.WorkingEntry) string {
 		return "issue " + e.Repo + e.Resource
 	case brokerstore.WorkingMerge:
 		return "merges of " + e.Repo + e.Resource
+	case brokerstore.WorkingApprove:
+		return "approvals of PR " + e.Repo + e.Resource
 	case brokerstore.WorkingCreatePR:
 		return "PR creation in " + e.Repo
 	case brokerstore.WorkingCreateIssue:

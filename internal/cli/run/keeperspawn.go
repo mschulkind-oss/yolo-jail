@@ -256,7 +256,8 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 	}
 	return &keeperPlan{
 		Build: keeperBuildStamp(), Pin: o.pinOrZero(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(),
-		Network: o.Network, Color: o.streamColor(), Config: raw,
+		Network: o.Network, OrbStack: o.orbStackPodman && o.Getenv(hostLoopbackOptOutEnv) == "",
+		Color: o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Payload:        payload,

@@ -104,7 +104,7 @@ func (o *Options) noteMacosUserLocalHostCode(plan *launchservice.Plan, what stri
 }
 
 // pinMacosUserPlan gives a plan the launch's pinned yolo to run from, the jail label its start line
-// names, and the stop step a give-up names (docs/design/pinned-host-helpers.md PH-D3, PH-D6). A
+// names, and the stop step a give-up names (docs/reference/pinned-host-helpers.md PH-D3, PH-D6). A
 // keeper's plans carry the pin the launch handed it.
 func (o *Options) pinMacosUserPlan(plan *launchservice.Plan) {
 	plan.Pin, plan.Jail, plan.StopRemedy = o.helperPin, o.jailName(), o.stopStep()

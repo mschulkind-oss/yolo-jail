@@ -221,7 +221,7 @@ func (r *WorkspaceRead) Entry(source string) []EntryRepo {
 }
 
 // Grants is what this read's `brokered.<source>.grants` names that can join the scope (BB-D96,
-// docs/design/git-broker-plan.md ID-10): each grant once, in the order written, of a kind in
+// docs/reference/git-broker.md ID-10): each grant once, in the order written, of a kind in
 // defined (the source's manifest) that the user's own config allows (BrokeredGrantKinds), and
 // with the workspace-relative files that name any of them, in merge order. An entry validation
 // refuses or warns about (a malformed one, `read`, a kind outside either list) is skipped, so it

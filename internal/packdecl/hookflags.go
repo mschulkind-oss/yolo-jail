@@ -6,7 +6,7 @@ import (
 )
 
 // hookFlagsProblems validates a hook's `flags`, the arguments boot_check passes its script
-// (docs/design/mcp-presets-removal.md, OQ-MP9). Any other hook is refused one, for
+// (docs/reference/mcp-configuration.md, OQ-MP9). Any other hook is refused one, for
 // probeArgsProblems' reason: nothing would read it. An empty word or one holding a NUL is
 // refused because it cannot be an argument an author meant.
 func hookFlagsProblems(label string, c Contribution) []string {

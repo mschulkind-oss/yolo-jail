@@ -19,7 +19,7 @@ vantage:
 and **re-modeled the same day around resource-scoped grants**
 ([§1.6](#16-the-grant-model-2026-10-23), [BB-D76](#BB-D76)), which the body now follows;
 the built store still holds the earlier set grants ([§7](#7-grants-and-the-request-store)). The
-git source is split out to [`git-broker.md`](git-broker.md) and evidence for the new
+git source is split out to [`git-broker.md`](../reference/git-broker.md) and evidence for the new
 sections verified against `f9fcd599a`; **the GitHub read path, step 1's first source, built 2026-09-29** (the read path, the repository scope, the audit log, the mount fence),
 **the widening entry built 2026-10-01** ([BB-D33](#BB-D33), [BB-D52](#BB-D52); the
 `brokered` key in `internal/config/brokered.go`, run end to end against a fake host `gh` by
@@ -97,13 +97,13 @@ background wait ([OQ-BB17](#OQ-BB17)).
 every workspace (leaning: not now).
 [OQ-BB10](#OQ-BB10), [OQ-BB14](#OQ-BB14) (no for now), [OQ-BB15](#OQ-BB15), [OQ-BB16](#OQ-BB16), [OQ-BB19](#OQ-BB19) (four grants), [OQ-BB20](#OQ-BB20), [OQ-BB21](#OQ-BB21), [OQ-BB22](#OQ-BB22), [OQ-BB17](#OQ-BB17), [OQ-BB18](#OQ-BB18), the grant model
 ([BB-D76](#BB-D76) to [BB-D78](#BB-D78)), and the git source's
-[OQ-GB1](git-broker.md#OQ-GB1) and [OQ-GB2](git-broker.md#OQ-GB2), were ruled 2026-10-23.
+[OQ-GB1](../reference/git-broker.md#OQ-GB1) and [OQ-GB2](../reference/git-broker.md#OQ-GB2), were ruled 2026-10-23.
 [OQ-BB3](#15-decision-ledger), [OQ-BB4](#15-decision-ledger), [OQ-BB6](#15-decision-ledger),
 [OQ-BB7](#15-decision-ledger), [OQ-BB8](#15-decision-ledger), [OQ-BB9](#15-decision-ledger) and OQ-C were ruled 2026-09-29,
 [OQ-BB12](#15-decision-ledger) and [OQ-BB13](#15-decision-ledger) on 2026-10-01, and [OQ-BB6](#15-decision-ledger) re-ruled on
 2026-10-05, which makes [OQ-BB11](#15-decision-ledger) moot.
 
-**Reads with:** [`git-broker.md`](git-broker.md) (step 1's factoring of the broker core, and git
+**Reads with:** [`git-broker.md`](../reference/git-broker.md) (step 1's factoring of the broker core, and git
 as its second source), [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
 the answer rides back on), [`live-config-apply.md`](live-config-apply.md) (applying a scope
 to a running jail), [`loophole-system.md`](../reference/loophole-system.md) and
@@ -234,7 +234,7 @@ Every term here is coined in this doc unless it says otherwise.
 | **resource** | Coined here: the one thing a write acts on, as the broker names it from its own parse: a pull request (`o/r#32`), an issue, a branch or tag ref, or a repository's ability to create something, such as PRs in `o/r` ([§5.7](#57-permission-sets)). A repository-level write, such as a release, has no resource the working set can hold ([BB-D95](#BB-D95)) | Not a command: a grant on PR `o/r#32` covers every write of its kind to that PR, not one argv |
 | **write kind** | Coined here: the class a write falls in, which fixes its resource: a PR write, a PR merge, an issue write, a branch push, and so on ([§5.7](#57-permission-sets)) | Not a grant: it says what a write is, not whether it may run |
 | **user grant** | Coined here: a named permission a workspace holds, such as creating PRs, in two layers: the user's own config allows its kind (`brokered.<source>.grant_kinds`), and the workspace config holds the grant itself, naming its resource (`brokered.<source>.grants`), which joins only at the config-change approval ([BB-D96](#BB-D96)). There are four kinds: `read`, `create-branch`, `create-pr` and `create-issue` ([OQ-BB19](#OQ-BB19), [§5.8](#58-long-lived-access-and-temporary-access)) | Not something a workspace config can hold beyond the kinds the user's config allows, and not something an agent or a notification can give: a workspace grant holds only once a human approves it ([BB-D74](#BB-D74), [BB-D96](#BB-D96)) |
-| **working set** | Coined in [`git-broker.md`](git-broker.md#51-the-working-set-of-pushable-branches) for branches, and widened here to every resource: the resources a workspace may write to with no further asking, because the agent created them under a user grant or a human added them. Kept per workspace until the resource is gone or the entry is revoked ([OQ-BB21](#OQ-BB21)) | Not per launch or per session, and not in any config file: it lives in the source's store ([BB-D85](#BB-D85)) |
+| **working set** | Coined in [`git-broker.md`](../reference/git-broker.md#the-working-set) for branches, and widened here to every resource: the resources a workspace may write to with no further asking, because the agent created them under a user grant or a human added them. Kept per workspace until the resource is gone or the entry is revoked ([OQ-BB21](#OQ-BB21)) | Not per launch or per session, and not in any config file: it lives in the source's store ([BB-D85](#BB-D85)) |
 | **repository scope** | Coined here: the GitHub repositories a jail's calls may touch. It is the approved scope, the workspace's remotes and its `brokered.github.repos` entry as a human approved them, fixed for the life of the fresh launch that approved it, in a scope file keyed by that launch ([§5.6](#56-the-repository-scope), [BB-D32](#BB-D32), [OQ-BB1](#15-decision-ledger)) | Not the set of repositories the host login can see, which is every repository the user can reach |
 | **fresh launch**, **attach** | Not coined here: a fresh launch creates the container, and an attach joins one already running. Only a fresh launch runs the config-change gate ([`config-safety.md`](../reference/config-safety.md#where-it-runs-and-where-it-deliberately-does-not)) | An attach is not a launch that re-reads anything. One exception: an attach whose skew gate restarts the jail continues as a fresh launch, and re-reads like one |
 | **approval record** | Not coined here: the config-change gate's host-side record of the workspace config a human last approved, `paths.ApprovalsDir()/<container-name>.json`, written only on a y, `--accept-config-changes`, a host `yolo check --accept-config-changes`, or silently when there is no record yet and nothing to approve (an empty config, and under this doc an empty scope) ([`config-safety.md`](../reference/config-safety.md)). This doc adds a scope part to it ([BB-D30](#BB-D30)) | Not mounted into any jail, and not the broker's request store |
@@ -320,7 +320,7 @@ comments there, *"I think my comments here lay out a clear path"*. The path, ver
 | He says (2026-10-23) | Rules | Lands |
 | :--- | :--- | :--- |
 | The five steps above | **The build order.** Sources first, then toasts, then the CLI, then an out-of-tree UI on the CLI's surface | [§11](#11-the-build-in-the-maintainers-five-steps) |
-| *"maybe factoring out the CLI wrapping/proxy stuff"*; *"proxying the git CLI … maybe even worth making this a generic mechanism"* | The source-neutral broker core is factored out of the github-broker, and git is the second source on it | [`git-broker.md`](git-broker.md) |
+| *"maybe factoring out the CLI wrapping/proxy stuff"*; *"proxying the git CLI … maybe even worth making this a generic mechanism"* | The source-neutral broker core is factored out of the github-broker, and git is the second source on it | [`git-broker.md`](../reference/git-broker.md) |
 | *"generic support for yolo-jail sending (actionable) toasts"* | The notifier is yolo's, not the github-broker's: one front-end of the store that any source's requests reach | [§6](#6-the-doorbell-a-persistent-desktop-notification) |
 | *"plug into the CLI or whatever generic surface gets exposed"*; *"the CLI/hook would let you build this as well"* | The CLI's output is a stable, machine-readable surface, and the UI is not yolo's to build yet | [§6.6](#66-one-store-several-front-ends-and-a-stable-surface-for-the-ones-yolo-does-not-ship) |
 | *"we should also distinguish long lived access, which probably belongs in the workspace's yolo config, from temp access like pushing"* | Long-lived and temporary access are distinct; a grant is the temporary kind. **Where long-lived access lives was partly superseded** by his [OQ-BB16](#OQ-BB16) ruling the same day (only the user's own config, scoped to workspaces), **then refined by [BB-D96](#BB-D96)**: the user's config allows the kinds of grant, and the workspace config holds the specific grants behind the config-change approval | [§5.8](#58-long-lived-access-and-temporary-access) |
@@ -369,19 +369,19 @@ And ruling [OQ-BB19](#OQ-BB19) the same day:
 | He says | Rules | Lands |
 | :--- | :--- | :--- |
 | *"PR creation should be a user-level granted write"* | **Creating is a user grant** ([BB-D76](#BB-D76)). Where it is held was first the user's own config for that workspace, **superseded by [BB-D96](#BB-D96)**: the user's config allows the kind, and the workspace config holds the grant naming its repository, approved at the config-change gate | [§5.8](#58-long-lived-access-and-temporary-access) |
-| *"they can create a PR and work with it"* | What the agent creates under a user grant **joins the workspace's working set**, and the agent writes to it freely, as [OQ-GB2](git-broker.md#OQ-GB2) ruled for a created branch | [§5.8](#58-long-lived-access-and-temporary-access) |
+| *"they can create a PR and work with it"* | What the agent creates under a user grant **joins the workspace's working set**, and the agent writes to it freely, as [OQ-GB2](../reference/git-broker.md#OQ-GB2) ruled for a created branch | [§5.8](#58-long-lived-access-and-temporary-access) |
 | *"widen the scope permanently to that PR"*; *"it asks for access to that branch"* | **A grant covers a resource**, not a command: anything outside the working set is asked for per resource | [§5.7](#57-permission-sets), [§7](#7-grants-and-the-request-store) |
 | *"[allow] for 15 minutes and an added-to-the-working-set option"*; *"it should be up to the user"* | The human answers **Allow for 15 minutes**, **Add to the working set** or **Deny**, and the user chooses which the notification shows ([BB-D80](#BB-D80), [BB-D84](#BB-D84)) | [§6.4](#64-choosing-a-duration) |
 | *"allow once should add it to some queue"* | **Allow once survives as built** ([BB-D77](#BB-D77)): one exact command, one use | [§7](#7-grants-and-the-request-store) |
 | *"I don't think we want anything scoped to a session"* | **No grant is scoped to a session**: `--for session` and the `session` ceiling are gone ([BB-D83](#BB-D83)) | [§7](#7-grants-and-the-request-store) |
-| *"Read-only mode is read-only mode … It cannot push them"* | **Git read-only allows no push of any kind**; the agent pushes its own branches only under a grant that allows it ([BB-D78](#BB-D78), [GB-D7](git-broker.md#GB-D7)) | [`git-broker.md` §5](git-broker.md#5-the-git-sources-sets) |
+| *"Read-only mode is read-only mode … It cannot push them"* | **Git read-only allows no push of any kind**; the agent pushes its own branches only under a grant that allows it ([BB-D78](#BB-D78), [GB-D7](../reference/git-broker.md#GB-D7)) | [`git-broker.md` §5](../reference/git-broker.md#grants-in-two-layers) |
 | *"We just want to have these specific grants. You can tell me how many there are."* | **Four user grants**: `read`, `create-branch`, `create-pr`, `create-issue`; `read-only` and `read-write` go away as names ([OQ-BB19](#OQ-BB19)) | [§5.7](#57-permission-sets) |
 | *"you should also be able to widen your working set for a branch that somebody else made, and at that point it's not creating"* | **A working set takes a resource someone else made** at a human's Add, and the agent then works it as one it created ([BB-D92](#BB-D92)) | [§5.8](#58-long-lived-access-and-temporary-access) |
 
 **My reading, an interpretation and not his words:** a resource is a PR, an issue, a branch or
 ref, or a repository's ability to create PRs; a working-set entry is persisted as a property of
 the workspace and kept until the resource is gone or the entry is revoked, as for the created
-branch in [OQ-GB2](git-broker.md#OQ-GB2); and this supersedes, in part or whole,
+branch in [OQ-GB2](../reference/git-broker.md#OQ-GB2); and this supersedes, in part or whole,
 [OQ-BB2](#15-decision-ledger), [OQ-BB3](#15-decision-ledger), [BB-D9](#BB-D9),
 [BB-D24](#BB-D24) and [BB-D29](#BB-D29), each recorded in the ledger
 ([BB-D79](#BB-D79) to [BB-D83](#BB-D83)).
@@ -399,14 +399,14 @@ are stable and the lines are not.
 | Argv safety for host-side execution | `Session.ExecAllowlisted`: argv positions checked against a server-owned set, stdout and stderr streamed back as frames, rc 124 on timeout | **shipped**, but too coarse for `gh`: it checks words, not a subcommand's flag grammar |
 | A connection audit | `internal/crossaudit`: one line per jail-to-host connection, accepted or rejected, to `GLOBAL_STORAGE/logs/crossings.log`, `0600`, 4 MiB plus one archive | **shipped** 2026-08-15. It records that a connection happened, never what it asked |
 | Jail-side interception of a command name | the `intercept` contribution kind (`packdecl.KindIntercept`), which `packs/github` uses to put `yolo gh --` in front of `gh` | **shipped** ([OQ-BB8](#15-decision-ledger)) |
-| The GitHub source: classifier, executor, daemon, forwarder | `internal/ghbroker`, `internal/brokerscope`, `packs/github`; `yolo gh status` and `yolo gh wait` in the forwarder | **shipped** for reads. One package holds both the source-neutral machinery and the gh-specific part, which [`git-broker.md` §3](git-broker.md#3-the-broker-core-what-step-1-factors-out) factors apart |
+| The GitHub source: classifier, executor, daemon, forwarder | `internal/ghbroker`, `internal/brokerscope`, `packs/github`; `yolo gh status` and `yolo gh wait` in the forwarder | **shipped** for reads. One package holds both the source-neutral machinery and the gh-specific part, which [`git-broker.md` §3](../reference/git-broker.md#terms) factors apart |
 | A request that outlives its connection, and grants | `internal/brokerstore`, one directory per source (`paths.BrokerSourceDir`) | **built**; production GitHub files requests and the exact-consume path ignores legacy empty-digest set grants |
 | A human in the answer path | `yolo approve` (`internal/cli/approve.go`): list, allow once, `--for` (other sources only), deny, revoke, JSON and watch | **built**; GitHub writes accept Allow once only, and deny remains available |
 | The audit log and its viewer | `internal/brokeraudit`, whose events carry a `service`; `yolo audit` with `--since`, `--jail`, `--workspace`, `--set`, `--grant` and `--json` | **shipped**, with `--service` |
 | A running jail's scope widened without a restart | `yolo config apply` ([`live-config-apply.md`](live-config-apply.md)) | **shipped** |
 | An agent-agnostic doorbell into the session | `yolo notify` and the per-launch ping box ([`agent-event-watchers.md`](agent-event-watchers.md)) | **designed, not built**: no `notify` verb in `internal/cli` or `cmd/` |
 | Desktop notifications | — | **missing**: no D-Bus, `notify-send`, terminal-notifier or UserNotifications code in the tree; the `osascript` lines in `internal/macosuser` are not notifications |
-| Anything for git | — | **missing** ([`git-broker.md`](git-broker.md)) |
+| Anything for git | — | **missing** ([`git-broker.md`](../reference/git-broker.md)) |
 
 **What the loophole protocol's posture decides here.** The transport defends against a sibling
 jail, not against the jail's own agent or a same-user host process. So this design protects
@@ -1125,7 +1125,7 @@ The classifier names each write's kind and resource from its own parse:
 | issue write | `issue comment`, `issue edit`, `issue close`, `issue reopen`; a `gh api` write under `issues/{n}` when `n` is an issue | The issue |
 | PR creation | `pr create`; `gh api -X POST repos/{owner}/{repo}/pulls` | The repository's ability to create PRs |
 | issue creation | `issue create`; `gh api -X POST repos/{owner}/{repo}/issues` | The repository's ability to create issues |
-| branch creation | a git push creating a branch under `refs/heads/` ([`git-broker.md` §5](git-broker.md#5-the-git-sources-sets)) | The repository's ability to create branches |
+| branch creation | a git push creating a branch under `refs/heads/` ([`git-broker.md` §5](../reference/git-broker.md#grants-in-two-layers)) | The repository's ability to create branches |
 | branch push | a git push updating, force-updating or deleting an existing branch | The branch, `o/r` `refs/heads/x` |
 | tag push | a git push creating, moving or deleting a tag | The tag |
 | repository-level write | every other write the classifier admits: releases, labels, workflow runs, repository settings, any other `gh api` write | The repository; never a working-set entry ([BB-D95](#BB-D95)) |
@@ -1167,7 +1167,7 @@ kind ([BB-D78](#BB-D78)). **Every write no user grant and no
 working-set entry covers is asked for per resource**: tags, releases, workflow runs, settings, and
 any PR, issue or branch outside the working set.
 
-**For git, extended on 2026-10-24** ([GB-D12](git-broker.md#GB-D12)): git also defines `branch`,
+**For git, extended on 2026-10-24** ([GB-D12](../reference/git-broker.md#GB-D12)): git also defines `branch`,
 a branch in the working set, declared in config, granted exactly as `create-branch` is. It adds no
 push concept (the `push-branch` row above stays folded away): a branch the workspace config
 declares is a working-set entry like one the agent created.
@@ -1211,7 +1211,7 @@ They must not be `broker`, which `yolo broker` already means for the Claude OAut
 ```
 
 The git source itself is still included only on the user's side, by the per-workspace file
-([`git-broker.md` §5](git-broker.md#5-the-git-sources-sets)).
+([`git-broker.md` §5](../reference/git-broker.md#grants-in-two-layers)).
 
 - A rule is written in the classifier's own vocabulary: command paths with the flag conditions
   [§5.2](#52-the-read-only-set) uses, and for `gh api` a method and a path pattern under
@@ -1226,7 +1226,7 @@ The git source itself is still included only on the user's side, by the per-work
   `<source>.grants` is workspace scope too, approved at the config-change gate and refused at
   user scope; `<source>.grant_kinds` and `<source>.sets` are user scope, refused at workspace
   scope ([BB-P9](#BB-P9), [BB-D74](#BB-D74), [BB-D96](#BB-D96),
-  [`git-broker-plan.md` task 8](git-broker-plan.md#task-8--grants-in-two-layers)). The `sets` validation and launch disclosure are built;
+  [ID-10](../reference/git-broker.md#ID-10)). The `sets` validation and launch disclosure are built;
   effective rule classification and delivery to the broker remain an integration step.
 
 #### Grant alternatives not taken
@@ -1256,14 +1256,14 @@ the human's y; and a write runs under one of four things.
 | Covers | Its write kind ([§5.7](#57-permission-sets)): creation on every repository in scope, or a kind of write on working-set resources | Every write of its resource's kinds, on that one resource; never a merge, which asks per resource ([OQ-BB19](#OQ-BB19)) | The request's write kind on the request's resource | Each exact command the request holds, by digest |
 | Where it lives | **Two layers** ([BB-D96](#BB-D96)): its kind is allowed in the user's own config (`brokered.<source>.grant_kinds`); the grant itself, naming its repository, is in the workspace config (`brokered.<source>.grants`) | The source's request store, keyed by workspace ([BB-D85](#BB-D85)) | The request store, keyed by workspace | The request store, keyed by workspace ([BB-D99](#BB-D99)) |
 | Who writes it | The user allows the kind, on the host. Anyone who can edit the workspace config, the agent included, writes the grant, and it holds only once a human approves it at the config-change gate | The broker, when a creation under a user grant succeeds upstream; or a human's **Add to the working set**, for a resource someone else made too ([BB-D92](#BB-D92)) | A human's **Allow for 15 minutes**, or `yolo approve --for` | A human's **Allow once** |
-| Takes effect | At the next fresh launch or `yolo config apply`, once the human approves it in the config-change diff ([`git-broker-plan.md`](git-broker-plan.md#implementation-decisions), ID-10) | At once | At once | At once |
-| Ends | Removed from the workspace config, or its kind removed from the user config | When its resource is gone (a PR on merge, [BB-D97](#BB-D97); a branch, deleted, [OQ-GB2](git-broker.md#OQ-GB2)) or it is revoked | At its expiry, by the clock, or revoked | One use per command, 15 minutes, or revoked; never the broker stopping ([BB-D99](#BB-D99)) |
+| Takes effect | At the next fresh launch or `yolo config apply`, once the human approves it in the config-change diff ([`git-broker.md`](../reference/git-broker.md#the-builds-implementation-decisions), ID-10) | At once | At once | At once |
+| Ends | Removed from the workspace config, or its kind removed from the user config | When its resource is gone (a PR on merge, [BB-D97](#BB-D97); a branch, deleted, [OQ-GB2](../reference/git-broker.md#OQ-GB2)) or it is revoked | At its expiry, by the clock, or revoked | One use per command, 15 minutes, or revoked; never the broker stopping ([BB-D99](#BB-D99)) |
 | Audited as | `held: <grant>` | its id, `w-…` | its id, `g-…` | its id, `g-…` |
 
 - **Off by default.** No workspace holds a user grant until the user allows its kind and a
   human approves the workspace's grant, and the git
   source does not run at all until the user includes it
-  ([`git-broker.md` §5](git-broker.md#5-the-git-sources-sets)).
+  ([`git-broker.md` §5](../reference/git-broker.md#grants-in-two-layers)).
 - **Nothing is scoped to a session** ([BB-D83](#BB-D83)). A timed grant and a working-set entry
   are keyed by the workspace, so a jail that restarts inside a 15-minute grant keeps it, and one
   that restarts a month later keeps its working set ([BB-D88](#BB-D88)). Only Allow once, as built,
@@ -1318,7 +1318,7 @@ the request store like `yolo approve` ([§6.6](#66-one-store-several-front-ends-
   notifier restart re-shows every pending request, as [§3.5](#35-failure-paths) says of a
   broker restart.
 - **Its text comes from the source's own classifier rendering**, stored with the request, so a
-  second source needs no change to the notifier ([`git-broker.md` §3](git-broker.md#3-the-broker-core-what-step-1-factors-out)).
+  second source needs no change to the notifier ([`git-broker.md` §3](../reference/git-broker.md#terms)).
 
 The rest of this section was written for GitHub's requests with the notifier inside the broker.
 It holds for every source; wherever it says the broker shows, re-shows or withdraws a
@@ -1778,7 +1778,7 @@ Rules:
   told the request is already decided (unYOLO's `expected_revision`, re-derived, since two
   front-ends now exist).
 - **Retention:** decided requests and ended grants stay 7 days for `yolo approve` to show, then go.
-  A working-set entry is never aged out ([OQ-GB2](git-broker.md#OQ-GB2) ruled no age cap); an
+  A working-set entry is never aged out ([OQ-GB2](../reference/git-broker.md#OQ-GB2) ruled no age cap); an
   ended one is kept 7 days like a grant. The audit log keeps the record. A launch's scope file is
   removed by that launch's teardown, or collected once the launch is known gone, and is never
   aged out. The approved scope it came from is part of the config-change gate's approval record
@@ -2065,9 +2065,9 @@ path. Full resource-scoped grants and working-set Add remain future work.
 
 | Step | His words | What yolo builds | Exists at `f9fcd599a` | New |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | *"support for whatever loopholes you need/want with rw and ro support, maybe factoring out the CLI wrapping/proxy stuff"* | Brokered sources with read and write sets on a shared core | The GitHub source's read path, scope, audit, mount fence, the `intercept` kind, the host store and `yolo approve`, the delivery-gated write handler | The broker-core factoring and the git source ([`git-broker.md`](git-broker.md)); write kinds, user grants and the working set ([§5.7](#57-permission-sets), [§5.8](#58-long-lived-access-and-temporary-access)) |
+| 1 | *"support for whatever loopholes you need/want with rw and ro support, maybe factoring out the CLI wrapping/proxy stuff"* | Brokered sources with read and write sets on a shared core | The GitHub source's read path, scope, audit, mount fence, the `intercept` kind, the host store and `yolo approve`, the delivery-gated write handler | The broker-core factoring and the git source ([`git-broker.md`](../reference/git-broker.md)); write kinds, user grants and the working set ([§5.7](#57-permission-sets), [§5.8](#58-long-lived-access-and-temporary-access)) |
 | 2 | *"generic support for yolo-jail sending (actionable) toasts on linux/mac"* | The toast notifier, a store front-end for every source ([§6](#6-the-doorbell-a-persistent-desktop-notification)) | Nothing: no notification code | All of it: D-Bus on Linux, terminal-notifier on macOS, the formula dependency and `yolo check` row |
-| 3 | *"host-side machinery as a CLI that can view/approve these access requests"* | `yolo approve` across sources, with `--json` and `--watch` ([§6.6](#66-one-store-several-front-ends-and-a-stable-surface-for-the-ones-yolo-does-not-ship)); the answer path; then writes turned on | `yolo approve` for the github store, as text; `yolo gh status` and `wait` | The broad cross-source surface; the answer path ([OQ-BB17](#OQ-BB17)); exact Allow once is implemented for GitHub writes in the private Stage2 candidate, and for git pushes since 2026-10-29 ([GB-D16](git-broker.md#GB-D16)) |
+| 3 | *"host-side machinery as a CLI that can view/approve these access requests"* | `yolo approve` across sources, with `--json` and `--watch` ([§6.6](#66-one-store-several-front-ends-and-a-stable-surface-for-the-ones-yolo-does-not-ship)); the answer path; then writes turned on | `yolo approve` for the github store, as text; `yolo gh status` and `wait` | The broad cross-source surface; the answer path ([OQ-BB17](#OQ-BB17)); exact Allow once is implemented for GitHub writes in the private Stage2 candidate, and for git pushes since 2026-10-29 ([GB-D16](../reference/git-broker.md#GB-D16)) |
 | 4 | *"build your proposed web UI out of tree, and plug into the CLI"* | Nothing in the tree: the surface step 3 fixed, and its documentation | — | The CLI's documentation of the JSON contract and of the loopback warning |
 | 5 | *"talk about merging the web UI at this point"* | A conversation, with a UI that exists | — | — |
 
@@ -2097,24 +2097,24 @@ a running jail by `yolo config apply` ([`live-config-apply.md`](live-config-appl
 ([§7](#7-grants-and-the-request-store)), without production enqueue or write execution.
 
 **Next, and the first slice of the 2026-10-23 plan**
-([`git-broker.md` §9](git-broker.md#9-the-first-slice)):
+([the git broker](../reference/git-broker.md), built):
 
 1. **Factor the broker core** out of `internal/ghbroker`, with no behavior change: the github
    source's tests pass unchanged, and a fake second source files, grants and audits through the
    same core. Waits on nothing.
 2. **The git source's `read` set**: `git fetch`, `pull` and `ls-remote` in the jail through the
-   brokered transport [OQ-GB1](git-broker.md#OQ-GB1) ruled, upstream with the host's own SSH keys
+   brokered transport [OQ-GB1](../reference/git-broker.md#OQ-GB1) ruled, upstream with the host's own SSH keys
    or credential helper, in scope, audited, for a workspace the user included.
 3. **Creating a branch under a user grant**: with a `create-branch` grant the user's config
    allows and the workspace config holds ([§5.8](#58-long-lived-access-and-temporary-access)), a branch the agent creates joins the
    working set and is pushable again with no human, across launches
-   ([OQ-GB2](git-broker.md#OQ-GB2)), so the agent can publish its own work before any notifier
+   ([OQ-GB2](../reference/git-broker.md#OQ-GB2)), so the agent can publish its own work before any notifier
    exists. Without the grant, git read-only pushes nothing ([BB-D78](#BB-D78)). Every other push
    was refused at once, "needs approval, which this version cannot ask for". Since 2026-10-29 it
-   files an Allow-once request instead ([GB-D16](git-broker.md#GB-D16)). The grant is
+   files an Allow-once request instead ([GB-D16](../reference/git-broker.md#GB-D16)). The grant is
    `create-branch` ([OQ-BB19](#OQ-BB19)).
 
-[`git-broker-plan.md`](git-broker-plan.md) builds items 1 to 3, with user grants in two layers
+[`git-broker.md`](../reference/git-broker.md#the-builds-implementation-decisions) builds items 1 to 3, with user grants in two layers
 for git, kinds in the user config and grants in the workspace config behind the config-change
 approval ([§5.8](#58-long-lived-access-and-temporary-access), [BB-D96](#BB-D96)), and the
 working set in the store with `yolo approve`'s listing and revocation ([BB-D85](#BB-D85),
@@ -2151,9 +2151,9 @@ terminal-notifier later, once the macOS release signs ([OQ-BB4](#15-decision-led
    its answer can reach the agent (step 2 of this list). Then every write no user grant or
    working-set entry covers, GitHub's and git's per-ref pushes alike, files a request on its
    resource instead of answering 77, answered by the buttons of [§6.4](#64-choosing-a-duration).
-   **Built for git's pushes 2026-10-29, as Allow once and Deny** ([GB-D16](git-broker.md#GB-D16)
-   to [GB-D23](git-broker.md#GB-D23)), and the 15-minute answer and Add on 2026-10-30
-   (`yolo approve <id> --for` and `--add`, [GB-D26](git-broker.md#GB-D26)). One request per push.
+   **Built for git's pushes 2026-10-29, as Allow once and Deny** ([GB-D16](../reference/git-broker.md#GB-D16)
+   to [GB-D23](../reference/git-broker.md#GB-D23)), and the 15-minute answer and Add on 2026-10-30
+   (`yolo approve <id> --for` and `--add`, [GB-D26](../reference/git-broker.md#GB-D26)). One request per push.
    The push waits 30 seconds. A host with no notifier and no `on_request` hook logs the request
    only ([BB-D98](#BB-D98)). The 15-minute answer and Add stay unbuilt for GitHub.
 4. **The event hook** ([BB-D75](#BB-D75)), after the watch and not holding writes: the
@@ -2287,8 +2287,8 @@ This design is the approve tier with the filter tier folded into it as the stand
 `read-only` set. Not
 covered:
 
-- **git transport.** Designed as the second source in [`git-broker.md`](git-broker.md), where
-  [OQ-GB1](git-broker.md#OQ-GB1) ruled it B1b, the proxy tier above, with the host's own SSH or
+- **git transport.** Designed as the second source in [`git-broker.md`](../reference/git-broker.md), where
+  [OQ-GB1](../reference/git-broker.md#OQ-GB1) ruled it B1b, the proxy tier above, with the host's own SSH or
   credential helper upstream.
 - **Other services.** The store, the toast notifier, `yolo approve` and the audit log are
   service-neutral by construction (`service` in every record); a further source is a new
@@ -2499,7 +2499,7 @@ covered:
 9. ✅ <a id="OQ-BB21"></a>**[OQ-BB21](#OQ-BB21): When does a PR or issue leave the working
     set?** The agent opened PR #40 under your grant, and it merged last week. Today the agent runs
     `gh pr comment 40` with a follow-up. This decides whether that runs unasked. A branch already
-    leaves when it is deleted ([OQ-GB2](git-broker.md#OQ-GB2)).
+    leaves when it is deleted ([OQ-GB2](../reference/git-broker.md#OQ-GB2)).
 
     - **A — When the PR is merged or closed, or the issue closed.** A reopened one asks again.
     - **B — Only when you revoke it.** PRs and issues are never deleted, so an entry lasts as long
@@ -2663,7 +2663,7 @@ covered:
 | <a id="BB-D74"></a>[`BB-D74`](#15-decision-ledger) | *Implementation decision,* carrying out [OQ-BB16](#OQ-BB16)'s ruling, under which a workspace may at most narrow: the workspace config holds no long-lived-access key at all, neither one that widens nor one that narrows. A `brokered.<source>.hold` key, or any spelling of the level, at workspace scope is refused by `yolo check` and at launch, naming the per-workspace file and the host command that writes it. Narrowing is not offered because config merge union-merges lists, so a workspace narrowing a user list needs a merge rule of its own, and the user's side already ends access with one edit. Reversible if a use for narrowing appears. **Superseded in part by [BB-D96](#BB-D96):** the workspace config now holds `brokered.<source>.grants`, within the user's `grant_kinds` and behind the config-change approval; a level key at workspace scope is still refused | 2026-10-23 | [§5.8](#58-long-lived-access-and-temporary-access) | pending |
 | <a id="BB-D76"></a>[`BB-D76`](#15-decision-ledger) | **Maintainer ruling:** a grant is scoped to a resource, not a command. Creating is a user-level grant, and what the agent creates it then works with; any other write is asked for per resource, and one yes covers that resource from then on; grants may be time-limited; the buttons are the user's; nothing is scoped to a session. *"A one-off write creating a PR: just like read-only and read-write, PR creation should be a user-level granted write. But if it is granted, just like an agent can create a branch and work with it, they can create a PR and work with it. The burst of writes on review: I think just the first request is to widen the scope permanently to that PR, and then it can write whenever it wants. … Pushing to a branch it didn't create, I think is the same thing: it asks for access to that branch, and if it gets that access, it has that access. These should be able to be time-limited as well, I guess. … I guess it should be up to the user. It would be nice if there's a [allow] for 15 minutes and an added-to-the-working-set option for these things. I don't think we want anything scoped to a session. Sessions aren't helpful. Sessions aren't well-defined."* *My reading, an interpretation:* what is created joins the working set, kept per workspace until the resource is gone; the per-resource answers are Allow for 15 minutes, Add to the working set and Deny | 2026-10-23 | [§1.6](#16-the-grant-model-2026-10-23), [§5.7](#57-permission-sets), [§5.8](#58-long-lived-access-and-temporary-access) | pending |
 | <a id="BB-D77"></a>[`BB-D77`](#15-decision-ledger) | **Maintainer ruling:** Allow once survives as built, a third positive answer beside 15 minutes and Add: one use of the exact command, held by the broker, valid 15 minutes. *"allow once should add it to some queue somewhere … the GitHub broker or the Git broker will queue this acceptance and when the exact request fires again after the agent wakes up, then it uses its one thing. It already knows what we're approving here."* | 2026-10-23 | [§5.8](#58-long-lived-access-and-temporary-access), [§6.4](#64-choosing-a-duration), [§7](#7-grants-and-the-request-store) | pending |
-| <a id="BB-D78"></a>[`BB-D78`](#15-decision-ledger) | **Maintainer ruling:** git read-only allows no push of any kind; local branches are the agent's own business. The agent pushes even its own branches only under a grant that allows it. Revises [GB-D6](git-broker.md#GB-D6) and the push-own half of [OQ-GB2](git-broker.md#OQ-GB2). *"Read-only mode is read-only mode. It cannot create branches push... well, it can create branches in the local git repo. It cannot push them, that's for sure."* He added: *"Maybe we don't want to have read-only versus read-write. We just want to have these specific grants. You can tell me how many there are."* That list is [OQ-BB19](#OQ-BB19) | 2026-10-23 | [§5.7](#57-permission-sets), [§5.8](#58-long-lived-access-and-temporary-access) | pending |
+| <a id="BB-D78"></a>[`BB-D78`](#15-decision-ledger) | **Maintainer ruling:** git read-only allows no push of any kind; local branches are the agent's own business. The agent pushes even its own branches only under a grant that allows it. Revises [GB-D6](../reference/git-broker.md#GB-D6) and the push-own half of [OQ-GB2](../reference/git-broker.md#OQ-GB2). *"Read-only mode is read-only mode. It cannot create branches push... well, it can create branches in the local git repo. It cannot push them, that's for sure."* He added: *"Maybe we don't want to have read-only versus read-write. We just want to have these specific grants. You can tell me how many there are."* That list is [OQ-BB19](#OQ-BB19) | 2026-10-23 | [§5.7](#57-permission-sets), [§5.8](#58-long-lived-access-and-temporary-access) | pending |
 | <a id="BB-D79"></a>[`BB-D79`](#15-decision-ledger) | **Supersedes [OQ-BB2](#15-decision-ledger)'s set-for-a-window half, by [BB-D76](#BB-D76).** A grant no longer hands over a whole set for a window; it covers one resource. Sets survive as vocabulary, and the standing set still runs with no human. *"just the first request is to widen the scope permanently to that PR"* | 2026-10-23 | [§5.7](#57-permission-sets) | pending |
 | <a id="BB-D80"></a>[`BB-D80`](#15-decision-ledger) | **Supersedes [OQ-BB3](#15-decision-ledger)'s buttons, by [BB-D76](#BB-D76) and [BB-D77](#BB-D77).** The answers are Allow once, Allow for 15 minutes, Add to the working set and Deny; which appear is the user's ([BB-D84](#BB-D84)). *"It would be nice if there's a [allow] for 15 minutes and an added-to-the-working-set option for these things."* | 2026-10-23 | [§6.4](#64-choosing-a-duration) | pending |
 | <a id="BB-D81"></a>[`BB-D81`](#15-decision-ledger) | **Supersedes [BB-D9](#BB-D9), by [BB-D76](#BB-D76).** A grant is a timed grant or a working-set entry on one resource and write kind, or an Allow once on exact commands; [§7](#7-grants-and-the-request-store)'s table is the shape. *"if it gets that access, it has that access. These should be able to be time-limited as well"* | 2026-10-23 | [§7](#7-grants-and-the-request-store) | pending |

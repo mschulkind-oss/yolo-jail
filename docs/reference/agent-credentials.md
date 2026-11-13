@@ -219,7 +219,7 @@ The *resolver* is shared across backends; delivery is not.
   check refuses any other pair (`envfile.go` in `internal/macosuser`). Until 2026-09-13 the
   values rode the argv.
 
-**The channel has two sets** ([secret-env-scoping.md](../design/secret-env-scoping.md)). The
+**The channel has two sets** ([the two env sets](providers.md#the-two-env-sets-public-and-private)). The
 **public set** is `[env]` (`set`, `files`, `sources`, and a legacy file's `env_sources`): its values
 reach every process, as above. The **private set** is `[env.secrets]` (`set` and `files` only): a
 private value reaches only the agents whose selected provider claims its name, or whose config

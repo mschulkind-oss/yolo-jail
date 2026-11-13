@@ -14,7 +14,7 @@ import (
 )
 
 // A host daemon a launch starts runs from the launch's pinned yolo bundle and says so on its
-// start line (docs/design/pinned-host-helpers.md): exe= inside the bundle the harness launched
+// start line (docs/reference/pinned-host-helpers.md): exe= inside the bundle the harness launched
 // with, build= the jail's YOLO_VERSION, and a daemon the keeper restarts logs a second start
 // line with the same build. The keeper itself logs one too. The logs are read under the run's
 // own state dir (paths.GlobalStorage), never the outer jail's live home.

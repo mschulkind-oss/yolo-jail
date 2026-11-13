@@ -547,6 +547,33 @@ func TestRunColorGateHonorsTTY(t *testing.T) {
 	}
 }
 
+// TestTheModeBannerColorsItsMode pins the Group C polish of docs/plans/cli-visual-polish.md: the
+// header says DRY-RUN in bold yellow and APPLY in bold red, so the mode shows at the top, and
+// stripped it is the plain header.
+func TestTheModeBannerColorsItsMode(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	for _, tc := range []struct {
+		apply bool
+		want  string
+	}{
+		{false, "\x1b[1m\x1b[33myolo prune (DRY-RUN)\x1b[0m"},
+		{true, "\x1b[1m\x1b[31myolo prune (APPLY)\x1b[0m"},
+	} {
+		o, _ := baseOpts(t)
+		o.NoImageRoots = true
+		o.Apply = tc.apply
+		o.Color = true
+		o.IsTTYStdout = func() bool { return true }
+		var buf bytes.Buffer
+		o.Out = &buf
+		Run(o)
+		first, _, _ := strings.Cut(buf.String(), "\n")
+		if first != tc.want {
+			t.Errorf("apply=%v: header = %q, want %q", tc.apply, first, tc.want)
+		}
+	}
+}
+
 // TestRunColorGateHonorsNoColor: Color requested and stdout a TTY, a non-empty
 // NO_COLOR (https://no-color.org) still leaves the report plain — and
 // byte-identical to the color-off run, so the veto costs nothing but the escapes.

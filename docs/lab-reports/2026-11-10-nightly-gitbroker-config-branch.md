@@ -62,7 +62,7 @@ The exact Mac transport witness has not been run here. This Podman host is rootf
 `false slirp4netns`), and podman-in-podman forces host networking. The original Mac `bad object` failure
 did not reproduce in the earlier local Linux target runs; that does not settle the Mac VM hop.
 
-Run the rootless Podman witness in [`git-broker-plan.md` § Mac checks](../design/git-broker-plan.md#mac-checks)
+Run the rootless Podman witness in [the W-GB1 witness](../reference/git-broker.md#a-mac-witness-still-to-run-w-gb1)
 on main at `2da5c65e8` or later (based on reviewed main `3b1be0bc15d1`). It selects the backend with
 `YOLO_SETUP=podman-self`, requires five explicit `TestGitBrokerConfigBranch` PASS results and no SKIP,
 and asks for the Podman rootless network mode to be recorded. A passing witness establishes

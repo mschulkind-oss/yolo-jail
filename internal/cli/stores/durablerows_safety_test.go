@@ -5,25 +5,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // durableRowsFor drives Inventory with one yolo container whose workspace is ws.
 func durableRowsFor(t *testing.T, ws string) ([]Store, Report, Options) {
 	t.Helper()
 	o, _ := testOptions(t)
-	o.Exec = func(argv []string, _ time.Duration) prune.ProbeResult {
-		switch k := strings.Join(argv, " "); {
-		case strings.HasSuffix(k, "ps -a --format {{.Names}}"):
-			return prune.ProbeResult{Ran: true, Stdout: "yolo-proj-1\n"}
-		case strings.HasSuffix(k, "yolo-proj-1"):
-			return prune.ProbeResult{Ran: true, Stdout: `[{"Destination":"/workspace","Source":"` + ws + `"}]`}
-		}
-		return prune.ProbeResult{Ran: false}
-	}
+	o.Sources = []Source{podmanListed(SourceJail{Name: "yolo-proj-1", Workspace: ws})}
 	rep := Inventory(o)
 	var rows []Store
 	for _, s := range rep.Stores {

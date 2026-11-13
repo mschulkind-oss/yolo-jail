@@ -151,7 +151,16 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 			"re-run it to take the links out\n", lerr)
 		return 1
 	}
-	if len(result.Records) == 0 && len(links) == 0 && generations == 0 {
+	// THE HOST FLOOR'S RETAINED PROGRAM VERSIONS (internal/hostfloor/reconcile.go): the older
+	// install directories no install or deselection deletes, because a running host session may
+	// still read them. This confirmed revert is their one cleanup, warned like the trees' above.
+	floorVersions, ferr := revertRetainedFloorVersions(pr, write)
+	if ferr != nil {
+		fmt.Fprintf(errw, "yolo host apply --revert: host floor: %v — the keys above are withdrawn; "+
+			"re-run it to delete the remaining retained program versions\n", ferr)
+		return 1
+	}
+	if len(result.Records) == 0 && len(links) == 0 && generations == 0 && floorVersions == 0 {
 		pr.Printf("[dim]yolo has never rendered into this home — nothing to revert.[/dim]")
 		return 0
 	}
@@ -160,6 +169,9 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 		treeNote = fmt.Sprintf(", and %d patched-extension link(s) with their host copies", len(links))
 	} else if generations > 0 {
 		treeNote = fmt.Sprintf(", and %d retained patched-extension host generation(s)", generations)
+	}
+	if floorVersions > 0 {
+		treeNote += fmt.Sprintf(", and %d retained host-floor program version(s)", floorVersions)
 	}
 	if !write {
 		pr.Printf("[bold]%d key(s) across %d surface(s)%s[/bold] — re-run with [bold]--assert[/bold] "+
@@ -173,6 +185,33 @@ func hostRevert(out, errw io.Writer, color bool, write bool) int {
 	pr.Printf("[dim]If you later set host_management to \"own\", its first `yolo host apply " +
 		"--assert` is a FIRST apply again, and asks before replacing anything it finds.[/dim]")
 	return 0
+}
+
+// revertRetainedFloorVersions is the revert's arm for the host floor's retained program versions:
+// it lists them with the running-session warning, and under write deletes them, returning how many
+// it would delete or did.
+func revertRetainedFloorVersions(pr richtext.Printer, write bool) (int, error) {
+	floor := newHostFloor(io.Discard, nil)
+	retained := floor.RetainedVersions()
+	if len(retained) == 0 {
+		return 0, nil
+	}
+	pr.Printf("[yellow]Warning: %s[/yellow]", richtext.Escape(fmt.Sprintf("the confirmed revert will delete "+
+		"%d retained host-floor program version(s); a running host session may still read these bytes "+
+		"— stop all host agent sessions before running with `--assert`", len(retained))))
+	action := "would delete"
+	if write {
+		action = "deleted"
+		var err error
+		if retained, err = floor.RemoveRetainedVersions(); err != nil {
+			return len(retained), err
+		}
+	}
+	for _, v := range retained {
+		pr.Printf("  [yellow]%-20s %s %s's retained version[/yellow] [dim]%s[/dim]", "host_floor", action,
+			v.Bin, homeTilde(v.Path))
+	}
+	return len(retained), nil
 }
 
 // hostRevertCandidates is the surface set a revert looks at: the packs the config names and

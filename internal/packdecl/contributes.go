@@ -1557,6 +1557,11 @@ func (m *Manifest) InstallContributions() []Install {
 			}
 			in.ModelMenu = &m
 		}
+		// The pack's session homes with it, so the menu's files resolve in the session's own copy
+		// (ModelMenu.SessionHomes). Outside the block above, whose `m` is the menu.
+		if in.ModelMenu != nil {
+			in.ModelMenu.SessionHomes = m.SessionHomes()
+		}
 		// The launch selection too, for the model menu's reason, and copied for Refresh's.
 		in.LaunchSelection = c.LaunchSelection.clone()
 		if in.LaunchSelection != nil && !c.IsFork() {

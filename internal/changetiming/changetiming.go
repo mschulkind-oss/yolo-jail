@@ -66,6 +66,10 @@ type Context struct {
 	// container launched before that froze them into its environment, so a change waits for
 	// its restart.
 	SessionInputs bool
+	// LiveResources: the runtime can change this jail's cgroup limits in place (`podman update`;
+	// docs/design/live-config-apply.md LA-S4c). Only `cpus`, `memory` and `pids_limit` move so;
+	// the planner keeps `resources.io` and a dropped limit at the restart.
+	LiveResources bool
 }
 
 // GrantCrossing is how a grant-declaring loophole's grant reaches the host (§4.4): checked per
@@ -210,6 +214,14 @@ func Classify(key string, ctx Context) (Row, error) {
 			row.Reason = "Apple Container copies its briefing once, when the jail starts"
 		} else {
 			row.Outcome = NextSession
+		}
+	case "resources":
+		if ctx.Backend == AppleContainer {
+			row.Reason = "Apple Container has no verb that changes a running container's limits"
+		} else if ctx.LiveResources {
+			row.Outcome = AppliedNow
+		} else {
+			row.Reason = "live resource limits were not proved for this jail"
 		}
 	case "packages", "gpu":
 		if ctx.Rebuild && ctx.PackageDelivery == BakedImage {

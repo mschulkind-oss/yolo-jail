@@ -84,7 +84,7 @@ type packChannel struct {
 	scope *packload.CredentialScope
 	// userEnv is the hydrated environment BEFORE the gate — both env sets, the channel the gate
 	// scopes — with the set bit per name and the removals (config.HydratedEnv,
-	// secret-env-scoping.md SE-D1). The set bit lives in this value because a recomposition
+	// docs/reference/providers.md#the-two-env-sets-public-and-private SE-D1). The set bit lives in this value because a recomposition
 	// hands it back: carried anywhere else, a rekey would make every secret public. Hydrated once, here, because two
 	// hydrations would read every dotenv file twice and warn twice, and the paths that compose
 	// the channel again (an attach's rekey, a pack-skew attach) hand this map back, removals
@@ -351,7 +351,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 		Resolved:          resolved,
 		EnvSources:        userEnv.Values(),
 		EnvSourceRemovals: userEnv.Removals(),
-		// THE ENV SETS (docs/design/secret-env-scoping.md §3.4): the set bit, the MCP servers'
+		// THE ENV SETS (docs/reference/providers.md#the-two-env-sets-public-and-private): the set bit, the MCP servers'
 		// claims and the agents that render them, and — to word a line, never to decide a reach
 		// (SE-D8) — what the shipped packs this launch did not select claim.
 		Private:          userEnv.Private(),
@@ -390,7 +390,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	if err != nil {
 		return nil, err
 	}
-	// THE ENV-SET REFUSALS (docs/design/secret-env-scoping.md §3.5, §4.8): a selected provider's
+	// THE ENV-SET REFUSALS (docs/reference/providers.md#the-two-env-sets-public-and-private): a selected provider's
 	// key in the public set, or a name in both sets, refuses here, before any vehicle is written
 	// (SE-D7); every caller of composePackChannel prints its error as the refusal. No hatch (SE-D10).
 	if refusals := config.SecretEnvRefusals(userEnv, scope.PublicClaims(), config.EnvSiteOf(o.Workspace, false)); len(refusals) > 0 {

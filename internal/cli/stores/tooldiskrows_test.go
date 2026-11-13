@@ -41,7 +41,7 @@ func TestToolDiskRows(t *testing.T) {
 	}
 
 	o, _ := testOptions(t)
-	o.DetectRuntime = func() string { return "container" }
+	o.Sources = []Source{appleContainerListed()}
 	o.Exec = func(argv []string, _ time.Duration) prune.ProbeResult {
 		if slices.Equal(argv, []string{"container", "volume", "ls", "--format", "json"}) {
 			return prune.ProbeResult{Ran: true, Stdout: string(listing)}
@@ -98,7 +98,7 @@ func TestToolDiskRows(t *testing.T) {
 	}
 
 	// Podman has no per-workspace tool disk, so no row and no question asked.
-	o.DetectRuntime = func() string { return "podman" }
+	o.Sources = []Source{podmanListed()}
 	o.Exec = func(argv []string, _ time.Duration) prune.ProbeResult {
 		if argv[0] == "container" {
 			t.Errorf("podman's inventory asked Apple Container %v", argv)
@@ -141,7 +141,7 @@ func TestAllocatedBytesIsTheSparseImagesCostNotItsCeiling(t *testing.T) {
 
 	// And it is the default: an inventory left to its own sizing reports the allocation.
 	o, _ := testOptions(t)
-	o.DetectRuntime = func() string { return "container" }
+	o.Sources = []Source{appleContainerListed()}
 	listing, _ := json.Marshal([]map[string]any{{"id": prune.SharedMiseVolume, "configuration": map[string]any{
 		"name": prune.SharedMiseVolume, "source": img, "labels": map[string]string{}}}})
 	o.Exec = func(argv []string, _ time.Duration) prune.ProbeResult {

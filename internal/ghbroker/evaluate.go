@@ -48,6 +48,7 @@ type writeDecisionFacts struct {
 	reliesOnUntil time.Time
 	issueRead     bool
 	issueState    issueState
+	cell          string // the write's cell, once the item was read (§1); "" before or for none
 	message       string
 	unavailable   bool
 }
@@ -125,21 +126,33 @@ func (b *Broker) evaluateWrite(ctx context.Context, req Request, jail string, d 
 					if !e.LiveAt(now) || e.Workspace != b.workspace || e.Repo != t.storeRepo() || e.Resource != resource || !contains(kinds, e.Kind) {
 						continue
 					}
-					facts.workingFound, facts.workingEntry = true, e
-					if t.Kind == targetPR || t.Kind == targetIssue || t.Kind == targetIssueOrPR {
+					if (t.Kind == targetPR || t.Kind == targetIssue || t.Kind == targetIssueOrPR) && !facts.issueRead {
+						// One read of the item for every entry on it: whether it is merged, and
+						// whether it is a PR, which names the cell (§1).
 						state, readErr := b.readIssue(ctx, t)
 						facts.issueRead, facts.issueState = true, state
 						if readErr != nil {
+							facts.workingFound, facts.workingEntry = true, e
 							facts.failed = "could not read issue state: " + readErr.Error()
 							facts.message = "github-broker: could not read whether " + t.describe() + " is still open (" + readErr.Error() + "), so its working-set entry does not cover this write, which asks\n"
 							break
 						}
 						if state.Merged {
+							facts.workingFound, facts.workingEntry = true, e
 							facts.merged, facts.mergedItem = true, true
 							facts.message = "github-broker: " + t.describe() + " is merged, so it has left this workspace's working set; this write asks\n"
 							break
 						}
+						facts.cell = cellOf(t, state.PR)
 					}
+					if !entryCovers(e, t, facts.cell) {
+						// A working-set member whose cell does not run: a timed entry on the same
+						// item may still cover the write, so the search goes on.
+						facts.message = cellNotHeldMessage(t, facts.cell)
+						continue
+					}
+					facts.workingFound, facts.workingEntry = true, e
+					facts.message = ""
 					if e.Timed() {
 						facts.coveredBy = e.ID
 						facts.reliesOnUntil = e.Expires

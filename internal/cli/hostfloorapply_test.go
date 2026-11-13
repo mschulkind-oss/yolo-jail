@@ -17,7 +17,8 @@ import (
 
 // TestHostApplyAssertProvisionsTheFloorAndRemovesADeselectedEntry: the dry run says what it
 // would install and installs nothing; --assert installs it; dropping the pack from `packs` and
-// asserting again removes the entry — launcher, record and install directory.
+// asserting again removes the entry's launcher and record, and retains its install directory (a
+// running host session may still read it; it used to be removed too), naming the one cleanup.
 func TestHostApplyAssertProvisionsTheFloorAndRemovesADeselectedEntry(t *testing.T) {
 	dist, _ := floorHostFixture(t, "")
 	launcher := filepath.Join(paths.HostFloorDir(), "bin", "floorcli")
@@ -46,10 +47,14 @@ func TestHostApplyAssertProvisionsTheFloorAndRemovesADeselectedEntry(t *testing.
 	if rc != 0 || !strings.Contains(report, "floorcli: removed (no selected pack declares it any more)") {
 		t.Fatalf("--assert after deselection rc=%d:\n%s", rc, report)
 	}
-	for _, gone := range []string{launcher, filepath.Join(paths.HostFloorDir(), "programs", "floorcli")} {
-		if _, err := os.Stat(gone); err == nil {
-			t.Errorf("%s survived the deselection", gone)
-		}
+	if _, err := os.Stat(launcher); err == nil {
+		t.Errorf("%s survived the deselection", launcher)
+	}
+	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "programs", "floorcli")); err != nil {
+		t.Errorf("the deselection deleted install bytes a running host session may still read: %v", err)
+	}
+	if !strings.Contains(report, "`yolo host apply --revert --assert` deletes them") {
+		t.Errorf("the report does not name the retained versions' cleanup:\n%s", report)
 	}
 }
 

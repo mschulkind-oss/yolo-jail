@@ -249,7 +249,9 @@ rewords them:
   [memory](../research/macos-backend-performance.md#22-memory-backed-on-first-touch-kept-until-the-container-stops)).
 
 The research lists every correction it owes in
-[its corrections section](../research/macos-backend-performance.md#9-corrections-the-results-feed).
+[its corrections section](../research/macos-backend-performance.md#9-corrections-the-results-feed),
+and [OQ-MB2](../research/macos-backend-performance.md#OQ-MB2) asks the maintainer to rule on its
+drafted rewordings.
 
 ### When to refresh this
 

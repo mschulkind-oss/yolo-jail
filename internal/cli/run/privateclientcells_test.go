@@ -27,12 +27,12 @@ const checkedFixtureIntegrity = "sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiV
 func checkedPrivateClientFixture(bin, pack, front, recipePack, recipeIdentity string) callbrokerinput.PreparedHTTPClientEntrypoint {
 	root := ".local/lib/yolo-npm/" + strings.Repeat("e", 64)
 	return callbrokerinput.PreparedHTTPClientEntrypoint{Bin: bin, Pack: pack, Front: front, RecipePack: recipePack,
-		RecipeIdentity: recipeIdentity, Declared: "semver@7.7.2", Platform: "linux/amd64", Runtime: `{"Image":"i"}`,
+		RecipeIdentity: recipeIdentity, Declared: "semver@7.7.2", Platform: "linux/amd64", Runtime: `{"Image":"i","NodeDigest":"3333333333333333333333333333333333333333333333333333333333333333"}`,
 		Compatibility: strings.Repeat("e", 64), Release: "7.7.2", SourceURL: "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz",
 		SourceIntegrity: checkedFixtureIntegrity, Bootstrap: entrypoint.PrivateClientBootstrap,
 		Binding: entrypoint.PrivateClientBinding{Bin: bin, CaptureKey: strings.Repeat("f", 16), RuntimeRoot: root,
 			Entrypoint: root + "/node_modules/semver/bin/semver.js", EntrypointSHA256: "sha256:" + strings.Repeat("1", 64),
-			RuntimeFiles: "sha256:" + strings.Repeat("2", 64)}}
+			RuntimeFiles: "sha256:" + strings.Repeat("2", 64), NodeSHA256: "sha256:" + strings.Repeat("3", 64)}}
 }
 
 func checkedPrivateClientsForCells(cells []packload.PrivateProgramEnvPlan) []callbrokerinput.PreparedHTTPClientEntrypoint {
@@ -111,7 +111,7 @@ func TestCheckPrivateClientDeliveriesRefusesMissingAndMismatchedDeliveries(t *te
 func TestBindPrivateClientCommandStartsTheBoundBootstrapOnly(t *testing.T) {
 	b := entrypoint.PrivateClientBinding{Bin: "semver", Generation: strings.Repeat("a", 32), CaptureKey: strings.Repeat("f", 16),
 		RuntimeRoot: ".local/lib/yolo-npm/x", Entrypoint: ".local/lib/yolo-npm/x/node_modules/semver/bin/semver.js",
-		EntrypointSHA256: "sha256:" + strings.Repeat("1", 64), RuntimeFiles: "sha256:" + strings.Repeat("2", 64)}
+		EntrypointSHA256: "sha256:" + strings.Repeat("1", 64), RuntimeFiles: "sha256:" + strings.Repeat("2", 64), NodeSHA256: "sha256:" + strings.Repeat("3", 64)}
 	got, err := bindPrivateClientCommand("semver 1.2.3 -r '>1'", []entrypoint.PrivateClientBinding{b}, nil)
 	argv := entrypoint.PrivateClientArgv(b)
 	if err != nil || !strings.HasPrefix(got, entrypoint.PrivateClientBootstrap+" ") || !strings.HasSuffix(got, " 1.2.3 -r '>1'") {

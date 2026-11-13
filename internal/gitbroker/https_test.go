@@ -24,8 +24,8 @@ import (
 
 // https_test.go serves the fixture's bare repository with `git http-backend` behind
 // net/http/cgi on an httptest TLS server with HTTP basic auth, and puts a fake host `git`
-// first on the broker's PATH that answers `credential fill` (docs/design/git-broker-plan.md
-// task 6). No real network: the server is on 127.0.0.1.
+// first on the broker's PATH that answers `credential fill` (docs/reference/git-broker.md,
+// ID-8). No real network: the server is on 127.0.0.1.
 
 const (
 	httpsUser = "fixture"
@@ -1001,8 +1001,8 @@ func TestHTTPSAdvertisementOverTheCapRefused(t *testing.T) {
 }
 
 // A creation under the create-branch grant crosses HTTPS whole, lands in the bare repository,
-// and joins the working set from the upstream's own `ok` report (docs/design/git-broker-plan.md
-// task 9).
+// and joins the working set from the upstream's own `ok` report (docs/reference/git-broker.md,
+// the working set).
 func TestCreateBranchOverHTTPS(t *testing.T) {
 	h := newHTTPSFixture(t, httpsOpts{grants: []brokerscope.Grant{{Kind: "create-branch", Repo: brokerscope.AnyRepo}}})
 	allowKinds(t, "create-branch")
@@ -1030,7 +1030,7 @@ func TestCreateBranchOverHTTPS(t *testing.T) {
 }
 
 // An update of main, declared in config by a branch grant, crosses HTTPS and lands, recording
-// nothing in the store (docs/design/git-broker.md GB-D12).
+// nothing in the store (docs/reference/git-broker.md GB-D12).
 func TestConfigBranchOverHTTPS(t *testing.T) {
 	h := newHTTPSFixture(t, httpsOpts{})
 	// A branch grant names its repository, whose identity carries the server's port.

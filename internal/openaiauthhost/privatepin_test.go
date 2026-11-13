@@ -1,6 +1,6 @@
 package openaiauthhost
 
-// privatepin_test.go pins docs/design/pinned-host-helpers.md section 3.3: the OpenAI credential
+// privatepin_test.go pins docs/reference/pinned-host-helpers.md ("Who execs it"): the OpenAI credential
 // daemon a jail-less launch starts runs from the launch's pinned yolo, never from os.Executable(),
 // is told which launch it serves, and is not started at all when the pin is gone.
 

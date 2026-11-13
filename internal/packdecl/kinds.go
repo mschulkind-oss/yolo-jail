@@ -362,7 +362,7 @@ const (
 	KindMCPAuth Kind = "mcp-auth"
 
 	// KindMCP: ONE NAMED MCP SERVER ENTRY composed into yolo's own `mcp_servers` table
-	// (docs/design/mcp-presets-removal.md OQ-MP3, ruled 2026-09-20), the way `provider` composes
+	// (docs/reference/mcp-configuration.md OQ-MP3, ruled 2026-09-20), the way `provider` composes
 	// into `providers`: every selected pack's entries first, the user's `mcp_servers` merged over
 	// them per field, and a user `null` removing one. Every agent pack's derive then renders the
 	// composed table into its own dialect, so the pack contributing a server names no agent:

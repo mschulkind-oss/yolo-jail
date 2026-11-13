@@ -66,7 +66,7 @@ yolo -p bedrock-key
 ```
 
 The file holds a line `AWS_BEARER_TOKEN_BEDROCK=<your-key>`. It belongs in the private set
-`[env.secrets]` ([secret-env-scoping.md](../../docs/design/secret-env-scoping.md)), never the public
+`[env.secrets]` ([docs/reference/providers.md#the-two-env-sets-public-and-private](../../docs/reference/providers.md#the-two-env-sets-public-and-private)), never the public
 `[env]`. `yolo active-provider claude bedrock-key` makes it the default for an agent.
 
 An agent on `bedrock-key` is never given `aws-auth`'s credential pointer, so the key and the

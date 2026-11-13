@@ -370,7 +370,7 @@ func TestAFailedHookIsListedWithItsRequest(t *testing.T) {
 	}
 }
 
-// --- the working set in `yolo approve` (docs/design/git-broker-plan.md task 9, BB-D86) ---
+// --- the working set in `yolo approve` (docs/reference/git-broker.md, BB-D86) ---
 
 func workingStore(dir string) *brokerstore.Store {
 	return &brokerstore.Store{Dir: dir, Source: "git"}
@@ -458,7 +458,7 @@ func TestApproveRevokeWorkingID(t *testing.T) {
 	}
 }
 
-// A working-set branch declared in config (docs/design/git-broker.md GB-D13) is listed beside the
+// A working-set branch declared in config (docs/reference/git-broker.md GB-D13) is listed beside the
 // store's entries, marked as from config and naming the file, read from the scope file of the
 // running broker that holds it; a --revoke of it refuses, naming the file to remove it from.
 // Through the registered verb, so the scope-file read is pinned at its call site.
@@ -557,7 +557,7 @@ func TestApproveListsAndRefusesToRevokeAConfigBranch(t *testing.T) {
 	}
 }
 
-// A pattern branch grant and a tag grant (docs/design/git-broker.md GB-D25) are listed as the
+// A pattern branch grant and a tag grant (docs/reference/git-broker.md GB-D25) are listed as the
 // config declares them: the pattern under its namespace, the repository "*" as written, and a
 // tag grant as a tag; --json carries each with its kind.
 func TestApproveListsPatternAndTagGrants(t *testing.T) {

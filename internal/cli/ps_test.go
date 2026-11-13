@@ -2,310 +2,532 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
-func TestPsNoJails(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	var buf bytes.Buffer
-	rc := psRun(psDeps{
-		DetectRuntime: func() string { return "podman" },
-		RunCmd:        func([]string) (string, bool) { return "", true },
-		PathIsDir:     func(string) bool { return true },
-		Out:           &buf,
+// psNow is the clock every fixture reads ages against.
+var psNow = time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+
+// psFake is a scripted machine for psRun: what each runtime's listing answers, and every argv
+// asked. A source whose listing is in block waits for its budget to expire (the event the
+// timed-out state is: the context's deadline, SUP-D24), never for a wall-clock sleep.
+type psFake struct {
+	mu        sync.Mutex
+	calls     [][]string
+	podman    string
+	podmanErr error
+	ac        string
+	acErr     error
+	block     map[string]bool
+	top       map[string]string
+}
+
+func (f *psFake) run(ctx context.Context, argv []string) (string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, argv)
+	f.mu.Unlock()
+	if f.block[argv[0]] && len(argv) > 1 && (argv[1] == "ps" || argv[1] == "ls") {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	switch {
+	case argv[0] == "podman" && argv[1] == "ps":
+		return f.podman, f.podmanErr
+	case argv[0] == "container" && argv[1] == "ls":
+		return f.ac, f.acErr
+	case argv[0] == "podman" && argv[1] == "top":
+		if out, ok := f.top[argv[2]]; ok {
+			return out, nil
+		}
+		return "COMMAND\nbash\nclaude\n", nil
+	}
+	return "", errors.New("not scripted")
+}
+
+func (f *psFake) asked(bin string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.calls {
+		if c[0] == bin {
+			return true
+		}
+	}
+	return false
+}
+
+// psFixture is psDeps for goos with the named binaries installed, reading f, with sessions under
+// a base of the test's own and HOME a fresh dir (so its launch records are the test's alone).
+func psFixture(t *testing.T, goos string, f *psFake, bins ...string) (psDeps, *bytes.Buffer, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	base := t.TempDir()
+	out := &bytes.Buffer{}
+	return psDeps{
+		GOOS: goos,
+		HasBinary: func(bin string) bool {
+			for _, b := range bins {
+				if b == bin {
+					return true
+				}
+			}
+			return false
+		},
+		RunCmd:      f.run,
+		PathIsDir:   func(string) bool { return true },
+		SessionBase: base,
+		Home:        "/home/me",
+		Now:         func() time.Time { return psNow },
+		Out:         out,
+	}, out, base
+}
+
+// psJSON runs deps with --format json and decodes the document.
+func psJSON(t *testing.T, deps psDeps) psDoc {
+	t.Helper()
+	var js bytes.Buffer
+	deps.Out, deps.Format = &js, "json"
+	if rc := psRun(deps); rc != 0 {
+		t.Fatalf("rc = %d", rc)
+	}
+	var doc psDoc
+	if err := json.Unmarshal(js.Bytes(), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, js.String())
+	}
+	return doc
+}
+
+// plantPsSession makes a host-services session dir the way the launch's openServicesSession
+// does: "live" holds its lock on a descriptor of the test's own, "gone" leaves it free, and
+// "nolock" makes no lock file (a session starting up). rec nil writes no record (an older yolo).
+func plantPsSession(t *testing.T, base, cname, state string, rec *runtime.SessionRecord) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(base, paths.HostServicesSessionPrefix(cname))
+	must(t, err)
+	if rec != nil {
+		must(t, runtime.WriteSessionRecord(dir, *rec))
+	}
+	if state == "nolock" {
+		return dir
+	}
+	f, err := os.OpenFile(filepath.Join(dir, paths.HostServicesSessionLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	must(t, err)
+	if state == "gone" {
+		_ = f.Close()
+		return dir
+	}
+	must(t, syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+	t.Cleanup(func() { _ = f.Close() })
+	return dir
+}
+
+// TestPsOnAMacListsEverySourceInOneList is named-setups.md §12's whole point (OQ-SU6): on a Mac
+// every source is asked at once and its rows share one table. Apple Container is unreachable, so
+// its line names `container system start`, JSON says complete false, the other three sources'
+// rows are listed, and the exit is 0.
+func TestPsOnAMacListsEverySourceInOneList(t *testing.T) {
+	f := &psFake{acErr: errors.New("container system is not running")}
+	deps, out, base := psFixture(t, "darwin", f, "podman", "container")
+	podJail := runtime.JailName("/home/me/code/yolo-jail", "podman-self")
+	f.podman = podJail + "\tUp 3 hours\t" + "1762938000\n"
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: podJail, Setup: "podman-self",
+		Confinement: setup.ConfinementPodman, RunAs: setup.RunAsSelf, Workspace: "/home/me/code/yolo-jail",
+		Started: psNow.Add(-3 * time.Hour), Packs: []string{"claude", "codex"}, YoloVersion: "0.17.0+12"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-ac-1", Setup: "apple-container-self",
+		Confinement: setup.ConfinementAppleContainer, Workspace: "/home/me/ac"}))
+	plantPsSession(t, base, "yolo-site-1-seatbelt-yolo-account", "nolock", nil)
+	plantPsSession(t, base, "yolo-yolo-jail-2-seatbelt-self", "live", &runtime.SessionRecord{Notch: runtime.NotchMacosUser,
+		Workspace: "/home/me/code/yolo-jail", Name: "yolo-yolo-jail-2-seatbelt-self", Setup: "seatbelt-self",
+		Started: psNow.Add(-12 * time.Minute).Format(time.RFC3339)})
+	plantPsSession(t, base, "yolo-yolo-jail-2", "live", &runtime.SessionRecord{Notch: runtime.NotchHost,
+		Workspace: "/home/me/code/yolo-jail", Name: "yolo-yolo-jail-2", Setup: "host-self", PID: os.Getpid(),
+		Started: psNow.Add(-40 * time.Minute).Format(time.RFC3339)})
+	plantPsSession(t, base, "yolo-ended-3", "gone", &runtime.SessionRecord{Notch: runtime.NotchMacosUser,
+		Workspace: "/home/me/ended", Name: "yolo-ended-3"})
+
+	if rc := psRun(deps); rc != 0 {
+		t.Fatalf("rc = %d with an unreachable source; yolo ps reports, it does not judge", rc)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"WORKSPACE", "SETUP", "STATUS", "AGE", "PACKS",
+		"~/code/yolo-jail", "podman-self", "3h", "claude, codex",
+		"seatbelt-self", "12m", "host-self", "40m", "starting",
+		"Apple Container could not be asked (container system is not running)",
+		"1 jail recorded on Apple Container could not be confirmed", "    container system start",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the listing lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "ended") || strings.Contains(text, "No jails running") {
+		t.Errorf("the listing shows an ended session or claims no jails:\n%s", text)
+	}
+
+	doc := psJSON(t, deps)
+	if doc.Schema != "yolo.ps/1" || doc.Frame != "host" || doc.Complete {
+		t.Errorf("document head = %q %q complete=%v; want yolo.ps/1, host, false", doc.Schema, doc.Frame, doc.Complete)
+	}
+	wantStates := []string{"podman:listed", "apple-container:unreachable", "seatbelt:listed", "host:listed"}
+	if len(doc.Sources) != len(wantStates) {
+		t.Fatalf("sources = %+v, want %v", doc.Sources, wantStates)
+	}
+	for i, s := range doc.Sources {
+		if got := s.Confinement + ":" + s.State; got != wantStates[i] {
+			t.Errorf("source %d = %s, want %s", i, got, wantStates[i])
+		}
+	}
+	if ac := doc.Sources[1]; ac.Jails != nil || ac.NextStep != "container system start" || ac.Detail == "" {
+		t.Errorf("the unreachable source = %+v; want a detail, its next step and no count", ac)
+	}
+	if pd := doc.Sources[0]; pd.Jails == nil || *pd.Jails != 1 || pd.Detail != "" {
+		t.Errorf("Podman's source = %+v; want a count of 1 and no detail", pd)
+	}
+	if len(doc.Jails) != 4 {
+		t.Fatalf("jails = %+v, want the Podman jail and three sessions", doc.Jails)
+	}
+	var pod psJailJSON
+	for _, j := range doc.Jails {
+		if j.Name == podJail {
+			pod = j
+		}
+		if j.Problems == nil {
+			t.Errorf("%s's problems is null; it is always an array", j.Name)
+		}
+	}
+	if pod.Setup == nil || *pod.Setup != "podman-self" || pod.Confinement != "podman" || pod.RunAs == nil ||
+		*pod.RunAs != "self" || pod.Workspace == nil || *pod.Workspace != "/home/me/code/yolo-jail" ||
+		pod.Started == nil || *pod.Started != "2026-11-12T09:00:00Z" || strings.Join(pod.Packs, ",") != "claude,codex" ||
+		pod.YoloVersion == nil || *pod.YoloVersion != "0.17.0+12" || pod.Status != "running" {
+		t.Errorf("the Podman row = %+v", pod)
+	}
+}
+
+// TestPsATimedOutSourceIsTimedOutWhileTheOthersList: a source that does not answer within its
+// budget is timed-out, its jails unknown, while every other source's rows are listed (SU-D9). The
+// budget is a dep, so the test waits on the context's deadline and nothing else.
+func TestPsATimedOutSourceIsTimedOutWhileTheOthersList(t *testing.T) {
+	f := &psFake{block: map[string]bool{"container": true}, podman: "yolo-a-1\tUp\t1762938000\n"}
+	deps, out, _ := psFixture(t, "darwin", f, "podman", "container")
+	deps.SourceBudget = time.Millisecond
+	psRun(deps)
+	if !strings.Contains(out.String(), "Apple Container is installed but not answering (no answer within 1ms)") ||
+		!strings.Contains(out.String(), "running") {
+		t.Errorf("listing:\n%s", out.String())
+	}
+	doc := psJSON(t, deps)
+	if doc.Complete || doc.Sources[1].State != "timed-out" || doc.Sources[0].State != "listed" || len(doc.Jails) != 1 {
+		t.Errorf("document = %+v; want Apple Container timed-out, Podman's row listed, incomplete", doc)
+	}
+}
+
+// TestPsAnUnknownSetupIsAQuestionMarkAndAFootnote: a jail an older yolo started recorded no setup
+// and carries none in its name; it is listed, never dropped, with `?` and the footnote in the
+// table and null in JSON (§12.2). Its run_as is self: no container runs as the yolo account.
+func TestPsAnUnknownSetupIsAQuestionMarkAndAFootnote(t *testing.T) {
+	f := &psFake{podman: "yolo-old-thing-3f9a2c1d\tUp 5 days\t0\n"}
+	deps, out, _ := psFixture(t, "linux", f, "podman")
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-old-thing-3f9a2c1d", Workspace: "/home/me/old-thing"}))
+	psRun(deps)
+	lines := strings.Split(out.String(), "\n")
+	if f := strings.Fields(lines[1]); len(f) != 5 || f[0] != "~/old-thing" || f[1] != "?" || f[3] != "?" || f[4] != "?" {
+		t.Errorf("the row = %q; want the workspace, then ? for setup, age and packs", lines[1])
+	}
+	if !strings.Contains(out.String(), "? — launched by an older yolo, which did not record its setup.") {
+		t.Errorf("no footnote:\n%s", out.String())
+	}
+	j := psJSON(t, deps).Jails[0]
+	if j.Setup != nil || j.Started != nil || j.Packs != nil || j.YoloVersion != nil || j.RunAs == nil || *j.RunAs != "self" {
+		t.Errorf("the row in JSON = %+v; want null setup, started, packs and version, and run_as self", j)
+	}
+}
+
+// TestPsIgnoresYOLOSETUP: every launch exports YOLO_SETUP into its session, so a `yolo ps` typed
+// inside one would otherwise be narrowed silently (§12.1). The real deps read no selected setup,
+// and the listing is the same with the variable set.
+func TestPsIgnoresYOLOSETUP(t *testing.T) {
+	f := &psFake{podman: "yolo-a-1\tUp\t0\n"}
+	deps, out, _ := psFixture(t, "linux", f, "podman")
+	t.Setenv("YOLO_SETUP", "seatbelt-self")
+	psRun(deps)
+	if !strings.Contains(out.String(), "WORKSPACE") || !f.asked("podman") {
+		t.Errorf("YOLO_SETUP narrowed the list:\n%s", out.String())
+	}
+	if real := psRealDeps("", nil); real.Only != nil {
+		t.Errorf("psRealDeps narrowed to %v with no --setup", real.Only)
+	}
+}
+
+// TestPsSortsByWorkspaceThenSetupThenName: two setups of one project sit side by side, a
+// workspace under your home prints as ~, and the order never depends on which source answered
+// first (§12.3).
+func TestPsSortsByWorkspaceThenSetupThenName(t *testing.T) {
+	f := &psFake{}
+	deps, out, base := psFixture(t, "linux", f, "podman")
+	rec := func(name, ws, s string) {
+		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: name, Setup: s, Workspace: ws, Packs: []string{}}))
+	}
+	rec("yolo-z", "/home/me/b", "podman-self")
+	rec("yolo-y", "/home/me/a", "zeta")
+	rec("yolo-x", "/home/me/a", "alpha")
+	rec("yolo-w", "/srv/c", "podman-self")
+	f.podman = "yolo-z\tUp\t0\nyolo-y\tUp\t0\nyolo-x\tUp\t0\nyolo-w\tUp\t0\n"
+	plantPsSession(t, base, "yolo-h", "live", &runtime.SessionRecord{Notch: runtime.NotchHost,
+		Workspace: "/home/me/a", Name: "yolo-h", Setup: "host-self", PID: os.Getpid()})
+	psRun(deps)
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n")[1:] {
+		f := strings.Fields(line)
+		got = append(got, f[0]+" "+f[1])
+	}
+	want := []string{"~/a alpha", "~/a host-self", "~/a zeta", "~/b podman-self", "/srv/c podman-self"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+}
+
+// TestPsEmptyStates: each ends in a step (§12.3). Every source answered with no rows names what
+// was asked and how to start one; a source that did not answer is the whole answer, with no "no
+// jails" sentence; a source that is not installed is not news.
+func TestPsEmptyStates(t *testing.T) {
+	t.Run("complete", func(t *testing.T) {
+		deps, out, _ := psFixture(t, "darwin", &psFake{ac: "[]"}, "container")
+		psRun(deps)
+		want := "No jails running (asked Apple Container, Seatbelt and yolo host). Start one in a project: `yolo -- <agent>`.\n"
+		if out.String() != want {
+			t.Errorf("output = %q, want %q", out.String(), want)
+		}
 	})
-	if rc != 0 {
-		t.Errorf("rc = %d", rc)
-	}
-	if buf.String() != "No running jails.\n" {
-		t.Errorf("output = %q", buf.String())
-	}
+	t.Run("only host here", func(t *testing.T) {
+		deps, out, _ := psFixture(t, "linux", &psFake{})
+		psRun(deps)
+		want := "No jails running (asked yolo host). Start one in a project: `yolo -- <agent>`.\n"
+		if out.String() != want {
+			t.Errorf("output = %q, want %q", out.String(), want)
+		}
+	})
+	t.Run("a source did not answer", func(t *testing.T) {
+		deps, out, _ := psFixture(t, "linux", &psFake{podmanErr: errors.New("exit status 125")}, "podman")
+		psRun(deps)
+		text := out.String()
+		if strings.Contains(text, "No jails running") ||
+			!strings.Contains(text, "Podman is installed but not answering (exit status 125); no yolo jail is recorded on it. See why:") ||
+			!strings.Contains(text, "    podman info") {
+			t.Errorf("output:\n%s", text)
+		}
+	})
+	t.Run("in a jail", func(t *testing.T) {
+		deps, out, _ := psFixture(t, "linux", &psFake{})
+		deps.InJail = true
+		psRun(deps)
+		if !strings.HasPrefix(out.String(), "Jails inside this jail:\n") || psJSON(t, deps).Frame != "jail" {
+			t.Errorf("output = %q; want the frame said first", out.String())
+		}
+	})
 }
 
-func TestPsTableAndProblems(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	// Seed a tracking file so workspace resolves without an inspect call.
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-a-1111", Workspace: "/exists"}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
-
-	psOut := "yolo-a-1111\tUp 2 hours\t2 hours ago\n" +
-		"yolo-b-2222\tUp 5 minutes\t5 minutes ago\n"
-	deps := psDeps{
-		DetectRuntime: func() string { return "podman" },
-		RunCmd: func(argv []string) (string, bool) {
-			if len(argv) >= 2 && argv[1] == "ps" {
-				return psOut, true
-			}
-			if len(argv) >= 2 && argv[1] == "top" {
-				// yolo-a healthy (has a user proc); yolo-b n/a (workspace gone
-				// short-circuits before top).
-				return "COMMAND\nbash\nclaude\n", true
-			}
-			return "", true
-		},
-		PathIsDir: func(path string) bool { return path == "/exists" },
-		Out:       &bytes.Buffer{},
-	}
-	var buf bytes.Buffer
-	deps.Out = &buf
+// TestPsProblemsNameTheirNextStep: a container whose workspace is gone names the stop that ends it,
+// a session's names closing its terminal, and a Podman jail stuck provisioning names `yolo doctor`
+// (§12.2). Plain output carries no escape, and color stripped is the plain bytes.
+func TestPsProblemsNameTheirNextStep(t *testing.T) {
+	f := &psFake{podman: "yolo-gone-1\tUp\t0\nyolo-stuck-2\tUp\t0\n",
+		top: map[string]string{"yolo-stuck-2": "COMMAND\nbash\nyolo-entrypo\n"}}
+	deps, out, base := psFixture(t, "linux", f, "podman")
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-gone-1", Setup: "podman-self", Workspace: "/home/me/gone"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-stuck-2", Setup: "podman-self", Workspace: "/home/me/here"}))
+	plantPsSession(t, base, "yolo-s", "live", &runtime.SessionRecord{Notch: runtime.NotchHost,
+		Workspace: "/home/me/gone2", Name: "yolo-s", Setup: "host-self", PID: os.Getpid()})
+	deps.PathIsDir = func(p string) bool { return p == "/home/me/here" }
 	psRun(deps)
-	out := buf.String()
-	// Table header + both rows present.
-	if !strings.Contains(out, "CONTAINER") || !strings.Contains(out, "yolo-a-1111") || !strings.Contains(out, "yolo-b-2222") {
-		t.Errorf("table missing rows:\n%s", out)
+	plain := out.String()
+	for _, want := range []string{
+		"\n3 problems:\n", "  ~/gone  workspace gone. Stop it:\n    podman stop yolo-gone-1\n",
+		"  ~/gone2  workspace gone. It ends when its agent exits; close the terminal running it.\n",
+		"  ~/here  stuck provisioning (", "Diagnose it:\n    yolo doctor\n",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the problems lack %q:\n%s", want, plain)
+		}
 	}
-	// yolo-b flagged workspace-gone.
-	if !strings.Contains(out, "1 problem jail(s)") || !strings.Contains(out, "yolo-b-2222  (workspace gone)") {
-		t.Errorf("problem section wrong:\n%s", out)
+	if runtime.StuckReasonFromTop("COMMAND\nbash\nyolo-entrypo\n") == "" {
+		t.Fatal("fixture: the stuck top output is not stuck")
 	}
-	if !strings.Contains(out, "Run 'yolo doctor' to clean up") {
-		t.Errorf("missing doctor hint:\n%s", out)
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("plain output has ANSI: %q", plain)
 	}
-}
-
-func TestPsPrunesStaleTracking(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-dead", Workspace: "/ws2"}))
-
-	deps := psDeps{
-		DetectRuntime: func() string { return "podman" },
-		RunCmd: func(argv []string) (string, bool) {
-			if len(argv) >= 2 && argv[1] == "ps" {
-				return "yolo-live\tUp\tnow\n", true
-			}
-			return "", true
-		},
-		PathIsDir: func(string) bool { return true },
-		Out:       &bytes.Buffer{},
-	}
+	var col bytes.Buffer
+	deps.Out, deps.Color = &col, true
 	psRun(deps)
-	// The dead tracking file must be gone; the live one kept.
-	if _, ok := runtime.ReadContainerWorkspace("yolo-dead"); ok {
-		t.Error("stale tracking file should be pruned")
+	if !strings.Contains(col.String(), "\x1b[") || stripANSI(col.String()) != plain {
+		t.Errorf("color stripped != plain:\n color=%q\n plain=%q", col.String(), plain)
 	}
-	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
-		t.Error("live tracking file should survive")
+	for _, j := range psJSON(t, deps).Jails {
+		if len(j.Problems) != 1 {
+			t.Errorf("%s has problems %+v, want one", j.Name, j.Problems)
+		}
 	}
-	_ = paths.ContainerDir()
 }
 
-// TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords is SU-D10's defect (named-setups.md §12.1):
-// on a Mac with Podman and Apple Container both installed, `YOLO_SETUP=podman-self yolo ps` asks
-// Podman alone and handed the prune Podman's names, so every running Apple Container jail's
-// tracking file was deleted. Apple Container was not asked, so its jails are unknown and no file
-// may go; once Apple Container is not installed, Podman's answer is every container source's and
-// the dead file goes again. Both of psRun's prunes are pinned: Podman listing nothing, and Podman
-// listing a jail of its own, whose record survives either way.
-func TestPsPodmanOnlyOnAMacKeepsAppleContainerRecords(t *testing.T) {
-	const podmanRow = "yolo-pd-5678\tUp 1 hour\t1 hour ago\n"
+// TestPsPrunesOnEverySourcesAnswer: the prune is handed every container source's answer, so a Mac
+// where both runtimes listed prunes an older yolo's dead record again (slice 11d), while one source
+// that did not answer, or is not installed (a PATH miss), keeps it (SU-D10, SUP-D52).
+func TestPsPrunesOnEverySourcesAnswer(t *testing.T) {
+	legacy := func(t *testing.T) {
+		t.Helper()
+		must(t, os.MkdirAll(paths.ContainerDir(), 0o755))
+		must(t, os.WriteFile(filepath.Join(paths.ContainerDir(), "yolo-dead-1"), []byte("/ws\n"), 0o644))
+		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live-2", Workspace: "/ws2",
+			Confinement: setup.ConfinementAppleContainer}))
+	}
 	for _, tc := range []struct {
-		name      string
-		installed map[string]bool
-		podmanOut string
-		wantKept  bool
+		name   string
+		f      *psFake
+		bins   []string
+		pruned bool
 	}{
-		{"both runtimes installed, podman runs none", map[string]bool{"podman": true, "container": true}, "", true},
-		{"apple container not installed, podman runs none", map[string]bool{"podman": true}, "", false},
-		{"both runtimes installed, podman runs one", map[string]bool{"podman": true, "container": true}, podmanRow, true},
-		{"apple container not installed, podman runs one", map[string]bool{"podman": true}, podmanRow, false},
+		{"both listed", &psFake{ac: `[{"id":"yolo-live-2","status":{"state":"running"}}]`}, []string{"podman", "container"}, true},
+		{"apple container unreachable", &psFake{acErr: errors.New("down")}, []string{"podman", "container"}, false},
+		{"apple container not installed", &psFake{}, []string{"podman"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
-			must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-ac-1234", Workspace: "/ac-workspace"}))
-			must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-pd-5678", Workspace: "/pd-workspace"}))
-			psRun(psDeps{
-				DetectRuntime: func() string { return "podman" },
-				GOOS:          "darwin",
-				HasBinary:     func(bin string) bool { return tc.installed[bin] },
-				RunCmd: func(argv []string) (string, bool) {
-					if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "ps" {
-						return tc.podmanOut, true // Podman answered with its own jails
-					}
-					if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "top" {
-						return "COMMAND\nclaude\n", true
-					}
-					t.Errorf("ps ran %v; only Podman was expected to be asked", argv)
-					return "", false
-				},
-				PathIsDir: func(string) bool { return true },
-				Out:       &bytes.Buffer{},
-			})
-			if _, kept := runtime.ReadContainerWorkspace("yolo-ac-1234"); kept != tc.wantKept {
-				t.Errorf("Apple Container jail's tracking file kept = %v, want %v", kept, tc.wantKept)
+			deps, _, _ := psFixture(t, "darwin", tc.f, tc.bins...)
+			legacy(t)
+			psRun(deps)
+			if _, ok := runtime.ReadLaunchRecord("yolo-dead-1"); ok == tc.pruned {
+				t.Errorf("the dead legacy record kept=%v, want pruned=%v", ok, tc.pruned)
 			}
-			if _, kept := runtime.ReadContainerWorkspace("yolo-pd-5678"); tc.podmanOut != "" && !kept {
-				t.Error("the record of the jail Podman listed was pruned")
+			if _, ok := runtime.ReadLaunchRecord("yolo-live-2"); !ok {
+				t.Error("the running Apple Container jail's record was deleted")
 			}
 		})
 	}
-}
-
-// TestPsContainerAnswersKeepEverythingForAnUnknownRuntime: a listing runtime no built-in setup
-// runs on is no container source psContainerAnswers knows, so dropping it would let the prune
-// judge its jails' records against the other runtimes alone. It answers unreachable instead,
-// which prunes nothing.
-func TestPsContainerAnswersKeepEverythingForAnUnknownRuntime(t *testing.T) {
-	answers := psContainerAnswers(psDeps{GOOS: "linux", HasBinary: func(string) bool { return true }},
-		"elsewhere", map[string]struct{}{"yolo-x-1": {}})
-	found := false
-	for _, a := range answers {
-		if a.Confinement == "elsewhere" {
-			found = a.State == runtime.SourceUnreachable
+	t.Run("linux, podman listed", func(t *testing.T) {
+		deps, _, _ := psFixture(t, "linux", &psFake{}, "podman")
+		must(t, os.MkdirAll(paths.ContainerDir(), 0o755))
+		must(t, os.WriteFile(filepath.Join(paths.ContainerDir(), "yolo-dead-1"), []byte("/ws\n"), 0o644))
+		psRun(deps)
+		if _, ok := runtime.ReadLaunchRecord("yolo-dead-1"); ok {
+			t.Error("on Linux Podman is every container source; its answer prunes the dead record")
 		}
+	})
+}
+
+// TestPsAnUnparseableAppleContainerListingIsUnreachable: output that is not the measured JSON is
+// "could not enumerate", never "no jails", so nothing is pruned on it (D11).
+func TestPsAnUnparseableAppleContainerListingIsUnreachable(t *testing.T) {
+	deps, _, _ := psFixture(t, "darwin", &psFake{ac: "ID IMAGE STATE\n"}, "container")
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-x", Workspace: "/ws",
+		Confinement: setup.ConfinementAppleContainer}))
+	doc := psJSON(t, deps)
+	if doc.Sources[1].State != "unreachable" || doc.Complete {
+		t.Errorf("sources = %+v", doc.Sources)
 	}
-	if !found {
-		t.Errorf("answers = %+v; want the unknown runtime answering unreachable", answers)
-	}
-	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-x-2", Workspace: "/ws"}))
-	if removed := runtime.PruneStaleTrackingFiles(answers); len(removed) != 0 {
-		t.Errorf("the prune removed %v on an unknown runtime's answer", removed)
+	if _, ok := runtime.ReadLaunchRecord("yolo-x"); !ok {
+		t.Error("an unparseable listing pruned a record")
 	}
 }
 
-// TestPsContainerRuntimeKeepsLiveTracking documents the end state the unified
-// resolver enables on an Apple Container host (the destructive §B/D11 bug): with
-// the runtime resolved to "container", ps enumerates via `container ls` and the
-// stale-tracking prune keeps the live jail's file while dropping the dead one —
-// rather than the old config-blind "podman" pick that saw nothing and wiped both.
-func TestPsContainerRuntimeKeepsLiveTracking(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-dead", Workspace: "/ws2"}))
-
-	deps := psDeps{
-		DetectRuntime: func() string { return "container" },
-		RunCmd: func(argv []string) (string, bool) {
-			if strings.Join(argv, " ") == "container ls --format json" {
-				return `[{"configuration": {"id": "yolo-live"}, "id": "yolo-live",
-				  "status": {"networks": [], "startedDate": "2026-11-06T19:57:12Z", "state": "running"}}]`, true
-			}
-			return "", true
-		},
-		PathIsDir: func(string) bool { return true },
-		Out:       &bytes.Buffer{},
-	}
+// TestPsSetupNarrowsToOneSetup is slice 11e (§12.6): --setup asks that setup's technology alone,
+// lists only its rows, counts the rows whose setup is not recorded, and prunes nothing.
+func TestPsSetupNarrowsToOneSetup(t *testing.T) {
+	f := &psFake{podman: "yolo-a-podman-self\tUp\t0\nyolo-a-lab\tUp\t0\nyolo-old\tUp\t0\n"}
+	deps, out, _ := psFixture(t, "darwin", f, "podman", "container")
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-a-podman-self", Setup: "podman-self", Workspace: "/home/me/a"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-a-lab", Setup: "lab", Workspace: "/home/me/a"}))
+	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-old", Workspace: "/home/me/old"}))
+	must(t, os.WriteFile(filepath.Join(paths.ContainerDir(), "yolo-dead"), []byte("/ws\n"), 0o644))
+	only := setup.MustBuiltIn("podman-self")
+	deps.Only = &only
 	psRun(deps)
-	if _, ok := runtime.ReadContainerWorkspace("yolo-dead"); ok {
-		t.Error("dead tracking file should be pruned on the container runtime")
+	text := out.String()
+	if f.asked("container") || !f.asked("podman") {
+		t.Errorf("--setup podman-self asked %v; want Podman alone", f.calls)
 	}
-	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
-		t.Error("live AC jail's tracking file must survive")
+	if !strings.Contains(text, "podman-self") || strings.Contains(text, " lab ") || strings.Contains(text, "~/old") {
+		t.Errorf("the narrowed list:\n%s", text)
+	}
+	if !strings.Contains(text, "1 jail whose setup is not recorded is not matched; `yolo ps` lists them.") {
+		t.Errorf("no count of unmatched rows:\n%s", text)
+	}
+	if _, ok := runtime.ReadLaunchRecord("yolo-dead"); !ok {
+		t.Error("a narrowed listing pruned a record; it is no answer about the other setups")
+	}
+	doc := psJSON(t, deps)
+	if len(doc.Sources) != 1 || doc.Sources[0].Confinement != "podman" || len(doc.Jails) != 1 ||
+		*doc.Sources[0].Jails != 1 {
+		t.Errorf("document = %+v", doc)
 	}
 }
 
-// TestPsAppleContainerStatusIsTheState is lab report 2026-11-04 §7 / 2026-11-06 §3 through the
-// production call site: on Apple Container, `yolo ps` asks `container ls --format json` and
-// prints each container's state and start time as STATUS, not the whole table row. The
-// builder is listed with workspace "unknown", as podman's `ps --filter name=^yolo-` lists
-// `yolo-linux-builder`. Removing psRun's container branch, or its JSON argv, fails this.
-func TestPsAppleContainerStatusIsTheState(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-su11-ac-f113f9bc", Workspace: "/Users/Shared/yolo/su11-ac"}))
-	var asked []string
-	var buf bytes.Buffer
-	psRun(psDeps{
-		DetectRuntime: func() string { return "container" },
-		RunCmd: func(argv []string) (string, bool) {
-			asked = append(asked, strings.Join(argv, " "))
-			switch strings.Join(argv, " ") {
-			case "container ls --format json":
-				return `[
-  {"configuration": {"id": "yolo-su11-ac-f113f9bc"}, "id": "yolo-su11-ac-f113f9bc",
-   "status": {"networks": [], "startedDate": "2026-11-06T19:57:12Z", "state": "running"}},
-  {"configuration": {"id": "yolo-ac-builder"}, "id": "yolo-ac-builder",
-   "status": {"networks": [], "startedDate": "2026-10-09T22:39:57Z", "state": "running"}}
-]`, true
-			case "container ls":
-				return "ID IMAGE OS ARCH STATE IP CPUS MEMORY STARTED\n" +
-					"yolo-ac-builder ghcr.io/mschulkind-oss/yolo-jail-builder:latest linux arm64 running 192.168.64.2/24 8 12288 MB 2026-10-09T22:39:57Z\n", true
-			}
-			return "", true
-		},
-		PathIsDir: func(string) bool { return true },
-		Out:       &buf,
-		Format:    "json",
+// TestPsSetupThisMachineCannotBuildListsNothingAndSaysWhy: a setup that is defined but cannot run
+// here is not refused (§12.6): there is nothing to run, so it lists nothing and says why.
+func TestPsSetupThisMachineCannotBuildListsNothingAndSaysWhy(t *testing.T) {
+	f := &psFake{}
+	deps, out, _ := psFixture(t, "darwin", f, "podman")
+	only := setup.MustBuiltIn("apple-container-self")
+	deps.Only = &only
+	if rc := psRun(deps); rc != 0 {
+		t.Fatalf("rc = %d", rc)
+	}
+	text := out.String()
+	if !strings.HasPrefix(text, "No jails running under setup `apple-container-self`.") ||
+		!strings.Contains(text, "Every setup's: `yolo ps`.") || len(f.calls) != 0 {
+		t.Errorf("output = %q, calls %v", text, f.calls)
+	}
+	if want := setup.Buildable(only, "darwin", deps.HasBinary).Error(); !strings.Contains(text, strings.TrimSpace(want)) {
+		t.Errorf("output does not say why (%q):\n%s", want, text)
+	}
+}
+
+// TestPsSetupFlagIsResolvedAsALaunchResolvesIt: an undefined name is refused with the launch's own
+// message and exit 2 (SUP-D27), before any source is asked; a built-in resolves; --setup is taken
+// out of the args the unknown-flag check reads.
+func TestPsSetupFlagIsResolvedAsALaunchResolvesIt(t *testing.T) {
+	withHomeAndCwd(t)
+	var errw bytes.Buffer
+	if _, _, rc := setupFlag("ps", []string{"ps", "--setup", "fast"}, &errw); rc != 2 ||
+		!strings.Contains(errw.String(), `setup "fast" is not defined. Defined here:`) {
+		t.Errorf("rc = %d, stderr %q", rc, errw.String())
+	}
+	rest, only, rc := setupFlag("ps", []string{"ps", "--setup=podman-self", "--format", "json"}, &errw)
+	if rc != 0 || only == nil || only.Name != "podman-self" || strings.Join(rest, " ") != "ps --format json" {
+		t.Errorf("rest %v, only %v, rc %d", rest, only, rc)
+	}
+	_, stderr := captureStdio(t, func() {
+		if rc := runPs([]string{"ps", "--setup", "fast"}); rc != 2 {
+			t.Errorf("runPs rc = %d, want 2", rc)
+		}
 	})
-	var rep psReport
-	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
-		t.Fatalf("not a JSON report (asked %v): %v\n%s", asked, err, buf.String())
+	if !strings.Contains(stderr, `setup "fast" is not defined`) {
+		t.Errorf("runPs stderr = %q", stderr)
 	}
-	want := []psJail{
-		{Name: "yolo-su11-ac-f113f9bc", Status: "running since 2026-11-06T19:57:12Z", Workspace: "/Users/Shared/yolo/su11-ac"},
-		{Name: "yolo-ac-builder", Status: "running since 2026-10-09T22:39:57Z", Workspace: "unknown"},
-	}
-	if !rep.Enumerated || len(rep.Jails) != len(want) {
-		t.Fatalf("report = %+v (asked %v); want %+v", rep, asked, want)
-	}
-	for i := range want {
-		if rep.Jails[i] != want[i] {
-			t.Errorf("jail %d = %+v, want %+v", i, rep.Jails[i], want[i])
+}
+
+// TestPsAgeIsTheLargestWholeUnit (§12.3).
+func TestPsAgeIsTheLargestWholeUnit(t *testing.T) {
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{{4 * time.Second, "4s"}, {12*time.Minute + 59*time.Second, "12m"}, {3 * time.Hour, "3h"}, {50 * time.Hour, "2d"}} {
+		if got := psAge(psNow, psNow.Add(-tc.d)); got != tc.want {
+			t.Errorf("psAge(%v) = %q, want %q", tc.d, got, tc.want)
 		}
 	}
-}
-
-// TestPsAppleContainerUnparseableListingDoesNotPrune: a `container ls --format json` that
-// exits 0 but is not the measured JSON is an enumeration failure, never "no jails" — reading
-// it as empty would prune live jails' tracking files (D11).
-func TestPsAppleContainerUnparseableListingDoesNotPrune(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live", Workspace: "/ws"}))
-	var buf bytes.Buffer
-	psRun(psDeps{
-		DetectRuntime: func() string { return "container" },
-		RunCmd: func(argv []string) (string, bool) {
-			return "ID IMAGE STATE\nyolo-live img running\n", true
-		},
-		PathIsDir: func(string) bool { return true },
-		Out:       &buf,
-	})
-	if _, ok := runtime.ReadContainerWorkspace("yolo-live"); !ok {
-		t.Error("an unparseable listing pruned a live jail's tracking file")
-	}
-	if !strings.Contains(buf.String(), "Could not query the container runtime") {
-		t.Errorf("an unparseable listing must say the runtime could not be queried: %q", buf.String())
-	}
-}
-
-// TestPsEnumerationFailureDoesNotPrune is the audit §D11 regression: when the
-// runtime probe FAILS (ok=false — e.g. `podman ps` on a macOS host running only
-// Apple Container), ps must NOT prune tracking files (they belong to live jails
-// the failed probe couldn't see) and must NOT print the misleading "No running
-// jails."
-func TestPsEnumerationFailureDoesNotPrune(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live-1", Workspace: "/ws1"}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-live-2", Workspace: "/ws2"}))
-
-	var buf bytes.Buffer
-	psRun(psDeps{
-		DetectRuntime: func() string { return "podman" },
-		// Probe fails to enumerate (ok=false).
-		RunCmd:    func([]string) (string, bool) { return "", false },
-		PathIsDir: func(string) bool { return true },
-		Out:       &buf,
-	})
-	// Both tracking files MUST survive — pruning them would orphan live jails.
-	if _, ok := runtime.ReadContainerWorkspace("yolo-live-1"); !ok {
-		t.Error("D11 regression: tracking file deleted on enumeration failure")
-	}
-	if _, ok := runtime.ReadContainerWorkspace("yolo-live-2"); !ok {
-		t.Error("D11 regression: tracking file deleted on enumeration failure")
-	}
-	if strings.Contains(buf.String(), "No running jails.") {
-		t.Errorf("must not claim 'No running jails' on a failed probe: %q", buf.String())
+	if psAge(psNow, time.Time{}) != "?" {
+		t.Error("an unknown start is not ?")
 	}
 }
 
@@ -366,91 +588,6 @@ func TestDetectListingRuntimeHonorsConfig(t *testing.T) {
 	}
 }
 
-// TestPsColorParity locks the additive-color contract: with Color=false the
-// output is byte-identical to the pre-change raw-fmt bytes (no ESC anywhere),
-// and with Color=true the idle / problem / doctor-tip framing lines carry ANSI.
-func TestPsColorParity(t *testing.T) {
-	t.Run("idle plain is byte-exact", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		var buf bytes.Buffer
-		psRun(psDeps{
-			DetectRuntime: func() string { return "podman" },
-			RunCmd:        func([]string) (string, bool) { return "", true },
-			PathIsDir:     func(string) bool { return true },
-			Out:           &buf,
-			Color:         false,
-		})
-		if got := buf.String(); got != "No running jails.\n" {
-			t.Errorf("plain idle output = %q, want the pre-change bytes", got)
-		}
-	})
-
-	t.Run("idle color emits ANSI", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		var buf bytes.Buffer
-		psRun(psDeps{
-			DetectRuntime: func() string { return "podman" },
-			RunCmd:        func([]string) (string, bool) { return "", true },
-			PathIsDir:     func(string) bool { return true },
-			Out:           &buf,
-			Color:         true,
-		})
-		got := buf.String()
-		if !strings.Contains(got, "\x1b[") {
-			t.Errorf("colored idle output has no ANSI: %q", got)
-		}
-		if !strings.Contains(got, "No running jails.") {
-			t.Errorf("colored idle output lost its literal text: %q", got)
-		}
-	})
-
-	t.Run("problems: plain byte-exact, color has ANSI", func(t *testing.T) {
-		mkDeps := func(out *bytes.Buffer, color bool) psDeps {
-			return psDeps{
-				DetectRuntime: func() string { return "podman" },
-				RunCmd: func(argv []string) (string, bool) {
-					if len(argv) >= 2 && argv[1] == "ps" {
-						return "yolo-b-2222\tUp 5 minutes\t5 minutes ago\n", true
-					}
-					return "", true
-				},
-				PathIsDir: func(string) bool { return false }, // workspace gone
-				Out:       out,
-				Color:     color,
-			}
-		}
-
-		home := t.TempDir()
-		t.Setenv("HOME", home)
-		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
-		var plain bytes.Buffer
-		psRun(mkDeps(&plain, false))
-		if strings.Contains(plain.String(), "\x1b[") {
-			t.Errorf("plain problem output leaked ANSI: %q", plain.String())
-		}
-		// The stripped bytes match the current raw-fmt rendering exactly.
-		wantTail := "\n⚠  1 problem jail(s):\n" +
-			"  yolo-b-2222  (workspace gone)\n" +
-			"\n  Run 'yolo doctor' to clean up\n"
-		if !strings.HasSuffix(plain.String(), wantTail) {
-			t.Errorf("plain problem tail = %q, want suffix %q", plain.String(), wantTail)
-		}
-
-		home2 := t.TempDir()
-		t.Setenv("HOME", home2)
-		must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-b-2222", Workspace: "/gone"}))
-		var col bytes.Buffer
-		psRun(mkDeps(&col, true))
-		if !strings.Contains(col.String(), "\x1b[") {
-			t.Errorf("colored problem output has no ANSI: %q", col.String())
-		}
-		// Stripping the color must reproduce the plain bytes exactly.
-		if got := stripANSI(col.String()); got != plain.String() {
-			t.Errorf("color-stripped != plain:\n color=%q\n plain=%q", got, plain.String())
-		}
-	})
-}
-
 // stripANSI removes CSI SGR escape sequences for the parity assertion.
 func stripANSI(s string) string {
 	var b strings.Builder
@@ -471,232 +608,5 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-// redirectSessionBase points the host-services base this package's TestMain isolated at a dir of
-// the test's own, so the sessions it plants are the only ones the listing can find.
-func redirectSessionBase(t *testing.T) string {
-	t.Helper()
-	base := t.TempDir()
-	prev := paths.HostSingletonDir
-	paths.HostSingletonDir = base
-	t.Cleanup(func() { paths.HostSingletonDir = prev })
-	return paths.HostServicesBase(false)
-}
-
-// plantPsSession makes a host-services session dir the way the launch's openServicesSession
-// does: "live" holds its lock on a descriptor of the test's own, "gone" leaves it free, and
-// "nolock" makes no lock file (a session starting up). rec nil writes no record (an older yolo).
-func plantPsSession(t *testing.T, base, cname, state string, rec *runtime.SessionRecord) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(base, paths.HostServicesSessionPrefix(cname))
-	must(t, err)
-	if rec != nil {
-		must(t, runtime.WriteSessionRecord(dir, *rec))
-	}
-	if state == "nolock" {
-		return dir
-	}
-	f, err := os.OpenFile(filepath.Join(dir, paths.HostServicesSessionLockName), os.O_CREATE|os.O_RDWR, 0o600)
-	must(t, err)
-	if state == "gone" {
-		_ = f.Close()
-		return dir
-	}
-	must(t, syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
-	t.Cleanup(func() { _ = f.Close() })
-	return dir
-}
-
-// noExecDeps is psDeps for the macos-user runtime with a RunCmd that fails the test: macos-user
-// names no binary, and the exec the container branch makes is the defect this replaced.
-func noExecDeps(t *testing.T, out *bytes.Buffer, format string) psDeps {
-	return psDeps{
-		DetectRuntime: func() string { return "macos-user" },
-		RunCmd: func(argv []string) (string, bool) {
-			t.Fatalf("yolo ps on macos-user ran %v; it has no runtime binary to ask", argv)
-			return "", false
-		},
-		PathIsDir: func(string) bool { return true },
-		Out:       out,
-		Format:    format,
-	}
-}
-
-// TestPsOnMacosUserListsItsLiveSessions: `yolo ps` with runtime macos-user used to exec
-// `macos-user ps` and print a red "Could not query". It now lists the backend's running sessions
-// from their own locks and records: a live one with its workspace, one with no lock yet as
-// "starting or unknown", and neither an ended one nor a `yolo host` launch's. It runs nothing, and
-// it leaves every container jail's tracking file alone, since an Apple Container jail on the same
-// Mac is not in a session listing and pruning on one would delete its file (D11).
-func TestPsOnMacosUserListsItsLiveSessions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	base := redirectSessionBase(t)
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: "yolo-ac-1234", Workspace: "/ac-workspace"}))
-
-	plantPsSession(t, base, "yolo-live-1", "live",
-		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/Shared/yolo/live", Name: "yolo-live-1"})
-	plantPsSession(t, base, "yolo-ended-2", "gone",
-		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/Shared/yolo/ended", Name: "yolo-ended-2"})
-	plantPsSession(t, base, "yolo-hostnotch-3", "live",
-		&runtime.SessionRecord{Notch: runtime.NotchHost, Workspace: "/Users/me/proj", Name: "yolo-hostnotch-3"})
-	starting := plantPsSession(t, base, "yolo-starting-4", "nolock", nil)
-
-	var buf bytes.Buffer
-	if rc := psRun(noExecDeps(t, &buf, "")); rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	out := buf.String()
-	for _, want := range []string{
-		"SESSION", "yolo-live-1", "running (macos-user session)", "/Users/Shared/yolo/live",
-		filepath.Base(starting), "starting or unknown",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the listing lacks %q:\n%s", want, out)
-		}
-	}
-	for _, unwanted := range []string{"yolo-ended-2", "yolo-hostnotch-3", "Could not query", "No running"} {
-		if strings.Contains(out, unwanted) {
-			t.Errorf("the listing shows %q:\n%s", unwanted, out)
-		}
-	}
-	if _, ok := runtime.ReadContainerWorkspace("yolo-ac-1234"); !ok {
-		t.Error("yolo ps on macos-user deleted a container jail's tracking file (D11)")
-	}
-
-	var js bytes.Buffer
-	psRun(noExecDeps(t, &js, "json"))
-	var rep psReport
-	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, js.String())
-	}
-	if !rep.Enumerated || rep.Runtime != "macos-user" || len(rep.Jails) != 2 {
-		t.Errorf("JSON report = %+v, want enumerated macos-user with the live and the starting session", rep)
-	}
-}
-
-// TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre: an empty listing is an answer
-// (enumerated), and it names where a container jail on the same Mac is listed instead.
-func TestPsOnMacosUserWithNoSessionsSaysSoAndWhereContainersAre(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	redirectSessionBase(t)
-	var buf bytes.Buffer
-	psRun(noExecDeps(t, &buf, ""))
-	want := "No running macos-user sessions.\n" +
-		"Container jails are listed under their own runtime: YOLO_SETUP=apple-container-self yolo ps " +
-		"(or YOLO_SETUP=podman-self yolo ps).\n"
-	if buf.String() != want {
-		t.Errorf("output = %q, want %q", buf.String(), want)
-	}
-	var js bytes.Buffer
-	psRun(noExecDeps(t, &js, "json"))
-	var rep psReport
-	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, js.String())
-	}
-	if !rep.Enumerated || len(rep.Jails) != 0 {
-		t.Errorf("JSON report = %+v, want enumerated with no jails", rep)
-	}
-}
-
-// TestPsOnMacosUserLeavesOutAnotherAccountsSessions: the session base is the machine-wide /tmp,
-// so on a Mac with more than one user another account's session dirs sit beside this one's.
-// `yolo ps` lists this user's alone; listed, another account's would be a row named after its
-// dir. A dir another account owns needs root to make, so this runs only as root (the runtime
-// package's owner-seam test covers the filter everywhere).
-func TestPsOnMacosUserLeavesOutAnotherAccountsSessions(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("needs root to make a session dir another account owns")
-	}
-	t.Setenv("HOME", t.TempDir())
-	base := redirectSessionBase(t)
-	theirs := plantPsSession(t, base, "yolo-theirs-1", "live",
-		&runtime.SessionRecord{Notch: runtime.NotchMacosUser, Workspace: "/Users/them/proj", Name: "yolo-theirs-1"})
-	must(t, os.Lchown(theirs, 65534, 65534))
-
-	var buf bytes.Buffer
-	if rc := psRun(noExecDeps(t, &buf, "")); rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	if out := buf.String(); strings.Contains(out, "yolo-theirs-1") || strings.Contains(out, filepath.Base(theirs)) ||
-		!strings.Contains(out, "No running macos-user sessions.") {
-		t.Errorf("yolo ps listed another account's session:\n%s", out)
-	}
-}
-
-// TestPsListsARowPerSetupWithItsSetup (named-setups-plan.md slice 6b): two setups of one project
-// run two jails, and `yolo ps` lists each under a SETUP column. The setup is the launch record's;
-// a record that names none is answered by the setup the jail's name carries
-// (runtime.JailName); a jail an older yolo started under the legacy name carries none, and is
-// listed with `?` in the table and null in JSON (named-setups.md §12.2).
-func TestPsListsARowPerSetupWithItsSetup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	ws := "/projects/app"
-	recorded := runtime.JailName(ws, "podman-self")
-	named := runtime.JailName(ws, "lab")
-	legacy := runtime.FromWorkspace(ws)
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: recorded, Setup: "podman-self", Workspace: ws}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: named, Workspace: ws}))
-	must(t, runtime.WriteLaunchRecord(runtime.LaunchRecord{Name: legacy, Workspace: ws}))
-	psOut := recorded + "\tUp 2 hours\t2 hours ago\n" + named + "\tUp 3 minutes\t3 minutes ago\n" +
-		legacy + "\tUp 5 days\t5 days ago\n"
-	deps := func(out *bytes.Buffer, format string) psDeps {
-		return psDeps{
-			DetectRuntime: func() string { return "podman" },
-			RunCmd: func(argv []string) (string, bool) {
-				if len(argv) >= 2 && argv[1] == "ps" {
-					return psOut, true
-				}
-				return "COMMAND\nbash\nclaude\n", true
-			},
-			PathIsDir: func(string) bool { return true },
-			Out:       out,
-			Format:    format,
-		}
-	}
-	var buf bytes.Buffer
-	psRun(deps(&buf, ""))
-	lines := strings.Split(buf.String(), "\n")
-	if !strings.HasPrefix(lines[0], "CONTAINER") || !strings.Contains(lines[0], "  SETUP  ") {
-		t.Fatalf("the table has no SETUP column:\n%s", buf.String())
-	}
-	want := map[string]string{recorded: "podman-self", named: "lab", legacy: "?"}
-	for name, setupName := range want {
-		found := false
-		for _, line := range lines {
-			if f := strings.Fields(line); len(f) > 1 && f[0] == name {
-				found = true
-				if f[1] != setupName {
-					t.Errorf("%s is listed under setup %q, want %q:\n%s", name, f[1], setupName, buf.String())
-				}
-			}
-		}
-		if !found {
-			t.Errorf("no row for %s:\n%s", name, buf.String())
-		}
-	}
-
-	var js bytes.Buffer
-	psRun(deps(&js, "json"))
-	var rep struct {
-		Jails []struct {
-			Name  string  `json:"name"`
-			Setup *string `json:"setup"`
-		} `json:"jails"`
-	}
-	if err := json.Unmarshal(js.Bytes(), &rep); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, js.String())
-	}
-	if len(rep.Jails) != 3 {
-		t.Fatalf("JSON lists %d jails, want 3:\n%s", len(rep.Jails), js.String())
-	}
-	for _, j := range rep.Jails {
-		switch want := want[j.Name]; {
-		case want == "?" && j.Setup != nil:
-			t.Errorf("%s's setup is %q in JSON, want null", j.Name, *j.Setup)
-		case want != "?" && (j.Setup == nil || *j.Setup != want):
-			t.Errorf("%s's setup in JSON = %v, want %q", j.Name, j.Setup, want)
-		}
 	}
 }

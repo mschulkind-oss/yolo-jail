@@ -107,13 +107,23 @@ func TestPruneKeepsRecordsUntilEveryContainerSourceListed(t *testing.T) {
 			}
 		})
 	}
+	// A PATH miss alone never authorizes deleting a record (named-setups-plan.md slice 11d, closing
+	// 11a's review gap): a runtime installed off this PATH still runs its jails, and a record an
+	// older yolo wrote cannot say which technology it was on.
 	t.Run("apple-container not installed", func(t *testing.T) {
 		seed(t)
 		removed := PruneStaleTrackingFiles([]SourceAnswer{podmanEmpty,
 			{Confinement: "apple-container", State: SourceNotInstalled}})
+		if len(removed) != 0 || !tracked(ac) || !tracked(deadPodman) {
+			t.Errorf("a source that is not installed was not asked, so its jails' records stay; removed %v", removed)
+		}
+	})
+	t.Run("the only source listed", func(t *testing.T) {
+		seed(t)
+		removed := PruneStaleTrackingFiles([]SourceAnswer{podmanEmpty})
 		sort.Strings(removed)
 		if len(removed) != 2 || tracked(ac) || tracked(deadPodman) {
-			t.Errorf("every source answered and none listed either: want both removed, got %v", removed)
+			t.Errorf("every source of this OS listed and none listed either: want both removed, got %v", removed)
 		}
 	})
 	t.Run("both listed", func(t *testing.T) {

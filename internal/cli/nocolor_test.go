@@ -179,11 +179,11 @@ func TestColorForWriterIsTheGate(t *testing.T) {
 func TestPsRealDepsHonorsNoColor(t *testing.T) {
 	standInTerminal(t)
 	t.Setenv("NO_COLOR", "")
-	if !psRealDeps(nil, nil, "").Color {
+	if !psRealDeps("", nil).Color {
 		t.Fatal("control: psRealDeps did not request color on a terminal")
 	}
 	t.Setenv("NO_COLOR", "1")
-	if psRealDeps(nil, nil, "").Color {
+	if psRealDeps("", nil).Color {
 		t.Error("NO_COLOR=1: psRealDeps still requested color")
 	}
 }

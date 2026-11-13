@@ -3,7 +3,7 @@ title: "Running yolo on OrbStack without a Docker backend: podman inside an OrbS
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Rule [OQ-ORB1](#OQ-ORB1) for setup ownership. The independent stdin slice was built on 2026-10-08 (d0feeb3b8); its OrbStack proof is unmeasured"
+next: "The maintainer pushes and dispatches .github/workflows/orbstack.yml on the self-hosted Mac, naming a hand-made OrbStack connection: the native proof of B0, C and D, all UNMEASURED. Rule [OQ-ORB1](#OQ-ORB1) for setup ownership"
 tags: [research, macos, orbstack, podman, backend]
 summary: "Checked post-release build handoff for yolo's environment on OrbStack: keep Podman, split setup, jail I/O, daemon reachability and native CI, and require an OrbStack-specific Mac proof."
 vantage:
@@ -14,9 +14,11 @@ vantage:
 
 **Status:** 2026-10-06, support is queued after 0.12.0. The maintainer requires a working setup,
 with Podman preferred and Docker allowed if needed. Of the support implementation, only the
-jail-stdin slice is built (`d0feeb3b8`, 2026-10-08), and its OrbStack SSH-proxy proof is
-UNMEASURED; the measurements below remain the original research, not verification of the
-proposed changes.
+jail-stdin slice is built (`d0feeb3b8`, 2026-10-08), and on 2026-11-12 so were host-service
+reachability (component C) and the dispatch-only native proof (component D,
+[`orbstack.yml`](../../.github/workflows/orbstack.yml)). **None of the three is measured on
+OrbStack yet:** the workflow has not been dispatched. The measurements below remain the
+original research, not verification of the changes.
 - **MEASURED** on one Mac (M4, macOS 26.5) with the OrbStack trial install from
   [the runtime comparison](macos-vm-runtime-comparison.md), one run each.
 - **SOURCED** from this repository's code, with the file named.
@@ -174,10 +176,12 @@ boundaries, not that any proposed change already works:
    or uses its existing default. Those host services start in a separate keeper with fresh
    `Options` ([`keeper.go`](../../internal/cli/run/keeper.go)), so any launch facts for advertisement
    must cross [`keeperplan.go`](../../internal/cli/run/keeperplan.go) / [`keeperspawn.go`](../../internal/cli/run/keeperspawn.go).
-   ORB-D2 proposes positive OrbStack identification, `host.orb.internal` advertisement and a
-   matching disposition; no such automatic behavior is built. Caller-level regressions must prove
-   the assembled disposition and actual daemon publication agree. Unit logic does not establish
-   the Mac-to-jail network hop.
+   **Built 2026-11-12** ([ORB-D4](#ORB-D4) to [ORB-D7](#ORB-D7)): a positively identified
+   OrbStack endpoint makes the launch advertise `host.orb.internal` and set the disposition to
+   `requested`, and caller-level regressions in
+   [`orbstackroute_test.go`](../../internal/cli/run/orbstackroute_test.go) prove the assembled
+   disposition and the spawned daemon's publication agree. Unit logic does not establish the
+   Mac-to-jail network hop; the native proof does, and has not run.
 4. **Native CI.** Use the existing self-hosted Mac already used by
    [`apple-container.yml`](../../.github/workflows/apple-container.yml), with an OrbStack-specific
    dispatch-only workflow and integration test. The job must prove it used the requested named
@@ -228,6 +232,11 @@ coverage rather than an automatic reversion to the retired backend.
 | ORB-D1 | Support is post-release work; the normal setup must work, not merely document workarounds. | 2026-10-06 | [Support requirements](#4-what-official-support-would-take) | — |
 | ORB-D2 | Podman is preferred; Docker is permitted if needed for reliable support, not restored by this ruling alone. | 2026-10-06 | [Support requirements](#4-what-official-support-would-take) | — |
 | ORB-D3 | Use the existing Mac runner, which the maintainer says already has OrbStack, for native verification. | 2026-10-06 | [Verification](#4-what-official-support-would-take) | — |
+| <a id="ORB-D4"></a>ORB-D4 | *Implementation decision.* An endpoint is OrbStack only when the macOS readiness answer (`podman info` through the selected connection) says rootless **and** its kernel release contains `-orbstack`. Either fact alone is no identification, and nothing is probed a second time. | 2026-11-12 | [Host daemon reachability](#4-what-official-support-would-take) | ✅ `TestIsOrbStackPodmanNeedsBothPositiveFacts`, `TestTheMacosReadinessAnswerIdentifiesAnOrbStackEndpoint` |
+| <a id="ORB-D5"></a>ORB-D5 | *Implementation decision.* On an identified OrbStack endpoint in bridge mode, the disposition is `requested` (the launch arranged the route, so the witness escalates an unreachable service) and every loopback-TLS daemon advertises `host.orb.internal`. Any other network mode gets neither. | 2026-11-12 | [Host daemon reachability](#4-what-official-support-would-take) | ✅ `TestAssembleRunCmdOrbStackDispositionMatchesWhatTheDaemonsPublish` |
+| <a id="ORB-D6"></a>ORB-D6 | *Implementation decision.* `YOLO_NO_HOST_LOOPBACK=1`, the existing hatch, also turns the OrbStack route off: no disposition, no advertised host, and a warning naming what that costs. No new dial. | 2026-11-12 | [Host daemon reachability](#4-what-official-support-would-take) | ✅ `TestAssembleRunCmdOrbStackDispositionMatchesWhatTheDaemonsPublish` |
+| <a id="ORB-D7"></a>ORB-D7 | *Implementation decision.* The identification crosses to the keeper's fresh `Options` as the keeper plan's `orbstack` field, already false when the hatch is set, so the daemons and the jail decide from one fact. | 2026-11-12 | [Host daemon reachability](#4-what-official-support-would-take) | ✅ `TestTheKeeperAdvertisesTheOrbStackRouteItsLaunchTookAndNoOther`, `TestAnOrbStackKeepersDaemonPublishesTheOrbStackHost` |
+| <a id="ORB-D8"></a>ORB-D8 | *Implementation decision.* The native workflow loads the image with `just load` (`YOLO_LOAD_RUNTIME=podman`), the launch's own archive branch, as `apple-container.yml` does, rather than the plan's hand-written skopeo sequence, and passes no `YOLO_REPO_ROOT` (retired and refused); the setup is `YOLO_SETUP=podman-self`, since `YOLO_RUNTIME` is removed. | 2026-11-12 | [Native CI](#4-what-official-support-would-take) | ⏳ written, not dispatched |
 
 ## 5. What to clean up after the trial
 

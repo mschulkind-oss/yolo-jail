@@ -2,7 +2,7 @@
 title: "Threat model: the macos-user host-side nix build step"
 status: in-review
 stage: DESIGN
-next: "Record the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) in §Q3's run record: the floor built under --option sandbox true with no build failed or refused, and jq's cache-miss rebuild built under the sandbox, its output differing from the substituted one; Q2 and Q3 are the maintainer's to rule"
+next: "Q2 and Q3 are the maintainer's to rule"
 ---
 
 # Threat model: the macos-user host-side nix build step
@@ -340,8 +340,8 @@ build is the `buildEnv`, and that passed four times.
 
 #### The cache-miss half, answered by hand on a developer Mac (2026-10-18)
 
-**A floor package BUILDS under the sandbox.** The CI step below has still never run, so its
-commands were run by hand on a developer Mac (macOS 26.5, aarch64-darwin), recorded in
+**A floor package BUILDS under the sandbox.** The cache-miss step's commands were run by hand on a
+developer Mac (macOS 26.5, aarch64-darwin), recorded in
 [the run's record](macos-user-suite-on-a-developer-mac.md#7-measurements-this-run-produced):
 
 - `nix build --inputs-from . --rebuild --option sandbox true nixpkgs#jq^*` **built `jq` here, in
@@ -358,10 +358,24 @@ the macOS nix build sandbox on.** One package still answers for one builder, not
 and the floor step itself substituted every path here exactly as it does on the runner — VOID,
 as ever.
 
+#### The cache-miss step in CI (2026-10-03)
+
+The CI step gives the same answer on a GitHub-hosted runner. Read from the step summaries of the
+scheduled `macos-user.yml` [run 37121866798](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37121866798),
+at `0e34798c6`:
+
+- **The floor step reads as the five runs above did.** `nix build rc=0`; the one derivation built
+  on the runner was `yolo-noncontainer-profile`; no build failed under the sandbox, and the sandbox
+  policy refused none. The runner's `nix.conf` has `trusted-users = root runner`, and the log has no
+  `ignoring the client-specified setting 'sandbox'` line, so it is not VOID.
+- **The cache-miss step built `jq` under the sandbox.** `nix build --rebuild --option sandbox true`
+  on `nixpkgs#jq^*` ran for 66 s and exited 1, because the rebuilt `jq-1.8.2` output differs from
+  the substituted one (`may not be deterministic`). The summary classifies that as **BUILT under the
+  sandbox** with a non-reproducible output, not a sandbox refusal, as the hand run found.
+
 Still UNMEASURED:
 
-- the same measurement **in CI**, where the step remains unrun. **The step was added on
-  2026-10-01** and has not run there yet:
+- more than one floor package in CI. The step is
   `Q3 — rebuild one floor package from source with the nix build sandbox ON (measurement only)`,
   right after the floor step in [`macos-user.yml`](../../.github/workflows/macos-user.yml). It
   realizes `nixpkgs#jq^*` from this flake's locked `nixpkgs` input (`--inputs-from .`, the set

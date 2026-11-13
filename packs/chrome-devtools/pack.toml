@@ -1,7 +1,7 @@
 name = "chrome-devtools"
 description = "Chrome DevTools MCP: every selected agent can drive a browser, in a jail, on macos-user and at `yolo host`. Opt in by adding \"chrome-devtools\" to packs; the browser is the one the machine has (the jail image's chromium, or Chrome or Chromium on a host)."
 
-# docs/design/mcp-presets-removal.md §13 steps 1-2, and docs/reference/mcp-configuration.md
+# docs/reference/mcp-configuration.md, "The chrome-devtools pack" (MP-D1 to MP-D11),
 # for what each notch gets. Four contributions, each a claim the footprint names:
 # The server itself. Installed by the jail's lazy launcher on first use (and kept current
 # by it), and into yolo's host floor by the first `yolo host -- <agent>` (or, under
@@ -21,7 +21,7 @@ install = false
 # directory; the program above is what owns a name there), and run through /bin/sh,
 # which needs no exec bit (chosen when a pack selected by its bare name carried none).
 # Once at boot, in a container jail, the wrapper's own browser search: one warning
-# line when it finds no browser, nothing when it does (mcp-presets-removal.md OQ-MP9). Only a
+# line when it finds no browser, nothing when it does (docs/reference/mcp-configuration.md OQ-MP9). Only a
 # warning: a browser installed after boot is used at the server's next start.
 [[hook]]
 hook = "boot_check"

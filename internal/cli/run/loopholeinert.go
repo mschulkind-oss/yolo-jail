@@ -382,7 +382,7 @@ func inertLineFor(pack string, note loopholes.InertNote) string {
 // (the floor puts mise on the sandbox PATH and the confined provisioning stage runs
 // `mise install`) and `lsp_servers` (no backend installs a language server since
 // docs/reference/mcp-configuration.md#oq-lsp1). The last one, `mcp_presets`, went with the key
-// (docs/design/mcp-presets-removal.md §13 step 3): the browser is the chrome-devtools pack.
+// (docs/reference/mcp-configuration.md, the retired mcp_presets key): the browser is the chrome-devtools pack.
 
 // noteMacosUserPlatformGaps names what this backend does with the PLATFORM keys — `devices`,
 // `gpu`, `kvm` and `ephemeral_storage` (docs/design/declaration-parity.md DP-B4, fixed by DP-L10;

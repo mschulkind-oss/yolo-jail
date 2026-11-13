@@ -301,6 +301,67 @@ func TestANonStockLoadIsNeverTagged(t *testing.T) {
 	}
 }
 
+// TestAppleContainerStockImageIsTaggedThenSkipsTheBuild is the Apple Container
+// half of the two tests above, driven through the real AutoLoadImage twice.
+// Until 2026-11-12 that backend was skipped twice — tagStockImage returned early
+// for "container" and its caller declined to call it — so every Apple Container
+// launch built. The first launch here must tag the image it delivered with
+// `container image tag` and record its store path; the second, with an
+// unchanged identity, must run that tag and build nothing.
+//
+// Restore either guard and the first assertion fails: no tag argv, no stock
+// name in the runtime, and the second launch builds.
+func TestAppleContainerStockImageIsTaggedThenSkipsTheBuild(t *testing.T) {
+	withBuildDir(t)
+	var out bytes.Buffer
+	f := newFakeRuntime()
+	f.runtime = "container"
+	manifest := storeManifest(t, "ac-stock")
+	o := acOpts(manifest, f, &out)
+	o.RepoRoot = t.TempDir()
+	o.EvalIdentity = func(string) (string, bool) { return testIdentity, true }
+	o.LookupEnv = func(string) (string, bool) { return "", false }
+	o.StorePathValid = func(string) bool { return true }
+	o.RegisterRoot = func(string) {}
+
+	first := AutoLoadImage(o)
+	if !first.OK {
+		t.Fatalf("first Apple Container launch failed:\n%s", out.String())
+	}
+	stockRef := StockImageRef("container", testIdentity)
+	want := strings.Join([]string{"container", "image", "tag", first.Ref, stockRef}, " ")
+	if !contains(f.cmds(), want) {
+		t.Fatalf("the delivered stock image was never tagged with %q, so the next "+
+			"launch rebuilds.\nargv: %v", want, f.cmds())
+	}
+	if f.present[stockRef] == "" || f.present[stockRef] != f.present[first.Ref] {
+		t.Fatalf("the stock tag names %q, the launch ran %q — the tag must be a second "+
+			"name for the delivered image", f.present[stockRef], f.present[first.Ref])
+	}
+
+	// The second launch of the unchanged flake.
+	out.Reset()
+	o.BuildStorePath = func(string, []any, string) (string, []string) {
+		t.Error("the second Apple Container launch built an image the runtime already " +
+			"holds under this source tree's stock tag")
+		return "", nil
+	}
+	second := AutoLoadImage(o)
+	if !second.OK {
+		t.Fatalf("second Apple Container launch failed:\n%s", out.String())
+	}
+	if second.Ref != stockRef {
+		t.Errorf("second launch ran %q, want the stock ref %q", second.Ref, stockRef)
+	}
+	if second.StorePath != manifest {
+		t.Errorf("second launch's store path = %q, want the one the first load recorded (%q)",
+			second.StorePath, manifest)
+	}
+	if !strings.Contains(out.String(), "Image build skipped: "+stockRef) {
+		t.Errorf("the skip was not disclosed:\n%s", out.String())
+	}
+}
+
 // TestStockImageRefRejectsWhatIsNotAnIdentity. The values this has to refuse are
 // not hypothetical: a pre-2026-09-12 image answers the identity question with a
 // /nix/store path (OQ-IP3), and a `nix eval` on a broken checkout answers with

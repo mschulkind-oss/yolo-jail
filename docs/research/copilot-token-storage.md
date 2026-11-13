@@ -1,9 +1,9 @@
 ---
 title: "Where GitHub Copilot CLI keeps its login, and why one manifest line cannot share it"
 date: 2026-09-29
-status: in-review
-stage: DESIGN
-next: "Record OQ-CT1's answer from the accepted keychain design (KC-D1: the keychain route first, the copilotTokens copy only where the route is off) and compact the question"
+status: accepted
+stage: DECIDED
+next: "Nothing here; the build is keychain-from-a-jail.md's (its plan sketch, keychain-from-a-jail-plan.md)"
 depends-on:
   - ../design/keychain-from-a-jail.md
 tags: [copilot, authentication, credentials, packs, research, measured]
@@ -15,12 +15,9 @@ vantage:
 # Where GitHub Copilot CLI keeps its login
 
 **Status:** 2026-09-29 — measured from the shipped package bytes. Copilot was never run: no
-login, no `--version`, no API call. One ruling is owed, [OQ-CT1](#OQ-CT1). The maintainer's
-direction on it asked for a keychain design first, and that design,
-[`keychain-from-a-jail.md`](../design/keychain-from-a-jail.md), came back on 2026-09-29 and has
-since been accepted, with all of its own questions ruled by 2026-11-03. Its
-[KC-D1](../design/keychain-from-a-jail.md#KC-D1) answers this question, but the answer is not yet
-recorded at [OQ-CT1](#OQ-CT1), so the question still shows as open.
+login, no `--version`, no API call. [OQ-CT1](#OQ-CT1) is answered by the accepted
+[keychain design](../design/keychain-from-a-jail.md) ([§6](#6-the-options), recorded 2026-11-12);
+nothing here awaits a ruling.
 
 **The ask:** the backlog item "Copilot logs in once per machine, not once per workspace", which is
 the `copilot` half of gap [G16](../plans/setup-support-gaps.md#2-ranked-gap-backlog). The
@@ -55,8 +52,8 @@ neither.
   machine tier with the token. On macOS it could also report a successful link while the token
   sits in the keychain. No subdirectory of `~/.copilot` holds the login alone, so a
   `shared_directory` hook has nothing narrower to share either.
-  [§5](#5-why-the-hook-was-not-shipped) gives the costs, and [§6](#6-the-options) the three
-  routes that remain.
+  [§5](#5-why-the-hook-was-not-shipped) gives the costs, and [§6](#6-the-options) the routes
+  that remain and the one taken: give the jail a keychain.
 
 ## 2. What was read
 
@@ -236,22 +233,15 @@ Whether `gh` reaches the keychain on `macos-user` is the same open fact as Copil
 | **B. A token from `env_sources`** | Nothing in yolo. The user puts `COPILOT_GITHUB_TOKEN=github_pat_…` (fine-grained, with the Copilot Requests permission) in a dotenv file listed under user-scope `env_sources` | The user creates and renews the token. Like every `env_sources` key, it is in the environment of every jail, and whether Copilot hides it from the shells it spawns is unmeasured. Use `COPILOT_GITHUB_TOKEN`, never `GH_TOKEN` or `GITHUB_TOKEN`: `gh` reads those two, so a token there would also log `gh` in, and one with more than the Copilot Requests permission would give every jail GitHub API and git access beyond Copilot. No host GitHub credential reaches a jail otherwise ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)), so the token's permissions are all that this route adds to every jail. Whether every Copilot feature works with this kind of token is unmeasured. |
 | **C. Keep one login per workspace** | Nothing. This is how it works today | One `copilot login` per repository, and on container setups the user must also answer yes to plain-text storage, or the login is not saved. |
 
-1. 💬 <a id="OQ-CT1"></a>**OQ-CT1: Which route makes Copilot's login machine-wide?** A shares state that was never
-   meant to be shared. B shares exactly one token, but asks the user to create a token.
-
-   <!-- vantage: question id=OQ-CT1 leaning="B, documented in the user guide as the way to log Copilot in once per machine, with C as the default; not A, which shares folder trust and plugin state across repositories and depends on two unmeasured write behaviors." -->
-
-   _Leaning:_ B, as a documented user-guide recipe, with C left as the default. Not A.
-
-   **Answer:**
-   > **Directed 2026-09-29, not yet ruled.** The maintainer: *"31D is reasonable, although we should
-   > maybe disclose this somehow. Is there no chance that we can involve the system keychain? It
-   > seems like they're taking the more responsible path for credential storage. We shouldn't just
-   > steamroll over that. We should work with it. I would much prefer to just handle this
-   > correctly."* A fourth route is on the table (D: yolo copies only the `copilotTokens` entry into
-   > each workspace's `config.json`, disclosed), but the preferred direction is to make the system
-   > keychain reachable from the jail so Copilot's own keychain-first path works. A design for that
-   > comes back before the ruling.
+**The route taken is none of these three.** Copilot's own keychain-first path is kept, and the
+jail is given a keychain: an in-jail Secret Service backed by the host's keychain, in which the one
+Copilot login is the host Copilot's own keychain item
+([`keychain-from-a-jail.md`](../design/keychain-from-a-jail.md)). Where that route is off for a
+launch, a fourth route, D, applies: yolo copies only `copilotTokens` entries between workspaces'
+`config.json`, and says so on every launch that copies
+([KC-D1](../design/keychain-from-a-jail.md#KC-D1)). Route B stays available, needing nothing from
+yolo, for a user who wants no stored login; route C is what a launch does until that design is
+built. Route A is not taken.
 
 ## 7. What is still unmeasured
 
@@ -261,3 +251,9 @@ Three facts could not be measured here. Each changes the costs above, not the co
 - whether Copilot 1.0.89 writes `config.json` through a symlink or replaces it by rename (a Linux
   jail can answer this too, but only by running Copilot, which this measurement did not do);
 - whether 1.0.89 serializes `config.json` writes across processes.
+
+## Decision Ledger
+
+| ID | Ruling | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| <a id="OQ-CT1"></a>[`OQ-CT1`](#OQ-CT1) | **Maintainer direction, then the accepted keychain design:** work with Copilot's keychain rather than around it. The keychain route first, the `copilotTokens` copy (route D) only where the route is off, disclosed on every launch that copies ([KC-D1](../design/keychain-from-a-jail.md#KC-D1)); A, B and C were not chosen. The maintainer, 2026-09-29: *"Is there no chance that we can involve the system keychain? It seems like they're taking the more responsible path for credential storage. We shouldn't just steamroll over that. We should work with it. I would much prefer to just handle this correctly."* The design's own questions were ruled 2026-10-10 and 2026-11-03 | 2026-10-10 | [§6](#6-the-options) |

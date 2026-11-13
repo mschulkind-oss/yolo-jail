@@ -29,7 +29,10 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		"files a pending request, waits briefly for the host",
 		"exact host approval",
 		"joins this workspace's **working set**",
-		"A merge always asks.",
+		// The working set's shipped cells (github-write-scopes.md GW-D42, GW-D56): comments and
+		// edits run, an approval, a merge and a DELETE ask.
+		"An approval (`gh pr review --approve`, or a review `event=APPROVE`) and a merge always ask;",
+		"and any `DELETE`.",
 		"`--for 15m` for that kind of write on it for a time, and, for a creation, the project request then `yolo config apply`.",
 		"The human runs these directly on the host, not through `yolo host-run`.",
 		"start `yolo wait <id>` in the background",

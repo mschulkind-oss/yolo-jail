@@ -16,7 +16,7 @@ import (
 // (PreparedHTTPClientGeneration) to each selected client's verified capture entrypoint
 // (docs/design/pack-brokers-http-plan.md, Task 2 first slice). It is written beside the prepared
 // record, never into it: Task 1's prepared identity is not changed.
-const PreparedHTTPClientEntrypointsVersion = "yolo.http-client-entrypoints/1"
+const PreparedHTTPClientEntrypointsVersion = "yolo.http-client-entrypoints/2"
 
 // PreparedHTTPClientEntrypoint is one selected client's checked delivery and its binding. Before
 // the keeper mints a generation the producer hands it over with Binding.Generation empty
@@ -83,6 +83,12 @@ func (c PreparedHTTPClientEntrypoint) ValidateDelivery() error {
 	}
 	if c.Binding.Bin != c.Bin {
 		return errors.New("private client entrypoint binds another bin")
+	}
+	// The bound Node is the one the checked delivery's runtime observed (pack-brokers-http-plan.md,
+	// Task 2's interpreter closure).
+	var runtime struct{ NodeDigest string }
+	if json.Unmarshal([]byte(c.Runtime), &runtime) != nil || runtime.NodeDigest == "" || c.Binding.NodeSHA256 != "sha256:"+runtime.NodeDigest {
+		return errors.New("private client entrypoint does not bind the Node its delivery was prepared with")
 	}
 	return nil
 }

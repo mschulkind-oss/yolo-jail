@@ -109,7 +109,7 @@ func TestTwoJailsOnOneLoopbackServeOnTheirOwnPorts(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 
 	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
-	// set (secret-env-scoping.md).
+	// set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	writeUserTOML(t, fmt.Sprintf(`packs = ["claude", "cerebras", "codex-auth"]
 
 [active_provider]

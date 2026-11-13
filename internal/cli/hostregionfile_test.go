@@ -134,7 +134,7 @@ func TestHostRegionFillReadsNoProfileTheAgentDoesNotReceive(t *testing.T) {
 // it — the lookup the fill read for that entry is the one the host's region ask for it carries
 // (regionGaps' RegionFileFor).
 func TestHostLaunchTakesTheRegionOfTheHostsAWSConfigForALaterEntry(t *testing.T) {
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	const cfg = `packs = ["pi", "zai", "bedrock"]
 
 [env.secrets]

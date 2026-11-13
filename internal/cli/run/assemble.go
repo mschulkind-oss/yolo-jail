@@ -1196,7 +1196,7 @@ func (o *Options) servedDaemons(specs []loopholes.JailDaemonSpec) packload.Serve
 	names = append(append([]string(nil), names...), o.jailBound...)
 	// And the FRONTED HOST LOOPHOLES jailDaemonsFor recorded: a pointer `served_by` one reaches
 	// its host daemon through yolo's loopback-TLS front (loopholes.FrontedHostNames,
-	// docs/design/git-broker-plan.md ID-6), so it is delivered exactly when the loophole is on.
+	// docs/reference/git-broker.md ID-6), so it is delivered exactly when the loophole is on.
 	// One it leaves out carries its reason: the loophole is off, or the backend serves none.
 	names = append(names, o.frontedHost...)
 	served := packload.ServedInJail(names).WithListen(listen).WithRebind(o.movedServedAddresses()).

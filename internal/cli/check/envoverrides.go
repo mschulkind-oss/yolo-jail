@@ -164,7 +164,7 @@ func overrideScope(packs []*packload.Pack, merged *jsonx.OrderedMap, served pack
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
 	// Its removals too (an inline null), which the composition below ranks with env_sources, as
 	// the launch does: a null takes a pack env value of its name out of every process.
-	// Both sets (secret-env-scoping.md#33-the-two-sets), with the set bit the gate reads.
+	// Both sets (docs/reference/providers.md#the-two-env-sets-public-and-private), with the set bit the gate reads.
 	hydrated := config.ResolveEnv(workspace, merged, configWarn)
 	// The CONFIG's profile table — the `profile` selection, which is the only one a
 	// launch-less command has. See the `-p` note above.

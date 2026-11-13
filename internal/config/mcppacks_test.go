@@ -1,7 +1,7 @@
 package config
 
 // mcppacks_test.go pins the config side of the `mcp` contribution kind
-// (docs/design/mcp-presets-removal.md OQ-MP3): the kind's entry carries exactly the fields a user's
+// (docs/reference/mcp-configuration.md OQ-MP3): the kind's entry carries exactly the fields a user's
 // own mcp_servers entry takes (risk R2) less the user-only ones (mcpsignin_test.go), and a server
 // name two selected packs ship is refused by validation — the call both `yolo check` and the
 // launch preflight make.

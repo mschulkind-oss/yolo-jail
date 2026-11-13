@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -422,6 +423,32 @@ func TestColorMarkupHonorsNoColor(t *testing.T) {
 		if strings.Contains(buf.String(), "[green]") {
 			t.Errorf("raw markup leaked:\n%q", buf.String())
 		}
+	}
+}
+
+// TestStatusColorsItsSocketPathsAdditively pins the Group C polish of
+// docs/plans/cli-visual-polish.md: each socket path, and the older yolo's stop command, is cyan
+// on a terminal, and the colored report without its escapes is the plain one byte for byte.
+func TestStatusColorsItsSocketPathsAdditively(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	older := jailCopy("", 3, true)
+	older.HostWide, older.Socket = true, "/tmp/yolo-old-"+fixtureDaemon+".sock"
+	running := []Instance{jailCopy("aaaaaaaa", 7, true), older}
+	run := func(color bool) string {
+		deps, buf := newDeps(t, &verbState{running: running})
+		deps.Color = color
+		deps.IsTTYStdout = func() bool { return true }
+		PrintStatus(deps, fixtureDaemon)
+		return buf.String()
+	}
+	plain, colored := run(false), run(true)
+	for _, sock := range []string{running[0].Socket, older.Socket, StopHostWideCommand(fixtureDaemon)} {
+		if !strings.Contains(colored, "\x1b[36m"+sock+"\x1b[0m") {
+			t.Errorf("%q is not cyan:\n%q", sock, colored)
+		}
+	}
+	if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != plain {
+		t.Errorf("stripped colored status differs from the plain one:\n%q\n%q", got, plain)
 	}
 }
 

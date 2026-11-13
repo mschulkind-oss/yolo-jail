@@ -875,7 +875,7 @@ func TestCurrentSettingsDoctorSubstitutesOnlyDeclaredSettingsToken(t *testing.T)
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 
 // A FRONTED HOST LOOPHOLE IS SERVED BY NAME WHERE ITS HOST DAEMON SERVES THE JAIL
-// (docs/design/git-broker-plan.md ID-6): an enabled loophole whose host_daemon answers over
+// (docs/reference/git-broker.md ID-6): an enabled loophole whose host_daemon answers over
 // loopback-tls is listed on podman and macos-user, never on Apple Container, which runs no host
 // services, and a disabled one, or one with no host daemon, never.
 func TestFrontedHostNames(t *testing.T) {
