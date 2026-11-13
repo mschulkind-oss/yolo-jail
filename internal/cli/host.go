@@ -310,6 +310,9 @@ type hostExecFlags struct {
 	// setup is --setup as typed, "" when not given: it must name a setup with no walls
 	// (resolveHostSetup), and the host verb's own default is host-self.
 	setup string
+	// resolved is the setup resolveHostSetup chose for this launch, which its session record
+	// names so `yolo ps` lists it under that setup (named-setups.md SU-D11).
+	resolved setup.Setup
 }
 
 // jailOnlyRunFlags are the launch flags `yolo run` takes and `yolo host --` has no meaning for:
@@ -664,9 +667,11 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		fmt.Fprintf(errw, "yolo host: nothing to run after `--`\n\n%s\n", hostUsage)
 		return 2
 	}
-	if _, rc := resolveHostSetup(flags.setup, os.Getenv, runtime.GOOS, errw); rc != 0 {
+	hostSetup, rc := resolveHostSetup(flags.setup, os.Getenv, runtime.GOOS, errw)
+	if rc != 0 {
 		return rc
 	}
+	flags.resolved = hostSetup
 	// SP-R1: decide whether this is an owned host launch before profile selection, the trace,
 	// pack refresh, environment/credential composition, readiness or any launch-owned writes.
 	if refuseHostCommandLaunch(errw) {
@@ -679,7 +684,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	}
 	trace := startHostLaunchTrace(cmd[0], flags.timing, errw)
 	trace.recordInvocation()
-	rc := hostLaunch(flags, profile, cmd, out, trace.errw, errw, stdin, trace)
+	rc = hostLaunch(flags, profile, cmd, out, trace.errw, errw, stdin, trace)
 	trace.end(rc)
 	return rc
 }
@@ -1058,7 +1063,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// to the program (KeepAcrossExec, below); every path that returns ends it.
 	var hostSession *run.HostSession
 	if len(launch.doorways.Plans()) == 0 {
-		hs, err := run.OpenHostSession(launch.workspace, paths.IsMacOS, errw)
+		hs, err := run.OpenHostSession(launch.workspace, flags.resolved, paths.IsMacOS, errw)
 		if err != nil {
 			fmt.Fprintf(errw, "yolo host: could not record this launch for `yolo ps` (%v), so it does not list %s. "+
 				"The launch goes on; `yolo ps` lists the next one.\n", err, launch.agent)
@@ -1095,6 +1100,7 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			return startLaunchService(plan, input)
 		}
 		launch.doorways.PinnedTo(pin, launch.helperJail(), hostStopRemedy)
+		launch.doorways.ForSetup(flags.resolved)
 		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
 			launch.agent, errw, startPinned)
 		for _, line := range lines {

@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/stateguard"
@@ -19,18 +17,16 @@ const SectionRescue = "rescued agent homes"
 // rescueStores lists each rescue with its size and the command that restores it. Nothing reclaims
 // one: it is the user's only copy of a lost session, so yolo never deletes it, and the row says
 // how the user may.
-func rescueStores(o Options, rt string) []Store {
+func rescueStores(o Options) []Store {
 	// The workspace this was run in, then those a runtime still lists a jail for, as the durable
 	// rows read them: a rescue's jail is gone by the time it is made.
 	var workspaces []string
 	if o.Workspace != "" {
 		workspaces = append(workspaces, o.Workspace)
 	}
-	if slices.Contains(paths.SupportedRuntimes, rt) {
-		for _, ws := range prune.FindYoloWorkspaces(rt, o.Exec) {
-			if !slices.Contains(workspaces, ws) {
-				workspaces = append(workspaces, ws)
-			}
+	for _, ws := range sourceWorkspaces(o) {
+		if !slices.Contains(workspaces, ws) {
+			workspaces = append(workspaces, ws)
 		}
 	}
 	var out []Store

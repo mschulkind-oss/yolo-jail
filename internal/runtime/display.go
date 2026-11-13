@@ -91,62 +91,53 @@ func BakedYoloVersionFromInspectEnv(envLines []string) (string, bool) {
 	return "", false
 }
 
-// PsContainer is a fully-resolved ps display row: the parsed CLI fields plus the
-// workspace resolved from the tracking file / inspect, and the setup the jail runs as
-// (named-setups-plan.md slice 6b): its launch record's, or the one its name carries; "" when
-// neither says, which the table prints as PsUnknownSetup (named-setups.md §12.2).
-type PsContainer struct {
-	Name      string
+// PsTableRow is one row of the `yolo ps` table (named-setups.md §12.3), each cell already the
+// text it prints: the workspace (`~` for your home), the setup (PsUnknownSetup when not known),
+// the status, the age and the packs (each "?" when not known).
+type PsTableRow struct {
+	Workspace string
 	Setup     string
 	Status    string
-	Workspace string
+	Age       string
+	Packs     string
 }
 
-// PsUnknownSetup is the SETUP cell of a row whose setup is not known: a jail an older yolo
-// started, which recorded none and carries none in its name.
-const PsUnknownSetup = "?"
+// PsUnknown is the cell of a field that is not known: a jail an older yolo started, which recorded
+// none of it (named-setups.md §12.2).
+const PsUnknown = "?"
 
-// RenderPsTable renders the `yolo ps` table: a header then one line per container, with the
-// name, setup and status columns left-padded to the widest value (measured in Unicode code
-// points), two spaces between columns. Returns "" for no containers
-// (the caller prints "No running jails." instead). No trailing newline on the
-// final row (each line is joined by "\n").
-func RenderPsTable(containers []PsContainer) string {
-	if len(containers) == 0 {
+// PsUnknownSetup is the SETUP cell of a row whose setup is not known.
+const PsUnknownSetup = PsUnknown
+
+// RenderPsTable renders the `yolo ps` table: the header WORKSPACE SETUP STATUS AGE PACKS, then one
+// line per row in the order given, every column but the last left-padded to its widest value
+// (measured in Unicode code points), two spaces between columns. Returns "" for no rows (the
+// caller prints its empty state instead). No trailing newline on the final row.
+func RenderPsTable(rows []PsTableRow) string {
+	if len(rows) == 0 {
 		return ""
 	}
-	wName, wSetup, wStatus := 0, utf8.RuneCountInString("SETUP"), 0
-	for _, c := range containers {
-		wName = max(wName, utf8.RuneCountInString(c.Name))
-		wSetup = max(wSetup, utf8.RuneCountInString(psSetupCell(c.Setup)))
-		wStatus = max(wStatus, utf8.RuneCountInString(c.Status))
+	header := PsTableRow{"WORKSPACE", "SETUP", "STATUS", "AGE", "PACKS"}
+	cells := func(r PsTableRow) []string { return []string{r.Workspace, r.Setup, r.Status, r.Age, r.Packs} }
+	widths := make([]int, 4)
+	for _, r := range append([]PsTableRow{header}, rows...) {
+		for i, c := range cells(r)[:4] {
+			widths[i] = max(widths[i], utf8.RuneCountInString(c))
+		}
 	}
 	var b strings.Builder
-	b.WriteString(padRunes("CONTAINER", wName))
-	b.WriteString("  ")
-	b.WriteString(padRunes("SETUP", wSetup))
-	b.WriteString("  ")
-	b.WriteString(padRunes("STATUS", wStatus))
-	b.WriteString("  WORKSPACE")
-	for _, c := range containers {
-		b.WriteString("\n")
-		b.WriteString(padRunes(c.Name, wName))
-		b.WriteString("  ")
-		b.WriteString(padRunes(psSetupCell(c.Setup), wSetup))
-		b.WriteString("  ")
-		b.WriteString(padRunes(c.Status, wStatus))
-		b.WriteString("  ")
-		b.WriteString(c.Workspace)
+	for n, r := range append([]PsTableRow{header}, rows...) {
+		if n > 0 {
+			b.WriteString("\n")
+		}
+		c := cells(r)
+		for i := 0; i < 4; i++ {
+			b.WriteString(padRunes(c[i], widths[i]))
+			b.WriteString("  ")
+		}
+		b.WriteString(c[4])
 	}
 	return b.String()
-}
-
-// psSetupCell is a row's SETUP cell: its setup, or PsUnknownSetup.
-func psSetupCell(setup string) string {
-	if setup == "" {
-		return PsUnknownSetup
-	}
-	return setup
 }
 
 // padRunes left-justifies s to width code points with trailing spaces. If s is

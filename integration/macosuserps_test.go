@@ -99,12 +99,15 @@ func (h *heldSession) release(t *testing.T) hd10Result {
 	return h.wait()
 }
 
-// psJSON is the part of `yolo ps --format json` this test reads.
+// psJSON is the part of `yolo ps --format json` this test reads (named-setups.md §12.4).
 type psJSON struct {
-	Runtime    string `json:"runtime"`
-	Enumerated bool   `json:"enumerated"`
-	Jails      []struct {
-		Name, Status, Workspace string
+	Schema  string `json:"schema"`
+	Sources []struct {
+		Confinement, State string
+	} `json:"sources"`
+	Jails []struct {
+		Name, Confinement, Status string
+		Setup, Workspace          *string
 	} `json:"jails"`
 }
 
@@ -136,16 +139,20 @@ func TestMacosUserPsListsItsLiveSession(t *testing.T) {
 	session.awaitUp(t)
 
 	rep := runPsJSON(t, ws)
-	if rep.Runtime != "macos-user" || !rep.Enumerated {
-		t.Fatalf("`yolo ps` answered runtime %q, enumerated %v; want an enumerated macos-user listing",
-			rep.Runtime, rep.Enumerated)
+	seatbeltListed := false
+	for _, src := range rep.Sources {
+		seatbeltListed = seatbeltListed || (src.Confinement == "seatbelt" && src.State == "listed")
+	}
+	if rep.Schema != "yolo.ps/1" || !seatbeltListed {
+		t.Fatalf("`yolo ps` answered schema %q, sources %+v; want yolo.ps/1 with the Seatbelt source listed",
+			rep.Schema, rep.Sources)
 	}
 	listed := false
 	for _, j := range rep.Jails {
-		if sameDir(j.Workspace, ws) {
+		if j.Workspace != nil && sameDir(*j.Workspace, ws) {
 			listed = true
-			if j.Status != "running (macos-user session)" {
-				t.Errorf("the running session lists with status %q", j.Status)
+			if j.Status != "running" || j.Confinement != "seatbelt" || j.Setup == nil || *j.Setup != "seatbelt-yolo-account" {
+				t.Errorf("the running session lists as %+v; want running, seatbelt, setup seatbelt-yolo-account", j)
 			}
 		}
 	}
@@ -169,7 +176,7 @@ func TestMacosUserPsListsItsLiveSession(t *testing.T) {
 		t.Fatalf("the held session did not end cleanly (rc %d):\n%s", r.rc, lastLines(r.combined(), 60))
 	}
 	for _, j := range runPsJSON(t, ws).Jails {
-		if sameDir(j.Workspace, ws) {
+		if j.Workspace != nil && sameDir(*j.Workspace, ws) {
 			t.Errorf("after the session ended, `yolo ps` still lists it: %+v", j)
 		}
 	}

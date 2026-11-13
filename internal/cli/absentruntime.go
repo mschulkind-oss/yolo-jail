@@ -1,9 +1,10 @@
 package cli
 
-// absentruntime.go is the next step the listing verbs (`yolo ps`, `yolo stores`, `yolo prune`)
-// name when the runtime of the setup a launch from here selects is not installed: on a Mac with
-// Podman and no Apple Container, the default setup's runtime is absent, and each verb would
-// otherwise only report that it could not ask it.
+// absentruntime.go is the next step `yolo prune` names when the runtime of the setup a launch from
+// here selects is not installed: on a Mac with Podman and no Apple Container, the default setup's
+// runtime is absent, and prune would otherwise only report that it could not ask it. `yolo ps`
+// and `yolo stores` ask every source instead, and their source lines say which technology is not
+// installed (named-setups-plan.md slices 11d and 11f).
 
 import (
 	"fmt"

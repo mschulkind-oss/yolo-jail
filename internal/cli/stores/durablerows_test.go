@@ -5,10 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
 // EVERY KNOWN WORKSPACE'S DURABLE DIR IS A ROW, verdict human and reclaimer none (OQ-DS2):
@@ -48,16 +46,11 @@ func TestEachKnownWorkspacesDurableDirIsARow(t *testing.T) {
 	}
 
 	o, _ := testOptions(t)
-	o.Exec = func(argv []string, _ time.Duration) prune.ProbeResult {
-		switch k := strings.Join(argv, " "); {
-		case strings.HasSuffix(k, "ps -a --format {{.Names}}"):
-			return prune.ProbeResult{Ran: true, Stdout: "yolo-proj-1\nyolo-bare-2\n"}
-		case strings.HasSuffix(k, "yolo-proj-1"):
-			return prune.ProbeResult{Ran: true, Stdout: `[{"Destination":"/workspace","Source":"` + ws + `"}]`}
-		case strings.HasSuffix(k, "yolo-bare-2"):
-			return prune.ProbeResult{Ran: true, Stdout: `[{"Destination":"/workspace","Source":"` + bare + `"}]`}
-		}
-		return prune.ProbeResult{Ran: false}
+	// Two technologies run jails of ws, and one runs a jail of bare: ws still gets one row
+	// (named-setups.md §12.5).
+	o.Sources = []Source{
+		podmanListed(SourceJail{Name: "yolo-proj-1", Workspace: ws}),
+		appleContainerListed(SourceJail{Name: "yolo-proj-2", Workspace: ws}, SourceJail{Name: "yolo-bare-2", Workspace: bare}),
 	}
 	rep := Inventory(o)
 	var rows []Store

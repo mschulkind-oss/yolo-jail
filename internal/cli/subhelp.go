@@ -95,7 +95,7 @@ var subcommandUsage = map[string]subUsage{
 	// --format's value is consumed, so `yolo ps --format --help` asks for a format
 	// called "--help" (and is refused as one) rather than reading as a help
 	// request — the same rule init's -m follows.
-	"ps": {text: psUsage, valueFlags: []string{"--format"}},
+	"ps": {text: psUsage, valueFlags: []string{"--format", "--setup"}},
 	// `--keep-images` was here until OQ-LS3 removed the flag: it is refused now
 	// rather than parsed, so it consumes no value and `yolo prune --keep-images
 	// --help` must reach the help (which explains the removal) instead of
@@ -103,7 +103,7 @@ var subcommandUsage = map[string]subUsage{
 	"prune": {text: pruneUsage, valueFlags: []string{"--image-cache-keep", "--cache-age", "--nix-gc-max", "--format"}},
 	// The text lives with the command, in internal/cli/stores, because that package
 	// owns the flags it documents; this table stays the one complete inventory.
-	"stores":      {text: stores.Usage},
+	"stores":      {text: stores.Usage, valueFlags: []string{"--setup"}},
 	"nix-roots":   {text: nixRootsUsage, valueFlags: []string{"--format"}},
 	"update":      {text: updateUsage, valueFlags: []string{"--from"}},
 	"approve":     {text: approveUsage, valueFlags: []string{"--for", "--revoke", "--workspace", "--note", "--listen", "--reconcile", "--assets"}},

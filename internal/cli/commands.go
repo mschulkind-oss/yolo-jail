@@ -533,24 +533,56 @@ func runStores(args []string) int {
 	if answerHelp("stores", args, os.Stdout) {
 		return 0
 	}
-	return stores.Run(storesOptions(args))
+	opts, rc := storesOptions(args, os.Stderr)
+	if rc != 0 {
+		return rc
+	}
+	return stores.Run(opts)
 }
 
-// storesOptions turns `yolo stores`'s argv into the engine's Options plus the
-// config-aware runtime resolver — see runStores for why that one seam is the
-// front door's to inject.
-func storesOptions(args []string) stores.Options {
-	opts := stores.ParseArgs(args)
+// storesOptions turns `yolo stores`'s argv into the engine's Options, plus what that package
+// cannot learn for itself: the config-aware resolver of the selected setup's runtime, and every
+// source's answer from `yolo ps`'s discovery (named-setups.md §12.5), narrowed by --setup to one
+// technology (§12.6). rc is non-zero, with the reason on errw, when --setup is refused.
+func storesOptions(args []string, errw io.Writer) (stores.Options, int) {
+	rest, only, rc := setupFlag("stores", args, errw)
+	if rc != 0 {
+		return stores.Options{}, rc
+	}
+	opts := stores.ParseArgs(rest)
 	opts.Color = true
 	opts.IsTTYStdout = isTTYStdout
 	ws, err := os.Getwd()
 	if err != nil {
 		ws = "."
 	}
-	opts.DetectRuntime = listingDetect("stores", ws, os.Stderr)
+	opts.SelectedRuntime = func() string { return detectListingRuntime(ws) }
+	opts.Sources = storesSources(storesDiscover(only))
 	// The workspace this was run in, whose rescues are listed even with no jail of it running.
 	opts.Workspace = ws
-	return opts
+	return opts, 0
+}
+
+// storesDiscover is `yolo ps`'s discovery over the real seams, narrowed to only's technology when
+// set; a var so a test need not ask a runtime.
+var storesDiscover = func(only *setup.Setup) []*psSource {
+	return psDiscover(psDefaults(psRealDeps("", only)))
+}
+
+// storesSources is ps's answers in the shape the inventory reads.
+func storesSources(sources []*psSource) []stores.Source {
+	var out []stores.Source
+	for _, s := range sources {
+		src := stores.Source{
+			Confinement: string(s.spec.confinement), Display: s.spec.display, Setup: s.spec.builtIn,
+			State: s.state, Detail: s.detail, NextStep: s.nextStep,
+		}
+		for _, r := range s.rows {
+			src.Jails = append(src.Jails, stores.SourceJail{Name: r.name, Workspace: r.workspace})
+		}
+		out = append(out, src)
+	}
+	return out
 }
 
 const hostDaemonUsage = `Usage: yolo host-daemon <subcommand> [<name>]
@@ -1132,35 +1164,43 @@ func parseSetEnabledArgs(args []string) (name string, opts loopholes.SetEnabledO
 	return name, opts, ""
 }
 
-const psUsage = `Usage: yolo ps [--format json]
+const psUsage = `Usage: yolo ps [--setup <name>] [--format json]
 
-List the running yolo-* jails and the workspace each one is attached to, so you
-can tell whether ` + "`yolo`" + ` in this directory would ATTACH to a live jail or start a
-fresh one.
+List every running yolo jail on this machine, whatever runs it: Podman, Apple
+Container, Seatbelt and ` + "`yolo host`" + ` launches, in one table of WORKSPACE, SETUP,
+STATUS, AGE and PACKS. So you can tell whether ` + "`yolo`" + ` in a directory would ATTACH
+to a live jail or start a fresh one.
 
-The container runtime is the backend of the setup a launch would select (YOLO_SETUP,
-then the ` + "`setup`" + ` config key, then the OS default), so on a Mac running Apple
-Container this lists that runtime's jails rather than an empty podman.
+Every technology this machine has is asked at once, each under its own time
+budget. One that does not answer gets a line under the table saying so, with
+the step that helps (` + "`container system start`" + `, say); the others are still
+listed. A setup shown as ? was started by an older yolo that did not record it.
 
 Flags:
+  --setup <name>           List only that setup's jails, asking only its
+                           technology. The name is resolved as a launch
+                           resolves it; one this machine cannot build lists
+                           nothing and says why.
 ` + outputFormatUsage + `
   --help, -h               Show this help.
 
-The JSON carries one object per jail (name, status, workspace, and a problem
-string when it has one) plus an ` + "`enumerated`" + ` boolean. CHECK THAT BOOLEAN FIRST:
-false means the runtime could not be reached, which is a different state from an
-idle machine and must not be read as "no jails".
+The JSON is the yolo.ps/1 document: a ` + "`sources`" + ` array with each technology's
+state (listed, not-installed, unreachable or timed-out), a ` + "`complete`" + ` boolean,
+and one object per jail (name, setup, confinement, run_as, workspace, status,
+started, packs, yolo_version, problems; null where it is not known). CHECK
+` + "`complete`" + ` FIRST: false means a source could not be asked, which is a different
+state from an idle machine and must not be read as "no jails". The exit code is
+0 either way.
 
 Examples:
   yolo ps                       # is a jail already up for this workspace?
+  yolo ps --setup podman-self   # only Podman's jails
   yolo ps --format json         # the same, for a script or an agent
 
 ` + "`yolo prune`" + ` reclaims what the jails listed here have left behind.`
 
-// runPs runs `yolo ps` (list running jails). ps takes no flags of its own beyond
-// help. Uses platform-aware runtime resolution: on macOS with Apple Container
-// running, `podman ps` would be empty and the tracking-prune would delete live
-// jails' files.
+// runPs runs `yolo ps` (list every running jail, named-setups.md §12): --setup and --format,
+// then one discovery over every source.
 func runPs(args []string) int {
 	if answerHelp("ps", args, os.Stdout) {
 		return 0
@@ -1172,16 +1212,43 @@ func runPs(args []string) int {
 	if !ok {
 		return 2
 	}
-	if refuseUnknownFlags("ps", args, []string{"--format", "--json", "--help", "-h", "ps"},
+	rest, only, rc := setupFlag("ps", args, os.Stderr)
+	if rc != 0 {
+		return rc
+	}
+	if refuseUnknownFlags("ps", rest, []string{"--format", "--json", "--help", "-h", "ps"},
 		os.Stderr) {
 		return 2
 	}
-	ws, err := os.Getwd()
-	if err != nil {
-		ws = "."
+	// YOLO_SETUP does not narrow the list (named-setups.md §12.1): every launch exports it into
+	// its session, so honoring it would narrow every `yolo ps` typed inside a jail. --setup does.
+	return psRun(psRealDeps(format, only))
+}
+
+// setupFlag takes `--setup <name>` out of a listing verb's args and resolves it as a launch resolves
+// one (named-setups.md §12.6, SUP-D27): through setup.Lookup over the built-ins and the user
+// config's setups, so an undefined name is refused with the launch's own message, exit 2. A setup
+// this machine cannot build is not refused: it lists nothing and says why.
+func setupFlag(verb string, args []string, errw io.Writer) (rest []string, only *setup.Setup, rc int) {
+	for i := 0; i < len(args); i++ {
+		fl, ok := readValueFlag(args, i, "--setup")
+		if !ok {
+			rest = append(rest, args[i])
+			continue
+		}
+		if fl.err != nil {
+			fmt.Fprintf(errw, "yolo %s: %v (a setup's name; `yolo setup list` names them)\n", verb, fl.err)
+			return nil, nil, 2
+		}
+		_, user, _ := config.SelectedSetupFromConfig()
+		s, err := setup.Lookup(fl.value, user)
+		if err != nil {
+			fmt.Fprintf(errw, "yolo %s: %v\n", verb, err)
+			return nil, nil, 2
+		}
+		only, i = &s, fl.last
 	}
-	detect := listingDetect("ps", ws, os.Stderr)
-	return psRun(psRealDeps(psRunCmd, detect, format))
+	return rest, only, 0
 }
 
 // checkKnownFlags is check/doctor's whole flag surface. `--format` is parsed by
@@ -1256,7 +1323,7 @@ func detectListingRuntime(workspace string) string {
 
 // psRunCmd runs a container-runtime probe and returns (stdout, ok). ok=false on
 // a spawn error OR non-zero exit — the tri-state "could not enumerate" that
-// pscmd must NOT collapse to "no jails" (else it prunes live jails' tracking
+// a probe must NOT collapse to "no jails" (else it prunes live jails' tracking
 // files, audit §D11).
 func psRunCmd(argv []string) (string, bool) {
 	cmd := exec.Command(argv[0], argv[1:]...)
