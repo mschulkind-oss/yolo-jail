@@ -55,7 +55,7 @@ func writeWinnerFixture(t *testing.T, home string) {
   return {K1 = "shape", FXP_KEY = "shape-key", K2 = "shape", K3 = "shape", K6 = "shape", K7 = ctx.tombstone}
 end)
 `)
-	// FXP_KEY is the fxp provider's key, so it lives in the private set (secret-env-scoping.md).
+	// FXP_KEY is the fxp provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	userCfg(t, home, `packs = ["packs/fx"]
 
 [pack_sources.packs]

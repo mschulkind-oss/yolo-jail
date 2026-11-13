@@ -122,7 +122,7 @@ confinement dial). For the
    *was* the fragility, not the fix for it. A pack that needs neither channel declares neither.
 2. **P2 — The env channel is mandatory, not a fallback.** `api_key_env_name` puts only a variable
    *name* in config, and the env channel (`[env.secrets]` for a provider's key since
-   [secret-env-scoping](../design/secret-env-scoping.md); legacy `env_sources`) carries its value;
+   [the two env sets](providers.md#the-two-env-sets-public-and-private); legacy `env_sources`) carries its value;
    nothing else populates it on the host. **Any BYOK
    provider is unusable on the host without this channel** — for every agent, not just the one
    with no config file. The deciding fact is not a property of the agent at all: whether the env

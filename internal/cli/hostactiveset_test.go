@@ -22,7 +22,7 @@ import (
 
 // setHostCfg selects the shipped claude, pi, zai and openrouter packs and hydrates both
 // providers' keys, in the private set, where a provider's key lives
-// (docs/design/secret-env-scoping.md).
+// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 const setHostCfg = `packs = ["claude", "pi", "zai", "openrouter"]
 
 [env.secrets]
@@ -478,7 +478,7 @@ set = { ZAI_API_KEY = "tok-zai" }
 // cutting the note from profileLines or the fold's narrowing from composeHostVarsWith fails it.
 func TestHostNarrowsTheProfileKeysBareListForClaudeAndSaysSo(t *testing.T) {
 	// The legacy key's list form and its list under "*" both migrate to the one TOML spelling,
-	// `default` under [active_provider], which the keys' private set needs (secret-env-scoping.md).
+	// `default` under [active_provider], which the keys' private set needs (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	for _, key := range []string{"[active_provider]\ndefault = [\"zai\", \"openrouter\"]"} {
 		cfg := `packs = ["claude", "pi", "zai", "openrouter"]
 
@@ -682,7 +682,7 @@ func TestHostApplyRendersOpencodesSet(t *testing.T) {
 }
 
 // setRemedyCfg selects pi with three providers' keys hydrated, so a launch on two of them
-// withholds the third's. The keys are in the private set (docs/design/secret-env-scoping.md).
+// withholds the third's. The keys are in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 const setRemedyCfg = `packs = ["claude", "pi", "zai", "openrouter", "cerebras"]
 
 [env.secrets]

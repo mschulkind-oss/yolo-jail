@@ -631,7 +631,7 @@ func TestHostRefusesWhenTheDoorwayCannotStart(t *testing.T) {
 // reaches the host service's credential through it. Planning the doorways over the primary
 // alone (zai, no platform) opens none, and pi's Bedrock entry starts with no credential.
 func TestHostPiWithABedrockEntryAfterTheFirstGetsTheDoorway(t *testing.T) {
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	cfg := `packs = ["pi", "zai", "bedrock"]
 
 [active_provider]

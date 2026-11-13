@@ -36,7 +36,7 @@ func TestHostSecretEnvDropsARelativePrivateFile(t *testing.T) {
 }
 
 // hostSecretEnvConfig is a user config with a claimed private key (zai's), an unclaimed private
-// name, and one public value: secret-env-scoping.md §3.4 rows 1, 3 and 4 at `yolo host`.
+// name, and one public value: docs/reference/providers.md#the-two-env-sets-public-and-private rows 1, 3 and 4 at `yolo host`.
 const hostSecretEnvConfig = "packs = [\"zai\"]\nhost_management = \"own\"\nhost_apply_on_launch = false\n\n" +
 	"[env]\nset = { GH_TOKEN = \"g\" }\n\n" +
 	"[env.secrets]\nset = { ZAI_API_KEY = \"z-probe\", STRIPE_KEY = \"s-probe\" }\n"
@@ -90,7 +90,7 @@ func TestHostSecretEnvKeepsThePrivateSetFromAnUnclaimingCommand(t *testing.T) {
 }
 
 // A private name the invoking shell exports too: the command holds the shell's own value, and the
-// line says yolo did not add it, still naming the remedy (secret-env-scoping.md §4.22).
+// line says yolo did not add it, still naming the remedy (docs/reference/providers.md#the-two-env-sets-public-and-private).
 func TestHostSecretEnvSaysAShellValuePassesThrough(t *testing.T) {
 	env, errs := hostSecretEnvRun(t, map[string]string{"STRIPE_KEY": "shell"})
 	if env["STRIPE_KEY"] != "shell" {
@@ -102,7 +102,7 @@ func TestHostSecretEnvSaysAShellValuePassesThrough(t *testing.T) {
 	}
 }
 
-// hostPublicKeyConfig holds zai's key in the PUBLIC set: secret-env-scoping.md §3.5's row 2.
+// hostPublicKeyConfig holds zai's key in the PUBLIC set: docs/reference/providers.md#the-two-env-sets-public-and-private row 2.
 const hostPublicKeyConfig = "packs = [\"zai\"]\n\n[env]\nset = { ZAI_API_KEY = \"z-probe\" }\n"
 
 // Row 2 at the host notch: `yolo host --` and `yolo host env` refuse a selected provider's key in

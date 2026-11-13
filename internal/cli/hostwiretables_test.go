@@ -57,7 +57,7 @@ func wireTable(t *testing.T, env map[string]string, name string) map[string]any 
 
 // zaiOverBedrock is the measured case of OQ-FT15: the config selects bedrock for claude, and the
 // launch types `-p zai`. ZAI_API_KEY is the zai provider's key, so it lives in the private set
-// (secret-env-scoping.md), which only TOML spells.
+// (docs/reference/providers.md#the-two-env-sets-public-and-private), which only TOML spells.
 const zaiOverBedrock = `packs = ["claude", "zai"]
 
 [active_provider]

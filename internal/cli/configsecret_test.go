@@ -1,7 +1,7 @@
 package cli
 
 // configsecret_test.go drives `yolo config secret|unsecret` through configRunW, the real dispatch
-// (docs/design/secret-env-scoping.md SE-D9, §3.5; secret-env-scoping-plan.md Task 5).
+// (docs/reference/providers.md#the-two-env-sets-public-and-private, SE-D9).
 
 import (
 	"bytes"

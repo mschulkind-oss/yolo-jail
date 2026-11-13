@@ -109,7 +109,7 @@ func TestHostOverrideWarningsAndTheObserveVerb(t *testing.T) {
 // TestMacosUserWithholdsTheBedrockPointerSoNothingOverridesIt in internal/cli/run).
 func TestHostBearerBesideAWithheldPointerOverridesNothing(t *testing.T) {
 	// AWS_BEARER_TOKEN_BEDROCK is the bedrock provider's key, so it lives in the private set
-	// (secret-env-scoping.md).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	hostGateHome(t, `packs = ["claude", "bedrock"]
 
 [env.secrets]

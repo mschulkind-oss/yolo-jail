@@ -58,7 +58,7 @@ const codexProbeProvider = `"providers": {"llamacpp": {
 
 // codexProbeProviderTOML is codexProbeProvider in config.toml's spelling, for the launch that
 // carries zai's key: only TOML has the private set ([env.secrets]) a provider's key lives in
-// (secret-env-scoping.md), so that fixture is a TOML user config. Tables only, so it goes after
+// (docs/reference/providers.md#the-two-env-sets-public-and-private), so that fixture is a TOML user config. Tables only, so it goes after
 // every top-level key.
 const codexProbeProviderTOML = `[providers.llamacpp.endpoints.openai]
 base_url = "http://127.0.0.1:8080/v1"

@@ -1,8 +1,8 @@
 package config
 
 // envlocate.go answers "which config, in which scope, sets this name, and in which set" for the
-// env-set verbs and lines (docs/design/secret-env-scoping.md SE-D9, §3.6;
-// secret-env-scoping-plan.md SEP-D6, SEP-D11). It reads each scope's own top-level file, as the
+// env-set verbs and lines (docs/reference/providers.md#the-two-env-sets-public-and-private, SE-D9;
+// docs/reference/providers.md SEP-D6, SEP-D11). It reads each scope's own top-level file, as the
 // generic edit verbs select it, because that is the file a move writes: an include's entry is
 // not a site a verb can edit. It never returns a value.
 
@@ -33,7 +33,7 @@ type EnvScopeFile struct {
 	// ConfigFile is the file's path.
 	ConfigFile string
 	// Legacy is true for a JSONC (or JSON) file, which the verbs do not edit
-	// (secret-env-scoping.md SE-D6, secret-env-scoping-plan.md SEP-D18).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D6, docs/reference/providers.md SEP-D18).
 	Legacy bool
 	// Anchor is the directory a relative dotenv entry of this file sits beside.
 	Anchor string
@@ -74,7 +74,7 @@ func IsValidEnvName(name string) bool { return envVarNameRe.MatchString(name) }
 func (s EnvSite) Inline() bool { return s.Dotenv == "" }
 
 // Describe spells a place the way every env-set line and verb prints it
-// (secret-env-scoping-plan.md#SEP-D7). It never carries a value.
+// (docs/reference/providers.md#SEP-D7). It never carries a value.
 func (p EnvPlace) Describe() string {
 	switch p.Key {
 	case "env.set":
@@ -317,7 +317,7 @@ func EnvSiteOf(workspace string, userOnly bool) func(name string, private bool) 
 	}
 }
 
-// EnvNameScope is DisclosureNotes.Scope's answer (secret-env-scoping-plan.md#SEP-D6): " " plus
+// EnvNameScope is DisclosureNotes.Scope's answer (docs/reference/providers.md#SEP-D6): " " plus
 // the scope flag of the one scope whose config sets name, "" when none or several do, or the
 // configs cannot be read. Read on the cold path only, when a line is printed.
 func EnvNameScope(workspace string) func(name string) string {
