@@ -310,6 +310,11 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 	in := applyPlanInput{rt: run.rt, running: run.mode.running || run.mode.unknown, boot: boot,
 		bootOK: bootOK, current: current, mountRefusal: liveMountRefusal,
 		sessionInputs: jailTakesSessionInputs(run.envLines)}
+	if run.rt == "podman" && run.mode.running && !run.mode.unknown { // parity: Warned — only podman has an update verb; elsewhere the resources line says why it waits
+		in.resourcesLive, in.resourcesReason = o.resourcesLiveFor(run.rt)
+		in.resourceLimits = appliedResourceLimits(run.rt, config.Resources(run.cfg), o.appleContainerDefaultMemory)
+		o.forwardsInputs(&in, run)
+	}
 	if run.rt == "podman" && run.mode.running { // parity: Warned — only Podman supports live mounts; other backends report why they wait
 		in.mountRecordInvalidated = ctxMountRecordInvalidatedSeam(run.cname, run.envLines)
 	}
@@ -533,6 +538,10 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 			}
 		}
 		return nil
+	case changeForward:
+		return forwardStepSeam(o, run.rt, run.cname, c, deadline)
+	case changeResources:
+		return updateResourcesSeam(o, run.rt, run.cname, c.resourceFlag, c.resourceValue, deadline)
 	case changeGrants:
 		// THE GRANTS THE GATE APPROVED, its in-memory result (WW-P2), never a re-read.
 		ctx, cancel := contextForDeadline(deadline)

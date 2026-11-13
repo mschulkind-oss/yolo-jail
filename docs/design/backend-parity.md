@@ -5,7 +5,7 @@ status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
 stage: DESIGN
-next: "File the five unruled silent drops in §4.2 (on macos-user: the workspace_readonly config lock, programs.autoprune, a written network.mode bridge, a home-root host_files destination; on podman on a Mac: network.mode host) as a question, then rule each: warn, or rule the silence as §5.1 did"
+next: "Rule OQ-BP6 (network.mode host on podman on a Mac) and OQ-BP7 (a home-root host_files destination on macos-user), the two silent drops §4.2 found that are still unruled"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
@@ -26,7 +26,7 @@ executable without its `Cell` type ([§4.1](#41-what-shipped-instead-the-census-
 Every code claim was verified against the tree on 2026-08-24
 unless dated otherwise.
 
-**Needs your ruling:** the five silent drops [§4.2](#42-what-was-built-2026-10-05-and-what-it-found) records as "not a ruled decline", which this doc's `next` names and which are not yet filed as questions. [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building) was ruled in review on 2026-10-05: build it (A), and it is built ([§4.2](#42-what-was-built-2026-10-05-and-what-it-found)), the macos-user notice block reading its lines from the table at run time ([BP-D19](#BP-D19)). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
+**Needs your ruling:** [OQ-BP6](#OQ-BP6) and [OQ-BP7](#OQ-BP7), the two silent drops [§4.2](#42-what-was-built-2026-10-05-and-what-it-found) found that no ruling or later build has settled. [OQ-BP-1](#OQ-BP-1) (whether the census data structure is worth building) was ruled in review on 2026-10-05: build it (A), and it is built ([§4.2](#42-what-was-built-2026-10-05-and-what-it-found)), the macos-user notice block reading its lines from the table at run time ([BP-D19](#BP-D19)). [OQ-BP-3](#OQ-BP-3) (whether a `Warned` disposition needs to be suppressible) was answered on 2026-09-30 by a standing ruling, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way): a launch has no quiet mode.
 
 > [!NOTE]
 > **2026-09-09: [OQ-BP-2](#decision-ledger) was answered by CODE, not by a ruling** — skills and briefings have been
@@ -313,8 +313,12 @@ What enforces it:
   on macos-user, the lock on the workspace's own config file that `workspace_readonly` performs,
   `programs.autoprune`, a written `network.mode: "bridge"`, and a `host_files` destination at the
   home root, which lands in the sandbox account home every workspace shares; on podman on a Mac,
-  `network.mode: "host"`, which applies to the VM. Each needs a ruling: warn, or rule the silence
-  as [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about) did its rows.
+  `network.mode: "host"`, which applies to the VM. Three have since left the list by a build: the
+  config lock is a Seatbelt write deny (`workspaceReadonlyRels`, 2026-10-05), `programs.autoprune`
+  is relayed to the darwin bootstrap ([NC-D71](../plans/notch-convergence.md#NC-D71)), and a written
+  `bridge` is refused ([SU-R5](named-setups.md#SU-R5)). The two left are
+  [OQ-BP6](#OQ-BP6) and [OQ-BP7](#OQ-BP7): warn, build, or rule the silence as
+  [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about) did its rows.
 - **One launch line was stale**: Apple Container's warning for an explicit `network.mode: "host"`
   (`assembleRunCmd`) said `forward_host_ports` still applies. It now names only the published
   ports.
@@ -835,6 +839,45 @@ an agent plans around it.
 ---
 
 ## Open Questions
+
+1. 💬 <a id="OQ-BP6"></a>**[OQ-BP6](#OQ-BP6): On podman on a Mac, what should a written `network.mode: "host"` do?**
+
+   You copy a Linux config with `network.mode: "host"` to your Mac and launch with podman. The flag
+   reaches the Podman Machine VM, not the Mac, and nothing says so. The agent's briefing then says
+   `localhost` is the host, which is false, and a jail with a loopback service enabled can be
+   refused for a boundary it never crossed ([the per-setup page](../../userguide/reference/settings-per-setup.md)).
+
+   - **A.** The launch prints a warning naming the key and saying the mode is the VM's, and the
+     briefing stops claiming the Mac's loopback.
+   - **B.** The launch refuses, as [SU-R5](named-setups.md#SU-R5) refuses a mode the setup cannot
+     hold, naming `--setup` and the unset for the key.
+   - **C.** It stays silent, ruled as [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about)'s rows are.
+
+   <!-- vantage: question id=OQ-BP6 leaning="A: warn and correct the briefing. B is the SU-R5 reading, but podman on a Mac can hold the mode, only in the VM, and refusing one platform of a shared config is the trap section 5.1 names. C leaves the briefing false." -->
+
+   _Leaning:_ A: warn and correct the briefing. B is the [SU-R5](named-setups.md#SU-R5) reading, but podman on a Mac can hold the mode, only in the VM, and refusing one platform of a shared config is the trap [§5.1](#51-confirmed-drops-i-deliberately-did-not-warn-about) names. C leaves the briefing false.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 <a id="OQ-BP7"></a>**[OQ-BP7](#OQ-BP7): On macos-user, where should a `host_files` entry whose destination is the home root land?**
+
+   You declare `~/.npmrc` in `host_files` in two workspaces with different contents. On podman each
+   workspace gets its own copy. On macos-user both write the one sandbox account home every
+   workspace shares, so the second launch overwrites the first, and nothing says so (the census's
+   `host_files` `home_root_destination` cell).
+
+   - **A.** The launch warns, naming the entry and the shared home.
+   - **B.** yolo makes it per workspace, linking the destination into the workspace sidecar as the
+     container skeleton does, so the cell becomes honored.
+   - **C.** It stays silent, ruled.
+
+   <!-- vantage: question id=OQ-BP7 leaning="B, so macos-user behaves as the other setups do, with A as the line until B is built. Not C: one workspace silently changing another's file is the defect this doc is about." -->
+
+   _Leaning:_ B, so macos-user behaves as the other setups do, with A as the line until B is built. Not C: one workspace silently changing another's file is the defect this doc is about.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 1. <a id="OQ-BP-5"></a>✅ **[OQ-BP-5](#OQ-BP-5): which uid may read a loophole's endpoint file, once the jail is not root in a container? — ANSWERED BY CODE 2026-09-15**, see the [Decision Ledger](#decision-ledger). The question stood open for one day and was settled by a fifth candidate nobody had listed: a **macOS ACL entry**, so the mode never widens and nothing is copied.
 
