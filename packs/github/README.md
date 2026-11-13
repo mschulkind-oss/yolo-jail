@@ -24,11 +24,15 @@ configured.
   jail's `PATH`, so a bare `gh` reaches the broker while the image's own `/bin/gh` stays
   where it is (and `YOLO_BYPASS_SHIMS=1 gh …` runs it). That `gh` has no login in the jail.
   The shim is a forwarder, not a blocker, and its first lines say so.
-- **`briefing`** [`briefing/gh.md`](./briefing/gh.md): how `gh` behaves in the jail, so an
-  agent does not learn each rule by failing once. It reaches every agent in a jail, and not
-  at the host, where `gh` is your own: the contribution `describes` the `intercept`, and a
-  briefing about a kind the host does not apply is left out of a real home
-  ([BB-D69](../../docs/design/boundary-broker.md#BB-D69)).
+- **`briefing`** [`briefing/gh.md`](./briefing/gh.md): a pointer of a few sentences that
+  every agent loads, naming the `yolo-gh` skill.
+- **`skills`** [`skills/yolo-gh`](./skills/yolo-gh/SKILL.md): how `gh` behaves in the jail,
+  so an agent does not learn each rule by failing once, read when it is about to write
+  ([BD-D2](../../docs/design/briefing-diet.md#decision-ledger)). Both reach every agent in a jail, and
+  not at the host, where `gh` is your own: each contribution `describes` the `intercept`, and
+  content about a kind the host does not apply is left out of a real home
+  ([BB-D69](../../docs/design/boundary-broker.md#BB-D69),
+  [BD-D3](../../docs/design/briefing-diet.md#decision-ledger)).
 
 ## Turning it on
 

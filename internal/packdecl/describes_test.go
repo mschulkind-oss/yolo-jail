@@ -1,7 +1,7 @@
 package packdecl
 
 // describes_test.go pins `describes` (Contribution.Describes, docs/design/boundary-broker.md
-// BB-D69): accepted on briefing CONTENT naming a kind the pack declares, refused everywhere else,
+// BB-D69): accepted on briefing and skills CONTENT (docs/design/briefing-diet.md BD-D3) naming a kind the pack declares, refused everywhere else,
 // and its unknown-kind and sibling halves held to the strict path so a jail reading a newer
 // pack's manifest still boots.
 
@@ -23,6 +23,11 @@ func TestDescribesIsAcceptedOnBriefingContent(t *testing.T) {
 		`{"kind":"briefing","from":"briefing/gh.md","into":".acme/A.md","describes":["intercept"]},` + interceptJSON,
 		// An omitted `from` governs the convention's unnamed files, and gates them.
 		`{"kind":"briefing","describes":["intercept"]},` + interceptJSON,
+		// SKILLS CONTENT takes it with the same meaning (docs/design/briefing-diet.md BD-D3): the
+		// git pack's yolo-git skill is about its jail-only forwarder, so the host notch does not
+		// deliver it. The conventional source and a named, addressed one alike.
+		`{"kind":"skills","describes":["intercept"]},` + interceptJSON,
+		`{"kind":"skills","from":"extra-skills","agents":["claude"],"describes":["intercept"]},` + interceptJSON,
 	} {
 		if probs := decodeOne(t, raw); probs != "" {
 			t.Errorf("%s must validate, got %q", raw, probs)
@@ -40,8 +45,16 @@ func TestDescribesIsAcceptedOnBriefingContent(t *testing.T) {
 
 func TestDescribesIsRefusedOffBriefingContent(t *testing.T) {
 	for _, tc := range []struct{ raw, want string }{
-		{`{"kind":"skills","describes":["intercept"]},` + interceptJSON,
-			`kind "skills" does not take "describes"`},
+		// A skills DESTINATION names where an agent reads; it ships no skill of its own to
+		// withhold (P5), as a briefing destination ships no prose.
+		{`{"kind":"skills","agent":"acme","into":".acme/skills","describes":["intercept"]},` + interceptJSON,
+			`a skills DESTINATION (agent "acme") takes no "describes"`},
+		{`{"kind":"skills","describes":["briefing"]}`,
+			`describes[0]: "briefing" — a skill cannot be about the pack's briefing`},
+		{`{"kind":"skills","describes":["intercpt"]}`,
+			`contributes[0].describes[0]: unknown kind "intercpt"`},
+		{`{"kind":"skills","describes":["intercept"]}`,
+			`contributes[0].describes[0]: "intercept" — this pack declares no "intercept" contribution`},
 		{`{"kind":"files","from":"tree","agents":["claude"],"describes":["intercept"]},` + interceptJSON,
 			`kind "files" does not take "describes"`},
 		{`{"kind":"intercept","bin":"gh","forward":["yolo","gh","--"],"describes":["intercept"]}`,
@@ -79,7 +92,7 @@ func TestDescribesUnknownAndUndeclaredKindsAreStrictOnly(t *testing.T) {
 	if _, probs, _ := DecodeTolerant(raw); len(probs) != 0 {
 		t.Errorf("the tolerant path must pass both, got %q", probs)
 	}
-	misplaced := []byte(`{"name":"acme","contributes":[{"kind":"skills","describes":["intercept"]}]}`)
+	misplaced := []byte(`{"name":"acme","contributes":[{"kind":"files","from":"tree","agents":["claude"],"describes":["intercept"]}]}`)
 	if _, probs, _ := DecodeTolerant(misplaced); len(probs) != 1 ||
 		!strings.Contains(probs[0], `does not take "describes"`) {
 		t.Errorf("a misplaced describes is refused on the tolerant path too, got %q", probs)

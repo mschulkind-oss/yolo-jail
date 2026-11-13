@@ -99,11 +99,12 @@ into = ".claude/CLAUDE.md"
 
 [[briefing]]
 agents = ["claude"]
-from = "briefing/waiting.md"
+from = "briefing/claude.md"
 
-[[briefing]]
+# The rest of what Claude needs to know about yolo, read on demand (docs/design/briefing-diet.md
+# BD-D2): the briefing above is its pointer.
+[[skills]]
 agents = ["claude"]
-from = "briefing/worktrees.md"
 
 [[skills]]
 agent = "claude"

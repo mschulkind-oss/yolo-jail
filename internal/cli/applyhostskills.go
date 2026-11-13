@@ -45,6 +45,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/changetiming"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -150,7 +151,7 @@ func localPackSkillsPath(home string) string {
 func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	loaded, candidates []*packload.Pack, active, configured map[string]bool, complete bool,
 	home, stamp string, write bool, reload func() []*packload.Pack, lsp *jsonx.OrderedMap,
-	userCfg *jsonx.OrderedMap, survey *hostApplySurvey) int {
+	userCfg *jsonx.OrderedMap, delivery entrypoint.HostDelivery, survey *hostApplySurvey) int {
 	composedPath := hostComposedSkillsManifestPath(home)
 	composed, err := hostskills.LoadManifest(composedPath)
 	if err != nil {
@@ -183,7 +184,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	}
 
 	rc := 0
-	dests := hostskills.ComposeHostSkills(loaded, home)
+	dests := hostskills.ComposeHostSkillsFor(loaded, home, delivery.Delivers)
 	generatedRoot, generatedCleanup, generatedOK := prepareHostBuiltinSkills(pr, userCfg, loaded, dests, composed)
 	defer generatedCleanup()
 	if !generatedOK {
@@ -281,7 +282,7 @@ func applyHostSkills(pr richtext.Printer, out io.Writer, stdin io.Reader,
 						// prompt on this very run.
 						active[p.Name], configured[p.Name] = true, true
 					}
-					dests = hostskills.ComposeHostSkills(loaded, home)
+					dests = hostskills.ComposeHostSkillsFor(loaded, home, delivery.Delivers)
 					if generatedRoot != "" {
 						dests = addHostBuiltinLayer(dests, generatedRoot, config.ShippedSkillPrefixIn(userCfg))
 					}

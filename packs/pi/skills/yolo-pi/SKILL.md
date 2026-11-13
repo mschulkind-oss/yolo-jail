@@ -1,3 +1,15 @@
+---
+name: yolo-pi
+description: "pi under yolo: how to start `yolo wait` in the background, where pi-subagents and pi-dynamic-workflows put worktrees and which yolo removes, and where to put your own."
+---
+
+# pi under yolo
+
+## Waiting on the host in Pi
+
+Start `yolo wait r-<id>` (or `yolo wait <label>`) with `background_task` and
+`completionPolicy: "wake"`, in the same turn as you relay the human's commands: its exit wakes you.
+
 ## Where pi's workflow tools put worktrees
 
 pi-subagents makes a `worktree: true` run's worktrees in the system temp dir unless told
@@ -22,6 +34,6 @@ setting to change. They survive a restart. Unless the repository ignores `.pi/wo
 `git status` lists it: never `git add` it.
 
 Neither place is a pattern for a worktree you make yourself. Put that where the user or the
-project says; failing that, where the storage guidance above says. In a yolo jail where
+project says; failing that, where your briefing's storage guidance says. In a yolo jail where
 `$YOLO_DURABLE_DIR` is set, that is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance
 says there is no durable directory, ask the user.

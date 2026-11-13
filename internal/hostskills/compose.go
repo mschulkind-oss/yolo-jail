@@ -54,6 +54,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
+	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/treedigest"
 )
 
@@ -247,6 +248,25 @@ type ComposeRequest struct {
 // Computing it four times from four loops is how the two notches came to disagree about `from` in
 // the first place (skillssource.go's opening comment).
 func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
+	return ComposeHostSkillsFor(packs, homeDir, nil)
+}
+
+// Delivers reports whether the host notch delivers kind k of pack's own contributions: the
+// `describes` gate's census (entrypoint.HostDelivery.Delivers, which `yolo host apply` builds per
+// contribution). nil is the per-kind fallback, render.HostDelivers.
+type Delivers func(pack string, k packdecl.Kind) bool
+
+// ComposeHostSkillsFor is ComposeHostSkills with the `describes` gate's census: a skills
+// contribution whose governor describes a kind of its pack that delivers says the host does not
+// deliver contributes no layer (docs/design/briefing-diet.md BD-D3), as a briefing file about one
+// is withheld from every host briefing (entrypoint.HostDeliveredBriefing). The jail stager does
+// not ask: a jail delivers every kind a shipped pack describes.
+func ComposeHostSkillsFor(packs []*packload.Pack, homeDir string, delivers Delivers) []Destination {
+	if delivers == nil {
+		delivers = func(_ string, k packdecl.Kind) bool {
+			return render.HostDelivers(render.HostFields(), k)
+		}
+	}
 	var order []string
 	byDir := map[string]*Destination{}
 	for _, p := range packs {
@@ -259,6 +279,9 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 		base := PackLayer(p)
 		for _, c := range p.Decl.Contributions() {
 			if c.Kind != packdecl.KindSkills || c.Into == "" {
+				continue
+			}
+			if len(WithheldKinds(p, c, delivers)) > 0 {
 				continue
 			}
 			dir := filepath.Join(homeDir, filepath.FromSlash(c.Into))
@@ -301,6 +324,26 @@ func ComposeHostSkills(packs []*packload.Pack, homeDir string) []Destination {
 	out := make([]Destination, 0, len(order))
 	for _, dir := range order {
 		out = append(out, *byDir[dir])
+	}
+	return out
+}
+
+// WithheldKinds is the kinds the governors of skills contribution c describe that the host does
+// not deliver for p (delivers, nil for the per-kind fallback), each once, in declaration order;
+// nil when the host delivers c. A destination (`agent` set) governs nothing and is never withheld.
+func WithheldKinds(p *packload.Pack, c packdecl.Contribution, delivers Delivers) []packdecl.Kind {
+	if delivers == nil {
+		delivers = func(_ string, k packdecl.Kind) bool {
+			return render.HostDelivers(render.HostFields(), k)
+		}
+	}
+	var out []packdecl.Kind
+	for _, s := range p.GovernedSkillsFor(c) {
+		for _, k := range s.By.Describes {
+			if !delivers(p.Name, k) && !slices.Contains(out, k) {
+				out = append(out, k)
+			}
+		}
 	}
 	return out
 }

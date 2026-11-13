@@ -566,7 +566,13 @@ type Contribution struct {
 	// jail-only daemon serves), and prose about the pack's own loophole is withheld when that
 	// loophole is the undelivered shape, as the apply's notch line says it is.
 	//
-	// `briefing` CONTENT ONLY. Refused on every other kind, and on a briefing DESTINATION
+	// `skills` CONTENT takes it with the same meaning (docs/design/briefing-diet.md BD-D3): a
+	// skills tree whose governor describes a kind the host notch does not deliver for the pack is
+	// left out of every host skills destination (hostskills.ComposeHostSkillsFor), so the git
+	// pack's `yolo-git` skill, about its jail-only forwarder, reaches every agent in a jail and
+	// none in a real home. The jail skills stager does not read it either.
+	//
+	// `briefing` AND `skills` CONTENT ONLY. Refused on every other kind, and on a DESTINATION
 	// (`agent` set), which sources nothing to gate (P5). Every entry must be a kind, never
 	// `briefing` itself (prose gated on prose would describe nothing), and one the manifest
 	// itself declares: the field is about the pack's own contributions, so naming a kind the
@@ -3228,24 +3234,30 @@ func (m *Manifest) validateContributions() []string {
 	return problems
 }
 
-// describesProblems refuses a `describes` (Contribution.Describes) anywhere but on `briefing`
-// CONTENT, in `reserved`'s position and for its reason: the host briefing composer is its only
-// reader, so on any other kind it would be a gate that silently gates nothing. A DESTINATION
-// (`agent` set) sources nothing (P5), so there is no prose for it to gate either. An entry naming
-// no kind, or `briefing` itself, is refused on both decode paths: both ends of a version boundary
-// agree neither is a kind a briefing can be about. Whether a kind EXISTS is validateDescribes'
-// question, asked on the strict path only.
+// describesProblems refuses a `describes` (Contribution.Describes) anywhere but on `briefing` or
+// `skills` CONTENT, in `reserved`'s position and for its reason: the host briefing and skills
+// composers are its only readers, so on any other kind it would be a gate that silently gates
+// nothing. A DESTINATION (`agent` set) sources nothing (P5), so there is nothing for it to gate
+// either. An entry naming no kind, or `briefing` itself, is refused on both decode paths: both
+// ends of a version boundary agree neither is a kind content can be about. Whether a kind EXISTS
+// is validateDescribes' question, asked on the strict path only.
 func describesProblems(label string, c Contribution) []string {
 	if len(c.Describes) == 0 {
 		return nil
 	}
 	var problems []string
 	switch {
-	case c.Kind != KindBriefing:
+	case c.Kind != KindBriefing && c.Kind != KindSkills:
 		problems = append(problems, fmt.Sprintf(
 			"%s: kind %q does not take \"describes\" — it says which of the pack's own kinds a "+
-				"BRIEFING's prose is about, so only \"briefing\" has prose to withhold where they "+
-				"do not apply", label, c.Kind))
+				"BRIEFING's prose or a SKILLS tree is about, so only \"briefing\" and \"skills\" "+
+				"have content to withhold where they do not apply", label, c.Kind))
+	case c.Agent != "" && c.Kind == KindSkills:
+		problems = append(problems, fmt.Sprintf(
+			"%s: a skills DESTINATION (agent %q) takes no \"describes\" — it ships no skill of "+
+				"its own to withhold; put \"describes\" on the content contribution that names "+
+				"the tree: {\"kind\":\"skills\",\"from\":\"skills\",\"describes\":[\"<kind>\"]}",
+			label, c.Agent))
 	case c.Agent != "":
 		problems = append(problems, fmt.Sprintf(
 			"%s: a briefing DESTINATION (agent %q) takes no \"describes\" — it ships no prose of "+
@@ -3254,12 +3266,17 @@ func describesProblems(label string, c Contribution) []string {
 			label, c.Agent))
 	}
 	for i, k := range c.Describes {
-		switch k {
-		case "":
+		switch {
+		case k == "":
 			problems = append(problems, fmt.Sprintf(
 				"%s.describes[%d]: empty kind — name the kind of this pack's own contribution "+
-					"the prose is about", label, i))
-		case KindBriefing:
+					"the content is about", label, i))
+		case k == KindBriefing && c.Kind == KindSkills:
+			problems = append(problems, fmt.Sprintf(
+				"%s.describes[%d]: \"briefing\" — a skill cannot be about the pack's briefing; "+
+					"name the kind of this pack's own contribution the skill explains (an "+
+					"\"intercept\", a \"loophole\", ...)", label, i))
+		case k == KindBriefing:
 			problems = append(problems, fmt.Sprintf(
 				"%s.describes[%d]: \"briefing\" — a briefing cannot be about itself; name the kind "+
 					"of this pack's own contribution the prose explains (an \"intercept\", a "+

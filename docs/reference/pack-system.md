@@ -1757,9 +1757,14 @@ and whether the kind applies at the host is decided for the pack's own contribut
 the outcome the apply's notch line prints for each: prose about a loophole with no doorway at
 the host is withheld, though a loophole with one is delivered at launch. A pack whose every file
 in a destination it only borrowed is withheld is not that destination's owner at the host.
-`describes` is refused off briefing content, on a destination, naming `briefing`, and, on the
-strict path only, naming an unknown kind or one the manifest does not declare. `yolo pack lint`
-names the gate on the file's delivery line.
+A `skills` content contribution takes `describes` with the same meaning
+([BD-D3](../design/briefing-diet.md#decision-ledger)): the git and github packs' `yolo-git` and
+`yolo-gh` skills declare `describes = ["intercept"]`, so `yolo host apply` composes neither tree
+into a real home's skills directory and names it in the same notch line
+(`github: skills/ describes intercept`). `describes` is refused off briefing and skills content,
+on a destination, naming `briefing`, and, on the strict path only, naming an unknown kind or one
+the manifest does not declare. `yolo pack lint` names the gate on the file's or tree's delivery
+line.
 
 <a id="briefing-lint-listing"></a>**`yolo pack lint` lists every delivery before any launch**
 ([P6 (briefing defaults)](#briefing-p6)). Under a `delivers:` header it prints each `briefing`

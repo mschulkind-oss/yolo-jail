@@ -8,6 +8,9 @@ from = "loopholes/github-broker"
 describes = ["intercept"]
 from = "briefing/gh.md"
 
+[[skills]]
+describes = ["intercept"]
+
 [[intercept]]
 bin = "gh"
 forward = ["yolo", "gh", "--"]

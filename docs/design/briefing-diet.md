@@ -374,8 +374,8 @@ reversible.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | BD-D1 | The on-demand store is the generated `jail-mechanics` skill with topic files; no new `yolo` command | 2026-11-13 | [§5](#5-where-the-rest-lives) | — |
-| BD-D2 | A shipped pack's manual is that pack's own skill, named `yolo-<subject>`; its briefing prose is a pointer | 2026-11-13 | [§6](#6-packs) | — |
-| BD-D3 | `describes` is accepted on a `skills` contribution, with the meaning it has on `briefing` | 2026-11-13 | [§6](#6-packs) | — |
+| BD-D2 | A shipped pack's manual is that pack's own skill, named `yolo-<subject>`; its briefing prose is a pointer | 2026-11-13 | [§6](#6-packs) | built: `packs/{git,github,claude,pi}/skills/yolo-*`, pinned by `TestEveryShippedPacksProseFitsItsBudgetPerDestination` |
+| BD-D3 | `describes` is accepted on a `skills` contribution, with the meaning it has on `briefing` | 2026-11-13 | [§6](#6-packs) | built: `hostskills.ComposeHostSkillsFor`, pinned by `TestASkillsTreeAboutAJailOnlyKindIsNotComposedAtTheHost` |
 | BD-D4 | Budgets: core 1,800 bytes; shipped pack prose 250 per destination; Claude's reference block 2,600; skill descriptions 200. Shipped content only | 2026-11-13 | [§8](#8-budgets-and-the-test-that-holds-them) | — |
 | BD-D5 | Alerts stay always-loaded, ahead of the core, outside the budget | 2026-11-13 | [§4](#4-the-core) | — |
 | BD-D6 | The pointer names the skill file's path for the destination's own agent | 2026-11-13 | [§4](#4-the-core) | — |

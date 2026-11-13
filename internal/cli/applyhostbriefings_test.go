@@ -328,25 +328,20 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	}
 
 	// The prose pack leaves. `claude` still NAMES the destination, so yolo still owns it and
-	// composes the host base into it, followed by the claude pack's own prose (its worktree
-	// section, docs/reference/jail-home.md#DS-D33); the dropped pack's rule is gone,
+	// composes the host base into it, followed by the claude pack's own prose (its pointer to
+	// the yolo-claude skill, docs/design/briefing-diet.md BD-D2); the dropped pack's rule is gone,
 	// and nothing is archived.
 	selectPacks(t, home, `"claude"`)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
 	if rc != 0 {
 		t.Fatalf("apply after the prose pack's drop rc=%d\n%s", rc, report)
 	}
-	claudeOwn, err := officialpacks.FS.ReadFile("claude/briefing/worktrees.md")
-	if err != nil {
-		t.Fatalf("the claude pack's own prose: %v", err)
-	}
-	claudeWaiting, err := officialpacks.FS.ReadFile("claude/briefing/waiting.md")
+	claudeOwn, err := officialpacks.FS.ReadFile("claude/briefing/claude.md")
 	if err != nil {
 		t.Fatalf("the claude pack's own prose: %v", err)
 	}
 	want := jailcontent.ComposeBriefingSections(jailcontent.HostBriefingBase("", paths.IsMacOS),
-		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeWaiting), "\n")},
-			{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
+		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
 	after, err := os.ReadFile(dest)
 	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") || string(after) != want {
 		t.Errorf("with only the agent pack left the destination is the host base and the claude "+
@@ -790,8 +785,17 @@ func TestApplyHostWithholdsTheGitHubBriefingFromARealHome(t *testing.T) {
 	if strings.Contains(string(got), "~/.yolo/bin/block/gh") {
 		t.Errorf("the host briefing tells the agent about the jail's gh forwarder:\n%s", got)
 	}
-	if !strings.Contains(string(got), "Claude Code's own worktrees") {
+	if !strings.Contains(string(got), "**yolo-claude** skill") {
 		t.Errorf("the claude pack's own prose must still reach the host briefing:\n%s", got)
+	}
+	// THE SKILL IS WITHHELD THE SAME WAY (docs/design/briefing-diet.md BD-D3): the github pack's
+	// yolo-gh skill describes the same forwarder, so no real home gets it, while the claude
+	// pack's own skill, which describes nothing, is delivered.
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "yolo-gh")); err == nil {
+		t.Errorf("the host skills dir got the jail-only yolo-gh skill:\n%s", report)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "yolo-claude", "SKILL.md")); err != nil {
+		t.Errorf("the claude pack's own skill must reach the host skills dir: %v\n%s", err, report)
 	}
 	// The destination is claude's alone now: github contributes nothing to it at the host.
 	if countLines(report, "claude/briefing", ".claude/CLAUDE.md") != 1 ||
@@ -802,9 +806,10 @@ func TestApplyHostWithholdsTheGitHubBriefingFromARealHome(t *testing.T) {
 	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
 		t.Errorf("the report names briefing/gh.md %d times, want once:\n%s", n, report)
 	}
-	if countLines(report, "github", "briefing/gh.md", "describes intercept",
-		"does not apply at the host", "reaches agents in a jail") != 1 {
-		t.Errorf("the notch line must say why briefing/gh.md is withheld:\n%s", report)
+	if countLines(report, "github: briefing/gh.md describes intercept",
+		"github: skills/ describes intercept", "do not apply at the host",
+		"they reach agents in a jail") != 1 {
+		t.Errorf("the notch line must say why briefing/gh.md and skills/ are withheld:\n%s", report)
 	}
 
 	// And the dry run says the same about the same home, so a preview is not a different answer.
@@ -832,8 +837,8 @@ func TestApplyHostNamesAWithheldBriefingOnceUnderVerbose(t *testing.T) {
 	if n := strings.Count(report, "briefing/gh.md"); n != 1 {
 		t.Errorf("the verbose report names briefing/gh.md %d times, want once:\n%s", n, report)
 	}
-	line := "github: briefing/gh.md describes intercept, which does not apply at the host — " +
-		"it reaches agents in a jail"
+	line := "github: briefing/gh.md describes intercept; github: skills/ describes intercept, " +
+		"which do not apply at the host — they reach agents in a jail"
 	if countLines(report, line) != 1 {
 		t.Errorf("want the line %q:\n%s", line, report)
 	}

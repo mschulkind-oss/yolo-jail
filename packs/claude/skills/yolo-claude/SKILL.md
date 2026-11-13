@@ -1,3 +1,15 @@
+---
+name: yolo-claude
+description: "Claude Code under yolo: how to start `yolo wait` in the background, where Claude Code's own worktrees go, and where to put a worktree you make yourself."
+---
+
+# Claude Code under yolo
+
+## Waiting on the host in Claude Code
+
+Start `yolo wait r-<id>` (or `yolo wait <label>`) with the Bash tool and `run_in_background: true`,
+in the same turn as you relay the human's commands: its exit re-invokes you.
+
 ## Claude Code's own worktrees
 
 Claude Code puts the worktrees it makes in the repository's `.claude/worktrees/`: those of
@@ -7,8 +19,8 @@ link, because Claude Code then refuses to make a worktree.
 
 A worktree you make yourself with `git worktree add` is not one of these, and Claude Code's
 cleanup keeps it until you remove it. Put it where the user or the project says; failing that,
-where the storage guidance above says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that is
-`$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,
+where your briefing's storage guidance says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that
+is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,
 ask the user.
 
 If `git status` lists `.claude/worktrees/`, this repository does not ignore it: never `git add`

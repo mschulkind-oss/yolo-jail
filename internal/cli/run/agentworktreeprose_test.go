@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	officialpacks "github.com/mschulkind-oss/yolo-jail/packs"
@@ -17,13 +18,18 @@ import (
 // (docs/reference/jail-home.md#each-agents-own-pack; DS-D33). Core's storage-classes section
 // names no agent's directory, so the claude pack tells Claude that its own worktrees stay in
 // `.claude/worktrees/`, and the pi pack tells pi where pi-subagents' and pi-dynamic-workflows'
-// worktrees go. Each is one agent's tool, so it must reach that agent's briefing and no other:
-// Claude's directory in pi's instructions, or in codex's, is the "one agent's directory offered
-// to everyone" that DS-P2 and row B″ reject.
+// worktrees go. Each is one agent's tool, so it must reach that agent and no other: Claude's
+// directory in pi's instructions, or in codex's, is the "one agent's directory offered to
+// everyone" that DS-P2 and row B″ reject.
 //
-// Driven through refreshJailBriefings with the REAL official packs, so deleting either pack's
-// contribution, either file, or the `agents` line that narrows it fails here; and through the
-// host notch's composer, which must say the same words to the same agent.
+// SINCE THE BRIEFING DIET (docs/design/briefing-diet.md BD-D2) each pack's always-loaded prose
+// is one pointer of at most 250 bytes, which says how its harness starts the background
+// `yolo wait` and names the pack's skill; the worktree text is in that skill (`yolo-claude`,
+// `yolo-pi`). Both halves are addressed to the pack's own agent.
+//
+// Driven through refreshJailBriefings and the jail's skills staging with the REAL official packs,
+// so deleting either pack's contribution, either file, or the `agents` line that narrows it fails
+// here; and through the host notch's composers, which must say the same words to the same agent.
 func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 	const claudeProse = "## Claude Code's own worktrees\n\n" +
 		"Claude Code puts the worktrees it makes in the repository's `.claude/worktrees/`: those of\n" +
@@ -32,8 +38,8 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		"link, because Claude Code then refuses to make a worktree.\n\n" +
 		"A worktree you make yourself with `git worktree add` is not one of these, and Claude Code's\n" +
 		"cleanup keeps it until you remove it. Put it where the user or the project says; failing that,\n" +
-		"where the storage guidance above says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that is\n" +
-		"`$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,\n" +
+		"where your briefing's storage guidance says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that\n" +
+		"is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,\n" +
 		"ask the user.\n\n" +
 		"If `git status` lists `.claude/worktrees/`, this repository does not ignore it: never `git add`\n" +
 		"it, and tell the user, since the fix is a line in their `.gitignore`.\n"
@@ -58,10 +64,19 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		"setting to change. They survive a restart. Unless the repository ignores `.pi/worktrees/`,\n" +
 		"`git status` lists it: never `git add` it.\n\n" +
 		"Neither place is a pattern for a worktree you make yourself. Put that where the user or the\n" +
-		"project says; failing that, where the storage guidance above says. In a yolo jail where\n" +
+		"project says; failing that, where your briefing's storage guidance says. In a yolo jail where\n" +
 		"`$YOLO_DURABLE_DIR` is set, that is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance\n" +
 		"says there is no durable directory, ask the user.\n"
 	const claudeDest, piDest, codexDest = ".claude/CLAUDE.md", ".pi/agent/AGENTS.md", ".codex/AGENTS.md"
+
+	pointers := map[string]string{}
+	for dest, file := range map[string]string{claudeDest: "claude/briefing/claude.md", piDest: "pi/briefing/pi.md"} {
+		raw, err := officialpacks.FS.ReadFile(file)
+		if err != nil {
+			t.Fatalf("packs/%s: %v", file, err)
+		}
+		pointers[dest] = strings.TrimRight(string(raw), "\n")
+	}
 
 	// THE JAIL: the production staging (stagePacks reads each pack's prose, packBriefingProses)
 	// and the file refreshJailBriefings writes for each destination, from the user's `packs`.
@@ -105,32 +120,32 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 	}
 
 	for notch, files := range map[string]map[string]string{"jail": jail, "host": host} {
-		for dest, want := range map[string]string{claudeDest: claudeProse, piDest: piProse} {
-			body := files[dest]
+		for dest, want := range pointers {
+			body := strings.TrimRight(files[dest], "\n")
 			// Last, after core's section and every other section: the pack's prose follows
 			// the base (composed here without one at the host, as briefingparity_test does).
 			if !strings.HasSuffix(body, want) {
-				t.Errorf("%s %s does not end with its own agent's worktree prose:\n%s", notch, dest, body)
+				t.Errorf("%s %s does not end with its own agent's pointer:\n%s", notch, dest, body)
 			}
 			if strings.Count(body, want) != 1 {
-				t.Errorf("%s %s carries its worktree prose %d times, want 1", notch, dest, strings.Count(body, want))
+				t.Errorf("%s %s carries its pointer %d times, want 1", notch, dest, strings.Count(body, want))
 			}
 		}
-		// Each agent's pack also says how its own harness starts the background `yolo wait`
+		// Each agent's pointer says how its own harness starts the background `yolo wait`
 		// core's host-run section asks for (core names no harness).
 		for dest, want := range map[string]string{
 			claudeDest: "with the Bash tool and `run_in_background: true`",
-			piDest:     "with `background_task` and\n`completionPolicy: \"wake\"`",
+			piDest:     "with `background_task` and `completionPolicy: \"wake\"`",
 		} {
-			if notch == "jail" && strings.Count(files[dest], want) != 1 {
+			if strings.Count(files[dest], want) != 1 {
 				t.Errorf("%s %s does not say once how its harness starts the waiter (%q):\n%s", notch, dest, want, files[dest])
 			}
 		}
 		// Neither agent's prose reaches another agent.
 		for dest, gone := range map[string][]string{
-			claudeDest: {"## Where pi's workflow tools put worktrees", "## Waiting on the host in Pi"},
-			piDest:     {"## Claude Code's own worktrees", "## Waiting on the host in Claude Code"},
-			codexDest:  {"## Claude Code's own worktrees", "## Where pi's workflow tools put worktrees", "## Waiting on the host in"},
+			claudeDest: {pointers[piDest], "yolo-pi"},
+			piDest:     {pointers[claudeDest], "yolo-claude"},
+			codexDest:  {pointers[claudeDest], pointers[piDest], "yolo-claude", "yolo-pi"},
 		} {
 			for _, g := range gone {
 				if strings.Contains(files[dest], g) {
@@ -140,66 +155,55 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		}
 	}
 
-	// In the jail the prose follows core's storage-classes section, which is the "storage
-	// guidance above" both files point at.
-	for _, dest := range []string{claudeDest, piDest} {
-		s, p := strings.Index(jail[dest], "## Storage classes: what survives a restart"),
-			strings.LastIndex(jail[dest], "\n## ")
-		if s < 0 || p < s {
-			t.Errorf("jail %s: the pack's prose is not below the storage-classes section:\n%s", dest, jail[dest])
+	// THE SKILLS, in the jail: each agent's skills directory holds its own pack's skill, and no
+	// other agent's.
+	_, targets, skillStaging := stageSkillTargets(t, "yolo-ws-abcd1235")
+	for dest, want := range map[string]struct{ has, hasNot []string }{
+		".claude/skills":   {[]string{"yolo-claude"}, []string{"yolo-pi"}},
+		".pi/agent/skills": {[]string{"yolo-pi"}, []string{"yolo-claude"}},
+		".codex/skills":    {nil, []string{"yolo-claude", "yolo-pi"}},
+	} {
+		names, ok := stagedFor(t, targets, skillStaging, dest)
+		if !ok {
+			t.Fatalf("no jail skills target for %s; targets = %v", dest, targets)
+		}
+		for _, n := range want.has {
+			if !hasName(names, n) {
+				t.Errorf("jail %s staged %v, without its own agent's %s skill", dest, names, n)
+			}
+		}
+		for _, n := range want.hasNot {
+			if hasName(names, n) {
+				t.Errorf("jail %s staged %v, with another agent's %s skill", dest, names, n)
+			}
 		}
 	}
-
-	// A LAUNCH WITH NO DURABLE DIR (docs/reference/jail-home.md#the-storage-class-briefing-section's degenerate
-	// inputs, §5.6): `.yolo` a link, so ensureDurableDir exports nothing and core's section
-	// says there is none. The pack prose is static and follows that section, so it must not
-	// send the agent to `$YOLO_DURABLE_DIR/…` unconditionally: with the variable unset that
-	// is `/worktrees/<task>`, on a read-only root. Each sentence naming a path under the
-	// variable says it holds where the variable is set, and the prose says what to do where
-	// the section above says there is none, in that section's own words. Both container
-	// backends, whose sections differ.
-	for _, rt := range []string{"podman", "container"} {
-		wsNone := t.TempDir()
-		if err := os.Symlink(t.TempDir(), filepath.Join(wsNone, ".yolo")); err != nil {
-			t.Fatal(err)
-		}
-		oNone := goldenOptions(wsNone, home)
-		oNone.Stdout, oNone.Stderr = discardBuf(), discardBuf()
-		if d := oNone.ensureDurableDir(rt, cfg); d.Path != "" || d.Unavailable == "" {
-			t.Fatalf("%s: a linked .yolo still got a durable dir: %+v", rt, d)
-		}
-		stagingNone, err := oNone.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt,
-			stagedPacks{packs: packs, briefings: proses}, ioprio.Normal)
-		if err != nil {
-			t.Fatalf("%s refreshJailBriefings: %v", rt, err)
-		}
-		for dest, want := range map[string]string{claudeDest: claudeProse, piDest: piProse} {
-			raw, err := os.ReadFile(filepath.Join(stagingNone, briefingStagingName(dest)))
-			if err != nil {
-				t.Fatalf("%s: no %s briefing written: %v", rt, dest, err)
-			}
-			body := string(raw)
-			if !strings.Contains(body, "**No durable directory this launch**") {
-				t.Errorf("%s %s: core's section does not say there is no durable dir:\n%s", rt, dest, body)
-			}
-			if !strings.HasSuffix(body, want) {
-				t.Errorf("%s %s does not end with its own agent's worktree prose:\n%s", rt, dest, body)
-			}
-			for _, s := range unconditionedDurablePaths(want) {
-				t.Errorf("%s %s sends the agent under the unset variable with no condition: %q", rt, dest, s)
-			}
-			if !strings.Contains(strings.Join(strings.Fields(want), " "),
-				"where that guidance says there is no durable directory, ask the user") {
-				t.Errorf("%s %s: the prose says nothing for the launch whose section says there is no durable dir:\n%s", rt, dest, want)
+	// And at the host: the pack's skills tree is composed into its own agent's directory only.
+	for _, d := range hostskills.ComposeHostSkills(resolved, hostHome) {
+		rel, _ := filepath.Rel(hostHome, d.Dir)
+		for _, l := range d.Layers {
+			for _, src := range l.Sources {
+				owner := map[string]string{"claude": ".claude/skills", "pi": ".pi/agent/skills"}[l.Pack]
+				if owner != "" && strings.HasSuffix(filepath.ToSlash(src), "/skills") && filepath.ToSlash(rel) != owner {
+					t.Errorf("host composes the %s pack's skills into %s, want %s only", l.Pack, rel, owner)
+				}
 			}
 		}
 	}
 
-	// The files the packs ship are the text pinned above, so the pin is of what ships.
-	for file, want := range map[string]string{"claude/briefing/worktrees.md": claudeProse, "pi/briefing/worktrees.md": piProse} {
+	// The skills the packs ship hold the worktree prose pinned above, so the pin is of what
+	// ships, and the prose never sends the agent under an unset $YOLO_DURABLE_DIR.
+	for file, want := range map[string]string{"claude/skills/yolo-claude/SKILL.md": claudeProse, "pi/skills/yolo-pi/SKILL.md": piProse} {
 		got, err := officialpacks.FS.ReadFile(file)
-		if err != nil || string(got) != want {
-			t.Errorf("packs/%s is not the pinned prose (err %v):\n%s", file, err, got)
+		if err != nil || !strings.Contains(string(got), want) {
+			t.Errorf("packs/%s does not hold the pinned prose (err %v):\n%s", file, err, got)
+		}
+		for _, s := range unconditionedDurablePaths(want) {
+			t.Errorf("packs/%s sends the agent under the unset variable with no condition: %q", file, s)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(want), " "),
+			"where that guidance says there is no durable directory, ask the user") {
+			t.Errorf("packs/%s says nothing for the launch whose briefing says there is no durable dir", file)
 		}
 	}
 }

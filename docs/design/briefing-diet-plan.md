@@ -95,6 +95,63 @@ Decisions made while building, each the only answer the design left:
   replacement is `rg` (BD-D7 in the [Decision Ledger](briefing-diet.md#decision-ledger)).
 - **The core lists more than four ports as a count** and points to the network topic.
 
+## Task 3: shipped packs' pointers and skills
+
+Firmed against the tree on 2026-11-13 and built in the same lane. Each step names the file and
+the test that pins it.
+
+**Decisions taken in the build** (implementation decisions under
+[BD-D2](briefing-diet.md#decision-ledger) and BD-D3; each is reversible):
+
+- The skill names are `yolo-git`, `yolo-gh`, `yolo-claude` and `yolo-pi`, the subject being
+  the tool or agent the manual is about.
+- The claude and pi skills carry an `agents` audience and no `describes`: their text is about
+  the agent's own harness, true at the host too, so they reach the host notch as their
+  briefings did. The git and github skills declare `describes = ["intercept"]` and are withheld
+  at the host exactly as their briefings were.
+- Each pointer stands alone: it states the one rule an agent needs before it reads the skill
+  (push to a branch of your own; exit 64 is a refusal; how to wait on the host) and names the
+  skill in bold.
+- The skill texts keep the old briefing's words. A cross-reference to a briefing section that
+  may not be loaded beside the skill ("as **Running a command on the host** says", "the storage
+  guidance above") is rewritten to stand alone.
+- An older yolo (v0.17.1) refuses `describes` on `skills`. That is a known release break, listed
+  in `knownReleaseBreaks` in `packs/releasedecode_test.go` with the attach guard that keeps an
+  older jail on its own staged tree.
+- Known edge: a user's `shipped_skill_prefix` renames shipped skills at the host, so a pointer's
+  bold skill name can differ from the installed directory there. The jail applies no prefix.
+  Left as is; the agent finds the skill by its description.
+
+**Steps:**
+
+1. `internal/packdecl/contributes.go`: `describesProblems` accepts `describes` on `skills`
+   content; it refuses it on a skills destination and refuses `briefing` as a skill's subject.
+   Pinned first, failing, by `TestDescribesIsAcceptedOnBriefingContent` and
+   `TestDescribesIsRefusedOffBriefingContent` in
+   `internal/packdecl/describes_test.go`.
+2. `internal/packload/governance.go`: `GovernedSkillsFor` returns the sources a skills
+   contribution governs, so a synthesized host copy finds its governor's `describes`.
+3. `internal/hostskills/compose.go`: `ComposeHostSkillsFor` takes the apply's census
+   (`entrypoint.HostDelivery.Delivers`) and skips a contribution whose governor describes a kind
+   the host withholds; `WithheldKinds` is the shared predicate. Pinned by
+   `TestASkillsTreeAboutAJailOnlyKindIsNotComposedAtTheHost`.
+4. `internal/cli/applyhostskills.go`, `internal/cli/apply.go`: the apply passes its census to
+   the skills composer and to the destinations report. `internal/cli/applyhostbriefings.go`
+   names a withheld skills tree in the notch line beside a withheld briefing. Pinned by
+   `TestApplyHostWithholdsTheGitHubBriefingFromARealHome` and its verbose sibling.
+5. Pack content: `packs/git`, `packs/github`, `packs/claude`, `packs/pi` each get a pointer
+   under 250 bytes in `briefing/` and the old text in `skills/yolo-<subject>/SKILL.md`, with
+   a `[[skills]]` line in `pack.toml`. The claude and pi packs' two briefing files each become
+   one. Pinned by `TestTheGitHubPackBriefsEveryAgentOnGHInTheJail`,
+   `internal/cli/run/agentworktreeprose_test.go`, `TestNoShippedPackOffersTheRemovedApproveFlags` and
+   `integration/packaudience_test.go`.
+6. `internal/packload/shippedprosebudget_test.go`: the shipped-pack prose budget (250 bytes per
+   destination) and the skill-description budget (200 bytes). Each failure names the fix.
+7. `internal/cli/run/userprosenotcapped_test.go`: a local and a fetched pack's long prose is
+   composed whole at both notches.
+8. Docs: [`pack-system.md`](../reference/pack-system.md) (`describes` on `skills`), the github
+   pack's README, and the built columns of the ledger rows that named the old `gh.md`.
+
 ## Seed notes for the planner
 
 - **Search:** how a `skills` contribution with no `into` in a content pack reaches each agent's

@@ -448,6 +448,19 @@ func (p *Pack) GovernedBriefingFor(c packdecl.Contribution) ([]GovernedSource, [
 	return governedBy(sources, key), probs
 }
 
+// GovernedSkillsFor is the skills sources ONE contribution carries, each with its governor, the
+// skills half of GovernedBriefingFor: an original declaration or a synthesized ResolveDestinations
+// copy, matched to its governor by SourceKey. A DESTINATION (`agent` set) carries nothing (P5).
+// The host skills composer reads each governor's `describes` from it
+// (docs/design/briefing-diet.md BD-D3).
+func (p *Pack) GovernedSkillsFor(c packdecl.Contribution) []GovernedSource {
+	if c.Kind != packdecl.KindSkills || c.Agent != "" {
+		return nil
+	}
+	sources, _ := p.governedSkills()
+	return governedBy(sources, c.SourceKey())
+}
+
 // JoinBriefingSources joins one pack's briefing sources into its SECTION: one blank line between
 // files, exactly the spacing between packs (pack-system.md#briefing-directory "Joining"), so a pack's files read the same
 // whether a destination composes them one entry at a time (the jail) or as one section (the host).

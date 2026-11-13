@@ -1,0 +1,1 @@
+**Waiting on the host** in pi: start `yolo wait <id>` with `background_task` and `completionPolicy: "wake"`, in the same turn you relay the human's commands. Before you make a worktree, read the **yolo-pi** skill.
