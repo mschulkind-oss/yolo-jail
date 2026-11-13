@@ -2,8 +2,8 @@
 title: "Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out"
 date: 2026-10-01
 status: accepted
-stage: DECIDED
-next: "The maintainer approves or rewords the direction's ruled sentences drafted in §9, and files the Results section's defects 3 and 4; one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, re-runs §7's two-jail check by hand on container 1.5.0, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
+stage: DESIGN
+next: "The maintainer rules OQ-MB2 (approve or reword the direction's ruled sentences drafted in §9), and files the Results section's defects 3 and 4; one Mac session confirms that auto-capture stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26), re-runs macos-user's go_test (M8) now that the harness trusts the clone's mise.toml, runs M11 and M12 with and without the developer-tool setting, re-runs §7's two-jail check by hand on container 1.5.0, and runs Podman Machine through yolo on the Mac's applehv machine, once an agent adds that arm to Appendix A"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -872,6 +872,26 @@ then a replacement that keeps the ruling and states the measurement.
    puts a filesystem boundary between the host and the workspace."* Reason: VZ backs guest memory
    on first touch and reserves none up front (C4), and the VM's boot is under a second of a launch
    that takes several (C2).
+
+1. 💬 <a id="OQ-MB2"></a>**OQ-MB2: Do the three drafted rewordings above replace the direction's ruled sentences?**
+
+   You read [the macOS direction](../reference/macos-no-vm-direction.md) and it says `macos-user`
+   is "the fast native one" and that a Mac container VM is "slow to start" and "reserves RAM up
+   front". The benchmark measured `macos-user` faster on shared files and memory and slower at
+   re-entry and starting processes, and found that a VM backs memory on first touch. The direction
+   is a ruling, so only you can change its words.
+
+   - **A.** Approve all three drafts as written; an agent applies them to the direction and its
+     [What the numbers bear on](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on) section.
+   - **B.** Reword some or all of them yourself.
+   - **C.** Keep the ruled sentences, with the measured section beside them as today.
+
+   <!-- vantage: question id=OQ-MB2 leaning="A. Each draft keeps the ruling and states only what was measured, and the sentences as ruled now contradict the measured section of the same document." -->
+
+   _Leaning:_ A. Each draft keeps the ruling and states only what was measured, and the sentences as ruled now contradict the measured section of the same document.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 **Left to the maintainer.** A VM jail with the folders only it uses on VM-local disks would be
 faster than `macos-user` at installing, testing and setting up a database (INFERRED, from
