@@ -246,15 +246,28 @@ func TestTheEvergreenRefreshIsThrottledAndFollowsAgentUpdates(t *testing.T) {
 	if err != nil || outcome != Updated || st.Record.Version != "2.0.0" {
 		t.Fatalf("past the interval: outcome %s, version %v, err %v\n%s", outcome, st.Record, err, w.out.String())
 	}
-	// The install it replaced is kept; a third version drops the first.
+	// EVERY INSTALL IT REPLACED IS RETAINED, the first included: a host session started on it may
+	// still read its bytes, and only the explicit confirmed cleanup deletes them (it used to keep
+	// only the current and previous versions).
 	w.publish("opencode-ai", "3.0.0", "bin=opencode")
 	clk.t = clk.t.Add(2 * time.Hour)
 	if _, outcome, _ := w.floor.Ensure(context.Background(), p); outcome != Updated {
 		t.Fatalf("third version: %s", outcome)
 	}
 	dirs, _ := os.ReadDir(w.floor.programsDir("opencode"))
-	if len(dirs) != 2 {
-		t.Errorf("%d install directories after three versions, want the current and the previous", len(dirs))
+	if len(dirs) != 3 {
+		t.Errorf("%d install directories after three versions, want all three retained", len(dirs))
+	}
+	if got := w.floor.RetainedVersions(); len(got) != 2 {
+		t.Errorf("RetainedVersions = %+v, want the two older versions", got)
+	}
+	removed, err := w.floor.RemoveRetainedVersions()
+	if err != nil || len(removed) != 2 {
+		t.Fatalf("RemoveRetainedVersions = %+v, %v; want the two older versions", removed, err)
+	}
+	dirs, _ = os.ReadDir(w.floor.programsDir("opencode"))
+	if st := w.floor.Status(p); len(dirs) != 1 || st.Disposition != Provisioned || st.Record.Version != "3.0.0" {
+		t.Errorf("after the cleanup: %d directories, %s %v; want only the served 3.0.0", len(dirs), st.Disposition, st.Record)
 	}
 }
 
@@ -727,16 +740,69 @@ func TestReconcileRemovesADeselectedProgramAndNothingElse(t *testing.T) {
 		t.Fatal("the dry run removed something")
 	}
 	w.floor.Reconcile([]Program{keep}, true)
-	for _, gone := range []string{w.floor.Launcher("copilot"), w.floor.recordPath("copilot"), w.floor.programsDir("copilot")} {
+	for _, gone := range []string{w.floor.Launcher("copilot"), w.floor.recordPath("copilot")} {
 		if _, err := os.Stat(gone); err == nil {
 			t.Errorf("%s survived the deselection", gone)
 		}
+	}
+	// ITS INSTALL BYTES ARE RETAINED (they used to go with the deselection): a host session started
+	// on it may still read them. A second apply reports nothing more to remove, and only the
+	// explicit cleanup deletes them.
+	if _, err := os.Stat(w.floor.programsDir("copilot")); err != nil {
+		t.Errorf("the deselected program's install bytes were deleted: %v", err)
+	}
+	if again := w.floor.Reconcile([]Program{keep}, false); len(again) != 0 {
+		t.Errorf("a second apply would remove %+v again", again)
+	}
+	if removed, err := w.floor.RemoveRetainedVersions(); err != nil || len(removed) != 1 || removed[0].Bin != "copilot" {
+		t.Fatalf("RemoveRetainedVersions = %+v, %v; want copilot's one version", removed, err)
+	}
+	if _, err := os.Stat(w.floor.programsDir("copilot")); err == nil {
+		t.Error("the explicit cleanup left the deselected program's directory")
 	}
 	if st := w.floor.Status(keep); st.Disposition != Provisioned {
 		t.Errorf("the kept program is %s", st.Disposition)
 	}
 	if !w.floor.NodeReady(w.version) {
 		t.Error("the Node a kept program runs on was removed")
+	}
+}
+
+// A RETAINED VERSION HOLDS EVERY NODE RELEASE BACK: a host session started on it may still run its
+// Node, and no record says which one it is, so an apply drops no Node while one is in the prefix;
+// the explicit cleanup drops the unused ones once it has deleted them.
+func TestARetainedVersionKeepsUnusedNodeUntilTheExplicitCleanup(t *testing.T) {
+	w := newWorld(t)
+	w.publish("opencode-ai", "1.0.0", "bin=opencode")
+	keep := npmProgram("opencode", "opencode", "opencode-ai")
+	if _, _, err := w.floor.Ensure(context.Background(), keep); err != nil {
+		t.Fatal(err)
+	}
+	older := w.floor.nodeDir("99.0.0")
+	must(t, os.MkdirAll(older, 0o700))
+	must(t, os.WriteFile(filepath.Join(older, completeMarker), nil, 0o600))
+	retained := filepath.Join(w.floor.programsDir("opencode"), "older")
+	must(t, os.MkdirAll(retained, 0o700))
+	must(t, os.WriteFile(filepath.Join(retained, completeMarker), nil, 0o600))
+
+	w.floor.Reconcile([]Program{keep}, true)
+	if _, err := os.Stat(older); err != nil {
+		t.Errorf("an apply dropped a Node release while a retained version may run on it: %v", err)
+	}
+	if _, err := os.Stat(retained); err != nil {
+		t.Errorf("an apply deleted a retained version: %v", err)
+	}
+	if _, err := w.floor.RemoveRetainedVersions(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(retained); err == nil {
+		t.Error("the explicit cleanup left the retained version")
+	}
+	if _, err := os.Stat(older); err == nil {
+		t.Error("the explicit cleanup left a Node release nothing runs on any more")
+	}
+	if st := w.floor.Status(keep); st.Disposition != Provisioned || !w.floor.NodeReady(w.version) {
+		t.Errorf("the cleanup touched the served program or its Node: %s", st.Disposition)
 	}
 }
 

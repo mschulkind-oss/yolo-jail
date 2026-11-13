@@ -215,6 +215,19 @@ const (
 type PreparedNPM struct {
 	Compatibility, EntryKey, Version string
 	Materialize                      func(ctx context.Context, home string) error
+	// Matches reports whether the Node in nodeBin matches every producer fact this selection was
+	// proven against. The floor asks it when the install runs on a Node other than the one the
+	// selection was made with (a shipped Node bump between the installed record and this
+	// install), so a capture is never published on a Node it was not proven on. nil never matches:
+	// the install falls back to the bounded installer.
+	Matches func(ctx context.Context, nodeBin string) (bool, error)
+}
+
+// preparedDecision is the one PrepareNPM decision a floor operation holds for a bin, with the Node
+// it was observed on.
+type preparedDecision struct {
+	selected *PreparedNPM
+	nodeBin  string
 }
 
 // Floor is one host prefix and every input its decisions read. The zero values of the func
@@ -243,7 +256,7 @@ type Floor struct {
 	// is Node.Shipped raised to it (OQ-HP4).
 	NodeFloor   string
 	PrepareNPM  func(ctx context.Context, p Program, nodeBin string, fresh bool) (*PreparedNPM, error)
-	preparedNPM map[string]*PreparedNPM
+	preparedNPM map[string]preparedDecision
 	// Include reports whether a pack's programs are in the floor (`host_floor`). nil => every
 	// selected pack's are, which is the default by OQ-HP1.
 	Include func(pack string) bool

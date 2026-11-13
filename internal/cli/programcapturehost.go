@@ -126,7 +126,17 @@ func wireFloorOrdinaryCapture(f *hostfloor.Floor, store *capture.Store, out io.W
 		}
 		// Selection closes over the exact identity for this floor operation. A pointer
 		// admitted by a later launch cannot change its materialization under the lock.
-		return &hostfloor.PreparedNPM{Compatibility: identity, EntryKey: entry.Key, Version: inputs.Release, Materialize: func(ctx context.Context, home string) error {
+		// The install may run on another Node than the one observed here (a shipped Node bump since
+		// the installed record): the selection holds only when that Node matches every producer
+		// fact this one did.
+		matches := func(ctx context.Context, nodeBin string) (bool, error) {
+			other, err := observeNPMCaptureRuntime(ctx, f.Home, filepath.Join(nodeBin, "node"))
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			return err == nil && other == actual, nil
+		}
+		return &hostfloor.PreparedNPM{Compatibility: identity, EntryKey: entry.Key, Version: inputs.Release, Matches: matches, Materialize: func(ctx context.Context, home string) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}

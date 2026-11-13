@@ -1027,6 +1027,12 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 		pr.Printf("  [cyan]%-20s[/cyan] %s: %s (%s)", "host_floor", r.Bin, verb, r.Why)
 		note(hostApplyDocFloorEntry{Bin: r.Bin, Disposition: "deselected", Action: verb, Reason: r.Why})
 	}
+	// Older program versions are retained (internal/hostfloor/reconcile.go), as patched-extension
+	// generations are (noteRetainedHostTreeVersions), and the line names their one cleanup.
+	if n := len(floor.RetainedVersions()); write && n > 0 {
+		pr.Printf("[dim]retained %d older host-floor program version(s): a running host session may still read "+
+			"these bytes; stop all host agent sessions, then `yolo host apply --revert --assert` deletes them[/dim]", n)
+	}
 	return rc
 }
 
