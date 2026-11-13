@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Owner check of the one sign-in at Linux yolo host (the plan's ID-21) on a real host; take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
+next: "Take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
