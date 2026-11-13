@@ -3,7 +3,7 @@ title: "Copilot's keychain, from a jail: a Secret Service inside, the real keych
 date: 2026-09-29
 status: accepted
 stage: DECIDED
-next: "Run witness W-KC5 on a Mac: does Copilot accept its own login as COPILOT_GITHUB_TOKEN (§6 step 6; the route is built, unmeasured); confirm Copilot's login service name with a real login (§6 step 4); open a plan sketch"
+next: "Run witness W-KC5 on a Mac: does Copilot accept its own login as COPILOT_GITHUB_TOKEN (§6 step 6; the route is built, unmeasured); confirm Linux Copilot's login service name with a real login (§6 step 4); a planner completes the plan sketch (keychain-from-a-jail-plan.md)"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
 summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. Ruled 2026-10-10: one Copilot login serves the host and every jail, and it is the host Copilot's own keychain item; only the login is machine-wide; every program in a jail gets the keychain; and the keychain is always the host's, on every backend. The host side touches only items yolo created and the host Copilot's own login item, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Ruled 2026-11-03: macos-user's native clients, which have no seam, get values per program through an input each already reads, starting with Copilot's login as COPILOT_GITHUB_TOKEN."
 vantage:
@@ -50,9 +50,8 @@ rule for an attach, and a host-side step when a jail ends.
 **Start at [§3](#3-the-design).** The per-backend answer in [§1](#1-the-short-answer) falls out of
 it.
 
-**Needs your ruling:** nothing in this document. Accepting this design also answers
-[OQ-CT1](../research/copilot-token-storage.md#OQ-CT1). That question stays open in its own document
-until the ruling is recorded there.
+**Needs your ruling:** nothing in this document. Accepting this design answered
+[OQ-CT1](../research/copilot-token-storage.md#OQ-CT1), and the ruling is recorded there.
 
 **Reads with:** [`copilot-token-storage.md`](../research/copilot-token-storage.md) (the
 measurement this answers, and the maintainer's direction on
@@ -61,8 +60,11 @@ measurement this answers, and the maintainer's direction on
 follows), [`loophole-transport.md`](../reference/loophole-transport.md) (the jail-to-host hop),
 [`agent-credentials.md`](../reference/agent-credentials.md#the-credential-boundary) (the boundary
 [OQ-KC1](#8-decision-ledger)'s ruling opens for Copilot's login), and [`boundary-broker.md`](boundary-broker.md#61-linux) (BB-D11, the
-other planned D-Bus client, which sets the no-fallback rule for the host bus). There is no plan
-sketch yet. One opens once the login's service name is confirmed.
+other planned D-Bus client, which sets the no-fallback rule for the host bus),
+[`claude-keychain-at-host.md`](claude-keychain-at-host.md) (host Claude's own Keychain item at a
+Mac's `yolo host`, the second item outside yolo's marker), and the plan sketch,
+[`keychain-from-a-jail-plan.md`](keychain-from-a-jail-plan.md) (not a hand-off until a planner
+completes it against the tree).
 
 ---
 

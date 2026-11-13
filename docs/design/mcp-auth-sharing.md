@@ -738,8 +738,8 @@ changes.
 - **`yolo host` on a Mac does not keep it.** Host Claude on macOS keeps its login and MCP sign-ins
   in the Keychain (INFERRED, as in [§9.3](#93-adopting-a-sign-in-an-agent-already-has)), which yolo cannot read or write
   ([`keychain-from-a-jail.md`](keychain-from-a-jail.md)); the launch says the tier is not kept
-  there and names `yolo -- claude`. A design for the Keychain case is on the
-  [roadmap](../plans/roadmap.md).
+  there and names `yolo -- claude`. The design for the Keychain case is
+  [`claude-keychain-at-host.md`](claude-keychain-at-host.md).
 
 ## 11. Existing state on the day it ships
 

@@ -1,8 +1,8 @@
 ---
 title: "CLI visual polish — color to guide the eye"
 status: accepted
-stage: DECIDED
-next: "With config help and init statuses colored additively, choose the next remaining Group C item; frozen run/banner updates still need human sign-off"
+stage: DESIGN
+next: "With config help and init statuses colored additively, choose the next remaining Group C item; the frozen run progress lines wait on OQ-VP1"
 tags: [plan, cli, color, polish]
 ---
 
@@ -237,12 +237,14 @@ Highest value, low risk (text stays byte-identical after strip).
   **DONE (2026-10-08).** Created lines are green, `already exists` is yellow and
   errors are bold red. The richtext tags are rendered around trusted style text,
   leaving paths and filesystem errors literal and preserving stripped bytes.
-- [ ] **`yolo run` progress sub-steps** (`setupScript` in `run/command.go`) —
-  **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install / mise
-  upgrade / bootstrap` phase lines render as flat plain text against mise's own
+- [ ] **`yolo run` progress sub-steps** (`provision.Script` in `internal/provision/provision.go`) —
+  **Impact: med · Effort: med, FROZEN BYTES.** The `↳ mise install` and
+  `↳ bootstrap` phase lines render as flat plain text against mise's own
   chatter; give them `[cyan]` or `[bold]` so each phase boundary reads as a
-  heading. **Caveat:** testdata/final_cmd_bash.txt + command_test.go pin these
-  exact bytes → deliberate golden update, human sign-off, NOT additive.
+  heading. **Caveat:** `internal/cli/run/testdata/final_cmd_bash.txt` (read by
+  `command_test.go` and `command_nocolor_test.go`) and
+  `internal/macosuser/testdata/runas_account_argvs.golden.json` pin these exact
+  bytes, so this is a deliberate golden update, waiting on [OQ-VP1](#OQ-VP1).
 - [ ] **`yolo` startup banner** — **Impact: low-med · Effort: low.** Fully
   monochrome. It is now TWO lines from two renderers, so this item is two edits:
   `internal/banner`'s `Startup` (the `yolo-jail <version> | <platform> |
@@ -309,3 +311,23 @@ golden update — call it out for human sign-off, don't fold it in silently.
 4. ~~init status lines~~ — colored additively through richtext (2026-10-08).
 5. Group C polish + cross-cutting path/glyph passes.
 6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.
+
+## Open Questions
+
+1. 💬 <a id="OQ-VP1"></a>**[OQ-VP1](#OQ-VP1): May the frozen `yolo run` progress lines change bytes to take color?**
+
+   You start a jail and watch provisioning scroll. The `↳ mise install` and `↳ bootstrap` lines
+   that mark each phase are plain text in a stream of mise's own output, so the phase boundaries
+   are hard to find. Coloring them changes bytes two goldens pin, which this plan's invariant says
+   needs your sign-off.
+
+   - **A.** Sign off: the phase lines turn bold cyan under the same `NO_COLOR` gate the
+     `⚡ Executing` line already takes, and both goldens are updated in that one commit.
+   - **B.** Keep the bytes frozen, and the item is dropped.
+
+   <!-- vantage: question id=OQ-VP1 leaning="A. The phase lines are the one heading in that stream, the gate already exists for the lines beside them, and the golden update is a single reviewed commit." -->
+
+   _Leaning:_ A. The phase lines are the one heading in that stream, the gate already exists for the lines beside them, and the golden update is a single reviewed commit.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

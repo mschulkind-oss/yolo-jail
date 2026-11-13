@@ -262,8 +262,8 @@ func warmJail() {
 	// ⚠ THE APPLE CONTAINER PARITY JOB WARMS TOO, DELIBERATELY, AND ITS LINE IS NOT THAT
 	// EVIDENCE. apple-container.yml's parity step sets no YOLO_SETUP, so detectRuntime
 	// answers "container" on that Mac and this function proceeds. The premise above does not
-	// hold there: tagStockImage returns early for "container", so there is no stock
-	// short-circuit and that backend builds on every launch. What its warmup buys is the
+	// hold there: that job's `just load` writes no stock tag, so its first launch builds and
+	// tags (tagStockImage covers Apple Container since 2026-11-12). What its warmup buys is the
 	// ordinary one — the cold build and load land here instead of in the first parity test's
 	// budget. Its `warmed …`/DEGRADED line is read for that job alone, and never cited for or
 	// against bringing the nightly's skip back. If it measurably costs that job more than it

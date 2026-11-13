@@ -2,8 +2,8 @@
 title: "An active Pi profile must constrain supported model calls, not saved logins"
 date: 2026-10-06
 status: accepted
-stage: BUILT
-next: "Maintainer review of the extension's leaks (§3.4); then graduate to a reference doc"
+stage: DESIGN
+next: "Rule OQ-PAS3 (the maintainer's review of the extension's leaks in §3.4) and OQ-PAS4 (whether to ask pi-subagents for a registry several extensions can share); then graduate to a reference doc"
 tags: [pi, profiles, credentials, openai-auth, packs]
 summary: "An active Pi profile set is enforced by a Pi extension yolo ships, which puts a blocking provider in place of every provider outside the set; rendered selection, pack closure, broker preparation and Pi's saved logins are separate authorities."
 ---
@@ -30,7 +30,7 @@ auth before every request, so each one ends with yolo's denial.
 
 **Start at [§3](#3-accepted-provider-use-policy)** — the boundary, how the extension holds it, and its leaks.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-PAS3](#OQ-PAS3) (do the leaks in [§3.4](#34-what-the-extension-cannot-close) stand as documented limits) and [OQ-PAS4](#OQ-PAS4) (whether to ask pi-subagents for a registry several extensions can share).
 
 **Reads with:** [`active-provider-sets.md`](active-provider-sets.md) (active-set semantics),
 [`providers.md`](../reference/providers.md) (credential delivery),
@@ -209,6 +209,44 @@ Measured in stock Pi 1.0.1 or read in upstream `70759f48`:
 - **Auth status.** Pi's auth status shows a blocked provider as configured
   ("blocked by yolo's profile set").
 - **An old Pi** without `registerNativeProvider` (before 0.81.0) cannot take the block, and is warned.
+
+## Open Questions
+
+1. 💬 <a id="OQ-PAS3"></a>**[OQ-PAS3](#OQ-PAS3): Do the leaks in [§3.4](#34-what-the-extension-cannot-close) stand as the extension's documented limits?**
+
+   You pick a profile set that leaves out OpenAI, but you are still logged in to it. Pi stops
+   every normal model call to OpenAI. It still reads that saved login before it refuses, a hand-typed
+   `pi --no-extensions` loads no block, and `pi auth print-api-key` still prints the key. Each of
+   these is outside the extension's reach and no model call.
+
+   - **A.** They stand: the user guide lists them as limits of the profile set, and nothing more is
+     built.
+   - **B.** yolo closes what a launch can reach, such as refusing a `--no-extensions` it can see,
+     and the rest stands.
+
+   <!-- vantage: question id=OQ-PAS3 leaning="A. Each leak is a credential read or an explicit user command, not a model call, which is the boundary OQ-PAS1 ruled, and OQ-PAS2 rules out a Pi fork, which most of them would need." -->
+
+   _Leaning:_ A. Each leak is a credential read or an explicit user command, not a model call, which is the boundary [OQ-PAS1](#decision-ledger) ruled, and [OQ-PAS2](#decision-ledger) rules out a Pi fork, which most of them would need.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+2. 💬 <a id="OQ-PAS4"></a>**[OQ-PAS4](#OQ-PAS4): Should yolo ask pi-subagents for a required-child-extension registry several extensions can share?**
+
+   You run yolo's policy extension beside another extension that also makes pi-subagents load
+   it into every child. pi-subagents allows one registration per session, so whichever writes
+   second fails, or its entries outlive it ([§3.4](#34-what-the-extension-cannot-close)). No
+   extension yolo ships does this today.
+
+   - **A.** File the ask upstream now: a registration per owner, each removed on its own `dispose()`.
+   - **B.** Wait until a second extension that registers child extensions actually ships.
+
+   <!-- vantage: question id=OQ-PAS4 leaning="A, as a small issue on pi-subagents; the conflict is silent when it happens, and the fix is cheap upstream and impossible here without a fork." -->
+
+   _Leaning:_ A, as a small issue on pi-subagents; the conflict is silent when it happens, and the fix is cheap upstream and impossible here without a fork.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
 
 ## Decision Ledger
 
