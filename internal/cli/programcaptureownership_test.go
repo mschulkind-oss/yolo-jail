@@ -119,8 +119,12 @@ func TestOrdinarySubscriptionRevokedByAgentUpdatesOffFromAnotherWorkspace(t *tes
 	req2.Fingerprint = "workspace-specific-" + req.Fingerprint
 	req2.Env = ordinarySelectionEnvironment(cfg, req.Packs)
 	_, _ = prepareOrdinaryForLaunch(req2, io.Discard)
-	if r := ordinarySubscription(t, key); r.Active {
+	r := ordinarySubscription(t, key)
+	if r.Active {
 		t.Fatalf("agent_updates off left the ordinary subscription active: %+v", r)
+	}
+	if !strings.Contains(r.Reason, "off for pack") || !strings.Contains(r.Reason, "agent_updates") || strings.Contains(r.Reason, "use a fresh launch") {
+		t.Fatalf("policy-off revocation reason does not name the policy: %q", r.Reason)
 	}
 }
 

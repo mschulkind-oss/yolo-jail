@@ -91,6 +91,11 @@ func TestSelectedNPMTimerActualDispatchPreparesWithoutMovingRunningHome(t *testi
 		if r.Key == key && r.Active {
 			t.Fatal("revoked ordinary timer demand stayed active")
 		}
+		// Status names the policy and its next steps, not a fresh launch that under the same
+		// policy registers nothing (seen in the 2026-11-13 runtime acceptance).
+		if r.Key == key && (r.Phase != "inactive" || !strings.Contains(r.Reason, "off for pack") || !strings.Contains(r.Reason, "agent_updates") || strings.Contains(r.Reason, "use a fresh launch")) {
+			t.Fatalf("policy-off timer record misnamed: phase=%q reason=%q", r.Phase, r.Reason)
+		}
 	}
 	if f.resolves.Load() != 2 || f.installs.Load() != 2 {
 		t.Fatal("revoked timer performed another check/build")
