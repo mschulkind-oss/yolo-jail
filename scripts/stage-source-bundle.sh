@@ -20,7 +20,7 @@
 # THE DARWIN HOST yolo IS THE ONE THE LAUNCHER IS. It is in the bundle so every
 # host helper a Mac launch starts can be exec'd from the bundle's own copy, the
 # same build as the launcher, rather than from a path that an install can replace
-# (docs/design/pinned-host-helpers.md, PH-D2). matched-bundle.py takes the
+# (docs/reference/pinned-host-helpers.md, PH-D2). matched-bundle.py takes the
 # installed launcher out of it. The rest of the darwin dirs are NOT A HOST INSTALL. They are what a macos-user launch
 # stages into the sandbox's root-owned prefix (/var/yolo-jail/bin), the guest's
 # counterpart of a container's /opt/yolo-jail/bin: an in-jail binary a declared
