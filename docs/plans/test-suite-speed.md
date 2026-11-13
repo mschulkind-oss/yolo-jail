@@ -140,6 +140,28 @@ ref resolution, so that path cannot preserve the existing cached-commit/Warning 
 production context-policy change, which is out of scope. The HTTP and shared-budget cases likewise
 remain unchanged.
 
+**Event-driven, 2026-11-12 (source/test work, not a measurement):** three more waits now end on an
+event, with no assertion dropped that a regression could pass.
+
+- `TestRefreshCancellationIsBoundedWithoutDetach`, the non-detached case above, shortens
+  `gitWaitDelay` (a variable now, assigned only by the test) to 300 ms. Its helper holds git's
+  output pipe for the whole test, so Refresh returning while the helper still runs is what proves
+  `WaitDelay` bounded the wait. The old one-second ceiling on the return is gone. That was an
+  elapsed-time pass condition, and the helper check covers the same regression. The lower
+  bound stays, since load only makes a return later.
+- `TestStartDetachedDoesNotWaitAndDetaches` and `TestWaitForScratchRemoversWaitsForTheSpawnedChild`
+  in `internal/cli/run` no longer give their child a `sleep 2` or `sleep 1.5`. The child blocks on
+  a named pipe the test releases. A starter that waited on its child would never return, and a
+  readiness-budget guard turns that into a red test. The remover's lock is certain to be held
+  until the release, and the child writes its facts to a second named pipe instead of a file the
+  test polled.
+
+Left as they are, because they are not clock waits a seam can remove:
+`TestAConcurrentSweepNeverTakesASessionThatIsStartingUp` and `hostservice`'s
+`TestASocketPathThatExistsAccepts` catch a race by repetition. `TestADeadLaunchersLockStillAges`
+proves an absence: no heartbeat touches the lock for five beats. The three timer proofs above
+are unchanged.
+
 ### Retaken 2026-10-08 on the clean source tree
 
 **MEASURED** against `b2eeffc12b631d5cda108238e77a6c4cb5bb777c`, with the source tree clean before and after each command. The two recipe-1 runs were sequential; recipe 3 was run three times sequentially. Every command exited 0. The measurement ran in a Linux rootful jail with 32 CPUs visible. No other heavy command or suite was visible from the jail during the runs, but host-wide idleness could not be verified. The process umask was `022`. The sampled one-minute load averages were 12.05 and 14.17 at the two unit starts, then 11.57, 10.34 and 4.52 at the three integration starts.

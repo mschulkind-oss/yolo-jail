@@ -222,7 +222,10 @@ func CleanGitEnv(env []string) []string {
 // gitWaitDelay is how long a git run's Wait may block on output pipes a child left open
 // after git itself was stopped (os/exec's WaitDelay). It is the backstop for a
 // non-Detached store, where a timeout can kill git but not its transport helper.
-const gitWaitDelay = 3 * time.Second
+//
+// A var only so a test can shorten it (TestRefreshCancellationIsBoundedWithoutDetach); nothing
+// in production assigns it.
+var gitWaitDelay = 3 * time.Second
 
 // budget is one deadline shared by a sequence of git runs, and the duration its timeout
 // message names.
