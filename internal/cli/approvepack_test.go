@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ghbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
@@ -350,5 +352,46 @@ func writeApprovePackFile(t *testing.T, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestApproveWiresTimedPackAnswersForASelectedCallBroker pins the call site where `yolo approve`
+// builds a selected call-broker pack's store (approvalStores): its revalidator, its one timed
+// entry per write and its smallest-max_for ceiling are the call broker's own (pack-brokers.md
+// BX-D17, BX-D18). Without the ceiling a --for would fall back to the policy window; without the
+// entries it could not cover each write.
+func TestApproveWiresTimedPackAnswersForASelectedCallBroker(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_USER_LAYER", "")
+	writeApprovePackFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs":["aws-s3"]}`)
+	defer packload.ReleaseEmbedded()
+
+	stores, diagnostics, err := approvalStores()
+	if err != nil || len(diagnostics) != 0 {
+		t.Fatalf("approvalStores: %v %q", err, diagnostics)
+	}
+	var s *brokerstore.Store
+	for _, candidate := range stores {
+		if candidate.SourceName() == "aws-s3" {
+			s = candidate
+		}
+	}
+	if s == nil || s.ApprovalStatus != "selected" {
+		t.Fatalf("the selected aws-s3 call broker has no selected approval store: %+v", s)
+	}
+	same := func(got, want any) bool {
+		return reflect.ValueOf(got).Pointer() == reflect.ValueOf(want).Pointer()
+	}
+	if s.Revalidate == nil || !same(s.Revalidate, callbroker.ApprovalAuthority) {
+		t.Error("the pack store does not revalidate through the call broker's authority")
+	}
+	if s.Entries == nil || !same(s.Entries, callbroker.RequestEntries) {
+		t.Error("the pack store does not record one timed entry per write")
+	}
+	if s.TimedLimit == nil || !same(s.TimedLimit, callbroker.ApprovalTimedLimit) {
+		t.Error("the pack store does not cap a timed answer by the smallest max_for")
 	}
 }
