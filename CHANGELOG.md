@@ -10,6 +10,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-13
+
+API keys now reach only the agents that use them, your own instructions come first in every agent's instructions file, and agents can work with S3 through your own AWS login.
+
+### Added
+
+**API keys reach only the agents that use them.** A key under `[env.secrets]` goes only to the agents whose provider or MCP server needs it. `yolo config secret NAME` moves a key there from `[env]`. See [public and private environment variables](userguide/reference/configuration.md#public-and-private-environment-variables).
+
+**Agents can use S3 through your AWS login.** With `yolo pack add aws-s3`, an agent can list, read, upload and delete objects under the S3 prefixes the project lists in `brokered.aws-s3.roots`, using your host's `aws` login. Each upload or delete asks you first.
+
+**Check a config edit in seconds.** `yolo config check` validates your config files and writes nothing. See [Troubleshooting](userguide/guides/troubleshooting.md).
+
+**A Bedrock API key has its own provider.** Select `bedrock-key` with `yolo -p bedrock-key` or `yolo active-provider claude bedrock-key`. It takes the model list and region you set for `bedrock`. See [Use a Bedrock API key](userguide/guides/providers-and-models.md#use-a-bedrock-api-key-with-the-shipped-provider).
+
+**A project can name each extra GitHub repository.** `yolo request repos lib github.com/acme/lib` lets the project's agents reach that repository under the name `lib`. You can allow writes to it alone with `yolo allow repos.lib.github on_request <capability>`. See [GitHub](userguide/guides/github.md#adding-a-repository-the-project-has-no-remote-for).
+
+**Each setup runs its own jail.** A workspace can run one jail per setup at the same time. `yolo ps` lists every running jail on the machine in one table, and `yolo stop`, `yolo ps` and `yolo stores` take `--setup`.
+
+**Resource limits reach a running jail.** On podman, `yolo config apply` applies changed `resources` limits to a running jail.
+
+**Your own instructions come first.** Each agent's instructions file now starts with your rules and ends with yolo's text, which is a tenth of its old size. The rest of yolo's text is in skills an agent reads when it needs it. If Claude's file grows past the length Claude warns about, the launch says which pack to trim.
+
+**Pi shares the one MCP sign-in.** Pi can use remote MCP servers, and a server set to `sign_in = "once"` reuses the sign-in every jail shares.
+
+### Changed
+
+- A selected provider's key in `[env]` or `env_sources` now stops the launch, and the message names the `yolo config secret` command that moves it. With a JSONC config, run `yolo config migrate` first.
+- A name in both `[env]` and `[env.secrets]` stops the launch. Run `yolo config secret NAME --drop` to keep one copy.
+- The `bedrock` provider no longer gives agents a Bedrock API key. Select `bedrock-key` for it.
+- A project's `[requests.github]` lines now apply to its `origin` remote only, and yolo refuses `requests.github.repos`. Run `yolo config migrate`, which gives each other repository its own table.
+- A running jail that an earlier yolo started must stop before this version launches in that workspace. Run `yolo stop`.
+- When an agent approves a pull request, yolo now asks you first, even on one the agent opened.
+- The `seatbelt-yolo-account` setup no longer shares your Mac's `/tmp`. Run `yolo config set macos_user_shared_tmp true --user` to share it again.
+- `yolo check` no longer reports disk usage; run `yolo stores`.
+
+### Fixed
+
+- Podman inside a jail works again when the jail's home holds your own `containers.conf`.
+- Inside a podman jail, `podman exec` and `podman healthcheck run` now work in a nested container that runs as a non-root user.
+- Installing a newer yolo while a jail runs no longer breaks that jail's git access.
+- Pi with a curated GitHub Copilot model list no longer fails every turn.
+- A long-running `yolo host` session no longer loses its agent when a newer version installs.
+- On a busy machine, a CircleCI command that succeeded is no longer reported as failed.
+- `yolo allow circleci on_request all.rerun_workflows` now works.
+- `yolo config migrate` now converts a `null` GPU setting to the default it meant.
+
 ## [0.17.1] - 2026-11-09
 
 You can paste a clipboard image into the agent, a workspace's agent sessions are much harder to lose, and one MCP sign-in now serves every jail.
