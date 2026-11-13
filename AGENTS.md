@@ -248,10 +248,10 @@ The mechanics behind each of these are in
   does not build, while explicit `--build` still does. Disk inventory and reclaim belong to
   `yolo stores` and `yolo prune`. The y/N startup diff prompt is not a substitute for config
   validation.
-- **Config is TOML; legacy JSONC is read for a few releases** ([RC-D19](docs/design/readable-config.md#decision-ledger)).
+- **Config is TOML; legacy JSONC is read for a few releases** ([RC-D19](docs/reference/config/rulings.md#RC-D19)).
   One format per scope, a TOML file beside a legacy one is refused, and a launch offers
   `yolo config migrate` (`convert_later` in a legacy user file silences it). **Advice names a verb, not a
-  file to hand-edit** ([`config-commands.md`](docs/design/config-commands.md)): `yolo allow` (your
+  file to hand-edit** ([`config/editing.md`](docs/reference/config/editing.md)): `yolo allow` (your
   ceiling, host), `yolo request` (a project's ask, in a jail too), `yolo active-provider`,
   `yolo pack add|remove|migrate`, `yolo config set|add|unset|why|migrate`. A new advice string names
   one, or `yolo config set`; `TestConfigRefTOMLSectionNamesTheVerbsTheCLIHas` pins config-ref's list of
@@ -364,6 +364,7 @@ The mechanics behind each of these are in
 | Topic | Authority |
 |---|---|
 | Config *file* keys, all of them | `yolo config-ref` |
+| Config files, scopes, merge order, the editing verbs, `yolo config check`, and the rulings | [`docs/reference/config/`](docs/reference/config/README.md) |
 | Pack manifest schema | [`internal/packdecl/packdecl.go`](internal/packdecl/packdecl.go) (the doc comments ARE the reference) |
 | Pack authoring + the `packs` key | `yolo pack --help`, [`pack-system.md`](docs/reference/pack-system.md) |
 | CLI surface | `yolo --help` |
