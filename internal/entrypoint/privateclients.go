@@ -300,7 +300,7 @@ func OpenPrivateClientNode(candidate, want string) (*os.File, error) {
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		f.Close()
-		return nil, fmt.Errorf("Node at %s is not an executable regular file", candidate)
+		return nil, fmt.Errorf("node at %s is not an executable regular file", candidate)
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -309,7 +309,7 @@ func OpenPrivateClientNode(candidate, want string) (*os.File, error) {
 	}
 	if "sha256:"+hex.EncodeToString(h.Sum(nil)) != want {
 		f.Close()
-		return nil, fmt.Errorf("Node at %s is not the runtime this client was prepared with", candidate)
+		return nil, fmt.Errorf("node at %s is not the runtime this client was prepared with", candidate)
 	}
 	return f, nil
 }
