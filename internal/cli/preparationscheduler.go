@@ -394,7 +394,13 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 				}
 				r.At = preparationNow()
 				if r.Kind == preparationOrdinaryProgramKind {
-					if result.err != nil || result.program == nil {
+					if errors.Is(result.err, packsrc.ErrLockHeld) {
+						// Contention is a busy skip, as on the plain and tree paths: no failure
+						// stamp and no retry throttle; the next timer tick tries again.
+						r.Phase = "busy"
+						r.Reason = "another yolo process holds a lock this preparation needs; the next timer tick retries without waiting for it"
+						r.RetryAt = time.Time{}
+					} else if result.err != nil || result.program == nil {
 						r.Phase = "failed"
 						r.Reason = fmt.Sprintf("%v — retry a fresh launch", result.err)
 						r.RetryAt = preparationNow().Add(time.Hour)
@@ -496,7 +502,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 				return configErr
 			}
 			state = refreshPreparationSubscriptionsUnder(ctx, state, current)
-			state = refreshOrdinaryPreparationSubscriptions(ctx, state)
+			state = preparationRefreshOrdinary(ctx, state)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -536,7 +542,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 					continue
 				}
 				if ordinary {
-					if !ordinaryPreparationDue(ctx, r) {
+					if !preparationOrdinaryDue(ctx, r) {
 						continue
 					}
 				} else if preparationKind(r) == preparationPlainProgramKind {
@@ -608,7 +614,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 					var taskErr error
 					var program *npmCaptureRecord
 					if r.Kind == preparationOrdinaryProgramKind {
-						program, taskErr = runOrdinaryScheduledPreparation(taskCtx, r, &out)
+						program, taskErr = preparationRunOrdinary(taskCtx, r, &out)
 					} else if preparationKind(r) == preparationPlainProgramKind {
 						taskErr = runPlainForkPreparation(taskCtx, r, f, &out)
 					} else {
@@ -676,6 +682,15 @@ func preparationTreesWithResolver(records []preparationRecord, resolver func(con
 func refreshPreparationSubscriptions(records []preparationRecord, current map[string]packload.Fork) []preparationRecord {
 	return refreshPreparationSubscriptionsUnder(context.Background(), records, current)
 }
+
+// The ordinary-program acts the timer drives, behind vars so an in-process test can stand in for
+// one stage while the scheduler loop itself stays the production one. Nothing but a test
+// reassigns them.
+var (
+	preparationRefreshOrdinary = refreshOrdinaryPreparationSubscriptions
+	preparationOrdinaryDue     = ordinaryPreparationDue
+	preparationRunOrdinary     = runOrdinaryScheduledPreparation
+)
 
 // preparationTaskSettled observes a finished task once its result is recorded in the
 // subscription state, before the next dispatch pass; the default has no side effects.
