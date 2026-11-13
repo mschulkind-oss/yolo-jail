@@ -129,8 +129,8 @@ PY`)
 }
 
 // TestRetiredMcpPresetsKeyIsRefused confirms the retired `mcp_presets` key refuses the launch
-// before any container starts, naming both next steps (docs/design/mcp-presets-removal.md §13
-// step 3): the chrome-devtools pack and the user's own sequential-thinking entry.
+// before any container starts, naming both next steps (docs/reference/mcp-configuration.md,
+// the retired mcp_presets key): the chrome-devtools pack and the user's own sequential-thinking entry.
 func TestRetiredMcpPresetsKeyIsRefused(t *testing.T) {
 	requireJail(t)
 	// No pack selection needed: the validator refuses this before a container starts.
@@ -275,13 +275,13 @@ func TestWorkspaceMcpConfigsAreIsolated(t *testing.T) {
 }
 
 // TestMcpChromeDevtoolsPackReachesEveryAgent confirms the chrome-devtools PACK — a `kind: "mcp"`
-// entry composed on the host into YOLO_MCP_SERVERS (docs/design/mcp-presets-removal.md §14) —
+// entry composed on the host into YOLO_MCP_SERVERS (docs/reference/mcp-configuration.md) —
 // puts a chrome-devtools server in copilot's mcp-config.json, codex's config.toml and claude's
 // ~/.claude.json, each running the pack's wrapper under the jail's home through /bin/sh, with no
 // core branch naming any of the three; that the wrapper is where the entry says and reports the
 // server and the image's chromium; and that `mcp_servers: {"chrome-devtools": null}` removes it
 // from all three. `--check` starts nothing and installs nothing. It also reads the launchers the
-// boot generated (mcp-presets-removal.md MP-D9): an agent's carries the server's program in the
+// boot generated (docs/reference/mcp-configuration.md MP-D9): an agent's carries the server's program in the
 // refresh it runs before exec, and the program's own carries no update of its own; with the null,
 // the agent's carries nothing for it.
 func TestMcpChromeDevtoolsPackReachesEveryAgent(t *testing.T) {
@@ -322,7 +322,7 @@ PY
 			t.Errorf("selected: no %q\nstdout=%q\nstderr=%q", want, r.stdout, r.stderr)
 		}
 	}
-	// The pack's boot_check (mcp-presets-removal.md OQ-MP9) ran at boot and, with the image's
+	// The pack's boot_check (docs/reference/mcp-configuration.md OQ-MP9) ran at boot and, with the image's
 	// chromium there, said nothing.
 	if strings.Contains(r.stderr, "chrome-devtools: browser: none found") || strings.Contains(r.stderr, "its boot check") {
 		t.Errorf("the boot warned about the browser with the image's chromium present:\n%s", r.stderr)
@@ -346,8 +346,8 @@ PY
 	}
 }
 
-// THE chrome-devtools PACK ON macos-user, asked of a real sandbox (docs/design/mcp-presets-removal.md
-// §7, §14: "selecting the pack produces a named missing-binary report rather than a blanket 'not
+// THE chrome-devtools PACK ON macos-user, asked of a real sandbox (docs/reference/mcp-configuration.md
+// MP-D5: "selecting the pack produces a named missing-binary report rather than a blanket 'not
 // delivered on this backend'"). The plan composes the pack's entry for the sandbox account's home
 // and the bootstrap renders it into claude's ~/.claude.json; the wrapper the entry runs is where it
 // says, and its --check names the server's launcher and a browser — the GitHub macOS runners ship

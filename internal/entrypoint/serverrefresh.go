@@ -42,7 +42,7 @@ import (
 // installs: the npm `program` each selected pack's `mcp` server runs (`packMCPServerPrograms`,
 // which nothing installs at boot: absent until an agent's launcher installs it here, before
 // that agent execs and spawns the server). The MCP presets' npm packages were the other half
-// until the `mcp_presets` key retired (docs/design/mcp-presets-removal.md §13 step 3).
+// until the `mcp_presets` key retired (docs/reference/mcp-configuration.md, the retired mcp_presets key).
 // `serverRefreshSet` is the
 // one place that set is derived, from the declarations those installs read.
 //

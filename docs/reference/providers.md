@@ -929,6 +929,123 @@ so for pi the only lever on what it can reach is the credential. For `openai-cod
   sees no `-p`, so it cannot see a profile's half; where it predicts an override refusal, it names
   the same winning source.
 
+### The two env sets: public and private
+
+**A value is a secret because the user declared it under `[env.secrets]`, and for no other
+reason** (the owner, 2026-11-09: *"we keep the same thing right now for general safe environment
+variables, and then if you want to have a secret … you need to move it to the private set"*).
+Before this rule the gate withheld a dotenv value from the wrong agents only while some selected
+pack's provider claimed its name: deselect the pack and the same key reached every process. No
+name is written in two places, and no pack's presence or absence changes what a value is.
+
+```toml
+# ~/.config/yolo-jail/config.toml
+packs = ["claude", "zai"]
+
+[env]                                             # the public set: every process
+files = ["~/.config/yolo-jail/defaults.env"]
+set   = { DEBUG = "1" }
+unset = ["HTTP_PROXY"]
+
+[env.secrets]                                     # the private set: claimed names only
+files = ["~/.config/yolo-jail/secrets.env"]
+set   = { OPENROUTER_API_KEY = "sk-or-…" }
+```
+
+| Key | Public set `[env]` | Private set `[env.secrets]` |
+| :--- | :--- | :--- |
+| `files` | a list of dotenv paths | the same |
+| `set` | an inline table of values | the same |
+| `sources` | the ordered mixed list, kept for the legacy lowering | absent: the private set has no legacy spelling ([SE-D3](#SE-D3)) |
+| `unset` | names to remove, from **both** sets ([SE-D4](#SE-D4)) | absent: a removal carries no value, so it has no set |
+| scope | user and workspace | the same; a workspace file must lie inside the workspace ([SE-D5](#SE-D5)) |
+| order | later wins per name: user then workspace; within a file, `sources`, `files`, then `set` | the same, within the set |
+
+Hydration keeps which set declared each value ([SE-D1](#SE-D1)), and the gate's table above
+applies it. Three refusals stop a launch, an attach, `yolo check`, `yolo host --` and
+`yolo host env` before anything is written, at every notch ([SE-D7](#SE-D7)); they are collected
+and printed together ([SEP-D8](#SEP-D8)), and no `YOLO_ALLOW_*` variable or flag passes them
+([SE-D10](#SE-D10)):
+
+- **A provider's key in the public set** (`config.envsecretsrefusal.go`, `publicKeyRefusal`):
+
+  ```text
+  config.env.files: ZAI_API_KEY is set in your public environment ([env], from
+  ~/.config/yolo-jail/defaults.env), and the zai provider this launch selects claims it as its key.
+  A public value reaches every process in the jail, so a provider's key may not live there. Move it
+  to the private set: yolo config secret ZAI_API_KEY --user
+  ```
+
+  Only a provider's claim refuses: a public name only an MCP server claims stays public
+  ([SE-D15](#SE-D15)). On a legacy JSONC file, which has no private set, the remedy names
+  `yolo config migrate` first ([SE-D6](#SE-D6), [SEP-D18](#SEP-D18)).
+- **One name in both sets**, whatever claims it ([SE-D2](#SE-D2)): the refusal names both places and
+  the `--drop` that keeps each copy.
+- **One dotenv file listed in both sets**: one refusal for the file, naming
+  `yolo config secret --dotenv <path>` or its `unsecret` mirror ([SEP-D17](#SEP-D17)).
+
+**Two verbs move a name between the sets** ([SE-D9](#SE-D9), `internal/cli/configsecret.go`):
+`yolo config secret <NAME>` and `yolo config unsecret <NAME>`, with `--user`, `--project`,
+`--local` or `--file PATH` for the scope, or, with none, the one scope that holds the name
+([SEP-D11](#SEP-D11)). An inline value moves to the other set's `set`; a dotenv line moves
+verbatim to the first file the other set lists in that scope, created `0600` when missing
+([SEP-D12](#SEP-D12)), and a scope listing no such file is refused naming the
+`yolo config add env.secrets.files …` to run first ([SEP-D14](#SEP-D14)). `--drop` deletes the other
+set's copy instead of moving one; `--dotenv <path>` moves a whole file's entry. The destination is
+written before the source is removed, so a failure leaves two copies, never none
+([SEP-D10](#SEP-D10)), and **neither verb prints a value**: one `moved NAME from <place> to <place>`
+line ([SEP-D7](#SEP-D7)).
+
+**Two lines join the disclosure**, names only ([SE-D11](#SE-D11)), on every launch and in
+`yolo check` as WARN beside the refusals' FAIL ([SEP-D9](#SEP-D9)):
+
+- A **private name nothing in this launch claims** reaches nobody and the launch starts
+  ([OQ-SE1](#OQ-SE1)): `FOO_TOKEN: withheld from every process — nothing in this launch claims it.`
+  followed by `To use it as cerebras's key: yolo pack add cerebras` when an unselected shipped pack
+  claims the name, or else `If no provider or MCP server needs it, it belongs in the public set:
+  yolo config unsecret FOO_TOKEN --user`.
+- A **public name an unselected shipped pack's provider claims** keeps reaching every process, with
+  one line naming `yolo config secret`. The shipped set words a line and never decides a reach, so a
+  release that ships a new pack can add a line to a working launch, never refuse it
+  ([SE-D8](#SE-D8)).
+
+An MCP server's `requires_env` claims a private name for the agents whose config names that
+server ([OQ-SE2](#OQ-SE2)), which are the bins of every selected program whose pack ships a
+`derive.lua` ([SEP-D5](#SEP-D5)). A claimed name never reaches every process from config; the
+per-launch `--with-credentials` grant is the one widening ([OQ-SE3](#OQ-SE3)). **A nested jail
+carries no private set**: `InheritNested` drops `env.secrets` whole, and a nested launch whose
+agent needs a private key says it is *not carried into a nested jail* and names running that agent
+from the jail the host launched ([SE-D16](#SE-D16)). There is no automatic migration: a user's
+first launch that selects a provider whose key sits in `[env]` refuses with the move.
+
+> [!WARNING]
+> Widening the claims to every pack yolo ships, selected or not, looks like the fix and is the
+> one rejected: it still guesses secrecy from a name list, a key for a provider yolo does not ship
+> still goes everywhere, and a release would change who receives a value in launches that never
+> selected the new pack. The shipped set is read only to word a line ([SE-D8](#SE-D8)).
+
+**Not measured on a Mac.** The jail notch and `yolo host` were run on Linux only. macos-user and
+Apple Container take the same gate call above the backend switch, read from the code, not run.
+The witnesses, for a Mac session ([`mac-handoff`](../../.pi/skills/mac-handoff/SKILL.md) owns
+the hand-off):
+
+| Cell | Witness | Status |
+| :--- | :--- | :--- |
+| macos-user refuses a public provider key | `packs = ["zai"]`, `ZAI_API_KEY` under `[env] set`: `yolo -- true` exits non-zero naming `yolo config secret ZAI_API_KEY --user`, no value printed, no per-session env file written (stderr and an `ls` of the session directory) | UNMEASURED |
+| Apple Container refuses the same | the same config on `apple-container-self`: the same refusal, and `<workspace>/.yolo/home/.config/yolo-agent-env/` gains no file | UNMEASURED |
+| macos-user delivers a private key to its claimant only | the key under `[env.secrets] set` with `-p claude=zai`: claude's session file holds it, a bare `yolo -- env` does not | UNMEASURED |
+| `integration/macosuserbridge_test.go` | darwin-only; skipped on Linux | UNMEASURED |
+
+**Known gaps**, recorded by the build on 2026-11-09 and carried here unverified since:
+
+- `yolo config secret` on a user file that spells `env = { set = {...} }` inline appends a
+  `[env.secrets.set]` table and leaves invalid TOML, and a dotted key fails with a raw struct dump;
+  the fix is in `configedit`.
+- Inside a jail, `config.LocateEnvName` cannot see the user config, so the refusal's remedy names
+  neither `--user` nor a `yolo host-run` line.
+- Inline public `env.sources` values reach the assembled config copy unredacted; the redaction
+  covers the private set only. This predates the two sets.
+
 ## The canonical wire_api vocabulary
 
 Three names — `anthropic`, `openai-chat-completions`, `openai-responses` — deliberately
@@ -2607,6 +2724,11 @@ no profile. `yolo host env` prints the composition and nothing about what a laun
 
 ## What this does not license
 
+- **No grant from the private set.** `[env.secrets]` says where a variable is declared, not which
+  process may hold it ([OQ-ES5](../design/credential-sources-separation.md#10-decision-ledger)
+  stands), and it is not access control within a jail's uid: every file a vehicle writes is
+  readable by every process of that uid. A private name nothing claims has no per-launch
+  spelling; `--with-credentials` stays by provider.
 - **No reopening the `wire_api` enum** as a free string — that restores the
   pass-through-verbatim failure the closed vocabulary closed.
 - **No agent names in core.** The protocols an agent speaks are declared by that agent's pack
@@ -2766,7 +2888,7 @@ says "Settled in", the link is where the behavior is now described.
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="CN-D1"></a>CN-D1 | *Implementation decision.* `api_key_env_name` is a string or a non-empty list of distinct valid names (`packdecl.EnvNames`, one rule for manifests and user `providers`). One name keeps the string spelling on every surface; a list of several points an agent at none of them (`KeyEnvName`), so the derives read a view with the one name or none (`ProvidersForDerive`) and the pre-flight and the wire bridge read `KeyEnvName`. Picking the first of several would, for Bedrock, compose a bearer into claude's `ANTHROPIC_AUTH_TOKEN`. In a manifest, `null` and `""` read as absent, as they did while the field was a plain unvalidated string (review found the first build refusing both, fatally at boot); a user config's `""` stays refused, as it always was. Manifest names are validated now, which a pack author can meet as a new refusal | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestAProviderMayListItsCredentialVariables`, `TestACredentialVariableListIsValidated`; the manifest's `null` and `""`, `TestAnEmptyOrNullCredentialVariableReadsAsAbsent` |
 | <a id="CN-D2"></a>CN-D2 | *Implementation decision.* `bedrock` claimed `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and `AWS_CONTAINER_CREDENTIALS_FULL_URI`: [`OQ-SSO7`](agent-credentials.md#sso-decision-ledger)'s three routes as the clients spell them, plus the other two of pi's four spellings ([OQ-CN4](#oq-cn4)). Since [PP-D9](../design/providers-and-profiles-redesign.md#PP-D9) (2026-09-29) a provider declaring the same `platform` and no `api_key_env_name` of its own co-claims these six (the bearer has since moved to `bedrock-key`, [the design](../design/bedrock-key-provider.md)), so a user's own Bedrock provider keeps them to its agents rather than having them withheld from every process | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestTheShippedBedrockProviderClaimsItsCredentialRoutes`; the platform co-claim `packload.credentialClaims` ([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)) |
-| <a id="CN-D3"></a>CN-D3 | *Implementation decision.* An `env_sources` value no provider claims stays shared, delivered to every process as before. The gate scopes provider credentials; a user's other variables (`GH_TOKEN`) are not a provider's. Since [secret-env-scoping](../design/secret-env-scoping.md), true of the public set only: a private value nothing claims reaches nobody ([SE-D12](../design/secret-env-scoping.md#SE-D12)) | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestScopeCredentialsSplitsClaimedFromShared` |
+| <a id="CN-D3"></a>CN-D3 | *Implementation decision.* An `env_sources` value no provider claims stays shared, delivered to every process as before. The gate scopes provider credentials; a user's other variables (`GH_TOKEN`) are not a provider's. Since [the two env sets](#the-two-env-sets-public-and-private), true of the public set only: a private value nothing claims reaches nobody ([SE-D12](#SE-D12)) | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestScopeCredentialsSplitsClaimedFromShared` |
 | <a id="CN-D4"></a>CN-D4 | *Implementation decision.* The per-agent env gate (`gateFiresFor`): an agent pack's gated env reaches its own agent when that agent selected the profile; a CLI-less pack's reaches every agent that selected it; a table key naming no CLI any selected pack installs activates nothing. So `-p codex=bedrock` gives codex nothing of claude's either — "as specific as possible" — and the override pre-flight asks the same rule (`gateDelivered`) | 2026-09-26 | [the done conditions](#the-credential-gate-done-conditions) | ✅ `TestAnAgentPacksGatedEnvReachesOnlyItsOwnAgent`, `TestGateDoneConditions2And3CodexOnBedrock` |
 | <a id="CN-D5"></a>CN-D5 | *Implementation decision.* One gate function, `packload.ScopeCredentials`, with two call sites: `composePackChannel` (the jail, whose result the container and macos-user vehicles read) and `composeHostVars` (the host notch, which composes from user scope only and never went through `composePackChannel`). The same arrangement `EnvFold` and `AgentEnv` already had | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `TestGateDoneCondition1PiOnZaiSeesNoAWS` (the jail), `TestHostGatePiOnZaiSeesNoAWS` (the host notch) |
 | <a id="CN-D6"></a>CN-D6 | *Implementation decision.* The gate classifies NAMES, not sources: a claimed name is withheld from another provider's agent whether `env_sources` or the launch environment holds it, so the env derive's relay cannot hand one agent another's key | 2026-09-26 | [the credential gate](#the-credential-gate) | ✅ `CredentialScope.LookupFor`, pinned by `TestTheEnvDeriveSeesOnlyTheAgentsOwnProvidersKey` |
@@ -2789,6 +2911,66 @@ says "Settled in", the link is where the behavior is now described.
 | <a id="CN-D23"></a>CN-D23 | *Implementation decision, for [OQ-CN7](#oq-cn7) (c).* The caller-token mechanism is reused (minted by `launchCallerTokens`, adopted on attach by `runningCallerTokens`, demanded by the daemon); only its delivery changes. A new env-value token `{caller_token}` (`loopholedecl.TokenCallerToken`) resolves to the `served_by` daemon's token; it is legal only as the whole value of a `profile`-gated contribution with `served_by`, because a client sends it verbatim and an ungated value reaches every process. A token some selected pack names this way is **scoped** (coined in the same file): it is exported only in the agent files its pointer reaches, as aws-auth's `AWS_CONTAINER_AUTHORIZATION_TOKEN`, and the shared file carries it as an unexported comment record in its channel section (`entrypoint.ScopedCallerTokenRecord`), which the adapter reads at boot when its environment carries none and an attach adopts. An attach that composes no use for a running token carries its record forward, so a later entry selecting `bedrock` again delivers the token the running adapter still demands. `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is gone from the pack: the AWS SDKs send `AWS_CONTAINER_AUTHORIZATION_TOKEN`'s value as the `Authorization` header, which "will only be used if `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is not set" (the AWS SDKs and Tools reference guide, container credential provider), and the boot writes no `/run/yolo/caller-tokens` file for a scoped token. What remains is a same-uid file read, as the ruling's question said | 2026-09-28 | [`packs/aws-auth/README.md`](../../packs/aws-auth/README.md) | ✅ `7d0af878` |
 | <a id="CN-D24"></a>CN-D24 | *Implementation decision, for [OQ-CN9](#oq-cn9).* The files are written by the launcher's macos-user arm, ahead of the bootstrap, through the container vehicle's own `writeAgentEnvFiles`, into `<workspace>/.yolo/home/config/yolo-agent-env/`: `entrypoint.AgentEnvDirRel` with its leading dot trimmed, which is where the bootstrap's home layout links the sandbox's `~/.config` (`DeriveDarwinHomeLayout`). "The bootstrap writes" is met by the arm that precedes it, because the writer lives in the launcher's binary and calling it from the bootstrap would need a second copy. Not on a dry run. `noteMacosUserCredentialScope` now says the other agents read theirs from their own files. NOT MEASURED on hardware: that the sandbox account reads a 0600 file the invoking user wrote relies on the workspace's inheriting ACL, as every other sidecar file does | 2026-09-28 | [the credential gate](#the-credential-gate) | ✅ `949d9430` |
 | <a id="CN-D25"></a>CN-D25 | *Implementation decision.* **The jail's credential pre-flight asks each agent whether its provider's key reaches it**, never whether the launch carries the key anywhere: the env_sources that agent receives, the shared and its own pack env, its own shape vars (`CredentialScope.DeliveredTo`, the question the region pre-flight already asked), and on a container the argv's `-e` pairs. The shell yolo was launched from reaches no process of a jail ([BR-D2](../design/bedrock-plumbing.md#BR-D2)), so a key left only there counts for an agent whose env derive copied its value into the agent's own environment (`CredentialScope.Relays`; claude's `ANTHROPIC_AUTH_TOKEN`, copilot's `COPILOT_PROVIDER_API_KEY`) and for no other, and the refusal names the variable as left in that shell and offers `env_sources`. opencode, pi and codex read the variable itself and relay nothing, so the launch-wide lookup this replaces passed a launch that started them with no key. Found by the review of opencode's active set, 2026-09-30; it predates sets. The host notch keeps the launch-wide lookup, since the agent it execs inherits that shell | 2026-09-30 | [the credential preflight](#the-credential-preflight) | ✅ `packload.ProviderCredentialGapsTo`, `checkProviderCredentials`; `TestTheJailsCredentialPreflightAsksEachAgent`, `TestAKeyOnlyInTheLaunchShellCountsOnlyForAnAgentWhoseDeriveRelaysIt`, `TestAKeyLeftInTheLaunchShellRefusesOpencodesLaunch` |
+
+### The secret-env rulings
+
+The rulings and decisions behind [the two env sets](#the-two-env-sets-public-and-private), with
+the ids of the design they were built from (`secret-env-scoping.md`, built and graduated
+2026-11-12, since deleted). The owner ruled the direction, [OQ-SE1](#OQ-SE1) to [OQ-SE3](#OQ-SE3) and `SE-D2` and
+`SE-D16`; the rest were the design seat's mechanism choices. Every row is built; the last column
+names what pins it.
+
+| ID | Ruling / Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| <a id="SE-D1"></a>SE-D1 | **Hydration keeps which set declared each value**, assigned where the entry is read, beside the per-file anchoring of relative paths, and carried through the merge, so the gate never re-reads a config to learn it | 2026-11-09 | ✅ `TestResolveEnvKeepsWhichSetDeclaredEachName`; `TestAPrivateKeyReachesOnlyItsClaimingAgent` (integration) |
+| <a id="SE-D2"></a>SE-D2 | **A name in both sets is a fatal error** (owner, 2026-11-09: *"just make this a fatal error."*). The refusal names both copies and the `--drop` that keeps each, whatever claims the name; a public copy that reached every process would undo the declaration | 2026-11-09 | ✅ `TestANameInBothSetsIsReportedWithBothPlaces`, `TestSecretEnvRefusalNamesANameInBothSetsAndBothDrops`, `TestANameInBothSetsRefusesBeforeAnythingIsWritten`, `TestHostRefusesANameInBothSets`, `TestThePacksSectionFailsANameInBothSets`, `TestANameInBothSetsRefusesTheLaunch` (integration) |
+| <a id="SE-D3"></a>SE-D3 | **`[env.secrets]` has `files` and `set`, no `sources`**: the ordered mixed list exists to lower legacy `env_sources`, and the private set has no legacy spelling | 2026-11-09 | ✅ `TestAPrivateEnvTableValidatesAsTheReadableEnvShape` |
+| <a id="SE-D4"></a>SE-D4 | **One `unset`, under `[env]`, removes a name from both sets.** A removal carries no value, so it has no set | 2026-11-09 | ✅ `TestOneUnsetRemovesANameFromBothSets`, `TestResolveEnvCarriesRemovalsAFileLaterCancels` |
+| <a id="SE-D5"></a>SE-D5 | **Both sets exist in both scopes**, under one rule. A workspace private file must lie inside the workspace, refused as `[env] files` is; a project declaring a name private can only narrow its reach | 2026-11-09 | ✅ `TestAWorkspacePrivateFileOutsideTheWorkspaceIsRefused`, `TestTheSharedFileCarriesNoPrivateValue` |
+| <a id="SE-D6"></a>SE-D6 | **A legacy JSONC file has no private set.** Its `env_sources` is read into the public set, and the refusal names `yolo config migrate` before the move verb | 2026-11-09 | ✅ `TestSecretEnvRefusalOnALegacyFileNamesMigrateFirst`, `TestHostRefusesALegacyPublicKeyNamingMigrateFirst`, `TestConfigSecretOnALegacyConfigNamesMigrateFirst` |
+| <a id="SE-D7"></a>SE-D7 | **The refusal fires at every entry that runs the gate**: fresh launch, attach, `yolo check`, `yolo host --`, `yolo host env`, at every notch; nothing is written before it, and a running jail keeps its environment until it restarts | 2026-11-09 | ✅ `TestAPublicProviderKeyRefusesBeforeAnythingIsWritten`, `TestHostRefusesAPublicProviderKey`, `TestAPublicProviderKeyRefusesTheLaunch` and `TestAnAttachRefusesAPublicProviderKey` (integration). macos-user and Apple Container take the same call above the backend switch, [not run on a Mac](#the-two-env-sets-public-and-private) |
+| <a id="SE-D8"></a>SE-D8 | **The shipped set is read to word a line, never to decide a reach**: a public name an unselected shipped pack claims gets one line naming the move, and a private name such a pack claims gets `yolo pack add` in its remedy; a release changes text, never delivery | 2026-11-09 | ✅ `TestAnUnselectedShippedProviderWordsAPublicNamesLine`, `TestAPrivateNameAnUnselectedPackClaimsNamesThePack`, `TestUnselectedProviderClaimsReadsTheShippedSetMinusTheSelection` |
+| <a id="SE-D9"></a>SE-D9 | **Two named verbs move a name between the sets**, `yolo config secret` and `yolo config unsecret`, in the scope that holds the entry unless a scope flag says otherwise; `--drop` removes the other set's copy instead of moving one. A verb earns its place because the move crosses a dotenv file and a config file, which no generic edit can | 2026-11-09 | ✅ `TestConfigSecretMovesOneDotenvLineToThePrivateFile`, `TestConfigSecretMovesAnInlineValue`, `TestConfigSecretDropKeepsThePrivateCopy`, `TestConfigUnsecretMovesBack`, `TestConfigSecretMovesANameOutOfAnInlineSourcesTable` |
+| <a id="SE-D10"></a>SE-D10 | **No hatch.** No `YOLO_ALLOW_*` variable restores the old delivery; the one remedy is the config verb | 2026-11-09 | ✅ no `YOLO_ALLOW_*` variable reaches the refusal |
+| <a id="SE-D11"></a>SE-D11 | **The disclosure gains two line kinds**, a private name withheld for want of a claim and a public name an unselected shipped pack claims, and keeps its names-only rule ([CN-D16](#CN-D16)); nothing says whether a secret was inline or in a file | 2026-11-09 | ✅ `TestAPrivateNameNothingClaimsReachesNobody`, `TestAnUnselectedShippedProviderWordsAPublicNamesLine`, `TestDescribeEnvSourcesNamesThePrivateEntriesConsulted` |
+| <a id="SE-D12"></a><a id="OQ-SE1"></a>SE-D12 ([OQ-SE1](#OQ-SE1)) | **A private name nothing claims starts the launch**, reaches nobody, and prints a line naming `yolo config unsecret` on every launch and in `yolo check` (owner, 2026-11-09: A) | 2026-11-09 | ✅ `TestAPrivateNameNothingClaimsReachesNobody`, `TestSecretEnvGapWarnsOfAPrivateNameNothingClaims`, `TestHostSecretEnvKeepsThePrivateSetFromAnUnclaimingCommand` |
+| <a id="SE-D13"></a><a id="OQ-SE2"></a>SE-D13 ([OQ-SE2](#OQ-SE2)) | **An MCP server's `requires_env` claims a name too**, for the agents whose config names that server, and delivers a private value to those agents only (owner, 2026-11-09: B) | 2026-11-09 | ✅ `TestAnMCPServersRequiresEnvClaimsAPrivateNameForItsAgents`, `TestMCPEnvClaimsAndAgents` |
+| <a id="SE-D14"></a><a id="OQ-SE3"></a>SE-D14 ([OQ-SE3](#OQ-SE3)) | **A claimed name never reaches every process from config**; the per-launch `--with-credentials` grant is the one widening (owner, 2026-11-09: A). This answers [OQ-ES6](../design/credential-sources-separation.md#OQ-ES6) too | 2026-11-09 | ✅ `TestAPublicNameAProviderClaimsIsReportedAndNotWidened`, `TestTheFallbackStillScopesAClaimedNameNobodyHydrated` |
+| <a id="SE-D15"></a>SE-D15 | **Only a provider's claim makes a public value a refusal.** An MCP server's claim delivers a private value, but a public name only an MCP server claims stays public; otherwise every MCP key kept public would refuse | 2026-11-09 | ✅ `TestAPublicNameOnlyAnMCPServerClaimsStaysShared`, `TestSecretEnvRefusalIsEmptyForAPrivateKeyAndAnUnclaimedPublicName` |
+| <a id="SE-D16"></a>SE-D16 | **A nested jail's inherited user layer carries no private set** (owner, 2026-11-10: *"B for sure. nested jails get no special privs that the outer jail does not have"*). `InheritNested` drops `env.secrets` whole, and a nested launch whose agent needs a private key says why it is missing and names the jail the host launched | 2026-11-10 | ✅ `TestTheNestedInheritCarriesNoPrivateEnvSet`, `TestANestedLaunchNamesWhyAKeyIsMissing` |
+
+**Rejected, so nobody proposes them again:** a key named on its provider
+(`[providers.zai] credentials = "…"`: N pointers to the one file most users keep, and a
+user-declared provider inheriting a platform's claims has nothing to point at); a
+`secret = true` flag on an `[env] sources` entry (a second spelling, invisible to
+`yolo config add env.files`); a top-level `[secrets]` table (the private set shares `[env]`'s
+keys, order and scope, so it reads as a second list of environment variables); and refusing a
+public name an unselected shipped pack claims (a release could then refuse a working config).
+
+### The secret-env build ledger
+
+The decisions the two sets were built with, kept with their ids because code comments cite them.
+
+| ID | Decision | Reason |
+| :--- | :--- | :--- |
+| <a id="SEP-D1"></a>SEP-D1 | `HydratedEnv` holds one ordered value map (both sets, hydration order), the set bit per name, the removals, and per name the places that set its winning value (two on a both-sets name, whose map value is the private copy) | One value replaces the nil-encoded map the pack channel carried; one map keeps every gate reader that iterates `EnvSources` working |
+| <a id="SEP-D2"></a>SEP-D2 | `[env] unset` and a legacy inline null remove a name from both sets | [SE-D4](#SE-D4); a legacy null is the same removal spelled earlier |
+| <a id="SEP-D3"></a>SEP-D3 | A name is "in both sets" when it holds a value in both maps after removals | A name `unset` removes from both is set in neither |
+| <a id="SEP-D4"></a>SEP-D4 | The gate keeps scoping a **public** provider-claimed name to its claimants and reports it through `PublicClaims()`; the callers refuse | If a caller ever skipped the refusal, the value still would not widen |
+| <a id="SEP-D5"></a>SEP-D5 | An MCP claim's agents are the bins of every selected `[[program]]` whose pack ships a `derive.lua` | Each such agent's derive renders the one composed MCP table; no manifest field says which agents render MCP |
+| <a id="SEP-D6"></a>SEP-D6 | The scope flag a refusal or line names comes from `LocateEnvName`, read only when something is printed; an inherited writer reads as `--user` | The hot path carries only the set bit ([SE-D1](#SE-D1)); the verb needs the same lookup |
+| <a id="SEP-D7"></a>SEP-D7 | A place prints as `([env], from <entry>)`, `([env] set)`, `([env] sources)`, `(env_sources, from <entry>)` for a legacy file, or `([env.secrets], from <entry>)` / `([env.secrets] set)`, the entry as the loader left it | Matches the workspace-scope refusal's spelling of an entry |
+| <a id="SEP-D8"></a>SEP-D8 | Every refusal is collected and printed together, both-sets lines first | One launch tells the user everything to fix |
+| <a id="SEP-D9"></a>SEP-D9 | `yolo check` grades the two lines WARN and the refusals FAIL, in its Packs block | The launch runs on a WARN and stops on a FAIL |
+| <a id="SEP-D10"></a>SEP-D10 | The verbs write the destination first, then remove the source | A failure between leaves both copies, which the both-sets refusal names; the reverse could lose the value |
+| <a id="SEP-D11"></a>SEP-D11 | With no scope flag, a verb acts in the one scope whose set holds the name; in several, it refuses with one command per scope; in none, it names where the name is set, if anywhere | The design was silent on several |
+| <a id="SEP-D12"></a>SEP-D12 | A dotenv move copies the line verbatim, removes every line in the source that sets the name, and creates a missing destination file listed in config `0600` | A leftover duplicate would keep the name public, since the last assignment wins |
+| <a id="SEP-D13"></a>SEP-D13 | An `env.sources` path entry moves like a `files` entry; a name in an inline `env.sources` table moves to the other set's `set` | Same two shapes in one list |
+| <a id="SEP-D14"></a>SEP-D14 | With no private file listed, the remedy suggests `~/.config/yolo-jail/secrets.env` at user scope and `secrets.env` beside the config at project and local scope; `unsecret` mirrors with `defaults.env` | A workspace private file must lie inside the workspace |
+| <a id="SEP-D15"></a>SEP-D15 | Several claiming providers are named on one line, and several claiming packs as `yolo pack add <a> (or <b>)` | The one-provider wording, extended |
+| <a id="SEP-D16"></a>SEP-D16 | **Superseded by [SE-D16](#SE-D16).** `InheritNested` used to carry `env.secrets`, for parity | The owner ruled nested jails get no privilege the outer jail lacks |
+| <a id="SEP-D17"></a>SEP-D17 | One dotenv file listed in both sets is **one refusal**, naming `yolo config secret --dotenv <path>` (or `unsecret --dotenv`), checked before the per-name both-sets check | Every name in it is in both sets, and a per-name `--drop` would delete the one line both read. Spelled `--dotenv` because `--file` is the generic verbs' config-file flag |
+| <a id="SEP-D18"></a>SEP-D18 | A legacy JSONC **workspace** config holding a provider key gets `yolo config migrate`, then the verb with `--project` | Parity with [SE-D6](#SE-D6) across scopes |
 
 ### The profile-variant rulings
 

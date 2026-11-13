@@ -327,7 +327,7 @@ func containsAll(text string, parts ...string) bool {
 }
 
 // A darwin bundle without its host yolo is not a matched bundle: every host helper a Mac launch
-// starts is exec'd from that copy (docs/design/pinned-host-helpers.md, PH-D2). The OS is injected
+// starts is exec'd from that copy (docs/reference/pinned-host-helpers.md, PH-D2). The OS is injected
 // so this runs on Linux; the guest set alone, as older bundles shipped it, must be refused.
 func TestValidateBundleRequiresTheDarwinHostYolo(t *testing.T) {
 	old := bundleGOOS

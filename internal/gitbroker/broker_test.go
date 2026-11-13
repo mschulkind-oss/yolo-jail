@@ -1189,7 +1189,7 @@ func TestSSHArgv(t *testing.T) {
 	}
 }
 
-// --- create-branch and the working set (docs/design/git-broker-plan.md task 9) ---
+// --- create-branch and the working set (docs/reference/git-broker.md) ---
 
 const fixtureRepo = "fixture.test/o/r"
 
@@ -1492,7 +1492,7 @@ func TestTagCreationUnderGrantRefused(t *testing.T) {
 	}
 }
 
-// --- a working-set branch declared in config (docs/design/git-broker.md GB-D12, GB-D13) ---
+// --- a working-set branch declared in config (docs/reference/git-broker.md GB-D12, GB-D13) ---
 
 // configBranchFixture is the SSH fixture with a `branch` grant on the fixture's repository for
 // branch approved, and the kind allowed in the user config.

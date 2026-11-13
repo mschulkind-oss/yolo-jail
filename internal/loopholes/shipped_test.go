@@ -219,7 +219,7 @@ func TestEveryShippedLoopholeHasARow(t *testing.T) {
 }
 
 // TestShippedGitBrokerDefinesCreateBranch pins the grant kind the shipped git-broker manifest
-// defines (docs/design/git-broker-plan.md ID-10). Without it every workspace grant of
+// defines (docs/reference/git-broker.md ID-10). Without it every workspace grant of
 // `create-branch` is refused by `yolo check` ("it defines: none"), so the broker's create-branch
 // path is unreachable however the user configures it, while every package test that hands the
 // validator its own resolver stays green.
@@ -237,7 +237,7 @@ func TestShippedGitBrokerDefinesCreateBranch(t *testing.T) {
 }
 
 // TestShippedGitBrokerDefinesBranchAndTag pins the branch and tag grant kinds in the shipped
-// git-broker manifest (docs/design/git-broker.md GB-D12, GB-D25): without one, every workspace
+// git-broker manifest (docs/reference/git-broker.md GB-D12, GB-D25): without one, every workspace
 // grant of that kind is refused by `yolo check` ("it defines: create-branch"), which is how a missing create-branch
 // broke task 9's first live run while every package test stayed green.
 func TestShippedGitBrokerDefinesBranchAndTag(t *testing.T) {

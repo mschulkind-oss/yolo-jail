@@ -9,10 +9,10 @@ import (
 // EnvPlace is where one hydrated value was set: which set declared it, the config key that
 // spelled the entry, and, for a dotenv file, the entry as the loader left it (a `~` entry stays
 // `~`, a relative one arrives anchored beside its declaring file). It is what a refusal or a line
-// prints to tell the user which file or table to look at (secret-env-scoping-plan.md#SEP-D7); it
+// prints to tell the user which file or table to look at (docs/reference/providers.md#SEP-D7); it
 // never carries a value.
 type EnvPlace struct {
-	// Private is the set bit of this place (secret-env-scoping.md#SE-D1): true when
+	// Private is the set bit of this place (docs/reference/providers.md#SE-D1): true when
 	// `[env.secrets]` declared it.
 	Private bool
 	// Key is the config key that spelled the entry: "env_sources", "env.sources", "env.files",
@@ -24,8 +24,8 @@ type EnvPlace struct {
 
 // HydratedEnv is what a launch read out of the config's dotenv files and inline tables, with
 // the one fact the merge used to drop: which set declared each value
-// (secret-env-scoping.md#SE-D1). It replaces the nil-encoded map a launch carried before
-// (secret-env-scoping-plan.md#SEP-D1): one ordered value map holding both sets in hydration
+// (docs/reference/providers.md#SE-D1). It replaces the nil-encoded map a launch carried before
+// (docs/reference/providers.md#SEP-D1): one ordered value map holding both sets in hydration
 // order, the set bit per name, the removals, and per name the places that set its winning value.
 //
 // The set bit lives in this value, not beside it, because a launch re-composes its channel from
@@ -111,7 +111,7 @@ func (h *HydratedEnv) Values() *jsonx.OrderedMap {
 }
 
 // PublicValues is the public set's assignments alone, in hydration order: what every process may
-// receive from config (secret-env-scoping.md §3.4 row 1, before a provider's claim narrows it).
+// receive from config (docs/reference/providers.md#the-two-env-sets-public-and-private row 1, before a provider's claim narrows it).
 func (h *HydratedEnv) PublicValues() *jsonx.OrderedMap {
 	out := jsonx.NewOrderedMap()
 	if h == nil {
@@ -187,7 +187,7 @@ func (h *HydratedEnv) BothSets() []string {
 }
 
 // ResolveEnv hydrates cfg's environment: both sets, from files and inline tables, in envEntries'
-// one order, later wins per name within each set (secret-env-scoping.md#33-the-two-sets). It is
+// one order, later wins per name within each set (docs/reference/providers.md#the-two-env-sets-public-and-private). It is
 // the one env reader: the public walk keeps its later-wins rule
 // across assignments and removals, the private walk assigns only (the private set has no removal
 // spelling), and every name the public walk ends up removing is taken out of the private set too

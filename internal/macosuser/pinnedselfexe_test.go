@@ -1,6 +1,6 @@
 package macosuser
 
-// pinnedselfexe_test.go pins docs/design/pinned-host-helpers.md section 3.3 for macos-user: a
+// pinnedselfexe_test.go pins docs/reference/pinned-host-helpers.md ("Who execs it") for macos-user: a
 // launch's guest `yolo` is copied from the file its launch pinned, never from os.Executable(), and
 // a pin that is gone stages nothing, so the plan invariant refuses the launch.
 

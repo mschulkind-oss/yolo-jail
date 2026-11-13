@@ -21,7 +21,7 @@ verified against the tree at `7424d681a`, citing symbols rather than line number
 **Why it matters.** The motivating case is a colleague's repository committing
 `"packs": ["chrome-devtools"]` so that every collaborator's agent gets the browser MCP server.
 `mcp_presets` did that until [OQ-PK1](../reference/pack-system.md#oq-pk1)'s ruling deleted it, and
-[OQ-MP7](mcp-presets-removal.md#decision-ledger) said not to lose the case for good.
+[OQ-MP7](../reference/mcp-configuration.md#OQ-MP7) said not to lose the case for good.
 
 **The shape.** One verdict per contribution kind, stored beside each kind's footprint; one
 selection that unions both scopes, with workspace packs ordered lowest; one existing consent step,
@@ -37,8 +37,8 @@ the config-change gate.
 [OQ-WP5](#OQ-WP5).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md#oq-pk1-background) (the background
-to [OQ-PK1](../reference/pack-system.md#oq-pk1), whose options this doc keeps), [`mcp-presets-removal.md`](mcp-presets-removal.md#8-the-scope-demotion-nobody-asked-for)
-(the case and [OQ-MP7](mcp-presets-removal.md#decision-ledger)), [`config-safety.md`](../reference/config-safety.md) (the gate the consent
+to [OQ-PK1](../reference/pack-system.md#oq-pk1), whose options this doc keeps), [OQ-MP7's demotion](../reference/mcp-configuration.md#OQ-MP7)
+(the case and [OQ-MP7](../reference/mcp-configuration.md#OQ-MP7)), [`config-safety.md`](../reference/config-safety.md) (the gate the consent
 rides on), [`misguided-agent-principle.md`](../reference/misguided-agent-principle.md) (the threat
 model).
 
@@ -70,7 +70,7 @@ My reasoning, in order:
    and any package in `packages`; no user-scope-only refusal in `internal/config` names either key.
    What (b) adds is the install a shipped pack carries, inside the jail.
 3. **The line that matters is the one the codebase already draws**: host reach, credential steering
-   and state that crosses into other workspaces. [OQ-MP7](mcp-presets-removal.md#decision-ledger)
+   and state that crosses into other workspaces. [OQ-MP7](../reference/mcp-configuration.md#OQ-MP7)
    said so: the rule *"was to stop a workspace controlling what runs on the host. An MCP server for
    an agent inside the jail is not that."*
 4. **Consent already exists for this actor.** The workspace config is the file the config-change
@@ -90,7 +90,7 @@ Verified at `7424d681a`.
 | :--- | :--- |
 | `packs` is read from the user config only, so workspace scope is inexpressible | `LoadPacks` in [`packs.go`](../../internal/config/packs.go) |
 | A workspace `packs` key is a validation error, and every launch refuses an invalid config ("Invalid jail config") | `validatePacks` in [`packs.go`](../../internal/config/packs.go); `loadAndValidateConfig` in [`preflight.go`](../../internal/cli/run/preflight.go) |
-| `mcp_presets` is still read from the merged config; [OQ-PK1](../reference/pack-system.md#oq-pk1)'s ruling deletes it | [`mcp-presets-removal.md`](mcp-presets-removal.md) step 3 |
+| `mcp_presets` is still read from the merged config; [OQ-PK1](../reference/pack-system.md#oq-pk1)'s ruling deletes it | [the retired `mcp_presets` key](../reference/mcp-configuration.md#the-retired-mcp_presets-key) |
 | A workspace config may name any command in `mcp_servers` and any package in `packages` | `validate.go` has no workspace refusal for either |
 | A repository's own skills reach every agent through the workspace layer, with a confined reader, not through a pack | [the workspace layer](../reference/agent-briefings.md#the-workspace-layer), [OQ-WS1](../reference/agent-briefings.md#oq-ws1) |
 | A repository's own MCP files (`.mcp.json`, `.vscode/mcp.json`) reach the agents that read them | [`workspace-mcp-sources.md`](workspace-mcp-sources.md) |
@@ -334,7 +334,7 @@ Three of those deserve a sentence each:
 
 | Text | Change |
 | :--- | :--- |
-| [`loophole-system.md`](../reference/loophole-system.md#principles) R5, *"Install is user-scope"* | Becomes a rule about host reach: a workspace may select a shipped pack whose every contribution stays in the jail; anything reaching the host stays user scope. [OQ-MP7](mcp-presets-removal.md#decision-ledger) asked for exactly this |
+| [`loophole-system.md`](../reference/loophole-system.md#principles) R5, *"Install is user-scope"* | Becomes a rule about host reach: a workspace may select a shipped pack whose every contribution stays in the jail; anything reaching the host stays user scope. [OQ-MP7](../reference/mcp-configuration.md#OQ-MP7) asked for exactly this |
 | [The workspace layer's P3](../reference/agent-briefings.md#the-workspace-layer), *"no workspace config selects a pack"* | Becomes "the layer selects no pack": the skills layer still delivers only bytes in the tree, and workspace pack selection is this doc's rule |
 | `validatePacks`' refusal in [`packs.go`](../../internal/config/packs.go), and `LoadPacks`' "workspace scope is inexpressible" | Replaced by the verdict, with a refusal per refused kind or source form naming the user config |
 | [`pack-system.md`](../reference/pack-system.md#oq-pk1)'s user-scope rule | Points here |
@@ -356,9 +356,9 @@ Three of those deserve a sentence each:
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **(a) content kinds only** | Rejected as the core subset: it holds back [OQ-MP7](mcp-presets-removal.md#decision-ledger)'s own case, an `mcp` pack, to guard execution a workspace keeps through `mcp_servers`. It is the fallback if [OQ-WP1](#OQ-WP1) rules against executable kinds |
+| **(a) content kinds only** | Rejected as the core subset: it holds back [OQ-MP7](../reference/mcp-configuration.md#OQ-MP7)'s own case, an `mcp` pack, to guard execution a workspace keeps through `mcp_servers`. It is the fallback if [OQ-WP1](#OQ-WP1) rules against executable kinds |
 | **(c) (b) plus a pack the repository carries** | Rejected for now ([§12](#12-non-goals)) |
-| **An enable switch separate from selection** | Rejected in [`mcp-presets-removal.md` §8](mcp-presets-removal.md#8-the-scope-demotion-nobody-asked-for): it is `packs` under a second name |
+| **An enable switch separate from selection** | Rejected in [OQ-MP7](../reference/mcp-configuration.md#OQ-MP7): it is `packs` under a second name |
 | **A per-pack allowlist the user must opt into before any workspace pack works** | Rejected: the motivating case is a collaborator who gets the browser without editing their own config. A veto, not an allowlist ([OQ-WP3](#OQ-WP3)) |
 | **Agent packs excluded by name** | Rejected: core knows no agent, by rule. A kind-based proxy (say, `autonomy`) would exclude `chrome-devtools` too |
 

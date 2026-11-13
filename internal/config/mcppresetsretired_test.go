@@ -8,7 +8,7 @@ import (
 )
 
 // mcppresetsretired_test.go pins the RETIREMENT of the top-level `mcp_presets` key
-// (2026-10-23, docs/design/mcp-presets-removal.md §13 step 3, ruled at
+// (2026-10-23, docs/reference/mcp-configuration.md, the retired mcp_presets key, ruled at
 // docs/reference/pack-system.md#oq-pk1). The browser is the `chrome-devtools` pack, selected in
 // the user config; `sequential-thinking` is deleted, and its replacement is one `mcp_servers`
 // entry. The key is a refusal naming both, as `journal` and `macos_log` are.

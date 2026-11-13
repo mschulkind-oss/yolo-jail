@@ -77,7 +77,7 @@ func TestOmpRefusesACarriedEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
 	t.Setenv("ZAI_API_KEY", "")
 	dir := writeProject(t, `{}`)
-	// zai's key lives in the private set, which only a TOML user config has (secret-env-scoping.md).
+	// zai's key lives in the private set, which only a TOML user config has (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	writeUserTOML(t, "packs = [\"bedrock\", \"claude\", \"omp\", \"zai\"]\n\n[providers.bedrock]\nregion = \"us-east-1\"\n\n"+
 		"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n")
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "oh-omp=zai,bedrock", "--", "true"))

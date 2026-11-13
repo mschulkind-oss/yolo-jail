@@ -12,7 +12,7 @@ import (
 )
 
 // TestAReleaseBuildPrintsItsVersionAndCommit pins the owner's 2026-10-16 ruling
-// (docs/plans/downstream-asks.md OQ-DA2): "yes, releases name the hash too. hashes are
+// (docs/reference/self-update.md OQ-DA2): "yes, releases name the hash too. hashes are
 // _actually_ immutable." It renders .goreleaser.yaml's real ldflags for tag v0.14.0 at
 // testSHA through text/template (GoReleaser's template engine, whose builtins include
 // `slice`), and outside -short builds cmd/yolo with them and runs it: the release binary

@@ -1,7 +1,7 @@
 package run
 
 // pinnedhelpers_test.go pins the run package's use of the launch's pinned host yolo
-// (docs/design/pinned-host-helpers.md §3.2 to §3.5, PH-D3 to PH-D7): every self-exec that serves a
+// (docs/reference/pinned-host-helpers.md "When it is resolved" to "Attach and join", PH-D3 to PH-D7): every self-exec that serves a
 // jail goes through Options.selfExecArgv, which execs the pin after a stat check and never falls
 // back to os.Executable().
 

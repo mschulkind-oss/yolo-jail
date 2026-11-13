@@ -1,7 +1,7 @@
 package run
 
 // pinnedexec.go is the run package's use of the launch's PINNED HELPER: the one host yolo a launch
-// execs every helper that serves its jail from (docs/design/pinned-host-helpers.md, PH-D3 to PH-D7).
+// execs every helper that serves its jail from (docs/reference/pinned-host-helpers.md, PH-D3 to PH-D7).
 // A launch resolves it once at pre-flight (resolveHelperPin) from the bundle its repo root names;
 // the keeper receives it through its plan; every self-exec in this package goes through
 // Options.selfExecArgv, which execs it after a stat check and NEVER falls back to os.Executable()
@@ -47,7 +47,7 @@ func (o *Options) pinOrZero() helperpin.Pin {
 }
 
 // pinnedArgv is argv with its leading "yolo" replaced by the pin's path, after the stat check of
-// section 3.4. A missing or changed pin is an error naming the path, never a fallback.
+// "The check before every exec". A missing or changed pin is an error naming the path, never a fallback.
 func (o *Options) pinnedArgv(argv []string) ([]string, error) {
 	pin := o.helperPin
 	if pin == nil || pin.Path == "" {
@@ -126,7 +126,7 @@ func (o *Options) ensureHelperPin() error {
 }
 
 // reportPinnedSpawnRefused says a spawn of what did not happen because its pinned yolo is gone or
-// was never resolved, and returns err. In a keeper it is the one line of section 3.4's second row
+// was never resolved, and returns err. In a keeper it is the one line of the "check before every exec" table's second row
 // (the path and the next step); in a launch it is the refusal the caller returns. Never a fallback.
 func (o *Options) reportPinnedSpawnRefused(what string, err error) error {
 	if o.keeperMode {

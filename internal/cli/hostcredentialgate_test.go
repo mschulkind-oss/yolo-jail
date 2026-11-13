@@ -26,7 +26,7 @@ import (
 func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]string, string) {
 	t.Helper()
 	// Every one of the three is a provider's key (bedrock's pair, zai's token), so they live in
-	// the private set (secret-env-scoping.md).
+	// the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	return hostGateLaunchWith(t, `packs = ["claude", "codex", "pi", "zai", "bedrock", "aws-auth"]
 
 [env.secrets]
@@ -306,7 +306,7 @@ func TestHostGateRelaysAShellHeldKeyToTheEnvDerive(t *testing.T) {
 // value from the export with no message at all.
 func TestHostEnvDisclosesWhatItsSliceWithholds(t *testing.T) {
 	// ZAI_API_KEY is the zai provider's key, so it lives in the private set; GH_TOKEN, which no
-	// provider claims, stays public (secret-env-scoping.md).
+	// provider claims, stays public (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	hostGateHome(t, `packs = ["claude", "pi", "zai"]
 
 [active_provider]

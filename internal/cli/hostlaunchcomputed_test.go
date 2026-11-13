@@ -120,7 +120,7 @@ const piSubagentsCodexCfg = `{"packs": ["claude", "openrouter", "codex-auth", "p
 	`"profile": {"pi": "openrouter"}, "env_sources": [{"OPENROUTER_API_KEY": "tok-router"}]}`
 
 // piSubagentsCodexTOML is piSubagentsCodexCfg as a TOML user config: OPENROUTER_API_KEY is the
-// openrouter provider's key, so it lives in the private set (secret-env-scoping.md), which only
+// openrouter provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private), which only
 // TOML spells. piSubagentsCodexCfg stays for its users outside this file.
 const piSubagentsCodexTOML = `packs = ["claude", "openrouter", "codex-auth", "pi"]
 
@@ -133,7 +133,7 @@ set = { OPENROUTER_API_KEY = "tok-router" }
 
 // piSubagentsAcmeCfg is one user provider with two variants over it whose role pins differ, the
 // case a static map keyed on the parent's provider could not express; acme-a is configured.
-// ACME_KEY is acme's key, so it lives in the private set (secret-env-scoping.md). A TOML variant
+// ACME_KEY is acme's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private). A TOML variant
 // names its model, here the provider's default, which the legacy profile left implicit.
 const piSubagentsAcmeCfg = `packs = ["claude", "pi"]
 

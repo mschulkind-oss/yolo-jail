@@ -341,7 +341,7 @@ func bootstrapPath(e *Env) string { return e.Home + "/.yolo-bootstrap.sh" }
 //
 // It installs NO MCP server package. The preset-gated `npm install -g` that used to open the
 // script (chrome-devtools-mcp, @modelcontextprotocol/server-sequential-thinking) went with the
-// `mcp_presets` key (docs/design/mcp-presets-removal.md §13 step 3): a pack's server program is
+// `mcp_presets` key (docs/reference/mcp-configuration.md, the retired mcp_presets key): a pack's server program is
 // installed by the readiness act and its launcher, like every other program.
 //
 // It installs NO language server. The LSP install loop that used to follow the MCP one — fed

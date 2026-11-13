@@ -527,7 +527,7 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 		for i, r := range approved {
 			repos[i] = r.Repo
 		}
-		// The grants go with the repositories, from the same gate (docs/design/git-broker-plan.md
+		// The grants go with the repositories, from the same gate (docs/reference/git-broker.md
 		// ID-10).
 		grants := o.approvedGrants[c.scope.label]
 		ctx, cancel := contextForDeadline(deadline)

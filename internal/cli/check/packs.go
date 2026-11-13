@@ -448,7 +448,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range overrideWarns {
 		r.warn(w.msg, w.note)
 	}
-	// The env-set refusals and lines the launch prints, over the same gate (secret-env-scoping.md
+	// The env-set refusals and lines the launch prints, over the same gate (docs/reference/providers.md#the-two-env-sets-public-and-private
 	// §3.5-§3.7). The hydration is read again on r.configWarn, which prints a message once, so a
 	// file overrideScope already reported unreadable is not reported twice.
 	secretFails, secretWarns := secretEnvGap(scope, config.ResolveEnv(o.Workspace, merged, r.configWarn), o.Workspace)

@@ -97,6 +97,27 @@ Developing yolo in a jail and deploying from that checkout runs what the jail
 wrote, by design: building a checkout runs its contents, and yolo adds no
 guard there ([the product cell](host-execution-from-the-workspace.md#the-two-axes)).
 
+## Version identity
+
+Every build's version string names the commit it was built from, releases
+included. A build on its tag reads `<tag>+g<hash>`; a source or flake build off
+the tag adds its distance from the tag before the hash, and a dirty tree adds
+`dirty` (`version.Normalize` in `internal/version`). Every build channel stamps
+the same form: `.goreleaser.yaml` for releases, the Homebrew formula
+(`tools/release-wiring/update-homebrew.sh`, which stamps from the release commit
+because the tarball carries no git metadata), the wheels (`tools/build-wheels`),
+`scripts/build-go.sh` (which `just install` uses) and the flake (`buildStamp` in
+`flake.nix`). Build metadata after `+` never orders a version, so an update
+check compares `0.14.0+g<hash>` as `0.14.0` (`selfupdate.Newer`).
+
+`yolo --version --full` adds the build stamp, the commit, the sha256 of the
+running executable, the snapshot identity and the build kind
+(`version.FullLines`). The sha256 stays because two builds from one dirty tree
+share a version string.
+
+Docs record no per-rule version history: no reference or `yolo config-ref`
+entry says which version added a rule.
+
 ## State and controls
 
 The cached answer and background-check lock live under
@@ -107,3 +128,9 @@ invalidates the answer but preserves the one-time disclosure.
 `"update_check": false` in the user config disables automatic checks plus cached
 notices and launch offers. `YOLO_NO_UPDATE_CHECK=1` is the per-shell equivalent.
 Neither setting disables an explicit `yolo update` or `yolo update --check`.
+
+## Why it's this way
+
+| ID | Ruling | Why it holds |
+| :--- | :--- | :--- |
+| OQ-DA2 | Every version string carries the commit hash, releases and Homebrew included; the version that added a rule is not recorded (owner, 2026-10-16) | The owner's words: *"hashes are _actually_ immutable"*, and recording when each rule was added is *"impossible ongoing work. I don't want to set that precedent."* Dropping the hash from release builds would make two binaries from different commits indistinguishable from outside. |

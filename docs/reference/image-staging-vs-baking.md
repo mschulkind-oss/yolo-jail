@@ -136,7 +136,7 @@ launch prints the selected bundle before staging.
 matched launcher and complete helper bundle; `just dev` reuses a matching complete bundle or builds
 one, then invokes it by absolute path. Normal installed `yolo` remains unchanged. When the
 development build fails, `just dev` runs the newest earlier development bundle and says the edits
-are not running ([OQ-MDB1](../design/matched-development-bundles.md#OQ-MDB1)); with none it fails.
+are not running ([OQ-MDB1](matched-development-bundles.md#why-its-this-way)); with none it fails.
 
 ## The mounted prefix
 
@@ -151,7 +151,7 @@ whatever host directory pair the launch decided to bind there.
 The host side is pinned the same way: every host helper a launch starts (the keeper, host daemons,
 launch-owned services) runs from one host-OS `yolo` inside the bundle the launch resolved, checked
 unchanged before every exec, so a `just install` or an upgrade mid-session cannot change which build
-serves a running jail. See [pinned host helpers](../design/pinned-host-helpers.md).
+serves a running jail. See [pinned host helpers](pinned-host-helpers.md).
 
 The image keeps two things about it. `fakeRootCommands` pre-creates both mountpoint
 directories, because a `--read-only` root filesystem cannot grow one and this is the mount whose

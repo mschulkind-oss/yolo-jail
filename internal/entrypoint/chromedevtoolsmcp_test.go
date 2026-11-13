@@ -1,7 +1,7 @@
 package entrypoint
 
 // chromedevtoolsmcp_test.go pins the jail half of the chrome-devtools pack
-// (docs/design/mcp-presets-removal.md §13): the composed table the host hands a jail is the
+// (docs/reference/mcp-configuration.md): the composed table the host hands a jail is the
 // jail's chrome-devtools server, the staged-tree composer the macos-user plan asks, claude's real render of the entry, the jail launcher that
 // carries the posture's chrome flags, and the wrapper's run-time resolution of the server and the
 // browser — run as the entry runs it, `/bin/sh <file>`, against stand-ins that log their argv.

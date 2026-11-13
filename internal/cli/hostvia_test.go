@@ -117,7 +117,7 @@ func deadLoopbackURL(t *testing.T) string {
 
 // copilotOnBedrockViaConfig is copilot beside the shipped bedrock provider (a region, no address)
 // and the wire bridge, with a credential pointer delivered through the private env set (the
-// bedrock provider claims it, secret-env-scoping.md) that nothing answers, so the bridge binds its
+// bedrock provider claims it, docs/reference/providers.md#the-two-env-sets-public-and-private) that nothing answers, so the bridge binds its
 // route and a request through it fails at the credential fetch, on loopback, instead of reaching AWS.
 func copilotOnBedrockViaConfig(t *testing.T) string {
 	return `packs = ["copilot", "bedrock", "wire-bridge"]
@@ -198,7 +198,7 @@ func TestHostCopilotOnABedrockBridgeProfileRunsThroughALaunchOwnedBridge(t *test
 func TestHostCopilotOnASuppliedBedrockListKeepsItsEnvironmentsOneModel(t *testing.T) {
 	scrubAWS(t)
 	// The credential pointer is the bedrock provider's, so it lives in the private set
-	// (secret-env-scoping.md).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	cfg := `packs = ["copilot", "bedrock", "wire-bridge"]
 
 [providers.bedrock]

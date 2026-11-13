@@ -223,7 +223,7 @@ func renderApplyChanges(plan []applyChange) []string {
 type scopeDelta struct {
 	label, source string
 	desired       []string
-	// desiredGrants are the user grants the gate approves (docs/design/git-broker-plan.md ID-10),
+	// desiredGrants are the user grants the gate approves (docs/reference/git-broker.md ID-10),
 	// compared with each live file's own.
 	desiredGrants []brokerscope.Grant
 	files         []liveScopeFile

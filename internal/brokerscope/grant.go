@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 )
 
-// grant.go is a scope file's user grants (docs/design/git-broker-plan.md ID-10, BB-D96): the
+// grant.go is a scope file's user grants (docs/reference/git-broker.md ID-10, BB-D96): the
 // specific grants a workspace config names, each of a kind the source defines and the user's own
 // config allows, as the config-change gate approved them. The file carries them for the broker
 // to read at each write; the scope file is still written only from a gate's approved result.
@@ -22,11 +22,11 @@ type Grant struct {
 	Repo string `json:"repo"`
 	// Branch is a `branch` grant's branch, a short name or a refspec pattern (`main`, meaning
 	// refs/heads/main; `patch/*`, every branch under refs/heads/patch/): working-set branches
-	// declared in config (docs/design/git-broker.md GB-D12, GB-D13, GB-D25).
+	// declared in config (docs/reference/git-broker.md GB-D12, GB-D13, GB-D25).
 	Branch string `json:"branch,omitempty"`
 	// Tag is a `tag` grant's tag, a short name or a refspec pattern (`v*`, every tag under
 	// refs/tags/ starting with v): tags the broker may create, update, force-update and delete
-	// unasked (docs/design/git-broker.md GB-D25).
+	// unasked (docs/reference/git-broker.md GB-D25).
 	Tag string `json:"tag,omitempty"`
 	// Workflow is a `runs` grant's workflow: a workflow file name in the
 	// repository's .github/workflows (`nightly-macos.yml`), or AnyWorkflow for every one
@@ -82,11 +82,11 @@ const AnyRepo = "*"
 
 // KindBranch is the grant kind that names a branch, or a pattern of them: such a branch is in
 // the workspace's working set, declared in config rather than recorded in the store
-// (docs/design/git-broker.md GB-D12, GB-D25).
+// (docs/reference/git-broker.md GB-D12, GB-D25).
 const KindBranch = "branch"
 
 // KindTag is the grant kind that names a tag, or a pattern of them, under refs/tags/: the broker
-// may create, update, force-update and delete such a tag unasked (docs/design/git-broker.md
+// may create, update, force-update and delete such a tag unasked (docs/reference/git-broker.md
 // GB-D25). A tag never joins the working set; the config holds the grant.
 const KindTag = "tag"
 
@@ -270,7 +270,7 @@ func (g Grant) Covers(repo, ref string, same func(grantRepo, repo string) bool) 
 const AnyRemoteNote = "every remote in scope now and any approved later"
 
 // GrantNote is plain words for what a wildcard ref grant admits, for the gate's grant line
-// (docs/design/git-broker.md GB-D25): "may create, update, force-push and delete branches
+// (docs/reference/git-broker.md GB-D25): "may create, update, force-push and delete branches
 // matching `patch/*` on github.com/o/r". It is "" for a grant naming one ref or one workflow on
 // one repository, which reads plainly as it is, and for a kind that names nothing.
 func GrantNote(g Grant) string {
@@ -423,7 +423,7 @@ func ValidGrantBranch(s string) bool {
 
 // ValidGrantRefPattern reports whether s is a name a `branch` or `tag` grant can take: a short
 // name ValidGrantBranch accepts, or git's own refspec pattern, the same with one `*` anywhere in
-// it (git check-ref-format --refspec-pattern; docs/design/git-broker.md GB-D25). The `*` is
+// it (git check-ref-format --refspec-pattern; docs/reference/git-broker.md GB-D25). The `*` is
 // checked as an ordinary name character standing in its place, which is what git's own check
 // does; a second `*` is refused.
 func ValidGrantRefPattern(s string) bool {

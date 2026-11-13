@@ -253,7 +253,7 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 		// The form is the manifest's, as the gate read it (config.NewScopeCheck): a source on any
 		// host hands its broker exact remote URLs, which it must not read as OWNER/REPO.
 		form := brokerscope.FormFor(lp.Brokered.RemoteHost)
-		// The grants the same gate approved (docs/design/git-broker-plan.md ID-10), and none
+		// The grants the same gate approved (docs/reference/git-broker.md ID-10), and none
 		// where it approved no scope: the same fail-closed rule as the repositories.
 		var grants []brokerscope.Grant
 		if approved {

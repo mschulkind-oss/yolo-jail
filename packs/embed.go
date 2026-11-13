@@ -57,7 +57,7 @@
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
 // no grants (docs/reference/wire-bridge.md §2.1). `chrome-devtools` installs a program
 // that is no agent: an MCP server, with the `mcp` entry every agent's config renders and
-// the wrapper that entry runs (docs/design/mcp-presets-removal.md §13 step 2).
+// the wrapper that entry runs (docs/reference/mcp-configuration.md, the chrome-devtools pack).
 // Anything here that reasons about "the six agent packs" (a comment, a test's name
 // list) is describing the agent SUBSET, not this list.
 //

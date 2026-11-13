@@ -22,7 +22,7 @@ func TestPlanEditRemoveTOMLKeyRetainsItsInlineComment(t *testing.T) {
 }
 
 // A member of a TOML inline table takes its separating comma with it, whichever member it is
-// (secret-env-scoping-plan.md Task 5: `yolo config secret` removes one name from `set = { … }`).
+// (docs/reference/providers.md: `yolo config secret` removes one name from `set = { … }`).
 func TestPlanEditRemoveTOMLInlineTableMemberTakesItsComma(t *testing.T) {
 	for _, tc := range []struct{ name, key, want string }{
 		{"first", "A", "[env]\nset = { B = \"2\", C = \"3\" }\n"},

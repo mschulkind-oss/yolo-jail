@@ -39,7 +39,7 @@ func hostPrelaunchRun(t *testing.T, cfg string, tty bool, flags []string, agent 
 // profile, so the host starts no login (and no broker) for it, terminal or not.
 func TestHostPiOnZaiDeclaresNoPrelaunch(t *testing.T) {
 	for _, tty := range []bool{false, true} {
-		// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+		// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 		p, called := hostPrelaunchRun(t, `packs = ["pi", "zai"]
 
 [env.secrets]

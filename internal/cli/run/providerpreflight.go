@@ -237,7 +237,7 @@ func envPairs(argv []string) map[string]string {
 }
 
 // nestedPrivateKeyNotes adds, under each fact saying a credential is not set, why a nested
-// launch may lack it and the next step (secret-env-scoping.md SE-D16: a nested jail gets no
+// launch may lack it and the next step (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D16: a nested jail gets no
 // privilege its outer jail lacks, so the host's private env set is not carried into it). A
 // launch that is not inside a jail is not nested, and its facts stand as they are.
 func nestedPrivateKeyNotes(facts []string) []string {

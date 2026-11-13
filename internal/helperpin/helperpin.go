@@ -52,7 +52,7 @@ type bundleStamp struct {
 }
 
 // ResolveForBuild is ResolveFor for an explicit launcher build: wantVersion is the launcher's
-// normalized stamped version (version.Baked) and wantCommit its stamped commit (PH-D1, design 3.1).
+// normalized stamped version (version.Baked) and wantCommit its stamped commit (PH-D1, docs/reference/pinned-host-helpers.md).
 // The pin is accepted only from a bundle whose stamp names that version and commit. A field either
 // side does not carry (empty or "unknown": an unstamped launcher, an older bundle) is not compared,
 // so it never refuses on that field alone.

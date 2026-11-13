@@ -545,7 +545,7 @@ func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
 // looks perfectly correct in a diff. It was built for the LSP install loop, which read its
 // list from a pipe and so ran in a subshell; that loop is deleted with the LSP recipe table
 // (docs/reference/mcp-configuration.md#oq-lsp1), as is the MCP-preset arm that came after it
-// (docs/design/mcp-presets-removal.md §13 step 3), and the probe now pins that nothing installs
+// (docs/reference/mcp-configuration.md, the retired mcp_presets key), and the probe now pins that nothing installs
 // a language server. The fake `go` stays so a surviving `go
 // install` would have something to run, and it logs what it was asked to do.
 type bootstrapProbe struct {

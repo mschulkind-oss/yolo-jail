@@ -119,7 +119,7 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 	// The openai base_url override is per-field over the pack's shipped facts —
 	// the anthropic endpoint and the wire_api stay the pack's.
 	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
-	// set (secret-env-scoping.md).
+	// set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	writeUserTOML(t, `packs = ["claude", "cerebras"]
 
 [active_provider]

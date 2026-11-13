@@ -8,7 +8,7 @@ import (
 )
 
 // Identity reduces a git remote URL to its repository identity, the host/path string grants
-// and working-set entries name a repository by (docs/design/git-broker-plan.md ID-3): the host
+// and working-set entries name a repository by (docs/reference/git-broker.md ID-3): the host
 // lower-cased, a port kept as host:port, the user-info dropped, a leading "/" and then a
 // leading "~/" stripped from the path, then a trailing "/" and a trailing ".git". So
 // git@github.com:o/r.git, ssh://git@github.com/o/r and https://github.com/o/r.git are all
