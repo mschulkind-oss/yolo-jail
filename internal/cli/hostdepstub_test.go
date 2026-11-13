@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestMain disarms the install runner for the WHOLE package, and isolates the package from the
@@ -76,6 +77,10 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == testFakeAWSAgentArg {
 		os.Exit(fakeAWSAgentMain())
 	}
+	// A CHILD OF THIS BINARY LEAVES NOTHING BEHIND (testtmp.Isolate): a helper re-exec runs this
+	// TestMain again and exits, execs away or is killed before its own removals run, so its
+	// directories and t.TempDirs go in a private TMPDIR this process removes.
+	releaseTmp := testtmp.Isolate()
 	// THE PINNED YOLO (hostpin.go) of a host launch under test is a script that runs this test binary
 	// as `yolo` (above): the host-side bundle every launch here resolves, in place of the real one.
 	removeYoloStandIn := installYoloStandIn()
@@ -126,7 +131,7 @@ func TestMain(m *testing.M) {
 	removeYoloStandIn()
 	releaseSingletons()
 	releaseStagedTree()
-	os.Exit(code)
+	os.Exit(releaseTmp(code))
 }
 
 // testAsYoloArg makes a child of this test binary run as `yolo` (TestMain).
@@ -200,3 +205,7 @@ func TestThisPackageClearsTheSetupSelectionEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestThisPackageIsolatesTMPDIR fails if TestMain stops calling testtmp.Isolate, which would
+// put every helper child's leftovers back in the machine's TMPDIR.
+func TestThisPackageIsolatesTMPDIR(t *testing.T) { testtmp.RequireIsolated(t) }

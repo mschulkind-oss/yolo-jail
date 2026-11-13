@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func TestIsDeviceAllowed(t *testing.T) {
@@ -41,7 +42,7 @@ func TestIsDeviceAllowed(t *testing.T) {
 func startTestDaemon(t *testing.T, cfg Settings) (string, func()) {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
-	dir, err := os.MkdirTemp("/tmp", "yj-ser-test-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-ser-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

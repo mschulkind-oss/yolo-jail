@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // ---------------------------------------------------------------------------
@@ -121,7 +122,7 @@ func assertSockPathFits(t *testing.T, path string) {
 // check-macos with "bind: invalid argument".
 func privateSocketDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-svc-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-svc-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestPrivateSocketDirIgnoresALongTMPDIR(t *testing.T) {
 	// at 4 failures in 160 concurrent runs; `go test` gives a package one process,
 	// so CI never saw it, but a fixed path under a world-writable /tmp is the same
 	// shared-global-state hazard this file's crossing recorders exist to avoid.
-	long, err := os.MkdirTemp("/tmp", "yj-svc-tmpdir-"+strings.Repeat("x", 80)+"-")
+	long, err := os.MkdirTemp(testtmp.ShortDir(), "yj-svc-tmpdir-"+strings.Repeat("x", 80)+"-")
 	if err != nil {
 		t.Fatal(err)
 	}

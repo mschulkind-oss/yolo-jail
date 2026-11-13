@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The management surface OQ-HD2 ruled into existence: `yolo host-daemon` over what the jails
@@ -38,7 +39,7 @@ import (
 // where a user still needs it.
 func TestTheBrokerAliasStillResolvesToTheClaudeBroker(t *testing.T) {
 	withNoPackDiscovery(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-hd-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-hd-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +93,7 @@ func TestRestartRefusesAndNamesTheRelaunch(t *testing.T) {
 // reached, and with no host-wide copy running the answer says that and nothing about the jail.
 func TestStopHostWideIsParsedAndLeavesAJailsOwnCopy(t *testing.T) {
 	withNoPackDiscovery(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-hd-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-hd-")
 	if err != nil {
 		t.Fatal(err)
 	}

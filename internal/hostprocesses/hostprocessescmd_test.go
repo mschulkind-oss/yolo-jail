@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // Main's own suite. The black-box suite drives BuildHandler + hostservice
@@ -37,7 +38,7 @@ func serveInBackground(t *testing.T, argv ...string) <-chan int {
 // credential into. t.TempDir() is 0755 and is correctly REFUSED.
 func privateDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-hp-main-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-hp-main-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The request this client puts on the wire is now a pure statement of what was
@@ -128,7 +129,7 @@ func captureStderr(t *testing.T, fn func()) string {
 func TestDeadDaemonBehindALiveFrontIsAttributed(t *testing.T) {
 	// os.MkdirTemp is 0700; svcendpoint REFUSES to publish a credential into the
 	// 0755 directory t.TempDir() creates.
-	dir, err := os.MkdirTemp("/tmp", "yj-ps-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-ps-")
 	if err != nil {
 		t.Fatal(err)
 	}

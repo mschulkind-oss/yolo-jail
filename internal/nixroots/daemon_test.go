@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nixroots/nixrootstest"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The client against the fake daemon in each dialect it can meet: 1.38 (the measured host,
@@ -51,7 +52,7 @@ func TestAddIndirectRootReportsARefusalAsRejected(t *testing.T) {
 
 // No daemon is an ordinary error, never a refusal: it is today's state, and says nothing.
 func TestAddIndirectRootWithNoDaemonIsNotARefusal(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "nrn-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "nrn-")
 	if err != nil {
 		t.Fatal(err)
 	}

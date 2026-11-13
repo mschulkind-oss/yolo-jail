@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestMain gives this package's host singletons a private directory instead of the
@@ -31,6 +32,10 @@ func TestMain(m *testing.M) {
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
+	// A CHILD OF THIS BINARY LEAVES NOTHING BEHIND (testtmp.Isolate): a helper re-exec runs this
+	// TestMain again and exits, execs away or is killed before its own removals run, so its
+	// directories and t.TempDirs go in a private TMPDIR this process removes.
+	releaseTmp := testtmp.Isolate()
 	release := testsupport.IsolateHostSingletons()
 	// AN EMPTY HOME OF ITS OWN: Check() reads the user-scope config and global storage under
 	// $HOME, so without this a developer's own config decided what these tests saw. On a Mac
@@ -51,7 +56,7 @@ func TestMain(m *testing.M) {
 	if home != "" {
 		_ = os.RemoveAll(home)
 	}
-	os.Exit(code)
+	os.Exit(releaseTmp(code))
 }
 
 // TestHomeIsIsolatedHere pins TestMain's HOME: no test here reads the developer's own config.
@@ -105,3 +110,7 @@ func TestASelfExecdDaemonRunsTheDaemonHere(t *testing.T) {
 		t.Fatalf("the self-exec'd daemon ran this package's tests instead of the daemon:\n%s", out)
 	}
 }
+
+// TestThisPackageIsolatesTMPDIR fails if TestMain stops calling testtmp.Isolate, which would
+// put every helper child's leftovers back in the machine's TMPDIR.
+func TestThisPackageIsolatesTMPDIR(t *testing.T) { testtmp.RequireIsolated(t) }

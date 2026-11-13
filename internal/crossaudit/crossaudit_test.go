@@ -12,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // syncBuf is a Logger destination safe to read while a daemon goroutine writes.
@@ -348,7 +349,7 @@ func TestInstalledSinkWritesRealCrossings(t *testing.T) {
 // showed up only on check-macos as "bind: invalid argument".
 func startEchoFront(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-ca-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-ca-")
 	if err != nil {
 		t.Fatal(err)
 	}

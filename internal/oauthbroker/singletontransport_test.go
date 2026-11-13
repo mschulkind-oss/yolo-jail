@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestMain doubles as the daemon child: `<test-binary> -singleton-child <args…>`
@@ -298,7 +300,7 @@ func readFullConn(c net.Conn, buf []byte) (int, error) {
 // long path; internal/cli/run pins the same property with a test.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-broker-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-broker-")
 	if err != nil {
 		t.Fatal(err)
 	}

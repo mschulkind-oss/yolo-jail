@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // This first consumer regression exercises the authenticated endpoint and the
@@ -16,7 +18,7 @@ import (
 // payload instead of refusing from the prefix.
 func TestHTTPHostIngressRejectsDeclaredLengthBeforeAllocation(t *testing.T) {
 	advertiseLoopback(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-http-ingress-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-http-ingress-")
 	if err != nil {
 		t.Fatal(err)
 	}

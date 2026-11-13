@@ -187,6 +187,7 @@ func TestANestedJailInTheOuterTmpGetsTheCaveat(t *testing.T) {
 // t.TempDir(), which is not under /tmp on darwin; durableCaveat's test is lexical.
 func nestInOuterTmp(t *testing.T, o *Options) {
 	t.Helper()
+	// testtmp:literal-tmp the subject is the real /tmp itself; removed by t.Cleanup below.
 	ws, err := os.MkdirTemp("/tmp", "yolo-nested-")
 	if err != nil {
 		t.Fatal(err)

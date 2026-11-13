@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func TestMCPAuthReadinessWaitCoversBoundedNativeLockInterleaving(t *testing.T) {
@@ -33,7 +34,7 @@ func TestMCPAuthReadinessWaitCoversBoundedNativeLockInterleaving(t *testing.T) {
 		{"beyond actual readiness deadline", 230 * time.Millisecond, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root, err := os.MkdirTemp("/tmp", "yj-mcp-ready-")
+			root, err := os.MkdirTemp(testtmp.ShortDir(), "yj-mcp-ready-")
 			if err != nil {
 				t.Fatal(err)
 			}

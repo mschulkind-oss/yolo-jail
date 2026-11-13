@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthdaemon"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // operatorDaemon serves the daemon's PRIVATE-socket handler over a plain Unix socket, exactly
@@ -31,7 +32,7 @@ import (
 // be injected with plus the broker's state path.
 func operatorDaemon(t *testing.T) (ensure func(io.Writer) (string, func(), error), statePath string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-oaop-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-oaop-")
 	if err != nil {
 		t.Fatal(err)
 	}

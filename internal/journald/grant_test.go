@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The grant tests drive each bridge through its production entry point (journalMain,
@@ -144,7 +145,7 @@ func ask(t *testing.T, endpoint, request string) (string, string, int) {
 // 0755, and an AF_UNIX path must stay short.
 func bridgeDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-grant-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-grant-")
 	if err != nil {
 		t.Fatal(err)
 	}

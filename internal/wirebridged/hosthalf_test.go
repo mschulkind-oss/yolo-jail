@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/sigv4"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // writeHostInput writes a launch's input file and returns the getenv a host half reads it by.
@@ -152,7 +153,7 @@ func TestAHostHalfWithNothingToServeFailsItsReadiness(t *testing.T) {
 // names, never from a jail endpoint (HS-D3).
 func TestTheHostHalfCodexRouteTakesItsViewFromTheHostSocket(t *testing.T) {
 	up := withUpstream(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-wbhost-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-wbhost-")
 	if err != nil {
 		t.Fatal(err)
 	}

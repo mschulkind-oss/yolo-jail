@@ -6,6 +6,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // brokerprobe_test.go pins where an OLDER yolo's host-wide broker lives, which `yolo check`
@@ -17,7 +18,7 @@ import (
 // /var/folders/<2>/<26>/T/ before the test name is appended.
 func shortBrokerSocketDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-chk-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-chk-")
 	if err != nil {
 		t.Fatal(err)
 	}

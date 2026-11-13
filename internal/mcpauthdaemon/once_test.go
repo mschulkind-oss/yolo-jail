@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // onceDaemonFixture is a broker whose share names one `sign_in = "once"` server and Claude's
@@ -228,7 +229,7 @@ func TestServeRunsTheOnePollAndReportsItInStatus(t *testing.T) {
 	passes := make(chan struct{}, 4)
 	restore := setOnceSeams(ticks, func() { passes <- struct{}{} })
 	defer restore()
-	parent, err := os.MkdirTemp("/tmp", "yj-mcp-once-")
+	parent, err := os.MkdirTemp(testtmp.ShortDir(), "yj-mcp-once-")
 	if err != nil {
 		t.Fatal(err)
 	}

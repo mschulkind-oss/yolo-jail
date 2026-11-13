@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The black-box suite: drive the daemon over the REAL TRANSPORT (cert-pinned,
@@ -42,7 +43,7 @@ func startDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint string, s
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	// os.MkdirTemp creates 0700, which svcendpoint requires of a directory it
 	// publishes a credential into. t.TempDir() creates 0755 and is REFUSED.
-	dir, err := os.MkdirTemp("/tmp", "yj-hp-bb-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-hp-bb-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func startFrontedDaemon(t *testing.T, cfg Config, fakePSDir string) (endpoint st
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	// 0700, as svcendpoint requires of a directory it publishes a credential into.
-	dir, err := os.MkdirTemp("/tmp", "yj-hp-front-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-hp-front-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +306,7 @@ func withHostOS(t *testing.T, goos string) {
 // volatile fields). Optional behavior knobs via extra shell.
 func fakePS(t *testing.T, extra string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-fakeps-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-fakeps-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,6 +193,11 @@ The mechanics behind each of these are in
 - `just test-fast` = `go test -short ./...` — unit tests plus the short-gated compile of `integration/`. No
   containers. `just check-ci` (= `lint-ci` + `test-fast`) is the LANDING gate ([Workflow](#workflow)
   step 4). `just test` adds `go test -count=1 -timeout 0 ./integration`. Run by CI.
+- **A test run leaves nothing in TMPDIR.** `just test-fast` runs under
+  [`tmp-leak-gate.py`](scripts/tmp-leak-gate.py), which gives it a private TMPDIR and fails naming every
+  leftover; there is no hatch. A package whose helper children re-run TestMain calls
+  `testtmp.Isolate` there ([`internal/testtmp`](internal/testtmp/testtmp.go)), and a socket fixture's
+  base is `testtmp.ShortDir()`, never a literal `/tmp` (`TestNoGoFileMakesATempDirInALiteralTmp`).
 - **Run the slow suite once per landing, not once per agent.** A builder or fixer runs the integration
   tests that read what it changed (`rg integration/` for the symbol, flag, env var or message, then
   `go test -run '<those>' ./integration`). A reviewer runs only what reproduces a finding. Whoever lands

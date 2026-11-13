@@ -14,6 +14,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // headerReply is one framed answer: stdout, stderr and the exit status.
@@ -26,7 +27,7 @@ type headerReply struct {
 // front named for b's jail, sends one request and reads the whole answer.
 func askBroker(t *testing.T, b *broker, request map[string]any) headerReply {
 	t.Helper()
-	parent, err := os.MkdirTemp("/tmp", "yj-mcp-header-")
+	parent, err := os.MkdirTemp(testtmp.ShortDir(), "yj-mcp-header-")
 	if err != nil {
 		t.Fatal(err)
 	}

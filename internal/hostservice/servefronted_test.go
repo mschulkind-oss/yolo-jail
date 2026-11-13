@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The ServeFrontedUnix suite — and the first coverage of a SOCKET-shaped entry
@@ -31,7 +32,7 @@ func startFronted(t *testing.T, handler Handler) (endpoint, sock string) {
 	t.Helper()
 	// os.MkdirTemp creates 0700, which svcendpoint requires of a directory it
 	// publishes a credential into. t.TempDir() creates 0755 and is REFUSED.
-	dir, err := os.MkdirTemp("/tmp", "yj-fronted-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-fronted-")
 	if err != nil {
 		t.Fatal(err)
 	}

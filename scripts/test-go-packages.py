@@ -66,6 +66,8 @@ class GoPackageSelection(unittest.TestCase):
         self.commit("fixture")
         (self.root / "scripts").mkdir()
         shutil.copy(HERE / "go_packages.py", self.root / "scripts" / "go_packages.py")
+        # `just test-fast` runs the suite through the TMPDIR leak gate.
+        shutil.copy(HERE / "tmp-leak-gate.py", self.root / "scripts" / "tmp-leak-gate.py")
 
     def write(self, path, contents):
         file = self.root / path

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The `publishes: "socket"` door, end to end, with nothing stubbed: the daemon binds
@@ -82,7 +83,7 @@ func startFrontedJournal(t *testing.T, mode string, bodyLen int) (dir, sock, end
 	t.Helper()
 	// os.MkdirTemp creates 0700, which svcendpoint REQUIRES of a directory it
 	// publishes a credential into. t.TempDir() creates 0755 and is refused.
-	dir, err := os.MkdirTemp("/tmp", "yj-journal-fronted-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-journal-fronted-")
 	if err != nil {
 		t.Fatal(err)
 	}

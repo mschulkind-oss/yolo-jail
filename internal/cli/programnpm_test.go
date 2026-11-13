@@ -104,6 +104,12 @@ func newSelectedNPMFixture(t *testing.T) *selectedNPMFixture {
 	}
 	f := &selectedNPMFixture{store: &capture.Store{Dir: t.TempDir()}, in: npmCaptureInput{Owner: "fixture", Bin: "probe", Package: "probe-pkg"}, root: t.TempDir(), tools: t.TempDir(), node: node}
 	t.Setenv("HOME", t.TempDir())
+	// THE PRODUCER CHILD'S TEMP FILES ARE THE TEST'S. The synthetic runtime runs the in-jail
+	// producer on this machine, where a real one runs in a sealed jail whose /tmp dies with it;
+	// a cancellation test stops that child with SIGINT and then SIGKILL (runCaptureChild), so its
+	// own removal of its npm config area and runtime home never runs. runCaptureChild passes
+	// TMPDIR through, so they land here and go with the test.
+	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv("PATH", f.tools+":"+os.Getenv("PATH"))
 	t.Setenv("NODE_OPTIONS", "")
 	binary, err := os.ReadFile(f.node)

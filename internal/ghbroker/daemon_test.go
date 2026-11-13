@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // readAll is the read grant on every repository the gate approves into a scope file from the
@@ -379,7 +380,7 @@ func TestForwardThroughTheFront(t *testing.T) {
 	f := newBrokerFixture(t, "2.101.0")
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
 	// AF_UNIX paths are short on darwin; t.TempDir() there is not.
-	sockDir, err := os.MkdirTemp("/tmp", "ghb-")
+	sockDir, err := os.MkdirTemp(testtmp.ShortDir(), "ghb-")
 	if err != nil {
 		t.Fatal(err)
 	}

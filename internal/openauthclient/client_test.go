@@ -12,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func clientEndpoint(t *testing.T, handler hostservice.Handler) string {
@@ -433,11 +434,11 @@ func TestWriteCodexAuthRejectsCanonicalRefreshSecret(t *testing.T) {
 // TMPDIR at an 80-byte path, which is stricter than darwin's own ~49.
 //
 // The same helper, with the same comment, exists in internal/oauthbroker and eight other
-// packages take the same MkdirTemp("/tmp", …) approach. It is per-package because a test helper
+// packages take the same MkdirTemp(testtmp.ShortDir(), …) approach. It is per-package because a test helper
 // cannot be imported across them.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-openauth-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-openauth-")
 	if err != nil {
 		t.Fatal(err)
 	}
