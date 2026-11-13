@@ -277,7 +277,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [Copilot's config migration](../design/agent-directory-map.md#74-copilot), [a Kilo session](../design/gateway-provider-packs.md),
    [the restart prompt](../reference/attach-skew.md), [whether the plain agy slot delivers the agent](../design/pack-files-for-agent-state.md#OQ-FS1),
    [pi loading a pack's folder](../reference/pack-system.md#pi-packages), [host Chrome from `yolo host -- claude` and under
-   macos-user](../reference/mcp-configuration.md#the-chrome-devtools-pack), [pi's one MCP sign-in at `yolo host -- pi`](../design/mcp-auth-sharing-plan.md), [codex, opencode and pi on
+   macos-user](../reference/mcp-configuration.md#the-chrome-devtools-pack), [codex, opencode and pi on
    Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under SSO, the Claude and Copilot unlocks of
    per-session profiles, [Pi launch selection](../design/model-lists-and-pickers.md#1411-pis-provider-flag-travels-only-with-an-explicit-model-built-2026-10-07)
    and [simultaneous native authentication](../design/simultaneous-auth-and-pack-isolation.md); launch arguments and

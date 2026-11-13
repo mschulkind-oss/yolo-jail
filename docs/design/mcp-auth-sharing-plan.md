@@ -427,10 +427,10 @@ reverse it.
   `TestHostLaunchOnLinuxKeepsTheOneSignInForTheSession`,
   `TestHostOnceSessionAdoptsFromTheRealHomesClaudeStore`,
   `TestHostLaunchOnAMacSaysTheOneSignInIsNotKeptHere`,
-  `TestHostOnceSignInIsNotKeptUnderTheCredentialView`. Not run end to end: the owner's check on a
-  Linux host is one `/mcp` Slack sign-in in `yolo host -- claude`, then `yolo audit --service
-  mcp-auth` showing the `adopt`, and `~/.claude/.credentials.json`'s Slack entry with no
-  `refreshToken`.
+  `TestHostOnceSignInIsNotKeptUnderTheCredentialView`. The owner ran the end-to-end check on a
+  Linux host on 2026-11-13: one `/mcp` Slack sign-in in `yolo host -- claude`, `yolo audit --service
+  mcp-auth` showing `adopt slack (generation 1)`, and `~/.claude/.credentials.json`'s Slack entry
+  with no `refreshToken`.
 - <a id="id-22"></a>**ID-22. `yolo mcp-auth header <server>` is the header route's one verb**
   ([§9.6](mcp-auth-sharing.md#96-delivery-routes)). Its stdout is the whole
   Authorization value, `Bearer <token>`, which is what pi's `!command` header expects. **Built
@@ -1482,7 +1482,8 @@ the design's; what is recorded here is what that pass must start from.
   second, plain Slack entry beside its plugin's; nothing withholds it, and the header route
   replaces it ([OQ-MA9](mcp-auth-sharing.md#OQ-MA9), ruled B). The [§9.3](mcp-auth-sharing.md#93-adopting-a-sign-in-an-agent-already-has) measurements
   (Claude keeps working with no `refreshToken`; Slack refreshes with the client id alone) are
-  the owner's end-to-end check of this slice, not yet taken.
+  the owner's end-to-end check of this slice. The first was observed on a real Linux host on
+  2026-11-13; a refresh by the client id alone has not been observed yet.
 
   **Status (2026-11-12):** three more pieces are built:
   - `yolo mcp-auth header` ([ID-22](#id-22));
@@ -1496,7 +1497,8 @@ the design's; what is recorded here is what that pass must start from.
   - `login`, `logout` and `status`;
   - Codex's header-route render, since Codex 0.145.0 has no `http_headers_helper`.
 
-  The owner's real-host check has not been taken yet.
+  The owner checked it on a real Linux host on 2026-11-13: in `yolo host -- pi`, Slack's MCP
+  server worked with the one sign-in. A podman jail's `yolo -- pi` has not been checked by hand.
 
   **Parity follow-ups for this slice:**
 
