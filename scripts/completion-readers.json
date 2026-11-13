@@ -5288,6 +5288,7 @@
 "docs/reference/in-jail-nix-roots.md",
 "docs/reference/information-at-the-point-of-need.md",
 "docs/reference/install-capture.md",
+"docs/reference/jail-mechanics-skill.md",
 "docs/reference/loopback-tls-reachability.md",
 "docs/reference/loophole-grants.md",
 "docs/reference/loophole-protocol.md",
