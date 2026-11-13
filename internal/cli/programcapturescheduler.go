@@ -34,15 +34,40 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 			return err
 		}
 	}
+	// A launch adds or refreshes only its own authorized keys. An existing subscription it does
+	// not carry belongs to the USER selection, not to this launch's merged vector (another
+	// workspace may differ), so it is re-resolved through the user resolver and deactivated only
+	// when that resolver no longer authorizes it: removed from the user selection, or its owner's
+	// agent_updates policy off.
+	revoked := map[string]bool{}
+	existing, err := preparationSubscriptions()
+	if err != nil {
+		return err
+	}
+	for _, r := range existing {
+		if r.Kind != preparationOrdinaryProgramKind || !r.Active || r.Runtime != req.Runtime || r.Platform != req.Platform {
+			continue
+		}
+		if _, ok := authorized[r.Key]; ok {
+			continue
+		}
+		_, _, release, err := resolveOrdinaryPreparation(ctx, preparationDemand{Kind: r.Kind, Key: r.Key, Runtime: r.Runtime, Platform: r.Platform, Background: true})
+		release()
+		if errors.Is(err, errSharedPreparationForegroundOnly) || errors.Is(err, errPreparationAdmissionStale) {
+			revoked[r.Key] = true
+		}
+		// Any other outcome (authorized, lock contention, an unresolvable user config) is the
+		// timer's to judge on its next refresh, never this launch's.
+	}
 	spawn := false
-	err := withPreparationState(func(state *preparationState) error {
+	err = withPreparationState(func(state *preparationState) error {
 		for i := range state.Subscriptions {
 			r := &state.Subscriptions[i]
-			if r.Kind == preparationOrdinaryProgramKind && r.Runtime == req.Runtime && r.Platform == req.Platform {
+			if r.Kind == preparationOrdinaryProgramKind && r.Runtime == req.Runtime && r.Platform == req.Platform && revoked[r.Key] {
 				if _, ok := authorized[r.Key]; !ok {
 					r.Active = false
 					r.Phase = "inactive"
-					r.Reason = "not in the current selected ordinary vector — use a fresh launch to register its owner"
+					r.Reason = "no longer authorized by the user selection — use a fresh launch to register its owner"
 				}
 			}
 		}

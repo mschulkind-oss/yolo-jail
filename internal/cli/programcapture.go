@@ -86,8 +86,8 @@ func prepareProgramCapture(ctx context.Context, store *capture.Store, inputs cap
 	if err != nil {
 		return nil, err
 	}
-	// The producer's workspace remains under the store, matching captureStaged's rename layout.
-	// Do not reap it here: an unknown surviving runtime may still own it after cancellation.
+	// The producer's workspace remains under the store until its jail is known gone: an unknown
+	// surviving runtime may still own it after cancellation. Admission reclaims it below.
 	if err := produce(ctx, staging); err != nil {
 		return nil, err
 	}
@@ -97,6 +97,9 @@ func prepareProgramCapture(ctx context.Context, store *capture.Store, inputs cap
 	if err := writeForkBuildRunReturned(staging); err != nil {
 		return nil, err
 	}
+	// The jail is the one the run recorded (stagingJailNameOr), not only the one predicted: the
+	// known-gone proof and the reclaim below must name the same jail.
+	cname = stagingJailNameOr(staging, cname)
 	release, safe := forkBuildWorkspaceReclaimable(staging, cname)
 	if !safe {
 		return nil, forkBuildRetained{msg: "program capture jail is not known gone — wait for its teardown, then retry preparation"}
@@ -137,6 +140,10 @@ func prepareProgramCapture(ctx context.Context, store *capture.Store, inputs cap
 	if err != nil {
 		return nil, err
 	}
+	// Admitted: the producer workspace (staging, its jail home and tracking, its owner records)
+	// is reclaimed under the known-gone proof still held above, as the fork-build path does.
+	// A workspace whose jail was not known gone never reaches here: it is retained above.
+	cleanupForkBuildWorkspace(staging, cname)
 	receipt := entrypoint.CaptureReceipt{Bin: inputs.Bin, Declared: inputs.Declared, Key: entry.Key, Digest: capture.DigestHash(entry.Digest), Bytes: manifest.TotalBytes(), Path: entry.Root, Platform: inputs.Platform, Compatibility: identity, Time: time.Now()}
 	if err := entrypoint.AppendReceiptLine(capture.ReceiptsPath(entry.Root), receipt.Line()); err != nil {
 		return nil, err
