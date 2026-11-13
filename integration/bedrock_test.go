@@ -378,7 +378,7 @@ func TestABedrockLaunchWithNoListAndNoFetchStopsSayingWhy(t *testing.T) {
 		t.Fatalf("a launch that left copilot nothing to start on ran:\n%s", r.combined())
 	}
 	for _, want := range []string{`copilot has no model to start on for profile "bare"`,
-		`"providers.bare.models"`, `"model" on profile "bare"`} {
+		"`providers.bare.models`", "`model` on profile \"bare\""} {
 		if !strings.Contains(r.combined(), want) {
 			t.Errorf("the refusal lacks %q:\n%s", want, r.combined())
 		}
