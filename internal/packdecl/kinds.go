@@ -162,7 +162,7 @@ const (
 	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and
 	// `provider` is what it selects.
 	//
-	// RETIRED IN A pack.toml (docs/design/readable-config.md RC-D69): `[[profile]]` is read there as
+	// RETIRED IN A pack.toml (docs/reference/config/rulings.md#RC-D69): `[[profile]]` is read there as
 	// a legacy spelling for a few releases, noted by `yolo check`, and `yolo pack migrate <path>`
 	// folds it into its provider (Manifest.FoldProfiles): a profile that only renames the provider
 	// becomes its `alias`, one with a `via` or `enforce_models` a variant with that `name`. A pack

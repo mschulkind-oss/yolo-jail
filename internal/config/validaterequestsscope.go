@@ -6,7 +6,7 @@ import (
 )
 
 // validateRequestsUserScope refuses `requests` in an old-format user file at launch. The key is a
-// project's (its schema rule is workspace-only, docs/design/config-user.md §6): it asks the user
+// project's (its schema rule is workspace-only, docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins): it asks the user
 // for access, and a user config answers with `allow`. A TOML user file is refused by its own
 // reader; the JSONC one has no schema, so without this its `requests` merged into the launch's
 // config and read as if a project had asked. An explicit edit is checked by

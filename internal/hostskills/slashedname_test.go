@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
-// slashedname_test.go pins the internal half of RC-D48 (docs/design/readable-config.md): the
+// slashedname_test.go pins the internal half of RC-D48 (docs/reference/config/rulings.md): the
 // ownership record a yolo-written plugin manifest carries (x-yolo-pack) and the claimant query
 // (ClaimsAt). The agent-facing spelling of a pack's names is pack-system.md's, not an escape.
 

@@ -143,12 +143,11 @@ func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
 //     entry (its readable spelling, LowerEnvSources), all layers' in layer order;
 //  2. every `env.files` path, in order (the readable spelling of its file entries);
 //  3. `env.set` as one inline table, applied after every file — the reading the migrator
-//     converts by (configmigrate.lowerEnvSources) and config-project.md §1 shows;
+//     converts by (configmigrate.lowerEnvSources) and docs/reference/config/project-config.md#the-sections shows;
 //  4. the private set (docs/reference/providers.md#the-two-env-sets-public-and-private): every `env.secrets.files` path,
 //     then `env.secrets.set` as one inline table, each entry carrying the set bit;
 //  5. `env.unset` as one inline table of removals, applied last, so an unset wins over a
-//     set of the same name from any layer (readable-config-plan.md's "unset precedence",
-//     RC-D23), in either set (SE-D4).
+//     set of the same name from any layer (docs/reference/config/rulings.md#RC-D23), in either set (SE-D4).
 //
 // The merge has already joined the layers: `env.files` is the user's entries then the
 // workspace's, `env.set` is later-wins per name, and `env.unset` is their union; the same

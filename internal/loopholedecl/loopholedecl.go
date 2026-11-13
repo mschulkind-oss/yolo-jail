@@ -64,7 +64,7 @@ import (
 )
 
 // ManifestTOMLName is the file a loophole module declares itself in
-// (docs/design/readable-config.md RC-D28): the same keys and meaning the legacy JSONC form had,
+// (docs/reference/config/rulings.md#RC-D28): the same keys and meaning the legacy JSONC form had,
 // in their TOML spellings.
 const ManifestTOMLName = "loophole.toml"
 

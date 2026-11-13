@@ -76,7 +76,7 @@ var registry = map[string]func(args []string) int{
 	// What happened to this workspace's requests, in a jail and on the host (history.go).
 	"history": runHistoryVerb,
 	// The named verbs for a broker ceiling and a project's request (allow.go, request.go;
-	// docs/design/config-commands.md §4).
+	// docs/reference/config/editing.md#the-commands).
 	"allow":   runAllow,
 	"request": runRequest,
 	// The named verb for the readable config's active_provider table (activeprovider.go).

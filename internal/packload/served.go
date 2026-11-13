@@ -116,7 +116,7 @@ func (s ServedDaemons) WithUngrantedBinds(why map[string]string) ServedDaemons {
 // loophole (the term config.AllowPackFacts.LoginProfile reads the same way) is one a selected
 // pack's gated env contribution points at (`served_by`) while naming the loophole setting that
 // holds its profile (`region_profile_setting`), as packs/aws-auth does. It runs whenever its pack
-// is selected, and with no profile it serves nothing (docs/design/config-user.md §7: "a listed
+// is selected, and with no profile it serves nothing (docs/reference/config/user-config.md#one-switch-packs: "a listed
 // login pack whose table names no profile is a warning: the pack installs, its service serves
 // nothing, and the check says what to set"). So a pointer at it is withheld here, naming the
 // setting, and what its pack declares overrides that pointer (EnvOverrideFindings) overrides

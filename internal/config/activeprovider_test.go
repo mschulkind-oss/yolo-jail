@@ -1,7 +1,7 @@
 package config
 
 // activeprovider_test.go pins the one selection namespace a launch reads
-// (providersemantic_selection.go; docs/design/config-user.md §5, readable-config.md OQ-RC3,
+// (providersemantic_selection.go; docs/reference/config/user-config.md#which-provider-each-agent-runs-on, docs/reference/config/rulings.md#OQ-RC3,
 // OQ-RC14, OQ-RC20, RC-D4, RC-D11): `active_provider` and the legacy `profile` key lower to one
 // ProfileSelection, "native" leaves an agent to its own login, and a provider, its alias and its
 // variants are selectable by name through the same packload.ResolveProfiles every reader calls.

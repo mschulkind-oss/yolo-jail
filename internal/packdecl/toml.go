@@ -761,7 +761,7 @@ func normalizeBuiltInProviderPlanOff(fields map[string]any) error {
 // install_hints entry, exactly as a legacy install_hints that does not name it. A program with
 // no hint at all is `install = false`; one with hints for some managers only is
 // `install = { default = false, brew = "…" }`. `false` and not a reserved string, because a
-// package name is a string (readable-config.md RC-D23).
+// package name is a string (docs/reference/config/rulings.md#RC-D23).
 func normalizeProgramDefaults(fields map[string]any) error {
 	bin, _ := fields["bin"].(string)
 	install, hasInstall := fields["install"]
@@ -831,7 +831,7 @@ func normalizeProgramDefaults(fields map[string]any) error {
 // lowerOptionsWithoutDefault reads a provider's grouped `options` table: a string is the
 // option's default, and `false` declares the option with NO default — legacy JSON's null
 // (OptionDefault), which TOML cannot write. It is `false` and not a reserved string because
-// "" is a real default (readable-config.md RC-D23), and not an omitted key because dropping
+// "" is a real default (docs/reference/config/rulings.md#RC-D23), and not an omitted key because dropping
 // the key un-declares the option, so a profile that sets it is refused. fields["options"] is
 // replaced with a lowered copy holding a nil for each false; the caller's table is untouched.
 func lowerOptionsWithoutDefault(fields map[string]any) error {

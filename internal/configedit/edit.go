@@ -1,4 +1,5 @@
 // Package configedit plans byte-preserving edits to human-authored config documents.
+// The splice's rules and the commands that use it: docs/reference/config/editing.md.
 package configedit
 
 import (

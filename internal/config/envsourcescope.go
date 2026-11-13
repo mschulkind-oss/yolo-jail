@@ -109,7 +109,7 @@ func envSourceScopeRefusal(key, entry, real, root, userPath string, userTOML boo
 		spelled = fmt.Sprintf("[env.secrets] files = [%q] (`yolo config add env.secrets.files %s --user`)",
 			fix, shquote.Quote(strconv.Quote(fix)))
 	} else if userTOML {
-		// The readable key has a verb that appends to it (docs/design/config-commands.md); a
+		// The readable key has a verb that appends to it (docs/reference/config/editing.md); a
 		// legacy file keeps `env_sources`, beside which that verb's `env.files` is refused.
 		spelled = fmt.Sprintf("[env] files = [%q] (`yolo config add env.files %s --user`)",
 			fix, shquote.Quote(strconv.Quote(fix)))

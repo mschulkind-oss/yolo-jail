@@ -3,7 +3,7 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); the Mac witnesses for ID-19 and ID-20; the owner's real-host check of the one sign-in at Linux yolo host (ID-21, built 2026-11-12); resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
+next: "The Mac witnesses for ID-19 and ID-20; resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (ID-19, ID-20). Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
@@ -1422,7 +1422,9 @@ the design's; what is recorded here is what that pass must start from.
     [Mac witness](mcp-auth-sharing.md#mac-checks), not yet taken.
   - *`yolo host` on Linux:* built (2026-11-12), [ID-21](#id-21), on by default
     ([OQ-MA10](mcp-auth-sharing.md#OQ-MA10)): the session-long poll on the real home's
-    `~/.claude/.credentials.json`; its run on a real host is the owner's check, not yet taken.
+    `~/.claude/.credentials.json`. Owner-checked on a real Linux host 2026-11-13: with Slack's
+    Claude Code plugin signed in and `sign_in = "once"`, `yolo audit --service mcp-auth` recorded
+    `mcp-auth adopt slack (generation 1)`, jail field `host`.
   - *`yolo host` on a Mac:* not built and not planned. Host Claude keeps its sign-ins in the
     Keychain; the line stays, reworded to name the Keychain, until the Keychain design on the
     [roadmap](../plans/roadmap.md) exists.

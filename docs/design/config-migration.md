@@ -12,15 +12,15 @@ summary: "How a yolo knows which config it has, the order of releases, what `yol
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
 good and I want to move forward"*). Built by 2026-10-30, the folds included
-([RC-D30](readable-config.md#RC-D30)); the old reader's removal and the fetched-pack refusal belong to a later
+([RC-D30](../reference/config/rulings.md#RC-D30)); the old reader's removal and the fetched-pack refusal belong to a later
 release, and the TOML release shipped as v0.16.0 (`a95fd217d`, 2026-11-02; the
-[ledger](readable-config.md#decision-ledger) names each). Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
+[ledger](../reference/config/rulings.md#decision-ledger) names each). Legacy JSONC is still read for a few releases: a launch offers `yolo config migrate`,
 and `"convert_later": true` in the old user file stops the offer. The transcripts are what a person would see under the
 leanings.
 
 **How to read this.** [§1](#1-what-youd-see) is the transcripts; [§2](#2-how-a-yolo-knows-which-config-it-has)
 to [§5](#5-every-case) are approved. Nothing here is open; the rulings are in the
-[ledger](readable-config.md#decision-ledger).
+[ledger](../reference/config/rulings.md#decision-ledger).
 
 > **In short.** `config.toml` beside no `config.jsonc` is the whole version scheme for this move.
 > The next release reads both formats, and keeps the old reader for a few releases; it offers the
@@ -28,8 +28,8 @@ to [§5](#5-every-case) are approved. Nothing here is open; the rulings are in t
 > read, and one key in the old user file says "later" so the offer stops; a later release drops
 > the old reader.
 
-**Reads with:** [`readable-config.md`](readable-config.md) (front door and ledger),
-[`config-user.md`](config-user.md) and [`config-project.md`](config-project.md) (what the files
+**Reads with:** [`config/rulings.md`](../reference/config/rulings.md) (front door and ledger),
+[`config/user-config.md`](../reference/config/user-config.md) and [`config/project-config.md`](../reference/config/project-config.md) (what the files
 become), [`pack-manifests.md`](pack-manifests.md) (the pack half of the same move).
 
 ---
@@ -105,13 +105,13 @@ Keeping the JSONC file for now.
 config.jsonc.pre-migrate."*, and continues the launch. The link lines show only when a file is
 reached through a symlink. The link itself is what moves to `config.jsonc.pre-migrate`, its text
 unchanged; nothing is written at or beside the file it points at. The closing report says it
-again for each link ([RC-D41](readable-config.md#RC-D41)). A setting with no TOML spelling yet is
+again for each link ([RC-D41](../reference/config/rulings.md#RC-D41)). A setting with no TOML spelling yet is
 named with its next step; a conversion that would change what the config means is reported as a
 yolo bug to file. Either way nothing is changed and the launch stops, saying to run the command
 again and answer `n` to launch on the old files. With no terminal the offer is the
 opening line and the two command lines, with no question. `"convert_later": true` in the old user
 file silences the offer for every old file this machine reads; no command writes it. The wording
-is the owner's ([RC-D35](readable-config.md#RC-D35)).)
+is the owner's ([RC-D35](../reference/config/rulings.md#RC-D35)).)
 
 An old key in a new file, from the same rename table the conversion uses, so nothing is
 maintained for this message alone:
@@ -126,7 +126,7 @@ $ yolo check
 ## 2. How a yolo knows which config it has
 
 For this move the answer is settled: the format changes
-([OQ-RC2](readable-config.md#decision-ledger), TOML), a format change changes the file name, and
+([OQ-RC2](../reference/config/rulings.md#OQ-RC2), TOML), a format change changes the file name, and
 so the name is the version. `.jsonc` is old, `.toml` is new, and nothing inside either says which
 yolo wrote it. Reviewed 2026-10-25: *"We're moving to TOML, so that's the answer here. The only
 question is, do we have to do something now to prepare for the eventual version 3?"*
@@ -139,7 +139,7 @@ the next move it can. Three things it does for that:
 1. **Its reader knows a `format` key** and refuses a value above its own, naming the upgrade. A
    file with no `format` is format 2, because format 1 is the other file name, and no migrated
    file writes the key: a line nobody acts on for years is a line every reader asks about
-   (ruled 2026-10-25, [OQ-RC11](readable-config.md#decision-ledger)). The next shape change
+   (ruled 2026-10-25, [OQ-RC11](../reference/config/rulings.md#OQ-RC11)). The next shape change
    writes `format = 3` into the files it produces.
 2. **The rename table is data, not code.** One table of old key → new lines drives the conversion,
    the refusal in [§1](#1-what-youd-see), and the next conversion, which adds rows.
@@ -171,19 +171,19 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    `<name>.pre-migrate` copy the migration leaves ([§4](#4-what-yolo-config-migrate-does)), one
    `mv` from working again. Reviewed 2026-10-25, on whether anything more was open here:
    *"Haven't we solved this from all the other rulings?"* Yes
-   ([OQ-RC6](readable-config.md#decision-ledger)).
+   ([OQ-RC6](../reference/config/rulings.md#OQ-RC6)).
 
 ## 4. What `yolo config migrate` does
 
 1. **Proves it lost nothing.** Effective config before (old files) and after (the files it would
    write), as canonical JSON in the new vocabulary; it refuses to write unless they are equal, and
    prints any difference key by key. A user config's `brokered` table converts to the
-   `[allow.<source>]` tables of [config-user.md §6](config-user.md#6-what-a-jail-may-do-with-your-logins),
+   `[allow.<source>]` tables of [`config/user-config.md`](../reference/config/user-config.md#what-a-jail-may-do-with-your-logins),
    and a project's `brokered.<source>.grants` to `[requests.<source>]` as
-   [A.6](config-user.md#a6-the-grant-kinds-mapped) maps them, both through the capabilities the
+   [A.6](../reference/config/user-config.md#what-a-jail-may-do-with-your-logins) maps them, both through the capabilities the
    declaring pack maps (`kind_capabilities`), and both proved against the grants the brokers
-   resolve from each side ([RC-D42](readable-config.md#RC-D42),
-   [RC-D60](readable-config.md#RC-D60)). A project grant converts only when its repository is the
+   resolve from each side ([RC-D42](../reference/config/rulings.md#RC-D42),
+   [RC-D60](../reference/config/rulings.md#RC-D60)). A project grant converts only when its repository is the
    workspace's one remote; any other stays, with its exact next step named.
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
    include → its `.toml` twin with the include entries respelled. A file reached through a
@@ -191,20 +191,20 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    file is a regular file at the new name beside the link, and the file the link points at (a
    dotfiles copy, say) and its directory are not changed. A linked include whose own include
    entries are read beside its target is refused, naming the fix
-   ([RC-D41](readable-config.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
+   ([RC-D41](../reference/config/rulings.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
    each original kept as `<name>.pre-migrate`, which the output says may be deleted once the new
    files work. It writes no ignore file, neither `.gitignore` nor `.git/info/exclude`: a renamed file
    whose old name git ignored and whose new name it does not, and each such `<name>.pre-migrate`
    backup, gets one line in the plan and the report naming the line to add
-   ([RC-D71](readable-config.md#RC-D71)). No lock file is left beside any config file, and the
-   output names every change it made ([RC-D34](readable-config.md#RC-D34)).
+   ([RC-D71](../reference/config/rulings.md#RC-D71)). No lock file is left beside any config file, and the
+   output names every change it made ([RC-D34](../reference/config/rulings.md#RC-D34)).
 3. **Keeps comments, in order.** A comment is never read as belonging to a key; each is written
    back in document order, before whatever key follows it in the new file, and nothing is dropped.
 4. **Drops written defaults and folds repeated facts**, each as its own hunk, only while the
    equality check holds. Built: a written default is dropped when it equals what the readers answer
    for an absent key and only one file writes it. A fact every model row of a provider writes alike
    is folded into its `every_model`, and a `vendor` the id names is dropped, each proved against the
-   provider table a launch resolves ([RC-D30](readable-config.md#RC-D30)).
+   provider table a launch resolves ([RC-D30](../reference/config/rulings.md#RC-D30)).
 5. **Respells the records only yolo reads**: the approval records under
    `~/.local/share/yolo-jail/approvals/` and each workspace's `.yolo/config-boot.json`. Without
    this every migrated workspace meets a full-file approval prompt once, and a launch with no
@@ -213,14 +213,14 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
 6. **Runs once, on request.** The launch offers it; nothing runs it unasked. On the host for the
    user files; in a jail only for the project's.
 7. **Proves the next launch accepts the converted files before it touches anything**
-   ([RC-D44](readable-config.md#RC-D44)). It stages the converted set off to the side, reads it
+   ([RC-D44](../reference/config/rulings.md#RC-D44)). It stages the converted set off to the side, reads it
    the way a launch would read the layout after migration, with all scopes together, and runs the
    launch's config checks over it: the strict load, the validator, the pack switch, the capability
    gate and the undeclared-profile refusal. The last two run over the selected packs this machine
    already has; a selected pack only a launch would fetch leaves a *Not checked* line in the plan.
    Any refusal the old files do not already meet refuses the migration, which then says *nothing
    was changed*, lists the problems and gives the next step.
-8. **Converts only what the config reaches, or exactly the files named** ([RC-D46](readable-config.md#RC-D46)).
+8. **Converts only what the config reaches, or exactly the files named** ([RC-D46](../reference/config/rulings.md#RC-D46)).
    The owner's ruling (2026-10-31): *"not included. not touched. we only convert included
    stuff."* With no file, a `--user-layer` file, and any file no include names, is left byte for
    byte as it is, and a JSONC layer keeps loading on top of a TOML user config. The owner amended
@@ -231,14 +231,14 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    converted layer carries its own `pack_sources`, and its renamed packs' records move as item 9
    says. The report ends with the launch to run next, `--user-layer <name>.toml`, and a launch
    still naming the old file is refused naming the twin.
-9. **Carries a renamed pack's state to its new name** ([RC-D47](readable-config.md#RC-D47)). A
+9. **Carries a renamed pack's state to its new name** ([RC-D47](../reference/config/rulings.md#RC-D47)). A
    path in `packs` converts to its readable handle, and the handle is the pack's name
-   ([OQ-RC15](config-user.md#4-naming-a-pack-that-is-not-shipped)), so `~/code/yolo-packs/pi-fork`, the pack
+   ([OQ-RC15](../reference/config/user-config.md#packs-and-naming-a-pack-that-is-not-shipped)), so `~/code/yolo-packs/pi-fork`, the pack
    `pi-fork`, becomes the pack `yolo-packs/pi-fork`. Before it touches anything, the migration
    reads both selections the way a launch does and proves they are the same packs, by directory
    or repository, with only the names differing; any other difference refuses it. The plan, and
    the launch's offer before its question, list each rename in the owner's words
-   ([RC-D49](readable-config.md#RC-D49)):
+   ([RC-D49](../reference/config/rulings.md#RC-D49)):
 
    ```text
    In TOML a pack is named by where it comes from, so these are renamed:
@@ -276,7 +276,7 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
 
 ### The commit steps
 
-The owner's ruling (2026-10-31, [RC-D45](readable-config.md#RC-D45)): *"I don't want the converter
+The owner's ruling (2026-10-31, [RC-D45](../reference/config/rulings.md#RC-D45)): *"I don't want the converter
 to just restore the originals, I want it to never touch them. When we're gonna touch them, we
 should know it's gonna work, because it could get killed in the middle of rolling back."* So
 nothing is ever restored, and no original's bytes are rewritten. Each step below names the state a
@@ -297,7 +297,7 @@ moves and the hash of the bytes each one carries.
 
 An original whose name is a symlink is moved as a link: a link with the same text is made at
 `<name>.pre-migrate`, then the old name is removed. Nothing is read or written through it, so the
-file it points at is never part of a step ([RC-D41](readable-config.md#RC-D41)). A kill between
+file it points at is never part of a step ([RC-D41](../reference/config/rulings.md#RC-D41)). A kill between
 the two finds the backup link made and removes the old name.
 
 Each move is followed by an fsync of the directories it changed, so a crash cannot lose a move
@@ -314,7 +314,7 @@ names that file, and the journal stays. A step that fails in a live run (for exa
 leaves the same state as a kill, says *"the migration stopped part way … Nothing was put back"*,
 and names the same command. A finished run says *"Converted: …"* and *"Kept the originals as …"*.
 
-Approved 2026-10-25 ([OQ-RC18](readable-config.md#decision-ledger)): *"the equality check is
+Approved 2026-10-25 ([OQ-RC18](../reference/config/rulings.md#OQ-RC18)): *"the equality check is
 what makes the folds safe, and a conversion that leaves the shrinking for later leaves the
 misreadings in place for as long."* An earlier item had the migration delete a leftover
 `~/.config/yolo-jail/config.lua`; it was dropped in the same review round. That file fed a Lua
@@ -328,12 +328,12 @@ that deletes a file it does not convert is code written for nobody.
   Formats are never merged. When the JSONC is the file a migration already converted (a
   dotfiles manager re-created the link the migration moved to `.pre-migrate`), the refusal says
   it came back and gives the one `rm`; otherwise it offers each file to keep, each command on
-  its own line ([RC-D70](readable-config.md#RC-D70)).
+  its own line ([RC-D70](../reference/config/rulings.md#RC-D70)).
 - **A config name that is a link to nothing** (`yolo-jail.jsonc -> swarf/.links/yolo-jail.jsonc`
   with no such target, in any scope, an `include_if_found` entry or a `config.d` fragment
   included): refused, naming the link, its target, and the two ways out — restore the target
   (a dotfiles manager may need to sync this machine) or `rm` the link
-  ([RC-D59](readable-config.md#RC-D59)). It is never read as "no file", and it is checked before
+  ([RC-D59](../reference/config/rulings.md#RC-D59)). It is never read as "no file", and it is checked before
   the sibling rule above, so a dangling TOML link beside a real JSONC file is reported as the link
   it is. A link loop, a directory or an unreadable file at a config name is refused the same way,
   each naming what it is.
@@ -351,7 +351,7 @@ that deletes a file it does not convert is code written for nobody.
   `""` hands a derive a value), a managed key deleted by a null, and a program whose
   `install_hints` name only some managers (the grouped reader gives an unwritten manager the bin,
   inventing `apt install pi` for a program installed as `pi-coding-agent`). Each now has one
-  ([RC-D25](readable-config.md#RC-D25)), and `yolo pack migrate`'s equality proof compares install
+  ([RC-D25](../reference/config/rulings.md#RC-D25)), and `yolo pack migrate`'s equality proof compares install
   hints as the readers produce them, so an invented hint is a difference.
 - **A local pack in the old format:** refused, naming `yolo pack migrate <path>`
   ([`pack-manifests.md`](pack-manifests.md#5-the-migration)).
@@ -364,7 +364,7 @@ that deletes a file it does not convert is code written for nobody.
   workspace name has a constant; one fixture helper is what stops the next format change from
   touching 400 files (in the seed).
 - **A fetched pack in the old format**, once the old reader is gone: refused, naming the two ways
-  forward; there is one reader. Ruled 2026-10-25 ([OQ-RC8](readable-config.md#decision-ledger)):
+  forward; there is one reader. Ruled 2026-10-25 ([OQ-RC8](../reference/config/rulings.md#OQ-RC8)):
   *"This is fine because I think I'm the only one that has any packs that could be shared, and I
   will be converting them immediately."*
 

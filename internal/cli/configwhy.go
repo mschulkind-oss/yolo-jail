@@ -1,6 +1,6 @@
 package cli
 
-// configwhy.go is `yolo config why <key>` (docs/design/config-commands.md §1 and §4): the
+// configwhy.go is `yolo config why <key>` (docs/reference/config/editing.md#the-commands and §4): the
 // effective value of one key, every file:line that sets it (highest precedence first, from
 // the loader's own provenance record, config.Sources), and what would apply without it.
 
@@ -408,7 +408,7 @@ func configWhyDefault(cfg *jsonx.OrderedMap, sources *config.Sources, steps []co
 }
 
 // configWhySetCommand is the command that sets an unset key: the key's named verb where one
-// exists (docs/design/config-commands.md section 4, OQ-RC10) and the generic `yolo config set`
+// exists (docs/reference/config/editing.md section 4, OQ-RC10) and the generic `yolo config set`
 // where none does.
 func configWhySetCommand(steps []configdoc.Step, keys []string) string {
 	generic := "yolo config set " + configWhyPath(steps) + " <value>"

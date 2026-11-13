@@ -11,7 +11,7 @@ import (
 )
 
 // brokeredskipped_test.go pins the report of a project's broker request that the user's ceiling
-// leaves out (docs/design/config-user.md §6, docs/design/github-write-scopes.md §5): the
+// leaves out (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins, docs/design/github-write-scopes.md §5): the
 // `requests.<source>.<capability>` a selected broker pack declares, with no `allow.<source>`
 // list naming the capability. Before the fix `yolo check`, every launch and `yolo config apply`
 // said nothing about it, and the jail ran without the grant: the owner of this repository

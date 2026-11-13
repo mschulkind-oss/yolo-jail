@@ -52,8 +52,8 @@ deciding, and it judges the resolved target of every access, never the link.
 config keys that add mounts), [`macos-user-home-tiers.md`](macos-user-home-tiers.md) (the
 Seatbelt argument this generalizes), [`gate-placement-principle.md`](gate-placement-principle.md)
 (why a declared read-write mount is disclosed rather than gated).
-[RC-D24](../design/readable-config.md#RC-D24) rules which config files may declare a read-write
-element ([its background](../design/readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace)), and
+[RC-D24](config/rulings.md#RC-D24) rules which config files may declare a read-write
+element ([its background](config/rulings.md#a-writable-mount-from-a-workspace)), and
 [`../design/declaration-parity.md`](../design/declaration-parity.md) owns the parity rulings
 (DP-D15, DP-L1) this builds on. `yolo config-ref` is the authority for the key's syntax.
 
@@ -246,7 +246,7 @@ workspace scoping and the [config-change diff prompt](config-safety.md).
 
 #### A project may request one, once your config allows it
 
-[RC-D24](../design/readable-config.md#RC-D24) supersedes [`OQ-WT1`](../design/readable-config.md#OQ-WT1) with one exception. A
+[RC-D24](config/rulings.md#RC-D24) supersedes [`OQ-WT1`](config/rulings.md#OQ-WT1) with one exception. A
 **request** is a `mounts` table with `write = true` written by a project's TOML config file
 itself, `yolo-jail.toml` or `yolo-jail.local.toml`. A file either one includes cannot request
 one, and neither can a TOML file a JSONC config includes, so the file a human reviews is the

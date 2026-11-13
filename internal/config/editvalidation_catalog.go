@@ -45,7 +45,7 @@ func explicitProviderCatalog(ctx *editValidationContext, config *jsonx.OrderedMa
 }
 
 // WithOfflineModelCatalog is the launch's catalog for the readable model rows
-// (packload.WithModelCatalog; docs/design/config-user.md §8 C7, docs/design/readable-config.md
+// (packload.WithModelCatalog; docs/reference/config/user-config.md#lines-you-never-write C7, docs/reference/config/rulings.md
 // RC-D29): the same offline facts an edit's validation fills a row from, read from the host floor's
 // provisioned packages, so a model named without facts launches with the facts `yolo config set`
 // checked it against. user is the config the host floor and provisioner keys are read from. The

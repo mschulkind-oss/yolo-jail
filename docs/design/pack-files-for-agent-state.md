@@ -108,7 +108,7 @@ Four principles carry the design; later sections cite them by number.
 The rows use the abstract shape. A manifest spells them as a `[[files]]` table in `pack.toml`,
 with a legacy `pack.json` still read for a few releases
 ([`pack-manifests.md`](pack-manifests.md)). The `home/` row is convention C6, ruled with
-[OQ-RC19](readable-config.md#decision-ledger) and built
+[OQ-RC19](../reference/config/rulings.md#OQ-RC19) and built
 ([`pack-manifests.md` §3](pack-manifests.md#3-no-manifest-at-all)): it lowers to the first row,
 so everything below about a path-addressed destination holds for it. A folder spelling for the
 *addressed* row is [`pack-conventions.md`](pack-conventions.md)'s C2, still open as
@@ -276,7 +276,7 @@ So `agents: ["agy"]` in a launch without agy is exactly what the manifest commen
 `[SKIP]` line, which names the agent as written, is where a misspelling shows.
 
 A pack a workspace turned off is unselected there. The per-workspace `off = true` on a pack entry
-is L4's ([`config-user.md` A.4](config-user.md#a4-what-l4-amends)), kept as a pack switch by
+is L4's ([`config/user-config.md`](../reference/config/user-config.md#one-switch-packs)), kept as a pack switch by
 [`loophole-grants.md`](../reference/loophole-grants.md) and not built: a pack off in one
 workspace runs none of its machinery there, and its agent's addressed content is skipped there too.
 

@@ -87,7 +87,7 @@ func RequestCommand(g brokerscope.Grant) string {
 
 // allowAdvice is the step that lets the host user config allow kind: the `yolo allow` command,
 // behind `yolo config migrate` for a user config still in legacy JSONC, which the verb does not
-// write (docs/design/config-commands.md §4).
+// write (docs/reference/config/editing.md#the-commands).
 func allowAdvice(kind string) string {
 	allow := "`" + AllowOnRequestCommand(kind) + "`"
 	if _, toml := config.UserConfigFile(); !toml {
@@ -183,7 +183,7 @@ func (b *Broker) coverForSnapshot(f brokerscope.File, repo string, say func(stri
 	// hint is a refused ref's reason, and its lasting paths for the push's menu (menu.go): the
 	// verb that declares the one grant covering it in the workspace config, and the user-config
 	// step the kind still needs, if any (docs/reference/happy-path-principle.md,
-	// docs/design/config-commands.md §4). The menu names no legacy key to hand-edit.
+	// docs/reference/config/editing.md#the-commands). The menu names no legacy key to hand-edit.
 	hint := func(ref, why string, g brokerscope.Grant) {
 		if authorityErr != nil {
 			say(ref + ": " + why + "; the paths that cover it are listed below, and a lasting one also needs `allow.git` " +
