@@ -906,7 +906,11 @@ a lane's run and then passed alone. These remain:
   directories. The package runs serially, and on 2026-11-13, at a load average near 30, a
   `go test -short` of it took over seven minutes. Under fourteen lanes it outgrew the
   `SHORT_TEST_TIMEOUT` that `just test-fast` passes. Several of its slowest tests take 15 s each,
-  which suggests they wait out a production bound rather than an event.
+  which suggests they wait out a production bound rather than an event. A timeout's goroutine
+  dump also lists `armLaunchSignalsOuter` goroutines parked for minutes: idle launch arms that
+  earlier tests left installed, such as the launch that `runContainer` parks in `select {}` once
+  its arm has taken a signal. They hold no test up, so they are not the hang; the running test's
+  own duration in the dump's `running tests:` line is what tells a hang from slowness.
 - The `internal/packsrc` git-wrapper tests, which timed out twice in one lane; the suspect is the
   jail's git broker environment (`GIT_CONFIG_COUNT`) reaching the wrapped git.
 
