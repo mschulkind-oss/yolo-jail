@@ -26,13 +26,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"gopkg.in/yaml.v3"
 )
 
@@ -259,122 +262,102 @@ func requirePodman(t *testing.T) {
 	}
 }
 
-// TestQuitDoesNotWaitForTheScratchDelete measures what 200,000 files left in /tmp add to the
-// quit, against the same launch with an empty /tmp, and fails when they add half of what deleting
-// them costs on the same machine.
+// TestQuitDoesNotWaitForTheScratchDelete pins that the quit returns while the scratch remover it
+// started is still running, by holding that remover at a gate the test opens only after the quit.
 //
-// THE QUIT IT TIMES. The jail's only session is its last, so its quit streams the keeper's
+// THE QUIT IT PINS. The jail's only session is its last, so its quit streams the keeper's
 // teardown and returns once the keeper has exited (endSession, streamKeeperTeardown). The keeper
 // stops the container, confirms it gone, and runs teardownAfterExit, whose first act starts the
-// remover detached and never waits for it (startScratchRemoval). So the quit includes the whole
-// teardown and none of the delete, and the delete is back on it if anything on that chain comes
-// to wait for the remover. The volumes going anonymous again is caught by launchAndQuit's mount
-// check directly, whatever the timing shows.
+// remover detached and never waits for it (startScratchRemoval). The delete is back on the quit if
+// anything on that chain comes to wait for the remover, or for the volumes it deletes. The volumes
+// going anonymous again is caught by launchAndQuit's mount check directly.
 //
-// WHY A BASELINE AND NOT A FIXED BUDGET. This test asserted a fixed 5 s from the jail's command
-// finishing to yolo returning. The macOS nightly's podman machine measured 2.4 s to 10.4 s across
-// six runs and failed at 5.33 s (run 36521751485) and 10.37 s (run 36711874486), the remover then
-// taking another 12 s to 45 s to finish, so the budget could not tell a slow VM's ordinary quit
-// from the delete being on the critical path. And it was blind in the other direction on Linux,
-// where the delete is cheap: in a nested jail on 2026-09-30 the jail's own `rm -rf` of these
-// files took 1.5 s to 1.7 s, and a remover spawn made to wait for its child held the quit 1.8 s,
-// inside the 5 s. So the test launches twice in one workspace:
+// THE GATE. The second launch runs with a `podman` shim first on its PATH (newScratchRemoverGate).
+// The remover inherits the launcher's environment, so every runtime call it makes meets the shim,
+// which recognises the remover as its parent and blocks until the test opens the gate; every other
+// caller goes straight to the real podman. The remover therefore cannot finish, nor delete a
+// volume, before the test lets it. A quit that waited for either would never return, and runYolo's
+// deadline turns that hang into a red test. So the pass condition is an event, the launcher
+// returning while the remover still holds its in-flight lock (WaitForScratchRemovers) and the
+// volume is still there, and machine load cannot decide it.
 //
-//   - THE BASELINE makes the same files the same way and deletes them itself, timed, before its
-//     command finishes. Its quit is this machine's quit after the same workload, with an empty
-//     /tmp, and its timed `rm -rf` is what the delete costs here: the same unlinks, on the same
-//     filesystem, that a quit waiting on the delete would wait for.
-//   - THE MEASURED RUN leaves the files for the teardown.
+// The one bound left is the product's own: a remover gives up on volumes it could not list once
+// scratchRemovalWait, a minute, has passed since it started, and a gated call is killed at the
+// listing timeout and retried. A quit that took longer than that after starting the remover is
+// slow enough to be a defect by itself, and the failure says so.
 //
-// A quit that waits on the delete pays about the whole delete cost more than the baseline; one
-// that does not pays about nothing more, give or take the two quits' noise and the remover's
-// contention with the rest of the teardown. The bound is the midpoint, half the measured delete
-// cost, which leaves the same margin on both sides and scales with the machine. That same nested
-// jail measured the files adding -2 ms to 1 ms against bounds of 0.75 s to 0.83 s, and the
-// waiting spawn adding 1.6 s.
+// WHY NOT A TIMING. This test used to time the quit: against a fixed 5 s, which the macOS nightly's
+// podman machine exceeded at ordinary quits (run 36521751485 at 5.33 s, run 36711874486 at
+// 10.37 s), and then against half of a baseline `rm -rf` of 200,000 files measured in the same
+// workspace, which failed once in a loaded landing gate on 2026-11-09. An elapsed-time pass
+// condition is what the event-driven test rule in AGENTS.md forbids.
 //
-// Each lag runs from the jail's clock to the host's. On Linux those are one kernel's clock; on a
-// podman machine the jail's is the VM's, and the subtraction cancels any offset between the two,
-// leaving only their drift across the minutes between the runs.
-//
-// macOS podman is the same case, not a different one: the argv mounts the same named scratch
-// volumes there (assembleRunCmd puts ScratchMountArgs after podmanBaseMounts with no host-OS
-// branch), and the teardown hands them to the same remover. What differs is how the remover
-// deletes: a podman remote client has no `podman unshare`, so the out-of-podman empty fails and
-// `podman volume rm` does the whole delete inside the VM (prune.emptyScratchVolume). That moves
-// the remover's time, not the quit's, which is what this measures.
+// macOS podman is the same case: the argv mounts the same named scratch volumes there
+// (assembleRunCmd puts ScratchMountArgs after podmanBaseMounts with no host-OS branch), and the
+// teardown hands them to the same remover, which only deletes differently (a podman remote client
+// has no `podman unshare`, so `podman volume rm` does the whole delete inside the VM,
+// prune.emptyScratchVolume).
 func TestQuitDoesNotWaitForTheScratchDelete(t *testing.T) {
 	requireJail(t)
 	requirePodman(t)
 	dir := writeProject(t, `{}`)
 	cname := jailName(dir)
 
-	base := launchAndQuit(t, dir, cname, true)
+	first := launchAndQuit(t, dir, cname)
 	awaitScratchRemoval(t, dir, cname, 1)
-	full := launchAndQuit(t, dir, cname, false)
-	log := awaitScratchRemoval(t, dir, cname, 2)
+
+	gate := newScratchRemoverGate(t)
+	second := launchAndQuit(t, dir, cname, gate.env())
+
+	// The launcher has returned. The remover it started cannot have finished: the gate is shut.
+	if err := run.WaitForScratchRemovers(dir, 0); err == nil {
+		t.Fatalf("the launcher returned and no scratch remover for %s is still running, though the "+
+			"gate it must pass is still shut (%s). Either the remover was never started, or it gave "+
+			"up a minute after it started because the quit took longer than that (scratchRemovalWait)",
+			dir, gate.reachedNote())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	left, err := scratchVolumesOf(ctx, detectRuntime(), cname)
+	cancel()
+	if err != nil {
+		t.Fatalf("could not list scratch volumes after the quit: %v", err)
+	}
+	if !slices.Contains(left, second.volume) {
+		t.Fatalf("the launcher returned with %s already gone while the remover was held at its gate "+
+			"(%s): something on the quit deleted it, which is the delete on the critical path again; "+
+			"left: %v", second.volume, gate.reachedNote(), left)
+	}
+
+	gate.open(t)
+	awaitScratchRemoval(t, dir, cname, 2)
+	// The remover is done, so it has made its calls: had none of them met the gate, nothing above
+	// was ever held, and the quit returning would prove nothing.
+	if _, err := os.Stat(filepath.Join(gate.dir, "reached")); err != nil {
+		t.Fatalf("no call the scratch remover made reached the test's podman shim, so the gate held "+
+			"nothing: %v", err)
+	}
 
 	// A launch id minted per launch, never per workspace: a relaunch handed the last session's
 	// volumes would get whatever its remover had not yet deleted (newScratchLaunchID).
-	if base.volume == full.volume {
-		t.Errorf("two launches of one workspace mounted the same /tmp volume %s", full.volume)
-	}
-
-	added := full.lag - base.lag
-	bound := base.deleteCost / 2
-	removerTook := "unknown"
-	if m := regexp.MustCompile(`scratch: removed 4 volume\(s\) in ([0-9.]+s)`).FindAllStringSubmatch(log, -1); len(m) > 0 {
-		removerTook = m[len(m)-1][1]
-	}
-	t.Logf("jail command done -> yolo returned: %s with an empty /tmp, %s with %d files in it; the "+
-		"files added %s (bound %s, half the %s the jail's own rm -rf of them took); the detached "+
-		"remover took %s after the quit",
-		base.lag.Round(time.Millisecond), full.lag.Round(time.Millisecond), scratchFillFiles,
-		added.Round(time.Millisecond), bound.Round(time.Millisecond),
-		base.deleteCost.Round(time.Millisecond), removerTook)
-	if added >= bound {
-		t.Errorf("%d files in /tmp added %s to the quit (%s against %s with an empty /tmp), at least "+
-			"half the %s deleting them costs on this machine: the scratch delete is on the critical "+
-			"path again", scratchFillFiles, added.Round(time.Millisecond), full.lag.Round(time.Millisecond),
-			base.lag.Round(time.Millisecond), base.deleteCost.Round(time.Millisecond))
+	if first.volume == second.volume {
+		t.Errorf("two launches of one workspace mounted the same /tmp volume %s", second.volume)
 	}
 }
-
-// scratchFillFiles is how many files the fixture makes in /tmp: 200 directories of 1,000. On the
-// nested podman this was first measured on, their anonymous-volume delete held the client 8.8 s
-// past its container's exit.
-const scratchFillFiles = 200 * 1000
 
 // quitSample is one launch of the scratch fixture.
 type quitSample struct {
-	// lag is from the jail's command finishing, by the jail's clock, to yolo returning.
-	lag time.Duration
 	// volume is the scratch volume the launch mounted at /tmp.
 	volume string
-	// deleteCost is how long the jail's own `rm -rf` of the files took, by its clock: the
-	// baseline's only.
-	deleteCost time.Duration
 }
 
-// launchAndQuit launches the fixture in dir and times its quit. With clean, the jail deletes the
-// files itself, timed, before its command finishes.
-func launchAndQuit(t *testing.T, dir, cname string, clean bool) quitSample {
+// launchAndQuit launches the fixture in dir, leaving a file in /tmp for the teardown to delete,
+// and returns once yolo has.
+func launchAndQuit(t *testing.T, dir, cname string, opts ...runOption) quitSample {
 	t.Helper()
 	script := `set -e
-mkdir -p /tmp/fill && cd /tmp/fill
-for d in $(seq 1 200); do mkdir $d; (cd $d && seq 1 1000 | xargs touch); done
-cd /
-`
-	if clean {
-		script += `rm_start=$(date +%s.%N); rm -rf /tmp/fill; rm_end=$(date +%s.%N)
-echo "RM_TOOK=$(awk -v a="$rm_start" -v b="$rm_end" 'BEGIN{printf "%.6f", b-a}')"
-`
-	}
-	// The last line is the moment the jail's command finished, by the jail's clock.
-	script += `awk '$5=="/tmp"{print "TMP_SOURCE=" $4}' /proc/self/mountinfo
-echo "EXIT_AT=$(date +%s.%N)"`
-	res := runYolo(t, dir, script, withTimeout(10*time.Minute))
-	returned := time.Now()
+mkdir -p /tmp/fill && touch /tmp/fill/left-for-the-remover
+awk '$5=="/tmp"{print "TMP_SOURCE=" $4}' /proc/self/mountinfo`
+	res := runYolo(t, dir, script, append([]runOption{withTimeout(10 * time.Minute)}, opts...)...)
 	if res.rc != 0 {
 		t.Fatalf("rc=%d\n%s", res.rc, res.combined())
 	}
@@ -386,30 +369,84 @@ echo "EXIT_AT=$(date +%s.%N)"`
 	if m == nil {
 		t.Fatalf("/tmp is not a per-launch named scratch volume of %s:\n%s", cname, res.stdout)
 	}
-	s := quitSample{volume: m[1]}
+	return quitSample{volume: m[1]}
+}
 
-	em := regexp.MustCompile(`EXIT_AT=([0-9.]+)`).FindStringSubmatch(res.stdout)
-	if em == nil {
-		t.Fatalf("no EXIT_AT line:\n%s", res.stdout)
-	}
-	exitAt, err := strconv.ParseFloat(em[1], 64)
+// scratchRemoverGate is a `podman` shim that holds every runtime call the scratch remover makes
+// until the test opens the gate, and passes every other caller straight to the real podman.
+//
+// The gate is a FIFO the shim opens for writing, which blocks until a reader exists. The test
+// opens the reader once, non-blocking, and keeps it open for the rest of the process, so the gate
+// stays open for every later call: there is no window in which a call checks a flag, the test
+// opens the gate, and the call then blocks for good. A call the remover's own timeout kills while
+// it waits is retried by the remover, and is held again.
+type scratchRemoverGate struct {
+	dir     string
+	shimDir string
+}
+
+func newScratchRemoverGate(t *testing.T) *scratchRemoverGate {
+	t.Helper()
+	real, err := exec.LookPath("podman")
 	if err != nil {
+		t.Fatalf("podman: %v", err)
+	}
+	g := &scratchRemoverGate{dir: t.TempDir(), shimDir: t.TempDir()}
+	if err := syscall.Mkfifo(filepath.Join(g.dir, "gate"), 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	// The remover is `<yolo> internal scratch-rm …`, and it runs podman directly, so it is the
+	// shim's parent. `ps -o args=` reads that on Linux and macOS alike.
+	shim := "#!/bin/sh\n" +
+		"case \" $(ps -o args= -p \"$PPID\" 2>/dev/null) \" in\n" +
+		"*\" internal " + run.ScratchRemoverVerb + " \"*)\n" +
+		"\t: >" + shquote.Quote(filepath.Join(g.dir, "reached")) + "\n" +
+		"\t: >" + shquote.Quote(filepath.Join(g.dir, "gate")) + "\n" +
+		"\t;;\n" +
+		"esac\n" +
+		"exec " + shquote.Quote(real) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(g.shimDir, "podman"), []byte(shim), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	s.lag = returned.Sub(time.Unix(0, int64(exitAt*1e9)))
+	// Whatever happens to the test, the remover is let go before the workspace's own cleanup
+	// waits for it: cleanups run last-registered first, and writeProject's came before this one.
+	t.Cleanup(func() { g.open(t) })
+	return g
+}
 
-	if clean {
-		rm := regexp.MustCompile(`RM_TOOK=([0-9.]+)`).FindStringSubmatch(res.stdout)
-		if rm == nil {
-			t.Fatalf("no RM_TOOK line:\n%s", res.stdout)
-		}
-		took, err := strconv.ParseFloat(rm[1], 64)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.deleteCost = time.Duration(took * float64(time.Second))
+// env is the launch option that puts the shim first on the launcher's PATH, which the remover
+// inherits.
+func (g *scratchRemoverGate) env() runOption {
+	return withEnv("PATH=" + g.shimDir + string(os.PathListSeparator) + os.Getenv("PATH"))
+}
+
+// reachedNote says whether any remover call has reached the gate yet, for a failure message.
+func (g *scratchRemoverGate) reachedNote() string {
+	if _, err := os.Stat(filepath.Join(g.dir, "reached")); err == nil {
+		return "a remover call had reached the gate"
 	}
-	return s
+	return "no remover call had reached the gate yet"
+}
+
+// gateReaders holds every opened gate's read end until the process exits, so a gate once
+// opened never shuts again.
+var gateReaders []*os.File
+
+// open lets every held and every later remover call through. Idempotent.
+func (g *scratchRemoverGate) open(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(g.dir, "gate")
+	for _, f := range gateReaders {
+		if f.Name() == path {
+			return
+		}
+	}
+	// O_NONBLOCK: opening a FIFO's read end without it blocks until a writer comes.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatalf("opening the scratch remover's gate: %v", err)
+	}
+	gateReaders = append(gateReaders, f)
 }
 
 // awaitScratchRemoval waits for the detached remover of dir's last launch to finish, and returns
