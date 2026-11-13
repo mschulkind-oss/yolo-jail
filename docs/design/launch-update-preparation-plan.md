@@ -2,15 +2,16 @@
 title: "Combined preparation: implementation map and remaining verification"
 status: accepted
 stage: DECIDED
-next: "Final runtime and platform acceptance before graduation; the combined-source review ran 2026-11-12 and its defects are fixed"
+next: "Real rootless-host and native Darwin acceptance, the landing gate with the slow suite, and the runtime gaps the 2026-11-13 record names"
 ---
 
 # Combined preparation: implementation map and remaining verification
 
-**Status:** 2026-10-14. The combined candidate connects the independent demand worker,
-source freshness, timer, host consumers, Apple checks and ordinary npm captures. Short source
-fixtures do not establish a real sealed runtime, native macOS or rootless behavior. Final
-runtime acceptance and independent review remain; this plan is not a shipped claim.
+**Status:** 2026-11-13. The combined candidate connects the independent demand worker,
+source freshness, timer, host consumers, Apple checks and ordinary npm captures. The
+independent review ran on 2026-11-12 and its defects are fixed. A fresh non-agent nested launch
+exercised the ordinary npm route on 2026-11-13 ([the record](#runtime-2026-11-13)). Real
+rootless and native macOS behavior remain unproven; this plan is not a shipped claim.
 
 **Design:** [preparation contracts](launch-update-preparation.md). The design wins on behavior;
 the tree wins on fact. This map describes the selected implementation, not another registry.
@@ -263,6 +264,46 @@ failing test through its production caller, then the fix:
 | One workspace's launch deactivated a machine-wide ordinary subscription its own config lacked | `c8d8e9cbb`: only the user resolver revokes one |
 | A successful capture leaked its producer workspace and jail home | `c8d8e9cbb`: they are reclaimed under the known-gone witness, and kept when liveness is unknown |
 
+<a id="runtime-2026-11-13"></a>**The nested runtime run, 2026-11-13.** A fresh dev bundle (`just build-dev-bundle`)
+was launched by absolute path from a throwaway workspace with a private `HOME` and a scrubbed
+environment, all under the lane's durable scratch directory, never the live workspace home.
+The user config selected only the shipped `chrome-devtools` pack, whose
+`chrome-devtools-mcp` is an ordinary npm program, under `agent_updates = "next-launch"`. Every
+command was non-agent: `true`, `sleep`, and one `chrome-devtools-mcp --version` probe. The
+outer jail's Podman is rootful (`podman info --format '{{.Host.Security.Rootless}}'` printed
+`false`), and the nested jail shares its network.
+
+| Check | Observed | Result |
+| :--- | :--- | :--- |
+| Cold launch | The launch waited on the shared worker, which ran a sealed resolve jail and a sealed install jail. The launch materialized the admitted capture and exited 0 in 8 to 27 seconds across three runs | pass |
+| Warm launch | No wait and no preparation line; 1.3 to 2.3 seconds | pass |
+| Launch materialization | `~/.npm-global/bin/chrome-devtools-mcp` links into an identity-named payload directory under `~/.local/lib/yolo-npm/`. The probe printed `1.13.0`, the release the resolution recorded | pass |
+| Timer progress without a launch | After an explicit stop, the resolution record's `CheckedAt` was moved back two hours to make it due. `yolo pack prepare start` then ran a sealed resolve with no workspace jail running. The check sequence advanced and status moved to `unchanged` | pass; the due time was simulated, and no newer release existed to admit |
+| Binary replacement | A launch by a newer bundle replaced the older bundle's worker with a new incarnation | pass |
+| `--update` | Each run did a fresh check (the sequence advanced) and reused the unchanged admitted entry, with no rebuild. The in-jail refresh ran before the target | pass; the `⚡ Executing` line prints before that refresh |
+| `--update` on attach | Refused, naming `yolo stop` then a fresh launch. An ordinary attach still entered | pass |
+| `agent_updates = false` | The launch reused the admitted entry, made no check, and deactivated the subscription. `yolo pack prepare start` started nothing, while `--update` still ran a fresh check | pass after fixes |
+| Policy back on | The command the status names re-enabled it, and the next launch re-registered it as pending work | pass after fixes |
+| Status output | Each record shows its phase, admitted entry, update time and log. The worker line shows the incarnation, or says it is not running and names the next step | pass after fixes |
+
+The run found four defects. Each got a failing test first, then the fix:
+
+| Defect | Fix and its test |
+| :--- | :--- |
+| The wait line named an exited worker's pid, or pid 0. The lock file keeps the last holder's pid, and a requester read it before the new worker had taken the lock | It names a pid only while that pid holds the lock, and says the worker is starting otherwise: `TestSharedDemandRequesterNamesNoExitedWorker` |
+| After `yolo pack prepare stop`, status read the same as a crash or an idle exit, though the design says status names the stop | Status names the stop and its time: `TestPreparationStatusNamesAnExplicitStop` |
+| An `agent_updates`-off subscription was labelled `unresolved` and asked for a fresh launch, which under that policy registers nothing | It is `inactive` and names the policy, `yolo --update`, and the `yolo config set` command that turns the timer back on: `TestOrdinarySubscriptionRevokedByAgentUpdatesOffFromAnotherWorkspace`, `TestSelectedNPMTimerActualDispatchPreparesWithoutMovingRunningHome` |
+| A re-enabled subscription stayed labelled `inactive` while active, and status printed `inactive (inactive)` | Re-registration makes it pending work, and status says `inactive` once: the same ownership test and `TestPreparationStatusNamesAnExplicitStop` |
+
+**Not shown by this run.** A nested Podman launch is rootful and shares its network here, so it
+proves neither rootless mapping or image-store delivery nor host-loopback reachability. Native
+Darwin, Apple Container and Seatbelt were not run. The registry had no newer
+`chrome-devtools-mcp`, so the run saw no timer admission of a new generation between launches.
+It also did not exercise concurrent launches, Ctrl-C or crash recovery, patched or tree forks,
+`yolo host`, or a failed check. Synthetic tests cover those; real runtime evidence is still
+outstanding. Elapsed times are single samples on a shared machine, not the controlled
+cold/warm measurements the design asks for.
+
 After source stability, run the full landing gate and the slow integration suite once on the
 combined commit. Build shipping binaries and launch the fresh binary by path from a private
 throwaway workspace, pointed at the live candidate. Never install inside this jail or launch a
@@ -274,7 +315,8 @@ Seatbelt observations, including the readable host-file denial test. Controlled 
 production capture and complete wall-clock measurements remain separate from synthetic source
 fixtures. No acceptance check starts a coding agent or calls its API.
 
-**Ordinary capture acceptance still external:** combined census/full gate and fresh non-agent runtime verification,
+**Ordinary capture acceptance still external:** combined census/full gate,
+the runtime gaps the [2026-11-13 record](#runtime-2026-11-13) names,
 real rootless and native Darwin sealing evidence, controlled cold/warm wall-clock measurements
 and platform-specific runtime evidence. No automated check starts a coding agent or calls its API. Exact identity selection retains each still-reachable compatibility winner;
 no age-based reap or new global liveness registry was added.
