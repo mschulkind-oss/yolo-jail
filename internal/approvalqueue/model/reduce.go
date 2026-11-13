@@ -84,6 +84,9 @@ type Model struct {
 	Malformed int
 
 	History []HistoryEntry
+	// Dropped counts the history entries evicted, oldest first, to keep HistoryCap
+	// (request-history-and-privacy.md RH-D3).
+	Dropped int
 	Gaps    []Gap
 }
 
@@ -280,8 +283,9 @@ func record(m Model, e HistoryEntry) Model {
 		hist = append(hist, old)
 	}
 	hist = append(hist, e)
-	if len(hist) > HistoryCap {
-		hist = hist[len(hist)-HistoryCap:]
+	if over := len(hist) - HistoryCap; over > 0 {
+		hist = hist[over:]
+		m.Dropped += over
 	}
 	m.History = hist
 	return m

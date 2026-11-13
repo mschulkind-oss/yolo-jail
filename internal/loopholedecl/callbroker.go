@@ -170,6 +170,13 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 			return nil, Errorf("%s: 'call_broker.classifier[0]' must be yolo or a {program:<bin>} identity", manifestPath)
 		}
 	}
+	// The yolo form runs the host's own yolo, so it may name only the shipped classify verb:
+	// any other yolo argv would run a host verb behind a core-looking gate line.
+	if classifier[0] == "yolo" && (len(classifier) != 4 || classifier[1] != "internal" ||
+		classifier[2] != "call-broker-classify" || !sourceRE.MatchString(classifier[3])) {
+		return nil, Errorf("%s: a 'call_broker.classifier' that starts with yolo must be exactly yolo internal call-broker-classify <name>; "+
+			"a pack's own classifier is a {program:<bin>} identity — repair the declaration", manifestPath)
+	}
 	b.Classifier = classifier
 	for _, field := range []struct {
 		name string

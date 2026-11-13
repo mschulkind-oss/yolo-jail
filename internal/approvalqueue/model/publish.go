@@ -150,6 +150,7 @@ type HistoryOut struct {
 type HistoryBlock struct {
 	Since   string       `json:"since"`
 	Cap     int          `json:"cap"`
+	Dropped int          `json:"dropped"`
 	Note    string       `json:"note"`
 	Gaps    []string     `json:"gaps"`
 	Entries []HistoryOut `json:"entries"`
@@ -237,6 +238,18 @@ func ComputeFreshness(m Model, now time.Time, o Options) Freshness {
 	return f
 }
 
+// droppedNote is the history's eviction claim (request-history-and-privacy.md §7): nothing
+// when no entry was evicted, else "; N older entries dropped".
+func droppedNote(n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n == 1:
+		return "; 1 older entry dropped"
+	}
+	return fmt.Sprintf("; %d older entries dropped", n)
+}
+
 // Publish turns the model into the message the browser receives. Every string derived from
 // yolo's output or an agent passes through Visible.
 func Publish(m Model, now time.Time, o Options) Published {
@@ -293,11 +306,12 @@ func Publish(m Model, now time.Time, o Options) Published {
 		})
 	}
 	h := HistoryBlock{
-		Since: stamp(m.StartedAt, loc),
-		Cap:   HistoryCap,
+		Since:   stamp(m.StartedAt, loc),
+		Cap:     HistoryCap,
+		Dropped: m.Dropped,
 		Note: "Observed since this queue started at " + stamp(m.StartedAt, loc) +
 			", kept in memory only, never saved, newest " + fmt.Sprint(HistoryCap) +
-			" entries. It is not a complete history; `yolo audit` is the record.",
+			" entries" + droppedNote(m.Dropped) + ". It is not a complete history; `yolo audit` is the record.",
 		Gaps:    []string{},
 		Entries: []HistoryOut{},
 	}

@@ -3,7 +3,7 @@ title: "Four partial records of past requests, none complete: what a view may sh
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Route the draft host-history extension through boundary-broker.md; finish the existing eviction-count and last-seen-detail requirements"
+next: "Route the draft host-history extension through boundary-broker.md; finish the last-seen-detail requirement"
 depends-on:
   - README.md
 tags: [design, approvals, history, privacy, audit, queue]
@@ -14,10 +14,10 @@ summary: "The request-history-and-privacy sibling of the approval-experience con
 
 **Status:** Observed-only memory history and the pending-request display/masking are built in
 [`internal/approvalqueue`](../../../internal/approvalqueue/), checked against source at
-`62b8bbda3`. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
+`62b8bbda3`; the eviction count ([RH-D3](#RH-D3)) is built since. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
 throwaway home (sanitized: workspace `/home/example/code/app`, repositories `example/app` and
 `git.example.test/example/app`). Comprehensive host history is not implemented. The existing
-requirements to count evictions and retain full last-seen request detail are also not implemented;
+requirement to retain full last-seen request detail is also not implemented;
 [§12](#12-what-done-looks-like) separates delivery from remaining acceptance work.
 
 > **In short.** No surface yolo has today can answer "what happened to every request" for a
@@ -64,8 +64,8 @@ redaction and retention, and which completeness claims are honest. It changes no
 2. **Pending requests show every field**, with values after body, field, header and input flags
    masked until clicked, and the command digest always visible ([RH-D2](#RH-D2), the proposed adjustment
    implemented in the read-only queue; [§6.1](#61-the-display-ruling-tested)).
-3. **Observed history lives in the queue's memory only**, capped at 200 entries. Counting and
-   displaying evictions remains a requirement, not built behavior ([RH-D3](#RH-D3)).
+3. **Observed history lives in the queue's memory only**, capped at 200 entries; the
+   evictions are counted and shown ([RH-D3](#RH-D3)).
 4. **Claims are limited to [§7](#7-honest-completeness-claims)'s list**; "complete history" is
    never one of them ([RH-D4](#RH-D4)).
 5. **A host history view needs the CLI to expose ended records**; that is a question for
@@ -192,9 +192,10 @@ these facts are why that rule covers every field, not only the ones yolo labels 
 | Observed history | queue memory | the queue process; at most 200 entries | [RH-D3](#RH-D3) |
 
 **Decision ([RH-D3](#RH-D3)): the queue persists nothing.** History is in memory, capped at 200
-entries keyed by request or grant id; the oldest entry is evicted first. The required
-"N older entries dropped" count is not built: the current page labels the start, 200-entry cap
-and gaps, without an eviction total. The browser stores no history either: `sessionStorage` holds the
+entries keyed by request or grant id; the oldest entry is evicted first and counted. The page
+labels the start, the 200-entry cap, the gaps and, once an entry is evicted, "N older entries
+dropped" (`dropped` in the published history; `TestHistoryCountsEvictionsAndPublishesThem` in
+[`reduce_test.go`](../../../internal/approvalqueue/model/reduce_test.go)). The browser stores no history either: `sessionStorage` holds the
 session token alone, and data routes are `no-store`
 ([`browser-trust-boundary.md` §8](browser-trust-boundary.md#8-the-read-only-slice-requirements)).
 
@@ -399,17 +400,15 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
   visibility change; [`web_test.go`](../../../internal/approvalqueue/web/web_test.go) checks
   the static rendering constraints, not a real tab-switch interaction.
 - The reducer reconciles missed transitions without inventing denial or expiry, keeps at most
-  200 entries and labels history as observed since start with watch gaps.
-  [`reduce_test.go`](../../../internal/approvalqueue/model/reduce_test.go) covers the cap and
-  recorded watcher gap; [`publish.go`](../../../internal/approvalqueue/model/publish.go)
+  200 entries, counts the older entries it drops and labels history as observed since start with
+  watch gaps. [`reduce_test.go`](../../../internal/approvalqueue/model/reduce_test.go) covers the
+  cap, the dropped count and recorded watcher gap; [`publish.go`](../../../internal/approvalqueue/model/publish.go)
   publishes the limits. No queue/browser history persistence is implemented.
 - Allow and use remain distinct from execution; the page explicitly says history is **not**
   complete. A disclaimer containing "complete" is not a completeness claim.
 
 **Existing requirements still unmet:**
 
-- After 201 distinct observed entries, show "1 older entry dropped". The current reducer
-  evicts but has no eviction counter in its published history.
 - Retain the full request as last seen, with the same per-value masking as pending detail.
   Current history entries show identifiers, source/workspace/jail, label, time and outcome only.
 - Exercise Show/Hide, tab-switch re-masking and restart behavior in a real browser against the
@@ -425,6 +424,6 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="RH-D1"></a>RH-D1 | The read-only queue reads only `yolo approve --json` and `--watch --json`; no audit, store or twin | 2026-11-09 | [§1](#1-scope-and-verdict) | Yes: CLI supervisor |
 | <a id="RH-D2"></a>RH-D2 | Pending requests in full, except values after `summaryArgv`'s flags, masked with length and hash and revealed per value by click; digests always visible; re-mask when hidden (proposed change to the lead's ruling) | 2026-11-09 | [§6.1](#61-the-display-ruling-tested) | Yes: pending display/masking; real-browser proof outstanding |
-| <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | Partial: memory/cap/eviction built; dropped count not built |
+| <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | Yes: memory, cap, eviction and dropped count |
 | <a id="RH-D4"></a>RH-D4 | The queue makes only the claims in the may-say table; never complete history, never inferred outcomes, never execution from use | 2026-11-09 | [§7](#7-honest-completeness-claims) | Observed-outcome labels and gap disclaimers built |
 | <a id="RH-D5"></a>RH-D5 | Comprehensive host history waits on a CLI extension; `--ended` first and audit events second are candidates drafted for boundary-broker.md | 2026-11-09 | [§8](#8-what-a-host-history-view-would-need) | No: draft authority/API question only |

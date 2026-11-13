@@ -2,6 +2,7 @@ package model
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -274,6 +275,42 @@ func TestHistoryIsCappedAt200(t *testing.T) {
 	}
 	if m.History[len(m.History)-1].Status != StDenied {
 		t.Fatalf("newest entry lost")
+	}
+	if m.Dropped != 50 {
+		t.Fatalf("dropped = %d, want 50", m.Dropped)
+	}
+}
+
+// TestHistoryCountsEvictionsAndPublishesThem is RH-D3's "N older entries dropped"
+// (request-history-and-privacy.md §5, §7): the 201st distinct entry evicts one and the
+// published history says so; an update to a kept entry evicts nothing.
+func TestHistoryCountsEvictionsAndPublishesThem(t *testing.T) {
+	m := snap(New(t0), at(1), nil, nil)
+	decide := func(m Model, id string, i int) Model {
+		r := req(id, "denied")
+		return Reduce(m, EventIn{EventView{Schema: 1, Event: EvDecided, Time: at(2 + i), Request: &r}}, at(400))
+	}
+	for i := 0; i < HistoryCap; i++ {
+		m = decide(m, fmt.Sprintf("r-%03d", i), i)
+	}
+	if m.Dropped != 0 {
+		t.Fatalf("dropped = %d at the cap, want 0", m.Dropped)
+	}
+	if note := Publish(m, at(400), Options{}).History.Note; strings.Contains(note, "dropped") {
+		t.Fatalf("a history with nothing evicted claims a drop: %q", note)
+	}
+	m = decide(m, "r-199", 300) // a kept entry again: no eviction
+	if m.Dropped != 0 || len(m.History) != HistoryCap {
+		t.Fatalf("re-recording a kept entry evicted: dropped=%d len=%d", m.Dropped, len(m.History))
+	}
+	m = decide(m, "r-new", 301)
+	h := Publish(m, at(400), Options{}).History
+	if m.Dropped != 1 || h.Dropped != 1 || !strings.Contains(h.Note, "; 1 older entry dropped") {
+		t.Fatalf("the 201st entry: dropped=%d published=%d note=%q", m.Dropped, h.Dropped, h.Note)
+	}
+	m = decide(m, "r-newer", 302)
+	if h := Publish(m, at(400), Options{}).History; h.Dropped != 2 || !strings.Contains(h.Note, "; 2 older entries dropped") {
+		t.Fatalf("the 202nd entry: %+v", h)
 	}
 }
 

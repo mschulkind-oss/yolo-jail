@@ -13,7 +13,7 @@ import (
 func fixturePrivateBinding() PrivateClientBinding {
 	return PrivateClientBinding{Bin: "semver", Generation: strings.Repeat("a", 32), CaptureKey: strings.Repeat("b", 16),
 		RuntimeRoot: ".local/lib/yolo-npm/id", Entrypoint: ".local/lib/yolo-npm/id/node_modules/semver/bin/semver.js",
-		EntrypointSHA256: "sha256:" + strings.Repeat("c", 64), RuntimeFiles: "sha256:" + strings.Repeat("d", 64)}
+		EntrypointSHA256: "sha256:" + strings.Repeat("c", 64), RuntimeFiles: "sha256:" + strings.Repeat("d", 64), NodeSHA256: "sha256:" + strings.Repeat("3", 64)}
 }
 
 func writeSemverPack(t *testing.T) string {

@@ -98,6 +98,38 @@ func TestCallBrokerManifestGateAndScope(t *testing.T) {
 	}
 }
 
+// TestCallBrokerYoloClassifierIsOnlyTheShippedClassifyVerb: a classifier spelled with `yolo`
+// runs the host's own yolo, so it may name only `yolo internal call-broker-classify <name>`. Any
+// other yolo argv (a host verb such as `yolo approve`) would run on the host while the gate shows
+// a core-looking command; a pack's own program uses the {program:<bin>} form.
+func TestCallBrokerYoloClassifierIsOnlyTheShippedClassifyVerb(t *testing.T) {
+	const from = `"classifier":["{program:tasks-classifier}"]`
+	valid := strings.Replace(callBrokerFixture, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1)
+	if !strings.Contains(valid, from) {
+		t.Fatal("fixture classifier changed")
+	}
+	if _, err := callBrokerManifest(strings.Replace(valid, from, `"classifier":["yolo","internal","call-broker-classify","tasks"]`, 1)); err != nil {
+		t.Fatalf("the shipped classify verb was refused: %v", err)
+	}
+	for name, argv := range map[string]string{
+		"host verb":       `["yolo","approve","--revoke","all"]`,
+		"other internal":  `["yolo","internal","daemon","x"]`,
+		"no name":         `["yolo","internal","call-broker-classify"]`,
+		"extra argument":  `["yolo","internal","call-broker-classify","tasks","--x"]`,
+		"bare yolo":       `["yolo"]`,
+		"flag as a name":  `["yolo","internal","call-broker-classify","--help"]`,
+		"path as a name":  `["yolo","internal","call-broker-classify","../x"]`,
+		"empty name word": `["yolo","internal","call-broker-classify",""]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := callBrokerManifest(strings.Replace(valid, from, `"classifier":`+argv, 1))
+			if err == nil || !strings.Contains(err.Error(), "yolo internal call-broker-classify <name>") {
+				t.Fatalf("classifier %s: error %v", argv, err)
+			}
+		})
+	}
+}
+
 func TestCallBrokerHTTPBindingRefusesMalformedDeclaration(t *testing.T) {
 	valid := strings.Replace(callBrokerFixture, `"source":"local-tasks"`, `"source":"local-tasks","http":{"origin":"https://fixture.example","credential":{"source":"host_env","key":"TASKS_TOKEN","header":"Authorization","prefix":"Bearer "},"request_headers":["Content-Type"]}`, 1)
 	for _, tc := range []struct{ name, from, to string }{
