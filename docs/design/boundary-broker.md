@@ -3,7 +3,7 @@ title: "Reads run, writes ring the doorbell: GitHub access across the jail bound
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BB23 (whether the user config may grant write kinds to every workspace); continue BB-D76/79's resource model"
+next: "Rule OQ-BB23 (whether the user config may grant write kinds to every workspace) and OQ-BB24 (which surface lists ended requests); continue BB-D76/79's resource model"
 depends-on:
   - agent-event-watchers.md
 tags: [design, credentials, github, gh, git, approvals, notifications, loopholes, audit, broker]
@@ -94,7 +94,8 @@ background wait ([OQ-BB17](#OQ-BB17)).
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
 **Needs your ruling:** [OQ-BB23](#OQ-BB23), whether the user config may grant a write kind to
-every workspace (leaning: not now).
+every workspace (leaning: not now); [OQ-BB24](#OQ-BB24), which surface lists recently ended
+requests for a history view (leaning: an `--ended` flag on `yolo approve --json`, then audit events).
 [OQ-BB10](#OQ-BB10), [OQ-BB14](#OQ-BB14) (no for now), [OQ-BB15](#OQ-BB15), [OQ-BB16](#OQ-BB16), [OQ-BB19](#OQ-BB19) (four grants), [OQ-BB20](#OQ-BB20), [OQ-BB21](#OQ-BB21), [OQ-BB22](#OQ-BB22), [OQ-BB17](#OQ-BB17), [OQ-BB18](#OQ-BB18), the grant model
 ([BB-D76](#BB-D76) to [BB-D78](#BB-D78)), and the git source's
 [OQ-GB1](../reference/git-broker.md#OQ-GB1) and [OQ-GB2](../reference/git-broker.md#OQ-GB2), were ruled 2026-10-23.
@@ -1559,7 +1560,7 @@ becomes that surface, for every source, and its machine-readable output is a con
 | Spelling (the implementer's to finalize) | Does | Output |
 | :--- | :--- | :--- |
 | `yolo approve --json` | Lists pending requests, live grants and working sets, every source and jail | One JSON document: each request's id, source, jail, workspace, write kind and resource, the classifier's rendering, filed and expiry times, state; each grant's id, holder, kind and resource, expiry; each working-set entry's id, workspace, kind and resource, and how it joined |
-| `yolo approve --watch [--json]` | Follows the store until interrupted: the long-running view the colleague asked about | One line, or one JSON object, per event: request filed, decided, expired; grant used, ended, revoked; working-set entry joined, ended, revoked. Opens with the current state, so a client that starts late misses nothing |
+| `yolo approve --watch [--json]` | Follows the store until interrupted: the long-running view the colleague asked about | One line, or one JSON object, per event: request filed, decided, expired; grant used, ended, revoked; working-set entry joined, ended, revoked. Opens with the current state, so a client that starts late starts from what is open now; it is not replayed what ended before it started ([past requests](#past-requests-what-the-surface-does-not-list)) |
 | `yolo approve <id> [--for …] [--add] [--deny]`, `--revoke` | Decides, as [§6.5](#65-when-there-is-no-notifier-or-nobody-answers) spells it | Exit 0 on success; a stable non-zero code for "already decided", "unknown id" and "refused by policy", each with the next step in its message |
 
 **As built** (the first two rows and the codes, 2026-10-23; `yolo approve --help` is the
@@ -1643,6 +1644,26 @@ reference). The spellings above stand. The fields are the ones the store holds:
   runs the optional hook and why.
 - **`yolo audit --json` is the audit half of the surface**, unchanged, with the `--service`
   filter the second source needs (built 2026-10-23).
+- **No working-set event is emitted as built.** The watch's events are the six above; a
+  working-set entry that joins or ends shows only as a change between two `"state"` objects.
+
+#### Past requests: what the surface does not list
+
+The surface lists only what is open. The store keeps a decided request, an ended grant and an
+ended working-set entry for 7 days, with how a request was answered (once, for a time, added to
+the working set, or denied), whether the user or their `on_request` command ran the answering
+`yolo approve`, and the denial note, but `yolo approve --json` drops every record that
+is not open, and the watch reports a transition only while it is running. The audit
+([§8](#8-audit)) records no grant end, revoke, expiry or working-set change, and a `decision`
+line carries no answer kind or note.
+
+So no front-end can show the history of past requests. The approval queue's own history is
+what it observed since it started, labeled as such; the field-by-field gaps, the masking a
+history view needs and the claims it may make are in
+[`request-history-and-privacy.md`](approval-experience/request-history-and-privacy.md#8-what-a-host-history-view-would-need).
+Which surface closes the gap is [OQ-BB24](#OQ-BB24). Whichever it is, a front-end reads it
+through the CLI, never the store or audit files, and the extension is additive within
+schema 1.
 
 > [!WARNING]
 > **An out-of-tree web UI must not accept approvals from the jails it approves.** In bridge
@@ -1817,6 +1838,12 @@ per-agent record.
   | `exit`, `bytes_out`, `elapsed_ms`, `redactions` | as run |
   | `gh_version` | the host `gh`'s |
 
+- **As built, the store writes four of these:** `request`, `decision`, `grant-used`, and
+  `decision-withdrawn` when an Add whose working-set records could not all be written is
+  undone and the request returns to pending. No `grant-ended`,
+  `working-set-joined`, `working-set-ended` or `revoke` line is written, a `decision` line says
+  nothing of how it was answered, and no line carries `kind` or `resource`. Writing the missing
+  events is option B of [OQ-BB24](#OQ-BB24).
 - **Bounded, not pruned:** rotated at 8 MiB, four archives kept, so at most 40 MiB. `yolo prune`
   never touches it. Standing-read call audit remains best-effort and warns once on failure
   ([BB-D15](#BB-D15)). The 2026-10-13 implementation direction requires synced request,
@@ -2560,6 +2587,36 @@ covered:
 
     _Leaning:_ **A, not now.** [OQ-BB22](#OQ-BB22) ruled that the specific write grants live in
     the workspace config, and nothing yet asks for a write in every workspace at once.
+
+    **Answer:** open.
+
+12. 💬 <a id="OQ-BB24"></a>**[OQ-BB24](#OQ-BB24): Should `yolo approve --json` be able to list recently ended requests, grants and working-set entries, with how each was answered?**
+
+    Sam opens the approval queue after lunch and wants to know what happened to the four
+    requests that came in while it was closed. The queue reads `yolo approve --json`, which
+    lists only what is still open, so for each of the four it can say only "no longer pending;
+    outcome not observed". The store still holds each decided record for 7 days, with whether
+    it was allowed once, for a time, or denied, and the note Sam typed when denying one; the
+    audit log has a line per decision but not how it was answered, nor any revoke or expiry.
+    Which surface carries that history decides what Sam sees, how far back, and how much
+    command text from every workspace a history view must handle.
+
+    - **A — An `--ended` flag on `yolo approve --json`** adds the records ended in the last
+      7 days to the same JSON, each with how it was answered, until when, whether the user or
+      their `on_request` command answered, and the denial note. Sam sees a week of real
+      history for every source; nothing new is stored.
+    - **B — New audit events instead:** grant end, revoke, expiry and working-set changes
+      become audit lines, and a decision line says how it was answered; a history reads
+      `yolo audit --json`. History reaches back as far as the size-bounded log (about 40 MiB),
+      but every line carries full command text from every workspace, so a view must filter and
+      mask it.
+    - **C — Neither:** the queue's history stays "since this queue started", and Sam runs
+      `yolo approve` and `yolo audit` in a terminal for the rest.
+
+    <!-- vantage: question id=OQ-BB24 leaning="A, then B. A uses records the store already keeps and adds no storage; B is worth doing second, since the audit is meant to record those events anyway." -->
+
+    _Leaning:_ **A, then B.** A uses records the store already keeps and adds no storage; B is
+    worth doing second, since the audit is meant to record those events anyway.
 
     **Answer:** open.
 

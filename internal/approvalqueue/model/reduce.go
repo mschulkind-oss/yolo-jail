@@ -57,6 +57,10 @@ type HistoryEntry struct {
 	Detail    string
 	Observed  bool // an event said it; false for a disappearance
 	Time      time.Time
+	// Request is a request entry's request as last seen, from the newest event or snapshot
+	// that carried it (request-history-and-privacy.md §6.2); nil for a grant. It is
+	// published with the same masking as a pending request.
+	Request *RequestView
 }
 
 // Gap is a stretch in which the queue may have missed watch events.
@@ -212,6 +216,7 @@ func reduceSnapshot(m Model, in SnapshotOK) Model {
 	// proves the watch is up.
 	if m.AsOf.IsZero() || !in.FetchStart.Before(m.AsOf) {
 		m = noteVanished(m, st, in.FetchStart)
+		m = refreshDetail(m, st.Requests)
 		m.State, m.AsOf, m.Loaded = st, in.FetchStart, true
 	}
 	m.SnapshotErr, m.SnapshotErrKind, m.WatchWarn = "", "", ""
@@ -237,7 +242,7 @@ func noteVanished(m Model, next StateView, at time.Time) Model {
 			continue
 		}
 		m = record(m, HistoryEntry{Key: r.ID, Kind: "request", Source: r.Source, Workspace: r.Workspace, Jail: r.Jail, Label: r.Headline,
-			Status: StNotObserved, Time: at})
+			Status: StNotObserved, Time: at, Request: copyRequest(r)})
 	}
 	grants := make(map[string]bool, len(next.Grants))
 	for _, g := range next.Grants {
@@ -265,9 +270,46 @@ func rank(status string) int {
 	return 3
 }
 
+// copyRequest is an independent copy of r for a history entry, so no later change to a
+// state slice reaches it.
+func copyRequest(r RequestView) *RequestView {
+	c := r
+	c.Argv = append([]string(nil), r.Argv...)
+	c.NeedsApproval = append([]string(nil), r.NeedsApproval...)
+	c.Refs = append([]string(nil), r.Refs...)
+	if r.Decided != nil {
+		d := *r.Decided
+		c.Decided = &d
+	}
+	return &c
+}
+
+// refreshDetail replaces the last-seen request of every request entry a newer snapshot still
+// lists as pending, leaving the entry's status and time alone. The caller passes only a
+// snapshot not older than the one already held.
+func refreshDetail(m Model, pending []RequestView) Model {
+	if len(m.History) == 0 || len(pending) == 0 {
+		return m
+	}
+	byID := make(map[string]RequestView, len(pending))
+	for _, r := range pending {
+		byID[r.ID] = r
+	}
+	hist := make([]HistoryEntry, len(m.History))
+	for i, e := range m.History {
+		if r, ok := byID[e.Key]; ok && e.Kind == "request" {
+			e.Request = copyRequest(r)
+		}
+		hist[i] = e
+	}
+	m.History = hist
+	return m
+}
+
 // record keeps one entry per key. A lower-ranked update never replaces a higher-ranked
 // entry, so a later observed outcome replaces "not observed" but a late "filed" does not
-// undo an outcome.
+// undo an outcome; the rejected update's request is older than the entry's, so the entry
+// keeps its own.
 func record(m Model, e HistoryEntry) Model {
 	hist := make([]HistoryEntry, 0, len(m.History)+1)
 	for _, old := range m.History {
@@ -277,6 +319,9 @@ func record(m Model, e HistoryEntry) Model {
 			}
 			if e.Workspace == "" {
 				e.Workspace, e.Jail = old.Workspace, old.Jail
+			}
+			if e.Request == nil {
+				e.Request = old.Request
 			}
 			continue
 		}
@@ -334,6 +379,7 @@ func recordEvent(m Model, ev EventView) Model {
 		}
 		e.Key, e.Kind, e.Label = ev.Request.ID, "request", ev.Request.Headline
 		e.Workspace, e.Jail = ev.Request.Workspace, ev.Request.Jail
+		e.Request = copyRequest(*ev.Request)
 		switch ev.Event {
 		case EvFiled:
 			e.Status = StFiled
