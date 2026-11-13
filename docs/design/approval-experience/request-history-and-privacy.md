@@ -3,22 +3,24 @@ title: "Four partial records of past requests, none complete: what a view may sh
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Route the draft host-history extension through boundary-broker.md; finish the last-seen-detail requirement"
+next: "Build the host history view on whichever surface OQ-BB24 in boundary-broker.md rules; run the real-browser masking checks"
 depends-on:
   - README.md
+  - ../boundary-broker.md#OQ-BB24
 tags: [design, approvals, history, privacy, audit, queue]
-summary: "The request-history-and-privacy sibling of the approval-experience constellation (W2). Past-request data lives in four places (the host store, the audit log, the jail-readable approvals twin, and the queue's own observed history), each partial in a different way. The read-only queue shows pending requests in full, masks the values that commonly carry secrets behind a click while keeping the command digest visible, keeps observed history in memory only (200 entries), and makes only the completeness claims listed here. A comprehensive host history needs a CLI extension, proposed for boundary-broker.md rather than invented here."
+summary: "The request-history-and-privacy sibling of the approval-experience constellation (W2). Past-request data lives in four places (the host store, the audit log, the jail-readable approvals twin, and the queue's own observed history), each partial in a different way. The read-only queue shows pending requests in full, masks the values that commonly carry secrets behind a click while keeping the command digest visible, keeps observed history in memory only (200 entries) with each request as last seen under the same masking, and makes only the completeness claims listed here. A comprehensive host history needs a CLI extension, filed as OQ-BB24 in boundary-broker.md rather than invented here."
 ---
 
 # Four partial records of past requests, none complete: what a view may show, keep and claim
 
 **Status:** Observed-only memory history and the pending-request display/masking are built in
 [`internal/approvalqueue`](../../../internal/approvalqueue/), checked against source at
-`62b8bbda3`; the eviction count ([RH-D3](#RH-D3)) is built since. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
+`62b8bbda3`; the eviction count ([RH-D3](#RH-D3)) and the last-seen request detail
+([RH-D6](#RH-D6)) are built since. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
 throwaway home (sanitized: workspace `/home/example/code/app`, repositories `example/app` and
-`git.example.test/example/app`). Comprehensive host history is not implemented. The existing
-requirement to retain full last-seen request detail is also not implemented;
-[§12](#12-what-done-looks-like) separates delivery from remaining acceptance work.
+`git.example.test/example/app`). Comprehensive host history is not implemented; it waits on
+[OQ-BB24](../boundary-broker.md#OQ-BB24). [§12](#12-what-done-looks-like) separates delivery from
+remaining acceptance work.
 
 > **In short.** No surface yolo has today can answer "what happened to every request" for a
 > host user, so the queue must say exactly what it saw and since when. It may show a pending
@@ -40,8 +42,8 @@ map ([§4](#4-fields-per-adapter)), and three rules for the read-only view: rete
 **Start at [§6.1](#61-the-display-ruling-tested)**, where the one change to the lead's display
 ruling is argued.
 
-**Needs your ruling:** None in this document. One CLI question is drafted for
-[`boundary-broker.md`](../boundary-broker.md) in [§8.3](#83-proposed-for-boundary-brokermd).
+**Needs your ruling:** None in this document. The CLI question it raises is
+[OQ-BB24](../boundary-broker.md#OQ-BB24), in its owning document ([§8.3](#83-routed-to-boundary-brokermd)).
 
 **Reads with:** [`README.md`](README.md) (the umbrella and its five rules),
 [`web-request-queue.md`](web-request-queue.md) (the queue whose history and display this bounds),
@@ -68,8 +70,11 @@ redaction and retention, and which completeness claims are honest. It changes no
    evictions are counted and shown ([RH-D3](#RH-D3)).
 4. **Claims are limited to [§7](#7-honest-completeness-claims)'s list**; "complete history" is
    never one of them ([RH-D4](#RH-D4)).
-5. **A host history view needs the CLI to expose ended records**; that is a question for
-   [`boundary-broker.md`](../boundary-broker.md), drafted in [§8.3](#83-proposed-for-boundary-brokermd).
+5. **A history entry keeps its request as last seen**, masked as pending detail is
+   ([RH-D6](#RH-D6)).
+6. **A host history view needs the CLI to expose ended records**; that is
+   [OQ-BB24](../boundary-broker.md#OQ-BB24) in [`boundary-broker.md`](../boundary-broker.md),
+   which owns the surface ([§8.3](#83-routed-to-boundary-brokermd)).
 
 **Non-goals.** Mutation (the trust boundary's), the jail-side history verb
 ([`jail-history.md`](../jail-history.md) owns it), changing audit retention, and any remote or
@@ -253,7 +258,7 @@ more.
 | Long values wrap in a scrolling box; never truncated | an elided ref is a hidden ref |
 | Every request and history entry shows its **workspace** and source | grants are held by workspace ([README §2.2](README.md#22-authority-facts-every-surface-must-preserve)); one view spans every workspace on the machine |
 | `deny-only` sources and `source_status` shown beside the request | the CLI can refuse to allow them (exit 6) |
-| History entries must keep the request as last seen and follow the same masking (not implemented: current entries contain summary/outcome metadata, not full request detail) | a decided request's body is no less secret |
+| A request's history entry keeps the request as last seen and follows the same masking ([RH-D6](#RH-D6)) | a decided request's body is no less secret, and a history line without the command cannot say what was decided |
 | No field becomes a link, including repositories and refs | [`browser-trust-boundary.md` §5](browser-trust-boundary.md#5-browser-hardening-and-safe-rendering) |
 
 **Cross-workspace.** `yolo approve --json` lists every workspace's requests, and the host user may
@@ -312,24 +317,25 @@ shown here; `yolo audit` on the host has it".
 | D. The queue reads the twin | answer and note per workspace | rejected: jail-editable, never authority ([JH-D2](../jail-history.md#JH-D2)) |
 | E. `yolo audit --json` as the history source, unchanged | full argv for 40 MiB of every workspace | not alone: no ends, revokes or expiries; a later slice may add it behind [§6.1](#61-the-display-ruling-tested)'s masking |
 
-### 8.3 Proposed for boundary-broker.md
+### 8.3 Routed to boundary-broker.md
 
-Per [README §3.2](README.md#32-shared-seams-without-a-new-prerequisite-schema), a CLI surface change
-needs a named question in [`boundary-broker.md`](../boundary-broker.md). Proposed text, not filed
-here:
+Per [README §3.2](README.md#32-shared-seams-without-a-new-prerequisite-schema), a CLI surface
+change is ruled where the surface is owned. Which candidate closes [§8.1](#81-gaps)'s gaps is
+[OQ-BB24](../boundary-broker.md#OQ-BB24), filed in
+[`boundary-broker.md`'s past-requests section](../boundary-broker.md#past-requests-what-the-surface-does-not-list)
+with candidates A, B and C of [§8.2](#82-candidate-extensions) as its options and A, then B, as
+its leaning. This document adds no option of its own and builds nothing ahead of the ruling.
 
-> **Should `yolo approve --json` be able to list recently ended requests, grants and working-set
-> entries, with how each was answered?** Sam opens the approval queue after lunch and wants to
-> know what happened to the four requests that came in while it was closed. Today `--json` lists
-> only what is still open, so the queue can say only "no longer pending; outcome not observed",
-> although the store keeps each decided record for 7 days, with whether it was allowed once,
-> for a time, or denied, and the note Sam typed. **A — an `--ended` flag** adds those records to
-> the same JSON, with new fields for the answer, its duration, who answered and the note; Sam sees
-> a week of real history. **B — audit events instead**: grant end, revoke, expiry and
-> working-set changes become audit lines, and a history reads `yolo audit --json`; history
-> reaches back further but carries every argv in full from every workspace. **C — neither**: the
-> queue's history stays "since it started". *Leaning: A, then B; A uses records that exist and
-> adds no storage.*
+**What holds whichever way it is ruled:**
+
+- The queue reads the chosen surface through the CLI, never store or audit files ([RH-D1](#RH-D1)).
+- Every request it shows from that surface takes [§6.1](#61-the-display-ruling-tested)'s
+  masking; for option B, [§8.4](#84-one-audit-log-for-every-workspace)'s workspace filter too.
+- Ended records join the observed history under the same 200-entry cap
+  ([RH-D3](#RH-D3)); the queue still persists nothing.
+- The may-say table of [§7](#7-honest-completeness-claims) widens only by what the surface
+  carries: with A, "denied, with this note" and the answer kind become sayable for a record
+  within the store's 7 days, and "complete history" still never is.
 
 ### 8.4 One audit log for every workspace
 
@@ -356,15 +362,8 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 - **Host paths** of every workspace appear in `workspace` fields and audit lines; the queue shows
   them to the host user only.
 
-### Where other documents disagree with the code
+### Where yolo's own text disagrees with the code
 
-- [boundary-broker §8](../boundary-broker.md#8-audit) lists audit events `grant-ended`,
-  `working-set-joined`, `working-set-ended` and `revoke`, and `kind` and `resource` fields on a
-  `call` line; the code writes none of them ([§4.2](#42-the-audit-log)).
-- [boundary-broker §6.6](../boundary-broker.md#66-one-store-several-front-ends-and-a-stable-surface-for-the-ones-yolo-does-not-ship)'s
-  table says `--watch` reports working-set events and that "a client that starts late misses
-  nothing"; no working-set event exists, and a late client misses every transition before its
-  opening state.
 - `yolo audit --help` says `--json` prints each line "as stored"; it re-encodes the decoded
   event ([`audit.go`](../../../internal/cli/audit.go#L138)), so unknown fields are dropped.
 - [`brokeraudit.go`](../../../internal/brokeraudit/brokeraudit.go#L59)'s comment says lifetime
@@ -394,6 +393,13 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 
 **Built source and automated coverage**, not new live-browser proof:
 
+- Each request's history entry keeps the request as last seen, from the newest event or
+  snapshot that carried it, and the page draws it with the pending card's masking under its own
+  reveal keys. [`history_detail_test.go`](../../../internal/approvalqueue/model/history_detail_test.go)
+  covers the decided, vanished, late-event and refreshed cases and that the raw command is
+  never published; [`web_test.go`](../../../internal/approvalqueue/web/web_test.go) pins the
+  shared card and the separate reveal keys.
+
 - Pending values after secret-bearing flags are masked with length/hash and Show/Hide;
   digests stay visible. [`mask_test.go`](../../../internal/approvalqueue/model/mask_test.go)
   pins the list and spellings to yolo's `summaryArgv`. The page implements re-masking on
@@ -409,14 +415,11 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 
 **Existing requirements still unmet:**
 
-- Retain the full request as last seen, with the same per-value masking as pending detail.
-  Current history entries show identifiers, source/workspace/jail, label, time and outcome only.
-- Exercise Show/Hide, tab-switch re-masking and restart behavior in a real browser against the
-  real host path; the [umbrella's runtime evidence gaps](README.md#54-the-read-only-queue-as-built-yolo-approve---web)
+- Exercise Show/Hide (pending and history), tab-switch re-masking and restart behavior in a
+  real browser against the real host path; the [umbrella's runtime evidence gaps](README.md#54-the-read-only-queue-as-built-yolo-approve---web)
   remain open.
-- Comprehensive history needs the host interface considered in
-  [§8](#8-what-a-host-history-view-would-need). The extension is drafted, not filed or authorized
-  by this document, and the queue must not work around it by reading store/audit files.
+- Comprehensive history needs the host interface [OQ-BB24](../boundary-broker.md#OQ-BB24)
+  rules; the queue must not work around it by reading store or audit files.
 
 ## Decision Ledger
 
@@ -426,4 +429,5 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 | <a id="RH-D2"></a>RH-D2 | Pending requests in full, except values after `summaryArgv`'s flags, masked with length and hash and revealed per value by click; digests always visible; re-mask when hidden (proposed change to the lead's ruling) | 2026-11-09 | [§6.1](#61-the-display-ruling-tested) | Yes: pending display/masking; real-browser proof outstanding |
 | <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | Yes: memory, cap, eviction and dropped count |
 | <a id="RH-D4"></a>RH-D4 | The queue makes only the claims in the may-say table; never complete history, never inferred outcomes, never execution from use | 2026-11-09 | [§7](#7-honest-completeness-claims) | Observed-outcome labels and gap disclaimers built |
-| <a id="RH-D5"></a>RH-D5 | Comprehensive host history waits on a CLI extension; `--ended` first and audit events second are candidates drafted for boundary-broker.md | 2026-11-09 | [§8](#8-what-a-host-history-view-would-need) | No: draft authority/API question only |
+| <a id="RH-D5"></a>RH-D5 | Comprehensive host history waits on a CLI extension; `--ended` first and audit events second are the candidates, routed 2026-11-13 to boundary-broker.md as [OQ-BB24](../boundary-broker.md#OQ-BB24) | 2026-11-09 | [§8](#8-what-a-host-history-view-would-need) | No: waits on [OQ-BB24](../boundary-broker.md#OQ-BB24) |
+| <a id="RH-D6"></a>RH-D6 | *Implementation decision* for [§6.2](#62-the-rest-of-the-display-rules)'s last-seen rule: a request entry holds a copy of the newest request object the queue saw for its id (the filing or deciding event's, a newer snapshot's while it is still pending, or the last snapshot's when it vanishes); an update the history ranking rejects keeps the entry's copy. It is published through the same function as pending detail, so the masking cannot drift, and drawn by the same card under reveal keys of its own. Grant entries carry none | 2026-11-13 | [§6.2](#62-the-rest-of-the-display-rules) | Yes: `internal/approvalqueue/model`, `web/app.js` |
