@@ -24,6 +24,11 @@ import (
 // canceled. A short accessTimeout covered every earlier probe too, so on a slow
 // runner (macOS CI, run 42423928526) it expired during an earlier probe that had
 // already exited, and the injected EPERM reported that probe instead of this one.
+//
+// Nor is the return timed. The selected probe sleeps an hour, so ForwardAccess
+// returning at all is the proof that it did not wait for the denied group; one that
+// waited hangs the test into go test's timeout, which is red. A 20s bound on the
+// return used to stand in for that against a 30s sleep, and measured the machine.
 func TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe(t *testing.T) {
 	const stdoutSentinel = "synthetic-credential-like-stdout-sentinel-never-real"
 	const stderrSentinel = "synthetic-credential-like-stderr-sentinel-never-real"
@@ -47,7 +52,7 @@ if [ "$step" = "$TARGET_STEP" ]; then
   printf '%s\n' "$STDERR_SENTINEL" >&2
   : > "$OUTPUT_WITNESS"
   echo entered > "$ENTERED_FIFO"
-  exec sleep 30
+  exec sleep 3600
 fi
 case "$step" in
  remote) echo yolo::https://example.invalid/o/r ;;
@@ -111,7 +116,6 @@ esac
 				_, _ = syscall.Wait4(pid, &status, 0, nil)
 			})
 			var stderr bytes.Buffer
-			start := time.Now()
 			_, code := ForwardAccess("evaluate", []string{"git", "push", "origin", "HEAD:refs/heads/main"}, Env{
 				Getenv: func(key string) string {
 					if key == EndpointEnv {
@@ -131,7 +135,7 @@ esac
 			if strings.Contains(msg, stdoutSentinel) || strings.Contains(msg, stderrSentinel) {
 				t.Fatalf("captured fake Git output leaked to ForwardAccess stderr: %q", msg)
 			}
-			if code != exitUsage || pid == 0 || time.Since(start) > 20*time.Second || !strings.Contains(msg, "group signal failed (operation not permitted)") || !strings.Contains(msg, "birth identity ") || !strings.Contains(msg, "descendants may remain") || !strings.Contains(msg, "before retrying") || strings.Contains(msg, "cannot reach git-broker") || strings.Contains(msg, "example.invalid") {
+			if code != exitUsage || pid == 0 || !strings.Contains(msg, "group signal failed (operation not permitted)") || !strings.Contains(msg, "birth identity ") || !strings.Contains(msg, "descendants may remain") || !strings.Contains(msg, "before retrying") || strings.Contains(msg, "cannot reach git-broker") || strings.Contains(msg, "example.invalid") {
 				t.Fatalf("denial must refuse before broker contact, without URL or generic refusal: code=%d pid=%d stderr=%q", code, pid, msg)
 			}
 		})

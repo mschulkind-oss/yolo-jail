@@ -872,28 +872,34 @@ points that vanished in between.
 ### <a id="landing-gate-flakes-2026-11-09"></a>🔧 **Tests that failed once in a loaded landing gate and passed alone**
 
 During the 2026-11-09 landings, with load average from 30 to 60, each of these failed in a full
-`just check-ci` or integration run and then passed when run alone. None has been diagnosed. Each
-needs its code read for a wall-clock bound or a race, then a fix that waits on the event:
+`just check-ci` or integration run and then passed when run alone.
 
-- `TestQuitDoesNotWaitForTheScratchDelete` (`integration/scratchvolumes_test.go`). Its pass
-  condition is an elapsed-time bound, which the
-  [event-driven test rule](../../AGENTS.md#testing) forbids. It passed alone in 14.4 s.
-- `TestSelectedCLIExactOnceExpiresOrIsRevokedWithoutHostEffect`
-  (`internal/callbroker/once_expiry_test.go`)
-- `TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit`
-  (`internal/callbroker/classifier_test.go`)
-- `TestRunProactiveSurvivesAFailedMint` (`internal/awsauthdaemon/main_test.go`)
-- `TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe`
-  (`internal/gitremote/preflight_diagnostic_test.go`)
-- `TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds`
-  (`internal/packsrc/patchbranchcheckout_test.go`)
+Every test on this list is now fixed:
 
-Other flakes from the same gates are fixed: the proxy egress tests (`853751692`),
-`TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`), the two `TestSelectedNPMShared…` tests
-(`internal/cli/programcapturelifetime_test.go`), whose 5–6 s barrier and lease waits `9f84fd251`
-replaced with the test's own hang guard, and
-`TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks`, whose 5 s wait for both failure
-records `305f0f500` replaced the same way.
+- `TestQuitDoesNotWaitForTheScratchDelete` (`dffa13872`): it timed the quit against half a baseline
+  delete. It now holds the detached remover at a gate the test opens after the quit, so the
+  launcher returning while the remover still runs is the pass condition.
+- `TestSelectedCLIExactOnceExpiresOrIsRevokedWithoutHostEffect` (`5213f370a`): its fixture
+  classifier had to answer inside the production 2 s per-process deadline. Fixture classifiers now
+  get a 2-minute failure guard.
+- `TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit` (`c7afd4aad`, and
+  `5213f370a` for its deadline): a product race. After the process group drained, os/exec had
+  100 ms to finish copying the output, so a successful classifier or host program could fail with
+  `WaitDelay expired before I/O complete`. That bound is now a 10 s failure guard.
+- `TestRunProactiveSurvivesAFailedMint` (`a70ea3e91`): its 5 s wait became the test's own deadline
+  before this list was written.
+- `TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe` (`7babb6e63`, then
+  `17502ece3`): the session ends on an event, and the return is no longer timed.
+- `TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds` (`d4cb0270a`, then `8175df68b`): the
+  check's whole budget was 4 s, which left about 2 s for the steps after the hung fetch. The check
+  now has 10 minutes, and a test-only cap gives the hung fetch 500 ms.
+- The two `TestSelectedNPMShared…` tests (`internal/cli/programcapturelifetime_test.go`), whose
+  5–6 s barrier and lease waits `9f84fd251` replaced with the test's own hang guard.
+- `TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks`, whose 5 s wait for both failure
+  records `305f0f500` replaced the same way.
+
+Two other flakes from the same gates were fixed earlier: the proxy egress tests (`853751692`) and
+`TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`).
 
 ### <a id="landing-gate-flakes-2026-11-12"></a>🔧 **Tests that failed once in the 2026-11-12 fan-out and passed alone**
 
@@ -911,8 +917,6 @@ a lane's run and then passed alone. These remain:
   earlier tests left installed, such as the launch that `runContainer` parks in `select {}` once
   its arm has taken a signal. They hold no test up, so they are not the hang; the running test's
   own duration in the dump's `running tests:` line is what tells a hang from slowness.
-- The `internal/packsrc` git-wrapper tests, which timed out twice in one lane; the suspect is the
-  jail's git broker environment (`GIT_CONFIG_COUNT`) reaching the wrapped git.
 
 Fixed from this list:
 
@@ -923,6 +927,14 @@ Fixed from this list:
 - `TestBackgroundFinishContentionPreservesTypedFailureClaim` and
   `TestPatchedAdvanceExternallyOwnedContextRetainsPosture` (`305f0f500`): 5 s and 2 s bounds on
   real git work.
+
+Explained, not a defect: the `internal/packsrc` git-wrapper tests that "timed out twice in one lane" were not hung, and the
+git broker environment does not reach them. That lane ran plain `go test -short`, whose 10-minute
+default timeout is per package, not the 45 minutes `just test-fast` passes. The running test had
+been going 4 s when the whole package ran out. The package's `TestMain` replaces every inherited
+`GIT_CONFIG_KEY_*` and `GIT_CONFIG_VALUE_*` with its own tripwire (`ArmGitConfigTripwire`), and the
+replay drops every `GIT_` variable but `GIT_EXEC_PATH`. With the broker's five rewrites set, the
+running test, `TestAMemberUpstreamMergedAndThenEditedIsAlreadyUpstream`, passes in 0.26 s. On 2026-11-13 the whole package took 127 s at a load average of 93.
 
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 

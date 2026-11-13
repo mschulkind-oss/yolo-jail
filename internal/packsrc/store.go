@@ -240,6 +240,13 @@ func (s *Store) newBudget() (budget, context.CancelFunc) {
 	return budget{ctx: ctx, d: s.timeout()}, cancel
 }
 
+// shareCap, when positive, caps every share's sub-budget.
+//
+// A var only so a test can give a hung fetch a short budget of its own while the runs after it keep a
+// generous one, so their passing does not depend on the machine finishing them inside a few seconds
+// (TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds); nothing in production assigns it.
+var shareCap time.Duration
+
 // share is a BOUNDED SUB-BUDGET of b: half of what remains of it, so a run that may hang (a network fetch)
 // times out on its own and the runs after it keep the other half. The caller cancels it when done.
 func (b budget) share() (budget, context.CancelFunc) {
@@ -248,6 +255,9 @@ func (b budget) share() (budget, context.CancelFunc) {
 		left = time.Until(dl)
 	}
 	d := max(left/2, 0)
+	if shareCap > 0 && d > shareCap {
+		d = shareCap
+	}
 	ctx, cancel := context.WithTimeout(b.ctx, d)
 	return budget{ctx: ctx, d: d.Round(time.Millisecond)}, cancel
 }

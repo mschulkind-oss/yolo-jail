@@ -187,6 +187,9 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 	if err != nil {
 		t.Fatal(err)
 	}
+	// These tests are about grants, not the classifier's deadline, so its 2s production bound must
+	// not decide them on a loaded machine (fixtureClassifierDeadline).
+	h.classifier.deadline = fixtureClassifierDeadline
 	start, err := brokerstore.NewStartID()
 	if err != nil {
 		t.Fatal(err)
