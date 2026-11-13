@@ -1619,6 +1619,7 @@ forward ([SUP-D50](#SUP-D50)).
   line under the header naming Apple Container and `container system start`, and
   `"complete": false`. `yolo stores --setup apple-container-self` (with it started again) has no
   Podman heading. Then rerun `go test -count=1 -run TestMacosUserStores ./integration`.
+  *Run 2026-11-13 at `b1d255ded`* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#5-w-su14)): **the listing and `--setup` pass** (both sources, both image headings, one `ph2` durable row; JSON `yolo.stores/1`, complete, no `runtime`, `confinement` on every image row). `container system stop` was not run: it would stop an owner's jail. **`TestMacosUserStoresListsTheSandboxAccount` fails**, wanting the `images.macos-user` row that SUP-D57 removed.
 
 ## Found on the Mac, 2026-11-09
 

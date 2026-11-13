@@ -315,6 +315,8 @@ yolo config unset env.secrets.set.AWS_SECRET_ACCESS_KEY --project
 
 Report: the refusal exit and relevant source/remedy lines, each edit's redacted diff and write notice, and confirmation that neither sentinel appeared. This verifies the certain refusal and its current TOML advice under macos-user; the Linux tests separately pin that each `unset` removes only its named value.
 
+*Run 2026-11-13 at `b1d255ded`* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#4-w-bk2-follow-up)): **passes**: redacted diffs, `Written.`, the refusal names `TOML [env.secrets].set`, the scoped `unset` and `allow.aws-auth.profile ""`, and no sentinel printed. Each unset leaves a whitespace-only line and the empty table.
+
 
 ### W-BK3 — one launch cannot mix them ([OQ-BK5](bedrock-key-provider.md#OQ-BK5))
 

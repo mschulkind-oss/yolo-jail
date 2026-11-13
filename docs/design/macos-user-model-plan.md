@@ -1322,6 +1322,7 @@ the colleague who reported the refusal):
   four outputs, the refusal text, the launch's `tmp:` line, the test results, and
   `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
   you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
+  *Run 2026-11-13 at `b1d255ded`* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#2-w-tmp1)): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. **`yolo config unset macos_user_shared_tmp --user` is refused** (*"no scalar removal policy"*). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` ([§3](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#3-account-mode-provisioning-loses-yolo-from-path)).
 - **W3 (slice 12c):** two account-mode workspaces with different `cache_relocations` or alias sets
   launched in turn; A's alias links under `/Users/_yolojail/.cache` survive B's launch.
 

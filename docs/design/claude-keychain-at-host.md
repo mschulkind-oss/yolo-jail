@@ -306,6 +306,8 @@ that and stops; the sign-in is the owner's, at the Mac.
 **Report:** the three outputs and the Claude version (`claude --version`). **Decides:** whether
 [§2](#2-what-claude-does-on-a-mac) items 1–3 hold; the byte count against the 1.9 KB limit is [OQ-KH2](#OQ-KH2)'s stakes.
 
+*Run 2026-11-13 on 2.1.325* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): the item is named as expected and is 560 bytes, with keys `['claudeAiOauth']` and no `mcpOAuth`: host Claude is not signed in to Slack, so the witness stops at its setup.
+
 ### W-KH2
 
 **Claude takes its file lock around a Keychain write.** Settles
@@ -330,6 +332,8 @@ second pattern finds nothing, report the first command's output alone.
 compares them with the Linux build; if the guard is not there, or `K` turns out not to be the
 diskless-launch check, [§3.9](#39-risks)'s first risk is real and the design stops.
 
+*Run 2026-11-13 on 2.1.325* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): **the guard is there**, `if(await r,K())return await Be.run(!0,e)` before the `.storage-write` lock; the variable is `Gje`, and the chunk imports `{F,K}`. As written the commands fail: `command -v claude` is yolo's host wrapper, and both ugrep and macOS grep reject the patterns.
+
 ### W-KH3
 
 **`security -i`'s stdin limit, on a throwaway item.** Settles the stdin cap.
@@ -341,6 +345,8 @@ security delete-generic-password -a yolo-kh3 -s yolo-kh3-probe
 
 Expected: `n=1900` stores 1900 bytes; `n=2100` (a 4.2 KB command) fails or stores something
 shorter. **Report:** both lines and the read-back counts. **Decides:** the stdin cap's real value.
+
+*Run 2026-11-13* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): n=1900 stores whole; n=2100 exits 1 after **silently storing 2,019 bytes**, because `security -i` cuts the command line at 4,095 characters.
 
 ## Decision Ledger
 
