@@ -32,8 +32,8 @@ import (
 const mcpAuthUsage = `Usage: yolo mcp-auth header SERVER
 
 Print the Authorization header value for SERVER, one of your own MCP servers
-configured with sign_in = "once": "Bearer <access token>", refreshed first
-when under five minutes remain. An agent that takes a server's header from a
+configured with sign_in = "once". The value is Bearer <access token>,
+refreshed first when under five minutes remain. An agent that takes a server's header from a
 command runs this (pi's "!yolo mcp-auth header SERVER"), so it uses the one
 sign-in every jail shares and never signs in itself. Each token handed over is
 recorded: yolo audit --service mcp-auth.
