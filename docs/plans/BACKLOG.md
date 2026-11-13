@@ -896,15 +896,13 @@ needs its code read for a wall-clock bound or a race, then a fix that waits on t
 Two other flakes from the same gates are already fixed: the proxy egress tests (`853751692`) and
 `TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`).
 
-### <a id="landing-gate-flakes-2026-11-12"></a>🔧 **Six tests failed once in the 2026-11-12 fan-out and passed alone**
+### <a id="landing-gate-flakes-2026-11-12"></a>🔧 **Tests that failed once in the 2026-11-12 fan-out and passed alone**
 
 During the 2026-11-12 roadmap fan-out, with fourteen lanes testing at once, each of these failed in
 a lane's run and then passed alone. None has been diagnosed:
 
 - `TestTheSlotBuildsItsKeysAtOnceAndPrintsThemInOrder` (`internal/cli/buildpool_test.go`): it
   expected four concurrent builds and saw three.
-- `TestPreparationControlTickDetectsAReplacedBinary`
-  (`internal/cli/preparationbinaryidentity_test.go`)
 - `TestBackgroundFinishContentionPreservesTypedFailureClaim` (`internal/cli/backgroundadvance_test.go`)
 - `TestPatchedAdvanceExternallyOwnedContextRetainsPosture`
   (`internal/cli/hostflooroperationscope_test.go`)
@@ -912,6 +910,10 @@ a lane's run and then passed alone. None has been diagnosed:
   (`internal/cli/run/useprofiletargets_test.go`): the package hit its timeout there.
 - The `internal/packsrc` git-wrapper tests, which timed out twice in one lane; the suspect is the
   jail's git broker environment (`GIT_CONFIG_COUNT`) reaching the wrapped git.
+
+`TestPreparationControlTickDetectsAReplacedBinary`, also on this list, is fixed: a tick send returns
+before the loop handles the tick, so the scheduler could stop at the tick before the one the test
+waited on.
 
 ### <a id="doc-drift-2026-11-12"></a>🔧 **Reference rows the 2026-11-12 graduations left stale**
 

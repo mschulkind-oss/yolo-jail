@@ -116,14 +116,24 @@ func TestPreparationControlTickDetectsAReplacedBinary(t *testing.T) {
 	if err := os.Rename(replacement, executable); err != nil {
 		t.Fatal(err)
 	}
-	tickControl(t, control, done)
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "binary changed") {
-			t.Fatalf("a replaced binary ended the scheduler with %v, want the binary-changed refusal", err)
+	// A tick send returns once the loop has received it, not handled it, so the second tick's check
+	// may already see the replacement and stop the scheduler. Keep offering ticks until it stops.
+	guard := time.After(30 * time.Second)
+	var stopped error
+	for stopped == nil {
+		select {
+		case control <- time.Now():
+		case err := <-done:
+			if err == nil {
+				err = errors.New("<nil>")
+			}
+			stopped = err
+		case <-guard:
+			t.Fatal("the scheduler kept running on a replaced binary")
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("the scheduler kept running on a replaced binary")
+	}
+	if !strings.Contains(stopped.Error(), "binary changed") {
+		t.Fatalf("a replaced binary ended the scheduler with %v, want the binary-changed refusal", stopped)
 	}
 	if hashes.Load() < 2 {
 		t.Errorf("the replacement was not re-hashed: %d hashes", hashes.Load())
