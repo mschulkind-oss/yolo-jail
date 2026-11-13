@@ -3,7 +3,7 @@ title: "OrbStack Podman host — checked build handoff"
 date: 2026-10-06
 status: in-review
 stage: DESIGN
-next: "Build component C (host services), then D (native proof); setup ownership (A) waits on [OQ-ORB1](orbstack-as-a-podman-host.md#OQ-ORB1). B0, the jail-stdin slice, was built on 2026-10-08 (d0feeb3b8)"
+next: "The maintainer dispatches orbstack.yml (component D) on the self-hosted Mac; its run is the native proof of B0 and C. Setup ownership (A) waits on [OQ-ORB1](orbstack-as-a-podman-host.md#OQ-ORB1)"
 depends-on:
   - orbstack-as-a-podman-host.md#OQ-ORB1
 tags: [plan, macos, orbstack, podman]
@@ -15,7 +15,11 @@ vantage:
 # OrbStack Podman host — checked build handoff
 
 **Status:** 2026-10-06. Source map checked against `d5bc7a4188badeb56e1a2cb5591916bf69249723`.
-B0 was built on 2026-10-08 in `d0feeb3b8`; its native OrbStack proof is UNMEASURED.
+B0 was built on 2026-10-08 in `d0feeb3b8`; C and D on 2026-11-12. The native OrbStack proof of
+all three is UNMEASURED: [`orbstack.yml`](../../.github/workflows/orbstack.yml) is written and
+has not been dispatched. The runner contract below predates two removals: `YOLO_REPO_ROOT` is
+retired and `YOLO_RUNTIME` is refused, so the workflow uses `just load` and `YOLO_SETUP=podman-self`
+instead ([ORB-D8](orbstack-as-a-podman-host.md#ORB-D8)).
 The [research](orbstack-as-a-podman-host.md) owns behavior and evidence; this plan is implementation
 advice, and is the first thing to correct when the tree moves. Precedence: research rulings win on
 behavior, the current tree wins on facts, this handoff is advice.
