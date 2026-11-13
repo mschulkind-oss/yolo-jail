@@ -19,7 +19,7 @@ covers:
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
 stage: CURRENT
-next: "Give Apple Container the stock tag: container image tag <src> <dst> exists in container 1.1.0 and 1.5.0, so ImageTagCmd learns that spelling and both Runtime == container guards go (tagStockImage and its caller in AutoLoadImage), and TestMacArchiveDeliveryReusesLayers evicts the stock tag on Apple Container too, or the verifying dispatch fails on 'Image build skipped'. Part B config-declared baked packages, ambient-only inputs, and lean-attribute launch records are implemented and live Linux reuse is verified. Native Apple Container and rootless-host behavior remain external validation"
+next: "Accept Apple Container's stock tag on a Mac: the apple-container.yml dispatch must show TestMacArchiveDeliveryReusesLayers green (it now evicts the stock tag on both runtimes) and a second unchanged launch printing 'Image build skipped'; the tag argv and both guard removals are built and Linux-tested. Part B config-declared baked packages, ambient-only inputs, and lean-attribute launch records are implemented and live Linux reuse is verified. Native Apple Container and rootless-host behavior remain external validation"
 summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` (layer-aware delivery, C9) over a three-tier layer plan, serialised machine-wide and with no retained tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
@@ -775,6 +775,12 @@ still be a lean one, and accepting it for a stock launch would be the silent-sta
 Only code that knows it is looking at a stock image writes the tag — `AutoLoadImage` right after
 delivering an image it built from the default attr with no extras, and the macOS nightly's
 `Load jail image` step after loading the archive its Linux `build-image` job produced.
+`AutoLoadImage` writes it on every runtime: `podman tag <content ref> <stock ref>` on podman, and
+since 2026-11-12 `container image tag <content ref> <stock ref>` on Apple Container, the
+subcommand [Apple's command reference](https://github.com/apple/container/blob/main/docs/command-reference.md)
+documents. Before that, Apple Container was never tagged and built on every launch. A Linux unit
+test, `TestAppleContainerStockImageIsTaggedThenSkipsTheBuild`, drives that path through a fake
+runtime; no Mac run has yet shown a real Apple Container launch skipping its build.
 
 > [!IMPORTANT]
 > **A stock-matched launch roots the store path its load recorded.** The load that writes the

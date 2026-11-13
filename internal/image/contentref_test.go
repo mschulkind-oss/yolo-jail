@@ -126,14 +126,18 @@ func (f *fakeRuntime) run(argv []string) (int, bool) {
 		}
 		f.present[ref] = "img-from-" + ref
 		return 0, true
-	case len(argv) >= 4 && argv[1] == "tag":
-		if f.tagFails || f.present[argv[2]] == "" {
+	case len(argv) >= 4 && argv[1] == "tag",
+		len(argv) >= 5 && argv[0] == "container" && argv[1] == "image" && argv[2] == "tag":
+		// podman spells it `podman tag <src> <dst>`, Apple Container
+		// `container image tag <src> <dst>`; the operands are the last two.
+		src, dst := argv[len(argv)-2], argv[len(argv)-1]
+		if f.tagFails || f.present[src] == "" {
 			return 1, true
 		}
 		// A tag is a NAME for an image, so the destination inherits the SOURCE's
 		// identity. That is the whole mechanism by which a tag sourced from a
 		// shared name can bind a ref to a foreign image.
-		f.present[argv[3]] = f.present[argv[2]]
+		f.present[dst] = f.present[src]
 		return 0, true
 	}
 	return 1, true
