@@ -941,6 +941,23 @@ been going 4 s when the whole package ran out. The package's `TestMain` replaces
 replay drops every `GIT_` variable but `GIT_EXEC_PATH`. With the broker's five rewrites set, the
 running test, `TestAMemberUpstreamMergedAndThenEditedIsAlreadyUpstream`, passes in 0.26 s. On 2026-11-13 the whole package took 127 s at a load average of 93.
 
+### <a id="landing-gate-flakes-2026-11-13"></a>🔧 **Tests that failed once in the 2026-11-13 briefing landing and passed alone**
+
+Each of these failed once while other lanes' suites ran at the same time, then passed alone. Logs
+are under `.yolo/durable/fanout-20261113/` (`briefing-t5/census-run2.log` and
+`census-embedded-leak/`).
+
+- `TestSelectedNPMTimerActualDispatchPreparesWithoutMovingRunningHome`
+  (`internal/cli/programcapturescheduler_test.go`): "production timer did not reach admitted".
+  `waitOrdinaryTimerPhase` polls for the phase against a 10 s deadline, an elapsed-time pass
+  condition the event-driven test rule forbids.
+- `TestPreparationReadinessReportsStartupFailure` (`internal/cli`): "lock held". Likely a
+  production race: `probePreparationWorker` briefly takes `LOCK_EX` on `worker.lock`, so a worker
+  starting at that moment fails its non-blocking acquire.
+- `TestBackgroundSelectionDefersAFetchedPackWhoseCheckoutLockIsHeld` (`internal/cli`).
+- `TestOwnedChildEarlySignalCleanupReapsChild` (`internal/ttyproxy`): timed out after 10 s
+  waiting for its marker.
+
 ### <a id="launch-prep-runtime-leftovers"></a>🔧 **Two status-wording leftovers from the launch-preparation runtime run**
 
 Found by [the 2026-11-13 nested run](../design/launch-update-preparation-plan.md#runtime-2026-11-13):
