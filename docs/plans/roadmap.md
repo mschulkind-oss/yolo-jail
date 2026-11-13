@@ -235,8 +235,8 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [the patched fork's remaining verification](../reference/patched-forks.md#14-unbuilt-and-unmeasured), with the
    maintainer's test of the migration kit.
 
-3. [Image build reuse](../reference/image-staging-vs-baking.md)'s native Apple Container stock-tag dispatch and
-   warm-launch validation; then [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
+3. [Image build reuse](../reference/image-staging-vs-baking.md)'s native Apple Container warm-launch validation (its
+   dispatch passed on 2026-11-13); then [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
    as Podman's installer gives libkrun, the slowest shared folder measured; then
    [OrbStack as a Podman host](../research/orbstack-as-a-podman-host-plan.md)'s native proof, when the maintainer
    dispatches `orbstack.yml`; and the maintainer pushes and dispatches [the Apple Container volume

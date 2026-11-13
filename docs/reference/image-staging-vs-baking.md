@@ -19,7 +19,7 @@ covers:
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
 stage: CURRENT
-next: "Accept Apple Container's stock tag on a Mac: the apple-container.yml dispatch must show TestMacArchiveDeliveryReusesLayers green (it now evicts the stock tag on both runtimes) and a second unchanged launch printing 'Image build skipped'; the tag argv and both guard removals are built and Linux-tested. Part B config-declared baked packages, ambient-only inputs, and lean-attribute launch records are implemented and live Linux reuse is verified. Native Apple Container and rootless-host behavior remain external validation"
+next: "Accept Apple Container's stock tag on a Mac: TestMacArchiveDeliveryReusesLayers passed in the apple-container.yml dispatch of 2026-11-13 (run 43362376187, on 4593c23b5); a second unchanged launch printing 'Image build skipped' is still unobserved; the tag argv and both guard removals are built and Linux-tested. Part B config-declared baked packages, ambient-only inputs, and lean-attribute launch records are implemented and live Linux reuse is verified. Native Apple Container and rootless-host behavior remain external validation"
 summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` (layer-aware delivery, C9) over a three-tier layer plan, serialised machine-wide and with no retained tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
