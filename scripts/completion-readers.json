@@ -1198,8 +1198,9 @@
 {
 "read": [
 "packs/pi/*",
-"packs/pi/briefing/*",
-"packs/pi/home/.pi/agent/extensions/*"
+"packs/pi/briefing/pi.md",
+"packs/pi/home/.pi/agent/extensions/*",
+"packs/pi/skills/yolo-pi/SKILL.md"
 ],
 "listed": [
 "packs/pi/**"
@@ -1214,7 +1215,8 @@
 "packs/claude/pack.toml"
 ],
 "listed": [
-"packs/claude/**"
+"packs/claude",
+"packs/claude/briefing"
 ]
 },
 {
@@ -2078,7 +2080,8 @@
 {
 "read": [
 "packs/claude/*",
-"packs/claude/briefing/*"
+"packs/claude/briefing/claude.md",
+"packs/claude/skills/yolo-claude/SKILL.md"
 ],
 "listed": [
 "packs/claude/**"
@@ -2093,7 +2096,8 @@
 "packs/claude/pack.jsonc"
 ],
 "listed": [
-"packs/claude/**"
+"packs/claude",
+"packs/claude/briefing"
 ]
 },
 {
@@ -2111,8 +2115,11 @@
 ],
 "listed": [
 "packs",
-"packs/claude/**",
-"packs/pi/**"
+"packs/claude",
+"packs/claude/briefing",
+"packs/pi",
+"packs/pi/briefing",
+"packs/pi/home/**"
 ]
 },
 {
@@ -4120,7 +4127,8 @@
 "packs/claude-auth/loopholes/claude-oauth-broker/*",
 "packs/claude-auth/pack.toml",
 "packs/claude/*",
-"packs/claude/briefing/*",
+"packs/claude/briefing/claude.md",
+"packs/claude/skills/yolo-claude/SKILL.md",
 "packs/codex-auth/loopholes/openai-auth-broker/loophole.toml",
 "packs/codex-auth/pack.toml",
 "packs/codex/*",
@@ -4131,9 +4139,11 @@
 "packs/git/briefing/git.md",
 "packs/git/loopholes/git-broker/loophole.toml",
 "packs/git/pack.toml",
+"packs/git/skills/yolo-git/SKILL.md",
 "packs/github/*",
 "packs/github/briefing/gh.md",
 "packs/github/loopholes/github-broker/loophole.toml",
+"packs/github/skills/yolo-gh/SKILL.md",
 "packs/guardrails/*",
 "packs/hello-daemon/*",
 "packs/hello-daemon/loopholes/hello-daemon/bin/hello",
@@ -4160,8 +4170,9 @@
 "packs/opencode/home/.config/opencode/yolo/footer.js",
 "packs/openrouter/pack.toml",
 "packs/pi/*",
-"packs/pi/briefing/*",
+"packs/pi/briefing/pi.md",
 "packs/pi/home/.pi/agent/extensions/*",
+"packs/pi/skills/yolo-pi/SKILL.md",
 "packs/serial/*",
 "packs/serial/loopholes/serial/loophole.toml",
 "packs/wire-bridge/*",
@@ -5109,8 +5120,9 @@
 "packs/cgroup-delegate",
 "packs/chrome-devtools/**",
 "packs/circleci",
+"packs/claude",
 "packs/claude-auth",
-"packs/claude/**",
+"packs/claude/briefing",
 "packs/codex",
 "packs/codex-auth",
 "packs/copilot-auth",
@@ -5133,7 +5145,9 @@
 "packs/omp/**",
 "packs/opencode/**",
 "packs/openrouter",
-"packs/pi/**",
+"packs/pi",
+"packs/pi/briefing",
+"packs/pi/home/**",
 "packs/serial",
 "packs/wire-bridge",
 "packs/zai"
@@ -5163,6 +5177,7 @@
 "docs/design/bedrock-plumbing.md",
 "docs/design/bedrock-web-search.md",
 "docs/design/boundary-broker.md",
+"docs/design/briefing-diet.md",
 "docs/design/cache-isolation-plan.md",
 "docs/design/cache-isolation.md",
 "docs/design/claude-login-without-interception.md",
@@ -8282,6 +8297,7 @@
 "packs/pi",
 "packs/pi/briefing",
 "packs/pi/home",
+"packs/pi/skills/**",
 "packs/serial/**",
 "packs/wire-bridge",
 "packs/zai",
