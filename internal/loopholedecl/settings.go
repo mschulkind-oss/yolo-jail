@@ -124,7 +124,7 @@ type Setting struct {
 	Scope string
 	// LegacyWorkspace, on a user-scope setting, reads a legacy JSONC project file's value
 	// for it as the user's for that launch, with a one-line disclosure, where a project's
-	// value is otherwise refused (docs/design/legacy-config-compat.md LC-D2). It is for a
+	// value is otherwise refused (docs/reference/config/rulings.md LC-D2). It is for a
 	// setting that admits nothing, which v0.15.1 let a project file set. A TOML project still
 	// cannot set it; a setting a TOML project should set is request scope instead, as serial's
 	// `default_baud` became (LC-D17).
@@ -208,7 +208,7 @@ func SettingKeys(settings []Setting) []string {
 // here.
 //
 // legacy says the manifest is the legacy form, whose `scope: "workspace"` the legacy window reads
-// as request scope rather than refusing it (docs/design/legacy-config-compat.md LC-D10).
+// as request scope rather than refusing it (docs/reference/config/rulings.md LC-D10).
 func parseSettings(manifestPath string, raw any, legacy bool) ([]Setting, error) {
 	if raw == nil {
 		return nil, nil

@@ -1,6 +1,6 @@
 package cli
 
-// legacyfilemessages_test.go enforces LC-D12 of docs/design/legacy-config-compat.md: every
+// legacyfilemessages_test.go enforces LC-D12 of docs/reference/config/rulings.md: every
 // message that names a config file names the one that exists, and names a verb before a key.
 // A message is a string literal in a non-test Go file under internal/ or cmd/, or a chain of
 // them joined with `+`, or the arguments of a fmt call. It fails when it:
@@ -57,7 +57,7 @@ var legacyNameIdents = []string{
 // ("internal/configmigrate/", "internal/config/brokered.go"), which allows every function under
 // it. Two kinds of entry, kept apart: PERMANENT ones, whose literal is a file name yolo opens,
 // wire JSON, or a legacy input the message is reading, retiring or converting; and PENDING ones,
-// the parts of LC-D12 not yet built (docs/design/legacy-config-compat.md#LC-D12), which are
+// the parts of LC-D12 not yet built (docs/reference/config/rulings.md#LC-D12), which are
 // deleted as each is rewritten.
 var legacyMessageAllowances = map[string]string{
 	// PERMANENT: the file names themselves, what the readers open and not messages.

@@ -8,7 +8,7 @@ import (
 )
 
 // legacyorders_test.go pins that a conversion holds whichever workspace it runs from and in
-// whichever order the files are converted (docs/design/legacy-config-compat.md LC-D14, LC-D16,
+// whichever order the files are converted (docs/reference/config/rulings.md LC-D14, LC-D16,
 // LC-D18): the user config's conversion writes the same ceiling from any workspace, and a
 // project's `enabled: false` converts to its withdrawal.
 
@@ -246,7 +246,7 @@ func TestAWithheldStandingNamesTheWithdrawalAsItsNextStep(t *testing.T) {
 
 // A user-level broker switch names the pack that ships the broker, found through the manifests
 // (github-broker is the github pack's, git-broker the git pack's), and with that pack selected it
-// converts to the broker's read grant (L5, LC-D2).
+// converts to the broker's read grant (LC-D2).
 func TestAUserBrokerSwitchNamesItsPackAndConvertsToTheReadGrant(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
 		{`{"loopholes": {"github-broker": {"enabled": true}}}`, "add the pack with `yolo pack add github`"},

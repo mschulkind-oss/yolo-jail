@@ -624,7 +624,7 @@ func composeReadableConfigWithInputUseAudit(workspace string, strict bool, warn 
 	// The assembled copy is the host's merge WITH the per-workspace file applied, so it answers
 	// only a caller that wants that file. One that does not (the user scope a nested launch hands
 	// its jail) composes from the files, the same computation as the host's (LC-D8,
-	// docs/design/legacy-config-compat.md; BB-D56 forbids that file reaching a jail's user scope).
+	// docs/reference/config/rulings.md; BB-D56 forbids that file reaching a jail's user scope).
 	if input == nil && withWorkspaceFile && inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snapshot, ok := loadAssembledSnapshot(workspace); ok {
 			if !record {
@@ -928,7 +928,7 @@ func loadAssembledSnapshot(workspace string) (*jsonx.OrderedMap, bool) {
 }
 
 // keepUserOffSwitchesOff re-applies, over the user+workspace merge, every user-scope
-// `loopholes.<name>.enabled: false` on an off-switch loophole (docs/design/legacy-config-compat.md
+// `loopholes.<name>.enabled: false` on an off-switch loophole (docs/reference/config/rulings.md
 // LC-D3): off keeps a login, credentials or the cgroup delegate out of the jail, so a workspace
 // config, which the workspace's agent can edit, may turn one off but never back on. A workspace's
 // own `false` wins by the merge already. The per-workspace file, merged after this, is the human's

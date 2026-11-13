@@ -369,7 +369,7 @@ type Manifest struct {
 	// journal"), which every grant refusal prints. Set exactly when Grants is.
 	Access string
 	// LegacyDefaultOff is a LEGACY manifest's `default_enabled: false` (keys.go, the legacy
-	// window; docs/design/legacy-config-compat.md LC-D10): the loophole crosses nothing and starts
+	// window; docs/reference/config/rulings.md LC-D10): the loophole crosses nothing and starts
 	// nothing until its launch holds one of its grant kinds, as v0.15.1 ran it only where a config
 	// switched it on. Grants then holds LegacyRunGrantKind when the manifest declared none. Never
 	// set by a loophole.toml, which refuses the key.
@@ -634,7 +634,7 @@ func readRetiredScopeAsJail(data *jsonx.OrderedMap, manifestPath string) string 
 // refusal, the wrong-half token refusals, and the state_files containment rule.
 //
 // legacy says data is the legacy form (manifest.jsonc, manifest.json), which the legacy window
-// reads (keys.go, docs/design/legacy-config-compat.md LC-D10).
+// reads (keys.go, docs/reference/config/rulings.md LC-D10).
 func walk(data *jsonx.OrderedMap, manifestPath, dirName string, legacy bool) (*Manifest, error) {
 	nameV, _ := data.Get(keyName)
 	name, nameIsStr := nameV.(string)

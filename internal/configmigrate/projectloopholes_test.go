@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// projectloopholes_test.go pins the lowerings docs/design/legacy-config-compat.md LC-D13 to
+// projectloopholes_test.go pins the lowerings docs/reference/config/rulings.md LC-D13 to
 // LC-D17 rule: each converts a legacy loophole line to the TOML spelling a launch reads the same
 // way, and the plan passing is the proof's verdict that it does (the proof reads each through the
 // launch's own readers: loopholes.LaunchBlock, loopholes.WithProjectRequestSettings and the

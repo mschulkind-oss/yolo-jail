@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// LC-D9 (docs/design/legacy-config-compat.md §4.3): `yolo config migrate` never declines a config
+// LC-D9 (docs/reference/config/rulings.md): `yolo config migrate` never declines a config
 // that launches. Each case is a legacy shape v0.15.1 launched that the migration used to decline
 // (the corpus rows lc-migrate-host-files-list, lc-migrate-host-path-list,
 // lc-migrate-ws-model-facts, lc-migrate-provider-model-string and lc-migrate-blocked-tools): the

@@ -551,7 +551,7 @@ func legacyWithdrawals(ws *jsonx.OrderedMap, switches map[string]bool, decls []L
 
 // ProjectWritesPackRequests is whether a project's config writes `requests.<pack>` at all: its
 // own say over the pack, which a legacy `loopholes.<name>.enabled: false` in the same project
-// yields to (docs/design/legacy-config-compat.md LC-D18). Written "off", it withdraws the pack by
+// yields to (docs/reference/config/rulings.md LC-D18). Written "off", it withdraws the pack by
 // itself, so the false adds nothing either way. The launch, the migration's lowering and its proof
 // share it, so the three read the line alike.
 func ProjectWritesPackRequests(project *jsonx.OrderedMap, pack string) bool {
@@ -632,7 +632,7 @@ func legacyRecordHolds(recorded []string, grant string) bool {
 }
 
 // withLegacyUserAdmission is input with a legacy JSONC user config's ceiling as v0.15.1 held it
-// (docs/design/legacy-config-compat.md LC-D14). A legacy user config never limited which loopholes
+// (docs/reference/config/rulings.md LC-D14). A legacy user config never limited which loopholes
 // a workspace switched on, so every kind a workspace `enabled: true` turned on (`legacy_enable`)
 // was admitted for any project that asked. So the legacy user's ceiling reads as `on_request` for
 // each such kind (LegacyUserAdmission) in every project, whether or not it asks: a TOML project's

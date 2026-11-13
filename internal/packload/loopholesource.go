@@ -265,7 +265,7 @@ func (p *Pack) LoopholeDeclProblems() []string {
 }
 
 // LoopholeLegacyNotes is what each legacy loophole manifest this pack ships says through the
-// legacy window (docs/design/legacy-config-compat.md LC-D10): a `default_enabled` key or a
+// legacy window (docs/reference/config/rulings.md LC-D10): a `default_enabled` key or a
 // workspace-scope setting, which still read with v0.15.1 meaning and so are not problems.
 // `yolo pack lint` prints them as notes, one per key, naming what `yolo pack migrate` does.
 func (p *Pack) LoopholeLegacyNotes() []string {

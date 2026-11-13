@@ -83,7 +83,7 @@ func assertSetting(t *testing.T, values *jsonx.OrderedMap, key string, want any)
 // What the owner's `--user-layer bedrock-key.jsonc` wants, a Bedrock API key the aws-auth pointer
 // does not override, is given two ways over a TOML user config: the layer's
 // `loopholes.aws-auth.enabled: false`, which keeps aws-auth off (its off switch,
-// docs/design/legacy-config-compat.md LC-D3), and a layer that names no profile: an aws-auth with
+// docs/reference/config/rulings.md LC-D3), and a layer that names no profile: an aws-auth with
 // no profile serves nothing, so its pointer is withheld and the key beside it overrides nothing
 // (packload.ServedDaemons.WithoutUnconfiguredLogins). This pins both halves over a TOML user config
 // whose `[allow.aws-auth]` names a profile, through the real user-layer loader and the setting

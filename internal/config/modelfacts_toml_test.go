@@ -44,7 +44,7 @@ floor = { model = "deepseek/deepseek-v4.1-flash-1017:floor", extends = "floor-10
 			t.Errorf("readable schema omits %q", path)
 		} else if key.Scope != SchemaScopeBoth {
 			// Either scope: the legacy reader merges a workspace's entries, so its TOML
-			// conversion must read too (legacy-config-compat.md LC-D9).
+			// conversion must read too (docs/reference/config/rulings.md LC-D9).
 			t.Errorf("readable schema scope of %q = %v, want either scope", path, key.Scope)
 		}
 	}

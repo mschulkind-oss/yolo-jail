@@ -1126,7 +1126,7 @@ remain distinct from that synthetic file-flow witness.
     producer's unsupported-backend result, if invoked, has `"replicas": []`; the selected
     pack's launch notice explicitly says sign-ins are not shared. This keeps unmeasured
     backends from failing a readiness check for a service they cannot use. The broker also
-    joins the existing owner off-switch set ([LC-D3](legacy-config-compat.md#decision-ledger)):
+    joins the existing owner off-switch set ([LC-D3](../reference/config/rulings.md#LC-D3)):
     `[allow.mcp-auth] off = true` prevents its producer, daemon, endpoint and doctor from
     running, even if the project requests it on. This is the settled ungated-login-service
     mechanism, not a new grant or an environment switch.

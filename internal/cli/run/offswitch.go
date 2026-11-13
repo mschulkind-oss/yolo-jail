@@ -11,7 +11,7 @@ import (
 )
 
 // LoopholeOff is one off-switch loophole a launch's config keeps off
-// (docs/design/legacy-config-compat.md LC-D3), with each switch that holds it off and the
+// (docs/reference/config/rulings.md LC-D3), with each switch that holds it off and the
 // command that removes that switch.
 type LoopholeOff struct {
 	Loophole string

@@ -7,7 +7,7 @@ import (
 )
 
 // packlintlegacy_test.go pins `yolo pack lint`'s half of the legacy manifest window
-// (docs/design/legacy-config-compat.md LC-D10): a legacy manifest's `default_enabled` and
+// (docs/reference/config/rulings.md LC-D10): a legacy manifest's `default_enabled` and
 // workspace-scope settings still read, with v0.15.1 meaning, so lint passes them, and says
 // once per key what each reads as and what `yolo pack migrate` will do with it.
 func TestLintPassesALegacyManifestWindowKeyWithANote(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
 )
 
-// brokerswitchcarry.go is the cleanup of a STALE BROKER SWITCH (docs/design/legacy-config-compat.md
+// brokerswitchcarry.go is the cleanup of a STALE BROKER SWITCH (docs/reference/config/rulings.md
 // LC-D7, OQ-LC2): the `loopholes.<name>.enabled` an older yolo's `yolo loopholes enable` wrote into
 // the per-workspace file (workspacefile.go) for a brokered loophole, which has had no switch since
 // BB-D106. The file is yolo's own, so yolo cleans it up rather than asking the user to: the launch,

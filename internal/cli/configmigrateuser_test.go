@@ -71,7 +71,7 @@ func TestConfigMigrateLoopholeRefusalsNameTheNextStep(t *testing.T) {
 }
 
 // A grantless loophole's `enabled: true` beside its selected pack converts to nothing
-// (legacy-config-compat.md LC-D9's M5 row): the pack selected runs it in TOML too, so the proof
+// (docs/reference/config/rulings.md LC-D9, a selected grantless switch): the pack selected runs it in TOML too, so the proof
 // finds no difference. A grant-declaring one converts to its grants
 // (configmigrate.TestLegacyLoopholeEnabledMigratesToAllowAndRequests).
 func TestConfigMigrateConvertsASelectedGrantlessSwitchToThePacksLine(t *testing.T) {
@@ -82,7 +82,7 @@ func TestConfigMigrateConvertsASelectedGrantlessSwitchToThePacksLine(t *testing.
 }
 
 // A switch for a pack `packs` does not list ran nothing in v0.15.1 (it warned and launched), so it
-// converts to nothing, and the report names the one command that would run it (LC-D9's M7 row).
+// converts to nothing, and the report names the one command that would run it (LC-D9, a switch for an unselected pack).
 func TestConfigMigrateDropsAnUnselectedSwitchNamingPackAdd(t *testing.T) {
 	rc, toml, out := migrateUser(t, `{"loopholes": {"hello-daemon": {"enabled": true}}}`)
 	if rc != 0 || strings.Contains(toml, "hello-daemon") || !strings.Contains(out, "yolo pack add hello-daemon") {
@@ -210,7 +210,7 @@ func TestConfigMigrateMovesALinkAndLeavesItsTarget(t *testing.T) {
 }
 
 // An off-switch loophole's `enabled: false` converts, through the verb, to its pack's `off = true`
-// (docs/design/legacy-config-compat.md LC-D3), where it used to be refused.
+// (docs/reference/config/rulings.md LC-D3), where it used to be refused.
 func TestConfigMigrateConvertsAnOffSwitch(t *testing.T) {
 	rc, toml, out := migrateUser(t, `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"enabled": false}}}`)
 	if rc != 0 || !strings.Contains(toml, "[allow.aws-auth]\noff = true") || strings.Contains(toml, "loopholes") {

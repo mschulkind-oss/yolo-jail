@@ -10,7 +10,7 @@ import (
 )
 
 // `yolo request`'s ceiling check is the gate's own predicate (config.LoopholeRequestAdmitted), so
-// a legacy user config's admission of a legacy_enable kind (docs/design/legacy-config-compat.md
+// a legacy user config's admission of a legacy_enable kind (docs/reference/config/rulings.md
 // LC-D14) holds for the verb as it does at the gate: a request for host-processes view under a
 // legacy config.jsonc that selects the pack is not reported skipped. The verb's former private
 // check read only the TOML ceiling and called it skipped.

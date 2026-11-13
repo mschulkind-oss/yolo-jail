@@ -1,7 +1,7 @@
 package check
 
 // offswitchserved_test.go pins `yolo check` keeping a legacy user `enabled: false` on an
-// off-switch loophole off the way a launch does (docs/design/legacy-config-compat.md LC-D3): the
+// off-switch loophole off the way a launch does (docs/reference/config/rulings.md LC-D3): the
 // workspace cannot turn it back on, by `enabled: true` or by a null that resets the block or the
 // entry, so predictedServed must not predict a daemon the launch will not serve. It goes
 // through mergeScopes, the merge check.go runs, so deleting the keep-off step from

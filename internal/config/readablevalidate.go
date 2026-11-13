@@ -216,7 +216,7 @@ func readableLegacyShapeAccepted(path []string, value any) bool {
 	case len(path) == 4 && path[0] == "providers" && path[2] == "models":
 		// A provider's model may be the alias's wire id as one string ("glm-5.3"), as the
 		// legacy reader takes it: a legacy alias with no facts of its own and none from the
-		// catalog, which no table spelling says (legacy-config-compat.md LC-D9).
+		// catalog, which no table spelling says (docs/reference/config/rulings.md LC-D9).
 		_, ok := asStr(value)
 		return ok
 	}
@@ -263,7 +263,7 @@ func readableTypeMatches(typ SchemaType, value any, removal RemovalPolicy) bool 
 
 // readableTypeNextStep is the fix a wrongly typed key's refusal names, where one key's is not
 // already its type: an off switch that is not a boolean keeps nothing off
-// (docs/design/legacy-config-compat.md LC-D3).
+// (docs/reference/config/rulings.md LC-D3).
 func readableTypeNextStep(path []string) string {
 	if len(path) == 3 && path[0] == "allow" && path[2] == loopholedecl.AllowOffKey {
 		// No `yolo config` verb is named: an edit reads the file first and refuses it for this

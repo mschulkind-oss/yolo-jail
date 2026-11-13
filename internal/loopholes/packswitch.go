@@ -14,7 +14,7 @@ import (
 // covers the project (docs/reference/loophole-grants.md §4.1); there is no manifest default,
 // and the one config key that decides whether it runs is the off switch of the four loopholes
 // whose running hands the jail a login, credentials or the cgroup delegate (LaunchBlock,
-// docs/design/legacy-config-compat.md LC-D3). Under a TOML user config a pack's settings are its
+// docs/reference/config/rulings.md LC-D3). Under a TOML user config a pack's settings are its
 // `[allow.<pack>]` table, read through ConfigBlock.
 //
 // ONE PREDICATE for the settings shape, read from the user config's format, so every discovery
@@ -98,7 +98,7 @@ func configBlock(cfg *jsonx.OrderedMap, readable bool) *jsonx.OrderedMap {
 // argument): cfg's own block, plus `<loophole>.enabled = false` for each off-switch loophole of a
 // pack whose `[allow.<pack>]` table (the user's) or `[requests.<pack>]` table (the project's,
 // LC-D15) sets `off = true`, the TOML spelling of a legacy `enabled: false`
-// (docs/design/legacy-config-compat.md LC-D3). The TOML `off` wins over a legacy
+// (docs/reference/config/rulings.md LC-D3). The TOML `off` wins over a legacy
 // layer's `enabled: true`, which says nothing selecting the pack does not. The result is a copy
 // when it differs; cfg is unchanged.
 func LaunchBlock(cfg *jsonx.OrderedMap) *jsonx.OrderedMap {
@@ -230,7 +230,7 @@ func RunsOnSelection(name string) bool { return ungatedLoopholes[name] }
 
 // WithProjectRequestSettings is supplied, a loophole's settings as the block reads them, with each
 // request-scope setting lp declares that cfg's project `[requests.<pack>]` table writes laid over
-// it (docs/reference/loophole-grants.md LG-D15, docs/design/legacy-config-compat.md LC-D17): the
+// it (docs/reference/loophole-grants.md LG-D15, docs/reference/config/rulings.md LC-D17): the
 // project's value replaces the user's `[allow.<pack>]` one for this project, never merged with it.
 // Every reader of a loophole's settings that a launch, `yolo check` or `yolo config migrate`'s proof
 // uses goes through it, so all three hand the daemon the same values. supplied is not changed.

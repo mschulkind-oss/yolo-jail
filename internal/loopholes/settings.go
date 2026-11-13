@@ -89,7 +89,7 @@ func SettingsFromConfig(block *jsonx.OrderedMap, name string) *jsonx.OrderedMap 
 // declares that the pack's entry holds and its own does not. Under a TOML user config
 // ConfigBlock lays the `[allow.<pack>]` table at the pack's name, so without the second read a
 // path pack's loophole is handed none of the settings its user wrote
-// (docs/design/legacy-config-compat.md LC-D10). Every reader of a loophole's supplied settings
+// (docs/reference/config/rulings.md LC-D10). Every reader of a loophole's supplied settings
 // (the launch, `yolo check`, `yolo loopholes`, `yolo config migrate`'s proof) goes through it.
 func SuppliedSettings(block *jsonx.OrderedMap, lp *Loophole) *jsonx.OrderedMap {
 	if lp == nil {
@@ -196,7 +196,7 @@ func retiredIntoAGrant(lp *Loophole, key string) bool {
 	for _, g := range lp.Grants {
 		// A grant kind itself is the user-sourced request a TOML user config's
 		// `[allow.<pack>] <kind> = [...]` writes beside the pack's settings
-		// (docs/design/legacy-config-compat.md LC-D16), never a setting.
+		// (docs/reference/config/rulings.md LC-D16), never a setting.
 		if g.LegacySetting == key || g.LegacyValues == key || g.Kind == key {
 			return true
 		}

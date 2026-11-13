@@ -167,7 +167,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		// runs whenever its pack is selected, so the user config's switch for it is refused here,
 		// the workspace files' below, and the per-workspace file's, which a previous yolo wrote,
 		// is taken out of that file, its read grant carried for the workspace, and said once
-		// (carryStaleBrokerSwitch; docs/design/legacy-config-compat.md LC-D7, OQ-LC2).
+		// (carryStaleBrokerSwitch; docs/reference/config/rulings.md LC-D7, OQ-LC2).
 		if brokered {
 			if !userBlockRead {
 				if len(edit) != 0 && edit[0] != nil {
@@ -492,7 +492,7 @@ func SwitchesNothingDisclosure(name, file string) string {
 
 // WorkspaceSwitchDisclosure is the line for a `loopholes.<name>.enabled: <enabled>` key in an
 // agent-editable workspace file when name is a pack's loophole. An off-switch loophole's
-// (docs/design/legacy-config-compat.md LC-D3) `false` is honored, for this workspace, and its
+// (docs/reference/config/rulings.md LC-D3) `false` is honored, for this workspace, and its
 // `true` lifts nothing the user scope keeps off; every other pack loophole's key switches nothing
 // (SwitchesNothingDisclosure). The launch and `yolo check` both print it.
 func WorkspaceSwitchDisclosure(name, file string, enabled bool) string {

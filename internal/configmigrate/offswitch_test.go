@@ -9,7 +9,7 @@ import (
 // TestAnOffSwitchConvertsToItsPacksOff: a user `loopholes.<name>.enabled: false` on LC-D3's
 // loopholes converts to `off = true` under the pack's `[allow.<pack>]` table, and a profile
 // written beside it survives conversion rather than being refused as dormant
-// (docs/design/legacy-config-compat.md LC-D3). The equality proof reads the off switch where the
+// (docs/reference/config/rulings.md LC-D3). The equality proof reads the off switch where the
 // launch does (loopholes.LaunchBlock), so the plan passing is the proof that the converted
 // config keeps each loophole off.
 func TestAnOffSwitchConvertsToItsPacksOff(t *testing.T) {

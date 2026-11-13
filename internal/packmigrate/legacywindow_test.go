@@ -10,7 +10,7 @@ import (
 )
 
 // legacywindow_test.go pins `yolo pack migrate`'s half of the legacy manifest window
-// (docs/design/legacy-config-compat.md LC-D10): `default_enabled: true` converts to nothing, and
+// (docs/reference/config/rulings.md LC-D10): `default_enabled: true` converts to nothing, and
 // `default_enabled: false` and a workspace-scope setting are refused naming what the author must
 // restate, since a manifest is the author's and loophole.toml cannot say either.
 

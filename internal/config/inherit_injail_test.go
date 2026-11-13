@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// LC-D8 (docs/design/legacy-config-compat.md): in a jail, for its own workspace, the assembled
+// LC-D8 (docs/reference/config/rulings.md): in a jail, for its own workspace, the assembled
 // delivery copy is the host's merged config with the per-workspace file applied, so it answers
 // only a caller that wants that file. The read a nested launch's crossing composes from
 // (LoadConfigWithoutWorkspaceFileWithSources, the user scope it hands the inner jail) composes

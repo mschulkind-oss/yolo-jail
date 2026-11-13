@@ -124,7 +124,7 @@ func TestHostDoorwayLoopholesIsThePlansOwnSet(t *testing.T) {
 		t.Error("with no profile the notch line stopped naming aws-auth's doorway")
 	}
 
-	// AN OFF SWITCH (docs/design/legacy-config-compat.md LC-D3): aws-auth's `enabled: false`, or
+	// AN OFF SWITCH (docs/reference/config/rulings.md LC-D3): aws-auth's `enabled: false`, or
 	// its TOML spelling `[allow.aws-auth] off = true`, keeps it off beside a configured profile, so
 	// the plan opens no doorway to it, saying the config turned it off, and the notch line does not
 	// name its doorway as delivered.

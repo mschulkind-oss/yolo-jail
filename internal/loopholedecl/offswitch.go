@@ -2,7 +2,7 @@ package loopholedecl
 
 import "sort"
 
-// THE OFF SWITCH (docs/design/legacy-config-compat.md LC-D3). A pack's loophole runs whenever its
+// THE OFF SWITCH (docs/reference/config/rulings.md LC-D3). A pack's loophole runs whenever its
 // pack is selected, and for one whose only approval is a grant, "off" and "on with no grant" give a
 // project the same access. Not so for the loopholes below, whose approval is a login or a setting,
 // or which hand the jail a host capability with no grant at all: running one hands over the login,

@@ -18,7 +18,7 @@ func TestEveryActivationDifferenceNamesItsNextStep(t *testing.T) {
 		{Layer: loopholeActivationLayer, Path: "github-broker.enabled", Before: "true", After: "false"},
 	}, shippedLoopholePacks(packload.Embedded()))
 	for i, want := range []string{
-		// An off-switch loophole runs whenever its pack is selected (legacy-config-compat.md
+		// An off-switch loophole runs whenever its pack is selected (docs/reference/config/rulings.md
 		// LC-D3): the old file keeps it off, and no "enabled": true is needed to run it.
 		"the converted config runs aws-auth because its pack is selected, and the old one keeps it off; write `off = true` under [allow.aws-auth] in the TOML user config to keep it off, or remove the `\"enabled\": false` that keeps it off in the old file to let it run, then run `yolo config migrate` again",
 		// Grants are built, so the next step is the pack line that runs it, never a wait.

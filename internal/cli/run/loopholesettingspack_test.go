@@ -9,7 +9,7 @@ import (
 
 // A path pack's loophole whose name is not its pack's: a TOML user config lays its settings at
 // `[allow.<pack>]`, which ConfigBlock files under the PACK's name. The launch reads them there
-// too (loopholes.SuppliedSettings, docs/design/legacy-config-compat.md LC-D10), or a config that
+// too (loopholes.SuppliedSettings, docs/reference/config/rulings.md LC-D10), or a config that
 // set the value before `yolo config migrate` launches with the default after it.
 func TestWriteLoopholeSettingsReadsAPathPacksSettingsUnderThePackName(t *testing.T) {
 	redirectState(t)

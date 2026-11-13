@@ -79,7 +79,7 @@ type LoopholeKindState struct {
 	Standing     LoopholeKindStanding
 	// Withheld: the project writes `requests.<pack> = "off"` (or a legacy workspace's
 	// `enabled: false` reads as it), so the kind is not_allowed here whatever the ceiling says
-	// (docs/design/legacy-config-compat.md LC-D18).
+	// (docs/reference/config/rulings.md LC-D18).
 	Withheld bool
 }
 
@@ -408,7 +408,7 @@ func userSourcedRequestError(pack string, g loopholedecl.Grant, value, onRequest
 }
 
 // withUserSourcedRequests is input with each user-sourced request laid over the project
-// (docs/design/legacy-config-compat.md LC-D16, the TOML spelling of a v0.15.1 user switch on a
+// (docs/reference/config/rulings.md LC-D16, the TOML spelling of a v0.15.1 user switch on a
 // valued kind): a user config's `[allow.<pack>] <kind> = [...]` is the request every project
 // makes that writes none of its own for that kind, so it is shown at each project's gate and its
 // y grants it there, as LG-D12's `always` line is. A project's own request for the kind, or a
