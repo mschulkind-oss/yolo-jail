@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 const openAIClientHelperEnv = "YOLO_TEST_OPENAI_AUTH_CLIENT_HELPER"
@@ -115,7 +116,7 @@ console.log(JSON.stringify({ native: view.native, messages }));
 	cmd.Dir = f.dir
 	// A CLEAN environment, never os.Environ(): a developer's jail carries YOLO_VERSION and
 	// perhaps a live broker endpoint, and either would decide the case being tested.
-	cmd.Env = append([]string{"HOME=" + f.home, "PATH=" + bin}, c.env...)
+	cmd.Env = testtmp.ChildEnv(append([]string{"HOME=" + f.home, "PATH=" + bin}, c.env...))
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("running the extension harness: %v\n%s", err, out)

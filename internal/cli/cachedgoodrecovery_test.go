@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The production build-slot caller must let an operator explicitly run the recorded Good.Entry
@@ -473,8 +474,8 @@ func TestBuildSlotCachedGoodRunsThroughGeneratedLauncherAndCaptureMaterializer(t
 	if err := os.WriteFile(filepath.Join(fakeBin, "yolo"), []byte(wrapper), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	baseEnv := []string{"HOME=" + home, "PATH=" + fakeBin + ":" + os.Getenv("PATH"),
-		"CACHED_GOOD_ARGV=" + argvPath, "CACHED_GOOD_CWD=" + cwdPath}
+	baseEnv := testtmp.ChildEnv([]string{"HOME=" + home, "PATH=" + fakeBin + ":" + os.Getenv("PATH"),
+		"CACHED_GOOD_ARGV=" + argvPath, "CACHED_GOOD_CWD=" + cwdPath})
 	readiness := exec.Command(launcher)
 	readiness.Dir, readiness.Env = workspace, append(append([]string(nil), baseEnv...), entrypoint.InstallOnlyEnv+"=1")
 	var readyOut, readyErr bytes.Buffer

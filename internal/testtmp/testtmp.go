@@ -19,11 +19,16 @@
 package testtmp
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // rootEnv marks the TMPDIR Isolate made, so a child of the binary that inherits it reuses it
@@ -73,7 +78,7 @@ func Isolate() (release func(code int) int) {
 		}
 	}
 	prev, had := os.LookupEnv("TMPDIR")
-	root, err := os.MkdirTemp("", "t")
+	root, err := mkSessionDir(os.TempDir())
 	if err != nil {
 		panic("testtmp: creating the binary's private TMPDIR: " + err.Error())
 	}
@@ -96,6 +101,81 @@ func Isolate() (release func(code int) int) {
 		}
 		return code
 	}
+}
+
+// ChildEnv is env plus what a child of this binary needs to leave nothing behind: the private
+// TMPDIR's marker, and TMPDIR itself when env names none. Every exec.Cmd whose Env a test spells
+// from scratch (a CLEAN environment, never os.Environ()) and that reaches this binary again —
+// directly, through a stub script named `yolo`, or through a program that runs one — wraps it:
+//
+//	cmd.Env = testtmp.ChildEnv([]string{"HOME=" + home, "PATH=" + bin})
+//
+// Without it the child cannot tell it is one: its TestMain isolates again, in the machine's /tmp,
+// and it exits from inside its test before that directory is removed. An env that already names
+// TMPDIR keeps it (the test chose it, and Isolate leaves a descendant's choice alone). In a
+// binary that did not isolate, env is returned unchanged.
+func ChildEnv(env []string) []string {
+	root := IsolatedRoot()
+	if root == "" {
+		return env
+	}
+	out := make([]string, 0, len(env)+2)
+	hasTMPDIR := false
+	for _, kv := range env {
+		if strings.HasPrefix(kv, rootEnv+"=") {
+			continue
+		}
+		hasTMPDIR = hasTMPDIR || strings.HasPrefix(kv, "TMPDIR=")
+		out = append(out, kv)
+	}
+	out = append(out, rootEnv+"="+root)
+	if !hasTMPDIR {
+		out = append(out, "TMPDIR="+root)
+	}
+	return out
+}
+
+// SessionDirPrefix starts the name of every directory Isolate makes. The rest of the name is
+// the making process's session id in five base-36 digits, then four random base-36 digits: the
+// contract scripts/tmp-leak-gate.py and scripts/completion-census.py read. Each runs its command
+// in a session of its own, so a directory a child leaves in the machine's /tmp — one whose
+// environment a test spelled without ChildEnv, so it isolated again there and exited from inside
+// its test — names the run that leaked it, even after every ancestor has exited. The name is
+// short on purpose: /tmp/ plus it is MaxShortDir bytes, so ShortDir still hands it out.
+const SessionDirPrefix = "tt"
+
+// mkSessionDir makes base/tt<session id><random>, mode 0700.
+func mkSessionDir(base string) (string, error) {
+	sid, err := unix.Getsid(0)
+	if err != nil {
+		sid = 0
+	}
+	tag := strconv.FormatInt(int64(sid), 36)
+	if len(tag) < 5 {
+		tag = strings.Repeat("0", 5-len(tag)) + tag
+	}
+	tag = tag[len(tag)-5:]
+	const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var lastErr error
+	for range 100 {
+		var b [4]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return "", err
+		}
+		suffix := make([]byte, len(b))
+		for i, c := range b {
+			suffix[i] = digits[int(c)%len(digits)]
+		}
+		dir := filepath.Join(base, SessionDirPrefix+tag+string(suffix))
+		lastErr = os.Mkdir(dir, 0o700)
+		if lastErr == nil {
+			return dir, nil
+		}
+		if !os.IsExist(lastErr) {
+			return "", lastErr
+		}
+	}
+	return "", lastErr
 }
 
 // IsolatedRoot is the directory Isolate made for this binary, or "" when it made none.

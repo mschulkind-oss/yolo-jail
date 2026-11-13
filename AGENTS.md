@@ -196,8 +196,10 @@ The mechanics behind each of these are in
 - **A test run leaves nothing in TMPDIR.** `just test-fast` runs under
   [`tmp-leak-gate.py`](scripts/tmp-leak-gate.py), which gives it a private TMPDIR and fails naming every
   leftover; there is no hatch. A package whose helper children re-run TestMain calls
-  `testtmp.Isolate` there ([`internal/testtmp`](internal/testtmp/testtmp.go)), and a socket fixture's
-  base is `testtmp.ShortDir()`, never a literal `/tmp` (`TestNoGoFileMakesATempDirInALiteralTmp`).
+  `testtmp.Isolate` there ([`internal/testtmp`](internal/testtmp/testtmp.go)), a child whose `Env` a
+  test spells from scratch gets `testtmp.ChildEnv(...)` (else it leaks into `/tmp`, which the gate and
+  `completion-census.py` catch by session id), and a socket fixture's base is `testtmp.ShortDir()`,
+  never a literal `/tmp` (`TestNoGoFileMakesATempDirInALiteralTmp`).
 - **Run the slow suite once per landing, not once per agent.** A builder or fixer runs the integration
   tests that read what it changed (`rg integration/` for the symbol, flag, env var or message, then
   `go test -run '<those>' ./integration`). A reviewer runs only what reproduces a finding. Whoever lands

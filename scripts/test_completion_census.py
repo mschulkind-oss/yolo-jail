@@ -8,6 +8,7 @@ checkout; only in the checkout that IS `/workspace` does that path name the repo
 import importlib.util
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -297,6 +298,63 @@ class ParseLogTest(unittest.TestCase):
         path = str(Path(census.JAIL_WORKSPACE) / "internal" / "source.go")
         leaks = census.jail_workspace_opens("open " + path, str(source / "pkg"))
         self.assertEqual(leaks, {path})
+
+
+# A stand-in test binary: it writes its test log, and, like a test whose child lost the parent's
+# TMPDIR, makes a testtmp.Isolate directory of its session in /tmp and exits without removing it.
+LEAKY_TEST_BINARY = """#!{python}
+import os, random, sys
+def b36(n, w):
+    s = ''
+    while n: n, r = divmod(n, 36); s = '0123456789abcdefghijklmnopqrstuvwxyz'[r] + s
+    return s.rjust(w, '0')[-w:]
+log = [a for a in sys.argv if a.startswith('-test.testlogfile=')][0].split('=', 1)[1]
+open(log, 'w').write('')
+if os.environ.get('LEAK'):
+    os.mkdir('/tmp/tt' + b36(os.getsid(0), 5) + b36(random.randrange(36**4), 4))
+"""
+
+
+class SessionLeftoverTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.binary = self.tmp / "pkg.test"
+        self.binary.write_text(LEAKY_TEST_BINARY.format(python=sys.executable))
+        self.binary.chmod(0o755)
+        self.gate = census.load_leak_gate()
+
+    def run_one(self, leak):
+        with mock.patch.dict(os.environ, {"LEAK": "1" if leak else ""}):
+            return census.run_test(self.binary, self.tmp, "TestX", self.tmp / "x.log", self.gate)
+
+    def test_a_tests_leftover_in_tmp_is_named_and_removed(self):
+        _, left = self.run_one(leak=True)
+        self.assertEqual(len(left), 1, left)
+        self.addCleanup(lambda: os.path.isdir(left[0]) and os.rmdir(left[0]))
+        self.assertTrue(os.path.basename(left[0]).startswith("tt"), left)
+        self.assertFalse(os.path.exists(left[0]), "the census must remove what the test left")
+        with self.assertRaises(census.CensusError) as cm:
+            census.refuse_session_leftovers({("pkg", "TestX"): left}, self.gate)
+        self.assertIn("pkg TestX", str(cm.exception))
+        self.assertIn("testtmp.ChildEnv", str(cm.exception))
+
+    def test_a_clean_test_leaves_nothing_to_refuse(self):
+        _, left = self.run_one(leak=False)
+        self.assertEqual(left, [])
+        census.refuse_session_leftovers({}, self.gate)
+
+
+class GatedArgvTest(unittest.TestCase):
+    def test_an_ordinary_run_reruns_itself_under_the_leak_gate(self):
+        argv = census.gated_argv({}, ["completion-census.py"])
+        self.assertTrue(argv[1].endswith("tmp-leak-gate.py"), argv)
+        self.assertTrue(argv[3].endswith("completion-census.py"), argv)
+
+    def test_a_gated_or_fixture_run_does_not(self):
+        self.assertIsNone(census.gated_argv({"TMP_LEAK_GATE_DIR": "/tmp/yt.x"}, ["c"]))
+        self.assertIsNone(census.gated_argv({census.FIXTURE_ROOT_ENV: "/f"}, ["c"]))
 
 
 if __name__ == "__main__":
