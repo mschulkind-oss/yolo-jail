@@ -1,6 +1,6 @@
 package launchservice
 
-// pin_test.go pins docs/design/pinned-host-helpers.md §3.3-3.4: a launch-owned service of the
+// pin_test.go pins docs/reference/pinned-host-helpers.md ("Who execs it", "The check before every exec"): a launch-owned service of the
 // bundled `yolo` runs from the pin its launch resolved, never from os.Executable(), and a
 // supervisor that finds the pin replaced gives up rather than start another build.
 

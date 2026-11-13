@@ -85,7 +85,7 @@ type HostDoorways struct {
 }
 
 // PinnedTo hands the doorways' host services the launch's pinned yolo
-// (docs/design/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
+// (docs/reference/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
 // naming stopStep, and jail labels them in their start lines. Called before Start; a launch that
 // pins none leaves them to refuse to start, never to run another build.
 func (d *HostDoorways) PinnedTo(pin *helperpin.Pin, jail, stopStep string) {

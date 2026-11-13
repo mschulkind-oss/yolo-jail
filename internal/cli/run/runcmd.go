@@ -252,7 +252,7 @@ type Options struct {
 	// kernel's death signal, and its self-execs run its own binary.
 	keeperMode bool
 	// helperPin is the host yolo this launch execs every helper that serves its jail from
-	// (pinnedexec.go, docs/design/pinned-host-helpers.md): resolved once at pre-flight by Run, handed
+	// (pinnedexec.go, docs/reference/pinned-host-helpers.md): resolved once at pre-flight by Run, handed
 	// to the keeper through its plan, nil only on a dry run or a test that never execs. A self-exec
 	// with none is refused, never run from os.Executable().
 	helperPin *helperpin.Pin

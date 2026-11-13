@@ -151,7 +151,7 @@ whatever host directory pair the launch decided to bind there.
 The host side is pinned the same way: every host helper a launch starts (the keeper, host daemons,
 launch-owned services) runs from one host-OS `yolo` inside the bundle the launch resolved, checked
 unchanged before every exec, so a `just install` or an upgrade mid-session cannot change which build
-serves a running jail. See [pinned host helpers](../design/pinned-host-helpers.md).
+serves a running jail. See [pinned host helpers](pinned-host-helpers.md).
 
 The image keeps two things about it. `fakeRootCommands` pre-creates both mountpoint
 directories, because a `--read-only` root filesystem cannot grow one and this is the mount whose
