@@ -576,7 +576,8 @@ func podmanLinuxGolden(home string) []string {
 		"--device", "/dev/fuse",
 		"--uidmap", "0:0:1", "--uidmap", "1:1:65536",
 		"--gidmap", "0:0:1", "--gidmap", "1:1:65536",
-		"--cap-add", "SYS_ADMIN", "--cap-add", "MKNOD", "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW")
+		"--cap-add", "SYS_ADMIN", "--cap-add", "MKNOD", "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW",
+		"--cap-add", "SYS_PTRACE")
 	// no host nix (paths absent), bridge net (no --net flag), no identity env,
 	// no gitignore (~/.config/git/ignore absent), no publish/mounts.
 	//

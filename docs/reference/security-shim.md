@@ -90,7 +90,7 @@ the flags passed here *define the entire sandbox boundary*.
 | Constraint | Mechanism |
 | :--- | :--- |
 | No arbitrary mounts | Every mount comes from a validated config key; nothing is inferred from the environment |
-| No arbitrary capabilities | A hardcoded capability set per branch, and the nesting branch is the only one that widens it |
+| No arbitrary capabilities | A hardcoded capability set per podman branch in `podmanNestingArgs`, with no config key that adds one; see [Jail capabilities](#jail-capabilities) |
 | No arbitrary devices | Device paths are validated, and USB devices resolved rather than passed through as strings |
 | No silent config changes | Component 4 gates the launch |
 | No concurrent races | A workspace lock file serializes launches |
@@ -98,6 +98,57 @@ the flags passed here *define the entire sandbox boundary*.
 
 **Audit target:** the argv construction. Every flag is visible in one place, and every mount is
 explicit.
+
+#### Jail capabilities
+
+Every podman launch adds the same small capability set to the container runtime's default, in
+`podmanNestingArgs`. The values are in [Current values](#current-values). The branches are the
+ordinary host branch, the host NVIDIA branch and the nested branch, which a launcher that is itself
+in a jail takes. Rootless and rootful podman take the same host argv. No config key adds or removes
+a capability. Apple Container and macos-user (Seatbelt) get no capability flag from yolo: macos-user
+runs native macOS processes, which have no Linux capabilities, and on Apple Container yolo leaves
+the runtime's default set alone.
+
+<a id="sys-ptrace"></a>**`SYS_PTRACE` was added on 2026-11-13, approved by the owner** (*"yes build
+the ptrace stuff"*).
+
+- **The problem.** Inside a jail, a nested `podman exec` or `podman healthcheck run` into a
+  container running as a non-root uid such as 1000 failed. crun runs as the jail's root and has to
+  open `/proc/<pid>/ns/*` of the target. The kernel allows that only to the same uid or to a holder
+  of `CAP_SYS_PTRACE`, so crun failed with `openat /proc/<pid>/ns/mnt: Permission denied`. Root
+  containers worked.
+- **The safety analysis** was done by Fable 5.2, at the owner's request.
+  - The capability is never held in the initial user namespace. Both host branches pass
+    `--uidmap 0:0:1 --uidmap 1:1:65536`, rootful included, and the nested branch shares its
+    launcher's namespace, which is itself a jail's.
+  - No `--pid` flag is assembled, so the jail has its own pid namespace and sees no host process.
+    On the host the grant newly allows nothing.
+  - Inside the jail it bypasses Yama's `ptrace_scope` 1 for processes that are not descendants.
+    That is marginal, because everything in the jail already runs as uid 0 with the same
+    capabilities, and [`loophole-transport.md`](loophole-transport.md) already records that a
+    secret in a `0600` file in the jail is no mitigation. It also gives the jail memory access to
+    nested containers that run as a non-root uid.
+  - Default seccomp stays on.
+- **The conditions it was approved under:**
+  1. Never add `--pid=host`, and never drop the `--uidmap` pair, while the grant stays.
+     `TestThePtraceGrantRidesOnAPrivateUserAndPidNamespace` (`internal/cli/run/ptracecap_test.go`)
+     fails if either happens, and a comment on `podmanNestingArgs` says why.
+  2. Keep default seccomp. `TestThePtraceGrantKeepsDefaultSeccomp` checks that a launch that did
+     not opt in carries no seccomp option. The one opt-out is AMD's `seccomp_unconfined` GPU key
+     (`gpuArgs` in `internal/cli/run/helpers.go`). With it set, the syscall filter no longer
+     narrows which ptrace-family calls the capability unlocks inside the jail. The capability's
+     reach is still the jail's own user and pid namespaces, so on the host it still allows
+     nothing new. [`rocm-passthrough.md`](rocm-passthrough.md) already treats that key as
+     widening the escape surface, and `SYS_PTRACE` is one more reason to leave it off.
+  3. The capability is pinned in the argv for every podman launch shape: host rootless, host
+     rootful, host NVIDIA, and nested (`TestEveryPodmanLaunchGrantsSysPtrace`).
+  4. **Owed:** confirmation on a real rootless host. This document records no such run.
+- **A nested launch adds it unconditionally.** podman drops a `--cap-add` that is outside the
+  launcher's own bounding set instead of refusing the launch. This was measured on 2026-11-13 in a
+  jail whose bounding set lacked `SYS_PTRACE`. So a nested jail launched from an older jail simply
+  lacks the capability.
+  `TestNestedPodmanExecIntoANonRootContainer` (`integration/ptrace_test.go`) skips there and says
+  why.
 
 ### 2. Cgroup delegate
 
@@ -245,7 +296,7 @@ can only affect the container environment.
 **Container lifecycle**
 
 - [ ] Every mount flag — are all host paths expected, and does each trace to a config key?
-- [ ] Every added capability — is the widened set confined to the nesting and GPU branches?
+- [ ] Every added capability — is it in `podmanNestingArgs`' hardcoded set, recorded under [Jail capabilities](#jail-capabilities), and still held in a non-initial user namespace with no shared pid namespace?
 - [ ] Every device flag — are device paths validated rather than interpolated?
 - [ ] Is the runtime exec'd with an argv slice, with no shell anywhere in the path?
 - [ ] Does the UID/GID mapping match the invoking host user?
@@ -311,6 +362,7 @@ only place the values themselves are stated.
 | Cgroup name pattern | a leading alphanumeric plus a bounded `[A-Za-z0-9._-]` tail, with `..` rejected separately | `internal/cgd/cgd.go` |
 | CPU bound | 1% to 100 × the machine's core count | `internal/cgd/ops.go` |
 | PID bound | 1 to 1,000,000 | `internal/cgd/ops.go` |
+| Jail capabilities added (podman) | `SYS_ADMIN`, `NET_ADMIN`, `NET_RAW` and `SYS_PTRACE` on every branch, and `MKNOD` on every branch except NVIDIA | `run.podmanNestingArgs` (row added 2026-11-13) |
 | Request framing | one newline-terminated JSON line, read with a byte cap | `cgd.ParseRequest`, `run.readLineBounded` |
 | Delegate socket mode | `0o777` (the jail's UID differs; `SO_PEERCRED` is the authentication, not the mode) | `run.startCgroupDelegateInProc` |
 | In-jail client | `yolo-cglimit` | `cmd/yolo-cglimit` |

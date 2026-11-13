@@ -251,6 +251,14 @@ func cacheRelocationSubdirs(rels []config.CacheRelocation) string {
 // device flags still emitted by gpuArgs); the caller now declines nested NVIDIA before
 // the probe answers, so gpuEnabled is false by the time this is reached and the split
 // is unrepresentable rather than merely unlikely.
+//
+// EVERY BRANCH ADDS SYS_PTRACE (security-shim.md#jail-capabilities, owner 2026-11-13): crun,
+// as the jail's root, must open /proc/<pid>/ns/* to `podman exec` into a nested container
+// running as a non-root uid. The grant is safe ONLY because the capability is held in a
+// non-initial user namespace (the --uidmap pair below, rootful included; the nesting branch
+// shares a jail's own) and no --pid flag is assembled anywhere, so the jail sees no host
+// process. Never add `--pid=host` or drop the --uidmap pair while this stays;
+// ptracecap_test.go fails if either happens.
 func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor string) []string {
 	if inContainer {
 		args := []string{
@@ -260,6 +268,9 @@ func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor stri
 			"--cap-add", "MKNOD",
 			"--cap-add", "NET_ADMIN",
 			"--cap-add", "NET_RAW",
+			// A cap-add outside the launcher's bounding set is dropped by podman, not
+			// refused (measured 2026-11-13), so this is safe to add unconditionally.
+			"--cap-add", "SYS_PTRACE",
 		}
 		for _, dev := range []string{"/dev/fuse", "/dev/net/tun"} {
 			if o.PathExists(dev) {
@@ -279,6 +290,7 @@ func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor stri
 			"--cap-add", "SYS_ADMIN",
 			"--cap-add", "NET_ADMIN",
 			"--cap-add", "NET_RAW",
+			"--cap-add", "SYS_PTRACE",
 		}
 	}
 	args := []string{
@@ -292,6 +304,7 @@ func (o *Options) podmanNestingArgs(inContainer, gpuEnabled bool, gpuVendor stri
 		"--cap-add", "MKNOD",
 		"--cap-add", "NET_ADMIN",
 		"--cap-add", "NET_RAW",
+		"--cap-add", "SYS_PTRACE",
 	}
 	if o.PathExists("/dev/net/tun") {
 		args = append(args, "--device", "/dev/net/tun")
