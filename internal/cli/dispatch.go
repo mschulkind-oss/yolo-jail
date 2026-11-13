@@ -75,6 +75,9 @@ var registry = map[string]func(args []string) int{
 	"paste": runPaste,
 	// What happened to this workspace's requests, in a jail and on the host (history.go).
 	"history": runHistoryVerb,
+	// The MCP sign-in verb: an agent's command-backed Authorization header (mcpauth.go); Main
+	// routes it early too.
+	"mcp-auth": runMCPAuthVerb,
 	// The named verbs for a broker ceiling and a project's request (allow.go, request.go;
 	// docs/reference/config/editing.md#the-commands).
 	"allow":   runAllow,

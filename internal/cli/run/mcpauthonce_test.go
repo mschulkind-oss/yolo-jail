@@ -116,6 +116,46 @@ func TestMCPAuthShareHasNoOneSignInWithoutTheUsersSay(t *testing.T) {
 	}
 }
 
+// ID-22: with no store to adopt from (pi alone, or Claude under the credential view), the share
+// still names the user's one-sign-in servers, so the broker's header route can serve a sign-in
+// another jail or `yolo host` adopted; it names no source, so nothing adopts or writes back. A
+// workspace-composed server is still never the user's. Deleting the header-only fallback in
+// mcpShareFromPacks fails here.
+func TestMCPAuthShareNamesTheOneSignInServersForTheHeaderRouteWithNoSource(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the one-sign-in tier runs on Linux podman")
+	}
+	t.Setenv("HOME", t.TempDir())
+	slack := `{"slack":{"url":"https://mcp.slack.com/mcp","sign_in":"once"}}`
+	in := onceLaunchInput(t, slack, slack)
+	in.SharedCredentialDir = ""
+	data, err := mcpShareFromPacks(in, []*packload.Pack{shippedPack(t, "claude"), shippedPack(t, "pi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	share, err := mcpauth.DecodeShare(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(share.Once) != 1 || share.Once[0].Name != "slack" || len(share.Sources) != 0 {
+		t.Fatalf("share = once %+v, sources %+v; want slack with no source", share.Once, share.Sources)
+	}
+	var stderr bytes.Buffer
+	(&Options{Stderr: &stderr}).noteMCPAuthShare(in, data)
+	if strings.Contains(stderr.String(), "signs in once") {
+		t.Fatalf("a share with no source claimed adoption: %q", stderr.String())
+	}
+	workspaceOnly := onceLaunchInput(t, slack, `{}`)
+	workspaceOnly.SharedCredentialDir = ""
+	data, err = mcpShareFromPacks(workspaceOnly, []*packload.Pack{shippedPack(t, "pi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if share, err = mcpauth.DecodeShare(data); err != nil || len(share.Once) != 0 {
+		t.Fatalf("a workspace server joined the header route: %+v, %v", share.Once, err)
+	}
+}
+
 // On a backend with no broker, Claude's machine-wide store is still one file every jail reads,
 // so the launch must not claim each workspace signs in on its own.
 func TestMCPUnavailableLineForAMachineWideStore(t *testing.T) {

@@ -1917,7 +1917,52 @@ yolo.derive("pi", "model-lists", function(ctx)
   return { providers = in_full(ctx, lists) }
 end)
 
--- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers in
+-- pi_mcp_servers is ctx.mcp_servers in pi's spelling, for both MCP surfaces below. A local
+-- (stdio) server passes verbatim, as it always has. A remote one (the pack's
+-- mcp_remote_transports admits only "http", so an "sse" server never reaches here) becomes pi
+-- 1.0.1's streamable-HTTP entry (docs/mcp.md, "Configure servers" and "Authenticate with
+-- OAuth"; dist/core/mcp-servers.js, validateMcpServerConfig): `url`, `headers` verbatim (a
+-- `${VAR}` stays for pi to resolve), and `oauth` with yolo's snake_case renamed to pi's
+-- camelCase: client_id -> clientId, callback_port -> callbackPort, and the scopes list joined
+-- into pi's one space-separated `scope`. No `type` is written: a `url` selects streamable HTTP.
+-- yolo's remote form carries no client secret, so none is ever rendered.
+--
+-- A server the user made a one-sign-in server (`sign_in = "once"`), where the header route can
+-- answer (ctx.mcp_one_sign_in, docs/design/mcp-auth-sharing.md §9.6), takes the header route
+-- instead: its Authorization header is pi's `!command` form running `yolo mcp-auth header <name>`,
+-- whose stdout is the whole `Bearer <token>` value, and no `oauth` table is written. pi starts no
+-- sign-in of its own for a server with an Authorization header (usesOAuth is false), so it keeps
+-- nothing in ~/.pi/agent/mcp-auth.json for it; pi runs the command at each connection.
+local function pi_mcp_servers(ctx)
+  local out = {}
+  local one = ctx.mcp_one_sign_in or {}
+  for name, s in pairs(ctx.mcp_servers or {}) do
+    if s.url == nil then
+      out[name] = s
+    elseif one[name] ~= nil then
+      local headers = {}
+      for k, v in pairs(s.headers or {}) do
+        if string.lower(k) ~= "authorization" then headers[k] = v end
+      end
+      headers.Authorization = "!" .. one[name].header_command
+      out[name] = { url = s.url, headers = headers }
+    else
+      local e = { url = s.url }
+      if s.headers ~= nil then e.headers = s.headers end
+      if s.oauth ~= nil then
+        local oauth = {}
+        if s.oauth.client_id ~= nil then oauth.clientId = s.oauth.client_id end
+        if s.oauth.callback_port ~= nil then oauth.callbackPort = s.oauth.callback_port end
+        if s.oauth.scopes ~= nil and #s.oauth.scopes > 0 then oauth.scope = table.concat(s.oauth.scopes, " ") end
+        if next(oauth) ~= nil then e.oauth = oauth end
+      end
+      out[name] = e
+    end
+  end
+  return out
+end
+
+-- mcp: canonical mcp_servers lands under mcpServers (pi_mcp_servers above: local servers verbatim) in
 -- ~/.pi/agent/mcp.json, the global file pi's own MCP client reads (pi 0.99.0 and later,
 -- dist/extensions/mcp/config.js), whatever the project's trust. It was mcp-adapter.json,
 -- pi-mcp-adapter's file, until pi had a client of its own; the surface retires yolo's copy
@@ -1930,7 +1975,7 @@ end)
 -- (docs/reference/host-agent-environment.md, the host write is per key). A server yolo stops
 -- configuring still leaves the jail's file, because the capture baseline knows it was yolo's.
 yolo.derive("pi", "mcp", function(ctx)
-  return { mcpServers = ctx.mcp_servers }
+  return { mcpServers = pi_mcp_servers(ctx) }
 end)
 
 -- subagents-mcp (~/.config/mcp/mcp.json): the same servers again, for pi-subagents, which
@@ -1950,7 +1995,7 @@ end)
 -- claim the whole table as yolo's previous output (CO13). A server yolo stops configuring
 -- still leaves, because the capture baseline knows it was yolo's.
 yolo.derive("pi", "subagents-mcp", function(ctx)
-  return { mcpServers = ctx.mcp_servers }
+  return { mcpServers = pi_mcp_servers(ctx) }
 end)
 
 -- env: the environment pi's own process launches with, run host-side by the env runner

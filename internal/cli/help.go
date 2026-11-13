@@ -61,6 +61,8 @@ var commandHelp = []struct{ name, blurb string }{
 	// only that workspace now, so signing the MACHINE out is this verb's.
 	{"claude-auth", "Manage the machine-wide Claude login: 'status', 'inspect', 'refresh', 'logout'"},
 	{"loopholes", "List and self-check host-capability loopholes"},
+	// Beside the login verbs: it hands an agent the one MCP sign-in every jail shares.
+	{"mcp-auth", "Print an MCP server's Authorization header from the one shared sign-in: 'header <server>'"},
 	// The github-broker's two ends, together: what a jail runs, and what the host kept.
 	{"gh", "In a jail: run gh through the github-broker, with the host's login (host-approved exact writes)"},
 	{"access", "In a jail: read GitHub broker standing, predict a call, or file an approval first"},

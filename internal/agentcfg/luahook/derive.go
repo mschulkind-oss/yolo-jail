@@ -41,6 +41,8 @@ import (
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // DeriveCtx is what a derive function receives: only the inputs the producer is a
@@ -166,6 +168,13 @@ type DeriveCtx struct {
 	// RemoteMCPTransports is the set of remote MCP transports this agent pack's derive
 	// can render. An absent transport declaration means no remote form is supported.
 	RemoteMCPTransports []string
+
+	// MCPHeaderRoute is true where `yolo mcp-auth header` can answer for this agent: a jail whose
+	// mcp-auth broker runs, or the host on Linux (docs/design/mcp-auth-sharing.md §9.6, the plan's
+	// ID-23). It fills ctx.mcp_one_sign_in (mcpOneSignIn), read before `sign_in` is stripped from
+	// ctx.mcp_servers; false leaves that table empty, and every server renders as it would
+	// without the one sign-in.
+	MCPHeaderRoute bool
 
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
@@ -786,7 +795,14 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 			table = map[string]any{}
 		}
 		if src == sourceMCPServers {
-			table = withoutProvidesKey(eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have))
+			eligible := eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have)
+			// Read before withoutProvidesKey strips `sign_in` (DeriveCtx.MCPHeaderRoute).
+			oneSignIn, err := goToLua(L, mcpOneSignIn(eligible, ctx.MCPHeaderRoute))
+			if err != nil {
+				return nil, fmt.Errorf("luahook: marshalling ctx.mcp_one_sign_in: %w", err)
+			}
+			L.SetField(t, "mcp_one_sign_in", oneSignIn)
+			table = withoutProvidesKey(eligible)
 		}
 		lv, err := goToLua(L, table)
 		if err != nil {
@@ -1042,6 +1058,36 @@ func WithheldMCPServers(ctx *DeriveCtx) map[string]string {
 		return nil
 	}
 	return withheldMCPServers(ctx.Tables[sourceMCPServers], sourceCapabilities(ctx))
+}
+
+// MCPHeaderCommand is the command an agent runs for a one-sign-in server's Authorization header
+// value (`yolo mcp-auth header <name>`, docs/design/mcp-auth-sharing.md §9.6): its stdout is the
+// whole `Bearer <token>` value.
+func MCPHeaderCommand(name string) string {
+	return "yolo mcp-auth header " + shquote.Quote(name)
+}
+
+// mcpOneSignIn is ctx.mcp_one_sign_in: for each delivered remote server the user made a
+// one-sign-in server (`sign_in = "once"`), a table `{ header_command = <MCPHeaderCommand> }`, and
+// an empty table when route is false (DeriveCtx.MCPHeaderRoute). A derive whose agent takes a
+// header from a command renders that server with the command as its Authorization header and
+// none of its own sign-in.
+func mcpOneSignIn(servers map[string]any, route bool) map[string]any {
+	out := map[string]any{}
+	if !route {
+		return out
+	}
+	for name, v := range servers {
+		cfg, ok := v.(map[string]any)
+		if !ok || cfg["sign_in"] != "once" {
+			continue
+		}
+		if url, _ := cfg["url"].(string); url == "" {
+			continue
+		}
+		out[name] = map[string]any{"header_command": MCPHeaderCommand(name)}
+	}
+	return out
 }
 
 // withoutProvidesKey removes `provides` from every surviving MCP entry on the way out to

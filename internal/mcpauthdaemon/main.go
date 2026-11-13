@@ -219,6 +219,10 @@ func (b *broker) serve(socket string, stop <-chan struct{}) error {
 
 func (b *broker) handleStatus(s *hostservice.Session) {
 	op, _ := s.Get("op")
+	if op == "header" && s.JailID == b.share.Jail {
+		b.handleHeader(s)
+		return
+	}
 	if op != "status" || s.JailID != b.share.Jail {
 		s.Stderr("mcp-auth: unsupported request or jail; inspect the selected pack and retry\n")
 		s.Exit(2)

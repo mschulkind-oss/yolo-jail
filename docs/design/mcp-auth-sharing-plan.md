@@ -6,7 +6,7 @@ stage: DECIDED
 next: "The Mac witnesses for ID-19 and ID-20; resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
-summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (ID-19, ID-20). Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
+summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (ID-19, ID-20), and its header route for pi (yolo mcp-auth header, ID-22 to ID-24). Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
 ---
 
 # Plan: the remote `mcp_servers` form, then one MCP sign-in per user-level server for Codex (slice 1)
@@ -431,6 +431,78 @@ reverse it.
   Linux host is one `/mcp` Slack sign-in in `yolo host -- claude`, then `yolo audit --service
   mcp-auth` showing the `adopt`, and `~/.claude/.credentials.json`'s Slack entry with no
   `refreshToken`.
+- <a id="id-22"></a>**ID-22. `yolo mcp-auth header <server>` is the header route's one verb**
+  ([§9.6](mcp-auth-sharing.md#96-delivery-routes)). Its stdout is the whole
+  Authorization value, `Bearer <token>`, which is what pi's `!command` header expects. **Built
+  (2026-11-12)**, with these implementation decisions:
+  - *In a jail* it sends `{"op":"header","server":<name>}` to this launch's broker over
+    `YOLO_SERVICE_MCP_AUTH_BROKER_ENDPOINT`. With that variable unset, it exits 1 and names the
+    `mcp-auth` pack. *On the host*, where no broker runs for the caller, it answers itself. It
+    reads the broker's own canonical store (`mcpauthdaemon.HostHeader`), over the user-scope
+    composition `yolo host` launches with (`run.HostHeaderShare`). Main routes the verb before
+    the banner, as it does `yolo gh`.
+  - *What it serves.* It serves only a name in the share's `once` list. That list is
+    `run.onceServersOf`: the user's own `sign_in = "once"` servers, with their identity. Any other
+    name exits 2 and names `yolo config set mcp_servers.<name>.sign_in once --user`. A workspace
+    that redefines such a server takes it out of the list, as [§5](mcp-auth-sharing.md#5-which-servers-are-user-level)
+    rules. pi's header command then fails, and pi reports the server as failed.
+  - *Refresh.* `OnceBroker.Header` refreshes first when under five minutes
+    (`mcpauth.HeaderMargin`) remain. It uses the poll's own refresh, under the record's lock,
+    with the record re-read inside it. The fresh token is written back to the record's origin
+    store when this broker has that store as a source. A transient refresh failure still hands
+    over a token that has not expired. An expired one is refused. Each token handed over writes
+    the `header` audit event, which never carries the token.
+  - *A share with no source still serves.* The share's `once` list is filled even when there is
+    no store to adopt from: Claude under the credential view, say, or pi beside the `mcp-auth`
+    pack with no Claude.
+    Nothing adopts or writes back without a source, so adoption still needs both a server and a
+    store (`run.onceShare`). The header route reads a sign-in that another jail's broker, or
+    `yolo host`, adopted.
+  - *Each request gets its own `OnceBroker`.* Its backoff and refusal maps are not shared between
+    concurrent requests; the record's lock orders the refreshes.
+
+  `TestOnceHeaderHandsOverTheCurrentToken`, `TestOnceHeaderRefreshesATokenAboutToExpire`,
+  `TestOnceHeaderRefreshesWithNoSource`, `TestOnceHeaderRefusesAServerNotSignedIn`,
+  `TestOnceHeaderTransientFailureKeepsAValidTokenAndRefusesAnExpiredOne`,
+  `TestTheBrokerAnswersTheHeaderOp`, `TestTheHeaderOpAuditsEachTokenItHandsOver`,
+  `TestHostHeaderServesTheCanonicalSignIn`,
+  `TestMCPAuthShareNamesTheOneSignInServersForTheHeaderRouteWithNoSource`,
+  `TestMCPAuthHeaderExchangePassesTheBrokersAnswerThrough`,
+  `TestMCPAuthHeaderInAJailWithNoBrokerSaysSo`, `TestMCPAuthHostHeaderComposesTheUsersOwnConfig`,
+  `TestMCPAuthHeaderThroughMainPrintsOnlyTheHeaderValue`.
+- <a id="id-23"></a>**ID-23. A derive learns where the header route can answer from
+  `ctx.mcp_one_sign_in`.** **Built (2026-11-12)** for pi:
+  - *Where.* `luahook.DeriveCtx.MCPHeaderRoute` is set by entrypoint's `mcpHeaderRoute`. It is
+    true in a jail when the broker's endpoint variable is set, which means a podman jail on Linux
+    that selects the `mcp-auth` pack (the `claude` pack needs it). It is true at the host on
+    Linux. It is false on Apple Container, macos-user, and the host on a Mac. In those places
+    nothing would answer the command, or nothing takes a sign-in over, so the agent keeps its own
+    sign-in.
+  - *What a derive sees.* `ctx.mcp_one_sign_in` maps each delivered remote server with
+    `sign_in = "once"` to `{ header_command = "yolo mcp-auth header <name>" }`. It is read before
+    `sign_in` is stripped from `ctx.mcp_servers`.
+  - *pi's render.* pi writes the server as `url`, the user's other headers, and
+    `Authorization = "!yolo mcp-auth header <name>"`. It drops any other-cased `authorization`
+    header and writes no `oauth` table. pi starts no sign-in for a server with an Authorization
+    header (its `usesOAuth` is false). So pi keeps nothing in `~/.pi/agent/mcp-auth.json` for that
+    server. The pi lock fix in phase C (`session_homes` link to `mcp-auth.json`) is therefore not
+    a precondition of this route. It is still needed for pi's own sign-ins.
+  - *Codex is not built.* The installed Codex 0.145.0 has no `http_headers_helper`, so there is
+    no command-backed header to render (blocker B2's class).
+
+  `TestPiMcpTakesTheHeaderRouteForAOneSignInServerWhereTheBrokerRuns`,
+  `TestMCPHeaderRouteAtEachNotch`.
+- <a id="id-24"></a>**ID-24. pi's remote form is streamable HTTP only.** `packs/pi/pack.toml`
+  declares `mcp_remote_transports = ["http"]`. Stock pi 1.0.1 rejects SSE, so an `sse` server is
+  withheld from pi, with the boot notice naming it. `derive.lua`'s `pi_mcp_servers` maps yolo's
+  form to pi's:
+  - `url` is written, and no `type` (a `url` selects streamable HTTP);
+  - `headers` is copied verbatim, so `${VAR}` stays for pi;
+  - `oauth.client_id` becomes `clientId`, and `callback_port` becomes `callbackPort`;
+  - the `scopes` list is joined into pi's one space-separated `scope`;
+  - no client secret is ever written.
+
+  **Built (2026-11-12).** `TestPiMcpRendersARemoteServerInPisOwnForm`.
 
 ## Tasks
 
@@ -1411,6 +1483,20 @@ the design's; what is recorded here is what that pass must start from.
   replaces it ([OQ-MA9](mcp-auth-sharing.md#OQ-MA9), ruled B). The [§9.3](mcp-auth-sharing.md#93-adopting-a-sign-in-an-agent-already-has) measurements
   (Claude keeps working with no `refreshToken`; Slack refreshes with the client id alone) are
   the owner's end-to-end check of this slice, not yet taken.
+
+  **Status (2026-11-12):** three more pieces are built:
+  - `yolo mcp-auth header` ([ID-22](#id-22));
+  - pi's header-route render ([ID-23](#id-23));
+  - pi's remote form ([ID-24](#id-24)).
+
+  So pi gets a Slack sign-in that Claude made, with no sign-in of its own. That holds in a podman
+  jail on Linux whose broker runs, and at `yolo host -- pi` on Linux. Still not built:
+  - `mcp_sign_in`;
+  - `oauth.client_secret_command`;
+  - `login`, `logout` and `status`;
+  - Codex's header-route render, since Codex 0.145.0 has no `http_headers_helper`.
+
+  The owner's real-host check has not been taken yet.
 
   **Parity follow-ups for this slice:**
 

@@ -490,12 +490,29 @@ func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables ma
 		ModelsNotEnforced:     sel.ModelsNotEnforced,
 		Subagents:             sel.Subagents,
 		RemoteMCPTransports:   sel.RemoteMCPTransports,
+		MCPHeaderRoute:        mcpHeaderRoute(e),
 		Tables:                tables,
 		UnknownAPI:            func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by
 		// agent like the skew note above, so one finding prints once per boot.
 		Warn: func(msg string) { e.warnOnce("pack derive for " + surface.Agent + ": " + msg) },
 	}
+}
+
+// mcpAuthBrokerEndpointEnv is the mcp-auth broker's jail-facing endpoint variable: set only for a
+// launch whose broker runs (a podman jail on Linux that selects the mcp-auth pack).
+const mcpAuthBrokerEndpointEnv = "YOLO_SERVICE_MCP_AUTH_BROKER_ENDPOINT"
+
+// mcpHeaderRoute reports whether `yolo mcp-auth header` can answer at this notch
+// (luahook.DeriveCtx.MCPHeaderRoute; the plan's ID-23): in a jail, where its broker runs; at the
+// host on Linux, where the verb reads the broker's canonical store itself. Not at the host on a
+// Mac, where nothing at that notch takes a sign-in over (the agent's store is the Keychain), so
+// a header command could only fail where the agent's own sign-in works.
+func mcpHeaderRoute(e *Env) bool {
+	if e.hostTarget {
+		return runtime.GOOS == "linux"
+	}
+	return e.Getenv(mcpAuthBrokerEndpointEnv) != ""
 }
 
 // savedSurfaceStrings is the surface file's own top-level string values at this notch, as the

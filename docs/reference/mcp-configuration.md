@@ -138,11 +138,26 @@ schema and complete validation behavior are in `yolo config-ref`.
 
 Remote rendering is an agent-pack capability, not a core switch: the pack declares the remote
 transports its derive can represent, and `eligibleRemoteMCPServers` withholds every other
-remote entry before Lua sees the table. Codex renders streamable HTTP; Claude and opencode render
-HTTP and SSE. Packs without a remote-form declaration receive no remote entry, while their local
-stdio entries remain unchanged. The boot notice names the agents that could not render a server
-and, when applicable, the agents that did. No agent is invoked and no endpoint is contacted while
-the configuration is rendered.
+remote entry before Lua sees the table. Codex and pi render streamable HTTP; Claude and opencode
+render HTTP and SSE. Packs without a remote-form declaration receive no remote entry, while their
+local stdio entries remain unchanged. The boot notice names the agents that could not render a
+server and, when applicable, the agents that did. No agent is invoked and no endpoint is contacted
+while the configuration is rendered.
+
+pi's entry in `~/.pi/agent/mcp.json` is `url` with no `type`, since a `url` selects streamable
+HTTP in pi 1.0.1. `headers` is copied verbatim, so pi resolves `${VAR}` itself. `oauth` is pi's
+camelCase table: `clientId`, `callbackPort`, and the scopes joined into one space-separated
+`scope`. pi rejects SSE, so an `sse` server is withheld from it
+([ID-24](../design/mcp-auth-sharing-plan.md#id-24)).
+
+**The header route.** A user-level server with `sign_in = "once"` has one sign-in, shared by
+every agent ([§9.6](../design/mcp-auth-sharing.md#96-delivery-routes)). Where
+`yolo mcp-auth header` can answer, the derive sees that server in `ctx.mcp_one_sign_in`, with
+the command to run. That is a podman jail on Linux whose mcp-auth broker runs, or the host on
+Linux. pi renders the server's Authorization header as `!yolo mcp-auth header <name>` and writes
+no `oauth` table. So pi takes the token from the shared sign-in at each connection, and starts no
+sign-in of its own ([ID-23](../design/mcp-auth-sharing-plan.md#id-23)). Elsewhere the server
+renders in the plain form above.
 
 `MCPServerScopes` attributes a live server as user-level only when the user's configuration and
 selected packs alone compose the same name with the same sign-in identity (`url`, transport,

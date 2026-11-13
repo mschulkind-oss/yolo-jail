@@ -142,6 +142,15 @@ func mcpShareFromPacks(in LaunchInputContext, packs []*packload.Pack) ([]byte, e
 	if share.Once, share.Sources, err = onceShare(in, packs); err != nil {
 		return nil, err
 	}
+	// With no store to adopt from, the broker still serves the header route for these servers
+	// (ID-22): a sign-in another jail's broker or `yolo host` adopted is in the one canonical
+	// store, and an agent that sends the token as a header (pi) reads it from there. Nothing
+	// adopts or writes back without a source, so OQ-MA8's both-or-neither rule for adoption holds.
+	if len(share.Once) == 0 {
+		if share.Once, err = onceServersOf(in); err != nil {
+			return nil, err
+		}
+	}
 	if err := share.Validate(); err != nil {
 		return nil, err
 	}
@@ -203,6 +212,22 @@ func onceShareFrom(in LaunchInputContext, packs []*packload.Pack,
 	if len(sources) == 0 {
 		return nil, nil, nil
 	}
+	once, err := onceServersOf(in)
+	if err != nil || len(once) == 0 {
+		return nil, nil, err
+	}
+	return once, sources, nil
+}
+
+// onceServersOf is the user's own `sign_in = "once"` remote servers this launch composed, each
+// with its identity: the list the broker adopts and refreshes for (onceShareFrom), and the one
+// its header route serves (`yolo mcp-auth header`, docs/design/mcp-auth-sharing.md §9.6, ID-22).
+// A server is served only under the name and identity listed here, so a workspace that changes
+// a server's url or headers is refused rather than handed the user's token.
+func onceServersOf(in LaunchInputContext) ([]mcpauth.OnceServer, error) {
+	if in.UserOnlyMCPServers == nil || in.EffectiveMCPServers == nil {
+		return nil, nil
+	}
 	names := in.UserOnlyMCPServers.Keys()
 	sort.Strings(names)
 	var once []mcpauth.OnceServer
@@ -228,7 +253,7 @@ func onceShareFrom(in LaunchInputContext, packs []*packload.Pack,
 			for key, value := range rawHeaders {
 				v, ok := value.(string)
 				if !ok {
-					return nil, nil, fmt.Errorf("mcp-auth: %s: invalid headers in approved MCP server", name)
+					return nil, fmt.Errorf("mcp-auth: %s: invalid headers in approved MCP server", name)
 				}
 				headers[key] = v
 			}
@@ -239,14 +264,11 @@ func onceShareFrom(in LaunchInputContext, packs []*packload.Pack,
 		}
 		identity, err := mcpIdentity(url, transport, headers, clientID)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		once = append(once, mcpauth.OnceServer{Name: name, Identity: identity, URL: url})
 	}
-	if len(once) == 0 {
-		return nil, nil, nil
-	}
-	return once, sources, nil
+	return once, nil
 }
 
 // sharedStoreDir is the home-relative machine-scope directory a pack's `shared_credentials`

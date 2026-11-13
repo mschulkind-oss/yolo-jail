@@ -228,10 +228,10 @@ func (b *OnceBroker) passServer(ctx context.Context, src OnceSource, server Once
 		if !b.retryReady(server) {
 			return nil
 		}
-		return b.refresh(ctx, src, server)
+		return b.refresh(ctx, &src, server)
 	}
 	if b.ours(src, raw, record) && !b.current(src, raw, record) {
-		return b.writeBack(src, record)
+		return b.writeBack(&src, record)
 	}
 	return nil
 }
@@ -417,18 +417,23 @@ func (b *OnceBroker) adopt(ctx context.Context, src OnceSource, server OnceServe
 		return fmt.Errorf("the adopted sign-in could not be stored; sign in again with %s: %w", src.Pack, err)
 	}
 	b.audit("adopt", server.Name, generation)
-	return b.writeBack(src, &Record{SourceKey: key, AccessToken: tokens.AccessToken, ExpiresAtMS: expires, AdoptedRefreshH: tokenHash(rt)})
+	return b.writeBack(&src, &Record{SourceKey: key, AccessToken: tokens.AccessToken, ExpiresAtMS: expires, AdoptedRefreshH: tokenHash(rt)})
 }
 
 // writeBack puts the record's access token and expiry into the source entry, under the
-// agent's lock, when that entry is still the broker's to write.
-func (b *OnceBroker) writeBack(src OnceSource, record *Record) error {
+// agent's lock, when that entry is still the broker's to write. A nil src (a header request
+// whose share holds no store of the record's origin) writes nothing: the next pass of a broker
+// that has the store writes the entry back, since it is then the broker's and not current.
+func (b *OnceBroker) writeBack(src *OnceSource, record *Record) error {
+	if src == nil {
+		return nil
+	}
 	err := src.Store.Update(func(entries map[string]json.RawMessage) (bool, error) {
 		raw, ok := entries[record.SourceKey]
-		if !ok || !b.ours(src, raw, record) || b.current(src, raw, record) {
+		if !ok || !b.ours(*src, raw, record) || b.current(*src, raw, record) {
 			return false, nil
 		}
-		next, err := withEntryTokens(src, raw, record.AccessToken, record.ExpiresAtMS)
+		next, err := withEntryTokens(*src, raw, record.AccessToken, record.ExpiresAtMS)
 		if err != nil {
 			return false, err
 		}
@@ -443,7 +448,7 @@ func (b *OnceBroker) writeBack(src OnceSource, record *Record) error {
 
 // refresh redeems the broker's own refresh token when the record is due, re-reading the
 // record under its lock so a refresh another broker just made is not repeated.
-func (b *OnceBroker) refresh(ctx context.Context, src OnceSource, server OnceServer) error {
+func (b *OnceBroker) refresh(ctx context.Context, src *OnceSource, server OnceServer) error {
 	release, err := b.lockRecord(server)
 	if err != nil {
 		return err
@@ -484,8 +489,10 @@ func (b *OnceBroker) refresh(ctx context.Context, src OnceSource, server OnceSer
 				r.RefreshToken = tokens.RefreshToken
 			}
 			r.RefreshedAt = now.UTC().Format(time.RFC3339)
-			if entry, err := withEntryTokens(src, r.Entry, r.AccessToken, r.ExpiresAtMS); err == nil {
-				r.Entry = entry
+			if src != nil {
+				if entry, err := withEntryTokens(*src, r.Entry, r.AccessToken, r.ExpiresAtMS); err == nil {
+					r.Entry = entry
+				}
 			}
 			updated = *r
 			return nil
@@ -493,7 +500,7 @@ func (b *OnceBroker) refresh(ctx context.Context, src OnceSource, server OnceSer
 		return errors.New("the record disappeared during its refresh")
 	})
 	if err != nil {
-		return fmt.Errorf("a refreshed sign-in could not be stored; sign in again with %s: %w", src.Pack, err)
+		return fmt.Errorf("a refreshed sign-in could not be stored; sign in again with %s: %w", signInWith(src, record), err)
 	}
 	b.audit("refresh", server.Name, updated.Generation)
 	return b.writeBack(src, &updated)
@@ -502,7 +509,7 @@ func (b *OnceBroker) refresh(ctx context.Context, src OnceSource, server OnceSer
 // markDead records a definitive refresh failure (§8.4) and removes the source entry when it
 // is still the broker's copy, so the agent asks to sign in again instead of using a token
 // that cannot be renewed.
-func (b *OnceBroker) markDead(src OnceSource, server OnceServer, record *Record, cause error) error {
+func (b *OnceBroker) markDead(src *OnceSource, server OnceServer, record *Record, cause error) error {
 	var generation uint64
 	err := b.Canonical.WithLock(func(file *CanonicalFile) error {
 		for i := range file.Records {
@@ -518,10 +525,13 @@ func (b *OnceBroker) markDead(src OnceSource, server OnceServer, record *Record,
 		return err
 	}
 	b.audit("dead", server.Name, generation)
-	b.warn("%s: %v; sign in again with %s", server.Name, cause, src.Pack)
+	b.warn("%s: %v; sign in again with %s", server.Name, cause, signInWith(src, record))
+	if src == nil {
+		return nil
+	}
 	if err := src.Store.Update(func(entries map[string]json.RawMessage) (bool, error) {
 		raw, ok := entries[record.SourceKey]
-		if !ok || !b.ours(src, raw, record) {
+		if !ok || !b.ours(*src, raw, record) {
 			return false, nil
 		}
 		at, _ := stringAt(raw, src.Fields.AccessToken)
@@ -573,4 +583,67 @@ func (b *OnceBroker) signOut(src OnceSource, server OnceServer) error {
 	}
 	b.audit("sign-out", server.Name, generation)
 	return nil
+}
+
+// signInWith names the agent a user signs in again with: the store's pack, else the agent the
+// record was adopted from.
+func signInWith(src *OnceSource, record *Record) string {
+	if src != nil {
+		return src.Pack
+	}
+	if record != nil && record.AdoptedFrom != "" {
+		return record.AdoptedFrom
+	}
+	return "the agent you signed in with"
+}
+
+// HeaderMargin is the header route's rule (docs/design/mcp-auth-sharing.md §9.6): the token
+// handed out is refreshed first when under 5 minutes of it remain.
+const HeaderMargin = 5 * time.Minute
+
+// ErrNotSignedIn is a header request for a server with no live one-sign-in record: nobody has
+// signed in yet, the sign-in was signed out, or its refresh failed for good.
+var ErrNotSignedIn = errors.New("not signed in")
+
+// ErrTokenExpired is a header request whose token ran out while its refresh failed
+// transiently: a later request tries the refresh again.
+var ErrTokenExpired = errors.New("its token has expired and the refresh has not succeeded yet")
+
+// Header is the header route (docs/design/mcp-auth-sharing.md §9.6): the current access token
+// of server's one-sign-in record, refreshed first when under HeaderMargin remain, with the
+// `header` audit event written. The refresh is the poll's own (under the record's lock, the
+// record re-read inside it), so one another broker just made is not repeated. sources are the
+// stores this broker may write back to; the record's origin among them gets the fresh token.
+// Only the access token leaves, never the refresh token.
+func (b *OnceBroker) Header(ctx context.Context, server OnceServer, sources []OnceSource) (string, error) {
+	record, err := b.findRecord(server)
+	if err != nil {
+		return "", err
+	}
+	if record == nil || record.State != "live" || record.AccessToken == "" {
+		return "", ErrNotSignedIn
+	}
+	if !b.now().Add(HeaderMargin).Before(time.UnixMilli(record.ExpiresAtMS)) && b.retryReady(server) {
+		var src *OnceSource
+		for i := range sources {
+			if originOf(record, sources[i]) {
+				src = &sources[i]
+				break
+			}
+		}
+		if err := b.refresh(ctx, src, server); err != nil {
+			return "", err
+		}
+		if record, err = b.findRecord(server); err != nil {
+			return "", err
+		}
+		if record == nil || record.State != "live" || record.AccessToken == "" {
+			return "", ErrNotSignedIn
+		}
+	}
+	if !b.now().Before(time.UnixMilli(record.ExpiresAtMS)) {
+		return "", ErrTokenExpired
+	}
+	b.audit("header", server.Name, record.Generation)
+	return record.AccessToken, nil
 }
