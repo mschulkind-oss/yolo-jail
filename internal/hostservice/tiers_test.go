@@ -13,6 +13,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // syncBuf is a Logger destination safe to read while a connection goroutine
@@ -114,7 +115,7 @@ func TestFramedDaemonProducesBothTiers(t *testing.T) {
 
 	logs := captureLog(t)
 
-	dir, err := os.MkdirTemp("/tmp", "yj-tiers-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-tiers-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestFramedDaemonProducesBothTiers(t *testing.T) {
 func TestServeUnixKeepsTheClientSuppliedJailID(t *testing.T) {
 	logs := captureLog(t)
 
-	dir, err := os.MkdirTemp("/tmp", "yj-unixjail-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-unixjail-")
 	if err != nil {
 		t.Fatal(err)
 	}

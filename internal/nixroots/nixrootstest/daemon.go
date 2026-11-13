@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // Daemon is one fake daemon, listening on Socket until the test ends.
@@ -50,7 +52,7 @@ func Start(t testing.TB, opts Options) *Daemon {
 	if opts.Protocol == 0 {
 		opts.Protocol = 1<<8 | 38
 	}
-	dir, err := os.MkdirTemp("/tmp", "nrd-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "nrd-")
 	if err != nil {
 		t.Fatal(err)
 	}

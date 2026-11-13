@@ -22,6 +22,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestMain lets a self-exec'd `yolo internal daemon <name>` spawn resolve to THIS test
@@ -97,6 +98,10 @@ func TestMain(m *testing.M) {
 	// anything: this package's launches spawn real host singletons, which get a private
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and
 	// the ones they started are stopped when the package ends.
+	// A CHILD OF THIS BINARY LEAVES NOTHING BEHIND (testtmp.Isolate): a helper re-exec runs this
+	// TestMain again and exits, execs away or is killed before its own removals run, so its
+	// directories and t.TempDirs go in a private TMPDIR this process removes.
+	releaseTmp := testtmp.Isolate()
 	release := testsupport.IsolateHostSingletons()
 	// EVERY TEST STARTS IN A HOME OF ITS OWN. Most fixtures set HOME; the host-service ones
 	// (startExternalServiceHarness and its neighbors) did not, and each wrote its log into the
@@ -122,7 +127,7 @@ func TestMain(m *testing.M) {
 	releasePin()
 	releaseHome()
 	release()
-	os.Exit(code)
+	os.Exit(releaseTmp(code))
 }
 
 // TestThisPackageStartsInAHomeOfItsOwn fails if TestMain stops isolating HOME, which would put
@@ -357,3 +362,7 @@ func readJournalFrames(t *testing.T, c net.Conn) (string, int) {
 		}
 	}
 }
+
+// TestThisPackageIsolatesTMPDIR fails if TestMain stops calling testtmp.Isolate, which would
+// put every helper child's leftovers back in the machine's TMPDIR.
+func TestThisPackageIsolatesTMPDIR(t *testing.T) { testtmp.RequireIsolated(t) }

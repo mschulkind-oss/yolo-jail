@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // shortSocketDir returns a scratch dir directly under /tmp.
@@ -26,7 +27,7 @@ import (
 // into invisible non-coverage.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-jctl-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-jctl-")
 	if err != nil {
 		t.Fatal(err)
 	}

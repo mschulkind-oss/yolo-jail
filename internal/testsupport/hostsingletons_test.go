@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestIsolateGivesAPrivateDirAndRestoresIt: the seam moves off the machine-wide /tmp for
@@ -19,8 +20,11 @@ func TestIsolateGivesAPrivateDirAndRestoresIt(t *testing.T) {
 	t.Setenv(inheritEnv, "")
 	release := IsolateHostSingletons()
 	dir := paths.HostSingletonDir
-	if dir == paths.DefaultHostSingletonDir || !strings.HasPrefix(dir, "/tmp/"+dirPrefix) {
-		t.Fatalf("HostSingletonDir = %q, want a private /tmp/%s* dir", dir, dirPrefix)
+	// A failure below still removes the dir: the release is idempotent.
+	t.Cleanup(release)
+	base := testtmp.ShortDir()
+	if dir == paths.DefaultHostSingletonDir || !strings.HasPrefix(dir, filepath.Join(base, dirPrefix)) {
+		t.Fatalf("HostSingletonDir = %q, want a private %s/%s* dir", dir, base, dirPrefix)
 	}
 	if got := os.Getenv(inheritEnv); got != dir {
 		t.Errorf("%s = %q, want %q so helper children inherit it", inheritEnv, got, dir)
@@ -60,7 +64,7 @@ func TestIsolateReusesAnInheritedDir(t *testing.T) {
 // so only what this process created is this process's to remove or stop.
 func TestReleaseLeavesEveryOtherDirAlone(t *testing.T) {
 	t.Setenv(inheritEnv, "")
-	other, err := os.MkdirTemp("/tmp", dirPrefix)
+	other, err := os.MkdirTemp(testtmp.ShortDir(), dirPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}

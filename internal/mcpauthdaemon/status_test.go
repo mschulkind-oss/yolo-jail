@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func TestMCPAuthStatusRequestNeverRepairsCanonicalPermissions(t *testing.T) {
@@ -31,7 +32,7 @@ func TestMCPAuthStatusRequestNeverRepairsCanonicalPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := broker{canonical: canonical, share: mcpauth.Share{Jail: "jail-status", Replicas: []mcpauth.Replica{{Pack: "codex"}}}}
-	parent, err := os.MkdirTemp("/tmp", "yj-mcp-status-")
+	parent, err := os.MkdirTemp(testtmp.ShortDir(), "yj-mcp-status-")
 	if err != nil {
 		t.Fatal(err)
 	}

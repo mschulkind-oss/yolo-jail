@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestASocketPathThatExistsAccepts pins bindUnixSocket's publish order: the path appears
@@ -102,7 +104,7 @@ func TestTheStagedBindLeavesOnlyThe0600Socket(t *testing.T) {
 // shortDir is a temp dir short enough for AF_UNIX paths on every platform.
 func shortDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "hs")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "hs")
 	if err != nil {
 		t.Fatal(err)
 	}

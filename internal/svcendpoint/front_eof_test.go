@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // eofSocketDir returns a per-test directory short enough to hold an AF_UNIX
@@ -16,7 +18,7 @@ import (
 // reports a timeout that reads as a broken front rather than a too-long path.
 func eofSocketDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-fe-*")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-fe-*")
 	if err != nil {
 		t.Fatal(err)
 	}

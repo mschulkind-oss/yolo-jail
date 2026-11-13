@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // captureStdio swaps os.Stdout and os.Stderr for pipes while fn runs and returns what
@@ -57,7 +58,7 @@ func captureStdio(t *testing.T, fn func()) (stdout, stderr string) {
 // to publish a credential into the 0755 directory t.TempDir() creates.
 func privateDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-serial-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-serial-")
 	if err != nil {
 		t.Fatal(err)
 	}

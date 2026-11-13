@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -26,7 +27,7 @@ import (
 // platform failure into invisible non-coverage.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-cglimit-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-cglimit-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // THE DELTA ARCHIVE AGAINST THE REAL COPIER AND A REAL REMOTE PODMAN
@@ -248,7 +249,7 @@ func startRemotePodman(t *testing.T) *remotePodman {
 	// t.TempDir: podman refuses a runroot longer than 50 characters ("the
 	// specified runroot is longer than 50 characters"), and CI's TMPDIR
 	// (/home/runner/work/_temp/…) plus a test-named t.TempDir is always longer.
-	short, err := os.MkdirTemp("/tmp", "ypd")
+	short, err := os.MkdirTemp(testtmp.ShortDir(), "ypd")
 	if err != nil {
 		t.Fatalf("short runroot dir: %v", err)
 	}

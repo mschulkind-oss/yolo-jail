@@ -8,6 +8,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/heldchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // IsolateHostSingletons points paths.HostSingletonDir, and paths.FrontSocketDir where each
@@ -30,7 +31,8 @@ import (
 // machine is shared — other agents, other test runs and nested jails run beside it, and
 // a PID file can outlive its process and name one the kernel has reused.
 //
-// The directory is short on purpose (os.MkdirTemp("/tmp", "ys-")): the socket path must
+// The directory is short on purpose (os.MkdirTemp(testtmp.ShortDir(), "ys-"), /tmp unless
+// TMPDIR is as short): the socket path must
 // stay under darwin's 104-byte sun_path. The spawned daemon learns its socket from its
 // argv, so the redirect reaches the child process with no environment variable.
 func IsolateHostSingletons() (cleanup func()) {
@@ -46,7 +48,7 @@ func IsolateHostSingletons() (cleanup func()) {
 			return func() {}
 		}
 	}
-	dir, err := os.MkdirTemp("/tmp", dirPrefix)
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), dirPrefix)
 	if err != nil {
 		panic("testsupport: creating a private host-singleton dir: " + err.Error())
 	}

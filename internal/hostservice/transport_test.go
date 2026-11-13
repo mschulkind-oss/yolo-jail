@@ -14,6 +14,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // pinnedTLSClient dials the published listener over TLS pinning its exact
@@ -64,7 +65,7 @@ func writeTokenFrameRaw(t *testing.T, w net.Conn, token string) {
 // line, because there was no session.
 func TestServeRejectsUnauthenticatedBeforeHandler(t *testing.T) {
 	advertiseLoopback(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-auth-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-auth-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func TestServeRejectsUnauthenticatedBeforeHandler(t *testing.T) {
 // port-scan case: reachability is not authorization.
 func TestServeRejectsPlaintextBeforeHandler(t *testing.T) {
 	advertiseLoopback(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-plain-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-plain-")
 	if err != nil {
 		t.Fatal(err)
 	}

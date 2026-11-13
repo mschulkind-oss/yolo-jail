@@ -237,6 +237,7 @@ func TestTheHostCapturesConfinementHoldsOnThisKernel(t *testing.T) {
 	// YOLO'S OWN SECRET-BEARING /tmp STATE, as a `yolo host` session keeps it: an endpoint file, 0600 in
 	// a 0700 directory directly under the real /tmp (paths.DefaultHostSingletonDir), whatever TMPDIR
 	// this test runs under. Only those permissions protect it from a process of the same user.
+	// testtmp:literal-tmp the subject is the real /tmp itself; removed by t.Cleanup below.
 	tmpState, err := os.MkdirTemp("/tmp", "yolo-host-services-landlock-test-")
 	if err != nil {
 		t.Fatalf("the real /tmp is not writable here: %v", err)

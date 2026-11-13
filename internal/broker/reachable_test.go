@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // sunPathMax is the longest AF_UNIX path that binds on the tighter of the two platforms:
@@ -23,7 +25,7 @@ const sunPathMax = 103
 // the fix. Reproduced on Linux by pointing TMPDIR at a long path, which is how this was found.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-brk-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-brk-")
 	if err != nil {
 		t.Fatal(err)
 	}

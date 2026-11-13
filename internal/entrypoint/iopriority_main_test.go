@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestMain lets the test binary play the entrypoint for
@@ -26,6 +28,14 @@ func TestMain(m *testing.M) {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	}
+	// A CHILD OF THIS BINARY LEAVES NOTHING BEHIND (testtmp.Isolate): a helper re-exec runs this
+	// TestMain again and exits, execs away or is killed before its own removals run, so its
+	// directories and t.TempDirs go in a private TMPDIR this process removes.
+	releaseTmp := testtmp.Isolate()
 	code := runWithStandInImageBins(m)
-	os.Exit(code)
+	os.Exit(releaseTmp(code))
 }
+
+// TestThisPackageIsolatesTMPDIR fails if TestMain stops calling testtmp.Isolate, which would
+// put every helper child's leftovers back in the machine's TMPDIR.
+func TestThisPackageIsolatesTMPDIR(t *testing.T) { testtmp.RequireIsolated(t) }

@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // handler_test.go drives the handler over the REAL host-to-host transport
@@ -31,7 +32,7 @@ import (
 // point the path is MINTED.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "yj-aa-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-aa-")
 	if err != nil {
 		t.Fatal(err)
 	}

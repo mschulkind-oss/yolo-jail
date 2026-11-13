@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestBrokerEndpointEnvVarDoesNotDrift ties the run pipeline's PRODUCER to the
@@ -299,7 +300,7 @@ func assertSockPathFits(t *testing.T, path string) {
 // what TestSocketDirIgnoresALongTMPDIR pins.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-run-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-run-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +312,7 @@ func shortSocketDir(t *testing.T) string {
 // check-macos break: it reproduces darwin's long TMPDIR on any platform, proves
 // the reproduction is real, and then proves the helper is immune to it.
 func TestSocketDirIgnoresALongTMPDIR(t *testing.T) {
-	long, err := os.MkdirTemp("/tmp", "yj-tmpdir-"+strings.Repeat("x", 60)+"-")
+	long, err := os.MkdirTemp(testtmp.ShortDir(), "yj-tmpdir-"+strings.Repeat("x", 60)+"-")
 	if err != nil {
 		t.Fatal(err)
 	}

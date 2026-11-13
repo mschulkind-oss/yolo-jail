@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // A broker stopped during a long read. Every run dir holds a copy of the host's hosts.yml,
@@ -224,7 +225,7 @@ func startBrokerProcessWith(t *testing.T, userConfig string) *brokerProcess {
 		t.Fatal(err)
 	}
 	p.scopeFile, p.workspace = sf, ws
-	sockDir, err := os.MkdirTemp("/tmp", "ghb-") // AF_UNIX paths are short on darwin
+	sockDir, err := os.MkdirTemp(testtmp.ShortDir(), "ghb-") // AF_UNIX paths are short on darwin
 	if err != nil {
 		t.Fatal(err)
 	}

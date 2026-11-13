@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func windowFixture(t *testing.T) (*Broker, *atomic.Int32) {
@@ -304,7 +305,7 @@ func productionEndpointDirs(container string) map[string]string {
 func frontedEndpoint(t *testing.T, b *Broker, dirName string) (ForwardEnv, string) {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
-	dir, err := os.MkdirTemp("/tmp", "pile7-front-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "pile7-front-")
 	if err != nil {
 		t.Fatal(err)
 	}

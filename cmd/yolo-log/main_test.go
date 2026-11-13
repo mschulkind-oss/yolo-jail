@@ -15,13 +15,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // shortSocketDir is a scratch dir directly under /tmp: a socket under a TMPDIR-rooted path
 // overruns darwin's sun_path (cmd/yolo-journalctl carries the same helper and note).
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-ylog-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-ylog-")
 	if err != nil {
 		t.Fatal(err)
 	}

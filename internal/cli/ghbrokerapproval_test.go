@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // TestGitHubApprovalBrokerHelper runs the production github-broker Main in a child process.
@@ -85,7 +86,7 @@ func startGitHubApprovalBroker(t *testing.T, home, workspace, fakeGH, ghConfig, 
 			t.Fatal(err)
 		}
 	}
-	sockDir, err := os.MkdirTemp("/tmp", "gh-approval-")
+	sockDir, err := os.MkdirTemp(testtmp.ShortDir(), "gh-approval-")
 	if err != nil {
 		t.Fatal(err)
 	}

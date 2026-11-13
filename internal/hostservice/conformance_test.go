@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // THE ASSERTIONS IN THIS FILE ARE UNCHANGED BY THE TRANSPORT MIGRATION. Only how a
@@ -22,7 +23,7 @@ import (
 // exact behavior: stderr "handler error: <e>\n" then exit(1).
 func TestConformanceHandlerErrorFrame(t *testing.T) {
 	advertiseLoopback(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-conf-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-conf-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestConformanceHandlerErrorFrame(t *testing.T) {
 // round-trip as -N (e.g. SIGTERM -> -15).
 func TestExecAllowlistedSignalDeathExitCode(t *testing.T) {
 	advertiseLoopback(t)
-	dir, err := os.MkdirTemp("/tmp", "yj-conf-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-conf-")
 	if err != nil {
 		t.Fatal(err)
 	}

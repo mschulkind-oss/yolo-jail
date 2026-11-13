@@ -23,13 +23,14 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // serve starts an in-test loopback-TLS endpoint running handler and returns its endpoint file.
 func serve(t *testing.T, handler hostservice.Handler) string {
 	t.Helper()
 	t.Setenv(svcendpoint.AdvertiseHostEnv, "127.0.0.1")
-	dir, err := os.MkdirTemp("/tmp", "yj-gitremote-test-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-gitremote-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

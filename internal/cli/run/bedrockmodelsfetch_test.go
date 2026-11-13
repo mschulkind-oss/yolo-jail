@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/awsauthdaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // bedrockmodelsfetch_test.go pins fetchModelListAt's order (bedrockmodels.go): the running
@@ -44,7 +45,7 @@ func TestTheLaunchAsksTheRunningServiceFirst(t *testing.T) {
 	saved := hostservice.Logger
 	hostservice.Logger = log.New(io.Discard, "", 0)
 	t.Cleanup(func() { hostservice.Logger = saved })
-	dir, err := os.MkdirTemp("/tmp", "yj-ml-")
+	dir, err := os.MkdirTemp(testtmp.ShortDir(), "yj-ml-")
 	if err != nil {
 		t.Fatal(err)
 	}

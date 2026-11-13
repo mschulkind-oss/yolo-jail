@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 func jwt(payload string) string {
@@ -282,11 +283,11 @@ func TestCodexViewContainsOpaqueGenerationMarkerNotCanonicalRefreshToken(t *test
 // TMPDIR at an 80-byte path, which is stricter than darwin's own ~49.
 //
 // The same helper, with the same comment, exists in internal/oauthbroker and eight other
-// packages take the same MkdirTemp("/tmp", …) approach. It is per-package because a test helper
+// packages take the same MkdirTemp(testtmp.ShortDir(), …) approach. It is per-package because a test helper
 // cannot be imported across them.
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "yj-oaid-")
+	d, err := os.MkdirTemp(testtmp.ShortDir(), "yj-oaid-")
 	if err != nil {
 		t.Fatal(err)
 	}
