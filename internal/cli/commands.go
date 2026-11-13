@@ -1640,7 +1640,7 @@ func macosLaunchDeps(runProxy func(argv []string) int,
 	deps := macosuser.RealDeps(runProxy, materialize, colorForWriter(os.Stdout))
 	deps.LockWorkspace = workspaceLockSeam
 	deps.GuestBinaries = guestBinariesSeam
-	// A LAUNCH STAGES AND STARTS NOTHING FROM os.Executable() (docs/design/pinned-host-helpers.md):
+	// A LAUNCH STAGES AND STARTS NOTHING FROM os.Executable() (docs/reference/pinned-host-helpers.md):
 	// with no pin handed in (macosUserSessionDeps), SelfExe answers "": a live launch's plan refuses, and a dry run names the source as unresolved.
 	deps.SelfExe = macosuser.PinnedSelfExe(nil)
 	return deps

@@ -1,6 +1,6 @@
 package cli
 
-// hostpin_test.go pins docs/design/pinned-host-helpers.md for `yolo host`: a launch pins its helpers'
+// hostpin_test.go pins docs/reference/pinned-host-helpers.md for `yolo host`: a launch pins its helpers'
 // yolo only when it will start one, refuses without it before spawning anything, and hands every
 // plan it starts the pin, its workspace as the jail and the host's stop step; the private broker
 // and the security adapter run from the pin.

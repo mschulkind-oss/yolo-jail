@@ -1011,8 +1011,9 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// acquire a stock tag. Outside the load branch on purpose: an image already
 	// present under its content ref gets the tag and the record too, which is how
 	// an image tagged before the record existed heals on the launch that finds it
-	// unrecorded. Apple Container has no tag argv (tagStockImage).
-	if identity != "" && o.Runtime != "container" {
+	// unrecorded. Apple Container takes it too, through `container image tag`
+	// (ImageTagCmd).
+	if identity != "" {
 		o.tagStockImage(contentRef, currentPath, identity)
 	}
 

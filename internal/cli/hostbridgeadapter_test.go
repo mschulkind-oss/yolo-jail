@@ -22,7 +22,7 @@ import (
 // bridgeConfig lists wire-bridge explicitly, beside claude, whose `needs` would join it anyway
 // (notch-convergence item 6): the refusal then says it is in `packs`.
 // CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
-// (docs/design/secret-env-scoping.md).
+// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 const bridgeConfig = `packs = ["claude", "copilot", "cerebras", "wire-bridge"]
 
 [env.secrets]

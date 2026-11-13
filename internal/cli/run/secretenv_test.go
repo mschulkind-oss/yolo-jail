@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// secret-env-scoping.md §3.4 rows 1, 3 and 4 at the jail notch: the shared file holds the public
+// docs/reference/providers.md#the-two-env-sets-public-and-private rows 1, 3 and 4 at the jail notch: the shared file holds the public
 // set only, the claiming agent receives its private key, and a private name nothing claims is
 // named, never its value.
 func TestTheSharedFileCarriesNoPrivateValue(t *testing.T) {
@@ -74,7 +74,7 @@ func secretEnvRefusalRun(t *testing.T, ws, userTOML string) (bool, int, string) 
 }
 
 // requireNoUserEnvFile fails when any yolo-user-env.sh exists under the workspace: the refusal
-// comes before any vehicle is written (secret-env-scoping.md SE-D7).
+// comes before any vehicle is written (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D7).
 func requireNoUserEnvFile(t *testing.T, ws string) {
 	t.Helper()
 	_ = filepath.WalkDir(ws, func(p string, d fs.DirEntry, err error) error {
@@ -85,7 +85,7 @@ func requireNoUserEnvFile(t *testing.T, ws string) {
 	})
 }
 
-// secret-env-scoping.md §3.5 (row 2) at the jail notch: a selected provider's key in the public
+// docs/reference/providers.md#the-two-env-sets-public-and-private (row 2) at the jail notch: a selected provider's key in the public
 // set refuses the launch above the backend dispatch, naming the move and never the value, and
 // nothing is written first (SE-D7). No hatch (SE-D10).
 func TestAPublicProviderKeyRefusesBeforeAnythingIsWritten(t *testing.T) {

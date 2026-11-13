@@ -1,8 +1,8 @@
-// Package gitremote is the jail side of the git-broker (docs/design/git-broker.md §4.1):
+// Package gitremote is the jail side of the git-broker (docs/reference/git-broker.md):
 // git's remote helper `git-remote-yolo`, reached as `yolo git-remote -- <remote> <url>`.
 //
 // The jail's git rewrites every `ssh://`, `https://` and `git@` remote to `yolo::<url>`
-// (docs/design/git-broker-plan.md ID-4), so git runs this helper with the original URL. It
+// (docs/reference/git-broker.md ID-4), so git runs this helper with the original URL. It
 // answers `capabilities` with `connect` alone, and on `connect <service>` it sends one
 // request frame to the broker's endpoint and then relays git's bytes both ways
 // (ID-5). It holds no git credential: the leg to the broker is the loophole transport's

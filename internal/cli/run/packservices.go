@@ -109,7 +109,7 @@ func (o *Options) jailDaemonsFor(cfg *jsonx.OrderedMap, rt string,
 	// the withheld pointer's line names the step that grants one, not the retired switch.
 	o.ungrantedBound = ungrantedBoundWhy(set, standings)
 	// The fronted host loopholes, whose host daemon this launch starts, recorded the same way
-	// (loopholes.FrontedHostNames, docs/design/git-broker-plan.md ID-6).
+	// (loopholes.FrontedHostNames, docs/reference/git-broker.md ID-6).
 	o.frontedHost = set.FrontedHostNames(set.Enabled(), rt)
 	o.frontedWhy = set.FrontedHostWhy(rt)
 	specs := o.withoutUnselectedProfileDaemons(cfg, packs,

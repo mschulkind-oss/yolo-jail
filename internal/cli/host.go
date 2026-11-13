@@ -1715,7 +1715,7 @@ type hostComposition struct {
 	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
 	doorways *run.HostDoorways
 	// frontedWhy is why the host notch serves no FRONTED HOST LOOPHOLE (run.HostFrontedWhy;
-	// docs/design/git-broker-plan.md ID-6), keyed by name: the clause a withheld pointer at
+	// docs/reference/git-broker.md ID-6), keyed by name: the clause a withheld pointer at
 	// one is named with, since the host notch's own clause speaks of doorways.
 	frontedWhy map[string]string
 	// served is the served set the credential gate composed this launch against: the doorways
@@ -2872,7 +2872,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// for them separately would read every dotenv file twice and warn twice — noise a missing
 	// host-only file used to produce on every `yolo host env`. Both reach the gate, whose
 	// composition ranks the removals with env_sources (envcompose.go).
-	// Both sets (secret-env-scoping.md#33-the-two-sets): the gate reads the set bit, so a private
+	// Both sets (docs/reference/providers.md#the-two-env-sets-public-and-private): the gate reads the set bit, so a private
 	// value reaches this process only when its selection claims the name.
 	hydrated := config.ResolveEnv(workspace, scoped, warn)
 	userEnv, removals := hydrated.Values(), hydrated.Removals()
@@ -2972,7 +2972,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		EnvSources: userEnv,
 		Private:    hydrated.Private(),
 		// An MCP server's requires_env claims a private name for the agents rendering it
-		// (secret-env-scoping.md SE-D13): the host's own packs and your mcp_servers.
+		// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13): the host's own packs and your mcp_servers.
 		MCPClaims:        packload.MCPEnvClaims(packload.ComposeMCPServers(hostUserMCPServers(cfg), packs, "")),
 		MCPAgents:        packload.MCPAgents(packs),
 		UnselectedClaims: packload.UnselectedProviderClaims(packs),
@@ -3057,7 +3057,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = err
 		return c
 	}
-	// THE ENV-SET REFUSALS (docs/design/secret-env-scoping.md §3.5, §4.8), the jail's own
+	// THE ENV-SET REFUSALS (docs/reference/providers.md#the-two-env-sets-public-and-private), the jail's own
 	// function: a selected provider's key in the public set, or a name in both sets, refuses
 	// `yolo host --` and `yolo host env` before anything is exec'd or printed (SE-D7). The host
 	// reads only the user config's env, so the remedy's scope is the user's.
@@ -3849,7 +3849,7 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 					narrowed.Delete(key)
 				}
 			}
-			// The private set's files (secret-env-scoping.md#33-the-two-sets), by the same rule.
+			// The private set's files (docs/reference/providers.md#the-two-env-sets-public-and-private), by the same rule.
 			if secrets, ok := getMapValue(env, "secrets"); ok {
 				if list, ok := getList(secrets, "files"); ok && len(list) > 0 {
 					if kept, dropped := filter("env.secrets.files", list); dropped {

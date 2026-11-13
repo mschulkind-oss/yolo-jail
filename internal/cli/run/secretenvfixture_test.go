@@ -10,7 +10,7 @@ import (
 
 // testOnlyProviderKeys are the credential names the providers these tests declare inline claim
 // (no shipped pack does): a fixture's value of one is a provider's key, so it lives in the
-// private set (docs/design/secret-env-scoping.md §3.4).
+// private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 var testOnlyProviderKeys = map[string]bool{
 	"ROUTE_BEARER":  true,
 	"ROUTE_PAIR_ID": true,

@@ -80,7 +80,7 @@ type Event struct {
 	CommandDigest string `json:"command_digest,omitempty"`
 	StdinDigest   string `json:"stdin_digest,omitempty"`
 	// Repo is the repository the command touched, when it names one. For git it is the
-	// repository identity (host/path, docs/design/git-broker-plan.md ID-3).
+	// repository identity (host/path, docs/reference/git-broker.md ID-3).
 	Repo string `json:"repo,omitempty"`
 	// Remote is the approved remote URL a git call connected to, verbatim.
 	Remote string `json:"remote,omitempty"`

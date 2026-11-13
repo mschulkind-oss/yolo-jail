@@ -179,7 +179,7 @@ func TestTheKeepersPlanCarriesTheApprovedScopes(t *testing.T) {
 	want := map[string][]config.ScopeRepo{"gb": {{Repo: "o/r", Sources: []string{`remote "origin"`}},
 		{Repo: "org/lib", Sources: []string{"yolo-jail.jsonc", `x\x1b[2K.jsonc`}}}}
 	o.approvedScopes = want
-	// The user grants the same gate approved ride the same plan (docs/design/git-broker-plan.md
+	// The user grants the same gate approved ride the same plan (docs/reference/git-broker.md
 	// ID-10), through both plan builders: the container keeper's and macos-user's.
 	wantGrants := map[string][]brokerscope.Grant{"gb": {{Kind: "create-branch", Repo: "github.com/o/r"}}}
 	o.approvedGrants = wantGrants

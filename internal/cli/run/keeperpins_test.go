@@ -124,7 +124,7 @@ func TestTheKeepersSelfExecsGoThroughItsOwnBinary(t *testing.T) {
 
 // TestNoCallSiteReachesExecxSelfExecArgvDirectly is PH-D4 at every call site: a self-exec that serves
 // a jail goes through selfExecArgv, which execs the launch's pin and never re-resolves
-// os.Executable() (docs/design/pinned-host-helpers.md section 3.3). The one caller outside the rule
+// os.Executable() (docs/reference/pinned-host-helpers.md, "Who execs it"). The one caller outside the rule
 // is SelfExecPath, whose caller is a patched fork's build child.
 func TestNoCallSiteReachesExecxSelfExecArgvDirectly(t *testing.T) {
 	files, err := filepath.Glob("*.go")

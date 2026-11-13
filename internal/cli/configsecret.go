@@ -1,7 +1,7 @@
 package cli
 
-// configsecret.go is `yolo config secret|unsecret` (docs/design/secret-env-scoping.md SE-D9,
-// §3.5; secret-env-scoping-plan.md Task 5): it moves one name, or with --dotenv one dotenv file
+// configsecret.go is `yolo config secret|unsecret` (docs/reference/providers.md#the-two-env-sets-public-and-private,
+// SE-D9): it moves one name, or with --dotenv one dotenv file
 // entry, between the public set ([env]) and the private set ([env.secrets]) of the scope that
 // holds it. An inline value moves to the other set's `set` table; a dotenv line moves verbatim to
 // the first file the other set lists in that scope (SEP-D12). The destination is written first,
@@ -358,7 +358,7 @@ func (m secretMove) removeSite(f config.EnvScopeFile, s config.EnvSite, workspac
 }
 
 // moveDotenvEntry moves a dotenv file's entry from one set's file list to the other's in the
-// scope that lists it (secret-env-scoping-plan.md SEP-D17).
+// scope that lists it (docs/reference/providers.md SEP-D17).
 func (m secretMove) moveDotenvEntry(files []config.EnvScopeFile, workspace string, out, errw io.Writer) int {
 	type listing struct {
 		file  config.EnvScopeFile

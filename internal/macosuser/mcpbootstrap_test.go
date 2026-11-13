@@ -1,7 +1,7 @@
 package macosuser
 
 // mcpbootstrap_test.go pins the macos-user delivery of the `mcp` contribution kind
-// (docs/design/mcp-presets-removal.md §7, OQ-MP4): the plan builder composes the staged packs'
+// (docs/reference/mcp-configuration.md, OQ-MP4): the plan builder composes the staged packs'
 // entries for the sandbox account's home under the config's own mcp_servers, and bakes that table
 // into the bootstrap argv, which every agent's MCP file renders from — the container launch's
 // YOLO_MCP_SERVERS, for this backend's home.

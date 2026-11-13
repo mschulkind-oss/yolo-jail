@@ -70,8 +70,8 @@ type HelperPin func() (*helperpin.Pin, error)
 // execFunc is the program a private daemon is exec'd from.
 type execFunc func() (string, error)
 
-// pinnedExec is the pin's path, after the stat check of docs/design/pinned-host-helpers.md section
-// 3.4. No pin, or one whose file is gone or replaced, is an error and never a fallback to the
+// pinnedExec is the pin's path, after the stat check of docs/reference/pinned-host-helpers.md,
+// "The check before every exec". No pin, or one whose file is gone or replaced, is an error and never a fallback to the
 // running binary, which may be another build.
 func pinnedExec(pin HelperPin) execFunc {
 	return func() (string, error) {

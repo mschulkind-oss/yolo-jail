@@ -241,7 +241,7 @@ func TestAnOverrideOfAnUnservedPointerIsNoFinding(t *testing.T) {
 	}
 }
 
-// THE GIT REWRITE EXISTS ONLY WHERE THE GIT-BROKER RUNS (docs/design/git-broker-plan.md ID-6):
+// THE GIT REWRITE EXISTS ONLY WHERE THE GIT-BROKER RUNS (docs/reference/git-broker.md ID-6):
 // packs/git's GIT_CONFIG_* contribution is `served_by` its loophole, so the host notch, which
 // serves nothing, folds none of it, and a jail serving git-broker folds all eleven keys. Deleting
 // `served_by` from the pack's env contribution fails the first half.

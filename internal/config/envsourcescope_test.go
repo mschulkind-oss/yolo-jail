@@ -273,7 +273,7 @@ func TestAWorkspacePrivateFileOutsideTheWorkspaceIsRefused(t *testing.T) {
 	}
 }
 
-// A TOML `[env.secrets]` table is part of the readable env shape (secret-env-scoping.md#SE-D1):
+// A TOML `[env.secrets]` table is part of the readable env shape (docs/reference/providers.md#SE-D1):
 // validation projects it away with the rest of `[env]` instead of naming the whole table the
 // removed legacy `env` key, and a private name that is no variable name is refused as a public one
 // is.

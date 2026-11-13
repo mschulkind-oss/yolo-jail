@@ -1,7 +1,7 @@
 package packload_test
 
 // chromedevtoolspack_test.go pins the shipped chrome-devtools pack
-// (docs/design/mcp-presets-removal.md §13 step 2): its `mcp` entry runs the very file its `files`
+// (docs/reference/mcp-configuration.md, the chrome-devtools pack): its `mcp` entry runs the very file its `files`
 // contribution delivers, through /bin/sh, joined to whatever home the notch renders for; the
 // program the entry names is the one the pack installs; and the jail-only chrome flags ride the
 // AUTONOMOUS posture alone, so the guarded host notch never gets them.
@@ -70,7 +70,7 @@ func TestTheChromeDevtoolsEntryRunsTheWrapperThePackDelivers(t *testing.T) {
 	}
 }
 
-// Decision b (docs/design/mcp-presets-removal.md): the sandbox flags are a container's facts,
+// MP-D2 (docs/reference/mcp-configuration.md): the sandbox flags are a container's facts,
 // selected by the notch's posture and never detected at run time — an MCP client scrubs the
 // environment a detection would read.
 func TestTheChromeDevtoolsJailFlagsAreTheAutonomousPostures(t *testing.T) {

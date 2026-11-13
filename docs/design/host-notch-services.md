@@ -3,7 +3,7 @@ title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Have OQ-HS5 ruled (does a fetched pack's host half run?). Record the AWS doorway's first Mac verdict in this doc: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox with its config naming a region"
+next: "Have OQ-HS5 ruled (does a fetched pack's host half run?)"
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
 summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions under them."
 vantage:
@@ -34,10 +34,11 @@ aws-auth host service. On a Mac, read from the scheduled `macos-user.yml` run 36
 (`8f7468dd`, 2026-09-30): `TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` passed, so the
 Codex doorway is MEASURED there; `TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` failed before
 its probe ran, because its config named no AWS region and the launch's Bedrock region refusal
-stopped it, so the AWS doorway is still UNMEASURED on a Mac. Since 2026-09-30 that test's
-config is the container aws-auth tests' own (`awsAuthUserConfig`), which names the provider
-`region` the refusal asks for; it has not run since, so whether it now reaches the doorway is
-unobserved. **At `yolo host` the AWS
+stopped it. Since 2026-09-30 that test's config is the container aws-auth tests' own
+(`awsAuthUserConfig`), which names the provider `region` the refusal asks for, and **the AWS
+doorway is MEASURED on a Mac since 2026-10-03**: the scheduled `macos-user.yml`
+[run 37121866798](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37121866798), at
+`0e34798c6`, passed `TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` with that config. **At `yolo host` the AWS
 doorway is built 2026-09-29** ([HS-D21](#HS-D21), [HS-D22](#HS-D22),
 [§4.8](#48-yolo-host)): for an agent whose profile selects a Bedrock provider, with aws-auth
 enabled, `yolo host --` opens the adapter as its own listener and hands that agent the pointer.

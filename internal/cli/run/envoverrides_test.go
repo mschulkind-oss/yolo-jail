@@ -82,7 +82,7 @@ func awsAuthUserConfig(extra string) string {
 }
 
 // awsAuthUserTOML is awsAuthUserConfig's TOML spelling, for a fixture holding a provider's key,
-// which only the TOML private set may (secret-env-scoping.md SE-D6); extra is appended verbatim.
+// which only the TOML private set may (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D6); extra is appended verbatim.
 func awsAuthUserTOML(extra string) string {
 	return "packs = [\"claude\", \"bedrock\", \"aws-auth\"]\n\n[providers.bedrock]\nregion = \"" +
 		testBedrockRegion + "\"\n" + extra
@@ -153,7 +153,7 @@ func overrideNativeLaunch(t *testing.T, userConfig string, env func(string) stri
 	t.Helper()
 	home := packHome(t)
 	// A JSONC body is the legacy file; anything else is the TOML one, the only file that can hold
-	// a provider's key (secret-env-scoping.md SE-D6).
+	// a provider's key (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D6).
 	if strings.HasPrefix(strings.TrimSpace(userConfig), "{") {
 		writeUserConfig(t, home, userConfig)
 	} else {

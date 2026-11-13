@@ -40,7 +40,7 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 	// "withheld from every process". Its remedy stays unwritten: a running jail takes no grant
 	// later, and the fresh launch that does is named by the attach's refusal (ES-D33).
 	// An env-set line's verb names the scope whose config sets the name, read only when a line
-	// prints (secret-env-scoping-plan.md#SEP-D6).
+	// prints (docs/reference/providers.md#SEP-D6).
 	notes := o.grantDisclosureNotes()
 	notes.Scope = config.EnvNameScope(o.Workspace)
 	lines := channel.scope.DisclosureWith(notes)

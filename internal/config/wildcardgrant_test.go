@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 )
 
-// Wildcard branch grants and tag grants (docs/design/git-broker.md GB-D25), at config load and
+// Wildcard branch grants and tag grants (docs/reference/git-broker.md GB-D25), at config load and
 // at the config-change gate.
 
 // A branch grant may name a pattern and "*" for its repository; a tag grant names its tag the

@@ -10,7 +10,7 @@ import (
 
 func userSite(string, bool) EnvSite { return EnvSite{Scope: EnvScopeUser} }
 
-// secret-env-scoping.md §3.5, the row 2 refusal, exactly; its line breaks are the design's wrapping.
+// docs/reference/providers.md#the-two-env-sets-public-and-private, the row 2 refusal, exactly; its line breaks are the design's wrapping.
 func TestSecretEnvRefusalNamesAPublicProviderKeyAndTheMove(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	h := NewHydratedEnv()

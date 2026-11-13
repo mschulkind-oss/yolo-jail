@@ -38,7 +38,7 @@ func LiveFilesContext(ctx context.Context, source, container, workspace string) 
 
 // EveryLiveFile is every scope file of source a running broker is bound to, whatever its
 // container or workspace: `yolo approve` lists the working-set branches each one's approved
-// grants declare (docs/design/git-broker.md GB-D13).
+// grants declare (docs/reference/git-broker.md GB-D13).
 func EveryLiveFile(ctx context.Context, source string) ([]LiveFile, error) {
 	return liveFiles(ctx, source, func(File) bool { return true })
 }
@@ -105,7 +105,7 @@ func ReplaceReposContext(ctx context.Context, path string, expect File, repos []
 }
 
 // ReplaceScopeContext is ReplaceReposContext that also replaces the file's grants
-// (docs/design/git-broker-plan.md ID-10): `yolo config apply` hands a running broker the
+// (docs/reference/git-broker.md ID-10): `yolo config apply` hands a running broker the
 // repositories and the grants its gate approved together. A grant ValidGrant refuses is refused
 // with the file left as it was.
 func ReplaceScopeContext(ctx context.Context, path string, expect File, repos []string, grants []Grant) error {

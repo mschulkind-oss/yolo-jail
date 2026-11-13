@@ -72,7 +72,7 @@ type ScopeSource struct {
 	ScopeKind string
 	// the source defines and the user's own config allows (WorkspaceRead.Grants), and GrantFiles
 	// the workspace-relative files that name them. A grant is a line of the source's block of its
-	// own, recorded under grantsRecordKey (BB-D96; docs/design/git-broker-plan.md ID-10).
+	// own, recorded under grantsRecordKey (BB-D96; docs/reference/git-broker.md ID-10).
 	//
 	// Grants also holds, first, the grants the user's own config holds for every workspace
 	// (BrokeredUserGrants, BB-D107), which are approved at the same gate as the workspace's, and
@@ -208,7 +208,7 @@ func (s ScopeSource) current() []scopeRepo {
 
 // key is the spelling one scope entry is compared by: lower case for OWNER/REPO, as GitHub
 // compares names, and the entry exactly in the remote-url form, whose broker matches a URL
-// string exactly (docs/design/git-broker-plan.md ID-2): brokerscope.EntryKey, which `yolo config
+// string exactly (docs/reference/git-broker.md ID-2): brokerscope.EntryKey, which `yolo config
 // apply` diffs a running broker's file by too.
 func (s ScopeSource) key(repo string) string { return brokerscope.EntryKey(s.Form, repo) }
 
@@ -727,7 +727,7 @@ func scopeBlock(s ScopeSource, cur []scopeRepo, prev []string, had bool,
 	return lines, count, edit, changed
 }
 
-// grantBlock is the grant lines of one source's scope block (BB-D96; docs/design/git-broker-plan.md
+// grantBlock is the grant lines of one source's scope block (BB-D96; docs/reference/git-broker.md
 // ID-10): each grant added or removed against the record's `<source>.grants`, and the unchanged
 // ones for context, each its own line after the repositories. It returns the lines, the count
 // for the source's count line, and whether a grant changed. No lines for a source that has and

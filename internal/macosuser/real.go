@@ -29,7 +29,7 @@ import (
 func isMacOSReal() bool { return runtime.GOOS == "darwin" }
 
 // PinnedSelfExe is Deps.SelfExe for a LAUNCH: the yolo its launch pinned
-// (docs/design/pinned-host-helpers.md), which is staged as the guest's yolo and execd by the helpers
+// (docs/reference/pinned-host-helpers.md), which is staged as the guest's yolo and execd by the helpers
 // the launch starts. It answers "" when there is no pin or the pinned file is gone or replaced,
 // never the running binary, which may be another build: the plan invariant then refuses the launch
 // ("no source yolo binary resolved to stage") and nothing is staged from a different build.

@@ -13,7 +13,12 @@ summary: "A host command, `yolo config apply`, runs the launch's own config-chan
 **Status:** 2026-10-18. Every question filed then was ruled the same day; [OQ-LA7](#OQ-LA7), filed with the next-session moves, is open. The patch-branch code entered the integrated history in merge `08e6566c4`; live-apply code entered in merge `6f7c72a25`, and the inspected-mount-record repair followed in `388ea8a1b`. The later `4e7b9b92b` commit is a documentation-only heading repair, not the implementation merge. The final live-closure review accepted the bounded repair. v1 and its review repairs are built; the command's briefing re-render from the effective
 config is not ([LA-D7](#LA-D7)), nor are the later slices of [§13](#13-sequencing) other than
 [LA-S4a](#LA-S4a), the next-session moves, built 2026-11-06 ([LA-D18](#LA-D18) to
-[LA-D22](#LA-D22)); [OQ-LA7](#OQ-LA7) is open on it, and the build follows its leaning.
+[LA-D22](#LA-D22)), and [LA-S4c](#LA-S4c), resources through `podman update`, built
+2026-11-12 ([LA-D23](#LA-D23) to [LA-D25](#LA-D25)) with its rootless measurement
+([M6](#LA-M6)) still owed, and [LA-S4d](#LA-S4d), host-port forwards through an in-jail socat,
+built the same day ([LA-D26](#LA-D26) to [LA-D28](#LA-D28)) with a real rootless host's
+traffic check still owed; [OQ-LA7](#OQ-LA7) is open on the next-session moves, and the build
+follows its leaning.
 MEASURED in the nested rootful Podman path only (`--userns host`): the command and interactive
 attach added, removed and moved read-only mounts in a running jail, refused writes, kept `/ctx`
 read-only, and left `yolo config drift` at exit 0. A nested rootful Linux/amd64 probe also found
@@ -302,9 +307,9 @@ Classes:
 | `mcp_servers`, `mcp_presets`, pack `mcp`, `lsp_servers` | **B**, next, built ([LA-S4a](#LA-S4a)) | **B**, next, built | **B**, next, built | next | Boot regenerates them every session. The input used to be frozen launch argv `-e`; it now rides the per-entry channel, so the next session picks it up ([LA-D18](#LA-D18)). Pack `mcp` changes the pack tree, which stays restart-only. |
 | `security.blocked_tools`, pack `blocked-tool`, `intercept` | **B**, next, built | **B**, next, built | **B**, next, built | next | Same: `YOLO_BLOCK_CONFIG` is a channel input ([LA-D18](#LA-D18)). Shims regenerate per session. Pack kinds change the pack tree, which stays restart-only. |
 | `mise_tools` (`install.mise`) | **B**, next, built | **B**, next, built | **B**, next, built | next | Channel input, plus the session's own mise install when its tools are not the ones the jail last installed ([LA-D20](#LA-D20)). |
-| `resources.cpus`, `.memory`, `.pids_limit` | B | B, within the VM | C | next | `podman update` changes cgroup limits live. Rootless needs cgroup v2 controller delegation (unmeasured). Apple Container has no known update verb. |
+| `resources.cpus`, `.memory`, `.pids_limit` | **B**, built ([LA-S4c](#LA-S4c)) | **B**, built, within the VM | C | next | `podman update` changes cgroup limits live, and the line says *applied now* only once the jail's own cgroup file shows the value ([LA-D24](#LA-D24)). A dropped `cpus` or `memory` limit waits for the restart ([LA-D25](#LA-D25)). Rootless needs cgroup v2 controller delegation (unmeasured, [M6](#LA-M6)). Apple Container has no known update verb. |
 | `resources.io` | C | C | C | next | Frozen on purpose: an attach reads the launched value (`prepare.go:34-39`). |
-| `network.forward_host_ports` | B | B | C | n/a | The socket dir is a live bind, so it needs a new socat and an in-jail forwarder. Apple Container uses `--publish-socket` in argv. |
+| `network.forward_host_ports` (`machine.forward`) | **B**, built ([LA-S4d](#LA-S4d)), when the jail reaches the host's loopback | **B**, built | C | n/a | An in-jail socat, started with `podman exec`, dials the host at `host.containers.internal`, the hop the jail already has ([LA-D26](#LA-D26)). A jail without that hop waits for the restart, whose host-side socat serves it. Apple Container refuses forwards at launch. |
 | `network.mode`, `network.ports` | C | C | C | n/a | podman cannot re-network or add a publish to a running container. |
 | `devices`, `gpu`, `kvm` | C | C | C | C | Device nodes and cgroup device rules are set at create. |
 | `host_files` list, `writable_home_dirs`, `cache_relocations`, `per_side_paths`, `workspace_readonly`, `ephemeral_storage` | C | C | C | next | The same injection could reach some of them, but each shadows a path an agent may hold open ([§10](#10-non-goals)). The bytes behind an existing `host_files` bind are already live. |
@@ -419,8 +424,13 @@ with `--read-only --mount type=tmpfs,destination=/ctx,ro=true`, an existing `:ro
 - **M4**, Apple Container: confirm the installed `container` has no way to add a share to a running
   container.
 - **M5**, removal: a lazy detach while an agent's working directory is inside the mount.
-- **M6**, `podman update` on a rootless host. Needed only by the resources slice
-  ([§13](#13-sequencing)).
+- <a id="LA-M6"></a>**M6**, `podman update` on a rootless host. Needed only by the resources slice
+  ([§13](#13-sequencing)), which is built without it ([LA-D23](#LA-D23)): a rootless host that
+  cannot change the limit, or changes the record but not the cgroup, gets *at next restart* with
+  podman's words or the cgroup's reading. M6 decides whether such a host ever sees *applied
+  now*; report `podman info --format '{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}'`
+  with the result. A nested jail cannot answer it: it runs with cgroups disabled, so the apply
+  never calls `podman update` there.
 
 ### 5.5 Old jails
 
@@ -647,8 +657,15 @@ v1 is items 1 to 3 ([OQ-LA1](#decision-ledger)); item 4 is staged on the
      [LA-D22](#LA-D22)); [OQ-LA7](#OQ-LA7) is open.
    - <a id="LA-S4b"></a>**Apple Container's briefing re-copy**, so skills and briefings reach its
      next session.
-   - <a id="LA-S4c"></a>**Resources live** through `podman update` (the C option), after M6.
+   - <a id="LA-S4c"></a>**Resources live** through `podman update` (the C option). **Built
+     2026-11-12** ([LA-D23](#LA-D23) to [LA-D25](#LA-D25)); [M6](#LA-M6), the rootless
+     measurement, is still owed.
    - <a id="LA-S4d"></a>**`network.forward_host_ports` live**: a new socat and in-jail forwarder.
+     **Built 2026-11-12** as the in-jail forwarder alone ([LA-D26](#LA-D26) to
+     [LA-D28](#LA-D28)). Reachability-shaped: a nested jail runs on the launcher's network and
+     forwards nothing, so only a real rootless host or CI can show a live forward carrying
+     traffic. Report `podman info --format '{{.Host.RootlessNetworkCmd}}'` and the jail's
+     `$YOLO_HOST_LOOPBACK` with that result.
 5. <a id="LA-S5"></a>**Iced: an in-jail agent's apply request**, riding the boundary broker's
    request store and doorbell ([`boundary-broker.md`](boundary-broker.md#6-the-doorbell-a-persistent-desktop-notification);
    the stopgap is [`host-run-mailbox.md`](../reference/host-run-mailbox.md)). It waits for that mechanism to be
@@ -709,4 +726,10 @@ The `OQ-LA` rows are the maintainer's rulings of 2026-10-18, quoted in the secti
 | <a id="LA-D20"></a>LA-D20 | Every session of a hold-main jail that did not provision compares its mise inputs with the record provisioning (or the last session install) left in `/run/yolo/main/mise-tools`, and on a difference runs `mise install` on its own terminal, under a lock, before its command. A failure is said, names the next step and never ends the session | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
 | <a id="LA-D21"></a>LA-D21 | The `install` and `machine` roots of the effective-config record are planned per child: `install.mise.*` classifies as `mise_tools`, `install.nix` as `packages`, `machine.ports` and `machine.forward` as `network`, so a mise change folds while a package change in the same root waits | 2026-11-06 | [§6](#6-outcomes-and-what-each-party-sees) | ✅ |
 | <a id="LA-D22"></a>LA-D22 | Parity: podman and Apple Container share the mechanism (the channel file and the hold main). macos-user already composes every invocation afresh, so its rows were *next* and its code is unchanged. The host branch is unchanged: `mcp`/`lsp` apply now, `security` and `mise_tools` do not apply | 2026-11-06 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D23"></a>LA-D23 | The resources slice is built before M6, because every outcome a rootless host can give degrades to *at next restart* with the reason: a failed `podman update` carries podman's words, and an update the cgroup does not show carries its reading ([LA-D24](#LA-D24)). Each changed child of `machine.resources` is its own change, folded alone, so `io` (frozen on purpose) does not hold `cpus` back. A podman jail started from inside a container plans no update: it runs with cgroups disabled | 2026-11-12 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D24"></a>LA-D24 | The witness of a limit change is the jail's own cgroup v2 file (`cpu.max`, `memory.max`, `pids.max`, read with `podman exec`), not `podman update`'s exit: a nested measurement saw the update fail to write `memory.max` while the recorded limit moved ([`setup-support-gaps.md`](../plans/setup-support-gaps.md)). A value it cannot read or parse is not shown, and the change waits | 2026-11-12 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D25"></a>LA-D25 | The value passed is the composed config's (`appliedResourceLimits`), the one a launch would pass now. A dropped `cpus` or `memory` limit waits for the restart, since the launch passes no flag for it and no unlimited spelling is trusted across podman versions; a dropped `pids_limit` goes back to the launch's 32768 live | 2026-11-12 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D26"></a>LA-D26 | A live forward starts no host process. It is the entrypoint's own in-jail socat argv, started with `podman exec -d` and dialing `host.containers.internal`, as macOS podman's gateway mode already does. It is offered only to a jail whose env says it has that hop: `YOLO_FWD_HOST_GATEWAY`, or `YOLO_HOST_LOOPBACK` of `requested` or `shared`. Such a jail can already dial any host loopback port, so the forward is no wider than the jail ([LA-P4](#LA-P4)), and the socat is the container's, so it ends with the jail and the keeper needs no new channel. Any other jail waits for the restart, whose keeper starts the host-side socat | 2026-11-12 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D27"></a>LA-D27 | One change per jail port whose forward differs between the effective-config record and the workspace config. A port the launch forwarded for something other than the workspace's `machine.forward` (the user scope or a localhost provider, read from the jail's `YOLO_FORWARD_HOST_PORTS`), or that the composed config forwards from the user scope, waits for the restart, which composes them. A removal stops the jail's socat and says that the jail still reaches the host port at `host.containers.internal` | 2026-11-12 | [§4](#4-which-changes-can-reach-a-running-jail) | ✅ |
+| <a id="LA-D28"></a>LA-D28 | The step first stops this jail's socat for the port and waits until nothing listens there (a bounded wait; another process holding the port fails the step). It then starts the new socat and waits until the port listens, reading `/proc/net/tcp` and `tcp6` in the jail. Running it again is harmless | 2026-11-12 | [§8](#8-failure-concurrency-and-recovery) | ✅ |
 | <a id="OQ-LA7"></a>[OQ-LA7](#OQ-LA7-question) | Open: which config an attach delivers the session inputs from. See [§14](#14-open-question) | — | [§14](#14-open-question) | built as **A** |

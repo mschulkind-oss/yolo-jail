@@ -1,6 +1,6 @@
 package entrypoint
 
-// packbootchecks_test.go pins the boot_check hook (docs/design/mcp-presets-removal.md, OQ-MP9):
+// packbootchecks_test.go pins the boot_check hook (docs/reference/mcp-configuration.md, OQ-MP9):
 // the chrome-devtools wrapper's --boot-check, the boot step that runs a declared check and prints
 // what it says, and the rule that a check which fails, hangs or is missing never fails the boot.
 

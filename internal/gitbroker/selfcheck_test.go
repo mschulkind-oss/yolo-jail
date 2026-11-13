@@ -18,7 +18,7 @@ func writeFakeTool(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-// THE DOCTOR REPORTS THE HOST SSH AND GIT IT WOULD RUN (git-broker-plan.md task 7's
+// THE DOCTOR REPORTS THE HOST SSH AND GIT IT WOULD RUN (docs/reference/git-broker.md's
 // `doctor_cmd`): each one's path and version, found on the PATH the broker inherits.
 func TestSelfCheckReportsHostSSHAndGit(t *testing.T) {
 	bin := t.TempDir()
