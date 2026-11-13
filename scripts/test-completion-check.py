@@ -637,10 +637,10 @@ class Census(unittest.TestCase):
         from unittest import mock
         census = load_census()
         failed = subprocess.CompletedProcess([], 23, stdout="", stderr="assertion failed")
-        with mock.patch.object(census.subprocess, "run", return_value=failed):
+        with mock.patch.object(census, "run_in_session", return_value=(failed, 0)):
             with self.assertRaisesRegex(census.CensusError, "Go test fixture TestFixture failed"):
                 census.run_test(Path("fixture.test"), Path("fixture"), "TestFixture", Path("missing.log"))
-        with mock.patch.object(census.subprocess, "run", side_effect=subprocess.TimeoutExpired("test", 2)):
+        with mock.patch.object(census, "run_in_session", side_effect=subprocess.TimeoutExpired("test", 2)):
             with self.assertRaisesRegex(census.CensusError, "timed out"):
                 census.run_test(Path("fixture.test"), Path("fixture"), "TestFixture", Path("missing.log"))
 
@@ -680,7 +680,9 @@ class Census(unittest.TestCase):
                      mock.patch.object(census, "go_packages",
                                        return_value=([("fixture/pkg", root / "pkg")], {"pkg"})), \
                      mock.patch.dict(os.environ, {"CENSUS_JOBS": "1"}), \
-                     mock.patch.object(census.subprocess, "run", side_effect=fake_run):
+                     mock.patch.object(census.subprocess, "run", side_effect=fake_run), \
+                     mock.patch.object(census, "run_in_session",
+                                       side_effect=lambda command, cwd, timeout: (fake_run(command), 0)):
                     if phase == "success":
                         census.main()
                         self.assertEqual(json.loads(out.read_text())["readers"], {"pkg": {"TestFixture": 0}})

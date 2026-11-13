@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // The native home layout is a directory binding, even on a Linux synthetic home.
@@ -121,7 +122,7 @@ func TestForkLauncherMaterializesThroughDarwinDirectoryBindings(t *testing.T) {
 				t.Helper()
 				cmd := exec.Command(filepath.Join(e.LaunchDir(), "tool"))
 				cmd.Dir = workspace
-				cmd.Env = []string{"HOME=" + home, "PATH=" + helperBin + ":" + os.Getenv("PATH")}
+				cmd.Env = testtmp.ChildEnv([]string{"HOME=" + home, "PATH=" + helperBin + ":" + os.Getenv("PATH")})
 				var stdout, stderr bytes.Buffer
 				cmd.Stdout, cmd.Stderr = &stdout, &stderr
 				if err := cmd.Run(); err != nil {

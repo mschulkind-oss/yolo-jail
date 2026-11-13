@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
 // renderCodexModelList runs one boot render of the codex pack's surfaces into home, with the
@@ -153,7 +154,7 @@ func runCodexMenuLauncher(t *testing.T, home string, extraEnv []string, args ...
 	}
 	cmd := exec.Command(script, args...)
 	cmd.Dir = home
-	cmd.Env = append([]string{"HOME=" + home, "PATH=" + fakeBin + ":" + os.Getenv("PATH")}, extraEnv...)
+	cmd.Env = testtmp.ChildEnv(append([]string{"HOME=" + home, "PATH=" + fakeBin + ":" + os.Getenv("PATH")}, extraEnv...))
 	out, err := cmd.CombinedOutput()
 	l := codexMenuLaunch{out: string(out), home: home,
 		menuPath: filepath.Join(home, filepath.FromSlash(shippedCodexInstall(t).ModelMenu.Into))}

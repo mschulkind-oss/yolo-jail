@@ -38,14 +38,21 @@ create only the census marker described by `validate_fixture_root`. The census c
 marker before running tests. It accepts only the owned, mode-0700, canonical sibling namespace;
 the broad durable parent and source roots are never exempt, and an open whose resolved target
 leaves the fixture root remains a leak. Ordinary runs need no fixture-root setting.
+
+The census leaves nothing in TMPDIR. An ordinary run reruns itself under scripts/tmp-leak-gate.py,
+which fails it on anything left in its private TMPDIR, and each test runs in a session of its
+own, so a directory a child of the test made in the machine's /tmp (testtmp.Isolate names each
+after its session) stops the census naming that test, and is removed.
 """
 import concurrent.futures as cf
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from go_packages import package_patterns
@@ -509,19 +516,79 @@ def list_tests(binary, cwd):
     return [name for name in result.stdout.split() if name[:1].isupper()]
 
 
-def run_test(binary, cwd, name, log):
-    checked_run([str(binary), "-test.short", "-test.run", f"^{name}$",
-                 f"-test.testlogfile={log}", "-test.timeout=600s"],
-                cwd, 700, f"Go test {cwd} {name}")
+def load_leak_gate():
+    """scripts/tmp-leak-gate.py, for the session scan each test's run ends with."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tmp_leak_gate", Path(__file__).resolve().parent / "tmp-leak-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    return gate
+
+
+def run_in_session(command, cwd, timeout):
+    """subprocess.run's capture for a command started in a session of its own, and that
+    session's id (its pid). On a timeout the whole session's group is killed first."""
+    proc = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True)
     try:
-        return log.read_text(errors="replace")
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr), proc.pid
+
+
+def run_test(binary, cwd, name, log, gate=None):
+    """Run one test as its own process, in a session of its own, so a directory a child of it
+    made in the machine's /tmp names this test (tmp-leak-gate.py, session_leftovers). Returns
+    the test log and those directories, which are removed."""
+    gate = gate or load_leak_gate()
+    command = [str(binary), "-test.short", "-test.run", f"^{name}$", f"-test.testlogfile={log}",
+               "-test.timeout=600s"]
+    description = f"Go test {cwd} {name}"
+    start = time.time()
+    try:
+        result, sid = run_in_session(command, cwd, 700)
+    except subprocess.TimeoutExpired as exc:
+        raise CensusError(f"{description} timed out after 700s; resolve the slow/hung collector test "
+                          "and rerun scripts/completion-census.py") from exc
     except OSError as exc:
-        raise CensusError(f"Go test {cwd} {name} did not leave its test log: {exc}; "
+        raise CensusError(f"could not run {description}: {exc}; repair the toolchain and rerun "
+                          "scripts/completion-census.py") from exc
+    leftovers = gate.session_leftovers(sid, start)
+    for path in leftovers:
+        gate.remove_tree(path)
+    if result.returncode:
+        detail = (f"command argv: {command!r}\n"
+                  f"direct return code: {result.returncode}\n"
+                  f"stdout (verbatim):\n{result.stdout or '<empty>'}\n"
+                  f"stderr (verbatim):\n{result.stderr or '<empty>'}")
+        raise CensusError(f"{description} failed:\n{detail}; fix the failing test/collector and rerun "
+                          "scripts/completion-census.py")
+    try:
+        return log.read_text(errors="replace"), leftovers
+    except OSError as exc:
+        raise CensusError(f"{description} did not leave its test log: {exc}; "
                           "rerun scripts/completion-census.py") from exc
+
+
+def refuse_session_leftovers(leftovers, gate):
+    """Stop the census when a test's child left a testtmp.Isolate directory in the machine's
+    /tmp; leftovers maps (package directory, test) to those directories, already removed."""
+    if not leftovers:
+        return
+    lines = [f"  {pkg} {name}: {', '.join(sorted(paths))}" for (pkg, name), paths in sorted(leftovers.items())]
+    raise CensusError("these tests left directories in the machine's /tmp (removed now):\n" + "\n".join(lines) +
+                      "\n" + gate.SESSION_HOW_TO_FIX + "\nThen rerun scripts/completion-census.py")
 
 
 def main():
     fixture_root = validate_fixture_root(ROOT, os.environ)
+    gate = load_leak_gate()
     jobs_n = int(os.environ.get("CENSUS_JOBS", str(max(2, (os.cpu_count() or 4) // 2))))
     pkgs, pkg_dirs = go_packages()
     by_dir = tracked_dirs()
@@ -546,12 +613,15 @@ def main():
             i, name = job
             ip, d = pkgs[i]
             log = tmp / f"{i}-{name}.log"
-            text = run_test(bins[i], d, name, log)
-            return i, name, parse_log(text, d, pkg_dirs, visibility), jail_workspace_opens(text, d, fixture_root)
+            text, left = run_test(bins[i], d, name, log, gate)
+            return (i, name, parse_log(text, d, pkg_dirs, visibility), jail_workspace_opens(text, d, fixture_root),
+                    left)
 
-        readers, sets, index, leaks = {}, [], {}, {}
+        readers, sets, index, leaks, left_in_tmp = {}, [], {}, {}, {}
         with cf.ThreadPoolExecutor(jobs_n) as ex:
-            for k, (i, name, (opened, listed, stats), leaked) in enumerate(ex.map(run, jobs)):
+            for k, (i, name, (opened, listed, stats), leaked, left) in enumerate(ex.map(run, jobs)):
+                if left:
+                    left_in_tmp[(os.path.relpath(pkgs[i][1], ROOT), name)] = left
                 if leaked:
                     leaks[(os.path.relpath(pkgs[i][1], ROOT), name)] = leaked
                 if opened or listed or stats:
@@ -565,6 +635,7 @@ def main():
                 if k and k % 1000 == 0:
                     print(f"census: {k}/{len(jobs)}", flush=True)
     refuse_jail_workspace_opens(leaks)  # before any output is written
+    refuse_session_leftovers(left_in_tmp, gate)
     doc = {
         "about": "Generated by scripts/completion-census.py; read by scripts/completion-check.py. "
                  "readers: package directory -> test -> index into sets. A set names the repository "
@@ -580,7 +651,21 @@ def main():
           f"in {len(readers)} packages)")
 
 
+def gated_argv(environ, argv):
+    """The argv that reruns this census under scripts/tmp-leak-gate.py, or None when it already
+    runs there or under a fixture root (whose TMPDIR the caller fixed, and owns)."""
+    if environ.get("TMP_LEAK_GATE_DIR") or environ.get(FIXTURE_ROOT_ENV):
+        return None
+    here = Path(__file__).resolve()
+    return [sys.executable, str(here.parent / "tmp-leak-gate.py"), sys.executable, str(here), *argv[1:]]
+
+
 if __name__ == "__main__":
+    # A census run leaves nothing in TMPDIR (tmp-leak-gate.py): it runs every test once, so it is
+    # where a leak shows first.
+    gated = gated_argv(os.environ, sys.argv)
+    if gated:
+        os.execv(gated[0], gated)
     try:
         sys.exit(main())
     except CensusError as exc:
