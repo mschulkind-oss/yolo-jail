@@ -51,6 +51,7 @@ func escapingLocalPack(t *testing.T, name string) string {
 // verb reads it for its process, and a declaration reader loads it in place, and all three follow.
 // The entry's filters still apply to what the links deliver.
 func TestResolvePackFollowsALocalPacksLinksInEveryMode(t *testing.T) {
+	releaseProcessTreeAtEnd(t)
 	root := escapingLocalPack(t, "stow")
 	for _, exclude := range [][]string{nil, {"README.md"}} {
 		entry := PackEntry{Source: "file://" + root, Name: "stow", Exclude: exclude}
@@ -80,6 +81,7 @@ func TestResolvePackFollowsALocalPacksLinksInEveryMode(t *testing.T) {
 // spawned it exits) and no verb pays a copy for nothing to filter. A filtered one is staged into the
 // process pack tree, where only the files its filters keep exist.
 func TestResolvePackForProcessCopiesOnlyAFilteredEntry(t *testing.T) {
+	releaseProcessTreeAtEnd(t)
 	var embeddedRoot string
 	for _, p := range packload.Embedded() {
 		if p.Name == "hello-daemon" {
@@ -156,4 +158,14 @@ func TestUseProfileCLINamesFollowsAnUnfilteredLocalPacksLinks(t *testing.T) {
 	if _, ok := UseProfileCLINames(); !ok {
 		t.Error("UseProfileCLINames stepped aside over a local pack the host verbs deliver")
 	}
+}
+
+// releaseProcessTreeAtEnd releases the process pack tree (packload.ProcessPackDir) a test's
+// ResolvePackForProcess staged a filtered entry into. A test binary has no exit path that
+// releases it, and outside cmd/go's $WORK (a per-test runner such as
+// scripts/completion-census.py) the tree is made in TMPDIR, where tmp-leak-gate.py fails the run
+// on it.
+func releaseProcessTreeAtEnd(t *testing.T) {
+	t.Helper()
+	t.Cleanup(packload.ReleaseEmbedded)
 }

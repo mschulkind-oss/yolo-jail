@@ -286,7 +286,8 @@ is swept by the next fallback once its lease is free. A Go test binary normally 
 `go test -c` binary) shares one leased tree per build under `$TMPDIR/yolo-test-embedded-packs-<uid>`,
 since nothing would delete a per-process tree at a test binary's exit; a load from it also reaps
 dead fallback trees in `$TMPDIR`, and it is refused unless it is a real directory only that
-user can write. The layout and trust rules are in
+user can write. The completion census (`scripts/completion-census.py`), which runs every test
+as such a binary, removes that directory once its last test has exited. The layout and trust rules are in
 [`embeddedcache.go`](../../internal/packload/embeddedcache.go).
 
 ### What is shared and writable, and what serializes it

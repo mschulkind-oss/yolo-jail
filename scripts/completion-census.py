@@ -39,7 +39,9 @@ marker before running tests. It accepts only the owned, mode-0700, canonical sib
 the broad durable parent and source roots are never exempt, and an open whose resolved target
 leaves the fixture root remains a leak. Ordinary runs need no fixture-root setting.
 
-The census leaves nothing in TMPDIR. An ordinary run reruns itself under scripts/tmp-leak-gate.py,
+The census leaves nothing in TMPDIR. Its test processes share one embedded-pack cache tree there
+by design (internal/packload, TestSharedCachePrefix), and the census removes it once they have
+all exited (remove_shared_test_cache). An ordinary run reruns itself under scripts/tmp-leak-gate.py,
 which fails it on anything left in its private TMPDIR, and each test runs in a session of its
 own, so a directory a child of the test made in the machine's /tmp (testtmp.Isolate names each
 after its session) stops the census naming that test, and is removed.
@@ -586,9 +588,38 @@ def refuse_session_leftovers(leftovers, gate):
                       "\n" + gate.SESSION_HOW_TO_FIX + "\nThen rerun scripts/completion-census.py")
 
 
+# internal/packload's TestSharedCachePrefix: the cache base every Go test binary run outside
+# cmd/go's $WORK shares, in TMPDIR, as each of this census's test processes is.
+SHARED_TEST_CACHE_PREFIX = "yolo-test-embedded-packs-"
+
+
+def remove_shared_test_cache(gate, tmpdir=None):
+    """Remove the embedded-pack cache base this run's test binaries shared in TMPDIR.
+
+    Every test process of the census reads the embedded packs from one leased tree under
+    TMPDIR/yolo-test-embedded-packs-<euid> (internal/packload, TestSharedCachePrefix), on
+    purpose: one tree per test process was 6.7 GB in half an hour. No test binary can remove it,
+    since the next one reads it, so the runner that started them all does, once they have all
+    exited. Only this euid's base is removed: TMPDIR may be shared, and another user's is theirs."""
+    base = os.path.join(tmpdir or tempfile.gettempdir(), SHARED_TEST_CACHE_PREFIX + str(os.geteuid()))
+    try:
+        st = os.lstat(base)
+    except OSError:
+        return
+    if stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid():
+        gate.remove_tree(base)
+
+
 def main():
-    fixture_root = validate_fixture_root(ROOT, os.environ)
     gate = load_leak_gate()
+    try:
+        return collect(gate)
+    finally:
+        remove_shared_test_cache(gate)
+
+
+def collect(gate):
+    fixture_root = validate_fixture_root(ROOT, os.environ)
     jobs_n = int(os.environ.get("CENSUS_JOBS", str(max(2, (os.cpu_count() or 4) // 2))))
     pkgs, pkg_dirs = go_packages()
     by_dir = tracked_dirs()
