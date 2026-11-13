@@ -114,6 +114,7 @@ var subcommandUsage = map[string]subUsage{
 	"wait":        {text: waitUsage, valueFlags: []string{"-C", "--timeout"}},
 	"paste":       {text: pasteUsage, valueFlags: []string{"--setup"}},
 	"history":     {text: historyUsage, valueFlags: []string{"-C", "--since"}},
+	"mcp-auth":    {text: mcpAuthUsage},
 	"audit":       {text: auditUsage, valueFlags: []string{"--since", "--service", "--jail", "--workspace", "--set", "--grant"}},
 	"loopholes":   {text: loopholesUsage, valueFlags: []string{"--format"}},
 	"host-daemon": {text: hostDaemonUsage, valueFlags: []string{"-n", "--lines", "--format"}},
