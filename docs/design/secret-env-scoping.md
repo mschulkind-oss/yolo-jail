@@ -52,7 +52,7 @@ built, whose rule this amends), [`credential-sources-separation.md`](credential-
 [OQ-SE3](#OQ-SE3) subsumes), [`bedrock-key-provider.md`](bedrock-key-provider.md) (whose
 [OQ-BK3](bedrock-key-provider.md#OQ-BK3) this design answers as "the same as every provider"),
 [`agent-credentials.md`](../reference/agent-credentials.md#env_sources--the-sanctioned-secret-channel)
-(the channel and its vehicles), [`config-commands.md`](config-commands.md) (the verbs the remedies name).
+(the channel and its vehicles), [`config/editing.md`](../reference/config/editing.md) (the verbs the remedies name).
 No companion plan is seeded: the owner asked for the design alone.
 
 ---
@@ -103,7 +103,7 @@ across edits.
 | The `[env]` table has exactly `sources`, `files`, `set` and `unset`, and the readable schema types each of them; a key the schema does not type is refused by the generic verbs | `env.*` rows, [`schema.go`](../../internal/config/schema.go); `parseConfigEditValue`, [`configeditverbs.go`](../../internal/cli/configeditverbs.go) |
 | The hydrated map carries **no provenance**: which scope or table produced a value is gone after the merge, and the one check that needs it re-reads the workspace config | `validateEnvSourceScope`, [`envsourcescope.go`](../../internal/config/envsourcescope.go); `ResolveEnvSourcesFull`, [`envsources.go`](../../internal/config/envsources.go) |
 | A workspace-scope dotenv entry that resolves outside the workspace is refused, and the refusal spells the same entry for the user config with its `yolo config add env.files … --user` verb, or the legacy `env_sources` form for a JSONC user file | `envSourceScopeRefusal`, [`envsourcescope.go`](../../internal/config/envsourcescope.go); the owner's ruling on [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), 2026-10-29 |
-| `yolo config set\|add\|unset <key> [value]` takes one key and one value, writes a key both scopes accept to the project config unless `--user`, `--project`, `--local` or `--file` says otherwise, and adds a missing key with its parent tables | `runConfigEditWithMode`, `addMissingKey`, [`configeditverbs.go`](../../internal/cli/configeditverbs.go); [config-commands.md §4](config-commands.md#4-the-commands) |
+| `yolo config set\|add\|unset <key> [value]` takes one key and one value, writes a key both scopes accept to the project config unless `--user`, `--project`, `--local` or `--file` says otherwise, and adds a missing key with its parent tables | `runConfigEditWithMode`, `addMissingKey`, [`configeditverbs.go`](../../internal/cli/configeditverbs.go); [`config/editing.md`](../reference/config/editing.md#the-commands) |
 | `yolo check` runs the same gate to predict a launch, with no derives | [`envoverrides.go`](../../internal/cli/check/envoverrides.go) |
 | The shipped packs a launch did **not** select are already read at one notch, to word what it cannot offer | `unselectedEmbedded`, [`protocolresolution.go`](../../internal/packload/protocolresolution.go) |
 | The credential pre-flight asks only about **selected** providers | [`providerpreflight.go`](../../internal/cli/run/providerpreflight.go) |
@@ -249,7 +249,7 @@ private set: yolo config secret ZAI_API_KEY --user
 - On a legacy JSONC user config the text names `yolo config migrate` first, then the verb, as the
   workspace-scope refusal already does for its own verb.
 - In a jail the user-scope verb cannot write; the text carries the `host-run` line, as every user-scope edit
-  from a jail does ([config-commands.md §3](config-commands.md#3-what-a-command-does-to-the-file)).
+  from a jail does ([`config/editing.md`](../reference/config/editing.md#the-splice)).
 
 Nothing is written before the refusal: not the shared file, not a per-agent file. A running jail an attach
 is refused into keeps the environment its processes already hold until it restarts.

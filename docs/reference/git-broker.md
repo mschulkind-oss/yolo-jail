@@ -363,7 +363,7 @@ the entries before filing, so a push they cover never asks again while they last
 > **The two rows above are removed.** [GB-D28](../design/git-broker.md#GB-D28) (2026-11-02)
 > ruled `--add` and `--remember` removed, refused as unknown flags naming `--for` and the
 > project request, carrying [OQ-GW2](../design/github-write-scopes.md#OQ-GW2) to git and
-> superseding [RC-D39](../design/readable-config.md#RC-D39). Built in `86c0666cb`: both flags
+> superseding [RC-D39](config/rulings.md#RC-D39). Built in `86c0666cb`: both flags
 > are refused with the usage exit and decide nothing. Entries added with `--add` before then stay
 > until revoked.
 

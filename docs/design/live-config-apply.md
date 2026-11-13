@@ -294,7 +294,7 @@ Classes:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `mounts` read-only, landing under `/ctx` | **B** | **B**, intended inside the VM with a shared source (M3 is not built) | **C** | next; the gate and the record still apply | Injection with the new mount API ([§5](#5-mount-injection-per-backend)). Apple Container shares are fixed when its VM boots. A macos-user session's Seatbelt profile is fixed at exec. |
 | `mounts` read-only, with `at` outside `/ctx` | C | C | C | refused today | The parent directory is in the read-only image rootfs. Making a mountpoint there means writing the container layer ([§10](#10-non-goals)). |
-| `mounts` read-write (user scope only) | **B**, ruled in by [OQ-LA2](#decision-ledger) | **B**, M3 not built | C | next | Same mechanism without `MOUNT_ATTR_RDONLY`. Validation is unchanged by this design ([`OQ-WT1`](readable-config.md#OQ-WT1), since ruled as [RC-D24](readable-config.md#RC-D24)). |
+| `mounts` read-write (user scope only) | **B**, ruled in by [OQ-LA2](#decision-ledger) | **B**, M3 not built | C | next | Same mechanism without `MOUNT_ATTR_RDONLY`. Validation is unchanged by this design ([`OQ-WT1`](../reference/config/rulings.md#OQ-WT1), since ruled as [RC-D24](../reference/config/rulings.md#RC-D24)). |
 | `mounts` removed | **B**, ruled in by [OQ-LA3](#decision-ledger) | **B**, M3 not built | C | next | Lazy detach in the jail's namespace. |
 | `brokered.github.repos`, and remotes changing scope | **B** | B | n/a: the broker never starts | **B**, for every live session's broker | Rewrite the scope file. The broker classifies against its re-read ([§7](#7-github-scope-live)). |
 | `env_sources`, `providers`, `profiles`, `profile`, `model_facts`, `adapters`; pack `env`, `profile`, `provider`, `models`, `adapter` | A, next | A, next | A, next | next | An attach already recomposes the channel (`run.go:2852`). A process keeps its environment. |
@@ -616,7 +616,7 @@ before live mounts existed"* ([LA-D6](#LA-D6)). There is no bootstrap shim, as
 | A notice only at attach, never a prompt | Rejected by [OQ-LA4](#decision-ledger): an interactive attach is a moment a human is known to be present, and the command exists to find one. A new tab that does not want the question answers N and starts anyway ([LA-D14](#LA-D14)). |
 | Copy the source into the jail | Rejected for size, as [DP-D15](declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open) was. |
 | Restart the broker with a new scope file | Rejected. Supervised restarts reuse the argv and file ([BB-D32](boundary-broker.md#BB-D32)), a restart drops in-flight `gh` calls, and the re-read already exists. |
-| A separate `yolo trust` verb that records only | Rejected. `--record-only` on the one verb covers it, and [OQ-WT5](readable-config.md#OQ-WT5) was ruled for the existing prompt. |
+| A separate `yolo trust` verb that records only | Rejected. `--record-only` on the one verb covers it, and [OQ-WT5](../reference/config/rulings.md#OQ-WT5) was ruled for the existing prompt. |
 
 ## 12. Risks
 

@@ -43,7 +43,7 @@ than delivering incomplete briefing text.
 
 **Reads with:** [`computed-briefings-plan.md`](computed-briefings-plan.md) (the current-tree
 implementation plan; access-projection clarification and operation controls remain unfinished),
-[`readable-config.md`](readable-config.md) (renames the grant config this design reads; the
+[`config/rulings.md`](../reference/config/rulings.md) (renames the grant config this design reads; the
 dependency is in [§3.2](#32-what-a-producer-reads)), [`git-broker.md`](git-broker.md) (what each
 git grant lets a push do).
 
@@ -248,7 +248,7 @@ Rules:
   never sees `*`.
 - **Concept names, not config names.** `push_new_branches` and `push_branches` survive the
   readable-config rename of `brokered` to `allow` and `requests`, and of grant kinds to `fetch` and `push`
-  ([the grant mapping there](config-user.md#a6-the-grant-kinds-mapped)). A producer reads the
+  ([the grant mapping there](../reference/config/user-config.md#what-a-jail-may-do-with-your-logins)). A producer reads the
   same fields whichever spelling the config uses. This design does not wait on that one.
 - **Sorted and stable.** Every list is sorted, so the same facts give the same bytes.
 - **No credential, no host path.** Nothing in the table is a token, a key path or a host

@@ -1180,7 +1180,7 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   that sets `YOLO_VERSION` and leaves `YOLO_WORKSPACE` unset edits the real project config when run
   in a jail. One did, on 2026-11-01, and was caught and reverted. Make the shared test helpers pin
   `YOLO_WORKSPACE` to the test's own temporary workspace, or refuse to run otherwise. Owner:
-  [config commands](../design/config-commands.md).
+  [config commands](../reference/config/editing.md).
 
 ## Rulings — ALL ANSWERED 2026-07-26
 

@@ -172,7 +172,7 @@ exemptions was the point of the work rather than tidying after it.
   on-disk unit a loophole *is*: a directory holding `loophole.toml` plus whatever else
   that loophole needs. The same keys in JSON, a `manifest.jsonc`, are still read for the
   legacy window, and a module holding both files is refused naming the one to delete
-  ([RC-D28](../design/readable-config.md#RC-D28)). The shape is identical wherever it comes from, which is what makes
+  ([RC-D28](config/rulings.md#RC-D28)). The shape is identical wherever it comes from, which is what makes
   a loophole developable standalone and then droppable into a pack unchanged.
 - **Contribution** — one entry in a pack's `contributes[]`. A loophole arrives as
   `{ "kind": "loophole", "from": "loopholes/<name>" }`, which **points at** a module
