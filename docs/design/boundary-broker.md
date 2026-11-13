@@ -3,7 +3,7 @@ title: "Reads run, writes ring the doorbell: GitHub access across the jail bound
 date: 2026-09-28
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BB23 (whether the user config may grant write kinds to every workspace) and OQ-BB24 (which surface lists ended requests); continue BB-D76/79's resource model"
+next: "Rule OQ-BB23 (whether the user config may grant write kinds to every workspace); build BB-D113's opt-in `yolo approve --json --ended`; continue BB-D76/79's resource model"
 depends-on:
   - agent-event-watchers.md
 tags: [design, credentials, github, gh, git, approvals, notifications, loopholes, audit, broker]
@@ -94,8 +94,9 @@ background wait ([OQ-BB17](#OQ-BB17)).
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
 **Needs your ruling:** [OQ-BB23](#OQ-BB23), whether the user config may grant a write kind to
-every workspace (leaning: not now); [OQ-BB24](#OQ-BB24), which surface lists recently ended
-requests for a history view (leaning: an `--ended` flag on `yolo approve --json`, then audit events).
+every workspace (leaning: not now). [OQ-BB24](#OQ-BB24), which surface lists recently ended
+requests, was ruled 2026-11-13: an opt-in `--ended` flag on `yolo approve --json` first, audit
+events second ([BB-D113](#BB-D113)).
 [OQ-BB10](#OQ-BB10), [OQ-BB14](#OQ-BB14) (no for now), [OQ-BB15](#OQ-BB15), [OQ-BB16](#OQ-BB16), [OQ-BB19](#OQ-BB19) (four grants), [OQ-BB20](#OQ-BB20), [OQ-BB21](#OQ-BB21), [OQ-BB22](#OQ-BB22), [OQ-BB17](#OQ-BB17), [OQ-BB18](#OQ-BB18), the grant model
 ([BB-D76](#BB-D76) to [BB-D78](#BB-D78)), and the git source's
 [OQ-GB1](../reference/git-broker.md#OQ-GB1) and [OQ-GB2](../reference/git-broker.md#OQ-GB2), were ruled 2026-10-23.
@@ -1661,9 +1662,20 @@ So no front-end can show the history of past requests. The approval queue's own 
 what it observed since it started, labeled as such; the field-by-field gaps, the masking a
 history view needs and the claims it may make are in
 [`request-history-and-privacy.md`](approval-experience/request-history-and-privacy.md#8-what-a-host-history-view-would-need).
-Which surface closes the gap is [OQ-BB24](#OQ-BB24). Whichever it is, a front-end reads it
-through the CLI, never the store or audit files, and the extension is additive within
-schema 1.
+**The surface that closes the gap is an opt-in `--ended` flag on `yolo approve --json`**
+([BB-D113](#BB-D113)), not built yet. It adds to the same state object, within schema 1, the
+requests, grants and working-set entries ended within the store's 7 days, each with how it was
+answered, until when, `via`, the end reason and the denial note, and with its workspace. Without
+the flag the output is unchanged. The output states its horizon: 7 days, except that a record a
+live grant or working-set entry references can be kept longer. It needs no new storage or write
+path: the prune keeps those records for 7 days and the store's snapshot already returns them, so
+the flag only stops the JSON view dropping them. Before the flag promises ended working-set
+entries, the build confirms they get the same 7-day retention as requests and grants.
+
+A front-end shows an ended request under the same masking as pending detail, persists nothing,
+and never claims complete history; it reads the flag through the CLI, never the store or audit
+files. History past 7 days is the audit's to carry, as the second, separate item: the missing
+events of [§8](#8-audit), which does not block the flag.
 
 > [!WARNING]
 > **An out-of-tree web UI must not accept approvals from the jails it approves.** In bridge
@@ -1843,7 +1855,8 @@ per-agent record.
   undone and the request returns to pending. No `grant-ended`,
   `working-set-joined`, `working-set-ended` or `revoke` line is written, a `decision` line says
   nothing of how it was answered, and no line carries `kind` or `resource`. Writing the missing
-  events is option B of [OQ-BB24](#OQ-BB24).
+  events is the audit-completeness item [BB-D113](#BB-D113) orders after the `--ended` flag,
+not a prerequisite for it.
 - **Bounded, not pruned:** rotated at 8 MiB, four archives kept, so at most 40 MiB. `yolo prune`
   never touches it. Standing-read call audit remains best-effort and warns once on failure
   ([BB-D15](#BB-D15)). The 2026-10-13 implementation direction requires synced request,
@@ -2590,7 +2603,7 @@ covered:
 
     **Answer:** open.
 
-12. 💬 <a id="OQ-BB24"></a>**[OQ-BB24](#OQ-BB24): Should `yolo approve --json` be able to list recently ended requests, grants and working-set entries, with how each was answered?**
+12. ✅ <a id="OQ-BB24"></a>**[OQ-BB24](#OQ-BB24): Should `yolo approve --json` be able to list recently ended requests, grants and working-set entries, with how each was answered?**
 
     Sam opens the approval queue after lunch and wants to know what happened to the four
     requests that came in while it was closed. The queue reads `yolo approve --json`, which
@@ -2618,7 +2631,18 @@ covered:
     _Leaning:_ **A, then B.** A uses records the store already keeps and adds no storage; B is
     worth doing second, since the audit is meant to record those events anyway.
 
-    **Answer:** open.
+    **Answer:**
+    > **Ruled 2026-11-13, A then B, delegated by the owner to Fable 5.2** (*"ask fable 5.2 about
+    > your new question. I don't care that much"*): an opt-in `--ended` flag on
+    > `yolo approve --json` now; the audit events follow as a separate audit-completeness item
+    > that does not block it. The store already keeps every field the flag shows and the queue
+    > model already carries an ended grant's state, so the flag is a filter in the CLI's JSON
+    > view; the audit alone would need new synced writes on every end path and a filter over
+    > every workspace's lines. Conditions: the flag is additive within schema 1 and the default
+    > output is unchanged; an ended request is masked as pending detail is, and the queue still
+    > persists nothing and never claims complete history; each record carries its workspace and
+    > the output states the 7-day horizon; and the build confirms ended working-set entries get
+    > the same 7 days before the flag promises them ([BB-D113](#BB-D113)).
 
 ## 15. Decision Ledger
 
@@ -2754,6 +2778,7 @@ covered:
 | <a id="BB-D109"></a>[`BB-D109`](#15-decision-ledger) | *Implementation decision,* migrating from [BB-D55](#BB-D55): `yolo loopholes enable` on a broker refuses, naming the grant and the `packs` change. `yolo loopholes disable` on a broker also refuses, except that it first removes a switch an older yolo wrote into the per-workspace file and then exits 0. Such a stale switch is ignored with a validation warning that names the grant and that `disable` command. Host `yolo check` notes each selected broker whose source has no user read grant and no `read` in `grant_kinds`, as a plain line and not a warning, since that is a legitimate choice ([BB-D110](#BB-D110)), naming the read grant to add. Non-broker loopholes keep their switches unchanged | 2026-10-24 | [§5.6](#56-the-repository-scope) | built: `loopholes.setBrokerSwitch`, `config.staleBrokerSwitchNote`, `config.UngrantedBrokerNotes`, pinned by `TestLoopholesEnableRefusesABroker`, `TestLoopholesDisableRemovesABrokersOldSwitch`, `TestABrokeredLoopholeHasNoSwitch` and `TestCheckSaysUpFrontWhatASelectedBrokerGrants` |
 | <a id="BB-D110"></a>[`BB-D110`](#15-decision-ledger) | *Implementation decision,* carrying out [BB-D104](#BB-D104)'s *"So it's basically a no-op option"*, after a review found the first build put every workspace through the scope prompt once the pack was selected. A broker source that holds no read grant now, and held none at its last approved record, stays out of the config-change gate entirely: no prompt at a terminal, no refusal without one, and nothing recorded. `config.NewScopeCheck` clears such a source's remotes, `brokered.<source>.repos` entry and grants, so the launch, `yolo config apply` and `yolo check --accept-config-changes` all skip it the same way; the launch says in a dim line that the broker grants nothing and names the grant to add. When a read grant first applies, the prompt shows the remotes (or `repos` entries) as added beside the grant, even where an older record already lists them, since that record was approved while the broker could do nothing, and one approval takes both. When the grant is withdrawn, the next approval shows the scope and the grant removed, once, and records them cleared; after that the source is out of the gate again. **The remotes are cleared, not kept,** because a source with no read grant holds nothing, so a re-grant shows every remote again beside the grant rather than relying on an approval made under a different grant. A record from before this change, holding remotes and no grant, is left as it is while the source stays out of the gate. Since such a launch's scope file holds no remotes, a broker whose scope file holds no read grant at all refuses a call naming the read grant before it checks the remote, so the refusal never tells the user to add a remote. Host `yolo check`'s note for an ungranted broker is a plain line, not a warning. Separately, the read grant is checked again inside `ghbroker.Authority.Classify`, against the scope file it has just read, so a request filed with a read grant and approved after `yolo config apply` withdrew it is refused at revalidation rather than run | 2026-10-24 | [§5.6](#56-the-repository-scope) | built: `config.NewScopeCheck`, `config.ScopeSource.Dormant`, `config.ScopeSource.FirstRead`, `ghbroker.Authority.Classify`, `gitbroker` `serveRequest`, pinned by `TestABrokerWithNoReadGrantStaysOutOfTheGate`, `TestNoReadGrantAndNoRemotesNamesTheGrant`, `TestASelectedBrokerPackPutsTheBrokerInPlay`, `TestAReadGrantWithdrawnDuringTheWaitRefusesTheWrite`, `TestCheckSaysUpFrontWhatASelectedBrokerGrants` and, end to end, `TestGitBrokerWithNoGrantRefusesTheFetch` |
 | <a id="BB-D111"></a>[`BB-D111`](#15-decision-ledger) | *Implementation decision,* carrying out [BB-D76](#BB-D76), [BB-D79](#BB-D79) and [BB-D92](#BB-D92) for GitHub. Under a `create_pr` or `create_issue` grant the user allows and the project requests, `gh pr create` and `gh issue create` run unasked, and the new PR or issue joins the working set by the number in `gh`'s own report, never from output the agent shaped (`--jq`, `--template`, `--include`, `--paginate`, `--slurp`, `--silent`, `--dry-run`). A write to a working-set PR or issue runs unasked when it is on an exact list: the item itself, its comments, reviews and requested reviewers, and an issue's assignees, each written plainly in the path; anything else under it, a percent-encoded or re-cased segment included, asks as a write to the repository. A merge always asks, and one that runs ends the PR's entry, as does a PR the broker finds merged; `--auto` does not end it. A PR or issue is recorded as `#<n>` under the lower-cased `github.com/o/r`. Before each covered write one read of the item's state is made, and a failed read asks. `yolo approve r-<id> --add` adds a PR or issue, and `--for <duration>` a timed entry on the request's resource. These ask as repository writes even on a working-set item: a create-PR call carrying an `issue` field (it would turn an existing issue into a PR), `--add-project`/`--remove-project`, labels and sub-issues. Each unasked write is re-checked against the live scope and the user's allowance under the store lock, and audited before it runs | 2026-10-30 | [§5.7](#57-permission-sets) | built: `ghbroker` `coveredWrite`, `targetOf`, `createdNumber`; `brokerstore` working-set entries; pinned by `TestCreatePRUnderAGrantRunsUnaskedAndJoinsTheWorkingSet`, `TestWorkingSetMergeAsksAndEndsTheEntry`, `TestAnEncodedMergeOnAWorkingSetPRAsks`, `TestAUserGrantWithdrawnBeforeTheTransactionAsks`, `TestAnUnreadableIssueStateAsks`, `TestApproveGitHubForAndAddCLI`, `TestApproveGitHubWithoutTheEntriesHookRefusesForAndAdd` |
+| <a id="BB-D113"></a>[`BB-D113`](#15-decision-ledger) | **Ruled 2026-11-13 ([OQ-BB24](#OQ-BB24)), A then B, delegated by the owner to Fable 5.2:** `yolo approve --json` gains an opt-in `--ended` flag listing the requests, grants and working-set entries ended within the store's 7 days, with answer kind, `until`, `via`, end reason and denial note. Reasons: the store already persists those fields (`internal/brokerstore/store.go`), the prune keeps decided requests and ended grants 7 days and `Store.Snapshot()` already returns them, so the flag is a filter in the CLI's JSON view with no new storage or write path; the queue model already carries an ended grant's state (`internal/approvalqueue/model/views.go`). Audit events for ends, revokes, expiries and working-set changes follow as a separate audit-completeness item that does not block the flag; alone they would need new synced writes on every end path and inherit the machine-wide audit file's cross-workspace filtering. Option C, neither, was rejected: it leaves a gap the flag closes cheaply. Conditions: (1) opt-in and additive within schema 1, default output unchanged; (2) an ended request is masked as pending detail is ([RH-D6](approval-experience/request-history-and-privacy.md#RH-D6)), and the queue persists nothing and never claims complete history; (3) each ended record carries its workspace, and the output states the 7-day horizon and that a record a live grant or working-set entry references can be kept longer; (4) the build confirms ended working-set entries get the same 7-day retention before the flag promises them | 2026-11-13 | [Past requests](#past-requests-what-the-surface-does-not-list), [§8](#8-audit) | pending |
 
 ## Appendix A — prior art: unYOLO, re-analyzed from source (2026-08-12)
 

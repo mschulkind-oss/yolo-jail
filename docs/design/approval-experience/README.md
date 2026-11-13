@@ -26,8 +26,8 @@ second adapter remain outstanding.
 
 **Needs your ruling:** None in this umbrella. The owner intent in [1.1](#11-settled-owner-intent)
 is settled. The mutation-only choice stays open in the browser sibling as
-[OQ-BT1](browser-trust-boundary.md#OQ-BT1); the host-history extension is filed with its owning
-authority as [OQ-BB24](../boundary-broker.md#OQ-BB24), not here. This document itself authorizes no service account, credential
+[OQ-BT1](browser-trust-boundary.md#OQ-BT1); the host-history extension was ruled by its owning
+authority on 2026-11-13 ([BB-D113](../boundary-broker.md#BB-D113)), not here. This document itself authorizes no service account, credential
 access, capture run, configuration edit, implementation or publication.
 
 ## 1. Recommendation and scope
@@ -358,7 +358,7 @@ A sibling that extends existing machinery links the authority it extends.
 | [Mac capture runner](mac-capture-runner.md) | How are macOS notifications rendered, authorized and captured, and how do action collapse and withdrawal behave? | GUI session logistics; `terminal-notifier` measurements; capture outputs use the gallery fixture format |
 | [Web request queue experiment](web-request-queue.md) | Can one command show a live, detailed, read-only queue against the real store? | Existing read-only reconciliation and live stream; remaining live-host and browser proof |
 | [Browser trust boundary](browser-trust-boundary.md) | How does the queue prove a decision came from the host user and never from a jail or untrusted content? | Read-only bootstrap, auth and hardening built; open mutation choice and trust tests before any decision route |
-| [Request history and privacy](request-history-and-privacy.md) | What past-request data exists, what is retained, redacted or shown, including in read-only views? | Observed memory history, pending display and last-seen history detail built; the full history interface waits on [OQ-BB24](../boundary-broker.md#OQ-BB24) |
+| [Request history and privacy](request-history-and-privacy.md) | What past-request data exists, what is retained, redacted or shown, including in read-only views? | Observed memory history, pending display and last-seen history detail built; the full history interface is ruled ([BB-D113](../boundary-broker.md#BB-D113)), and its `yolo approve --json --ended` flag is next to build |
 | [Service mediation machinery](service-mediation.md) | What is the repeatable recipe: classification table, scope vocabulary, fixture service, test checklist? | Format and checklist before the second service starts; HTTP front slice status |
 | [AWS S3 vertical](aws-s3.md) ([plan](aws-s3-plan.md)) | Which S3 operations, roots and cells ship first, executed and signed how? | Existing bounded CLI slice; preserve credential bypass limits and separate live compatibility from fixture proof |
 | AWS EC2 and third service | Which further AWS operations are justified, and what does the third service teach the recipe? | Follows the S3 recipe |
@@ -420,7 +420,7 @@ Settle before claiming: the browser trust boundary before host-connected mutatio
 - Measure native notification rendering, action collapse and withdrawal on real macOS ([Mac capture runner](mac-capture-runner.md)).
 - Complete the real-host/rootless, real-browser and desktop-opener checks listed in [5.4](#54-the-read-only-queue-as-built-yolo-approve---web); source or nested-jail checks cannot substitute for them.
 - Preserve the built read-only bootstrap ruling; resolve only [OQ-BT1](browser-trust-boundary.md#OQ-BT1) before mutation engineering, then implement and pass the mutation tests.
-- Comprehensive history waits on [OQ-BB24](../boundary-broker.md#OQ-BB24), the host-interface question routed from [the history sibling](request-history-and-privacy.md#83-routed-to-boundary-brokermd); last-seen detail is built and its real-browser check joins [5.4](#54-the-read-only-queue-as-built-yolo-approve---web)'s.
+- Comprehensive history's host interface is ruled ([BB-D113](../boundary-broker.md#BB-D113), the [OQ-BB24](../boundary-broker.md#OQ-BB24) question routed from [the history sibling](request-history-and-privacy.md#83-routed-to-boundary-brokermd)): build the opt-in `yolo approve --json --ended` flag next, with audit events as a later, separate item; last-seen detail is built and its real-browser check joins [5.4](#54-the-read-only-queue-as-built-yolo-approve---web)'s.
 - Continue the accepted [S3 backlog](aws-s3-plan.md#tasks) and [service recipe](service-mediation.md) work; confirm HTTP-front readiness before scheduling an HTTP-fronted service. EC2 scope and a third AWS service remain selective, not an inferred commitment.
 
 The delivered slices are not completion of the entire constellation. Native Mac and real-host/browser
