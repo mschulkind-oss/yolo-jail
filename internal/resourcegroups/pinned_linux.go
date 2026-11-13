@@ -168,26 +168,20 @@ func pinLockRoot(path string) (*pinnedGroup, error) {
 	return g, nil
 }
 
-func (g *pinnedGroup) readPolicy(name string) ([]byte, error) {
+// readPolicyAt mirrors writePolicyAt: the descriptor-relative open/read is the
+// production operation, and only a regular-file fixture substitutes validate.
+func readPolicyAt(dirFD int, name string, validate func(int) error) ([]byte, error) {
 	if name != "io.max" && name != "cgroup.controllers" && name != "cgroup.subtree_control" {
 		return nil, errors.New("unsupported policy file")
 	}
-	fd, err := syscall.Openat(g.fd, name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	fd, err := syscall.Openat(dirFD, name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
 	file := os.NewFile(uintptr(fd), name)
 	defer file.Close()
-	var stat syscall.Stat_t
-	var fs syscall.Statfs_t
-	if err := syscall.Fstat(fd, &stat); err != nil {
+	if err := validate(fd); err != nil {
 		return nil, err
-	}
-	if err := syscall.Fstatfs(fd, &fs); err != nil {
-		return nil, err
-	}
-	if stat.Mode&syscall.S_IFMT != syscall.S_IFREG || fs.Type != cgroup2Magic || stat.Ino == 0 {
-		return nil, errors.New("observed policy is not a cgroup v2 file; run yolo check --no-build")
 	}
 	return io.ReadAll(file)
 }

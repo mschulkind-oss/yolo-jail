@@ -29,6 +29,21 @@ type pinnedIOChildren struct {
 	plan     IOPlan
 	children map[string]*pinnedGroup
 	lock     *os.File
+	// policyFS validates each child policy descriptor before a write or
+	// readback. Nil is the production cgroup-v2 check; only same-package
+	// regular-file fixtures set it, and openPinnedIOChildren never does.
+	policyFS func(int) error
+}
+
+func (p *pinnedIOChildren) policyValidator() func(int) error {
+	if p.policyFS == nil {
+		return requireCgroup2Policy
+	}
+	return p.policyFS
+}
+
+func (p *pinnedIOChildren) readChildPolicy(name string) ([]byte, error) {
+	return readPolicyAt(p.children[name].fd, "io.max", p.policyValidator())
 }
 
 // pinnedIOUnitObserver lets fixture tests provide an already-verified manager
@@ -214,6 +229,15 @@ func (p *pinnedIOChildren) close() {
 	}
 }
 
+// observeUnit re-observes the selected unit through the constructor's seam. An
+// empty unit is refused, never treated as a mode that skips manager checks.
+func (p *pinnedIOChildren) observeUnit(ctx context.Context) error {
+	if p.unit == "" {
+		return errors.New("selected delegated unit unavailable; run yolo check --no-build")
+	}
+	return pinnedIOUnitObserver(ctx, p.unit, p.paths)
+}
+
 func (p *pinnedIOChildren) verifyChild(name string) error {
 	child := p.children[name]
 	if child == nil || (name != "yolo-agent" && name != "yolo-batch") {
@@ -294,24 +318,20 @@ func (p *pinnedIOChildren) writeChildPolicy(ctx context.Context, name string, da
 	if err := p.allowPolicy(name, data); err != nil {
 		return err
 	}
-	if p.unit != "" {
-		if err := observeDelegatedIOUnit(ctx, p.unit, p.paths); err != nil {
-			return err
-		}
+	if err := p.observeUnit(ctx); err != nil {
+		return err
 	}
 	child := p.children[name]
-	if err := child.writePolicy(data, false); err != nil {
+	if err := writePolicyAt(child.fd, data, p.policyValidator()); err != nil {
 		return fmt.Errorf("cannot write pinned child: %w", err)
 	}
 	if err := p.verifyChild(name); err != nil {
 		return err
 	}
-	if p.unit != "" {
-		if err := observeDelegatedIOUnit(ctx, p.unit, p.paths); err != nil {
-			return err
-		}
+	if err := p.observeUnit(ctx); err != nil {
+		return err
 	}
-	got, err := child.readPolicy("io.max")
+	got, err := p.readChildPolicy(name)
 	if err != nil {
 		return err
 	}
@@ -359,40 +379,42 @@ func (p *pinnedIOChildren) verifyPinnedStart(ctx context.Context, paths IOPaths,
 	if !sameAssignedGroup(paths, p.paths) {
 		return errors.New("requested group differs from pinned assigned group")
 	}
-	if p.unit != "" {
-		if err := observeDelegatedIOUnit(ctx, p.unit, p.paths); err != nil {
-			return err
-		}
-		if !equalFinitePlans(p.plan, ReadAndPlanIO(IOPaths{Assigned: p.paths.Assigned, Devices: p.paths.Devices, Ancestors: p.paths.Ancestors}, p.percent, os.ReadFile)) {
-			return errors.New("assigned policy changed before required start")
-		}
+	if err := p.observeUnit(ctx); err != nil {
+		return err
+	}
+	if !equalFinitePlans(p.plan, ReadAndPlanIO(IOPaths{Assigned: p.paths.Assigned, Devices: p.paths.Devices, Ancestors: p.paths.Ancestors}, p.percent, os.ReadFile)) {
+		return errors.New("assigned policy changed before required start")
 	}
 	for _, child := range []string{"yolo-agent", "yolo-batch"} {
 		if err := p.verifyChild(child); err != nil {
 			return err
 		}
-		if p.unit != "" {
-			if err := p.verifyReadback(child); err != nil {
-				return err
-			}
+		if err := p.verifyReadback(child); err != nil {
+			return err
 		}
 	}
 	if err := p.verifyChild(name); err != nil {
 		return err
 	}
-	if p.unit != "" {
-		if err := observeDelegatedIOUnit(ctx, p.unit, p.paths); err != nil {
-			return err
-		}
+	if err := p.observeUnit(ctx); err != nil {
+		return err
 	}
 	if err := VerifyDelegatedMember(paths, filepath.Join(p.path, name), pid, observeMember); err != nil {
 		return err
+	}
+	// Membership is observed by name. A cgroup holding a live member cannot be
+	// removed, so re-verifying both pinned identities after the observation
+	// binds the observed PID to the pinned child rather than to a replacement.
+	for _, child := range []string{"yolo-agent", "yolo-batch"} {
+		if err := p.verifyChild(child); err != nil {
+			return err
+		}
 	}
 	return ctx.Err()
 }
 
 func (p *pinnedIOChildren) verifyReadback(name string) error {
-	data, err := p.children[name].readPolicy("io.max")
+	data, err := p.readChildPolicy(name)
 	if err != nil {
 		return err
 	}
