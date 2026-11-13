@@ -122,7 +122,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, stdout, s
 	if assessment.Verdict == "runs" {
 		if assessment.facts.merged {
 			_, _ = b.store.EndWorkingResource(b.workspace, t.storeRepo(), t.resource(), brokerstore.EndMerged,
-				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge)
+				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge, brokerstore.WorkingApprove)
 		}
 		if code, msg, ok := b.coveredWrite(ctx, req, jail, d, t, stdout, stderr, ev, &assessment.facts); ok {
 			return code, msg
@@ -133,7 +133,7 @@ func (b *Broker) window(ctx context.Context, req Request, jail string, stdout, s
 		}
 		if assessment.endMerged {
 			_, _ = b.store.EndWorkingResource(b.workspace, t.storeRepo(), t.resource(), brokerstore.EndMerged,
-				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge)
+				brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingMerge, brokerstore.WorkingApprove)
 		}
 	}
 	sum := sha256.Sum256(req.Stdin)

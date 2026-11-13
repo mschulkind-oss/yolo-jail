@@ -25,9 +25,13 @@ import (
 // merge asks per resource (OQ-BB19), a lasting right to create is a user grant (BB-D90), and
 // a repository-level write never joins the working set (BB-D95).
 const (
-	WorkingPR          = "pr"
-	WorkingIssue       = "issue"
-	WorkingMerge       = "merge"
+	WorkingPR    = "pr"
+	WorkingIssue = "issue"
+	WorkingMerge = "merge"
+	// WorkingApprove is a timed answer on approving one PR (github-write-scopes.md GW-D10): it
+	// covers that cell on that item and no other write, and nothing else covers an approval
+	// of a working-set PR the project does not grant one on.
+	WorkingApprove     = "approve"
 	WorkingCreatePR    = "create-pr"
 	WorkingCreateIssue = "create-issue"
 	WorkingRepo        = "repo"
@@ -47,7 +51,7 @@ const EndMerged = "merged"
 // lastingKinds are the kinds an entry may hold for good; timedKinds only with an expiry.
 var (
 	lastingKinds = []string{WorkingBranch, WorkingPR, WorkingIssue}
-	timedKinds   = []string{WorkingTag, WorkingMerge, WorkingCreatePR, WorkingCreateIssue, WorkingRepo}
+	timedKinds   = []string{WorkingTag, WorkingMerge, WorkingApprove, WorkingCreatePR, WorkingCreateIssue, WorkingRepo}
 )
 
 // checkWorkingKind reports why e's kind cannot be recorded as it is, or nil.
@@ -137,13 +141,29 @@ func (s *Store) LiveWorkingKind(workspace, repo, resource string, kinds ...strin
 // entry and true when one covered the write, whatever dispatch then did.
 func (s *Store) DispatchWorkingContext(ctx context.Context, workspace, repo, resource string, kinds []string,
 	gate func(WorkingEntry) error, dispatch func(WorkingEntry) error) (WorkingEntry, bool, error) {
+	return s.DispatchWorkingMatchContext(ctx, workspace, repo, resource, kinds, nil, gate, dispatch)
+}
+
+// DispatchWorkingMatchContext is DispatchWorkingContext over only the live entries accept
+// takes (nil takes every one): the first such entry is the one gated and dispatched. A caller
+// whose write some entries of a kind cover and others do not (a working-set member's cell
+// that does not run, beside a timed grant on the same item) passes the rule here, so the
+// choice is made under the same lock as the dispatch.
+func (s *Store) DispatchWorkingMatchContext(ctx context.Context, workspace, repo, resource string, kinds []string,
+	accept func(WorkingEntry) bool, gate func(WorkingEntry) error, dispatch func(WorkingEntry) error) (WorkingEntry, bool, error) {
 	if workspace == "" || repo == "" || resource == "" || len(kinds) == 0 || gate == nil {
 		return WorkingEntry{}, false, errors.New("a working-set write needs a workspace, a repository, a resource, its kinds and a gate")
 	}
 	var out WorkingEntry
 	found := false
 	err := s.transactionContext(ctx, func(r *records, now time.Time) error {
-		i := liveKindIn(r, now, workspace, repo, resource, kinds)
+		i := -1
+		for j, w := range r.working {
+			if w.matches(now, workspace, repo, resource) && slices.Contains(kinds, kindOf(w)) && (accept == nil || accept(w)) {
+				i = j
+				break
+			}
+		}
 		if i < 0 {
 			return nil
 		}
