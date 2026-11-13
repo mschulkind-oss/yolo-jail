@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // macosuserrows_test.go pins `yolo stores`'s macos-user sections: the backend's host-owned staging
@@ -397,26 +398,19 @@ func TestTheMacosUserSectionIsRendered(t *testing.T) {
 	}
 }
 
-// TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser: the image store and the scratch volumes
-// are one not-applicable row each on macos-user, naming how a container runtime's are listed,
-// rather than three "no container runtime" rows that read as a fault.
-func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
+// TestAMacosUserInventoryHasNoContainerSectionWithoutAContainerSource (named-setups.md §12.5): the
+// image store and the scratch volumes are a container source's sections, so a Mac whose only
+// listed source is Seatbelt has neither, rather than rows that read as a fault.
+func TestAMacosUserInventoryHasNoContainerSectionWithoutAContainerSource(t *testing.T) {
 	o, _ := testOptions(t)
-	o.DetectRuntime = func() string { return "macos-user" }
+	o.SelectedRuntime = func() string { return "macos-user" }
+	o.Sources = []Source{{Confinement: "seatbelt", Display: "Seatbelt", State: runtime.SourceListed}}
 	writeFile(t, filepath.Join(o.NixStore, "aaa-yolo-jail-install-prefix", "bin", "yolo"), 10)
 	writeFile(t, filepath.Join(o.NixStore, "bbb-yolo-jail-go-0-dev", "bin", "yolo"), 10)
 	rep := Inventory(o)
-	for _, section := range []string{SectionImages, SectionVolumes} {
-		rows := sectionRows(rep, section)
-		if len(rows) != 1 {
-			t.Errorf("%s has %d rows on macos-user, want 1: %v", section, len(rows), keysIn(rows))
-			continue
-		}
-		for _, s := range rows {
-			if s.Sizing != SizingAbsent || !strings.Contains(s.Reason, "not applicable on macos-user") ||
-				!strings.Contains(s.Note, "YOLO_SETUP=apple-container-self yolo stores") {
-				t.Errorf("%s row = %+v", section, s)
-			}
+	for _, section := range []string{SectionImages, SectionVolumes, SectionToolDisks} {
+		if rows := sectionRows(rep, section); len(rows) != 0 {
+			t.Errorf("%s has rows with no container source listed: %v", section, keysIn(rows))
 		}
 	}
 
@@ -442,7 +436,7 @@ func TestContainerOnlySectionsSayTheyDoNotApplyOnMacosUser(t *testing.T) {
 		}
 	}
 	// A container runtime's rows keep the reclaimer as it was.
-	o.DetectRuntime = func() string { return "podman" }
+	o.SelectedRuntime = func() string { return "podman" }
 	if s := storeByKey(t, Inventory(o), "nix.install-prefix"); s.Reclaimer.Trigger != "post-launch slot (24h) + yolo prune --apply" {
 		t.Errorf("under podman the install-prefix trigger is %q", s.Reclaimer.Trigger)
 	}
@@ -468,7 +462,7 @@ func TestMacosUserRowsNameTheRuntimeThatRunsTheirPass(t *testing.T) {
 		"state.build":          "PruneOrphanImageRoots",
 	}
 
-	o.DetectRuntime = func() string { return "macos-user" }
+	o.SelectedRuntime = func() string { return "macos-user" }
 	rep := Inventory(o)
 	for key, fn := range containerPasses {
 		s := storeByKey(t, rep, key)
@@ -500,7 +494,7 @@ func TestMacosUserRowsNameTheRuntimeThatRunsTheirPass(t *testing.T) {
 	}
 
 	for _, rt := range []string{"podman", "container"} {
-		o.DetectRuntime = func() string { return rt }
+		o.SelectedRuntime = func() string { return rt }
 		rep := Inventory(o)
 		for key := range containerPasses {
 			s := storeByKey(t, rep, key)

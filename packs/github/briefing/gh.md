@@ -20,9 +20,12 @@ GitHub repositories. The jail holds no GitHub token; `gh auth status` names the 
 - Some writes run without asking. With a `create-pr` (or `create-issue`) grant, which the user
   adds with `yolo request github create_pr` in this workspace and approves with
   `yolo config apply` on the host, `gh pr create` (or `gh issue create`) runs, and the PR or
-  issue it creates joins this workspace's **working set**. Every write to a PR or issue in the
-  working set runs too (comment, edit, review, ready, close, reopen, and `gh api` writes under
-  its `pulls/{n}` or `issues/{n}`), until the PR is merged. A merge always asks. Name a PR or
+  issue it creates joins this workspace's **working set**. Comments and edits on a PR or issue
+  in the working set run too (comment, edit, a review that comments or requests changes, ready,
+  close, reopen, and the same `gh api` writes under its `pulls/{n}` or `issues/{n}`), until the
+  PR is merged. An approval (`gh pr review --approve`, or a review `event=APPROVE`) and a merge
+  always ask; so does a `gh api` review whose verdict is not a plain `-f event=…`, and any
+  `DELETE`. Name a PR or
   issue by its number, not a branch: a write without a number always asks.
 - With a `runs` grant naming a workflow file (or `*`), which the user adds with
   `yolo request github runs <file>` and approves the same way, three things run unasked:

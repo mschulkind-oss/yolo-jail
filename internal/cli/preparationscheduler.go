@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -279,28 +280,33 @@ func runPreparationSchedulerCommand() int {
 		defer ticker.Stop()
 		wakeScheduler()
 		return runPreparationScheduler(ownerCtx, ticker.C, os.Stdout, wake, drain)
-	}, preparationWorkerControl{Wake: wakeScheduler, Finish: func(state *preparationState, err error) {
-		for i := range state.Subscriptions {
-			record := &state.Subscriptions[i]
-			if err != nil && !errors.Is(err, context.Canceled) && record.Active {
-				record.Phase = "binary-mismatch"
-				record.Reason = err.Error()
-				continue
-			}
-			if record.Phase != "checking" {
-				continue
-			}
-			record.Phase = "interrupted"
-			record.At = preparationNow()
-			record.Reason = "the owned worker stopped before this act settled; admitted build records remain authoritative — run `yolo pack prepare start` to resume"
-		}
-	}, Drain: func() { drainOnce.Do(func() { close(drain) }) }})
+	}, preparationWorkerControl{Wake: wakeScheduler, Finish: finishPreparationSchedulerState,
+		Drain: func() { drainOnce.Do(func() { close(drain) }) }})
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0
+}
+
+// finishPreparationSchedulerState settles the subscription records when the owned worker
+// stops: an act still in flight is relabelled interrupted, so status never shows it running.
+func finishPreparationSchedulerState(state *preparationState, err error) {
+	for i := range state.Subscriptions {
+		record := &state.Subscriptions[i]
+		if err != nil && !errors.Is(err, context.Canceled) && record.Active {
+			record.Phase = "binary-mismatch"
+			record.Reason = err.Error()
+			continue
+		}
+		if record.Phase != "checking" && record.Phase != "building" {
+			continue
+		}
+		record.Phase = "interrupted"
+		record.At = preparationNow()
+		record.Reason = "the owned worker stopped before this act settled; admitted build records remain authoritative — run `yolo pack prepare start` to resume"
+	}
 }
 
 type preparationTask struct {
@@ -314,6 +320,13 @@ type preparationTaskResult struct {
 	baseline               uint64
 	err                    error
 	program                *npmCaptureRecord
+}
+
+// preparationControlTicker paces the scheduler's stop and binary-identity checks; a test injects
+// its own ticks. Nothing else reassigns it.
+var preparationControlTicker = func() (<-chan time.Time, func()) {
+	ticker := time.NewTicker(time.Second)
+	return ticker.C, ticker.Stop
 }
 
 // runPreparationScheduler is the timer production loop. Tests inject ticks into this exact loop.
@@ -371,8 +384,9 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 			<-done
 		}
 	}()
-	control := time.NewTicker(time.Second)
-	defer control.Stop()
+	controlTicks, stopControl := preparationControlTicker()
+	defer stopControl()
+	var binaryCheck preparationBinaryCheck
 	keyID := func(r preparationRecord) string { return r.Key + "\x00" + r.Runtime + "\x00" + r.Platform }
 	for {
 		if draining && len(tasks) == 0 {
@@ -394,7 +408,13 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 				}
 				r.At = preparationNow()
 				if r.Kind == preparationOrdinaryProgramKind {
-					if result.err != nil || result.program == nil {
+					if errors.Is(result.err, packsrc.ErrLockHeld) {
+						// Contention is a busy skip, as on the plain and tree paths: no failure
+						// stamp and no retry throttle; the next timer tick tries again.
+						r.Phase = "busy"
+						r.Reason = "another yolo process holds a lock this preparation needs; the next timer tick retries without waiting for it"
+						r.RetryAt = time.Time{}
+					} else if result.err != nil || result.program == nil {
 						r.Phase = "failed"
 						r.Reason = fmt.Sprintf("%v — retry a fresh launch", result.err)
 						r.RetryAt = preparationNow().Add(time.Hour)
@@ -447,11 +467,16 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 			case more <- struct{}{}:
 			default:
 			}
-		case <-control.C:
-			if preparationStopRequested() {
+		case <-controlTicks:
+			// One read of the scheduler state serves both checks.
+			state, err := loadPreparationState()
+			if err != nil {
+				return err
+			}
+			if state.Worker.StopRequested {
 				return nil
 			}
-			if err := preparationCheckBinaryIdentity(); err != nil {
+			if err := binaryCheck.check(state.Worker); err != nil {
 				return err
 			}
 
@@ -496,7 +521,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 				return configErr
 			}
 			state = refreshPreparationSubscriptionsUnder(ctx, state, current)
-			state = refreshOrdinaryPreparationSubscriptions(ctx, state)
+			state = preparationRefreshOrdinary(ctx, state)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -536,7 +561,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 					continue
 				}
 				if ordinary {
-					if !ordinaryPreparationDue(ctx, r) {
+					if !preparationOrdinaryDue(ctx, r) {
 						continue
 					}
 				} else if preparationKind(r) == preparationPlainProgramKind {
@@ -608,7 +633,7 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 					var taskErr error
 					var program *npmCaptureRecord
 					if r.Kind == preparationOrdinaryProgramKind {
-						program, taskErr = runOrdinaryScheduledPreparation(taskCtx, r, &out)
+						program, taskErr = preparationRunOrdinary(taskCtx, r, &out)
 					} else if preparationKind(r) == preparationPlainProgramKind {
 						taskErr = runPlainForkPreparation(taskCtx, r, f, &out)
 					} else {
@@ -676,6 +701,15 @@ func preparationTreesWithResolver(records []preparationRecord, resolver func(con
 func refreshPreparationSubscriptions(records []preparationRecord, current map[string]packload.Fork) []preparationRecord {
 	return refreshPreparationSubscriptionsUnder(context.Background(), records, current)
 }
+
+// The ordinary-program acts the timer drives, behind vars so an in-process test can stand in for
+// one stage while the scheduler loop itself stays the production one. Nothing but a test
+// reassigns them.
+var (
+	preparationRefreshOrdinary = refreshOrdinaryPreparationSubscriptions
+	preparationOrdinaryDue     = ordinaryPreparationDue
+	preparationRunOrdinary     = runOrdinaryScheduledPreparation
+)
 
 // preparationTaskSettled observes a finished task once its result is recorded in the
 // subscription state, before the next dispatch pass; the default has no side effects.
@@ -876,12 +910,56 @@ func preparationCheckBinaryIdentity() error {
 	if err != nil {
 		return err
 	}
-	if state.Worker.BinaryDigest == "" || state.Worker.Executable == "" {
+	return (&preparationBinaryCheck{}).check(state.Worker)
+}
+
+// preparationStatIdentity is the cheap stand-in for an executable's content: device, inode,
+// size and modification time. It decides only whether the digest must be computed again; the
+// digest stays the authority.
+type preparationStatIdentity struct {
+	dev, ino uint64
+	size     int64
+	mtime    int64
+}
+
+func preparationStatOf(path string) (preparationStatIdentity, bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return preparationStatIdentity{}, false, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return preparationStatIdentity{}, false, nil
+	}
+	return preparationStatIdentity{dev: uint64(st.Dev), ino: uint64(st.Ino), size: fi.Size(), mtime: fi.ModTime().UnixNano()}, true, nil
+}
+
+// preparationBinaryCheck remembers the stat identity of the last executable whose digest
+// matched, so the scheduler's control tick hashes the binary only when that identity moved.
+type preparationBinaryCheck struct {
+	path, digest string
+	stat         preparationStatIdentity
+	known        bool
+}
+
+func (c *preparationBinaryCheck) check(worker preparationWorker) error {
+	if worker.BinaryDigest == "" || worker.Executable == "" {
 		return nil
 	}
-	digest, digestErr := preparationBinaryDigest(state.Worker.Executable)
-	if digestErr != nil || digest != state.Worker.BinaryDigest {
-		return errors.New("yolo binary changed while the preparation worker was running — its work was cancelled; run `yolo pack prepare start` to restart with the selected binary")
+	changed := errors.New("yolo binary changed while the preparation worker was running — its work was cancelled; run `yolo pack prepare start` to restart with the selected binary")
+	stat, statOK, err := preparationStatOf(worker.Executable)
+	if err != nil {
+		c.known = false
+		return changed
 	}
+	if c.known && statOK && c.path == worker.Executable && c.digest == worker.BinaryDigest && c.stat == stat {
+		return nil
+	}
+	c.known = false
+	digest, digestErr := preparationBinaryDigest(worker.Executable)
+	if digestErr != nil || digest != worker.BinaryDigest {
+		return changed
+	}
+	c.path, c.digest, c.stat, c.known = worker.Executable, digest, stat, statOK
 	return nil
 }

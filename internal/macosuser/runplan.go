@@ -903,7 +903,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	}
 	// THE COMPOSED MCP TABLE (packload.ComposeMCPServers): the staged packs' `mcp` entries joined
 	// to the sandbox account's home, under the config's own `mcp_servers` — what the container
-	// launch hands its jail as YOLO_MCP_SERVERS (docs/design/mcp-presets-removal.md OQ-MP4).
+	// launch hands its jail as YOLO_MCP_SERVERS (docs/reference/mcp-configuration.md OQ-MP4).
 	// Composed from the host-side tree the stage commands copy, which is the tree the bootstrap
 	// renders from; here rather than in buildBootstrapEnv, which an install capture shares and
 	// whose throwaway home renders no agent. A tree that cannot be read leaves the config's own

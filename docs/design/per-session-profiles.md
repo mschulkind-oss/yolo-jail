@@ -2,8 +2,8 @@
 title: "One jail, several profiles: each session reads its own agent config"
 date: 2026-10-18
 status: accepted
-stage: BUILT
-next: "Declare codex, claude, copilot or opencode once its unlock in §7 lands; the Mac checks in §13 passed on 2026-11-07"
+stage: DESIGN
+next: "Built for pi and omp; the codex extension is in design. Rule OQ-SP6 (where codex's session homes live), then list codex's shared names and declare it; claude, copilot and opencode wait on their §7 unlocks"
 tags: [design, profiles, attach, sessions, pi, pi-subagents, providers, concurrency]
 summary: "An attach renders the attaching entry's profile into files every running pi session reads later, so a second session on another provider (or a bare attach of an unrelated agent on the default profile) changes what the first session's pi-subagents children run on, while the first session's provider policy still forbids that provider. The fix keys every profile-dependent read on the session: each exec already carries a session id that its whole process tree inherits, so the attach writes its environment into a per-session entry snapshot, and the session's own boot pass renders a pack's profile-dependent files into a per-session copy of the program's config dir, which stock pi follows through PI_CODING_AGENT_DIR. Shared state (logins, session history, packages, caches) stays one copy, linked into every session's dir."
 ---
@@ -28,6 +28,9 @@ Claude, Copilot and opencode stay undeclared, each for a measured reason ([§7](
 MEASURED on a Mac (2026-11-07, `4b26d1dfc`, under `seatbelt-self`): the bindings pass every
 [§13](#13-mac-checks) check, except that check 1 lists `pi` before `oh-omp`.
 
+2026-11-12: a model menu now follows its pack's session homes ([SP-D39](#SP-D39)), the first half
+of codex's unlock. Codex still declares nothing: where its homes live is [OQ-SP6](#OQ-SP6).
+
 > **In short.** A profile is a property of a session's process tree, not of the jail. A pi session's
 > profile breaks today because every later entry re-renders the files its children read. Key each
 > of those reads on the session id every exec already carries, and no later entry can change them.
@@ -47,7 +50,7 @@ behavior.
 **Start at [§4](#4-the-design-session-homes-over-entry-snapshots).** [§2](#2-what-an-attach-rewrites-today)
 is the cause, file by file.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-SP6](#OQ-SP6), where codex's session homes live.
 
 **Reads with:** [`per-session-profiles-plan.md`](per-session-profiles-plan.md) (the implementation
 handoff; host boundary and owned-session capture are built),
@@ -349,14 +352,21 @@ introduced.
   - **Codex** (`CODEX_HOME`):
     - `~/.codex` is the pack's whole state root, but a declared directory must sit strictly under a
       state dir. A container home would live beside it in `~`, which is read-only in the jail.
-    - It keeps version-dependent state at its top level, and its locks are files such as
-      `mcp-oauth-locks/file-store.lock` that guard shared files. Linking those locks would break
-      SP-D10, and not linking them would leave a shared login unguarded.
-    - The pack's model menu is written to the fixed path `.codex/yolo-model-menu.json`, which does
-      not follow a session home.
+    - It keeps version-dependent state at its top level, which no one has listed yet. The list
+      of shared names needs codex's binary read for the names it writes, as
+      [SP-D37](#SP-D37) did for omp, without running it.
+    - Its MCP login lock is `mcp-oauth-locks/file-store.lock`, a file in a **subdirectory**. A
+      declaration links the directory `mcp-oauth-locks/`: SP-D10 refuses only a name ending in
+      `.lock`, and a lock taken through the linked directory is the one shared file, so the
+      shared login stays guarded. (This entry used to say any link of it would break SP-D10.)
+      A lock codex keeps at its top level, if any, is unlisted, like the rest of that state.
+    - **Built:** the model menu follows the variable ([SP-D39](#SP-D39)). It used to be read
+      and written only at the fixed paths `.codex/yolo-model-list.json` and
+      `.codex/yolo-model-menu.json`.
     - At the host, the managed `CODEX_HOME` would be the user's own value, so SP-D5 would give it
       no home.
-    - Unlock: a state dir above `~/.codex`, and the menu written under the variable.
+    - Unlock: where codex's session homes live ([OQ-SP6](#OQ-SP6)), then the list of shared
+      names.
   - **Claude** (`CLAUDE_CONFIG_DIR`): the variable also moves `~/.claude.json`, the login and
     project file at the home root, into the directory. `~/.claude` is also the state root. Unlock:
     measure how Claude Code writes `.claude.json` under the variable, then use a state dir above
@@ -401,7 +411,34 @@ changes what a session pass renders.
 
 ## 10. Open questions
 
-None. See the [Decision Ledger](#decision-ledger).
+1. 💬 <a id="OQ-SP6"></a>**OQ-SP6: Where should codex's session homes live?** A session home sits
+   beside its declared directory, in `<parent>/.yolo-sessions/` ([SP-D7](#SP-D7)), and the
+   declared directory must sit strictly under one of the pack's state dirs, so the homes survive a
+   restart. Codex's directory is `~/.codex`, which is also the pack's whole state root, so its
+   homes would go in `~/.yolo-sessions/`. The jail's home is read-only there, so codex cannot
+   declare one ([§7](#7-what-this-does-not-cover)). This blocks per-session profiles for codex,
+   and only for codex: Claude has the same shape and waits on a measurement first. For example,
+   a jail where a pi session runs on one provider and a codex session is entered on another
+   still has each later codex entry rewrite the `config.toml` every running codex reads.
+
+   **A.** Allow a declared directory that IS a state dir, and nest its homes inside it:
+   `~/.codex/.yolo-sessions/<id>/.codex`. A home never links `.yolo-sessions`. Nothing moves, and
+   the homes are in state the jail already keeps. Codex then finds one entry it did not write in
+   its own directory. That codex ignores it is INFERRED, not measured.
+
+   **B.** Give codex a state root above its directory: a new state dir (say `~/.codex-yolo`)
+   holding `codex/`, with `CODEX_HOME` exported to every codex in every jail. SP-D7's rule holds
+   as written, but every existing jail's codex state, login included, has to move once.
+
+   **C.** Leave codex undeclared, as now ([SP-D38](#SP-D38)).
+
+   <!-- vantage: question id=OQ-SP6 leaning="A. It moves nothing and keeps SP-D7's reason, homes in the pack's own kept state; codex reading an unknown entry in its own directory is the one thing to check first, by reading its source, not running it." -->
+
+   _Leaning:_ **A.** It moves nothing, and the homes are still in the pack's own kept state,
+   which is SP-D7's reason. Before building it, check in codex's source, without running it, that
+   an unknown entry in its directory does no harm.
+
+See the [Decision Ledger](#decision-ledger) for the questions already ruled.
 
 <a id="decision-ledger"></a>
 
@@ -455,6 +492,7 @@ The maintainer's rulings, then implementation decisions (reversible, made while 
 | <a id="SP-D36"></a>SP-D36 | **Session-home bindings.** When two selected packs declare one variable, each still gets its own home. The pass exports `YOLO_SESSION_HOMES` (one `<program>\t<variable>\t<home>` line per program), and macos-user carries it into the native command environment. Every agent launcher binds the variables on its own program's lines before the agent env file, which still wins. The host keeps one home per variable: the launched program's pack's, else the first in pack order. It names each dropped declaration in one line. Found building SP-D37: with pi and omp selected, oh-omp read pi's home | 2026-11-06 | [§4.6](#46-lifetime-and-failure) | `839c23f6f` |
 | <a id="SP-D37"></a>SP-D37 | omp declares `.oh-omp/agent` on `PI_CODING_AGENT_DIR`. The shared names are every agent-dir entry the oh-omp 0.15.3 linux-x64 binary's text names (read, never run), and no lock. Its SQLite stores are linked: bun:sqlite 3.53.0 opening a database through a dangling link creates the target and puts `-wal`/`-shm` beside the target (measured 2026-11-06) | 2026-11-06 | [§7](#7-what-this-does-not-cover) | `839c23f6f` |
 | <a id="SP-D38"></a>SP-D38 | Codex, Claude, Copilot and opencode declare nothing yet. Each has a measured blocker and a named unlock in [§7](#7-what-this-does-not-cover), and a guessed declaration would break SP-D10 or SP-D5 | 2026-11-06 | [§7](#7-what-this-does-not-cover) | yes (no declaration) |
+| <a id="SP-D39"></a>SP-D39 | **A program's model menu follows its pack's session homes.** The pack's declarations ride the projected `model_menu` (`ModelMenu.SessionHomes`, as they ride the refresh), the launcher hands each to `yolo internal model-menu` as `--session-home=<dir>=<variable>`, and a list or menu path under a declared directory resolves under the variable when the session set it, else under the home. So the session reads its own rendered list and writes its own menu. The first half of codex's unlock in [§7](#7-what-this-does-not-cover); codex still declares nothing ([OQ-SP6](#OQ-SP6)) | 2026-11-12 | [§7](#7-what-this-does-not-cover) | yes (2026-11-12) |
 
 ## 12. What done looks like
 

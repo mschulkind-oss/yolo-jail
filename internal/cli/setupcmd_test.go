@@ -276,11 +276,11 @@ func TestSetupListMakesTheLaunchsSelection(t *testing.T) {
 	}
 }
 
-// TestSetupListMarksTheSetupsRunningHere (named-setups-plan.md slice 6b, W-SU1): `yolo setup
-// list` says which setups run a jail in this workspace. It asks about each setup with state under
-// .yolo/setups, by its setup-qualified jail name (setupJailState, run.JailRunState): one that runs
-// is marked `running`, one that could not be asked `may be running`, and a setup with no state
-// here is not asked.
+// TestSetupListMarksTheSetupsRunningHere (named-setups.md §12.6, W-SU1): `yolo setup list` reads
+// `yolo ps`'s discovery narrowed to this workspace. A setup with state under .yolo/setups is
+// `running` when a row of this workspace names it, `may be running` when its technology's source
+// did not answer; a row of another workspace marks nothing, and a setup with no state here is
+// never marked, even when a row of this workspace names it.
 func TestSetupListMarksTheSetupsRunningHere(t *testing.T) {
 	setupsHome(t)
 	ws, err := os.Getwd()
@@ -292,18 +292,22 @@ func TestSetupListMarksTheSetupsRunningHere(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	saved := setupJailState
-	t.Cleanup(func() { setupJailState = saved })
-	asked := map[string]bool{}
-	setupJailState = func(cname string) (running, known bool) {
-		asked[cname] = true
-		switch cname {
-		case runtime.JailName(ws, "podman-self"):
-			return true, true
-		case runtime.JailName(ws, "seatbelt-self"):
-			return false, false
+	other := t.TempDir()
+	saved := setupDiscover
+	t.Cleanup(func() { setupDiscover = saved })
+	setupDiscover = func() []*psSource {
+		return []*psSource{
+			{spec: psSourceSpecs[0], state: runtime.SourceListed, rows: []*psRow{
+				{name: runtime.JailName(ws, "podman-self"), setup: "podman-self", workspace: ws},
+			}},
+			{spec: psSourceSpecs[1], state: runtime.SourceListed, rows: []*psRow{
+				{name: runtime.JailName(other, "apple-container-self"), setup: "apple-container-self", workspace: other},
+			}},
+			{spec: psSourceSpecs[2], state: runtime.SourceUnreachable},
+			{spec: psSourceSpecs[3], state: runtime.SourceListed, rows: []*psRow{
+				{name: runtime.JailName(ws, "host-self"), setup: "host-self", workspace: ws},
+			}},
 		}
-		return false, true
 	}
 	rc, out, errw := runSetupCapture("list")
 	if rc != 0 {
@@ -322,22 +326,10 @@ func TestSetupListMarksTheSetupsRunningHere(t *testing.T) {
 	}
 	for _, name := range []string{"apple-container-self", "host-self", "seatbelt-yolo-account"} {
 		if strings.Contains(notes[name], "running") {
-			t.Errorf("%s, which runs no jail here, is marked running:\n%s", name, out)
+			t.Errorf("%s, which runs no jail here with state here, is marked running:\n%s", name, out)
 		}
 	}
 	if strings.Contains(notes["podman-self"], "may be running") {
 		t.Errorf("a running setup is marked as one that could not be asked:\n%s", out)
-	}
-	want := map[string]bool{
-		runtime.JailName(ws, "podman-self"): true, runtime.JailName(ws, "seatbelt-self"): true,
-		runtime.JailName(ws, "apple-container-self"): true,
-	}
-	if len(asked) != len(want) {
-		t.Errorf("asked about %v, want only the setups with state here %v", asked, want)
-	}
-	for cname := range want {
-		if !asked[cname] {
-			t.Errorf("never asked about %s", cname)
-		}
 	}
 }

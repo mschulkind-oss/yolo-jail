@@ -6,7 +6,7 @@ stage: BUILT
 next: "Rerun W-BK2 on macos-user with a static pair to verify the corrected private-set and config-command refusal guidance"
 depends-on:
   - bedrock-key-provider.md
-  - secret-env-scoping.md
+  - ../reference/providers.md
 tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 ---
 
@@ -15,8 +15,8 @@ tags: [packs, providers, bedrock, aws, aws-auth, credentials, plan]
 **Status:** 2026-11-11. The provider and remedy were built as `d95b06451` (Tasks 1 to 3) and `e2eacec79` (Task 4), with Task 5 in the docs commit after them. Source follow-up `b35cff4e6` first landed on main as `674c55288`; the source-span security repair authored as worker commit `ba2883f7c` landed on local main as `851c1be0e`. Publication awaits the combined gate. The run/check callers distinguish TOML `[env.secrets].files` and `.set` from legacy `env_sources`, with source-matched removal guidance and the scoped `yolo config set` command for the aws-auth profile. Config-edit diffs redact only classified private-value spans in both TOML and JSONC before/after hunks, including nested ancestor edits and encoded values, while preserving equal public values; included configs name the `--file` route. Synthetic regressions cover these cases. MEASURED: W-BK1 to W-BK3 ran on macos-user at main `5a69dd0b4`; the placeholder cases passed, while a real static pair with an active aws-auth pointer produced the intentional [OQ-SSO8](../reference/agent-credentials.md#sso-decision-ledger) refusal. Rerun W-BK2 at main `851c1be0e` or later; that witness has not yet been rerun.
 **Design:** [`bedrock-key-provider.md`](bedrock-key-provider.md), `status: accepted`, no question open
 (rulings [OQ-BK1](bedrock-key-provider.md#OQ-BK1) to [OQ-BK5](bedrock-key-provider.md#OQ-BK5) and BK-D1 to BK-D7 in its [Decision Ledger](bedrock-key-provider.md#decision-ledger)).
-The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secrets]`, which is built
-(`stage: BUILT`), so nothing here waits on it.
+The key file rides the private set, `[env.secrets]` ([the two env sets](../reference/providers.md#the-two-env-sets-public-and-private)), which is built
+and shipped, so nothing here waits on it.
 
 > **Precedence.** The design wins on behavior. The tree wins on fact, for cosmetic drift only (a moved
 > line, a renamed helper with the same role): follow the tree and say so in the report and the commit.
@@ -31,7 +31,7 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 - **The pointer** — `packs/aws-auth`'s platform-gated, `served_by = "aws-auth"` env contribution, which sets
   `AWS_CONTAINER_CREDENTIALS_FULL_URI` and `AWS_CONTAINER_AUTHORIZATION_TOKEN`.
 - **The bearer** — `AWS_BEARER_TOKEN_BEDROCK`, a Bedrock API key.
-- **A claim**, **the credential gate**, **the private set** — [secret-env-scoping.md §1](secret-env-scoping.md#1-words-this-doc-uses).
+- **A claim**, **the credential gate**, **the private set** — [the two env sets](../reference/providers.md#the-two-env-sets-public-and-private).
 - **The served-pointer rule** *(coined by the design, [How G2 holds](bedrock-key-provider.md#how-g2-holds-a-served-pointer-reaches-only-a-provider-that-claims-it))* — quoted under Task 1.
 
 ## What was confirmed against the tree
@@ -101,7 +101,7 @@ The key file rides [`secret-env-scoping.md`](secret-env-scoping.md)'s `[env.secr
 - **Siblings co-claim.** A user provider with `platform = "aws-bedrock"` and no list inherits every name a
   same-platform provider lists — now including `bedrock-key`'s bearer. That is the design's ("both claim
   the pointer variable"), not a bug.
-- **The bearer in the public `[env]` is refused (secret-env-scoping row 2) whenever `bedrock` is selected**,
+- **The bearer in the public `[env]` is refused ([the public-key refusal](../reference/providers.md#the-two-env-sets-public-and-private)) whenever `bedrock` is selected**,
   because `bedrock-key` is composed beside it and claims the name. Every test fixture puts the bearer in the
   private set.
 - **Variant names are a flat profile namespace**: `bedrock`'s variant is named `bedrock-bridge`, so

@@ -127,38 +127,38 @@ type ScopeInput struct {
 	// no file, the shape of a caller that is not composing a launch (`yolo check`, a test).
 	RegionFiles *RegionFileSource
 	// Private is the set bit of every hydrated name the private set, `[env.secrets]`, declared
-	// (docs/design/secret-env-scoping.md SE-D1). A private value reaches only the agents whose
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D1). A private value reaches only the agents whose
 	// selected provider claims its name, or whose MCP server does (MCPClaims), and otherwise
 	// nobody (§3.4 rows 3 and 4). A name it does not mark is public: it reaches every process
 	// unless a provider claims it, when today's claimant rule holds and PublicClaims reports it
-	// for the caller to refuse (secret-env-scoping-plan.md SEP-D4). Nil marks nothing, which is
+	// for the caller to refuse (docs/reference/providers.md SEP-D4). Nil marks nothing, which is
 	// every caller that predates the private set.
 	Private map[string]bool
 	// MCPClaims is each name an MCP server's `requires_env` lists, mapped to those servers, sorted
-	// (MCPEnvClaims over the composed mcp_servers table; secret-env-scoping.md SE-D13). It claims a
+	// (MCPEnvClaims over the composed mcp_servers table; docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13). It claims a
 	// PRIVATE value for MCPAgents only; a public name only an MCP server claims stays public
 	// (SE-D15). Nil claims nothing.
 	MCPClaims map[string][]string
 	// MCPAgents is every agent whose config names the composed MCP servers (MCPAgents,
-	// secret-env-scoping-plan.md SEP-D5): the recipients of an MCP-claimed private value.
+	// docs/reference/providers.md SEP-D5): the recipients of an MCP-claimed private value.
 	MCPAgents []string
 	// UnselectedClaims is each name a provider of a shipped pack this launch did NOT select
 	// claims (UnselectedProviderClaims). It WORDS a line and never decides a reach
-	// (secret-env-scoping.md SE-D8): a public name it holds gets the row 1 line naming
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D8): a public name it holds gets the row 1 line naming
 	// `yolo config secret`, and a private name nothing selected claims gets `yolo pack add` as its
 	// remedy. Nil words nothing.
 	UnselectedClaims map[string][]ShippedClaim
 }
 
 // ShippedClaim is one provider a shipped pack declares that claims a name, and that pack: what
-// a line names when the launch did not select the pack (secret-env-scoping.md SE-D8).
+// a line names when the launch did not select the pack (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D8).
 type ShippedClaim struct {
 	Provider string
 	Pack     string
 }
 
 // PublicClaim is a name the PUBLIC set holds that a selected provider claims: the input of the
-// row 2 refusal (secret-env-scoping.md §3.5), which the caller words, since the scope and the
+// row 2 refusal (docs/reference/providers.md#the-two-env-sets-public-and-private), which the caller words, since the scope and the
 // file that set the name are config's facts, not the gate's. Providers is sorted.
 type PublicClaim struct {
 	Name      string
@@ -294,7 +294,7 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 	if s.envSources == nil {
 		s.envSources = jsonx.NewOrderedMap()
 	}
-	// THE SHARED SET is the public names no provider claims (secret-env-scoping.md §3.4 row 1): a
+	// THE SHARED SET is the public names no provider claims (docs/reference/providers.md#the-two-env-sets-public-and-private row 1): a
 	// private name never reaches every process from config (SE-D14).
 	for _, k := range s.envSources.Keys() {
 		if _, claimed := s.claims[k]; claimed || s.isPrivate(k) {
@@ -777,7 +777,7 @@ func (s *CredentialScope) isPrivate(name string) bool {
 }
 
 // mcpReceives reports whether agent receives the private name through an MCP server's claim
-// (secret-env-scoping.md SE-D13): the name is private, an MCP server's `requires_env` lists it,
+// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13): the name is private, an MCP server's `requires_env` lists it,
 // no provider claims it, and agent is one whose config names the servers. A public name never
 // needs it (SE-D15), and a provider-claimed name is reached by its claimants alone.
 func (s *CredentialScope) mcpReceives(agent, name string) bool {
@@ -805,7 +805,7 @@ func (s *CredentialScope) mcpRecipients() []string {
 
 // receives reports whether an agent whose profile selects provider may see variable name:
 // when no provider claims it, always for a public (or unhydrated) name and never for a private
-// one (secret-env-scoping.md §3.4 rows 1 and 4); and otherwise only when provider is a claimant
+// one (docs/reference/providers.md#the-two-env-sets-public-and-private rows 1 and 4); and otherwise only when provider is a claimant
 // (rows 2 and 3, and a claimed name only the launching shell holds). An MCP claim is per agent,
 // so delivers asks it, not this.
 func (s *CredentialScope) receives(provider, name string) bool {
@@ -1132,7 +1132,7 @@ type DisclosureNotes struct {
 	// jail's case, whose wording ES-D6 keeps.
 	Composed func(name string) bool
 	// Scope words the scope flag of the config that set name, for the verbs the env-set lines
-	// name (secret-env-scoping.md §3.6): " --user", " --project", " --local", or "". Nil is "".
+	// name (docs/reference/providers.md#the-two-env-sets-public-and-private): " --user", " --project", " --local", or "". Nil is "".
 	Scope func(name string) string
 }
 
@@ -1146,7 +1146,7 @@ func (notes DisclosureNotes) scopeFlag(name string) string {
 
 // PublicClaims is every PUBLIC hydrated name a composed provider claims, in hydration order,
 // each with its claiming providers, sorted: the names the row 2 refusal names
-// (secret-env-scoping.md §3.4, §3.5). The gate keeps scoping them as before (SEP-D4), so a caller
+// (docs/reference/providers.md#the-two-env-sets-public-and-private). The gate keeps scoping them as before (SEP-D4), so a caller
 // that skipped the refusal still would not widen one; the callers refuse. An MCP claim never puts
 // a name here (SE-D15). Nil when there is none.
 func (s *CredentialScope) PublicClaims() []PublicClaim {
@@ -1165,7 +1165,7 @@ func (s *CredentialScope) PublicClaims() []PublicClaim {
 }
 
 // envSetLine is the disclosure line for a hydrated name no selected provider claims and no
-// MCP claim delivers, when it has one (secret-env-scoping.md §3.6): a private name, which reaches
+// MCP claim delivers, when it has one (docs/reference/providers.md#the-two-env-sets-public-and-private): a private name, which reaches
 // nobody (row 4), and a public name a shipped pack this launch did not select claims (row 1's one
 // line). "" for every other name. Names only.
 func (s *CredentialScope) envSetLine(k string, notes DisclosureNotes) string {
@@ -1206,7 +1206,7 @@ func shippedProviders(claims []ShippedClaim) []string {
 	return sortedUnique(out)
 }
 
-// shippedOwner names whose key a row 4 remedy offers (secret-env-scoping-plan.md SEP-D15): the one
+// shippedOwner names whose key a row 4 remedy offers (docs/reference/providers.md SEP-D15): the one
 // provider, else the one pack, else "a provider".
 func shippedOwner(claims []ShippedClaim) string {
 	if providers := shippedProviders(claims); len(providers) == 1 {
@@ -1247,10 +1247,10 @@ func (s *CredentialScope) mcpDelivered(k string, recipients []string) bool {
 	return s.isPrivate(k) && len(s.mcpClaims[k]) > 0 && len(recipients) > 0
 }
 
-// EnvSetLines is DisclosureWith's env-set lines alone (secret-env-scoping.md §3.6): row 4's line
+// EnvSetLines is DisclosureWith's env-set lines alone (docs/reference/providers.md#the-two-env-sets-public-and-private): row 4's line
 // for each private name nothing in this launch delivers, and row 1's for each public name an
 // unselected shipped provider claims, in hydration order. `yolo check` reports each as a WARN
-// (secret-env-scoping-plan.md SEP-D9). Names only, never a value.
+// (docs/reference/providers.md SEP-D9). Names only, never a value.
 func (s *CredentialScope) EnvSetLines(notes DisclosureNotes) []string {
 	if s == nil {
 		return nil
@@ -1289,14 +1289,14 @@ func (s *CredentialScope) DisclosureWith(notes DisclosureNotes) []string {
 	type group struct {
 		claimants []string
 		// label is the claimant as the line names it: "provider zai", or "mcp tavily" for a
-		// private name only an MCP server claims (secret-env-scoping.md SE-D13).
+		// private name only an MCP server claims (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13).
 		label      string
 		recipients string
 		held       string // "", "inherited" or "composed"
 		names      []string
 	}
 	var order []string
-	// envSetLines are the two line kinds of the env sets (secret-env-scoping.md §3.6, SE-D11),
+	// envSetLines are the two line kinds of the env sets (docs/reference/providers.md#the-two-env-sets-public-and-private, SE-D11),
 	// after every group, in hydration order.
 	var envSetLines []string
 	groups := map[string]*group{}

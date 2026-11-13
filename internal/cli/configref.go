@@ -32,6 +32,10 @@ var tagReplacer = strings.NewReplacer(
 	"[/cyan]", ansiReset,
 	"[yellow]", ansiYellow,
 	"[/yellow]", ansiReset,
+	// A `Default:` or `Values:` label: the value tier of docs/plans/cli-visual-polish.md's
+	// Group C, so a reader scanning for what a key accepts finds it apart from the prose.
+	"[green]", ansiGreen,
+	"[/green]", ansiReset,
 )
 
 // Render returns the reference document with rich tags rendered to ANSI when
@@ -80,7 +84,7 @@ func stripTags(s string) string {
 func isRichTag(tok string) bool {
 	switch tok {
 	case "[bold cyan]", "[/bold cyan]", "[bold yellow]", "[/bold yellow]",
-		"[bold]", "[/bold]", "[cyan]", "[/cyan]", "[yellow]", "[/yellow]":
+		"[bold]", "[/bold]", "[cyan]", "[/cyan]", "[yellow]", "[/yellow]", "[green]", "[/green]":
 		return true
 	}
 	return false

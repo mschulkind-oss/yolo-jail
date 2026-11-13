@@ -2,7 +2,7 @@ package config
 
 // envprivateredact.go redacts the values of the private env set's inline table, [env.secrets]
 // set, wherever a copy of the merged config is written or printed outside the launch itself
-// (docs/design/secret-env-scoping.md: a private value reaches only the agents that claim it, and
+// (docs/reference/providers.md#the-two-env-sets-public-and-private: a private value reaches only the agents that claim it, and
 // never a file or a line a jail or a log reader can see). Names stay, so a reader still sees
 // which names the private set holds; values never do.
 

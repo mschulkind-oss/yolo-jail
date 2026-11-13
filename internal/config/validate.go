@@ -1270,7 +1270,7 @@ func validateLSPServers(config *jsonx.OrderedMap, errs *[]string) {
 }
 
 // MCPPresetsRetiredMessage is the refusal of the retired `mcp_presets` key, with both next
-// steps (docs/design/mcp-presets-removal.md §13 step 3). `yolo host apply`, which runs no full
+// steps (docs/reference/mcp-configuration.md, the retired mcp_presets key). `yolo host apply`, which runs no full
 // validation, names it too (composeHostInputs).
 const MCPPresetsRetiredMessage = "config.mcp_presets: REMOVED — yolo no longer keeps its own list of MCP servers. " +
 	"Delete the key. For the browser (`chrome-devtools`), run `yolo pack add chrome-devtools` on " +
@@ -1279,14 +1279,14 @@ const MCPPresetsRetiredMessage = "config.mcp_presets: REMOVED — yolo no longer
 	`'["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]'` + "`. Then run `yolo check`."
 
 // validateMCPPresetsRetired reports the DELETED top-level `mcp_presets` key (2026-10-23,
-// docs/design/mcp-presets-removal.md §13 step 3, ruled at docs/reference/pack-system.md#oq-pk1).
+// docs/reference/mcp-configuration.md, the retired mcp_presets key, ruled at docs/reference/pack-system.md#oq-pk1).
 // It was core's own list of which MCP servers exist, two names long: `chrome-devtools` is the
 // pack of that name now, selected in the user config, and `sequential-thinking` was deleted
-// with no replacement beyond the user's own `mcp_servers` entry (§4).
+// with no replacement beyond the user's own `mcp_servers` entry (OQ-MP1).
 //
 // A REFUSAL, NOT SILENCE, for validateJournalRetired's reason: the key turned a server on, and
-// a config still asking for the browser and getting nothing has been silently denied it (§9,
-// OQ-MP6). Every value is refused, `[]` and null included — the key being present is the
+// a config still asking for the browser and getting nothing has been silently denied it (OQ-MP6).
+// Every value is refused, `[]` and null included — the key being present is the
 // whole condition — and type checks went with the key.
 //
 // ERROR ON THE HOST, WARNING INSIDE A JAIL, for validateJournalRetired's reason: in-jail the

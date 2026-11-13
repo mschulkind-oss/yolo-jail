@@ -1,7 +1,7 @@
 package run
 
 // mcpservers_test.go pins the container launch's delivery of the `mcp` contribution kind
-// (docs/design/mcp-presets-removal.md OQ-MP4: composed host-side, like providers): the launch's
+// (docs/reference/mcp-configuration.md OQ-MP4: composed host-side, like providers): the launch's
 // YOLO_MCP_SERVERS (a session input on its channel) is the selected packs' entries joined to the jail's home under the config's own
 // mcp_servers, which is what every agent's derive in the jail renders.
 

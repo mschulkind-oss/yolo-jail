@@ -147,7 +147,7 @@ func TestWriteFailureWarnsOnce(t *testing.T) {
 	}
 }
 
-// A git push's line carries the remote and one entry per ref (git-broker-plan ID-13); a gh
+// A git push's line carries the remote and one entry per ref (docs/reference/git-broker.md ID-13); a gh
 // line, which has neither, writes neither key.
 func TestGitRemoteAndRefsRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broker", "audit.jsonl")

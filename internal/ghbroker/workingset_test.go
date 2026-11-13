@@ -29,6 +29,7 @@ type hostGHFake struct {
 	merged   bool
 	readExit int    // what the broker's issues/{n} read exits with
 	create   string // what `pr create` or `issue create` prints
+	issue    bool   // the broker's issues/{n} read finds an issue, not a PR
 }
 
 func (f *hostGHFake) execute(_ context.Context, argv []string, _ []byte, out, _ func([]byte)) RunResult {
@@ -44,6 +45,10 @@ func (f *hostGHFake) execute(_ context.Context, argv []string, _ []byte, out, _ 
 		merged := "null"
 		if f.merged {
 			merged = `"2026-10-30T00:00:00Z"`
+		}
+		if f.issue {
+			out([]byte(`{"number":` + n + `}`))
+			break
 		}
 		out([]byte(`{"number":` + n + `,"pull_request":{"merged_at":` + merged + `}}`))
 	case len(argv) >= 2 && argv[1] == "create":
@@ -266,6 +271,10 @@ func TestTargetOfNamesKindAndResource(t *testing.T) {
 		{[]string{"pr", "close", "32", "--delete-branch"}, targetRepo, 0},
 		{[]string{"pr", "comment", "agent/x", "--body", "x"}, targetUnresolved, 0},
 		{[]string{"pr", "merge", "32", "--squash"}, targetMerge, 32},
+		// No cell covers a delete (GW-D56).
+		{[]string{"pr", "merge", "32", "--squash", "--delete-branch"}, targetRepo, 0},
+		{[]string{"api", "-X", "DELETE", "repos/o/r/pulls/5/requested_reviewers", "-f", "reviewers[]=x"}, targetRepo, 0},
+		{[]string{"api", "-X", "DELETE", "repos/o/r/issues/5/assignees", "-f", "assignees[]=x"}, targetRepo, 0},
 		{[]string{"pr", "create", "--title", "t", "--body", "b"}, targetCreatePR, 0},
 		{[]string{"issue", "create", "--title", "t", "--body", "b"}, targetCreateIssue, 0},
 		{[]string{"issue", "close", "5"}, targetIssue, 5},

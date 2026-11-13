@@ -92,7 +92,7 @@ func TestALegacyTrackingFileReadsAsTheWorkspaceAlone(t *testing.T) {
 // TestARecordNamingItsTechnologyIsJudgedByThatTechnology is the technology half of SU-D10: a
 // record naming podman goes on Podman's listed answer alone while Apple Container is unreachable,
 // and a PATH miss (not-installed) alone never authorizes deleting a record that names it. A record
-// naming no technology keeps the all-sources rule.
+// naming no technology keeps the all-sources rule, under which a PATH miss is no answer either.
 func TestARecordNamingItsTechnologyIsJudgedByThatTechnology(t *testing.T) {
 	const podmanDead, acRec, legacy = "yolo-pd-dead", "yolo-ac-rec", "yolo-legacy"
 	seed := func(t *testing.T) {
@@ -127,9 +127,9 @@ func TestARecordNamingItsTechnologyIsJudgedByThatTechnology(t *testing.T) {
 		removed := PruneStaleTrackingFiles([]SourceAnswer{podmanEmpty,
 			{Confinement: "apple-container", State: SourceNotInstalled}})
 		sort.Strings(removed)
-		if !slices.Equal(removed, []string{legacy, podmanDead}) || !tracked(acRec) {
-			t.Errorf("removed %v; a PATH miss must not delete the record naming apple-container (kept %v)",
-				removed, tracked(acRec))
+		if !slices.Equal(removed, []string{podmanDead}) || !tracked(acRec) || !tracked(legacy) {
+			t.Errorf("removed %v; a PATH miss must delete neither the record naming apple-container (kept %v) "+
+				"nor one naming no technology (kept %v)", removed, tracked(acRec), tracked(legacy))
 		}
 	})
 	t.Run("podman timed out", func(t *testing.T) {

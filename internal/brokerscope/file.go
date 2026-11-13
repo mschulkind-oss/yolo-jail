@@ -34,7 +34,7 @@ import (
 // remote-url file finds URLs ValidPattern refuses, so it fails closed as a corrupt scope.
 const FileVersion = 1
 
-// The remote-url scope form (coined in docs/design/git-broker-plan.md, ID-2): a scope whose
+// The remote-url scope form (coined in docs/reference/git-broker.md, ID-2): a scope whose
 // entries are remote URLs rather than OWNER/REPO. A source declares it with a manifest
 // `brokered.remote_host` of AnyRemoteHost; the gate reads it with ReadAllRemotes and presents
 // each URL verbatim. Brokers compare exact strings by default; a source may explicitly supply
@@ -122,7 +122,7 @@ type File struct {
 	// and a broker still adds it to the scope, so a file a previous build wrote reads as it did.
 	Widened []string `json:"widened,omitempty"`
 	// Grants are the user grants the workspace config names, as this launch's gate approved
-	// them (grant.go; docs/design/git-broker-plan.md ID-10). Absent from a file an older build
+	// them (grant.go; docs/reference/git-broker.md ID-10). Absent from a file an older build
 	// wrote, which reads as holding none.
 	Grants []Grant `json:"grants,omitempty"`
 	// ConfigFile and LocalFile are the names, never paths, of the workspace's config file and

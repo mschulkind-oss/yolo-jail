@@ -188,7 +188,7 @@ func readableEnvValidationShape(env *jsonx.OrderedMap) bool {
 			return false
 		}
 	}
-	// The private set, [env.secrets] (secret-env-scoping.md#SE-D1): files and set only, the
+	// The private set, [env.secrets] (docs/reference/providers.md#SE-D1): files and set only, the
 	// public set's shapes.
 	if rawSecrets, present := env.Get("secrets"); present {
 		secrets, ok := asMap(rawSecrets)

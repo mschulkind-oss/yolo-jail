@@ -172,7 +172,7 @@ const codexOnTheSubscription = `{"packs": ["codex", "codex-auth"], "profile": {"
 
 // codexZaiCfg is a config selecting packs, with activeProvider (if any) as its active_provider
 // table, holding ZAI_API_KEY: the zai provider's key, so it lives in the private set
-// (secret-env-scoping.md).
+// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 func codexZaiCfg(packs, activeProvider string) string {
 	cfg := `packs = ` + packs + "\n"
 	if activeProvider != "" {
@@ -303,7 +303,7 @@ func assertNoFileNames(t *testing.T, root, word string, skip ...string) {
 // row as one `-c`, so codex finds the row whether or not `yolo host apply` wrote it; no list, so
 // no menu, and codex's catalog is not read.
 func TestHostCodexMovesOntoAUserProviderWithItsRow(t *testing.T) {
-	// ACME_KEY is the acme provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ACME_KEY is the acme provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	// The legacy profile acme over provider acme is the provider itself in TOML.
 	cfg := `packs = ["codex", "codex-auth"]
 

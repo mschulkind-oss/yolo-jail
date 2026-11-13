@@ -232,7 +232,7 @@ func runPlainForkPreparation(ctx context.Context, record preparationRecord, f pa
 			entry, buildErr = buildFork(b, buildMode{
 				lock:    pidlock.Mode{Wait: true, Bound: forkBuildWaitBound, Cancel: buildCtx.Done()},
 				runJail: childJail(buildCtx, false, &bound), runtime: record.Runtime,
-				sourceCheckoutCtx: buildCtx, sourceCheckoutNoWait: true,
+				sourceCheckoutCtx: buildCtx, sourceCheckoutNoWait: true, admitCtx: buildCtx,
 				admitGuard: preparationAdmissionGuardUnder(buildCtx, record.Key, record.Runtime, record.Platform, record.Generation),
 			}, it.stream(), it.stream(), false)
 		})

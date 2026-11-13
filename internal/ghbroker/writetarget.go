@@ -42,11 +42,22 @@ const (
 	GrantCreateIssue = "create-issue"
 )
 
+// The verbs of a PR or issue write (docs/design/github-write-scopes.md §1, GW-D2 to GW-D5):
+// the half of a cell the argv names. The other half, PR or issue, is the item's own, read
+// from the host (cellOf).
+const (
+	verbComment = "comment" // says something, changes no field or state
+	verbEdit    = "edit"    // changes fields, people, open or draft state, or blocks the item
+	verbApprove = "approve" // says a PR may merge
+	verbMerge   = "merge"   // merges a PR, or arms or disarms its auto-merge
+)
+
 // writeTarget is one write's kind and resource.
 type writeTarget struct {
 	Kind   string
 	Repo   string // OWNER/REPO as the canonical argv names it
 	Number int    // the PR's or issue's number, for the kinds that name one
+	Verb   string // the cell's verb, for a PR or issue write and a merge; "" for every other kind
 }
 
 var (
@@ -72,10 +83,14 @@ func targetOf(argv []string, repos []string) writeTarget {
 		t.Kind = targetCreatePR
 	case path == "issue create":
 		t.Kind = targetCreateIssue
+	case path == "pr merge" && p.has("delete-branch"):
+		// No cell covers a delete (GW-D56): a merge that also deletes its head branch asks, as a
+		// repository-level write.
+		return t
 	case path == "pr merge":
-		t.Kind, t.Number = targetMerge, selectorNumber(p, t.Repo, "pull")
+		t.Kind, t.Number, t.Verb = targetMerge, selectorNumber(p, t.Repo, "pull"), verbMerge
 		if t.Number == 0 {
-			t.Kind = targetUnresolved
+			t.Kind, t.Verb = targetUnresolved, ""
 		}
 	case (path == "pr edit" || path == "issue edit") && (p.has("add-project") || p.has("remove-project")):
 		// A project is the owner's or the organization's, outside the PR or issue: the edit
@@ -87,17 +102,37 @@ func targetOf(argv []string, repos []string) writeTarget {
 		if path == "pr close" && p.has("delete-branch") {
 			return t
 		}
-		t.Kind, t.Number = targetPR, selectorNumber(p, t.Repo, "pull")
+		t.Kind, t.Number, t.Verb = targetPR, selectorNumber(p, t.Repo, "pull"), commandVerb(p, path)
 		if t.Number == 0 {
-			t.Kind = targetUnresolved
+			t.Kind, t.Verb = targetUnresolved, ""
 		}
 	case slices.Contains(issueWrites, path):
-		t.Kind, t.Number = targetIssue, selectorNumber(p, t.Repo, "issues")
+		t.Kind, t.Number, t.Verb = targetIssue, selectorNumber(p, t.Repo, "issues"), commandVerb(p, path)
 		if t.Number == 0 {
-			t.Kind = targetUnresolved
+			t.Kind, t.Verb = targetUnresolved, ""
 		}
 	}
 	return t
+}
+
+// commandVerb is a PR or issue command's verb (§1): a comment says something; `pr review` is
+// the verdict its flag names, `--approve` an approval, `--request-changes` an edit (GW-D4),
+// `--comment` or no verdict flag a comment; every other command (edit, ready with or without
+// `--undo`, close, reopen) is an edit (GW-D3).
+func commandVerb(p *parsed, path string) string {
+	switch path {
+	case "pr comment", "issue comment":
+		return verbComment
+	case "pr review":
+		switch {
+		case p.has("approve"):
+			return verbApprove
+		case p.has("request-changes"):
+			return verbEdit
+		}
+		return verbComment
+	}
+	return verbEdit
 }
 
 // selectorNumber is the number a PR or issue command's first positional names: `32`, `#32`,
@@ -176,20 +211,97 @@ func apiTarget(p *parsed, t writeTarget) writeTarget {
 		t.Kind = targetCreatePR
 	case len(rest) == 1 && rest[0] == "issues" && method == "POST":
 		t.Kind = targetCreateIssue
+	case method == "DELETE":
+		// No cell covers a delete (GW-D56): a DELETE under a PR or an issue asks, as a
+		// repository-level write.
+		return t
 	case len(rest) >= 2 && rest[0] == "pulls" && issueNumber(rest[1]) > 0:
 		n, sub := issueNumber(rest[1]), rest[2:]
 		switch {
 		case len(sub) == 1 && sub[0] == "merge" && method == "PUT":
-			t.Kind, t.Number = targetMerge, n
+			t.Kind, t.Number, t.Verb = targetMerge, n, verbMerge
 		case prSubResource(sub):
-			t.Kind, t.Number = targetPR, n
+			if verb := prAPIVerb(p, sub); verb != "" {
+				t.Kind, t.Number, t.Verb = targetPR, n, verb
+			}
 		}
 	case len(rest) >= 2 && rest[0] == "issues" && issueNumber(rest[1]) > 0:
-		if issueSubResource(rest[2:]) {
-			t.Kind, t.Number = targetIssueOrPR, issueNumber(rest[1])
+		if sub := rest[2:]; issueSubResource(sub) {
+			t.Kind, t.Number, t.Verb = targetIssueOrPR, issueNumber(rest[1]), verbEdit
+			if len(sub) == 1 && sub[0] == "comments" {
+				t.Verb = verbComment
+			}
 		}
 	}
 	return t
+}
+
+// prAPIVerb is the verb of a `gh api` write under pulls/{n} (§1): the PR itself and its
+// requested reviewers are edits; its review comments, and an edit of one review's text, are
+// comments; a review, or one review's events, is the verdict its `event` field names
+// (reviewVerdict). "" when that verdict is not on the command line, and the write asks as a
+// repository-level write (GW-D2).
+func prAPIVerb(p *parsed, sub []string) string {
+	switch {
+	case len(sub) == 0, sub[0] == "requested_reviewers":
+		return verbEdit
+	case sub[0] == "comments", len(sub) == 2: // reviews/{id}: its text
+		return verbComment
+	}
+	return reviewVerdict(p) // reviews, reviews/{id}/events
+}
+
+// reviewVerdict is the verb a `gh api` review's `event` field names (GW-D2, GW-D4): APPROVE an
+// approval, REQUEST_CHANGES an edit, COMMENT or no event a comment. "" when the verdict is not
+// written plainly on the command line: a body read from --input, an `-F event=@file` value, a
+// key GitHub might read as `event` in another spelling (`Event`, `event[]`), two different
+// verdicts, or any other value.
+func reviewVerdict(p *parsed) string {
+	if p.has("input") {
+		return ""
+	}
+	verdict := ""
+	for _, long := range []string{"field", "raw-field"} {
+		for _, v := range p.values(long) {
+			k, val, _ := strings.Cut(v, "=")
+			if root, _, _ := strings.Cut(k, "["); !strings.EqualFold(root, "event") {
+				continue
+			}
+			if k != "event" || long == "field" && strings.HasPrefix(val, "@") {
+				return ""
+			}
+			if verdict != "" && verdict != val {
+				return ""
+			}
+			verdict = val
+		}
+	}
+	switch verdict {
+	case "", "COMMENT":
+		return verbComment
+	case "REQUEST_CHANGES":
+		return verbEdit
+	case "APPROVE":
+		return verbApprove
+	}
+	return ""
+}
+
+// cellOf is the cell a PR or issue write falls in (§1, GW-D41): its verb, then `_prs` or
+// `_issues` by what the item is, which the caller read from the host (pr), never from the
+// command, since the two share one number space. An approval or a merge is always a PR's.
+// "" for a write with no verb.
+func cellOf(t writeTarget, pr bool) string {
+	switch t.Verb {
+	case "":
+		return ""
+	case verbApprove, verbMerge:
+		return t.Verb + "_prs"
+	}
+	if pr {
+		return t.Verb + "_prs"
+	}
+	return t.Verb + "_issues"
 }
 
 // prSubResource reports whether sub, the path under pulls/{n}, is one a PR's working-set
@@ -275,11 +387,15 @@ func (t writeTarget) resource() string {
 }
 
 // coveringKinds are the working-set kinds whose live entry on the target's resource covers it:
-// a PR or an issue in the working set covers every non-merge write to that number; a merge, a
-// creation and a repository-level write only their own timed grant.
+// a PR or an issue in the working set covers the writes to that number its cells let run
+// (entryCovers); an approval also its own timed grant; a merge, a creation and a
+// repository-level write only their own timed grant.
 func (t writeTarget) coveringKinds() []string {
 	switch t.Kind {
 	case targetPR, targetIssue, targetIssueOrPR:
+		if t.Verb == verbApprove {
+			return []string{brokerstore.WorkingPR, brokerstore.WorkingIssue, brokerstore.WorkingApprove}
+		}
 		return []string{brokerstore.WorkingPR, brokerstore.WorkingIssue}
 	case targetMerge:
 		return []string{brokerstore.WorkingMerge}

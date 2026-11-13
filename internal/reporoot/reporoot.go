@@ -59,7 +59,7 @@ type bundleStamp struct {
 var linuxBinaries = []string{"yolo", "yolo-entrypoint", "yolo-jaild", "yolo-ps", "yolo-cglimit", "yolo-journalctl", "yolo-serial", "yolo-log"}
 
 // darwinBinaries is what a darwin bundle dir holds: the host yolo, the same build as the launcher
-// (docs/design/pinned-host-helpers.md, PH-D2), then the macos-user guest set. It is pinned to
+// (docs/reference/pinned-host-helpers.md, PH-D2), then the macos-user guest set. It is pinned to
 // DARWIN_HOST_BINARIES and GUEST_BINARIES in scripts/stage-source-bundle.sh.
 var darwinBinaries = []string{"yolo", "yolo-jaild", "yolo-serial", "yolo-ps", "yolo-log"}
 

@@ -328,7 +328,7 @@ func TestDefaultHostCASReaderPassesTheOwnershipFact(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(home, ".npm", "_cacache", "index"), 10)
 	o := &Options{
-		DetectRuntime: func() string { return "podman" },
+		SelectedRuntime: func() string { return "podman" },
 		Exec: func([]string, time.Duration) prune.ProbeResult {
 			return prune.ProbeResult{Ran: true, Stdout: `{"host":{"security":{"rootless":true}}}`}
 		},

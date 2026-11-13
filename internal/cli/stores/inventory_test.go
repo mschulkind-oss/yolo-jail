@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // testOptions builds an Options pointed entirely at temp roots, so no test in
@@ -19,15 +20,16 @@ func testOptions(t *testing.T) (Options, string) {
 	root := t.TempDir()
 	state := filepath.Join(root, "state")
 	o := Options{
-		Out:           new(strings.Builder),
-		Errs:          new(strings.Builder),
-		Now:           func() time.Time { return time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC) },
-		InJail:        func() bool { return false },
-		DetectRuntime: func() string { return "podman" },
-		GlobalStorage: func() string { return state },
-		GlobalCache:   func() string { return filepath.Join(state, "cache") },
-		SamplesDir:    func() string { return filepath.Join(state, "stores") },
-		NixStore:      filepath.Join(root, "nix-store"),
+		Out:             new(strings.Builder),
+		Errs:            new(strings.Builder),
+		Now:             func() time.Time { return time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC) },
+		InJail:          func() bool { return false },
+		SelectedRuntime: func() string { return "podman" },
+		Sources:         []Source{podmanListed()},
+		GlobalStorage:   func() string { return state },
+		GlobalCache:     func() string { return filepath.Join(state, "cache") },
+		SamplesDir:      func() string { return filepath.Join(state, "stores") },
+		NixStore:        filepath.Join(root, "nix-store"),
 		Exec: func([]string, time.Duration) prune.ProbeResult {
 			return prune.ProbeResult{Ran: false}
 		},
@@ -43,6 +45,18 @@ func testOptions(t *testing.T) (Options, string) {
 	// worth testing) without every one of them having to defend against a nil seam.
 	fillDefaults(&o)
 	return o, state
+}
+
+// podmanListed is a Podman source that listed no jail, the source a Linux host with Podman has.
+func podmanListed(jails ...SourceJail) Source {
+	return Source{Confinement: "podman", Display: "Podman", Setup: "podman-self",
+		State: runtime.SourceListed, Jails: jails}
+}
+
+// appleContainerListed is the same for Apple Container.
+func appleContainerListed(jails ...SourceJail) Source {
+	return Source{Confinement: "apple-container", Display: "Apple Container",
+		Setup: "apple-container-self", State: runtime.SourceListed, Jails: jails}
 }
 
 func storeByKey(t *testing.T, rep Report, key string) Store {
@@ -119,7 +133,7 @@ func TestTheCopilotRowsNameTheirOwnReclaimers(t *testing.T) {
 	writeFile(t, filepath.Join(state, "cache", "copilot", "pkg", "f"), 4)
 	writeFile(t, filepath.Join(state, "macos-user", ".cache", "copilot", "pkg", "f"), 4)
 	for _, rt := range []string{"podman", "macos-user"} {
-		o.DetectRuntime = func() string { return rt }
+		o.SelectedRuntime = func() string { return rt }
 		rows := map[string]Store{}
 		for _, r := range cacheStores(o) {
 			rows[r.Key] = r
@@ -147,7 +161,7 @@ func TestImageCacheKeepIsAskedNotAssumed(t *testing.T) {
 	o, state := testOptions(t)
 	writeFile(t, filepath.Join(state, "cache", "images", "x.tar"), 4)
 	for _, rt := range []string{"podman", "container"} {
-		o.DetectRuntime = func() string { return rt }
+		o.SelectedRuntime = func() string { return rt }
 		var row Store
 		for _, r := range cacheStores(o) {
 			if r.Key == "cache.images" {

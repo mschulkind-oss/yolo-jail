@@ -66,7 +66,7 @@ Installs in the field carry baked provenance. Whatever the reader does with a va
 
 - [`self-update.md`](../reference/self-update.md) — the install-channel table and the source-check section, which state that a source install's apply runs in the checkout.
 - [`version.go:31-42`](../../internal/version/version.go) — the `SourceDir`/`SourceBranch` comments claim the stamp is what lets a source install find its checkout, and that comment is the contract a reader trusts.
-- [`matched-development-bundles.md`](matched-development-bundles.md) — its matched-artifact contract gains the one-build property if [OQ-IP2](installed-launcher-provenance.md#OQ-IP2) rules it checked.
+- [`matched-development-bundles.md`](../reference/matched-development-bundles.md) — its matched-artifact contract gains the one-build property if [OQ-IP2](installed-launcher-provenance.md#OQ-IP2) rules it checked.
 - [`installed-launcher-provenance.md`](installed-launcher-provenance.md) — graduates to `docs/reference/` once built, per the usual hand-off.
 - [`AGENTS.md`](../../AGENTS.md) — checked: it does not mention provenance stamps, so it needs nothing.
 

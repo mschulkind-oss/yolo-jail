@@ -112,7 +112,7 @@ func privateOverriddenPack(t *testing.T, agentBin, profile string) string {
 }
 
 // withEnvSecrets returns merged with vars in the private set, `[env.secrets]` `set` — the
-// channel a provider-claimed name reaches a jail by (secret-env-scoping.md): a claimed name in
+// channel a provider-claimed name reaches a jail by (docs/reference/providers.md#the-two-env-sets-public-and-private): a claimed name in
 // the public set is refused on its own, before any override is weighed.
 func withEnvSecrets(merged *jsonx.OrderedMap, vars map[string]string) *jsonx.OrderedMap {
 	set := jsonx.NewOrderedMap()
@@ -165,7 +165,7 @@ func TestSectionPacksPredictsNoOverrideForAWithheldCredential(t *testing.T) {
 	packsFixture(t, `{"packs": ["file://`+dir+`"]}`)
 
 	// WIDGET_TOKEN is the elsewhere provider's key, so it lives in the private set
-	// (secret-env-scoping.md).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	merged := withEnvSecrets(useProfiles("someagent", "gatedprofile"),
 		map[string]string{widgetToken: "frozen-token-value"})
 	var buf bytes.Buffer
@@ -200,7 +200,7 @@ func TestSectionPacksPredictsTheOverrideOfADeliveredClaimedCredential(t *testing
 
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
-	// The selected provider's own key, so it lives in the private set (secret-env-scoping.md); and
+	// The selected provider's own key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private); and
 	// the FAIL must be the override's, which a public key's refusal would otherwise mask.
 	delivered := withEnvSecrets(useProfiles("someagent", "gatedprofile"),
 		map[string]string{widgetToken: "frozen-token-value"})

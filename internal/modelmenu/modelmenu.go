@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -295,6 +296,7 @@ func (r Request) write(into string, stderr io.Writer) (flag []string, wrote bool
 func Run(args []string, home string, stdout, stderr io.Writer) int {
 	var bin, specJSON string
 	var program []string
+	var homes []sessionHome
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -305,6 +307,15 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			bin = strings.TrimPrefix(a, "--bin=")
 		case strings.HasPrefix(a, "--spec="):
 			specJSON = strings.TrimPrefix(a, "--spec=")
+		case strings.HasPrefix(a, SessionHomeFlag):
+			// <dir>=<env>: a variable name never holds "=", so the last one splits them.
+			v := strings.TrimPrefix(a, SessionHomeFlag)
+			cut := strings.LastIndexByte(v, '=')
+			if cut <= 0 || cut == len(v)-1 {
+				fmt.Fprintf(stderr, "yolo internal %s: %q is not %s<dir>=<variable>\n", Verb, a, SessionHomeFlag)
+				return 2
+			}
+			homes = append(homes, sessionHome{dir: strings.Trim(v[:cut], "/"), env: v[cut+1:]})
 		default:
 			fmt.Fprintf(stderr, "yolo internal %s: unexpected argument %q\n", Verb, a)
 			return 2
@@ -317,10 +328,36 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	req := Request{Bin: bin, Spec: spec, Program: program,
-		List: ReadList(filepath.Join(home, filepath.FromSlash(spec.List)))}
-	flag, _ := req.write(filepath.Join(home, filepath.FromSlash(spec.Into)), stderr)
+		List: ReadList(resolveHomeFile(home, spec.List, homes, os.Getenv))}
+	flag, _ := req.write(resolveHomeFile(home, spec.Into, homes, os.Getenv), stderr)
 	printFlag(stdout, flag)
 	return 0
+}
+
+// SessionHomeFlag is the launcher's argument naming one of the pack's session homes,
+// `--session-home=<declared dir>=<variable>` (packdecl.ModelMenu.SessionHomes).
+const SessionHomeFlag = "--session-home="
+
+// sessionHome is one declared directory, home-relative, and the variable that relocates it.
+type sessionHome struct{ dir, env string }
+
+// resolveHomeFile is where the home-relative file rel is for THIS session: under a declared
+// session-home directory whose variable is set, the same place under the variable's directory,
+// since that is the copy the session's program reads and the session's own render wrote
+// (docs/design/per-session-profiles.md §4.4); else under home. It is the launcher's
+// _refresh_home_file rule, in Go.
+func resolveHomeFile(home, rel string, homes []sessionHome, getenv func(string) string) string {
+	rel = strings.TrimPrefix(path.Clean("/"+rel), "/")
+	for _, h := range homes {
+		val := getenv(h.env)
+		if val == "" || h.dir == "" {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(rel, h.dir+"/"); ok {
+			return filepath.Join(val, filepath.FromSlash(rest))
+		}
+	}
+	return filepath.Join(home, filepath.FromSlash(rel))
 }
 
 // warnMissing says which of yolo's listed ids the program's own catalog lacks, and so the menu

@@ -26,9 +26,15 @@ func renderText(rep Report, o Options) {
 
 	p.line("[bold]yolo stores[/bold]  (inventory — this command deletes, moves and mutates nothing)")
 	p.line(fmt.Sprintf("Frame: [bold]%s[/bold] — %s", rep.Frame, rep.FrameNote))
-	rtLine := "Runtime: " + orNone(rep.Runtime)
-	p.line(fmt.Sprintf("%s   Measured: %s   Walk budget: %s per store",
-		rtLine, rep.GeneratedAt.Format("2006-01-02 15:04:05 MST"), rep.Budget))
+	p.line(fmt.Sprintf("Sources: %s   Measured: %s   Walk budget: %s per store",
+		sourcesCell(rep), rep.GeneratedAt.Format("2006-01-02 15:04:05 MST"), rep.Budget))
+	// A source that did not list says so under the header, with its next step: its technology's
+	// sections are missing, and a judgment that needed it declined (named-setups.md §12.5).
+	for _, src := range rep.Sources {
+		if line := sourceLine(src); line != "" {
+			p.line(line)
+		}
+	}
 	if o.Age {
 		p.line(fmt.Sprintf("[dim]--age: also counting files older than %g days — a per-file walk, so each row prints its own elapsed time.[/dim]", o.AgeDays))
 	}
@@ -39,16 +45,21 @@ func renderText(rep Report, o Options) {
 	// sections, which is what keeps a host-owned 27 G store out of yolo's own
 	// footprint.
 	for _, section := range []string{SectionState, SectionCache, SectionAlias, SectionImages, SectionVolumes, SectionToolDisks, SectionDurable, SectionRescue, SectionFreshHome, SectionMacosUser, SectionMacosUserLegacy, SectionNix} {
-		rows := rowsIn(rep, section)
-		if len(rows) == 0 {
-			continue
-		}
-		p.line("")
-		p.line("[bold]" + section + "[/bold]" + sectionPath(rows))
-		renderTable(p, rows, o.Age)
-		for _, r := range rows {
-			if r.Note != "" {
-				p.line(fmt.Sprintf("  [dim]%s: %s[/dim]", r.Name, r.Note))
+		// A technology-bound section prints once per technology, headed with its name
+		// ("container image store — Podman"); a machine-wide one once (§12.5).
+		for _, part := range byConfinement(rowsIn(rep, section)) {
+			rows := part.rows
+			heading := section
+			if part.confinement != "" {
+				heading += " — " + displayOf(part.confinement)
+			}
+			p.line("")
+			p.line("[bold]" + heading + "[/bold]" + sectionPath(rows))
+			renderTable(p, rows, o.Age)
+			for _, r := range rows {
+				if r.Note != "" {
+					p.line(fmt.Sprintf("  [dim]%s: %s[/dim]", r.Name, r.Note))
+				}
 			}
 		}
 	}
@@ -317,4 +328,78 @@ func fmtCount(n int) string {
 		return "-" + joined
 	}
 	return joined
+}
+
+// confinementRows is one technology's rows of a section, or a machine-wide section's rows.
+type confinementRows struct {
+	confinement string
+	rows        []Store
+}
+
+// byConfinement splits a section's rows by technology, in the order each first appears.
+func byConfinement(rows []Store) []confinementRows {
+	var out []confinementRows
+	at := map[string]int{}
+	for _, r := range rows {
+		i, ok := at[r.Confinement]
+		if !ok {
+			i = len(out)
+			at[r.Confinement] = i
+			out = append(out, confinementRows{confinement: r.Confinement})
+		}
+		out[i].rows = append(out[i].rows, r)
+	}
+	return out
+}
+
+// displayOf names a confinement in prose, as `yolo ps` does.
+func displayOf(confinement string) string {
+	switch confinement {
+	case "podman":
+		return "Podman"
+	case "apple-container":
+		return "Apple Container"
+	case "seatbelt":
+		return "Seatbelt"
+	case "host":
+		return "yolo host"
+	}
+	return confinement
+}
+
+// sourcesCell is the header's list of the sources that listed, "none" when none did.
+func sourcesCell(rep Report) string {
+	var listed []string
+	for _, s := range rep.Sources {
+		if s.State == "listed" {
+			listed = append(listed, displayOf(s.Confinement))
+		}
+	}
+	if len(listed) == 0 {
+		return "none"
+	}
+	return strings.Join(listed, ", ")
+}
+
+// sourceLine is the line under the header for a source that did not list, "" for one that did.
+func sourceLine(s SourceJSON) string {
+	name := displayOf(s.Confinement)
+	var line string
+	switch s.State {
+	case "listed":
+		return ""
+	case "not-installed":
+		return "[dim]" + name + " is not installed here; it has no sections.[/dim]"
+	default:
+		why := s.State
+		if s.Detail != "" {
+			why += ": " + richtext.Escape(s.Detail)
+		}
+		line = "[yellow]" + name + " did not answer (" + why + "); its sections are not listed, " +
+			"and what its jails may be using is not judged.[/yellow]"
+	}
+	if s.NextStep != "" {
+		line += " Next: " + richtext.Escape(s.NextStep)
+	}
+	return line
 }

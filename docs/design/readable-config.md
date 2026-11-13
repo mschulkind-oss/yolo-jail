@@ -365,7 +365,7 @@ structural reason, which it cannot:
 | provider `base_url` | agent-editable; steers inference and credentials | yes, but it is an exfiltration channel |
 | ro `mounts`, `env_sources` | none | only if [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) moves them |
 | `programs`, `agent_updates` | agent-editable | technically; the payoff is unclear |
-| `packs` ([OQ-MP7](mcp-presets-removal.md#decision-ledger)'s safe subset) | install-shaped | a different question: a subset a **committed** file may declare |
+| `packs` ([OQ-MP7](../reference/mcp-configuration.md#OQ-MP7)'s safe subset) | install-shaped | a different question: a subset a **committed** file may declare |
 | `host_wrappers`, `host_apply_on_launch`, `host_management`, `promotion_target` | machine-wide | **no** |
 | `perf_logging` | read before workspace config loads | **no**; the ordering is structural |
 | loophole install, `env`, `doctor_cmd`, `settings` | reach a host daemon | not proposed: host execution needs its own ruling |

@@ -589,6 +589,18 @@ func addForkKeys(pool *buildPool, req run.ForkBuildRequest, color bool, answer f
 			continue
 		}
 		b := forkBuild{Fork: p.Fork, Commit: p.Commit, Platform: req.Platform}
+		// FRESH ANSWER: under --update a build or fetch that answers no key fails the explicit
+		// request (run.refuseFreshPreparation), before readiness or YOLO_ALLOW_MISSING_PROGRAMS can
+		// let the launch start without it. A pack-tree program reaches this arm under --update too.
+		freshAnswer := func(d entrypoint.ForkDelivery) {
+			if req.FreshUpdate && d.Key == "" && d.FreshFailure == "" {
+				d.FreshFailure = d.Reason
+				if d.FreshFailure == "" {
+					d.FreshFailure = "no build was delivered"
+				}
+			}
+			answer(p.Fork.Bin, d)
+		}
 		if entry, _, err := resolveForkBuild(store, p.Fork.Bin, req.Platform, b.selectSource(), p.Commit, b.recipe()); err == nil {
 			// A HIT PRINTS NOTHING (BG-D10), a pack-tree program's as a fork's.
 			answer(p.Fork.Bin, entrypoint.ForkDelivery{Key: entry.Key, Reused: true})
@@ -598,7 +610,7 @@ func addForkKeys(pool *buildPool, req run.ForkBuildRequest, color bool, answer f
 			// THE PREBUILT ARTIFACT (§7): fetched and verified by the host, with no jail and no build
 			// slot; the launch's disclosure line says it once the slot has answered.
 			pool.add(p.Fork.Label(), func(it *poolItem) {
-				answer(p.Fork.Bin, fetchPrebuiltForLaunch(b, req.Runtime, it, color))
+				freshAnswer(fetchPrebuiltForLaunch(b, req.Runtime, it, color))
 			})
 			continue
 		}
@@ -608,22 +620,18 @@ func addForkKeys(pool *buildPool, req run.ForkBuildRequest, color bool, answer f
 				// NO BUILD LINE (BG-D5): the host's copy, admitted under the build's lock, with no jail
 				// and no build slot.
 				pool.add(p.Fork.Label(), func(it *poolItem) {
-					answer(p.Fork.Bin, copyPackTreeForLaunch(b, req.Runtime, it, color))
+					freshAnswer(copyPackTreeForLaunch(b, req.Runtime, it, color))
 				})
 				continue
 			}
 			pool.add(p.Fork.Label(), func(it *poolItem) {
-				answer(p.Fork.Bin, buildPlainForkForLaunch(b, req.Runtime, pool.report, it, color))
+				freshAnswer(buildPlainForkForLaunch(b, req.Runtime, pool.report, it, color))
 			})
 			continue
 		}
 		missing++
 		pool.add(p.Fork.Label(), func(it *poolItem) {
-			delivery := buildPlainForkForLaunch(b, req.Runtime, pool.report, it, color)
-			if req.FreshUpdate && delivery.Key == "" {
-				delivery.FreshFailure = delivery.Reason
-			}
-			answer(p.Fork.Bin, delivery)
+			freshAnswer(buildPlainForkForLaunch(b, req.Runtime, pool.report, it, color))
 		})
 	}
 	if missing > 0 && !req.Interrupt.Interrupted() {

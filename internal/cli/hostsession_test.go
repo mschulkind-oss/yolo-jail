@@ -58,6 +58,11 @@ func TestHostLaunchWithNoDoorwayHoldsASessionAcrossTheExec(t *testing.T) {
 	if s.PID != os.Getpid() {
 		t.Errorf("the session records pid %d; want the launch's own, %d", s.PID, os.Getpid())
 	}
+	// The record names the launch's setup and start, so `yolo ps` lists it under host-self with
+	// an age (named-setups.md SU-D11, the session half).
+	if s.Setup != "host-self" || s.Started.IsZero() {
+		t.Errorf("the session records setup %q, started %v; want host-self and a start time", s.Setup, s.Started)
+	}
 	if !lockInherited {
 		t.Error("the session's lock is close-on-exec: it would be released the moment the agent replaced yolo")
 	}
@@ -91,7 +96,8 @@ func TestHostLaunchWithServicesButNoDoorwayHoldsOneSession(t *testing.T) {
 	if l.execed {
 		t.Fatal("a launch with a service exec'd its agent")
 	}
-	if !listed || len(during) != 1 || during[0].Notch != runtime.NotchHost || during[0].Liveness != runtime.SessionLive {
+	if !listed || len(during) != 1 || during[0].Notch != runtime.NotchHost || during[0].Liveness != runtime.SessionLive ||
+		during[0].Setup != "host-self" {
 		t.Fatalf("while starting its service, sessions under %s = %+v (listed %v); want exactly one live host session\n%s",
 			base, during, listed, l.errs)
 	}

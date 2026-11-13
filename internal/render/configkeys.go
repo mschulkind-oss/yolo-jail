@@ -197,7 +197,7 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	// `.grants`, is approved at the launch's config-change gate and handed to the broker's scope
 	// file (run's writeScopeFiles). Its user half, `brokered.<source>.sets` and `.grant_kinds`,
 	// names the permission sets a broker runs under and the grant kinds a workspace may name
-	// (docs/design/boundary-broker.md BB-D23, docs/design/git-broker-plan.md ID-10); the user
+	// (docs/design/boundary-broker.md BB-D23, docs/reference/git-broker.md ID-10); the user
 	// scope refuses every other key, so `yolo host apply` has nothing here to render.
 	"brokered": {KeyNotApplicable, "configures a jail's brokers: a workspace's own config lists the " +
 		"repositories and grants its broker admits, and the user config the permission sets the " +

@@ -7,7 +7,9 @@ verified_commit: 7ad8358c
 covers:
   - internal/entrypoint/mcp.go
   - internal/packload/mcpcompose.go
-  - packs/chrome-devtools/pack.json
+  - packs/chrome-devtools/pack.toml
+  - internal/entrypoint/packbootchecks.go
+  - internal/packdecl/hookflags.go
   - packs/chrome-devtools/home/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper
   - internal/jailcontent/lspplugin.go
   - internal/cli/applyhostlspplugin.go
@@ -50,9 +52,9 @@ server now gets a line of its own (MEASURED in a nested jail at `1493ac51`, the 
 [Pi's MCP files](#pis-mcp-files) were re-checked on 2026-10-01 against pi 0.99.2's installed
 source, when the pi pack moved its render to pi's own `mcp.json`.
 [A pack's servers](#a-packs-servers-the-mcp-kind) and [the chrome-devtools
-pack](#the-chrome-devtools-pack) were added on 2026-10-05 with the kind and the pack
-([mcp-presets-removal.md §13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps
-1 and 2). MEASURED once, in this repository's development jail on 2026-10-05: the wrapper,
+pack](#the-chrome-devtools-pack) were added on 2026-10-05 with the kind and the pack, and
+re-verified with [the retired `mcp_presets` key](#the-retired-mcp_presets-key) on 2026-11-12
+against `9c815102e`, when the presets-removal design graduated into this document. MEASURED once, in this repository's development jail on 2026-10-05: the wrapper,
 started under `env -i` with only `HOME`, `PATH=/usr/bin:/bin` and the npm prefix set, handed
 `--executablePath /usr/bin/chromium` to chrome-devtools-mcp 1.10.1, passed the autonomous
 posture's flags by hand (no launcher in that home), and the server answered `initialize` and a
@@ -60,9 +62,8 @@ posture's flags by hand (no launcher in that home), and the server answered `ini
 pack composed, at any notch, and nothing has run on a Mac; unit tests run the wrapper against
 stand-ins and `yolo host apply --assert` against a fake Node distribution.
 The `mcp_presets` key was retired on 2026-10-23
-([§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) step 3): a config
-carrying it is refused, `sequential-thinking` was deleted, and the `chrome-devtools` pack is
-the browser's only route.
+([below](#the-retired-mcp_presets-key)): a config carrying it is refused, `sequential-thinking`
+was deleted, and the `chrome-devtools` pack is the browser's only route.
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table from the
 user's config and the selected packs' `mcp` entries — pack entries under the user's, custom
@@ -184,22 +185,25 @@ left out of both.
 
 ### A pack's servers: the `mcp` kind
 
-A pack contributes a server the way it contributes a provider: one `kind: "mcp"` entry per
+A pack contributes a server the way it contributes a provider: one `[[mcp]]` entry per
 server, composed into the table under the user's own (`packload.ComposeMCPServers`,
-[OQ-MP3](../design/mcp-presets-removal.md#decision-ledger)). `config` is the entry, in exactly the shape a
-user writes one under `mcp_servers`:
+[OQ-MP3](#OQ-MP3)). Its shape is `name`, an optional `bin`, and `config`, which is the entry
+in exactly the shape a user writes one under `mcp_servers`, its keys pinned by test to the ones
+config validation knows ([MP-D6](#MP-D6)):
 
-```jsonc
-{"kind": "mcp", "name": "chrome-devtools", "bin": "chrome-devtools-mcp",
- "config": {"command": "/bin/sh",
-            "args": ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]}}
+```toml
+[[mcp]]
+name = "chrome-devtools"
+bin = "chrome-devtools-mcp"
+config.command = "/bin/sh"
+config.args = ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]
 ```
 
 - **A `command` or `args` word starting `~/` names a path under the home** of the notch the
   entry renders for, and the composer writes it absolute: `/home/agent` in a container jail, the
   sandbox account's home on macos-user, yours at the host. An MCP client starts its servers with
   a scrubbed environment, so the path has to be absolute, and the home is a fact the composing
-  side already has ([OQ-MP4](../design/mcp-presets-removal.md#decision-ledger)). `env` values are
+  side already has ([OQ-MP4](#OQ-MP4)). `env` values are
   literal, as everywhere.
 - **Composed once per launch, on the host, for that launch's home**: the container launch puts
   the result in `YOLO_MCP_SERVERS`, the macos-user plan composes it from the staged pack tree
@@ -316,7 +320,7 @@ The decision is made per rendered target and follows the selected source, never 
 and never the jail-wide pack set, so changing one agent's profile changes only that target's
 result. Because it sits at the context boundary, the one place both production callers pass
 through (the surface render and the env composition), no pack can opt out of it and none has to
-opt in. Which packs declare which capabilities is pack data: `rg -n web_search packs/*/pack.json`
+opt in. Which packs declare which capabilities is pack data: `rg -n web_search packs/*/pack.toml`
 answers it, and no list here does.
 
 **It is not `required_capabilities`**, though the two share one vocabulary: both read an
@@ -459,7 +463,7 @@ pinned through the boot loop, by `capabilitydropnotice_test.go` and
 
 Each pack declares its own config surface and a `derive.lua` that reads the canonical table
 and returns its tool's shape. **The per-tool table is pack data**: the file paths, the key
-names and the schema live in each pack's `pack.json` and `derive.lua`, which are the
+names and the schema live in each pack's `pack.toml` and `derive.lua`, which are the
 authority. What is worth knowing is *how the shapes differ*, because that is what a new
 projection has to get right:
 
@@ -786,10 +790,10 @@ its footprint:
 
 | Contribution | What it does |
 | :--- | :--- |
-| `program` `chrome-devtools-mcp` (npm, Node floor 22.12) | the server. In a jail and on macos-user every agent's launcher installs it before the agent starts and keeps it current on the agent's own trigger; the program's launcher, which the server runs through, installs it only if nothing has and never updates it by itself, since it runs while the client waits ([MP-D9](../design/mcp-presets-removal.md#MP-D9)). At the host every `yolo host -- <command>` installs it into yolo's floor if it is missing, and a failed install stops the launch unless `YOLO_ALLOW_MISSING_PROGRAMS=1` ([HNR-D6](host-agent-environment.md#HNR-D6)); `yolo host apply --assert` installs it too |
-| `files` `.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | the script the entry runs, off PATH ([MP-D1](../design/mcp-presets-removal.md#MP-D1)) |
+| `program` `chrome-devtools-mcp` (npm, Node floor 22.12) | the server. In a jail and on macos-user every agent's launcher installs it before the agent starts and keeps it current on the agent's own trigger; the program's launcher, which the server runs through, installs it only if nothing has and never updates it by itself, since it runs while the client waits ([MP-D9](#MP-D9)). At the host every `yolo host -- <command>` installs it into yolo's floor if it is missing, and a failed install stops the launch unless `YOLO_ALLOW_MISSING_PROGRAMS=1` ([HNR-D6](host-agent-environment.md#HNR-D6)); `yolo host apply --assert` installs it too |
+| `files` `.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` (from the pack's `home/` tree) | the script the entry runs, off PATH ([MP-D1](#MP-D1)) |
 | `mcp` `chrome-devtools` | `/bin/sh` and the wrapper's path under the notch's home. `/bin/sh`, which needs no exec bit (chosen when a pack selected by its bare name carried none) |
-| `autonomy` | the jail-only chrome flags on the AUTONOMOUS posture's launch flags for the program: `--headless`, `--isolated` and three `--chrome-arg=` flags (`--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu`). A jail's launcher adds them to every start; the GUARDED posture, the host's, adds none, so Chrome keeps its own sandbox and opens a window there ([MP-D2](../design/mcp-presets-removal.md#MP-D2)) |
+| `autonomy` | the jail-only chrome flags on the AUTONOMOUS posture's launch flags for the program: `--headless`, `--isolated` and three `--chrome-arg=` flags (`--no-sandbox`, `--disable-setuid-sandbox`, `--disable-gpu`). A jail's launcher adds them to every start; the GUARDED posture, the host's, adds none, so Chrome keeps its own sandbox and opens a window there ([MP-D2](#MP-D2)) |
 
 **The wrapper looks for both halves at run time**, because the client hands it a scrubbed
 environment and the notch is not something it may guess from one:
@@ -797,7 +801,7 @@ environment and the notch is not something it may guess from one:
 - **the server**: the PATH it was given, then `~/.yolo/bin/launch` (a jail's and macos-user's
   launcher), then the npm prefix, then yolo's host floor at
   `~/.local/share/yolo-jail/host-floor/bin`;
-- **the browser** ([MP-D5](../design/mcp-presets-removal.md#MP-D5)): `chromium`,
+- **the browser** ([MP-D5](#MP-D5)): `chromium`,
   `chromium-browser`, `google-chrome` or `google-chrome-stable` on PATH, then the standard
   install paths — the image's `/usr/bin/chromium`, `/opt/google/chrome/chrome`, the
   store-delivered farm, `/Applications/Google Chrome.app` and `Chromium.app`, and the same two
@@ -815,7 +819,7 @@ names the step for each notch.
 **At boot**, in a container jail, the pack's `boot_check` hook runs the same wrapper
 with `--boot-check`: the browser search alone, silent when it finds one and one warning line,
 naming what to install, when it does not
-([`OQ-MP9`](../design/mcp-presets-removal.md#OQ-MP9)). It never stops a launch, since a browser
+([`OQ-MP9`](#OQ-MP9)). It never stops a launch, since a browser
 installed later is used at the server's next start. yolo runs the check because the pack
 declares it, and knows nothing about browsers. On macos-user the boot runs no pack script, its
 bootstrap being outside the agent's sandbox, so the report there is the server start's line.
@@ -824,6 +828,39 @@ bootstrap being outside the agent's sandbox, so the report there is the server s
 on a `YOLO_STORE_PACKAGES=1` launch. macos-user and the host need a Chrome or Chromium the machine
 already has; no pack channel can install a browser. To turn the server off without dropping the
 pack, write `"mcp_servers": {"chrome-devtools": null}`.
+
+**Why the browser is image content, not the pack's.** A pack has no channel that installs a nix
+package (a `program`'s `via` is `npm`, `installer`, `source` or `pack`, never a nix package), and none can put chromium, fontconfig
+and a font tree where a container's read-only root needs them. The image's `/lib` farm is not part
+of that need: the baked nix chromium is self-contained through its RPATH, and the farm serves a
+non-nix chromium; one `withChromium` flag in `flake.nix` gates both, which is why they look
+coupled.
+
+**A missing piece costs the server, never the launch.** A server program whose install failed,
+or a jail with no browser, leaves the agent running with that server absent; two selected packs
+shipping a server of one name is the generic sole-owner refusal, with no pass of its own.
+
+### The retired `mcp_presets` key
+
+`mcp_presets` was core's own closed list of MCP servers, two names long. It is retired whole
+([OQ-MP6](#OQ-MP6)):
+
+- **`chrome-devtools`** is the pack above, selected with `yolo pack add chrome-devtools` in the
+  user config ([OQ-MP2](#OQ-MP2)).
+- **`sequential-thinking`** was deleted with no replacement ([OQ-MP1](#OQ-MP1)). A user who wants
+  it writes their own `mcp_servers` entry; the refusal prints the `yolo config set` line.
+
+**Any value is refused**, `[]` and `null` included: the key being present is the whole condition,
+and a key the config still carries while it means nothing would silently deny a browser the user
+asked for. On the host it is an error; inside a jail it is a warning saying the key is ignored
+there, because the in-jail config is the host-written snapshot an older host may have written it
+into (`config.validateMCPPresetsRetired`, the pattern of the other retired keys). `yolo host
+apply`, which runs no full config validation, names the key in its report
+(`composeHostInputs`). The message (`config.MCPPresetsRetiredMessage`) gives both next steps:
+`yolo pack add chrome-devtools` on the host, which adds one `packs` entry beside the user's agents
+rather than a whole list to paste over them ([MP-D10](#MP-D10)), and the
+`yolo config set mcp_servers.sequential-thinking.command …` line. Removing the key from a workspace config is an ordinary
+config change: one `config drift` entry and the launch's diff prompt.
 
 ## The node/npx wrapper
 
@@ -976,10 +1013,10 @@ are stated.
 | Config keys | `mcp_servers`, `lsp_servers`; `mcp_presets` is refused | `yolo config-ref`, `config.MCPPresetsRetiredMessage` |
 | Wire form into the jail | one JSON env var per key | `internal/cli/run/assemble.go` |
 | Canonical source names | `mcp_servers`, `lsp_servers` | `manifest.SourceMCPServers`, `SourceLSPServers` |
-| Pack-shipped servers | the `mcp` kind; `chrome-devtools` is the shipped one | `packload.ComposeMCPServers`, `packs/chrome-devtools/pack.json` |
+| Pack-shipped servers | the `mcp` kind; `chrome-devtools` is the shipped one | `packload.ComposeMCPServers`, `packs/chrome-devtools/pack.toml` |
 | The home word in an `mcp` entry | `~/` at the start of a `command` or `args` word | `packdecl.MCPHomePrefix` |
 | Where the composition is delivered | `YOLO_MCP_SERVERS` on the container argv; the macos-user bootstrap env; the host's derive inputs | `run.jailMCPServers`, `macosuser.BuildRunPlanWithDaemons` (`entrypoint.MCPServersAt`), `cli.composeHostInputs` |
-| Where the chrome-devtools wrapper lands | `~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | `packs/chrome-devtools/pack.json` |
+| Where the chrome-devtools wrapper lands | `~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper` | `packs/chrome-devtools/home/` (the pack's `home/` tree) |
 | Wrapper locations | `~/.local/bin/mcp-wrappers/{node,npx}` | `Env.McpWrappersBin`, `GenerateMCPWrappers` |
 | What a wrapper exports | `FONTCONFIG_FILE`, `FONTCONFIG_PATH` — and nothing else | `internal/entrypoint/mcp_wrappers.go` |
 | What a wrapper execs | the nix `/bin/node` / `/bin/npx` | `internal/entrypoint/mcp_wrappers.go` |
@@ -1000,7 +1037,8 @@ are stated.
 
 Forward-facing rulings a maintainer would otherwise undo, with their original ids. An `LSP-I`
 row is an implementation decision rather than a ruling, numbered in a series coined in this table
-for the host half of Claude's plugin.
+for the host half of Claude's plugin. The `OQ-MP` and `MP-D` rows came from the retired
+`mcp_presets` design when it was built (2026-10-23).
 
 | ID | Ruling | Why it stays |
 | :--- | :--- | :--- |
@@ -1017,3 +1055,23 @@ for the host half of Claude's plugin.
 | <a id="lsp-i5"></a>[`LSP-I5`](#lsp-i5) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* A destination is retired as **dead only over a complete pack set** | A configured pack that did not resolve may be the one naming the destination, the reason the skills composition's own retire waits for a complete set. |
 | <a id="lsp-i6"></a>[`LSP-I6`](#lsp-i6) | *Implementation decision, taken under the maintainer's 2026-10-04 delegation ("make them and build it … adjust later"); reversible.* The **reserved-name skip is a `--verbose` line**, not a warning | A fence is a pack's deliberate declaration, nothing is wrong, and the skills report already puts a skipped entry's line on demand. |
 | Orphan-file cleanup ([`config-migration-to-prism.md`](config-migration-to-prism.md#the-two-sidecars-are-different-kinds-of-thing)) | A retired sidecar is deleted by the surface's owner on first composed render, as **data** rather than Go | It was the last thing left in the per-agent render functions besides the computed layer, and keeping it in Go would keep those functions alive for a one-shot cleanup. |
+| <a id="OQ-MP1"></a>[**OQ-MP1**](#OQ-MP1) | `sequential-thinking` is **dropped with no replacement**: not migrated, not re-homed into a pack (ruled before the design was drafted, 2026-09-12) | A preset only it needed was core keeping its own list of servers. The cost is stated, not softened: the user's own entry has no install channel (`npx -y` covers it), bypasses [the wrapper](#the-gap-a-custom-server-bypasses-the-wrapper), and leaves the server refresh set, so nothing keeps it current. An unmanaged server is unmanaged. |
+| <a id="OQ-MP2"></a>[**OQ-MP2**](#OQ-MP2) | `chrome-devtools` becomes a **builtin pack**, *"because that has hairy config to get right"* (2026-09-12) | The sandbox flags, the browser search and the posture split are the tool's dialect, which is a pack's business ([principle 2](pack-system.md)). |
+| <a id="OQ-MP3"></a>[**OQ-MP3**](#OQ-MP3) | A new **`mcp` kind**, composed into `mcp_servers` the way `provider` composes into `providers`; exclusive by server name, never review-worthy (2026-09-20) | A server is data in an agent-neutral table, so the pack declares the entry and each agent pack projects it; a `files`-only or hook-only pack would put the dialect back in core. |
+| <a id="OQ-MP4"></a>[**OQ-MP4**](#OQ-MP4) | **Dissolved**, its premise false: the entry composes **host-side**, through `paths.JailPathHomeDirs` (2026-09-20) | The composing side knows the notch's home, so a pack's `~/` path is joined there and never resolved in the jail. |
+| <a id="OQ-MP5"></a>[**OQ-MP5**](#OQ-MP5) | `requires` plus run-time resolution in the pack's own wrapper (2026-09-20). **Superseded in part**: the build kept the run-time half only ([MP-D5](#MP-D5)), ruled at [OQ-MP9](#OQ-MP9) | Core resolving a candidate list would put browser-finding back in core, and a bare binary name loses to an MCP client's environment sanitization. |
+| <a id="OQ-MP6"></a>[**OQ-MP6**](#OQ-MP6) | **Full retirement** of both preset names, with a targeted message naming the pack to add and an `mcp_servers` snippet; no warn-and-ignore release (2026-09-20) | A key that still parses but means nothing silently denies a browser the user asked for. |
+| <a id="OQ-MP7"></a>[**OQ-MP7**](#OQ-MP7) | **No** to demoting the browser from a workspace-writable key to a user-only selection; define a safe subset of packs a workspace may declare instead (2026-09-20). **Superseded** by [OQ-PK1](pack-system.md#oq-pk1) (2026-10-23: *"no workspace packs for now, retire mcp_presets"*) | The demotion is real: a workspace file can no longer turn the browser on. It was accepted only once the workspace-pack question was ruled, which is why the retirement shipped last. |
+| <a id="OQ-MP8"></a>[**OQ-MP8**](#OQ-MP8) | The wrapper is an **executable path**: one plain script, not a service or a daemon; never always-running, never orphaned (2026-09-20) | An MCP server is started by its client over stdio and lives as long as the session; a service would be a second lifetime to manage for nothing. |
+| <a id="OQ-MP9"></a>[**OQ-MP9**](#OQ-MP9) | **The pack runs its own browser check at boot, a warning only** (2026-10-23, option D in the pack's own terms): *"I don't want Yolo to be doing anything here, but if the pack discovers at boot … that it's not there, then it should print it … it is just a warning."* Built as [MP-D11](#MP-D11) | A browser installed after boot just works, so its absence never stops a launch; core knows nothing browser-specific. |
+| <a id="MP-D1"></a>[**MP-D1**](#MP-D1) | *Implementation decision under the maintainer's 2026-10-04 delegation; reversible.* The wrapper is a `files` tree **off PATH** under `~/.local/share/yolo-chrome-devtools/`, and the entry runs it as `/bin/sh <file>` | A `files` destination may not land on a PATH dir, and a pack selected by bare name carries no exec bit (`embed.FS` holds none); `.local/share` because `yolo host apply` writes the same tree into a real home. |
+| <a id="MP-D2"></a>[**MP-D2**](#MP-D2) | *As MP-D1.* The jail-only Chrome flags are the **`autonomy` kind's autonomous launch flags** for `chrome-devtools-mcp`; the host's guarded posture declares none | A jail's launcher bakes them into every start however the client reached the program; the flags are never decided from the environment at run time, which an MCP client scrubs. |
+| <a id="MP-D3"></a>[**MP-D3**](#MP-D3) | *As MP-D1.* `yolo host -- <agent>` also installs the program each composed entry's `bin` names, after the agent's own; a failure costs that server, never the agent ([HC-D28](host-agent-environment.md#HC-D28)) | The host has no lazy launcher to install it on first use; `bin` is a field so an entry names its program rather than core inferring it. |
+| <a id="MP-D4"></a>[**MP-D4**](#MP-D4) | *As MP-D1.* At the host an entry composes only from a **shipped pack or one at a local path** (`Pack.MayRunHostHalf`); a fetched pack's entry is left out and named ([HC-D26](host-agent-environment.md#HC-D26)) | At the host the entry's command runs unconfined as you, which is host code, and a fetched pack's host code is refused until a trust ruling exists; in a jail every pack's entry composes. |
+| <a id="MP-D5"></a>[**MP-D5**](#MP-D5) | *As MP-D1.* The **wrapper resolves the browser at run time** and reports it itself (a stderr line at every start, and `--check`); the pack declares no `requires` | A `requires` names one binary on PATH and cannot see an app bundle or a set of alternatives, so it would report a missing browser on every Mac with Chrome. |
+| <a id="MP-D6"></a>[**MP-D6**](#MP-D6) | *As MP-D1.* The kind's shape is **`{name, bin, config: <entry>}`**, the entry in exactly `mcp_servers`' shape (keys pinned by `TestTheMCPKindCarriesEveryMCPServerKeyButTheUserOnlyOnes`), with one path prefix, `~/` | Top-level fields would have collided with the retired `env` tombstone, and one prefix joined by the composer keeps the home the composing side's decision ([OQ-MP4](#OQ-MP4)). |
+| <a id="MP-D7"></a>[**MP-D7**](#MP-D7) | *As MP-D1.* Composition follows the **provider precedent**: pack order; a name two packs ship is refused by validation (`config.validatePackMCPServers`) and in `yolo pack footprint`; the user's entry merges over the pack's per field, `env` per variable; a user `null` removes it | One shape for every pack-composed table, and the user always has the last word on a server. |
+| <a id="MP-D8"></a>[**MP-D8**](#MP-D8) | *As MP-D1.* The `mcp` kind and the pack **shipped before the key retired**, which waited on [OQ-PK1](pack-system.md#oq-pk1) | A key a workspace can write could not retire into a selection only user scope can make until the workspace-pack question was ruled; the cost, two mechanisms at once, was bounded by a pack entry replacing a same-named preset. Both halves have shipped. |
+| <a id="MP-D9"></a>[**MP-D9**](#MP-D9) | *As MP-D1, fixing a review defect.* A jail's and macos-user's **agent launchers install and refresh a pack server's program before they exec the agent**, and every launcher's install writes to **stderr** | A server takes the trigger of the agent that connects to it, since nothing may move at connect time ([OQ-PD12a](../design/program-delivery.md#decision-ledger)); install output on stdout went into the server's JSON-RPC channel ahead of its `initialize` response. |
+| <a id="MP-D10"></a>[**MP-D10**](#MP-D10) | *Implementation decision building the retirement after [OQ-PK1](pack-system.md#oq-pk1).* `mcp_presets` is **refused at either scope with every value**: an error on the host, a warning in a jail; the message names `yolo pack add chrome-devtools` rather than a whole `packs` list; `yolo host apply` names it in its report | A pasted list would replace the user's agents, and the host notch runs no full config validation, so it needs its own line. |
+| <a id="MP-D11"></a>[**MP-D11**](#MP-D11) | *Implementation decision building [OQ-MP9](#OQ-MP9).* A fifth hook, **`boot_check`** (`from`, plus `flags` as arguments), runs once per container boot (never on attach, in a sealed build jail or at `yolo host`) and prints each line as `⚠ <pack>: <line>`; stopped after 5 seconds; never stops a launch. **Not on macos-user** | A hook is already a named capability core runs at boot with a home-relative `from`. macos-user's bootstrap runs outside Seatbelt and may run only yolo's own code ([P4](macos-user-provisioning.md)), so the server start's line is the report there. |

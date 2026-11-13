@@ -62,7 +62,7 @@ func TestGatePolicySurvivesBothKeeperPlansWithoutReloading(t *testing.T) {
 	if err := os.MkdirAll(module, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name":"tasks","transport":"loopback-tls","call_broker":{"source":"tasks","front":"cli","program":"tasks","classifier":["yolo","internal","classify"],"scope":{"roots":"declared"},"resource":[{"type":"project"}],"cell":[{"name":"update","tables":["working_set","all"]}]}}`
+	manifest := `{"name":"tasks","transport":"loopback-tls","call_broker":{"source":"tasks","front":"cli","program":"tasks","classifier":["yolo","internal","call-broker-classify","tasks"],"scope":{"roots":"declared"},"resource":[{"type":"project"}],"cell":[{"name":"update","tables":["working_set","all"]}]}}`
 	if err := os.WriteFile(filepath.Join(module, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ transport = "loopback-tls"
 [call_broker]
 source = "tasks"
 front = "http"
-classifier = ["yolo", "internal", "call-broker-classify", "tasks"]
+classifier = ["{program:tasks-classifier}", "classify", "tasks"]
 env_from_host = ["TASKS_TOKEN"]
 read_over_post = ["/graphql"]
 [call_broker.scope]
@@ -192,6 +192,17 @@ header = "Authorization"
 prefix = "Bearer "
 `
 	if err := os.WriteFile(filepath.Join(module, "loophole.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pack := "name = \"fixture\"\n[[program]]\nbin = \"tasks-classifier\"\nvia = \"pack\"\nfrom = \"tools/classifier\"\nrun = \"tasks-classifier\"\n[[loophole]]\nfrom = \"loopholes/tasks\"\n"
+	if err := os.WriteFile(filepath.Join(root, "pack.toml"), []byte(pack), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	classifierBin := filepath.Join(root, "tools", "classifier", "tasks-classifier")
+	if err := os.MkdirAll(filepath.Dir(classifierBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(classifierBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: module, Pack: "fixture", PackRoot: root, HostExecApproved: true}})
@@ -345,7 +356,8 @@ prefix = "Bearer "
 		t.Fatal("changed pack was not freshly approved")
 	}
 	// Repartitioning classifier argv changes the declaration hash without altering its displayed line.
-	manifest = strings.Replace(manifest, `"call-broker-classify", "tasks"`, `"call-broker-classify tasks"`, 1)
+	beforeRepartition := loopholes.NewHostSet(loopholes.LaunchBlock(merged)).All()[0]
+	manifest = strings.Replace(manifest, `"classify", "tasks"`, `"classify tasks"`, 1)
 	if err := os.WriteFile(filepath.Join(module, "loophole.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -353,9 +365,9 @@ prefix = "Bearer "
 		t.Fatal("changed hash with identical disclosure silently passed persisted gate")
 	}
 	hashSelected := loopholes.NewHostSet(loopholes.LaunchBlock(merged)).All()[0]
-	if got := config.CallBrokerDisclosure(hashSelected.CallBroker); !reflect.DeepEqual(got, config.CallBrokerDisclosure(lp.CallBroker)) ||
+	if got := config.CallBrokerDisclosure(hashSelected.CallBroker); !reflect.DeepEqual(got, config.CallBrokerDisclosure(beforeRepartition.CallBroker)) ||
 		reapproved.approvedHTTPBindings[lp.Name].DeclarationHash == config.WithCallBrokerDeclarations(nil, workspace, []config.SelectedCallBrokerScope{{Source: "tasks", Label: lp.Name, Pack: "different-pack", Declaration: hashSelected.CallBroker}}, nil).HTTPBindings()[lp.Name].DeclarationHash {
-		t.Fatalf("hash regression did not hold displayed disclosure constant while changing the hash: old=%q new=%q oldHash=%s newHash=%s", config.CallBrokerDisclosure(lp.CallBroker), config.CallBrokerDisclosure(hashSelected.CallBroker), reapproved.approvedHTTPBindings[lp.Name].DeclarationHash, config.WithCallBrokerDeclarations(nil, workspace, []config.SelectedCallBrokerScope{{Source: "tasks", Label: lp.Name, Pack: "different-pack", Declaration: hashSelected.CallBroker}}, nil).HTTPBindings()[lp.Name].DeclarationHash)
+		t.Fatalf("hash regression did not hold displayed disclosure constant while changing the hash: old=%q new=%q oldHash=%s newHash=%s", config.CallBrokerDisclosure(beforeRepartition.CallBroker), config.CallBrokerDisclosure(hashSelected.CallBroker), reapproved.approvedHTTPBindings[lp.Name].DeclarationHash, config.WithCallBrokerDeclarations(nil, workspace, []config.SelectedCallBrokerScope{{Source: "tasks", Label: lp.Name, Pack: "different-pack", Declaration: hashSelected.CallBroker}}, nil).HTTPBindings()[lp.Name].DeclarationHash)
 	}
 	if _, passed := gateAgain("different-pack", true); !passed {
 		t.Fatal("changed hash was not freshly approved")

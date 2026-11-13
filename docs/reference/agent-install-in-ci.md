@@ -1,7 +1,7 @@
 ---
 status: current
 stage: CURRENT
-next: "Read the install cells of a scheduled macos-user.yml run (OQ-CI7, built 2026-10-05; all passed on 2026-10-18, run 39124950172) and record what each measured on darwin, then re-verify this doc against the tree"
+next: "Re-verify this doc against the tree"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -22,11 +22,10 @@ summary: "How the integration suite tests agent-CLI installation without letting
 
 **Status:** verified 2026-09-23 against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
-schedule (run 35620029721). **Not yet recorded for macOS:** [OQ-CI7](#OQ-CI7), ruled on
+schedule (run 35620029721). MEASURED in CI on macOS: [OQ-CI7](#OQ-CI7), ruled on
 2026-10-05 and built the same day, gives the macos-user nightly one real vendor-install job per
-pack ([The darwin install job](#the-darwin-install-job)). Scheduled runs have reported since:
-every darwin vendor-install job passed on the scheduled runs of 2026-10-18 (run 39124950172) and
-2026-11-06 (run 42236176823), but what each cell measured is not yet recorded here.
+pack ([The darwin install job](#the-darwin-install-job)), and every one of the nine passed on
+2026-10-18 and on 2026-11-11 ([What the darwin runs show](#what-the-darwin-runs-show)).
 The podman macOS nightly runs no vendor install. Its warmup, skipped there from 2026-08-23 to
 2026-09-25, was MEASURED on the eight nightlies of 2026-09-26 to 2026-09-29 and stays
 ([Suite warmup](#suite-warmup), [OQ-CI8](#oq-ci8)).
@@ -373,6 +372,33 @@ macos-user backend on GitHub's hosted Apple Silicon runner.
 What this job does not do: run the coexistence case, which stays Linux-only, or record a version,
 for the reason Pack Installs records none.
 
+#### What the darwin runs show
+
+Read from the job logs of two `macos-user.yml` runs on GitHub-hosted Apple Silicon Macs:
+[run 39124950172](https://github.com/mschulkind-oss/yolo-jail/actions/runs/39124950172), scheduled,
+2026-10-18, and [run 43120634525](https://github.com/mschulkind-oss/yolo-jail/actions/runs/43120634525),
+2026-11-11 at `2ba463f93`. In each, every pack's job ran its one subtest of
+`TestMacosUserPackInstallsVersionsAndConfigures`, the gate's report said
+`macos-user: executed=1 skipped=0`, and the subtest passed. A pass means `packInstallProbe` held
+on darwin: the vendor's install ran from the `--version` call, and the stamp, the config marker and
+the project skills dirs were there. The logs record no version, as the job records none.
+
+| Pack | 2026-10-18 | 2026-11-11 |
+| :--- | ---: | ---: |
+| `agy` | 112.76 s | 31.63 s |
+| `chrome-devtools` | 61.37 s | 12.71 s |
+| `claude` | 83.88 s | 68.82 s |
+| `codex` | 96.02 s | 42.71 s |
+| `copilot` | 87.00 s | 32.68 s |
+| `muse-code` | 98.03 s | 33.09 s |
+| `omp` | 101.40 s | 17.02 s |
+| `opencode` | 79.88 s | 51.41 s |
+| `pi` | 109.78 s | 23.88 s |
+
+Each time is the subtest's own, a whole launch in a fresh workspace, so it includes the floor and
+the sandbox's setup as well as the vendor's install. The logs do not split them, so the drop between
+the two runs is not attributed here.
+
 ### The real-install gate
 
 `YOLO_TEST_REAL_PACK_INSTALLS` is the one switch between the two questions. It is set by the Pack
@@ -476,7 +502,8 @@ The podman macOS nightly shards the whole `./integration` package but never sets
 test do run, so the podman-VM install path is exercised on macOS by the pinned fixtures only
 (INFERRED from the workflow's env; not observed in a run log for this stamp). The vendors' darwin
 builds are installed by `macos-user.yml`'s `install` job instead
-([The darwin install job](#the-darwin-install-job)), built 2026-10-05 and not yet run.
+([The darwin install job](#the-darwin-install-job)), built 2026-10-05, every cell passing on
+2026-10-18 and 2026-11-11 ([What the darwin runs show](#what-the-darwin-runs-show)).
 
 The host floor's npm cell runs in the nightly too, on darwin-x64. The `macos-user` workflow runs it
 on darwin-arm64, inside `TestMacosUserHostFloorIsTheHostUsersAlone`. Between them, some job checks

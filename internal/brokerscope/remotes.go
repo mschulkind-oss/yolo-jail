@@ -92,7 +92,7 @@ func ReadRemotes(workspace, host string) Read {
 }
 
 // ReadAllRemotes reads a workspace's remotes for the remote-url scope form
-// (docs/design/git-broker-plan.md ID-2): the same walk and the same refusals as ReadRemotes,
+// (docs/reference/git-broker.md ID-2): the same walk and the same refusals as ReadRemotes,
 // keeping every `url` and `pushurl` of every remote on any host, verbatim, in the file's order,
 // in Remote.Repo. A URL whose user-info carries a credential is left out, as is one the scope
 // cannot hold (ValidRemoteURL), each with an Excluded line.

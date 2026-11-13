@@ -91,6 +91,14 @@ still-running sessions may, so end them first. Nothing in yolo reclaims any of
 it; each row says whether a safe reclaimer exists and how to inspect or recover
 the bytes.
 
+The image store, the scratch volumes and Apple Container's tool disks belong to
+one technology: each is listed once per container technology that answered,
+headed with its name, and names that technology's own prune. A technology that
+did not answer is named under the header with its next step; its sections are
+missing, and a judgment about what running jails use declines rather than
+guess. The JSON is the yolo.stores/1 document, with the same sources array and
+complete flag as yolo ps --format json.
+
 Sizes are apparent sizes (the sum of file sizes), and each store's walk is
 bounded to 60s: a store that runs out of budget reports what it had summed so
 far as a lower bound, marked "partial". The one exception is an Apple
@@ -111,6 +119,11 @@ Flags:
   --no-record   Do not append this run's sizes to the sample ledger. Recording
                 is ON by default: a growth rate needs two dated samples, and a
                 strictly read-only command can never produce the first one.
+  --setup <name>
+                Keep the rows of the whole machine and only that setup's
+                technology's sections (its image store, scratch volumes, tool
+                disks). Every section is otherwise listed once per technology
+                that answered, headed with its name.
   --help, -h    Show this help. Answered before any store is walked, so asking
                 what this command does costs nothing.
 
@@ -118,6 +131,7 @@ Examples:
   yolo stores                         # what exists, how big, and what reclaims it
   yolo stores --format json           # the same inventory, for a script or an agent
   yolo stores --age --no-record       # add the age columns; leave the ledger alone
+  yolo stores --setup podman-self     # only Podman's sections, beside the machine's rows
 
 The ledger: one dated line per store per run, under the state dir at
 <state>/stores/<store>.samples, bounded to the last 30 samples per store. This
@@ -165,9 +179,16 @@ type Options struct {
 	// container VM (or in the sandbox account, on macos-user) rather than in the state dir.
 	// nil => paths.IsMacOS.
 	IsMacOS func() bool
-	// DetectRuntime returns the effective container runtime. The CLI front door
-	// injects the config-aware resolver; nil => a bare YOLO_RUNTIME/platform probe.
-	DetectRuntime func() string
+	// SelectedRuntime returns the backend of the setup a launch or a bare `yolo prune` from here
+	// selects ("podman", "container" or "macos-user"): the machine-wide rows say whether that
+	// prune runs their pass, and the host-cache aliases are the ones that launch would make. The
+	// CLI front door injects the config-aware resolver; nil => "". It chooses no section: those
+	// follow Sources.
+	SelectedRuntime func() string
+	// Sources is every technology's answer as `yolo ps` discovered it (named-setups.md §12.5):
+	// each technology-bound section is collected once per container source that listed, and the
+	// running jails are their union. nil => no source, so no technology-bound section.
+	Sources []Source
 	// Exec is the container-runtime query seam, typed as prune's so a test fake
 	// written for one works for the other. nil => realProbeExec.
 	Exec prune.RunFunc
@@ -281,8 +302,8 @@ func fillDefaults(o *Options) {
 	if o.IsMacOS == nil {
 		o.IsMacOS = func() bool { return paths.IsMacOS }
 	}
-	if o.DetectRuntime == nil {
-		o.DetectRuntime = func() string { return "" }
+	if o.SelectedRuntime == nil {
+		o.SelectedRuntime = func() string { return "" }
 	}
 	if o.Exec == nil {
 		o.Exec = realProbeExec
@@ -330,7 +351,7 @@ func fillDefaults(o *Options) {
 					relocated = append(relocated, r.Subdir)
 				}
 			}
-			rt := o.DetectRuntime()
+			rt := o.SelectedRuntime()
 			return hostcas.Plan(hostcas.Facts{
 				Runtime:      rt,
 				IsMacOS:      paths.IsMacOS,

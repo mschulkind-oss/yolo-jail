@@ -6,7 +6,9 @@ package runtime
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -152,18 +154,22 @@ func ParseContainerLsNames(stdout string) []string {
 	return names
 }
 
-// PsRow is one parsed row of the `yolo ps` display: name, status, and how long
-// it has been running (RunningFor; empty for Apple Container).
+// PsRow is one parsed row of a runtime's listing: the jail's name, the runtime's status words, and
+// when it started (the zero time when the runtime did not say).
 type PsRow struct {
-	Name       string
-	Status     string
-	RunningFor string
+	Name    string
+	Status  string
+	Started time.Time
 }
 
-// ParsePodmanPsRows parses `podman ps --filter name=^yolo- --format
-// "{{.Names}}\t{{.Status}}\t{{.RunningFor}}"` stdout into rows: strip, split
-// lines, then split each on tab and keep rows with >=3 fields. A blank stdout
-// yields no rows.
+// PodmanPsArgv is the Podman listing ParsePodmanPsRows reads (named-setups-plan.md SUP-D25): every
+// running yolo-* container, its status words and its start time in unix seconds, the field
+// prune.RunningJailStarts reads too.
+var PodmanPsArgv = []string{"podman", "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}\t{{.Status}}\t{{.StartedAt}}"}
+
+// ParsePodmanPsRows parses PodmanPsArgv's stdout into rows: strip, split lines, then split each on
+// tab and keep rows with >=3 fields. A start time that is missing, not a number or not positive is
+// unknown (the zero time), never an error. A blank stdout yields no rows.
 func ParsePodmanPsRows(stdout string) []PsRow {
 	var rows []PsRow
 	trimmed := strings.TrimSpace(stdout)
@@ -173,7 +179,11 @@ func ParsePodmanPsRows(stdout string) []PsRow {
 	for _, line := range strings.Split(trimmed, "\n") {
 		parts := strings.Split(line, "\t")
 		if len(parts) >= 3 {
-			rows = append(rows, PsRow{Name: parts[0], Status: parts[1], RunningFor: parts[2]})
+			row := PsRow{Name: parts[0], Status: parts[1]}
+			if sec, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64); err == nil && sec > 0 {
+				row.Started = time.Unix(sec, 0).UTC()
+			}
+			rows = append(rows, row)
 		}
 	}
 	return rows
@@ -202,8 +212,8 @@ type containerLsEntry struct {
 
 // ParseContainerLsRows parses `container ls --format json` stdout (ContainerLsJSONArgv) into
 // ps rows: every yolo-* container, named by its `id` (else `configuration.id`), with Status
-// "<state> since <startedDate>" (the bare state when no start time is given). RunningFor stays
-// empty. ok=false means the output is not a JSON list: the caller must treat that as "could
+// "<state> since <startedDate>" (the bare state when no start time is given), and Started that
+// RFC 3339 time (W-SU11 measured its encoding; named-setups-plan.md SUP-D25). ok=false means the output is not a JSON list: the caller must treat that as "could
 // not enumerate", never as "no jails" (D11), since an empty answer authorizes the tracking
 // prune.
 func ParseContainerLsRows(stdout string) ([]PsRow, bool) {
@@ -224,7 +234,11 @@ func ParseContainerLsRows(stdout string) ([]PsRow, bool) {
 		if e.Status.StartedDate != "" {
 			status += " since " + e.Status.StartedDate
 		}
-		rows = append(rows, PsRow{Name: name, Status: strings.TrimSpace(status)})
+		row := PsRow{Name: name, Status: strings.TrimSpace(status)}
+		if t, err := time.Parse(time.RFC3339, e.Status.StartedDate); err == nil {
+			row.Started = t.UTC()
+		}
+		rows = append(rows, row)
 	}
 	return rows, true
 }

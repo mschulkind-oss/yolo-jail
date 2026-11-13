@@ -1,7 +1,7 @@
 package packload
 
 // mcpcompose_test.go pins the `mcp` kind's composition into mcp_servers
-// (docs/design/mcp-presets-removal.md OQ-MP3, OQ-MP4): pack entries first, joined to the notch's
+// (docs/reference/mcp-configuration.md OQ-MP3, OQ-MP4): pack entries first, joined to the notch's
 // home, the user's table merged over them per field, a user null removing one and staying as a
 // removal, a name two packs ship held by the later one and reported, and the claim
 // `yolo pack footprint` shows.

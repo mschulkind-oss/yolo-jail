@@ -1,6 +1,6 @@
 # The `git-broker` loophole, shipped by the OFFICIAL `git` pack: a host daemon that connects to
 # one jail's approved git remotes the way the host does, on its behalf
-# (docs/design/git-broker.md, docs/design/git-broker-plan.md task 7). The daemon is
+# (docs/reference/git-broker.md, docs/reference/git-broker.md). The daemon is
 # internal/gitbroker, reached from the jail through git's own remote-helper protocol: the
 # pack's `env` contribution rewrites ssh://, git+ssh://, ssh+git://, https:// and git@ remotes
 # (including scp-style bracketed IPv6 forms) to `yolo::<url>`, so the

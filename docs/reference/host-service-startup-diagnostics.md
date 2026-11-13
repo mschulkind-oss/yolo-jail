@@ -304,7 +304,7 @@ as the first line of its own log):
   container's `YOLO_VERSION` carries, or `unstamped`), `commit`, `pid`, `jail`, `exe` (the running
   executable, or `unknown`). A value with whitespace or a quote is Go-quoted.
 - **`jail`** comes from `YOLO_HELPER_JAIL` *(coined in
-  [pinned-host-helpers.md](../design/pinned-host-helpers.md#5-the-start-line): the helper's jail
+  [pinned-host-helpers.md](pinned-host-helpers.md#the-start-line): the helper's jail
   label)*, which each spawner sets to the container name, the macos-user key or `yolo host`'s
   workspace key; without it the line says `-`.
 - **Not written** for `--self-check`.

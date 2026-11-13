@@ -356,7 +356,7 @@ func TestLiveScopeTransactionsHonorContextWhileSourceLockIsHeld(t *testing.T) {
 }
 
 // A launch's scope file never carries a grant the broker would refuse to read
-// (docs/design/git-broker-plan.md ID-10): Write refuses it and writes nothing, so a malformed
+// (docs/reference/git-broker.md ID-10): Write refuses it and writes nothing, so a malformed
 // grant fails the launch's write closed rather than reaching a broker.
 func TestWriteRefusesAMalformedGrant(t *testing.T) {
 	t.Setenv("HOME", resolvedTempDir(t))
@@ -571,7 +571,7 @@ func TestEveryLiveFileListsEveryContainer(t *testing.T) {
 	}
 }
 
-// ReadAllRemotes is the remote-URL scope's read (docs/design/git-broker-plan.md ID-2): every
+// ReadAllRemotes is the remote-URL scope's read (docs/reference/git-broker.md ID-2): every
 // `url` and `pushurl` of every remote, on any host, verbatim and in the file's order; a URL
 // carrying a password is left out, with a line that names the remote and not the secret.
 func TestReadAllRemotesKeepsEveryURL(t *testing.T) {
@@ -715,7 +715,7 @@ func TestReplaceReposRemoteURLForm(t *testing.T) {
 }
 
 // `yolo config apply` replaces a running launch's grants with its repositories
-// (docs/design/git-broker-plan.md ID-10), and a malformed grant is refused with the file left
+// (docs/reference/git-broker.md ID-10), and a malformed grant is refused with the file left
 // as it was. ReplaceRepos leaves the grants alone.
 func TestReplaceScopeCarriesGrants(t *testing.T) {
 	t.Setenv("HOME", resolvedTempDir(t))
@@ -764,7 +764,7 @@ func TestValidGrantRepo(t *testing.T) {
 }
 
 // A branch grant's branch is one branch's short name, validated the way git validates a
-// ref name (git check-ref-format, on refs/heads/<branch>), with no wildcard (docs/design/git-broker.md
+// ref name (git check-ref-format, on refs/heads/<branch>), with no wildcard (docs/reference/git-broker.md
 // GB-D13).
 func TestValidGrantBranch(t *testing.T) {
 	for _, ok := range []string{"main", "release/1.2", "agent/x", "feature-x_y", "a.b", "über"} {

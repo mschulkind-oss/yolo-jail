@@ -18,7 +18,7 @@ const hostProfileKeyPacks = `"packs": ["claude", "zai"], "env_sources": [{"ZAI_A
 
 // hostProfileKeyCfg is hostProfileKeyPacks as a TOML user config, with sel (an
 // `active_provider` selection, or "") ahead of the other tables. ZAI_API_KEY is the zai provider's
-// key, so it lives in the private set (secret-env-scoping.md), which only TOML spells.
+// key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private), which only TOML spells.
 func hostProfileKeyCfg(sel string) string {
 	return `packs = ["claude", "zai"]
 ` + sel + `

@@ -64,7 +64,7 @@ func TestHostExecComposesTheProviderEnv(t *testing.T) {
 	scrubAnthropicEnv(t)
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	userCfg(t, home, `[active_provider]
 claude = "zai"
 
@@ -102,7 +102,7 @@ func TestHostExecComposesNoProviderEnvWithoutTheProfile(t *testing.T) {
 	scrubAnthropicEnv(t)
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	userCfg(t, home, `[env.secrets]
 set = { ZAI_API_KEY = "tok-9" }
 `)

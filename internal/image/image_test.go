@@ -26,6 +26,11 @@ func TestImageCommands(t *testing.T) {
 	if got := ImageTagCmd("podman", "src:a", "dst:b"); !reflect.DeepEqual(got, []string{"podman", "tag", "src:a", "dst:b"}) {
 		t.Errorf("tag = %v", got)
 	}
+	// Apple Container's spelling, from its command reference
+	// (`container image tag <source> <target>`); there is no `container tag`.
+	if got := ImageTagCmd("container", "src:a", "dst:b"); !reflect.DeepEqual(got, []string{"container", "image", "tag", "src:a", "dst:b"}) {
+		t.Errorf("container tag = %v", got)
+	}
 	// The LEGACY refs. Since C2 these are not what a jail runs (see
 	// TestJailImageRefIsContentAddressedPerRuntime for that); they are the name
 	// the flake bakes, and therefore the DESTINATION of the best-effort alias

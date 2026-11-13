@@ -4,8 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -316,6 +318,34 @@ func TestSessionKey(t *testing.T) {
 	} {
 		if got := sessionKey(base); got != want {
 			t.Errorf("sessionKey(%q) = %q, want %q", base, got, want)
+		}
+	}
+}
+
+// TestASessionRecordCarriesTheLaunchRecordsFields (named-setups.md SU-D11, the session half): a
+// session record names the setup, the start time and the yolo that opened it, and a listing reads
+// each back; a record an older yolo wrote names none, and lists each as unknown.
+func TestASessionRecordCarriesTheLaunchRecordsFields(t *testing.T) {
+	base := t.TempDir()
+	full := plantSession(t, base, "yolo-a-1", "live", &SessionRecord{Notch: NotchHost, Workspace: "/w/a",
+		Name: "yolo-a-1", Setup: "host-self", Started: "2026-11-06T14:02:11Z", YoloVersion: "0.17.0+12"})
+	old := plantSession(t, base, "yolo-b-2", "live", &SessionRecord{Notch: NotchHost, Workspace: "/w/b", Name: "yolo-b-2"})
+	sessions, _ := ListSessions(base)
+	got := sessionByDir(sessions)
+	s := got[full]
+	if s.Setup != "host-self" || s.YoloVersion != "0.17.0+12" || !s.Started.Equal(time.Date(2026, 11, 6, 14, 2, 11, 0, time.UTC)) {
+		t.Errorf("the full record lists as %+v", s)
+	}
+	if s := got[old]; s.Setup != "" || !s.Started.IsZero() || s.YoloVersion != "" {
+		t.Errorf("an older yolo's record lists as %+v; want every new field unknown", s)
+	}
+	body, err := os.ReadFile(filepath.Join(old, SessionRecordName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"setup", "started", "yolo_version"} {
+		if strings.Contains(string(body), `"`+key+`"`) {
+			t.Errorf("a record with no %s writes the key: %s", key, body)
 		}
 	}
 }

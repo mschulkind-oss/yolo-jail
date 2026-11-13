@@ -422,7 +422,7 @@ func TestHostHandsAWorkerNoProviderCredentialTheBridgeGets(t *testing.T) {
 	pack := filepath.Join(t.TempDir(), "acme")
 	writeFile(t, filepath.Join(pack, "pack.json"), workerManifest("acme-worker"))
 	// CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
-	// (secret-env-scoping.md).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	hostGateHome(t, `packs = ["claude", "cerebras", "packs/acme"]
 
 [pack_sources.packs]

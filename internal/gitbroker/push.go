@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 )
 
-// push.go is a push through the broker (docs/design/git-broker.md §4.2, git-broker-plan
+// push.go is a push through the broker (docs/reference/git-broker.md,
 // ID-9). receive-pack speaks first, so the upstream is open before the push's commands can be
 // read; the broker relays the advertisement, reads the commands without forwarding a byte of
 // them, judges every ref, and then either forwards the exact bytes it read (Reader.Tee's copy,

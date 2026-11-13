@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/modelmenu"
@@ -84,5 +85,67 @@ func TestTheNpmLauncherHandsItsProgramAModelMenuToo(t *testing.T) {
 	want := "--menu=" + filepath.Join(home, ".tool", "menu.json")
 	if got := logLines(t, argvLog); len(got) != 1 || got[0] != want {
 		t.Errorf("the npm program was exec'd with %q, want the menu flag %q alone", got, want)
+	}
+}
+
+// A PACK WITH A SESSION HOME HANDS IT TO THE MENU (per-session-profiles.md §7): the launcher
+// names the declared directory and its variable, so with the variable set the menu is read from
+// and written to the session's own copy. The session's variable is set on the `yolo` stub, the
+// one process that reads it; a launcher that did not name the home would write the shared path.
+func TestTheLauncherResolvesTheMenuInTheSessionHome(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	session := filepath.Join(home, ".yolo-sessions", "abc", ".tool")
+	fakeBin := filepath.Join(home, "fakebin")
+	realBin := filepath.Join(home, ".npm-global", "bin", "tool")
+	for _, d := range []string{fakeBin, filepath.Dir(realBin), filepath.Join(home, ".tool"), session} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	argvLog := filepath.Join(home, "tool.argv")
+	stub := "#!/bin/bash\n" +
+		"if [ \"$*\" = 'catalog' ]; then echo '{\"entries\":[{\"key\":\"m-1\"},{\"key\":\"m-2\"}]}'; exit 0; fi\n" +
+		"for a in \"$@\"; do printf '%s\\n' \"$a\" >> " + shellSingleQuote(argvLog) + "; done\n"
+	if err := os.WriteFile(realBin, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The shared list names a model the session's does not, so the menu says which it read.
+	if err := os.WriteFile(filepath.Join(home, ".tool", "list.json"), []byte(`{"models":[{"id":"m-1"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(session, "list.json"), []byte(`{"models":[{"id":"m-2"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yolo := "#!/bin/sh\nTOOL_HOME=" + shellSingleQuote(session) + " " + modelMenuHelperEnv + "=1 exec " +
+		shellSingleQuote(self) + " -test.run='^TestModelMenuHelper$' -- \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(fakeBin, "yolo"), []byte(yolo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	menu := &packdecl.ModelMenu{Catalog: []string{"catalog"}, List: ".tool/list.json",
+		Into: ".tool/menu.json", Flag: []string{"--menu={into}"}, Entries: "entries", ID: "key",
+		SessionHomes: []packdecl.SessionHome{{Dir: ".tool", Env: "TOOL_HOME"}}}
+	body := npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", ModelMenu: menu},
+		filepath.Join(home, "stamps"), filepath.Join(home, "receipts.jsonl"), false, launcherServers{}, nil)
+	out, rc := runLauncher(t, home, "tool-launcher", body, fakeBin)
+	if rc != 0 {
+		t.Fatalf("the launcher failed (rc=%d):\n%s", rc, out)
+	}
+	want := "--menu=" + filepath.Join(session, "menu.json")
+	if got := logLines(t, argvLog); len(got) != 1 || got[0] != want {
+		t.Fatalf("the program was exec'd with %q, want the session's menu flag %q", got, want)
+	}
+	data, err := os.ReadFile(filepath.Join(session, "menu.json"))
+	if err != nil || !strings.Contains(string(data), `"m-2"`) || strings.Contains(string(data), `"m-1"`) {
+		t.Errorf("the session's menu = %s (err %v), want the session's own list's m-2 alone", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".tool", "menu.json")); !os.IsNotExist(err) {
+		t.Errorf("the shared menu path was written (err=%v)", err)
 	}
 }

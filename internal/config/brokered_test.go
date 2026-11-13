@@ -408,7 +408,7 @@ var gitResolver = fenceResolver{known: map[string]LoopholeInfo{
 		Source: "git", RemoteHost: "*"}},
 }}
 
-// A source whose scope is every remote URL takes no `repos` entry (docs/design/git-broker-plan.md
+// A source whose scope is every remote URL takes no `repos` entry (docs/reference/git-broker.md
 // ID-2): a git remote joins with `git remote add`, which reaches the gate as a new remote. The
 // refusal comes through the resolver, never the source's name, so an owner-repo source keeps its
 // entry.
@@ -622,7 +622,7 @@ func (h brokeredHost) validateWith(t *testing.T, resolver LoopholeResolver) (err
 const oneGitGrant = `{"brokered": {"git": {"grants": [{"kind": "create-branch", "repo": "github.com/o/r"}]}}}`
 
 // A workspace grant of a kind the user's own config does not allow is refused, naming the
-// user-config key that would allow it (BB-D96; docs/design/git-broker-plan.md ID-10).
+// user-config key that would allow it (BB-D96; docs/reference/git-broker.md ID-10).
 func TestGrantKindNotAllowedNamesUserKey(t *testing.T) {
 	h := newBrokeredHost(t)
 	write(t, filepath.Join(h.ws, WorkspaceConfigName), oneGitGrant)
@@ -710,7 +710,7 @@ func TestGrantShapeRefusals(t *testing.T) {
 	}
 }
 
-// --- branch grants: a working-set branch declared in config (docs/design/git-broker.md GB-D12, GB-D13) ---
+// --- branch grants: a working-set branch declared in config (docs/reference/git-broker.md GB-D12, GB-D13) ---
 
 const oneBranchGrant = `{"brokered": {"git": {"grants": [{"kind": "branch", "repo": "github.com/o/r", "branch": "main"}]}}}`
 

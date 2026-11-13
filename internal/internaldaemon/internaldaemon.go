@@ -117,7 +117,7 @@ func Run(args []string) int {
 		serve = ghbroker.Main
 	case "git-broker":
 		// packs/git's per-jail broker: git fetch and push for one jail over the host's own ssh,
-		// fenced to the workspace's approved remotes (docs/design/git-broker.md).
+		// fenced to the workspace's approved remotes (docs/reference/git-broker.md).
 		serve = gitbroker.Main
 	case "host-processes":
 		serve = hostprocesses.Main

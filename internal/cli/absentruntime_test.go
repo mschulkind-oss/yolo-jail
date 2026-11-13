@@ -9,9 +9,9 @@ import (
 )
 
 // TestAListingVerbNamesTheNextStepWhenItsRuntimeIsAbsent: on a Mac with Podman and no Apple
-// Container, the default setup's runtime is not installed, so ps, stores and prune say so, name
-// where to install it, and name the YOLO_SETUP that asks Podman instead; with neither installed
-// they name the install alone, and with the runtime installed they say nothing.
+// Container, the default setup's runtime is not installed, so a verb that asks one runtime (prune)
+// says so, names where to install it, and names the YOLO_SETUP that asks Podman instead; with
+// neither installed it names the install alone, and with the runtime installed it says nothing.
 func TestAListingVerbNamesTheNextStepWhenItsRuntimeIsAbsent(t *testing.T) {
 	has := func(bins ...string) func(string) bool {
 		return func(b string) bool {

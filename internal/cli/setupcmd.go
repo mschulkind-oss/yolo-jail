@@ -7,15 +7,17 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strings"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -59,16 +61,19 @@ var setupHasBinary = func(name string) bool {
 // setupGOOS is the OS the built-ins are judged for; a variable so a test can ask as a Mac.
 var setupGOOS = goruntime.GOOS
 
-// setupJailState is run.JailRunState behind a var, so a test need not start a jail: whether the
-// jail named cname runs, and whether that could be asked.
-var setupJailState = run.JailRunState
+// setupDiscover is `yolo ps`'s discovery (psDiscover over the real seams) behind a var, so a test
+// need not start a jail.
+var setupDiscover = func() []*psSource { return psDiscover(psDefaults(psRealDeps("", nil))) }
 
-// setupRunningNotes is `list`'s running column (named-setups-plan.md slice 6b): for each setup
-// with state in this workspace's .yolo/setups, "running" when its jail (run.JailNameFor, by name)
-// runs and "may be running" when that could not be asked. A setup with no state here has never
-// launched here, so it is not asked. Inside a jail nothing is asked: the keepers and sessions
-// that answer are the host's, which `yolo setup list` on the host reads.
-func setupRunningNotes() map[string]string {
+// setupRunningNotes is `list`'s running column ([§12.6] of named-setups.md): `yolo ps`'s discovery,
+// narrowed to this workspace, so the two never disagree. A setup with state in this workspace's
+// .yolo/setups is "running" when a listed row of this workspace names it, and "may be running"
+// when its technology's source could not answer. A setup with no state here has never launched
+// here and is never marked. Inside a jail nothing is asked: the sources that answer are the
+// host's, which `yolo setup list` on the host reads.
+//
+// [§12.6]: docs/design/named-setups.md#126-narrowing-with---setup
+func setupRunningNotes(user map[string]setup.Setup) map[string]string {
 	notes := map[string]string{}
 	if config.InJail() {
 		return notes
@@ -77,16 +82,49 @@ func setupRunningNotes() map[string]string {
 	if err != nil {
 		return notes
 	}
-	for _, name := range paths.SetupStateNames(ws) {
-		cname := run.JailNameFor(ws, setup.Setup{Name: name})
-		switch running, known := setupJailState(cname); {
-		case running:
-			notes[name] = "running"
-		case !known:
-			notes[name] = "may be running"
+	here := paths.SetupStateNames(ws)
+	if len(here) == 0 {
+		return notes
+	}
+	sources := setupDiscover()
+	for _, s := range sources {
+		for _, r := range s.rows {
+			if r.workspace != "" && r.setup != "" && sameDir(r.workspace, ws) {
+				notes[r.setup] = "running"
+			}
+		}
+	}
+	for _, name := range here {
+		if notes[name] != "" {
+			continue
+		}
+		st, err := setup.Lookup(name, user)
+		if err != nil {
+			continue
+		}
+		for _, s := range sources {
+			if s.spec.confinement == st.Confinement && s.state != runtime.SourceListed && s.state != runtime.SourceNotInstalled {
+				notes[name] = "may be running"
+			}
+		}
+	}
+	for name := range notes {
+		if !slices.Contains(here, name) {
+			delete(notes, name)
 		}
 	}
 	return notes
+}
+
+// sameDir reports whether a and b name one directory, compared after cleaning and, where they
+// exist, after resolving links, as a launch record's workspace is the launch's resolved cwd.
+func sameDir(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }
 
 func runSetup(args []string) int {
@@ -213,7 +251,7 @@ func setupList(out, errw io.Writer, color bool) int {
 	for _, name := range mine {
 		rows = append(rows, user[name])
 	}
-	runningHere := setupRunningNotes()
+	runningHere := setupRunningNotes(user)
 	nameW, sumW := 0, 0
 	for _, s := range rows {
 		nameW = max(nameW, len(s.Name))

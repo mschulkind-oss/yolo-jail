@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // revertFixture is a scratch home with one pack owning one rmw surface, applied once so the
@@ -511,5 +513,41 @@ func TestHostRevertKeepsAnEmptyDefaultAndSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "keeps providers") {
 		t.Errorf("the revert does not say it kept `providers`:\n%s", out.String())
+	}
+}
+
+// THE CONFIRMED REVERT IS THE HOST FLOOR'S RETAINED-VERSION CLEANUP: an install or a deselection
+// never deletes an older program version (a running host session may still read it), so the
+// dry run lists each with the running-session warning and deletes nothing, and --assert deletes
+// them. Fails if the revert stops calling revertRetainedFloorVersions.
+func TestHostRevertDeletesRetainedFloorVersionsAfterWarning(t *testing.T) {
+	revertFixture(t, "")
+	retained := filepath.Join(paths.HostFloorDir(), "programs", "probe", "older")
+	writeFile(t, filepath.Join(retained, ".yolo-floor-complete"), "")
+
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--revert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("dry run rc=%d: %s%s", rc, out.String(), errw.String())
+	}
+	for _, want := range []string{"a running host session may still read these bytes",
+		"stop all host agent sessions", "would delete probe's retained version"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the dry run does not say %q:\n%s", want, out.String())
+		}
+	}
+	if _, err := os.Stat(retained); err != nil {
+		t.Fatalf("the dry run deleted a retained version: %v", err)
+	}
+
+	out.Reset()
+	errw.Reset()
+	if rc := hostMain([]string{"apply", "--revert", "--assert"}, &out, &errw, false, nil); rc != 0 {
+		t.Fatalf("confirmed rc=%d: %s%s", rc, out.String(), errw.String())
+	}
+	if !strings.Contains(out.String(), "deleted probe's retained version") {
+		t.Errorf("the confirmed revert does not say what it deleted:\n%s", out.String())
+	}
+	if _, err := os.Stat(retained); err == nil {
+		t.Error("the confirmed revert left the retained version")
 	}
 }
