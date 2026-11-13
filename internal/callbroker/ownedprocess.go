@@ -28,6 +28,10 @@ var ownedGroupDrainGuard = 10 * time.Second
 // scheduled failed a leader that had succeeded (TestOwnedGroupSuccessDoesNotRaceTheOutputCopy).
 const ownedPipeGuard = 10 * time.Second
 
+// failedGroupPipeGrace replaces ownedPipeGuard once the group could not be signalled: the call
+// has already failed, and a descendant that may still be live must not hold the report.
+const failedGroupPipeGrace = 100 * time.Millisecond
+
 // runOwnedGroup keeps the leader unreaped while it observes exit and terminates
 // its process group. Cmd.Wait would release the PID/PGID before a successful
 // wrapper's background children were stopped, allowing a reused PGID to be hit.
@@ -133,6 +137,12 @@ func failedOwnedGroupSignal(cmd *exec.Cmd, signalErr error) error {
 		}
 		if exited {
 			observation = "leader exited and was reaped; descendants may remain"
+			// The group could not be signalled, so a live descendant may hold the
+			// output pipes for as long as it runs. ownedPipeGuard assumes a drained
+			// group; here it would hold the failure until that descendant exits.
+			// Wait reads WaitDelay now, so the copy gets only a short grace
+			// (TestCanonicalCLIExecutorRetainsUncertainDescendantAfterDeadLeaderSignalFailure).
+			cmd.WaitDelay = failedGroupPipeGrace
 			_ = cmd.Wait()
 			break
 		}
