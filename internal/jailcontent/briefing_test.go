@@ -33,7 +33,7 @@ func TestLoopholeFirst(t *testing.T) {
 	}
 }
 
-// The two-block order (docs/design/briefing-diet.md §7, BD-D11), byte for byte: the user block
+// The two-block order (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D11), byte for byte: the user block
 // (host file, agents_md_extra, non-shipped packs) first, one rule, then yolo's (base, shipped
 // packs); either block alone is the whole file, with no rule.
 func TestComposeBriefingFile(t *testing.T) {

@@ -104,7 +104,7 @@ func appliedBriefing(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap)
 
 // stagedTopics is the jail-mechanics topic files staged for the claude pack, each headed `## `
 // as the inlined fallback heads it: the facts the briefing's core points at
-// (docs/design/briefing-diet.md), read from the files the agent opens, so a fact that left
+// (docs/reference/agent-briefings.md), read from the files the agent opens, so a fact that left
 // the briefing is still pinned where it now reaches the agent.
 func stagedTopics(t *testing.T, staging string) string {
 	t.Helper()
@@ -690,7 +690,7 @@ func TestMacosUserBriefingHeaderDescribesSeatbeltNotNamespaces(t *testing.T) {
 		}
 	}
 	// Since the briefing diet the tooling line is the jail-mechanics index's, never the header's
-	// (docs/design/briefing-diet.md §5); jailcontent's TestBriefingHeaderStatesTheToolingLineOnce
+	// (docs/reference/jail-mechanics-skill.md#topic-files); jailcontent's TestBriefingHeaderStatesTheToolingLineOnce
 	// pins the index's one copy.
 	if n := strings.Count(header, "Jail tooling:"); n != 0 {
 		t.Errorf("the `Jail tooling` line appears %d times in the header, want 0:\n%s", n, header)

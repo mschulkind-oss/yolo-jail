@@ -22,7 +22,7 @@ import (
 // directory in pi's instructions, or in codex's, is the "one agent's directory offered to
 // everyone" that DS-P2 and row B″ reject.
 //
-// SINCE THE BRIEFING DIET (docs/design/briefing-diet.md BD-D2) each pack's always-loaded prose
+// SINCE THE BRIEFING DIET (docs/reference/agent-briefings.md BD-D2) each pack's always-loaded prose
 // is one pointer of at most 250 bytes, which says how its harness starts the background
 // `yolo wait` and names the pack's skill; the worktree text is in that skill (`yolo-claude`,
 // `yolo-pi`). Both halves are addressed to the pack's own agent.

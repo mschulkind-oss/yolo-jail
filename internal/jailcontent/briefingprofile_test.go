@@ -285,7 +285,7 @@ func TestBriefingHeaderMechanismChangesTheGuestAnswer(t *testing.T) {
 // DP-B19's second half: the jail-without-a-container branch carried its own copy of the
 // "Jail tooling" line AND appended enforcementLines, which ended with the same line, so the
 // one backend whose header was rewritten to be honest printed it twice. Since the briefing diet
-// (docs/design/briefing-diet.md §5) a launched notch's tooling line is in the jail-mechanics
+// (docs/reference/jail-mechanics-skill.md#topic-files) a launched notch's tooling line is in the jail-mechanics
 // index, once, and no header of one carries it; the host notch, which has no index of topics,
 // keeps it in its header, once.
 func TestBriefingHeaderStatesTheToolingLineOnce(t *testing.T) {

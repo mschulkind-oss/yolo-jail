@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 )
 
-// THE USER BLOCK COMES FIRST (docs/design/briefing-diet.md §7, the owner's ruling BD-D11). Each
+// THE USER BLOCK COMES FIRST (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, the owner's ruling BD-D11). Each
 // destination's briefing is two blocks: the user's (the host file `after` names, then
 // agents_md_extra, then each non-shipped pack's prose in config order), then yolo's (any alert,
 // the core, then each shipped pack's pointer), with one `---` rule between them when both are
@@ -119,7 +119,7 @@ func TestAForkedShippedPackIsUserProse(t *testing.T) {
 }
 
 // yoloBlockBudget is the bound on yolo's block for Claude with claude, git, github and guardrails
-// selected (docs/design/briefing-diet.md §8, BD-D4): 9.7% of the 26,867 bytes it replaced.
+// selected (docs/reference/agent-briefings.md#budgets-and-the-size-line, BD-D4): 9.7% of the 26,867 bytes it replaced.
 const yoloBlockBudget = 2600
 
 // With no user prose the file is yolo's block alone, with no rule, and that block fits its budget.

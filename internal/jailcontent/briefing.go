@@ -235,8 +235,8 @@ type BriefingInput struct {
 	// InlineTopics is true when this entry did NOT write the jail-mechanics skill's `topics/`
 	// from this input: no fact sheet (a legacy attach keeps the prior skill byte for byte), or a
 	// render that failed. The topics are then appended to the body in full, so the core never
-	// points at a topic file that is not there (docs/design/briefing-diet.md §5, the trap in
-	// briefing-diet-plan.md). The run pipeline decides it per entry; it is never carried over from
+	// points at a topic file that is not there (docs/reference/agent-briefings.md#the-inline-fallback).
+	// The run pipeline decides it per entry; it is never carried over from
 	// an applied snapshot.
 	InlineTopics bool `json:"-"`
 
@@ -354,7 +354,7 @@ func MechanismHasNoContainer(mechanism string) bool {
 // workspace, which stopped being true with 12a. The last sentence is SD-D2's stake: a `mv` of
 // `.yolo` moves this home, and the session reading this with it.
 //
-// They were the header's until the briefing diet (docs/design/briefing-diet.md §4): the core now
+// They were the header's until the briefing diet (docs/reference/agent-briefings.md#the-core): the core now
 // says the same in its "What survives a restart" line, and these, verbatim, open the storage topic.
 var macosUserHomeLines = []string{
 	"Your home is THIS workspace's own (`.yolo/setups/<setup>/home`) and it PERSISTS between",
@@ -365,7 +365,7 @@ var macosUserHomeLines = []string{
 }
 
 // toolingLine names the CLI's own help. The host notch's header keeps it; a jail's moved to the
-// jail-mechanics index with the briefing diet (docs/design/briefing-diet.md §4), so the core spends
+// jail-mechanics index with the briefing diet (docs/reference/agent-briefings.md#the-core), so the core spends
 // no bytes on what the index carries.
 const toolingLine = "Jail tooling: `yolo --help`; config reference: `yolo config-ref`."
 
@@ -411,8 +411,8 @@ func setupHeader(s setup.Setup, description, mechanism string, isMacOS bool) []s
 // copy. It ends with a blank line.
 //
 // compact says the autonomy sentence in one short line, for a jail briefing whose header counts
-// against the core's budget (docs/design/briefing-diet.md §8); the host notch's body is unchanged
-// by the diet (§10), so it keeps the long form.
+// against the core's budget (docs/reference/agent-briefings.md#budgets-and-the-size-line); the host notch's body is unchanged
+// by the diet, so it keeps the long form.
 func enforcementLines(prof render.Profile, compact bool) []string {
 	lines := []string{"", "Enforced by:"}
 	var any bool
@@ -450,7 +450,7 @@ func enforcementLines(prof render.Profile, compact bool) []string {
 // (the host file, agents_md_extra, non-shipped packs' prose) precedes it and the shipped packs'
 // pointers follow it (ComposeBriefingFile). The lines joined with "\n" plus a trailing newline.
 //
-// SINCE THE BRIEFING DIET (docs/design/briefing-diet.md) a jail's body is three parts: the setup
+// SINCE THE BRIEFING DIET (docs/reference/agent-briefings.md) a jail's body is three parts: the setup
 // header, any alert (provisioning failed, the attach-skew notice, the handoff), and the CORE, a
 // budgeted page of the facts whose breach is silent (briefingcore.go). Everything else the body
 // used to say is a TOPIC (briefingtopics.go), rendered from this same input into the generated
@@ -486,7 +486,7 @@ func BriefingContent(in BriefingInput) string {
 }
 
 // briefingAlerts are the conditional sections that report an event rather than describe the jail
-// (an "alert", docs/design/briefing-diet.md §1). They stay always-loaded, after the header and
+// (an "alert", docs/reference/agent-briefings.md#what-a-composed-briefing-contains). They stay always-loaded, after the header and
 // outside the core's budget (BD-D5): each appears only after its event, and each is something the
 // agent must see without asking.
 func briefingAlerts(in BriefingInput, v briefingView) []string {
@@ -595,13 +595,13 @@ func hostRunSection() []string {
 // composes: BriefingContent at the host notch (the confinement header — the real machine, nothing
 // disposable, autonomy off). It opens yolo's block, as BriefingContent does a jail's; the
 // user-scope agents_md_extra is user prose and goes in the user block (BriefingParts.Extra,
-// docs/design/briefing-diet.md §7). isMacOS picks the platform's spelling of the (empty)
+// docs/reference/agent-briefings.md#what-a-composed-briefing-contains). isMacOS picks the platform's spelling of the (empty)
 // enforcement vector, as the jail's header does.
 func HostBriefingBase(isMacOS bool) string {
 	return BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self"), IsMacOS: isMacOS})
 }
 
-// BriefingParts is one destination's material, by whose it is (docs/design/briefing-diet.md §7).
+// BriefingParts is one destination's material, by whose it is (docs/reference/agent-briefings.md#what-a-composed-briefing-contains).
 type BriefingParts struct {
 	// HostFile is the user's own file the destination's `after` names, as read: "" for none, for
 	// one the caller would not read, or for one that is yolo's own output.
@@ -618,7 +618,7 @@ type BriefingParts struct {
 	Provenance bool
 }
 
-// ComposeBriefingFile is THE TWO-BLOCK ORDER, at every notch (docs/design/briefing-diet.md §7, the
+// ComposeBriefingFile is THE TWO-BLOCK ORDER, at every notch (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, the
 // owner's ruling BD-D11): the USER block first — the host file, then agents_md_extra, then each
 // non-shipped pack's section in config order — and yolo's block last — the base, then each
 // shipped pack's section in config order. One `---` rule separates them when both are non-empty;
@@ -775,7 +775,7 @@ type PackBriefing struct {
 	Agents []string
 	// Shipped is the pack's origin: one yolo ships (packload.Pack.Official). Its prose is yolo's
 	// pointer and composes in yolo's block; any other pack's, a forked shipped pack's included, is
-	// the user's (docs/design/briefing-diet.md §7).
+	// the user's (docs/reference/agent-briefings.md#what-a-composed-briefing-contains).
 	Shipped bool
 }
 

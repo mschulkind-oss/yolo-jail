@@ -1,6 +1,6 @@
 package jailcontent
 
-// briefingsize.go is the launch's size line (docs/design/briefing-diet.md BD-D9): when a
+// briefingsize.go is the launch's size line (docs/reference/agent-briefings.md BD-D9): when a
 // destination's composed briefing is longer than the length its agent was measured to warn at
 // (packdecl.Contribution.WarnsAboveChars), one line says so and names the next step. It never
 // refuses and never trims; the caller prints whatever this returns, and a launch has no quiet

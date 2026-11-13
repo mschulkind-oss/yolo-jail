@@ -352,7 +352,9 @@ The mechanics behind each of these are in
   ⚠ **`LD_LIBRARY_PATH` never names `/lib` or `/usr/lib`** (their glibc crashes older nix binaries with
   `GLIBC_PRIVATE`); FHS libraries reach binaries through nix-ld's path instead
   ([`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md)).
-- **Skills.** The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`) are injected into every
+- **Skills.** The built-in skills (`configuring-the-jail`, `diagnosing-the-jail`, and the generated
+  `jail-mechanics`, whose `topics/` hold what the briefing's budgeted core points at,
+  [`jail-mechanics-skill.md`](docs/reference/jail-mechanics-skill.md#topic-files)) are injected into every
   jail. Priority: **the workspace** < built-in < shared packs < **the conventional local pack**
   (`~/.config/yolo-jail/local`, appended LAST by `config.LoadPacks`)
   ([`agent-briefings.md`](docs/reference/agent-briefings.md#the-workspace-layer)). ⚠ **The workspace layer

@@ -274,8 +274,8 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// callers without a sheet retain the embedded compatibility output.
 	var staging string
 	var wsSkills *jailcontent.WorkspaceSkillsReport
-	// THE CORE NEVER POINTS AT A TOPIC FILE THIS ENTRY DID NOT WRITE (docs/design/briefing-diet.md,
-	// the plan's Task 1). The topics are rendered from the fact sheet into the jail-mechanics
+	// THE CORE NEVER POINTS AT A TOPIC FILE THIS ENTRY DID NOT WRITE
+	// (docs/reference/agent-briefings.md#the-inline-fallback). The topics are rendered from the fact sheet into the jail-mechanics
 	// skill, so a caller with no sheet (a legacy attach), or a render that failed and left the
 	// prior skill tree in place, gets them inline in the briefing instead.
 	topicsStaged := false
@@ -435,7 +435,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		// `briefing_provenance` asks for it — unlabelled by default, because the label made
 		// agents treat the user's every-repository rules as foreign (config.BriefingProvenance).
 		//
-		// TWO BLOCKS, THE USER'S FIRST (docs/design/briefing-diet.md §7, BD-D11): the host file,
+		// TWO BLOCKS, THE USER'S FIRST (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D11): the host file,
 		// agents_md_extra and every non-shipped pack's prose, a `---`, then yolo's body and the
 		// shipped packs' pointers. ComposeBriefingFile is the one composer, the host notch's too.
 		var hostFile string

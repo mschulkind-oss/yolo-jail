@@ -127,7 +127,7 @@ type HostBriefingRequest struct {
 	// yolo would write — the shape before the base existed, which no production caller asks for.
 	Base string
 	// Extra is the USER-SCOPE agents_md_extra, which the user block holds after the `after` file
-	// and ahead of the non-shipped packs' prose (docs/design/briefing-diet.md §7, BD-D8). The CLI
+	// and ahead of the non-shipped packs' prose (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D8). The CLI
 	// resolves it, for Provenance's reason: a workspace config is agent-editable, and what it says
 	// must not reach a file in the real home.
 	Extra string
@@ -319,7 +319,7 @@ func composeHostBriefings(packs []*packload.Pack, homeDir, base, extra string, p
 	out := make([]HostBriefingDestination, 0, len(order))
 	for _, path := range order {
 		d := byPath[path]
-		// THE SAME TWO BLOCKS IN THE SAME ORDER as a jail (docs/design/briefing-diet.md §7, BD-D8,
+		// THE SAME TWO BLOCKS IN THE SAME ORDER as a jail (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D8,
 		// BD-D11): the user's `after` file, agents_md_extra and non-shipped packs' prose, a `---`,
 		// then the host header and the shipped packs' pointers.
 		parts := jailcontent.BriefingParts{Extra: extra, Base: base, Sections: sections[path], Provenance: provenance}

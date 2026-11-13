@@ -245,7 +245,7 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 // with: a pack under _official/ is an embedded one (officialStagingDir, a name no configured pack's
 // slug can spell), and any other is not. The tree's record does not carry the origin, and an
 // attach composes the briefing over these packs, whose two blocks split on it
-// (jailcontent.PackBriefing.Shipped, docs/design/briefing-diet.md §7).
+// (jailcontent.PackBriefing.Shipped, docs/reference/agent-briefings.md#what-a-composed-briefing-contains).
 func markOfficialFromLayout(p *packload.Pack, dir string) {
 	if p != nil && strings.HasPrefix(dir, officialStagingDir+"/") {
 		p.Official = true

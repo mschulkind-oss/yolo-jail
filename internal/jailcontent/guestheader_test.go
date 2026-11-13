@@ -14,7 +14,7 @@ import (
 // must not drop it. A guest with a container mechanism (the Linux spelling, unbuilt) does not say
 // it.
 //
-// Since the briefing diet (docs/design/briefing-diet.md §4) the header names the setup, the
+// Since the briefing diet (docs/reference/agent-briefings.md#the-core) the header names the setup, the
 // core's "What survives a restart" line says the home persists, and the full sentences open the
 // storage topic.
 func TestTheSeatbeltSetupHeaderStatesWhatIsShared(t *testing.T) {

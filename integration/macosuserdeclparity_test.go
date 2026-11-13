@@ -43,7 +43,7 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 		`echo "=== END ==="`,
 	}, "\n"))
 	briefing := section(r.stdout, "=== BRIEFING ===", "=== END ===")
-	// The core and the jail-mechanics topic files it points at (docs/design/briefing-diet.md).
+	// The core and the jail-mechanics topic files it points at (docs/reference/agent-briefings.md).
 	if !strings.Contains(briefing, "- **Workspace**") {
 		t.Fatalf("no yolo briefing core arrived at ~/.claude/CLAUDE.md, so "+
 			"none of the briefing rows can be read:\n%s", lastLines(briefing, 30))

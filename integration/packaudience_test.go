@@ -282,7 +282,7 @@ func TestPackAudienceSkipsAndDisclosesAnAgentTheJailDoesNotHave(t *testing.T) {
 // rule (docs/reference/jail-home.md#DS-D33): the claude and pi packs each carry prose
 // about their own agent's worktree tools, addressed to that agent alone, and a jail selecting
 // both plus codex must put each in its own agent's files and in no other. Since the briefing diet
-// (docs/design/briefing-diet.md BD-D2) that prose is a pointer in the briefing and the pack's own
+// (docs/reference/agent-briefings.md BD-D2) that prose is a pointer in the briefing and the pack's own
 // skill (`yolo-claude`, `yolo-pi`), so both halves are read. Here rather than only in
 // run.TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent because these are the files the
 // agent opens, from the packs embedded in the CLI the suite built.

@@ -62,7 +62,7 @@ func TestHostApplyTellsTheAgentItIsOnTheRealMachine(t *testing.T) {
 		}
 	}
 	// The extra is user prose: it precedes the header, as a jail's precedes its body
-	// (docs/design/briefing-diet.md §7, BD-D8).
+	// (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D8).
 	if strings.Index(body, "USER EXTRA") > strings.Index(body, "# YOLO Environment") {
 		t.Errorf("agents_md_extra must precede yolo's block:\n%s", body)
 	}

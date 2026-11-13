@@ -258,7 +258,7 @@ type Delivers func(pack string, k packdecl.Kind) bool
 
 // ComposeHostSkillsFor is ComposeHostSkills with the `describes` gate's census: a skills
 // contribution whose governor describes a kind of its pack that delivers says the host does not
-// deliver contributes no layer (docs/design/briefing-diet.md BD-D3), as a briefing file about one
+// deliver contributes no layer (docs/reference/agent-briefings.md BD-D3), as a briefing file about one
 // is withheld from every host briefing (entrypoint.HostDeliveredBriefing). The jail stager does
 // not ask: a jail delivers every kind a shipped pack describes.
 func ComposeHostSkillsFor(packs []*packload.Pack, homeDir string, delivers Delivers) []Destination {

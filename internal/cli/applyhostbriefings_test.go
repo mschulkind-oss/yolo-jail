@@ -329,7 +329,7 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 
 	// The prose pack leaves. `claude` still NAMES the destination, so yolo still owns it and
 	// composes the host base into it, followed by the claude pack's own prose (its pointer to
-	// the yolo-claude skill, docs/design/briefing-diet.md BD-D2); the dropped pack's rule is gone,
+	// the yolo-claude skill, docs/reference/agent-briefings.md BD-D2); the dropped pack's rule is gone,
 	// and nothing is archived.
 	selectPacks(t, home, `"claude"`)
 	rc, report := applyWith(t, true, strings.NewReader("y\n"))
@@ -451,7 +451,7 @@ func TestApplyHostBriefingPrependsTheAfterFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The file opens the user block, the pack's prose follows it, and yolo's block follows the
-	// rule (docs/design/briefing-diet.md §7).
+	// rule (docs/reference/agent-briefings.md#what-a-composed-briefing-contains).
 	if !strings.HasPrefix(string(got), "MY OWN RULES\n\nFoo rule: be brief.\n\n---\n\n") {
 		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md, then the pack's prose, above a "+
 			"`---`:\n%s", got)
@@ -791,7 +791,7 @@ func TestApplyHostWithholdsTheGitHubBriefingFromARealHome(t *testing.T) {
 	if !strings.Contains(string(got), "**yolo-claude** skill") {
 		t.Errorf("the claude pack's own prose must still reach the host briefing:\n%s", got)
 	}
-	// THE SKILL IS WITHHELD THE SAME WAY (docs/design/briefing-diet.md BD-D3): the github pack's
+	// THE SKILL IS WITHHELD THE SAME WAY (docs/reference/agent-briefings.md BD-D3): the github pack's
 	// yolo-gh skill describes the same forwarder, so no real home gets it, while the claude
 	// pack's own skill, which describes nothing, is delivered.
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "yolo-gh")); err == nil {

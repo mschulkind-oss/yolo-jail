@@ -452,7 +452,7 @@ func (p *Pack) GovernedBriefingFor(c packdecl.Contribution) ([]GovernedSource, [
 // skills half of GovernedBriefingFor: an original declaration or a synthesized ResolveDestinations
 // copy, matched to its governor by SourceKey. A DESTINATION (`agent` set) carries nothing (P5).
 // The host skills composer reads each governor's `describes` from it
-// (docs/design/briefing-diet.md BD-D3).
+// (docs/reference/agent-briefings.md BD-D3).
 func (p *Pack) GovernedSkillsFor(c packdecl.Contribution) []GovernedSource {
 	if c.Kind != packdecl.KindSkills || c.Agent != "" {
 		return nil

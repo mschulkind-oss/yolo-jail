@@ -80,7 +80,7 @@ func TestADryRunVerdictCountsTheRetiresStillWaiting(t *testing.T) {
 		selectPacksWith(t, home, "", `,"host_management":"own","host_wrappers":false`)
 		// Settle what the empty `packs` retires without asking (the composed briefing), so the
 		// dropped packs' paths are all that is left: dropme's two, and the claude pack's own
-		// yolo-claude skill (docs/design/briefing-diet.md BD-D2), since claude is dropped too.
+		// yolo-claude skill (docs/reference/agent-briefings.md BD-D2), since claude is dropped too.
 		if rc, report := applyWith(t, true, strings.NewReader("n\n")); rc != 0 {
 			t.Fatalf("the declining --assert rc=%d\n%s", rc, report)
 		}
@@ -205,7 +205,7 @@ func TestAnAssertThatDeclinesTheRetireSaysWhatStays(t *testing.T) {
 		// The first --assert with `packs` empty also retires the composed briefing and the three
 		// generated skills, unasked. The generated skills are yolo-owned destinations, not dropped-
 		// pack output; only the dropped packs' paths remain waiting for an explicit retire answer:
-		// dropme's two and the claude pack's yolo-claude skill (briefing-diet.md BD-D2).
+		// dropme's two and the claude pack's yolo-claude skill (agent-briefings.md BD-D2).
 		const stays = "3 paths from dropped packs are still in your home, not retired (above)."
 		_, report := applyWith(t, true, strings.NewReader("n\n"))
 		if got, want := verdictLine(report), "No packs configured — nothing to apply; 4 destination(s) "+

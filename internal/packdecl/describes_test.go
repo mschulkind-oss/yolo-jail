@@ -1,7 +1,7 @@
 package packdecl
 
 // describes_test.go pins `describes` (Contribution.Describes, docs/design/boundary-broker.md
-// BB-D69): accepted on briefing and skills CONTENT (docs/design/briefing-diet.md BD-D3) naming a kind the pack declares, refused everywhere else,
+// BB-D69): accepted on briefing and skills CONTENT (docs/reference/agent-briefings.md BD-D3) naming a kind the pack declares, refused everywhere else,
 // and its unknown-kind and sibling halves held to the strict path so a jail reading a newer
 // pack's manifest still boots.
 
@@ -23,7 +23,7 @@ func TestDescribesIsAcceptedOnBriefingContent(t *testing.T) {
 		`{"kind":"briefing","from":"briefing/gh.md","into":".acme/A.md","describes":["intercept"]},` + interceptJSON,
 		// An omitted `from` governs the convention's unnamed files, and gates them.
 		`{"kind":"briefing","describes":["intercept"]},` + interceptJSON,
-		// SKILLS CONTENT takes it with the same meaning (docs/design/briefing-diet.md BD-D3): the
+		// SKILLS CONTENT takes it with the same meaning (docs/reference/agent-briefings.md BD-D3): the
 		// git pack's yolo-git skill is about its jail-only forwarder, so the host notch does not
 		// deliver it. The conventional source and a named, addressed one alike.
 		`{"kind":"skills","describes":["intercept"]},` + interceptJSON,

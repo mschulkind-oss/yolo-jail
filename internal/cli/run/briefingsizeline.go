@@ -1,6 +1,6 @@
 package run
 
-// briefingsizeline.go is the launch's size line (docs/design/briefing-diet.md BD-D9): the hook
+// briefingsizeline.go is the launch's size line (docs/reference/agent-briefings.md BD-D9): the hook
 // refreshJailBriefingsMode calls with each destination's FINAL composed file, just before it is
 // written. A file longer than its agent's declared warns_above_chars gets one warning line,
 // which jailcontent.BriefingSizeWarning words. The launch is never refused and the file is

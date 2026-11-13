@@ -1,7 +1,7 @@
 package packdecl
 
 // warnsabovechars_test.go pins `warns_above_chars` (Contribution.WarnsAboveChars,
-// docs/design/briefing-diet.md BD-D9): read from a briefing destination, refused on every other
+// docs/reference/agent-briefings.md BD-D9): read from a briefing destination, refused on every other
 // contribution, and refused when it is not a positive count, each refusal naming the fix.
 
 import (

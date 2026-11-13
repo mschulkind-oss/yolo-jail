@@ -557,7 +557,7 @@ func stagedBriefingsHold(t *testing.T, cname, text string) bool {
 		}
 	}
 	// And the jail-mechanics topic files the briefings' core points at, each headed `## ` as the
-	// inlined fallback heads it (docs/design/briefing-diet.md): a crossing that left the briefing
+	// inlined fallback heads it (docs/reference/agent-briefings.md): a crossing that left the briefing
 	// for a topic file is still described to the agent.
 	topics, _ := filepath.Glob(filepath.Join(paths.AgentsDir(), cname, "skills-*", "jail-mechanics", "topics", "*.md"))
 	for _, m := range topics {
