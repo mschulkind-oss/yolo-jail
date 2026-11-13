@@ -369,15 +369,10 @@ func (o *AutoLoadOptions) stockImageLoaded(identity string) string {
 // written only once the tag is — a record with no tag is never read, and one
 // written for a tag that failed would claim a name nothing answers to.
 //
-// Apple Container is skipped for the reason ImageTagCmd states — there is no
-// `container image tag` argv this repo can verify — so that backend keeps
-// building every launch, as it does today. It is skipped TWICE: the caller
-// declines to call this at all for that runtime, and the guard below repeats the
-// decision so a second caller cannot lose it.
+// Every runtime takes it. Apple Container was skipped until 2026-11-12, when
+// nothing here had verified a `container image tag` argv, so that backend built
+// on every launch; ImageTagCmd now carries its spelling.
 func (o *AutoLoadOptions) tagStockImage(contentRef, storePath, identity string) {
-	if o.Runtime == "container" {
-		return
-	}
 	ref := StockImageRef(o.Runtime, identity)
 	if ref == "" {
 		return
