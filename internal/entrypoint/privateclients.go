@@ -50,6 +50,9 @@ type PrivateClientBinding struct {
 	Entrypoint       string `json:"entrypoint"`
 	EntrypointSHA256 string `json:"entrypoint_sha256"`
 	RuntimeFiles     string `json:"runtime_files"`
+	// NodeSHA256 is the identity of the Node executable the capture was prepared with: the
+	// bootstrap executes only those bytes, wherever PATH finds them (OpenPrivateClientNode).
+	NodeSHA256 string `json:"node_sha256"`
 }
 
 func validHex(s string, n int) bool {
@@ -73,7 +76,7 @@ func validTreePath(p string) bool {
 }
 
 // Valid reports whether b is a complete binding: a bin name, a 32-hex generation, a capture key,
-// local slash paths with the entrypoint inside the runtime root, and two sha256 identities.
+// local slash paths with the entrypoint inside the runtime root, and three sha256 identities.
 func (b PrivateClientBinding) Valid() error {
 	switch {
 	case !packdecl.ValidBinName(b.Bin):
@@ -86,6 +89,8 @@ func (b PrivateClientBinding) Valid() error {
 		return errors.New("private client binding has no confined entrypoint")
 	case !validSHA256Ref(b.EntrypointSHA256) || !validSHA256Ref(b.RuntimeFiles):
 		return errors.New("private client binding has no entrypoint identity")
+	case !validSHA256Ref(b.NodeSHA256):
+		return errors.New("private client binding has no Node identity")
 	}
 	return nil
 }
@@ -96,7 +101,7 @@ func PrivateClientArgv(b PrivateClientBinding) []string {
 	return []string{PrivateClientBootstrap, "internal", PrivateClientExecVerb,
 		"--bin=" + b.Bin, "--generation=" + b.Generation, "--capture=" + b.CaptureKey,
 		"--runtime-root=" + b.RuntimeRoot, "--entrypoint=" + b.Entrypoint,
-		"--entrypoint-sha256=" + b.EntrypointSHA256, "--runtime-files=" + b.RuntimeFiles, "--"}
+		"--entrypoint-sha256=" + b.EntrypointSHA256, "--runtime-files=" + b.RuntimeFiles, "--node-sha256=" + b.NodeSHA256, "--"}
 }
 
 // ParsePrivateClientArgs is PrivateClientArgv's inverse over the arguments after the verb. It
@@ -108,7 +113,7 @@ func ParsePrivateClientArgs(args []string) (PrivateClientBinding, []string, erro
 		dst  *string
 	}{{"--bin=", &b.Bin}, {"--generation=", &b.Generation}, {"--capture=", &b.CaptureKey},
 		{"--runtime-root=", &b.RuntimeRoot}, {"--entrypoint=", &b.Entrypoint},
-		{"--entrypoint-sha256=", &b.EntrypointSHA256}, {"--runtime-files=", &b.RuntimeFiles}}
+		{"--entrypoint-sha256=", &b.EntrypointSHA256}, {"--runtime-files=", &b.RuntimeFiles}, {"--node-sha256=", &b.NodeSHA256}}
 	if len(args) < len(fields)+1 || args[len(fields)] != "--" {
 		return b, nil, errors.New("private client bootstrap takes exactly its bound argv")
 	}
@@ -278,6 +283,62 @@ func VerifyPrivateClient(store string, b PrivateClientBinding) (string, error) {
 		return "", fmt.Errorf("private client %s runtime files do not match their bound identity", b.Bin)
 	}
 	return entry, nil
+}
+
+// OpenPrivateClientNode opens the Node executable at candidate and returns it only when its bytes
+// are the bound identity want. The bootstrap then executes through the returned descriptor
+// (`/proc/self/fd/<n>`), never by path again, so where candidate lives (PATH, a mise dir, the
+// image) decides nothing: a replaced, shadowed or swapped file is refused or never run.
+func OpenPrivateClientNode(candidate, want string) (*os.File, error) {
+	if !validSHA256Ref(want) {
+		return nil, errors.New("private client binding has no Node identity")
+	}
+	f, err := os.Open(candidate)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		f.Close()
+		return nil, fmt.Errorf("Node at %s is not an executable regular file", candidate)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if "sha256:"+hex.EncodeToString(h.Sum(nil)) != want {
+		f.Close()
+		return nil, fmt.Errorf("Node at %s is not the runtime this client was prepared with", candidate)
+	}
+	return f, nil
+}
+
+// privateClientScrubbed reports whether an environment variable named name can change what a
+// bound client's Node loads or executes: Node's own options, module paths, loaders and
+// configuration (every NODE_*), the dynamic loader's preloads and search paths (LD_*, NIX_LD*),
+// OpenSSL's configuration, which can load providers and engines, and shell startup files a child
+// shell would source (BASH_ENV, ENV).
+func privateClientScrubbed(name string) bool {
+	switch name {
+	case "OPENSSL_CONF", "OPENSSL_MODULES", "OPENSSL_ENGINES", "BASH_ENV", "ENV":
+		return true
+	}
+	return strings.HasPrefix(name, "NODE_") || strings.HasPrefix(name, "LD_") || strings.HasPrefix(name, "NIX_LD")
+}
+
+// PrivateClientEnviron is the bootstrap's explicit process environment for a bound client: the
+// caller's environment with every variable privateClientScrubbed names removed. Every other
+// variable passes, so the client's own configuration (HOME, TERM, its served URL) is unchanged.
+func PrivateClientEnviron(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if !privateClientScrubbed(name) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // privateClientLauncher is the generated launcher of a bound private client: the shared argv
