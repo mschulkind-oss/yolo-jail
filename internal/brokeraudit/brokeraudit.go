@@ -88,6 +88,9 @@ type Event struct {
 	Refs []RefUpdate `json:"refs,omitempty"`
 	// Set is the permission set the classifier assigned, or "refused" or "out-of-scope".
 	Set string `json:"set"`
+	// Cell is the GitHub cell whose working-set line covered the write, as its path
+	// (`working_set.comment_prs`; docs/design/github-write-scopes.md GW-D13), "" for any other cover.
+	Cell string `json:"cell,omitempty"`
 	// Outcome is `ran`, `canceled` (the host command may have partially completed), `pending`,
 	// `denied` or `refused`.
 	Outcome string `json:"outcome"`
