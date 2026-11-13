@@ -346,6 +346,48 @@ class SessionLeftoverTest(unittest.TestCase):
         census.refuse_session_leftovers({}, self.gate)
 
 
+class SharedTestCacheTest(unittest.TestCase):
+    """The census removes the embedded-pack cache base its test binaries share in TMPDIR
+    (internal/packload, TestSharedCachePrefix) once they have all run, or the leak gate it runs
+    under fails every census on it."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.base = self.tmp / f"yolo-test-embedded-packs-{os.geteuid()}"
+        tree = self.base / "0123abcd" / "claude"
+        tree.mkdir(parents=True)
+        (tree / "pack.toml").write_text("")
+        (self.base / "0123abcd" / ".lease").write_text("")
+        os.chmod(tree, 0o555)  # the cache tree is immutable
+        os.chmod(self.base / "0123abcd", 0o555)
+        self.addCleanup(lambda: os.path.isdir(self.base) and census.load_leak_gate().remove_tree(self.base))
+
+    def test_a_census_run_removes_the_shared_cache_base_its_tests_left(self):
+        other = self.tmp / "yolo-test-embedded-packs-99999"  # another euid's name: not ours
+        other.mkdir()
+        out = self.tmp / "readers.json"
+        with mock.patch.object(census, "go_packages", return_value=([], set())), \
+                mock.patch.object(census, "tracked_dirs", return_value={}), \
+                mock.patch.object(census, "GitVisibility", return_value=Everything()), \
+                mock.patch.object(census, "validate_fixture_root", return_value=None), \
+                mock.patch.object(census, "OUT", out), \
+                mock.patch.object(census, "ROOT", self.tmp), \
+                mock.patch.object(tempfile, "tempdir", str(self.tmp)):
+            census.main()
+        self.assertTrue(out.exists(), "the stubbed census did not run to its output")
+        self.assertFalse(self.base.exists(), "the census left its tests' shared cache base in TMPDIR")
+        self.assertTrue(other.exists(), "the census removed a base that is not this euid's")
+
+    def test_a_failed_census_removes_it_too(self):
+        with mock.patch.object(census, "validate_fixture_root", side_effect=census.CensusError("x")), \
+                mock.patch.object(tempfile, "tempdir", str(self.tmp)):
+            with self.assertRaises(census.CensusError):
+                census.main()
+        self.assertFalse(self.base.exists(), "a failed census left its tests' shared cache base in TMPDIR")
+
+
 class GatedArgvTest(unittest.TestCase):
     def test_an_ordinary_run_reruns_itself_under_the_leak_gate(self):
         argv = census.gated_argv({}, ["completion-census.py"])

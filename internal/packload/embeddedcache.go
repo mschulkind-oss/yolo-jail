@@ -214,7 +214,10 @@ func embeddedCacheBaseLocked() (base string, strict bool) {
 // test as its own process (scripts/completion-census.py, `go test -c` run per test) made one
 // ~0.9 MB tree per test: 7,658 trees, 6.7 GB, in about 30 minutes (measured 2026-10-24).
 // A shared tree leaves nothing per process to remove. Still TMPDIR, never HOME: the unit
-// suite must not write the developer's real state dir.
+// suite must not write the developer's real state dir. No test binary can remove the base,
+// since the next one reads it: the runner that started them does once they have all exited
+// (scripts/completion-census.py, remove_shared_test_cache, whose SHARED_TEST_CACHE_PREFIX
+// spells this name).
 const TestSharedCachePrefix = "yolo-test-embedded-packs-"
 
 // testSharedCacheBase is TestSharedCachePrefix's directory for this euid.
