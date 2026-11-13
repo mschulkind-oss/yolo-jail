@@ -55,7 +55,7 @@ needs a ruling or a Mac sits in the others.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
 
 5. Repair the reference docs that drifted ([the backlog's list](BACKLOG.md#doc-drift-2026-11-12)): four describe
-   `mcp_presets` as live, and patched forks, the pack system and agent credentials each carry one stale row or link.
+   `mcp_presets` as live, and patched forks and the pack system each carry one stale row.
 
 6. Smaller builds no ruling holds:
    - [The color pass](cli-visual-polish.md)'s glyph and status-column items, which change plain output; Group C's

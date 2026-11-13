@@ -924,8 +924,6 @@ a lane's run and then passed alone. None has been diagnosed:
   built on some notches that PPX-D45 and the 2026-11-11 native run show built.
 - [The pack system](../reference/pack-system.md)'s [OQ-LT2](../reference/pack-system.md#oq-lt2) row says lists only append, but a
   removal exists.
-- [Agent credentials](../reference/agent-credentials.md) links the roadmap's `#external-waits`,
-  a section the roadmap no longer has.
 
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 

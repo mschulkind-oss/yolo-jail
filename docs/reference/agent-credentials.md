@@ -781,7 +781,7 @@ session ends (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, `macos-user.
 36719581090; it runs no Codex). opencode's view is MEASURED by unit tests only.
 
 UNMEASURED, because each needs a ChatGPT account and wall-clock time, and so a person
-([the roadmap's external waits](../plans/roadmap.md#external-waits) carry them):
+([the roadmap's outside waits](../plans/roadmap.md#waiting-on-a-mac-ci-a-rootless-host-or-an-outside-account) carry them):
 
 - two Codex and two Pi processes crossing one expiry concurrently with exactly one upstream
   refresh;
