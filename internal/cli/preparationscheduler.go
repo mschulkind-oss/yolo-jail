@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
@@ -316,6 +317,13 @@ type preparationTaskResult struct {
 	program                *npmCaptureRecord
 }
 
+// preparationControlTicker paces the scheduler's stop and binary-identity checks; a test injects
+// its own ticks. Nothing else reassigns it.
+var preparationControlTicker = func() (<-chan time.Time, func()) {
+	ticker := time.NewTicker(time.Second)
+	return ticker.C, ticker.Stop
+}
+
 // runPreparationScheduler is the timer production loop. Tests inject ticks into this exact loop.
 func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.Writer, wakes ...<-chan struct{}) error {
 	var wake, drain <-chan struct{}
@@ -371,8 +379,9 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 			<-done
 		}
 	}()
-	control := time.NewTicker(time.Second)
-	defer control.Stop()
+	controlTicks, stopControl := preparationControlTicker()
+	defer stopControl()
+	var binaryCheck preparationBinaryCheck
 	keyID := func(r preparationRecord) string { return r.Key + "\x00" + r.Runtime + "\x00" + r.Platform }
 	for {
 		if draining && len(tasks) == 0 {
@@ -453,11 +462,16 @@ func runPreparationScheduler(ctx context.Context, ticks <-chan time.Time, w io.W
 			case more <- struct{}{}:
 			default:
 			}
-		case <-control.C:
-			if preparationStopRequested() {
+		case <-controlTicks:
+			// One read of the scheduler state serves both checks.
+			state, err := loadPreparationState()
+			if err != nil {
+				return err
+			}
+			if state.Worker.StopRequested {
 				return nil
 			}
-			if err := preparationCheckBinaryIdentity(); err != nil {
+			if err := binaryCheck.check(state.Worker); err != nil {
 				return err
 			}
 
@@ -891,12 +905,56 @@ func preparationCheckBinaryIdentity() error {
 	if err != nil {
 		return err
 	}
-	if state.Worker.BinaryDigest == "" || state.Worker.Executable == "" {
+	return (&preparationBinaryCheck{}).check(state.Worker)
+}
+
+// preparationStatIdentity is the cheap stand-in for an executable's content: device, inode,
+// size and modification time. It decides only whether the digest must be computed again; the
+// digest stays the authority.
+type preparationStatIdentity struct {
+	dev, ino uint64
+	size     int64
+	mtime    int64
+}
+
+func preparationStatOf(path string) (preparationStatIdentity, bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return preparationStatIdentity{}, false, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return preparationStatIdentity{}, false, nil
+	}
+	return preparationStatIdentity{dev: uint64(st.Dev), ino: uint64(st.Ino), size: fi.Size(), mtime: fi.ModTime().UnixNano()}, true, nil
+}
+
+// preparationBinaryCheck remembers the stat identity of the last executable whose digest
+// matched, so the scheduler's control tick hashes the binary only when that identity moved.
+type preparationBinaryCheck struct {
+	path, digest string
+	stat         preparationStatIdentity
+	known        bool
+}
+
+func (c *preparationBinaryCheck) check(worker preparationWorker) error {
+	if worker.BinaryDigest == "" || worker.Executable == "" {
 		return nil
 	}
-	digest, digestErr := preparationBinaryDigest(state.Worker.Executable)
-	if digestErr != nil || digest != state.Worker.BinaryDigest {
-		return errors.New("yolo binary changed while the preparation worker was running — its work was cancelled; run `yolo pack prepare start` to restart with the selected binary")
+	changed := errors.New("yolo binary changed while the preparation worker was running — its work was cancelled; run `yolo pack prepare start` to restart with the selected binary")
+	stat, statOK, err := preparationStatOf(worker.Executable)
+	if err != nil {
+		c.known = false
+		return changed
 	}
+	if c.known && statOK && c.path == worker.Executable && c.digest == worker.BinaryDigest && c.stat == stat {
+		return nil
+	}
+	c.known = false
+	digest, digestErr := preparationBinaryDigest(worker.Executable)
+	if digestErr != nil || digest != worker.BinaryDigest {
+		return changed
+	}
+	c.path, c.digest, c.stat, c.known = worker.Executable, digest, stat, statOK
 	return nil
 }
