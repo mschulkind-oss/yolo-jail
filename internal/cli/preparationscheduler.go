@@ -280,28 +280,33 @@ func runPreparationSchedulerCommand() int {
 		defer ticker.Stop()
 		wakeScheduler()
 		return runPreparationScheduler(ownerCtx, ticker.C, os.Stdout, wake, drain)
-	}, preparationWorkerControl{Wake: wakeScheduler, Finish: func(state *preparationState, err error) {
-		for i := range state.Subscriptions {
-			record := &state.Subscriptions[i]
-			if err != nil && !errors.Is(err, context.Canceled) && record.Active {
-				record.Phase = "binary-mismatch"
-				record.Reason = err.Error()
-				continue
-			}
-			if record.Phase != "checking" {
-				continue
-			}
-			record.Phase = "interrupted"
-			record.At = preparationNow()
-			record.Reason = "the owned worker stopped before this act settled; admitted build records remain authoritative — run `yolo pack prepare start` to resume"
-		}
-	}, Drain: func() { drainOnce.Do(func() { close(drain) }) }})
+	}, preparationWorkerControl{Wake: wakeScheduler, Finish: finishPreparationSchedulerState,
+		Drain: func() { drainOnce.Do(func() { close(drain) }) }})
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0
+}
+
+// finishPreparationSchedulerState settles the subscription records when the owned worker
+// stops: an act still in flight is relabelled interrupted, so status never shows it running.
+func finishPreparationSchedulerState(state *preparationState, err error) {
+	for i := range state.Subscriptions {
+		record := &state.Subscriptions[i]
+		if err != nil && !errors.Is(err, context.Canceled) && record.Active {
+			record.Phase = "binary-mismatch"
+			record.Reason = err.Error()
+			continue
+		}
+		if record.Phase != "checking" && record.Phase != "building" {
+			continue
+		}
+		record.Phase = "interrupted"
+		record.At = preparationNow()
+		record.Reason = "the owned worker stopped before this act settled; admitted build records remain authoritative — run `yolo pack prepare start` to resume"
+	}
 }
 
 type preparationTask struct {

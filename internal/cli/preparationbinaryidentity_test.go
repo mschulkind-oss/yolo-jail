@@ -80,6 +80,22 @@ func TestPreparationControlTicksHashAnUnchangedBinaryOnce(t *testing.T) {
 	}
 }
 
+// A worker that stops while a plain build is in flight relabels it as it does a check: status
+// must not keep showing "building" for an act nothing runs.
+func TestPreparationSchedulerFinishInterruptsABuildInFlight(t *testing.T) {
+	state := preparationState{Subscriptions: []preparationRecord{
+		{Key: "plain", Kind: preparationPlainProgramKind, Active: true, Phase: "building"},
+		{Key: "tree", Active: true, Phase: "checking"},
+		{Key: "done", Active: true, Phase: "admitted"},
+	}}
+	finishPreparationSchedulerState(&state, context.Canceled)
+	for i, want := range []string{"interrupted", "interrupted", "admitted"} {
+		if got := state.Subscriptions[i].Phase; got != want {
+			t.Errorf("%s after the worker stopped = %q, want %q", state.Subscriptions[i].Key, got, want)
+		}
+	}
+}
+
 // A real replacement (a new inode renamed over the path, with the same size and mtime) is still
 // detected: the stat identity changed, so the digest — the authority — is consulted again.
 func TestPreparationControlTickDetectsAReplacedBinary(t *testing.T) {
