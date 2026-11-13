@@ -100,8 +100,9 @@ func TestJailAndHostComposeTheSameBriefing(t *testing.T) {
 		}
 
 		// WITH A BASE, the one composer's other input (jailcontent.ComposeBriefingSections): each
-		// notch opens every destination with its own base — BriefingContent plus agents_md_extra
-		// in a jail, HostBriefingBase at the host — and the packs' sections follow it identically.
+		// notch opens yolo's block with its own base — BriefingContent in a jail, HostBriefingBase
+		// at the host — and the user's packs precede it and the shipped packs follow it, identically
+		// (jailcontent.ComposeBriefingFile).
 		const base = "# BASE\n\nextra\n"
 		hostWithBase := map[string]string{}
 		for _, d := range entrypoint.ComposeHostBriefings(resolved, home, base, provenance) {
@@ -110,7 +111,7 @@ func TestJailAndHostComposeTheSameBriefing(t *testing.T) {
 		}
 		for _, d := range dests {
 			jail := jailcontent.ComposePackBriefings(base, proses, d.Agent, provenance)
-			if jail != hostWithBase[d.Into] || !strings.HasPrefix(jail, "# BASE\n\nextra\n\n") {
+			if jail != hostWithBase[d.Into] || !strings.Contains(jail, "# BASE\n\nextra\n") {
 				t.Errorf("provenance=%v %s, with a base:\n--- jail ---\n%s--- host ---\n%s",
 					provenance, d.Into, jail, hostWithBase[d.Into])
 			}

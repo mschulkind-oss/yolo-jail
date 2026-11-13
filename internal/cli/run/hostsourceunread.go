@@ -38,11 +38,11 @@ func hostFileSubject(pack, from string) string {
 	return "pack " + pack + "'s host file ~/" + from
 }
 
-// prependHostBriefing is jailcontent.PrependHostBriefing with the line: the user's host briefing
-// at src (declared as `after: "host:<from>"` by the destination into) is prepended to content when
-// it can be read, and named when it is there and cannot be — a dangling link, which the read
-// itself cannot tell from absence, is checked first.
-func (o *Options) prependHostBriefing(src, from, into, content string) string {
+// readHostBriefing is jailcontent.ReadHostBriefing with the line: the user's host briefing at src
+// (declared as `after: "host:<from>"` by the destination into), which opens the destination's user
+// block, or "" when it is absent; named when it is there and cannot be read — a dangling link,
+// which the read itself cannot tell from absence, is checked first.
+func (o *Options) readHostBriefing(src, from, into string) string {
 	subject := "the host briefing ~/" + from
 	if from != into {
 		subject += " for ~/" + into
@@ -50,13 +50,13 @@ func (o *Options) prependHostBriefing(src, from, into, content string) string {
 	const without = "The jail's briefing is composed without it"
 	if skip := unreadHostSource(src); skip != nil {
 		o.noteUnreadHostSource(subject, without, skip)
-		return content
+		return ""
 	}
-	out, err := jailcontent.PrependHostBriefing(src, content)
+	text, err := jailcontent.ReadHostBriefing(src)
 	if err != nil {
 		o.noteUnreadHostSource(subject, without, &hostSourceSkip{Why: "it could not be read (" + err.Error() + ")"})
 	}
-	return out
+	return text
 }
 
 // noteUnreadHostSource prints the launch line for one host file the launch did not read, and

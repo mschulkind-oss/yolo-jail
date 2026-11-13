@@ -86,7 +86,7 @@ func briefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Ma
 func hostBriefingReq(t *testing.T, home string) (HostBriefingRequest, *hostskills.Manifest) {
 	t.Helper()
 	req, man := briefingReq(t, home)
-	req.Base = jailcontent.HostBriefingBase("", false)
+	req.Base = jailcontent.HostBriefingBase(false)
 	return req, man
 }
 
@@ -1188,18 +1188,17 @@ func afterPack(t *testing.T, into, after string) *packload.Pack {
 }
 
 // DP-B26: an `after` naming a file other than a destination OPENS the destination with that file,
-// in the jail's bytes (jailcontent.PrependHostBriefing). It was silently ignored at the host.
+// in the jail's bytes (jailcontent.ComposeBriefingFile): the file opens the user block, ahead of a
+// non-shipped pack's prose, and yolo's block (here the base) follows a rule. It was silently
+// ignored at the host.
 func TestComposeHostBriefingsPrependsTheUsersAfterFile(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "mine.md"), []byte("MY RULES\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	packs := []*packload.Pack{afterPack(t, ".foo/AGENTS.md", "mine.md")}
-	dests := ComposeHostBriefings(packs, home, "", false)
-	want, err := jailcontent.PrependHostBriefing(filepath.Join(home, "mine.md"), "Pack prose.\n")
-	if err != nil {
-		t.Fatal(err)
-	}
+	dests := ComposeHostBriefings(packs, home, "BASE\n", false)
+	want := "MY RULES\n\nPack prose.\n\n---\n\nBASE\n"
 	if got := composedAt(dests, home, ".foo/AGENTS.md"); got != want {
 		t.Errorf("~/.foo/AGENTS.md = %q, want the jail's prepend %q", got, want)
 	}
@@ -1302,7 +1301,7 @@ func TestComposeHostBriefingsTakesTheFirstContributionCarryingAnAfter(t *testing
 			if len(dests) != 1 || dests[0].After != "first.md" {
 				t.Fatalf("want one destination whose after is first.md, got %+v", dests)
 			}
-			if got := dests[0].Content; !strings.HasPrefix(got, "FIRST.MD\n\n---\n\n") ||
+			if got := dests[0].Content; !strings.HasPrefix(got, "FIRST.MD\n\n") ||
 				strings.Contains(got, "SECOND.MD") {
 				t.Errorf("~/.foo/AGENTS.md does not open with first.md alone:\n%s", got)
 			}

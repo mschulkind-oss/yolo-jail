@@ -3,7 +3,7 @@ title: "Plan: the briefing diet"
 date: 2026-11-13
 status: draft
 stage: SKETCH
-next: "Tasks 1 and 3 built; Tasks 2, 4 and 5 for 0.18.0"
+next: "Tasks 1, 2 and 3 built; Tasks 4 and 5 for 0.18.0"
 depends-on: [briefing-diet.md#BD-D11]
 tags: [briefing, skills, packs, plan]
 summary: "Seed of the build hand-off for the briefing diet: a provisional map and task slices from the files read during design, to be completed by a planner against the tree."
@@ -92,6 +92,60 @@ Decisions made while building, each the only answer the design left:
   replacement per tool, groups the guards by kind, and states the `rg -r` trap only when a
   replacement is `rg` (BD-D7 in the [Decision Ledger](briefing-diet.md#decision-ledger)).
 - **The core lists more than four ports as a count** and points to the network topic.
+
+## Task 2: two blocks, the user's first
+
+Built in its own lane on 2026-11-13, after Task 1, under the owner's ruling
+[BD-D11](briefing-diet.md#BD-D11) and [BD-D8](briefing-diet.md#decision-ledger). The **user
+block** and **yolo's block** are the design's terms ([§7](briefing-diet.md#7-order)).
+
+**Decisions taken in the build** (implementation decisions; each is reversible):
+
+- **The alerts stay at the top of yolo's block**, after the header and ahead of the core, not
+  ahead of the user's prose. The design puts them in yolo's block ([§7](briefing-diet.md#7-order), BD-D5), the ruling puts
+  the user's rules first, and an alert is yolo's text. Moving them above the user block would put
+  yolo's text first again on every launch that has one. The cost is that a provisioning alert or a
+  handoff sits after a long user block; Claude loads the whole file, and yolo's block is the part
+  an agent that cuts from the end loses first either way.
+- **One composer for both notches:** `jailcontent.ComposeBriefingFile` takes the host file,
+  `agents_md_extra`, yolo's base and every pack's section, and splits the sections on their
+  `Shipped` mark. The jail and `yolo host apply` both call it, so one pack set reads the same at
+  both.
+- **Shipped means `packload.Pack.Official`.** A pack read back from a running jail's tree on an
+  attach gets the mark from the tree's layout (a pack under `_official/` is embedded), since the
+  tree's record does not carry the origin. Without that, every attach would move yolo's pointers
+  into the user block.
+- **The host notch's `agents_md_extra` leaves its base.** `HostBriefingBase` is the header alone;
+  the user-scope value travels as `HostBriefingRequest.Extra`, and the adoption gate composes from
+  the same request, so it compares a file against the bytes the render writes.
+- **The `after` file is read, not prepended.** `jailcontent.PrependHostBriefing` is replaced by
+  `ReadHostBriefing`; the file's text opens the user block. An existing file with only whitespace
+  composes as no user prose, so it adds no rule.
+
+**Steps:**
+
+1. `internal/jailcontent/briefing.go`: `PackBriefing.Shipped` and `BriefingSection.Shipped`;
+   `PackBriefingSections`; `BriefingParts` and `ComposeBriefingFile`; `ReadHostBriefing` in place
+   of `PrependHostBriefing`; `HostBriefingBase(isMacOS)` without `extra`; `ComposeBriefing`
+   removed. `ComposePackBriefings` composes through `ComposeBriefingFile`. Pinned by
+   `TestComposeBriefingFile` and `TestReadHostBriefingReportsAReadFailureButNotAbsence`.
+2. `internal/cli/run/packs.go`, `internal/cli/run/packtree.go`: each `PackBriefing` carries
+   `Shipped: p.Official`; `loadPackTree` marks a pack under `_official/` official
+   (`markOfficialFromLayout`). Pinned by `TestAnAttachReadsEachPacksOriginBackFromTheTree`.
+3. `internal/cli/run/prepare.go`, `internal/cli/run/hostsourceunread.go`: the per-destination
+   loop reads the `after` file (`readHostBriefing`) and composes through `ComposeBriefingFile`.
+   Pinned first, failing, by `TestTheUsersProsePrecedesYolosCoreInTheJail` and
+   `TestAForkedShippedPackIsUserProse` in `internal/cli/run/briefingorder_test.go`.
+4. `internal/entrypoint/hostbriefing.go`, `internal/cli/applyhostbriefings.go`: the host notch
+   composes through `ComposeBriefingFile`, with `HostBriefingRequest.Extra` and
+   `HostBriefingAdoptionsFor`. Pinned first, failing, by
+   `TestApplyHostPutsTheUsersProseBeforeYolosBlock` in
+   `internal/cli/applyhostbriefingorder_test.go`, and by
+   `TestComposeHostBriefingsPrependsTheUsersAfterFile`.
+5. The composed-block budget: `TestYolosBlockAloneHasNoRuleAndFitsItsBudget` drives the
+   launch's staging and briefing write for Claude with `claude`, `git`, `github` and
+   `guardrails`, one forwarded port and the durable directory, and holds yolo's block to 2,600
+   bytes with no rule. `TestApplyHostWithNoUserProseHasNoRule` is the host half of "no rule".
 
 ## Task 3: shipped packs' pointers and skills
 

@@ -340,7 +340,7 @@ func TestApplyHostBriefingDroppingThePackLeavesNoOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the claude pack's own prose: %v", err)
 	}
-	want := jailcontent.ComposeBriefingSections(jailcontent.HostBriefingBase("", paths.IsMacOS),
+	want := jailcontent.ComposeBriefingSections(jailcontent.HostBriefingBase(paths.IsMacOS),
 		[]jailcontent.BriefingSection{{Pack: "claude", Text: strings.TrimRight(string(claudeOwn), "\n")}}, false)
 	after, err := os.ReadFile(dest)
 	if err != nil || strings.Contains(string(after), "Pack rule: use rg.") || string(after) != want {
@@ -450,9 +450,11 @@ func TestApplyHostBriefingPrependsTheAfterFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") || !strings.Contains(string(got), "Foo rule: be brief.") {
-		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md above a `---` and hold the pack's "+
-			"prose:\n%s", got)
+	// The file opens the user block, the pack's prose follows it, and yolo's block follows the
+	// rule (docs/design/briefing-diet.md §7).
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\nFoo rule: be brief.\n\n---\n\n") {
+		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md, then the pack's prose, above a "+
+			"`---`:\n%s", got)
 	}
 	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
 		t.Errorf("want one report line naming ~/mine.md, got %d:\n%s", n, report)
@@ -483,7 +485,7 @@ func TestApplyHostBriefingTakesTheAfterPastABroadcastListedFirst(t *testing.T) {
 	if !strings.Contains(string(got), "Broadcast rule.") {
 		t.Fatalf("fixture: the broadcast did not reach ~/.foo/AGENTS.md:\n%s", got)
 	}
-	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n---\n\n") {
+	if !strings.HasPrefix(string(got), "MY OWN RULES\n\n") {
 		t.Errorf("~/.foo/AGENTS.md does not open with ~/mine.md:\n%s", got)
 	}
 	if n := countLines(report, "~/.foo/AGENTS.md opens with your ~/mine.md"); n != 1 {
@@ -624,7 +626,8 @@ func TestApplyHostBriefingWarnsOfAnUnreadableAfterFile(t *testing.T) {
 				t.Errorf("want one warning ending %q, got %d:\n%s", tc.why, n, got.report)
 			}
 			body, _ := os.ReadFile(filepath.Join(home, ".foo", "AGENTS.md"))
-			if !strings.Contains(string(body), "Foo rule: be brief.") || strings.Contains(string(body), "\n---\n") {
+			// Nothing ahead of the pack's prose, which opens the user block.
+			if !strings.HasPrefix(string(body), "Foo rule: be brief.\n") {
 				t.Errorf("want the destination composed without the file:\n%s", body)
 			}
 		})
@@ -691,7 +694,7 @@ func TestApplyHostBriefingDoesNotGrowADestinationItsAfterFileLinksTo(t *testing.
 
 	got := applyFourTimes(t, dest, "")
 	for i, body := range got {
-		if body != got[0] || strings.Contains(body, "\n---\n") {
+		if body != got[0] || strings.Count(body, "# YOLO Environment") != 1 {
 			t.Errorf("apply %d: the destination was prepended to itself (%d bytes, then %d):\n%s",
 				i+1, len(got[0]), len(body), body)
 		}

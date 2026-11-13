@@ -281,7 +281,7 @@ func appleContainerShapedMap() *PersistenceMap {
 
 // OQ-DS3: the host notch gets ONE static sentence and no variable.
 func TestTheHostBriefingSaysWhereTmpLivesAndNamesNoVariable(t *testing.T) {
-	out := HostBriefingBase("", false)
+	out := HostBriefingBase(false)
 	if !strings.Contains(out, "`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.") {
 		t.Errorf("the host header lacks OQ-DS3's sentence:\n%s", out)
 	}

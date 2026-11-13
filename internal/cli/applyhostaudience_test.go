@@ -218,10 +218,10 @@ func TestApplyHostBriefingMattShape(t *testing.T) {
 	}
 	alpha, _ := os.ReadFile(filepath.Join(home, ".alpha", "AGENTS.md"))
 	beta, _ := os.ReadFile(filepath.Join(home, ".beta", "AGENTS.md"))
-	// Each destination opens with the host base (notch-convergence item 26); the packs' prose
-	// follows it.
-	base := strings.TrimRight(jailcontent.HostBriefingBase("", paths.IsMacOS), "\n") + "\n\n"
-	alpha, beta = []byte(strings.TrimPrefix(string(alpha), base)), []byte(strings.TrimPrefix(string(beta), base))
+	// The house pack is the user's, so its prose is the user block, and the host base
+	// (notch-convergence item 26) opens yolo's block after the rule (briefing-diet.md §7).
+	base := "\n\n---\n\n" + jailcontent.HostBriefingBase(paths.IsMacOS)
+	alpha, beta = []byte(strings.TrimSuffix(string(alpha), base)+"\n"), []byte(strings.TrimSuffix(string(beta), base)+"\n")
 	if string(alpha) != "House rules.\n\nAlpha-only rule.\n" {
 		t.Errorf(".alpha/AGENTS.md = %q, want the house rules and the addressed file, one section "+
 			"in filename order\n%s", alpha, report)

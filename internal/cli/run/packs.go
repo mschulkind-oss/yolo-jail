@@ -1025,7 +1025,7 @@ func (o *Options) packBriefingProses(name string, p *packload.Pack) []jailconten
 	}
 	out := make([]jailcontent.PackBriefing, 0, len(sources))
 	for _, src := range sources {
-		out = append(out, jailcontent.PackBriefing{Name: name, Text: src.Text, Agents: src.By.Agents})
+		out = append(out, jailcontent.PackBriefing{Name: name, Text: src.Text, Agents: src.By.Agents, Shipped: p.Official})
 	}
 	return out
 }

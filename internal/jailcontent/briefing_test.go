@@ -33,12 +33,26 @@ func TestLoopholeFirst(t *testing.T) {
 	}
 }
 
-func TestComposeBriefing(t *testing.T) {
-	if got := ComposeBriefing("body\n", ""); got != "body\n" {
-		t.Errorf("no extra = %q", got)
+// The two-block order (docs/design/briefing-diet.md §7, BD-D11), byte for byte: the user block
+// (host file, agents_md_extra, non-shipped packs) first, one rule, then yolo's (base, shipped
+// packs); either block alone is the whole file, with no rule.
+func TestComposeBriefingFile(t *testing.T) {
+	secs := []BriefingSection{
+		{Pack: "git", Text: "GIT POINTER", Shipped: true},
+		{Pack: "mine", Text: "MINE"},
 	}
-	if got := ComposeBriefing("body\n", "  extra  \n\n"); got != "body\n\n  extra\n" {
-		t.Errorf("with extra = %q", got)
+	got := ComposeBriefingFile(BriefingParts{HostFile: "HOST\n", Extra: "  extra  \n\n", Base: "BASE\n", Sections: secs})
+	if want := "HOST\n\n  extra\n\nMINE\n\n---\n\nBASE\n\nGIT POINTER\n"; got != want {
+		t.Errorf("both blocks = %q, want %q", got, want)
+	}
+	if got := ComposeBriefingFile(BriefingParts{Base: "BASE\n", Sections: secs[:1]}); got != "BASE\n\nGIT POINTER\n" {
+		t.Errorf("no user prose = %q: yolo's block alone, no rule", got)
+	}
+	if got := ComposeBriefingFile(BriefingParts{Extra: "extra", Sections: secs[1:]}); got != "extra\n\nMINE\n" {
+		t.Errorf("no yolo block = %q: the user block alone, no rule", got)
+	}
+	if got := ComposeBriefingFile(BriefingParts{HostFile: " \n", Extra: "\n", Base: "BASE\n"}); got != "BASE\n" {
+		t.Errorf("blank user prose = %q: no rule", got)
 	}
 }
 
@@ -79,11 +93,12 @@ func inodeOf(t *testing.T, path string) uint64 {
 // Pack prose is appended UNLABELLED by default: the user's packs are their rules for every
 // repository, and a `<!-- from pack: NAME -->` label made agents read them as someone else's
 // (config.BriefingProvenance). Pinned as exact bytes, because "nothing but a blank line between
-// sections" is the whole behaviour — a stray label or separator is the regression.
+// sections" is the whole behaviour — a stray label or separator is the regression. Shipped, so
+// the sections follow the base in yolo's block (ComposeBriefingFile).
 func TestComposePackBriefingsIsUnlabelledByDefault(t *testing.T) {
 	got := ComposePackBriefings("BASE BRIEFING\n", []PackBriefing{
-		{Name: "acme", Text: "Always use rg.\n"},
-		{Name: "team-rust", Text: "Prefer thiserror.\n"},
+		{Name: "acme", Text: "Always use rg.\n", Shipped: true},
+		{Name: "team-rust", Text: "Prefer thiserror.\n", Shipped: true},
 	}, "claude", false)
 	want := "BASE BRIEFING\n\nAlways use rg.\n\nPrefer thiserror.\n"
 	if got != want {
@@ -96,8 +111,8 @@ func TestComposePackBriefingsIsUnlabelledByDefault(t *testing.T) {
 // in is load-bearing.
 func TestComposePackBriefingsLabelsEachPackWhenAsked(t *testing.T) {
 	got := ComposePackBriefings("BASE BRIEFING\n", []PackBriefing{
-		{Name: "acme", Text: "Always use rg.\n"},
-		{Name: "team-rust", Text: "Prefer thiserror.\n"},
+		{Name: "acme", Text: "Always use rg.\n", Shipped: true},
+		{Name: "team-rust", Text: "Prefer thiserror.\n", Shipped: true},
 	}, "claude", true)
 	want := "BASE BRIEFING\n\n<!-- from pack: acme -->\nAlways use rg.\n\n" +
 		"<!-- from pack: team-rust -->\nPrefer thiserror.\n"
@@ -256,29 +271,28 @@ func TestJailBriefingStillClaimsAContainerWhenThereIsOne(t *testing.T) {
 }
 
 // An ABSENT host briefing is the normal state and no error; one that is there and cannot be read
-// is an error the caller names, with the jail content still returned. It used to be swallowed with
-// absence, so the briefing silently lost the user's own instructions.
-func TestPrependHostBriefingReportsAReadFailureButNotAbsence(t *testing.T) {
+// is an error the caller names, with nothing read. It used to be swallowed with absence, so the
+// briefing silently lost the user's own instructions.
+func TestReadHostBriefingReportsAReadFailureButNotAbsence(t *testing.T) {
 	dir := t.TempDir()
-	const jail = "JAIL CONTENT\n"
 
-	got, err := PrependHostBriefing(filepath.Join(dir, "absent.md"), jail)
-	if err != nil || got != jail {
-		t.Errorf("absent host briefing: got (%q, %v), want (%q, nil)", got, err, jail)
+	got, err := ReadHostBriefing(filepath.Join(dir, "absent.md"))
+	if err != nil || got != "" {
+		t.Errorf("absent host briefing: got (%q, %v), want (\"\", nil)", got, err)
 	}
 
 	notAFile := filepath.Join(dir, "AGENTS.md")
 	must(t, os.Mkdir(notAFile, 0o755))
-	got, err = PrependHostBriefing(notAFile, jail)
-	if err == nil || got != jail {
-		t.Errorf("unreadable host briefing: got (%q, %v), want (%q, an error)", got, err, jail)
+	got, err = ReadHostBriefing(notAFile)
+	if err == nil || got != "" {
+		t.Errorf("unreadable host briefing: got (%q, %v), want (\"\", an error)", got, err)
 	}
 
 	readable := filepath.Join(dir, "CLAUDE.md")
 	must(t, os.WriteFile(readable, []byte("MINE\n"), 0o644))
-	got, err = PrependHostBriefing(readable, jail)
-	if want := "MINE\n\n---\n\n" + jail; err != nil || got != want {
-		t.Errorf("readable host briefing: got (%q, %v), want (%q, nil)", got, err, want)
+	got, err = ReadHostBriefing(readable)
+	if err != nil || got != "MINE\n" {
+		t.Errorf("readable host briefing: got (%q, %v), want (\"MINE\\n\", nil)", got, err)
 	}
 }
 
@@ -340,7 +354,7 @@ func TestTheJailBriefingTeachesHostRun(t *testing.T) {
 			t.Errorf("the jail briefing lacks %q", want)
 		}
 	}
-	if host := HostBriefingBase("", false); strings.Contains(host, "## Running a command on the host") {
+	if host := HostBriefingBase(false); strings.Contains(host, "## Running a command on the host") {
 		t.Error("the host notch's briefing teaches host-run")
 	}
 	locked := reachable(BriefingInput{Workspace: "/w", ConfigLocked: true})

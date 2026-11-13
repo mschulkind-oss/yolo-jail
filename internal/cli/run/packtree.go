@@ -194,6 +194,7 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}
 		e.ApplyNaming(p)
+		markOfficialFromLayout(p, e.Dir)
 		out = append(out, p)
 	}
 	// The fork rewrite the jail's own loader runs over this tree (packload.ApplyForks), so a
@@ -231,10 +232,24 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 			if len(problems) > 0 {
 				return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 			}
+			if dir != root {
+				p.Official = true
+			}
 			out = append(out, p)
 		}
 	}
 	return out, nil
+}
+
+// markOfficialFromLayout gives a pack read back from a staged tree the origin its launch loaded it
+// with: a pack under _official/ is an embedded one (officialStagingDir, a name no configured pack's
+// slug can spell), and any other is not. The tree's record does not carry the origin, and an
+// attach composes the briefing over these packs, whose two blocks split on it
+// (jailcontent.PackBriefing.Shipped, docs/design/briefing-diet.md §7).
+func markOfficialFromLayout(p *packload.Pack, dir string) {
+	if p != nil && strings.HasPrefix(dir, officialStagingDir+"/") {
+		p.Official = true
+	}
 }
 
 // packContentDigest hashes one pack's staged directory: every entry's path, its type, a file's
@@ -496,7 +511,7 @@ func quietPackBriefings(packs []*packload.Pack) []jailcontent.PackBriefing {
 	for _, p := range packs {
 		sources, _ := p.GovernedSources(packdecl.KindBriefing)
 		for _, src := range sources {
-			out = append(out, jailcontent.PackBriefing{Name: p.Name, Text: src.Text, Agents: src.By.Agents})
+			out = append(out, jailcontent.PackBriefing{Name: p.Name, Text: src.Text, Agents: src.By.Agents, Shipped: p.Official})
 		}
 	}
 	return out

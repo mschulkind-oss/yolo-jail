@@ -193,10 +193,9 @@ func TestTheHostSetupBaseIsTheHeaderAlone(t *testing.T) {
 			t.Errorf("the host base carries the jail's %q:\n%s", jailOnly, out)
 		}
 	}
-	// HostBriefingBase is that base with agents_md_extra appended the jail's way.
+	// HostBriefingBase is that base alone: agents_md_extra is user prose, in the user block.
 	base := BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self")})
-	if got := HostBriefingBase("  EXTRA  \n", false); got != ComposeBriefing(base, "  EXTRA  \n") ||
-		!strings.Contains(got, "REAL machine") {
+	if got := HostBriefingBase(false); got != base || !strings.Contains(got, "REAL machine") {
 		t.Errorf("HostBriefingBase:\n%s", got)
 	}
 }

@@ -446,9 +446,9 @@ func enforcementLines(prof render.Profile, compact bool) []string {
 	return append(lines, "")
 }
 
-// BriefingContent renders the jail-managed briefing body (before any host-level user content is
-// prepended and before agents_md_extra and the packs' prose are appended): the lines joined with
-// "\n" plus a trailing newline.
+// BriefingContent renders the jail-managed briefing body, which opens yolo's block: the user block
+// (the host file, agents_md_extra, non-shipped packs' prose) precedes it and the shipped packs'
+// pointers follow it (ComposeBriefingFile). The lines joined with "\n" plus a trailing newline.
 //
 // SINCE THE BRIEFING DIET (docs/design/briefing-diet.md) a jail's body is three parts: the setup
 // header, any alert (provisioning failed, the attach-skew notice, the handoff), and the CORE, a
@@ -593,42 +593,86 @@ func hostRunSection() []string {
 
 // HostBriefingBase is the host notch's base body for every briefing destination `yolo host apply`
 // composes: BriefingContent at the host notch (the confinement header — the real machine, nothing
-// disposable, autonomy off) with agents_md_extra appended exactly as a jail appends it
-// (ComposeBriefing). extra is the USER-SCOPE value, which is the caller's to read: a workspace
-// yolo-jail.jsonc is agent-editable, and what it says must not reach a file in the real home.
-// isMacOS picks the platform's spelling of the (empty) enforcement vector, as the jail's header
-// does.
-func HostBriefingBase(extra string, isMacOS bool) string {
-	return ComposeBriefing(BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self"), IsMacOS: isMacOS}), extra)
+// disposable, autonomy off). It opens yolo's block, as BriefingContent does a jail's; the
+// user-scope agents_md_extra is user prose and goes in the user block (BriefingParts.Extra,
+// docs/design/briefing-diet.md §7). isMacOS picks the platform's spelling of the (empty)
+// enforcement vector, as the jail's header does.
+func HostBriefingBase(isMacOS bool) string {
+	return BriefingContent(BriefingInput{Setup: setup.MustBuiltIn("host-self"), IsMacOS: isMacOS})
 }
 
-// ComposeBriefing appends agents_md_extra to the jail content:
-// jailContent + "\n" + rstrip(extra) + "\n" when extra is non-empty.
-func ComposeBriefing(jailContent, extra string) string {
-	if extra == "" {
-		return jailContent
-	}
-	return jailContent + "\n" + strings.TrimRight(extra, " \t\r\n") + "\n"
+// BriefingParts is one destination's material, by whose it is (docs/design/briefing-diet.md §7).
+type BriefingParts struct {
+	// HostFile is the user's own file the destination's `after` names, as read: "" for none, for
+	// one the caller would not read, or for one that is yolo's own output.
+	HostFile string
+	// Extra is agents_md_extra: the workspace's at a jail, the user scope's at the host notch.
+	Extra string
+	// Base is yolo's base body: the header, any alert and the core (BriefingContent), or the host
+	// notch's header (HostBriefingBase).
+	Base string
+	// Sections are every pack's section for the destination, in config order. A Shipped one is
+	// yolo's pointer; any other is the user's prose.
+	Sections []BriefingSection
+	// Provenance labels each pack's section (BriefingProvenanceLabel).
+	Provenance bool
 }
 
-// PrependHostBriefing produces one agent's final briefing: the host briefing
-// file's content + "\n---\n\n" + jailContent when the host file exists, else
-// jailContent alone.
+// ComposeBriefingFile is THE TWO-BLOCK ORDER, at every notch (docs/design/briefing-diet.md §7, the
+// owner's ruling BD-D11): the USER block first — the host file, then agents_md_extra, then each
+// non-shipped pack's section in config order — and yolo's block last — the base, then each
+// shipped pack's section in config order. One `---` rule separates them when both are non-empty;
+// either alone is the whole file, with no rule. So an agent that cuts a long file from the end
+// loses yolo's text before any of the user's.
 //
-// The error is a read that failed for any reason but absence, with jailContent
-// returned beside it: the briefing still composes, and the caller says what was
-// left out. It used to be swallowed with absence, so a host briefing that existed
-// and could not be read vanished from the jail without a word. A dangling link
-// reads as absent here (ENOENT); the caller names that one before it calls.
-func PrependHostBriefing(hostBriefingPath, jailContent string) (string, error) {
+// The alerts stay inside the base, at the top of yolo's block (BD-D5), not ahead of the user's
+// prose: the ruling puts the user's rules first, and an alert is yolo's text.
+func ComposeBriefingFile(p BriefingParts) string {
+	var user string
+	for _, text := range []string{p.HostFile, p.Extra} {
+		text = strings.TrimRight(text, " \t\r\n")
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		if user != "" {
+			user += "\n"
+		}
+		user += text + "\n"
+	}
+	var mine, yolos []BriefingSection
+	for _, sec := range p.Sections {
+		if sec.Shipped {
+			yolos = append(yolos, sec)
+		} else {
+			mine = append(mine, sec)
+		}
+	}
+	user = ComposeBriefingSections(user, mine, p.Provenance)
+	yolo := ComposeBriefingSections(p.Base, yolos, p.Provenance)
+	switch {
+	case user == "":
+		return yolo
+	case yolo == "":
+		return user
+	}
+	return strings.TrimRight(user, "\n") + "\n\n---\n\n" + yolo
+}
+
+// ReadHostBriefing reads the user's host briefing file for the user block: "" when it is absent.
+//
+// The error is a read that failed for any reason but absence: the briefing still composes without
+// it, and the caller says what was left out. It used to be swallowed with absence, so a host
+// briefing that existed and could not be read vanished from the jail without a word. A dangling
+// link reads as absent here (ENOENT); the caller names that one before it calls.
+func ReadHostBriefing(hostBriefingPath string) (string, error) {
 	data, err := os.ReadFile(hostBriefingPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return jailContent, nil
+			return "", nil
 		}
-		return jailContent, err
+		return "", err
 	}
-	return string(data) + "\n---\n\n" + jailContent, nil
+	return string(data), nil
 }
 
 type portKind int
@@ -729,9 +773,13 @@ type PackBriefing struct {
 	// when the agent changes (P4). ComposePackBriefings matches it against the identity the
 	// DESTINATION declared.
 	Agents []string
+	// Shipped is the pack's origin: one yolo ships (packload.Pack.Official). Its prose is yolo's
+	// pointer and composes in yolo's block; any other pack's, a forked shipped pack's included, is
+	// the user's (docs/design/briefing-diet.md §7).
+	Shipped bool
 }
 
-// ComposePackBriefings appends each pack's prose to ONE DESTINATION's briefing, in config
+// ComposePackBriefings composes each pack's prose to ONE DESTINATION's briefing, in config
 // order.
 //
 // `agent` is the identity that destination declared for itself, or "" for a destination that
@@ -757,7 +805,19 @@ type PackBriefing struct {
 //
 // Empty text is skipped rather than emitting an empty section: a pack with no
 // briefing should leave no trace.
+//
+// base is yolo's base body, so a shipped pack's section follows it and any other pack's precedes
+// it in the user block (ComposeBriefingFile). The launch composes through ComposeBriefingFile
+// itself, with the host file and agents_md_extra beside these sections.
 func ComposePackBriefings(base string, packs []PackBriefing, agent string, provenance bool) string {
+	return ComposeBriefingFile(BriefingParts{Base: base, Sections: PackBriefingSections(packs, agent),
+		Provenance: provenance})
+}
+
+// PackBriefingSections is the sections of packs that reach the destination whose declared identity
+// is agent, in order: one per contiguous run of one pack's entries, its files joined by one blank
+// line. Empty text is skipped.
+func PackBriefingSections(packs []PackBriefing, agent string) []BriefingSection {
 	var sections []BriefingSection
 	for _, p := range packs {
 		if !addressesAgent(p.Agents, agent) {
@@ -769,13 +829,13 @@ func ComposePackBriefings(base string, packs []PackBriefing, agent string, prove
 		}
 		// A contiguous run of one pack's entries is ONE section: its files joined by one blank
 		// line, under one label.
-		if n := len(sections); n > 0 && sections[n-1].Pack == p.Name {
+		if n := len(sections); n > 0 && sections[n-1].Pack == p.Name && sections[n-1].Shipped == p.Shipped {
 			sections[n-1].Text += "\n\n" + text
 			continue
 		}
-		sections = append(sections, BriefingSection{Pack: p.Name, Text: text})
+		sections = append(sections, BriefingSection{Pack: p.Name, Text: text, Shipped: p.Shipped})
 	}
-	return ComposeBriefingSections(base, sections, provenance)
+	return sections
 }
 
 // BriefingSection is one pack's section of one destination's briefing: the pack, and all of its
@@ -783,14 +843,17 @@ func ComposePackBriefings(base string, packs []PackBriefing, agent string, prove
 type BriefingSection struct {
 	Pack string
 	Text string
+	// Shipped marks a section of yolo's block: the prose of a pack yolo ships
+	// (PackBriefing.Shipped).
+	Shipped bool
 }
 
 // ComposeBriefingSections is THE PER-DESTINATION BRIEFING COMPOSER, at every notch
 // (docs/plans/notch-convergence.md item 26, row D7): the notch's base body, then each pack's
 // section in order, one blank line between them, each headed by `<!-- from pack: NAME -->` only
-// when `provenance` is on. The jail calls it with BriefingContent plus agents_md_extra as the
-// base (ComposePackBriefings); `yolo host apply` with HostBriefingBase
-// (entrypoint.ComposeHostBriefings). Which packs' prose reaches a destination is each notch's
+// when `provenance` is on. ComposeBriefingFile calls it once per block, at both notches: for the
+// user block over the host file and agents_md_extra, for yolo's over BriefingContent (a jail) or
+// HostBriefingBase (`yolo host apply`). Which packs' prose reaches a destination is each notch's
 // own question — the jail matches an audience against the destination's declared identity, the
 // host follows the destinations the packs name (agent-briefings.md#where-each-notch-narrows) —
 // and how a destination's file is ASSEMBLED from it is this function's alone, so one pack set

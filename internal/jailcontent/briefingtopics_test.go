@@ -59,7 +59,7 @@ func TestTheCorePointsAtExactlyTheTopicsTheJailHas(t *testing.T) {
 	if !strings.Contains(BriefingContent(full), "storage, network, mounts, host requests, loopholes, blocked tools, limits.") {
 		t.Errorf("the pointer does not list every topic of a jail that has them all:\n%s", BriefingContent(full))
 	}
-	if HostBriefingBase("", false) == "" || len(BriefingTopics(BriefingInput{Setup: setup.MustBuiltIn("host-self")})) != 0 {
+	if HostBriefingBase(false) == "" || len(BriefingTopics(BriefingInput{Setup: setup.MustBuiltIn("host-self")})) != 0 {
 		t.Error("the host notch has no topics")
 	}
 }

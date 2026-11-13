@@ -61,8 +61,9 @@ func TestHostApplyTellsTheAgentItIsOnTheRealMachine(t *testing.T) {
 			t.Errorf("the host briefing carries the jail's %q:\n%s", jailOnly, body)
 		}
 	}
-	// The extra follows the header, as a jail's follows its body.
-	if strings.Index(body, "USER EXTRA") < strings.Index(body, "Agent autonomy is **OFF**") {
-		t.Errorf("agents_md_extra must follow the base:\n%s", body)
+	// The extra is user prose: it precedes the header, as a jail's precedes its body
+	// (docs/design/briefing-diet.md §7, BD-D8).
+	if strings.Index(body, "USER EXTRA") > strings.Index(body, "# YOLO Environment") {
+		t.Errorf("agents_md_extra must precede yolo's block:\n%s", body)
 	}
 }

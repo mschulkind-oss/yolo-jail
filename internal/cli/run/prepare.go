@@ -398,7 +398,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	briefingBodyFor := func(agent string) string {
 		destIn := in
 		destIn.MechanicsSkillPath = mechanicsPaths[agent]
-		return jailcontent.ComposeBriefing(jailcontent.BriefingContent(destIn), extra)
+		return jailcontent.BriefingContent(destIn)
 	}
 
 	// Write one briefing per PACK-DECLARED briefing DESTINATION. The pack says where its
@@ -429,19 +429,27 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	dests := briefingDestinations(loadedPacks)
 	briefingsWritten := 0
 	for _, d := range dests {
-		// Pack prose last. `d.Agent` is the identity this destination declared for itself,
+		// `d.Agent` is the identity this destination declared for itself,
 		// and prose that named an audience reaches it only if that audience names this
 		// identity. Each pack's section is labelled with its name only when the user's
 		// `briefing_provenance` asks for it — unlabelled by default, because the label made
 		// agents treat the user's every-repository rules as foreign (config.BriefingProvenance).
-		content := jailcontent.ComposePackBriefings(briefingBodyFor(d.Agent), packBriefings, d.Agent,
-			config.BriefingProvenance(cfg))
+		//
+		// TWO BLOCKS, THE USER'S FIRST (docs/design/briefing-diet.md §7, BD-D11): the host file,
+		// agents_md_extra and every non-shipped pack's prose, a `---`, then yolo's body and the
+		// shipped packs' pointers. ComposeBriefingFile is the one composer, the host notch's too.
+		var hostFile string
 		// Not under the seal (seal.go): a fork build reads no file of the host's home.
 		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && !o.Sealed {
 			if src := filepath.Join(home, hostOverlay); mayPrependHostBriefing(src, home, dests, generated) {
-				content = o.prependHostBriefing(src, hostOverlay, d.Into, content)
+				hostFile = o.readHostBriefing(src, hostOverlay, d.Into)
 			}
 		}
+		content := jailcontent.ComposeBriefingFile(jailcontent.BriefingParts{
+			HostFile: hostFile, Extra: extra, Base: briefingBodyFor(d.Agent),
+			Sections:   jailcontent.PackBriefingSections(packBriefings, d.Agent),
+			Provenance: config.BriefingProvenance(cfg),
+		})
 		if err := jailcontent.WriteBriefing(
 			filepath.Join(staging, briefingStagingName(d.Into)), content); err != nil {
 			return "", err

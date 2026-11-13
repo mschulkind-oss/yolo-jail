@@ -134,10 +134,11 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		PackSetComplete:   complete,
 		Provenance:        config.BriefingProvenanceUser(),
 		// THE HOST NOTCH'S BASE (docs/plans/notch-convergence.md item 26): the confinement header
-		// that tells a host agent it is on the real machine, then the USER-SCOPE agents_md_extra,
-		// ahead of every destination's pack prose — what a jail's BriefingContent and
-		// agents_md_extra are to a jail's destinations.
-		Base: jailcontent.HostBriefingBase(config.AgentsMDExtraUser(), paths.IsMacOS),
+		// that tells a host agent it is on the real machine, opening yolo's block as a jail's
+		// BriefingContent does. The USER-SCOPE agents_md_extra is user prose, in the user block
+		// ahead of it (docs/design/briefing-diet.md §7, BD-D8).
+		Base:  jailcontent.HostBriefingBase(paths.IsMacOS),
+		Extra: config.AgentsMDExtraUser(),
 		// The `describes` gate's census (BB-D69), the one the notch line above was printed from.
 		Delivery: delivery,
 	}
@@ -208,8 +209,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		reresolve()
 	}
 
-	adoptions := entrypoint.HostBriefingAdoptions(loaded, home, man, req.Base, req.Provenance,
-		req.Delivery)
+	adoptions := entrypoint.HostBriefingAdoptionsFor(loaded, home, req)
 	if len(adoptions) > 0 {
 		if !write {
 			// A QUESTION THE --assert WILL ASK — see the skills adoption's twin.
