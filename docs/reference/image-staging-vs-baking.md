@@ -136,7 +136,7 @@ launch prints the selected bundle before staging.
 matched launcher and complete helper bundle; `just dev` reuses a matching complete bundle or builds
 one, then invokes it by absolute path. Normal installed `yolo` remains unchanged. When the
 development build fails, `just dev` runs the newest earlier development bundle and says the edits
-are not running ([OQ-MDB1](../design/matched-development-bundles.md#OQ-MDB1)); with none it fails.
+are not running ([OQ-MDB1](matched-development-bundles.md#why-its-this-way)); with none it fails.
 
 ## The mounted prefix
 
