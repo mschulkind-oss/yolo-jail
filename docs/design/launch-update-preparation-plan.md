@@ -2,7 +2,7 @@
 title: "Combined preparation: implementation map and remaining verification"
 status: accepted
 stage: DECIDED
-next: "Review the combined source, then run final runtime and platform acceptance before graduation"
+next: "Final runtime and platform acceptance before graduation; the combined-source review ran 2026-11-12 and its defects are fixed"
 ---
 
 # Combined preparation: implementation map and remaining verification
@@ -247,9 +247,21 @@ field is required of their historically valid receipts.
 
 ## Remaining acceptance
 
-Independent review must inspect the source/demand CAS boundary, plain pins, original-runtime
-teardown, strict versus historical serving, and the actual HOST/launcher/MCP callers. Use
-permanent consumer tests, not component passes or binary stamps as runtime equivalence.
+<a id="review-2026-11-12"></a>**The independent review, 2026-11-12.** Four reviewers read the combined
+source: the scheduler, control tick and plain pins; shared demand and the capture store; the
+launch-side update path; and the HOST, launcher and MCP consumers. Each defect below got a
+failing test through its production caller, then the fix:
+
+| Defect | Fix |
+| :--- | :--- |
+| A timer plain admission held the scheduler state lock through the whole store admission, including a wait of up to 20 minutes on the entry lock, stalling every launch's registration | `8c3642879`: only the rename and completion run under the guard |
+| Resolver lock contention on an ordinary program was recorded as a failure with an hour's retry | `8c3642879`: it is busy, with no retry time |
+| Every one-second control tick hashed the whole yolo executable | `be900065f`: it re-hashes only when the file's stat identity changes |
+| A plain build left at `building` kept saying so after its worker stopped (minor) | `c59758e65`: it is relabeled interrupted |
+| The host floor deleted complete older program versions after each install, with no liveness knowledge, and a deselecting apply removed them all | `0c7c10b71`: complete versions are retained, as host trees are |
+| The host floor could publish a capture proven against the installed record's Node on the newly shipped Node | `0c7c10b71`: the decision is made with the Node the install uses |
+| One workspace's launch deactivated a machine-wide ordinary subscription its own config lacked | `c8d8e9cbb`: only the user resolver revokes one |
+| A successful capture leaked its producer workspace and jail home | `c8d8e9cbb`: they are reclaimed under the known-gone witness, and kept when liveness is unknown |
 
 After source stability, run the full landing gate and the slow integration suite once on the
 combined commit. Build shipping binaries and launch the fresh binary by path from a private

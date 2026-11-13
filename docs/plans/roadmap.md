@@ -41,7 +41,8 @@ needs a ruling or a Mac sits in the others.
    waits for a later release.
 
 3. [Finish ongoing launch preparation and explicit update-and-wait](../design/launch-update-preparation.md) — its
-   independent combined-source review is agent work, and the platform acceptance after it is not; the
+   [combined-source review](../design/launch-update-preparation-plan.md#review-2026-11-12) ran on 2026-11-12 and its
+   defects are fixed; a fresh non-agent nested launch is agent work, and the rootless and Darwin acceptance is not; the
    [build-update slices](../design/pi-extension-store-builds.md) reuse the same pipeline.
 
 4. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
