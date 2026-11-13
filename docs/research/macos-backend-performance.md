@@ -319,8 +319,9 @@ backends ran on **different machines**, so these are not a comparison.
   - a bare `container run --rm <ref> sh -c …` with no yolo involved:
     `TestAppleContainerHonorsReadOnlyBinds` 1.66, 1.55 and 1.54 s;
   - the image delivery table of `TestMacArchiveDeliveryReusesLayers`: the `image.nix_build` span
-    took 3.2–4.4 s per launch. Apple Container gets no stock image tag, so it runs that build at
-    every launch ([stockimage.go](../../internal/image/stockimage.go)'s `tagStockImage`).
+    took 3.2–4.4 s per launch. Apple Container then got no stock image tag, so it ran that build
+    at every launch; since 2026-11-12 [stockimage.go](../../internal/image/stockimage.go)'s
+    `tagStockImage` tags it too, which no Mac run has measured yet.
 - **macos-user**, on GitHub-hosted `macos-latest` (macOS 26.6.2, arm64):
   - a cold first launch that built the floor from the binary cache:
     `TestMacosUserFloorReachesTheSandboxPath` 73.61 s (run 36134719833);
