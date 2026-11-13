@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/modelmenu"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -39,6 +40,9 @@ const modelMenuDeclShell = `# The pack's declared MODEL MENU (packdecl.ModelMenu
 # MM-D22), as one JSON argument for "yolo internal model-menu". BAKED, like everything above.
 HAS_MODEL_MENU=__YOLO_HAS_MODEL_MENU__
 MODEL_MENU_SPEC=__YOLO_MODEL_MENU_SPEC__
+# The pack's session homes, one --session-home=<dir>=<variable> word each, so the menu's list and
+# file resolve in the session's own copy (packdecl.ModelMenu.SessionHomes). Empty for none.
+MODEL_MENU_SESSION_HOMES=(__YOLO_MODEL_MENU_SESSION_HOMES__)
 `
 
 // modelMenuShellFn defines _yolo_model_menu, which the exec block calls right after
@@ -61,7 +65,7 @@ _yolo_model_menu() {
     while IFS= read -r -d '' w; do
         menu_words+=("$w")
         n=$((n + 1))
-    done < <(YOLO_BYPASS_SHIMS=1 yolo internal ` + modelmenu.Verb + ` --bin="$BIN" --spec="$MODEL_MENU_SPEC" -- __YOLO_EXEC_PREFIX__"$REAL_BIN" || true)
+    done < <(YOLO_BYPASS_SHIMS=1 yolo internal ` + modelmenu.Verb + ` --bin="$BIN" --spec="$MODEL_MENU_SPEC" ${MODEL_MENU_SESSION_HOMES[@]+"${MODEL_MENU_SESSION_HOMES[@]}"} -- __YOLO_EXEC_PREFIX__"$REAL_BIN" || true)
     [ "$n" -gt 0 ] || return 0
     YOLO_ARGV=("${menu_words[@]}" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"})
 }
@@ -78,8 +82,16 @@ func modelMenuSplices(m *packdecl.ModelMenu) []string {
 			spec = string(b)
 		}
 	}
+	var homes []string
+	if m != nil {
+		for _, h := range m.SessionHomes {
+			homes = append(homes, modelmenu.SessionHomeFlag+strings.TrimSuffix(h.Dir, "/")+"="+h.Env)
+		}
+	}
 	return []string{
 		"__YOLO_HAS_MODEL_MENU__", shquote.Quote(boolFlag(spec != "")),
 		"__YOLO_MODEL_MENU_SPEC__", shquote.Quote(spec),
+		// Join, as for the refresh's argv: a LIST whose every entry is one word.
+		"__YOLO_MODEL_MENU_SESSION_HOMES__", shquote.Join(homes),
 	}
 }

@@ -72,6 +72,12 @@ type ModelMenu struct {
 	Clear []string `json:"clear,omitempty"`
 	// Set is entry keys given a string value on every kept entry.
 	Set map[string]string `json:"set,omitempty"`
+	// SessionHomes are the pack's session-home declarations (Manifest.SessionHomes), projected
+	// here by InstallContributions, as Refresh.SessionHomes is, so a jail's launcher resolves List
+	// and Into under the declared variable when the session set it: a session reads its own list
+	// and writes its own menu (docs/design/per-session-profiles.md §7, codex's "menu written under
+	// the variable"). Never decoded: a manifest declares it as the top-level `session_homes`.
+	SessionHomes []SessionHome `json:"-"`
 }
 
 // modelMenuProblems refuses a `model_menu` that could never write a menu the program reads: on a
