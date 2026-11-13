@@ -146,7 +146,9 @@ file is refused naming its replacement, from the conversion's own rename table
 | `profile`, `profiles` | `active_provider`, `providers.<id>` and its `variants` |
 | `loopholes.<p>.settings` | `allow.<p>` |
 
-The legacy reader stays for a few releases. A launch over a legacy file offers
+The legacy reader stays for a few releases. Until it goes, a config that launched as legacy JSONC
+launches unchanged and means the same, and converting it is optional and exact
+([Legacy configs keep working](rulings.md#legacy-configs-keep-working)). A launch over a legacy file offers
 `yolo config migrate`; `"convert_later": true` written by hand in the legacy user file stops the
 offer. What the migration converts and proves is [`config-migration.md`](../../design/config-migration.md).
 

@@ -73,7 +73,7 @@ type legacyBreak struct {
 }
 
 // ruledLegacyRefusals is every refusal of a config v0.15.1 accepted that the owner ruled is the
-// behavior, outside docs/design/legacy-config-compat.md's rule (which is scoped to the TOML
+// behavior, outside the legacy-compat rule (docs/reference/config/rulings.md) (which is scoped to the TOML
 // switch): retirements with their own transition (OQ-LC1, which names each ruling: OQ-MP6, OQ-PE3,
 // OQ-PS11 and named-setups.md's MT-R3) and a security refusal (OQ-LC3). Each must still occur, so
 // a refusal that goes away silently is caught too.
@@ -500,7 +500,7 @@ func writeLegacyWorkspaceFile(t *testing.T, ws, name string, on bool) {
 // in a config file (the workspace's own, or the user's): pending is requested and admitted, so the
 // gate's y grants it. For the workspace's file v0.15.1's config-change prompt asked the same
 // question; for the user's, one y per project is the owner's rule for a user-wide grant (LG-D12,
-// docs/design/legacy-config-compat.md LC-D2), the one host step P4 allows. A switch in the
+// docs/reference/config/rulings.md LC-D2), the one host step P4 allows. A switch in the
 // per-workspace file was the human's own host command, so it must be granted outright.
 func meaningMismatches(o *Options, cfg *jsonx.OrderedMap, c legacyCase) []string {
 	var out []string

@@ -142,7 +142,7 @@ func applyWorkspaceOverrides(existing map[string]*Loophole, loopholesConfig *jso
 			continue
 		}
 		// `enabled` reaches the record for an OFF-SWITCH loophole only
-		// (docs/design/legacy-config-compat.md LC-D3): its approval is a login or a setting, or
+		// (docs/reference/config/rulings.md LC-D3): its approval is a login or a setting, or
 		// none, so off kept the login, the credentials or the delegate out of the jail, and
 		// `enabled: false` still does. Any other pack loophole runs whenever its pack is
 		// selected (docs/reference/loophole-grants.md §4.1), and its legacy switch is

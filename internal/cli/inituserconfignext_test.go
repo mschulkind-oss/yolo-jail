@@ -17,7 +17,7 @@ import (
 // inituserconfignext_test.go pins what `yolo init-user-config` WRITES and how it ENDS. It
 // writes config.toml, the format every launch reads first, so a new user is not onboarded onto
 // the legacy format the launch then offers to convert (LC-D12,
-// docs/design/legacy-config-compat.md). It used to end at `Created <path>`, though the file
+// docs/reference/config/rulings.md). It used to end at `Created <path>`, though the file
 // it writes selects no packs, so the user's next jail has no coding agent and nothing on
 // screen says what to do about it (docs/reference/happy-path-principle.md, rule 2). It now
 // names the verb that chooses an agent, `yolo pack add`, never a `packs` line to paste, then

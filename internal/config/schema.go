@@ -241,7 +241,7 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "allow.*.always.*", Scope: user, Type: SchemaTypeString},
 		{Path: "allow.*.on_request", Scope: user, Type: SchemaTypeList},
 		{Path: "allow.*.on_request.*", Scope: user, Type: SchemaTypeString},
-		// The off switch of a pack's off-switch loophole (docs/design/legacy-config-compat.md
+		// The off switch of a pack's off-switch loophole (docs/reference/config/rulings.md
 		// LC-D3); a pack that ships none is refused for it (AllowNudgeOffNoSwitch).
 		{Path: "allow.*.off", Scope: user, Type: SchemaTypeBoolean},
 		{Path: "allow.*.*", Scope: user, Type: SchemaTypeAny},
@@ -255,7 +255,7 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "requests.*.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.*.repos.*", Scope: workspace, Type: SchemaTypeString},
 		// A project's off switch for its pack's off-switch loophole, this workspace's
-		// launches only (docs/design/legacy-config-compat.md LC-D3, LC-D15).
+		// launches only (docs/reference/config/rulings.md LC-D3, LC-D15).
 		{Path: "requests.*.off", Scope: workspace, Type: SchemaTypeBoolean},
 		// A pack's request for a grant kind (`<kind> = true`, or `<kind> = [values]` for a valued
 		// one) or a workspace-scope setting: typed by the selected pack's declarations
@@ -376,7 +376,7 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "providers.*.models.*.wire_id", Scope: both, Type: SchemaTypeString},
 		// Facts written once and shared by a model's routes (MF-D2), in the row fact spellings,
 		// without what only a route can say (packdecl.ModelFactsRouteOnlyKeys). Either scope: the
-		// legacy reader merges a workspace's entries too (legacy-config-compat.md LC-D9).
+		// legacy reader merges a workspace's entries too (docs/reference/config/rulings.md LC-D9).
 		{Path: "model_facts", Scope: both, Type: SchemaTypeObject},
 		{Path: "model_facts.*", Scope: both, Type: SchemaTypeObject},
 		{Path: "model_facts.*.name", Scope: both, Type: SchemaTypeString},

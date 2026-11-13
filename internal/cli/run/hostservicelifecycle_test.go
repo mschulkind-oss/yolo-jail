@@ -532,7 +532,7 @@ func TestPerJailDaemonizingWrapperWithStartupReasonIsReady(t *testing.T) {
 
 // TestAProjectsRequestScopeSettingReachesTheDaemon: a request-scope setting the workspace's
 // `[requests.<pack>]` writes replaces the user's `[allow.<pack>]` value in what the launch freezes
-// for the daemon (docs/reference/loophole-grants.md LG-D15, docs/design/legacy-config-compat.md
+// for the daemon (docs/reference/loophole-grants.md LG-D15, docs/reference/config/rulings.md
 // LC-D17, serial's `default_baud`). The values are what prepareLoopholeSettings resolves, so
 // deleting its WithProjectRequestSettings call leaves the user's value and fails this.
 func TestAProjectsRequestScopeSettingReachesTheDaemon(t *testing.T) {

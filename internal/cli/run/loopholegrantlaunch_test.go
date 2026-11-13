@@ -270,7 +270,7 @@ func TestTheLaunchBindsAGrantedUnmediatedLoopholeAndSaysSo(t *testing.T) {
 }
 
 // A project's `requests.<pack> = "off"` withholds the user's `always` grant here
-// (docs/design/legacy-config-compat.md LC-D18): the loophole crosses nothing, and the disclosure
+// (docs/reference/config/rulings.md LC-D18): the loophole crosses nothing, and the disclosure
 // and the briefing say the project turns it off and name the project's own line, not a
 // `yolo allow` the user already ran.
 func TestTheLaunchDisclosesAGrantTheProjectWithholds(t *testing.T) {

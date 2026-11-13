@@ -29,7 +29,7 @@ const loopholeActivationLayer = "the loopholes a launch runs"
 // grant-declaring loophole this workspace withdraws is known (withdrawnHere).
 //
 // packs is the shipped set; the configured packs the user selects (a path or fetched pack, whose
-// legacy manifest the window reads, docs/design/legacy-config-compat.md LC-D10) are added here,
+// legacy manifest the window reads, docs/reference/config/rulings.md LC-D10) are added here,
 // through the resolver the launch's validator uses, so every read of this layer, the plan's and
 // the read-back after Apply alike, sees the same loopholes.
 func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string]bool, readable bool, packs []*packload.Pack) *jsonx.OrderedMap {
@@ -40,7 +40,7 @@ func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string
 	var modules []loopholes.PackModule
 	// unselected is each loophole a pack this side does not select ships. A legacy entry naming
 	// one, with no command of its own, is that pack's config and runs nothing, on either side
-	// (docs/design/legacy-config-compat.md LC-D9's M7 row): discovery reads it as a commandless
+	// (docs/reference/config/rulings.md LC-D9, a switch for an unselected pack): discovery reads it as a commandless
 	// inline record, which is not a loophole a launch runs.
 	unselected := map[string]bool{}
 	for _, p := range packs {
@@ -101,7 +101,7 @@ func loopholeActivation(composed, project *jsonx.OrderedMap, switches map[string
 // withdrawnHere is whether the workspace withdraws d's pack, in either spelling: the switch
 // file's false, or, where the switch file does not decide the loophole, a legacy workspace's
 // `loopholes.<name>.enabled: false` or a TOML project's `requests.<pack> = "off"`
-// (docs/design/legacy-config-compat.md LC-D18).
+// (docs/reference/config/rulings.md LC-D18).
 func withdrawnHere(d config.LoopholeGrantDeclaration, project *jsonx.OrderedMap, switches map[string]bool) bool {
 	if on, decided := switches[d.Loophole]; decided {
 		return !on

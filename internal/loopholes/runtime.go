@@ -411,7 +411,7 @@ func gateAdmitsCrossing(m *Loophole, gate *Set, what string) bool {
 	if !gate.MayRunHostCode(m) {
 		return false
 	}
-	// The legacy manifest window (docs/design/legacy-config-compat.md LC-D10): a legacy
+	// The legacy manifest window (docs/reference/config/rulings.md LC-D10): a legacy
 	// manifest's `default_enabled: false` ran its loophole in v0.15.1 only where a config
 	// switched it on. Its daemon reads no grant file, so a mediated shape is no reason to
 	// start it: nothing of it starts or crosses until the launch holds the grant the legacy

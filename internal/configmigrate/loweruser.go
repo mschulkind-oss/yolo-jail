@@ -369,7 +369,7 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 						skip(oldPath, v, "allow."+offPack+"."+loopholedecl.AllowOffKey+" is already written in this file")
 					}
 				case v == true && selected && userBrokerRead(name).ReadCapability != "":
-					// L5, LC-D2: a user switch on a selected broker is its read grant on every
+					// LC-D2: a user switch on a selected broker is its read grant on every
 					// repository, `[allow.<source>] always = ["<read capability>"]`.
 					b := userBrokerRead(name)
 					at := []string{"allow", b.Brokered.Source, "always"}
@@ -381,9 +381,9 @@ func lowerLoopholes(value any, ctx loweringContext, place func([]string, any, []
 					// A selected pack's loophole runs whenever its pack is selected
 					// (docs/reference/loophole-grants.md §4.1); one that declares grants was
 					// converted above, so this one is grantless or ungated: the list already says
-					// it, and nothing is written (LC-D9's M5 row).
+					// it, and nothing is written (LC-D9: a selected grantless switch).
 				case v == true:
-					// LC-D9's M7 row: a switch for a pack not in packs ran nothing in v0.15.1 either
+					// LC-D9: a switch for a pack not in packs ran nothing in v0.15.1 either
 					// (it warned and launched), so it converts to nothing, with the offer.
 					ctx.drop(oldPath, v, "`packs` does not list "+pack+", so the switch runs nothing; to run it, add the pack with `yolo pack add "+pack+"`")
 				default:

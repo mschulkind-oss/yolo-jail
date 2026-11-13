@@ -823,7 +823,7 @@ func roleName(scope ExplicitEditScope) string {
 }
 
 // legacyOffSwitchRule is the edit rule for removing a legacy `loopholes.<name>.enabled` of an
-// off-switch loophole (docs/design/legacy-config-compat.md LC-D3), the switch a legacy JSONC file
+// off-switch loophole (docs/reference/config/rulings.md LC-D3), the switch a legacy JSONC file
 // keeps the loophole off with and the key the launch's disclosure names to turn it back on. Only
 // removal: the key has no TOML spelling (that is `allow.<pack>.off`), and a TOML file never holds
 // it, so the unset of a TOML target finds no rule there and refuses as before.

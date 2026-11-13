@@ -776,7 +776,7 @@ func RenderFilteredForDelivery(filtered *jsonx.OrderedMap, src *Sources, scope I
 
 // InheritOmission is one legacy-written value a TOML delivery of the inherited user scope leaves
 // out because the jail's TOML reader has no spelling for it (LC-D4,
-// docs/design/legacy-config-compat.md): the launch discloses each one once, and nothing refuses.
+// docs/reference/config/rulings.md): the launch discloses each one once, and nothing refuses.
 type InheritOmission struct {
 	// Path is the value as the validators spell it: "config.loopholes.lab-tool".
 	Path string

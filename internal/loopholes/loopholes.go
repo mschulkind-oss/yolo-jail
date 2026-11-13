@@ -139,7 +139,7 @@ type Loophole struct {
 	// Grants is.
 	Access string
 	// LegacyDefaultOff is the manifest's LegacyDefaultOff (loopholedecl): a legacy manifest's
-	// `default_enabled: false`, read through the legacy window (docs/design/legacy-config-compat.md
+	// `default_enabled: false`, read through the legacy window (docs/reference/config/rulings.md
 	// LC-D10). Nothing of the loophole starts or crosses until the launch holds its grant
 	// (gateAdmitsCrossing, runtime.go).
 	LegacyDefaultOff bool

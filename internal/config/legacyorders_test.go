@@ -11,7 +11,7 @@ import (
 
 // legacyorders_test.go pins the launch's reading of a still-legacy workspace beside a user config
 // in either format, so a user conversion changes nothing another workspace means
-// (docs/design/legacy-config-compat.md LC-D16, LC-D18). The user TOML is the one the user's
+// (docs/reference/config/rulings.md LC-D16, LC-D18). The user TOML is the one the user's
 // conversion writes from the legacy user config each case also runs under.
 
 const (

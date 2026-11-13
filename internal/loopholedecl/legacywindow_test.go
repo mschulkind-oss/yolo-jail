@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// legacywindow_test.go pins the manifest window (docs/design/legacy-config-compat.md LC-D10): a
+// legacywindow_test.go pins the manifest window (docs/reference/config/rulings.md LC-D10): a
 // LEGACY manifest (manifest.jsonc, manifest.json) that declares `default_enabled` or a
 // workspace-scope setting is read as what it meant in v0.15.1, never refused. A loophole.toml is
 // refused as before (TestDefaultEnabledIsRefusedOnEveryManifest).

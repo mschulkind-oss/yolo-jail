@@ -13,7 +13,7 @@ import (
 // THE OWNER'S BEDROCK-KEY LAYER over a TOML user config. The user config names aws-auth's
 // profile in `[allow.aws-auth]`; an opt-in `--user-layer bedrock-key.jsonc` delivers a static AWS
 // key pair through env_sources and turns aws-auth off with `enabled: false`, "configured, and
-// off" (docs/design/legacy-config-compat.md LC-D3): the off switch keeps aws-auth from running,
+// off" (docs/reference/config/rulings.md LC-D3): the off switch keeps aws-auth from running,
 // so no pointer is served beside the pair and the launch proceeds. The profile set to "" in that
 // layer is the other spelling that works: the login service serves nothing
 // (packload.UnconfiguredLogins) and its pointer is withheld. Either way the pointer is not in

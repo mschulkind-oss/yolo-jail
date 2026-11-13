@@ -87,7 +87,7 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 // InitUserConfig runs `yolo init-user-config`. Writes the user-level defaults at
 // ~/.config/yolo-jail/config.toml unless a user config of either format exists. It writes
 // TOML, the format every launch reads first, so a new user is not onboarded onto the legacy
-// format the launch then offers to convert (LC-D12, docs/design/legacy-config-compat.md).
+// format the launch then offers to convert (LC-D12, docs/reference/config/rulings.md).
 func InitUserConfig(out io.Writer, color bool) int {
 	// With no user config, the display path is the TOML file a first write creates; with
 	// one, in either format, it is that file, which is left alone: writing config.toml
@@ -134,7 +134,7 @@ func printInitStatus(out io.Writer, color bool, style, message string) {
 // is the one the empty-packs notice names (config.NoPacksGuidance), so a new user hears one
 // answer. It names `yolo pack add`, never a `packs` line to paste: the verb writes the user
 // file that exists, in its own format, and appends to a `packs` list already there (LC-D12,
-// docs/design/legacy-config-compat.md).
+// docs/reference/config/rulings.md).
 func printUserConfigNextSteps(out io.Writer) {
 	io.WriteString(out, "It selects no packs yet, so a jail has no coding agent. Next:\n"+
 		"  1. Choose your agent:  yolo pack add "+nextStepPack+"\n"+

@@ -636,7 +636,7 @@ func lowerProjectLoopholes(value any, ctx loweringContext, place func([]string, 
 			v, _ := entry.Get("enabled")
 			// A selected pack's grantless loophole runs whenever its pack is selected
 			// (docs/reference/loophole-grants.md §4.1), so its project switch says nothing the
-			// packs list does not (LC-D9's M11 row).
+			// packs list does not (LC-D9: a project switch on an ungated loophole).
 			ctx.drop([]string{"loopholes", name, "enabled"}, v, name+" runs whenever its pack is selected, so the key turns nothing on")
 			continue
 		}

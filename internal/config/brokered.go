@@ -1648,7 +1648,7 @@ func UnbrokeredSourceWarnings(merged *jsonx.OrderedMap, resolver LoopholeResolve
 // and names the read grant to add for anyone who meant otherwise. A user config listing `read`
 // in `grant_kinds` leaves the grant to each workspace, and gets no note. In workspace, whose
 // approval record may carry the read grant an older yolo's switch gave it (carryStaleBrokerSwitch,
-// docs/design/legacy-config-compat.md LC-D7), the note says the broker runs on that grant there
+// docs/reference/config/rulings.md LC-D7), the note says the broker runs on that grant there
 // rather than that it grants nothing. Nil in a jail, whose user config is the host's snapshot.
 func UngrantedBrokerNotes(resolver LoopholeResolver, workspace string) []string {
 	if resolver == nil || inJail() {

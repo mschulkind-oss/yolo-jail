@@ -95,7 +95,7 @@ func UserConfigIsTOML(userPath string) bool {
 
 // UserConfigIsLegacy reports whether the user config a launch reads is a legacy JSONC (or JSON)
 // file, whose ceiling the legacy projection reads as v0.15.1 held it (withLegacyUserAdmission,
-// docs/design/legacy-config-compat.md LC-D14). No user config, or one in TOML, is not.
+// docs/reference/config/rulings.md LC-D14). No user config, or one in TOML, is not.
 func UserConfigIsLegacy() bool { return UserConfigIsLegacyAt(paths.UserConfigPath()) }
 
 // UserConfigIsLegacyAt is UserConfigIsLegacy for the user config whose directory userPath names.

@@ -187,7 +187,7 @@ func TestAConfigNameThatIsALoopOrADirectoryOrUnreadableIsRefused(t *testing.T) {
 	}
 }
 
-// LC-D11 (docs/design/legacy-config-compat.md#LC-D11), the owner's sandbox-home case: an rcm
+// LC-D11 (docs/reference/config/rulings.md#LC-D11), the owner's sandbox-home case: an rcm
 // link config.jsonc -> ~/.dotfiles/yolo/config.jsonc, whose target `yolo config migrate` renamed
 // to config.toml. The refusal names that twin as what the link should point at, at the TOML name.
 func TestADanglingLegacyConfigLinkNamesItsTargetsTOMLTwin(t *testing.T) {

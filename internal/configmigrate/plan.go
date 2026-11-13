@@ -296,7 +296,7 @@ func planWith(g *Graph, opts planOptions) (*MigrationPlan, error) {
 	view.needed = neededPacks(view.packs, packs)
 	// The loophole rows read what the launch's validator reads (config.UserScopeSelectedPacks):
 	// the shipped packs, and every configured pack the user selects, whose legacy manifest the
-	// window reads (docs/design/legacy-config-compat.md LC-D10). A --user-layer reads the shipped
+	// window reads (docs/reference/config/rulings.md LC-D10). A --user-layer reads the shipped
 	// set alone, as planLoopholeGrants projects nothing for one.
 	loopholeSource := packs
 	if g.layer == nil {

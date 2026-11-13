@@ -10,7 +10,7 @@ import (
 )
 
 // legacydefaultoff_test.go pins the launch half of the legacy manifest window
-// (docs/design/legacy-config-compat.md LC-D10): a legacy manifest's `default_enabled: false` ran
+// (docs/reference/config/rulings.md LC-D10): a legacy manifest's `default_enabled: false` ran
 // its loophole in v0.15.1 only where a config switched it on. Its host daemon is MEDIATED in shape
 // (a daemon answers each request), but a daemon written for v0.15.1 reads no grant file, so nothing
 // of it starts or crosses until the launch holds its grant: the switch the legacy projection makes

@@ -163,7 +163,7 @@ func loopholeSettingsScopeViolations(name string, spec *jsonx.OrderedMap, srcFil
 // project file writes whose manifest declares `legacy_workspace` (no shipped pack since serial's
 // `default_baud` became request scope, LC-D17): the
 // value is read as the user's for this launch, as v0.15.1 read it, rather than refused
-// (docs/design/legacy-config-compat.md LC-D2). A `loopholes` block exists only in a legacy JSONC
+// (docs/reference/config/rulings.md LC-D2). A `loopholes` block exists only in a legacy JSONC
 // file, so a TOML project cannot reach this.
 func legacyWorkspaceSettingNotes(name string, spec *jsonx.OrderedMap, srcFile string, info *LoopholeInfo) []string {
 	if info == nil {

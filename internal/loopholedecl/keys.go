@@ -112,7 +112,7 @@ const (
 // tree still declares `default_enabled`, loses those records at an attach by this yolo
 // until it is relaunched; relaunching stages the current manifests.
 
-// # The legacy window (docs/design/legacy-config-compat.md LC-D10)
+// # The legacy window (docs/reference/config/rulings.md LC-D10)
 //
 // A LEGACY manifest (manifest.jsonc or manifest.json, the form v0.15.1 read) that declares
 // `default_enabled` is read as what the key meant there, never refused: v0.15.1 ran a loophole on

@@ -53,7 +53,7 @@ func awsAuthOffConfigs(t *testing.T) map[string]func([]*packload.Pack) *jsonx.Or
 			cfg.Set("allow", newConfig("aws-auth", newConfig("profile", "yolo-unit", "off", true)))
 			return cfg
 		},
-		// The project's spelling (docs/design/legacy-config-compat.md LC-D15): a legacy
+		// The project's spelling (docs/reference/config/rulings.md LC-D15): a legacy
 		// workspace `enabled: false` converts to its `[requests.<pack>] off = true`, which keeps
 		// the loophole off for that workspace alone, beside the user's configured profile.
 		"TOML requests.aws-auth.off": func(packs []*packload.Pack) *jsonx.OrderedMap {
@@ -69,7 +69,7 @@ func awsAuthOffConfigs(t *testing.T) map[string]func([]*packload.Pack) *jsonx.Or
 
 // TestOffAWSAuthServesNoPointer: aws-auth with a profile serves its credentials pointer to an
 // agent on Bedrock (the control), and with the owner's `enabled: false`, or its TOML spelling,
-// the same launch serves none (docs/design/legacy-config-compat.md LC-D3). The pointer is
+// the same launch serves none (docs/reference/config/rulings.md LC-D3). The pointer is
 // composed by the production served-set path (jailDaemonsFor's NewHostSet), so deleting the
 // LaunchBlock read there, or Discover's honoring of the switch, fails this.
 func TestOffAWSAuthServesNoPointer(t *testing.T) {

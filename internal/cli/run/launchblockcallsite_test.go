@@ -2,7 +2,7 @@ package run
 
 // launchblockcallsite_test.go pins that every loophole discovery the launch path makes reads the
 // launch's loopholes block, loopholes.LaunchBlock, which folds a TOML user config's
-// `[allow.<pack>] off = true` into it (docs/design/legacy-config-compat.md LC-D3). A site handed
+// `[allow.<pack>] off = true` into it (docs/reference/config/rulings.md LC-D3). A site handed
 // cfg's raw `loopholes` key instead would run, publish or serve an off-switch loophole the user
 // turned off, with every behavior test of the other sites still green. And LaunchBlock must be
 // handed the launch's OWN config — a parameter of the enclosing function named cfg or merged, the

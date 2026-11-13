@@ -129,7 +129,7 @@ func configNameError(path, from string, kind configNameKind, target, reason stri
 }
 
 // danglingTwinStep is LC-D11's step for a dangling link to a legacy config whose target has a
-// `.toml` twin (docs/design/legacy-config-compat.md#LC-D11): the usual way a link comes to
+// `.toml` twin (docs/reference/config/rulings.md#LC-D11): the usual way a link comes to
 // point at nothing is `yolo config migrate` run where the target lives, which renamed it. The
 // twin is what the link should point at, under the TOML name, since a `.jsonc` name is read
 // as JSONC. "" when the link or its target is not a legacy config name or no twin exists. The

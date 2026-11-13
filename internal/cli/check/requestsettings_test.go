@@ -11,7 +11,7 @@ import (
 // TestCheckValidatesAProjectsRequestScopeSetting: `yolo check` hands a loophole's settings
 // validator the settings a launch hands its daemon, so a project's request-scope setting under
 // `[requests.<pack>]` replaces the user's value for this project (docs/reference/loophole-grants.md
-// LG-D15, docs/design/legacy-config-compat.md LC-D17). The validator accepts only the project's
+// LG-D15, docs/reference/config/rulings.md LC-D17). The validator accepts only the project's
 // value; with loopholes.WithProjectRequestSettings deleted from the check, it sees the user's and
 // refuses.
 func TestCheckValidatesAProjectsRequestScopeSetting(t *testing.T) {

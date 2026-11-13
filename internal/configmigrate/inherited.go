@@ -12,7 +12,7 @@ import (
 
 // LowerInheritedUserScope is the lowering an inherited user scope crosses into a jail with when
 // it mixes a value a TOML file wrote with a legacy value the jail's TOML reader cannot take as
-// it is (config.RenderInheritedDelivery, LC-D4 in docs/design/legacy-config-compat.md): the very
+// it is (config.RenderInheritedDelivery, LC-D4 in docs/reference/config/rulings.md): the very
 // conversion `yolo config migrate` writes for a user file (lower), over the scope's merged read,
 // applied to the values a legacy file wrote and to no other (LC-D5). It never declines; what it
 // leaves out it returns, for the launch to disclose once.

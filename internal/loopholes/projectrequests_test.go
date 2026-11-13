@@ -8,7 +8,7 @@ import (
 
 // TestLoopholesListReadsTheProjectsRequestsTable: `yolo loopholes list` reads a TOML project's
 // `[requests.<pack>]` as the launch does: its `off = true` keeps an off-switch loophole off
-// (docs/design/legacy-config-compat.md LC-D15), and its request-scope setting replaces the user's
+// (docs/reference/config/rulings.md LC-D15), and its request-scope setting replaces the user's
 // for this project (LG-D15, LC-D17). Either read deleted from loopholesWithConfigAndBlock fails it.
 func TestLoopholesListReadsTheProjectsRequestsTable(t *testing.T) {
 	isolateDirs(t)

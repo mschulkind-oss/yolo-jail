@@ -370,7 +370,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				continue
 			}
 			if g, isKind := valuedGrantKind(grantPacks[name], key); grantPack && isKind {
-				// The user-sourced request (docs/design/legacy-config-compat.md LC-D16): the values
+				// The user-sourced request (docs/reference/config/rulings.md LC-D16): the values
 				// every project asks for that writes no request of its own, read by
 				// withUserSourcedRequests. It asks only where the ceiling lets a project ask.
 				if _, found, _ := readableSettingByKey(declaredSettings, key); found {
@@ -382,7 +382,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 				continue
 			}
 			if key == loopholedecl.AllowOffKey && shipsOffSwitch(input.PackSettings, name) {
-				// The pack's off switch (docs/design/legacy-config-compat.md LC-D3), read by
+				// The pack's off switch (docs/reference/config/rulings.md LC-D3), read by
 				// loopholes.LaunchBlock, never a setting its loophole is handed.
 				if _, found, _ := readableSettingByKey(declaredSettings, key); found {
 					return plan, fmt.Errorf("allow.%s.%s ambiguously names both the off switch and a pack setting", name, key)
@@ -1322,8 +1322,8 @@ func UserBrokerAuthorityOf(user *jsonx.OrderedMap, selected []string, declaratio
 		if !hasTable {
 			a.Read = containsGrant(userGrantsOf(user, source), brokerscope.Grant{Kind: brokerscope.KindRead, Repo: brokerscope.AnyRepo})
 			// A legacy user `loopholes.<broker>.enabled: true` is the read grant on every
-			// repository while the broker's pack is selected (docs/design/legacy-config-compat.md
-			// LC-D2, row L5); with the pack not selected it ran nothing.
+			// repository while the broker's pack is selected (docs/reference/config/rulings.md
+			// LC-D2, a user broker switch); with the pack not selected it ran nothing.
 			if on, set := legacyEnabled(legacyLoopholeBlock(user, declaration.Label)); on && set && declaration.ReadCapability != "" &&
 				slices.Contains(selected, declaration.Pack) {
 				a.Read = true
@@ -2047,7 +2047,7 @@ const (
 	// pack installs and its service serves nothing.
 	AllowNudgeLoginNoProfile AllowNudgeKind = "login-no-profile"
 	// AllowNudgeOffNotBool: `off` under a pack's table is not true or false, so it keeps nothing
-	// off (docs/design/legacy-config-compat.md LC-D3). An error.
+	// off (docs/reference/config/rulings.md LC-D3). An error.
 	AllowNudgeOffNotBool AllowNudgeKind = "off-not-bool"
 	// AllowNudgeOffNoSwitch: `off` under a pack that ships no off-switch loophole, which it turns
 	// off nothing in. An error; Closest is the needed pack whose table takes it, if one does.

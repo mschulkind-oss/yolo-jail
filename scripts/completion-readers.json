@@ -5205,7 +5205,6 @@
 "docs/design/jail-lifetime-last-session-wins.md",
 "docs/design/keychain-from-a-jail.md",
 "docs/design/launch-update-preparation.md",
-"docs/design/legacy-config-compat.md",
 "docs/design/live-config-apply-plan.md",
 "docs/design/live-config-apply.md",
 "docs/design/loophole-packaging.md",

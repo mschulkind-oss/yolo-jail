@@ -142,7 +142,7 @@ func TestTOMLOffKeepsAnOffSwitchLoopholeOff(t *testing.T) {
 }
 
 // TestAProjectsRequestsOffKeepsAnOffSwitchLoopholeOff: the project's spelling of a legacy
-// workspace `enabled: false`, `[requests.<pack>] off = true` (docs/design/legacy-config-compat.md
+// workspace `enabled: false`, `[requests.<pack>] off = true` (docs/reference/config/rulings.md
 // LC-D15), reaches discovery through LaunchBlock too, beside a user table that configures the
 // same pack, and keeps its off-switch loopholes off. The tombstone `requests.<pack> = "off"`
 // withdraws requests and turns nothing off.

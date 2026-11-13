@@ -353,7 +353,7 @@ func TestHostClaudeBesideALaunchOwnedServiceCarriesTheView(t *testing.T) {
 }
 
 // A user-config `enabled: false` for the broker loophole is its off switch
-// (docs/design/legacy-config-compat.md LC-D3), at the host notch as in a jail: the shared login is
+// (docs/reference/config/rulings.md LC-D3), at the host notch as in a jail: the shared login is
 // what off keeps from the agent, so no view is set up, no broker is ensured, and the launch says
 // the loophole is not active, naming the step that says why. Its TOML spelling,
 // `[allow.claude-auth] off = true`, reaches the same predicate (run.PromisedEndpoints reads

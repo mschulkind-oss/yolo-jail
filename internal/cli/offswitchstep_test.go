@@ -12,7 +12,7 @@ import (
 )
 
 // TestTheOffDisclosuresCommandTurnsTheLoopholeBackOn: for every place an off switch can live
-// (docs/design/legacy-config-compat.md LC-D3), the command the launch's disclosure names
+// (docs/reference/config/rulings.md LC-D3), the command the launch's disclosure names
 // (run.LoopholesOff) runs, removes that switch, and the next launch's config keeps the loophole
 // off no longer. A disclosure naming a command that is refused is a stop with no next step.
 func TestTheOffDisclosuresCommandTurnsTheLoopholeBackOn(t *testing.T) {

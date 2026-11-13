@@ -42,7 +42,7 @@ legacy_default_values = [
 
 # `default_baud` is frozen at launch: yolo resolves it once and writes it to the file {settings}
 # names, so a change needs a restart (OQ-K3). It is `request` scope
-# (docs/design/legacy-config-compat.md LC-D17): the user's `[allow.serial] default_baud` is every
+# (docs/reference/config/rulings.md LC-D17): the user's `[allow.serial] default_baud` is every
 # project's default, and a project that drives its board at another rate asks for its own under
 # `[requests.serial]`, which replaces the user's there and reaches the jail through the
 # config-change gate's y. A baud rate admits nothing, and v0.15.1 took a project file's value, so
