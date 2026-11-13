@@ -1392,7 +1392,7 @@
     value is a `yolo check` error and is never read.
 
   [bold]shipped_skill_prefix[/bold] (string): A word every skill yolo ships starts with.
-    Default: unset, and shipped skills carry no marker.  With it set, yolo's
+    [green]Default:[/green] unset, and shipped skills carry no marker.  With it set, yolo's
     built-in skills and the skills of every shipped pack are delivered as
     `<prefix>-<skill>`, in a jail and at the host alike, and the briefing names
     them that way:
@@ -1566,7 +1566,7 @@
       host_path = ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
 
   [bold]provisioners[/bold] (object): The order yolo picks a way to install a program in.
-    Default: none -- each pack's own recipe first, then your package manager.
+    [green]Default:[/green] none -- each pack's own recipe first, then your package manager.
     A pack declares every way it knows to install its program: its own recipe
     (its npm package, or its vendor's installer), and the package each manager
     names it by.  When `yolo host apply` or `yolo check-deps` finds a program
@@ -1894,7 +1894,7 @@
     A tool name is a BARE NAME — a single PATH segment, no "/", "..",
     ":" or absolute path — because it names the FILE yolo generates in
     the block dir; a path-shaped name is refused.
-    Default: EMPTY — core blocks nothing.  Until 2026-09-04 it blocked
+    [green]Default:[/green] EMPTY — core blocks nothing.  Until 2026-09-04 it blocked
     grep and find by default, a default that silently assumed the image
     bakes rg and fd; that is true of the container backends and false of
     macos-user, which bakes nothing, so the block removed a tool and
@@ -1949,7 +1949,7 @@
   [bold]install.mise[/bold] (table): Extra tools installed via mise in the jail.
     Keys are mise tool names, values are version strings.  The legacy JSONC key
     is `mise_tools`.
-    Default: {} — yolo ships no mise tool of its own. Every default runtime is a
+    [green]Default:[/green] {} — yolo ships no mise tool of its own. Every default runtime is a
     baked nix package instead (self-contained, present at boot, no first-use
     download).  (The `yolo init` template used to claim a `neovim` default here;
     there is none — see internal/config/config.go's defaultMiseToolsVals.)
@@ -3001,7 +3001,7 @@
     The key is no longer exported to the jail: nothing in a jail read
     YOLO_REQUIRED_CAPABILITIES, and the check it stood in for now happens on the host
     before the launch.
-    Default: [] (declares nothing).
+    [green]Default:[/green] [] (declares nothing).
     Example (yolo-jail.toml):
       required_capabilities = ["web_search"]
 
@@ -3166,13 +3166,13 @@
       GPU passthrough — so the same config can be committed and used
       on both a GPU box and a GPU-less machine.
     • [bold]vendor[/bold] (string): GPU vendor. Default: "nvidia".
-      Values: "nvidia" or "amd".  Absent ⇒ "nvidia" (backward compatible).
+      [green]Values:[/green] "nvidia" or "amd".  Absent ⇒ "nvidia" (backward compatible).
     • [bold]devices[/bold] (string): Which GPUs to expose. Default: "all".
-      Values: "all", "0", "0,1", or "GPU-<uuid>".
+      [green]Values:[/green] "all", "0", "0,1", or "GPU-<uuid>".
       NVIDIA: mapped to CDI device entries (nvidia.com/gpu=...).
       AMD: mapped to /dev/dri/renderD<N> nodes (or amd.com/gpu=... in cdi mode).
     • [bold]mode[/bold] (string): AMD only. Default: "devices".
-      Values: "devices" (raw /dev/kfd + /dev/dri render nodes, no host
+      [green]Values:[/green] "devices" (raw /dev/kfd + /dev/dri render nodes, no host
       toolkit) or "cdi" (amd.com/gpu=... via the AMD Container Toolkit).
       Rejected for vendor="nvidia".
     • [bold]capabilities[/bold] (string): NVIDIA only. Default: "compute,utility".

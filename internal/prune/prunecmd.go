@@ -407,11 +407,14 @@ func Run(opts Options) int {
 	// having done so is the shape of the defect this whole effort began with.
 	declinedSweep := false
 
-	mode := "DRY-RUN"
+	// The mode token is colored at the top so DRY-RUN and APPLY differ at a glance, not only in
+	// the far summary (docs/plans/cli-visual-polish.md, Group C): yellow for a run that changes
+	// nothing, red for one that deletes. Stripped, the header is unchanged.
+	mode, modeStyle := "DRY-RUN", "bold yellow"
 	if apply {
-		mode = "APPLY"
+		mode, modeStyle = "APPLY", "bold red"
 	}
-	p.line("[bold]yolo prune (" + mode + ")[/bold]")
+	p.line("[" + modeStyle + "]yolo prune (" + mode + ")[/" + modeStyle + "]")
 	p.line(fmt.Sprintf("Runtime: %s  Workspaces tracked: %d", rt, len(workspaces)))
 	for _, ws := range workspaces {
 		p.line("  • " + ws)

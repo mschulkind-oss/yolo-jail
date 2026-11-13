@@ -423,28 +423,32 @@ func TestRefreshCancellationIsBoundedWithoutDetach(t *testing.T) {
 	f.store.Env = append(gitTestEnv(), "YOLO_TEST_READY="+ready)
 	var helper fixtureProcess
 	t.Cleanup(func() { killFixtureProcess(t, helper) })
-	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { sleep 20 & helper=$!; publish_pid_ready "$helper"; exec sleep 20; }; done
+	// The helper holds git's output pipe for as long as the test lasts (the cleanup kills it), so
+	// Refresh can return only through WaitDelay: returning while the helper still runs is the
+	// event that proves the pipe was bounded, with no elapsed-time ceiling to beat. WaitDelay
+	// is shortened so the test does not wait out the production 3 s (test-suite-speed.md).
+	defer func(d time.Duration) { gitWaitDelay = d }(gitWaitDelay)
+	gitWaitDelay = 300 * time.Millisecond
+	f.store.Git = writeScript(t, pidReadinessShell()+`for a in "$@"; do [ "$a" = fetch ] && { sleep 600 & helper=$!; publish_pid_ready "$helper"; exec sleep 600; }; done
 exec git "$@"
 `)
 	done := refreshAsync(f, pack)
-	if err := awaitReadyMarker(ready, 2500*time.Millisecond); err != nil {
+	if err := awaitReadyMarker(ready, testsupport.ReadinessBudget(t)); err != nil {
 		cancel()
-		waitRefreshResult(t, done, 8*time.Second)
+		waitRefreshResult(t, done, testsupport.ReadinessBudget(t))
 		t.Fatal(err)
 	}
 	helper = fixturePID(t, ready)
 	cancelAt := time.Now()
 	cancel()
-	result := waitRefreshResult(t, done, gitWaitDelay+2*time.Second)
-	took := time.Since(cancelAt)
-	if took < gitWaitDelay-250*time.Millisecond {
-		t.Errorf("Refresh returned after %s; WaitDelay did not actually fire", took)
-	}
-	if took > gitWaitDelay+time.Second {
-		t.Errorf("Refresh took %s after cancellation; WaitDelay did not bound the inherited pipe", took)
+	result := waitRefreshResult(t, done, testsupport.ReadinessBudget(t))
+	// A lower bound only: a loaded machine makes the return later, never earlier.
+	if took := time.Since(cancelAt); took < gitWaitDelay {
+		t.Errorf("Refresh returned after %s, before its %s WaitDelay; WaitDelay did not actually fire", took, gitWaitDelay)
 	}
 	if !fixtureStillRunning(helper) {
-		t.Errorf("fixture helper PID %d exited before WaitDelay returned; it must keep the output pipe open", helper.pid)
+		t.Errorf("fixture helper PID %d exited before Refresh returned; it must keep the output pipe open, "+
+			"so that only WaitDelay can bound the wait", helper.pid)
 	}
 	if result.err != nil || len(result.outcomes) != 1 {
 		t.Fatalf("Refresh result = %+v, %v", result.outcomes, result.err)

@@ -16,6 +16,7 @@ const (
 	ansiGreen      = "\x1b[32m"
 	ansiRed        = "\x1b[31m"
 	ansiYellow     = "\x1b[33m"
+	ansiCyan       = "\x1b[36m"
 	ansiBoldGreen  = "\x1b[1;32m"
 	ansiWhiteOnRed = "\x1b[1;97;41m"
 	ansiBlackOnYel = "\x1b[1;30;43m"
@@ -115,6 +116,16 @@ func (r *reporter) ok(msg string) {
 	r.passed++
 	r.record("pass", msg, "")
 	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + msg)
+}
+
+// okPath is ok for a "<label><path><tail>" finding whose path is the value: the recorded
+// message is the plain concatenation, and on a terminal the path is cyan so the label/value
+// boundary is visible (docs/plans/cli-visual-polish.md, Group C). Stripped, the line is
+// byte-identical to ok(label + path + tail).
+func (r *reporter) okPath(label, path, tail string) {
+	r.passed++
+	r.record("pass", label+path+tail, "")
+	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + label + r.style(path, ansiCyan) + tail)
 }
 
 // fail increments the fail count and prints " [FAIL] msg" + optional note.
