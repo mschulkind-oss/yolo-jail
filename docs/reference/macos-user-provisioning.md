@@ -362,10 +362,12 @@ existing `env -i`/Seatbelt argv and generated bootstrap, which invokes each prog
 install-only launcher. The refusal and `YOLO_ALLOW_MISSING_PROGRAMS=1` bypass therefore remain on
 the shared readiness path, not a second installer.
 
-**`mcp_presets` is deliberately not in the skip rule.** The preset *wrappers* are not generated
-on this backend — their bodies are Linux-absolute, and `RunDarwinBootstrap` warns and says so —
-so the npm packages behind them have nothing to be spawned by. Counting presets would start a
-stage whose only work is a download nothing can exec.
+**An MCP server has no arm of its own in the skip rule.** The `mcp_presets` key that once named
+core's servers is retired, and a config carrying it is refused
+([the retired key](mcp-configuration.md#the-retired-mcp_presets-key)). A pack's server reaches
+the rule as what it is, a selected program: the `chrome-devtools` pack's `chrome-devtools-mcp` is
+an npm program with a Node floor, so the floor and program-readiness arms above start the stage
+when it is missing, as they do for any other pack's program.
 
 ### The generated script is a sidecar file, not a home file
 
@@ -675,7 +677,7 @@ runs from this tree.
 | :--- | :--- | :--- | :--- |
 | `mise_tools` | installed by the stage | **installed**: the floor puts `mise` on the sandbox PATH, `MISE_DATA_DIR` names a real machine-wide store, and the stage runs `mise install` | no warning — the gap is closed |
 | `lsp_servers` | config rendered, nothing installed — the binary is the user's | the same: config rendered, nothing installed, no stage started for it | no warning — the property is every backend's, not a gap of this one |
-| `mcp_presets` | npm-installed by the stage | wrappers not generated, packages not installed | warns — **from inside the bootstrap** (`RunDarwinBootstrap`), so `--dry-run` never shows it |
+| `mcp_presets` | retired: refused on the host, ignored with a warning in a jail's config snapshot | the same refusal; the browser's server is the `chrome-devtools` pack, whose program installs like any `via: npm` program below | the refusal names `yolo pack add chrome-devtools` ([the retired key](mcp-configuration.md#the-retired-mcp_presets-key)) |
 | agent CLIs, `via: installer` | the launcher execs the vendor installer | a missing selected program admits the stage and runs its own launcher install-only before the target; `curl` and `bash` remain at `/usr/bin` | fixture-based readiness tests are in macOS CI; passed natively in run 43120634525 (2026-11-11) |
 | agent CLIs, `via: npm` | the launcher execs `npm install -g` | on a missing declared program, the host admits the stage and the generated bootstrap invokes its launcher in install-only mode before the target; the Node floor remains provided by the native floor | fixture-based refusal, bypass, cold install and warm-hit tests are in `integration/macosuserprogramreadiness_test.go`; passed natively in `macos-user.yml` run 43120634525 (2026-11-11) |
 | `packages:` | baked into the image | realized natively, and now composed with the floor | works |
@@ -706,8 +708,9 @@ the set is larger now.
 not run"* — and both mechanisms became false. The warnings are gone, on the rule the
 surrounding code already applies: **a warning describing a closed gap teaches the reader to
 distrust the warnings that are still true**, and a reader would have acted on these by writing
-their config around a limitation that no longer exists. What is *not* retired is `mcp_presets`,
-which really is still undelivered.
+their config around a limitation that no longer exists. The `mcp_presets` key, once the
+undelivered exception here, is now retired on every backend; its browser server is the
+`chrome-devtools` pack ([the retired key](mcp-configuration.md#the-retired-mcp_presets-key)).
 
 > [!WARNING]
 > **One of the two retirements was premature, and the absence of a warning is not evidence of a

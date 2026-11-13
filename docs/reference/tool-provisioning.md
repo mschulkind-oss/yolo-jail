@@ -474,7 +474,7 @@ resolution on an MCP cold start — not for the loader.
 | Change the jail's **global default Node/Python/Go** major | now the **baked** version — bump `nodejs_*`/`python3`/`go` in `flake.nix`'s `coreFloorNames` (there are no mise defaults; mise is override-only) | source | **Yes** — image rebuild; validate in a nested `yolo -- bash`, `just load` on the host to ship |
 | A **native package baked for every jail** (a CLI, a library `.so`) | `"packages"` array in `yolo-jail.jsonc` (nixpkgs attr names) | workspace/user config | **Yes** — image rebuilds when the list changes |
 | Change the **baked runtime version** (`/bin/node`, chromium, …) | `coreFloorNames` / `fullPackages` in `flake.nix` | source | **Yes** — image rebuild; nested `yolo -- bash` validates it, host `just load` ships it |
-| Add an **MCP server** | `"mcp_presets"` / `"mcp_servers"` in `yolo-jail.jsonc` | config | No (a preset's npm package is installed by the bootstrap) |
+| Add an **MCP server** | `"mcp_servers"` in `yolo-jail.jsonc`, or a pack that declares one in `"packs"` (the browser is the `chrome-devtools` pack; the retired `mcp_presets` key is refused, see [the retired key](mcp-configuration.md#the-retired-mcp_presets-key)) | config | No (a pack's server program is installed by its launcher) |
 | Add an **LSP server** | `"lsp_servers"` in `yolo-jail.jsonc`, plus the server itself on `PATH` (a `mise_tools` entry, `packages`, or your own install) | config | Only if it comes from `packages`; yolo installs no language server |
 | Add/enable a **coding agent** (claude, copilot, …) | `"packs"` in `yolo-jail.jsonc`, by bare pack name | config | No (lazy-installed on first use) |
 

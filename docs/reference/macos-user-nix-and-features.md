@@ -787,10 +787,11 @@ too until 2026-09-25, when the LSP install recipes were deleted on every backend
 renders config only, here as everywhere.)
 The launch warnings for both keys were retired with it, on the rule this page applies
 elsewhere: a warning describing a closed gap teaches the reader to distrust the ones still
-true. What remains undelivered here is `mcp_presets`, whose preset *wrappers* hardcode Linux
-paths — so the stage does not install the npm packages behind them either, and the bootstrap
-still warns. The `chrome-devtools` pack is the delivered route for that server: its program
-installs through the launchers as any pack's does, and its wrapper uses the Mac's own browser.
+true. The `mcp_presets` key, once the undelivered exception here, is retired on every backend
+and a config carrying it is refused
+([the retired key](mcp-configuration.md#the-retired-mcp_presets-key)). The `chrome-devtools` pack
+is the route for that server: its program installs through the launchers as any pack's does, and
+its wrapper uses the Mac's own browser.
 
 ⚠ **NOT MEASURED.** Half two was built from a Linux jail, like half one — no `sandbox-exec`,
 no `_yolojail`. Every sentence above about what the stage *does* is a description of code that

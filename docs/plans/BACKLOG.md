@@ -915,18 +915,6 @@ a lane's run and then passed alone. None has been diagnosed:
 before the loop handles the tick, so the scheduler could stop at the tick before the one the test
 waited on.
 
-### <a id="doc-drift-2026-11-12"></a>🔧 **Reference rows the 2026-11-12 graduations left stale**
-
-- `mcp_presets` is described as live in [tool provisioning](../reference/tool-provisioning.md)
-  (the MCP row), [macos-user provisioning](../reference/macos-user-provisioning.md) (the skip rule,
-  the support table and the retired-limits paragraph) and
-  [macos-user nix and features](../reference/macos-user-nix-and-features.md); the key is retired
-  ([the retired key](../reference/mcp-configuration.md#the-retired-mcp_presets-key)).
-- [Patched forks](../reference/patched-forks.md)' notch table says the patched extension is not yet
-  built on some notches that PPX-D45 and the 2026-11-11 native run show built.
-- [The pack system](../reference/pack-system.md)'s [OQ-LT2](../reference/pack-system.md#oq-lt2) row says lists only append, but a
-  removal exists.
-
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 
 The capture store's [record-platform rule](../reference/install-capture.md#record-platform) makes
