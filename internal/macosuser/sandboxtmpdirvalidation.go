@@ -62,10 +62,11 @@ func (ctx SandboxTmpdirValidationContext) validate() error {
 }
 
 // SandboxTmpdirValidationProblem is the single policy predicate used by the direct run plan and
-// nested generated-program launches. Only run-as-you's deny-by-default profile checks
-// program-specific overrides and TMPDIR; account mode retains the user's existing TMPDIR.
+// nested generated-program launches, in both modes: the deny-by-default profile closes the shared
+// /tmp in the account mode too (MMP-D29), so a TMPDIR or program-specific override outside the
+// roots the context names would fail every temporary file there as well (MMP-D36).
 func SandboxTmpdirValidationProblem(ctx SandboxTmpdirValidationContext, variable, value string) string {
-	if ctx.Mode != ModeSelf || value == "" {
+	if value == "" {
 		return ""
 	}
 	return composedTmpdirEnvProblem(variable, value,

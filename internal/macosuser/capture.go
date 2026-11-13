@@ -103,6 +103,9 @@ const (
 	// captureTmpLeaf is a run-as-you capture's TMPDIR (CaptureStagingTmp), a sibling of the two
 	// above, so nothing in it is under a capture surface of the staging home.
 	captureTmpLeaf = "tmp"
+	// accountCaptureTempRoot is the /var/folders tree the account capture's profile grants
+	// (SeatbeltCaptureProfile), named in its temp-validation context (MMP-D36).
+	accountCaptureTempRoot = "/private/var/folders"
 
 	// captureScanFlag asks the driver for the FULL absolute-reference scan. It is not
 	// optional on this backend: the staging path is not the final home path, so a capture
@@ -353,6 +356,12 @@ func buildCapturePlanAt(opts CaptureOptions, stagingRoot string) CapturePlan {
 		if self {
 			validationContext.DarwinUserTempDir = opts.DarwinUserTempDir
 			validationContext.SharedTmp = opts.SharedTmp
+		} else {
+			// The account capture's (allow default) profile grants writes to /tmp and all of
+			// /var/folders (SeatbeltCaptureProfile), so its context names exactly those: the
+			// launcher-time check refuses only what the profile would (MMP-D36).
+			validationContext.DarwinUserTempDir = accountCaptureTempRoot
+			validationContext.SharedTmp = true
 		}
 		if contextJSON, err := MarshalSandboxTmpdirValidationContext(validationContext); err == nil {
 			captureEnv = withEnvVar(captureEnv, paths.MacosUserTmpdirContextEnv, contextJSON)

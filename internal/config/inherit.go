@@ -223,7 +223,7 @@ var inheritCensus = map[string]keyDisposition{
 	"perf_logging": {nested: true, reason: "an inner launcher times the launches it makes"},
 	// `macos_user_shared_tmp` is the same backend's shared-/tmp hatch (OQ-MM8), not inherited for
 	// the same reason.
-	"macos_user_shared_tmp": {reason: "opens the shared /tmp to a run-as-you macos-user launch on a macOS host; a nested jail is Linux and has no macos-user backend"},
+	"macos_user_shared_tmp": {reason: "opens the shared /tmp to a macos-user launch on a macOS host; a nested jail is Linux and has no macos-user backend"},
 	"network":               {nested: true, reason: "the network mode an inner launcher gives its container"},
 	// `env_sources` is nested-only for a measured reason, not a judgement: its string
 	// entries are HOST FILE PATHS, and resolving them in-jail emits "dotenv file not

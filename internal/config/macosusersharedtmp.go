@@ -9,7 +9,7 @@ import (
 
 // macosusersharedtmp.go is the config half of the shared-/tmp hatch
 // (docs/design/macos-user-model-plan.md, MMP-D18, OQ-MM8 ruled 2026-10-23): the
-// deny-by-default profile closes the shared /tmp, and `"macos_user_shared_tmp": true`
+// deny-by-default profile closes the shared /tmp in both modes (MMP-D29), and `"macos_user_shared_tmp": true`
 // in the USER config opens it again, read and write, for a user whose tools need it.
 
 // macosUserSharedTmpKey is the top-level key of the hatch.
@@ -46,7 +46,7 @@ func validateMacosUserSharedTmp(config *jsonx.OrderedMap, workspace string, errs
 	}
 	if wsValue, atWorkspace := wsCfg.Get(macosUserSharedTmpKey); atWorkspace && wsValue != nil && WorkspaceUserScopeOnlyKey(macosUserSharedTmpKey) {
 		add(errs, "config."+macosUserSharedTmpKey+": user-scope only — it opens the shared /tmp to "+
-			"every run-as-you macos-user launch, and it is read from "+paths.UserConfigDisplayPath()+
+			"every macos-user launch, in either mode, and it is read from "+paths.UserConfigDisplayPath()+
 			" alone, so a workspace value is never consulted. Move it there, or remove it.")
 	}
 }

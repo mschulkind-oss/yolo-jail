@@ -52,10 +52,11 @@ type RunPlan struct {
 	SessionTmpDir            string
 	SessionTmpRemoveCommands [][]string
 	// TmpdirProblem is the refusal for a TMPDIR the user's env composed outside every root the
-	// run-as-you profile grants (composedTmpdirProblem, MMP-D20), "" when there is none.
+	// profile grants (composedTmpdirProblem, MMP-D20; the account mode too, MMP-D36), "" when
+	// there is none.
 	TmpdirProblem string
-	// SharedTmp is true when the run-as-you profile grants the shared /tmp (the
-	// `macos_user_shared_tmp` hatch, MMP-D18), which the launch discloses.
+	// SharedTmp is true when the profile grants the shared /tmp (the `macos_user_shared_tmp`
+	// hatch, MMP-D18; in either mode, MMP-D36), which the launch discloses.
 	SharedTmp bool
 	// StagedDir is the host-owned staging root; StagedYolo is the staged yolo
 	// binary the sandbox self-execs. StageCommands stage that binary
@@ -471,9 +472,11 @@ type PlanSession struct {
 	//     (LaunchHomes) and names what the profile denies in it;
 	//   - HostUser, the invoking user's name, the sandbox's USER;
 	//   - DarwinUserTempDir, `getconf DARWIN_USER_TEMP_DIR` of the invoking user, which the profile
-	//     opens under every /tmp policy (frameworks write there whatever TMPDIR says);
-	//   - SharedTmp, the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18), which opens
-	//     the shared /tmp the profile otherwise closes.
+	//     opens under every /tmp policy (frameworks write there whatever TMPDIR says).
+	//
+	// Both modes read SharedTmp, the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18,
+	// MMP-D36), which opens the shared /tmp the profile otherwise closes, and DarwinUserTempDir,
+	// which in the account mode is the ACCOUNT's own (MMP-D29).
 	Mode              Mode
 	HostHome          string
 	HostUser          string
@@ -510,11 +513,10 @@ func darwinBootstrapArgvUnder(runAs RunAs, stagedYolo, home string, bootstrapEnv
 // with the two pending rulings at their production values (MMP-D13), the session's own TMPDIR
 // (MMP-D17) and the session's host-services dirs, read only by exact path (MMP-D15).
 //
-// THE ACCOUNT MODE (MMP-D25, MMP-D29) differs in two inputs. It runs as SandboxUser, and its
-// shared /tmp stays open: the account mode sets no session TMPDIR and keeps the TMPDIR its
-// user's env layers give it (SandboxTmpdirValidationProblem), so a closed /tmp would break
-// every tool that falls back to /tmp under an unchanged config. Its per-user temp dir is the
-// account's own (Deps.AccountUserTempDir), open under that same policy.
+// THE ACCOUNT MODE (MMP-D25, MMP-D29) differs in its inputs alone. It runs as SandboxUser, it has
+// no session TMPDIR (MMP-D17), and its per-user temp dir is the account's own
+// (Deps.AccountUserTempDir), which is also its TMPDIR (MMP-D30). The shared /tmp is closed in
+// both modes, and the user's `macos_user_shared_tmp` hatch opens it in both (MMP-D36).
 func denyDefaultProfileParams(workspace string, homes Homes, hostPackRoot string, session PlanSession,
 	readonlyRels, readonlyTargets []string, homeReadonly HomeReadonly, ctxLinks []ContextLink,
 	relocs []CacheRelocation, aliases []CacheAlias, devices []string, sandboxTmp string,
@@ -547,8 +549,6 @@ func denyDefaultProfileParams(workspace string, homes Homes, hostPackRoot string
 	}.WithProductionRulings()
 	if session.Mode != ModeSelf {
 		p.RunAsUser = SandboxUser
-		p.Tmp = TmpShared // the account mode keeps its /tmp (MMP-D29)
-		return p
 	}
 	if session.SharedTmp {
 		p.Tmp = TmpShared // the user's hatch (OQ-MM8, MMP-D18)
@@ -778,7 +778,8 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	// THE SESSION'S OWN TEMP DIR (sessiontmp.go, MMP-D17), run-as-you only: TMPDIR, and tmux's
 	// and zsh's own variables, which ignore it, pointed into it, so their files and sockets land
 	// in a place of this session's that the profile lets the sandbox bind sockets under (MMP-D16)
-	// rather than in the /tmp every process of yours shares. The account mode is today's plan.
+	// rather than in the /tmp every process of yours shares. The account mode sets its TMPDIR
+	// to the account's own temp dir instead (withAccountTmpEnv, MMP-D30, MMP-D36).
 	// Selected programs may also declare environment variables that follow this final TMPDIR;
 	// they are read from the staged pack tree, not a core tool-name table.
 	program := ""
@@ -787,12 +788,12 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	}
 	tempEnvNames, tempEnvErr := sandboxTmpdirEnvAt(hostPackRoot, program)
 	sessionTmp, composedTmp := "", ""
-	if self {
-		if sandboxEnv != nil {
-			if v, ok := sandboxEnv.Get("TMPDIR"); ok {
-				composedTmp = asStr(v)
-			}
+	if sandboxEnv != nil {
+		if v, ok := sandboxEnv.Get("TMPDIR"); ok {
+			composedTmp = asStr(v)
 		}
+	}
+	if self {
 		sessionTmp = SessionTmpDir(session.DarwinUserTempDir, sessionID)
 		sandboxEnv = withSessionTmpEnv(sandboxEnv, sessionTmp)
 	} else {
@@ -800,23 +801,22 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		// crossing and the closed `env -i` list leave the sandbox no TMPDIR at all, and
 		// `getconf DARWIN_USER_TEMP_DIR` inside the profile answers nothing (measured on a Mac,
 		// 2026-11-03), so without this every tool fell back to /tmp. The directory is the one the
-		// profile already grants; a TMPDIR one of the user's env layers composed still wins.
+		// profile already grants; a TMPDIR one of the user's env layers composed still wins, and
+		// is checked below like self mode's, since the profile closes the shared /tmp (MMP-D36).
 		sandboxEnv = withAccountTmpEnv(sandboxEnv, session.DarwinUserTempDir)
 		// HOME is the workspace's sidecar, which YOU own, and the sandbox runs as the account, so
 		// nix refused it on every call (MMP-D31); naming the XDG base dirs keeps nix off getHome.
 		sandboxEnv = withAccountXDGEnv(sandboxEnv, homes.Home)
 	}
 	sandboxEnv = withSandboxTmpdirEnv(sandboxEnv, tempEnvNames)
-	darwinUserTempDir := ""
-	if self {
-		darwinUserTempDir = session.DarwinUserTempDir
-	}
+	// The roots the profile grants, in either mode: the account mode's temp dir is the account's
+	// own, and the hatch opens the shared /tmp in both (MMP-D36).
 	validationContext := SandboxTmpdirValidationContext{
 		Mode: session.Mode, Workspace: workspace, Home: homes.Home,
-		DarwinUserTempDir: darwinUserTempDir, SharedTmp: session.SharedTmp && self,
+		DarwinUserTempDir: session.DarwinUserTempDir, SharedTmp: session.SharedTmp,
 	}
 	tmpdirProblem := SandboxTmpdirValidationProblem(validationContext, "TMPDIR", composedTmp)
-	if self && tmpdirProblem == "" {
+	if tmpdirProblem == "" {
 		for _, name := range tempEnvNames {
 			if value, ok := sandboxEnv.Get(name); ok && asStr(value) != "" {
 				if problem := SandboxTmpdirValidationProblem(validationContext, name, asStr(value)); problem != "" {
@@ -879,15 +879,15 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 	bootstrapEnv.Set(entrypoint.DarwinMachineHomeEnv, homes.Machine)
 	bootstrapEnv.Set(entrypoint.DarwinSharedHomeEnv, homes.Shared)
 	bootstrapEnv.Set(paths.DarwinRealHomeEnv, homes.Real)
-	// The shared package caches' links (MMP-D12) and the session's TMPDIR are the run-as-you
-	// mode's alone: the account mode shares no host cache (cacheAliasProblems) and keeps its TMPDIR.
+	// THE SANDBOX'S TMPDIR, to the bootstrap too (MMP-D21; the account mode's, MMP-D36): its env
+	// is `env -i`'s closed list, so without it the bootstrap's children (the npm refresh, the nix
+	// root watcher, the identity step) would fall back to the shared /tmp the profile closes.
+	if v, ok := sandboxEnv.Get("TMPDIR"); ok && asStr(v) != "" && (!self || sessionTmp != "") {
+		bootstrapEnv.Set("TMPDIR", asStr(v))
+	}
+	// The shared package caches' links (MMP-D12) are the run-as-you mode's alone: the account
+	// mode shares no host cache (cacheAliasProblems).
 	if self {
-		// THE SESSION'S TMPDIR, to the bootstrap too (MMP-D21): its env is `env -i`'s closed list,
-		// so without it the bootstrap's children (the npm refresh, the nix root watcher, the identity
-		// step) would fall back to the shared /tmp the profile closes.
-		if v, ok := sandboxEnv.Get("TMPDIR"); ok && sessionTmp != "" {
-			bootstrapEnv.Set("TMPDIR", asStr(v))
-		}
 		if len(hostCtx.CacheAliases) > 0 {
 			wire := map[string]string{}
 			for _, a := range hostCtx.CacheAliases {
@@ -1153,7 +1153,7 @@ func BuildRunPlanWithStages(workspace string, cfg *jsonx.OrderedMap, agents, age
 		Seatbelt:                 seatbelt,
 		SessionTmpDir:            sessionTmp,
 		TmpdirProblem:            tmpdirProblem,
-		SharedTmp:                self && session.SharedTmp,
+		SharedTmp:                session.SharedTmp,
 		SessionTmpRemoveCommands: SessionTmpRemoveCommands(sessionTmp),
 		StagedDir:                stateDir,
 		StagedYolo:               stagedYolo,

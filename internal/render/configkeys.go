@@ -144,8 +144,8 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"built-in host setup, so a table of yours has no meaning at the host notch"},
 	"share_host_fonts": {KeyNotApplicable, "shares the user's font folder into a jail that does " +
 		"not run as them; at the host notch the agent already is the user and reads its own fonts"},
-	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a run-as-you macos-user " +
-		"launch's profile; `yolo host` runs no profile, so the key has no meaning at the host notch"},
+	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a macos-user launch's " +
+		"profile, in either mode; `yolo host` runs no profile, so the key has no meaning at the host notch"},
 	"perf_logging": {KeyHonored, "`yolo host --` and `yolo host apply` record their spans when it " +
 		"is on, silently, into the machine-wide host-notch-perf.log (run.HostNotchTimingLog, " +
 		"reading config.PerfLoggingEnabled), as a jail launch records into its workspace's file"},

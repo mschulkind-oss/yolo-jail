@@ -617,7 +617,8 @@ type Options struct {
 	MacosUserMode     macosuser.Mode
 	MacosUserHostHome string
 	// MacosUserSharedTmp is the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18): a
-	// run-as-you profile then grants the shared /tmp, and the briefing drops its /tmp line.
+	// macos-user profile, in either mode (MMP-D36), then grants the shared /tmp, and the briefing
+	// drops its /tmp line.
 	MacosUserSharedTmp bool
 	// macosHostCASPlatform overrides the host platform the macos-user package-cache alias
 	// compares against the sandbox's ("" = hostcas.HostPlatform()), so a Linux test can state

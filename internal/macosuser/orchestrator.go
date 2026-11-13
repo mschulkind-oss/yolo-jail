@@ -347,7 +347,7 @@ type Options struct {
 	HostHome string
 	HostUser string
 	// SharedTmp is the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18), read by cli;
-	// the run-as-you profile then grants the shared /tmp. The account mode ignores it.
+	// the profile then grants the shared /tmp, in either mode (MMP-D36).
 	SharedTmp bool
 	// ShareHostFonts is the user-scope `share_host_fonts` opt-in (OQ-NX9), read by cli: in the
 	// account mode it lists your ~/Library/Fonts in the session's fonts.conf and grants the
@@ -1549,7 +1549,7 @@ func loopbackDisclosure(plan RunPlan) string {
 		"network would [dim](OQ-MM7)[/dim]"
 }
 
-// sharedTmpDisclosure is the line a run-as-you launch prints when the user's
+// sharedTmpDisclosure is the line a launch, in either mode, prints when the user's
 // `macos_user_shared_tmp` hatch opened the shared /tmp (OQ-MM8, MMP-D18), "" otherwise.
 func sharedTmpDisclosure(plan RunPlan) string {
 	if !plan.SharedTmp {

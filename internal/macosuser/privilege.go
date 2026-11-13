@@ -97,7 +97,7 @@ func RunAsGrantProbeArgv() []string { return RunAsSandboxArgv(nil, "/usr/bin/tru
 // AccountUserTempDirArgv asks the yolo account's own DARWIN_USER_TEMP_DIR through the rule:
 // `/usr/bin/sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`. Only
 // the account can answer it — the directory is derived from the asking user — and the account
-// mode's profile opens it (MMP-D29).
+// mode's profile opens it (MMP-D29), and makes it the sandbox's TMPDIR (MMP-D30).
 func AccountUserTempDirArgv() []string {
 	return RunAsSandboxArgv(nil, "/usr/bin/getconf", "DARWIN_USER_TEMP_DIR")
 }

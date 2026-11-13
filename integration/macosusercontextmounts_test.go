@@ -237,7 +237,9 @@ func TestMacosUserCopiesAPackFileMountIntoTheContextDir(t *testing.T) {
 		`f="$YOLO_CONTEXT_DIR/filemount/notes.txt"`,
 		`echo "read|$(cat "$f" 2>/dev/null || echo DENIED)"`,
 		`if ( echo x >> "$f" ) 2>/dev/null; then echo "write|ALLOWED"; else echo "write|DENIED"; fi`,
-		`if ( echo y > /tmp/yolo-it-fm && mv -f /tmp/yolo-it-fm "$f" ) 2>/dev/null; then echo "replace|ALLOWED"; else echo "replace|DENIED"; fi`,
+		// Staged in $TMPDIR, which the sandbox may write: the shared /tmp is closed (MMP-D29), and a
+		// write refused there would answer DENIED for the wrong reason.
+		`if ( echo y > "$TMPDIR/yolo-it-fm" && mv -f "$TMPDIR/yolo-it-fm" "$f" ) 2>/dev/null; then echo "replace|ALLOWED"; else echo "replace|DENIED"; fi`,
 		`if ( rm -f "$f" && [ ! -e "$f" ] ) 2>/dev/null; then echo "delete|ALLOWED"; else echo "delete|DENIED"; fi`,
 		`echo "=== END CTX ==="`,
 	}, "\n"))
