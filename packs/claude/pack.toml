@@ -92,10 +92,15 @@ update = ["install"]
 url = "https://claude.ai/install.sh"
 via = "installer"
 
+# warns_above_chars is Claude Code's own threshold, MEASURED from its 2.1.323 binary on 2026-11-13
+# (docs/design/briefing-diet.md §2.1, BD-D9): it warns when one instruction file is longer than
+# max(40,000, a share of the context window), and the floor applies at a 200,000-token window. A
+# launch warns when this file passes it, naming the next step; it never trims the file.
 [[briefing]]
 after = "host:.claude/CLAUDE.md"
 agent = "claude"
 into = ".claude/CLAUDE.md"
+warns_above_chars = 40000
 
 [[briefing]]
 agents = ["claude"]

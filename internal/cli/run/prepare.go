@@ -442,6 +442,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 				content = o.prependHostBriefing(src, hostOverlay, d.Into, content)
 			}
 		}
+		o.noteBriefingSize(d, content, packBriefings)
 		if err := jailcontent.WriteBriefing(
 			filepath.Join(staging, briefingStagingName(d.Into)), content); err != nil {
 			return "", err

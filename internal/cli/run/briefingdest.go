@@ -43,6 +43,9 @@ type briefingDest struct {
 	// (docs/design/trust-paths.md, 2026-09-04): a fetched pack's `after: "host:AGENTS.md"`
 	// is honored like anyone else's, so the destination carries only what it declares.
 	After string
+	// WarnsAbove is the declaring contribution's `warns_above_chars`, or 0 when it declared
+	// none: the length above which this destination's agent warns (briefingsizeline.go).
+	WarnsAbove int
 }
 
 // briefingDestinations enumerates a jail's briefing destinations, deduplicated by path with
@@ -71,7 +74,11 @@ func briefingDestinations(packs []*packload.Pack) []briefingDest {
 				continue
 			}
 			seen[c.Into] = true
-			out = append(out, briefingDest{Into: c.Into, Agent: c.Agent, After: c.After})
+			d := briefingDest{Into: c.Into, Agent: c.Agent, After: c.After}
+			if c.WarnsAboveChars != nil {
+				d.WarnsAbove = *c.WarnsAboveChars
+			}
+			out = append(out, d)
 		}
 	}
 	return out
