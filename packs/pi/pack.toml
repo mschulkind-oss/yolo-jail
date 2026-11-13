@@ -24,6 +24,11 @@ model_list_check.pi.references.selection.model = "/defaultModel"
 model_list_check.pi.references.selection.provider = "/defaultProvider"
 model_list_check.pi.references.surface = "pi/settings"
 name = "pi"
+# pi's remote MCP form is streamable HTTP only: stock pi 1.0.1 takes `url`, `headers` and an
+# `oauth` table, and rejects the legacy SSE transport (dist/core/mcp-servers.js,
+# validateMcpServerConfig; docs/mcp.md), so an "sse" server is withheld from pi with the boot
+# notice naming it. derive.lua's pi_mcp_servers maps yolo's remote form to pi's spelling.
+mcp_remote_transports = ["http"]
 # EACH SESSION READS ITS OWN CONFIG DIR (docs/design/per-session-profiles.md): a session's
 # boot pass renders this pack's surfaces in ~/.pi/agent into ~/.pi/.yolo-sessions/<id>/agent,
 # links everything else back to ~/.pi/agent, and exports PI_CODING_AGENT_DIR, which stock pi

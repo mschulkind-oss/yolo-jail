@@ -636,6 +636,13 @@ When the broker has no record, the command exits non-zero and prints `slack: not
 yolo mcp-auth login slack`; the agent reports the server as failed, and the launch block shows the
 same line.
 
+**Built so far (2026-11-12):** the header command and pi's render of it. The details are in the
+plan's [ID-22](mcp-auth-sharing-plan.md#id-22) and [ID-23](mcp-auth-sharing-plan.md#id-23).
+- Where it works: a podman jail on Linux whose broker runs, and `yolo host` on Linux.
+- With no record, the command names the sign-in to make in Claude. It cannot name
+  `yolo mcp-auth login`, because that verb is not built.
+- Codex's header command is not built: Codex 0.145.0 has no `http_headers_helper`.
+
 ### 9.7 Refresh, sign-out, and where it cannot work
 
 - **Refresh is the broker's alone**, always, by [§8.4](#84-refresh-the-broker-is-the-single-refresher)'s
