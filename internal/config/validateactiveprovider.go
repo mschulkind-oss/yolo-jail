@@ -5,7 +5,7 @@ import (
 )
 
 // validateActiveProvider is the launch's check of `active_provider`, the selection key a readable
-// user config writes (OQ-RC14; docs/design/config-user.md §5). The key is user-scope only (its
+// user config writes (OQ-RC14; docs/reference/config/user-config.md#which-provider-each-agent-runs-on). The key is user-scope only (its
 // schema rule, SchemaScopeUserOnly), so a TOML project file is refused by its own reader; this
 // refuses the old-format workspace file, which has no schema. It also refuses the key beside the
 // legacy `profile` key (the consumer boundary's own words, ConfigProviderConsumer) and a value

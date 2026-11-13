@@ -7,7 +7,7 @@ import (
 )
 
 // models_test.go pins the model rows' conversion and folds (docs/design/config-migration.md §4
-// item 4, docs/design/readable-config.md OQ-RC18, RC-D27, RC-D29): a legacy row keyed by its own
+// item 4, docs/reference/config/rulings.md#OQ-RC18, RC-D27, RC-D29): a legacy row keyed by its own
 // id becomes a readable row, a `vendor` the id implies is dropped, and a fact every row of a
 // provider repeats moves into its `every_model`, each only while the provider table a launch
 // resolves stays the same.

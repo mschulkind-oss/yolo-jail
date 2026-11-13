@@ -1,6 +1,6 @@
 package config
 
-// mountsrequest.go is RC-D24 (docs/design/readable-config.md): a project's TOML config may
+// mountsrequest.go is RC-D24 (docs/reference/config/rulings.md): a project's TOML config may
 // REQUEST a writable host mount, and the user config says whether any project may.
 //
 //   - The ceiling is `[allow.mounts] on_request = ["write"]` in the user config, read through
@@ -102,7 +102,7 @@ func validateAllowMounts(config *jsonx.OrderedMap, errs *[]string) {
 
 // withReadableScopeKeys is known plus the readable-config tables a TOML scope may write and the
 // legacy key list does not hold: `allow`, the user-scope ceiling table, `repos`, the named
-// repository tables (GW-D76), `requests`, the workspace-scope ask (docs/design/readable-config.md
+// repository tables (GW-D76), `requests`, the workspace-scope ask (docs/reference/config/rulings.md
 // RC-D12), and `active_provider`, the
 // user-scope selection (OQ-RC14), which validateActiveProvider judges. A launch's validation of a
 // composed config holding the user's [allow.mounts] (or any [allow.<name>], which the broker

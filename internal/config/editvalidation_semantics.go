@@ -122,7 +122,7 @@ func validateProvidersForExplicit(config, readableEffective *jsonx.OrderedMap, c
 
 // modelGapProblem is the edit problem for a selected model with no maker or an incomplete price:
 // where the model is declared, the fix, and that a launch runs without it. A launch composes the
-// model with the fact unsaid (docs/design/readable-config.md RC-D29 (6)), so an edit is refused
+// model with the fact unsaid (docs/reference/config/rulings.md#RC-D29 (6)), so an edit is refused
 // only for a gap it introduces; one the config already had is a warning
 // (ValidatedExplicitEditResult.Preexisting).
 func modelGapProblem(gap ProviderModelGap, ctx *editValidationContext) string {
@@ -212,7 +212,7 @@ func legacyProviderValidationProjection(config *jsonx.OrderedMap) *jsonx.Ordered
 
 // readableOnlyProviderKeys are the provider-level keys only the readable vocabulary spells (its
 // schema's providers.*.<key> rows that the legacy knownProviderKeys lacks): a provider's starting
-// `model`, `alias`, `via`, `variants` and `every_model` (config-user.md §5). The legacy shape check
+// `model`, `alias`, `via`, `variants` and `every_model` (docs/reference/config/user-config.md#which-provider-each-agent-runs-on). The legacy shape check
 // reads an entry without them; their shapes are the readable schema's and the provider
 // declaration decoder's to check.
 func readableOnlyProviderKeys() map[string]bool {

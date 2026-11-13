@@ -12,7 +12,7 @@ import (
 )
 
 // configNameKind is what a config file name holds, as file selection sees it (RC-D59,
-// docs/design/readable-config.md#RC-D59). Presence is os.Lstat, not os.Stat: a name that
+// docs/reference/config/rulings.md#RC-D59). Presence is os.Lstat, not os.Stat: a name that
 // exists in any form is a candidate, so a link to nothing is never read as "no file".
 type configNameKind int
 

@@ -1,7 +1,7 @@
 package cli
 
 // requestskipped_test.go pins, through the commands a user runs, the report of a project broker
-// request outside the user's ceiling (docs/design/config-user.md §6): `yolo check` names it with
+// request outside the user's ceiling (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins): `yolo check` names it with
 // `yolo allow github on_request <capability>` alone on its line and `yolo config apply` after it,
 // and that allow line is a command `yolo allow` accepts. Before the fix `yolo check` said
 // nothing, and the owner of this repository approved the request at the gate unaware that it

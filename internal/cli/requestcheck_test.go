@@ -2,7 +2,7 @@ package cli
 
 // requestcheck_test.go pins that `yolo request`'s config-only post-write check reads the readable
 // (TOML) config the launch reads: the user's config.toml and config.d fragment with `[allow]`,
-// and the project's yolo-jail.toml with `[requests]` (docs/design/readable-config.md RC-D12, RC-D17).
+// and the project's yolo-jail.toml with `[requests]` (docs/reference/config/rulings.md#RC-D12, RC-D17).
 
 import (
 	"strings"

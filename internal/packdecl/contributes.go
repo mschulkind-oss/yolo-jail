@@ -802,7 +802,7 @@ type Contribution struct {
 	// two names is two contributions, which is the ordinary multi-provider pack.
 	//
 	// A pack.toml writes it as the TABLE KEY, `[providers.<id>]`, the same shape as a user's
-	// config (docs/design/readable-config.md RC-D69); a `name` key in that table is refused,
+	// config (docs/reference/config/rulings.md#RC-D69); a `name` key in that table is refused,
 	// since there `name` is the user's selection name (RC-D68). `[[provider]] name = "<id>"`
 	// is the legacy spelling, read for a few releases (Manifest.LegacySpellings, noted by
 	// `yolo check`); one id declared both ways is refused naming `yolo pack migrate <path>`,

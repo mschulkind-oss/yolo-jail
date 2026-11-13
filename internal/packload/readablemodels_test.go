@@ -9,8 +9,8 @@ import (
 )
 
 // readablemodels_test.go pins a model said once reaching the composed provider table
-// (docs/design/readable-config.md RC-D29, docs/design/pack-manifests.md §4,
-// docs/design/config-user.md §8 C7): the readable rows, `every_model`, `twin_of`, `compact_at`
+// (docs/reference/config/rulings.md#RC-D29, docs/design/pack-manifests.md §4,
+// docs/reference/config/user-config.md#lines-you-never-write C7): the readable rows, `every_model`, `twin_of`, `compact_at`
 // and the catalog's facts, lowered into the alias map and flat facts every derive reads.
 
 func readablePack(t *testing.T, body string) *Pack {

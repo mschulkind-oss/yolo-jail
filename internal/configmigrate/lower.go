@@ -532,7 +532,7 @@ func lowerEnvSources(value any, place func([]string, any, []string) bool, skip f
 // lowerBrokered converts a project's brokered repository list and its branch and tag grants to
 // requests. A request names refs on every remote of the workspace, so a grant converts only when
 // the repository it names is the workspace's one remote repository; any other grant would widen
-// or narrow what may be pushed (readable-config-plan.md §7) and is left at its old spelling. A
+// or narrow what may be pushed (docs/reference/config/rulings.md#how-it-was-built) and is left at its old spelling. A
 // user file's brokered table becomes allow.<source> instead (lowerUserBrokered).
 func lowerBrokered(value any, ctx loweringContext, declared map[string]string, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	sources, ok := value.(*jsonx.OrderedMap)

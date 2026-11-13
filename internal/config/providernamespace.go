@@ -1,7 +1,7 @@
 package config
 
 // providernamespace.go is the one set of names the provider declarations answer to in a selection
-// (docs/design/readable-config.md RC-D68): each provider id has one entry, its own configuration
+// (docs/reference/config/rulings.md#RC-D68): each provider id has one entry, its own configuration
 // answers to its `name` (the id when unwritten) and its aliases, and each variant answers to its
 // `name` (`<provider name>/<variant>` when unwritten) and its aliases. Every collision is fatal
 // (the owner, 2026-11-03: *"colliding alias/name should be fatal"*), except an alias equal to its

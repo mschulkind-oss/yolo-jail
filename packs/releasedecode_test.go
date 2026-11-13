@@ -272,7 +272,7 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("host_keychain_env")},
 	// Measured against v0.17.0 on 2026-11-06: the provider packs write every provider keyed,
-	// `[providers.<id>]` (docs/design/readable-config.md RC-D69). That reader reads a keyed
+	// `[providers.<id>]` (docs/reference/config/rulings.md#RC-D69). That reader reads a keyed
 	// table's `models` as model rows, so a pack still listing its models as the legacy flat map
 	// stops its decode; it does not know a variant's `name` (bedrock-bridge, now a variant of
 	// bedrock), so it skips the bedrock provider; and it does not know `formerly.providers`. The

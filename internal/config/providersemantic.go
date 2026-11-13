@@ -102,7 +102,7 @@ type ProviderSemanticInput struct {
 	Catalog      map[string]map[string]packdecl.ProviderModel
 	// ReportModelGaps composes each selected provider's models as a launch does: a model with an
 	// unknown maker or an incomplete price composes, and each such gap is listed in
-	// ProviderSemanticResult.ModelGaps instead of refusing (docs/design/readable-config.md
+	// ProviderSemanticResult.ModelGaps instead of refusing (docs/reference/config/rulings.md
 	// RC-D29 (6)). Edit validation sets it, so it can refuse only a gap the edit introduces.
 	ReportModelGaps bool
 }

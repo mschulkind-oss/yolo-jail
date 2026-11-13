@@ -172,7 +172,7 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	// is the right place to surface: the fatal form of the same problem already refused
 	// the launch in ValidateConfig.
 	//
-	// The ONE SELECTION NAMESPACE (config-user.md §5, OQ-RC3): the declarations also hold an
+	// The ONE SELECTION NAMESPACE (docs/reference/config/user-config.md#which-provider-each-agent-runs-on, OQ-RC3): the declarations also hold an
 	// implied profile per provider, alias and `<provider>/<variant>` no profile names, so
 	// `active_provider` and `-p` resolve a provider by its own name here and in the jail.
 	userProfiles, err := config.LoadSelectableProfiles(func(msg string) {

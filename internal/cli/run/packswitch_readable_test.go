@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// `packs` IS THE ONLY SWITCH in a TOML user config (config-user.md §7): `loopholes.<name>.enabled`
+// `packs` IS THE ONLY SWITCH in a TOML user config (docs/reference/config/user-config.md#one-switch-packs): `loopholes.<name>.enabled`
 // has no TOML spelling, so a selected pack's loophole runs, and its `[allow.<pack>]` table is the
 // loophole's settings. The legacy spelling (`loopholes.aws-auth.enabled` + `.settings`) and the
 // converted one must plan the same launch: aws-auth enabled, with the same settings. The converted

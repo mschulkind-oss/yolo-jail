@@ -1,7 +1,7 @@
 package config
 
 // providersemantic_selection.go is the ONE selection namespace a launch reads
-// (docs/design/config-user.md §5; readable-config.md OQ-RC3, OQ-RC14, OQ-RC20, RC-D4): the
+// (docs/reference/config/user-config.md#which-provider-each-agent-runs-on; docs/reference/config/rulings.md#OQ-RC3, OQ-RC14, OQ-RC20, RC-D4): the
 // `active_provider` key, the legacy `profile` key it renames (RC-D1, kept for the dual-reader
 // window, RC-D19), and `-p`, all lowered to one ProfileSelection that FoldProfiles folds, and all
 // resolved against one set of names:

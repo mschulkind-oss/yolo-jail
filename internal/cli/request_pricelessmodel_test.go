@@ -12,7 +12,7 @@ import (
 )
 
 // The owner's shape: a TOML user config whose config.d include selects Bedrock and declares a
-// model with no price table. A launch accepts it (docs/design/readable-config.md RC-D29 (6)).
+// model with no price table. A launch accepts it (docs/reference/config/rulings.md#RC-D29 (6)).
 const pricelessBedrockFragment = "[allow.github]\nalways = [\"read\"]\non_request = [\"approve_runs\"]\n\n" +
 	"[active_provider]\ndefault = \"bedrock\"\n\n" +
 	"[providers.bedrock.models.\"global.anthropic.claude-haiku-5-5\"]\nname = \"Haiku 5.5\"\ncontext = 1000000\n"

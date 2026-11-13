@@ -477,7 +477,7 @@ func (c *hostComposition) selectionRemedy() string {
 // selectionCommand is the verb that makes this launch's selection the configured one, in
 // backquotes: `yolo active-provider <agent> <profile>` for one profile, and the generic
 // `yolo config set active_provider.<agent> [...] --user` for an active set, which the named verb
-// does not take (docs/design/config-commands.md §4).
+// does not take (docs/reference/config/editing.md#the-commands).
 func (c *hostComposition) selectionCommand() string {
 	if len(c.set) <= 1 {
 		return "`yolo active-provider " + shquote.Quote(c.agent) + " " + shquote.Quote(c.profile) + "`"

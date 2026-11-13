@@ -74,7 +74,7 @@ func tomlCommentLine(text string) string {
 
 // emitter writes a TOML document from new values, placing each old comment, in document order,
 // before the first written line whose old key came after it, and the rest at the end
-// (readable-config-plan.md §6 "Comment migration").
+// (docs/design/config-migration.md#4-what-yolo-config-migrate-does, "Keeps comments, in order").
 type emitter struct {
 	out      strings.Builder
 	comments []comment

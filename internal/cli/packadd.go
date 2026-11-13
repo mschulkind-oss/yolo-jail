@@ -1,7 +1,7 @@
 package cli
 
 // packadd.go is `yolo pack add <handle>` and `yolo pack remove <handle>`: the two named verbs
-// that edit the user config's `packs` list (docs/design/config-commands.md §1 and §4).
+// that edit the user config's `packs` list (docs/reference/config/editing.md#the-commands and §4).
 //
 // They earn a command over a text edit by what a text edit cannot do: add resolves the handle
 // to the source it names and says where it was found, refuses a duplicate before writing, and

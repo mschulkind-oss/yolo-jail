@@ -1,7 +1,7 @@
 package macosuser
 
 // readablelayout_test.go pins the macos-user readers of the settings the readable config layout
-// moved (docs/design/readable-config.md): `resources` → `machine.resources` and `mise_tools` →
+// moved (docs/reference/config/rulings.md): `resources` → `machine.resources` and `mise_tools` →
 // `install.mise`. Since that cutover the LOADED config carries only the new spelling, whichever
 // format the file was written in, and every macos-user reader that still asked for the old
 // top-level key found nothing: no cooperative cpus, no I/O priority, no memory guard, and no

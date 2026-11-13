@@ -8,11 +8,11 @@ import (
 )
 
 // everyModelKey is a provider's facts for every one of its models (docs/design/pack-manifests.md
-// §4, docs/design/readable-config.md RC-D29).
+// §4, docs/reference/config/rulings.md#RC-D29).
 const everyModelKey = "every_model"
 
 // legacyOnlyModelKeys are the object-form keys only the legacy model vocabulary spells
-// (docs/design/readable-config.md OQ-RC13): a row without `id` that writes one of them is a
+// (docs/reference/config/rulings.md#OQ-RC13): a row without `id` that writes one of them is a
 // legacy row missing its id, and keeps that refusal, rather than a readable row.
 var legacyOnlyModelKeys = set("input", "cost", "context_window")
 
