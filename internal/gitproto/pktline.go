@@ -1,7 +1,7 @@
 // Package gitproto reads and writes the parts of git's wire protocol the git broker judges:
 // pkt-line framing, side-band multiplexing, a push's ref commands and its report-status, and
 // the reduction of a remote URL to a repository identity
-// (docs/design/git-broker-plan.md, ID-3 and ID-9; docs/design/git-broker.md §4).
+// (docs/reference/git-broker.md, ID-3 and ID-9; docs/reference/git-broker.md).
 //
 // It is shared by the jail's remote helper and the host's broker, so it holds no policy, opens
 // no connection and imports nothing from either.

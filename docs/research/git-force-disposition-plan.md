@@ -8,7 +8,7 @@ next: "Closed as not a broker defect unless the incident recurs; a recurrence sh
 
 Written against `662d9103b677594de38e6f96f7a07ec693fbf28a`, 2026-10-29.
 Owner-authorized item19 bug diagnosis/repair; branch approval feature issue2 is deferred.
-Behavior authority: `docs/design/git-broker.md`, GB-D12/13/15 and failure paths.
+Behavior authority: `docs/reference/git-broker.md`, GB-D12/13/15 and failure paths.
 Precedence: authority wins behavior; current tree wins facts; this plan is advice.
 
 ## Observed evidence

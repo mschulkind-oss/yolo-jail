@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// working.go is a source's working set (docs/design/git-broker.md §5.1,
-// docs/design/git-broker-plan.md ID-11, boundary-broker.md BB-D85): the resources a workspace
+// working.go is a source's working set (docs/reference/git-broker.md,
+// docs/reference/git-broker.md ID-11, boundary-broker.md BB-D85): the resources a workspace
 // may write to unasked. For the git source each entry is one branch of one repository, recorded
 // when the broker forwarded its creation under a `create-branch` grant and the upstream
 // reported it accepted. An entry is keyed by workspace, so two jails of one workspace share it,

@@ -125,7 +125,7 @@ func TestBrokeredUnknownKeyRefusedTolerantly(t *testing.T) {
 	}
 }
 
-// A source on any host declares `"remote_host": "*"` (docs/design/git-broker-plan.md ID-2): the
+// A source on any host declares `"remote_host": "*"` (docs/reference/git-broker.md ID-2): the
 // whole token alone, never a partial glob.
 func TestBrokeredRemoteHostWildcard(t *testing.T) {
 	m, err := decodeBrokered(t, `
@@ -147,7 +147,7 @@ func TestBrokeredRemoteHostWildcard(t *testing.T) {
 	}
 }
 
-// A source names the grant kinds it defines (docs/design/git-broker-plan.md ID-10, BB-D96): each a
+// A source names the grant kinds it defines (docs/reference/git-broker.md ID-10, BB-D96): each a
 // lowercase name, as a workspace grant and the user's `grant_kinds` spell it.
 func TestBrokeredGrants(t *testing.T) {
 	m, err := decodeBrokered(t, `

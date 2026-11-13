@@ -47,14 +47,14 @@ type Brokered struct {
 	Source string
 	// RemoteHost is the forge whose remotes make up the scope: `github.com`. AnyRemoteHost
 	// (`*`) instead makes the scope every remote URL of the workspace, on any host, matched
-	// exactly (the remote-url scope form, brokerscope.FormRemoteURL; docs/design/git-broker-plan.md
+	// exactly (the remote-url scope form, brokerscope.FormRemoteURL; docs/reference/git-broker.md
 	// ID-2), and such a source takes no `brokered.<source>.repos` entry.
 	RemoteHost string
 	// CredentialPaths are host paths holding the source's credential, fenced from
 	// `mounts` (BB-D26). An entry is `~/…`, an absolute path, or `$VAR` / `$VAR/…`, which
 	// expands from the host environment and is dropped when the variable is unset.
 	CredentialPaths []string
-	// Grants are the kinds of user grant the source defines (docs/design/git-broker-plan.md ID-10,
+	// Grants are the kinds of user grant the source defines (docs/reference/git-broker.md ID-10,
 	// BB-D96): `create-branch` for git. Declaring a kind grants nothing: the user's own config
 	// lists the kinds a workspace may hold (`brokered.<source>.grant_kinds`), and the workspace
 	// config holds each grant, which joins only at the config-change gate. `read` is implied by

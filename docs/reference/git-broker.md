@@ -1,8 +1,8 @@
 ---
 status: accepted
 stage: CURRENT
-verified: 2026-11-06
-verified_commit: f75e64269
+verified: 2026-11-12
+verified_commit: 82dcd8725
 covers:
   - internal/gitbroker/
   - internal/gitremote/
@@ -12,7 +12,6 @@ covers:
   - internal/brokerstore/workingcommit.go
   - internal/brokerscope/grant.go
   - internal/cli/approve.go
-  - internal/cli/approveremember.go
   - internal/cli/gitremote.go
   - packs/git/
 tags: [broker, git, credentials, approvals, loopholes, audit]
@@ -27,10 +26,10 @@ host (the `TestGitBroker*` tests in `integration/gitbroker_test.go`: fetch and r
 grant, branch creation and the working set across a relaunch, a branch declared in config,
 Allow once, and Allow for a time). UNMEASURED: the HTTPS upstream runs only in package tests
 against a local server, and no run against a real forge, a real SSH agent or a real host
-credential helper is recorded.
-**Stale since `86c0666cb` (2026-11-06):** that commit built [GB-D28](../design/git-broker.md#GB-D28),
-so `yolo approve --add` and `--remember` are now refused (`internal/cli/approveremoved_test.go`);
-the passages below that still describe them as answers are owed a re-verification.
+credential helper is recorded. The answers to a push were re-verified 2026-11-12 against
+`82dcd8725`, when the design graduated here: `yolo approve --add` and `--remember` are removed
+([GB-D28](#GB-D28)). One Mac witness is still to run in full
+([W-GB1](#a-mac-witness-still-to-run-w-gb1)).
 
 The git broker lets an agent in a jail run `git fetch`, `git pull`, `git ls-remote` and
 `git push` against the workspace's real remotes while the jail holds no git credential. The
@@ -50,11 +49,10 @@ files one request that a human answers with `yolo approve` on the host. Every ca
 | Requests, grants and working-set entries on the host | `internal/brokerstore` (`Store`, `WorkingEntry`) |
 | Scope files and grant matching | `internal/brokerscope` (`File`, `Grant`, `RefPatternMatches`) |
 | The audit log | `internal/brokeraudit` (`Event`, `RefUpdate`) |
-| The human's answers | `internal/cli` (`approve.go`, `approveremember.go`) |
+| The human's answers | `internal/cli` (`approve.go`; `refuseRemovedApproveFlag` refuses the removed flags) |
 | The pack: the rewrite, the helper's placement, the loophole manifest, the agent briefing | `packs/git` |
 
-**Reads with:** [`git-broker.md`](../design/git-broker.md) (the design and its ruling ledger;
-its removal of `--add` and `--remember` is built, see [The answers](#the-answers)),
+**Reads with:** [the rulings below](#why-its-this-way),
 [`boundary-broker.md`](../design/boundary-broker.md) (the broker model this source sits on and
 its [terms](../design/boundary-broker.md#13-terms)),
 [`loophole-transport.md`](loophole-transport.md) (the jail-to-host leg), and the user guides
@@ -70,7 +68,7 @@ Terms the broker model already defines, **source**, **request**, **grant**, **Al
 [`boundary-broker.md` §1.3](../design/boundary-broker.md#13-terms) defines them. This doc adds or
 narrows these:
 
-- **Broker core** *(coined in [`git-broker.md`](../design/git-broker.md), 2026-10-23)*: the
+- **Broker core** *(coined in the git-broker design, 2026-10-23)*: the
   source-neutral half the GitHub and git brokers share: the daemon shell, the lifetime lease, the
   request store with its grants and working set, the scope and grant checks, the audit log and
   `yolo approve`. A source adds a classifier and an executor on top. Not a daemon of its own: each
@@ -80,7 +78,7 @@ narrows these:
   `~/` and a trailing `/` and `.git` stripped. So `git@github.com:o/r.git` and
   `https://github.com/o/r` are both `github.com/o/r`. Not the URL the broker connects to, which
   is the remote's own string, verbatim.
-- **Working set** *(coined in [`git-broker.md`](../design/git-broker.md), widened to every
+- **Working set** *(coined in the git-broker design, widened to every
   resource in [`boundary-broker.md`](../design/boundary-broker.md#13-terms))*: for git, the
   branches one workspace may create, update, force-push and delete with no further asking. Not
   every branch the jail has pushed: only those joined in one of the ways
@@ -113,9 +111,9 @@ These are what a maintainer breaks by accident. Each holds for SSH and HTTPS ali
   ([Admission](#admission-scope-and-read-grant)).
 - **Policy reads git's protocol, not a forge.** A push is judged from the ref commands
   receive-pack receives, which are exact, so the source works with any git server.
-- **A push is all or nothing** ([GB-D4](../design/git-broker.md#GB-D4)). When any ref is not
+- **A push is all or nothing** ([GB-D4](#GB-D4)). When any ref is not
   covered, no ref is forwarded, and a covered ref is refused "with the rest of this push".
-- **Nothing is granted by default** ([GB-D15](../design/git-broker.md#GB-D15)). Selecting the
+- **Nothing is granted by default** ([GB-D15](#GB-D15)). Selecting the
   pack starts the broker and serves the rewrite in every workspace; without a read grant every
   push and every credentialed fetch is refused, naming the grant.
 - **The live scope is re-read at every call.** A `yolo config apply` on the host that changes
@@ -126,7 +124,7 @@ These are what a maintainer breaks by accident. Each holds for SSH and HTTPS ali
   ids and request ids only. The audit log holds the rest, and a refused request's line names the
   command that reads it: `yolo audit --service git --jail <jail>` on the host.
 - **Every refusal names a next step that works from where the user stands**
-  ([GB-D24](../design/git-broker.md#GB-D24),
+  ([GB-D24](#GB-D24),
   [`happy-path-principle.md`](happy-path-principle.md)). A refusal of an answered request never
   sends the user to `yolo approve` of that request, which only answers pending ones.
 
@@ -280,7 +278,7 @@ keys.
 ## The working set
 
 A branch joins a workspace's working set in one of these ways, each with the same standing
-([OQ-GB2](../design/git-broker.md#OQ-GB2)):
+([OQ-GB2](#OQ-GB2)):
 
 - **The agent creates it through the broker** under a `create-branch` grant, an Allow once, or a
   timed entry, and the upstream's report says `ok`. The broker records an entry
@@ -291,8 +289,9 @@ A branch joins a workspace's working set in one of these ways, each with the sam
   config holds it, never the store: a delete through the broker leaves it declared, and removing
   the grant ends it. `yolo approve` lists it with a `c-` id, marked `from config`, while a jail
   of that project runs.
-- **A human adds it** with `yolo approve <id> --add` on a push request: the existing branches the
-  push needed approval for join with no expiry.
+- **A human added it before 2026-11-06** with `yolo approve <id> --add`, since removed
+  ([GB-D28](#GB-D28)). Such an entry stays, and covers, until it is revoked or its branch is
+  deleted.
 
 An entry lasts across jails and relaunches, with no age cap, until the branch is deleted by a
 push through the broker that the upstream accepted (`deleted`), is found gone upstream when the
@@ -322,12 +321,12 @@ A push that no grant or working-set entry fully covers, and whose every ref lies
 this push or files one request for the whole push (`Broker.askForPush`). Spending and filing are
 one store transaction, so an answer cannot land between them; the use is spent under the store's
 lock, and the push is forwarded after the lock is released
-([GB-D19](../design/git-broker.md#GB-D19)).
+([GB-D19](#GB-D19)).
 
 **What a request binds.** Its command is `git-receive-pack` followed by one `<old> <new> <ref>`
 line per command in the push's order, then one `push-option=<value>` line per push option, so an
 Allow once covers that exact push, every ref and option of it, once
-([GB-D17](../design/git-broker.md#GB-D17)). Its display marks which refs needed approval, which
+([GB-D17](#GB-D17)). Its display marks which refs needed approval, which
 is outside the digest; `yolo approve` shows each ref's old and new ids with no force mark. A
 request's jail is the scope file's container hash, never an id the connection claims.
 
@@ -337,7 +336,7 @@ that needed approval is refused `(needs approval: r-<id>)`, and the refusal list
 that answers it, each command on its own line. The pending request is written to the broker's
 background log, and the user's `on_request` hook runs for it; with no notifier and no hook, the
 agent's own refusal and the log are its only trace
-([GB-D10](../design/git-broker.md#GB-D10)). A broker that stops refuses its pending requests;
+([GB-D10](#GB-D10)). A broker that stops refuses its pending requests;
 grants it recorded stay with the workspace ([BB-D99](../design/boundary-broker.md#BB-D99)).
 
 **Store authority.** `gitbroker.ApprovalAuthority` lets `yolo approve` decide a git request only
@@ -351,21 +350,18 @@ A grant's spend is re-checked the same way against the launch spending it.
 | :--- | :--- |
 | `yolo approve r-<id>` | **Allow once**: that exact push, once, within a short window. A branch it creates joins the working set |
 | `yolo approve r-<id> --for <duration>` | One timed working-set entry per ref that needed approval; every push to those refs goes through, unspent, until it expires. Bounded; `session` is refused for git |
-| `yolo approve r-<id> --add` | The existing branches that needed approval join the working set with no expiry. Refused, exit 5 naming `--for`, for a tag and for a new branch |
-| `yolo approve r-<id> --remember` | Allow once, and write each ref that needed approval into the project's config as `yolo request git push <branch>` (or `push_tags <tag>`) would, effective after `yolo config apply`. Refused, writing nothing, while the project's config is legacy JSONC |
 | `yolo approve r-<id> --deny [--note <text>]` | Refused; the same push files no new request for a cooldown |
 
-`--for` and `--add` record working-set entries and no command grant, and the broker consults
-the entries before filing, so a push they cover never asks again while they last
-([GB-D26](../design/git-broker.md#GB-D26)).
+`--for` records working-set entries and no command grant, and the broker consults the entries
+before filing, so a push they cover never asks again while they last ([GB-D26](#GB-D26)).
 
-> [!IMPORTANT]
-> **The two rows above are removed.** [GB-D28](../design/git-broker.md#GB-D28) (2026-11-02)
-> ruled `--add` and `--remember` removed, refused as unknown flags naming `--for` and the
-> project request, carrying [OQ-GW2](../design/github-write-scopes.md#OQ-GW2) to git and
-> superseding [RC-D39](../design/readable-config.md#RC-D39). Built in `86c0666cb`: both flags
-> are refused with the usage exit and decide nothing. Entries added with `--add` before then stay
-> until revoked.
+**`--add` and `--remember` are removed** ([GB-D28](#GB-D28), carrying
+[OQ-GW2](../design/github-write-scopes.md#OQ-GW2) to git). Either, in any spelling, exits 2,
+decides nothing, and names the answers that replace it: Allow once, `--for 15m`, and, for a
+branch the agent pushes again, `yolo request git push <branch>` (or `push_tags <tag>`) in the
+jail, then `yolo config apply` on the host (`refuseRemovedApproveFlag` in
+`internal/cli/approve.go`). Entries added with `--add` before the removal stay until
+`yolo approve --revoke w-<id>`.
 
 ### When a push that asked is refused
 
@@ -381,7 +377,7 @@ the entries before filing, so a push they cover never asks again while they last
 | The store failed | `needs approval; …` with the error | Push again; `yolo approve` reports what is wrong; or push from the host |
 
 An Allow once spent on a push whose upstream connection then drops is not refunded
-([GB-D20](../design/git-broker.md#GB-D20)). An upstream that rejects a forwarded push (a
+([GB-D20](#GB-D20)). An upstream that rejects a forwarded push (a
 protected branch, a non-fast-forward) reaches the agent unchanged, and an Allow once covering it
 is spent.
 
@@ -422,6 +418,32 @@ decisions and spent grants into the same log. Revoking a working-set entry is no
 | A key needs a touch or passphrase and nobody answers on the host | The SSH connection times out; git shows its own error; an Allow once is not spent |
 | The working-set store cannot be read | No entry covers this push, said once; branches declared in config still cover |
 
+**A known gap**, recorded by the build on 2026-10-24 and carried here unverified: a stalled
+upstream can hang a call once the jail side has closed, over HTTPS as over SSH, because the
+handler cancels only when the jail's connection errors.
+
+### A Mac witness still to run: W-GB1
+
+A nightly run on the owner's Mac failed in `TestGitBrokerConfigBranch`: the second workspace's
+granted `git fetch` reported `fatal: bad object` although the host broker logged
+`git-upload-pack` exit 0 ([run 42833734953, shard
+5](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42833734953/job/129892741730)). Linux
+cannot settle the Mac Podman VM's jail-to-host stream.
+
+| Step | What to do |
+| :--- | :--- |
+| 1 | On the Mac's rootless Podman machine, record `podman info --format '{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}'`; expect `true pasta` |
+| 2 | From a clean checkout at main `287479402` or later, with the normal HOME and Go caches: `YOLO_SETUP=podman-self go test -count=5 -timeout 0 -v -run '^TestGitBrokerConfigBranch$' ./integration` |
+| 3 | Require five `--- PASS: TestGitBrokerConfigBranch` and no `--- SKIP:`. The test records fetch and push exit statuses separately, checks the fetched upstream commit and a client-side `git fsck`, and traces packets for the fixture fetch only |
+| 4 | On any failure, keep the full Go output with the command and the recorded network mode |
+
+**Status: partly measured.** On 2026-11-11 the owner's Mac (macOS 26.5, arm64, `true pasta`)
+passed five runs at main `77df9ca0d`, which holds the reviewed baseline `3b1be0bc15d1` but not
+`287479402`, so those runs lacked step 3's separate exit statuses, commit check, `git fsck` and
+packet trace (logs on the Mac under `/Users/Shared/yolo/evidence/`). The failure did not recur in
+five runs; that neither withdraws the nightly's observation nor names its cause. **Still to run:**
+steps 1 to 4 at `287479402` or later.
+
 ## What this does not do
 
 - **Forge extras.** Pull requests, issues and the rest of a forge's API are the GitHub broker's.
@@ -429,8 +451,8 @@ decisions and spent grants into the same log. Revoking a working-set entry is no
   not brokered.
 - **No `push-branch` grant.** Long-lived access to an existing branch, such as `main` of the
   agent's own fork, is that branch declared in the working set by a branch grant
-  ([GB-D12](../design/git-broker.md#GB-D12)).
-- **Read-only pushes nothing** ([GB-D7](../design/git-broker.md#GB-D7)): a workspace with only a
+  ([GB-D12](#GB-D12)).
+- **Read-only pushes nothing** ([GB-D7](#GB-D7)): a workspace with only a
   read grant cannot push even a branch it created locally.
 - **No inspection of what a push contains.** A pushed branch runs the repository's
   push-triggered workflows from its own workflow files; intent is out of scope by
@@ -475,22 +497,66 @@ the values themselves are stated.
 
 ## Why it's this way
 
-The rulings a maintainer would otherwise undo. Each id resolves in the design doc's ledger,
-which stays until it graduates here; [GB-D28](../design/git-broker.md#GB-D28), the last build it waited on, is built (`86c0666cb`).
+The rulings a maintainer would otherwise undo, with the ids of the design this broker was built
+from (`git-broker.md`, decided 2026-10-23, graduated here 2026-11-12 and since deleted) and of
+its build plan. Code comments cite both series.
 
-| ID | Ruling |
+### The decision ledger
+
+[OQ-GB1](#OQ-GB1), [OQ-GB2](#OQ-GB2) and every row marked a maintainer ruling are the owner's; the rest were the
+designer's or builder's within them. Rows a later one supersedes are kept, marked, because the
+reason a choice was undone is what stops it being redone.
+
+| ID | Ruling / Decision | Date | Built |
+| :--- | :--- | :--- | :--- |
+| <a id="GB-D1"></a>GB-D1 | **Maintainer direction:** git is a brokered source with read and write support, after factoring the source-neutral broker machinery out of the github-broker; push is granted per branch and a branch the agent creates is pushable without asking. *"I think this is all the right approach in general"* | 2026-10-23 | — |
+| <a id="GB-D2"></a>GB-D2 | *Implementation decision.* The git source is a second service of the github pack's broker: the same enablement, scope file and login, and its own store directory under the source name `git`. **Superseded in part 2026-10-23** by [OQ-GB1](#OQ-GB1) (no `gh` login; any git server) and [GB-D5](#GB-D5) (its own switch, off by default); its own store directory under `git` stands | 2026-10-23 | — |
+| <a id="GB-D3"></a>GB-D3 | *Implementation decision.* Under either option the host never runs git with the workspace as its repository; a jail-writable checkout's config can run code | 2026-10-23 | — |
+| <a id="GB-D4"></a>GB-D4 | *Implementation decision.* A push changing several refs files one request naming the refs not held; a grant covers what its request named | 2026-10-23 | — |
+| <a id="OQ-GB1"></a>[OQ-GB1](#OQ-GB1) | **Maintainer ruling, B, broker the transport, refined:** every remote form (scp-style, `ssh://`, `https://`) is rewritten by `url.<broker>.insteadOf` to the host broker over a leg with no credential; the broker connects upstream with the host's SSH keys or agent (the launching session's `SSH_AUTH_SOCK`) or the host's `git credential fill`, needing no `gh` login; any git server, since policy reads git's protocol ref commands; pre-push hooks run in the jail; a refusal or pending request is `! [remote rejected] <ref> (<reason>)`, exit 1; a key needing a touch or passphrase prompts on the host. The broker speaks upstream over SSH as well as smart HTTP. Forge extras stay the gh broker's. *"This seems just like the right answer."* | 2026-10-23 | built: the git pack rewrites every remote form to the broker; pinned by `TestGitPackRewritesSSHFormsThroughTheBroker` |
+| <a id="OQ-GB2"></a>[OQ-GB2](#OQ-GB2) | **Maintainer ruling, B, persisted:** a branch the agent creates joins the workspace's working set of pushable branches, with the same standing as one granted any other way, across launches, until the branch is deleted or the grant is revoked through `yolo approve`; no age cap. *"it should be persisted because it's a property of the workspace"*. **Revised in part 2026-10-23 by [GB-D7](#GB-D7):** creating a branch is no longer standing; it takes a user grant, and the working set and its persistence stand | 2026-10-23 | built as revised by [GB-D7](#GB-D7): a created branch persists in the workspace working set; pinned by `TestCreateBranchUnderGrantJoinsWorkingSet` and `TestWorkingSetSurvivesANewBroker` |
+| <a id="GB-D5"></a>GB-D5 | *Implementation decision,* forced by [OQ-BB16](../design/boundary-broker.md#OQ-BB16)'s ruling. The git source has its own switch, off by default, set only on the user's side for one workspace (the per-workspace file, as for every brokered loophole); enabling the github-broker does not include it, and a workspace config's switch for it is refused. Which pack ships the git source is the implementer's choice | 2026-10-23 | pending |
+| <a id="GB-D6"></a>GB-D6 | *Implementation decision,* reading [OQ-BB16](../design/boundary-broker.md#OQ-BB16)'s *"read-only or read-write"* onto the git source's sets: `read-only` holds `read` and `push-own`, the standing sets [GB-D1](#GB-D1) made free, and `read-write` adds `push` on every ref in scope. Reversible: if the maintainer meant `read-only` to forbid every push, `push-own` moves to `read-write`. **Superseded 2026-10-23 by [GB-D7](#GB-D7):** he did | 2026-10-23 | — |
+| <a id="GB-D7"></a>GB-D7 | **Maintainer ruling, superseding [GB-D6](#GB-D6) and the standing half of [OQ-GB2](#OQ-GB2):** git read-only allows no push of any kind; an agent pushes even its own branches only under a grant that allows it, and creating a branch is a user grant whose created branches join the working set ([BB-D76](../design/boundary-broker.md#BB-D76), [BB-D78](../design/boundary-broker.md#BB-D78)). *"Read-only mode is read-only mode. It cannot create branches push... well, it can create branches in the local git repo. It cannot push them, that's for sure."* | 2026-10-23 | built: a push no grant covers is not forwarded, and a created branch joins the working set; pinned by `TestNoGrantPushesNothing`, `TestPushRefusedNothingForwarded` and `TestCreateBranchUnderGrantJoinsWorkingSet` |
+| <a id="GB-D8"></a>GB-D8 | *Implementation decision,* carrying [BB-D76](../design/boundary-broker.md#BB-D76), [BB-D77](../design/boundary-broker.md#BB-D77) and [BB-D80](../design/boundary-broker.md#BB-D80) to git: a per-ref request is answered Allow once (the exact push), Allow push to `<ref>` for 15 minutes, Add `<ref>` to the working set, or Deny, from the user's buttons list; a ref push's resource is the ref, and a creation's is the repository's ability to create branches. Replaces the windowed per-ref `push` set. **Narrowed 2026-10-29 by [GB-D16](#GB-D16), widened back 2026-10-30 by [GB-D26](#GB-D26):** all four answers are built | 2026-10-23 | built: Allow once and Deny ([GB-D16](#GB-D16)); the 15-minute answer and Add, pinned by `TestApproveGitForRecordsTimedGrantAndPushWithinItGoesThrough`, `TestApproveGitAddJoinsWorkingSetAcrossRelaunch`, `TestTimedGrantExpiresAndRefilesRequest` ([GB-D26](#GB-D26)) |
+| <a id="GB-D9"></a>GB-D9 | *Reconciliation,* carrying [BB-D96](../design/boundary-broker.md#BB-D96) to git and replacing this doc's earlier "a user grant in the user's own config for that workspace": the user's own config lists the grant kinds a workspace may hold (`create-branch` for git); the workspace config holds each `create-branch` grant naming its repository, or a wildcard written out as one; a grant joins only at the config-change approval and within the user's kinds, and `yolo check` refuses one outside them, naming the user-config key. `read` needs no entry. The loophole switch of [GB-D5](#GB-D5) stays in the per-workspace file | 2026-10-23 | built: a grant outside the user's kinds is refused naming `brokered.git.grant_kinds`; pinned by `TestGrantKindNotAllowedNamesUserKey` and `TestRefusedCreationNamesTheCreateBranchGrant` |
+| <a id="GB-D10"></a>GB-D10 | *Reconciliation,* carrying [BB-D98](../design/boundary-broker.md#BB-D98) to git: a per-ref request on a host with no notifier and no `on_request` hook gets no terminal line and no notice file; it is written to the broker's background log, and the agent's pending line and wait timeout stay its only messages | 2026-10-23 | built 2026-10-29: the git broker hands the core its store, so the user's `on_request` runs for its requests, and logs each pending request with `yolo approve <id>` (`gitbroker.askForPush`, `TestHandlerRunsOnRequestAndRefusesPendingAtStop`) |
+| <a id="GB-D11"></a>GB-D11 | *Reconciliation:* [BB-D97](../design/boundary-broker.md#BB-D97)'s merge rule is the GitHub source's; the git source's working set holds only branches, which leave it on deletion or revocation ([OQ-GB2](#OQ-GB2)) | 2026-10-23 | — |
+| <a id="GB-D12"></a>GB-D12 | **Maintainer ruling, extending, for git, [OQ-BB19](../design/boundary-broker.md#OQ-BB19)'s list of user grants:** long-lived access to an existing branch, such as `main`, goes through the broker as a branch in the working set, declared in config. There is no `push-branch` and no separate push concept: the working set takes branches from create-branch, from config, and (later) from a human's Add. The kind is `branch`, granted exactly as `create-branch` is: the user's own config allows the kind (`brokered.git.grant_kinds`), the workspace's `yolo-jail.jsonc` names the grant, `{"kind": "branch", "repo": "github.com/owner/name", "branch": "main"}`, it joins at the config-change approval (`yolo config apply` for a running jail, or the launch prompt), and `yolo check` refuses a grant whose kind the user config does not allow, naming the key. *"I was expecting you to edit the jail config and then I run a config apply or something like that ... we can stick with main. And yes, I want to do this through the broker."* Then: *"Why do we need a specific push grant? I thought, is this not just writing to a branch? ... I said it should just be like a branch working set, and shouldn't that already cover what's needed here?"* | 2026-10-24 | built |
+| <a id="GB-D13"></a>GB-D13 | *Implementation decision,* filling in [GB-D12](#GB-D12): a `branch` grant's `branch` is one branch's short name (`main`, meaning `refs/heads/main`), validated by git's ref-name rules (`git check-ref-format`); a full ref, a pattern or `"*"` is refused at config load with a next step, and tags and other refs are never covered. Its `repo` names one repository and is never `"*"`, unlike a create-branch grant's: with `"*"`, the branch on every approved remote, an upstream organization's remote and any remote approved later included, could be force-pushed or deleted, while the ruling's case was `main` of the agent's own fork. A `"*"` is refused at config load, naming the repository as the next step and one grant per repository, and the scope file refuses it too. This narrows access, so it is the coordinator's decision rather than a ruling. The declared branch is covered exactly as a working-set entry is: creating, updating, force-updating and deleting it, the remote's own protection being the backstop. It is never recorded in the host store: the config holds it, so a delete through the broker leaves it declared, and removing the grant takes it out. A store entry for the same ref is preferred, so a delete through the broker still ends that record. The broker re-reads the live scope file and the user config's `grant_kinds` at every push, so removing either refuses the next push. The audit's set is `working-set` and its `covered_by` names the grant (`branch:main`). `yolo approve` lists each declared branch of a running jail's workspace beside the store's entries, with a `c-` id, marked `from config` with the file that declares it; `--revoke` of one exits 5 and names that file and `yolo config apply`; a `c-` id no running jail declares exits 4, saying it is declared in config and listed only while a jail of its project runs. `--revoke all --workspace` leaves declared branches in place, and when they are all that workspace holds it names their config file instead of pointing back to the listing. `--json` carries each one as a working-set entry with `"by": "config"` and `"file"`. A declared branch whose kind the user config no longer lists says so only when the push is refused, not when a create-branch grant covers it | 2026-10-24 | built |
+| <a id="GB-D14"></a>GB-D14 | *Reconciliation,* carrying [BB-D99](../design/boundary-broker.md#BB-D99) to git: every grant the git source records will be held by the workspace and kept across broker and jail restarts and relaunches until it expires, is used up or is revoked, as the GitHub source's are; a broker stopping ends none. Since 2026-10-29 the git source records Allow once grants ([GB-D16](#GB-D16)), held the same way; since 2026-10-30 its timed grants are working-set entries with an expiry ([GB-D26](#GB-D26)), held by the workspace the same way. Its working-set entries were already keyed by workspace, nothing ends them at broker or jail stop, and the integration test `TestGitBrokerCreateBranch` already pushes on the working set alone after a relaunch, with a new broker | 2026-10-24 | built in the shared store ([BB-D99](../design/boundary-broker.md#BB-D99)) |
+| <a id="GB-D15"></a>GB-D15 | **Maintainer ruling, carried to git** ([BB-D104](../design/boundary-broker.md#BB-D104), [BB-D105](../design/boundary-broker.md#BB-D105)): the git-broker has no switch. Selecting the git pack starts it in every workspace and serves the remote rewrite, and it grants nothing: every fetch and push is refused until a `read` grant covers the remote. The usual grant is the user config's `"brokered": {"git": {"grants": [{"kind": "read", "repo": "*"}]}}`, shown at each workspace's config-change approval. *"a user config that gives all workspaces read-only access to their configured git repo"*. Supersedes [GB-D5](#GB-D5) and [GB-D9](#GB-D9)'s "read needs no grant entry"; `read` is now a grant kind like the others ([BB-D107](../design/boundary-broker.md#BB-D107)) | 2026-10-24 | built: as [BB-D106](../design/boundary-broker.md#BB-D106) to [BB-D109](../design/boundary-broker.md#BB-D109); the git side in `gitbroker` `serveRequest`, pinned by `TestNoReadGrantRefusesEveryCall`, `TestUserReadGrantAppliedLetsTheFetchThrough`, `TestUserReadGrantWithdrawnRefusesTheNextFetch` and `TestReadGrantOnAnotherRepoCoversNothing` |
+| <a id="GB-D16"></a>GB-D16 | **Maintainer ruling (2026-10-29), accepting the proposed default:** a push no grant or working-set entry covers files a request, and the only answers are Allow once and Deny. `yolo approve <id> --for` and `--add` are refused for git, as for GitHub, exit 5, naming Allow once as the next step. **Superseded in part 2026-10-30 by [GB-D26](#GB-D26):** the owner ruled to build the other two answers, so `--for` and `--add` are no longer refused for git. The Allow once answer lasts 15 minutes, is used once, and is held by the workspace ([BB-D77](../design/boundary-broker.md#BB-D77), [BB-D99](../design/boundary-broker.md#BB-D99)). The push waits 30 seconds ([§3.2 there](../design/boundary-broker.md#32-a-write-and-the-bounded-wait)). Unanswered, the push is refused `(needs approval: r-<id>)`. Denied, it is refused `(needs approval: r-<id>, denied on the host)` | 2026-10-29 | built: `gitbroker.askForPush`, `gitbroker.ApprovalStore`, `allowOnceOnly` in `internal/cli/approve.go`; Allow once pinned by `TestPushToMainAllowedOnceGoesThroughSSH`, `TestPushToMainAllowedOnceGoesThroughHTTPS`, `TestPushAllowedDuringTheWaitGoesThrough`, `TestPushDeniedNothingForwarded`, `TestApproveGitRequestAllowOnceAndRefusesFor` and the integration test `TestGitBrokerAllowOncePush` |
+| <a id="GB-D17"></a>GB-D17 | **Maintainer ruling (2026-10-29), accepting the proposed default:** an Allow once's digest covers every command in the push, covered refs included. The request's argv is `git-receive-pack` followed by one `<old> <new> <ref>` per command, in the push's order. Its stdin digest is that of empty input. The display marks which refs needed approval (`Request.NeedsApproval`, shown by `yolo approve` and carried as `needs_approval` in `--json`, and outside the digest). *Extended 2026-10-29 after review, an implementation decision:* the push options the push sends upstream are bound too, one `push-option=<value>` line each after the commands, in the push's order, so they are in the digest, in `--json`'s argv, and on their own lines in `yolo approve`'s listing. A server acts on options (GitLab merges a request or sets CI variables by them), so the same commands sent with other options, or none, spend nothing. The listing shows ids to 12 hex digits | 2026-10-29 | built: `gitbroker.pushArgv`, `gitbroker.Broker.pushRequest`, `printPushRefs` in `internal/cli/approve.go`; pinned by `TestAskForPushSpendsExactGrantOnce`, `TestApprovalAuthorityRefusesForeignRefsAndHolders`, `TestPushOptionsAreBoundIntoTheAllowOnce` and `TestApproveGitRequestAllowOnceAndRefusesFor` |
+| <a id="GB-D18"></a>GB-D18 | **Maintainer ruling (2026-10-29), accepting the proposed default:** a tag push files a request too. The refused tag's line says every tag push asks for approval, or can be pushed from the host. A tag never joins the working set | 2026-10-29 | built; the refusal line's wording superseded by [GB-D25](#GB-D25), which names a tag grant; pinned by `TestTagPushAsksForApproval` and `TestRefusedTagNamesTheTagGrant` |
+| <a id="GB-D19"></a>GB-D19 | **Maintainer ruling (2026-10-29), accepting the proposed default:** the Allow once is spent under the store's lock, and the push is forwarded upstream after that lock is released | 2026-10-29 | built: `brokerstore.Store.SpendExactOrFileContext` with no dispatch, called from `gitbroker.askForPush`, which spends a grant or else joins or files the request in one transaction, so an answer cannot land between the two; after the wait, `brokerstore.Store.ConsumeExactDispatchContext`. Pinned by `TestAskForPushSpendsAnAnswerLandingAfterItsFirstTransaction` |
+| <a id="GB-D20"></a>GB-D20 | **Maintainer ruling (2026-10-29), accepting the proposed default:** the SSH upstream connection stays open during the wait, and a connection that drops after the spend is not refunded | 2026-10-29 | built |
+| <a id="GB-D21"></a>GB-D21 | **Maintainer ruling (2026-10-29), accepting the proposed default:** a request shows each ref's old id and new id only, with no force mark. Supersedes [grants in two layers](#grants-in-two-layers)'s earlier `force` mark | 2026-10-29 | built: `printPushRefs` |
+| <a id="GB-D22"></a>GB-D22 | **Maintainer ruling (2026-10-29), accepting the proposed default:** a branch creation forwarded under an Allow once joins the working set, its entry recorded with `By` set to the grant's `g-<id>` | 2026-10-29 | built: `gitbroker` `record`; pinned by `TestAllowOnceCreationJoinsTheWorkingSet` |
+| <a id="GB-D23"></a>GB-D23 | *Implementation decision,* filling in [GB-D16](#GB-D16). **(a)** A request's jail is the short hash of the scope file's container (`paths.JailShortHash`), not the id the connection's preamble carries. **(b)** The store's authority, `gitbroker.ApprovalAuthority`, accepts a decision only while the filing broker's lifetime lease is live (`brokercore.Live`). It then re-checks the request's holder, set, stdin digest and argv. It also re-checks that the repository is still in the live scope and that a read grant still covers it. A grant's use is checked the same way against the launch spending it. **(c)** A push holding any ref outside `refs/heads/` and `refs/tags/` files no request. **(d)** A broker stopping refuses its jails' pending requests (`brokerstore.Store.End`). **(e)** A spend that finds the request allowed but the grant gone (another run of the same push spent it, it was revoked, or the scope changed) is refused `(needs approval: r-<id>, allowed but its grant no longer covers this push)`, and its next step is a new request, never `yolo approve` of the answered one | 2026-10-29 | built: `internal/gitbroker/approvalauthority.go`, `internal/gitbroker/approval.go`; pinned by the `TestApprovalAuthority*` tests, `TestPushWithARefOutsideHeadsAndTagsFilesNoRequest` and `TestHandlerRunsOnRequestAndRefusesPendingAtStop` |
+| <a id="GB-D24"></a>GB-D24 | *Implementation decision, after review (2026-10-29),* carrying the Happy Path Principle ([`happy-path-principle.md`](happy-path-principle.md)) to every refusal of a push that asked: each ends in a step that works from where the user stands. A request no longer pending (allowed with its grant gone, denied, closed at broker stop, expired) never sends the user to `yolo approve <its id>`, which exits 3 for an answered request; the pending limit names `yolo approve` to list and answer the waiting requests; the denial cooldown names the denied request, when the quiet ends, and the host push; a store failure names the push again and `yolo approve`. Each refusal's ref line and its next step are built together (`refusal` in `internal/gitbroker/approval.go`) | 2026-10-29 | built: pinned by `TestEveryApprovalRefusalNamesAWorkingNextStep`, `TestPushAtThePendingLimitNamesYoloApprove`, and `TestGitRefusalNextStepsNameRealCommands`, which runs every `yolo` command a next step names through the CLI |
+| <a id="GB-D25"></a>GB-D25 | **Maintainer ruling, superseding [GB-D13](#GB-D13)'s wildcard refusals and [GB-D18](#GB-D18)'s "every tag asks":** a `branch` grant may name a pattern and `repo: "*"`, and tags get the same grant. *"why can't we have a wildcard * branch grant? is there a good reason for that?"*; *"if someone wants to grant repo *, why should we stop them? that feels weird."*; *"allow."*; *"we should be able to wildcard tags as well"*. Shape: a pattern is git's own refspec pattern, one `*` anywhere in the short name, matching any run of characters including `/` (`*`, `patch/*`, `v*`), validated with `git check-ref-format --refspec-pattern`; whole-segment-only, as [WW-D31](../design/workspace-widening.md#WW-D31) does for repository names, was not taken because it would refuse `v*`, the tag case the ruling exists for (a coordinator decision). `repo` may be `"*"`. A new kind `tag` mirrors `branch` for `refs/tags/`, with the same pattern rule, the same two layers (the user's `grant_kinds`, then the config-change approval) and the same coverage (create, update, force-update, delete). The existing two layers are the whole gate, with no separate wildcard kind. **Built with it:** the grant's approval line says in plain words what a wildcard admits ("may create, update, force-push and delete `main` on every remote in scope now and any approved later"), colored as other widenings; and approving a new remote later names every standing wildcard grant that now covers it. The remote's own protection stays the backstop | 2026-10-29 | built: `brokerscope.ValidGrantRefPattern`, `brokerscope.RefPatternMatches` and `brokerscope.GrantNote`, the `tag` kind in the git pack's manifest (`push_tags` in the readable spelling); pinned by `TestPatternBranchGrantCoversMatchingBranches`, `TestAnyRepoBranchGrantCoversEveryRemote`, `TestTagGrantCoversMatchingTags`, `TestRefusedTagNamesTheTagGrant`, `TestWildcardGrantLineSaysWhatItAdmits` and `TestNewRemoteNamesTheWildcardGrantsCoveringIt` |
+| <a id="GB-D26"></a>GB-D26 | **Maintainer ruling (2026-10-30), superseding [GB-D16](#GB-D16)'s narrowing to Allow once and Deny:** build the other two answers [GB-D8](#GB-D8) and [BB-D76](../design/boundary-broker.md#BB-D76) name. `yolo approve <id> --for <duration>` is **Allow push to `<ref>` for a time** (15 minutes unless given, at most 24 hours, never `session`) and `--add` is **Add `<ref>` to the working set**. Each records one working-set entry per ref the push needed approval for, held by the workspace across restarts and relaunches (a timed entry carries an `Expires`; `brokerstore.Store.DecideWorking`, the git store's `Entries` hook), and no command grant; the request becomes allowed, and the push waiting on it goes through when the broker finds every ref covered. The broker consults the entries before it files a request, so every push to the ref within the window goes through, unspent. *Implementation decisions:* a tag takes `--for` only (a tag never joins the working set, [GB-D11](#GB-D11), [GB-D18](#GB-D18)), and its refusal of `--add` names `--for 15m`; a branch creation takes `--for` only, since a lasting right to create is a user grant ([BB-D90](../design/boundary-broker.md#BB-D90)), but a branch the agent creates under a timed entry makes the entry lasting ([the working set](#the-working-set)); revoke is `yolo approve --revoke w-<id>`. GitHub keeps Allow once and Deny only (`allowOnceOnly` names only it now) | 2026-10-30 | built `c250da3f8`: `brokerstore.Store.DecideWorking`, `gitbroker.pushEntries`, the coverer's timed-entry cases and `askForPush`'s re-cover; pinned by `TestApproveGitForRecordsTimedGrantAndPushWithinItGoesThrough`, `TestApproveGitAddJoinsWorkingSetAcrossRelaunch`, `TestTimedGrantExpiresAndRefilesRequest`, two `--add` tests deleted with the flag by [GB-D28](#GB-D28), and the integration test `TestGitBrokerAllowPushForATime` |
+| <a id="GB-D28"></a>GB-D28 | **Carrying the owner's removal of `yolo approve --add` (2026-11-02, [OQ-GW2](../design/github-write-scopes.md#OQ-GW2)) to git, for the owner's own reason** (*"It rides along with a grant, or it rides along with an approval, and depending on what the approval is, it does different things"*): `yolo approve` answers a git request once, `--for <duration>`, or `--deny`. `--add` and `--remember` ([RC-D39](../design/readable-config.md#RC-D39)) are removed and refused as unknown flags naming `--for` and the standing path, `yolo request git push <branch>` (or `push_tags <tag>`) then `yolo config apply` on the host, which the refusal of a push already names per ref ([GB-D25](#GB-D25)). Branches a human added before the removal are kept until revoked ([GW-D34](../design/github-write-scopes.md#GW-D34)). Supersedes [GB-D26](#GB-D26)'s `--add` and the "A human adds it" path of [the working set](#the-working-set) | 2026-11-02 | built 2026-11-06: `yolo approve` refuses `--add` and `--remember` (any spelling, with or without a value) with exit 2, deciding nothing, naming Allow once, `--for 15m` and `yolo request git push <branch>` then `yolo config apply` (`refuseRemovedApproveFlag` in `internal/cli/approve.go`); the push refusal's menu offers neither (`pushMenu.menu`), nor does the jail briefing's example menu or the git pack's briefing; entries added before the removal still cover. Pinned by `TestApproveRefusesTheRemovedAddAndRememberFlags`, `TestApproveUsageNamesNoRemovedFlag`, `TestGitRefusalNextStepsNameRealCommands`, `TestEveryApprovalRefusalNamesAWorkingNextStep`, `TestApproveGitForRecordsTimedGrantAndPushWithinItGoesThrough`, `TestTheJailBriefingCarriesTheHandOffRules`, `TestNoShippedPackOffersTheRemovedApproveFlags`, and for the kept entries `TestApproveGitForCLI` and `TestApproveGitAddJoinsWorkingSetAcrossRelaunch` |
+
+### The build's implementation decisions
+
+The planner's decisions for the first slice, `ID-1` to `ID-13`, each reversible within the
+rulings above; the **Reverse by** clause says what changing one costs.
+
+| ID | Decision |
 | :--- | :--- |
-| [OQ-GB1](../design/git-broker.md#OQ-GB1) | git crosses as a brokered transport, every SSH and HTTPS remote rewritten to the host broker, not as a proxied git CLI or a host mirror: a push carries objects that exist only in the jail |
-| [OQ-GB2](../design/git-broker.md#OQ-GB2) | A branch the agent creates stays in the working set until deleted or revoked, with no age cap: it is a property of the workspace |
-| [GB-D3](../design/git-broker.md#GB-D3) | The host never runs git with the workspace as its repository |
-| [GB-D4](../design/git-broker.md#GB-D4) | One request per push, and a push goes through whole or not at all |
-| [GB-D7](../design/git-broker.md#GB-D7) | Read-only pushes nothing, not even the agent's own branch |
-| [GB-D12](../design/git-broker.md#GB-D12) | Long-lived access to an existing branch is a branch grant declaring it in the working set; there is no separate push grant |
-| [GB-D13](../design/git-broker.md#GB-D13) | A declared branch lives in config, never in the store, so a delete leaves it declared |
-| [GB-D15](../design/git-broker.md#GB-D15) | No switch: selecting the pack starts the broker, and it grants nothing until a read grant does |
-| [GB-D17](../design/git-broker.md#GB-D17) | An Allow once binds every command and every push option of the push |
-| [GB-D19](../design/git-broker.md#GB-D19) | Spend and file are one store transaction; the push is forwarded after the lock is released |
-| [GB-D20](../design/git-broker.md#GB-D20) | A spent Allow once is not refunded when the upstream connection drops |
-| [GB-D25](../design/git-broker.md#GB-D25) | Branch and tag grants take one-`*` refspec patterns and `repo = "*"`; the two layers are the whole gate |
-| [GB-D26](../design/git-broker.md#GB-D26) | `--for` and `--add` record working-set entries, not command grants; `--add` never applies to a tag or a new branch |
-| [GB-D28](../design/git-broker.md#GB-D28) | Ruled: `--add` and `--remember` are removed for git. Built in `86c0666cb`; see [The answers](#the-answers) |
+| <a id="ID-1"></a>ID-1 | **Package layout.** The core is a new package, `internal/brokercore`; the git source is `internal/gitbroker`, its jail client `internal/gitremote`, and the wire-format code `internal/gitproto`, shared by both. *Why:* the client runs in the jail and must not import the daemon's upstream code; the protocol code is the one thing both halves need. *Reverse by:* merging packages, no behavior change. |
+| <a id="ID-2"></a>ID-2 | **The git scope records the workspace's remote URLs verbatim.** A manifest declaring `"remote_host": "*"` makes core read every remote of the workspace on any host, `url` and `pushurl` alike, and put each URL in front of the human at the config-change gate, verbatim. The scope file records them with `"form": "remote-url"`. Requests match the exact URL by default. The Git broker also admits only these bounded SSH equivalences: SSH schemes with identical parsed destination, explicit port and path, and (only for `git@github.com` without a port) the two-segment relative scp path versus the corresponding absolute SSH URL path. It preserves the request URL for its SSH argv and audit; it does not strip `.git`, trailing slashes, case, `~/` or encoding, nor equate usernames, hosts, ports or generic relative/absolute paths. HTTPS and all other callers remain exact. An `https://` URL whose user-info carries a password is left out of the scope, with a gate line saying why. `brokered.git.repos` is refused by `yolo check`: a git remote is added with `git remote add`, which reaches the gate as a new remote. *Why:* the design says the upstream comes from the scope ([§7](#what-this-does-not-do)), and this narrow matcher gives the jail no choice of upstream endpoint. *Reverse by:* a pattern form later; the `form` field is what makes that additive. |
+| <a id="ID-3"></a>ID-3 | **Repository identity.** Grants and working-set entries name a repository as `host/path`: the host lower-cased, a port kept as `host:port`, the user-info dropped, a leading `/` or `~/` stripped from the path, a trailing `/` then a trailing `.git` stripped. So `git@github.com:o/r.git`, `ssh://git@github.com/o/r` and `https://github.com/o/r.git` are all `github.com/o/r`. *Why:* one branch must not be two working-set entries because it has two remotes. *Reverse by:* re-keying the store, before any release carries it. |
+| <a id="ID-4"></a>ID-4 | **The jail leg is a git remote helper.** The jail's git rewrites `ssh://`, `git+ssh://`, `ssh+git://`, `https://` and scp-style `git@` URLs (including bracketed IPv6 scp hosts) to `yolo::<original URL>`, by `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/ `GIT_CONFIG_VALUE_<n>` from a pack `env` contribution. Git then runs `git-remote-yolo <remote> <url>`, placed by an `intercept` contribution forwarding to `yolo git-remote --`. The helper answers `capabilities` with `connect` and nothing else. Not rewritten, and documented: `http://`, `git://`, `file://`, local paths, and scp-style remotes that do not start with `git@` (such as `host:path` and `alice@host:path`). *Why:* the env keeps the jail's global git config, which yolo composes, untouched, and the `yolo::` prefix carries the original URL to the helper unchanged. *Reverse by:* moving the rewrite into the composed global config. |
+| <a id="ID-5"></a>ID-5 | **The jail-to-host stream.** The helper sends one request frame `{"service":"git-upload-pack"\|"git-receive-pack","url":"<original URL>","protocol":"<GIT_PROTOCOL or empty>","agent":"<agent name or empty>"}`, then git's bytes as Stdout(0) frames; a Stdout frame with an empty payload means git closed its side. The broker answers with Stdout frames (git's protocol), Stderr frames (shown to the user) and one Exit frame. The helper prints git's blank "connected" line immediately before relaying the first host Stdout bytes; on a refusal that arrives before any, it prints the Stderr text and exits with the Exit code without the blank line, so git reports the helper's failure. `git-upload-archive` is refused. *Why:* this is the serial bridge's shape, already served by `hostservice`. *Reverse by:* wire change in two packages, both new. |
+| <a id="ID-6"></a>ID-6 | **The rewrite exists only where the broker runs.** The env contribution is `served_by: "git-broker"`, and a new `loopholes.Set.FrontedHostNames(from, runtime)` lists the enabled loopholes whose `host_daemon` serves the jail over `loopback-tls`, gated by `admitsJailSideEffects`, and none on Apple Container (`runtime == "container"`), which runs no host services. Its names join the served set at the launch (`assemble.go`'s `servedDaemons`, recorded beside `o.jailBound` in `packservices.go`) and at `yolo check` (`check/served.go`). So with the loophole off, the jail's git is untouched, and `yolo host --` withholds the env as unserved. It is a config-level answer: a daemon that then fails to start leaves the rewrite in place, and the helper says the endpoint is missing and names `yolo check`, as [§6](#failure-paths) requires. *Why:* without the gate, enabling the pack would break every remote fetch in a jail with the loophole off, and every host git at `yolo host --`. *Reverse by:* deleting the method and its three call sites. *Built differently (Task 7):* `FrontedHostNames` also leaves out a loophole that declares a `jail_daemon` beside its `host_daemon`. Such a loophole (aws-auth's shape) serves its pointers through the jail daemon, whose address they name, and `loopholes.ServedJailDaemonNames` already decides where that one runs; listing it here too would deliver its pointers on a runtime whose jail daemon does not run there, such as the macos-user guest's declines. A withheld rewrite names its own reason (`loopholes.Set.FrontedHostWhy`, passed through `WithNotServedWhy` at the launch, at `yolo check` and at `yolo host --`): the loophole off names `yolo loopholes enable git-broker`, Apple Container says it runs no host services, and the host says its agent's git already reaches remotes with the host's own credentials. **Superseded in part by [GB-D15](#GB-D15):** the git-broker has no switch, so selecting the pack serves the rewrite; the Apple Container and `jail_daemon` exclusions stand. |
+| <a id="ID-7"></a>ID-7 | **SSH upstream.** The broker runs the host's `ssh` (placement-checked) as `ssh -x -T -o ClearAllForwardings=yes -o PermitLocalCommand=no -o ConnectTimeout=30 [-p <port>] [-o SendEnv=GIT_PROTOCOL] -- <[user@]host> "<git-upload-pack\|git-receive-pack> '<path>'"`, the path single-quoted by `shquote`, as a stateful pipe. A host starting with `-` is refused. Its env is built from nothing: `PATH`, `HOME`, `USER`, `SSH_AUTH_SOCK`, and, when set, `DISPLAY`, `WAYLAND_DISPLAY`, `SSH_ASKPASS`, `SSH_ASKPASS_REQUIRE`, plus `GIT_PROTOCOL` when the request carried a valid one (`version=2` or `version=1`, nothing else). No `BatchMode`, so a key needing a touch or passphrase prompts on the host, as the design requires. *Why:* this is what `git` itself runs for an SSH remote, minus forwarding. *Reverse by:* local change in one file. |
+| <a id="ID-8"></a>ID-8 | **HTTPS upstream, smart HTTP.** Credentials come from the host's `git credential fill` (`protocol`, `host`, `path` on stdin), run placement-checked, in an empty broker-owned directory, with `GIT_TERMINAL_PROMPT=0`, `GIT_CEILING_DIRECTORIES=<that dir>` and an env of `PATH`, `HOME`, `DBUS_SESSION_BUS_ADDRESS`. A fill that returns no password is the "host has no credential" refusal; `approve` or `reject` is reported back to the helper after the first authenticated response. Fetch always asks the server for protocol v2 (`Git-Protocol: version=2`): the broker relays the capability advertisement, then POSTs each client request up to its flush and relays the response. A server that answers v0 is refused: "the HTTPS server does not speak protocol v2; use its SSH remote". Push uses `info/refs?service=git-receive-pack`, relays the advertisement without the `# service` line and its flush, reads the commands to the flush and the pack to the client's end (no pack when every command is a delete), POSTs them, and relays the report. TLS uses the system roots, with no option to skip verification. *Why:* v2 fetch is request-response, which a stateful client stream maps onto stateless POSTs without a negotiation state machine. *Reverse by:* adding v0 stateless-rpc negotiation if a server needs it. |
+| <a id="ID-9"></a>ID-9 | **Push policy reads the commands before forwarding anything** and is all-or-nothing ([GB-D4](#GB-D4)). A ref outside `refs/heads/` and `refs/tags/` is refused always. In this step every other ref no grant or working-set entry covers is refused with `needs approval, which this version cannot ask for` (no request is filed: requests turn on in step 3). Refusing answers the client with `unpack ok` and one `ng <ref> <reason>` per command, side-band wrapped if the client negotiated it. A creation (old id all zeros) under `refs/heads/` is covered by a `create-branch` grant on the repository identity or `*`; an update or delete is covered by a live working-set entry for that ref. No force detection in this step: a force push to a working-set ref is an update. *Why:* the design's [§4.2](#a-push) and [§5](#grants-in-two-layers). *Reverse by:* none needed; step 3 replaces the refusal with filing. |
+| <a id="ID-10"></a>ID-10 | **Grant configuration** ([BB-D96](../design/boundary-broker.md#BB-D96)). The manifest's `brokered` block gains `grants`, the kinds the source defines (`["create-branch"]` for git; none for github in this plan). User config: `brokered.<source>.grant_kinds: ["create-branch"]`. Workspace config: `brokered.<source>.grants: [{"kind": "create-branch", "repo": "github.com/o/r"}]`, `"repo": "*"` being the written-out wildcard. `yolo check` refuses a workspace grant of a kind the source does not define, a kind the user config does not list (naming `brokered.<source>.grant_kinds` in the user config), a `repo` that is not a repository identity or `*`, `grant_kinds` at workspace scope and `grants` at user scope. `read` is implied by the loophole being on; writing it warns. Grants appear in the config-change gate as their own lines under the source's scope block, are recorded under the approval record key `<source>.grants` (a source name cannot contain `.`, so it collides with nothing), and are written to the scope file's `grants`. At every push the broker reads the live scope file's grants and re-reads the user config's `grant_kinds`, so removing the kind on the host takes effect at the next push. `yolo config apply` replaces a running jail's grants as it replaces its repositories. *Why:* the gate is the "config-change approval" BB-D96 names, and `config apply` is that gate run live. *Reverse by:* key renames before release; `yolo config-ref` is the authority once built. **Superseded in part by [GB-D15](#GB-D15):** `read` is a grant kind like the others, and every fetch is refused until one covers the remote. |
+| <a id="ID-10a"></a>ID-10a | **A grant's `repo` needs a host with a `.` or a `:`.** *Implementation decision*, made in Task 8. A grant's `repo` is `*` or a repository identity (ID-3) whose host contains a `.` or a `:` (a port). So a scope entry on `git@gitserver:team/app.git`, whose identity is `gitserver/team/app`, is admittable, but a grant covering it must be `"*"`. *Why:* so the GitHub shorthand `o/r` written as a grant's `repo` is refused, rather than read as host `o` and path `r`. *Reverse by:* accepting a single-label host when the identity has two or more path segments after it. |
+| <a id="ID-11"></a>ID-11 | **The working set's records.** A new record kind in the source's store, `working/w-<id>.json`: `ID`, `Workspace`, `Repo` (identity), `Kind` (`"branch"`), `Resource` (the ref), `Added`, `By` (`"create-branch"`, a grant id, or `"human"`), `Ended`, `EndReason` (`deleted`, `gone`, `revoked`). One live entry per `(Workspace, Repo, Resource)`; adding a duplicate is a no-op. A creation the upstream did not report `ok` records nothing. A creation on a ref that already has a live entry means the branch was deleted upstream: the entry ends `gone` and the push is judged as a creation. A delete reported `ok` ends the entry `deleted`. Writes go through the store's existing transaction lock. *Why:* [§5.1](#the-working-set) and [BB-D85](../design/boundary-broker.md#BB-D85). *Reverse by:* store migration, before any release carries it. |
+| <a id="ID-12"></a>ID-12 | **The git source ships as its own pack**, `packs/git`, with loophole `git-broker`, `default_enabled: false`, enabled per workspace by `yolo loopholes enable git-broker` ([GB-D5](#GB-D5) left the pack to the implementer). *Why:* selecting the github pack must not include git ([OQ-BB16](../design/boundary-broker.md#OQ-BB16)), and a pack selected without its loophole enabled changes nothing (ID-6). Its `credential_paths` fence `~/.ssh`, `$SSH_AUTH_SOCK`, `~/.git-credentials` and `~/.config/git/credentials`, so with the pack selected a workspace `mounts` entry reaching one is refused and a user-scope one disclosed ([BB-D26](../design/boundary-broker.md#BB-D26)). *Reverse by:* moving the contributions into another pack; trimming the fence list. **Superseded in part by [GB-D15](#GB-D15):** there is no `default_enabled` switch and no `yolo loopholes enable git-broker`; selecting the pack starts the broker, which grants nothing until a `read` grant does. |
+| <a id="ID-13"></a>ID-13 | **Audit.** Git events use `Service: "git"`, `Repo` the identity, `Remote` the URL, `Set` one of `read`, `create-branch`, `working-set`, `refused`, and `Refs`, one `{ref, old, new, covered_by}` per command, `covered_by` naming the grant kind or the `w-` id. `Argv` holds `[service]` alone. *Why:* `yolo audit --service git` must answer "what did it push with my access" ([§7](#what-this-does-not-do)). *Reverse by:* additive fields only. |

@@ -380,7 +380,7 @@ func HostOpenAIServiceOn(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
 }
 
 // HostFrontedWhy is why a `yolo host` launch of packs serves none of their FRONTED HOST
-// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/design/git-broker-plan.md
+// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/reference/git-broker.md
 // ID-6), keyed by loophole name: packs/git's rewrite is withheld there because the agent's git
 // already runs on the host, which the host notch's doorway clause would not say.
 func HostFrontedWhy(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]string {

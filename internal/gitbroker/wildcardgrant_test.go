@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 )
 
-// Wildcard branch grants and tag grants (docs/design/git-broker.md GB-D25): a branch grant's
+// Wildcard branch grants and tag grants (docs/reference/git-broker.md GB-D25): a branch grant's
 // name may be a refspec pattern and its repository "*", and a tag grant covers tags the same way.
 
 // second is a second remote of the workspace: the fake ssh serves the same bare repository, but

@@ -42,7 +42,7 @@ func brokeredFixtureOn(t *testing.T, hostExecApproved bool, remoteHost string) (
 }
 
 // brokeredFixtureGrants is a source on any host that defines the `create-branch` grant kind, as
-// the git pack's manifest does (docs/design/git-broker-plan.md ID-10).
+// the git pack's manifest does (docs/reference/git-broker.md ID-10).
 func brokeredFixtureGrants(t *testing.T) (o *Options, buf *strings.Builder, marker string) {
 	t.Helper()
 	return brokeredFixtureBlock(t, true, `{"source": "gbsrc", "remote_host": "*", "grants": ["create-branch"]}`)
@@ -532,7 +532,7 @@ func TestAWildcardEntryIsApprovedAtTheGateAndReachesTheBroker(t *testing.T) {
 	}
 }
 
-// A source on any host (docs/design/git-broker-plan.md ID-2), through writeScopeFiles' own call
+// A source on any host (docs/reference/git-broker.md ID-2), through writeScopeFiles' own call
 // site: the gate approves the workspace's remote URLs verbatim, and the scope file the daemon is
 // handed records them with the remote-url form, which is what makes its broker match a URL
 // exactly rather than read it as an OWNER/REPO.
@@ -556,7 +556,7 @@ func TestWriteScopeFilesRemoteURLForm(t *testing.T) {
 	}
 }
 
-// The scope file's `grants` hold what this launch's gate approved (docs/design/git-broker-plan.md
+// The scope file's `grants` hold what this launch's gate approved (docs/reference/git-broker.md
 // ID-10), through writeScopeFiles' own call site: a grant written into the workspace config after
 // the y waits for the next fresh launch, as a repository entry does.
 func TestScopeFileCarriesApprovedGrants(t *testing.T) {
@@ -586,7 +586,7 @@ func TestScopeFileCarriesApprovedGrants(t *testing.T) {
 	}
 }
 
-// The gate's own filter (docs/design/git-broker-plan.md ID-10), through the real path: a grant the
+// The gate's own filter (docs/reference/git-broker.md ID-10), through the real path: a grant the
 // workspace lists at the gate's read joins no scope when the user's config does not allow its
 // kind, when the source does not define it, or when it is `read`, which every source defines
 // (BB-D107) but the user config neither lists nor holds. The gate shows no line for it and the
@@ -669,7 +669,7 @@ func TestNoApprovedScopeHandsNoGrant(t *testing.T) {
 }
 
 // A non-interactive attach's pending check reads grants as the gate does (LA-D9;
-// docs/design/git-broker-plan.md ID-10): a grant the user allows and the workspace names after the
+// docs/reference/git-broker.md ID-10): a grant the user allows and the workspace names after the
 // last approval is a pending change, so the attach prints its notice rather than nothing.
 func TestAnUnapprovedGrantIsPendingAtAnAttach(t *testing.T) {
 	o, buf, _ := brokeredFixtureGrants(t)

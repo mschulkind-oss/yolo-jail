@@ -64,7 +64,7 @@ func TestCheckReadsTheScopeWhereALaunchWouldStartABroker(t *testing.T) {
 }
 
 // The check's scope carries the grant kinds the source's manifest defines into the gate's filter
-// (docs/design/git-broker-plan.md ID-10), so a grant the user allows and the workspace names
+// (docs/reference/git-broker.md ID-10), so a grant the user allows and the workspace names
 // reaches the record `yolo check --accept-config-changes` writes, as it would a launch's.
 func TestCheckScopeCarriesTheSourcesGrantKinds(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())

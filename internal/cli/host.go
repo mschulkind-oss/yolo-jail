@@ -1698,7 +1698,7 @@ type hostComposition struct {
 	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
 	doorways *run.HostDoorways
 	// frontedWhy is why the host notch serves no FRONTED HOST LOOPHOLE (run.HostFrontedWhy;
-	// docs/design/git-broker-plan.md ID-6), keyed by name: the clause a withheld pointer at
+	// docs/reference/git-broker.md ID-6), keyed by name: the clause a withheld pointer at
 	// one is named with, since the host notch's own clause speaks of doorways.
 	frontedWhy map[string]string
 	// served is the served set the credential gate composed this launch against: the doorways
