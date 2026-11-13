@@ -1118,7 +1118,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 	// wait for that jail to be known gone (reclaim), then the admission of its output into the store
 	// (admit: the manifest read, the checks, the digest and the rename), and the receipt.
 	var admitSp *perf.Span
-	entry, m, err := captureStagedWithAdmission(store, staging,
+	entry, m, err := captureStagedWithAdmission(admitCtx, store, staging,
 		func() int {
 			if releaseWorkspaceLaunch != nil {
 				releaseWorkspaceLaunch()
@@ -1465,10 +1465,10 @@ func linksIntoTheBuild(m *capture.Manifest, workspace string) string {
 // the refusal's text, check "" for none.
 func captureStaged(store *capture.Store, staging string, runJail func() int,
 	empty func(*capture.Manifest) string, check func(*capture.Manifest) string) (*capture.Entry, *capture.Manifest, error) {
-	return captureStagedWithAdmission(store, staging, runJail, empty, check, nil)
+	return captureStagedWithAdmission(context.Background(), store, staging, runJail, empty, check, nil)
 }
 
-func captureStagedWithAdmission(store *capture.Store, staging string, runJail func() int,
+func captureStagedWithAdmission(admitCtx context.Context, store *capture.Store, staging string, runJail func() int,
 	empty func(*capture.Manifest) string, check func(*capture.Manifest) string,
 	admitGuard func(func() error) error) (*capture.Entry, *capture.Manifest, error) {
 	if rc := runJail(); rc != 0 {
@@ -1487,17 +1487,9 @@ func captureStagedWithAdmission(store *capture.Store, staging string, runJail fu
 			return nil, nil, fmt.Errorf("%s — nothing was stored", why)
 		}
 	}
-	var entry *capture.Entry
-	admit := func() error {
-		var err error
-		entry, err = store.AdmitEntry(outDir)
-		return err
-	}
-	if admitGuard != nil {
-		err = admitGuard(admit)
-	} else {
-		err = admit()
-	}
+	// The digest, the content-address lock wait and the freeze run before the guard: only the
+	// short rename and completion run inside it, so no selection guard is held while waiting.
+	entry, err := store.AdmitEntryGuarded(admitCtx, outDir, admitGuard)
 	if err != nil {
 		return nil, m, err
 	}
