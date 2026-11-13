@@ -1157,7 +1157,7 @@ review may be explicitly skipped for this planning change; neither that skip nor
 render/link checks is equivalent to a HIGH code review or the separately requested
 whole-document review.
 
-The [roadmap's computed-briefings entry](../plans/roadmap.md#immediate-continuation) routes this
+The [roadmap's computed-briefings entry](../plans/roadmap.md) routes this
 plan's pending [remote projection](#OQ-CBP1) and [snapshot failure](#OQ-CBP2) questions at the
 existing priority position. The accepted design's three original owner rulings remain settled;
 this routing is not plan readiness or authorization to implement.
